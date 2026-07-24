@@ -6,7 +6,7 @@
 // import (see AddAssetModal.jsx's "Import CSV" step).
 
 import { RECORD_TYPES } from './recordTypes.jsx';
-import { formatNumber, formatMoney, formatDate, daysUntil, currentUser, toNumber } from './format.js';
+import { formatNumber, formatMoney, formatDate, daysUntil, currentUser, toNumber, acresOf } from './format.js';
 
 /** Escape a single CSV field: wraps in quotes (doubling any embedded quotes) if it contains a
  *  comma, quote, or newline. */
@@ -216,7 +216,7 @@ export function exportAssetPdf(asset, store) {
     nrsf: acc.nrsf + toNumber(p.nrsf),
     units: acc.units + toNumber(p.unitsTotal),
     rv: acc.rv + toNumber(p.unitsRV),
-    ac: acc.ac + toNumber(p.acreage),
+    ac: acc.ac + acresOf(p.acreage, p.acreageUnit),
   }), { nrsf: 0, units: 0, rv: 0, ac: 0 });
 
   // Status & alerts strip: insurance expiration, overdue/upcoming inspections, expiring
@@ -309,21 +309,21 @@ section{break-inside:avoid}
 <div class="r"><b>GREENS</b><br>Asset Report<br>${escHtml(new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }))}<br>by ${escHtml(currentUser())}</div></div>
 
 <div class="metrics">
-${metricTile(formatNumber(asset.nrsf), 'NRSF')}${metricTile(toNumber(asset.unitsTotal) ? formatNumber(asset.unitsTotal) : '—', 'Units')}${metricTile(asset.acreage ? asset.acreage + ' ac' : '—', 'Acreage')}${metricTile(escOrDash(asset.yearBuilt), 'Year built')}${metricTile(groupMembers.length > 1 ? groupMembers.length : '—', 'Linked')}${metricTile(statusClass, 'Status')}
+${metricTile(formatNumber(asset.nrsf), 'NRSF')}${metricTile(toNumber(asset.unitsTotal) ? formatNumber(asset.unitsTotal) : '—', 'Units')}${metricTile(acresOf(asset.acreage, asset.acreageUnit) ? acresOf(asset.acreage, asset.acreageUnit).toFixed(2) + ' ac' : '—', 'Acreage')}${metricTile(escOrDash(asset.yearBuilt), 'Year built')}${metricTile(groupMembers.length > 1 ? groupMembers.length : '—', 'Linked')}${metricTile(statusClass, 'Status')}
 </div>
 
 <h2>Status &amp; alerts</h2>
 ${alertsHtml}
 
 ${card(1, 'Identity & ownership', kvTable([['Operating entity', asset.entity, false], ['Parcel role', asset.parcelRole, false], ['Builder (GC)', asset.builder, false], ['Asset manager', asset.manager, false], ['County', asset.county, false], ['Legal description', asset.legalDesc, false]]))}
-${card(2, 'Building & site', kvTable([['Year built', asset.yearBuilt], ['Construction', asset.constructionType, false], ['Stories', asset.stories], ['NRSF', asset.nrsf ? formatNumber(asset.nrsf) : ''], ['GSF', asset.gsf ? formatNumber(asset.gsf) : ''], ['Acreage', asset.acreage], ['Zoning / land use', asset.zoning, false], ['Flood zone', asset.floodZone], ['Sprinklered', asset.sprinklered, false], ['Alarm monitored', asset.alarmMonitored, false], ['Development stage', asset.devStage, false]]))}
+${card(2, 'Building & site', kvTable([['Year built', asset.yearBuilt], ['Construction', asset.constructionType, false], ['Stories', asset.stories], ['NRSF', asset.nrsf ? formatNumber(asset.nrsf) : ''], ['GSF', asset.gsf ? formatNumber(asset.gsf) : ''], ['Acreage', acresOf(asset.acreage, asset.acreageUnit) ? acresOf(asset.acreage, asset.acreageUnit).toFixed(2) : ''], ['Zoning / land use', asset.zoning, false], ['Flood zone', asset.floodZone], ['Sprinklered', asset.sprinklered, false], ['Alarm monitored', asset.alarmMonitored, false], ['Development stage', asset.devStage, false]]))}
 ${card(3, 'Placed in service', kvTable([['Placed-in-service', formatDate(asset.placedInService)], ['CO number', asset.coNumber], ['CO date', formatDate(asset.coDate)]]))}
 ${card(4, 'Unit mix', kvTable([['Non-climate', asset.unitsNonClimate ? formatNumber(asset.unitsNonClimate) : ''], ['Climate-controlled', asset.unitsClimate ? formatNumber(asset.unitsClimate) : ''], ['Vehicle', asset.unitsRV ? formatNumber(asset.unitsRV) : ''], ['Total units', asset.unitsTotal ? formatNumber(asset.unitsTotal) : '']]))}
 ${card(5, 'Insurance', kvTable([['Carrier', asset.insCarrier, false], ['Policy #', asset.insPolicy], ['Expiration', formatDate(asset.insExpiration)], ['Agent / broker', [asset.insAgent, asset.insPhone].filter(Boolean).join(' · '), false]]))}
 ${card(6, 'Property tax', kvTable([['Tax account', asset.taxId], ['Annual tax', asset.taxAnnual ? formatMoney(asset.taxAnnual) : ''], ['Due dates', asset.taxDue, false]]))}
 ${groupMembers.length > 1 ? `<section class="card"><div class="card-h"><span>Related properties — ${escHtml(asset.siteName)}</span></div>
 <table class="data"><thead><tr><th>Property</th><th>APN</th><th>NRSF</th><th>Units</th><th>Acres</th></tr></thead><tbody>
-${groupMembers.map((p) => `<tr><td>${escHtml(p.name)}${p.id === asset.id ? ' (this property)' : ''}</td><td class="mono">${escOrDash(p.apn)}</td><td class="mono">${formatNumber(p.nrsf)}</td><td class="mono">${toNumber(p.unitsTotal) ? formatNumber(p.unitsTotal) : '—'}</td><td class="mono">${p.acreage || '—'}</td></tr>`).join('')}
+${groupMembers.map((p) => `<tr><td>${escHtml(p.name)}${p.id === asset.id ? ' (this property)' : ''}</td><td class="mono">${escOrDash(p.apn)}</td><td class="mono">${formatNumber(p.nrsf)}</td><td class="mono">${toNumber(p.unitsTotal) ? formatNumber(p.unitsTotal) : '—'}</td><td class="mono">${acresOf(p.acreage, p.acreageUnit) ? acresOf(p.acreage, p.acreageUnit).toFixed(2) : '—'}</td></tr>`).join('')}
 <tr style="font-weight:700;background:#f8fafc"><td>Combined</td><td>—</td><td class="mono">${formatNumber(totals.nrsf)}</td><td class="mono">${formatNumber(totals.units)}</td><td class="mono">${totals.ac.toFixed(2)}</td></tr>
 </tbody></table></section>` : ''}
 

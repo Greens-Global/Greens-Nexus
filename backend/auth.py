@@ -120,6 +120,15 @@ def get_current_user(
             or ""
         ).lower().strip()
 
+        # Canonical identity: some accounts sign in with the tenant-default
+        # @greensg.onmicrosoft.com UPN, but Nexus People (and every module's
+        # actor/notification records) key on the primary @greensglobal.com
+        # address of the SAME account. Without this rewrite those users split
+        # into two identities (Jul 24: Task-module assignees/actors didn't
+        # match anyone in the People directory).
+        if email.endswith("@greensg.onmicrosoft.com"):
+            email = email.split("@")[0] + "@greensglobal.com"
+
         if not email:
             raise HTTPException(status_code=401, detail="Token contains no identifiable email claim")
     else:

@@ -9,6 +9,7 @@ import { supabase } from '../lib/supabase';
 import { useRole } from '../contexts/RoleContext';
 import { useNameResolver } from '../lib/useNameResolver';
 import { STATUS_META, STATUS_ORDER, NX } from './theme';
+import { celebrateCompletion } from './celebrate';
 
 const Ctx = createContext(null);
 
@@ -156,13 +157,68 @@ export function TasksProvider({ children }) {
     }
   }, [patchLocalTask, refetchTasks]);
 
-  const toggleComplete = useCallback((t) => updateTask(t.id, { completed: !t.completed }), [updateTask]);
+  // Undo toast — one at a time; label + a run() that reverses the action.
+  const [undo, setUndo] = useState(null);
+  const undoTimer = useRef(null);
+  const offerUndo = useCallback((label, run) => {
+    clearTimeout(undoTimer.current);
+    setUndo({ label, run });
+    undoTimer.current = setTimeout(() => setUndo(null), 6000);
+  }, []);
+  const runUndo = useCallback(() => {
+    clearTimeout(undoTimer.current);
+    setUndo((u) => { if (u) u.run(); return null; });
+  }, []);
+
+  // Completing a task celebrates (unicorn + green sweep) and holds the store
+  // update briefly so the row visibly turns green BEFORE it jumps to the
+  // Completed bucket. Un-completing is instant and silent. The pending set
+  // guards double-clicks during the hold. A task whose status is Recurring
+  // never completes — its due date rolls forward a week instead (the whole
+  // point of a recurring task is that it comes back).
+  const pendingComplete = useRef(new Set());
+  const toggleComplete = useCallback((t) => {
+    if (t.completed) return updateTask(t.id, { completed: false });
+    if (pendingComplete.current.has(t.id)) return undefined;
+    pendingComplete.current.add(t.id);
+    celebrateCompletion();
+    return new Promise((resolve) => {
+      setTimeout(() => {
+        pendingComplete.current.delete(t.id);
+        if (t.status === 'recurring' && t.dueOn) {
+          const today = new Date().toISOString().slice(0, 10);
+          const base = new Date(`${t.dueOn > today ? t.dueOn : today}T00:00:00`);
+          base.setDate(base.getDate() + 7);
+          const next = base.toISOString().slice(0, 10);
+          offerUndo(`Recurring — rolled to ${next}`, () => updateTask(t.id, { dueOn: t.dueOn }).catch(() => {}));
+          resolve(updateTask(t.id, { dueOn: next }).catch(() => {}));
+        } else {
+          offerUndo(`Completed "${(t.title || '').slice(0, 40)}"`, () => updateTask(t.id, { completed: false }).catch(() => {}));
+          resolve(updateTask(t.id, { completed: true }).catch(() => {}));
+        }
+      }, 550);
+    });
+  }, [updateTask, offerUndo]);
   const setStatus = useCallback((id, status) => updateTask(id, { status }), [updateTask]);
 
   const deleteTask = useCallback(async (id) => {
+    const gone = tasks.find((t) => t.id === id);
     setTasks((prev) => prev.filter((t) => t.id !== id));   // optimistic
     try { await api.deleteTask(id); } catch (e) { refetchTasks().catch(() => {}); throw e; }
-  }, [refetchTasks]);
+    // Undo recreates the task from its main fields (a fresh id — comments and
+    // subtask links don't survive a hard delete; the fields are the rescue).
+    if (gone) {
+      offerUndo(`Deleted "${(gone.title || '').slice(0, 40)}"`, () => createTask({
+        title: gone.title, type: gone.type || 'task', description: gone.description || '',
+        status: gone.status || 'not_started', priority: gone.priority || 'medium',
+        projectId: gone.projectId || '', teamId: gone.teamId || '',
+        assigneeId: gone.assigneeId || '', followerIds: gone.followerIds || [],
+        dueOn: gone.dueOn || '', startOn: gone.startOn || '', tags: gone.tags || [],
+        estimateHours: gone.estimateHours ?? null, isMilestone: !!gone.isMilestone,
+        customFieldValues: gone.customFieldValues || {},
+      }).catch(() => {}));
+    }
+  }, [refetchTasks, tasks, offerUndo, createTask]);
 
   const bulkUpdate = useCallback(async (ids, patch) => {
     try {
@@ -285,7 +341,23 @@ export function TasksProvider({ children }) {
     markNotificationRead, markAllNotificationsRead, refresh: loadCore,
     ...actions,
   };
-  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
+  return (
+    <Ctx.Provider value={value}>
+      {children}
+      {/* Undo toast — completes, deletes, and recurring rolls offer a 6s rescue. */}
+      {undo && (
+        <div style={{
+          position: 'fixed', left: '50%', bottom: 24, transform: 'translateX(-50%)', zIndex: 6000,
+          display: 'flex', alignItems: 'center', gap: 14, background: '#1f2733', color: '#fff',
+          borderRadius: 10, padding: '11px 16px', boxShadow: '0 12px 32px rgba(0,0,0,0.35)',
+          fontFamily: "'Inter', sans-serif", fontSize: 13, maxWidth: 'min(92vw, 520px)',
+        }}>
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{undo.label}</span>
+          <button onClick={runUndo} style={{ border: 'none', background: 'none', color: '#6ea8ff', fontWeight: 700, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0 }}>Undo</button>
+        </div>
+      )}
+    </Ctx.Provider>
+  );
 }
 
 export function useTasks() {

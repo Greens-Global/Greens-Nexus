@@ -21,6 +21,7 @@ import os
 import uuid
 from datetime import datetime, timezone
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 import models
@@ -29,7 +30,8 @@ import graph_mail
 import ticket_mail_templates as tmpl
 from routers.task_util import log_activity
 
-_APP_URL = os.getenv("NEXUS_APP_URL", "")   # e.g. https://nexus.greensglobal.com — no trailing slash
+from app_url import app_url
+_APP_URL = app_url()   # NEXUS_APP_URL override, else derived per environment — see app_url.py
 _SETTINGS_KEY = "ticket_notify_config"
 
 _DEFAULT_SETTINGS = {
@@ -43,7 +45,7 @@ _DEFAULT_SETTINGS = {
     "attachmentsTrigger": True,
     "enabledEvents": {
         "created": True, "assigned": True, "updated": True,
-        "resolved": True, "reopened": True,
+        "resolved": True, "reopened": True, "approval_required": True,
     },
 }
 
@@ -154,7 +156,11 @@ def _recipients_for(db: Session, t: models.TaskTicket, event_type: str, cfg: dic
 
     if event_type in ("created",):
         add(requester, "requester")
-        add(dept_head, "dept_head")
+        # Approval gate: a ticket awaiting approval must not reach the department
+        # lead yet — their "needs assignment" copy is queued by decide_approval
+        # once the approver approves (mirrors the in-app bell gate in tickets.py).
+        if (t.approval_status or "none") != "pending":
+            add(dept_head, "dept_head")
     elif event_type == "assigned":
         add(requester, "requester")
         add(dept_head, "dept_head")
@@ -169,6 +175,9 @@ def _recipients_for(db: Session, t: models.TaskTicket, event_type: str, cfg: dic
         add(dept_head, "dept_head")
         add(assignee, "assignee")
         add(requester, "requester")
+    elif event_type == "approval_required":
+        # Only the approver — this is their personal action item.
+        add((t.approver_email or "").strip().lower(), "approver")
 
     return list(out.items())
 
@@ -226,6 +235,29 @@ def _send_one(db: Session, *, t: models.TaskTicket, event_type: str, event_versi
     db.commit()
 
 
+def _comment_thread(db: Session, ticket_id: str, limit: int = 3) -> list[dict]:
+    """Last `limit` PUBLIC comments on a ticket, newest first, with the author's
+    profile photo from Nexus People (nexus_employees.photo_url — the avatars
+    bucket is public, so the URLs embed directly in email). Internal agent notes
+    are always excluded: update emails go to the requester."""
+    rows = (db.query(models.TaskComment)
+            .filter(models.TaskComment.task_id == ticket_id,
+                    models.TaskComment.internal == False)  # noqa: E712 — SQLA expression
+            .order_by(models.TaskComment.created_at.desc()).limit(limit).all())
+    emails = list({(r.author_email or "").lower() for r in rows if r.author_email})
+    photos: dict[str, str] = {}
+    if emails:
+        for e, p in (db.query(models.NexusEmployee.work_email, models.NexusEmployee.photo_url)
+                     .filter(func.lower(models.NexusEmployee.work_email).in_(emails)).all()):
+            photos[(e or "").lower()] = p or ""
+    return [{
+        "name": _name_of(db, r.author_email or "") or (r.author_email or ""),
+        "photoUrl": photos.get((r.author_email or "").lower(), ""),
+        "at": _fmt(r.created_at),
+        "body": r.body or "",
+    } for r in rows]
+
+
 def _ticket_context(db: Session, t: models.TaskTicket, actor_email: str) -> dict:
     dept_name = ""
     if t.hr_department_id:
@@ -273,7 +305,7 @@ def _duration(start_iso: str, end_iso: str) -> str:
 # ── Main entry point — called from routers/tickets.py via BackgroundTasks ──
 
 def notify_ticket_event(ticket_id: str, event_type: str, actor_email: str, **kw) -> None:
-    """event_type ∈ created|assigned|updated|resolved|reopened.
+    """event_type ∈ created|assigned|updated|resolved|reopened|approval_required.
     kw: prev_status, update_kind, latest_comment, reopen_reason (all optional,
     only relevant to specific event types — see ticket_mail_templates.py).
     Never raises — this runs in a background task after the ticket mutation's
@@ -291,6 +323,12 @@ def notify_ticket_event(ticket_id: str, event_type: str, actor_email: str, **kw)
             return   # spec: update emails stop once the ticket is resolved
 
         recipients = _recipients_for(db, t, event_type, cfg)
+        # only_roles: caller wants a subset (e.g. decide_approval re-queues
+        # "created" for just the dept_head after releasing the approval gate,
+        # without re-emailing the requester their submission receipt).
+        only = kw.get("only_roles")
+        if only:
+            recipients = [(e, r) for e, r in recipients if r in only]
         if not recipients:
             return
         ctx = _ticket_context(db, t, actor_email)
@@ -307,16 +345,23 @@ def notify_ticket_event(ticket_id: str, event_type: str, actor_email: str, **kw)
                 subject, html = tmpl.assigned_email(t=ctx, base_url=_APP_URL, logo_url=logo_url,
                                                      audience="assignee" if role == "assignee" else "other")
             elif event_type == "updated":
+                # Comment updates render as a conversation thread (avatars + full
+                # bodies, newest first) instead of a details table.
+                thread = (_comment_thread(db, t.id)
+                          if kw.get("update_kind") == "New comment added" else None)
                 subject, html = tmpl.update_email(t=ctx, base_url=_APP_URL, logo_url=logo_url,
                                                    update_kind=kw.get("update_kind", "Ticket updated"),
                                                    prev_status=kw.get("prev_status", ""),
-                                                   latest_comment=kw.get("latest_comment", ""))
+                                                   latest_comment=kw.get("latest_comment", ""),
+                                                   thread=thread)
             elif event_type == "resolved":
                 subject, html = tmpl.resolved_email(t=ctx, base_url=_APP_URL, logo_url=logo_url,
                                                      audience="requester" if role == "requester" else "other")
             elif event_type == "reopened":
                 subject, html = tmpl.reopened_email(t=ctx, base_url=_APP_URL, logo_url=logo_url,
                                                      reason=kw.get("reopen_reason", ""))
+            elif event_type == "approval_required":
+                subject, html = tmpl.approval_email(t=ctx, base_url=_APP_URL, logo_url=logo_url)
             else:
                 continue
             _send_one(db, t=t, event_type=event_type, event_version=version,

@@ -61,6 +61,20 @@ export default function HomeView({ onNavigate }) {
   const myTeams = useMemo(() => teams.filter((d) => (d.memberIds || []).includes(myEmail)), [teams, myEmail]);
   const teamMembers = useMemo(() => { const s = new Set(); myTeams.forEach((d) => (d.memberIds || []).forEach((id) => s.add(id))); return [...s]; }, [myTeams]);
   const recentProjects = projects.slice(0, 4);
+  // Per-project task tallies for the monday-style progress bars on project cards.
+  const projStats = useMemo(() => {
+    const m = {};
+    for (const t of tasks) {
+      if (!t.projectId || t.parentTaskId) continue;
+      const s = m[t.projectId] || (m[t.projectId] = { total: 0, done: 0 });
+      s.total += 1; if (t.completed) s.done += 1;
+    }
+    return m;
+  }, [tasks]);
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+  const firstName = (nameOf(myEmail) || '').split(' ')[0] || 'there';
+  const todayLong = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
 
   const cancelCreate = () => { setCreating(false); setNewTitle(''); setNewDue(null); };
   const commitCreate = async (openDetails) => {
@@ -86,7 +100,7 @@ export default function HomeView({ onNavigate }) {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, borderBottom: `1px solid ${NX.border}`, marginBottom: 10, fontSize: 13, fontWeight: 600, flexWrap: 'wrap' }}>
           {TABS.map((t) => (
-            <button key={t} onClick={() => setTab(t)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', paddingBottom: 8, borderBottom: `2px solid ${tab === t ? NX.ink : 'transparent'}`, color: tab === t ? NX.ink : NX.dim, fontFamily: FONT, fontWeight: 600 }}>
+            <button key={t} onClick={() => setTab(t)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', paddingBottom: 8, borderBottom: `2px solid ${tab === t ? NX.blue : 'transparent'}`, color: tab === t ? NX.blue : NX.dim, fontFamily: FONT, fontWeight: 600 }}>
               {t}{t === 'Overdue' && overdue.length > 0 ? ` (${overdue.length})` : ''}
             </button>
           ))}
@@ -103,13 +117,26 @@ export default function HomeView({ onNavigate }) {
         ) : (
           <button onClick={() => setCreating(true)} style={{ ...btn('ghost'), padding: '6px 0', color: NX.dim, fontSize: 13, fontWeight: 500 }}><Plus size={15} /> Create Task</button>
         )}
-        {shown.length === 0 ? <p style={{ padding: '24px 0', textAlign: 'center', fontSize: 13, color: NX.faint }}>Nothing here.</p> : (
+        {store.loading && shown.length === 0 ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: '10px 0' }}>
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span className="skel" style={{ width: 16, height: 16, borderRadius: '50%' }} />
+                <span className="skel" style={{ width: `${62 - i * 9}%`, height: 12 }} />
+                <span className="skel" style={{ width: 64, height: 11, marginLeft: 'auto' }} />
+              </div>
+            ))}
+          </div>
+        ) : shown.length === 0 ? <p style={{ padding: '24px 0', textAlign: 'center', fontSize: 13, color: NX.faint }}>Nothing here.</p> : (
           <div style={{ display: 'flex', flexDirection: 'column' }}>
             {shown.map((t) => (
-              <div key={t.id} onClick={() => setOpenId(t.id)} style={{ display: 'flex', alignItems: 'center', gap: 8, borderTop: `1px solid ${NX.border2}`, padding: '8px 0', fontSize: 13, cursor: 'pointer' }}>
+              <div key={t.id} data-task-row onClick={() => setOpenId(t.id)} style={{ display: 'flex', alignItems: 'center', gap: 8, borderTop: `1px solid ${NX.border2}`, padding: '8px 6px', margin: '0 -6px', borderRadius: 6, fontSize: 13, cursor: 'pointer', transition: 'background 0.12s' }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = NX.hover; }} onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}>
                 <button onClick={(e) => { e.stopPropagation(); toggleComplete(t); }} style={{ ...btn('ghost'), padding: 0, color: t.completed ? NX.green : NX.faint }}>{t.completed ? <CheckCircle2 size={16} /> : <Circle size={16} />}</button>
+                {/* status color tick — monday-style at-a-glance state */}
+                <span title={store.statusMeta[t.status]?.label || t.status} style={{ width: 8, height: 8, borderRadius: 2, background: store.statusMeta[t.status]?.color || NX.faint, flexShrink: 0 }} />
                 <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: t.completed ? NX.faint : NX.ink, textDecoration: t.completed ? 'line-through' : 'none' }}>{t.title}</span>
-                {t.dueOn && <span style={{ fontSize: 12, fontWeight: 500, color: dueColor(t.dueOn, t.completed) }}>{fmtUS(t.dueOn)}</span>}
+                {t.dueOn && <span style={{ fontSize: 12, fontWeight: 600, color: dueColor(t.dueOn, t.completed) }}>{fmtUS(t.dueOn)}</span>}
               </div>
             ))}
           </div>
@@ -127,12 +154,27 @@ export default function HomeView({ onNavigate }) {
             <span style={{ display: 'flex', width: 40, height: 40, flexShrink: 0, alignItems: 'center', justifyContent: 'center', borderRadius: 10, border: `1px dashed ${NX.border}`, color: NX.faint }}><Plus size={18} /></span>
             <span style={{ fontSize: 13, fontWeight: 600, color: NX.dim, whiteSpace: 'nowrap' }}>Create Project</span>
           </button>
-          {recentProjects.map((p) => (
-            <button key={p.id} onClick={() => onNavigate({ projectId: p.id })} style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, border: `1px solid ${NX.border}`, borderRadius: 12, padding: 12, cursor: 'pointer', background: NX.surface, textAlign: 'left', fontFamily: FONT }}>
-              <span style={{ display: 'flex', width: 40, height: 40, flexShrink: 0, alignItems: 'center', justifyContent: 'center', borderRadius: 10, background: `${p.color || NX.purple}26`, color: p.color || NX.purple }}><FolderKanban size={18} /></span>
-              <span style={{ fontSize: 13, fontWeight: 600, color: NX.ink, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
-            </button>
-          ))}
+          {recentProjects.map((p) => {
+            const pc = p.color || NX.purple;
+            const st = projStats[p.id] || { total: 0, done: 0 };
+            const pct = st.total ? Math.round((st.done / st.total) * 100) : 0;
+            return (
+              <button key={p.id} onClick={() => onNavigate({ projectId: p.id })} style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, border: `1px solid ${NX.border}`, borderLeft: `4px solid ${pc}`, borderRadius: 12, padding: 12, cursor: 'pointer', background: NX.surface, textAlign: 'left', fontFamily: FONT, transition: 'box-shadow 0.15s, transform 0.15s' }}
+                onMouseEnter={(e) => { e.currentTarget.style.boxShadow = '0 6px 18px rgba(0,0,0,0.10)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.transform = 'none'; }}>
+                <span style={{ display: 'flex', width: 40, height: 40, flexShrink: 0, alignItems: 'center', justifyContent: 'center', borderRadius: 10, background: `${pc}26`, color: pc }}><FolderKanban size={18} /></span>
+                <span style={{ minWidth: 0, flex: 1 }}>
+                  <span style={{ display: 'block', fontSize: 13, fontWeight: 600, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+                  <span style={{ display: 'block', fontSize: 11.5, color: NX.faint, marginTop: 1 }}>{st.total ? `${st.done}/${st.total} tasks done` : 'No tasks yet'}</span>
+                  {st.total > 0 && (
+                    <span style={{ display: 'block', height: 4, borderRadius: 2, background: NX.border2, marginTop: 5, overflow: 'hidden' }}>
+                      <span style={{ display: 'block', height: '100%', width: `${pct}%`, borderRadius: 2, background: pct === 100 ? '#00c875' : pc, transition: 'width 0.3s' }} />
+                    </span>
+                  )}
+                </span>
+              </button>
+            );
+          })}
         </div>
       </>
     );
@@ -199,9 +241,17 @@ export default function HomeView({ onNavigate }) {
 
   return (
     <div className="nx-page" style={{ padding: 24, fontFamily: FONT, color: NX.ink, height: '100%', overflow: 'auto' }}>
-      {/* Desktop: one row (range · stats · Customize). Mobile: the range button
-          takes the full first line so stats + Customize wrap onto a second line. */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', justifyContent: 'flex-end', gap: 12, marginBottom: isMobile ? 12 : 20 }}>
+      {/* Desktop: greeting left, range · stats · Customize right. Mobile: the
+          range button takes the full first line so stats + Customize wrap. */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: isMobile ? 12 : 20 }}>
+        <div style={{ minWidth: 200 }}>
+          <div style={{ fontSize: 21, fontWeight: 800, letterSpacing: -0.3 }}>{greeting}, {firstName}!</div>
+          <div style={{ fontSize: 12.5, color: NX.dim, marginTop: 2 }}>
+            {todayLong}
+            {upcoming.length > 0 && <> · <span style={{ color: NX.blue, fontWeight: 600 }}>{upcoming.length} upcoming</span></>}
+            {overdue.length > 0 && <> · <span style={{ color: NX.red, fontWeight: 600 }}>{overdue.length} overdue</span></>}
+          </div>
+        </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: isMobile ? 'wrap' : 'nowrap', width: isMobile ? '100%' : 'auto', overflowX: 'visible' }}>
           <div ref={rangeRef} style={{ position: 'relative', flexBasis: isMobile ? '100%' : 'auto' }}>
             <button onClick={() => setRangeOpen((o) => !o)} style={{ ...btn('outline'), whiteSpace: 'nowrap' }}>{rangeDef.label} <ChevronDown size={14} style={{ color: NX.faint }} /></button>

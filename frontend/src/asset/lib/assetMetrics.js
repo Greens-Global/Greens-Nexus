@@ -11,7 +11,7 @@
 // Also home to the Manage page's Data Completeness filter helpers: stageColor, assetTypeOf,
 // assetRegionOf, categoryOf, cityRegion, searchHaystack.
 
-import { daysUntil, formatDate, normLabel, toNumber } from './format.js';
+import { daysUntil, formatDate, normLabel, toNumber, acresOf } from './format.js';
 import { inferAssetKind, ASSET_SCHEMAS } from './vehicleFields.js';
 import { baseStage } from './stages.js';
 
@@ -56,7 +56,9 @@ export function portfolioStats(store) {
     exp: expiringSoon,
     nrsf: sumField('nrsf'),
     units: sumField('unitsTotal'),
-    acreage: sumField('acreage'),
+    // Not sumField('acreage') — a property entered in SF must convert to acres first, or its
+    // raw square-footage number would blow up the portfolio total.
+    acreage: store.properties.reduce((sum, p) => sum + acresOf(p.acreage, p.acreageUnit), 0),
   };
 }
 

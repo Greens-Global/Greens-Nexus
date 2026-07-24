@@ -6,7 +6,7 @@ import { useMemo, useRef, useState } from 'react';
 import { ChevronDown, Lock, Globe, Plus, List as ListIcon, Columns3, Calendar as CalIcon, LayoutDashboard, Paperclip, Circle, CheckCircle2 } from 'lucide-react';
 import { useTasks } from './TasksContext';
 import { EMPTY_FILTER, matchesFilter, sortTasks, groupTasks, groupAddDefaults, taskIdFromUrl } from './lib';
-import { NX, FONT, btn, input as inputStyle } from './theme';
+import { NX, FONT, btn, input as inputStyle, colorForKey } from './theme';
 import { Avatar, EmptyState, useClickOutside, useIsMobile, DateField } from './components';
 import { ProductivityBar, MobileFilters } from './productivity';
 import MobileTaskBar from './MobileTaskBar';
@@ -77,10 +77,11 @@ function VisibilityChip({ shared }) {
 function TaskRow({ t, people, projects, store, onOpen }) {
   const shared = (t.followerIds?.length > 0) || !!t.projectId;
   return (
-    <div onClick={() => onOpen(t.id)} className="stack-table-row" style={{ display: 'grid', gridTemplateColumns: COLS, alignItems: 'center', gap: 8, padding: '8px 16px', borderBottom: `1px solid ${NX.border2}`, fontSize: 13, cursor: 'pointer' }}
+    <div onClick={() => onOpen(t.id)} className="stack-table-row" data-task-row style={{ display: 'grid', gridTemplateColumns: COLS, alignItems: 'center', gap: 8, padding: '8px 16px', borderBottom: `1px solid ${NX.border2}`, fontSize: 13, cursor: 'pointer' }}
       onMouseEnter={(e) => (e.currentTarget.style.background = NX.hover)} onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
         <button onClick={(e) => { e.stopPropagation(); store.toggleComplete(t); }} style={{ ...btn('ghost'), padding: 0, color: t.completed ? NX.green : NX.faint }}>{t.completed ? <CheckCircle2 size={16} /> : <Circle size={16} />}</button>
+        <span title={store.statusMeta?.[t.status]?.label || t.status} style={{ width: 8, height: 8, borderRadius: 2, background: store.statusMeta?.[t.status]?.color || NX.faint, flexShrink: 0 }} />
         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: t.completed ? NX.faint : NX.ink, textDecoration: t.completed ? 'line-through' : 'none' }}>{t.title}</span>
       </div>
       <DateField value={t.dueOn || ''} onChange={(v) => store.updateTask(t.id, { dueOn: v })} color={dueColor(t.dueOn, t.completed)}
@@ -227,16 +228,18 @@ export default function MyTasksView() {
                 <div style={{ display: 'grid', gridTemplateColumns: COLS, gap: 8, padding: '8px 16px', borderBottom: `1px solid ${NX.border}`, background: NX.surface2, fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: NX.faint }}>
                   <div>Name</div><div>Due Date</div><div>Collaborators</div><div>Projects</div><div>Task Visibility</div>
                 </div>
-                {groups.map((g) => (
-                  <div key={g.key}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', background: NX.surface2, borderBottom: `1px solid ${NX.border2}`, fontSize: 13, fontWeight: 700 }}>
-                      {g.color && <span style={{ width: 10, height: 10, borderRadius: '50%', background: g.color }} />}
-                      <ChevronDown size={14} style={{ color: NX.faint }} /> {g.label} <span style={{ color: NX.faint, fontWeight: 400 }}>{g.tasks.length}</span>
+                {groups.map((g) => {
+                  const gc = g.color || colorForKey(g.key);
+                  return (
+                    <div key={g.key} style={{ borderLeft: `4px solid ${gc}` }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderBottom: `1px solid ${NX.border2}`, fontSize: 13, fontWeight: 700, color: gc }}>
+                        <ChevronDown size={14} /> {g.label} <span style={{ color: NX.faint, fontWeight: 600, fontSize: 12 }}>{g.tasks.length} item{g.tasks.length !== 1 ? 's' : ''}</span>
+                      </div>
+                      {g.tasks.map((t) => <TaskRow key={t.id} t={t} people={people} projects={projects} store={store} onOpen={setOpenId} />)}
+                      <AddTaskRow key={`add-${group}-${g.key}`} people={people} projects={projects} onAdd={addTask} defaults={groupAddDefaults(group, g.key)} />
                     </div>
-                    {g.tasks.map((t) => <TaskRow key={t.id} t={t} people={people} projects={projects} store={store} onOpen={setOpenId} />)}
-                    <AddTaskRow key={`add-${group}-${g.key}`} people={people} projects={projects} onAdd={addTask} defaults={groupAddDefaults(group, g.key)} />
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
             <button onClick={() => openCreate({ assigneeId: myEmail })} style={{ ...btn('ghost'), padding: '12px 16px', color: NX.faint }}><Plus size={15} /> Add Section</button>

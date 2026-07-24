@@ -124,7 +124,7 @@ export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId
   const renderCard = (t) => {
     const dc = dueColor(t.dueOn, t.completed);
     return (
-      <div key={t.id} draggable onDragStart={() => setDragId(t.id)} onDragEnd={() => setDragId(null)} onClick={() => onOpen(t.id)}
+      <div key={t.id} draggable data-task-row onDragStart={() => setDragId(t.id)} onDragEnd={() => setDragId(null)} onClick={() => onOpen(t.id)}
         style={{ background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 12, padding: 14, cursor: 'grab', boxShadow: '0 1px 2px rgba(0,0,0,0.04)', opacity: dragId === t.id ? 0.5 : 1 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <span style={{ fontSize: 10, fontWeight: 700, color: NX.faint, letterSpacing: 0.3 }}>{t.code}</span>

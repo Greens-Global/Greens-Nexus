@@ -17,7 +17,7 @@
 //     real bug-fix (dash normalization) that must be preserved exactly.
 
 import { Warehouse, Truck, Store, Stethoscope, House, Building, Trees, Car, Wrench, Building2 } from 'lucide-react';
-import { toNumber, formatNumber } from './format.js';
+import { toNumber, formatNumber, acresOf } from './format.js';
 import {
   categoryOf, assetTypeOf, assetRegionOf, cityRegion, assetRank, searchHaystack, stageColor,
   ASSET_CATEGORIES,
@@ -122,7 +122,15 @@ const stat = (v, l) => ({ v, l });
  * anything unmatched.
  */
 export function tileStats(asset) {
-  const acres = toNumber(asset.acreage) ? toNumber(asset.acreage).toFixed(2) : '—';
+  // Lot size shows in the unit it was ENTERED in — no silent SF→acres
+  // conversion on cards (Jul 24: "83,043 SF" was rendering as converted
+  // acres). SF values get thousands separators + a "Lot SF" label; acres
+  // (and legacy unit-less values) keep the 2dp + "Acres" treatment.
+  // acresOf() remains for portfolio-wide totals, which do need one unit.
+  const lotIsSF = /^sf$/i.test(String(asset.acreageUnit || '').trim());
+  const lotNum = toNumber(asset.acreage);
+  const acres = lotNum ? (lotIsSF ? formatNumber(lotNum) : lotNum.toFixed(2)) : '—';
+  const lotLabel = lotIsSF ? 'Lot SF' : 'Acres';
   const nrsf = formatNumber(asset.nrsf);
   const stories = asset.stories ? String(asset.stories) : '—';
   const built = asset.yearBuilt ? String(asset.yearBuilt) : '—';
@@ -153,7 +161,7 @@ export function tileStats(asset) {
     // Whichever of vehicle-storage/climate-storage is larger gets shown first.
     const vehicleFirst = toNumber(asset.unitsRV) > storageUnits;
     return [
-      stat(acres, 'Acres'),
+      stat(acres, lotLabel),
       stat(nrsf, 'NRSF'),
       ...(vehicleFirst
         ? [stat(vehicleSpaces, 'Vehicle'), stat(storageUnitsFmt, 'Storage')]
@@ -162,24 +170,24 @@ export function tileStats(asset) {
     ];
   }
   if (type === 'Vehicle Storage' || /\brv\b|boat/.test(haystack)) {
-    return [stat(acres, 'Acres'), stat(nrsf, 'NRSF'), stat(vehicleSpaces, 'Spaces'), stat(totalUnits, 'Total')];
+    return [stat(acres, lotLabel), stat(nrsf, 'NRSF'), stat(vehicleSpaces, 'Spaces'), stat(totalUnits, 'Total')];
   }
   if (/hotel|hospitality|motel|\binn\b/.test(haystack) || type === 'Office / Medical') {
-    return [stat(nrsf, 'RSF'), stat(stories, 'Stories'), stat(built, 'Built'), stat(acres, 'Acres')];
+    return [stat(nrsf, 'RSF'), stat(stories, 'Stories'), stat(built, 'Built'), stat(acres, lotLabel)];
   }
   if (type === 'Retail') {
-    return [stat(nrsf, 'GLA'), stat(acres, 'Acres'), stat(stories, 'Stories'), stat(built, 'Built')];
+    return [stat(nrsf, 'GLA'), stat(acres, lotLabel), stat(stories, 'Stories'), stat(built, 'Built')];
   }
   if (type === 'Residential') {
-    return [stat(nrsf, 'SF'), stat(acres, 'Acres'), stat(stories, 'Stories'), stat(built, 'Built')];
+    return [stat(nrsf, 'SF'), stat(acres, lotLabel), stat(stories, 'Stories'), stat(built, 'Built')];
   }
   if (type === 'Mixed-Use') {
-    return [stat(nrsf, 'NRSF'), stat(totalUnits === '—' ? storageUnitsFmt : totalUnits, 'Units'), stat(acres, 'Acres'), stat(stories, 'Stories')];
+    return [stat(nrsf, 'NRSF'), stat(totalUnits === '—' ? storageUnitsFmt : totalUnits, 'Units'), stat(acres, lotLabel), stat(stories, 'Stories')];
   }
   if (type === 'Land' || /vacant|land/.test(haystack)) {
-    return [stat(acres, 'Acres'), stat(asset.zoning || '—', 'Zoning'), stat(asset.floodZone || '—', 'Flood')];
+    return [stat(acres, lotLabel), stat(asset.zoning || '—', 'Zoning'), stat(asset.floodZone || '—', 'Flood')];
   }
-  return [stat(acres, 'Acres'), stat(nrsf, 'NRSF'), stat(stories, 'Stories'), stat(built, 'Built')];
+  return [stat(acres, lotLabel), stat(nrsf, 'NRSF'), stat(stories, 'Stories'), stat(built, 'Built')];
 }
 
 // ---------------------------------------------------------------------------------------------

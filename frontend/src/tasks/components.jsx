@@ -7,8 +7,38 @@ import { NX, FONT, colorForKey, initialsOf, statusChip, priorityChip, btn, chip,
 import { fmtDate } from './lib';
 import { useTasks } from './TasksContext';
 
+// People profile photos, fetched once per session and shared by every Avatar.
+// Module-scope cache + subscriber set so avatars that mounted before the
+// directory arrived re-render when it does.
+let _photoMap = null;
+let _photoPromise = null;
+const _photoSubs = new Set();
+function usePhotoMap() {
+  const [, force] = useState(0);
+  useEffect(() => {
+    if (_photoMap) return undefined;
+    if (!_photoPromise) {
+      _photoPromise = api.getPeopleDirectory().then((rows) => {
+        _photoMap = {};
+        for (const r of rows || []) if (r.email) _photoMap[r.email.toLowerCase()] = r.photoUrl || '';
+        _photoSubs.forEach((f) => f((x) => x + 1));
+      }).catch(() => { _photoMap = {}; });
+    }
+    _photoSubs.add(force);
+    return () => _photoSubs.delete(force);
+  }, []);
+  return _photoMap || {};
+}
+
 export function Avatar({ email, name, size = 26 }) {
+  const photos = usePhotoMap();
   const label = name || email || '';
+  const photo = email ? photos[email.toLowerCase()] : '';
+  if (photo) {
+    return <img src={photo} alt={label} title={label} style={{
+      width: size, height: size, borderRadius: '50%', flexShrink: 0, objectFit: 'cover', display: 'inline-block',
+    }} />;
+  }
   return (
     <div title={label} style={{
       width: size, height: size, borderRadius: '50%', flexShrink: 0,

@@ -82,10 +82,26 @@ def send_mail(*, from_email: str, to: list[str], cc: list[str] | None,
             message["replyTo"] = [{"emailAddress": {"address": reply_to}}]
 
         # 1) Create the draft — this response carries the ids we need to store.
+        # NOTE: creating a draft WRITES to the mailbox, so it needs the
+        # Mail.ReadWrite APPLICATION permission — Mail.Send alone only covers
+        # /sendMail. With just Mail.Send, this step 403s (ErrorAccessDenied);
+        # rather than fail the email, fall back to fire-and-forget /sendMail
+        # below (the message still goes out, we just get no ids to store for
+        # Outlook threading). Grant Mail.ReadWrite (ideally scoped to the
+        # sender mailbox with an Exchange application access policy) to get
+        # the full draft flow + threading back.
         create_resp = httpx.post(
             f"https://graph.microsoft.com/v1.0/users/{from_email}/messages",
             headers=headers, json=message, timeout=15,
         )
+        if create_resp.status_code == 403:
+            send_resp = httpx.post(
+                f"https://graph.microsoft.com/v1.0/users/{from_email}/sendMail",
+                headers=headers, json={"message": message, "saveToSentItems": True}, timeout=15,
+            )
+            if not send_resp.is_success:
+                raise GraphMailError(f"Graph sendMail failed ({send_resp.status_code}): {send_resp.text[:500]}")
+            return {"messageId": "", "conversationId": "", "internetMessageId": ""}
         if not create_resp.is_success:
             raise GraphMailError(f"Graph create-message failed ({create_resp.status_code}): {create_resp.text[:500]}")
         created = create_resp.json()

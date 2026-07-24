@@ -58,7 +58,10 @@ export function AssetDetailForm({ p: asset, onSaveImages, highlight, onSaveDetai
   const startEdit = () => {
     if (editing) return;
     const d = {};
-    sections.forEach((sec) => sec.fields.forEach((f) => { d[f.l] = f.raw == null ? '' : String(f.raw); }));
+    sections.forEach((sec) => sec.fields.forEach((f) => {
+      d[f.l] = f.raw == null ? '' : String(f.raw);
+      if (f.unitLabel) d[f.unitLabel] = f.unitRaw || 'Acres';
+    }));
     setDraft(d);
     setEditing(true);
     setDirty(false);
@@ -80,7 +83,15 @@ export function AssetDetailForm({ p: asset, onSaveImages, highlight, onSaveDetai
     });
   };
 
-  const renderEditInput = (f) => f.t === 'stage' ? (
+  const renderEditInput = (f) => f.unitLabel ? (
+    <div style={{ display: 'flex', gap: 6 }}>
+      <input className="form-input" type="text" value={draft[f.l] ?? ''} onChange={(e) => setField(f.l, e.target.value)} style={{ ...inputStyle, flex: 1 }} />
+      <select className="form-input" value={draft[f.unitLabel] ?? 'Acres'} onChange={(e) => setField(f.unitLabel, e.target.value)} style={{ ...inputStyle, width: 84, flexShrink: 0 }}>
+        <option value="Acres">Acres</option>
+        <option value="SF">SF</option>
+      </select>
+    </div>
+  ) : f.t === 'stage' ? (
     <select className="form-input" value={draft[f.l] ?? ''} onChange={(e) => setField(f.l, e.target.value)} style={inputStyle}>
       <option value="">—</option>
       {STAGE_FORM.map((o) => <option key={o} value={o}>{o}</option>)}
@@ -189,7 +200,9 @@ export function AssetDetailForm({ p: asset, onSaveImages, highlight, onSaveDetai
                     {editing ? renderEditInput(f)
                       : f.contact && String(value ?? '').trim()
                         ? <ContactCell name={value} label={f.l} contacts={asset.contacts} onSave={onSaveContact} />
-                        : <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)', wordBreak: 'break-word', fontVariantNumeric: 'tabular-nums' }}>{(value ?? '') === '' ? '—' : value}</span>}
+                        : <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)', wordBreak: 'break-word', fontVariantNumeric: 'tabular-nums' }}>
+                          {(value ?? '') === '' ? '—' : f.unitLabel ? `${value} ${f.unitRaw}` : value}
+                        </span>}
 
                     {onFlag ? (
                       isFlagged ? (
@@ -281,6 +294,12 @@ function buildSections(asset, isProperty, editing) {
   // it's empty — a populated one must stay visible, otherwise a value the user saved (dev fields
   // are still editable in edit mode) silently disappears from the view and looks unsaved.
   const hasValue = (field) => String(resolveValue(field) ?? '').trim() !== '';
+  // Pulls a field's paired unit-picker value (see Lot Size's unitKey/unitLabel in
+  // propertyFields.js) alongside its own — resolved the same way as any other field, so it
+  // reads live from the top-level record or falls back to the free-text snapshot.
+  const withUnit = (f) => f.unitLabel
+    ? { unitLabel: f.unitLabel, unitRaw: resolveValue({ label: f.unitLabel, key: f.unitKey }) || 'Acres' }
+    : {};
 
   if (asset.assembled && asset.parentId) {
     const PARCEL_INFO_FIELDS = [
@@ -290,14 +309,14 @@ function buildSections(asset, isProperty, editing) {
       { label: 'State', key: 'state' },
       { label: 'Zip', key: 'zip' },
       { label: 'APN', key: 'apn' },
-      { label: 'Lot Size (SF / Acres)', key: 'acreage' },
+      { label: 'Lot Size (SF / Acres)', key: 'acreage', unitKey: 'acreageUnit', unitLabel: 'Lot Size Unit' },
       { label: 'Acquisition Price', type: 'money' },
       { label: 'Acquisition Date', type: 'date' },
       { label: 'Zoning', key: 'zoning' },
     ];
     return [{
       title: 'Parcel Information',
-      fields: PARCEL_INFO_FIELDS.map((f) => ({ l: f.label, raw: resolveValue({ label: f.label, key: f.key, type: f.type }), t: f.type, key: f.key })),
+      fields: PARCEL_INFO_FIELDS.map((f) => ({ l: f.label, raw: resolveValue({ label: f.label, key: f.key, type: f.type }), t: f.type, key: f.key, ...withUnit(f) })),
     }];
   }
 
@@ -306,7 +325,7 @@ function buildSections(asset, isProperty, editing) {
     .map((group) => ({
       title: group.group,
       fields: group.fields
-        .filter((f) => (editing || !(stabilized && f.dev) || hasValue(f)) && classAllowed(f.cls) && f.key !== 'mapUrl')
-        .map((f) => ({ l: f.label, raw: resolveValue(f), t: f.type, contact: f.contact, key: f.key })),
+        .filter((f) => (editing || !(stabilized && f.dev) || hasValue(f)) && classAllowed(f.cls) && f.key !== 'mapUrl' && !f.hidden)
+        .map((f) => ({ l: f.label, raw: resolveValue(f), t: f.type, contact: f.contact, key: f.key, ...withUnit(f) })),
     }));
 }

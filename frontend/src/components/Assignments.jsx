@@ -139,6 +139,7 @@ export function AssignItemModal({ item, mode, userEmail = '', locations = [], on
   const [tab,  setTab]  = useState('person');   // 'person' | 'location'
   const [pick, setPick] = useState('');
   const [loc,  setLoc]  = useState(item.location || '');
+  const [skipAccept, setSkipAccept] = useState(false); // manager option — activate without the assignee accepting
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   useEffect(() => { api.getPeopleDirectory().then(setDirectory).catch(() => {}); }, []);
@@ -162,8 +163,10 @@ export function AssignItemModal({ item, mode, userEmail = '', locations = [], on
   function submitPerson() {
     setBusy(true); setError('');
     (reassign ? api.reassignItem(item.id, { assignee_email: chosen.email, assignee_name: chosen.name })
-              : api.assignItem(item.id, { assignee_email: chosen.email, assignee_name: chosen.name }))
-      .then(() => { toast(reassign ? `Return requested from ${item.assignedToName} — ${chosen.name} will be assigned next.` : `${item.name} assigned to ${chosen.name} — awaiting their acceptance.`); onDone(); onClose(); })
+              : api.assignItem(item.id, { assignee_email: chosen.email, assignee_name: chosen.name, skip_acceptance: skipAccept }))
+      .then(() => { toast(reassign ? `Return requested from ${item.assignedToName} — ${chosen.name} will be assigned next.`
+                          : skipAccept ? `${item.name} assigned to ${chosen.name} — active immediately, no acceptance needed.`
+                          : `${item.name} assigned to ${chosen.name} — awaiting their acceptance.`); onDone(); onClose(); })
       .catch(err => { setError(err?.message || 'Could not assign.'); setBusy(false); });
   }
   function submitLocation() {
@@ -201,6 +204,16 @@ export function AssignItemModal({ item, mode, userEmail = '', locations = [], on
             {directory.map(d => <option key={d.email} value={d.email}>{d.name ? `${d.name} — ${d.email}` : d.email}</option>)}
           </select>
           {reassign && <p style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 8 }} title={item.assignedToEmail || ''}>Currently with {item.assignedToName || emailToName(item.assignedToEmail)} — they’ll be asked to return it with a photo, then the new person accepts.</p>}
+          {!reassign && (
+            <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginTop: 12, cursor: 'pointer', userSelect: 'none' }}>
+              <input type="checkbox" checked={skipAccept} onChange={e => setSkipAccept(e.target.checked)}
+                style={{ cursor: 'pointer', accentColor: 'var(--pine)', marginTop: 2 }} />
+              <span style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.45 }}>
+                <strong style={{ color: 'var(--ink)' }}>Skip acceptance</strong> — the assignment goes active
+                right away. They're still notified, just not asked to accept.
+              </span>
+            </label>
+          )}
         </>
         )
       ) : (

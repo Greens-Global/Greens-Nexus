@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Sunrise, Sunset, Coffee, X, Send, Loader2, MessageSquare } from 'lucide-react';
 import { api } from '../api';
+import { msalInstance } from '../msalInstance';
 import { graphToken, postChatMessage } from '../teamsGraph';
 
 // ── Beginning / End-of-day / Break message ────────────────────────────────────
@@ -14,7 +15,7 @@ import { graphToken, postChatMessage } from '../teamsGraph';
 
 const MODES = {
   bod: {
-    title: 'Beginning of day', Icon: Sunrise, color: '#f59e0b', tag: 'BOD',
+    title: 'Beginning of Day', Icon: Sunrise, color: '#f59e0b', tag: 'BOD',
     sub: "First punch-in today — tell the team what's on your plate.",
     msgLabel: 'Message', msgPlaceholder: 'Good morning! Starting my day…',
     tasksLabel: "Today's tasks (one per line)", tasksHead: 'Tasks',
@@ -22,10 +23,10 @@ const MODES = {
     cta: 'Send & start the day', ackLabel: 'I already sent my login (BOD) message',
   },
   eod: {
-    title: 'End of day', Icon: Sunset, color: '#7c3aed', tag: 'EOD',
+    title: 'End of Day', Icon: Sunset, color: '#7c3aed', tag: 'EOD',
     sub: 'Wrapping up — post your summary and the tasks you worked on.',
     msgLabel: 'Summary', msgPlaceholder: 'Wrapping up — good progress today.',
-    tasksLabel: 'Tasks (one per line)', tasksHead: 'Tasks',
+    tasksLabel: 'Tasks (one per line)', tasksHead: 'Tasks (Completed)',
     tasksPlaceholder: 'Lakeline report\nRiverside vendor call\nQ2 numbers review',
     cta: 'Send & clock out', ackLabel: 'I already sent my logout (EOD) message',
   },
@@ -44,48 +45,102 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
   const M = MODES[mode] || MODES.bod;
   const [message, setMessage] = useState('');
   const [tasks, setTasks] = useState('');
+  const [pending, setPending] = useState('');        // EOD only — starts empty; empty = no section in the post
+  const [pendingSugg, setPendingSugg] = useState(''); // open Nexus tasks, offered via one-click insert
   const [bound, setBound] = useState(null);          // { id, name } from the group binding
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [ack, setAck] = useState(false);
 
-  // On open: resolve the ONE chat an admin bound to this person's group, and
-  // pre-fill the composer with this person's template (their last BOD/EOD post,
-  // or a starter default) so they only tweak it rather than write from scratch.
+  // On open: resolve the ONE chat an admin bound to this person's group. Every
+  // field starts EMPTY on purpose — pre-filling (yesterday's text, open tasks)
+  // kept getting posted untouched (Jul 25). The person's open Nexus tasks are
+  // fetched as a SUGGESTION they can insert with one click, never auto-posted.
   useEffect(() => {
     let live = true;
     (async () => {
-      const [my, tpl] = await Promise.all([
-        api.timeMyChat().catch(() => null),
-        M.reasonOnly ? Promise.resolve(null) : api.timeBodTemplate(mode).catch(() => null),
-      ]);
+      const my = await api.timeMyChat().catch(() => null);
       if (!live) return;
       if (my?.chatId) setBound({ id: my.chatId, name: my.chatName });
-      if (tpl) {
-        setMessage(prev => prev || tpl.message || '');
-        setTasks(prev => prev || tpl.tasks || '');
-      }
       setLoading(false);
     })();
+    if (mode === 'eod') {
+      api.getTasks().then((rows) => {
+        if (!live) return;
+        const email = (msalInstance.getActiveAccount()?.username || '')
+          .toLowerCase().replace('@greensg.onmicrosoft.com', '@greensglobal.com');
+        const open = (rows || []).filter(t => (t.assigneeId || '').toLowerCase() === email && !t.completed);
+        setPendingSugg(open.slice(0, 12).map(t => t.title).filter(Boolean).join('\n'));
+      }).catch(() => {});
+    }
     return () => { live = false; };
   }, [mode]);
 
-  function buildHtml() {
+  function buildHtml(workedMin = 0) {
     if (M.reasonOnly) return `I'm on a break${message.trim() ? ` for ${esc(message.trim())}` : ''}.`;
-    // Header spells out the kind and stamps the date AND time, so the post reads
-    // e.g. "Beginning of day · Mon, 21 Jul 2026 · 9:15 AM".
+    // Three-line header (spec, Jul 24):
+    //   End of Day
+    //   Fri, July 24th, 2026
+    //   12:50 AM (8:30 mins)     ← the tally is total worked today, EOD only
     const now = new Date();
-    const dateStr = now.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
-    const timeStr = now.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
-    const taskLines = tasks.split('\n').map(t => t.trim()).filter(Boolean);
-    return `<b>${M.title} · ${dateStr} · ${timeStr}</b><br/>${esc(message)}`
-      + (taskLines.length ? `<br/><br/><b>${M.tasksHead}</b><br/>${taskLines.map(t => `• ${esc(t)}`).join('<br/>')}` : '');
+    const ordinal = (n) => { const v = n % 100; return n + (['th', 'st', 'nd', 'rd'][(v - 20) % 10] || ['th', 'st', 'nd', 'rd'][v] || 'th'); };
+    // Locale pinned to en-US so the post reads the same for everyone regardless
+    // of the sender's browser locale. Date line format: "Fri, July 24th, 2026".
+    const dateStr = `${now.toLocaleDateString('en-US', { weekday: 'short' })}, ${now.toLocaleDateString('en-US', { month: 'long' })} ${ordinal(now.getDate())}, ${now.getFullYear()}`;
+    const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+    const h = Math.floor(workedMin / 60), m = workedMin % 60;
+    const tally = mode === 'eod' && workedMin > 0
+      ? ` (${h > 0 ? `${h} hr ` : ''}${m > 0 || h === 0 ? `${m} mins` : ''}`.trimEnd() + ')' : '';
+    // Lists are auto-numbered "1. …" — strip any numbering people typed
+    // themselves so lines don't come out as "1. 1) Task".
+    const normalize = (s) => s.split('\n').map(t => t.trim().replace(/^\d+[).:]?\s*/, '')).filter(Boolean);
+    const numbered = (lines) => lines.map((t, i) => `${i + 1}. ${esc(t)}`).join('<br/>');
+    const taskLines = normalize(tasks);
+    const pendingLines = mode === 'eod' ? normalize(pending) : [];
+    return `<b>${M.title}</b><br/>${dateStr}<br/>${timeStr}${tally}<br/><br/>${esc(message)}`
+      + (taskLines.length ? `<br/><br/><b>${M.tasksHead}</b><br/>${numbered(taskLines)}` : '')
+      + (pendingLines.length ? `<br/><br/><b>Pending Tasks</b><br/>${numbered(pendingLines)}` : '');
   }
 
   async function send() {
     if (busy) return;
     if (!message.trim()) { toastErr(M.reasonOnly ? 'Add a short reason.' : `Write a short ${M.title.toLowerCase()} message.`); return; }
     setBusy(true);
+    // EOD tally: total minutes worked today, straight from the server's punch
+    // math (same figure the Time Clock "Worked today" card shows). Best-effort —
+    // a failed fetch just posts the message without the tally.
+    let workedMin = 0;
+    if (mode === 'eod') {
+      try {
+        const st = await api.timeStatus();
+        const key = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+        // The EOD posts BEFORE the out-punch is written, so the server summary
+        // counts the still-open session as zero. Recompute today's total from
+        // the raw punches, timing the open session up to "now". Sessions are
+        // attributed to the local date of their in-punch (server semantics).
+        const all = Object.values(st?.days || {}).flatMap(d => d.punches || [])
+          .filter(p => !p.voided).sort((a, b) => String(a.at).localeCompare(String(b.at)));
+        const utc = (s) => Date.parse(/[Zz]|[+-]\d\d:?\d\d$/.test(s) ? s : s + 'Z');
+        let ms = 0, openIn = null, openInDate = '', openBreak = null, brkMs = 0;
+        for (const p of all) {
+          const t = utc(p.at);
+          if (p.kind === 'in') { if (openIn == null) { openIn = t; openInDate = p.localDate; brkMs = 0; } }
+          else if (p.kind === 'break_start') { if (openIn != null && openBreak == null) openBreak = t; }
+          else if (p.kind === 'break_end') { if (openBreak != null) { brkMs += t - openBreak; openBreak = null; } }
+          else if (p.kind === 'out' && openIn != null) {
+            if (openBreak != null) { brkMs += t - openBreak; openBreak = null; }
+            if (openInDate === key) ms += Math.max(0, t - openIn - brkMs);
+            openIn = null; brkMs = 0;
+          }
+        }
+        if (openIn != null && openInDate === key) {
+          const nowMs = Date.now();
+          if (openBreak != null) brkMs += nowMs - openBreak;
+          ms += Math.max(0, nowMs - openIn - brkMs);
+        }
+        workedMin = Math.round(ms / 60000);
+      } catch { /* tally is optional */ }
+    }
     const targetId = bound?.id || '';
     const targetName = bound?.name || '';
     let sent = false, sendError = '';
@@ -93,7 +148,7 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
       try {
         const tok = await graphToken();
         if (!tok) throw new Error('Teams not connected');
-        await postChatMessage(tok, targetId, buildHtml());
+        await postChatMessage(tok, targetId, buildHtml(workedMin));
         sent = true;
       } catch (e) { sendError = String(e?.message || e).slice(0, 180); }
     } else sendError = 'No team chat set up for your group';
@@ -136,6 +191,25 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
               <label style={FL}>{M.tasksLabel}</label>
               <textarea className="form-input" rows={4} value={tasks} onChange={e => setTasks(e.target.value)}
                 placeholder={M.tasksPlaceholder} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} />
+            </div>
+          )}
+          {mode === 'eod' && (
+            <div>
+              <label style={FL}>Pending tasks (one per line)</label>
+              <textarea className="form-input" rows={3} value={pending} onChange={e => setPending(e.target.value)}
+                placeholder="Anything still open — leave empty to skip this section"
+                style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} />
+              {pendingSugg && !pending.trim() ? (
+                <button type="button" onClick={() => setPending(pendingSugg)}
+                  style={{ marginTop: 4, border: 'none', background: 'none', padding: 0, cursor: 'pointer',
+                           fontSize: 11, fontWeight: 600, color: M.color, fontFamily: 'Inter,sans-serif' }}>
+                  + Add my open tasks ({pendingSugg.split('\n').length})
+                </button>
+              ) : (
+                <p style={{ margin: '4px 0 0', fontSize: 11, color: 'var(--muted)' }}>
+                  Left empty, this section is left out of the post.
+                </p>
+              )}
             </div>
           )}
           {/* Target chat — the single chat an admin bound to this person's group */}

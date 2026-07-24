@@ -4094,6 +4094,7 @@ function BatchEditModal({ selectedItems, usingSelection, onSwitchTab, onClose, o
   const [assignLoc,   setAssignLoc]   = useState('');
   const [assignName,  setAssignName]  = useState('');
   const [assignEmail, setAssignEmail] = useState('');
+  const [assignSkip,  setAssignSkip]  = useState(false); // person assigns go active without acceptance
 
   function toggleField(key) {
     setEnabled(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
@@ -4109,7 +4110,7 @@ function BatchEditModal({ selectedItems, usingSelection, onSwitchTab, onClose, o
 
   function submit() {
     const assignment = (assignOn && assignVal)
-      ? { kind: assignKind, location: assignLoc.trim(), email: assignEmail.trim().toLowerCase(), name: assignName.trim() }
+      ? { kind: assignKind, location: assignLoc.trim(), email: assignEmail.trim().toLowerCase(), name: assignName.trim(), skipAcceptance: assignSkip }
       : null;
     onSave(fields, assignment);
   }
@@ -4192,12 +4193,23 @@ function BatchEditModal({ selectedItems, usingSelection, onSwitchTab, onClose, o
                   onPick={({ email, name }) => { setAssignName(name); setAssignEmail(email); }}
                   placeholder="Type a person's name…" />
               )}
+              {assignKind === 'person' && (
+                <label style={{ display:'flex', alignItems:'center', gap:8, cursor:'pointer', userSelect:'none' }}>
+                  <input type="checkbox" checked={assignSkip} onChange={e => setAssignSkip(e.target.checked)}
+                    style={{ cursor:'pointer', accentColor:'var(--pine)' }} />
+                  <span style={{ fontSize:12, color:'var(--muted)' }}>
+                    <strong style={{ color:'var(--ink)' }}>Skip acceptance</strong> — assignments go active right away
+                  </span>
+                </label>
+              )}
               <p style={{ fontSize:11, color:'var(--muted)', margin:0 }}>
                 {assignKind === 'location'
                   ? 'Sets where these items physically live — their holder (if any) is unchanged.'
                   : (assignName && !assignEmail
                       ? 'Pick a person from the list so they can be notified to accept.'
-                      : 'Each person must accept their item (with a photo) from My Items.')}
+                      : assignSkip
+                        ? 'The person is notified, but the items are theirs immediately — no acceptance step.'
+                        : 'Each person must accept their item (with a photo) from My Items.')}
               </p>
             </div>
           )}
@@ -5563,7 +5575,7 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
           parts.push(`assigned ${r?.assigned ?? ids.length} to ${assignment.location}`);
           if (r?.skipped?.length) parts.push(`${r.skipped.length} skipped (in use)`);
         } else {
-          const r = await api.bulkAssignPerson(ids, assignment.email, assignment.name);
+          const r = await api.bulkAssignPerson(ids, assignment.email, assignment.name, assignment.skipAcceptance);
           parts.push(`assigned ${r?.assigned ?? ids.length} to ${assignment.name || assignment.email}`);
           if (r?.skipped?.length) parts.push(`${r.skipped.length} skipped (in use or temporary)`);
         }
@@ -6503,8 +6515,11 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
   // When a perm_return notification deep-links here, jump the Assignments queue
   // straight to its "Returns to Accept" filter. ts forces re-trigger on repeats.
   const [assignFocus, setAssignFocus] = useState(null);
-  const { can } = useRole();
-  const isManager = can('manager');
+  const { canAccessModule } = useRole();
+  // Manager tier OR an Access-Group/job-role grant of Item Management at
+  // editor+ — grants layer additively (Jul 24: Employee-tier people with
+  // "Item Management: Full" were locked out despite the grant).
+  const isManager = canAccessModule('inventory', 'manager', 'editor');
   const isMobile = useIsMobile(); // shorten the segment labels so they fit
   const [statusFilter,   setStatusFilter]   = useState('active');
   const [personQuery,    setPersonQuery]    = useState('');
@@ -7368,7 +7383,7 @@ const WhoHasItTab = memo(function WhoHasItTab({ items, checkouts, onOpenCheckout
     for (const c of checkouts) {
       if (!['approved','pending_receipt','allocated'].includes(c.status) || !c.requestedBy) continue;
       const key = (c.requestedByEmail || c.requestedBy).toLowerCase();
-      if (!map.has(key)) map.set(key, { name: c.requestedBy, transient: [], permanent: [], declared: [] });
+      if (!map.has(key)) map.set(key, { name: nameOf(c.requestedByEmail, c.requestedBy), transient: [], permanent: [], declared: [] });
       map.get(key).transient.push(c);
     }
     // Permanent: only items tagged to a REAL person via the assignment flow.
@@ -7384,9 +7399,12 @@ const WhoHasItTab = memo(function WhoHasItTab({ items, checkouts, onOpenCheckout
       if (!email && !owner) continue;
       const key = email || `perm-${owner.toLowerCase()}`;
       if (!map.has(key)) {
-        const existing = [...map.values()].find(h => h.name.toLowerCase() === owner.toLowerCase());
+        // Resolve through People so a stale stored name ("Neil") still shows
+        // the full directory name ("Neil Kadakia").
+        const display = nameOf(email, owner);
+        const existing = [...map.values()].find(h => h.name.toLowerCase() === display.toLowerCase() || h.name.toLowerCase() === owner.toLowerCase());
         if (existing) { existing.permanent.push(i); continue; }
-        map.set(key, { name: owner, transient: [], permanent: [], declared: [] });
+        map.set(key, { name: display, transient: [], permanent: [], declared: [] });
       }
       map.get(key).permanent.push(i);
     }
@@ -7399,14 +7417,15 @@ const WhoHasItTab = memo(function WhoHasItTab({ items, checkouts, onOpenCheckout
       if (!email && !owner) continue;
       const key = email || `decl-${owner.toLowerCase()}`;
       if (!map.has(key)) {
-        const existing = [...map.values()].find(h => h.name.toLowerCase() === owner.toLowerCase());
+        const display = nameOf(email, owner);
+        const existing = [...map.values()].find(h => h.name.toLowerCase() === display.toLowerCase() || h.name.toLowerCase() === owner.toLowerCase());
         if (existing) { existing.declared.push(i); continue; }
-        map.set(key, { name: owner, transient: [], permanent: [], declared: [] });
+        map.set(key, { name: display, transient: [], permanent: [], declared: [] });
       }
       map.get(key).declared.push(i);
     }
     return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
-  }, [checkouts, items]);
+  }, [checkouts, items, nameOf]);
 
   const filtered = useMemo(() => holders.filter(h =>
     !search ||
@@ -7669,7 +7688,10 @@ export default function InventoryManagement({ activeSub }) {
   const userName  = cleanName(accounts[0]?.name ?? 'Employee');
   const userEmail = (accounts[0]?.username ?? '').toLowerCase();
 
-  const isManager = can('manager');  // level >= 3; checked after role loads
+  // Manager tier OR an Access-Group/job-role grant of Item Management at
+  // editor+ (grants layer additively — an Employee-tier person with the
+  // "Item Management: Full" grant gets the full Manage experience).
+  const isManager = canAccessModule('inventory', 'manager', 'editor');
   const canDelete = canAccessModule('inventory', 'owner', 'full');
 
   const pendingCount   = checkouts.filter(c => c.status === 'pending').length;
