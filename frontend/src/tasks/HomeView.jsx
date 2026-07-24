@@ -117,7 +117,17 @@ export default function HomeView({ onNavigate }) {
         ) : (
           <button onClick={() => setCreating(true)} style={{ ...btn('ghost'), padding: '6px 0', color: NX.dim, fontSize: 13, fontWeight: 500 }}><Plus size={15} /> Create Task</button>
         )}
-        {shown.length === 0 ? <p style={{ padding: '24px 0', textAlign: 'center', fontSize: 13, color: NX.faint }}>Nothing here.</p> : (
+        {store.loading && shown.length === 0 ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: '10px 0' }}>
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span className="skel" style={{ width: 16, height: 16, borderRadius: '50%' }} />
+                <span className="skel" style={{ width: `${62 - i * 9}%`, height: 12 }} />
+                <span className="skel" style={{ width: 64, height: 11, marginLeft: 'auto' }} />
+              </div>
+            ))}
+          </div>
+        ) : shown.length === 0 ? <p style={{ padding: '24px 0', textAlign: 'center', fontSize: 13, color: NX.faint }}>Nothing here.</p> : (
           <div style={{ display: 'flex', flexDirection: 'column' }}>
             {shown.map((t) => (
               <div key={t.id} data-task-row onClick={() => setOpenId(t.id)} style={{ display: 'flex', alignItems: 'center', gap: 8, borderTop: `1px solid ${NX.border2}`, padding: '8px 6px', margin: '0 -6px', borderRadius: 6, fontSize: 13, cursor: 'pointer', transition: 'background 0.12s' }}

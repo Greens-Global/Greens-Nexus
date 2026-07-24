@@ -2,7 +2,7 @@
 // List and Board views + bulk action bar. Owns the shared view state, mirroring
 // the export's viewContext. Calendar/Timeline/Dashboard live in ./views/extras.
 import { useMemo, useState } from 'react';
-import { List, Columns3, Calendar as CalIcon, GanttChart, LayoutDashboard, Paperclip, Gauge, Plus, Search, CheckCircle2, Circle, Trash2, X, FolderKanban, ArrowLeft } from 'lucide-react';
+import { List, Columns3, Calendar as CalIcon, GanttChart, LayoutDashboard, Paperclip, Gauge, Plus, Search, CheckCircle2, Circle, Trash2, X, FolderKanban, ArrowLeft, Copy } from 'lucide-react';
 import { useTasks } from './TasksContext';
 import { useRole } from '../contexts/RoleContext';
 import { EMPTY_FILTER, matchesFilter, topLevel, sortTasks, groupTasks, taskStats, taskIdFromUrl } from './lib';
@@ -150,17 +150,44 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
       </div>
 
       {/* Bulk bar */}
-      {selected.size > 0 && (
-        <div style={{ position: 'absolute', left: '50%', bottom: 22, transform: 'translateX(-50%)', background: NX.primary, color: '#fff', borderRadius: 12, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 12, boxShadow: '0 10px 30px rgba(0,0,0,0.28)', zIndex: 30 }}>
-          <span style={{ fontSize: 13, fontWeight: 600 }}>{selected.size} selected</span>
-          <select onChange={(e) => { if (e.target.value) { bulkUpdate([...selected], { status: e.target.value }); clearSel(); } }} defaultValue="" style={{ ...inputStyle, width: 'auto', padding: '5px 8px', background: 'rgba(255,255,255,0.14)', color: '#fff', border: '1px solid rgba(255,255,255,0.3)' }}>
-            <option value="" disabled>Set status…</option>
+      {selected.size > 0 && (() => {
+        const selStyle = { ...inputStyle, width: 'auto', padding: '5px 8px', background: 'rgba(255,255,255,0.14)', color: '#fff', border: '1px solid rgba(255,255,255,0.3)' };
+        const duplicate = async () => {
+          const picked = tasks.filter((t) => selected.has(t.id));
+          for (const t of picked) {
+            await store.createTask({
+              title: `${t.title} (copy)`, type: t.type || 'task', description: t.description || '',
+              status: t.status || 'not_started', priority: t.priority || 'medium',
+              projectId: t.projectId || '', teamId: t.teamId || '', assigneeId: t.assigneeId || '',
+              followerIds: t.followerIds || [], dueOn: t.dueOn || '', startOn: t.startOn || '',
+              tags: t.tags || [], estimateHours: t.estimateHours ?? null, isMilestone: !!t.isMilestone,
+              customFieldValues: t.customFieldValues || {},
+            }).catch(() => {});
+          }
+          clearSel();
+        };
+        return (
+        <div style={{ position: 'absolute', left: '50%', bottom: 22, transform: 'translateX(-50%)', background: NX.primary, color: '#fff', borderRadius: 12, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10, boxShadow: '0 10px 30px rgba(0,0,0,0.28)', zIndex: 30, flexWrap: 'wrap', maxWidth: '92vw' }}>
+          <span style={{ fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap' }}>{selected.size} selected</span>
+          <select onChange={(e) => { if (e.target.value) { bulkUpdate([...selected], { status: e.target.value }); clearSel(); } }} defaultValue="" style={selStyle}>
+            <option value="" disabled>Status…</option>
             {store.statusOrder.map((s) => <option key={s} value={s} style={{ color: NX.ink }}>{store.statusMeta[s]?.label || s}</option>)}
           </select>
+          <select onChange={(e) => { if (e.target.value) { bulkUpdate([...selected], { priority: e.target.value }); clearSel(); } }} defaultValue="" style={selStyle}>
+            <option value="" disabled>Priority…</option>
+            {['urgent', 'high', 'medium', 'low'].map((p) => <option key={p} value={p} style={{ color: NX.ink }}>{p[0].toUpperCase() + p.slice(1)}</option>)}
+          </select>
+          <select onChange={(e) => { if (e.target.value) { bulkUpdate([...selected], { assigneeId: e.target.value === '—' ? '' : e.target.value }); clearSel(); } }} defaultValue="" style={selStyle}>
+            <option value="" disabled>Assign…</option>
+            <option value="—" style={{ color: NX.ink }}>Unassigned</option>
+            {people.map((p) => <option key={p.email} value={p.email} style={{ color: NX.ink }}>{p.name}</option>)}
+          </select>
+          <button onClick={duplicate} title="Duplicate the selected tasks" style={{ ...btn('ghost'), color: '#fff' }}><Copy size={14} />Duplicate</button>
           <button onClick={() => { if (confirm(`Delete ${selected.size} task(s)?`)) { [...selected].forEach(deleteTask); clearSel(); } }} style={{ ...btn('ghost'), color: '#fff' }}><Trash2 size={15} />Delete</button>
           <button onClick={clearSel} style={{ ...btn('ghost'), color: '#fff', padding: 5 }}><X size={16} /></button>
         </div>
-      )}
+        );
+      })()}
 
       {isMobile && (
         <MobileTaskBar
