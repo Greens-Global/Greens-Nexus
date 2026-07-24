@@ -63,6 +63,7 @@ export const UNDOABLE_FIELD_KEYS = {
   'Google Maps Link': 'mapUrl',
   'Development Stage': 'devStage',
   'Lot Size (SF / Acres)': 'acreage',
+  'Lot Size Unit': 'acreageUnit',
   'Existing Building SF': 'nrsf',
   'Year Built': 'yearBuilt',
   Zoning: 'zoning',

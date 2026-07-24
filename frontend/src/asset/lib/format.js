@@ -6,6 +6,14 @@ export function toNumber(v) {
   return isNaN(n) ? 0 : n;
 }
 
+/** Acres equivalent of a Lot Size value, honoring its paired unit field. `unit === 'SF'`
+ *  converts via 43,560 sqft/acre; anything else (including unset, for pre-existing data
+ *  entered before the unit picker existed) is treated as already-acres. */
+export function acresOf(value, unit) {
+  const n = toNumber(value);
+  return /^sf$/i.test(String(unit || '').trim()) ? n / 43560 : n;
+}
+
 /** Thousands-separated number, or an em dash if empty/zero. */
 export function formatNumber(v) {
   const n = toNumber(v);

@@ -13,7 +13,7 @@
 // the lowest parcelOrder to be the new anchor (see the caller-side unlinkParcel logic
 // this module supports). Treat `groupAnchorOf`'s result as a transient lookup, not identity.
 
-import { normLabel } from './format.js';
+import { normLabel, toNumber } from './format.js';
 
 /**
  * Mutable singleton the currently-mounted ParcelManager registers a "reveal" callback into,
@@ -62,16 +62,17 @@ export function parcelLot(p) {
 
 /**
  * A single parcel's acreage, parsed from its "Lot Size" snapshot field. Converts sqft to
- * acres when the value looks like square feet ("sf"/"sq"/"ft"). 0 if unparseable/unset.
+ * acres when the value looks like square feet — the explicit `acreageUnit` field (set via the
+ * Lot Size SF/Acres dropdown) wins when present; older records with no unit picked yet fall
+ * back to sniffing "sf"/"sq"/"ft" out of the raw snapshot text. 0 if unparseable/unset.
  * Note: this is per-parcel, not a group sum — callers sum across `groupMembersOf(...)`
  * themselves when they need a group total (see AssemblageParcels / ParcelManager).
  */
 export function parcelAcres(p) {
   const lot = parcelLot(p);
   if (!lot) return 0;
-  const match = lot.replace(/,/g, '').match(/([\d.]+)/);
-  if (!match) return 0;
-  const n = parseFloat(match[1]);
-  if (!isFinite(n)) return 0;
-  return /sf|sq|ft/i.test(lot) ? n / 43560 : n;
+  const n = toNumber(lot);
+  if (!n) return 0;
+  const isSF = p.acreageUnit ? /^sf$/i.test(String(p.acreageUnit).trim()) : /sf|sq|ft/i.test(lot);
+  return isSF ? n / 43560 : n;
 }
