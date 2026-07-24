@@ -102,15 +102,21 @@ const dueColor = (iso, completed) => {
 };
 
 // A colored pill that opens an app-styled dropdown (matches the export's PillMenu).
-function PillSelect({ label, color, tint, icon, options, currentKey, onSelect, center }) {
+// `solid` renders the monday.com-style full-cell colored block (white text on the
+// status color) instead of a translucent pill.
+function PillSelect({ label, color, tint, icon, options, currentKey, onSelect, center, solid }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   const panelRef = useRef(null);
   const close = () => setOpen(false);
   useClickOutside([ref, panelRef], close, open);
   return (
-    <div ref={ref} style={{ position: 'relative', display: 'flex', justifyContent: center ? 'center' : 'flex-start' }}>
-      <button onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }} style={{
+    <div ref={ref} style={{ position: 'relative', display: 'flex', justifyContent: center ? 'center' : 'flex-start', ...(solid ? { width: '100%' } : {}) }}>
+      <button onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }} style={solid ? {
+        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, width: '100%', padding: '6px 8px',
+        borderRadius: 5, fontSize: 12, fontWeight: 700, background: color, color: '#fff', border: 'none', cursor: 'pointer',
+        transition: 'filter 0.12s', whiteSpace: 'nowrap',
+      } : {
         display: 'inline-flex', alignItems: 'center', gap: 4, maxWidth: '100%', padding: '2px 8px', borderRadius: 999,
         fontSize: 12, fontWeight: 600, background: tint, color, border: 'none', cursor: 'pointer',
       }}>
@@ -238,15 +244,15 @@ function TaskRow({ t, cols, customFields = [], template, store, people, selected
           <input type="number" className="rl-num" min={0} value={t.actualHours ?? ''} placeholder="0" onChange={(e) => store.updateTask(t.id, { actualHours: e.target.value === '' ? null : Number(e.target.value) })} style={{ width: 34, textAlign: 'right', border: 'none', background: 'transparent', fontSize: 12, color: NX.dim, outline: 'none', fontFamily: FONT }} />
           <span style={{ color: NX.faint, fontSize: 12 }}>h</span>
         </div>
-        {/* priority */}
+        {/* priority — monday-style solid colored cell */}
         <div className="rl-cell" style={editCell} onClick={(e) => e.stopPropagation()}>
-          <PillSelect center label={pm.label} color={pm.color} tint={pm.tint} currentKey={t.priority}
+          <PillSelect solid center label={pm.label} color={pm.color} tint={pm.tint} currentKey={t.priority}
             options={PRIORITY_ORDER.map((p) => ({ key: p, label: PRIORITY_META[p].label, color: PRIORITY_META[p].color }))}
             onSelect={(k) => store.updateTask(t.id, { priority: k })} />
         </div>
-        {/* status */}
+        {/* status — monday-style solid colored cell */}
         <div className="rl-cell" style={editCell} onClick={(e) => e.stopPropagation()}>
-          <PillSelect center label={sm.label} color={sm.color} tint={sm.tint} currentKey={t.status}
+          <PillSelect solid center label={sm.label} color={sm.color} tint={sm.tint} currentKey={t.status}
             options={store.statusOrder.map((s) => ({ key: s, label: store.statusMeta[s]?.label || s, color: store.statusMeta[s]?.color }))}
             onSelect={(k) => store.setStatus(t.id, k)} />
         </div>
@@ -480,10 +486,10 @@ export default function RichListView({ visible, group, ctx, store, people, selec
   }
 
   return (
-    <div className="nx-list-scroll" style={{ margin: 16, minHeight: 'calc(100% - 32px)', border: `1px solid ${NX.border}`, borderRadius: 12, background: NX.surface }}>
+    <div className="nx-list-scroll" style={{ margin: 16, minHeight: 'calc(100% - 32px)' }}>
       <div style={{ minWidth: 'fit-content' }}>
         {/* header */}
-        <div style={{ display: 'grid', gridTemplateColumns: template, alignItems: 'center', gap: 12, padding: '8px 16px', borderBottom: `1px solid ${NX.border}`, background: NX.surface2, fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.3, color: NX.faint }}>
+        <div style={{ display: 'grid', gridTemplateColumns: template, alignItems: 'center', gap: 12, padding: '8px 16px', border: `1px solid ${NX.border}`, borderRadius: 10, background: NX.surface2, fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.3, color: NX.faint }}>
           <button onClick={onSelectAll} title={allSel ? 'Deselect all' : 'Select all'} style={{ width: 16, height: 16, borderRadius: 3, border: `1.5px solid ${allSel || someSel ? NX.primary : NX.border}`, background: allSel || someSel ? NX.primary : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 0 }}>
             {allSel ? <Check size={11} strokeWidth={3} color="#fff" /> : someSel ? <Minus size={11} strokeWidth={3} color="#fff" /> : null}
           </button>
@@ -505,18 +511,49 @@ export default function RichListView({ visible, group, ctx, store, people, selec
         </div>
         {groups.map((g) => {
           const isCol = collapsed.has(g.key);
+          // monday.com-style group block: colored title, left color bar, and a
+          // summary footer (due-date range + status distribution bar).
+          const gc = g.color || colorForKey(g.key);
+          const total = g.tasks.length;
+          const byStatus = {};
+          for (const t of g.tasks) byStatus[t.status] = (byStatus[t.status] || 0) + 1;
+          const dues = g.tasks.map((t) => t.dueOn).filter(Boolean).sort();
+          const fmtD = (iso) => new Date(iso + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+          const dueRange = dues.length ? (dues[0] === dues[dues.length - 1] ? fmtD(dues[0]) : `${fmtD(dues[0])} – ${fmtD(dues[dues.length - 1])}`) : '';
           return (
-            <div key={g.key}>
-              <button onClick={() => toggleGroup(g.key)} style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '7px 16px', border: 'none', borderBottom: `1px solid ${NX.border2}`, background: NX.surface2, cursor: 'pointer', textAlign: 'left' }}>
-                {g.color && <span style={{ width: 10, height: 10, borderRadius: '50%', background: g.color }} />}
-                <ChevronDown size={15} style={{ color: NX.faint, transform: isCol ? 'rotate(-90deg)' : 'none' }} />
-                <span style={{ fontSize: 13, fontWeight: 700, color: NX.ink }}>{g.label}</span>
-                <span style={{ fontSize: 12, color: NX.faint }}>{g.tasks.length}</span>
+            <div key={g.key} style={{ marginTop: 18 }}>
+              <button onClick={() => toggleGroup(g.key)} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '2px 2px 8px', border: 'none', background: 'transparent', cursor: 'pointer', textAlign: 'left', fontFamily: FONT }}>
+                <ChevronDown size={16} style={{ color: gc, transform: isCol ? 'rotate(-90deg)' : 'none', transition: 'transform 0.15s' }} />
+                <span style={{ fontSize: 14.5, fontWeight: 700, color: gc }}>{g.label}</span>
+                <span style={{ fontSize: 12, color: NX.faint, fontWeight: 600 }}>{total} item{total !== 1 ? 's' : ''}</span>
               </button>
-              {!isCol && g.tasks.map((t) => (
-                <TaskRow key={t.id} t={t} cols={cols} customFields={customFields} template={template} store={store} people={people} selected={selected.has(t.id)} toggleSel={toggleSel} onOpen={onOpen} />
-              ))}
-              {!isCol && <AddTaskInline store={store} lockedProjectId={lockedProjectId} defaults={groupAddDefaults(effGroup, g.key)} />}
+              {!isCol && (
+                <div style={{ border: `1px solid ${NX.border}`, borderLeft: `6px solid ${gc}`, borderRadius: 8, overflow: 'hidden', background: NX.surface }}>
+                  {g.tasks.map((t) => (
+                    <TaskRow key={t.id} t={t} cols={cols} customFields={customFields} template={template} store={store} people={people} selected={selected.has(t.id)} toggleSel={toggleSel} onOpen={onOpen} />
+                  ))}
+                  <AddTaskInline store={store} lockedProjectId={lockedProjectId} defaults={groupAddDefaults(effGroup, g.key)} />
+                  {/* summary footer — mirrors monday's group tallies */}
+                  <div style={{ display: 'grid', gridTemplateColumns: template, alignItems: 'center', gap: 12, padding: '7px 16px', fontSize: 12 }}>
+                    <div /><div /><div /><div /><div />
+                    <div>
+                      {dueRange && (
+                        <span title="Due-date range in this group" style={{ display: 'inline-block', padding: '3px 10px', borderRadius: 12, background: '#00c875', color: '#fff', fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap' }}>{dueRange}</span>
+                      )}
+                    </div>
+                    <div /><div /><div />
+                    <div title={store.statusOrder.filter((s) => byStatus[s]).map((s) => `${store.statusMeta[s]?.label || s}: ${byStatus[s]}/${total}`).join(' · ')}
+                      style={{ display: 'flex', height: 22, borderRadius: 5, overflow: 'hidden', background: NX.border2 }}>
+                      {store.statusOrder.filter((s) => byStatus[s]).map((s) => (
+                        <div key={s} style={{ flex: byStatus[s], background: store.statusMeta[s]?.color || NX.faint }} />
+                      ))}
+                    </div>
+                    <div />
+                    {customFields.map((f) => <div key={f.id} />)}
+                    <div />
+                  </div>
+                </div>
+              )}
             </div>
           );
         })}

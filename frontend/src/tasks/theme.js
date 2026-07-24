@@ -30,19 +30,21 @@ export const FONT = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Rob
 // Status + priority metadata. Tints are translucent rgba (not opaque pastels) so
 // chips look native over both the light card and the dark card. Colours stay hex
 // so they can also be used as SVG fills/strokes (custom-chart donut/line).
+// Palette tuned to monday.com's board colors (Jul 25): working-orange /
+// done-green / stuck-red family — brighter, reads well as SOLID cell fills.
 export const STATUS_META = {
-  not_started: { label: 'Not Started', color: '#6b7688', tint: 'rgba(128,140,160,0.16)' },
+  not_started: { label: 'Not Started', color: '#797e93', tint: 'rgba(121,126,147,0.16)' },
   recurring:   { label: 'Recurring',   color: '#0d9488', tint: 'rgba(13,148,136,0.15)' },
-  in_progress: { label: 'In Progress', color: '#2563eb', tint: 'rgba(37,99,235,0.15)' },
-  completed:   { label: 'Completed',   color: '#16a34a', tint: 'rgba(22,163,74,0.15)' },
+  in_progress: { label: 'In Progress', color: '#fdab3d', tint: 'rgba(253,171,61,0.18)' },
+  completed:   { label: 'Completed',   color: '#00c875', tint: 'rgba(0,200,117,0.16)' },
 };
 export const STATUS_ORDER = ['not_started', 'in_progress', 'completed', 'recurring'];
 
 export const PRIORITY_META = {
-  low:    { label: 'Low',    color: '#6b7688', tint: 'rgba(128,140,160,0.16)' },
-  medium: { label: 'Medium', color: '#2563eb', tint: 'rgba(37,99,235,0.15)' },
-  high:   { label: 'High',   color: '#d97706', tint: 'rgba(217,119,6,0.16)' },
-  urgent: { label: 'Urgent', color: '#dc2626', tint: 'rgba(220,38,38,0.15)' },
+  low:    { label: 'Low',    color: '#579bfc', tint: 'rgba(87,155,252,0.16)' },
+  medium: { label: 'Medium', color: '#5559df', tint: 'rgba(85,89,223,0.15)' },
+  high:   { label: 'High',   color: '#a25ddc', tint: 'rgba(162,93,220,0.16)' },
+  urgent: { label: 'Urgent', color: '#e2445c', tint: 'rgba(226,68,92,0.15)' },
 };
 export const PRIORITY_ORDER = ['urgent', 'high', 'medium', 'low'];
 
