@@ -78,9 +78,9 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
     //   12:50 AM (8:30 mins)     ← the tally is total worked today, EOD only
     const now = new Date();
     const ordinal = (n) => { const v = n % 100; return n + (['th', 'st', 'nd', 'rd'][(v - 20) % 10] || ['th', 'st', 'nd', 'rd'][v] || 'th'); };
-    // Locale pinned to en-US so the post reads US-style for everyone regardless
-    // of the sender's browser locale: "Fri, July 24th, 2026" / "12:50 AM".
-    const dateStr = `${now.toLocaleDateString('en-US', { weekday: 'short' })}, ${now.toLocaleDateString('en-US', { month: 'long' })} ${ordinal(now.getDate())}, ${now.getFullYear()}`;
+    // Locale pinned to en-US so the post reads the same for everyone regardless
+    // of the sender's browser locale. Date line format: "2026, July 24th".
+    const dateStr = `${now.getFullYear()}, ${now.toLocaleDateString('en-US', { month: 'long' })} ${ordinal(now.getDate())}`;
     const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
     const h = Math.floor(workedMin / 60), m = workedMin % 60;
     const tally = mode === 'eod' && workedMin > 0
