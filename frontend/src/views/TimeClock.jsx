@@ -529,18 +529,11 @@ export default function TimeClock() {
         )}
       </div>
       </div>
-      <p style={{ margin: '0 0 18px', fontSize: 12, color: 'var(--muted)' }}>
-        Your location is captured only at the moment you punch, to confirm you're at a work site.
-        If location is off or you're away from a site, the punch still counts — it's simply flagged for review.
-      </p>
-      {/* Disclosed-monitoring: standing notice on the clock page (full text is acknowledged at the first in-punch). */}
-      {status?.monitoring?.enabled && (
-        <p style={{ margin: '-8px 0 18px', fontSize: 12, color: 'var(--muted)' }}>
-          On this company-owned device, while you're clocked in Nexus may capture periodic screenshots,
-          the apps you have open, and your overall activity level — to verify work time only, never your
-          keystrokes, and it stops when you clock out. You acknowledge the full notice the first time you clock in each day.
-        </p>
-      )}
+      {/* Jul 24: the standing location/monitoring notice paragraphs were removed by
+          management decision — capture is initiated by the employee's own share
+          action (with the browser's persistent sharing indicator), and standing
+          disclosure lives in the signed monitoring policy. The consent-gate modal
+          below stays as dormant code (the server no longer requests it). */}
 
       {/* Fill the fold: week chart, today's screen activity, upcoming time off */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 18 }}>

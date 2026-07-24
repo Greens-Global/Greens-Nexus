@@ -113,9 +113,21 @@ export default function DayTimeline({ punches, height = 24, ticks = true, date =
             onMouseEnter={() => { if (!pinned) hover(s); }}
             onClick={(e) => { e.stopPropagation(); hover(s); setPinned(p => !p); }} />
         ))}
-        {live && isToday && (
-          <span style={{ position: 'absolute', right: 4, top: '50%', transform: 'translateY(-50%)', fontSize: 9, fontWeight: 800, color: 'var(--pine)', letterSpacing: '.04em' }}>NOW</span>
-        )}
+        {/* NOW = a thin marker at the actual current time, label floated above the
+            track. (It used to be text pinned inside the track's right corner, which
+            sat on top of the live segment's pulsing tail and the last hour label.) */}
+        {live && isToday && (() => {
+          const x = Math.min(99.2, pct(cap));
+          return (
+            <>
+              <div style={{ position: 'absolute', left: `${x}%`, top: -2, bottom: -2, width: 2, borderRadius: 1,
+                background: 'var(--ink)', opacity: 0.55, pointerEvents: 'none' }} />
+              <span style={{ position: 'absolute', left: `${x}%`, bottom: '100%',
+                transform: `translate(${x > 88 ? '-100%' : '-50%'}, -1px)`, fontSize: 8.5, fontWeight: 800,
+                color: 'var(--muted)', letterSpacing: '.05em', pointerEvents: 'none' }}>NOW</span>
+            </>
+          );
+        })()}
       </div>
       {ticks && (
         <div style={{ position: 'relative', height: 13, marginTop: 2 }}>

@@ -270,17 +270,17 @@ def my_status(tz_offset_min: int = 0, user: dict = Depends(get_current_user), db
         "todayUtc": today,
         "geofencedSites": sites,
         "bodRequired": has_bod is None and has_in is None,
-        # Monitoring disclosure: the widget/agent read this to show the notice and
-        # know whether to capture. consentRequired drives the clock-in gate.
-        # Exempt members (leadership) are never captured, gated, or asked to consent.
+        # Monitoring disclosure: the widget/agent read this to know whether to
+        # capture. Exempt members (leadership) are never captured.
         "monitoring": (lambda exempt: {
             **_policy_dict(pol),
             "exempt": exempt,
             # Exempt people are not captured — force the capture flags off for them
             # so the widget offers no screen-share and clock-in isn't gated on one.
             **({"trackScreens": False, "trackWindows": False, "trackInput": False} if exempt else {}),
-            "consentRequired": bool(pol.enabled) and not exempt
-                               and not _has_monitoring_consent(db, email, local_today),
+            # Daily acknowledge gate removed Jul 24 (see punch endpoint note);
+            # field kept False for client compatibility.
+            "consentRequired": False,
             "textVersion": _MONITORING_TEXT_VERSION,
             "text": _MONITORING_NOTICE,
         })(_is_monitoring_exempt(db, email)),
@@ -300,16 +300,12 @@ def punch(body: PunchIn, request: Request,
     if body.kind not in allowed:
         raise HTTPException(409, f"Can't punch '{body.kind}' right now — allowed: {', '.join(allowed)}")
     now = _now_iso()
-    # Disclosed-monitoring gate: with monitoring enabled, the shift's first in-punch
-    # is refused until the employee has acknowledged today's notice. The client
-    # catches this code, shows the notice, POSTs /monitoring/consent, then retries.
-    if body.kind == "in":
-        pol = _get_policy(db)
-        if pol.enabled and not _is_monitoring_exempt(db, email) \
-                and not _has_monitoring_consent(db, email, _local_date(now, body.tz_offset_min or 0)):
-            raise HTTPException(409, detail={"code": "monitoring_consent_required",
-                                             "version": _MONITORING_TEXT_VERSION,
-                                             "text": _MONITORING_NOTICE})
+    # Jul 24: the daily acknowledge-at-clock-in gate was removed by management
+    # decision — screen capture is initiated by the employee's own share action
+    # (browser picker + persistent OS sharing indicator), and standing disclosure
+    # lives in the signed monitoring policy, not a daily pop-up. The
+    # /monitoring/consent endpoint and MonitoringConsent rows remain for the
+    # historical record and in case the gate is ever reinstated.
     # Double-tap guard: an identical punch within 60s is a duplicate, not intent
     if last and last.kind == body.kind:
         prev = _parse_iso(last.at)
