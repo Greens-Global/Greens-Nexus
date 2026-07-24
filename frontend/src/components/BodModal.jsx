@@ -14,7 +14,7 @@ import { graphToken, postChatMessage } from '../teamsGraph';
 
 const MODES = {
   bod: {
-    title: 'Beginning of day', Icon: Sunrise, color: '#f59e0b', tag: 'BOD',
+    title: 'Beginning of Day', Icon: Sunrise, color: '#f59e0b', tag: 'BOD',
     sub: "First punch-in today — tell the team what's on your plate.",
     msgLabel: 'Message', msgPlaceholder: 'Good morning! Starting my day…',
     tasksLabel: "Today's tasks (one per line)", tasksHead: 'Tasks',
@@ -22,7 +22,7 @@ const MODES = {
     cta: 'Send & start the day', ackLabel: 'I already sent my login (BOD) message',
   },
   eod: {
-    title: 'End of day', Icon: Sunset, color: '#7c3aed', tag: 'EOD',
+    title: 'End of Day', Icon: Sunset, color: '#7c3aed', tag: 'EOD',
     sub: 'Wrapping up — post your summary and the tasks you worked on.',
     msgLabel: 'Summary', msgPlaceholder: 'Wrapping up — good progress today.',
     tasksLabel: 'Tasks (one per line)', tasksHead: 'Tasks',
@@ -70,15 +70,21 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
     return () => { live = false; };
   }, [mode]);
 
-  function buildHtml() {
+  function buildHtml(workedMin = 0) {
     if (M.reasonOnly) return `I'm on a break${message.trim() ? ` for ${esc(message.trim())}` : ''}.`;
-    // Header spells out the kind and stamps the date AND time, so the post reads
-    // e.g. "Beginning of day · Mon, 21 Jul 2026 · 9:15 AM".
+    // Three-line header (spec, Jul 24):
+    //   End of Day
+    //   Fri, July 24th, 2026
+    //   12:50 AM (8:30 mins)     ← the tally is total worked today, EOD only
     const now = new Date();
-    const dateStr = now.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+    const ordinal = (n) => { const v = n % 100; return n + (['th', 'st', 'nd', 'rd'][(v - 20) % 10] || ['th', 'st', 'nd', 'rd'][v] || 'th'); };
+    const dateStr = `${now.toLocaleDateString(undefined, { weekday: 'short' })}, ${now.toLocaleDateString(undefined, { month: 'long' })} ${ordinal(now.getDate())}, ${now.getFullYear()}`;
     const timeStr = now.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
-    const taskLines = tasks.split('\n').map(t => t.trim()).filter(Boolean);
-    return `<b>${M.title} · ${dateStr} · ${timeStr}</b><br/>${esc(message)}`
+    const tally = mode === 'eod' && workedMin > 0
+      ? ` (${Math.floor(workedMin / 60)}:${String(workedMin % 60).padStart(2, '0')} mins)` : '';
+    // "1)Task" → "1) Task" — people number their own lines; make the spacing uniform.
+    const taskLines = tasks.split('\n').map(t => t.trim().replace(/^(\d+[).:])(?=\S)/, '$1 ')).filter(Boolean);
+    return `<b>${M.title}</b><br/>${dateStr}<br/>${timeStr}${tally}<br/>${esc(message)}`
       + (taskLines.length ? `<br/><br/><b>${M.tasksHead}</b><br/>${taskLines.map(t => `• ${esc(t)}`).join('<br/>')}` : '');
   }
 
@@ -86,6 +92,17 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
     if (busy) return;
     if (!message.trim()) { toastErr(M.reasonOnly ? 'Add a short reason.' : `Write a short ${M.title.toLowerCase()} message.`); return; }
     setBusy(true);
+    // EOD tally: total minutes worked today, straight from the server's punch
+    // math (same figure the Time Clock "Worked today" card shows). Best-effort —
+    // a failed fetch just posts the message without the tally.
+    let workedMin = 0;
+    if (mode === 'eod') {
+      try {
+        const st = await api.timeStatus();
+        const key = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+        workedMin = st?.days?.[key]?.workedMin || 0;
+      } catch { /* tally is optional */ }
+    }
     const targetId = bound?.id || '';
     const targetName = bound?.name || '';
     let sent = false, sendError = '';
@@ -93,7 +110,7 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
       try {
         const tok = await graphToken();
         if (!tok) throw new Error('Teams not connected');
-        await postChatMessage(tok, targetId, buildHtml());
+        await postChatMessage(tok, targetId, buildHtml(workedMin));
         sent = true;
       } catch (e) { sendError = String(e?.message || e).slice(0, 180); }
     } else sendError = 'No team chat set up for your group';
