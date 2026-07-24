@@ -345,6 +345,10 @@ export const api = {
   removeTicketLink: (id, targetId) => req(`/task-tickets/${id}/links/${targetId}`, { method: "DELETE" }),
   escalateTicket: (id) => req(`/task-tickets/${id}/escalate`, { method: "POST" }),
   decideTicketApproval: (id, decision, note) => req(`/task-tickets/${id}/approval`, { method: "POST", body: JSON.stringify({ decision, note }) }),
+  // Ticket Outlook notification workflow — admin settings + delivery log (manager+)
+  getTicketNotifySettings: () => req("/task-tickets/notify/settings"),
+  updateTicketNotifySettings: (patch) => req("/task-tickets/notify/settings", { method: "PUT", body: JSON.stringify(patch) }),
+  getTicketNotifyLog: (params = {}) => req(`/task-tickets/notify/log?${new URLSearchParams(params).toString()}`),
   // Ticket components / categories
   getTicketComponents: () => req("/task-ticket-components"),
   addTicketComponent: (data) => req("/task-ticket-components", { method: "POST", body: JSON.stringify(data) }),

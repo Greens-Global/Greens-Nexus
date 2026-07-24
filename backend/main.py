@@ -585,6 +585,16 @@ async def lifespan(app: FastAPI):
         print(f"[startup] asana auto-pull {'scheduled' if is_sync_worker() else 'skipped (not the sync worker)'}")
     except Exception as e:
         print(f"[startup] asana auto-pull skipped: {e}")
+    # Ticket Notification workflow — retries failed/stuck Outlook emails and
+    # auto-closes long-resolved tickets. Same bare-asyncio-loop pattern as the
+    # HR reminders job above.
+    try:
+        import asyncio as _asyncio
+        from ticket_notify import ticket_notify_loop
+        _asyncio.create_task(ticket_notify_loop())
+        print("[startup] ticket notification retry/auto-close loop scheduled")
+    except Exception as e:
+        print(f"[startup] ticket notification loop skipped: {e}")
     yield
 
 
