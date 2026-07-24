@@ -29,7 +29,8 @@ import graph_mail
 import ticket_mail_templates as tmpl
 from routers.task_util import log_activity
 
-_APP_URL = os.getenv("NEXUS_APP_URL", "")   # e.g. https://nexus.greensglobal.com — no trailing slash
+from app_url import app_url
+_APP_URL = app_url()   # NEXUS_APP_URL override, else derived per environment — see app_url.py
 _SETTINGS_KEY = "ticket_notify_config"
 
 _DEFAULT_SETTINGS = {

@@ -45,7 +45,10 @@ from routers.hr import (require_hr_read, require_hr_write, require_hr_delete,
 
 router = APIRouter(prefix="/esign", tags=["esign"])
 
-_APP_URL = os.getenv("NEXUS_APP_URL", "https://dev.nexus.greensglobal.com")
+# NEXUS_APP_URL override, else derived per environment (see app_url.py) — the
+# old hardcoded dev default made PROD e-sign emails link to dev.nexus.
+from app_url import app_url as _app_url_fn
+_APP_URL = _app_url_fn()
 
 # ── Local-dev storage fallback (E-Sign only) ──────────────────────────────────
 # Every real deployment (Azure) always has SUPABASE_URL/SUPABASE_SERVICE_KEY
