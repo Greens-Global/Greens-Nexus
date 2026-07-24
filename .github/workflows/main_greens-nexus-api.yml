@@ -1,5 +1,15 @@
 name: Build and deploy Python app to Azure Web App - greens-nexus-api
 
+# Zero-downtime deploys (Jul 2026): deploy to a STAGING slot, warm it, verify
+# /health on the new code, then swap slots — the old process keeps serving
+# until the new one is proven healthy, so users never see the 3-4 minute
+# restart window that in-place deploys caused (500s on every release).
+#
+# REQUIREMENT: deployment slots need the App Service plan at Standard S1 or
+# higher. Until the plan is upgraded, the "Ensure staging slot" step fails
+# gracefully and the workflow falls back to the old in-place deploy (with a
+# warning in the run) — releases keep working either way.
+
 on:
   push:
     branches:
@@ -7,6 +17,10 @@ on:
     paths:
       - 'backend/**'
   workflow_dispatch:
+
+env:
+  APP_NAME: greens-nexus-api
+  SLOT: staging
 
 jobs:
   build:
@@ -56,9 +70,79 @@ jobs:
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_1FC35A94CA25435AA95CC7312709E6CC }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_7349AA0EE36341E6B6E29280C4EC2511 }}
 
-      - name: Deploy to Azure Web App
+      - name: Resolve resource group
+        id: rg
+        run: |
+          RG=$(az webapp list --query "[?name=='$APP_NAME'].resourceGroup" -o tsv)
+          echo "Resource group: $RG"
+          echo "rg=$RG" >> "$GITHUB_OUTPUT"
+
+      - name: Enable Always On + health check on production (idempotent)
+        continue-on-error: true
+        run: |
+          az webapp config set -g "${{ steps.rg.outputs.rg }}" -n "$APP_NAME" --always-on true
+          az webapp config set -g "${{ steps.rg.outputs.rg }}" -n "$APP_NAME" --generic-configurations '{"healthCheckPath": "/health"}'
+
+      - name: Ensure staging slot exists (needs Standard S1+ plan)
+        id: slot
+        run: |
+          RG="${{ steps.rg.outputs.rg }}"
+          if az webapp deployment slot list -g "$RG" -n "$APP_NAME" --query "[?name=='$SLOT'].name" -o tsv | grep -q "$SLOT"; then
+            echo "Slot exists."
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          elif az webapp deployment slot create -g "$RG" -n "$APP_NAME" --slot "$SLOT" --configuration-source "$APP_NAME"; then
+            echo "Slot created."
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::Could not create the staging slot (App Service plan below Standard S1?). Falling back to IN-PLACE deploy — prod will restart for a few minutes. Upgrade the plan to enable zero-downtime deploys."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Deploy to staging slot
+        if: steps.slot.outputs.ready == 'true'
         uses: azure/webapps-deploy@v3
-        id: deploy-to-webapp
+        with:
+          app-name: 'greens-nexus-api'
+          slot-name: 'staging'
+
+      - name: Warm staging and verify health of the NEW code
+        if: steps.slot.outputs.ready == 'true'
+        run: |
+          RG="${{ steps.rg.outputs.rg }}"
+          HOST=$(az webapp show -g "$RG" -n "$APP_NAME" --slot "$SLOT" --query defaultHostName -o tsv)
+          echo "Warming https://$HOST/health"
+          for i in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "https://$HOST/health") || code=000
+            echo "attempt $i: $code"
+            if [ "$code" = "200" ]; then exit 0; fi
+            sleep 10
+          done
+          echo "::error::Staging never became healthy — NOT swapping. Production is untouched and still running the previous version."
+          exit 1
+
+      - name: Swap staging into production (zero downtime)
+        if: steps.slot.outputs.ready == 'true'
+        run: |
+          az webapp deployment slot swap -g "${{ steps.rg.outputs.rg }}" -n "$APP_NAME" --slot "$SLOT" --target-slot production
+
+      - name: Verify production health after swap
+        if: steps.slot.outputs.ready == 'true'
+        run: |
+          RG="${{ steps.rg.outputs.rg }}"
+          HOST=$(az webapp show -g "$RG" -n "$APP_NAME" --query defaultHostName -o tsv)
+          for i in $(seq 1 12); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "https://$HOST/health") || code=000
+            echo "attempt $i: $code"
+            if [ "$code" = "200" ]; then exit 0; fi
+            sleep 5
+          done
+          echo "::error::Production unhealthy after swap — swap back with: az webapp deployment slot swap -g $RG -n $APP_NAME --slot staging --target-slot production"
+          exit 1
+
+      # Fallback path — plan below Standard: old in-place deploy (restarts prod).
+      - name: Deploy to Azure Web App (in-place fallback)
+        if: steps.slot.outputs.ready != 'true'
+        uses: azure/webapps-deploy@v3
         with:
           app-name: 'greens-nexus-api'
           slot-name: 'Production'
