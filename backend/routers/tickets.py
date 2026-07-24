@@ -446,7 +446,9 @@ def add_ticket_comment(ticket_id: str, body: TicketCommentBody, background_tasks
     db.refresh(c)
     if not internal and get_notify_settings(db).get("commentsTrigger", True):
         background_tasks.add_task(notify_ticket_event, t.id, "updated", user["email"],
-                                   update_kind="New comment added", latest_comment=(body.body or "")[:280])
+                                   # Full comment text — the email renders it in its own
+                                   # quote block, so no truncation (was capped at 280).
+                                   update_kind="New comment added", latest_comment=body.body or "")
     return _tcomment(c)
 
 
