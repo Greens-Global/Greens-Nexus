@@ -13,6 +13,11 @@
 //              instead of plain text when filled in.
 //   - contact: this individual field is a contact (name/company) eligible for the ContactCell
 //              expand-to-phone/email treatment.
+//   - unitKey/unitLabel: pairs this field with a companion unit-picker field (see Lot Size
+//              below) — unitKey is the companion's top-level record key, unitLabel its PT
+//              field label, so AssetDetailForm can render/save it inline as a dropdown.
+//   - hidden:  a real PT field (persists, undoes) that never renders its own row — it's
+//              folded into another field's row via that field's unitKey/unitLabel.
 
 export const PT = [
   {
@@ -144,7 +149,11 @@ export const PT = [
   {
     group: 'Site Data',
     fields: [
-      { label: 'Lot Size (SF / Acres)', key: 'acreage' },
+      { label: 'Lot Size (SF / Acres)', key: 'acreage', unitKey: 'acreageUnit', unitLabel: 'Lot Size Unit' },
+      // Companion to the field above — the SF/Acres picker. A real PT field (so it persists
+      // and undoes like any other), but `hidden` keeps it out of its own row: AssetDetailForm
+      // renders it as a dropdown alongside the Lot Size input instead.
+      { label: 'Lot Size Unit', key: 'acreageUnit', hidden: true },
       { label: 'Dimensions' },
       { label: 'Topography' },
       { label: 'Access Points' },
