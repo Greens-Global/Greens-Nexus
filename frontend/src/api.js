@@ -552,7 +552,7 @@ export const api = {
   reassignItem:           (itemId, d)  => req(`/items/${itemId}/reassign`, { method: 'POST', body: JSON.stringify(d) }),
   assignItemToLocation:   (itemId, location) => req(`/items/${itemId}/assign-location`, { method: 'POST', body: JSON.stringify({ location }) }),
   bulkAssignLocation:     (ids, location)            => req('/items/bulk-assign-location', { method: 'POST', body: JSON.stringify({ ids, location }) }),
-  bulkAssignPerson:       (ids, assignee_email, assignee_name) => req('/items/bulk-assign', { method: 'POST', body: JSON.stringify({ ids, assignee_email, assignee_name }) }),
+  bulkAssignPerson:       (ids, assignee_email, assignee_name, skip_acceptance = false) => req('/items/bulk-assign', { method: 'POST', body: JSON.stringify({ ids, assignee_email, assignee_name, skip_acceptance }) }),
   acceptAssignment:       (id, d)      => req(`/items/assignments/${id}/accept`,          { method: 'POST', body: JSON.stringify(d) }),
   declineAssignment:      (id, d)      => req(`/items/assignments/${id}/decline`,         { method: 'POST', body: JSON.stringify(d) }),
   initAssignmentReturn:   (id, d)      => req(`/items/assignments/${id}/initiate-return`, { method: 'POST', body: JSON.stringify(d) }),

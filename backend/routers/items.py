@@ -2170,6 +2170,9 @@ def _assignment_to_dict(a: ItemAssignment) -> dict:
 class AssignmentCreate(BaseModel):
     assignee_email: str
     assignee_name:  Optional[str] = ""
+    # Manager option: activate immediately instead of waiting for the assignee
+    # to accept. Permanent assignments only (this model is only used there).
+    skip_acceptance: Optional[bool] = False
 
 
 class AssignmentAccept(BaseModel):
@@ -2204,6 +2207,19 @@ def _action_notif(db: Session, ntype: str, ref_id: str):
     ).first()
     if n:
         n.actioned = True
+
+
+def _activate_assignment_direct(a: "ItemAssignment", item: "Item", now: str):
+    """Manager skipped acceptance: flip the assignment straight to active and
+    stamp the item pointers exactly the way accept_assignment does."""
+    a.status = "active"
+    a.accepted_at = now
+    a.accept_note = "Assigned directly by manager — acceptance skipped"
+    if item:
+        item.status = "permanently_assigned"
+        item.ownership_type = "permanent"
+        item.assigned_to_email, item.assigned_to_name, item.assigned_at = a.assignee_email, a.assignee_name, now
+        item.assigned_to_location = ""  # a person now holds it — drop any prior location assignment
 
 
 def _clear_batch_assign_notif(db: Session, assignee_email: str):
@@ -2262,10 +2278,17 @@ def assign_item(item_id: str, body: AssignmentCreate, user: dict = Depends(requi
         status="pending_acceptance", created_at=_now_iso(),
     )
     db.add(a)
-    _notify(db, type="perm_assign", recipient=a.assignee_email,
-            title=f"Item assigned to you: {item.name}",
-            body=f"{a.assigned_by or 'A manager'} assigned {item.name} to you permanently. Please accept it with a photo in My Items.",
-            ref_id=a.id, item_name=item.name, requested_by=a.assignee_name)
+    if body.skip_acceptance:
+        _activate_assignment_direct(a, item, _now_iso())
+        _notify(db, type="perm_assign", recipient=a.assignee_email,
+                title=f"Item assigned to you: {item.name}",
+                body=f"{a.assigned_by or 'A manager'} assigned {item.name} to you permanently. It's already active in My Items — nothing to accept.",
+                ref_id=a.id, item_name=item.name, requested_by=a.assignee_name)
+    else:
+        _notify(db, type="perm_assign", recipient=a.assignee_email,
+                title=f"Item assigned to you: {item.name}",
+                body=f"{a.assigned_by or 'A manager'} assigned {item.name} to you permanently. Please accept it with a photo in My Items.",
+                ref_id=a.id, item_name=item.name, requested_by=a.assignee_name)
     db.commit()
     return _assignment_to_dict(a)
 
@@ -2359,6 +2382,7 @@ class BulkAssignPersonIn(BaseModel):
     ids:            list[str]
     assignee_email: str
     assignee_name:  str = ""
+    skip_acceptance: bool = False
 
 
 @router.post("/bulk-assign")
@@ -2386,12 +2410,15 @@ def bulk_assign_to_person(body: BulkAssignPersonIn, user: dict = Depends(require
         asg_id = f"ASG-{uuid.uuid4().hex[:10].upper()}"
         if not first_asg_id:
             first_asg_id = asg_id
-        db.add(ItemAssignment(
+        asg = ItemAssignment(
             id=asg_id, item_id=it.id, item_name=it.name,
             assignee_email=email, assignee_name=name,
             assigned_by=_title_case_email(user["email"]), assigned_by_email=user["email"],
             status="pending_acceptance", created_at=_now_iso(),
-        ))
+        )
+        db.add(asg)
+        if body.skip_acceptance:
+            _activate_assignment_direct(asg, it, _now_iso())
         assigned += 1
         names.append(it.name)
     if assigned:
@@ -2400,9 +2427,11 @@ def bulk_assign_to_person(body: BulkAssignPersonIn, user: dict = Depends(require
         # be deep-linked AND auto-cleared — with ref_id="" it could never be actioned
         # and lingered forever. Accepting/declining ANY item from the batch clears it
         # (see _clear_batch_assign_notif in accept/decline).
+        tail = ("They're already active in My Items — nothing to accept."
+                if body.skip_acceptance else "Accept each with a photo in My Items.")
         _notify(db, type="perm_assign", recipient=email,
                 title=f"{assigned} item{'s' if assigned != 1 else ''} assigned to you",
-                body=f"{_title_case_email(user['email'])} assigned you {assigned} item{'s' if assigned != 1 else ''}: {preview}. Accept each with a photo in My Items.",
+                body=f"{_title_case_email(user['email'])} assigned you {assigned} item{'s' if assigned != 1 else ''}: {preview}. {tail}",
                 ref_id=first_asg_id, item_name=names[0] if names else "", requested_by=name)
     db.commit()
     return {"assigned": assigned, "skipped": sorted(blocked & set(ids))}
