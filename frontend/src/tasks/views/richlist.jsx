@@ -111,11 +111,11 @@ function PillSelect({ label, color, tint, icon, options, currentKey, onSelect, c
   const close = () => setOpen(false);
   useClickOutside([ref, panelRef], close, open);
   return (
-    <div ref={ref} style={{ position: 'relative', display: 'flex', justifyContent: center ? 'center' : 'flex-start', ...(solid ? { width: '100%' } : {}) }}>
+    <div ref={ref} style={{ position: 'relative', display: 'flex', justifyContent: center ? 'center' : 'flex-start', ...(solid ? { width: '100%', height: '100%' } : {}) }}>
       <button onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }} style={solid ? {
-        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, width: '100%', padding: '6px 8px',
-        borderRadius: 5, fontSize: 12, fontWeight: 700, background: color, color: '#fff', border: 'none', cursor: 'pointer',
-        transition: 'filter 0.12s', whiteSpace: 'nowrap',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, width: '100%', height: '100%', minHeight: 32,
+        padding: '0 6px', borderRadius: 0, fontSize: 12.5, fontWeight: 500, background: color, color: '#fff', border: 'none',
+        cursor: 'pointer', transition: 'filter 0.12s', whiteSpace: 'nowrap',
       } : {
         display: 'inline-flex', alignItems: 'center', gap: 4, maxWidth: '100%', padding: '2px 8px', borderRadius: 999,
         fontSize: 12, fontWeight: 600, background: tint, color, border: 'none', cursor: 'pointer',
@@ -143,7 +143,7 @@ function PillSelect({ label, color, tint, icon, options, currentKey, onSelect, c
   );
 }
 
-function AssigneeCell({ value, people, onSelect }) {
+function AssigneeCell({ value, people, onSelect, compact }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
   const ref = useRef(null);
@@ -153,12 +153,15 @@ function AssigneeCell({ value, people, onSelect }) {
   const pick = (em) => { onSelect(em); setOpen(false); setQ(''); };
   const filtered = q ? people.filter((p) => (p.name + p.email).toLowerCase().includes(q.toLowerCase())) : people;
   return (
-    <div ref={ref} style={{ position: 'relative' }}>
+    <div ref={ref} style={{ position: 'relative', ...(compact ? { width: '100%' } : {}) }}>
       {/* The cell value itself is the dropdown trigger — clicking it opens the
-          people list directly (no nested picker button inside the popover). */}
-      <button onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }} style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', border: 'none', background: 'transparent', cursor: 'pointer', textAlign: 'left', padding: 0 }}>
-        {value ? <Avatar email={value} name={name} size={22} /> : null}
-        <span style={{ fontSize: 13, color: value ? NX.dim : NX.faint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name || 'Unassigned'}</span>
+          people list directly (no nested picker button inside the popover).
+          compact = monday-style Person cell: just the avatar, centered. */}
+      <button title={name || 'Unassigned'} onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }} style={{ display: 'flex', alignItems: 'center', justifyContent: compact ? 'center' : 'flex-start', gap: 6, width: '100%', border: 'none', background: 'transparent', cursor: 'pointer', textAlign: 'left', padding: 0 }}>
+        {value ? <Avatar email={value} name={name} size={compact ? 26 : 22} /> : compact ? (
+          <span style={{ width: 26, height: 26, borderRadius: '50%', border: `1.5px dashed ${NX.border}`, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: NX.faint, fontSize: 13 }}>+</span>
+        ) : null}
+        {!compact && <span style={{ fontSize: 13, color: value ? NX.dim : NX.faint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name || 'Unassigned'}</span>}
       </button>
       {open && (
         <PortalDropdown anchorRef={ref} panelRef={panelRef} width={240}>
@@ -193,10 +196,11 @@ function ActionIcons({ t, store, onOpen }) {
 }
 
 function TaskRow({ t, cols, customFields = [], template, store, people, selected, toggleSel, onOpen }) {
-  const cellPad = { minWidth: 0 };
-  // Editable cells get a highlight + reveal picker affordance on hover (see
-  // .rl-cell in style.css). Padding gives the highlight box some breathing room.
-  const editCell = { minWidth: 0, padding: '3px 6px' };
+  // monday-style spreadsheet cells: every cell carries a right border, rows are
+  // a compact ~36px, and status/priority blocks fill their cell edge-to-edge.
+  const cellPad = { minWidth: 0, display: 'flex', alignItems: 'center', minHeight: 36, padding: '2px 8px', borderRight: `1px solid ${NX.border2}`, boxSizing: 'border-box' };
+  const editCell = { ...cellPad };
+  const flushCell = { ...cellPad, padding: 0, alignItems: 'stretch' };
   const pm = PRIORITY_META[t.priority] || { label: t.priority, color: NX.dim, tint: NX.border2 };
   const sm = store.statusMeta[t.status] || { label: t.status, color: NX.dim, tint: NX.border2 };
   const team = t.teamId ? store.teamById(t.teamId) : null;
@@ -207,21 +211,23 @@ function TaskRow({ t, cols, customFields = [], template, store, people, selected
     <div onClick={() => onOpen(t.id)} data-task-row style={{ borderBottom: `1px solid ${NX.border2}`, background: selected ? 'rgba(37,99,235,0.10)' : 'transparent', cursor: 'pointer' }}
       onMouseEnter={(e) => { if (!selected) e.currentTarget.style.background = NX.hover; }}
       onMouseLeave={(e) => { if (!selected) e.currentTarget.style.background = 'transparent'; }}>
-      <div style={{ display: 'grid', gridTemplateColumns: template, alignItems: 'center', gap: 12, padding: '6px 16px', fontSize: 13 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: template, alignItems: 'stretch', fontSize: 13 }}>
         {/* checkbox */}
-        <button onClick={(e) => { e.stopPropagation(); toggleSel(t.id); }} style={{ width: 16, height: 16, borderRadius: 3, border: `1.5px solid ${selected ? NX.primary : NX.border}`, background: selected ? NX.primary : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 0 }}>
-          {selected && <Check size={11} strokeWidth={3} color="#fff" />}
-        </button>
+        <div style={{ ...cellPad, justifyContent: 'center', padding: '2px 4px' }}>
+          <button onClick={(e) => { e.stopPropagation(); toggleSel(t.id); }} style={{ width: 16, height: 16, borderRadius: 3, border: `1.5px solid ${selected ? NX.primary : NX.border}`, background: selected ? NX.primary : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 0, flexShrink: 0 }}>
+            {selected && <Check size={11} strokeWidth={3} color="#fff" />}
+          </button>
+        </div>
         {/* actions */}
-        <ActionIcons t={t} store={store} onOpen={onOpen} />
+        <div style={cellPad}><ActionIcons t={t} store={store} onOpen={onOpen} /></div>
         {/* task */}
-        <div style={{ ...cellPad, display: 'flex', alignItems: 'center', gap: 6 }}>
+        <div style={{ ...cellPad, gap: 6 }}>
           {t.isMilestone && <Diamond size={12} style={{ color: NX.purple, flexShrink: 0 }} />}
           <span style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: t.completed ? NX.faint : NX.ink, textDecoration: t.completed ? 'line-through' : 'none' }}>{t.title}</span>
           {(t.subtaskIds?.length > 0) && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, fontSize: 11, color: NX.faint, flexShrink: 0 }}>{t.subtaskIds.length}<ListTree size={12} /></span>}
         </div>
-        {/* assignee */}
-        <div className="rl-cell" style={editCell} onClick={(e) => e.stopPropagation()}><AssigneeCell value={t.assigneeId || null} people={people} onSelect={(em) => store.updateTask(t.id, { assigneeId: em || '' })} /></div>
+        {/* assignee — monday Person cell: centered avatar */}
+        <div className="rl-cell" style={editCell} onClick={(e) => e.stopPropagation()}><AssigneeCell compact value={t.assigneeId || null} people={people} onSelect={(em) => store.updateTask(t.id, { assigneeId: em || '' })} /></div>
         {/* project */}
         <div className="rl-cell" style={editCell} onClick={(e) => e.stopPropagation()}>
           <select value={t.projectId || ''} onChange={(e) => store.updateTask(t.id, { projectId: e.target.value || null })} style={{ border: 'none', borderRadius: 6, padding: 0, fontSize: 13, color: t.projectId ? NX.dim : NX.faint, background: 'transparent', fontFamily: FONT, width: '100%', cursor: 'pointer' }}>
@@ -244,14 +250,14 @@ function TaskRow({ t, cols, customFields = [], template, store, people, selected
           <input type="number" className="rl-num" min={0} value={t.actualHours ?? ''} placeholder="0" onChange={(e) => store.updateTask(t.id, { actualHours: e.target.value === '' ? null : Number(e.target.value) })} style={{ width: 34, textAlign: 'right', border: 'none', background: 'transparent', fontSize: 12, color: NX.dim, outline: 'none', fontFamily: FONT }} />
           <span style={{ color: NX.faint, fontSize: 12 }}>h</span>
         </div>
-        {/* priority — monday-style solid colored cell */}
-        <div className="rl-cell" style={editCell} onClick={(e) => e.stopPropagation()}>
+        {/* priority — monday-style edge-to-edge colored cell */}
+        <div style={flushCell} onClick={(e) => e.stopPropagation()}>
           <PillSelect solid center label={pm.label} color={pm.color} tint={pm.tint} currentKey={t.priority}
             options={PRIORITY_ORDER.map((p) => ({ key: p, label: PRIORITY_META[p].label, color: PRIORITY_META[p].color }))}
             onSelect={(k) => store.updateTask(t.id, { priority: k })} />
         </div>
-        {/* status — monday-style solid colored cell */}
-        <div className="rl-cell" style={editCell} onClick={(e) => e.stopPropagation()}>
+        {/* status — monday-style edge-to-edge colored cell */}
+        <div style={flushCell} onClick={(e) => e.stopPropagation()}>
           <PillSelect solid center label={sm.label} color={sm.color} tint={sm.tint} currentKey={t.status}
             options={store.statusOrder.map((s) => ({ key: s, label: store.statusMeta[s]?.label || s, color: store.statusMeta[s]?.color }))}
             onSelect={(k) => store.setStatus(t.id, k)} />
@@ -485,30 +491,36 @@ export default function RichListView({ visible, group, ctx, store, people, selec
     );
   }
 
+  // monday repeats the column header inside every group block — this renders one.
+  const headCell = { position: 'relative', display: 'flex', alignItems: 'center', minWidth: 0, minHeight: 34, padding: '2px 8px', borderRight: `1px solid ${NX.border2}`, boxSizing: 'border-box' };
+  const groupHeader = (
+    <div style={{ display: 'grid', gridTemplateColumns: template, alignItems: 'stretch', borderBottom: `1px solid ${NX.border2}`, background: NX.surface, fontSize: 13, fontWeight: 400, color: NX.dim }}>
+      <div style={{ ...headCell, justifyContent: 'center', padding: '2px 4px' }}>
+        <button onClick={onSelectAll} title={allSel ? 'Deselect all' : 'Select all'} style={{ width: 16, height: 16, borderRadius: 3, border: `1.5px solid ${allSel || someSel ? NX.primary : NX.border}`, background: allSel || someSel ? NX.primary : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 0, flexShrink: 0 }}>
+          {allSel ? <Check size={11} strokeWidth={3} color="#fff" /> : someSel ? <Minus size={11} strokeWidth={3} color="#fff" /> : null}
+        </button>
+      </div>
+      {cols.slice(1).map((c) => (
+        <div key={c.key} style={{ ...headCell, justifyContent: c.key === 'task' || c.key === 'actions' ? 'flex-start' : 'center' }}>
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.label}</span>
+          <ColResizer onMouseDown={startResize(c.key, widths[c.key] ?? c.width)} />
+        </div>
+      ))}
+      {customFields.map((f) => (
+        <div key={f.id} style={{ ...headCell, justifyContent: 'center' }}>
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
+          <ColResizer onMouseDown={startResize(f.id, widths[f.id] ?? 150)} />
+        </div>
+      ))}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', padding: '2px 8px' }} onClick={(e) => e.stopPropagation()}>
+        <AddFieldMenu createCustomField={store.createCustomField} />
+      </div>
+    </div>
+  );
+
   return (
     <div className="nx-list-scroll" style={{ margin: 16, minHeight: 'calc(100% - 32px)' }}>
       <div style={{ minWidth: 'fit-content' }}>
-        {/* header */}
-        <div style={{ display: 'grid', gridTemplateColumns: template, alignItems: 'center', gap: 12, padding: '8px 16px', border: `1px solid ${NX.border}`, borderRadius: 10, background: NX.surface2, fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.3, color: NX.faint }}>
-          <button onClick={onSelectAll} title={allSel ? 'Deselect all' : 'Select all'} style={{ width: 16, height: 16, borderRadius: 3, border: `1.5px solid ${allSel || someSel ? NX.primary : NX.border}`, background: allSel || someSel ? NX.primary : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 0 }}>
-            {allSel ? <Check size={11} strokeWidth={3} color="#fff" /> : someSel ? <Minus size={11} strokeWidth={3} color="#fff" /> : null}
-          </button>
-          {cols.slice(1).map((c) => (
-            <div key={c.key} style={{ position: 'relative', display: 'flex', justifyContent: c.center ? 'center' : 'flex-start', minWidth: 0 }}>
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.label}</span>
-              <ColResizer onMouseDown={startResize(c.key, widths[c.key] ?? c.width)} />
-            </div>
-          ))}
-          {customFields.map((f) => (
-            <div key={f.id} style={{ position: 'relative', display: 'flex', minWidth: 0 }}>
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
-              <ColResizer onMouseDown={startResize(f.id, widths[f.id] ?? 150)} />
-            </div>
-          ))}
-          <div style={{ justifySelf: 'end' }} onClick={(e) => e.stopPropagation()}>
-            <AddFieldMenu createCustomField={store.createCustomField} />
-          </div>
-        </div>
         {groups.map((g) => {
           const isCol = collapsed.has(g.key);
           // monday.com-style group block: colored title, left color bar, and a
@@ -521,32 +533,35 @@ export default function RichListView({ visible, group, ctx, store, people, selec
           const fmtD = (iso) => new Date(iso + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
           const dueRange = dues.length ? (dues[0] === dues[dues.length - 1] ? fmtD(dues[0]) : `${fmtD(dues[0])} – ${fmtD(dues[dues.length - 1])}`) : '';
           return (
-            <div key={g.key} style={{ marginTop: 18 }}>
+            <div key={g.key} style={{ marginTop: 22 }}>
               <button onClick={() => toggleGroup(g.key)} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '2px 2px 8px', border: 'none', background: 'transparent', cursor: 'pointer', textAlign: 'left', fontFamily: FONT }}>
-                <ChevronDown size={16} style={{ color: gc, transform: isCol ? 'rotate(-90deg)' : 'none', transition: 'transform 0.15s' }} />
-                <span style={{ fontSize: 14.5, fontWeight: 700, color: gc }}>{g.label}</span>
-                <span style={{ fontSize: 12, color: NX.faint, fontWeight: 600 }}>{total} item{total !== 1 ? 's' : ''}</span>
+                <ChevronDown size={17} style={{ color: gc, transform: isCol ? 'rotate(-90deg)' : 'none', transition: 'transform 0.15s' }} />
+                <span style={{ fontSize: 17, fontWeight: 600, color: gc, letterSpacing: -0.2 }}>{g.label}</span>
+                <span style={{ fontSize: 12.5, color: NX.faint, fontWeight: 500, marginLeft: 4 }}>{total} item{total !== 1 ? 's' : ''}</span>
               </button>
               {!isCol && (
                 <div style={{ border: `1px solid ${NX.border}`, borderLeft: `6px solid ${gc}`, borderRadius: 8, overflow: 'hidden', background: NX.surface }}>
+                  {groupHeader}
                   {g.tasks.map((t) => (
                     <TaskRow key={t.id} t={t} cols={cols} customFields={customFields} template={template} store={store} people={people} selected={selected.has(t.id)} toggleSel={toggleSel} onOpen={onOpen} />
                   ))}
                   <AddTaskInline store={store} lockedProjectId={lockedProjectId} defaults={groupAddDefaults(effGroup, g.key)} />
                   {/* summary footer — mirrors monday's group tallies */}
-                  <div style={{ display: 'grid', gridTemplateColumns: template, alignItems: 'center', gap: 12, padding: '7px 16px', fontSize: 12 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: template, alignItems: 'center', padding: '5px 0', fontSize: 12 }}>
                     <div /><div /><div /><div /><div />
-                    <div>
+                    <div style={{ padding: '2px 8px', display: 'flex', justifyContent: 'center' }}>
                       {dueRange && (
                         <span title="Due-date range in this group" style={{ display: 'inline-block', padding: '3px 10px', borderRadius: 12, background: '#00c875', color: '#fff', fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap' }}>{dueRange}</span>
                       )}
                     </div>
                     <div /><div /><div />
-                    <div title={store.statusOrder.filter((s) => byStatus[s]).map((s) => `${store.statusMeta[s]?.label || s}: ${byStatus[s]}/${total}`).join(' · ')}
-                      style={{ display: 'flex', height: 22, borderRadius: 5, overflow: 'hidden', background: NX.border2 }}>
-                      {store.statusOrder.filter((s) => byStatus[s]).map((s) => (
-                        <div key={s} style={{ flex: byStatus[s], background: store.statusMeta[s]?.color || NX.faint }} />
-                      ))}
+                    <div style={{ padding: '2px 6px' }}>
+                      <div title={store.statusOrder.filter((s) => byStatus[s]).map((s) => `${store.statusMeta[s]?.label || s}: ${byStatus[s]}/${total}`).join(' · ')}
+                        style={{ display: 'flex', height: 22, borderRadius: 5, overflow: 'hidden', background: NX.border2 }}>
+                        {store.statusOrder.filter((s) => byStatus[s]).map((s) => (
+                          <div key={s} style={{ flex: byStatus[s], background: store.statusMeta[s]?.color || NX.faint }} />
+                        ))}
+                      </div>
                     </div>
                     <div />
                     {customFields.map((f) => <div key={f.id} />)}

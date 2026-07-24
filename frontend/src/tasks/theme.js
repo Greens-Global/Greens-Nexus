@@ -33,7 +33,7 @@ export const FONT = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Rob
 // Palette tuned to monday.com's board colors (Jul 25): working-orange /
 // done-green / stuck-red family — brighter, reads well as SOLID cell fills.
 export const STATUS_META = {
-  not_started: { label: 'Not Started', color: '#797e93', tint: 'rgba(121,126,147,0.16)' },
+  not_started: { label: 'Not Started', color: '#c4c4c4', tint: 'rgba(196,196,196,0.25)' },
   recurring:   { label: 'Recurring',   color: '#0d9488', tint: 'rgba(13,148,136,0.15)' },
   in_progress: { label: 'In Progress', color: '#fdab3d', tint: 'rgba(253,171,61,0.18)' },
   completed:   { label: 'Completed',   color: '#00c875', tint: 'rgba(0,200,117,0.16)' },
