@@ -47,7 +47,8 @@ def _rows_table(rows: list[tuple[str, str]]) -> str:
 def ticket_email_html(*, ticket_code: str, ticket_subject: str, status: str, heading: str,
                        intro: str, rows: list[tuple[str, str]], cta_label: str, cta_url: str,
                        secondary_ctas: list[tuple[str, str]] | None = None,
-                       note: str = "", logo_url: str = "") -> str:
+                       note: str = "", logo_url: str = "",
+                       comment_label: str = "", comment_text: str = "") -> str:
     logo_block = (
         f"<img src='{escape(logo_url)}' alt='Company logo' height='28' style='display:block' />"
         if logo_url else
@@ -62,6 +63,18 @@ def ticket_email_html(*, ticket_code: str, ticket_subject: str, status: str, hea
         )
         secondary_html = f"<p style='margin:14px 0 0;text-align:center'>{links}</p>"
     note_html = f"<p style='margin:14px 0 0;font-size:12.5px;color:#6b7280;font-style:italic'>{escape(note)}</p>" if note else ""
+    # Full-width comment block — deliberately NOT a table row: comments can be
+    # long, so they get their own quote box with the full text (pre-wrap keeps
+    # the author's line breaks) at a readable size.
+    comment_html = ""
+    if comment_text:
+        comment_html = f"""
+    <tr>
+      <td style="padding:0 28px 18px">
+        <div style="font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#6b7280;margin:0 0 6px">{escape(comment_label or 'Latest comment')}</div>
+        <div style="background:#f3f4f6;border-left:3px solid #0f3d2e;border-radius:6px;padding:13px 16px;font-size:14px;line-height:1.6;color:#111827;white-space:pre-wrap;word-break:break-word">{escape(comment_text)}</div>
+      </td>
+    </tr>"""
 
     return f"""<div style="background:#f4f5f7;padding:28px 12px;font-family:'Segoe UI',Arial,Helvetica,sans-serif">
   <table align="center" width="580" cellpadding="0" cellspacing="0" style="max-width:580px;width:100%;background:#ffffff;border-radius:14px;border:1px solid #e5e7eb;border-collapse:separate;overflow:hidden">
@@ -83,7 +96,7 @@ def ticket_email_html(*, ticket_code: str, ticket_subject: str, status: str, hea
         <p style="margin:0;font-size:13.5px;line-height:1.6;color:#374151">{escape(intro)}</p>
         {_rows_table(rows)}
       </td>
-    </tr>
+    </tr>{comment_html}
     <tr>
       <td style="padding:4px 28px 28px;text-align:center">
         <a href="{escape(cta_url)}" style="display:inline-block;background:#0f3d2e;color:#ffffff;text-decoration:none;
@@ -198,21 +211,22 @@ def assigned_email(*, t: dict, base_url: str, logo_url: str, audience: str) -> t
 def update_email(*, t: dict, base_url: str, logo_url: str, update_kind: str,
                   prev_status: str = "", latest_comment: str = "") -> tuple[str, str]:
     subject = f"[Ticket #{t['code']}] Ticket Update – {t['code']} – {TICKET_STATUS_META.get(t['status'], {}).get('label', t['status'])}"
+    # No "Update" row — the intro line already says what changed. Comments get
+    # their own full-width block below the table instead of a cramped row.
     rows = [
         ("Previous status", TICKET_STATUS_META.get(prev_status, {}).get("label", prev_status) if prev_status else "—"),
         ("Updated status", TICKET_STATUS_META.get(t["status"], {}).get("label", t["status"])),
-        ("Update", update_kind),
         ("Updated by", t.get("actorName") or t.get("actorEmail")),
         ("Updated", t.get("eventAtDisplay") or "—"),
         ("Current assignee", t.get("assigneeName") or t.get("assigneeId") or "Unassigned"),
     ]
-    if latest_comment:
-        rows.append(("Latest comment", latest_comment))
     html = ticket_email_html(
         ticket_code=t["code"], ticket_subject=t["subject"], status=t["status"],
         heading="Your ticket has an update",
         intro=f"{t.get('actorName') or t.get('actorEmail')} made a change to this ticket: {update_kind}.",
         rows=rows, cta_label="View Ticket", cta_url=_ticket_url(base_url, t["id"]), logo_url=logo_url,
+        comment_label=f"Latest comment — {t.get('actorName') or t.get('actorEmail')}" if latest_comment else "",
+        comment_text=latest_comment,
     )
     return subject, html
 
