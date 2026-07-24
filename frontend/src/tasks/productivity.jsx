@@ -84,8 +84,8 @@ function SelectedChips({ items, onRemove }) {
 }
 
 // ── Category bodies — shared by the desktop popovers and the mobile drill-in sheet ──
-function FiltersBody({ filters, setFilters, people, projects, lockedProjectId, statusOrder = STATUS_ORDER, statusMeta = STATUS_META }) {
-  const activeFilterCount = filters.assigneeIds.length + filters.statuses.length + filters.priorities.length + (lockedProjectId ? 0 : filters.projectIds.length);
+function FiltersBody({ filters, setFilters, people, projects, lockedProjectId, hideAssignee, statusOrder = STATUS_ORDER, statusMeta = STATUS_META }) {
+  const activeFilterCount = (hideAssignee ? 0 : filters.assigneeIds.length) + filters.statuses.length + filters.priorities.length + (lockedProjectId ? 0 : filters.projectIds.length);
   const [assigneeQuery, setAssigneeQuery] = useState('');
   const [projectQuery, setProjectQuery] = useState('');
   const searchInput = { ...inputStyle, padding: '6px 9px', fontSize: 12.5, marginBottom: 6 };
@@ -105,23 +105,25 @@ function FiltersBody({ filters, setFilters, people, projects, lockedProjectId, s
           {PRIORITY_ORDER.map((p) => { const on = filters.priorities.includes(p); const m = PRIORITY_META[p]; return <button key={p} onClick={() => setFilters({ ...filters, priorities: toggle(filters.priorities, p) })} style={pill(on, m.color, m.tint)}>{m.label}</button>; })}
         </div>
       </div>
-      <div>
-        <div style={groupHead}>Assignee</div>
-        <SelectedChips
-          items={filters.assigneeIds.map((id) => ({ id, label: people.find((u) => u.email === id)?.name || emailToName(id) }))}
-          onRemove={(id) => setFilters({ ...filters, assigneeIds: toggle(filters.assigneeIds, id) })}
-        />
-        <input value={assigneeQuery} onChange={(e) => setAssigneeQuery(e.target.value)} placeholder="Search people…" style={searchInput} />
-        <div style={{ maxHeight: 108, overflowY: 'auto', border: `1px solid ${NX.border2}`, borderRadius: 8 }}>
-          {shownPeople.map((u) => (
-            <label key={u.email} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 9px', fontSize: 13, cursor: 'pointer' }}>
-              <input type="checkbox" checked={filters.assigneeIds.includes(u.email)} onChange={() => setFilters({ ...filters, assigneeIds: toggle(filters.assigneeIds, u.email) })} />
-              {u.name}
-            </label>
-          ))}
-          {shownPeople.length === 0 && <div style={{ padding: 8, fontSize: 12, color: NX.faint }}>{people.length === 0 ? 'No people' : 'No matches'}</div>}
+      {!hideAssignee && (
+        <div>
+          <div style={groupHead}>Assignee</div>
+          <SelectedChips
+            items={filters.assigneeIds.map((id) => ({ id, label: people.find((u) => u.email === id)?.name || emailToName(id) }))}
+            onRemove={(id) => setFilters({ ...filters, assigneeIds: toggle(filters.assigneeIds, id) })}
+          />
+          <input value={assigneeQuery} onChange={(e) => setAssigneeQuery(e.target.value)} placeholder="Search people…" style={searchInput} />
+          <div style={{ maxHeight: 108, overflowY: 'auto', border: `1px solid ${NX.border2}`, borderRadius: 8 }}>
+            {shownPeople.map((u) => (
+              <label key={u.email} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 9px', fontSize: 13, cursor: 'pointer' }}>
+                <input type="checkbox" checked={filters.assigneeIds.includes(u.email)} onChange={() => setFilters({ ...filters, assigneeIds: toggle(filters.assigneeIds, u.email) })} />
+                {u.name}
+              </label>
+            ))}
+            {shownPeople.length === 0 && <div style={{ padding: 8, fontSize: 12, color: NX.faint }}>{people.length === 0 ? 'No people' : 'No matches'}</div>}
+          </div>
         </div>
-      </div>
+      )}
       {!lockedProjectId && (
         <div>
           <div style={groupHead}>Project</div>
@@ -141,6 +143,7 @@ function FiltersBody({ filters, setFilters, people, projects, lockedProjectId, s
           </div>
         </div>
       )}
+      <p style={{ margin: 0, fontSize: 11, color: NX.faint }}>Applies to List, Board and Dashboard together in this view — switching tabs keeps these filters, it doesn't reset them.</p>
       {activeFilterCount > 0 && (
         <button onClick={() => setFilters({ ...filters, assigneeIds: [], statuses: [], priorities: [], projectIds: [] })} style={{ ...btn('outline'), justifyContent: 'center' }}>Clear Filters</button>
       )}
@@ -212,13 +215,13 @@ function GroupBody({ group, setGroup, groupOptions, close }) {
   );
 }
 
-export function ProductivityBar({ filters, setFilters, sort, setSort, lockedProjectId, current, onApplyView, onOpenTask, group, setGroup, groupOptions, sheet = false }) {
+export function ProductivityBar({ filters, setFilters, sort, setSort, lockedProjectId, hideAssignee, current, onApplyView, onOpenTask, group, setGroup, groupOptions, sheet = false }) {
   const store = useTasks();
   const { savedViews, createSavedView, deleteSavedView, templates, intakeForms, projects, projectName, createTask, myEmail } = store;
   const people = usePeople();
   const isMobile = useIsMobile();
 
-  const activeFilterCount = filters.assigneeIds.length + filters.statuses.length + filters.priorities.length
+  const activeFilterCount = (hideAssignee ? 0 : filters.assigneeIds.length) + filters.statuses.length + filters.priorities.length
     + (lockedProjectId ? 0 : filters.projectIds.length);
   const dateActive = (filters.due && filters.due !== 'any') || filters.dueFrom || filters.dueTo;
 
@@ -229,7 +232,7 @@ export function ProductivityBar({ filters, setFilters, sort, setSort, lockedProj
     <div style={{ display: 'flex', flexDirection: sheet ? 'column' : 'row', alignItems: sheet ? 'stretch' : 'center', gap: sheet ? 6 : (isMobile ? 6 : 8), flexWrap: (sheet || !isMobile) ? 'wrap' : 'nowrap', fontFamily: FONT }}>
       {/* Filters */}
       <Popover sheet={sheet} label={activeFilterCount ? `Filters · ${activeFilterCount}` : 'Filters'} icon={SlidersHorizontal} active={activeFilterCount > 0} width={260}>
-        {() => <FiltersBody filters={filters} setFilters={setFilters} people={people} projects={projects} lockedProjectId={lockedProjectId} statusOrder={store.statusOrder} statusMeta={store.statusMeta} />}
+        {() => <FiltersBody filters={filters} setFilters={setFilters} people={people} projects={projects} lockedProjectId={lockedProjectId} hideAssignee={hideAssignee} statusOrder={store.statusOrder} statusMeta={store.statusMeta} />}
       </Popover>
 
       {/* Date — separate from Filters, matching the export's dedicated Date button */}
@@ -269,13 +272,13 @@ export function ProductivityBar({ filters, setFilters, sort, setSort, lockedProj
 
 // Asana-style mobile filter sheet: a category list that drills into a full panel
 // (Filters / Date / Sort / Group / Saved Views) with a back arrow — no popovers.
-export function MobileFilters({ filters, setFilters, sort, setSort, group, setGroup, groupOptions, current, onApplyView, search, setSearch, lockedProjectId, onClose }) {
+export function MobileFilters({ filters, setFilters, sort, setSort, group, setGroup, groupOptions, current, onApplyView, search, setSearch, lockedProjectId, hideAssignee, onClose }) {
   const store = useTasks();
   const { savedViews, createSavedView, deleteSavedView, projects } = store;
   const people = usePeople();
   const [cat, setCat] = useState(null);
 
-  const activeFilterCount = filters.assigneeIds.length + filters.statuses.length + filters.priorities.length + (lockedProjectId ? 0 : filters.projectIds.length);
+  const activeFilterCount = (hideAssignee ? 0 : filters.assigneeIds.length) + filters.statuses.length + filters.priorities.length + (lockedProjectId ? 0 : filters.projectIds.length);
   const dateActive = (filters.due && filters.due !== 'any') || filters.dueFrom || filters.dueTo;
   const hasGroup = groupOptions && setGroup;
 
@@ -313,7 +316,7 @@ export function MobileFilters({ filters, setFilters, sort, setSort, group, setGr
   const catLabel = { filters: 'Filters', date: 'Date', sort: 'Sort', group: 'Group', saved: 'Saved Views' }[cat];
   return (
     <BottomSheet title={catLabel} onClose={onClose} onBack={() => setCat(null)}>
-      {cat === 'filters' && <FiltersBody filters={filters} setFilters={setFilters} people={people} projects={projects} lockedProjectId={lockedProjectId} statusOrder={store.statusOrder} statusMeta={store.statusMeta} />}
+      {cat === 'filters' && <FiltersBody filters={filters} setFilters={setFilters} people={people} projects={projects} lockedProjectId={lockedProjectId} hideAssignee={hideAssignee} statusOrder={store.statusOrder} statusMeta={store.statusMeta} />}
       {cat === 'date' && <DateBody filters={filters} setFilters={setFilters} />}
       {cat === 'sort' && <SortBody sort={sort} setSort={setSort} close={() => {}} />}
       {cat === 'group' && <GroupBody group={group} setGroup={setGroup} groupOptions={groupOptions} close={() => {}} />}

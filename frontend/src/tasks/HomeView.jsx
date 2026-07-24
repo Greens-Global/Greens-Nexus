@@ -5,7 +5,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { MoreHorizontal, ChevronDown, ChevronRight, CheckCircle2, Users, LayoutGrid, Plus, Circle, CalendarDays, FolderKanban, Bell, ArrowUp, ArrowDown, X, Building2 } from 'lucide-react';
 import { useTasks } from './TasksContext';
-import { fmtDate } from './lib';
+import { fmtDate, taskIdFromUrl } from './lib';
 import { NX, FONT, btn, card } from './theme';
 import { Avatar, useClickOutside, useIsMobile } from './components';
 import TaskDetailDrawer from './TaskDetailDrawer';
@@ -37,7 +37,7 @@ export default function HomeView({ onNavigate }) {
   const [creating, setCreating] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [newDue, setNewDue] = useState(null);
-  const [openId, setOpenId] = useState(null);
+  const [openId, setOpenId] = useState(taskIdFromUrl);
   const [creatingProject, setCreatingProject] = useState(false);
   const [customizing, setCustomizing] = useState(false);
   const isMobile = useIsMobile();
@@ -216,7 +216,11 @@ export default function HomeView({ onNavigate }) {
             <span style={{ width: 1, height: 16, background: NX.border }} />
             <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Users size={14} /> {collaborators} collaborator{collaborators === 1 ? '' : 's'}</span>
           </div>
-          <button onClick={() => setCustomizing(true)} title="Customize" style={{ ...btn('primary'), flexShrink: 0, padding: isMobile ? 7 : undefined }}><LayoutGrid size={14} />{!isMobile && ' Customize'}</button>
+          {/* Outline, not primary — this is a page-settings action, not the
+              page's main call to action, and the label stays visible on
+              mobile too (an icon-only button with only a hover tooltip has
+              no affordance on a touchscreen). */}
+          <button onClick={() => setCustomizing(true)} title="Customize widgets" style={{ ...btn('outline'), flexShrink: 0, whiteSpace: 'nowrap' }}><LayoutGrid size={14} /> Customize</button>
         </div>
       </div>
 

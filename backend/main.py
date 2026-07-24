@@ -17,7 +17,9 @@ from routers import access_scopes  # row-level scopes for external users (Jul 20
 from routers import qa  # Testing module — dev-only via NEXUS_QA_MODULE env (Jul 2026)
 from routers import credvault  # Credential Vault (Jul 2026)
 from routers import policy  # Sign-in company-policy & monitoring acknowledgment (Jul 2026)
+from routers import documents as documents_router  # Documents DMS Phase 1 (Jul 2026)
 from routers import investor_relations  # Investor Relations platform (Jul 2026)
+from routers import stepup  # Step-up MFA for sensitive data (vault/payroll/HR) (Jul 2026)
 from audit import AuditMiddleware
 
 
@@ -76,7 +78,12 @@ def _run_migrations():
             # E-Sign: Egnyte folder for a copy of the sealed PDF
             "ALTER TABLE hr_sign_templates ADD COLUMN egnyte_folder VARCHAR DEFAULT ''",
             "ALTER TABLE hr_sign_requests ADD COLUMN egnyte_folder VARCHAR DEFAULT ''",
+            # E-Sign: tamper-evident audit hash chain + public verification QR
+            "ALTER TABLE hr_sign_events ADD COLUMN seq INTEGER DEFAULT 0",
+            "ALTER TABLE hr_sign_events ADD COLUMN event_hash VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_sign_requests ADD COLUMN verify_token VARCHAR DEFAULT ''",
             "ALTER TABLE time_bod ADD COLUMN kind VARCHAR DEFAULT 'bod'",
+            "ALTER TABLE time_punches ADD COLUMN category VARCHAR DEFAULT ''",
             "ALTER TABLE shifts ADD COLUMN code VARCHAR DEFAULT ''",
             "ALTER TABLE shift_groups ADD COLUMN teams_chat_id VARCHAR DEFAULT ''",
             "ALTER TABLE shift_groups ADD COLUMN teams_chat_name VARCHAR DEFAULT ''",
@@ -216,6 +223,13 @@ def _run_migrations():
             "ALTER TABLE task_tickets ADD COLUMN approver_email VARCHAR DEFAULT ''",
             "ALTER TABLE task_tickets ADD COLUMN approval_note VARCHAR DEFAULT ''",
             "ALTER TABLE task_tickets ADD COLUMN approval_decided_at VARCHAR DEFAULT ''",
+            # Documents (DMS) Phase 4: merge-field subject/company for export
+            "ALTER TABLE documents ADD COLUMN employee_id VARCHAR DEFAULT ''",
+            "ALTER TABLE documents ADD COLUMN entity_id VARCHAR DEFAULT ''",
+            # Documents (DMS) Phase 11: manual merge-field overrides + custom variables
+            "ALTER TABLE documents ADD COLUMN merge_overrides JSON DEFAULT '{}'",
+            # Documents (DMS) Phase 12: same override/custom-variable support on templates
+            "ALTER TABLE doc_templates ADD COLUMN merge_overrides JSON DEFAULT '{}'",
             # ── HR Section A/B (nexus_employees): SQLite was missing columns the
             # Postgres list already carried — a pre-existing local DB 500s on
             # every nexus_employees SELECT without them (same class of bug as
@@ -372,7 +386,12 @@ def _run_migrations():
         # E-Sign: Egnyte folder for a copy of the sealed PDF
         "ALTER TABLE hr_sign_templates ADD COLUMN IF NOT EXISTS egnyte_folder TEXT DEFAULT ''",
         "ALTER TABLE hr_sign_requests ADD COLUMN IF NOT EXISTS egnyte_folder TEXT DEFAULT ''",
+        # E-Sign: tamper-evident audit hash chain + public verification QR
+        "ALTER TABLE hr_sign_events ADD COLUMN IF NOT EXISTS seq INTEGER DEFAULT 0",
+        "ALTER TABLE hr_sign_events ADD COLUMN IF NOT EXISTS event_hash TEXT DEFAULT ''",
+        "ALTER TABLE hr_sign_requests ADD COLUMN IF NOT EXISTS verify_token TEXT DEFAULT ''",
         "ALTER TABLE time_bod ADD COLUMN IF NOT EXISTS kind TEXT DEFAULT 'bod'",
+        "ALTER TABLE time_punches ADD COLUMN IF NOT EXISTS category VARCHAR DEFAULT ''",
         "ALTER TABLE shifts ADD COLUMN IF NOT EXISTS code TEXT DEFAULT ''",
         "ALTER TABLE shift_groups ADD COLUMN IF NOT EXISTS teams_chat_id TEXT DEFAULT ''",
         "ALTER TABLE shift_groups ADD COLUMN IF NOT EXISTS teams_chat_name TEXT DEFAULT ''",
@@ -489,6 +508,11 @@ def _run_migrations():
         # projects backfill to 'org' (everyone already saw everything) — only
         # newly-created projects default to 'restricted' (create_project).
         "ALTER TABLE task_projects ADD COLUMN IF NOT EXISTS access_level VARCHAR DEFAULT 'org'",
+        # Documents (DMS) Phase 4: merge-field subject/company for export
+        "ALTER TABLE documents ADD COLUMN IF NOT EXISTS employee_id VARCHAR DEFAULT ''",
+        "ALTER TABLE documents ADD COLUMN IF NOT EXISTS entity_id VARCHAR DEFAULT ''",
+        "ALTER TABLE documents ADD COLUMN IF NOT EXISTS merge_overrides JSONB DEFAULT '{}'::jsonb",
+        "ALTER TABLE doc_templates ADD COLUMN IF NOT EXISTS merge_overrides JSONB DEFAULT '{}'::jsonb",
     ]
     with engine.connect() as conn:
         for sql in migrations:
@@ -561,6 +585,16 @@ async def lifespan(app: FastAPI):
         print(f"[startup] asana auto-pull {'scheduled' if is_sync_worker() else 'skipped (not the sync worker)'}")
     except Exception as e:
         print(f"[startup] asana auto-pull skipped: {e}")
+    # Ticket Notification workflow — retries failed/stuck Outlook emails and
+    # auto-closes long-resolved tickets. Same bare-asyncio-loop pattern as the
+    # HR reminders job above.
+    try:
+        import asyncio as _asyncio
+        from ticket_notify import ticket_notify_loop
+        _asyncio.create_task(ticket_notify_loop())
+        print("[startup] ticket notification retry/auto-close loop scheduled")
+    except Exception as e:
+        print(f"[startup] ticket notification loop skipped: {e}")
     yield
 
 
@@ -627,6 +661,7 @@ app.include_router(hr.router)
 app.include_router(knowledge_base.router)
 app.include_router(help_router.router)
 app.include_router(esign.router)
+app.include_router(documents_router.router)
 app.include_router(timeclock.router)
 app.include_router(myhr.router)
 app.include_router(hr_interviews.router)
@@ -637,4 +672,5 @@ app.include_router(credvault.router)      # Credential Vault: encrypted company/
 app.include_router(asana_webhook.router)  # Asana two-way sync: public webhook receiver (verified by HMAC)
 app.include_router(policy.router)         # Sign-in company-policy & monitoring acknowledgment
 app.include_router(investor_relations.router)  # Investor Relations: funds/investors/commitments/calls/distributions
+app.include_router(stepup.router)         # Step-up MFA for sensitive data (vault reveals / payroll / confidential HR)
 

@@ -345,6 +345,10 @@ export const api = {
   removeTicketLink: (id, targetId) => req(`/task-tickets/${id}/links/${targetId}`, { method: "DELETE" }),
   escalateTicket: (id) => req(`/task-tickets/${id}/escalate`, { method: "POST" }),
   decideTicketApproval: (id, decision, note) => req(`/task-tickets/${id}/approval`, { method: "POST", body: JSON.stringify({ decision, note }) }),
+  // Ticket Outlook notification workflow — admin settings + delivery log (manager+)
+  getTicketNotifySettings: () => req("/task-tickets/notify/settings"),
+  updateTicketNotifySettings: (patch) => req("/task-tickets/notify/settings", { method: "PUT", body: JSON.stringify(patch) }),
+  getTicketNotifyLog: (params = {}) => req(`/task-tickets/notify/log?${new URLSearchParams(params).toString()}`),
   // Ticket components / categories
   getTicketComponents: () => req("/task-ticket-components"),
   addTicketComponent: (data) => req("/task-ticket-components", { method: "POST", body: JSON.stringify(data) }),
@@ -801,6 +805,9 @@ export const api = {
   timeSchedDelete:   (id)        => req(`/timeclock/schedule/${id}`, { method: 'DELETE' }),
   timePayroll:       (email, start, end) => req(`/timeclock/payroll?email=${encodeURIComponent(email)}&start=${start}&end=${end}`),
   timePayrollRate:   (data)      => req('/timeclock/payroll/rate', { method: 'PUT', body: JSON.stringify(data) }),
+  timeAutoLunchGet:  ()          => req('/timeclock/payroll/autolunch'),
+  timeAutoLunchSet:  (data)      => req('/timeclock/payroll/autolunch', { method: 'PUT', body: JSON.stringify(data) }),
+  timeTeamExceptions:(start, end) => req(`/timeclock/team-exceptions?start=${start || ''}&end=${end || ''}`),
   // Insights dashboard (Top Apps / Top Websites / activity), from the desktop agent
   timeInsights:      (email, start, end) => req(`/timeclock/insights?email=${encodeURIComponent(email || '')}&start=${start || ''}&end=${end || ''}&tz=${new Date().getTimezoneOffset()}`),
   timeRatings:       ()          => req('/timeclock/ratings'),
@@ -828,6 +835,52 @@ export const api = {
   cvPersonalCreate: (body)       => req('/credvault/personal', { method: 'POST', body: JSON.stringify(body) }),
   cvPersonalDelete: (id)         => req(`/credvault/personal/${id}`, { method: 'DELETE' }),
   cvPersonalReveal: (id)         => req(`/credvault/personal/${id}/reveal`, { method: 'POST' }),
+
+  // ── Documents (DMS) — Phase 1: folders + drafts/library, next to E-Sign ──
+  getDocFolders:      ()             => req('/documents/folders'),
+  createDocFolder:    (data)         => req('/documents/folders', { method: 'POST', body: JSON.stringify(data) }),
+  getDocuments:       (params = {})  => req(`/documents?${new URLSearchParams(params)}`),
+  createDocument:     (data)         => req('/documents', { method: 'POST', body: JSON.stringify(data) }),
+  getDocument:        (id)           => req(`/documents/${id}`),
+  updateDocument:     (id, data)     => req(`/documents/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  archiveDocument:    (id)           => req(`/documents/${id}/archive`, { method: 'POST' }),
+  restoreDocument:    (id)           => req(`/documents/${id}/restore`, { method: 'POST' }),
+  duplicateDocument:  (id)           => req(`/documents/${id}/duplicate`, { method: 'POST' }),
+  deleteDocument:     (id)           => req(`/documents/${id}`, { method: 'DELETE' }),
+  getDocumentVersions:(id)           => req(`/documents/${id}/versions`),
+
+  // ── Documents (DMS) — Phase 3: template library + org letterheads ──
+  getDocTemplates:      (params = {}) => req(`/documents/templates?${new URLSearchParams(params)}`),
+  getDocTemplate:        (id)         => req(`/documents/templates/${id}`),
+  createDocTemplate:     (data)       => req('/documents/templates', { method: 'POST', body: JSON.stringify(data) }),
+  updateDocTemplate:     (id, data)   => req(`/documents/templates/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteDocTemplate:     (id)         => req(`/documents/templates/${id}`, { method: 'DELETE' }),
+  duplicateDocTemplate:  (id)         => req(`/documents/templates/${id}/duplicate`, { method: 'POST' }),
+  seedDocTemplateStarters: ()         => req('/documents/templates/starters', { method: 'POST' }),
+  getDocLetterheads:     ()           => req('/documents/letterheads'),
+  createDocLetterhead:   (data)       => req('/documents/letterheads', { method: 'POST', body: JSON.stringify(data) }),
+  updateDocLetterhead:   (id, data)   => req(`/documents/letterheads/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteDocLetterhead:   (id)         => req(`/documents/letterheads/${id}`, { method: 'DELETE' }),
+
+  // ── Documents (DMS) — Phase 4: PDF/DOCX export with merge resolution ──
+  exportDocumentPdf:  (id) => reqBlob(`/documents/${id}/export/pdf`),
+  exportDocumentDocx: (id) => reqBlob(`/documents/${id}/export/docx`),
+
+  // ── Documents (DMS) — Phase 6: cross-module search + version content ──
+  searchDocuments:    (q)         => req(`/documents/search?q=${encodeURIComponent(q)}`),
+  getDocumentVersion: (did, vid)  => req(`/documents/${did}/versions/${vid}`),
+
+  // ── Documents (DMS) — Phase 7: template version history ──
+  getDocTemplateVersions: (id)        => req(`/documents/templates/${id}/versions`),
+  getDocTemplateVersion:  (id, vid)   => req(`/documents/templates/${id}/versions/${vid}`),
+
+  // ── Documents (DMS) — Import from Egnyte ──
+  egnyteBrowse:    (path = '') => req(`/documents/egnyte/browse?path=${encodeURIComponent(path)}`),
+  egnyteFetchFile: (path)      => reqBlob(`/documents/egnyte/file?path=${encodeURIComponent(path)}`),
+  // ── Step-up MFA (fresh verification before sensitive data) ──
+  stepupConfig:  ()      => req('/stepup/config'),
+  stepupStatus:  ()      => req('/stepup/status'),
+  stepupVerify:  (token) => req('/stepup/verify', { method: 'POST', body: JSON.stringify({ token: token || '' }) }),
 
   // ── Investor Relations (GP capital management: funds, LPs, calls, distributions) ──
   // List endpoints drop empty/undefined params so filters never send "undefined".

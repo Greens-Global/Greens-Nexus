@@ -19,15 +19,31 @@ const KIND_META = {
   holiday: { label: 'Holidays', color: '#f59e0b', Icon: PartyPopper },
 };
 
-function holidaysForYear(y) {
-  return {
-    [`${y}-01-01`]: "New Year's Day",
-    [`${y}-06-19`]: 'Juneteenth',
-    [`${y}-07-04`]: 'Independence Day',
-    [`${y}-11-11`]: 'Veterans Day',
-    [`${y}-12-25`]: 'Christmas Day',
-    [`${y}-12-31`]: "New Year's Eve",
-  };
+const US_HOLIDAYS = (y) => ({
+  [`${y}-01-01`]: "New Year's Day",
+  [`${y}-06-19`]: 'Juneteenth',
+  [`${y}-07-04`]: 'Independence Day',
+  [`${y}-11-11`]: 'Veterans Day',
+  [`${y}-12-25`]: 'Christmas Day',
+  [`${y}-12-31`]: "New Year's Eve",
+});
+
+// Fixed national holidays only — festivals on the lunar calendar (Diwali, Holi,
+// Eid, etc.) move every year and would need a real almanac to place correctly,
+// so they're left off rather than shown on the wrong date.
+const IN_HOLIDAYS = (y) => ({
+  [`${y}-01-01`]: "New Year's Day",
+  [`${y}-01-26`]: 'Republic Day',
+  [`${y}-05-01`]: 'Labour Day',
+  [`${y}-08-15`]: 'Independence Day',
+  [`${y}-10-02`]: 'Gandhi Jayanti',
+  [`${y}-12-25`]: 'Christmas Day',
+});
+
+const HOLIDAY_REGIONS = { us: { label: 'US', fn: US_HOLIDAYS }, in: { label: 'India', fn: IN_HOLIDAYS } };
+
+function holidaysForYear(y, region) {
+  return (HOLIDAY_REGIONS[region] || HOLIDAY_REGIONS.us).fn(y);
 }
 
 export function CalendarView({ tasks, onOpen, onCreate }) {
@@ -37,6 +53,8 @@ export function CalendarView({ tasks, onOpen, onCreate }) {
   const [show, setShow] = useState({ due: true, meeting: true, release: true, holiday: true });
   const [showOpen, setShowOpen] = useState(false);
   const showRef = useRef(null);
+  const [region, setRegion] = useState(() => localStorage.getItem('nexus.calendarHolidayRegion') || 'us');
+  useEffect(() => { localStorage.setItem('nexus.calendarHolidayRegion', region); }, [region]);
 
   useEffect(() => {
     if (!showOpen) return;
@@ -57,8 +75,8 @@ export function CalendarView({ tasks, onOpen, onCreate }) {
 
   const holidayMap = useMemo(() => {
     const years = new Set(days.map((d) => d.getFullYear()));
-    return [...years].reduce((acc, y) => Object.assign(acc, holidaysForYear(y)), {});
-  }, [days]);
+    return [...years].reduce((acc, y) => Object.assign(acc, holidaysForYear(y, region)), {});
+  }, [days, region]);
 
   const byDate = useMemo(() => {
     const map = {};
@@ -117,6 +135,13 @@ export function CalendarView({ tasks, onOpen, onCreate }) {
               </div>
             )}
           </div>
+          {show.holiday && (
+            <div title="Holiday calendar" style={{ display: 'flex', alignItems: 'center', borderRadius: 8, border: `1px solid ${NX.border}`, padding: 2 }}>
+              {Object.entries(HOLIDAY_REGIONS).map(([key, r]) => (
+                <button key={key} onClick={() => setRegion(key)} style={seg(region === key)}>{r.label}</button>
+              ))}
+            </div>
+          )}
           <div style={{ display: 'flex', alignItems: 'center', borderRadius: 8, border: `1px solid ${NX.border}`, padding: 2 }}>
             <button onClick={() => setWeekly(false)} style={seg(!weekly)}>Month</button>
             <button onClick={() => setWeekly(true)} style={seg(weekly)}>Week</button>

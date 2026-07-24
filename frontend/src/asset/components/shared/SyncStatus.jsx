@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { hasPending, getRetryCount } from '../../lib/sync.js';
 
 const STATE_CONFIG = {
@@ -34,6 +34,15 @@ export function SyncStatus() {
   const state = !online ? 'offline' : pending && retry > 0 ? 'retry' : pending ? 'saving' : 'saved';
   const cfg = STATE_CONFIG[state];
   const busy = state === 'saving' || state === 'retry';
+
+  // Auto-hide when idle: the pill sits over the sidebar's user chip (bottom-left),
+  // so a permanent "All changes saved" badge covers it. Show while there's
+  // something to say (saving/retry/offline), linger ~2s after a save completes,
+  // then disappear. lastBusyRef starts at 0, so a fresh mount with nothing
+  // pending renders nothing. The 900ms poll re-render drives the timeout check.
+  const lastBusyRef = useRef(0);
+  if (busy || state === 'offline') lastBusyRef.current = Date.now();
+  if (state === 'saved' && Date.now() - lastBusyRef.current > 2200) return null;
 
   return (
     <div

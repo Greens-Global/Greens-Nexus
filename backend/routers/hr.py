@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from typing import Optional
 from database import get_db
 from auth import require_module_grant
+from routers.stepup import require_stepup
 from models import NexusEmployee
 
 # HR data is the most sensitive in the app. Access is grant-driven (Jun 17): a
@@ -676,7 +677,8 @@ def delete_document(did: str, user: dict = Depends(require_hr_write), db: Sessio
 # Employees see/download their own via /myhr/paystubs (routers/myhr.py).
 
 @router.get("/employees/{eid}/paystubs")
-def list_paystubs(eid: str, user: dict = Depends(require_hr_comp_read), db: Session = Depends(get_db)):
+def list_paystubs(eid: str, user: dict = Depends(require_hr_comp_read),
+                  _su: dict = Depends(require_stepup), db: Session = Depends(get_db)):
     rows = (db.query(HrDocument)
             .filter(HrDocument.employee_id == eid, HrDocument.kind == "paystub")
             .order_by(HrDocument.created_at.desc()).all())
@@ -1837,7 +1839,8 @@ class CompensationIn(BaseModel):
 
 
 @router.get("/employees/{eid}/compensation")
-def get_compensation(eid: str, user: dict = Depends(require_hr_comp_read), db: Session = Depends(get_db)):
+def get_compensation(eid: str, user: dict = Depends(require_hr_comp_read),
+                     _su: dict = Depends(require_stepup), db: Session = Depends(get_db)):
     row = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
     if not row:
         raise HTTPException(404, "Employee not found")
@@ -1845,7 +1848,8 @@ def get_compensation(eid: str, user: dict = Depends(require_hr_comp_read), db: S
 
 
 @router.put("/employees/{eid}/compensation")
-def save_compensation(eid: str, body: CompensationIn, user: dict = Depends(require_hr_comp_write), db: Session = Depends(get_db)):
+def save_compensation(eid: str, body: CompensationIn, user: dict = Depends(require_hr_comp_write),
+                      _su: dict = Depends(require_stepup), db: Session = Depends(get_db)):
     row = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
     if not row:
         raise HTTPException(404, "Employee not found")

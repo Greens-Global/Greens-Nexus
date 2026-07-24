@@ -1,0 +1,81 @@
+# Prod frontend → Cloudflare Pages (replacing GitHub Pages, which sat BEHIND
+# Cloudflare anyway as a second CDN hop that ignored our _headers caching rules).
+# Direct-upload via wrangler so prod build secrets stay in GitHub, matching the
+# existing deploy.yml — that workflow keeps GitHub Pages deploying in parallel
+# until the domain is attached to this project; delete it after cutover.
+#
+# Cutover steps (one-time, Cloudflare dashboard):
+#   1. Create an API token (Account > Cloudflare Pages: Edit) and add repo
+#      secrets CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID. Until they exist
+#      this workflow no-ops with a warning instead of failing the release.
+#   2. Merge to main (or run this manually FROM MAIN — a dispatch from dev
+#      would publish dev code to the prod project).
+#   3. After the first green run: Pages > greens-nexus-prod > Custom domains >
+#      add nexus.greensglobal.com (zone is on the same account, DNS flips
+#      automatically). GitHub Pages stays live as instant rollback until then.
+#   4. Verify prod, then delete deploy.yml and disable GitHub Pages.
+name: Deploy Frontend to Cloudflare Pages
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+concurrency:
+  group: cf-pages-prod
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Check Cloudflare credentials
+        id: creds
+        working-directory: .
+        env:
+          TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -z "$TOKEN" ] || [ -z "$ACCOUNT" ]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID secrets not set — skipping the Cloudflare Pages deploy (GitHub Pages still deploys prod)."
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.creds.outputs.ready == 'true'
+      - uses: actions/setup-node@v4
+        if: steps.creds.outputs.ready == 'true'
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+        if: steps.creds.outputs.ready == 'true'
+      - run: npm run build
+        if: steps.creds.outputs.ready == 'true'
+        env:
+          VITE_API_BASE: ${{ secrets.VITE_API_BASE }}
+          VITE_REDIRECT_URI: ${{ vars.VITE_REDIRECT_URI }}
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+        # No index.html → 404.html copy here: Cloudflare Pages uses the
+        # _redirects SPA fallback (and a 404.html would disable it).
+
+      - name: Ensure the Pages project exists (no-op after first run)
+        if: steps.creds.outputs.ready == 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx wrangler pages project create greens-nexus-prod --production-branch=main || true
+
+      - name: Deploy dist to Cloudflare Pages
+        if: steps.creds.outputs.ready == 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx wrangler pages deploy dist --project-name=greens-nexus-prod --branch=main

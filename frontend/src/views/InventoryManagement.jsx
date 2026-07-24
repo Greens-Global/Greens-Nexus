@@ -8065,7 +8065,7 @@ export default function InventoryManagement({ activeSub }) {
           confirmReceipt={confirmReceipt}
           addNotification={addNotification}
           toast={toast}
-          showManage={isManager} onEnterManage={() => setManageMode(true)}
+          showManage={isManager} onEnterManage={() => { setMainTab('manage'); setManageMode(true); }}
         />
         <Toast toasts={toasts} onDismiss={dismissToast} />
       </>

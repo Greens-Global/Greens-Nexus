@@ -29,11 +29,12 @@
 // Usage pattern (matches the original app's three root-level React effects — this module is
 // deliberately framework-agnostic, so the calling component owns the useEffect wiring):
 //
-//   1. On mount, hydrate once: read localStorage + idbGet(KEY) + serverGet() in parallel, run
-//      pickBest([local, idb, server]) (then normalize the winner with VNORM — see
-//      dataNormalization.js), apply it as the app's state, call setLastKnown(...) and
-//      markHydrated(). If the winner isn't strictly the server's own copy, serverPut() it back
-//      so the server converges too.
+//   1. On mount, hydrate once: read localStorage + idbGet(KEY) + serverGet() in parallel. The
+//      SERVER copy wins whenever the GET succeeds (it's the shared multi-user source of truth,
+//      stamped server-side with _ts); pickBest([local, idb]) is only the offline fallback, and
+//      the fallback is never pushed back to the server. (The old "most logs wins across all
+//      three, push the winner back" rule let a stale device both hide and clobber newer server
+//      data — see useNexusStore.js.)
 //   2. On every state change (debounced), once isHydrated() is true: queueWrite(state) — this
 //      also mirrors the write to localStorage/idbSet at the call site (sync.js only owns the
 //      SERVER side of persistence; local persistence is idb.js + localStorage directly).
@@ -61,16 +62,21 @@ export function serverGet() {
 }
 
 /**
- * PUT a JSON-stringified state blob to Nexus. Resolves to an HTTP-like status the queue uses to
- * decide retries: 200 = accepted, 0 = request failed (network/auth) → transient, retried with
- * backoff. The whole-workspace PUT is replace-all server-side, so there is no 409/stale path here.
+ * PUT a JSON-stringified state blob to Nexus. Resolves to { status, ts }: status is an HTTP-like
+ * code the queue uses to decide retries (200 = accepted, 0 = request failed → transient, retried
+ * with backoff), and ts is the SERVER-stamped epoch-ms freshness marker of the accepted write —
+ * the flush path records it as lastTs so the pull loop doesn't re-download our own write.
  */
 export function serverPut(json) {
   let ws;
-  try { ws = JSON.parse(json); } catch { return Promise.resolve(200); }
+  try { ws = JSON.parse(json); } catch { return Promise.resolve({ status: 200, ts: 0 }); }
   return api.savePropertyWorkspace(ws)
-    .then(() => 200)
-    .catch(() => 0);
+    .then((r) => ({ status: 200, ts: (r && r._ts) || 0 }))
+    // 409 = the server refused this write outright (e.g. empty-over-populated
+    // guard) — a definitive rejection, not a transient failure: surface it as
+    // 409 so the queue drops the write and the next pull re-syncs, instead of
+    // retrying a write that can never be accepted.
+    .catch((e) => ({ status: e && e.status === 409 ? 409 : 0, ts: 0 }));
 }
 
 /**
@@ -165,10 +171,13 @@ export function flush() {
     pushTimer = null;
   }
   const inFlight = pending;
-  serverPut(inFlight).then((status) => {
+  serverPut(inFlight).then(({ status, ts }) => {
     if (status === 200 || status === 409) {
       if (pending === inFlight) pending = null;
       retryCount = 0;
+      // Adopt the server's stamp for the write we just landed (even if it's
+      // "behind" our client clock — server time is the only one pulls compare).
+      if (status === 200 && ts) lastTs = ts;
     } else {
       retryCount = Math.min((retryCount || 0) + 1, 6);
       pushTimer = setTimeout(flush, Math.min(1500 * Math.pow(2, retryCount - 1), 30000));
@@ -214,14 +223,18 @@ export function wireBackgroundSync(onServerNewer, pollMs = 7000) {
   let stopped = false;
 
   const pull = () => {
-    if (pushTimer) return; // a write is about to go out; don't race it with an incoming pull
+    if (pushTimer || pending) return; // a write is queued/going out; don't race it with an incoming pull
     serverGet().then((serverState) => {
       if (stopped || !serverState || !Array.isArray(serverState.properties)) return;
       const logs = (serverState.logs && serverState.logs.length) || 0;
       const ts = serverState._ts || 0;
-      if (logs > lastLogCount || (logs === lastLogCount && ts > lastTs)) {
+      // The server stamps _ts on every accepted write, so ts alone detects ANY
+      // newer copy — including value-only edits that don't change the log count,
+      // and recovery states where the log count went DOWN. The log-count check
+      // stays as a fallback for a server that predates _ts (deploy skew).
+      if (ts > lastTs || logs > lastLogCount) {
         lastLogCount = logs;
-        lastTs = ts;
+        lastTs = Math.max(ts, lastTs);
         onServerNewer(serverState);
       }
     });

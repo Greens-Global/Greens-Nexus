@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Clock, LogOut, MonitorUp, MonitorX, MonitorPause, Loader2 } from 'lucide-react';
+import { Clock, LogOut, MonitorUp, MonitorX, MonitorPause, Loader2, ChevronUp } from 'lucide-react';
 import { api } from '../api';
+import { editGuard } from '../asset/lib/editGuard.js';
 import BodModal from './BodModal';
 
 // ── Global mini-timer — lives on EVERY screen while clocked in ────────────────
@@ -28,6 +29,8 @@ export default function TimeclockWidget() {
   const [capturing, setCapturing] = useState(0);   // number of screens being captured
   const [busy, setBusy] = useState(false);
   const [eodOpen, setEodOpen] = useState(false);   // end-of-day message after punch-out
+  const [expanded, setExpanded] = useState(false); // capsule collapsed by default; expands upward
+  const wrapRef = useRef(null);
   const [, setTick] = useState(0);
   const streamsRef = useRef([]);                   // one MediaStream per shared screen
   const videoRef = useRef(null);
@@ -78,6 +81,14 @@ export default function TimeclockWidget() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [load]);
+
+  // Collapse the expanded panel when clicking anywhere outside the widget.
+  useEffect(() => {
+    if (!expanded) return;
+    const onDown = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setExpanded(false); };
+    document.addEventListener('pointerdown', onDown);
+    return () => document.removeEventListener('pointerdown', onDown);
+  }, [expanded]);
 
   const last = status?.lastPunch;
   const clockedIn = !!(last && last.kind !== 'out');
@@ -249,55 +260,82 @@ export default function TimeclockWidget() {
       toastOk={() => {}} toastErr={() => {}} /> : null;
   }
 
+  // Capture chip state, shared by the expanded panel and the collapsed capsule's
+  // mini indicator. Break must read PAUSED, not REC, so it's obvious capture
+  // stopped for the break.
+  const paused = capturing > 0 && onBreak;
+  const capTint = paused ? '#b45309' : capturing ? '#b91c1c' : 'var(--muted)';
+
+  // Lift the capsule clear of any bottom save bar (asset detail edit) so the
+  // Save/Discard buttons underneath are never covered. editGuard.dirty is the
+  // same flag that save bar renders from, and this component re-renders every
+  // second, so the offset tracks it closely enough.
+  const bottom = editGuard.dirty ? 88 : 18;
+
   return (
-    <div style={{ position: 'fixed', bottom: 18, right: 18, zIndex: 1190, display: 'flex', alignItems: 'center', gap: 8,
-      background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 999, padding: '8px 10px 8px 14px',
-      boxShadow: '0 4px 18px rgba(0,0,0,0.18)', fontFamily: 'Inter,sans-serif' }}>
-      <button onClick={() => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'timeclock' } }))}
-        title="Open Time Clock"
-        style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontFamily: 'Inter,sans-serif' }}>
+    <div ref={wrapRef} style={{ position: 'fixed', bottom, right: 18, zIndex: 1190, display: 'flex',
+      flexDirection: 'column', alignItems: 'flex-end', gap: 8, fontFamily: 'Inter,sans-serif', transition: 'bottom .18s ease' }}>
+      {expanded && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, minWidth: 216,
+          background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 16, padding: '12px 14px',
+          boxShadow: '0 8px 28px rgba(0,0,0,0.22)' }}>
+          <button onClick={() => { window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'timeclock' } })); setExpanded(false); }}
+            title="Open Time Clock"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontFamily: 'Inter,sans-serif' }}>
+            <Clock size={15} style={{ color: onBreak ? '#b45309' : 'var(--pine)' }} />
+            <span style={{ fontSize: 16, fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: 'var(--ink)' }}>
+              {fmtHMS(elapsedSec)}
+            </span>
+            <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em' }}>
+              {onBreak ? 'break' : 'working'}
+            </span>
+          </button>
+          {/* Disclosed-monitoring: capture control only appears when the policy enables screen tracking. */}
+          {canCapture && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <button onClick={capturing ? stopCapture : startCapture}
+                title={paused ? 'Screen capture is PAUSED for your break — no frames are saved until you end the break. Click to stop capture entirely.'
+                  : capturing ? `Screen capture is ON (${capturing} screen${capturing === 1 ? '' : 's'}) — a frame of each is saved every ${intervalMin} minute${intervalMin === 1 ? '' : 's'}${randomizeRef.current ? ' (timing varies)' : ''}. Click to stop.`
+                  : 'Start work-session screen capture (you pick the screen; your browser shows a sharing indicator the whole time)'}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 9px', borderRadius: 999, cursor: 'pointer',
+                  border: `1.5px solid ${capturing ? capTint : 'var(--line)'}`,
+                  background: paused ? 'rgba(180,83,9,0.09)' : capturing ? 'rgba(220,38,38,0.08)' : 'transparent',
+                  color: capTint, fontSize: 10.5, fontWeight: 800, fontFamily: 'Inter,sans-serif' }}>
+                {paused ? <MonitorPause size={12} /> : capturing ? <MonitorUp size={12} /> : <MonitorX size={12} />}
+                {paused ? 'PAUSED' : capturing ? `REC${capturing > 1 ? ` ×${capturing}` : ''}` : 'capture off'}
+              </button>
+              {capturing > 0 && (
+                <button onClick={startCapture} title="Also capture another screen (pick your second monitor)"
+                  style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 22, height: 22, borderRadius: '50%', cursor: 'pointer',
+                    border: '1.5px solid var(--line)', background: 'transparent', color: 'var(--muted)', fontSize: 13, fontWeight: 800, fontFamily: 'Inter,sans-serif', padding: 0 }}>
+                  +
+                </button>
+              )}
+            </div>
+          )}
+          <button onClick={quickPunchOut} disabled={busy} title="Punch out"
+            style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7, padding: '8px 12px', borderRadius: 999,
+              border: 'none', cursor: 'pointer', background: '#b91c1c', color: '#fff', fontSize: 12.5, fontWeight: 800, fontFamily: 'Inter,sans-serif' }}>
+            {busy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <LogOut size={13} />}
+            Punch out
+          </button>
+        </div>
+      )}
+
+      {/* Collapsed capsule — small on purpose so it never buries page-level bars
+          (e.g. the asset "Save before you leave" bar). Click to expand upward. */}
+      <button onClick={() => setExpanded(v => !v)}
+        title={expanded ? 'Collapse' : 'Time clock — click for controls'}
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 7, background: 'var(--card)', border: '1px solid var(--line)',
+          borderRadius: 999, padding: '7px 11px 7px 13px', boxShadow: '0 4px 18px rgba(0,0,0,0.18)', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
         <span style={{ width: 9, height: 9, borderRadius: '50%', background: onBreak ? '#b45309' : 'hsl(var(--color-green))',
           animation: onBreak ? 'none' : 'pulse 2s ease-in-out infinite' }} />
-        <Clock size={14} style={{ color: onBreak ? '#b45309' : 'var(--pine)' }} />
-        <span style={{ fontSize: 14, fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: 'var(--ink)' }}>
+        <span style={{ fontSize: 13.5, fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: 'var(--ink)' }}>
           {fmtHMS(elapsedSec)}
         </span>
-        <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em' }}>
-          {onBreak ? 'break' : 'working'}
-        </span>
-      </button>
-      {/* Disclosed-monitoring: capture control only appears when the policy enables screen tracking. */}
-      {canCapture && (() => {
-        // Three states: paused (on break — stream stays live but no frames save),
-        // recording (clocked in, saving frames), or off. Break must read PAUSED,
-        // not REC, so it's obvious capture stopped for the break.
-        const paused = capturing > 0 && onBreak;
-        const tint = paused ? '#b45309' : capturing ? '#b91c1c' : 'var(--muted)';
-        return (
-        <button onClick={capturing ? stopCapture : startCapture}
-          title={paused ? 'Screen capture is PAUSED for your break — no frames are saved until you end the break. Click to stop capture entirely.'
-            : capturing ? `Screen capture is ON (${capturing} screen${capturing === 1 ? '' : 's'}) — a frame of each is saved every ${intervalMin} minute${intervalMin === 1 ? '' : 's'}${randomizeRef.current ? ' (timing varies)' : ''}. Click to stop.`
-            : 'Start work-session screen capture (you pick the screen; your browser shows a sharing indicator the whole time)'}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 9px', borderRadius: 999, cursor: 'pointer',
-            border: `1.5px solid ${capturing ? tint : 'var(--line)'}`,
-            background: paused ? 'rgba(180,83,9,0.09)' : capturing ? 'rgba(220,38,38,0.08)' : 'transparent',
-            color: tint, fontSize: 10.5, fontWeight: 800, fontFamily: 'Inter,sans-serif' }}>
-          {paused ? <MonitorPause size={12} /> : capturing ? <MonitorUp size={12} /> : <MonitorX size={12} />}
-          {paused ? 'PAUSED' : capturing ? `REC${capturing > 1 ? ` ×${capturing}` : ''}` : 'capture off'}
-        </button>
-        );
-      })()}
-      {canCapture && capturing > 0 && (
-        <button onClick={startCapture} title="Also capture another screen (pick your second monitor)"
-          style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 22, height: 22, borderRadius: '50%', cursor: 'pointer',
-            border: '1.5px solid var(--line)', background: 'transparent', color: 'var(--muted)', fontSize: 13, fontWeight: 800, fontFamily: 'Inter,sans-serif', padding: 0 }}>
-          +
-        </button>
-      )}
-      <button onClick={quickPunchOut} disabled={busy} title="Punch out"
-        style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 30, height: 30, borderRadius: '50%',
-          border: 'none', cursor: 'pointer', background: '#b91c1c', color: '#fff' }}>
-        {busy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <LogOut size={13} />}
+        {/* Capture stays visibly disclosed even while collapsed. */}
+        {canCapture && capturing > 0 && (paused ? <MonitorPause size={12} style={{ color: capTint }} /> : <MonitorUp size={12} style={{ color: capTint }} />)}
+        <ChevronUp size={13} style={{ color: 'var(--muted)', transform: expanded ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }} />
       </button>
     </div>
   );

@@ -1039,6 +1039,7 @@ class HrSignRequest(Base):
     final_sha256     = Column(String, default="")         # tamper-evidence hash of final bytes
     routing          = Column(String, default="sequential")  # sequential (ordered) | parallel (everyone at once)
     egnyte_folder    = Column(String, default="")         # frozen from the template at send; sealed PDF is copied here
+    verify_token     = Column(String, default="")         # public, unauthenticated /verify/{token} credential — set at completion
 
 
 class HrSignParty(Base):
@@ -1078,6 +1079,104 @@ class HrSignEvent(Base):
     ip          = Column(String, default="")
     user_agent  = Column(String, default="")
     at          = Column(String, default="")
+    seq         = Column(Integer, default=0)          # tamper-evident hash chain (added later): 1,2,3... per request_id
+    event_hash  = Column(String, default="")          # sha256(prev_hash|request_id|type|detail|ip|user_agent|at|seq) — 0/'' on pre-upgrade rows
+
+
+# ── Documents (DMS) — Phase 1 ──────────────────────────────────────────────────
+# Sits next to (not inside) the e-sign envelope tables above: a Document only
+# becomes an HrSignRequest at the moment the user sends it for signature (export
+# to PDF, hand to the existing esign.py PDF-send path). New tables — create_all
+# builds them, no migration line needed. New tables — create_all builds them.
+class DocFolder(Base):
+    __tablename__ = "doc_folders"
+    id          = Column(String, primary_key=True)   # uuid
+    name        = Column(String, nullable=False)
+    key         = Column(String, default="")         # hr|finance|legal|sales|operations|personal|archived|'' (custom)
+    is_system   = Column(Boolean, default=False)      # seeded folder — not user-deletable
+    owner_email = Column(String, default="")         # set for the per-user Personal folder
+    created_by  = Column(String, default="")
+    created_at  = Column(String, default="")
+
+
+class DocLetterhead(Base):
+    __tablename__ = "doc_letterheads"
+    id          = Column(String, primary_key=True)   # uuid
+    name        = Column(String, nullable=False)
+    logo_path   = Column(String, default="")         # storage path in the private docs bucket
+    header_json = Column(JSON, default=dict)
+    footer_json = Column(JSON, default=dict)
+    address     = Column(String, default="")
+    is_default  = Column(Boolean, default=False)
+    created_by  = Column(String, default="")
+    created_at  = Column(String, default="")
+
+
+class DocTemplate(Base):
+    __tablename__ = "doc_templates"
+    id                  = Column(String, primary_key=True)   # uuid
+    name                = Column(String, nullable=False)
+    category            = Column(String, default="general")  # letterhead|hr|legal|finance|operations|sales|engineering|general
+    tags                = Column(JSON, default=list)
+    content             = Column(JSON, default=dict)          # rich-doc content (Document Builder, Phase 2+)
+    requires_letterhead = Column(Boolean, default=False)
+    letterhead_id       = Column(String, default="")
+    merge_overrides     = Column(JSON, default=dict)          # default {{token}} values + custom variables (Phase 12) — seeded onto any Document created from this template
+    status              = Column(String, default="active")    # active|archived
+    version             = Column(Integer, default=1)
+    created_by          = Column(String, default="")
+    created_at          = Column(String, default="")
+    updated_by          = Column(String, default="")
+    updated_at          = Column(String, default="")
+
+
+class Document(Base):
+    __tablename__ = "documents"
+    id               = Column(String, primary_key=True)   # uuid
+    title            = Column(String, nullable=False)
+    folder_id        = Column(String, default="")
+    template_id      = Column(String, default="")
+    content          = Column(JSON, default=dict)          # rich-doc content (Document Builder, Phase 2+)
+    letterhead_id    = Column(String, default="")
+    status           = Column(String, default="draft")     # draft|final|archived
+    employee_id      = Column(String, default="")          # merge-field subject (Phase 4), NexusEmployee.id
+    entity_id        = Column(String, default="")          # merge-field company (Phase 4), HrEntity.id
+    merge_overrides  = Column(JSON, default=dict)           # manual {{token}} values + custom variables (Phase 11) — wins over employee/entity resolution
+    owner_email      = Column(String, default="")
+    tags             = Column(JSON, default=list)
+    current_version  = Column(Integer, default=1)
+    sign_request_id  = Column(String, default="")          # set once sent for signature (HrSignRequest.id)
+    created_by       = Column(String, default="")
+    created_at       = Column(String, default="")
+    updated_by       = Column(String, default="")
+    updated_at       = Column(String, default="")
+    archived_at      = Column(String, default="")
+
+
+class DocumentVersion(Base):
+    """One row per saved edit — recorded from Phase 1 on so version history is
+    real data before the browsing UI (later phase) exists."""
+    __tablename__ = "doc_versions"
+    id          = Column(String, primary_key=True)   # uuid
+    document_id = Column(String, nullable=False)
+    version_no  = Column(Integer, default=1)
+    content     = Column(JSON, default=dict)
+    edited_by   = Column(String, default="")
+    edited_at   = Column(String, default="")
+    note        = Column(String, default="")
+
+
+class DocTemplateVersion(Base):
+    """Same shape as DocumentVersion (Phase 7 gap closure) — templates only got
+    a bare version counter in Phase 3; this gives them real browsable history."""
+    __tablename__ = "doc_template_versions"
+    id          = Column(String, primary_key=True)   # uuid
+    template_id = Column(String, nullable=False)
+    version_no  = Column(Integer, default=1)
+    content     = Column(JSON, default=dict)
+    edited_by   = Column(String, default="")
+    edited_at   = Column(String, default="")
+    note        = Column(String, default="")
 
 
 # ── Time tracking (SwipeClock replacement) ────────────────────────────────────
@@ -1111,6 +1210,7 @@ class TimePunch(Base):
     adjusted_at    = Column(String, default="")
     adjust_note    = Column(String, default="")
     voided         = Column(Integer, default=0)         # 1 = excluded from totals, kept for audit
+    category       = Column(String, default="")         # job-costing / cost-code tag on the in-punch (SwipeClock "Category")
     created_by     = Column(String, default="")
     created_at     = Column(String, default="")
 
@@ -1773,6 +1873,34 @@ class TaskTicket(Base):
     modified_at    = Column(String, default="")
 
 
+class TicketEmailLog(Base):
+    """One attempted Outlook notification for a ticket event (Ticket
+    Notification Workflow, Jul 2026). One row per (ticket, event, recipient) —
+    the durable record a background retry loop scans, and what an admin's
+    delivery-log view reads. `idempotency_key` is
+    f"{ticket_id}:{event_type}:{event_version}:{recipient}" — checked before
+    sending so the same event never emails the same person twice, including
+    across a mid-send server restart (see ticket_notify.py)."""
+    __tablename__ = "ticket_email_log"
+    id                   = Column(String, primary_key=True)
+    ticket_id            = Column(String, default="", index=True)
+    ticket_code          = Column(String, default="")     # denormalised so the log reads after a ticket is deleted
+    event_type           = Column(String, default="")     # created|assigned|updated|resolved|reopened
+    event_version        = Column(Integer, default=0)     # bumps when the same event_type fires again on this ticket
+    idempotency_key       = Column(String, default="", index=True, unique=True)
+    recipient            = Column(String, default="")
+    recipient_role       = Column(String, default="")     # requester|dept_head|assignee|ticket_admin
+    subject              = Column(String, default="")
+    status               = Column(String, default="pending")   # pending|sent|failed|retrying
+    graph_message_id     = Column(String, default="")
+    conversation_id      = Column(String, default="")
+    internet_message_id  = Column(String, default="")
+    attempts             = Column(Integer, default=0)
+    error                = Column(String, default="")
+    created_at           = Column(String, default="")
+    updated_at           = Column(String, default="")
+
+
 class TaskTicketComponent(Base):
     """A ticket component / category (e.g. "Billing", "Network"). Small config
     table managed from Manage; tickets reference one by name."""
@@ -2052,6 +2180,25 @@ class VaultAccessLog(Base):
     created_at  = Column(String, default="", index=True)
 
 
+class StepUpSession(Base):
+    """A short-lived proof that the user completed a FRESH Entra MFA (step-up)
+    for the sensitive-data action they're about to take. Created by
+    /stepup/verify after validating an Entra access token that carries the
+    configured authentication-context claim (acrs); consumed by the
+    require_stepup dependency guarding vault reveals + payroll + confidential HR.
+    One session unlocks a short burst so users aren't re-prompted per item.
+    The row IS the audit trail (who stepped up, when, how, from where)."""
+    __tablename__ = "stepup_sessions"
+    id          = Column(String, primary_key=True)            # uuid
+    email       = Column(String, default="", index=True)
+    method      = Column(String, default="")                  # authenticator|sms|mfa|dev — from the token's amr, best-effort
+    acr         = Column(String, default="")                  # the authentication-context value satisfied (e.g. c1)
+    granted_at  = Column(String, default="")
+    expires_at  = Column(String, default="", index=True)
+    ip          = Column(String, default="")
+    user_agent  = Column(String, default="")
+
+
 # ── Investor Relations (Jul 2026) ────────────────────────────────────────────
 # GP-side capital-management platform for single-purpose-LLC deals and small
 # syndications (not blind-pool PE funds): one deal per property/project, a
@@ -2206,3 +2353,15 @@ class IrUpdate(Base):
     pinned      = Column(Boolean, default=False)
     created_by  = Column(String, default="")
     created_at  = Column(String, default="")
+
+
+class PropertyWorkspaceMeta(Base):
+    """Single-row (id=1) metadata for the Asset Management workspace blob: a
+    SERVER-stamped epoch-ms timestamp of the last accepted PUT. Clients compare
+    this against the last _ts they know to decide when to pull — server-stamped
+    so client clock skew can never make a newer workspace look older."""
+    __tablename__ = "property_workspace_meta"
+    id         = Column(Integer, primary_key=True)   # always 1
+    ts         = Column(BigInteger, default=0)       # epoch ms of last accepted workspace PUT
+    updated_by = Column(String, default="")
+    updated_at = Column(String, default="")

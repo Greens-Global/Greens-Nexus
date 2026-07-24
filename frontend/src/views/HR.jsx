@@ -9,6 +9,7 @@ import {
   ShieldCheck, Shield, AlertTriangle, Clock,
 } from 'lucide-react';
 import { api } from '../api';
+import { ensureStepUp, isStepUpRequired, StepUpNeeded } from '../stepup/StepUp';
 import { useRole, MODULES, MODULE_LEVELS, ROLES } from '../contexts/RoleContext';
 import TimeAdmin from '../components/TimeAdmin';
 import RolesAccess, { LevelPill, ModuleLevelPill, TierBadge } from './RolesAccess';
@@ -797,15 +798,23 @@ function PayTab({ employee, reloadToken, onEdit }) {
   const [stubs, setStubs] = useState([]);
   const [stubPeriod, setStubPeriod] = useState('');
   const [stubBusy, setStubBusy] = useState(false);
+  const [stepLocked, setStepLocked] = useState(false);   // comp/bank need a fresh step-up
+  const [suToken, setSuToken] = useState(0);
   const stubFileRef = useRef(null);
   useEffect(() => {
     let live = true;
     api.getCompensation(employee.id)
-      .then(r => { if (live) setData({ comp: r.compensation || {}, bank: r.bank || [] }); })
-      .catch(() => { if (live) setData({ comp: {}, bank: [] }); });
+      .then(r => { if (live) { setStepLocked(false); setData({ comp: r.compensation || {}, bank: r.bank || [] }); } })
+      .catch(e => {
+        // Compensation/bank require a fresh step-up MFA — show the Verify gate.
+        if (isStepUpRequired(e)) { if (live) setStepLocked(true); return; }
+        if (live) setData({ comp: {}, bank: [] });
+      });
     api.hrPaystubs(employee.id).then(r => { if (live) setStubs(r); }).catch(() => {});
     return () => { live = false; };
-  }, [employee.id, reloadToken]);
+  }, [employee.id, reloadToken, suToken]);
+
+  if (stepLocked) return <StepUpNeeded label="Compensation, bank and paystub details are confidential." onVerified={() => setSuToken(n => n + 1)} />;
 
   const uploadStub = async (file) => {
     if (!file) return;
@@ -3267,7 +3276,10 @@ function CompensationModal({ employee, onClose, toastOk, toastErr }) {
   const removeBenefit = i => setComp(p => ({ ...p, benefits: (p.benefits || []).filter((_, j) => j !== i) }));
 
   async function save() {
-    if (busy) return; setBusy(true);
+    if (busy) return;
+    const up = await ensureStepUp();
+    if (!up.ok) { if (!up.cancelled) toastErr('Identity check didn’t complete.'); return; }
+    setBusy(true);
     try {
       const clean = { ...comp }; delete clean.history;   // server owns history
       await api.saveCompensation(employee.id, { compensation: clean, bank });

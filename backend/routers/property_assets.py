@@ -14,17 +14,18 @@ dataset is tiny (~24 properties + a few hundred child rows), so a whole-blob
 GET / replace-all PUT is the pragmatic, low-risk shape. Later phases can promote
 warranty/inspection date columns for expiry notifications.
 """
+import time
 import uuid
 from datetime import datetime, timezone, date
 from typing import Any, Dict, List
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from database import get_db
 from auth import require_module_grant
-from models import PropertyAsset, PropertyRecord, PropertyActivityLog, NexusNotification
+from models import PropertyAsset, PropertyRecord, PropertyActivityLog, PropertyWorkspaceMeta, NexusNotification
 
 router = APIRouter(tags=["Asset Management"])
 
@@ -72,6 +73,10 @@ def get_workspace(db: Session = Depends(get_db), user=Depends(require_asset_read
         if r.collection in ws:
             ws[r.collection].append(r.payload or {})
     ws["logs"] = [l.payload or {} for l in db.query(PropertyActivityLog).all()]
+    # Server-stamped freshness marker — clients pull whenever this moves past the
+    # last value they saw (value-only edits move it too, unlike the log count).
+    meta = db.get(PropertyWorkspaceMeta, 1)
+    ws["_ts"] = (meta.ts if meta else 0) or 0
     return ws
 
 
@@ -81,6 +86,14 @@ def put_workspace(ws: Workspace, db: Session = Depends(get_db), user=Depends(req
     request is simplest and matches the module's whole-blob save semantics."""
     now = _now()
     email = (user or {}).get("email", "")
+
+    # Refuse a wipe: a client that booted during an outage starts from an EMPTY
+    # store, and its first save would replace-all a populated portfolio with
+    # nothing. Deleting the genuinely-last asset (server count <= 1) is allowed;
+    # 0-over-many can only be a broken client. 409 → the client's sync queue
+    # drops the write and re-pulls instead of retrying forever.
+    if not ws.properties and db.query(PropertyAsset).count() > 1:
+        raise HTTPException(status_code=409, detail="Refusing to replace a populated portfolio with an empty one")
 
     db.query(PropertyRecord).delete()
     db.query(PropertyActivityLog).delete()
@@ -126,8 +139,19 @@ def put_workspace(ws: Workspace, db: Session = Depends(get_db), user=Depends(req
             created_at=str(entry.get("ts") or now),
         ))
 
+    # Stamp the workspace's freshness marker with SERVER time (epoch ms) so pull
+    # decisions never depend on any client's clock.
+    ts_ms = int(time.time() * 1000)
+    meta = db.get(PropertyWorkspaceMeta, 1)
+    if meta is None:
+        meta = PropertyWorkspaceMeta(id=1)
+        db.add(meta)
+    meta.ts = ts_ms
+    meta.updated_by = email
+    meta.updated_at = now
+
     db.commit()
-    return {"ok": True, "properties": len(ws.properties)}
+    return {"ok": True, "properties": len(ws.properties), "_ts": ts_ms}
 
 
 def _parse_ymd(s):

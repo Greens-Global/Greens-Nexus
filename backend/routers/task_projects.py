@@ -202,11 +202,27 @@ def update_portfolio(portfolio_id: str, body: PortfolioBody, db: Session = Depen
     if not p:
         raise HTTPException(404, "Portfolio not found")
     data = body.model_dump(exclude_unset=True, exclude={"id"})
+    prev_project_ids = set(p.project_ids or [])
     for k, v in data.items():
         if k == "owner_email" and v is not None:
             v = (v or "").lower()
         setattr(p, k, v)
     p.modified_at = now_iso()
+    # A project's own portfolio_id is the source of truth ProjectsView reads for
+    # its portfolio badge, but this endpoint only used to touch the portfolio's
+    # side of the relationship — adding a project here never tagged the project
+    # itself. Diff old vs new project_ids and update both directions.
+    if "project_ids" in data:
+        new_project_ids = set(p.project_ids or [])
+        for pid in new_project_ids - prev_project_ids:
+            proj = db.query(models.TaskProject).filter(models.TaskProject.id == pid).first()
+            if proj:
+                proj.portfolio_id = portfolio_id
+        for pid in prev_project_ids - new_project_ids:
+            proj = (db.query(models.TaskProject)
+                    .filter(models.TaskProject.id == pid, models.TaskProject.portfolio_id == portfolio_id).first())
+            if proj:
+                proj.portfolio_id = ""
     db.commit()
     db.refresh(p)
     return portfolio_to_dict(p)

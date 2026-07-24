@@ -57,6 +57,7 @@ export function ManagePage({
   canUndo,
   onClearFlag,
   onPushFix,
+  serverOk,
 }) {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [purgeTarget, setPurgeTarget] = useState(null);
@@ -275,7 +276,9 @@ export function ManagePage({
 
           {rows.length === 0 ? (
             <div style={{ fontSize: '0.84rem', color: 'var(--text-secondary)' }}>
-              {q ? 'No assets match your search.' : 'No assets yet — use Add Asset to register the first one.'}
+              {q ? 'No assets match your search.'
+                : serverOk === false ? "Couldn't reach the server to load assets — retrying automatically. Nothing has been deleted."
+                : 'No assets yet — use Add Asset to register the first one.'}
             </div>
           ) : (
             <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, overflow: 'hidden' }}>

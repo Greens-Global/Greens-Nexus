@@ -178,6 +178,25 @@ export function fmtDateTime(v) {
   });
 }
 
+/** 1.25 -> "1h 15m" (drops the minutes when they're 0, and hours when there are
+ * none) — "Copy Task Link" and the estimate/actual fields store plain float
+ * hours, but showing "1.25h" isn't a format anyone reads at a glance. */
+export function fmtHours(h) {
+  const total = Math.round((Number(h) || 0) * 60);
+  if (!total) return '0h';
+  const hh = Math.floor(total / 60), mm = total % 60;
+  if (!hh) return `${mm}m`;
+  return mm ? `${hh}h ${mm}m` : `${hh}h`;
+}
+
+/** The id from a copied "Copy Task Link" (?task=<id>), or '' if this page load
+ * didn't come from one. Read once at mount — the workspace views pass this as
+ * the initial value of their `openId` state so the drawer opens automatically. */
+export function taskIdFromUrl() {
+  if (typeof window === 'undefined') return '';
+  return new URLSearchParams(window.location.search).get('task') || '';
+}
+
 /** Asana-imported comments are stamped "[Asana · Name · date]\n<text>" so the
  * original author survives even when the Asana account has no matching Nexus
  * email (import falls back to author_email "asana-sync"). Pull that name out

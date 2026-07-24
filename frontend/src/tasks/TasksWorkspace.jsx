@@ -5,7 +5,7 @@ import { useMemo, useState } from 'react';
 import { List, Columns3, Calendar as CalIcon, GanttChart, LayoutDashboard, Paperclip, Gauge, Plus, Search, CheckCircle2, Circle, Trash2, X, FolderKanban, ArrowLeft } from 'lucide-react';
 import { useTasks } from './TasksContext';
 import { useRole } from '../contexts/RoleContext';
-import { EMPTY_FILTER, matchesFilter, topLevel, sortTasks, groupTasks, taskStats } from './lib';
+import { EMPTY_FILTER, matchesFilter, topLevel, sortTasks, groupTasks, taskStats, taskIdFromUrl } from './lib';
 import { NX, FONT, btn, input as inputStyle, STATUS_ORDER, STATUS_META, chip } from './theme';
 import { Avatar, StatusChip, PriorityChip, EmptyState, usePeople, useIsMobile } from './components';
 import CreateTaskModal from './CreateTaskModal';
@@ -48,7 +48,7 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
   const [filters, setFilters] = useState(EMPTY_FILTER);
   const [sort, setSort] = useState({ key: 'manual', dir: 'asc' });
   const [selected, setSelected] = useState(new Set());
-  const [openId, setOpenId] = useState(null);
+  const [openId, setOpenId] = useState(taskIdFromUrl);
   const [creating, setCreating] = useState(null); // full CreateTaskModal defaults (desktop / "Full details")
   const [quickCreate, setQuickCreate] = useState(null); // mobile Asana-style quick-add defaults
   // Mobile → lightweight quick-add sheet; desktop → the full form. Same context defaults either way.
