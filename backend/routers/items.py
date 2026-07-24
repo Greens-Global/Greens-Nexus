@@ -68,6 +68,17 @@ _RETURN_CONDITIONS = ("ok", "damaged", "lost")
 require_items_admin  = require_level_or_module(_ROLE_LEVEL["manager"], "inventory", "editor")
 require_items_delete = require_level_or_module(_ROLE_LEVEL["owner"],   "inventory", "full")
 
+
+def _is_items_manager(user: dict, db) -> bool:
+    """Inline version of require_items_admin for checks INSIDE handlers:
+    global manager+ OR an Access-Group grant of inventory at editor or above.
+    The raw `user["level"] >= 3` checks this replaces ignored module grants, so
+    an Employee-tier person with 'Item Management: Full' was blocked from
+    approve/allocate/manage despite the grant (Jul 24 — India Admin Team)."""
+    from auth import _module_level, _MODULE_LEVEL_RANK
+    return (user.get("level", 1) >= _ROLE_LEVEL["manager"]
+            or _module_level(user["email"], "inventory", db) >= _MODULE_LEVEL_RANK["editor"])
+
 _SUPABASE_URL         = os.getenv("SUPABASE_URL", "")
 _SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
 
@@ -1189,7 +1200,7 @@ class CheckoutStatusUpdate(BaseModel):
 @router.get("/checkouts")
 def list_checkouts(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     q = db.query(ItemCheckout).order_by(ItemCheckout.created_at.desc())
-    if user["level"] < 3:
+    if not _is_items_manager(user, db):
         q = q.filter(or_(
             ItemCheckout.requested_by_email == user["email"],
             ItemCheckout.assigned_allocator_email == user["email"],
@@ -1234,8 +1245,9 @@ def create_checkout(body: CheckoutIn, user: dict = Depends(get_current_user), db
         raise HTTPException(409, f'"{item.name}" is permanently assigned and cannot be checked out')
 
     now = datetime.now(timezone.utc).isoformat()
-    # Managers and above don't need a separate approval for their own checkouts
-    is_manager = user.get("level", 1) >= 3
+    # Managers and above (or an inventory editor+ grant) don't need a separate
+    # approval for their own checkouts
+    is_manager = _is_items_manager(user, db)
     requester_email = body.requested_by_email.lower()
     user_email = user.get("email", "").lower()
     self_checkout = is_manager and requester_email == user_email
@@ -1343,30 +1355,32 @@ def update_checkout(checkout_id: str, body: CheckoutStatusUpdate, user: dict = D
     _validate_photo_url(body.receipt_photo_url,  "receipt_photo_url")
     _validate_photo_url(body.return_photo_url,   "return_photo_url")
 
-    if body.status in ("approved", "rejected") and user["level"] < 3:
+    items_mgr = _is_items_manager(user, db)   # manager+ OR inventory grant editor+
+    if body.status in ("approved", "rejected") and not items_mgr:
         raise HTTPException(403, "Manager or above required to approve or reject checkouts")
     if body.status == "approved" and not (body.assigned_allocator_email or "").strip():
         raise HTTPException(400, "Pick who should allocate this item before approving")
     if body.status == "pending_receipt":
         is_assignee = row.assigned_allocator_email and row.assigned_allocator_email.lower() == user["email"]
-        if not is_assignee and user["level"] < 3:
+        if not is_assignee and not items_mgr:
             raise HTTPException(403, "Only the assigned allocator or a manager can initiate handover")
     if body.status == "allocated":
         is_assignee  = row.assigned_allocator_email and row.assigned_allocator_email.lower() == user["email"]
         is_requester = row.requested_by_email and row.requested_by_email.lower() == user["email"]
-        if not is_assignee and not is_requester and user["level"] < 3:
+        if not is_assignee and not is_requester and not items_mgr:
             raise HTTPException(403, "Only the assigned allocator, the requester, or a manager can confirm handover")
-    if body.status == "returned" and user["level"] < 2 and row.requested_by_email.lower() != user["email"]:
+    if body.status == "returned" and user["level"] < 2 and not items_mgr \
+            and row.requested_by_email.lower() != user["email"]:
         raise HTTPException(403, "You can only return your own items")
     if body.status == "cancelled":
-        # P1-7: the requester can always self-cancel; a manager (level >= 3) may also
-        # cancel a still-pending/approved checkout on someone's behalf (symmetric with
-        # assignment force-cancel). The requester is then told WHO cancelled it (below).
+        # P1-7: the requester can always self-cancel; a manager (or inventory
+        # editor+ grant) may also cancel a still-pending/approved checkout on
+        # someone's behalf (symmetric with assignment force-cancel). The
+        # requester is then told WHO cancelled it (below).
         is_requester = row.requested_by_email.lower() == user["email"].lower()
-        is_manager   = user.get("level", 1) >= _ROLE_LEVEL["manager"]
-        if not is_requester and not is_manager:
+        if not is_requester and not items_mgr:
             raise HTTPException(403, "You can only cancel your own checkouts")
-        if is_manager and not is_requester and row.status not in ("pending", "approved"):
+        if items_mgr and not is_requester and row.status not in ("pending", "approved"):
             raise HTTPException(409, "A manager can only cancel a pending or approved checkout")
 
     valid_predecessors = _VALID_TRANSITIONS.get(body.status)
@@ -1742,7 +1756,7 @@ def request_extension(checkout_id: str, body: ExtensionRequest, user: dict = Dep
         raise HTTPException(404, "Checkout not found")
     if row.status != "allocated":
         raise HTTPException(400, "Extensions can only be requested for items in use")
-    if (row.requested_by_email or "").lower() != user["email"].lower() and user["level"] < _ROLE_LEVEL["manager"]:
+    if (row.requested_by_email or "").lower() != user["email"].lower() and not _is_items_manager(user, db):
         raise HTTPException(403, "Only the person holding the item can request an extension")
     if row.extension_status == "pending":
         raise HTTPException(400, "An extension request is already awaiting approval")
@@ -1770,7 +1784,7 @@ def request_extension(checkout_id: str, body: ExtensionRequest, user: dict = Dep
 @router.post("/checkouts/{checkout_id}/extension/resolve")
 def resolve_extension(checkout_id: str, body: ExtensionResolve, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """Manager approves or rejects a pending extension request."""
-    if user["level"] < _ROLE_LEVEL["manager"]:
+    if not _is_items_manager(user, db):
         raise HTTPException(403, "Manager or above required to resolve extensions")
     # Row lock: two managers resolving the same extension concurrently must not
     # both pass the pending check (approve twice = days added twice).
@@ -2213,7 +2227,7 @@ def _clear_batch_assign_notif(db: Session, assignee_email: str):
 @router.get("/assignments")
 def list_assignments(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     q = db.query(ItemAssignment).order_by(ItemAssignment.created_at.desc())
-    if user["level"] < 3:
+    if not _is_items_manager(user, db):
         q = q.filter(ItemAssignment.assignee_email == user["email"])
     return [_assignment_to_dict(a) for a in q.limit(1000).all()]
 
@@ -2453,7 +2467,7 @@ def initiate_assignment_return(assignment_id: str, body: AssignmentReturnInit, u
     a = db.query(ItemAssignment).filter(ItemAssignment.id == assignment_id).with_for_update().first()
     if not a:
         raise HTTPException(404, "Assignment not found")
-    if a.assignee_email != user["email"] and user["level"] < 3:
+    if a.assignee_email != user["email"] and not _is_items_manager(user, db):
         raise HTTPException(403, "Only the assignee or a manager can initiate a return")
     if a.status not in ("active", "return_initiated"):
         raise HTTPException(409, "Assignment is not active")
@@ -2482,7 +2496,7 @@ def initiate_assignment_return(assignment_id: str, body: AssignmentReturnInit, u
 
 @router.post("/assignments/{assignment_id}/accept-return")
 def accept_assignment_return(assignment_id: str, body: AssignmentReturnAccept, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    if user["level"] < 2:
+    if user["level"] < 2 and not _is_items_manager(user, db):
         raise HTTPException(403, "Supervisor or above required to accept returns")
     a = db.query(ItemAssignment).filter(ItemAssignment.id == assignment_id).with_for_update().first()
     if not a:
@@ -2672,7 +2686,7 @@ def list_approvers(user: dict = Depends(get_current_user), db: Session = Depends
 
 @router.get("/allocators")
 def list_allocators(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    if user["level"] < _ROLE_LEVEL["manager"]:
+    if not _is_items_manager(user, db):
         raise HTTPException(403, "Manager or above required")
     rows = db.query(NexusRole).filter(NexusRole.role.in_(
         [role for role, level in _ROLE_LEVEL.items() if level >= _ROLE_LEVEL["supervisor"]]
