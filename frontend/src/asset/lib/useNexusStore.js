@@ -45,6 +45,20 @@ export function useNexusStore() {
   //    AND overwrite it with a whole-blob PUT on the next visit.
   useEffect(() => {
     let alive = true;
+    // Instant first paint (stale-while-revalidate): the server round-trip for the
+    // whole workspace blob takes seconds on far-from-region connections, and a
+    // spinner for that long reads as "the app is slow". Show the cached local
+    // copy IMMEDIATELY as a provisional view — display-only (serverEcho guards
+    // the push path, and lastTs/lastLogCount stay at 0 so the server response
+    // below, or the first background pull, always replaces it).
+    try {
+      const cached = VNORM(JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null'));
+      if (cached && Array.isArray(cached.properties) && cached.properties.length) {
+        serverEcho.current = true;
+        setStore(cached);
+        setLoading(false);
+      }
+    } catch { /* ignore */ }
     Promise.all([idbGet(STORAGE_KEY), serverGet()])
       .then(([idbJson, serverState]) => {
         if (!alive) return;
@@ -69,7 +83,7 @@ export function useNexusStore() {
       .catch(() => {})
       .finally(() => { markHydrated(); if (alive) setLoading(false); });
     return () => { alive = false; };
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 2. On every store change, once hydrated: mirror to localStorage + IndexedDB, and — for
   //    user-made changes only (not server echoes) — queue a debounced push to the server.

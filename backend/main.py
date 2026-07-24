@@ -514,13 +514,20 @@ def _run_migrations():
         "ALTER TABLE documents ADD COLUMN IF NOT EXISTS merge_overrides JSONB DEFAULT '{}'::jsonb",
         "ALTER TABLE doc_templates ADD COLUMN IF NOT EXISTS merge_overrides JSONB DEFAULT '{}'::jsonb",
     ]
+    # Commit per statement, roll back per failure. With a single end-of-loop
+    # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
+    # have) puts the WHOLE Postgres transaction in the aborted state — every
+    # later statement then "skips" and the final commit persists nothing, which
+    # is how prod silently missed new columns (Jul 24: time_punches.category
+    # broke every timeclock SELECT with a 500).
     with engine.connect() as conn:
         for sql in migrations:
             try:
                 conn.execute(text(sql))
+                conn.commit()
             except Exception as e:
+                conn.rollback()
                 print(f"[migration] skipped: {e}")
-        conn.commit()
 
 
 # NOTE (P2-1, Jul 2026): the legacy inventory_items mock seed (~34 rows) was
