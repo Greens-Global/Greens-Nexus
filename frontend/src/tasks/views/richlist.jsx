@@ -204,7 +204,7 @@ function TaskRow({ t, cols, customFields = [], template, store, people, selected
   const estM = t.estimateHours && t.estimateHours % 1 ? Math.round((t.estimateHours % 1) * 60) : '';
   const setEst = (h, m) => store.updateTask(t.id, { estimateHours: (h || m) ? (Number(h || 0) + Number(m || 0) / 60) : null });
   return (
-    <div onClick={() => onOpen(t.id)} style={{ borderBottom: `1px solid ${NX.border2}`, background: selected ? 'rgba(37,99,235,0.10)' : 'transparent', cursor: 'pointer' }}
+    <div onClick={() => onOpen(t.id)} data-task-row style={{ borderBottom: `1px solid ${NX.border2}`, background: selected ? 'rgba(37,99,235,0.10)' : 'transparent', cursor: 'pointer' }}
       onMouseEnter={(e) => { if (!selected) e.currentTarget.style.background = NX.hover; }}
       onMouseLeave={(e) => { if (!selected) e.currentTarget.style.background = 'transparent'; }}>
       <div style={{ display: 'grid', gridTemplateColumns: template, alignItems: 'center', gap: 12, padding: '6px 16px', fontSize: 13 }}>

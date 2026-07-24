@@ -191,7 +191,7 @@ function TaskRow({ t, store, selected, toggleSel, onOpen }) {
   const { nameOf, toggleComplete, projectName } = store;
   const overdue = t.dueOn && t.dueOn < new Date().toISOString().slice(0, 10) && !t.completed;
   return (
-    <div onClick={() => onOpen(t.id)} style={{
+    <div onClick={() => onOpen(t.id)} data-task-row style={{
       display: 'grid', gridTemplateColumns: '26px 26px 1fr auto auto auto', alignItems: 'center', gap: 10,
       padding: '9px 16px', borderBottom: `1px solid ${NX.border2}`, cursor: 'pointer', background: selected.has(t.id) ? 'rgba(37,99,235,0.10)' : NX.surface,
     }}
@@ -245,7 +245,7 @@ function BoardBody({ visible, group, ctx, store, onOpen }) {
           </div>
           <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 9, maxHeight: '68vh', overflowY: 'auto' }}>
             {c.tasks.map((t) => (
-              <div key={t.id} onClick={() => onOpen(t.id)} style={{ background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, padding: 11, cursor: 'pointer', boxShadow: '0 1px 2px rgba(0,0,0,0.04)' }}>
+              <div key={t.id} onClick={() => onOpen(t.id)} data-task-row style={{ background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, padding: 11, cursor: 'pointer', boxShadow: '0 1px 2px rgba(0,0,0,0.04)' }}>
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
                   <button onClick={(e) => { e.stopPropagation(); toggleComplete(t); }} style={{ ...btn('ghost'), padding: 0, color: t.completed ? NX.green : NX.faint }}>{t.completed ? <CheckCircle2 size={17} /> : <Circle size={17} />}</button>
                   <div style={{ fontSize: 13.5, fontWeight: 500, flex: 1, textDecoration: t.completed ? 'line-through' : 'none', opacity: t.completed ? 0.6 : 1 }}>{t.title}</div>

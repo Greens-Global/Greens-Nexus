@@ -9,6 +9,7 @@ import { supabase } from '../lib/supabase';
 import { useRole } from '../contexts/RoleContext';
 import { useNameResolver } from '../lib/useNameResolver';
 import { STATUS_META, STATUS_ORDER, NX } from './theme';
+import { celebrateCompletion } from './celebrate';
 
 const Ctx = createContext(null);
 
@@ -156,7 +157,23 @@ export function TasksProvider({ children }) {
     }
   }, [patchLocalTask, refetchTasks]);
 
-  const toggleComplete = useCallback((t) => updateTask(t.id, { completed: !t.completed }), [updateTask]);
+  // Completing a task celebrates (unicorn + green sweep) and holds the store
+  // update briefly so the row visibly turns green BEFORE it jumps to the
+  // Completed bucket. Un-completing is instant and silent. The pending set
+  // guards double-clicks during the hold.
+  const pendingComplete = useRef(new Set());
+  const toggleComplete = useCallback((t) => {
+    if (t.completed) return updateTask(t.id, { completed: false });
+    if (pendingComplete.current.has(t.id)) return undefined;
+    pendingComplete.current.add(t.id);
+    celebrateCompletion();
+    return new Promise((resolve) => {
+      setTimeout(() => {
+        pendingComplete.current.delete(t.id);
+        resolve(updateTask(t.id, { completed: true }).catch(() => {}));
+      }, 550);
+    });
+  }, [updateTask]);
   const setStatus = useCallback((id, status) => updateTask(id, { status }), [updateTask]);
 
   const deleteTask = useCallback(async (id) => {
