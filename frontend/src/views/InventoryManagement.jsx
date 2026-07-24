@@ -6503,8 +6503,11 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
   // When a perm_return notification deep-links here, jump the Assignments queue
   // straight to its "Returns to Accept" filter. ts forces re-trigger on repeats.
   const [assignFocus, setAssignFocus] = useState(null);
-  const { can } = useRole();
-  const isManager = can('manager');
+  const { canAccessModule } = useRole();
+  // Manager tier OR an Access-Group/job-role grant of Item Management at
+  // editor+ — grants layer additively (Jul 24: Employee-tier people with
+  // "Item Management: Full" were locked out despite the grant).
+  const isManager = canAccessModule('inventory', 'manager', 'editor');
   const isMobile = useIsMobile(); // shorten the segment labels so they fit
   const [statusFilter,   setStatusFilter]   = useState('active');
   const [personQuery,    setPersonQuery]    = useState('');
@@ -7669,7 +7672,10 @@ export default function InventoryManagement({ activeSub }) {
   const userName  = cleanName(accounts[0]?.name ?? 'Employee');
   const userEmail = (accounts[0]?.username ?? '').toLowerCase();
 
-  const isManager = can('manager');  // level >= 3; checked after role loads
+  // Manager tier OR an Access-Group/job-role grant of Item Management at
+  // editor+ (grants layer additively — an Employee-tier person with the
+  // "Item Management: Full" grant gets the full Manage experience).
+  const isManager = canAccessModule('inventory', 'manager', 'editor');
   const canDelete = canAccessModule('inventory', 'owner', 'full');
 
   const pendingCount   = checkouts.filter(c => c.status === 'pending').length;
