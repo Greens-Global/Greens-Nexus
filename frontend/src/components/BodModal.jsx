@@ -45,17 +45,17 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
   const M = MODES[mode] || MODES.bod;
   const [message, setMessage] = useState('');
   const [tasks, setTasks] = useState('');
-  const [pending, setPending] = useState('');        // EOD only — open Nexus tasks, editable
+  const [pending, setPending] = useState('');        // EOD only — starts empty; empty = no section in the post
+  const [pendingSugg, setPendingSugg] = useState(''); // open Nexus tasks, offered via one-click insert
   const [bound, setBound] = useState(null);          // { id, name } from the group binding
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [ack, setAck] = useState(false);
 
-  // On open: resolve the ONE chat an admin bound to this person's group. The
-  // composer starts EMPTY on purpose — it used to pre-fill yesterday's typed
-  // message/tasks, which people kept accidentally re-posting (Jul 25). The one
-  // thing that DOES auto-fill is the EOD "Pending tasks" list, and that comes
-  // live from the person's open tasks in the Tasks module, not from history.
+  // On open: resolve the ONE chat an admin bound to this person's group. Every
+  // field starts EMPTY on purpose — pre-filling (yesterday's text, open tasks)
+  // kept getting posted untouched (Jul 25). The person's open Nexus tasks are
+  // fetched as a SUGGESTION they can insert with one click, never auto-posted.
   useEffect(() => {
     let live = true;
     (async () => {
@@ -70,7 +70,7 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
         const email = (msalInstance.getActiveAccount()?.username || '')
           .toLowerCase().replace('@greensg.onmicrosoft.com', '@greensglobal.com');
         const open = (rows || []).filter(t => (t.assigneeId || '').toLowerCase() === email && !t.completed);
-        setPending(open.slice(0, 12).map(t => t.title).filter(Boolean).join('\n'));
+        setPendingSugg(open.slice(0, 12).map(t => t.title).filter(Boolean).join('\n'));
       }).catch(() => {});
     }
     return () => { live = false; };
@@ -197,11 +197,19 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
             <div>
               <label style={FL}>Pending tasks (one per line)</label>
               <textarea className="form-input" rows={3} value={pending} onChange={e => setPending(e.target.value)}
-                placeholder="Anything still open — auto-filled from your Nexus tasks"
+                placeholder="Anything still open — leave empty to skip this section"
                 style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} />
-              <p style={{ margin: '4px 0 0', fontSize: 11, color: 'var(--muted)' }}>
-                Auto-filled from your open tasks in the Tasks module — edit freely before sending.
-              </p>
+              {pendingSugg && !pending.trim() ? (
+                <button type="button" onClick={() => setPending(pendingSugg)}
+                  style={{ marginTop: 4, border: 'none', background: 'none', padding: 0, cursor: 'pointer',
+                           fontSize: 11, fontWeight: 600, color: M.color, fontFamily: 'Inter,sans-serif' }}>
+                  + Add my open tasks ({pendingSugg.split('\n').length})
+                </button>
+              ) : (
+                <p style={{ margin: '4px 0 0', fontSize: 11, color: 'var(--muted)' }}>
+                  Left empty, this section is left out of the post.
+                </p>
+              )}
             </div>
           )}
           {/* Target chat — the single chat an admin bound to this person's group */}
