@@ -78,10 +78,13 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
     //   12:50 AM (8:30 mins)     ← the tally is total worked today, EOD only
     const now = new Date();
     const ordinal = (n) => { const v = n % 100; return n + (['th', 'st', 'nd', 'rd'][(v - 20) % 10] || ['th', 'st', 'nd', 'rd'][v] || 'th'); };
-    const dateStr = `${now.toLocaleDateString(undefined, { weekday: 'short' })}, ${now.toLocaleDateString(undefined, { month: 'long' })} ${ordinal(now.getDate())}, ${now.getFullYear()}`;
-    const timeStr = now.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+    // Locale pinned to en-US so the post reads US-style for everyone regardless
+    // of the sender's browser locale: "Fri, July 24th, 2026" / "12:50 AM".
+    const dateStr = `${now.toLocaleDateString('en-US', { weekday: 'short' })}, ${now.toLocaleDateString('en-US', { month: 'long' })} ${ordinal(now.getDate())}, ${now.getFullYear()}`;
+    const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+    const h = Math.floor(workedMin / 60), m = workedMin % 60;
     const tally = mode === 'eod' && workedMin > 0
-      ? ` (${Math.floor(workedMin / 60)}:${String(workedMin % 60).padStart(2, '0')} mins)` : '';
+      ? ` (${h > 0 ? `${h} hr ` : ''}${m > 0 || h === 0 ? `${m} mins` : ''}`.trimEnd() + ')' : '';
     // "1)Task" → "1) Task" — people number their own lines; make the spacing uniform.
     const taskLines = tasks.split('\n').map(t => t.trim().replace(/^(\d+[).:])(?=\S)/, '$1 ')).filter(Boolean);
     return `<b>${M.title}</b><br/>${dateStr}<br/>${timeStr}${tally}<br/>${esc(message)}`
