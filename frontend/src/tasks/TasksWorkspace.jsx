@@ -7,7 +7,7 @@ import { useTasks } from './TasksContext';
 import { useRole } from '../contexts/RoleContext';
 import { EMPTY_FILTER, matchesFilter, topLevel, sortTasks, groupTasks, taskStats, taskIdFromUrl } from './lib';
 import { NX, FONT, btn, input as inputStyle, STATUS_ORDER, STATUS_META, chip } from './theme';
-import { Avatar, StatusChip, PriorityChip, EmptyState, usePeople, useIsMobile } from './components';
+import { Avatar, StatusChip, PriorityChip, EmptyState, usePeople, useIsMobile, ProjectAccessButton } from './components';
 import CreateTaskModal from './CreateTaskModal';
 import QuickCreateTask from './QuickCreateTask';
 import MobileTaskBar from './MobileTaskBar';
@@ -31,7 +31,7 @@ const GROUPS = ['status', 'priority', 'assignee', 'project', 'none'];
 
 export default function TasksWorkspace({ lockedProjectId = null, mine = false, title = 'Tasks', onBack }) {
   const store = useTasks();
-  const { tasks, nameOf, projectName, teamName, projectById, toggleComplete, bulkUpdate, deleteTask, myEmail } = store;
+  const { tasks, nameOf, projectName, teamName, projectById, toggleComplete, bulkUpdate, deleteTask, myEmail, teams } = store;
   const { can } = useRole();
   // Workload visibility:
   //  • Never on the project task view (lockedProjectId set) — removed per request.
@@ -98,7 +98,12 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
             </>
           ) : title}
         </div>
-        {!isMobile && <button style={{ ...btn('primary'), marginLeft: 'auto' }} onClick={() => openCreate({ projectId: lockedProjectId || '' })}><Plus size={15} />New Task</button>}
+        {!isMobile && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginLeft: 'auto' }}>
+            {lockedProject && <ProjectAccessButton project={lockedProject} teams={teams} people={people} />}
+            <button style={btn('primary')} onClick={() => openCreate({ projectId: lockedProjectId || '' })}><Plus size={15} />New Task</button>
+          </div>
+        )}
       </div>
 
       {/* Row 2 — view tabs + search & filters (desktop). Mobile: replaced by the floating MobileTaskBar. */}

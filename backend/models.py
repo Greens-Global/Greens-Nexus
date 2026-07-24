@@ -1122,6 +1122,14 @@ class DocTemplate(Base):
     requires_letterhead = Column(Boolean, default=False)
     letterhead_id       = Column(String, default="")
     merge_overrides     = Column(JSON, default=dict)          # default {{token}} values + custom variables (Phase 12) — seeded onto any Document created from this template
+    # Template Builder (Phase 13): list[FieldDef] — the single source of truth
+    # for a merge field's type/required/default/validation, keyed by `token`
+    # (which matches the mergeField TipTap node's own `token` attr). The node
+    # itself never carries type/validation — that would mean rewriting every
+    # chip instance in the doc body whenever a field's type changes.
+    # FieldDef shape: {token, label, type, required, default, options,
+    # validation: {maxLength, regex, min, max, minDate, maxDate}}.
+    field_defs          = Column(JSON, default=list)
     status              = Column(String, default="active")    # active|archived
     version             = Column(Integer, default=1)
     created_by          = Column(String, default="")
@@ -1655,6 +1663,12 @@ class TaskProject(Base):
     due_on        = Column(String, default="")
     archived      = Column(Boolean, default=False)
     member_emails = Column(JSON, default=list)
+    # Per-person role for the Share panel (owner|editor|commenter|viewer),
+    # keyed by lowercase email — {email: role}. Additive to member_emails,
+    # which stays the flat "has access at all" list every other visibility
+    # check (task_util.visible_project_ids) already relies on; a role here
+    # implies that email also belongs in member_emails (see update_project).
+    member_roles  = Column(JSON, default=dict)
     activity_ids  = Column(JSON, default=list)
     created_at    = Column(String, default="")
     modified_at   = Column(String, default="")
@@ -1688,6 +1702,11 @@ class TaskTeam(Base):
     color         = Column(String, default="")
     icon          = Column(String, default="")           # key from the department icon registry
     member_emails = Column(JSON, default=list)
+    # Project-access role this team's roster is granted on its project (Share
+    # panel) — owner|editor|commenter|viewer. Distinct from the team's own
+    # purpose (assignment grouping); default "editor" preserves the pre-Share-
+    # panel behavior where any team member could act on the project's tasks.
+    access_role   = Column(String, default="editor")
     created_at    = Column(String, default="")
 
 
@@ -1910,6 +1929,32 @@ class TaskTicketComponent(Base):
     created_at = Column(String, default="")
 
 
+class TaskEmailLog(Base):
+    """One attempted Outlook notification for a Task-module event (Task
+    Notification Workflow, Jul 2026 — same design as TicketEmailLog above,
+    just task-scoped). One row per (task, event, recipient); idempotency_key
+    prevents ever emailing the same event to the same person twice, including
+    a due-date reminder re-firing on a later pull of the same calendar day."""
+    __tablename__ = "task_email_log"
+    id                   = Column(String, primary_key=True)
+    task_id              = Column(String, default="", index=True)
+    task_code            = Column(String, default="")     # denormalised so the log reads after a task is deleted
+    event_type           = Column(String, default="")     # created|assigned|due_soon|overdue|completed|commented|follower_added|modified|deleted
+    event_version        = Column(Integer, default=0)
+    idempotency_key       = Column(String, default="", index=True, unique=True)
+    recipient            = Column(String, default="")
+    recipient_role       = Column(String, default="")     # assignee|follower|creator|owner
+    subject              = Column(String, default="")
+    status               = Column(String, default="pending")   # pending|sent|failed|retrying
+    graph_message_id     = Column(String, default="")
+    conversation_id      = Column(String, default="")
+    internet_message_id  = Column(String, default="")
+    attempts             = Column(Integer, default=0)
+    error                = Column(String, default="")
+    created_at           = Column(String, default="")
+    updated_at           = Column(String, default="")
+
+
 class TaskChangelogEntry(Base):
     """A changelog / "What's New" entry. Kept schema-loose (full object in
     `payload`) — mirrors the property_records pattern — until the changelog UI
@@ -1962,6 +2007,16 @@ class AsanaProjectMap(Base):
     id                = Column(String, primary_key=True)
     nexus_project_id  = Column(String, default="", index=True)
     asana_project_gid = Column(String, default="", index=True)
+    # Manual override for a real Asana API gap: a team ad-hoc-invited to a
+    # project via Asana's Share dialog (as opposed to being the project's own
+    # `team` field) is NOT exposed by any Asana REST endpoint — confirmed live
+    # (full unfiltered /projects/{gid}, project_memberships, and two guessed
+    # endpoints all came back empty/404 for this exact case, Jul 2026). Since
+    # the API can't tell us, the operator does: names listed here are looked
+    # up in the Asana workspace by name and their rosters kept in sync onto a
+    # same-named Nexus TaskTeam (find-or-create), same mechanism as the
+    # project's own owning team — see asana_sync._sync_project_access.
+    extra_team_names  = Column(JSON, default=list)
     created_at        = Column(String, default="")
 
 
@@ -1985,6 +2040,17 @@ class AsanaCommentLink(Base):
     nexus_comment_id = Column(String, default="", index=True)
     asana_story_gid  = Column(String, default="", index=True)
     created_at       = Column(String, default="")
+
+
+class AsanaAttachmentLink(Base):
+    """Links a synced attachment to its Asana attachment gid, so re-pulls don't
+    re-download/duplicate it (inbound-only — Nexus attachments aren't pushed
+    back out to Asana)."""
+    __tablename__ = "asana_attachment_links"
+    id                  = Column(String, primary_key=True)
+    nexus_attachment_id = Column(String, default="", index=True)
+    asana_attachment_gid = Column(String, default="", index=True)
+    created_at          = Column(String, default="")
 
 
 class AsanaWebhook(Base):

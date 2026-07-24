@@ -10,7 +10,7 @@ Reference implementation: routers/items.py.
 import calendar
 from datetime import date, datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional, Any
@@ -20,7 +20,9 @@ from auth import get_current_user, require_manager
 from routers.task_util import (
     now_iso, gen_id, fire_task_event, task_notify, log_activity,
     is_manager, visible_project_ids, task_is_visible,
+    project_for_task, require_project_role,
 )
+from task_notify import notify_task_event
 
 router = APIRouter(prefix="/tasks", tags=["Tasks"], dependencies=[Depends(get_current_user)])
 
@@ -358,7 +360,8 @@ def list_tasks(user: dict = Depends(get_current_user), db: Session = Depends(get
 
 
 @router.post("", status_code=201)
-def create_task(body: TaskCreate, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+def create_task(body: TaskCreate, background_tasks: BackgroundTasks,
+                user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     now = now_iso()
     tid = body.id or gen_id()
     # No explicit access_level -> inherit the project's (so a task in a
@@ -366,6 +369,11 @@ def create_task(body: TaskCreate, user: dict = Depends(get_current_user), db: Se
     # -> falls back to org, same as before.
     project = (db.query(models.TaskProject).filter(models.TaskProject.id == body.project_id).first()
                if body.project_id else None)
+    if not project and body.parent_task_id:
+        parent = db.query(models.Task).filter(models.Task.id == body.parent_task_id).first()
+        if parent:
+            project = project_for_task(db, parent)
+    require_project_role(db, user, project, "editor")
     access_level = body.access_level or (project.access_level if project else None) or "org"
     t = models.Task(
         id=tid,
@@ -421,17 +429,26 @@ def create_task(body: TaskCreate, user: dict = Depends(get_current_user), db: Se
     db.refresh(t)
     fire_task_event(tid, "created")
     _asana_push(tid)
+    background_tasks.add_task(notify_task_event, tid, "created", user["email"])
     return task_to_dict(t)
 
 
+_MODIFIED_FIELD_LABELS = {"title": "Title changed", "description": "Description changed",
+                         "due_on": "Due date changed", "start_on": "Start date changed",
+                         "priority": "Priority changed"}
+
+
 @router.patch("/{task_id}")
-def update_task(task_id: str, upd: TaskUpdate, user: dict = Depends(get_current_user),
-                db: Session = Depends(get_db)):
+def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks,
+                user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     t = _get_task(db, task_id)
+    require_project_role(db, user, project_for_task(db, t), "editor")
     data = upd.model_dump(exclude_unset=True)
     prev_assignee = (t.assignee_email or "").lower()
     prev_status = t.status
     prev_completed = bool(t.completed)
+    prev_followers = set((t.follower_emails or []))
+    modified_kinds = [label for field, label in _MODIFIED_FIELD_LABELS.items() if field in data]
 
     new_status = data.get("status", prev_status)
     # `completed` and `status` are two independent columns for one user-facing
@@ -501,12 +518,33 @@ def update_task(task_id: str, upd: TaskUpdate, user: dict = Depends(get_current_
     if spawned is not None:
         fire_task_event(spawned.id, "created")
         _asana_push(spawned.id)
+
+    new_assignee = (t.assignee_email or "").lower()
+    if "assignee_email" in data and new_assignee and new_assignee != prev_assignee:
+        background_tasks.add_task(notify_task_event, t.id, "assigned", user["email"])
+    if t.completed and not prev_completed:
+        background_tasks.add_task(notify_task_event, t.id, "completed", user["email"])
+    for f in (set(t.follower_emails or []) - prev_followers):
+        background_tasks.add_task(notify_task_event, t.id, "follower_added", user["email"], new_follower=f)
+    if modified_kinds:
+        background_tasks.add_task(notify_task_event, t.id, "modified", user["email"],
+                                  update_kind=", ".join(modified_kinds))
     return task_to_dict(t)
 
 
 @router.delete("/{task_id}", status_code=204)
-def delete_task(task_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+def delete_task(task_id: str, background_tasks: BackgroundTasks,
+                user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     t = _get_task(db, task_id)
+    require_project_role(db, user, project_for_task(db, t), "editor")
+    # Captured before the row is gone — notify_task_event("deleted") runs in
+    # the background AFTER this response, by which point db.delete(t) below
+    # has already removed it, so there'd be nothing left to look up.
+    deleted_snapshot = {
+        "code": t.code, "title": t.title, "status": t.status, "priority": t.priority,
+        "assignee_email": t.assignee_email or "", "follower_emails": list(t.follower_emails or []),
+        "created_by": t.created_by or "", "project_id": t.project_id or "", "due_on": t.due_on or "",
+    }
     # detach from parent
     if t.parent_task_id:
         parent = db.query(models.Task).filter(models.Task.id == t.parent_task_id).first()
@@ -532,6 +570,7 @@ def delete_task(task_id: str, user: dict = Depends(get_current_user), db: Sessio
     db.delete(t)
     db.commit()
     fire_task_event(task_id, "deleted")
+    background_tasks.add_task(notify_task_event, task_id, "deleted", user["email"], snapshot=deleted_snapshot)
 
 
 class BulkUpdate(BaseModel):
@@ -588,12 +627,13 @@ def list_comments(task_id: str, db: Session = Depends(get_db)):
 
 
 @router.post("/{task_id}/comments", status_code=201)
-def add_comment(task_id: str, body: CommentCreate, notify: bool = True,
+def add_comment(task_id: str, body: CommentCreate, background_tasks: BackgroundTasks, notify: bool = True,
                 user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     # `notify=false` (query param) posts silently — used by the Asana importer to
     # backfill historical comments without pinging assignees/followers. Defaults
     # to true, so normal in-app commenting is unchanged.
     t = _get_task(db, task_id)
+    require_project_role(db, user, project_for_task(db, t), "commenter")
     cid = gen_id()
     c = models.TaskComment(id=cid, task_id=task_id,
                            author_email=(body.author_email or user["email"]).lower(),
@@ -615,6 +655,8 @@ def add_comment(task_id: str, body: CommentCreate, notify: bool = True,
     db.refresh(c)
     fire_task_event(task_id, "comment")
     _asana_push_comment(cid)
+    if notify:
+        background_tasks.add_task(notify_task_event, task_id, "commented", user["email"], comment_body=body.body or "")
     return comment_to_dict(c)
 
 
@@ -784,3 +826,35 @@ def create_custom_status(body: CustomStatusBody, db: Session = Depends(get_db)):
 def delete_custom_status(status_id: str, db: Session = Depends(get_db)):
     db.query(models.TaskCustomStatus).filter(models.TaskCustomStatus.id == status_id).delete()
     db.commit()
+
+
+# ── Task email notification settings (admin) ─────────────────────────────────
+from task_notify import get_settings as _get_task_notify_settings, save_settings as _save_task_notify_settings
+
+
+@router.get("/notify/settings")
+def get_task_notify_settings(user: dict = Depends(require_manager), db: Session = Depends(get_db)):
+    return _get_task_notify_settings(db)
+
+
+@router.put("/notify/settings")
+def put_task_notify_settings(patch: dict, user: dict = Depends(require_manager), db: Session = Depends(get_db)):
+    return _save_task_notify_settings(db, patch, user["email"])
+
+
+@router.get("/notify/log")
+def get_task_notify_log(task_id: str = "", status: str = "", limit: int = 200,
+                        user: dict = Depends(require_manager), db: Session = Depends(get_db)):
+    q = db.query(models.TaskEmailLog)
+    if task_id:
+        q = q.filter(models.TaskEmailLog.task_id == task_id)
+    if status:
+        q = q.filter(models.TaskEmailLog.status == status)
+    rows = q.order_by(models.TaskEmailLog.created_at.desc()).limit(min(limit, 500)).all()
+    return [{
+        "id": r.id, "taskId": r.task_id, "taskCode": r.task_code, "eventType": r.event_type,
+        "eventVersion": r.event_version, "recipient": r.recipient, "recipientRole": r.recipient_role,
+        "subject": r.subject, "status": r.status, "graphMessageId": r.graph_message_id,
+        "conversationId": r.conversation_id, "attempts": r.attempts, "error": r.error,
+        "createdAt": r.created_at, "updatedAt": r.updated_at,
+    } for r in rows]

@@ -3,7 +3,7 @@ import { useEffect, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Check, ChevronDown, ChevronLeft, ChevronRight, Plus } from 'lucide-react';
 import { api } from '../api';
-import { NX, FONT, colorForKey, initialsOf, statusChip, priorityChip, btn, chip, STATUS_META } from './theme';
+import { NX, FONT, colorForKey, initialsOf, statusChip, priorityChip, btn, chip, STATUS_META, input as inputStyle } from './theme';
 import { fmtDate } from './lib';
 import { useTasks } from './TasksContext';
 
@@ -246,6 +246,247 @@ function emailToName(email) {
   const local = String(email || '').split('@')[0];
   if (!local) return email || '';
   return local.split(/[._-]+/).filter(Boolean).map((w) => w[0].toUpperCase() + w.slice(1)).join(' ') || email;
+}
+
+// Mirrors task_util.PROJECT_ROLE_RANK — a role only ever implies everything
+// ranked below it. Labels/descriptions match Asana's own Share dialog exactly
+// (per the reference screenshots) so this reads as a direct parity build.
+export const PROJECT_ROLES = {
+  owner:     { label: 'Project admin', rank: 4, description: 'Can change settings, modify, or delete the project.' },
+  editor:    { label: 'Editor',        rank: 3, description: 'Can add, edit, and delete anything in the project.' },
+  commenter: { label: 'Commenter',     rank: 2, description: "Can comment, but can't edit anything in the project." },
+  viewer:    { label: 'Viewer',        rank: 1, description: "Can view, but can't add comments or edit the project." },
+};
+const PROJECT_ROLE_ORDER = ['owner', 'editor', 'commenter', 'viewer'];
+
+// Rendered to a portal, fixed-positioned against the trigger's own rect —
+// same technique as CalendarPopover above. The plain-nested-dropdown version
+// got clipped by the Share modal's "Who has access" list, which needs its own
+// overflow-y:auto scrollbar; a position:absolute child can never escape that.
+function RolePickerPanel({ anchorRect, value, onChange, onClose }) {
+  const ref = useRef(null);
+  useClickOutside(ref, onClose, true);
+  const W = 260;
+  const left = Math.max(8, Math.min(anchorRect.right - W, window.innerWidth - W - 8));
+  const H = 260;
+  const flipUp = anchorRect.bottom + 6 + H > window.innerHeight && anchorRect.top > H;
+  const vpos = flipUp ? { bottom: window.innerHeight - anchorRect.top + 6 } : { top: anchorRect.bottom + 6 };
+  return createPortal(
+    <div ref={ref} style={{
+      position: 'fixed', left, width: W, ...vpos, background: NX.surface,
+      border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.18)',
+      zIndex: 4100, padding: 6, fontFamily: FONT,
+    }}>
+      {PROJECT_ROLE_ORDER.map((key) => (
+        <div key={key} onClick={() => { onChange(key); onClose(); }}
+          style={{ display: 'flex', gap: 8, padding: '7px 8px', borderRadius: 8, cursor: 'pointer',
+                  background: key === value ? NX.hover : 'transparent' }}>
+          <div style={{ width: 16, flexShrink: 0, paddingTop: 1 }}>{key === value && <Check size={14} style={{ color: NX.blue }} />}</div>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: NX.ink }}>{PROJECT_ROLES[key].label}</div>
+            <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 1 }}>{PROJECT_ROLES[key].description}</div>
+          </div>
+        </div>
+      ))}
+    </div>,
+    document.body,
+  );
+}
+
+// Per-person/per-team role dropdown for the Share panel — same shape as
+// Asana's (label + one-line description, checkmark on the current value).
+function RolePicker({ value, onChange, disabled }) {
+  const [open, setOpen] = useState(false);
+  const [rect, setRect] = useState(null);
+  const btnRef = useRef(null);
+  const meta = PROJECT_ROLES[value] || PROJECT_ROLES.editor;
+  const toggle = () => {
+    if (disabled) return;
+    if (open) { setOpen(false); return; }
+    const r = btnRef.current?.getBoundingClientRect();
+    if (r) { setRect(r); setOpen(true); }
+  };
+  return (
+    <>
+      <button ref={btnRef} type="button" disabled={disabled} onClick={toggle}
+        style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'none', border: 'none',
+                cursor: disabled ? 'default' : 'pointer', fontFamily: FONT, fontSize: 13,
+                color: disabled ? NX.faint : NX.ink, padding: '4px 6px' }}>
+        {meta.label}{!disabled && <ChevronDown size={13} style={{ color: NX.faint }} />}
+      </button>
+      {open && rect && (
+        <RolePickerPanel anchorRect={rect} value={value} onChange={onChange} onClose={() => setOpen(false)} />
+      )}
+    </>
+  );
+}
+
+// Full "Share" dialog — Asana parity: invite by email with a role, an
+// org-wide/private toggle, and a "Who has access" list (owner fixed, each
+// individual member and each project-scoped Team with its own role dropdown
+// + remove). Roles are ENFORCED server-side (task_util.require_project_role),
+// not cosmetic — a non-owner's edits here will 403; PermissionError below
+// surfaces that inline instead of failing silently.
+function ShareProjectModal({ project, teams, people, onClose }) {
+  const { updateProject, updateTeam } = useTasks();
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteRole, setInviteRole] = useState('editor');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const personFor = (em) => people.find((p) => p.email === em) || { email: em, name: emailToName(em) };
+  const ownerEmail = (project.ownerId || '').toLowerCase();
+  const memberRoles = project.memberRoles || {};
+  const memberEmails = (project.memberIds || []).filter((em) => em.toLowerCase() !== ownerEmail);
+  const projectTeams = (teams || []).filter((t) => t.projectId === project.id);
+
+  const run = async (fn) => {
+    setError(''); setBusy(true);
+    try { await fn(); }
+    catch (e) { setError(e?.message || 'That action needs Project admin access.'); }
+    finally { setBusy(false); }
+  };
+
+  const setMemberRole = (email, role) => run(() =>
+    updateProject(project.id, { member_roles: { ...memberRoles, [email]: role } }));
+
+  const removeMember = (email) => run(() => {
+    const nextRoles = { ...memberRoles };
+    delete nextRoles[email];
+    return updateProject(project.id, {
+      member_roles: nextRoles,
+      member_emails: (project.memberIds || []).filter((em) => em !== email),
+    });
+  });
+
+  const setTeamRole = (team, role) => run(() => updateTeam(team.id, { access_role: role }));
+  const removeTeam = (team) => run(() => updateTeam(team.id, { project_id: '' }));
+
+  const invite = () => {
+    const email = (inviteEmail || '').trim().toLowerCase();
+    if (!email) return;
+    run(async () => {
+      await updateProject(project.id, { member_roles: { ...memberRoles, [email]: inviteRole } });
+      setInviteEmail('');
+    });
+  };
+
+  const copyLink = () => {
+    navigator.clipboard?.writeText(window.location.href).catch(() => {});
+  };
+
+  return (
+    <Modal title={`Share ${project.name}`} onClose={onClose} width={480}>
+      {error && (
+        <div style={{ background: 'rgba(220,38,38,0.1)', color: '#dc2626', fontSize: 12.5, padding: '8px 10px',
+                     borderRadius: 8, marginBottom: 14 }}>{error}</div>
+      )}
+
+      <div style={{ fontSize: 13, fontWeight: 700, color: NX.ink, marginBottom: 8 }}>Invite with email</div>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16, alignItems: 'flex-start' }}>
+        <div style={{ flex: 1 }}>
+          <PersonSelect value={inviteEmail} onChange={(em) => setInviteEmail(em || '')}
+            people={people} placeholder="Add people from Nexus…" />
+        </div>
+        <RolePicker value={inviteRole} onChange={setInviteRole} />
+        <button type="button" disabled={busy || !inviteEmail} onClick={invite} style={btn('primary')}>Invite</button>
+      </div>
+
+      <div style={{ fontSize: 13, fontWeight: 700, color: NX.ink, marginBottom: 8 }}>Access settings</div>
+      <select value={project.accessLevel || 'org'} disabled={busy}
+        onChange={(e) => run(() => updateProject(project.id, { access_level: e.target.value }))}
+        style={{ ...inputStyle, width: '100%', marginBottom: 16 }}>
+        <option value="restricted">Private — only people/teams listed below</option>
+        <option value="org">Org-wide — everyone at Nexus can see this project</option>
+      </select>
+
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+        <span style={{ fontSize: 13, fontWeight: 700, color: NX.ink }}>Who has access</span>
+      </div>
+      <div className="nx-scroll" style={{ maxHeight: 260, overflowY: 'auto', border: `1px solid ${NX.border}`, borderRadius: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 10px', borderBottom: `1px solid ${NX.border}` }}>
+          <Avatar email={ownerEmail} name={personFor(ownerEmail).name} size={26} />
+          <span style={{ flex: 1, fontSize: 13, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {personFor(ownerEmail).name}
+          </span>
+          <span style={{ fontSize: 13, color: NX.faint, padding: '4px 6px' }}>Project admin</span>
+        </div>
+        {projectTeams.map((t) => (
+          <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 10px', borderBottom: `1px solid ${NX.border}` }}>
+            <div style={{ width: 26, height: 26, borderRadius: '50%', background: NX.surface2, flexShrink: 0,
+                         display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: NX.dim }}>
+              {t.name?.[0]?.toUpperCase() || 'T'}
+            </div>
+            <div style={{ flex: 1, overflow: 'hidden' }}>
+              <div style={{ fontSize: 13, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</div>
+              <div style={{ fontSize: 11.5, color: NX.faint }}>{(t.memberIds || []).length} people</div>
+            </div>
+            <RolePicker value={t.accessRole || 'editor'} onChange={(r) => setTeamRole(t, r)} disabled={busy} />
+            <button type="button" disabled={busy} onClick={() => removeTeam(t)} title="Remove team from this project"
+              style={{ ...btn('ghost'), padding: 5, color: NX.faint }}><X size={14} /></button>
+          </div>
+        ))}
+        {memberEmails.map((em) => (
+          <div key={em} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 10px', borderBottom: `1px solid ${NX.border}` }}>
+            <Avatar email={em} name={personFor(em).name} size={26} />
+            <span style={{ flex: 1, fontSize: 13, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {personFor(em).name}
+            </span>
+            <RolePicker value={memberRoles[em] || 'editor'} onChange={(r) => setMemberRole(em, r)} disabled={busy} />
+            <button type="button" disabled={busy} onClick={() => removeMember(em)} title="Remove access"
+              style={{ ...btn('ghost'), padding: 5, color: NX.faint }}><X size={14} /></button>
+          </div>
+        ))}
+        {!projectTeams.length && !memberEmails.length && (
+          <div style={{ padding: '14px 10px', fontSize: 12.5, color: NX.faint, textAlign: 'center' }}>
+            Only the project admin has access so far.
+          </div>
+        )}
+      </div>
+
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
+        <button type="button" onClick={copyLink} style={btn('outline')}>Copy project link</button>
+      </div>
+    </Modal>
+  );
+}
+
+// "Who has access" — the avatar-stack trigger in the project header, mirroring
+// Asana's Share button/dialog. Sourced from the same three grants
+// task_util.visible_project_ids() actually reads (owner, TaskProject.member_
+// emails, TaskTeam rosters), so the stack is never wrong about who can see the
+// project — clicking it opens the full editable Share panel (ShareProjectModal).
+export function ProjectAccessButton({ project, teams, people }) {
+  const [shareOpen, setShareOpen] = useState(false);
+  if (!project) return null;
+  const personFor = (em) => people.find((p) => p.email === em) || { email: em, name: emailToName(em) };
+  const ownerEmail = (project.ownerId || '').toLowerCase();
+  const memberEmails = Array.isArray(project.memberIds) ? project.memberIds : [];
+  const projectTeams = (teams || []).filter((t) => t.projectId === project.id);
+  const allEmails = Array.from(new Set(
+    [ownerEmail, ...memberEmails, ...projectTeams.flatMap((t) => t.memberIds || [])].filter(Boolean)
+  ));
+  const stackShown = allEmails.slice(0, 3);
+  const overflow = allEmails.length - stackShown.length;
+  return (
+    <>
+      <button type="button" onClick={() => setShareOpen(true)} title="Share — manage who has access"
+        style={{ display: 'flex', alignItems: 'center', background: 'none', border: `1px solid ${NX.border}`, borderRadius: 20, padding: '3px 8px 3px 3px', cursor: 'pointer', fontFamily: FONT }}>
+        <span style={{ display: 'flex' }}>
+          {stackShown.map((em, i) => (
+            <span key={em} style={{ marginLeft: i === 0 ? 0 : -8, display: 'flex', border: `2px solid ${NX.surface}`, borderRadius: '50%' }}>
+              <Avatar email={em} name={personFor(em).name} size={24} />
+            </span>
+          ))}
+        </span>
+        {overflow > 0 && <span style={{ marginLeft: 6, fontSize: 12, color: NX.dim, fontWeight: 600 }}>+{overflow}</span>}
+        <span style={{ marginLeft: stackShown.length ? 6 : 0, fontSize: 12.5, color: NX.dim, fontWeight: 600 }}>Share</span>
+      </button>
+      {shareOpen && (
+        <ShareProjectModal project={project} teams={teams} people={people} onClose={() => setShareOpen(false)} />
+      )}
+    </>
+  );
 }
 
 export function PersonSelect({ value, onChange, people, placeholder = 'Unassigned' }) {

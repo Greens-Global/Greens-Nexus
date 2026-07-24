@@ -115,14 +115,16 @@ def asana_import(body: AsanaImportBody, user: dict = Depends(get_current_user), 
     from asana_import import Asana, resolve_assignee, priority_from_custom, section_name, TASK_OPT_FIELDS, ImportError_
     from routers.tasks import (create_task, create_section, add_comment, add_attachment, update_task,
                                TaskCreate, SectionBody, CommentCreate, AttachmentCreate, TaskUpdate)
-    from routers.task_projects import create_project, ProjectBody
+    from routers.task_projects import create_project, ProjectBody, project_to_dict
+    import asana_sync
+    from asana_sync import _sync_project_access
 
     if not (body.project_gids or body.workspace):
         raise HTTPException(400, "Provide at least one project GID or a workspace GID.")
 
     asana = Asana(body.token)
     email_map = {k.lower(): v for k, v in (body.email_map or {}).items()}
-    counts = {"projects": 0, "tasks": 0, "subtasks": 0, "comments": 0, "attachments": 0, "errors": []}
+    counts = {"projects": 0, "tasks": 0, "subtasks": 0, "comments": 0, "attachments": 0, "skipped": 0, "errors": []}
     cap = body.attach_max_mb * 1024 * 1024
 
     def import_comments(gid, tid):
@@ -169,25 +171,40 @@ def asana_import(body: AsanaImportBody, user: dict = Depends(get_current_user), 
             counts["attachments"] += 1
 
     def import_task(t, project_id, section_cache, parent_id=""):
-        sid = ""
-        if not parent_id:
-            sname = section_name(t)
-            if sname:
-                if sname not in section_cache:
-                    sec = create_section(SectionBody(project_id=project_id, name=sname), db=db)
-                    section_cache[sname] = sec["id"]
-                sid = section_cache[sname]
-        created = create_task(TaskCreate(
-            title=t.get("name") or "(untitled)", description=t.get("notes") or "",
-            priority=priority_from_custom(t), assignee_email=resolve_assignee(t, email_map),
-            project_id=project_id if not parent_id else "", section_id=sid, parent_task_id=parent_id,
-            tags=[tg.get("name") for tg in (t.get("tags") or []) if tg.get("name")],
-            due_on=t.get("due_on") or (t.get("due_at") or "")[:10], status="not_started",
-        ), user=user, db=db)
-        tid = created["id"]
-        if t.get("completed"):
-            update_task(tid, TaskUpdate(completed=True), user=user, db=db)
-        counts["subtasks" if parent_id else "tasks"] += 1
+        name = t.get("name") or "(untitled)"
+        # Re-running Import against an already-imported/synced project must not
+        # duplicate tasks that are already there — same class of bug as the
+        # project-level dedup above, and the one-shot importer never linked
+        # its created tasks to an AsanaTaskLink, so it had no way to tell.
+        # Match the same way asana_sync._apply_inbound's adoption fallback
+        # does: exact title, same project/parent scope.
+        existing = (db.query(models.Task)
+                   .filter(models.Task.title == name,
+                           models.Task.project_id == (project_id if not parent_id else ""),
+                           models.Task.parent_task_id == (parent_id or "")).first())
+        if existing:
+            tid = existing.id
+            counts["skipped"] += 1
+        else:
+            sid = ""
+            if not parent_id:
+                sname = section_name(t)
+                if sname:
+                    if sname not in section_cache:
+                        sec = create_section(SectionBody(project_id=project_id, name=sname), db=db)
+                        section_cache[sname] = sec["id"]
+                    sid = section_cache[sname]
+            created = create_task(TaskCreate(
+                title=name, description=t.get("notes") or "",
+                priority=priority_from_custom(t), assignee_email=resolve_assignee(t, email_map),
+                project_id=project_id if not parent_id else "", section_id=sid, parent_task_id=parent_id,
+                tags=[tg.get("name") for tg in (t.get("tags") or []) if tg.get("name")],
+                due_on=t.get("due_on") or (t.get("due_at") or "")[:10], status="not_started",
+            ), user=user, db=db)
+            tid = created["id"]
+            if t.get("completed"):
+                update_task(tid, TaskUpdate(completed=True), user=user, db=db)
+            counts["subtasks" if parent_id else "tasks"] += 1
         if body.comments:
             import_comments(t["gid"], tid)
         if body.attachments:
@@ -207,12 +224,42 @@ def asana_import(body: AsanaImportBody, user: dict = Depends(get_current_user), 
     for gid in gids:
         try:
             proj = asana.get(f"/projects/{gid}", opt_fields="name,notes")
-            p = create_project(ProjectBody(name=proj.get("name") or f"Asana {gid}",
-                                           description=proj.get("notes") or ""), user=user, db=db)
+            # Re-importing an Asana project that's already mapped (Two-way
+            # Sync) must reuse that SAME Nexus project rather than create a
+            # duplicate — this exact bug (a dangling AsanaProjectMap left
+            # pointing at an orphaned project while a fresh import silently
+            # took its place, so nothing the user was looking at actually kept
+            # syncing) hit us three separate times in one session before this
+            # fix. A map row with no live project on the other end self-heals
+            # onto the freshly (re)created one instead of leaving another
+            # dangling reference.
+            existing_map = db.query(models.AsanaProjectMap).filter(
+                models.AsanaProjectMap.asana_project_gid == gid).first()
+            existing_project = (db.query(models.TaskProject)
+                               .filter(models.TaskProject.id == existing_map.nexus_project_id).first()
+                               if existing_map else None)
+            if existing_project:
+                existing_project.name = proj.get("name") or existing_project.name
+                existing_project.description = proj.get("notes") or existing_project.description
+                p = project_to_dict(existing_project)
+            else:
+                p = create_project(ProjectBody(name=proj.get("name") or f"Asana {gid}",
+                                               description=proj.get("notes") or ""), user=user, db=db)
+                if existing_map:
+                    existing_map.nexus_project_id = p["id"]
             counts["projects"] += 1
             section_cache = {}
             for t in asana.get(f"/projects/{gid}/tasks", opt_fields=TASK_OPT_FIELDS):
                 import_task(t, p["id"], section_cache, "")
+            # Same access sync the two-way Pull uses (asana_sync.py) — individual
+            # project members + the project's owning team, so a one-shot Import
+            # grants the same real Nexus visibility Pull would, not just tasks.
+            # No AsanaProjectMap row exists yet for a fresh one-shot import, so
+            # there's no extra_team_names override to apply here — only the
+            # Two-way Sync panel's ongoing Pull can use that (it needs a saved
+            # mapping to attach the override to).
+            _sync_project_access(db, asana, asana_sync.get_config(db), gid, p["id"])
+            db.commit()
         except HTTPException:
             raise
         except Exception as e:
@@ -403,7 +450,7 @@ class AsanaSyncConfigBody(BaseModel):
 
 
 class AsanaProjectMapBody(BaseModel):
-    maps: list                                  # [{nexusProjectId, asanaProjectGid}]
+    maps: list                                  # [{nexusProjectId, asanaProjectGid, extraTeamNames?}]
 
 
 def _sync_config_dict(cfg) -> dict:
@@ -416,7 +463,8 @@ def _sync_config_dict(cfg) -> dict:
 def get_asana_sync_config(db: Session = Depends(get_db)):
     import asana_sync
     cfg = asana_sync.get_config(db)
-    maps = [{"nexusProjectId": m.nexus_project_id, "asanaProjectGid": m.asana_project_gid}
+    maps = [{"nexusProjectId": m.nexus_project_id, "asanaProjectGid": m.asana_project_gid,
+            "extraTeamNames": m.extra_team_names or []}
             for m in db.query(models.AsanaProjectMap).all()]
     return {**_sync_config_dict(cfg), "projectMap": maps}
 
@@ -454,9 +502,11 @@ def set_asana_project_map(body: AsanaProjectMapBody, db: Session = Depends(get_d
     for m in body.maps or []:
         npid = (m.get("nexusProjectId") or "").strip()
         agid = (m.get("asanaProjectGid") or "").strip()
+        extra_teams = [n.strip() for n in (m.get("extraTeamNames") or []) if (n or "").strip()]
         if npid and agid:
             db.add(models.AsanaProjectMap(id=gen_id(), nexus_project_id=npid,
-                                          asana_project_gid=agid, created_at=now_iso()))
+                                          asana_project_gid=agid, extra_team_names=extra_teams,
+                                          created_at=now_iso()))
     db.commit()
     return {"count": db.query(models.AsanaProjectMap).count()}
 

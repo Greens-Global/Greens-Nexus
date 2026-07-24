@@ -14,7 +14,7 @@ from typing import Optional
 import models
 from database import get_db
 from auth import get_current_user
-from routers.task_util import now_iso, gen_id, task_notify, is_manager, visible_project_ids
+from routers.task_util import now_iso, gen_id, task_notify, is_manager, visible_project_ids, require_project_role
 from routers.hr import _ensure_departments
 
 router = APIRouter(tags=["Tasks"], dependencies=[Depends(get_current_user)])
@@ -47,7 +47,7 @@ def _resolve_hr_department(db: Session, email: str):
 def project_to_dict(p: models.TaskProject) -> dict:
     return {
         "id": p.id, "name": p.name, "description": p.description or "", "color": _nz(p.color),
-        "ownerId": _nz(p.owner_email), "memberIds": p.member_emails or [],
+        "ownerId": _nz(p.owner_email), "memberIds": p.member_emails or [], "memberRoles": p.member_roles or {},
         "portfolioId": _nz(p.portfolio_id),
         "hrDepartmentId": _nz(p.hr_department_id), "hrDepartmentName": _nz(p.hr_department_name),
         "accessLevel": p.access_level or "org",
@@ -67,7 +67,7 @@ def portfolio_to_dict(p: models.TaskPortfolio) -> dict:
 
 def team_to_dict(d: models.TaskTeam) -> dict:
     return {"id": d.id, "projectId": _nz(d.project_id), "name": d.name, "color": d.color or "", "icon": d.icon or "",
-            "memberIds": d.member_emails or [], "createdAt": d.created_at or ""}
+            "memberIds": d.member_emails or [], "accessRole": d.access_role or "editor", "createdAt": d.created_at or ""}
 
 
 def member_request_to_dict(m: models.TaskMemberRequest) -> dict:
@@ -79,11 +79,16 @@ def member_request_to_dict(m: models.TaskMemberRequest) -> dict:
 # ── Projects ─────────────────────────────────────────────────────────────────
 class ProjectBody(BaseModel):
     id: Optional[str] = None
-    name: str
+    # Optional so a partial PATCH (e.g. the Share panel updating only
+    # member_roles/access_level) doesn't have to resend the name — same reason
+    # TeamBody/PortfolioBody make theirs optional too. Required in practice on
+    # create, checked explicitly in create_project below.
+    name: Optional[str] = None
     description: Optional[str] = ""
     color: Optional[str] = ""
     owner_email: Optional[str] = ""
     member_emails: Optional[list] = None
+    member_roles: Optional[dict] = None
     portfolio_id: Optional[str] = ""
     access_level: Optional[str] = None
     status: Optional[str] = "not_started"
@@ -103,6 +108,8 @@ def list_projects(user: dict = Depends(get_current_user), db: Session = Depends(
 
 @router.post("/task-projects", status_code=201)
 def create_project(body: ProjectBody, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    if not (body.name or "").strip():
+        raise HTTPException(422, "Project name is required")
     now = now_iso()
     hr_dept_id, hr_dept_name = _resolve_hr_department(db, user["email"])
     p = models.TaskProject(
@@ -130,15 +137,27 @@ def create_project(body: ProjectBody, user: dict = Depends(get_current_user), db
 
 
 @router.patch("/task-projects/{project_id}")
-def update_project(project_id: str, body: ProjectBody, db: Session = Depends(get_db)):
+def update_project(project_id: str, body: ProjectBody, user: dict = Depends(get_current_user),
+                   db: Session = Depends(get_db)):
     p = db.query(models.TaskProject).filter(models.TaskProject.id == project_id).first()
     if not p:
         raise HTTPException(404, "Project not found")
+    # Renaming, archiving, changing access, or managing who's on the Share
+    # panel are all project-settings actions — Asana's "Project admin" tier,
+    # not "Editor" (which only covers the tasks inside it).
+    require_project_role(db, user, p, "owner")
     data = body.model_dump(exclude_unset=True, exclude={"id"})
     for k, v in data.items():
         if k == "owner_email" and v is not None:
             v = (v or "").lower()
+        if k == "member_roles" and v:
+            v = {em.lower(): role for em, role in v.items()}
         setattr(p, k, v)
+    # A role grant is also an access grant — keep member_emails (the flat
+    # "has access at all" list every other visibility check relies on) a
+    # superset of member_roles' keys rather than two lists that can drift.
+    if "member_roles" in data:
+        p.member_emails = sorted(set(p.member_emails or []) | set((p.member_roles or {}).keys()))
     p.modified_at = now_iso()
     db.commit()
     db.refresh(p)
@@ -146,10 +165,11 @@ def update_project(project_id: str, body: ProjectBody, db: Session = Depends(get
 
 
 @router.delete("/task-projects/{project_id}", status_code=204)
-def delete_project(project_id: str, db: Session = Depends(get_db)):
+def delete_project(project_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     p = db.query(models.TaskProject).filter(models.TaskProject.id == project_id).first()
     if not p:
         raise HTTPException(404, "Project not found")
+    require_project_role(db, user, p, "owner")
     # unlink tasks + portfolio references; a team can't outlive its project
     for t in db.query(models.Task).filter(models.Task.project_id == project_id).all():
         t.project_id = ""
@@ -250,6 +270,7 @@ class TeamBody(BaseModel):
     color: Optional[str] = ""
     icon: Optional[str] = ""
     member_emails: Optional[list] = None
+    access_role: Optional[str] = None   # Share panel: owner|editor|commenter|viewer this team's roster gets on its project
 
 
 @router.get("/task-teams")
