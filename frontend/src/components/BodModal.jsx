@@ -14,7 +14,7 @@ import { graphToken, postChatMessage } from '../teamsGraph';
 
 const MODES = {
   bod: {
-    title: 'Beginning of day', Icon: Sunrise, color: '#f59e0b', tag: 'BOD',
+    title: 'Beginning of Day', Icon: Sunrise, color: '#f59e0b', tag: 'BOD',
     sub: "First punch-in today — tell the team what's on your plate.",
     msgLabel: 'Message', msgPlaceholder: 'Good morning! Starting my day…',
     tasksLabel: "Today's tasks (one per line)", tasksHead: 'Tasks',
@@ -22,7 +22,7 @@ const MODES = {
     cta: 'Send & start the day', ackLabel: 'I already sent my login (BOD) message',
   },
   eod: {
-    title: 'End of day', Icon: Sunset, color: '#7c3aed', tag: 'EOD',
+    title: 'End of Day', Icon: Sunset, color: '#7c3aed', tag: 'EOD',
     sub: 'Wrapping up — post your summary and the tasks you worked on.',
     msgLabel: 'Summary', msgPlaceholder: 'Wrapping up — good progress today.',
     tasksLabel: 'Tasks (one per line)', tasksHead: 'Tasks',
@@ -40,6 +40,15 @@ const MODES = {
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const FL = { fontSize: 11, fontWeight: 700, color: 'var(--muted)', letterSpacing: '.05em', textTransform: 'uppercase', display: 'block', marginBottom: 5 };
 
+// "24th", "1st", "22nd", "3rd" — the 11/12/13 exceptions fall through to "th".
+const ordinal = (n) => {
+  const v = n % 100;
+  if (v >= 11 && v <= 13) return `${n}th`;
+  return `${n}${['th', 'st', 'nd', 'rd'][n % 10] || 'th'}`;
+};
+const fmtWorked = (min) => `${Math.floor(min / 60)}:${String(min % 60).padStart(2, '0')} mins`;
+const todayLocalKey = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+
 export default function BodModal({ mode = 'bod', required = false, onSent, onSkip, onClose, toastOk, toastErr }) {
   const M = MODES[mode] || MODES.bod;
   const [message, setMessage] = useState('');
@@ -48,22 +57,35 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [ack, setAck] = useState(false);
+  const [workedMin, setWorkedMin] = useState(0);      // EOD only — total worked today, for the Line 3 tally
 
   // On open: resolve the ONE chat an admin bound to this person's group, and
   // pre-fill the composer with this person's template (their last BOD/EOD post,
   // or a starter default) so they only tweak it rather than write from scratch.
+  // For EOD also pull today's worked minutes so the posted message can tally
+  // total hours/minutes worked — the shift may still be open (TimeClock.jsx's
+  // gate shows this modal BEFORE the actual out-punch), so add the live elapsed
+  // time since the last in/break-end on top of any already-closed segments.
   useEffect(() => {
     let live = true;
     (async () => {
-      const [my, tpl] = await Promise.all([
+      const [my, tpl, status] = await Promise.all([
         api.timeMyChat().catch(() => null),
         M.reasonOnly ? Promise.resolve(null) : api.timeBodTemplate(mode).catch(() => null),
+        mode === 'eod' ? api.timeStatus().catch(() => null) : Promise.resolve(null),
       ]);
       if (!live) return;
       if (my?.chatId) setBound({ id: my.chatId, name: my.chatName });
       if (tpl) {
         setMessage(prev => prev || tpl.message || '');
         setTasks(prev => prev || tpl.tasks || '');
+      }
+      if (status) {
+        const base = status.days?.[todayLocalKey()]?.workedMin || 0;
+        const last = status.lastPunch;
+        const stillWorking = last && (last.kind === 'in' || last.kind === 'break_end');
+        const liveMin = stillWorking ? Math.max(0, (Date.now() - new Date(last.at + 'Z').getTime()) / 60000) : 0;
+        setWorkedMin(Math.round(base + liveMin));
       }
       setLoading(false);
     })();
@@ -72,14 +94,20 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
 
   function buildHtml() {
     if (M.reasonOnly) return `I'm on a break${message.trim() ? ` for ${esc(message.trim())}` : ''}.`;
-    // Header spells out the kind and stamps the date AND time, so the post reads
-    // e.g. "Beginning of day · Mon, 21 Jul 2026 · 9:15 AM".
+    // Header is 3 lines: title, then the date (with ordinal day), then the time
+    // — EOD's time line also tallies total hours/minutes worked today, e.g.:
+    //   End of Day
+    //   Fri, July 24th, 2026
+    //   12:50 AM (8:30 mins)
     const now = new Date();
-    const dateStr = now.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+    const weekday = now.toLocaleDateString(undefined, { weekday: 'short' });
+    const month = now.toLocaleDateString(undefined, { month: 'long' });
+    const dateStr = `${weekday}, ${month} ${ordinal(now.getDate())}, ${now.getFullYear()}`;
     const timeStr = now.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+    const line3 = mode === 'eod' ? `${timeStr} (${fmtWorked(workedMin)})` : timeStr;
     const taskLines = tasks.split('\n').map(t => t.trim()).filter(Boolean);
-    return `<b>${M.title} · ${dateStr} · ${timeStr}</b><br/>${esc(message)}`
-      + (taskLines.length ? `<br/><br/><b>${M.tasksHead}</b><br/>${taskLines.map(t => `• ${esc(t)}`).join('<br/>')}` : '');
+    return `<b>${M.title}</b><br/>${dateStr}<br/>${line3}<br/>${esc(message)}`
+      + (taskLines.length ? `<br/><br/><b>${M.tasksHead}</b><br/>${taskLines.map((t, i) => `${i + 1}) ${esc(t)}`).join('<br/>')}` : '');
   }
 
   async function send() {
