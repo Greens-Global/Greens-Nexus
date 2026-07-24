@@ -612,19 +612,41 @@ app = FastAPI(title="Greens Nexus API", lifespan=lifespan)
 app.add_middleware(GZipMiddleware, minimum_size=1024)
 # AuditMiddleware must be added before CORSMiddleware so it wraps the full request
 app.add_middleware(AuditMiddleware)
+_CORS_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:5174",   # Knowledge Base standalone dev workspace
+    "http://127.0.0.1:5174",
+    "https://nexus.greensglobal.com",
+    "https://dev.nexus.greensglobal.com",
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:5174",   # Knowledge Base standalone dev workspace
-        "http://127.0.0.1:5174",
-        "https://nexus.greensglobal.com",
-        "https://dev.nexus.greensglobal.com",
-    ],
+    allow_origins=_CORS_ORIGINS,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(Exception)
+async def _unhandled_exception_handler(request, exc):
+    """Catch-all for unhandled exceptions. Starlette runs this in the OUTERMOST
+    middleware layer — outside CORSMiddleware — so without the manual CORS
+    headers below, browsers can't read the 500 at all and report every crashed
+    endpoint as a CORS failure ("No 'Access-Control-Allow-Origin' header"),
+    which is exactly how the Jul 24 missing-column incident presented. With
+    them, the client sees a real 500, the retry/backoff logic engages, and the
+    reconnecting banner tells users the truth."""
+    import traceback
+    print(f"[unhandled] {request.method} {request.url.path}: {exc}")
+    traceback.print_exception(exc)
+    headers = {}
+    origin = request.headers.get("origin", "")
+    if origin in _CORS_ORIGINS:
+        headers["Access-Control-Allow-Origin"] = origin
+        headers["Vary"] = "Origin"
+    from fastapi.responses import JSONResponse
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"}, headers=headers)
 
 
 @app.get("/")
