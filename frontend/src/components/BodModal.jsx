@@ -26,7 +26,7 @@ const MODES = {
     title: 'End of Day', Icon: Sunset, color: '#7c3aed', tag: 'EOD',
     sub: 'Wrapping up — post your summary and the tasks you worked on.',
     msgLabel: 'Summary', msgPlaceholder: 'Wrapping up — good progress today.',
-    tasksLabel: 'Tasks (one per line)', tasksHead: 'Tasks (completed)',
+    tasksLabel: 'Tasks (one per line)', tasksHead: 'Tasks (Completed)',
     tasksPlaceholder: 'Lakeline report\nRiverside vendor call\nQ2 numbers review',
     cta: 'Send & clock out', ackLabel: 'I already sent my logout (EOD) message',
   },
@@ -99,7 +99,7 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
     const pendingLines = mode === 'eod' ? normalize(pending) : [];
     return `<b>${M.title}</b><br/>${dateStr}<br/>${timeStr}${tally}<br/><br/>${esc(message)}`
       + (taskLines.length ? `<br/><br/><b>${M.tasksHead}</b><br/>${numbered(taskLines)}` : '')
-      + (pendingLines.length ? `<br/><br/><b>Pending tasks</b><br/>${numbered(pendingLines)}` : '');
+      + (pendingLines.length ? `<br/><br/><b>Pending Tasks</b><br/>${numbered(pendingLines)}` : '');
   }
 
   async function send() {
@@ -114,7 +114,31 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
       try {
         const st = await api.timeStatus();
         const key = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
-        workedMin = st?.days?.[key]?.workedMin || 0;
+        // The EOD posts BEFORE the out-punch is written, so the server summary
+        // counts the still-open session as zero. Recompute today's total from
+        // the raw punches, timing the open session up to "now". Sessions are
+        // attributed to the local date of their in-punch (server semantics).
+        const all = Object.values(st?.days || {}).flatMap(d => d.punches || [])
+          .filter(p => !p.voided).sort((a, b) => String(a.at).localeCompare(String(b.at)));
+        const utc = (s) => Date.parse(/[Zz]|[+-]\d\d:?\d\d$/.test(s) ? s : s + 'Z');
+        let ms = 0, openIn = null, openInDate = '', openBreak = null, brkMs = 0;
+        for (const p of all) {
+          const t = utc(p.at);
+          if (p.kind === 'in') { if (openIn == null) { openIn = t; openInDate = p.localDate; brkMs = 0; } }
+          else if (p.kind === 'break_start') { if (openIn != null && openBreak == null) openBreak = t; }
+          else if (p.kind === 'break_end') { if (openBreak != null) { brkMs += t - openBreak; openBreak = null; } }
+          else if (p.kind === 'out' && openIn != null) {
+            if (openBreak != null) { brkMs += t - openBreak; openBreak = null; }
+            if (openInDate === key) ms += Math.max(0, t - openIn - brkMs);
+            openIn = null; brkMs = 0;
+          }
+        }
+        if (openIn != null && openInDate === key) {
+          const nowMs = Date.now();
+          if (openBreak != null) brkMs += nowMs - openBreak;
+          ms += Math.max(0, nowMs - openIn - brkMs);
+        }
+        workedMin = Math.round(ms / 60000);
       } catch { /* tally is optional */ }
     }
     const targetId = bound?.id || '';
