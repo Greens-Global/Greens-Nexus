@@ -264,6 +264,11 @@ def create_ticket(body: TicketBody, background_tasks: BackgroundTasks,
     db.commit()
     db.refresh(t)
     background_tasks.add_task(notify_ticket_event, t.id, "created", user["email"])
+    # Approval-gated: the approver gets their own "waiting for your approval"
+    # email. (The dept head's copy of "created" is held back until approval —
+    # see _recipients_for in ticket_notify.py — mirroring the in-app gate above.)
+    if t.approval_status == "pending" and t.approver_email:
+        background_tasks.add_task(notify_ticket_event, t.id, "approval_required", user["email"])
     return ticket_to_dict(t)
 
 
@@ -545,7 +550,7 @@ class ApprovalBody(BaseModel):
 
 
 @router.post("/task-tickets/{ticket_id}/approval")
-def decide_approval(ticket_id: str, body: ApprovalBody,
+def decide_approval(ticket_id: str, body: ApprovalBody, background_tasks: BackgroundTasks,
                     user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     t = _ticket_or_404(db, ticket_id)
     actor = user["email"].lower()
@@ -595,6 +600,10 @@ def decide_approval(ticket_id: str, body: ApprovalBody,
                         body=f"{t.code} · {t.subject} — {note}", nexus_action=tk_action)
     db.commit()
     db.refresh(t)
+    # Approved → the dept head now gets the "needs assignment" email that was
+    # held back at creation while the ticket sat behind the approval gate.
+    if decision == "approve":
+        background_tasks.add_task(notify_ticket_event, t.id, "created", actor, only_roles=("dept_head",))
     return ticket_to_dict(t)
 
 
