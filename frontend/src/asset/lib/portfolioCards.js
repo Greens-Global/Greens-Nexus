@@ -17,7 +17,7 @@
 //     real bug-fix (dash normalization) that must be preserved exactly.
 
 import { Warehouse, Truck, Store, Stethoscope, House, Building, Trees, Car, Wrench, Building2 } from 'lucide-react';
-import { toNumber, formatNumber } from './format.js';
+import { toNumber, formatNumber, acresOf } from './format.js';
 import {
   categoryOf, assetTypeOf, assetRegionOf, cityRegion, assetRank, searchHaystack, stageColor,
   ASSET_CATEGORIES,
@@ -122,7 +122,8 @@ const stat = (v, l) => ({ v, l });
  * anything unmatched.
  */
 export function tileStats(asset) {
-  const acres = toNumber(asset.acreage) ? toNumber(asset.acreage).toFixed(2) : '—';
+  const acresNum = acresOf(asset.acreage, asset.acreageUnit);
+  const acres = acresNum ? acresNum.toFixed(2) : '—';
   const nrsf = formatNumber(asset.nrsf);
   const stories = asset.stories ? String(asset.stories) : '—';
   const built = asset.yearBuilt ? String(asset.yearBuilt) : '—';
