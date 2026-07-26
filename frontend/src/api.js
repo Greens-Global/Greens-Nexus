@@ -602,6 +602,7 @@ export const api = {
   // Accounting
   getTransactions: () => req("/accounting/transactions"),
   getRamp: () => req("/accounting/ramp"),
+  updateRampMemo: (id, memo) => req(`/accounting/ramp/${id}`, { method: "PATCH", body: JSON.stringify({ memo }) }),
   getAma: () => req("/accounting/ama"),
 
   // Ops
