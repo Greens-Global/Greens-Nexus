@@ -202,6 +202,11 @@ def _day_summaries(punches: list) -> dict:
             if open_in is None:
                 flag(d, "out_without_in")
             else:
+                # A closed pair spanning 12+ hours is almost always a forgotten
+                # punch-out (Jul 27: a Sat 02:31 in / Mon 20:59 out landed 66h on
+                # Saturday). Flag it so the timesheet and approver see it loudly.
+                if (t - open_in).total_seconds() >= 12 * 3600:
+                    flag(open_in_date, "unusually_long")
                 worked[open_in_date] = worked.get(open_in_date, 0.0) + (t - open_in).total_seconds() / 60
                 brk[open_in_date] = brk.get(open_in_date, 0.0) + open_brk
                 open_in = None

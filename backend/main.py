@@ -658,6 +658,16 @@ async def lifespan(app: FastAPI):
         print("[startup] task notification retry/due-reminder loop scheduled")
     except Exception as e:
         print(f"[startup] task notification loop skipped: {e}")
+    # Time Clock long-session watch — nudges anyone clocked in 12+ hours
+    # ("still working, or forgot to punch out?"). Same bare-asyncio-loop
+    # pattern as the jobs above.
+    try:
+        import asyncio as _asyncio
+        from timeclock_watch import long_session_loop
+        _asyncio.create_task(long_session_loop())
+        print("[startup] time clock long-session watch scheduled")
+    except Exception as e:
+        print(f"[startup] long-session watch skipped: {e}")
     yield
 
 
