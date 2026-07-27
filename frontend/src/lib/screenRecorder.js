@@ -50,18 +50,21 @@ export function isScreenRecording() { return _recording; }
 /**
  * Starts a screen recording (+ mic if voice=true). `onDone(blob|null)` fires
  * once — Stop, the browser's own "Stop sharing" chip, or Cancel all funnel
- * into it (null on cancel/failure). Returns false without calling onDone if
- * the user dismissed the screen-share picker.
+ * into it (null on cancel/failure).
+ *
+ * Throws if the browser doesn't support screen capture at all, or if
+ * getDisplayMedia rejects for a reason other than the user dismissing the
+ * picker / denying permission (both surface as NotAllowedError — the caller
+ * is expected to stay quiet on that one, same as the picker-cancel handling
+ * in stepRecorder.js's startBugRecording).
  */
 export async function startScreenRecording({ voice = false } = {}, onDone) {
   if (_recording) { try { _mediaRec?.stop(); } catch { /* already stopped */ } _cleanupTracks(); _removePill(); _recording = false; }
-  _chunks = [];
-  let stream;
-  try {
-    stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 10 }, audio: false });
-  } catch {
-    return false;   // picker dismissed / permission denied
+  if (!navigator.mediaDevices?.getDisplayMedia) {
+    throw new Error('Screen recording isn\'t supported in this browser.');
   }
+  _chunks = [];
+  const stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 10 }, audio: false });
   _screenStream = stream;
   if (voice) {
     try {

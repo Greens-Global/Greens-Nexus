@@ -788,13 +788,16 @@ function attachmentKindOf(f) {
 
 // Posts one file to a ticket — the ticket must already exist (attachments are
 // keyed by ticket id). A failed storage upload still records the attachment
-// by name so the attempt isn't silently lost.
+// by name (returns false) so the attempt isn't silently lost — the caller
+// decides whether/how to surface that.
 async function uploadTicketFile(ticketId, f) {
   const size = `${Math.max(1, Math.round(f.size / 1024))} KB`;
   const kind = attachmentKindOf(f);
   let url = '';
-  try { url = await uploadTicketEvidence(f, kind); } catch { /* recorded by name only below */ }
-  return api.addTicketAttachment(ticketId, { name: f.name, size, kind, url }).catch(() => {});
+  let ok = true;
+  try { url = await uploadTicketEvidence(f, kind); } catch { ok = false; }
+  await api.addTicketAttachment(ticketId, { name: f.name, size, kind, url }).catch(() => {});
+  return ok;
 }
 
 // Shared Record + Upload control — a screen recording (optionally with mic
@@ -808,11 +811,22 @@ function RecordUploadButtons({ onFile, disabled }) {
 
   const record = async (voice) => {
     setMenu(false);
-    const started = await startScreenRecording({ voice }, (blob) => {
-      setRecording(false);
-      if (blob) onFile(new File([blob], `ticket-recording-${Date.now()}.webm`, { type: 'video/webm' }));
-    });
-    if (started) setRecording(true);
+    try {
+      const started = await startScreenRecording({ voice }, (blob) => {
+        setRecording(false);
+        if (blob) onFile(new File([blob], `ticket-recording-${Date.now()}.webm`, { type: 'video/webm' }));
+        else alert('The recording came out empty — try again.');
+      });
+      if (started) setRecording(true);
+    } catch (e) {
+      // NotAllowedError covers both "dismissed the picker" and "denied
+      // permission" in Chrome — quiet in both cases, same as Testing's
+      // startBugRecording. Anything else (unsupported browser, NotFoundError,
+      // etc.) is worth telling the requester about.
+      if (e?.name !== 'NotAllowedError' && e?.name !== 'AbortError') {
+        alert(e?.message || 'Could not start screen recording.');
+      }
+    }
   };
 
   return (
@@ -959,10 +973,16 @@ export function CreateTicketModal({ onClose }) {
         slaDueOn: slaDueFromPriority(form.priority),
         typeFields,
       });
-      // Attachments can only be posted once the ticket has an id. A failure here
-      // must not lose the ticket that was just created, so it's swallowed per file.
+      // Attachments can only be posted once the ticket has an id. A storage
+      // failure here must not lose the ticket that was just created — the
+      // ticket still saves, and any failed file gets one combined warning
+      // (not one alert per file) rather than being silently dropped.
       if (created?.id && attachments.length) {
-        await Promise.all(attachments.map((f) => uploadTicketFile(created.id, f)));
+        const results = await Promise.all(attachments.map((f) => uploadTicketFile(created.id, f)));
+        const failed = attachments.filter((_, i) => !results[i]);
+        if (failed.length) {
+          alert(`Ticket created, but ${failed.length} attachment${failed.length > 1 ? 's' : ''} couldn't be stored (${failed.map((f) => f.name).join(', ')}) — they won't be playable/downloadable.`);
+        }
       }
       onClose();
     } catch (e) { alert(`Could not create ticket: ${e.message || e}`); setBusy(false); }
@@ -1853,7 +1873,11 @@ function TicketAttachments({ ticketId }) {
     const size = `${Math.max(1, Math.round(f.size / 1024))} KB`;
     const kind = attachmentKindOf(f);
     let url = '';
-    try { url = await uploadTicketEvidence(f, kind); } catch { /* recorded by name only below */ }
+    try {
+      url = await uploadTicketEvidence(f, kind);
+    } catch (e) {
+      alert(`"${f.name}" was recorded but couldn't be stored: ${e?.message || 'upload failed'}. It won't be playable/downloadable.`);
+    }
     await api.addTicketAttachment(ticketId, { name: f.name, size, kind, url }).catch(() => {});
     setBusy(false);
     reload();
