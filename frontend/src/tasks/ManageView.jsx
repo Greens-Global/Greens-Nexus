@@ -207,11 +207,15 @@ function AsanaImportTab({ store }) {
           <div style={{ marginTop: 14, padding: 12, borderRadius: 10, background: NX.hover, fontSize: 13 }}>
             <div style={{ fontWeight: 700, color: NX.green, marginBottom: 6 }}>✓ Import complete</div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, color: NX.dim }}>
+              {/* "tasks" counts subtasks too — the importer walks one tree and
+                  doesn't split the two. "updated" covers rows that already
+                  existed and were refreshed rather than created. */}
               <span><b style={{ color: NX.ink }}>{result.projects}</b> projects</span>
-              <span><b style={{ color: NX.ink }}>{result.tasks}</b> tasks</span>
-              <span><b style={{ color: NX.ink }}>{result.subtasks}</b> subtasks</span>
+              <span><b style={{ color: NX.ink }}>{result.tasks}</b> tasks &amp; subtasks</span>
+              <span><b style={{ color: NX.ink }}>{result.skipped || 0}</b> updated</span>
               <span><b style={{ color: NX.ink }}>{result.comments}</b> comments</span>
               <span><b style={{ color: NX.ink }}>{result.attachments}</b> attachments</span>
+              <span><b style={{ color: NX.ink }}>{result.activities || 0}</b> activity entries</span>
             </div>
             {result.errors?.length > 0 && (
               <div style={{ marginTop: 8, color: NX.red, fontSize: 12 }}>{result.errors.length} error(s): {result.errors.join('; ')}</div>
@@ -239,6 +243,7 @@ function AsanaSyncPanel({ store }) {
   const [busy, setBusy] = useState('');
   const [msg, setMsg] = useState('');
   const [err, setErr] = useState('');
+  const [dupes, setDupes] = useState(null);   // dry-run result awaiting confirmation
 
   const load = () => {
     api.getAsanaSyncConfig().then((c) => {
@@ -292,8 +297,38 @@ function AsanaSyncPanel({ store }) {
     try {
       const res = which === 'pull' ? await api.asanaSyncPull() : await api.asanaSyncPushAll();
       await store.refresh?.();
-      setMsg(which === 'pull' ? `Pulled from Asana: +${res.created} created, ${res.updated} updated, +${res.comments || 0} comments.` : `Pushed ${res.pushed} task(s) to Asana.`);
+      setMsg(which === 'pull'
+        ? `Pulled from Asana: +${res.created} created, ${res.updated} updated, +${res.comments || 0} comments${res.deleted ? `, ${res.deleted} deleted` : ''}.`
+        : `Pushed ${res.pushed} task(s) to Asana`
+          + (res.deleted ? `, deleted ${res.deleted} there` : '')
+          + (res.pendingDeletes ? ` (${res.pendingDeletes} deletion(s) still pending)` : '') + '.');
       load();
+    } catch (e) { setErr(e.message || String(e)); } finally { setBusy(''); }
+  };
+
+  // Duplicate cleanup: dry run first (reports the count), then the same button
+  // applies it. Merges tasks that all point at one Asana task — see
+  // asana_sync.dedupe_tasks.
+  const dedupe = async (apply) => {
+    setErr(''); setMsg(''); setBusy('dedupe');
+    try {
+      const res = await api.asanaSyncDedupe(apply);
+      const total = (res.merged || 0) + (res.sections || 0) + (res.people || 0);
+      if (!apply) {
+        setDupes({ ...res, total });
+        setMsg(total
+          ? [res.merged && `${res.merged} duplicate task(s) across ${res.gids} Asana task(s)`,
+             res.sections && `${res.sections} duplicate section(s)`,
+             res.people && `${res.people} unresolved Asana address(es)`]
+              .filter(Boolean).join(', ') + '. Click again to fix.'
+          : 'Nothing to clean up.');
+      } else {
+        setDupes(null);
+        await store.refresh?.();
+        setMsg(`Merged ${res.merged} duplicate task(s) and ${res.sections || 0} section(s), `
+          + `resolved ${res.people || 0} Asana address(es) to Nexus people. `
+          + 'Comments, files and subtasks moved onto the original.');
+      }
     } catch (e) { setErr(e.message || String(e)); } finally { setBusy(''); }
   };
 
@@ -307,6 +342,15 @@ function AsanaSyncPanel({ store }) {
           <input type="checkbox" checked={!!cfg.enabled} onChange={(e) => saveConfig({ enabled: e.target.checked })} />
           <span style={{ fontWeight: 700, color: NX.ink }}>Sync enabled</span>
           <span style={{ color: NX.faint }}>{cfg.enabled ? 'new tasks in mapped projects push to Asana automatically' : 'off'}</span>
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, fontSize: 13 }}>
+          <input type="checkbox" checked={!!cfg.deleteSync} onChange={(e) => saveConfig({ delete_sync: e.target.checked })} />
+          <span style={{ fontWeight: 700, color: NX.ink }}>Sync deletions</span>
+          <span style={{ color: NX.faint }}>
+            {cfg.deleteSync
+              ? 'deleting a task on either side deletes it on the other'
+              : 'off — a deleted task is only unlinked, never removed'}
+          </span>
         </label>
         <Field label={`Service token ${cfg.hasToken ? '(set — leave blank to keep)' : '(required)'}`}>
           <div style={{ display: 'flex', gap: 8 }}>
@@ -364,6 +408,15 @@ function AsanaSyncPanel({ store }) {
           <button onClick={() => run('pull')} disabled={!!busy} style={btn('primary')}><Download size={14} />{busy === 'pull' ? 'Pulling…' : 'Pull ← Asana'}</button>
           {cfg.lastPullAt && <span style={{ fontSize: 11.5, color: NX.faint }}>last pull {fmtDateTime(cfg.lastPullAt)}</span>}
         </div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginTop: 8 }}>
+          <button onClick={() => dedupe(!!(dupes && dupes.total))} disabled={!!busy}
+            style={dupes && dupes.total ? { ...btn('outline'), color: NX.red, borderColor: NX.red } : btn('ghost')}>
+            {busy === 'dedupe' ? 'Checking…' : (dupes && dupes.total ? `Fix ${dupes.total} issue(s)` : 'Check sync data')}
+          </button>
+          <span style={{ fontSize: 11.5, color: NX.faint }}>
+            Merges Nexus tasks pointing at the same Asana task (keeping the original), collapses duplicate sections, and resolves Asana guest addresses to real Nexus people.
+          </span>
+        </div>
         {msg && <div style={{ marginTop: 10, fontSize: 13, color: NX.green }}>{msg}</div>}
         {err && <div style={{ marginTop: 10, fontSize: 13, color: NX.red }}>{err}</div>}
 
@@ -393,7 +446,8 @@ function AsanaSyncPanel({ store }) {
         </div>
 
         <div style={{ marginTop: 12, fontSize: 11.5, color: NX.faint }}>
-          Syncs both ways: title · description · due date · done · assignee · comments. Inbound is live via webhooks, with a 5-min auto-pull fallback on the deployed API (and manual “Pull” anywhere).
+          Syncs both ways: title · description · start &amp; due date · status · priority · done · assignee · followers · tags · section · milestone · subtasks · dependencies · comments · attachments, plus Asana’s activity history inbound.
+          On the deployed API inbound is live via webhooks with a 5-min auto-pull fallback, and a 15-min push sweep re-sends anything an edit-time push missed. Locally nothing runs automatically — use “Pull” and “Push all”.
         </div>
       </div>
     </div>
