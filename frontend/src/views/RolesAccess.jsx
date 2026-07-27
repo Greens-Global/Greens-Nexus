@@ -433,8 +433,14 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
       {/* right: person detail */}
       <div data-tour="person-panel" style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 20, alignSelf: 'start', minHeight: 220 }}>
         {!person ? (
-          <div style={{ color: 'var(--muted)', padding: '52px 10px', textAlign: 'center', fontSize: 13.5 }}>
-            Pick a person to see exactly what they can do — and change it.
+          <div style={{ padding: '48px 16px', textAlign: 'center' }}>
+            <div style={{ width: 44, height: 44, borderRadius: '50%', background: 'var(--paper)', border: '1px solid var(--line)', display: 'grid', placeItems: 'center', margin: '0 auto 12px' }}>
+              <User size={20} style={{ color: 'var(--muted)' }} />
+            </div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)' }}>Pick a person</div>
+            <div style={{ fontSize: 12.5, color: 'var(--muted)', maxWidth: '32ch', margin: '4px auto 0', lineHeight: 1.5 }}>
+              See exactly what they can do — and change their role or groups right here.
+            </div>
           </div>
         ) : busy || !eff ? <Spinner /> : eff.error ? (
           <div style={{ color: 'var(--muted)', padding: '40px 10px', textAlign: 'center', fontSize: 13.5 }}>Could not load access for this person.</div>
@@ -480,12 +486,17 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
             {(eff.modules || []).length === 0
               ? <div style={{ fontSize: 13, color: 'var(--muted)' }}>Nothing yet — assign a job role to give them their baseline.</div>
               : eff.modules.map(m => (
-                <div key={m.module} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0', borderBottom: '1px solid var(--line)' }}>
+                <div key={m.module} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--line)' }}>
                   <span style={{ fontWeight: 600, fontSize: 13, minWidth: 150 }}>{moduleLabel(m.module)}</span>
                   <LevelPill level={m.level} title={capabilityText(m.module, m.level, moduleLabel(m.module))} />
-                  <span style={{ fontSize: 12, color: 'var(--muted)' }}>
-                    {m.manual ? <>extra, from group “{m.source}”</> : <>from job role “{m.source}”</>}
-                  </span>
+                  <span style={{ flex: 1 }} />
+                  {/* Provenance reuses the dashed "+ group" language from the chips
+                      above, so baseline (quiet, from the role) vs extra (dashed
+                      add-on) reads at a glance — the whole point of this screen. */}
+                  {m.manual
+                    ? <span title={`Extra access from the “${m.source}” group`}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11.5, fontWeight: 600, color: 'var(--ink)', border: '1px dashed var(--line-strong,var(--line))', borderRadius: 999, padding: '2px 9px', whiteSpace: 'nowrap' }}>+ {m.source}</span>
+                    : <span title={`From their job role, “${m.source}”`} style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>from {m.source}</span>}
                 </div>
               ))}
           </>
