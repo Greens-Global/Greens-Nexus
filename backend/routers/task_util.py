@@ -15,6 +15,7 @@ import uuid
 from datetime import datetime, timezone
 
 import httpx
+from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from models import TaskNotification, TaskActivity, NexusRole, NexusNotification, TaskProject, TaskTeam, Task
@@ -120,17 +121,19 @@ def is_manager(user: dict) -> bool:
 
 def visible_project_ids(db: Session, email: str) -> set[str]:
     """Project ids a non-manager user may see: marked 'org' (Nexus Global),
-    owned by them, containing a team they're a member of, or containing a
-    task they're the assignee of. Deliberately does NOT look at individual
-    tasks' own access_level here — Task.access_level defaults to 'org' (its
-    own pre-existing default, unchanged), so treating "has an org task" as
-    "project is visible" would expose almost every project to everyone the
-    moment it has any task in it. A task's own org-visibility only grants
-    visibility to that one task (see task_is_visible), not its whole project."""
+    owned by them, an explicit project member, containing a team they're a
+    member of, or containing a task they're the assignee of. Deliberately
+    does NOT look at individual tasks' own access_level here — Task.access_level
+    defaults to 'org' (its own pre-existing default, unchanged), so treating
+    "has an org task" as "project is visible" would expose almost every
+    project to everyone the moment it has any task in it. A task's own
+    org-visibility only grants visibility to that one task (see task_is_visible),
+    not its whole project."""
     email = (email or "").lower()
     ids: set[str] = set()
     for p in db.query(TaskProject).all():
-        if (p.access_level or "org") == "org" or (p.owner_email or "").lower() == email:
+        if ((p.access_level or "org") == "org" or (p.owner_email or "").lower() == email
+                or email in [m.lower() for m in (p.member_emails or [])]):
             ids.add(p.id)
     for t in db.query(TaskTeam).filter(TaskTeam.project_id != "").all():
         if email in [m.lower() for m in (t.member_emails or [])]:
@@ -155,3 +158,63 @@ def task_is_visible(t: Task, email: str, visible_proj_ids: set[str]) -> bool:
     if t.project_id and t.project_id in visible_proj_ids:
         return True
     return False
+
+
+# ── Project access roles (Share panel, Jul 2026) ─────────────────────────────
+# Mirrors Asana's own 4 tiers so the Share UI can be a direct parity build:
+# a role only ever implies everything ranked below it.
+PROJECT_ROLE_RANK = {"viewer": 1, "commenter": 2, "editor": 3, "owner": 4}
+
+
+def project_for_task(db: Session, task: Task):
+    """The TaskProject a task belongs to — walking up parent_task_id for a
+    subtask, which (by convention — see asana_sync.py/asana_import.py) has its
+    own project_id blank and reaches its project only via its top-level
+    ancestor. None for a standalone task with no project anywhere in its chain."""
+    t = task
+    seen = set()
+    while not t.project_id and t.parent_task_id and t.parent_task_id not in seen:
+        seen.add(t.parent_task_id)
+        parent = db.query(Task).filter(Task.id == t.parent_task_id).first()
+        if not parent:
+            break
+        t = parent
+    return db.query(TaskProject).filter(TaskProject.id == t.project_id).first() if t.project_id else None
+
+
+def project_role_for(db: Session, email: str, project) -> str | None:
+    """The highest Share-panel role `email` holds on `project`: project owner,
+    else the best of an explicit member_roles entry or any TaskTeam (scoped to
+    this project) they belong to, else "editor" for an org-visible project —
+    preserving the pre-Share-panel behavior where anyone could act on an
+    org-wide project's tasks. None means no access at all (a restricted
+    project this email isn't granted on)."""
+    if not project:
+        return "editor"   # no project at all (a standalone task) — unrestricted, as before
+    email = (email or "").lower()
+    if (project.owner_email or "").lower() == email:
+        return "owner"
+    role = (project.member_roles or {}).get(email)
+    best_rank = PROJECT_ROLE_RANK.get(role, 0)
+    for t in db.query(TaskTeam).filter(TaskTeam.project_id == project.id).all():
+        if email in [m.lower() for m in (t.member_emails or [])]:
+            r = PROJECT_ROLE_RANK.get(t.access_role or "editor", 0)
+            if r > best_rank:
+                best_rank, role = r, (t.access_role or "editor")
+    if best_rank:
+        return role
+    if (project.access_level or "org") == "org":
+        return "editor"
+    return None
+
+
+def require_project_role(db: Session, user: dict, project, min_role: str) -> None:
+    """Raise 403 unless `user` holds at least `min_role` on `project` (a
+    TaskProject or None — see project_for_task). Managers/admins always
+    bypass, same cutoff as is_manager elsewhere in this module."""
+    if is_manager(user):
+        return
+    role = project_role_for(db, user["email"], project)
+    if PROJECT_ROLE_RANK.get(role, 0) < PROJECT_ROLE_RANK[min_role]:
+        name = f'"{project.name}"' if project else "this project"
+        raise HTTPException(403, f"You need at least {min_role} access to {name}.")

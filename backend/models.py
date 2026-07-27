@@ -478,6 +478,10 @@ class NexusGroup(Base):
     # monitoring: no capture is offered and clock-in is not gated on sharing a
     # screen (used for leadership). A person is exempt if ANY of their groups sets it.
     monitoring_exempt = Column(Integer, default=0)
+    # Job roles only: the role's default manager/timesheet approver. Assigning the
+    # role to someone with NO manager set copies this onto their People card —
+    # per-person Manager stays the source of truth and can always be overridden.
+    default_manager_email = Column(String, default="")
 
 
 class NexusGroupMember(Base):
@@ -1122,6 +1126,14 @@ class DocTemplate(Base):
     requires_letterhead = Column(Boolean, default=False)
     letterhead_id       = Column(String, default="")
     merge_overrides     = Column(JSON, default=dict)          # default {{token}} values + custom variables (Phase 12) — seeded onto any Document created from this template
+    # Template Builder (Phase 13): list[FieldDef] — the single source of truth
+    # for a merge field's type/required/default/validation, keyed by `token`
+    # (which matches the mergeField TipTap node's own `token` attr). The node
+    # itself never carries type/validation — that would mean rewriting every
+    # chip instance in the doc body whenever a field's type changes.
+    # FieldDef shape: {token, label, type, required, default, options,
+    # validation: {maxLength, regex, min, max, minDate, maxDate}}.
+    field_defs          = Column(JSON, default=list)
     status              = Column(String, default="active")    # active|archived
     version             = Column(Integer, default=1)
     created_by          = Column(String, default="")
@@ -1244,6 +1256,10 @@ class TimeApproval(Base):
     note           = Column(String, default="")
     revoked        = Column(Integer, default=0)
     revoked_by     = Column(String, default="")
+    # Two-step sign-off (SwipeClock parity): 'manager' = the direct manager's
+    # approval; 'final' = HR's payroll finalization, which LOCKS the period's
+    # punches against edits until revoked (unlock).
+    kind           = Column(String, default="manager")
 
 
 class TimeBod(Base):
@@ -1655,6 +1671,12 @@ class TaskProject(Base):
     due_on        = Column(String, default="")
     archived      = Column(Boolean, default=False)
     member_emails = Column(JSON, default=list)
+    # Per-person role for the Share panel (owner|editor|commenter|viewer),
+    # keyed by lowercase email — {email: role}. Additive to member_emails,
+    # which stays the flat "has access at all" list every other visibility
+    # check (task_util.visible_project_ids) already relies on; a role here
+    # implies that email also belongs in member_emails (see update_project).
+    member_roles  = Column(JSON, default=dict)
     activity_ids  = Column(JSON, default=list)
     created_at    = Column(String, default="")
     modified_at   = Column(String, default="")
@@ -1688,6 +1710,11 @@ class TaskTeam(Base):
     color         = Column(String, default="")
     icon          = Column(String, default="")           # key from the department icon registry
     member_emails = Column(JSON, default=list)
+    # Project-access role this team's roster is granted on its project (Share
+    # panel) — owner|editor|commenter|viewer. Distinct from the team's own
+    # purpose (assignment grouping); default "editor" preserves the pre-Share-
+    # panel behavior where any team member could act on the project's tasks.
+    access_role   = Column(String, default="editor")
     created_at    = Column(String, default="")
 
 
@@ -1910,6 +1937,32 @@ class TaskTicketComponent(Base):
     created_at = Column(String, default="")
 
 
+class TaskEmailLog(Base):
+    """One attempted Outlook notification for a Task-module event (Task
+    Notification Workflow, Jul 2026 — same design as TicketEmailLog above,
+    just task-scoped). One row per (task, event, recipient); idempotency_key
+    prevents ever emailing the same event to the same person twice, including
+    a due-date reminder re-firing on a later pull of the same calendar day."""
+    __tablename__ = "task_email_log"
+    id                   = Column(String, primary_key=True)
+    task_id              = Column(String, default="", index=True)
+    task_code            = Column(String, default="")     # denormalised so the log reads after a task is deleted
+    event_type           = Column(String, default="")     # created|assigned|due_soon|overdue|completed|commented|follower_added|modified|deleted
+    event_version        = Column(Integer, default=0)
+    idempotency_key       = Column(String, default="", index=True, unique=True)
+    recipient            = Column(String, default="")
+    recipient_role       = Column(String, default="")     # assignee|follower|creator|owner
+    subject              = Column(String, default="")
+    status               = Column(String, default="pending")   # pending|sent|failed|retrying
+    graph_message_id     = Column(String, default="")
+    conversation_id      = Column(String, default="")
+    internet_message_id  = Column(String, default="")
+    attempts             = Column(Integer, default=0)
+    error                = Column(String, default="")
+    created_at           = Column(String, default="")
+    updated_at           = Column(String, default="")
+
+
 class TaskChangelogEntry(Base):
     """A changelog / "What's New" entry. Kept schema-loose (full object in
     `payload`) — mirrors the property_records pattern — until the changelog UI
@@ -1954,6 +2007,11 @@ class AsanaSyncConfig(Base):
     default_project_gid = Column(String, default="")     # Asana project unmapped tasks push to
     last_pull_at        = Column(String, default="")      # ISO watermark for inbound polling
     updated_at          = Column(String, default="")
+    # Propagate deletions both ways: a task deleted in Asana is deleted in Nexus
+    # on the next pull/webhook, and deleting a Nexus task deletes its Asana
+    # counterpart. Separate from `enabled` because it's the one irreversible
+    # part of the sync — everything else this module does is additive.
+    delete_sync         = Column(Boolean, default=True)
 
 
 class AsanaProjectMap(Base):
@@ -1962,6 +2020,16 @@ class AsanaProjectMap(Base):
     id                = Column(String, primary_key=True)
     nexus_project_id  = Column(String, default="", index=True)
     asana_project_gid = Column(String, default="", index=True)
+    # Manual override for a real Asana API gap: a team ad-hoc-invited to a
+    # project via Asana's Share dialog (as opposed to being the project's own
+    # `team` field) is NOT exposed by any Asana REST endpoint — confirmed live
+    # (full unfiltered /projects/{gid}, project_memberships, and two guessed
+    # endpoints all came back empty/404 for this exact case, Jul 2026). Since
+    # the API can't tell us, the operator does: names listed here are looked
+    # up in the Asana workspace by name and their rosters kept in sync onto a
+    # same-named Nexus TaskTeam (find-or-create), same mechanism as the
+    # project's own owning team — see asana_sync._sync_project_access.
+    extra_team_names  = Column(JSON, default=list)
     created_at        = Column(String, default="")
 
 
@@ -1975,6 +2043,24 @@ class AsanaTaskLink(Base):
     asana_gid      = Column(String, default="", index=True)
     last_hash      = Column(String, default="")
     last_synced_at = Column(String, default="")
+    # Digest of the fields Asana can only take through a separate additive
+    # action rather than a task PUT — tags, followers, dependencies, section,
+    # attachments. They can't live in `last_hash` because that one is compared
+    # against a digest computed from Asana's own payload for loop prevention,
+    # and these have no comparable inbound form (dependencies are gids on one
+    # side and Nexus ids on the other). Keeping a second, push-only hash lets
+    # the reconcile sweep skip a task entirely instead of firing several HTTP
+    # calls per task per sweep.
+    last_push_hash = Column(String, default="")
+    # Digest of the ASANA-side values at the last inbound apply. `last_hash`
+    # can't do this job: it holds the NEXUS-side digest (what outbound compares
+    # against), and the two are legitimately unequal whenever the Asana project
+    # lacks the "Task Progress"/"Priority" custom fields — Nexus knows a status
+    # and priority that Asana simply cannot express. Comparing an inbound digest
+    # against it therefore never matched, so every pull re-applied every task,
+    # bumped modified_at and logged another "Updated from Asana" — 288 phantom
+    # activity entries per task per day at the 5-minute poll.
+    last_inbound_hash = Column(String, default="")
 
 
 class AsanaCommentLink(Base):
@@ -1985,6 +2071,53 @@ class AsanaCommentLink(Base):
     nexus_comment_id = Column(String, default="", index=True)
     asana_story_gid  = Column(String, default="", index=True)
     created_at       = Column(String, default="")
+
+
+class AsanaAttachmentLink(Base):
+    """Links a synced attachment to its Asana attachment gid, so re-pulls don't
+    re-download/duplicate it (inbound-only — Nexus attachments aren't pushed
+    back out to Asana)."""
+    __tablename__ = "asana_attachment_links"
+    id                  = Column(String, primary_key=True)
+    nexus_attachment_id = Column(String, default="", index=True)
+    asana_attachment_gid = Column(String, default="", index=True)
+    created_at          = Column(String, default="")
+
+
+class AsanaActivityLink(Base):
+    """Links a Nexus activity entry to the Asana story it came from. Asana's
+    /stories feed carries both comments (handled by AsanaCommentLink) and
+    SYSTEM stories — "changed the due date", "added to project", "marked
+    complete" — which are the Asana equivalent of Nexus's activity log. This
+    keys them by story gid so re-pulls don't replay the same history."""
+    __tablename__ = "asana_activity_links"
+    id                = Column(String, primary_key=True)
+    nexus_activity_id = Column(String, default="", index=True)
+    nexus_task_id     = Column(String, default="", index=True)
+    asana_story_gid   = Column(String, default="", index=True)
+    created_at        = Column(String, default="")
+
+
+class AsanaPendingDelete(Base):
+    """A Nexus task deletion still owed to Asana.
+
+    Every other outbound change can be re-derived from the Nexus rows on the
+    next push sweep — a deletion cannot: the task and its AsanaTaskLink are
+    gone, so nothing is left to notice the Asana counterpart is orphaned. The
+    fire-and-forget push is also the one outbound call with no safety net (it
+    is skipped entirely outside the sync worker, and a failed HTTP call or a
+    process restart loses it silently). Recording the gid in the SAME
+    transaction as the delete makes the intent durable, so it can be drained
+    later — by the sweep on dev/prod, or by "Push all" on a laptop."""
+    __tablename__ = "asana_pending_deletes"
+    id           = Column(String, primary_key=True)
+    asana_gid    = Column(String, default="", index=True)
+    task_title   = Column(String, default="")          # for reporting; the task row is gone
+    task_code    = Column(String, default="")
+    requested_by = Column(String, default="")
+    attempts     = Column(Integer, default=0)
+    last_error   = Column(String, default="")
+    created_at   = Column(String, default="")
 
 
 class AsanaWebhook(Base):

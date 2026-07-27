@@ -95,6 +95,63 @@ keep the diff minimal.
   `imageFromPaste` in `InventoryManagement.jsx` / `filesFromPaste` in
   `tasks/lib.js` for the pattern) with an "or press Ctrl+V…" hint.
 
+## Asana sync — the contract (`backend/asana_sync.py`)
+
+**One engine, three entry points.** The one-shot Import, the scheduled Pull and
+the webhook all go through `_pull_task_tree`. Import used to have its own
+parallel implementation and silently carried less than Pull did (no
+dependencies/status/start date/milestone/followers, and no `AsanaTaskLink`
+rows, so the next Pull re-adopted everything by title and duplicated what it
+couldn't match). **Never add a second inbound path** — add the field to the
+engine and all three get it. `_TASK_OPT_FIELDS` is the single field list.
+
+**Everything on a task syncs, both ways**: title, description, start/due,
+status, priority, done, assignee, followers, tags, section, milestone,
+subtasks, dependencies, comments, attachments. Asana's system stories become
+Nexus activity entries (inbound only — Nexus's own log would be noise in
+Asana). Attachments push out as Asana *external* attachments (link, not bytes);
+`data:` URLs are skipped because they only exist from an inbound inline of a
+file Asana already has.
+
+**Three hashes on `AsanaTaskLink`, and they are not interchangeable:**
+- `last_hash` — NEXUS-side digest; outbound compares against it.
+- `last_inbound_hash` — ASANA-side digest; inbound compares against it. Using
+  `last_hash` for this made every pull re-apply every task forever whenever the
+  Asana project lacked the Task Progress/Priority custom fields, because the
+  two digests can never converge in that case.
+- `last_push_hash` — the additive-only fields (tags/followers/dependencies/
+  section/attachments) that Asana takes through separate actions rather than a
+  task PUT. Lets the push sweep skip an untouched task at zero HTTP cost.
+
+**Deletions are queued, not fired.** Every other outbound change can be
+re-derived from the Nexus rows on the next push sweep; a deletion cannot — the
+task and its link are gone, so nothing is left to notice the Asana counterpart
+is orphaned. `delete_task` writes an `AsanaPendingDelete` tombstone in the SAME
+transaction as the delete; `drain_pending_deletes` sends it (from the sweep on
+dev/prod, from **Push all** on a laptop, where the fire-and-forget push never
+runs at all). A 404 counts as done; a row that fails 5 times is dropped so the
+queue can't grow forever. Never go back to firing deletes directly — that lost
+them silently off the sync worker.
+
+**Automatic on the deployed API, manual on a laptop** — `is_sync_worker()`
+(`WEBSITE_SITE_NAME`, or `NEXUS_ASANA_SYNC_WORKER=true` to opt in deliberately)
+gates the 5-min pull, the 15-min push sweep, and every fire-and-forget push.
+Manual Pull / Push all / Import work everywhere. Without this gate every
+developer's local backend would push local edits into the real workspace.
+
+**Duplicates.** Dev duplicated where localhost never did, because gunicorn runs
+8 worker *processes* there and `threading.Lock` doesn't cross processes. What
+holds now: the Postgres advisory lock (`_acquire_pull_lock`) around pull and
+around push's *create* path; `db.flush()` after every link insert (sessions are
+`autoflush=False`, so an unflushed link is invisible to the rest of the same
+transaction); a per-run `seen` set (Asana hands back the same task twice when
+it is both a project member and a subtask); and the partial-unique index
+`ux_asana_task_link_gid`. **That index cannot build while duplicates exist** —
+on such a database the migration fails and is swallowed. Run Manage → Two-way
+Sync → *Check for duplicates* → *Merge*; `dedupe_tasks` collapses them onto the
+oldest row (moving comments/attachments/subtasks across) and then creates the
+index itself.
+
 ## Asset Management module — scope (Ankush)
 
 Everything currently on the Property Portfolio screen (`PropertyAsset.jsx`) is
@@ -122,6 +179,19 @@ Old `hardware_assets` table (IT module) is legacy — planned to fold into
   dev.nexus site — if your local backend points at it via `DATABASE_URL`,
   SELECT freely but only mutate rows/tables you created.
 - DevTools "Disable cache" makes image caching look broken — uncheck it before
-  judging load behaviour.
+  judging load behavior.
 - The root README describes an old static site — ignore it; this file and
   `git log --oneline` are the real documentation.
+- Use American English spelling everywhere — code, comments, UI copy, email/
+  notification templates, docs (e.g. "color" not "colour", "behavior" not
+  "behaviour", "organize" not "organise", "license" not "licence").
+
+## graphify
+
+This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
+
+Rules:
+- For codebase questions, first run `graphify query "<question>"` when graphify-out/graph.json exists. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
+- If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
+- Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
+- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).

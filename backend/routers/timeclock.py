@@ -202,6 +202,11 @@ def _day_summaries(punches: list) -> dict:
             if open_in is None:
                 flag(d, "out_without_in")
             else:
+                # A closed pair spanning 12+ hours is almost always a forgotten
+                # punch-out (Jul 27: a Sat 02:31 in / Mon 20:59 out landed 66h on
+                # Saturday). Flag it so the timesheet and approver see it loudly.
+                if (t - open_in).total_seconds() >= 12 * 3600:
+                    flag(open_in_date, "unusually_long")
                 worked[open_in_date] = worked.get(open_in_date, 0.0) + (t - open_in).total_seconds() / 60
                 brk[open_in_date] = brk.get(open_in_date, 0.0) + open_brk
                 open_in = None
@@ -472,6 +477,24 @@ def team_timesheet(start: str = "", end: str = "",
     return {"rows": rows}
 
 
+def _finalized_row(db: Session, email: str, d_start: str, d_end: str = ""):
+    """The non-revoked HR FINALIZATION covering [d_start, d_end or d_start] —
+    a finalized period is LOCKED: no punch edits, adds, voids, or re-approvals
+    until HR unlocks it. Mirrors SwipeClock's '(finalized)' periods."""
+    return (db.query(TimeApproval)
+            .filter(TimeApproval.employee_email == email,
+                    TimeApproval.revoked == 0,
+                    TimeApproval.kind == "final",
+                    TimeApproval.period_start <= d_start,
+                    TimeApproval.period_end >= (d_end or d_start))
+            .first())
+
+
+def _guard_not_finalized(db: Session, email: str, d_start: str, d_end: str = ""):
+    if _finalized_row(db, email, d_start, d_end):
+        raise HTTPException(403, "This pay period is finalized and locked. Ask HR to unlock it before changing time records.")
+
+
 class ApprovalIn(BaseModel):
     email: str
     start: str = ""
@@ -487,6 +510,11 @@ def approve_timecard(body: ApprovalIn, user: dict = Depends(require_team_write),
     scope = _visible_emails(db, user)
     if scope is not None and email not in scope:
         raise HTTPException(403, "You can only approve your own team's timecards.")
+    if body.days:
+        for _d in body.days:
+            _guard_not_finalized(db, email, _d)
+    elif body.start and body.end:
+        _guard_not_finalized(db, email, body.start, body.end)
     now = _now_iso()
 
     # ── Per-day mode: one approval row per date; re-approving a changed day
@@ -571,6 +599,71 @@ class PunchAdjust(BaseModel):
     category: Optional[str] = None       # job-costing / cost-code tag on the punch
 
 
+def _signoff_state(db: Session, email: str, start: str, end: str) -> dict:
+    """Both sign-off levels for one employee-period, for the timecard header:
+    the manager approval (kind 'manager' / legacy NULL) and the HR finalization."""
+    rows = (db.query(TimeApproval)
+            .filter(TimeApproval.employee_email == email, TimeApproval.revoked == 0,
+                    TimeApproval.period_start == start, TimeApproval.period_end == end).all())
+    approval = finalized = None
+    for r in rows:
+        d = {"by": r.approved_by, "at": r.approved_at, "workedMin": r.worked_min}
+        if (r.kind or "manager") == "final":
+            finalized = d
+        else:
+            approval = d
+    return {"approval": approval, "finalized": finalized}
+
+
+class FinalizeIn(BaseModel):
+    email: str
+    start: str
+    end: str
+
+
+@router.post("/finalize")
+def finalize_timecard(body: FinalizeIn, user: dict = Depends(require_administrator),
+                      db: Session = Depends(get_db)):
+    """HR's second-level sign-off (SwipeClock 'finalize'): locks the period —
+    punch edits/adds/approvals 403 until /unfinalize. Admin-only by design:
+    managers approve, HR finalizes."""
+    email = body.email.strip().lower()
+    if not body.start or not body.end:
+        raise HTTPException(400, "start and end are required")
+    if _finalized_row(db, email, body.start, body.end):
+        raise HTTPException(409, "Already finalized for this period")
+    _end_nx = (date.fromisoformat(body.end) + timedelta(days=1)).isoformat()
+    worked = sum(v["workedMin"] for k, v in _day_summaries(
+        _live_punches(db, email, body.start, _end_nx)).items() if k <= body.end)
+    row = TimeApproval(id=str(uuid.uuid4()), employee_email=email,
+                       period_start=body.start, period_end=body.end, worked_min=worked,
+                       approved_by=user["email"], approved_at=_now_iso(), kind="final")
+    db.add(row)
+    _hr_notify(db, email, "Timecard finalized",
+               f"Your timecard {body.start} – {body.end} is finalized for payroll. "
+               "Time records for this period are now locked.",
+               action={"view": "timeclock", "sub": ""})
+    db.commit()
+    return {"finalized": {"by": row.approved_by, "at": row.approved_at, "workedMin": worked}}
+
+
+@router.post("/unfinalize")
+def unfinalize_timecard(body: FinalizeIn, user: dict = Depends(require_administrator),
+                        db: Session = Depends(get_db)):
+    email = body.email.strip().lower()
+    row = (db.query(TimeApproval)
+           .filter(TimeApproval.employee_email == email, TimeApproval.revoked == 0,
+                   TimeApproval.kind == "final",
+                   TimeApproval.period_start == body.start,
+                   TimeApproval.period_end == body.end).first())
+    if not row:
+        raise HTTPException(404, "No finalization found for this period")
+    row.revoked = 1
+    row.revoked_by = user["email"]
+    db.commit()
+    return {"unfinalized": True}
+
+
 @router.patch("/punches/{punch_id}")
 def adjust_punch(punch_id: str, body: PunchAdjust,
                  user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
@@ -580,6 +673,7 @@ def adjust_punch(punch_id: str, body: PunchAdjust,
     scope = _visible_emails(db, user)
     if scope is not None and row.employee_email not in scope:
         raise HTTPException(403, "You can only adjust your own team's punches.")
+    _guard_not_finalized(db, row.employee_email, row.local_date)
     if body.at is not None:
         t = _parse_iso(body.at)
         if t is None:
@@ -632,6 +726,8 @@ def manager_add_punch(body: ManagerPunchIn, user: dict = Depends(require_team_wr
     scope = _visible_emails(db, user)
     if scope is not None and body.employee_email.strip().lower() not in scope:
         raise HTTPException(403, "You can only add punches for your own team.")
+    _guard_not_finalized(db, body.employee_email.strip().lower(),
+                         _local_date(body.at, body.tz_offset_min or 0))
     now = _now_iso()
     row = TimePunch(id=str(uuid.uuid4()), employee_email=body.employee_email.strip().lower(),
                     kind=body.kind, at=body.at[:19],
@@ -2022,9 +2118,11 @@ def _week_start_str(date_str: str) -> str:
 
 
 # ── Bi-weekly pay period (California: Sunday→Saturday × 2 = 14 days) ───────────
-# Periods step 14 days from a fixed Sunday anchor. If the company's real payroll
-# calendar starts on a different Sunday, shift this anchor by 7 days once.
-_PAYPERIOD_ANCHOR = date(2024, 1, 7)   # a Sunday
+# Periods step 14 days from a fixed Sunday anchor, aligned to the company's REAL
+# payroll calendar in SwipeClock (site 47239: period 7/26/26–8/8/26, verified
+# Jul 27 2026 for the parallel run). The prior anchor (2024-01-07) put every
+# Nexus period off by exactly one week from SwipeClock.
+_PAYPERIOD_ANCHOR = date(2024, 1, 14)  # a Sunday on SwipeClock's period series
 _PAYPERIOD_DAYS = 14
 
 
@@ -2083,6 +2181,64 @@ def set_autolunch(body: AutoLunchIn, user: dict = Depends(require_administrator)
     return cfg
 
 
+# ── Punch rounding (SwipeClock parity) ─────────────────────────────────────────
+# SwipeClock drops seconds from every punch and rounds to the nearest N minutes
+# (site 47239: N=5, verified via the time card's "Show Unrounded Times" overlay,
+# Jul 27 2026). Raw punch times stay on record; ROUNDED times drive the timecard
+# math — exactly SwipeClock's model, and required for the parallel-run numbers
+# to match 1:1.
+_ROUNDING_KEY = "timeclock_rounding"
+_ROUNDING_DEFAULT = {"enabled": True, "nearestMin": 5}
+
+
+def _rounding_cfg(db: Session) -> dict:
+    row = db.query(NexusSetting).filter(NexusSetting.key == _ROUNDING_KEY).first()
+    cfg = dict(_ROUNDING_DEFAULT)
+    if row and row.value:
+        try:
+            cfg.update({k: v for k, v in json.loads(row.value).items() if k in cfg})
+        except (ValueError, TypeError):
+            pass
+    cfg["enabled"] = bool(cfg.get("enabled"))
+    cfg["nearestMin"] = min(30, max(0, int(cfg.get("nearestMin") or 0)))
+    return cfg
+
+
+def _round_punch(t: datetime, nearest: int) -> datetime:
+    """Drop seconds, then round the minute-of-day to the nearest `nearest`
+    (half rounds up): 1:22:00→1:20, 1:23:00→1:25, 9:04:00→9:05 at nearest=5."""
+    t = t.replace(second=0, microsecond=0)
+    if nearest <= 0:
+        return t
+    total = t.hour * 60 + t.minute
+    rounded = int((total + nearest / 2) // nearest) * nearest
+    return t.replace(hour=0, minute=0) + timedelta(minutes=rounded)
+
+
+@router.get("/payroll/rounding")
+def get_rounding(user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
+    return _rounding_cfg(db)
+
+
+class RoundingIn(BaseModel):
+    enabled: bool = True
+    nearestMin: int = 5
+
+
+@router.put("/payroll/rounding")
+def set_rounding(body: RoundingIn, user: dict = Depends(require_administrator),
+                 db: Session = Depends(get_db)):
+    cfg = {"enabled": bool(body.enabled), "nearestMin": min(30, max(0, int(body.nearestMin)))}
+    row = db.query(NexusSetting).filter(NexusSetting.key == _ROUNDING_KEY).first()
+    if not row:
+        row = NexusSetting(key=_ROUNDING_KEY)
+        db.add(row)
+    row.value = json.dumps(cfg)
+    row.updated_by = user["email"]
+    db.commit()
+    return cfg
+
+
 @router.get("/team-exceptions")
 def team_exceptions(start: str = "", end: str = "",
                     user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
@@ -2104,10 +2260,12 @@ def team_exceptions(start: str = "", end: str = "",
 
 
 def _compute_timecard(db: Session, em: str, start: str, end: str) -> dict:
-    """Per-day in/out segments, weekly overtime split (>40h at 1.5x), and wage
-    totals off the HR-set hourly rate over [start, end]. Exact minutes, no
-    rounding. Also aggregates break minutes and (when web capture ran) idle
-    minutes so the timesheet can show a worked/break/idle composition bar."""
+    """Per-day in/out segments, CA/federal overtime split, and wage totals off
+    the HR-set hourly rate over [start, end]. Punch times are rounded per the
+    SwipeClock-parity rule (_rounding_cfg — nearest 5 min by default) before any
+    math; raw times ride along per segment for the unrounded view. Also
+    aggregates break minutes and (when web capture ran) idle minutes so the
+    timesheet can show a worked/break/idle composition bar."""
     # Fetch one day PAST `end` so a shift that starts on the last day and clocks
     # out after midnight still has its out-punch to pair with — otherwise that
     # whole overnight shift (in on `end`, out on `end`+1) would be dropped from
@@ -2117,6 +2275,11 @@ def _compute_timecard(db: Session, em: str, start: str, end: str) -> dict:
     # the module-level `date` name across this whole function scope)
     _end_fetch = (datetime.strptime(end, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d") if end else end
     punches = _live_punches(db, em, start, _end_fetch)
+    # SwipeClock-parity rounding: rounded times drive ALL math below; the raw
+    # punch strings are still emitted per segment so the UI can offer a
+    # "show unrounded times" view, mirroring SwipeClock exactly.
+    _rnd = _rounding_cfg(db)
+    _rmin = _rnd["nearestMin"] if _rnd["enabled"] else 0
     rate_row = db.query(PayrollRate).filter(PayrollRate.employee_email == em).first()
     rate = float(rate_row.hourly_rate) if rate_row else 0.0
     rule = (getattr(rate_row, "overtime_rule", None) or "ca") if rate_row else "ca"
@@ -2133,8 +2296,9 @@ def _compute_timecard(db: Session, em: str, start: str, end: str) -> dict:
     # (the in-punch's local_date), which is where a night worker expects their
     # hours to land.
     segs_by_day = {}   # local_date -> [segment, ...]
-    open_in = open_in_at = open_in_id = open_in_date = None
+    open_in = open_in_at = open_in_at_r = open_in_id = open_in_date = None
     open_in_site = open_in_geo = open_in_site_id = open_in_cat = None
+    open_in_note = ""
     open_break = None
     brk = 0.0
     sflags = set()
@@ -2143,8 +2307,9 @@ def _compute_timecard(db: Session, em: str, start: str, end: str) -> dict:
         # An in that never got an out → record it as a missing_out on its own day.
         nonlocal missing_punches
         segs_by_day.setdefault(open_in_date, []).append(
-            {"in": open_in_at, "out": "", "inId": open_in_id, "outId": "",
+            {"in": open_in_at, "out": "", "inR": open_in_at_r, "outR": "", "inId": open_in_id, "outId": "",
              "workedMin": 0, "flags": sorted(sflags | {"missing_out"}), "_break": int(round(brk)),
+             "note": open_in_note,
              "workSite": open_in_site or "", "workSiteId": open_in_site_id or "", "geo": open_in_geo or "", "category": open_in_cat or ""})
         missing_punches += 1
 
@@ -2152,10 +2317,14 @@ def _compute_timecard(db: Session, em: str, start: str, end: str) -> dict:
         t = _parse_iso(p.at)
         if t is None:
             continue
+        if _rmin:
+            t = _round_punch(t, _rmin)
         if p.kind == "in":
             if open_in is not None:      # a new in without an out closes the prior as missing
                 _flush_missing()
             open_in, open_in_at, open_in_id, open_in_date = t, p.at, p.id, p.local_date
+            open_in_at_r = t.strftime("%Y-%m-%dT%H:%M:%S")
+            open_in_note = (p.note or "").strip()
             open_in_site, open_in_geo, open_in_site_id = (p.work_site_name or ""), (p.geo_status or ""), (p.work_site_id or "")
             open_in_cat = getattr(p, "category", "") or ""
             open_break, brk, sflags = None, 0.0, set()
@@ -2173,9 +2342,15 @@ def _compute_timecard(db: Session, em: str, start: str, end: str) -> dict:
                 if p.adjusted_by:
                     sflags.add("adjusted")
                 mins = int(round((t - open_in).total_seconds() / 60 - brk))
+                # Punch notes travel with the segment (SwipeClock shows them as a
+                # note line under the day) — auto-generated edit notes excluded.
+                _notes = " · ".join(n for n in (open_in_note, (p.note or "").strip())
+                                    if n and n not in ("payroll edit",))
                 segs_by_day.setdefault(open_in_date, []).append(
-                    {"in": open_in_at, "out": p.at, "inId": open_in_id, "outId": p.id,
+                    {"in": open_in_at, "out": p.at, "inR": open_in_at_r, "outR": t.strftime("%Y-%m-%dT%H:%M:%S"),
+                     "inId": open_in_id, "outId": p.id,
                      "workedMin": max(0, mins), "flags": sorted(sflags), "_break": int(round(brk)),
+                     "note": _notes,
                      "workSite": open_in_site or "", "workSiteId": open_in_site_id or "", "geo": open_in_geo or "", "category": open_in_cat or ""})
                 open_in = None
             # else: orphan out with no open in — ignored (its in was outside the range)
@@ -2275,6 +2450,7 @@ def _compute_timecard(db: Session, em: str, start: str, end: str) -> dict:
 
     return {"email": em, "start": start, "end": end, "rate": rate, "rateSet": rate_row is not None,
             "dept": dept, "overtimeRule": rule, "days": days_out,
+            "rounding": {"enabled": _rnd["enabled"], "nearestMin": _rnd["nearestMin"]},
             "autoLunch": {"enabled": al["enabled"], "afterMin": al["afterMin"], "deductMin": al["deductMin"]},
             "byCategory": by_category,
             "totals": {"regMin": total_reg, "otMin": total_ot, "dtMin": total_dt,
@@ -2295,7 +2471,9 @@ def payroll_timecard(email: str, start: str, end: str,
     scope = _visible_emails(db, user)
     if scope is not None and em not in scope:
         raise HTTPException(403, "Outside your team")
-    return _compute_timecard(db, em, start, end)
+    card = _compute_timecard(db, em, start, end)
+    card.update(_signoff_state(db, em, start, end))
+    return card
 
 
 @router.get("/my-payroll")
@@ -2307,6 +2485,7 @@ def my_payroll(start: str = "", user: dict = Depends(get_current_user), db: Sess
     anchor = start.strip() or today
     p_start, p_end = _pay_period(anchor)
     card = _compute_timecard(db, user["email"], p_start, p_end)
+    card.update(_signoff_state(db, user["email"], p_start, p_end))
     card["periodStart"], card["periodEnd"] = p_start, p_end
     card["periodDays"] = _PAYPERIOD_DAYS
     return card
@@ -2355,6 +2534,26 @@ def _signed_url(path: str) -> str:
     return ""
 
 
+def _signed_urls(paths: list) -> dict:
+    """Bulk-sign in ONE Supabase call (path -> full URL). The per-frame loop was
+    one HTTP round-trip per screenshot, so opening a person's day of frames took
+    10s+; this collapses it to a single request."""
+    out = {}
+    if not paths:
+        return out
+    try:
+        r = httpx.post(f"{_SUPABASE_URL}/storage/v1/object/sign/{_DOC_BUCKET}",
+                       headers=_storage_headers(),
+                       json={"expiresIn": 3600, "paths": paths}, timeout=30)
+        if r.is_success:
+            for row in r.json():
+                if row.get("signedURL"):
+                    out[row.get("path", "")] = f"{_SUPABASE_URL}/storage/v1{row['signedURL']}"
+    except Exception:
+        pass
+    return out
+
+
 # Desktop-agent installer hosting (/agent/download-url, /agent/upload-url,
 # /agent/upload) removed — there is no desktop installer to host anymore.
 
@@ -2377,9 +2576,10 @@ def list_screenshots(date: str = "", email: str = "",
             for em, n in sorted(counts.items())]}
     rows = q.filter(TimeScreenshot.employee_email == email.strip().lower()) \
             .order_by(TimeScreenshot.at).all()
+    urls = _signed_urls([s.storage_path for s in rows])   # one call, not one per frame
     return {"date": day, "email": email, "shots": [
         {"id": s.id, "at": s.at, "idleSec": s.idle_sec or 0, "activeView": s.active_view or "",
-         "url": _signed_url(s.storage_path)} for s in rows]}
+         "url": urls.get(s.storage_path, "")} for s in rows]}
 
 
 @router.get("/team-screenshots")
@@ -2408,9 +2608,10 @@ def team_screenshots(date: str = "", email: str = "",
     if visible is not None and tgt not in visible:
         raise HTTPException(403, "That employee isn't on your team.")
     rows = q.filter(TimeScreenshot.employee_email == tgt).order_by(TimeScreenshot.at).all()
+    urls = _signed_urls([s.storage_path for s in rows])   # one call, not one per frame
     return {"date": day, "email": tgt, "shots": [
         {"id": s.id, "at": s.at, "idleSec": s.idle_sec or 0, "activeView": s.active_view or "",
-         "url": _signed_url(s.storage_path)} for s in rows]}
+         "url": urls.get(s.storage_path, "")} for s in rows]}
 
 
 # ── Beginning-of-day message (recorded copy; Teams post happens client-side) ─

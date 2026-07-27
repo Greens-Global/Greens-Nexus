@@ -1,10 +1,74 @@
-import { Upload, FileText } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Upload, FileText, Plus, X } from 'lucide-react';
 import { fileToDataUrl } from '../../lib/format.js';
+
+// mm/dd/yyyy <-> yyyy-mm-dd (native <input type="date"> value) conversions.
+const mdyToIso = (s) => {
+  const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(String(s).trim());
+  return m ? `${m[3]}-${m[1].padStart(2, '0')}-${m[2].padStart(2, '0')}` : '';
+};
+const isoToMdy = (iso) => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso).trim());
+  return m ? `${m[2]}/${m[3]}/${m[1]}` : '';
+};
+
+/**
+ * Multi-date field (`type: 'dates'`) — several mm/dd/yyyy dates, each entered via a
+ * native date picker so the value is always a valid calendar date in mm/dd/yyyy.
+ * Stored back as a comma-separated string ("11/01/2025, 02/01/2026"), which keeps
+ * the existing plain-text values readable. Property taxes fall due in installments,
+ * so a single date input would drop the second date — hence the add/remove rows.
+ */
+export function MultiDateInput({ value, onChange, readOnly }) {
+  const parse = (v) => {
+    const parts = String(v || '').split(',').map((s) => s.trim()).filter(Boolean);
+    return parts.length ? parts : [''];
+  };
+  const [rows, setRows] = useState(() => parse(value));
+  useEffect(() => { setRows(parse(value)); }, [value]);   // sync when the record switches
+
+  const commit = (next) => {
+    setRows(next);
+    onChange(next.map((s) => s.trim()).filter(Boolean).join(', '));
+  };
+  const setRow = (i, mdy) => commit(rows.map((r, j) => (j === i ? mdy : r)));
+  const addRow = () => setRows((r) => [...r, '']);
+  const removeRow = (i) => commit(rows.filter((_, j) => j !== i));
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      {rows.map((r, i) => (
+        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <input
+            type="date"
+            className="form-input"
+            value={mdyToIso(r)}
+            readOnly={readOnly}
+            onChange={(e) => setRow(i, isoToMdy(e.target.value))}
+            style={{ fontSize: '0.85rem', flex: 1 }}
+          />
+          {!readOnly && (rows.length > 1 || r) && (
+            <button type="button" className="secondary-btn" onClick={() => removeRow(i)}
+              title="Remove this date" style={{ padding: '5px 8px', lineHeight: 0 }}>
+              <X size={13} />
+            </button>
+          )}
+        </div>
+      ))}
+      {!readOnly && (
+        <button type="button" className="secondary-btn" onClick={addRow}
+          style={{ alignSelf: 'flex-start', display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 11px', fontSize: '0.78rem' }}>
+          <Plus size={13} /> Add date
+        </button>
+      )}
+    </div>
+  );
+}
 
 /**
  * Renders a single form field inside the Add/Edit record modal, generically, from a
  * record-type field definition `{ k, label, type, options, req, full, readOnly, nameKey }`.
- * Supported `type`s: file, select, textarea, date, number, and plain text (default).
+ * Supported `type`s: file, select, textarea, date, dates, number, and plain text (default).
  *
  * `value` is the current value for this field; `onChange(key, newValue)` commits it.
  */
@@ -113,6 +177,8 @@ export function FieldInput({ f, value, onChange }) {
     control = <textarea {...baseProps} rows={2} />;
   } else if (f.type === 'date') {
     control = <input type="date" {...baseProps} />;
+  } else if (f.type === 'dates') {
+    control = <MultiDateInput value={value} readOnly={f.readOnly} onChange={(v) => onChange(f.k, v)} />;
   } else if (f.type === 'number') {
     // Intentionally type="text" with inputMode="decimal", not a native <input type="number">,
     // so the field can hold formatted values (e.g. "1,234") without the browser rejecting them.

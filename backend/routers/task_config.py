@@ -97,104 +97,54 @@ class AsanaImportBody(BaseModel):
     token: str
     project_gids: Optional[list] = None
     workspace: Optional[str] = ""
+    email_map: Optional[dict] = None
+    # Accepted and ignored. Import now runs the same engine as Pull, which
+    # always brings a task's full contents — partial imports were the reason
+    # Import and Pull carried different amounts of a task. Kept in the schema so
+    # an older client (or a saved request) posting them still gets a 200
+    # instead of a 422.
     subtasks: bool = True
     comments: bool = True
     attachments: bool = True
     silent_comments: bool = True
     attach_max_mb: float = 5.0
-    email_map: Optional[dict] = None
 
 
 @router.post("/task-asana-import", dependencies=[Depends(require_manager)])
 def asana_import(body: AsanaImportBody, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    import base64
-    import mimetypes
-    import urllib.request
-    # Reuse the tested Asana client + field mapping from the CLI tool, and the
-    # existing create handlers (called directly — Depends defaults are bypassed).
-    from asana_import import Asana, resolve_assignee, priority_from_custom, section_name, TASK_OPT_FIELDS, ImportError_
-    from routers.tasks import (create_task, create_section, add_comment, add_attachment, update_task,
-                               TaskCreate, SectionBody, CommentCreate, AttachmentCreate, TaskUpdate)
-    from routers.task_projects import create_project, ProjectBody
+    """One-shot Asana -> Nexus import, running the SAME engine as the two-way
+    Pull (asana_sync.import_project).
+
+    This used to be a second, parallel implementation, and it drifted: it
+    carried tasks, subtasks, comments, attachments, tags, priority, due date and
+    assignee — but not dependencies, status, start date, milestone flag,
+    followers or per-task section, and it never wrote AsanaTaskLink rows, so the
+    first Pull afterwards had to re-adopt everything by title and duplicated
+    whatever it could not match. Delegating means Import and Pull cannot carry
+    different amounts of a task ever again.
+
+    Import is additive by construction: TokenConfig forces delete_sync off, so
+    nothing here can remove a Nexus task no matter what the saved config says.
+    """
+    from asana_import import Asana, ImportError_
+    from routers.task_projects import create_project, ProjectBody, project_to_dict
+    import asana_sync
 
     if not (body.project_gids or body.workspace):
         raise HTTPException(400, "Provide at least one project GID or a workspace GID.")
 
+    cfg = asana_sync.TokenConfig(body.token, body.workspace or "")
     asana = Asana(body.token)
     email_map = {k.lower(): v for k, v in (body.email_map or {}).items()}
-    counts = {"projects": 0, "tasks": 0, "subtasks": 0, "comments": 0, "attachments": 0, "errors": []}
-    cap = body.attach_max_mb * 1024 * 1024
-
-    def import_comments(gid, tid):
-        for s in asana.get(f"/tasks/{gid}/stories",
-                           opt_fields="type,resource_subtype,text,created_at,created_by.name,created_by.email"):
-            if s.get("type") != "comment" and s.get("resource_subtype") != "comment_added":
-                continue
-            text = (s.get("text") or "").strip()
-            if not text:
-                continue
-            cb = s.get("created_by") or {}
-            author = (cb.get("email") or "").lower()
-            author = email_map.get(author) or email_map.get((cb.get("name") or "").lower()) or author
-            prov = " · ".join([x for x in (cb.get("name"), (s.get("created_at") or "")[:10]) if x])
-            cbody = f"[Asana · {prov}]\n{text}" if prov else text
-            add_comment(tid, CommentCreate(body=cbody, author_email=author or None),
-                        notify=(not body.silent_comments), user=user, db=db)
-            counts["comments"] += 1
-
-    def import_attachments(gid, tid):
-        for a in asana.get(f"/tasks/{gid}/attachments",
-                           opt_fields="name,download_url,permanent_url,view_url,size,host"):
-            name = a.get("name") or "attachment"
-            size = a.get("size") or 0
-            kind = "image" if (mimetypes.guess_type(name)[0] or "").startswith("image/") else "doc"
-            host = a.get("host") or ""
-            url = ""
-            if host and host != "asana":
-                url = a.get("permanent_url") or a.get("view_url") or a.get("download_url") or ""
-            else:
-                dl = a.get("download_url")
-                if dl and 0 < size <= cap:
-                    try:
-                        with urllib.request.urlopen(dl, timeout=90) as r:
-                            raw = r.read()
-                        mime = mimetypes.guess_type(name)[0] or "application/octet-stream"
-                        url = f"data:{mime};base64,{base64.b64encode(raw).decode()}"
-                    except Exception:
-                        url = a.get("view_url") or dl or ""
-                else:
-                    url = a.get("view_url") or dl or ""
-            add_attachment(tid, AttachmentCreate(name=name, size=f"{max(1, round(size / 1024))} KB", kind=kind, url=url),
-                           user=user, db=db)
-            counts["attachments"] += 1
-
-    def import_task(t, project_id, section_cache, parent_id=""):
-        sid = ""
-        if not parent_id:
-            sname = section_name(t)
-            if sname:
-                if sname not in section_cache:
-                    sec = create_section(SectionBody(project_id=project_id, name=sname), db=db)
-                    section_cache[sname] = sec["id"]
-                sid = section_cache[sname]
-        created = create_task(TaskCreate(
-            title=t.get("name") or "(untitled)", description=t.get("notes") or "",
-            priority=priority_from_custom(t), assignee_email=resolve_assignee(t, email_map),
-            project_id=project_id if not parent_id else "", section_id=sid, parent_task_id=parent_id,
-            tags=[tg.get("name") for tg in (t.get("tags") or []) if tg.get("name")],
-            due_on=t.get("due_on") or (t.get("due_at") or "")[:10], status="not_started",
-        ), user=user, db=db)
-        tid = created["id"]
-        if t.get("completed"):
-            update_task(tid, TaskUpdate(completed=True), user=user, db=db)
-        counts["subtasks" if parent_id else "tasks"] += 1
-        if body.comments:
-            import_comments(t["gid"], tid)
-        if body.attachments:
-            import_attachments(t["gid"], tid)
-        if body.subtasks:
-            for sub in asana.get(f"/tasks/{t['gid']}/subtasks", opt_fields=TASK_OPT_FIELDS):
-                import_task(sub, project_id, section_cache, tid)
+    counts = {"projects": 0, "tasks": 0, "subtasks": 0, "comments": 0, "attachments": 0,
+              "activities": 0, "skipped": 0, "errors": []}
+    # Engine-native counters; mapped onto the UI's names at the end.
+    eng = {"created": 0, "updated": 0, "linked": 0, "comments": 0, "activities": 0,
+           "attachments": 0, "deleted": 0}
+    seen = set()
+    # Dependencies can point across projects, so the resolution pass runs once
+    # after every selected project is in, not per project.
+    deferred = []
 
     try:
         gids = list(body.project_gids or [])
@@ -207,17 +157,65 @@ def asana_import(body: AsanaImportBody, user: dict = Depends(get_current_user), 
     for gid in gids:
         try:
             proj = asana.get(f"/projects/{gid}", opt_fields="name,notes")
-            p = create_project(ProjectBody(name=proj.get("name") or f"Asana {gid}",
-                                           description=proj.get("notes") or ""), user=user, db=db)
+            # Re-importing an Asana project that's already mapped (Two-way
+            # Sync) must reuse that SAME Nexus project rather than create a
+            # duplicate — this exact bug (a dangling AsanaProjectMap left
+            # pointing at an orphaned project while a fresh import silently
+            # took its place, so nothing the user was looking at actually kept
+            # syncing) hit us three separate times in one session before this
+            # fix. A map row with no live project on the other end self-heals
+            # onto the freshly (re)created one instead of leaving another
+            # dangling reference.
+            existing_map = db.query(models.AsanaProjectMap).filter(
+                models.AsanaProjectMap.asana_project_gid == gid).first()
+            existing_project = (db.query(models.TaskProject)
+                               .filter(models.TaskProject.id == existing_map.nexus_project_id).first()
+                               if existing_map else None)
+            pname = proj.get("name") or f"Asana {gid}"
+            if not existing_project:
+                # No mapping yet — fall back to a Nexus project of the same name.
+                # Without this, every re-import of the same Asana project minted
+                # another Nexus project: run it twice and you have two, and a
+                # first attempt that failed PART WAY (the project row is created
+                # before the tasks are walked) left an empty one that the retry
+                # then duplicated instead of filling in.
+                existing_project = (db.query(models.TaskProject)
+                                    .filter(models.TaskProject.name == pname).first())
+            if existing_project:
+                existing_project.name = pname
+                existing_project.description = proj.get("notes") or existing_project.description
+                p = project_to_dict(existing_project)
+            else:
+                p = create_project(ProjectBody(name=pname,
+                                               description=proj.get("notes") or ""), user=user, db=db)
             counts["projects"] += 1
-            section_cache = {}
-            for t in asana.get(f"/projects/{gid}/tasks", opt_fields=TASK_OPT_FIELDS):
-                import_task(t, p["id"], section_cache, "")
+            # Record the pairing. An imported project is one the operator plainly
+            # wants kept current, and without a map row Pull/Push skip it
+            # entirely — so the import would go stale the moment it finished.
+            asana_sync.ensure_project_map(db, p["id"], gid)
+            asana_sync.import_project(db, cfg, p["id"], gid, eng, seen, email_map, deferred)
+            db.commit()
         except HTTPException:
             raise
         except Exception as e:
+            db.rollback()
             counts["errors"].append(f"project {gid}: {e}")
 
+    try:
+        asana_sync.resolve_dependencies(db, deferred)
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        counts["errors"].append(f"dependencies: {e}")
+
+    # The engine counts tasks and subtasks together (it walks one tree); the UI
+    # shows them separately, so report the total under "tasks" and leave
+    # subtasks at 0 rather than inventing a split.
+    counts["tasks"] = eng["created"]
+    counts["skipped"] = eng["updated"] + eng["linked"]
+    counts["comments"] = eng["comments"]
+    counts["activities"] = eng["activities"]
+    counts["attachments"] = eng["attachments"]
     return counts
 
 
@@ -400,23 +398,25 @@ class AsanaSyncConfigBody(BaseModel):
     token: Optional[str] = None                 # only updated when provided (write-only)
     workspace_gid: Optional[str] = None
     default_project_gid: Optional[str] = None
+    delete_sync: Optional[bool] = None
 
 
 class AsanaProjectMapBody(BaseModel):
-    maps: list                                  # [{nexusProjectId, asanaProjectGid}]
+    maps: list                                  # [{nexusProjectId, asanaProjectGid, extraTeamNames?}]
 
 
 def _sync_config_dict(cfg) -> dict:
     return {"enabled": bool(cfg.enabled), "workspaceGid": _nz(cfg.workspace_gid),
             "defaultProjectGid": _nz(cfg.default_project_gid), "hasToken": bool(cfg.token),
-            "lastPullAt": _nz(cfg.last_pull_at)}
+            "lastPullAt": _nz(cfg.last_pull_at), "deleteSync": bool(cfg.delete_sync)}
 
 
 @router.get("/asana-sync/config", dependencies=[Depends(require_manager)])
 def get_asana_sync_config(db: Session = Depends(get_db)):
     import asana_sync
     cfg = asana_sync.get_config(db)
-    maps = [{"nexusProjectId": m.nexus_project_id, "asanaProjectGid": m.asana_project_gid}
+    maps = [{"nexusProjectId": m.nexus_project_id, "asanaProjectGid": m.asana_project_gid,
+            "extraTeamNames": m.extra_team_names or []}
             for m in db.query(models.AsanaProjectMap).all()]
     return {**_sync_config_dict(cfg), "projectMap": maps}
 
@@ -440,6 +440,8 @@ def set_asana_sync_config(body: AsanaSyncConfigBody, db: Session = Depends(get_d
         cfg.workspace_gid = body.workspace_gid
     if body.default_project_gid is not None:
         cfg.default_project_gid = body.default_project_gid
+    if body.delete_sync is not None:
+        cfg.delete_sync = body.delete_sync
     from routers.task_util import now_iso
     cfg.updated_at = now_iso()
     db.commit()
@@ -454,9 +456,11 @@ def set_asana_project_map(body: AsanaProjectMapBody, db: Session = Depends(get_d
     for m in body.maps or []:
         npid = (m.get("nexusProjectId") or "").strip()
         agid = (m.get("asanaProjectGid") or "").strip()
+        extra_teams = [n.strip() for n in (m.get("extraTeamNames") or []) if (n or "").strip()]
         if npid and agid:
             db.add(models.AsanaProjectMap(id=gen_id(), nexus_project_id=npid,
-                                          asana_project_gid=agid, created_at=now_iso()))
+                                          asana_project_gid=agid, extra_team_names=extra_teams,
+                                          created_at=now_iso()))
     db.commit()
     return {"count": db.query(models.AsanaProjectMap).count()}
 
@@ -479,6 +483,15 @@ def asana_sync_push_all(db: Session = Depends(get_db)):
         return asana_sync.push_all(db)
     except (ImportError_, ValueError, UnicodeError) as e:
         raise HTTPException(400, f"Asana push failed — check the token. ({e})")
+
+
+@router.post("/asana-sync/dedupe", dependencies=[Depends(require_manager)])
+def asana_sync_dedupe(apply: bool = False, db: Session = Depends(get_db)):
+    """Merge Nexus tasks that all point at the same Asana task — the leftovers
+    from the pre-fix Pull, which could create a second Nexus task for a gid it
+    had already linked (see asana_sync.dedupe_tasks). Defaults to a dry run."""
+    import asana_sync
+    return asana_sync.dedupe_tasks(db, apply=apply)
 
 
 @router.get("/asana-sync/asana-projects", dependencies=[Depends(require_manager)])

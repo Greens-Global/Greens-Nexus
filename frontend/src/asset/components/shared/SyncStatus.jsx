@@ -40,8 +40,13 @@ export function SyncStatus() {
   // something to say (saving/retry/offline), linger ~2s after a save completes,
   // then disappear. lastBusyRef starts at 0, so a fresh mount with nothing
   // pending renders nothing. The 900ms poll re-render drives the timeout check.
+  // Intentional ref-during-render: this is a poll-driven visibility timer, not
+  // React-managed state, so the ref read/write here is deliberate (a newer
+  // react-hooks rule flags the pattern; the behaviour is correct and stable).
   const lastBusyRef = useRef(0);
+  // eslint-disable-next-line react-hooks/refs
   if (busy || state === 'offline') lastBusyRef.current = Date.now();
+  // eslint-disable-next-line react-hooks/refs
   if (state === 'saved' && Date.now() - lastBusyRef.current > 2200) return null;
 
   return (

@@ -1,19 +1,35 @@
 import { useState, useEffect, useMemo } from 'react';
 import {
-  Shield, Plus, X, Search, Loader2, Pencil, Trash2, UserPlus, Check, ChevronRight, LayoutGrid, Copy, MonitorOff,
+  Shield, Plus, X, Search, Loader2, Pencil, Trash2, UserPlus, Check, ChevronRight, ChevronDown,
+  LayoutGrid, Copy, MonitorOff, PlayCircle, Users, User,
 } from 'lucide-react';
 import { api } from '../api';
 import { useRole, MODULES, MODULE_LEVELS, ROLES } from '../contexts/RoleContext';
 import { useNameResolver } from '../lib/useNameResolver';
 import { capabilityText } from '../lib/moduleCapabilities';
+import GuidedTour from '../components/GuidedTour';
 
-// ── Roles & Access — access is defined by Job Roles (a template = tier + module
-// bundle, driven by job description) plus additive Groups on top. This screen
-// manages the templates and the reference matrix; a person is assigned their
-// role on their People card. Admin-only.
+// ── Roles & Access — people-first restructure (Jul 27) ───────────────────────
+// One rule: a person's access = their ONE job role (baseline) + extra groups
+// (additive). The screen leads with People (search a person, see and change
+// their access, every line says where it came from), Job roles render as
+// plain-English cards, and the full matrix lives in a tamed Audit tab with
+// module families that expand on demand.
 const LEVEL_ORDER = ['viewer', 'editor', 'full', 'owner'];
 const GRANTABLE = MODULES.filter(m => !['admin', 'roles-access', 'hr_comp'].includes(m.id));
 const TIERS = Object.keys(ROLES);
+
+// Audit-tab module families — collapse 21 columns into 6 readable ones.
+const FAMILIES = [
+  { id: 'everyday', label: 'Everyday',      modules: ['dashboard', 'timeclock', 'myhr', 'tasks'] },
+  { id: 'company',  label: 'Company',       modules: ['sop', 'hr', 'documents', 'external-links', 'support'] },
+  { id: 'money',    label: 'Money',         modules: ['accounting', 'investor-relations'] },
+  { id: 'field',    label: 'Field & assets', modules: ['inventory', 'property-asset', 'ops', 'operations'] },
+  { id: 'growth',   label: 'Growth',        modules: ['marketing', 'development'] },
+  { id: 'adminit',  label: 'Admin & IT',    modules: ['it', 'manager-dashboard', 'testing', 'credvault'] },
+].map(f => ({ ...f, modules: f.modules.filter(id => GRANTABLE.some(m => m.id === id)) }));
+
+const moduleLabel = id => MODULES.find(m => m.id === id)?.label || id;
 
 // ── shared bits (also reused by the People card Access section) ───────────────
 export function LevelPill({ level, title }) {
@@ -51,27 +67,72 @@ export function TierBadge({ tier }) {
   );
 }
 
-const TABS = [['matrix', 'Matrix', LayoutGrid], ['jobroles', 'Job roles', Shield], ['groups', 'Groups', UserPlus]];
+// "Owns: Accounting · Edits: Documents, Tasks · Views: Dashboard +2" — the
+// plain-English one-liner that replaces a row of 20 pills on role cards.
+const LEVEL_VERB = { owner: 'Owns', full: 'Runs', editor: 'Edits', viewer: 'Views' };
+function bundleSummary(allowed) {
+  const byLevel = { owner: [], full: [], editor: [], viewer: [] };
+  (allowed || []).forEach(g => { (byLevel[g.level] || byLevel.viewer).push(moduleLabel(g.id)); });
+  const parts = [];
+  for (const lvl of ['owner', 'full', 'editor', 'viewer']) {
+    const list = byLevel[lvl];
+    if (!list.length) continue;
+    const shown = list.slice(0, 3).join(', ');
+    parts.push(`${LEVEL_VERB[lvl]}: ${shown}${list.length > 3 ? ` +${list.length - 3}` : ''}`);
+  }
+  return parts.join('  ·  ') || 'No access yet';
+}
+
+const TABS = [['people', 'People', User], ['jobroles', 'Job roles', Shield], ['groups', 'Groups', Users], ['audit', 'Audit', LayoutGrid]];
 
 export default function RolesAccess({ embedded = false }) {
   const { can } = useRole();
   const nameOf = useNameResolver();   // email → real name, never a raw email
-  const [sub, setSub] = useState('matrix');
+  const [sub, setSub] = useState('people');
   const [jobRoles, setJobRoles] = useState(null);
   const [groups, setGroups] = useState(null);
+  const [dir, setDir] = useState(null);
   const [editing, setEditing] = useState(undefined); // undefined=closed, null=new, obj=edit
   const [editGroup, setEditGroup] = useState(undefined);
   const [assignFor, setAssignFor] = useState(null);
-  const [selId, setSelId] = useState(null);
-  const [openGroup, setOpenGroup] = useState(null); // group id whose member list is expanded
+  const [selId, setSelId] = useState(null);          // selected job role
+  const [person, setPerson] = useState(null);        // selected person email
   const [toast, setToast] = useState(null);
+  const [tour, setTour] = useState(false);
 
   const toastOk = m => { setToast({ m, kind: 'ok' }); setTimeout(() => setToast(null), 3500); };
   const toastErr = m => { setToast({ m, kind: 'error' }); setTimeout(() => setToast(null), 5000); };
 
   const loadRoles = () => api.getJobRoles().then(setJobRoles).catch(() => setJobRoles([]));
   const loadGroups = () => api.getGroups().then(gs => setGroups(gs.filter(g => !g.is_job_role))).catch(() => setGroups([]));
-  useEffect(() => { loadRoles(); loadGroups(); }, []);
+  useEffect(() => {
+    loadRoles(); loadGroups();
+    api.getPeopleDirectory().then(setDir).catch(() => setDir([]));
+  }, []);
+
+  const people = useMemo(() => (dir || [])
+    .map(p => ({
+      email: (p.email || p.workEmail || '').toLowerCase(),
+      name: p.display_name || p.name || p.fullName || p.email || p.workEmail || '',
+      title: p.job_title || p.jobTitle || p.title || '',
+    }))
+    .filter(p => p.email)
+    .sort((a, b) => a.name.localeCompare(b.name)), [dir]);
+
+  // email → { role, groups } from the membership lists we already have — lets
+  // person cards show chips without one API call per person.
+  const membership = useMemo(() => {
+    const m = {};
+    (jobRoles || []).forEach(r => (r.members || []).forEach(em => {
+      const k = (em || '').toLowerCase();
+      m[k] = m[k] || { role: null, groups: [] }; m[k].role = r;
+    }));
+    (groups || []).forEach(g => (g.members || []).forEach(em => {
+      const k = (em || '').toLowerCase();
+      m[k] = m[k] || { role: null, groups: [] }; m[k].groups.push(g);
+    }));
+    return m;
+  }, [jobRoles, groups]);
 
   const selected = (jobRoles || []).find(r => r.id === selId) || null;
 
@@ -92,10 +153,32 @@ export default function RolesAccess({ embedded = false }) {
     try { await api.deleteGroup(g.id); toastOk(`Deleted “${g.name}”.`); loadGroups(); }
     catch (e) { toastErr(e?.message || 'Could not delete group.'); }
   }
-  async function removeGroupMember(g, email) {
-    try { await api.removeGroupMember(g.id, email); toastOk(`Removed ${nameOf(email)} from “${g.name}”.`); loadGroups(); }
-    catch (e) { toastErr(e?.message || 'Could not remove.'); }
-  }
+
+  const openDuplicate = r => setEditing({ ...r, id: undefined, member_count: 0, members: [],
+    name: /\d+$/.test(r.name) ? r.name.replace(/(\d+)$/, m => String(+m + 1)) : `${r.name} 2` });
+
+  // Simulate — the guided walkthrough. Clicks are shielded while it runs, so it
+  // can point at the real buttons without any risk of changing live access.
+  const tourSteps = [
+    { target: 'tabs', title: 'One rule runs this whole screen',
+      body: 'A person’s access = their job role + any extra groups. Nothing else. People is where you work day to day; Job roles and Groups are the building blocks; Audit is the all-at-once view.' },
+    { target: 'people-search', before: () => setSub('people'), title: 'Start with a person',
+      body: 'Type any name. You’ll see who they are, their job role, their extra groups, and every screen they can touch — with the reason next to each line.' },
+    { target: 'person-panel', before: () => { setSub('people'); if (!person && people[0]) setPerson(people[0].email); }, title: 'Change access right here',
+      body: 'Switch their job role (baseline follows automatically), or add / remove extra groups. You never edit a person’s permissions directly — everything comes from a role or a group, so it’s always explainable.' },
+    { target: 'role-cards', before: () => setSub('jobroles'), title: 'Job roles, in plain English',
+      body: 'Each card is one job: “Runs: Accounting · Edits: Documents · Views: …”. Click a card for the full bundle and the people who hold it. Editing a role updates everyone in it at once.' },
+    { target: 'duplicate', before: () => { setSub('jobroles'); if (!selId && (jobRoles || [])[0]) setSelId(jobRoles[0].id); }, title: 'Same job, more power? Duplicate.',
+      body: 'For a supervisor version of an existing role: Duplicate, rename it, raise the tier and levels, save. The original role and its people are untouched.' },
+    { target: 'role-approver', before: () => { setSub('jobroles'); if (!selId && (jobRoles || [])[0]) setSelId(jobRoles[0].id); }, title: 'One approver for the whole role',
+      body: 'Pick who approves this role’s timesheets. Save as default — every NEW person mapped to the role reports to them automatically. “Apply to all members” backfills everyone already in the role in one click (ten people, two clicks). Individual People cards can still override.' },
+    { target: 'new-group', before: () => setSub('groups'), title: 'Groups add extras on top',
+      body: 'Same job but extra duties? Don’t touch the role — add the person to a group. Groups only ever ADD access, and removing one never affects the job-role baseline.' },
+    { target: 'audit-matrix', before: () => setSub('audit'), title: 'The audit view — everything at once',
+      body: 'Columns are grouped into six families — click a family name to expand its screens. Each row is a role; the band underneath is the extra groups. This is the screen for access reviews.' },
+    { target: 'tabs', title: 'That’s the whole system',
+      body: 'Hire → assign role. Promotion → switch role (Duplicate if it doesn’t exist yet). Extra duties → group. Question about anyone → type their name in People.' },
+  ];
 
   return (
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
@@ -103,13 +186,13 @@ export default function RolesAccess({ embedded = false }) {
         <div className="view-header" style={{ marginBottom: 18 }}>
           <div className="view-title-group">
             <h2>Roles &amp; Access</h2>
-            <p>Job roles drive who can do what — assign them on each person's card. This is where the roles behind it live.</p>
+            <p>Access = job role + extra groups. Look up a person to see or change theirs.</p>
           </div>
         </div>
       )}
 
       {/* underline tabs (native) */}
-      <div className="scroll-tabs" style={{ display: 'flex', gap: 8, marginBottom: 24, borderBottom: '1px solid var(--line)', paddingBottom: 1 }}>
+      <div className="scroll-tabs" data-tour="tabs" style={{ display: 'flex', gap: 8, marginBottom: 24, borderBottom: '1px solid var(--line)', paddingBottom: 1, alignItems: 'center' }}>
         {TABS.map(([key, label, Icon]) => (
           <button key={key} onClick={() => setSub(key)}
             style={{ background: 'none', border: 'none', padding: '10px 16px', fontFamily: 'Inter,sans-serif', fontWeight: 600, fontSize: 13.5, cursor: 'pointer', color: sub === key ? 'var(--ink)' : 'var(--muted)', position: 'relative', display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap' }}>
@@ -117,70 +200,45 @@ export default function RolesAccess({ embedded = false }) {
             {sub === key && <span style={{ position: 'absolute', left: 0, right: 0, bottom: -1, height: 2.5, background: 'var(--ink)', borderRadius: '4px 4px 0 0' }} />}
           </button>
         ))}
+        <span style={{ flex: 1 }} />
+        <button onClick={() => setTour(true)} title="A guided walkthrough of how to give out access — nothing is changed while it runs."
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'none', border: '1px solid var(--line)', borderRadius: 999, padding: '6px 14px', margin: '4px 4px 8px 0', fontFamily: 'Inter,sans-serif', fontWeight: 700, fontSize: 12.5, cursor: 'pointer', color: 'var(--ink)', whiteSpace: 'nowrap' }}>
+          <PlayCircle size={15} /> Simulate
+        </button>
       </div>
 
-      {/* ── MATRIX ── */}
-      {sub === 'matrix' && (
-        <>
-          <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12, fontSize: 12, color: 'var(--muted)' }}>
-            <span style={{ fontWeight: 700 }}>Access level:</span>
-            {LEVEL_ORDER.map(l => <span key={l} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><LevelPill level={l} /></span>)}
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><LevelPill level={null} /> No access</span>
-          </div>
-          {!jobRoles ? <Spinner /> : jobRoles.length === 0 ? <Empty text="No job roles yet — create one in the Job roles tab." />
-            : (
-              <div style={{ border: '1px solid var(--line)', borderRadius: 14, overflow: 'auto', maxHeight: '72vh', background: 'var(--card)', boxShadow: 'var(--shadow-sm)' }}>
-                <table style={{ borderCollapse: 'separate', borderSpacing: 0, width: 'max-content', minWidth: '100%' }}>
-                  <thead>
-                    <tr>
-                      <th style={thCorner}>Job role</th>
-                      {GRANTABLE.map(m => <th key={m.id} style={thCol} title={m.label}>{m.label}</th>)}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {jobRoles.map(r => {
-                      const byId = Object.fromEntries((r.allowed_modules || []).map(g => [g.id, g.level]));
-                      return (
-                        <tr key={r.id}>
-                          <th style={thRow}>
-                            <div style={{ fontWeight: 700, fontSize: 13 }}>{r.name}</div>
-                            <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 7 }}><TierBadge tier={r.tier} /><span style={{ fontSize: 11, color: 'var(--muted)' }}>{r.member_count} ppl</span></div>
-                          </th>
-                          {GRANTABLE.map(m => <td key={m.id} style={tdCell}><LevelPill level={byId[m.id]} title={byId[m.id] ? `${m.label} · ${MODULE_LEVELS[byId[m.id]]?.label}\n${capabilityText(m.id, byId[m.id], m.label)}` : ''} /></td>)}
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-        </>
+      {/* ── PEOPLE (default) ── */}
+      {sub === 'people' && (
+        <PeopleTab people={people} membership={membership} jobRoles={jobRoles} groups={groups}
+          person={person} setPerson={setPerson} nameOf={nameOf}
+          onChanged={() => { loadRoles(); loadGroups(); }} toastOk={toastOk} toastErr={toastErr} />
       )}
 
       {/* ── JOB ROLES ── */}
       {sub === 'jobroles' && (
         !jobRoles ? <Spinner /> : (
-          <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: 18 }} className="ra-grid">
+          <div style={{ display: 'grid', gridTemplateColumns: '380px 1fr', gap: 18 }} className="ra-grid">
             <div style={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'flex-end' }}>
-              <button className="primary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }} onClick={() => setEditing(null)}><Plus size={15} /> New Job Role</button>
+              <button className="primary-btn" data-tour="new-role" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }} onClick={() => setEditing(null)}><Plus size={15} /> New job role</button>
             </div>
-            <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 6, alignSelf: 'start' }}>
+            <div data-tour="role-cards" style={{ display: 'flex', flexDirection: 'column', gap: 10, alignSelf: 'start' }}>
               {jobRoles.length === 0 ? <Empty text="No job roles yet." /> : jobRoles.map(r => (
                 <button key={r.id} onClick={() => setSelId(r.id)}
-                  style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px', borderRadius: 10, border: 'none', width: '100%', textAlign: 'left', background: selId === r.id ? 'color-mix(in srgb, var(--ink) 8%, transparent)' : 'none', cursor: 'pointer' }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 700, fontSize: 13.5 }}>{r.name}</div>
-                    <div style={{ marginTop: 3 }}><TierBadge tier={r.tier} /></div>
+                  style={{ textAlign: 'left', background: 'var(--card)', border: `1.5px solid ${selId === r.id ? 'var(--ink)' : 'var(--line)'}`, borderRadius: 14, padding: '13px 15px', cursor: 'pointer', fontFamily: 'Inter,sans-serif', boxShadow: selId === r.id ? 'var(--shadow-sm)' : 'none' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                    <span style={{ fontWeight: 800, fontSize: 14, flex: 1 }}>{r.name}</span>
+                    <TierBadge tier={r.tier} />
+                    <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>{r.member_count} {r.member_count === 1 ? 'person' : 'people'}</span>
                   </div>
-                  <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>{(r.allowed_modules || []).length} mods · {r.member_count} ppl</span>
+                  <div style={{ marginTop: 7, fontSize: 12, lineHeight: 1.5, color: 'var(--muted)' }}>{bundleSummary(r.allowed_modules)}</div>
                 </button>
               ))}
             </div>
-            <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 20 }}>
-              {!selected ? <div style={{ color: 'var(--muted)', padding: '40px 10px', textAlign: 'center', fontSize: 13.5 }}>Select a job role to view its bundle, or create a new one.</div> : (
+            <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 20, alignSelf: 'start' }}>
+              {!selected ? <div style={{ color: 'var(--muted)', padding: '40px 10px', textAlign: 'center', fontSize: 13.5 }}>Pick a job role to see its full bundle, or create a new one.</div> : (
                 <>
-                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
-                    <div style={{ flex: 1 }}><h3 style={{ fontSize: 18, fontWeight: 800 }}>{selected.name}</h3></div>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
+                    <div style={{ flex: 1, minWidth: 140 }}><h3 style={{ fontSize: 18, fontWeight: 800 }}>{selected.name}</h3></div>
                     {selected.monitoring_exempt && (
                       <span title="People in this role clock in without sharing a screen; no screenshots are captured."
                         style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 9px', borderRadius: 999, fontSize: 11, fontWeight: 700,
@@ -189,23 +247,33 @@ export default function RolesAccess({ embedded = false }) {
                     )}
                     <TierBadge tier={selected.tier} />
                     <button className="secondary-btn" style={{ padding: '6px 10px' }} onClick={() => setEditing(selected)} title="Edit role"><Pencil size={13} /></button>
-                    <button className="secondary-btn" style={{ padding: '6px 10px', display: 'inline-flex', alignItems: 'center', gap: 6 }}
-                      onClick={() => setEditing({ ...selected, id: undefined, member_count: 0, members: [],
-                        name: /\d+$/.test(selected.name) ? selected.name.replace(/(\d+)$/, m => String(+m + 1)) : `${selected.name} 2` })}
-                      title="Duplicate this role into a new one (e.g. for a promotion tier)"><Copy size={13} /> Duplicate</button>
+                    <button className="secondary-btn" data-tour="duplicate" style={{ padding: '6px 10px', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                      onClick={() => openDuplicate(selected)}
+                      title="Duplicate this role into a new one (e.g. for a supervisor tier)"><Copy size={13} /> Duplicate</button>
                     <button className="secondary-btn" style={{ padding: '6px 10px' }} onClick={() => onDelete(selected)} title="Delete role"><Trash2 size={13} /></button>
                   </div>
                   {selected.description && <p style={{ color: 'var(--muted)', fontSize: 13, margin: '8px 0 0', maxWidth: '60ch' }}>{selected.description}</p>}
-                  <div style={sectLabel}>Module bundle · {(selected.allowed_modules || []).length} screens</div>
-                  <div>
-                    {(selected.allowed_modules || []).length === 0 ? <div style={{ color: 'var(--muted)', fontSize: 13 }}>No modules granted.</div>
-                      : (selected.allowed_modules || []).map(g => {
-                        const mod = MODULES.find(m => m.id === g.id);
-                        return <div key={g.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', borderBottom: '1px solid var(--line)' }}>
-                          <span style={{ fontWeight: 600, fontSize: 13, flex: 1 }}>{mod?.label || g.id}</span><LevelPill level={g.level} />
-                        </div>;
-                      })}
-                  </div>
+                  {['owner', 'full', 'editor', 'viewer'].map(lvl => {
+                    const mods = (selected.allowed_modules || []).filter(g => g.level === lvl);
+                    if (!mods.length) return null;
+                    return (
+                      <div key={lvl}>
+                        <div style={sectLabel}>{{ owner: 'Owns (full + manage access)', full: 'Can run fully', editor: 'Can create and edit', viewer: 'Can view' }[lvl]}</div>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
+                          {mods.map(g => (
+                            <span key={g.id} title={capabilityText(g.id, g.level, moduleLabel(g.id))}
+                              style={{ padding: '5px 12px', borderRadius: 999, background: 'var(--paper)', border: '1px solid var(--line)', fontSize: 12.5, fontWeight: 600 }}>
+                              {moduleLabel(g.id)}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {(selected.allowed_modules || []).length === 0 && <div style={{ color: 'var(--muted)', fontSize: 13, marginTop: 16 }}>No modules granted yet — press Edit to build the bundle.</div>}
+                  <div style={sectLabel}>Timesheet approver (default manager)</div>
+                  <ApproverPicker role={selected} people={people} nameOf={nameOf}
+                    onSaved={loadRoles} toastOk={toastOk} toastErr={toastErr} />
                   <div style={sectLabel}>People with this role · {selected.member_count}</div>
                   {(selected.members || []).length > 0 && (
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
@@ -222,11 +290,11 @@ export default function RolesAccess({ embedded = false }) {
                       ))}
                     </div>
                   )}
-                  <button className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }} onClick={() => setAssignFor(selected)}>
+                  <button className="secondary-btn" data-tour="assign" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }} onClick={() => setAssignFor(selected)}>
                     <UserPlus size={14} /> Assign a person
                   </button>
                   <div style={{ marginTop: 14, background: 'hsla(var(--color-blue),0.08)', border: '1px solid hsla(var(--color-blue),0.2)', borderRadius: 10, padding: '10px 12px', fontSize: 12.5, color: 'var(--ink)' }}>
-                    Editing the bundle applies to all {selected.member_count} people who hold this role. Access levels layer additively with any extra groups.
+                    Editing the bundle applies to all {selected.member_count} people who hold this role. Extra groups layer on top.
                   </div>
                 </>
               )}
@@ -240,53 +308,37 @@ export default function RolesAccess({ embedded = false }) {
         !groups ? <Spinner /> : (
           <>
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
-              <button className="primary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }} onClick={() => setEditGroup(null)}><Plus size={15} /> New Group</button>
+              <button className="primary-btn" data-tour="new-group" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }} onClick={() => setEditGroup(null)}><Plus size={15} /> New group</button>
             </div>
-            <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 6 }}>
-              {groups.length === 0 ? <Empty text="No additive groups yet. Create one to grant extra access on top of a job role." /> : groups.map(g => {
-                const members = g.members || [];
-                const open = openGroup === g.id;
-                return (
-                  <div key={g.id} style={{ borderBottom: '1px solid var(--line)' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px' }}>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontWeight: 700, fontSize: 13.5 }}>{g.name}</div>
-                        <div style={{ marginTop: 6, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                          {(g.allowed_modules || []).map(m => <ModuleLevelPill key={m.id} moduleId={m.id} level={m.level} />)}
-                          {(g.allowed_modules || []).length === 0 && <span style={{ fontSize: 12, color: 'var(--muted)' }}>No modules</span>}
-                        </div>
-                      </div>
-                      <button onClick={() => setOpenGroup(open ? null : g.id)} disabled={members.length === 0}
-                        title={members.length ? (open ? 'Hide members' : 'Show members') : 'No members yet'}
-                        style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', padding: '4px 2px', cursor: members.length ? 'pointer' : 'default', fontSize: 11.5, fontWeight: 600, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
-                        {members.length > 0 && <ChevronRight size={13} style={{ transform: open ? 'rotate(90deg)' : 'none', transition: 'transform .15s' }} />}
-                        {members.length} {members.length === 1 ? 'member' : 'members'}
-                      </button>
-                      <button className="secondary-btn" style={{ padding: '6px 10px' }} onClick={() => setEditGroup(g)} title="Edit group"><Pencil size={13} /></button>
-                      <button className="secondary-btn" style={{ padding: '6px 10px' }} onClick={() => onDeleteGroup(g)} title="Delete group"><Trash2 size={13} /></button>
-                    </div>
-                    {open && members.length > 0 && (
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, padding: '0 12px 14px' }}>
-                        {members.map(em => (
-                          <span key={em} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 6px 5px 12px', borderRadius: 20, background: 'var(--paper)', border: '1px solid var(--line)', fontSize: 12.5, fontWeight: 600 }}>
-                            {nameOf(em)}
-                            <button onClick={() => removeGroupMember(g, em)} title="Remove from this group" aria-label={`Remove ${nameOf(em)}`}
-                              style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'grid', placeItems: 'center', width: 18, height: 18, borderRadius: '50%', padding: 0 }}
-                              onMouseOver={e => { e.currentTarget.style.background = 'hsla(var(--color-red),0.14)'; e.currentTarget.style.color = 'hsl(var(--color-red))'; }}
-                              onMouseOut={e => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = 'var(--muted)'; }}>
-                              <X size={13} />
-                            </button>
-                          </span>
-                        ))}
-                      </div>
-                    )}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 12 }}>
+              {groups.length === 0 ? <Empty text="No extra groups yet. Create one to grant extra access on top of a job role." /> : groups.map(g => (
+                <div key={g.id} style={{ background: 'var(--card)', border: '1px dashed var(--line-strong,var(--line))', borderRadius: 14, padding: '14px 16px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                    <span style={{ fontWeight: 800, fontSize: 14, flex: 1 }}>+ {g.name}</span>
+                    <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>{(g.members || []).length} {(g.members || []).length === 1 ? 'person' : 'people'}</span>
+                    <button className="secondary-btn" style={{ padding: '5px 9px' }} onClick={() => setEditGroup(g)} title="Edit group"><Pencil size={13} /></button>
+                    <button className="secondary-btn" style={{ padding: '5px 9px' }} onClick={() => onDeleteGroup(g)} title="Delete group"><Trash2 size={13} /></button>
                   </div>
-                );
-              })}
-              <div style={{ padding: '12px', fontSize: 12, color: 'var(--muted)' }}>Groups are the additive layer — they only ever add access on top of a job role. Add people to a group from their card's Access tab.</div>
+                  <div style={{ marginTop: 7, fontSize: 12, lineHeight: 1.5, color: 'var(--muted)' }}>{bundleSummary(g.allowed_modules)}</div>
+                  {(g.members || []).length > 0 && (
+                    <div style={{ marginTop: 9, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                      {(g.members || []).slice(0, 6).map(em => (
+                        <span key={em} style={{ padding: '3px 10px', borderRadius: 20, background: 'var(--paper)', border: '1px solid var(--line)', fontSize: 11.5, fontWeight: 600 }}>{nameOf(em)}</span>
+                      ))}
+                      {(g.members || []).length > 6 && <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>+{(g.members || []).length - 6} more</span>}
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
+            <div style={{ padding: '12px 2px', fontSize: 12, color: 'var(--muted)' }}>Groups only ever add access on top of a job role. Add or remove people from the People tab.</div>
           </>
         )
+      )}
+
+      {/* ── AUDIT (tamed matrix) ── */}
+      {sub === 'audit' && (
+        <AuditMatrix jobRoles={jobRoles} groups={groups} />
       )}
 
       {editing !== undefined && <RoleEditor role={editing} onClose={() => setEditing(undefined)}
@@ -295,11 +347,316 @@ export default function RolesAccess({ embedded = false }) {
         onSaved={g => { setEditGroup(undefined); toastOk(`Saved “${g.name}”.`); loadGroups(); }} onErr={toastErr} />}
       {assignFor && <AssignModal role={assignFor} onClose={() => setAssignFor(null)}
         onAssigned={n => { toastOk(`Assigned ${n} to “${assignFor.name}”.`); loadRoles(); }} onErr={toastErr} />}
+      {tour && <GuidedTour steps={tourSteps} onClose={() => setTour(false)} />}
 
       {toast && (
         <div style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', background: toast.kind === 'error' ? 'hsl(var(--color-red))' : 'hsl(var(--color-green))', color: '#fff', borderRadius: 10, padding: '10px 18px', fontSize: 13, fontWeight: 600, zIndex: 1300, boxShadow: 'var(--shadow-lg)', maxWidth: '90vw' }}>{toast.m}</div>
       )}
-      <style>{`@media (max-width:820px){.ra-grid{grid-template-columns:1fr !important}}`}</style>
+      <style>{`@media (max-width:900px){.ra-grid{grid-template-columns:1fr !important}.ra-people{grid-template-columns:1fr !important}}`}</style>
+    </div>
+  );
+}
+
+// ── PEOPLE tab — search a person, see and change their access ────────────────
+function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, nameOf, onChanged, toastOk, toastErr }) {
+  const [q, setQ] = useState('');
+  const [eff, setEff] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  const filtered = useMemo(() => people.filter(p =>
+    !q.trim() || p.name.toLowerCase().includes(q.toLowerCase()) || p.email.includes(q.toLowerCase())), [people, q]);
+
+  useEffect(() => {
+    if (!person) { setEff(null); return; }
+    let dead = false;
+    setBusy(true); setEff(null);
+    api.getEffectiveAccess(person)
+      .then(d => { if (!dead) setEff(d); })
+      .catch(() => { if (!dead) setEff({ error: true }); })
+      .finally(() => { if (!dead) setBusy(false); });
+    return () => { dead = true; };
+  }, [person]);
+
+  const refresh = () => { onChanged(); if (person) api.getEffectiveAccess(person).then(setEff).catch(() => {}); };
+
+  async function changeRole(roleId) {
+    const r = (jobRoles || []).find(x => x.id === roleId);
+    if (!r || !person) return;
+    if (!window.confirm(`Change ${nameOf(person)}'s job role to “${r.name}”? Their baseline access and tier will follow the new role.`)) return;
+    try { await api.assignJobRole(r.id, person); toastOk(`${nameOf(person)} is now “${r.name}”.`); refresh(); }
+    catch (e) { toastErr(e?.message || 'Could not change role.'); }
+  }
+  async function addToGroup(gid) {
+    const g = (groups || []).find(x => x.id === gid);
+    if (!g || !person) return;
+    try { await api.addGroupMembers(g.id, [person]); toastOk(`Added ${nameOf(person)} to “${g.name}”.`); refresh(); }
+    catch (e) { toastErr(e?.message || 'Could not add to group.'); }
+  }
+  async function removeFromGroup(g) {
+    if (!window.confirm(`Remove ${nameOf(person)} from “${g.name}”? They lose that extra access; their job-role baseline is untouched.`)) return;
+    try { await api.removeGroupMember(g.id, person); toastOk(`Removed ${nameOf(person)} from “${g.name}”.`); refresh(); }
+    catch (e) { toastErr(e?.message || 'Could not remove.'); }
+  }
+
+  const memberGroupIds = new Set((eff?.extra_groups || []).map(g => g.id));
+  const addableGroups = (groups || []).filter(g => !memberGroupIds.has(g.id));
+
+  return (
+    <div className="ra-people" style={{ display: 'grid', gridTemplateColumns: '360px 1fr', gap: 18 }}>
+      {/* left: search + people list */}
+      <div style={{ alignSelf: 'start' }}>
+        <div data-tour="people-search" style={{ position: 'relative', marginBottom: 12 }}>
+          <Search size={15} style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
+          <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search anyone…" style={{ ...input, paddingLeft: 34 }} />
+        </div>
+        <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 6, maxHeight: '64vh', overflow: 'auto' }}>
+          {!people.length ? <Spinner /> : filtered.length === 0 ? <Empty text="No matches." /> : filtered.slice(0, 120).map(p => {
+            const mem = membership[p.email];
+            const active = person === p.email;
+            return (
+              <button key={p.email} onClick={() => setPerson(p.email)}
+                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 11px', borderRadius: 10, border: 'none', width: '100%', textAlign: 'left', background: active ? 'color-mix(in srgb, var(--ink) 8%, transparent)' : 'none', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, fontSize: 13 }}>{p.name}</div>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {mem?.role ? mem.role.name : (p.title || 'No job role yet')}
+                    {mem?.groups?.length ? `  ·  +${mem.groups.length} ${mem.groups.length === 1 ? 'group' : 'groups'}` : ''}
+                  </div>
+                </div>
+                <ChevronRight size={14} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* right: person detail */}
+      <div data-tour="person-panel" style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 20, alignSelf: 'start', minHeight: 220 }}>
+        {!person ? (
+          <div style={{ color: 'var(--muted)', padding: '52px 10px', textAlign: 'center', fontSize: 13.5 }}>
+            Pick a person to see exactly what they can do — and change it.
+          </div>
+        ) : busy || !eff ? <Spinner /> : eff.error ? (
+          <div style={{ color: 'var(--muted)', padding: '40px 10px', textAlign: 'center', fontSize: 13.5 }}>Could not load access for this person.</div>
+        ) : (
+          <>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <h3 style={{ fontSize: 17, fontWeight: 800, flex: 1, minWidth: 140 }}>{nameOf(eff.email)}</h3>
+              <TierBadge tier={eff.tier} />
+            </div>
+
+            <div style={sectLabel}>Job role — the baseline</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              {eff.job_role
+                ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 13px', borderRadius: 999, background: 'var(--ink)', color: 'var(--card)', fontSize: 12.5, fontWeight: 700 }}><Shield size={13} /> {eff.job_role.name}</span>
+                : <span style={{ fontSize: 12.5, color: 'var(--muted)', fontStyle: 'italic' }}>No job role yet</span>}
+              <select value="" onChange={e => e.target.value && changeRole(e.target.value)} style={{ ...input, width: 'auto', padding: '6px 10px', fontSize: 12.5 }}>
+                <option value="">{eff.job_role ? 'Change role…' : 'Assign a role…'}</option>
+                {(jobRoles || []).filter(r => r.id !== eff.job_role?.id).map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+              </select>
+            </div>
+
+            <div style={sectLabel}>Extra groups — added on top</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              {(eff.extra_groups || []).map(g => (
+                <span key={g.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 6px 4px 12px', borderRadius: 999, border: '1px dashed var(--line-strong,var(--line))', fontSize: 12, fontWeight: 600 }}>
+                  + {g.name}
+                  <button onClick={() => removeFromGroup(g)} title={`Remove from ${g.name}`} aria-label={`Remove from ${g.name}`}
+                    style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'grid', placeItems: 'center', width: 17, height: 17, borderRadius: '50%', padding: 0 }}>
+                    <X size={12} />
+                  </button>
+                </span>
+              ))}
+              {(eff.extra_groups || []).length === 0 && <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>None</span>}
+              {addableGroups.length > 0 && (
+                <select value="" onChange={e => e.target.value && addToGroup(e.target.value)} style={{ ...input, width: 'auto', padding: '6px 10px', fontSize: 12.5 }}>
+                  <option value="">+ Add to group…</option>
+                  {addableGroups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+                </select>
+              )}
+            </div>
+
+            <div style={sectLabel}>What they can do</div>
+            {(eff.modules || []).length === 0
+              ? <div style={{ fontSize: 13, color: 'var(--muted)' }}>Nothing yet — assign a job role to give them their baseline.</div>
+              : eff.modules.map(m => (
+                <div key={m.module} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0', borderBottom: '1px solid var(--line)' }}>
+                  <span style={{ fontWeight: 600, fontSize: 13, minWidth: 150 }}>{moduleLabel(m.module)}</span>
+                  <LevelPill level={m.level} title={capabilityText(m.module, m.level, moduleLabel(m.module))} />
+                  <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+                    {m.manual ? <>extra, from group “{m.source}”</> : <>from job role “{m.source}”</>}
+                  </span>
+                </div>
+              ))}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── AUDIT tab — the matrix, tamed with module families ───────────────────────
+function AuditMatrix({ jobRoles, groups }) {
+  const [open, setOpen] = useState(() => new Set());       // expanded family ids
+  const [hoverCol, setHoverCol] = useState(null);          // family id or module id
+
+  const toggle = id => setOpen(s => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+
+  if (!jobRoles || !groups) return <Spinner />;
+  if (jobRoles.length === 0) return <Empty text="No job roles yet — create one in the Job roles tab." />;
+
+  // For a row's grants, the strongest level within a family (dot = mixed levels).
+  const familyCell = (byId, fam) => {
+    const lvls = fam.modules.map(id => byId[id]).filter(Boolean);
+    if (!lvls.length) return { level: null, mixed: false };
+    let top = lvls[0];
+    for (const l of lvls) if ((MODULE_LEVELS[l]?.rank || 0) > (MODULE_LEVELS[top]?.rank || 0)) top = l;
+    return { level: top, mixed: new Set(lvls).size > 1 || lvls.length < fam.modules.length };
+  };
+
+  const colHl = key => hoverCol === key ? { background: 'color-mix(in srgb, var(--ink) 5%, transparent)' } : {};
+
+  const renderRow = (name, meta, byId, extra) => (
+    <tr key={name} className="ra-audit-row">
+      <th style={{ ...thRow, ...(extra ? { borderLeft: '3px dashed var(--line-strong,var(--line))' } : {}) }}>
+        <div style={{ fontWeight: 700, fontSize: 13 }}>{extra ? `+ ${name}` : name}</div>
+        {meta}
+      </th>
+      {FAMILIES.map(fam => open.has(fam.id)
+        ? fam.modules.map(id => (
+          <td key={id} style={{ ...tdCell, ...colHl(id) }} onMouseEnter={() => setHoverCol(id)} onMouseLeave={() => setHoverCol(null)}>
+            <LevelPill level={byId[id]} title={byId[id] ? `${moduleLabel(id)} · ${MODULE_LEVELS[byId[id]]?.label}\n${capabilityText(id, byId[id], moduleLabel(id))}` : ''} />
+          </td>
+        ))
+        : (() => {
+          const c = familyCell(byId, fam);
+          return (
+            <td key={fam.id} style={{ ...tdCell, ...colHl(fam.id) }} onMouseEnter={() => setHoverCol(fam.id)} onMouseLeave={() => setHoverCol(null)}
+              title={c.level ? `${fam.label}: strongest is ${MODULE_LEVELS[c.level]?.label}${c.mixed ? ' (mixed — expand to see each screen)' : ''}` : `${fam.label}: no access`}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                <LevelPill level={c.level} />
+                {c.mixed && c.level && <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--muted)' }} />}
+              </span>
+            </td>
+          );
+        })()
+      )}
+    </tr>
+  );
+
+  return (
+    <>
+      <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center', margin: '0 0 12px', fontSize: 12, color: 'var(--muted)' }}>
+        <span style={{ fontWeight: 700 }}>Access level:</span>
+        {LEVEL_ORDER.map(l => <span key={l} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }} title={MODULE_LEVELS[l]?.description || ''}><LevelPill level={l} /></span>)}
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><LevelPill level={null} /> No access</span>
+        <span style={{ fontStyle: 'italic' }}>Click a column family to expand its screens. A dot means mixed levels inside.</span>
+      </div>
+      <div data-tour="audit-matrix" style={{ border: '1px solid var(--line)', borderRadius: 14, overflow: 'auto', maxHeight: '72vh', background: 'var(--card)', boxShadow: 'var(--shadow-sm)' }}>
+        <table style={{ borderCollapse: 'separate', borderSpacing: 0, width: 'max-content', minWidth: '100%' }}>
+          <thead>
+            <tr>
+              <th style={thCorner}>Job role</th>
+              {FAMILIES.map(fam => (
+                <th key={fam.id} colSpan={open.has(fam.id) ? fam.modules.length : 1}
+                  style={{ ...thCol, cursor: 'pointer', userSelect: 'none', ...colHl(fam.id) }}
+                  onClick={() => toggle(fam.id)}
+                  title={open.has(fam.id) ? 'Collapse' : `Expand: ${fam.modules.map(moduleLabel).join(', ')}`}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    {open.has(fam.id) ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                    {fam.label}
+                    {!open.has(fam.id) && <span style={{ fontWeight: 400 }}>({fam.modules.length})</span>}
+                  </span>
+                </th>
+              ))}
+            </tr>
+            <tr>
+              <th style={{ ...thCorner, top: 34, fontWeight: 400, fontSize: 10.5 }}>{jobRoles.length} roles · {groups.length} groups</th>
+              {FAMILIES.map(fam => open.has(fam.id)
+                ? fam.modules.map(id => (
+                  <th key={id} style={{ ...thCol, top: 34, ...colHl(id) }} onMouseEnter={() => setHoverCol(id)} onMouseLeave={() => setHoverCol(null)}>{moduleLabel(id)}</th>
+                ))
+                : <th key={fam.id} style={{ ...thCol, top: 34, fontWeight: 400, color: 'var(--muted)', ...colHl(fam.id) }}>strongest</th>
+              )}
+            </tr>
+          </thead>
+          <tbody>
+            {jobRoles.map(r => renderRow(
+              r.name,
+              <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 7 }}><TierBadge tier={r.tier} /><span style={{ fontSize: 11, color: 'var(--muted)' }}>{r.member_count} ppl</span></div>,
+              Object.fromEntries((r.allowed_modules || []).map(g => [g.id, g.level])),
+              false,
+            ))}
+            {groups.length > 0 && (
+              <tr>
+                <th style={{ ...thRow, borderTop: '2px solid var(--line)', paddingTop: 14 }}>
+                  <div style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--muted)' }}>Extra access groups</div>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3, fontWeight: 400 }}>Added on top of a job role</div>
+                </th>
+                {FAMILIES.map(fam => (open.has(fam.id) ? fam.modules : [fam.id]).map(k => <td key={k} style={{ ...tdCell, borderTop: '2px solid var(--line)' }} />))}
+              </tr>
+            )}
+            {groups.map(g => renderRow(
+              g.name,
+              <div style={{ marginTop: 4, fontSize: 11, color: 'var(--muted)' }}>{(g.members || []).length} {(g.members || []).length === 1 ? 'person' : 'people'}</div>,
+              Object.fromEntries((g.allowed_modules || []).map(x => [x.id, x.level])),
+              true,
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <style>{`.ra-audit-row:hover td, .ra-audit-row:hover th { background: color-mix(in srgb, var(--ink) 4%, transparent); }`}</style>
+    </>
+  );
+}
+
+// ── role approver — the "ten people, two clicks" control ─────────────────────
+// Default manager on the role: new members with no manager inherit it; "Apply to
+// all" backfills current members. Per-person Manager (People card) stays the
+// source of truth — this is a bulk tool, not a second truth.
+function ApproverPicker({ role, people, nameOf, onSaved, toastOk, toastErr }) {
+  const [val, setVal] = useState(role.default_manager_email || '');
+  const [busy, setBusy] = useState('');
+  useEffect(() => { setVal(role.default_manager_email || ''); }, [role.id, role.default_manager_email]);
+
+  async function saveDefault(v) {
+    setVal(v); setBusy('save');
+    try {
+      await api.updateJobRole(role.id, { default_manager_email: v });
+      toastOk(v ? `Default approver saved — new people mapped to “${role.name}” will report to ${nameOf(v)}.` : 'Default approver cleared.');
+      onSaved();
+    } catch (e) { toastErr(e?.message || 'Could not save the approver.'); }
+    setBusy('');
+  }
+  async function applyAll() {
+    if (!val) return;
+    if (!window.confirm(`Set ${nameOf(val)} as manager/timesheet approver for all ${role.member_count} people in “${role.name}”? This overwrites their current manager; individual cards can be changed afterwards.`)) return;
+    setBusy('apply');
+    try {
+      const r = await api.applyJobRoleManager(role.id, val);
+      toastOk(`${nameOf(val)} is now the approver for ${r.updated} ${r.updated === 1 ? 'person' : 'people'} in “${role.name}”.`);
+      onSaved();
+    } catch (e) { toastErr(e?.message || 'Could not apply to members.'); }
+    setBusy('');
+  }
+
+  return (
+    <div data-tour="role-approver">
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <select value={val} onChange={e => saveDefault(e.target.value)} disabled={busy === 'save'}
+          style={{ ...input, width: 'auto', minWidth: 210, padding: '7px 10px', fontSize: 12.5 }}>
+          <option value="">No default approver</option>
+          {people.map(p => <option key={p.email} value={p.email}>{p.name}</option>)}
+        </select>
+        <button className="secondary-btn" disabled={!val || !!busy || !role.member_count} onClick={applyAll}
+          style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          {busy === 'apply' && <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} />}
+          Apply to all {role.member_count} {role.member_count === 1 ? 'member' : 'members'}
+        </button>
+      </div>
+      <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 7, lineHeight: 1.5, maxWidth: '60ch' }}>
+        Who approves this role's timesheets and punch fixes. New people mapped to the role inherit them automatically (if they don't already have a manager); Apply to all backfills everyone currently in it. A person's own card always wins.
+      </div>
     </div>
   );
 }
@@ -380,7 +737,7 @@ function RoleEditor({ role, onClose, onSaved, onErr }) {
       </div>
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 18 }}>
         <button className="secondary-btn" onClick={onClose}>Cancel</button>
-        <button className="primary-btn" disabled={busy} onClick={save} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>{busy && <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />} Save Job Role</button>
+        <button className="primary-btn" disabled={busy} onClick={save} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>{busy && <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />} Save job role</button>
       </div>
     </Modal>
   );
@@ -434,7 +791,7 @@ function GroupEditor({ group, onClose, onSaved, onErr }) {
       </div>
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 18 }}>
         <button className="secondary-btn" onClick={onClose}>Cancel</button>
-        <button className="primary-btn" disabled={busy} onClick={save} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>{busy && <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />} Save Group</button>
+        <button className="primary-btn" disabled={busy} onClick={save} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>{busy && <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />} Save group</button>
       </div>
     </Modal>
   );
@@ -510,7 +867,7 @@ const Spinner = () => <div style={{ padding: 40, textAlign: 'center', color: 'va
 const Empty = ({ text }) => <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--muted)', fontSize: 13.5 }}>{text}</div>;
 
 const thCorner = { position: 'sticky', left: 0, top: 0, zIndex: 3, background: 'var(--card)', textAlign: 'left', padding: '11px 14px', fontSize: 11, fontWeight: 700, color: 'var(--muted)', borderRight: '1px solid var(--line)', borderBottom: '1.5px solid var(--line)', minWidth: 190 };
-const thCol = { position: 'sticky', top: 0, zIndex: 2, background: 'var(--card)', padding: '11px 10px', fontSize: 11, fontWeight: 700, color: 'var(--muted)', borderBottom: '1.5px solid var(--line)', minWidth: 92, textAlign: 'center', verticalAlign: 'bottom' };
+const thCol = { position: 'sticky', top: 0, zIndex: 2, background: 'var(--card)', padding: '9px 10px', fontSize: 11, fontWeight: 700, color: 'var(--muted)', borderBottom: '1.5px solid var(--line)', minWidth: 92, textAlign: 'center', verticalAlign: 'bottom' };
 const thRow = { position: 'sticky', left: 0, zIndex: 1, background: 'var(--card)', textAlign: 'left', padding: '10px 14px', borderRight: '1px solid var(--line)', borderBottom: '1px solid var(--line)', minWidth: 190 };
 const tdCell = { padding: '8px 10px', textAlign: 'center', borderBottom: '1px solid var(--line)' };
 const sectLabel = { fontSize: 10.5, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--muted)', margin: '20px 0 10px' };

@@ -6,6 +6,7 @@ import { STAGE_FORM, baseStage } from '../../lib/stages.js';
 import { editGuard } from '../../lib/editGuard.js';
 import { deriveType } from '../../lib/portfolioCards.js';
 import { ContactCell } from '../shared/ContactCell.jsx';
+import { MultiDateInput } from '../shared/FieldInput.jsx';
 import { PropertyMapLink } from './PropertyMapLink.jsx';
 import { PhotoGallery } from './PhotoGallery.jsx';
 
@@ -96,6 +97,8 @@ export function AssetDetailForm({ p: asset, onSaveImages, highlight, onSaveDetai
       <option value="">—</option>
       {STAGE_FORM.map((o) => <option key={o} value={o}>{o}</option>)}
     </select>
+  ) : f.t === 'dates' ? (
+    <MultiDateInput value={draft[f.l] ?? ''} onChange={(v) => setField(f.l, v)} />
   ) : (
     <input className="form-input" type={f.t === 'date' ? 'date' : 'text'} value={draft[f.l] ?? ''} onChange={(e) => setField(f.l, e.target.value)} style={inputStyle} />
   );

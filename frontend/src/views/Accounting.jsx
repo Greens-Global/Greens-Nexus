@@ -1,5 +1,6 @@
-import { useState } from 'react';
-import { TrendingUp, TrendingDown, DollarSign, FileText, ArrowUpRight, ArrowDownRight, CreditCard, SlidersHorizontal, Download, Plus, X, UploadCloud, PiggyBank } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { TrendingUp, TrendingDown, DollarSign, FileText, ArrowUpRight, ArrowDownRight, CreditCard, SlidersHorizontal, Download, Plus, X, UploadCloud, PiggyBank, Loader2, Check, Wallet, ClipboardList, Receipt, Plane, FileCheck, Landmark, BookOpen, Building2, Briefcase, RefreshCcw, LayoutGrid, Map, Layers, FileSignature, Users, Plug, Gift, Settings, Search, Columns3, CalendarDays, Ban, Lock } from 'lucide-react';
+import { api } from '../api';
 
 const INIT_TRX = [
   { id: 'TRX-1234', title: 'Project Payment - Downtown Complex', date: 'May 20, 2026', cost: 125000 },
@@ -13,14 +14,6 @@ const INIT_BUDGETS = [
   { id: 1, name: 'Real Estate Development', allocated: 3500000, spent: 2450000 },
   { id: 2, name: 'Operations (OPS)', allocated: 2000000, spent: 1900000 },
   { id: 3, name: 'IT & Infrastructure Support', allocated: 450000, spent: 180000 },
-];
-
-const RAMP_TXN = [
-  { id: 'TXN-9031', vendor: 'Apex Building Supplies', cost: 145.00, date: 'May 22, 2026', category: 'Office Supplies', memo: 'PO-2209 office consumables', missing: false },
-  { id: 'TXN-9032', vendor: 'Cemex Ready-Mix', cost: 1200.00, date: 'May 21, 2026', category: 'Construction', memo: '', missing: true },
-  { id: 'TXN-9033', vendor: 'AWS Cloud Billing', cost: 452.10, date: 'May 21, 2026', category: 'IT Services', memo: '', missing: true },
-  { id: 'TXN-9034', vendor: 'Home Depot', cost: 89.50, date: 'May 20, 2026', category: 'Supplies', memo: 'Misc. hardware fasteners', missing: false },
-  { id: 'TXN-9035', vendor: 'Adobe Creative Cloud', cost: 79.99, date: 'May 19, 2026', category: 'Software', memo: '', missing: true },
 ];
 
 const AMA_ENTITIES = [
@@ -49,17 +42,356 @@ const AMA_FLAGGED = [
 const TABS = ['transactions', 'invoices', 'budgets', 'imports', 'ramp', 'vendors', 'ask-accountant', 'ama', 'mre', 'mri', 'reports'];
 const TAB_LABELS = { transactions: 'Transactions', invoices: 'Invoices', budgets: 'Budgets', imports: 'Import Hub', ramp: 'Ramp Cards', vendors: 'Vendors', 'ask-accountant': 'Ask My Accountant', ama: 'AMA Entities', mre: 'MRE', mri: 'MRI', reports: 'Reports' };
 
+// Ramp's own left-nav sections. Funds/Cards/Requests/Budgets live together
+// under Ramp's "Manage spend" group, so that group becomes one entry in our
+// top-level sub-tab strip (rendered in-page rather than a sidebar — matches
+// the Marketing module's SEO sub-tabs pattern — since it's nested inside our
+// own Accounting sidebar entry); picking it reveals a segmented control for
+// the 4 grouped sections. Only "Cards" is wired to real data so far.
+const RAMP_SPEND_SECTIONS = [
+  { key: 'funds', label: 'Funds', Icon: Wallet },
+  { key: 'cards', label: 'Cards', Icon: CreditCard },
+  { key: 'requests', label: 'Requests', Icon: ClipboardList },
+  { key: 'budgets', label: 'Budgets', Icon: SlidersHorizontal },
+];
+
+const RAMP_TOP_SECTIONS = [
+  { key: 'manage-spend', label: 'Manage Spend', Icon: CreditCard },
+  { key: 'expenses', label: 'Expenses', Icon: Receipt },
+  { key: 'travel', label: 'Travel', Icon: Plane },
+  { key: 'bill-pay', label: 'Bill Pay', Icon: FileCheck },
+  { key: 'banking', label: 'Banking', Icon: Landmark },
+  { key: 'accounting', label: 'Accounting', Icon: BookOpen },
+  { key: 'vendors', label: 'Vendors', Icon: Building2 },
+  { key: 'company', label: 'Company', Icon: Briefcase },
+];
+
+// Ramp's "Expenses" group splits into card-sourced vs. out-of-pocket spend.
+const RAMP_EXPENSE_SECTIONS = [
+  { key: 'card-transactions', label: 'Card transactions', Icon: CreditCard },
+  { key: 'reimbursements', label: 'Reimbursements', Icon: RefreshCcw },
+];
+
+// Ramp's "Travel" group splits into the spend summary vs. trip booking/mgmt.
+const RAMP_TRAVEL_SECTIONS = [
+  { key: 'overview', label: 'Overview', Icon: LayoutGrid },
+  { key: 'trip-management', label: 'Trip management', Icon: Map },
+];
+
+// Ramp's "Accounting" group (GL sync side of things) — Stack is Ramp's newer
+// rules-based coding feature, flagged "New" the same way Ramp does.
+const RAMP_ACCOUNTING_SECTIONS = [
+  { key: 'card-transactions', label: 'Card transactions', Icon: CreditCard },
+  { key: 'stack', label: 'Stack', Icon: Layers, badge: 'New' },
+];
+
+// Ramp's "Vendors" group splits into the vendor list vs. contract lifecycle.
+const RAMP_VENDOR_SECTIONS = [
+  { key: 'overview', label: 'Overview', Icon: LayoutGrid },
+  { key: 'contracts-renewals', label: 'Contracts & renewals', Icon: FileSignature },
+];
+
+// Ramp's "Company" group — org-wide settings, not spend workflows.
+const RAMP_COMPANY_SECTIONS = [
+  { key: 'people', label: 'People', Icon: Users },
+  { key: 'statements-payments', label: 'Statements & payments', Icon: FileText },
+  { key: 'integrations', label: 'Integrations', Icon: Plug },
+  { key: 'rewards', label: 'Rewards', Icon: Gift },
+  { key: 'settings', label: 'Settings', Icon: Settings },
+];
+
 const fmt = (n) => Math.abs(n).toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
+const fmtUsd = (n) => `${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD`;
+
+// Ramp's Funds column picker — order and default on/off state match Ramp's
+// own "manage columns" panel (Name is pinned, Submission/Expense approval
+// policy start hidden). Sample rows are fictional — deliberately NOT the
+// real names/amounts from a live Ramp screenshot, to avoid committing real
+// employee financial data into source control.
+const FUNDS_COLUMNS = [
+  { key: 'name', label: 'Name', locked: true },
+  { key: 'owner', label: 'Owner' },
+  { key: 'amountIssued', label: 'Amount issued' },
+  { key: 'amountUsed', label: 'Amount used' },
+  { key: 'utilization', label: 'Utilization' },
+  { key: 'lastUsed', label: 'Last used' },
+  { key: 'paymentMethods', label: 'Payment methods' },
+  { key: 'spendProgram', label: 'Spend program' },
+  { key: 'department', label: 'Department' },
+  { key: 'location', label: 'Location' },
+  { key: 'createdAt', label: 'Created at' },
+  { key: 'lockReason', label: 'Lock reason' },
+  { key: 'submissionPolicy', label: 'Submission policy', offByDefault: true },
+  { key: 'expenseApprovalPolicy', label: 'Expense approval policy', offByDefault: true },
+  { key: 'startDate', label: 'Start date' },
+  { key: 'autoLockDate', label: 'Auto-lock date' },
+];
+const DEFAULT_FUNDS_COLUMN_STATE = Object.fromEntries(FUNDS_COLUMNS.map(c => [c.key, !c.offByDefault]));
+const FUNDS_NUMERIC_COLUMNS = new Set(['amountIssued', 'amountUsed', 'utilization']);
+
+const FUNDS_DATA = {
+  issued: [
+    { id: 1, name: 'T. Alvarez', owner: 'T. Alvarez', frequency: 'Monthly', issued: 600, used: 90, lastUsed: '2026-07-05', methods: ['Virtual card'], program: 'Field Supplies', department: 'Construction', location: 'Austin, TX', createdAt: '2025-11-02', lockReason: '—', submissionPolicy: 'Standard', expenseApprovalPolicy: 'Manager approval', startDate: '2025-11-02', autoLockDate: '—' },
+    { id: 2, name: 'J. Reyes', owner: 'J. Reyes', frequency: 'Monthly', issued: 750, used: 0, lastUsed: '2026-01-24', methods: ['Virtual card'], program: 'Field Supplies', department: 'Construction', location: 'Dallas, TX', createdAt: '2025-09-18', lockReason: '—', submissionPolicy: 'Standard', expenseApprovalPolicy: 'Manager approval', startDate: '2025-09-18', autoLockDate: '—' },
+    { id: 3, name: 'Facilities Expenses', owner: 'K. Whitfield', frequency: 'Monthly', issued: 2500, used: 0, lastUsed: '2026-05-30', methods: ['Virtual card'], program: 'Facilities Ops', department: 'Facilities', location: 'Denver, CO', createdAt: '2025-08-01', lockReason: '—', submissionPolicy: 'Standard', expenseApprovalPolicy: 'Director approval', startDate: '2025-08-01', autoLockDate: '—' },
+    { id: 4, name: 'D. Sato', owner: 'D. Sato', frequency: 'Monthly', issued: 220000, used: 6200, lastUsed: '2026-07-24', methods: ['Virtual card', 'Reimbursements'], program: 'Executive', department: 'Executive', location: 'Remote', createdAt: '2024-03-10', lockReason: '—', submissionPolicy: 'Executive', expenseApprovalPolicy: 'Board approval', startDate: '2024-03-10', autoLockDate: '—' },
+    { id: 5, name: 'N. Brantley', owner: 'N. Brantley', frequency: 'Monthly', issued: 240000, used: 0, lastUsed: '2025-06-24', methods: ['Virtual card', 'Reimbursements'], program: 'Real Estate Development', department: 'Real Estate Development', location: 'Austin, TX', createdAt: '2024-06-24', lockReason: '—', submissionPolicy: 'Standard', expenseApprovalPolicy: 'Director approval', startDate: '2024-06-24', autoLockDate: '—' },
+    { id: 6, name: 'N. Brantley', owner: 'N. Brantley', frequency: 'Monthly', issued: 95000, used: 19800, lastUsed: '2026-07-26', methods: ['Virtual card', 'Reimbursements'], program: 'Real Estate Development', department: 'Real Estate Development', location: 'Austin, TX', createdAt: '2025-07-26', lockReason: '—', submissionPolicy: 'Standard', expenseApprovalPolicy: 'Director approval', startDate: '2025-07-26', autoLockDate: '—' },
+    { id: 7, name: 'R. Okafor', owner: 'R. Okafor', frequency: 'Monthly', issued: 210000, used: 1350, lastUsed: '2026-07-26', methods: ['Virtual card', 'Reimbursements'], program: 'Operations (OPS)', department: 'Operations (OPS)', location: 'Dallas, TX', createdAt: '2024-07-26', lockReason: '—', submissionPolicy: 'Standard', expenseApprovalPolicy: 'Manager approval', startDate: '2024-07-26', autoLockDate: '—' },
+    { id: 8, name: 'M. Lind', owner: 'M. Lind', frequency: 'Monthly', issued: 15000, used: 0, lastUsed: '2026-01-29', methods: ['Virtual card', 'Reimbursements'], program: 'IT & Infrastructure Support', department: 'IT & Infrastructure', location: 'Remote', createdAt: '2025-01-29', lockReason: '—', submissionPolicy: 'Standard', expenseApprovalPolicy: 'Manager approval', startDate: '2025-01-29', autoLockDate: '—' },
+  ],
+  terminated: [
+    { id: 101, name: 'A. Whitmore', owner: 'A. Whitmore', frequency: 'Monthly', issued: 1500, used: 0, lastUsed: '2026-04-10', methods: ['Virtual card'], program: 'Facilities Ops', department: 'Facilities', location: 'Denver, CO', createdAt: '2025-10-10', lockReason: 'Fund terminated', submissionPolicy: 'Standard', expenseApprovalPolicy: 'Manager approval', startDate: '2025-10-10', autoLockDate: '2026-04-10', terminated: true },
+    { id: 102, name: 'B. Callahan', owner: 'B. Callahan', frequency: 'Monthly', issued: 1000, used: 0, lastUsed: '2023-10-14', methods: ['Virtual card', 'Reimbursements'], program: 'Field Supplies', department: 'Construction', location: 'Austin, TX', createdAt: '2023-04-14', lockReason: 'Fund terminated', submissionPolicy: 'Standard', expenseApprovalPolicy: 'Manager approval', startDate: '2023-04-14', autoLockDate: '2023-10-14', terminated: true },
+    { id: 103, name: 'C. Marsh', owner: 'C. Marsh', frequency: 'Monthly', issued: 200, used: 0, lastUsed: '2023-09-10', methods: ['Virtual card', 'Reimbursements'], program: 'Field Supplies', department: 'Construction', location: 'Dallas, TX', createdAt: '2023-03-10', lockReason: 'Fund terminated', submissionPolicy: 'Standard', expenseApprovalPolicy: 'Manager approval', startDate: '2023-03-10', autoLockDate: '2023-09-10', terminated: true },
+    { id: 104, name: 'C. Marsh (Temporary)', owner: 'C. Marsh', frequency: 'Monthly', issued: 200, used: 0, lastUsed: '2024-09-30', methods: ['Virtual card'], program: 'Field Supplies', department: 'Construction', location: 'Dallas, TX', createdAt: '2024-03-30', lockReason: 'Fund terminated', submissionPolicy: 'Standard', expenseApprovalPolicy: 'Manager approval', startDate: '2024-03-30', autoLockDate: '2024-09-30', terminated: true, temporary: true },
+    { id: 105, name: 'C. Marsh', owner: 'C. Marsh', frequency: 'Monthly', issued: 5000, used: 0, lastUsed: '2024-11-15', methods: ['Virtual card'], program: 'Facilities Ops', department: 'Facilities', location: 'Dallas, TX', createdAt: '2024-05-15', lockReason: 'Fund terminated', submissionPolicy: 'Standard', expenseApprovalPolicy: 'Director approval', startDate: '2024-05-15', autoLockDate: '2024-11-15', terminated: true },
+    { id: 106, name: 'E. Solano (Temporary)', owner: 'E. Solano', frequency: 'Monthly', issued: 200, used: 0, lastUsed: null, methods: ['Virtual card'], program: 'Field Supplies', department: 'Construction', location: 'Austin, TX', createdAt: '2025-01-05', lockReason: 'Fund terminated', submissionPolicy: 'Standard', expenseApprovalPolicy: 'Manager approval', startDate: '2025-01-05', autoLockDate: '2025-02-05', terminated: true, temporary: true },
+    { id: 107, name: 'E. Solano', owner: 'E. Solano', frequency: 'Monthly', issued: 500, used: 0, lastUsed: '2024-07-13', methods: ['Virtual card', 'Reimbursements'], program: 'Field Supplies', department: 'Construction', location: 'Austin, TX', createdAt: '2024-01-13', lockReason: 'Fund terminated', submissionPolicy: 'Standard', expenseApprovalPolicy: 'Manager approval', startDate: '2024-01-13', autoLockDate: '2024-07-13', terminated: true },
+    { id: 108, name: 'F. Bianchi', owner: 'F. Bianchi', frequency: 'Monthly', issued: 300, used: 0, lastUsed: '2024-10-20', methods: ['Virtual card', 'Reimbursements'], program: 'Operations (OPS)', department: 'Operations (OPS)', location: 'Remote', createdAt: '2024-04-20', lockReason: 'Fund terminated', submissionPolicy: 'Standard', expenseApprovalPolicy: 'Manager approval', startDate: '2024-04-20', autoLockDate: '2024-10-20', terminated: true },
+  ],
+};
+
+const AVATAR_COLORS = ['blue', 'green', 'orange', 'red'];
+const initials = (name) => name.split(' ').map(w => w[0]).filter(Boolean).slice(0, 2).join('').toUpperCase();
+
+function FundsAvatar({ name, idx }) {
+  const color = AVATAR_COLORS[idx % AVATAR_COLORS.length];
+  return (
+    <span style={{ width: 24, height: 24, borderRadius: '50%', backgroundColor: `hsla(var(--color-${color}), 0.15)`, color: `hsl(var(--color-${color}))`, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.65rem', fontWeight: 700, flexShrink: 0 }}>
+      {initials(name)}
+    </span>
+  );
+}
+
+function fundsCell(row, key) {
+  switch (key) {
+    case 'name': return (
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+        <strong>{row.name}</strong>
+        {row.terminated && <Ban size={13} style={{ color: 'hsl(var(--color-red))', flexShrink: 0 }} />}
+      </span>
+    );
+    case 'owner': return (
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+        <FundsAvatar name={row.owner} idx={row.id} />{row.owner}
+        {row.temporary && <Users size={12} style={{ color: 'var(--text-muted)' }} />}
+      </span>
+    );
+    case 'amountIssued': return <div><div style={{ fontWeight: 700 }}>{fmtUsd(row.issued)}</div><div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>{row.frequency}</div></div>;
+    case 'amountUsed': return <span style={{ fontWeight: 700 }}>{fmtUsd(row.used)}</span>;
+    case 'utilization': return `${Math.round((row.used / row.issued) * 100)}%`;
+    case 'lastUsed': return row.lastUsed || '—';
+    case 'paymentMethods': return row.methods.join(', ');
+    case 'spendProgram': return row.program;
+    case 'department': return row.department;
+    case 'location': return row.location;
+    case 'createdAt': return row.createdAt;
+    case 'lockReason': return row.lockReason;
+    case 'submissionPolicy': return row.submissionPolicy;
+    case 'expenseApprovalPolicy': return row.expenseApprovalPolicy;
+    case 'startDate': return row.startDate;
+    case 'autoLockDate': return row.autoLockDate;
+    default: return null;
+  }
+}
+
+function FundsSection() {
+  const [fundsTab, setFundsTab] = useState('issued');
+  const [search, setSearch] = useState('');
+  const [columnsOpen, setColumnsOpen] = useState(false);
+  const [columns, setColumns] = useState(DEFAULT_FUNDS_COLUMN_STATE);
+
+  const q = search.trim().toLowerCase();
+  const rows = FUNDS_DATA[fundsTab].filter(r => !q || r.name.toLowerCase().includes(q) || r.owner.toLowerCase().includes(q));
+  const visibleColumns = FUNDS_COLUMNS.filter(c => c.locked || columns[c.key]);
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
+        <div>
+          <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: 4 }}>Manage spend</div>
+          <h2 style={{ fontSize: '1.8rem', fontFamily: "'Plus Jakarta Sans', sans-serif", margin: 0 }}>Funds</h2>
+        </div>
+        <button className="primary-btn">Request</button>
+      </div>
+
+      <div style={{ display: 'flex', gap: 20, borderBottom: '1px solid var(--border-color)', marginBottom: 16 }}>
+        {['issued', 'terminated'].map(t => (
+          <button key={t} onClick={() => setFundsTab(t)}
+            style={{
+              background: 'none', border: 'none', padding: '4px 0 10px', marginBottom: -1,
+              fontSize: '0.9rem', fontWeight: 600, textTransform: 'capitalize', cursor: 'pointer',
+              color: fundsTab === t ? 'var(--text-primary)' : 'var(--text-secondary)',
+              borderBottom: `2px solid ${fundsTab === t ? 'var(--text-primary)' : 'transparent'}`,
+            }}>
+            {t}
+          </button>
+        ))}
+      </div>
+
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+        <div style={{ position: 'relative', flex: 1, maxWidth: 320 }}>
+          <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+          <input type="text" className="form-input" placeholder="Search or filter..." value={search} onChange={e => setSearch(e.target.value)}
+            style={{ paddingLeft: 32, height: 34, fontSize: '0.85rem' }} />
+        </div>
+        {fundsTab === 'terminated' && (
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '0 12px', height: 34, borderRadius: 999, border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-secondary)', fontSize: '0.8rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+            <Lock size={12} />
+            <span>State</span>
+            <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>Terminated</span>
+          </div>
+        )}
+        <div style={{ position: 'relative' }}>
+          <button className="secondary-btn" style={{ height: 34, width: 34, padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+            onClick={() => setColumnsOpen(o => !o)} title="Manage columns">
+            <Columns3 size={15} />
+          </button>
+          {columnsOpen && (
+            <div style={{ position: 'absolute', right: 0, top: 40, zIndex: 20, width: 240, backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 10, boxShadow: 'var(--shadow-md)', padding: 12 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 2, maxHeight: 280, overflowY: 'auto' }}>
+                {FUNDS_COLUMNS.map(c => (
+                  <label key={c.key} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 4px', fontSize: '0.85rem', color: c.locked ? 'var(--text-muted)' : 'var(--text-primary)', cursor: c.locked ? 'default' : 'pointer' }}>
+                    <input type="checkbox" checked={c.locked || !!columns[c.key]} disabled={c.locked}
+                      onChange={() => setColumns(prev => ({ ...prev, [c.key]: !prev[c.key] }))} />
+                    {c.label}
+                  </label>
+                ))}
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid var(--border-color)', marginTop: 8, paddingTop: 8 }}>
+                <button onClick={() => setColumns(Object.fromEntries(FUNDS_COLUMNS.map(c => [c.key, true])))}
+                  style={{ background: 'none', border: 'none', color: 'hsl(var(--color-blue))', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}>Select all</button>
+                <button onClick={() => setColumns(DEFAULT_FUNDS_COLUMN_STATE)}
+                  style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}>Reset</button>
+              </div>
+            </div>
+          )}
+        </div>
+        <button className="secondary-btn" style={{ height: 34, width: 34, padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }} title="Date range">
+          <CalendarDays size={15} />
+        </button>
+        <button className="secondary-btn" style={{ height: 34, width: 34, padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }} title="Export">
+          <Download size={15} />
+        </button>
+      </div>
+
+      <div style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, boxShadow: 'var(--shadow-sm)' }}>
+        {rows.length === 0 ? (
+          <p style={{ padding: 24, color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+            {fundsTab === 'issued' ? 'No funds match your search.' : 'No terminated funds.'}
+          </p>
+        ) : (
+        <div className="req-table-wrapper">
+          <table className="req-table stack-table">
+            <thead>
+              <tr>
+                {visibleColumns.map(c => <th key={c.key} style={{ textAlign: FUNDS_NUMERIC_COLUMNS.has(c.key) ? 'right' : 'left' }}>{c.label}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(r => (
+                <tr key={r.id}>
+                  {visibleColumns.map(c => (
+                    <td key={c.key} data-th={c.label} style={{ textAlign: FUNDS_NUMERIC_COLUMNS.has(c.key) ? 'right' : 'left' }}>
+                      {fundsCell(r, c.key)}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function RampSectionPlaceholder({ label, Icon }) {
+  return (
+    <div style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: '48px 24px', boxShadow: 'var(--shadow-sm)', display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: 12 }}>
+      <div style={{ width: 48, height: 48, borderRadius: 10, backgroundColor: 'hsla(var(--color-blue), 0.1)', color: 'hsl(var(--color-blue))', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <Icon size={22} />
+      </div>
+      <h3 style={{ fontSize: '1.05rem', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{label}</h3>
+      <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', maxWidth: 360 }}>This Ramp {label.toLowerCase()} view isn't wired up yet — coming in a future update.</p>
+    </div>
+  );
+}
+
+// Rounded segmented control for a group nested under one top-level sub-tab
+// (Manage Spend's Funds/Cards/Requests/Budgets, Expenses' two sources, etc).
+function RampSegmentedTabs({ sections, active, onChange }) {
+  return (
+    <div style={{ display: 'inline-flex', gap: 2, backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 999, padding: 4, marginBottom: 20 }}>
+      {sections.map(({ key, label, Icon, badge }) => {
+        const isActive = active === key;
+        return (
+          <button key={key} onClick={() => onChange(key)}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              padding: '6px 16px', borderRadius: 999, border: 'none',
+              backgroundColor: isActive ? 'var(--text-primary)' : 'transparent',
+              color: isActive ? 'var(--bg-primary)' : 'var(--text-secondary)',
+              fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer',
+              transition: 'background-color .15s, color .15s',
+            }}>
+            <Icon size={14} /> {label}
+            {badge && (
+              <span style={{
+                fontSize: '0.65rem', fontWeight: 700, padding: '1px 6px', borderRadius: 999,
+                backgroundColor: isActive ? 'var(--bg-primary)' : 'hsla(var(--color-blue), 0.15)',
+                color: isActive ? 'var(--text-primary)' : 'hsl(var(--color-blue))',
+              }}>{badge}</span>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 export default function Accounting({ activeSub, onSubChange }) {
   const sub = activeSub || 'transactions';
   const [trx, setTrx] = useState(INIT_TRX);
   const [budgets, setBudgets] = useState(INIT_BUDGETS);
-  const [rampMemos, setRampMemos] = useState({});
+  const [ramp, setRamp] = useState([]);
+  const [rampLoading, setRampLoading] = useState(true);
+  const [rampError, setRampError] = useState('');
+  const [rampMemoDrafts, setRampMemoDrafts] = useState({});
+  const [rampSavingId, setRampSavingId] = useState(null);
+  const [rampSection, setRampSection] = useState('manage-spend');
+  const [rampSpendSection, setRampSpendSection] = useState('cards');
+  const [rampExpenseSection, setRampExpenseSection] = useState('card-transactions');
+  const [rampTravelSection, setRampTravelSection] = useState('overview');
+  const [rampAccountingSection, setRampAccountingSection] = useState('card-transactions');
+  const [rampVendorSection, setRampVendorSection] = useState('overview');
+  const [rampCompanySection, setRampCompanySection] = useState('people');
   const [showInvoiceModal, setShowInvoiceModal] = useState(false);
   const [showBudgetModal, setShowBudgetModal] = useState(false);
   const [invForm, setInvForm] = useState({ title: '', type: 'outflow', cost: '', date: new Date().toISOString().split('T')[0] });
   const [budgetForm, setBudgetForm] = useState({ dept: '1', action: 'increase', amt: '' });
+
+  useEffect(() => {
+    api.getRamp()
+      .then(rows => setRamp(Array.isArray(rows) ? rows : []))
+      .catch(() => setRampError('Could not load Ramp card transactions.'))
+      .finally(() => setRampLoading(false));
+  }, []);
+
+  const saveRampMemo = (id) => {
+    const memo = (rampMemoDrafts[id] ?? '').trim();
+    if (!memo) return;
+    setRampSavingId(id);
+    api.updateRampMemo(id, memo)
+      .then(updated => {
+        setRamp(prev => prev.map(t => t.id === id ? updated : t));
+        setRampMemoDrafts(prev => { const next = { ...prev }; delete next[id]; return next; });
+      })
+      .catch(() => setRampError('Could not save that memo — try again.'))
+      .finally(() => setRampSavingId(null));
+  };
 
   const submitInvoice = (e) => {
     e.preventDefault();
@@ -264,38 +596,143 @@ export default function Accounting({ activeSub, onSubChange }) {
 
         {/* Ramp Cards */}
         {sub === 'ramp' && (
-          <div style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 24, boxShadow: 'var(--shadow-sm)' }}>
-            <h3 style={{ fontSize: '1.1rem', fontFamily: "'Plus Jakarta Sans', sans-serif", marginBottom: 4 }}>Ramp Corporate Card Transactions</h3>
-            <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: 20 }}>Review and add missing memo references to card transactions</p>
-            <div className="req-table-wrapper">
-              <table className="req-table stack-table">
-                <thead><tr><th>Transaction ID</th><th>Vendor</th><th>Category</th><th>Date</th><th>Amount</th><th>Memo / Reference</th><th>Status</th></tr></thead>
-                <tbody>
-                  {RAMP_TXN.map(t => (
-                    <tr key={t.id}>
-                      <td data-th="Txn" style={{ fontFamily: 'monospace', fontSize: '0.8rem', fontWeight: 600 }}>{t.id}</td>
-                      <td style={{ fontWeight: 600 }}>{t.vendor}</td>
-                      <td data-th="Category" style={{ color: 'var(--text-secondary)' }}>{t.category}</td>
-                      <td data-th="Date" style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>{t.date}</td>
-                      <td data-th="Amount" style={{ fontWeight: 700 }}>${t.cost.toFixed(2)}</td>
-                      <td data-th="Memo">
-                        {t.missing
-                          ? <input type="text" className="form-input" style={{ height: 28, fontSize: '0.8rem', padding: '4px 8px' }}
-                              value={rampMemos[t.id] || ''} onChange={e => setRampMemos(p => ({ ...p, [t.id]: e.target.value }))}
-                              placeholder="Add memo..." />
-                          : <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{t.memo}</span>
-                        }
-                      </td>
-                      <td data-th="Status">
-                        <span style={{ backgroundColor: t.missing ? 'hsla(var(--color-orange), 0.1)' : 'hsla(var(--color-green), 0.1)', color: t.missing ? 'hsl(var(--color-orange))' : 'hsl(var(--color-green))', fontSize: '0.75rem', padding: '2px 8px', borderRadius: 4, fontWeight: 600 }}>
-                          {t.missing ? 'Missing Memo' : 'Complete'}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+          <div>
+            {/* Ramp's own sub-nav, replicated as an in-page tab strip (see SEO's
+                sub-tabs in the Marketing module) rather than a sidebar, since
+                this is already nested under our Accounting sidebar entry. */}
+            <div className="scroll-tabs" style={{ display: 'flex', gap: 8, marginBottom: 20, paddingBottom: 8, borderBottom: '1px solid var(--border-color)' }}>
+              {RAMP_TOP_SECTIONS.map(({ key, label, Icon }) => (
+                <button key={key} className={`tab-pill${rampSection === key ? ' active' : ''}`}
+                  style={{ whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                  onClick={() => setRampSection(key)}>
+                  <Icon size={14} /> {label}
+                </button>
+              ))}
             </div>
+
+            {rampSection === 'manage-spend' ? (
+              <>
+                {/* Funds / Cards / Requests / Budgets — Ramp's "Manage spend"
+                    group, as a segmented pill control under its own tab. */}
+                <RampSegmentedTabs sections={RAMP_SPEND_SECTIONS} active={rampSpendSection} onChange={setRampSpendSection} />
+
+                {rampSpendSection === 'cards' ? (
+                  <div style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 24, boxShadow: 'var(--shadow-sm)' }}>
+                    <h3 style={{ fontSize: '1.1rem', fontFamily: "'Plus Jakarta Sans', sans-serif", marginBottom: 4 }}>Ramp Corporate Card Transactions</h3>
+                    <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: 20 }}>Review and add missing memo references to card transactions</p>
+                    {rampError && <p style={{ color: 'hsl(var(--color-red))', fontSize: '0.85rem', marginBottom: 16 }}>{rampError}</p>}
+                    {rampLoading ? (
+                      <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Loading transactions…</p>
+                    ) : ramp.length === 0 ? (
+                      <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>No Ramp card transactions yet.</p>
+                    ) : (
+                    <div className="req-table-wrapper">
+                      <table className="req-table stack-table">
+                        <thead><tr><th>Transaction ID</th><th>Vendor</th><th>Category</th><th>Date</th><th>Amount</th><th>Memo / Reference</th><th>Status</th></tr></thead>
+                        <tbody>
+                          {ramp.map(t => {
+                            const saving = rampSavingId === t.id;
+                            return (
+                            <tr key={t.id}>
+                              <td data-th="Txn" style={{ fontFamily: 'monospace', fontSize: '0.8rem', fontWeight: 600 }}>{t.id}</td>
+                              <td style={{ fontWeight: 600 }}>{t.vendor}</td>
+                              <td data-th="Category" style={{ color: 'var(--text-secondary)' }}>{t.category}</td>
+                              <td data-th="Date" style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>{t.date}</td>
+                              <td data-th="Amount" style={{ fontWeight: 700 }}>${t.cost.toFixed(2)}</td>
+                              <td data-th="Memo">
+                                {t.missing
+                                  ? <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                                      <input type="text" className="form-input" style={{ height: 28, fontSize: '0.8rem', padding: '4px 8px' }}
+                                        value={rampMemoDrafts[t.id] ?? ''} disabled={saving}
+                                        onChange={e => setRampMemoDrafts(p => ({ ...p, [t.id]: e.target.value }))}
+                                        onKeyDown={e => { if (e.key === 'Enter') saveRampMemo(t.id); }}
+                                        placeholder="Add memo..." />
+                                      <button className="secondary-btn" style={{ height: 28, width: 28, padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+                                        disabled={saving || !(rampMemoDrafts[t.id] ?? '').trim()} onClick={() => saveRampMemo(t.id)}>
+                                        {saving ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Check size={13} />}
+                                      </button>
+                                    </div>
+                                  : <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{t.memo}</span>
+                                }
+                              </td>
+                              <td data-th="Status">
+                                <span style={{ backgroundColor: t.missing ? 'hsla(var(--color-orange), 0.1)' : 'hsla(var(--color-green), 0.1)', color: t.missing ? 'hsl(var(--color-orange))' : 'hsl(var(--color-green))', fontSize: '0.75rem', padding: '2px 8px', borderRadius: 4, fontWeight: 600 }}>
+                                  {t.missing ? 'Missing Memo' : 'Complete'}
+                                </span>
+                              </td>
+                            </tr>
+                          );})}
+                        </tbody>
+                      </table>
+                    </div>
+                    )}
+                  </div>
+                ) : rampSpendSection === 'funds' ? (
+                  <FundsSection />
+                ) : (
+                  <RampSectionPlaceholder
+                    label={RAMP_SPEND_SECTIONS.find(s => s.key === rampSpendSection).label}
+                    Icon={RAMP_SPEND_SECTIONS.find(s => s.key === rampSpendSection).Icon}
+                  />
+                )}
+              </>
+            ) : rampSection === 'expenses' ? (
+              <>
+                {/* Card transactions / Reimbursements — Ramp's "Expenses"
+                    group, as a segmented pill control under its own tab. */}
+                <RampSegmentedTabs sections={RAMP_EXPENSE_SECTIONS} active={rampExpenseSection} onChange={setRampExpenseSection} />
+                <RampSectionPlaceholder
+                  label={RAMP_EXPENSE_SECTIONS.find(s => s.key === rampExpenseSection).label}
+                  Icon={RAMP_EXPENSE_SECTIONS.find(s => s.key === rampExpenseSection).Icon}
+                />
+              </>
+            ) : rampSection === 'travel' ? (
+              <>
+                {/* Overview / Trip management — Ramp's "Travel" group, as a
+                    segmented pill control under its own tab. */}
+                <RampSegmentedTabs sections={RAMP_TRAVEL_SECTIONS} active={rampTravelSection} onChange={setRampTravelSection} />
+                <RampSectionPlaceholder
+                  label={RAMP_TRAVEL_SECTIONS.find(s => s.key === rampTravelSection).label}
+                  Icon={RAMP_TRAVEL_SECTIONS.find(s => s.key === rampTravelSection).Icon}
+                />
+              </>
+            ) : rampSection === 'accounting' ? (
+              <>
+                {/* Card transactions / Stack — Ramp's "Accounting" group, as a
+                    segmented pill control under its own tab. */}
+                <RampSegmentedTabs sections={RAMP_ACCOUNTING_SECTIONS} active={rampAccountingSection} onChange={setRampAccountingSection} />
+                <RampSectionPlaceholder
+                  label={RAMP_ACCOUNTING_SECTIONS.find(s => s.key === rampAccountingSection).label}
+                  Icon={RAMP_ACCOUNTING_SECTIONS.find(s => s.key === rampAccountingSection).Icon}
+                />
+              </>
+            ) : rampSection === 'vendors' ? (
+              <>
+                {/* Overview / Contracts & renewals — Ramp's "Vendors" group,
+                    as a segmented pill control under its own tab. */}
+                <RampSegmentedTabs sections={RAMP_VENDOR_SECTIONS} active={rampVendorSection} onChange={setRampVendorSection} />
+                <RampSectionPlaceholder
+                  label={RAMP_VENDOR_SECTIONS.find(s => s.key === rampVendorSection).label}
+                  Icon={RAMP_VENDOR_SECTIONS.find(s => s.key === rampVendorSection).Icon}
+                />
+              </>
+            ) : rampSection === 'company' ? (
+              <>
+                {/* People / Statements & payments / Integrations / Rewards /
+                    Settings — Ramp's "Company" group, as a segmented pill
+                    control under its own tab. */}
+                <RampSegmentedTabs sections={RAMP_COMPANY_SECTIONS} active={rampCompanySection} onChange={setRampCompanySection} />
+                <RampSectionPlaceholder
+                  label={RAMP_COMPANY_SECTIONS.find(s => s.key === rampCompanySection).label}
+                  Icon={RAMP_COMPANY_SECTIONS.find(s => s.key === rampCompanySection).Icon}
+                />
+              </>
+            ) : (
+              <RampSectionPlaceholder
+                label={RAMP_TOP_SECTIONS.find(s => s.key === rampSection).label}
+                Icon={RAMP_TOP_SECTIONS.find(s => s.key === rampSection).Icon}
+              />
+            )}
           </div>
         )}
 

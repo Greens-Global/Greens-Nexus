@@ -124,7 +124,7 @@ export const PT = [
       { label: 'Assessed Value', type: 'money' },
       { label: 'Annual Tax', type: 'money' },
       { label: 'Tax Rate' },
-      { label: 'Due Dates' },
+      { label: 'Due Dates', type: 'dates' },
     ],
   },
   {
@@ -259,7 +259,7 @@ export const PROPERTY_WIZARD_FIELDS = [
   { sec: 'Property Tax' },
   { k: 'taxId', label: 'Tax Account #' },
   { k: 'taxAnnual', label: 'Annual Tax ($)', type: 'number' },
-  { k: 'taxDue', label: 'Due Dates' },
+  { k: 'taxDue', label: 'Due Dates', type: 'dates' },
 
   { sec: 'Notes' },
   { k: 'notes', label: 'Notes', type: 'textarea', full: true },

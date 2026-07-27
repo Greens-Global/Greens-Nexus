@@ -129,7 +129,8 @@ def people_directory(user: dict = Depends(get_current_user), db: Session = Depen
               .filter(NexusEmployee.status != "offboarded")
               .filter(NexusEmployee.work_email != "")
               .order_by(NexusEmployee.first_name, NexusEmployee.last_name).all())
-    return [{"email": e.work_email, "name": f"{e.first_name} {e.last_name}".strip() or e.work_email}
+    return [{"email": e.work_email, "name": f"{e.first_name} {e.last_name}".strip() or e.work_email,
+             "photoUrl": e.photo_url or ""}
             for e in rows]
 
 

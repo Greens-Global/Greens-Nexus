@@ -164,8 +164,20 @@ def _ticket_url(base_url: str, ticket_id: str) -> str:
 
 # ── Per-event builders — each returns (subject, html) ────────────────────────
 
+COMPANY_NAME = "Greens Global"
+
+
+def _ticket_subject(t: dict) -> str:
+    """Uniform subject across every ticket email: Ticket No - Company ("Title") -
+    State. State is always the ticket's current status, not the event that
+    triggered the email — the event/heading lives in the email body instead."""
+    company = t.get("companyName") or COMPANY_NAME
+    status_label = TICKET_STATUS_META.get(t["status"], {}).get("label", t["status"])
+    return f'{t["code"]} - {company} ("{t["subject"]}") - {status_label}'
+
+
 def created_email_requester(*, t: dict, base_url: str, logo_url: str) -> tuple[str, str]:
-    subject = f"[Ticket #{t['code']}] Ticket Created Successfully – {t['code']} – {t['subject']}"
+    subject = _ticket_subject(t)
     html = ticket_email_html(
         ticket_code=t["code"], ticket_subject=t["subject"], status=t["status"],
         heading="Your ticket has been submitted",
@@ -185,7 +197,7 @@ def created_email_requester(*, t: dict, base_url: str, logo_url: str) -> tuple[s
 
 
 def created_email_dept_head(*, t: dict, base_url: str, logo_url: str) -> tuple[str, str]:
-    subject = f"[Ticket #{t['code']}] New Ticket Requires Assignment – {t['code']} – {t['subject']}"
+    subject = _ticket_subject(t)
     html = ticket_email_html(
         ticket_code=t["code"], ticket_subject=t["subject"], status=t["status"],
         heading="A new ticket needs to be assigned",
@@ -204,7 +216,7 @@ def created_email_dept_head(*, t: dict, base_url: str, logo_url: str) -> tuple[s
 
 
 def approval_email(*, t: dict, base_url: str, logo_url: str) -> tuple[str, str]:
-    subject = f"[Ticket #{t['code']}] Approval Required – {t['code']} – {t['subject']}"
+    subject = _ticket_subject(t)
     html = ticket_email_html(
         ticket_code=t["code"], ticket_subject=t["subject"], status=t["status"],
         heading="This ticket is waiting for your approval",
@@ -223,7 +235,7 @@ def approval_email(*, t: dict, base_url: str, logo_url: str) -> tuple[str, str]:
 
 
 def assigned_email(*, t: dict, base_url: str, logo_url: str, audience: str) -> tuple[str, str]:
-    subject = f"[Ticket #{t['code']}] Ticket Assigned – {t['code']} – Assigned to {t.get('assigneeName') or t.get('assigneeId')}"
+    subject = _ticket_subject(t)
     intro = (
         "You've been assigned this ticket — please review and take action."
         if audience == "assignee" else
@@ -255,7 +267,7 @@ def update_email(*, t: dict, base_url: str, logo_url: str, update_kind: str,
     # Comment updates render Zendesk-style: the conversation thread (avatars from
     # Nexus People, full bodies, newest first) replaces the details table.
     if thread:
-        subject = f"[Ticket #{t['code']}] New comment from {actor} – {t['code']} – {t['subject']}"
+        subject = _ticket_subject(t)
         html = ticket_email_html(
             ticket_code=t["code"], ticket_subject=t["subject"], status=t["status"],
             heading=f"{actor} replied to this ticket",
@@ -264,7 +276,7 @@ def update_email(*, t: dict, base_url: str, logo_url: str, update_kind: str,
             thread=thread,
         )
         return subject, html
-    subject = f"[Ticket #{t['code']}] Ticket Update – {t['code']} – {TICKET_STATUS_META.get(t['status'], {}).get('label', t['status'])}"
+    subject = _ticket_subject(t)
     # No "Update" row — the intro line already says what changed. Comments get
     # their own full-width block below the table instead of a cramped row.
     rows = [
@@ -286,7 +298,7 @@ def update_email(*, t: dict, base_url: str, logo_url: str, update_kind: str,
 
 
 def resolved_email(*, t: dict, base_url: str, logo_url: str, audience: str) -> tuple[str, str]:
-    subject = f"[Ticket #{t['code']}] Ticket Resolved – {t['code']} – {t['subject']}"
+    subject = _ticket_subject(t)
     secondary = None
     note = ""
     if audience == "requester":
@@ -316,7 +328,7 @@ def resolved_email(*, t: dict, base_url: str, logo_url: str, audience: str) -> t
 
 
 def reopened_email(*, t: dict, base_url: str, logo_url: str, reason: str = "") -> tuple[str, str]:
-    subject = f"[Ticket #{t['code']}] Ticket Reopened – {t['code']} – Action Required"
+    subject = _ticket_subject(t)
     html = ticket_email_html(
         ticket_code=t["code"], ticket_subject=t["subject"], status=t["status"],
         heading="This ticket has been reopened",

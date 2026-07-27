@@ -1,4 +1,12 @@
 import os
+from dotenv import load_dotenv
+# Must run before any router import: routers/tasks.py (imported below) pulls in
+# auth.py, whose SKIP_AUTH is read once at module-import time via os.getenv().
+# unifi_client.py also calls load_dotenv(), but only as a side effect of
+# routers/unifi being imported later in the line below — by then auth.py has
+# already locked in SKIP_AUTH=False, so NEXUS_SKIP_AUTH in backend/.env was
+# silently ignored and every request 401'd even with the dev bypass configured.
+load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -152,6 +160,9 @@ def _run_migrations():
             "ALTER TABLE nexus_groups ADD COLUMN tier VARCHAR DEFAULT ''",
             "ALTER TABLE nexus_groups ADD COLUMN description VARCHAR DEFAULT ''",
             "ALTER TABLE nexus_groups ADD COLUMN monitoring_exempt INTEGER DEFAULT 0",
+            "ALTER TABLE nexus_groups ADD COLUMN default_manager_email VARCHAR DEFAULT ''",
+            # Timecard two-step sign-off: manager approve vs HR finalize (locks)
+            "ALTER TABLE time_approvals ADD COLUMN kind VARCHAR DEFAULT 'manager'",
             # Company email domains — drive M365 import + auto company tagging
             "ALTER TABLE hr_entities ADD COLUMN domains VARCHAR DEFAULT ''",
             # Company manager (operational head; escalation target)
@@ -230,6 +241,8 @@ def _run_migrations():
             "ALTER TABLE documents ADD COLUMN merge_overrides JSON DEFAULT '{}'",
             # Documents (DMS) Phase 12: same override/custom-variable support on templates
             "ALTER TABLE doc_templates ADD COLUMN merge_overrides JSON DEFAULT '{}'",
+            # Documents (DMS) Phase 13 (Template Builder): merge-field type/required/default/validation metadata
+            "ALTER TABLE doc_templates ADD COLUMN field_defs JSON DEFAULT '[]'",
             # ── HR Section A/B (nexus_employees): SQLite was missing columns the
             # Postgres list already carried — a pre-existing local DB 500s on
             # every nexus_employees SELECT without them (same class of bug as
@@ -244,6 +257,23 @@ def _run_migrations():
             "ALTER TABLE nexus_employees ADD COLUMN division VARCHAR DEFAULT ''",
             "ALTER TABLE nexus_employees ADD COLUMN identity_type VARCHAR DEFAULT 'internal'",
             "ALTER TABLE ir_funds ADD COLUMN property_asset_id VARCHAR DEFAULT ''",
+            # Share panel (Jul 2026): per-person/per-team project access role.
+            "ALTER TABLE task_projects ADD COLUMN member_roles JSON DEFAULT '{}'",
+            "ALTER TABLE task_teams ADD COLUMN access_role VARCHAR DEFAULT 'editor'",
+            # Manual override for ad-hoc-shared Asana teams the API can't reveal.
+            "ALTER TABLE asana_project_map ADD COLUMN extra_team_names JSON DEFAULT '[]'",
+            # One Nexus task per Asana task. On a database that already carries
+            # duplicate links this can't build and is swallowed below — run
+            # Manage → Asana Sync → "Merge duplicates" (asana_sync.dedupe_tasks),
+            # which creates the same index once the duplicates are gone.
+            "CREATE UNIQUE INDEX IF NOT EXISTS ux_asana_task_link_gid ON asana_task_links (asana_gid) WHERE asana_gid <> ''",
+            # Two-way delete propagation (opt-out; see AsanaSyncConfig.delete_sync).
+            "ALTER TABLE asana_sync_config ADD COLUMN delete_sync BOOLEAN DEFAULT 1",
+            # Push-only digest (tags/followers/dependencies/section/attachments)
+            # so the reconcile sweep can skip an unchanged task outright.
+            "ALTER TABLE asana_task_links ADD COLUMN last_push_hash VARCHAR DEFAULT ''",
+            # Asana-side digest, so a pull only re-applies genuinely changed tasks.
+            "ALTER TABLE asana_task_links ADD COLUMN last_inbound_hash VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -467,6 +497,8 @@ def _run_migrations():
         "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS tier VARCHAR DEFAULT ''",
         "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS description VARCHAR DEFAULT ''",
         "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS monitoring_exempt INTEGER DEFAULT 0",
+        "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS default_manager_email VARCHAR DEFAULT ''",
+        "ALTER TABLE time_approvals ADD COLUMN IF NOT EXISTS kind VARCHAR DEFAULT 'manager'",
         # Company email domains — drive M365 import + auto company tagging
         "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS domains VARCHAR DEFAULT ''",
         # Company manager (operational head; escalation target)
@@ -513,6 +545,25 @@ def _run_migrations():
         "ALTER TABLE documents ADD COLUMN IF NOT EXISTS entity_id VARCHAR DEFAULT ''",
         "ALTER TABLE documents ADD COLUMN IF NOT EXISTS merge_overrides JSONB DEFAULT '{}'::jsonb",
         "ALTER TABLE doc_templates ADD COLUMN IF NOT EXISTS merge_overrides JSONB DEFAULT '{}'::jsonb",
+        # Documents (DMS) Phase 13 (Template Builder): merge-field type/required/default/validation metadata
+        "ALTER TABLE doc_templates ADD COLUMN IF NOT EXISTS field_defs JSONB DEFAULT '[]'::jsonb",
+        # Share panel (Jul 2026): per-person/per-team project access role.
+        "ALTER TABLE task_projects ADD COLUMN IF NOT EXISTS member_roles JSONB DEFAULT '{}'::jsonb",
+        "ALTER TABLE task_teams ADD COLUMN IF NOT EXISTS access_role VARCHAR DEFAULT 'editor'",
+        # Manual override for ad-hoc-shared Asana teams the API can't reveal.
+        "ALTER TABLE asana_project_map ADD COLUMN IF NOT EXISTS extra_team_names JSONB DEFAULT '[]'::jsonb",
+        # One Nexus task per Asana task. On a database that already carries
+        # duplicate links this can't build and is caught below — run
+        # Manage → Asana Sync → "Merge duplicates" (asana_sync.dedupe_tasks),
+        # which creates the same index once the duplicates are gone.
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_asana_task_link_gid ON asana_task_links (asana_gid) WHERE asana_gid <> ''",
+        # Two-way delete propagation (opt-out; see AsanaSyncConfig.delete_sync).
+        "ALTER TABLE asana_sync_config ADD COLUMN IF NOT EXISTS delete_sync BOOLEAN DEFAULT TRUE",
+        # Push-only digest (tags/followers/dependencies/section/attachments)
+        # so the reconcile sweep can skip an unchanged task outright.
+        "ALTER TABLE asana_task_links ADD COLUMN IF NOT EXISTS last_push_hash VARCHAR DEFAULT ''",
+        # Asana-side digest, so a pull only re-applies genuinely changed tasks.
+        "ALTER TABLE asana_task_links ADD COLUMN IF NOT EXISTS last_inbound_hash VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -602,6 +653,26 @@ async def lifespan(app: FastAPI):
         print("[startup] ticket notification retry/auto-close loop scheduled")
     except Exception as e:
         print(f"[startup] ticket notification loop skipped: {e}")
+    # Task Notification workflow — retries failed/stuck Outlook emails and
+    # scans for due-date reminders. Same bare-asyncio-loop pattern as the
+    # Ticket Notification workflow above.
+    try:
+        import asyncio as _asyncio
+        from task_notify import task_notify_loop
+        _asyncio.create_task(task_notify_loop())
+        print("[startup] task notification retry/due-reminder loop scheduled")
+    except Exception as e:
+        print(f"[startup] task notification loop skipped: {e}")
+    # Time Clock long-session watch — nudges anyone clocked in 12+ hours
+    # ("still working, or forgot to punch out?"). Same bare-asyncio-loop
+    # pattern as the jobs above.
+    try:
+        import asyncio as _asyncio
+        from timeclock_watch import long_session_loop
+        _asyncio.create_task(long_session_loop())
+        print("[startup] time clock long-session watch scheduled")
+    except Exception as e:
+        print(f"[startup] long-session watch skipped: {e}")
     yield
 
 

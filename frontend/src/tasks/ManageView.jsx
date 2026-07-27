@@ -19,6 +19,7 @@ import { taskStats, topLevel, fmtDateTime } from './lib';
 import TasksWorkspace from './TasksWorkspace';
 import { TeamModal, deptIcon } from './TeamsView';
 import TicketNotifySettings from '../tickets/TicketNotifySettings';
+import TaskNotifySettings from './TaskNotifySettings';
 
 // ── Small shared bits ─────────────────────────────────────────────────────────
 const fieldLabel = { display: 'block', fontSize: 12.5, fontWeight: 600, color: NX.dim, marginBottom: 6 };
@@ -69,6 +70,7 @@ const SUBTABS = [
   { key: 'templates', label: 'Templates', icon: FileText },
   { key: 'intake', label: 'Intake Forms', icon: Inbox },
   { key: 'ticketNotify', label: 'Ticket Notifications', icon: Mail },
+  { key: 'taskNotify', label: 'Task Notifications', icon: Mail },
   { key: 'activity', label: 'Activity Log', icon: ActivityIcon },
   { key: 'reporting', label: 'Reporting', icon: BarChart3 },
 ];
@@ -112,6 +114,7 @@ export default function ManageView() {
             {tab === 'templates' && <TemplatesTab store={store} />}
             {tab === 'intake' && <IntakeTab store={store} />}
             {tab === 'ticketNotify' && <TicketNotifySettings />}
+            {tab === 'taskNotify' && <TaskNotifySettings />}
             {tab === 'activity' && <ActivityTab store={store} />}
             {tab === 'reporting' && <ReportingTab store={store} />}
           </div>
@@ -204,11 +207,15 @@ function AsanaImportTab({ store }) {
           <div style={{ marginTop: 14, padding: 12, borderRadius: 10, background: NX.hover, fontSize: 13 }}>
             <div style={{ fontWeight: 700, color: NX.green, marginBottom: 6 }}>✓ Import complete</div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, color: NX.dim }}>
+              {/* "tasks" counts subtasks too — the importer walks one tree and
+                  doesn't split the two. "updated" covers rows that already
+                  existed and were refreshed rather than created. */}
               <span><b style={{ color: NX.ink }}>{result.projects}</b> projects</span>
-              <span><b style={{ color: NX.ink }}>{result.tasks}</b> tasks</span>
-              <span><b style={{ color: NX.ink }}>{result.subtasks}</b> subtasks</span>
+              <span><b style={{ color: NX.ink }}>{result.tasks}</b> tasks &amp; subtasks</span>
+              <span><b style={{ color: NX.ink }}>{result.skipped || 0}</b> updated</span>
               <span><b style={{ color: NX.ink }}>{result.comments}</b> comments</span>
               <span><b style={{ color: NX.ink }}>{result.attachments}</b> attachments</span>
+              <span><b style={{ color: NX.ink }}>{result.activities || 0}</b> activity entries</span>
             </div>
             {result.errors?.length > 0 && (
               <div style={{ marginTop: 8, color: NX.red, fontSize: 12 }}>{result.errors.length} error(s): {result.errors.join('; ')}</div>
@@ -228,6 +235,7 @@ function AsanaSyncPanel({ store }) {
   const [cfg, setCfg] = useState(null);
   const [token, setToken] = useState('');
   const [map, setMap] = useState({});   // nexusProjectId -> asanaProjectGid
+  const [extraTeams, setExtraTeams] = useState({});   // nexusProjectId -> "Team A, Team B"
   const [hooks, setHooks] = useState([]);
   const [hookEnv, setHookEnv] = useState({ publicBase: '', isSyncWorker: false });
   const [asanaProjects, setAsanaProjects] = useState(null);   // null = not loaded
@@ -235,11 +243,13 @@ function AsanaSyncPanel({ store }) {
   const [busy, setBusy] = useState('');
   const [msg, setMsg] = useState('');
   const [err, setErr] = useState('');
+  const [dupes, setDupes] = useState(null);   // dry-run result awaiting confirmation
 
   const load = () => {
     api.getAsanaSyncConfig().then((c) => {
       setCfg(c);
       setMap(Object.fromEntries((c.projectMap || []).map((m) => [m.nexusProjectId, m.asanaProjectGid])));
+      setExtraTeams(Object.fromEntries((c.projectMap || []).map((m) => [m.nexusProjectId, (m.extraTeamNames || []).join(', ')])));
     }).catch(() => setCfg({ enabled: false, hasToken: false, projectMap: [] }));
     api.getAsanaWebhooks().then((r) => {
       setHooks(r.webhooks || []);
@@ -275,7 +285,10 @@ function AsanaSyncPanel({ store }) {
   };
   const saveMap = async () => {
     setErr(''); setMsg(''); setBusy('map');
-    const maps = Object.entries(map).filter(([, g]) => g && g.trim()).map(([nexusProjectId, asanaProjectGid]) => ({ nexusProjectId, asanaProjectGid: asanaProjectGid.trim() }));
+    const maps = Object.entries(map).filter(([, g]) => g && g.trim()).map(([nexusProjectId, asanaProjectGid]) => ({
+      nexusProjectId, asanaProjectGid: asanaProjectGid.trim(),
+      extraTeamNames: (extraTeams[nexusProjectId] || '').split(',').map((s) => s.trim()).filter(Boolean),
+    }));
     try { await api.setAsanaProjectMap({ maps }); setMsg(`Saved ${maps.length} project mapping(s).`); load(); }
     catch (e) { setErr(e.message || String(e)); } finally { setBusy(''); }
   };
@@ -284,8 +297,38 @@ function AsanaSyncPanel({ store }) {
     try {
       const res = which === 'pull' ? await api.asanaSyncPull() : await api.asanaSyncPushAll();
       await store.refresh?.();
-      setMsg(which === 'pull' ? `Pulled from Asana: +${res.created} created, ${res.updated} updated, +${res.comments || 0} comments.` : `Pushed ${res.pushed} task(s) to Asana.`);
+      setMsg(which === 'pull'
+        ? `Pulled from Asana: +${res.created} created, ${res.updated} updated, +${res.comments || 0} comments${res.deleted ? `, ${res.deleted} deleted` : ''}.`
+        : `Pushed ${res.pushed} task(s) to Asana`
+          + (res.deleted ? `, deleted ${res.deleted} there` : '')
+          + (res.pendingDeletes ? ` (${res.pendingDeletes} deletion(s) still pending)` : '') + '.');
       load();
+    } catch (e) { setErr(e.message || String(e)); } finally { setBusy(''); }
+  };
+
+  // Duplicate cleanup: dry run first (reports the count), then the same button
+  // applies it. Merges tasks that all point at one Asana task — see
+  // asana_sync.dedupe_tasks.
+  const dedupe = async (apply) => {
+    setErr(''); setMsg(''); setBusy('dedupe');
+    try {
+      const res = await api.asanaSyncDedupe(apply);
+      const total = (res.merged || 0) + (res.sections || 0) + (res.people || 0);
+      if (!apply) {
+        setDupes({ ...res, total });
+        setMsg(total
+          ? [res.merged && `${res.merged} duplicate task(s) across ${res.gids} Asana task(s)`,
+             res.sections && `${res.sections} duplicate section(s)`,
+             res.people && `${res.people} unresolved Asana address(es)`]
+              .filter(Boolean).join(', ') + '. Click again to fix.'
+          : 'Nothing to clean up.');
+      } else {
+        setDupes(null);
+        await store.refresh?.();
+        setMsg(`Merged ${res.merged} duplicate task(s) and ${res.sections || 0} section(s), `
+          + `resolved ${res.people || 0} Asana address(es) to Nexus people. `
+          + 'Comments, files and subtasks moved onto the original.');
+      }
     } catch (e) { setErr(e.message || String(e)); } finally { setBusy(''); }
   };
 
@@ -299,6 +342,15 @@ function AsanaSyncPanel({ store }) {
           <input type="checkbox" checked={!!cfg.enabled} onChange={(e) => saveConfig({ enabled: e.target.checked })} />
           <span style={{ fontWeight: 700, color: NX.ink }}>Sync enabled</span>
           <span style={{ color: NX.faint }}>{cfg.enabled ? 'new tasks in mapped projects push to Asana automatically' : 'off'}</span>
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, fontSize: 13 }}>
+          <input type="checkbox" checked={!!cfg.deleteSync} onChange={(e) => saveConfig({ delete_sync: e.target.checked })} />
+          <span style={{ fontWeight: 700, color: NX.ink }}>Sync deletions</span>
+          <span style={{ color: NX.faint }}>
+            {cfg.deleteSync
+              ? 'deleting a task on either side deletes it on the other'
+              : 'off — a deleted task is only unlinked, never removed'}
+          </span>
         </label>
         <Field label={`Service token ${cfg.hasToken ? '(set — leave blank to keep)' : '(required)'}`}>
           <div style={{ display: 'flex', gap: 8 }}>
@@ -324,15 +376,28 @@ function AsanaSyncPanel({ store }) {
         <div style={{ maxHeight: 220, overflowY: 'auto', border: `1px solid ${NX.border}`, borderRadius: 8, marginBottom: 10 }}>
           {projects.length === 0 && <div style={{ padding: 10, fontSize: 12.5, color: NX.faint }}>No Nexus projects yet.</div>}
           {projects.map((p) => (
-            <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', borderBottom: `1px solid ${NX.border2}` }}>
-              <span style={{ flex: 1, minWidth: 0, fontSize: 13, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
-              {asanaProjects ? (
-                <select value={map[p.id] || ''} onChange={(e) => setMap((m) => ({ ...m, [p.id]: e.target.value }))} style={{ ...inputStyle, appearance: 'auto', cursor: 'pointer', width: 230, padding: '5px 8px', fontSize: 12 }}>
-                  <option value="">— not synced —</option>
-                  {asanaProjects.map((ap) => <option key={ap.gid} value={ap.gid}>{ap.name}</option>)}
-                </select>
-              ) : (
-                <input value={map[p.id] || ''} onChange={(e) => setMap((m) => ({ ...m, [p.id]: e.target.value }))} placeholder="Asana project GID" style={{ ...inputStyle, width: 200, padding: '5px 8px', fontSize: 12 }} />
+            <div key={p.id} style={{ padding: '7px 10px', borderBottom: `1px solid ${NX.border2}` }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ flex: 1, minWidth: 0, fontSize: 13, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+                {asanaProjects ? (
+                  <select value={map[p.id] || ''} onChange={(e) => setMap((m) => ({ ...m, [p.id]: e.target.value }))} style={{ ...inputStyle, appearance: 'auto', cursor: 'pointer', width: 230, padding: '5px 8px', fontSize: 12 }}>
+                    <option value="">— not synced —</option>
+                    {asanaProjects.map((ap) => <option key={ap.gid} value={ap.gid}>{ap.name}</option>)}
+                  </select>
+                ) : (
+                  <input value={map[p.id] || ''} onChange={(e) => setMap((m) => ({ ...m, [p.id]: e.target.value }))} placeholder="Asana project GID" style={{ ...inputStyle, width: 200, padding: '5px 8px', fontSize: 12 }} />
+                )}
+              </div>
+              {/* Asana's API has no way to reveal a team ad-hoc-invited to a
+                  project via its Share dialog (confirmed live, Jul 2026) — only
+                  a project's own OWNING team syncs automatically. Name any
+                  extra team(s) here once; Pull re-resolves the roster from the
+                  Asana workspace every time, same find-or-create-by-name a
+                  detected team would get. */}
+              {map[p.id] && (
+                <input value={extraTeams[p.id] || ''} onChange={(e) => setExtraTeams((m) => ({ ...m, [p.id]: e.target.value }))}
+                  placeholder="Also grant these Asana teams (comma-separated) — for shares Asana's API can't detect, e.g. IT"
+                  style={{ ...inputStyle, width: '100%', marginTop: 6, padding: '4px 8px', fontSize: 11.5, boxSizing: 'border-box' }} />
               )}
             </div>
           ))}
@@ -342,6 +407,15 @@ function AsanaSyncPanel({ store }) {
           <button onClick={() => run('push')} disabled={!!busy} style={btn('outline')}><ArrowRightLeft size={14} />{busy === 'push' ? 'Pushing…' : 'Push all → Asana'}</button>
           <button onClick={() => run('pull')} disabled={!!busy} style={btn('primary')}><Download size={14} />{busy === 'pull' ? 'Pulling…' : 'Pull ← Asana'}</button>
           {cfg.lastPullAt && <span style={{ fontSize: 11.5, color: NX.faint }}>last pull {fmtDateTime(cfg.lastPullAt)}</span>}
+        </div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginTop: 8 }}>
+          <button onClick={() => dedupe(!!(dupes && dupes.total))} disabled={!!busy}
+            style={dupes && dupes.total ? { ...btn('outline'), color: NX.red, borderColor: NX.red } : btn('ghost')}>
+            {busy === 'dedupe' ? 'Checking…' : (dupes && dupes.total ? `Fix ${dupes.total} issue(s)` : 'Check sync data')}
+          </button>
+          <span style={{ fontSize: 11.5, color: NX.faint }}>
+            Merges Nexus tasks pointing at the same Asana task (keeping the original), collapses duplicate sections, and resolves Asana guest addresses to real Nexus people.
+          </span>
         </div>
         {msg && <div style={{ marginTop: 10, fontSize: 13, color: NX.green }}>{msg}</div>}
         {err && <div style={{ marginTop: 10, fontSize: 13, color: NX.red }}>{err}</div>}
@@ -372,7 +446,8 @@ function AsanaSyncPanel({ store }) {
         </div>
 
         <div style={{ marginTop: 12, fontSize: 11.5, color: NX.faint }}>
-          Syncs both ways: title · description · due date · done · assignee · comments. Inbound is live via webhooks, with a 5-min auto-pull fallback on the deployed API (and manual “Pull” anywhere).
+          Syncs both ways: title · description · start &amp; due date · status · priority · done · assignee · followers · tags · section · milestone · subtasks · dependencies · comments · attachments, plus Asana’s activity history inbound.
+          On the deployed API inbound is live via webhooks with a 5-min auto-pull fallback, and a 15-min push sweep re-sends anything an edit-time push missed. Locally nothing runs automatically — use “Pull” and “Push all”.
         </div>
       </div>
     </div>

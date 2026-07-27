@@ -502,6 +502,8 @@ function OverviewTab({ task, patch, people, projectName, teamName, teams, projec
   const sm = statusMeta[task.status] || {};
   const pm = PRIORITY_META[task.priority] || {};
   const projectTeams = (teams || []).filter((tm) => tm.projectId === task.projectId);
+  const followers = task.followerIds || [];
+  const toggleFollower = (email) => patch({ followerIds: followers.includes(email) ? followers.filter((e) => e !== email) : [...followers, email] });
 
   return (
     <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 8, fontSize: 13 }}>
@@ -509,6 +511,35 @@ function OverviewTab({ task, patch, people, projectName, teamName, teams, projec
         <div style={{ minWidth: 220 }}>
           <PersonSelect value={task.assigneeId || null} people={people} onChange={(email) => patch({ assigneeId: email || '' })} />
         </div>
+      </Row>
+
+      <Row label="Collaborators">
+        {followers.map((em) => (
+          <span key={em} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, border: `1px solid ${NX.border}`, borderRadius: 999, padding: '3px 9px 3px 3px', fontSize: 12 }}>
+            <Avatar email={em} name={nameOf(em)} size={20} /> {nameOf(em)}
+            <button onClick={() => toggleFollower(em)} title="Remove" style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: NX.faint, padding: 0, display: 'flex' }}><X size={12} /></button>
+          </span>
+        ))}
+        <Pop width={220} trigger={(t) => (
+          <button onClick={t} title="Add collaborators" style={{
+            width: 26, height: 26, borderRadius: '50%', border: `1.5px dashed ${NX.border}`,
+            background: 'transparent', color: NX.faint, cursor: 'pointer', padding: 0,
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+          }}><UserPlus size={13} /></button>
+        )}>
+          {(close) => (
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: NX.faint, padding: '4px 6px' }}>Collaborators</div>
+              {people.map((u) => (
+                <label key={u.email} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', fontSize: 13, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={followers.includes(u.email)} onChange={() => toggleFollower(u.email)} />
+                  <Avatar email={u.email} name={u.name} size={20} /> {u.name}
+                </label>
+              ))}
+              {people.length === 0 && <div style={{ padding: 8, fontSize: 12, color: NX.faint }}>No people</div>}
+            </div>
+          )}
+        </Pop>
       </Row>
 
       <Row label="Status">

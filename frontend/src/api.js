@@ -311,6 +311,7 @@ export const api = {
   setAsanaProjectMap: (data) => req("/asana-sync/projects", { method: "PUT", body: JSON.stringify(data) }),
   asanaSyncPull: () => req("/asana-sync/pull", { method: "POST", timeoutMs: 600000 }),
   asanaSyncPushAll: () => req("/asana-sync/push-all", { method: "POST", timeoutMs: 600000 }),
+  asanaSyncDedupe: (apply) => req(`/asana-sync/dedupe?apply=${apply ? "true" : "false"}`, { method: "POST", timeoutMs: 600000 }),
   getAsanaSyncProjects: () => req("/asana-sync/asana-projects", { timeoutMs: 60000 }),
   getAsanaWebhooks: () => req("/asana-sync/webhooks"),
   registerAsanaWebhooks: (data) => req("/asana-sync/webhooks", { method: "POST", body: JSON.stringify(data), timeoutMs: 60000 }),
@@ -349,6 +350,10 @@ export const api = {
   getTicketNotifySettings: () => req("/task-tickets/notify/settings"),
   updateTicketNotifySettings: (patch) => req("/task-tickets/notify/settings", { method: "PUT", body: JSON.stringify(patch) }),
   getTicketNotifyLog: (params = {}) => req(`/task-tickets/notify/log?${new URLSearchParams(params).toString()}`),
+  // Task Outlook notification workflow — admin settings + delivery log (manager+)
+  getTaskNotifySettings: () => req("/tasks/notify/settings"),
+  updateTaskNotifySettings: (patch) => req("/tasks/notify/settings", { method: "PUT", body: JSON.stringify(patch) }),
+  getTaskNotifyLog: (params = {}) => req(`/tasks/notify/log?${new URLSearchParams(params).toString()}`),
   // Ticket components / categories
   getTicketComponents: () => req("/task-ticket-components"),
   addTicketComponent: (data) => req("/task-ticket-components", { method: "POST", body: JSON.stringify(data) }),
@@ -472,7 +477,8 @@ export const api = {
   deleteJobRole:     (id)                => req(`/jobroles/${id}`, { method: 'DELETE' }),
   assignJobRole:     (id, email)         => req(`/jobroles/${id}/assign`, { method: 'POST', body: JSON.stringify({ email }) }),
   unassignJobRole:   (id, email)         => req(`/jobroles/${id}/unassign`, { method: 'POST', body: JSON.stringify({ email }) }),
-  getEffectiveAccess:(email)             => req(`/jobroles/effective/${encodeURIComponent(email)}`),
+  getEffectiveAccess: (email)            => req(`/jobroles/effective/${encodeURIComponent(email)}`),
+  applyJobRoleManager: (id, manager_email) => req(`/jobroles/${id}/apply-manager`, { method: 'POST', body: JSON.stringify({ manager_email }) }),
   // Row-level access scopes (sandbox external users to specific companies)
   getAccessScopes:   (email)             => req(`/access-scopes/${encodeURIComponent(email)}`),
   addAccessScope:    (email, body)       => req(`/access-scopes/${encodeURIComponent(email)}`, { method: 'POST', body: JSON.stringify(body) }),
@@ -598,6 +604,7 @@ export const api = {
   // Accounting
   getTransactions: () => req("/accounting/transactions"),
   getRamp: () => req("/accounting/ramp"),
+  updateRampMemo: (id, memo) => req(`/accounting/ramp/${id}`, { method: "PATCH", body: JSON.stringify({ memo }) }),
   getAma: () => req("/accounting/ama"),
 
   // Ops
@@ -807,6 +814,10 @@ export const api = {
   timePayrollRate:   (data)      => req('/timeclock/payroll/rate', { method: 'PUT', body: JSON.stringify(data) }),
   timeAutoLunchGet:  ()          => req('/timeclock/payroll/autolunch'),
   timeAutoLunchSet:  (data)      => req('/timeclock/payroll/autolunch', { method: 'PUT', body: JSON.stringify(data) }),
+  timeRoundingGet:   ()          => req('/timeclock/payroll/rounding'),
+  timeRoundingSet:   (data)      => req('/timeclock/payroll/rounding', { method: 'PUT', body: JSON.stringify(data) }),
+  timeFinalize:      (data)      => req('/timeclock/finalize', { method: 'POST', body: JSON.stringify(data) }),
+  timeUnfinalize:    (data)      => req('/timeclock/unfinalize', { method: 'POST', body: JSON.stringify(data) }),
   timeTeamExceptions:(start, end) => req(`/timeclock/team-exceptions?start=${start || ''}&end=${end || ''}`),
   // Insights dashboard (Top Apps / Top Websites / activity), from the desktop agent
   timeInsights:      (email, start, end) => req(`/timeclock/insights?email=${encodeURIComponent(email || '')}&start=${start || ''}&end=${end || ''}&tz=${new Date().getTimezoneOffset()}`),
