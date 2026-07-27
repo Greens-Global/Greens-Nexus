@@ -24,7 +24,7 @@ import {
   label, field, resolutionLabel, linkTypeLabel, APPROVAL_META,
 } from './ticketMeta';
 import {
-  TypeFieldInput, TicketTypeIcon, SlaBadge, TicketStatusChip, TicketCustomFieldInput,
+  TypeFieldInput, TicketTypeIcon, SlaBadge, TicketStatusChip,
 } from './TicketAtoms';
 
 // Views offered by the mobile bar's view sheet (desktop uses the inline switcher).
@@ -1201,7 +1201,7 @@ function readOnlyFieldValue(f, value, nameOf) {
 }
 
 function TicketDrawer({ ticketId, onClose, myDeptIds }) {
-  const { tickets, tasks, projects = [], customFields = [],
+  const { tickets, tasks, projects = [],
     addTicketLink, removeTicketLink, escalateTicket, createTask, myEmail, nameOf, updateTicket, deleteTicket,
     refresh } = useTasks();
   // An approval decision changes status/resolution server-side, so pull the whole
@@ -1237,6 +1237,11 @@ function TicketDrawer({ ticketId, onClose, myDeptIds }) {
   // The always-open "working fields" (type/status/priority/assignee/department/
   // resolution) — open to anyone pre-lock, restricted to the assignee once locked.
   const canWorking = privileged || (locked ? isAssignee : true);
+  // Company is carved out of fullAccess: the assignee can work everything else
+  // about a locked ticket, but never reassign which company it belongs to —
+  // that stays with the requester (pre-lock) or a manager/dept lead. Mirrors
+  // the company_id carve-out in _ticket_edit_scope.
+  const canEditCompany = privileged || (!locked && isRequester);
   // Delete stays with whoever raised it or owns the queue — never just the
   // assignee, and not affected by the in_progress lock. Mirrors delete_ticket.
   const canDelete = privileged || isRequester;
@@ -1365,7 +1370,7 @@ function TicketDrawer({ ticketId, onClose, myDeptIds }) {
         </div>
         <div style={field}>
           <label style={label}>Company</label>
-          {fullAccess ? (
+          {canEditCompany ? (
             <select value={t.companyId || ''} onChange={(e) => patch({ companyId: e.target.value, hrDepartmentId: '' })} style={sel}>
               <option value="">Select company</option>
               {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -1429,11 +1434,6 @@ function TicketDrawer({ ticketId, onClose, myDeptIds }) {
       </div>
 
       <div style={field}>
-        <label style={label}>Watchers</label>
-        <WatcherEditor watchers={t.watcherIds || []} people={people} nameOf={nameOf} onChange={(list) => patch({ watcherIds: list })} readOnly={!fullAccess} />
-      </div>
-
-      <div style={field}>
         <label style={label}>Linked Tickets</label>
         <TicketLinks ticket={t} tickets={tickets} onAdd={(target, type) => addTicketLink(t.id, target, type).catch((e) => alert(e.message || e))}
           onRemove={(target) => removeTicketLink(t.id, target).catch(() => {})} readOnly={!fullAccess} />
@@ -1446,57 +1446,6 @@ function TicketDrawer({ ticketId, onClose, myDeptIds }) {
             onComment={(comment) => patch({ csatComment: comment })} />
         </div>
       )}
-
-      {customFields.length > 0 && (
-        <div style={field}>
-          <label style={label}>Custom Fields</label>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {customFields.map((f) => (
-              <div key={f.id} style={{ display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'space-between' }}>
-                <span style={{ fontSize: 13, color: NX.dim }}>{f.name}</span>
-                {fullAccess ? (
-                  <TicketCustomFieldInput field={f} value={(t.customFieldValues || {})[f.id]}
-                    onChange={(v) => patch({ customFieldValues: { ...(t.customFieldValues || {}), [f.id]: v } })} />
-                ) : (
-                  <span style={{ fontSize: 13, color: NX.ink }}>{readOnlyFieldValue(f, (t.customFieldValues || {})[f.id], nameOf)}</span>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Tags, like Component, are triage-owned — editable here, not on create. */}
-      <div style={field}>
-        <label style={label}>Tags</label>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, alignItems: 'center' }}>
-          {(t.tags || []).length === 0 && !fullAccess && <span style={{ fontSize: 12.5, color: NX.faint }}>No tags</span>}
-          {(t.tags || []).map((tag) => (
-            <span key={tag} style={{ ...chip(NX.dim, NX.border2), display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-              {tag}
-              {fullAccess && (
-                <button type="button" onClick={() => patch({ tags: (t.tags || []).filter((x) => x !== tag) })}
-                  title={`Remove ${tag}`} style={{ ...btn('ghost'), padding: 0, lineHeight: 1, color: NX.faint }}>
-                  <X size={11} />
-                </button>
-              )}
-            </span>
-          ))}
-          {fullAccess && (
-            <input placeholder={(t.tags || []).length ? 'Add tag…' : 'Add a tag…'}
-              onKeyDown={(e) => {
-                if (e.key !== 'Enter') return;
-                const v = e.target.value.trim();
-                // Case-insensitive dedupe so "VPN" and "vpn" don't both accumulate.
-                if (v && !(t.tags || []).some((x) => x.toLowerCase() === v.toLowerCase())) {
-                  patch({ tags: [...(t.tags || []), v] });
-                }
-                e.target.value = '';
-              }}
-              style={{ ...inputStyle, width: 130, padding: '4px 8px', fontSize: 12 }} />
-          )}
-        </div>
-      </div>
 
         </>)}
         {tab === 'conversation' && <TicketConversation ticketId={t.id} nameOf={nameOf} />}
@@ -1578,34 +1527,6 @@ function ApprovalPanel({ ticket: t, myEmail, nameOf, onDecided }) {
         <div style={{ fontSize: 12.5, color: NX.dim }}>“{t.approvalNote}”</div>
       ) : null}
       {err && <div style={{ marginTop: 8, fontSize: 12.5, color: NX.red, fontWeight: 600 }}>{err}</div>}
-    </div>
-  );
-}
-
-// ── Watchers — get notified on status changes and new comments ────────────────
-function WatcherEditor({ watchers, people, nameOf, onChange, readOnly }) {
-  const list = (watchers || []).map((e) => (e || '').toLowerCase()).filter(Boolean);
-  const add = (email) => {
-    const e = (email || '').toLowerCase();
-    if (!e || list.includes(e)) return;
-    onChange([...list, e]);
-  };
-  const remove = (email) => onChange(list.filter((e) => e !== email));
-  return (
-    <div>
-      {list.length === 0 && readOnly && <span style={{ fontSize: 12.5, color: NX.faint }}>No watchers</span>}
-      {list.length > 0 && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
-          {list.map((e) => (
-            <span key={e} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: NX.border2, borderRadius: 999, padding: '3px 8px 3px 3px', fontSize: 12.5, color: NX.ink }}>
-              <Avatar email={e} name={nameOf(e)} size={20} />
-              {nameOf(e) || e}
-              {!readOnly && <button onClick={() => remove(e)} title="Remove watcher" style={{ ...btn('ghost'), padding: 1, color: NX.faint }}><X size={12} /></button>}
-            </span>
-          ))}
-        </div>
-      )}
-      {!readOnly && <PersonSelect value={null} people={people} onChange={add} placeholder="Add a watcher…" />}
     </div>
   );
 }

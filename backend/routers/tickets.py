@@ -279,6 +279,9 @@ def create_ticket(body: TicketBody, background_tasks: BackgroundTasks,
 # full field set. Mirrors the drawer's field gating in TicketsView.jsx —
 # keep the two in step.
 _WORKING_FIELDS = {"type", "status", "priority", "assignee_email", "hr_department_id", "resolution"}
+# Every field an unrestricted caller may touch, minus reopen_reason (not a
+# column — see TicketUpdate).
+_ALL_TICKET_FIELDS = set(TicketUpdate.model_fields.keys()) - {"reopen_reason"}
 
 
 def _ticket_privileged(db: Session, t: models.TaskTicket, user: dict) -> bool:
@@ -299,16 +302,18 @@ def _ticket_edit_scope(db: Session, t: models.TaskTicket, user: dict) -> set | N
     send (empty set = no edits at all right now).
 
     Once a ticket is "in_progress" and assigned, it becomes the assignee's to
-    work: the assignee gets full access and everyone else — including the
-    requester — is locked out until it moves to another status (Jul 27 policy).
-    Before that point the requester has full access; anyone else gets the
-    working-field subset (self-assign, triage). Manager+/dept lead-backup are
-    unrestricted throughout."""
+    work: they get full access EXCEPT company_id — which stays with the
+    requester (pre-lock) or a manager/dept lead, never the working assignee
+    (Jul 28 policy). Everyone else — including the requester — is locked out
+    entirely once locked (Jul 27 policy). Before that point the requester has
+    full access; anyone else gets the working-field subset (self-assign,
+    triage). Manager+/dept lead-backup are unrestricted throughout, including
+    company_id."""
     email = user["email"].lower()
     if _ticket_privileged(db, t, user):
         return None
     if t.status == "in_progress" and t.assignee_email:
-        return None if email == t.assignee_email.lower() else set()
+        return (_ALL_TICKET_FIELDS - {"company_id"}) if email == t.assignee_email.lower() else set()
     if (t.requester_email or "").lower() == email:                   # who raised it, pre-in_progress
         return None
     return _WORKING_FIELDS
@@ -328,6 +333,8 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
         if blocked:
             if not scope:
                 raise HTTPException(403, f"This ticket is in progress and assigned to {t.assignee_email or 'someone else'} — only they (or a manager/department lead) can edit it right now.")
+            if blocked == ["company_id"]:
+                raise HTTPException(403, "Only the requester (before the ticket is picked up) or a manager/department lead can change the company on a ticket.")
             raise HTTPException(403, f"You can only update {', '.join(sorted(scope))} on a ticket you're not the requester/owner of — not: {', '.join(blocked)}")
     prev_status, prev_assignee, prev_priority = t.status, (t.assignee_email or ""), t.priority
     prev_due = t.sla_due_on
