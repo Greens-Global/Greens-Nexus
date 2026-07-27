@@ -2534,6 +2534,26 @@ def _signed_url(path: str) -> str:
     return ""
 
 
+def _signed_urls(paths: list) -> dict:
+    """Bulk-sign in ONE Supabase call (path -> full URL). The per-frame loop was
+    one HTTP round-trip per screenshot, so opening a person's day of frames took
+    10s+; this collapses it to a single request."""
+    out = {}
+    if not paths:
+        return out
+    try:
+        r = httpx.post(f"{_SUPABASE_URL}/storage/v1/object/sign/{_DOC_BUCKET}",
+                       headers=_storage_headers(),
+                       json={"expiresIn": 3600, "paths": paths}, timeout=30)
+        if r.is_success:
+            for row in r.json():
+                if row.get("signedURL"):
+                    out[row.get("path", "")] = f"{_SUPABASE_URL}/storage/v1{row['signedURL']}"
+    except Exception:
+        pass
+    return out
+
+
 # Desktop-agent installer hosting (/agent/download-url, /agent/upload-url,
 # /agent/upload) removed — there is no desktop installer to host anymore.
 
@@ -2556,9 +2576,10 @@ def list_screenshots(date: str = "", email: str = "",
             for em, n in sorted(counts.items())]}
     rows = q.filter(TimeScreenshot.employee_email == email.strip().lower()) \
             .order_by(TimeScreenshot.at).all()
+    urls = _signed_urls([s.storage_path for s in rows])   # one call, not one per frame
     return {"date": day, "email": email, "shots": [
         {"id": s.id, "at": s.at, "idleSec": s.idle_sec or 0, "activeView": s.active_view or "",
-         "url": _signed_url(s.storage_path)} for s in rows]}
+         "url": urls.get(s.storage_path, "")} for s in rows]}
 
 
 @router.get("/team-screenshots")
@@ -2587,9 +2608,10 @@ def team_screenshots(date: str = "", email: str = "",
     if visible is not None and tgt not in visible:
         raise HTTPException(403, "That employee isn't on your team.")
     rows = q.filter(TimeScreenshot.employee_email == tgt).order_by(TimeScreenshot.at).all()
+    urls = _signed_urls([s.storage_path for s in rows])   # one call, not one per frame
     return {"date": day, "email": tgt, "shots": [
         {"id": s.id, "at": s.at, "idleSec": s.idle_sec or 0, "activeView": s.active_view or "",
-         "url": _signed_url(s.storage_path)} for s in rows]}
+         "url": urls.get(s.storage_path, "")} for s in rows]}
 
 
 # ── Beginning-of-day message (recorded copy; Teams post happens client-side) ─
