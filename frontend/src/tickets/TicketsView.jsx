@@ -1897,18 +1897,34 @@ function TicketAttachments({ ticketId }) {
         : rows.length === 0 ? <div style={{ fontSize: 13, color: NX.faint, textAlign: 'center', padding: 16 }}>No attachments yet.</div>
           : (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              {rows.map((a) => (
-                <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8, border: `1px solid ${NX.border}`, borderRadius: 10, padding: '6px 10px', fontSize: 12 }}>
-                  {a.kind === 'image' && a.url ? <img src={a.url} alt={a.name} style={{ width: 32, height: 32, borderRadius: 6, objectFit: 'cover' }} />
-                    : a.kind === 'video' && a.url ? <video src={a.url} muted style={{ width: 32, height: 32, borderRadius: 6, objectFit: 'cover', background: '#000' }} />
-                    : a.kind === 'video' ? <Play size={13} style={{ color: NX.dim }} />
-                    : <Paperclip size={13} style={{ color: NX.dim }} />}
-                  <span style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name}</span>
-                  <span style={{ color: NX.faint }}>{a.size}</span>
-                  {a.url && <a href={a.url} download={a.name} title="Download" style={{ color: NX.faint, display: 'flex' }}><Download size={13} /></a>}
-                  <button onClick={() => del(a.id)} title="Remove" style={{ ...btn('ghost'), padding: 3, color: NX.faint }}><X size={13} /></button>
-                </div>
-              ))}
+              {rows.map((a) => {
+                const thumb = a.kind === 'image' && a.url ? <img src={a.url} alt={a.name} style={{ width: 32, height: 32, borderRadius: 6, objectFit: 'cover' }} />
+                  : a.kind === 'video' && a.url ? <video src={a.url} muted style={{ width: 32, height: 32, borderRadius: 6, objectFit: 'cover', background: '#000' }} />
+                  : a.kind === 'video' ? <Play size={13} style={{ color: NX.faint }} />
+                  : <Paperclip size={13} style={{ color: NX.dim }} />;
+                return (
+                  <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8, border: `1px solid ${NX.border}`, borderRadius: 10, padding: '6px 10px', fontSize: 12 }}>
+                    {a.url ? (
+                      // No `download` here — opening in a new tab lets the browser
+                      // play video/view images inline instead of forcing a save.
+                      <a href={a.url} target="_blank" rel="noreferrer" title={`Open ${a.name}`}
+                        style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, color: 'inherit', textDecoration: 'none' }}>
+                        {thumb}
+                        <span style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name}</span>
+                      </a>
+                    ) : (
+                      <span title="This file failed to upload and isn't available — remove it and re-attach"
+                        style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, color: NX.faint }}>
+                        {thumb}
+                        <span style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textDecoration: 'line-through' }}>{a.name}</span>
+                      </span>
+                    )}
+                    <span style={{ color: NX.faint }}>{a.size}</span>
+                    {a.url && <a href={a.url} download={a.name} title="Download" style={{ color: NX.faint, display: 'flex' }}><Download size={13} /></a>}
+                    <button onClick={() => del(a.id)} title="Remove" style={{ ...btn('ghost'), padding: 3, color: NX.faint }}><X size={13} /></button>
+                  </div>
+                );
+              })}
             </div>
           )}
     </div>
