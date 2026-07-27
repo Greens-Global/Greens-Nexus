@@ -6,11 +6,13 @@
 // Ticket statuses get their own color map here (STATUS_META in tasks/theme.js
 // is for tasks, not tickets). Inline-styled to match the rest of the app.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Ticket, Plus, Search, Link2, Trash2, CheckCircle2, Clock, ClipboardList, Paperclip, Send, X, Download, MessageSquare, History, List as ListIcon, Columns3, BarChart3, ShieldAlert, ArrowUp, ArrowDown, ArrowUpDown, Star, Lock, Bookmark, SlidersHorizontal, Image as ImageIcon, ScanText, Camera, ImagePlus } from 'lucide-react';
+import { Ticket, Plus, Search, Link2, Trash2, CheckCircle2, Clock, ClipboardList, Paperclip, Send, X, Download, MessageSquare, History, List as ListIcon, Columns3, BarChart3, ShieldAlert, ArrowUp, ArrowDown, ArrowUpDown, Star, Lock, Bookmark, SlidersHorizontal, Image as ImageIcon, ScanText, Camera, ImagePlus, Video, Upload as UploadIcon, Mic, CircleDot, Loader2, Play } from 'lucide-react';
 import { api } from '../api';
 import { useTasks } from '../tasks/TasksContext';
 import { useRole } from '../contexts/RoleContext';
 import { filesFromPaste } from '../tasks/lib';
+import { supabase } from '../lib/supabase';
+import { startScreenRecording } from '../lib/screenRecorder';
 import { NX, FONT, chip, btn, input as inputStyle, PRIORITY_META, PRIORITY_ORDER } from '../tasks/theme';
 import { Avatar, PriorityChip, EmptyState, Modal, PersonSelect, usePeople, DateField, useIsMobile, useClickOutside } from '../tasks/components';
 import MobileTaskBar, { BottomSheet } from '../tasks/MobileTaskBar';
@@ -763,20 +765,97 @@ function TicketRow({ t, nameOf, hrDeptName, companyName, onOpen, checked, onTogg
   );
 }
 
-// Posts one file to a ticket. Small files are inlined as a data URL (same rule as
-// the drawer's attachment list); larger ones are recorded by name only.
+// Real Supabase Storage upload for ticket evidence (screenshots, documents,
+// screen recordings) — works for any file size, unlike the old inline-data-URL
+// scheme it replaced (which silently dropped anything over 2MB; recordings
+// always would have). Bucket must exist on the Supabase project — public,
+// same as Testing's qa-evidence — create `ticket-evidence` there.
+async function uploadTicketEvidence(file, prefix = 'file') {
+  if (!supabase) throw new Error('Storage not configured');
+  const ext = (file.name.split('.').pop() || 'dat').toLowerCase();
+  const path = `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+  const { data, error } = await supabase.storage.from('ticket-evidence')
+    .upload(path, file, { contentType: file.type || 'application/octet-stream', upsert: false, cacheControl: '31536000' });
+  if (error || !data) throw new Error(error?.message || 'Upload failed');
+  return supabase.storage.from('ticket-evidence').getPublicUrl(data.path).data.publicUrl;
+}
+
+function attachmentKindOf(f) {
+  if (f.type.startsWith('image/')) return 'image';
+  if (f.type.startsWith('video/')) return 'video';
+  return 'doc';
+}
+
+// Posts one file to a ticket — the ticket must already exist (attachments are
+// keyed by ticket id). A failed storage upload still records the attachment
+// by name so the attempt isn't silently lost.
 async function uploadTicketFile(ticketId, f) {
   const size = `${Math.max(1, Math.round(f.size / 1024))} KB`;
-  const kind = f.type.startsWith('image/') ? 'image' : 'doc';
-  const url = f.size <= MAX_INLINE
-    ? await new Promise((res) => {
-        const r = new FileReader();
-        r.onload = () => res(typeof r.result === 'string' ? r.result : '');
-        r.onerror = () => res('');
-        r.readAsDataURL(f);
-      })
-    : '';
+  const kind = attachmentKindOf(f);
+  let url = '';
+  try { url = await uploadTicketEvidence(f, kind); } catch { /* recorded by name only below */ }
   return api.addTicketAttachment(ticketId, { name: f.name, size, kind, url }).catch(() => {});
+}
+
+// Shared Record + Upload control — a screen recording (optionally with mic
+// narration) or a plain file picker. `onFile(file)` gets a plain File each
+// time (recordings become File objects too); the caller decides whether to
+// queue it locally (pre-creation) or upload it immediately (post-creation).
+function RecordUploadButtons({ onFile, disabled }) {
+  const fileRef = useRef(null);
+  const [menu, setMenu] = useState(false);
+  const [recording, setRecording] = useState(false);
+
+  const record = async (voice) => {
+    setMenu(false);
+    const started = await startScreenRecording({ voice }, (blob) => {
+      setRecording(false);
+      if (blob) onFile(new File([blob], `ticket-recording-${Date.now()}.webm`, { type: 'video/webm' }));
+    });
+    if (started) setRecording(true);
+  };
+
+  return (
+    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+      <div style={{ position: 'relative' }}>
+        <button type="button" disabled={disabled || recording} onClick={() => setMenu((m) => !m)}
+          style={{ ...btn('outline'), fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          {recording ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <CircleDot size={13} style={{ color: NX.red }} />}
+          {recording ? 'Recording…' : 'Record'}
+        </button>
+        {menu && <div onClick={() => setMenu(false)} style={{ position: 'fixed', inset: 0, zIndex: 15 }} />}
+        {menu && (
+          <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 6, zIndex: 20, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 10px 30px rgba(0,0,0,.18)', padding: 4, width: 210 }}>
+            <button type="button" onClick={() => record(false)} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8, fontSize: 12 }}>
+              <Video size={14} /> Screen recording
+            </button>
+            <button type="button" onClick={() => record(true)} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8, fontSize: 12 }}>
+              <Mic size={14} /> Screen + narration
+            </button>
+          </div>
+        )}
+      </div>
+      <button type="button" disabled={disabled} onClick={() => fileRef.current?.click()}
+        style={{ ...btn('outline'), fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+        <UploadIcon size={13} /> Upload
+      </button>
+      <input ref={fileRef} type="file" multiple style={{ display: 'none' }}
+        onChange={(e) => { const files = Array.from(e.target.files || []); e.target.value = ''; files.forEach(onFile); }} />
+    </div>
+  );
+}
+
+// Pending-attachment chip for the create-ticket form (local File, not yet uploaded).
+function PendingFileChip({ file, onRemove }) {
+  const isVideo = file.type.startsWith('video/');
+  const isImage = file.type.startsWith('image/');
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, border: `1px solid ${NX.border}`, borderRadius: 999, padding: '3px 9px 3px 8px', fontSize: 12 }}>
+      {isVideo ? <Video size={13} style={{ color: NX.dim }} /> : isImage ? <ImageIcon size={13} style={{ color: NX.dim }} /> : <Paperclip size={13} style={{ color: NX.dim }} />}
+      <span style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{file.name}</span>
+      <button type="button" onClick={onRemove} title="Remove" style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: NX.faint, padding: 0, display: 'flex' }}><X size={12} /></button>
+    </span>
+  );
 }
 
 // ── Create ───────────────────────────────────────────────────────────────────
@@ -1044,6 +1123,18 @@ export function CreateTicketModal({ onClose }) {
       <div style={field}>
         <label style={label}>Description</label>
         <textarea value={form.description} onChange={(e) => set('description', e.target.value)} rows={3} placeholder="Add detail…" style={{ ...inputStyle, resize: 'vertical', fontFamily: FONT }} />
+      </div>
+
+      <div style={field}>
+        <label style={label}>Evidence</label>
+        <RecordUploadButtons onFile={(f) => setAttachments((prev) => [...prev, f])} />
+        {attachments.length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+            {attachments.map((f, i) => (
+              <PendingFileChip key={`${f.name}-${i}`} file={f} onRemove={() => setAttachments((prev) => prev.filter((_, idx) => idx !== i))} />
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Type-specific details — the point of the ticket, so it's prominent. */}
@@ -1751,19 +1842,21 @@ function TicketConversation({ ticketId, nameOf }) {
 }
 
 // ── Attachments ──────────────────────────────────────────────────────────────
-const MAX_INLINE = 2 * 1024 * 1024;
 function TicketAttachments({ ticketId }) {
   const [rows, setRows] = useState(null);
-  const fileRef = useRef(null);
+  const [busy, setBusy] = useState(false);
   const reload = () => api.getTicketAttachments(ticketId).then(setRows).catch(() => setRows([]));
   useEffect(() => { reload(); /* eslint-disable-next-line */ }, [ticketId]);
 
-  const sendFile = (f) => {
+  const sendFile = async (f) => {
+    setBusy(true);
     const size = `${Math.max(1, Math.round(f.size / 1024))} KB`;
-    const kind = f.type.startsWith('image/') ? 'image' : 'doc';
-    const send = (url) => api.addTicketAttachment(ticketId, { name: f.name, size, kind, url: url || '' }).then(() => reload()).catch(() => {});
-    if (f.size <= MAX_INLINE) { const r = new FileReader(); r.onload = () => send(typeof r.result === 'string' ? r.result : ''); r.onerror = () => send(''); r.readAsDataURL(f); }
-    else send('');
+    const kind = attachmentKindOf(f);
+    let url = '';
+    try { url = await uploadTicketEvidence(f, kind); } catch { /* recorded by name only below */ }
+    await api.addTicketAttachment(ticketId, { name: f.name, size, kind, url }).catch(() => {});
+    setBusy(false);
+    reload();
   };
   const onFile = (e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) sendFile(f); };
   const onPaste = (e) => { const files = filesFromPaste(e); if (files.length) { e.preventDefault(); files.forEach(sendFile); } };
@@ -1771,16 +1864,21 @@ function TicketAttachments({ ticketId }) {
 
   return (
     <div onPaste={onPaste} tabIndex={0} style={{ outline: 'none' }}>
-      <input ref={fileRef} type="file" style={{ display: 'none' }} onChange={onFile} />
-      <button onClick={() => fileRef.current?.click()} style={{ ...btn('outline'), borderStyle: 'dashed', fontSize: 12, marginBottom: 12 }}><Paperclip size={13} /> Attach file</button>
-      <span style={{ fontSize: 11, color: NX.faint, marginLeft: 8 }}>or press Ctrl+V to paste a screenshot</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+        <RecordUploadButtons onFile={sendFile} disabled={busy} />
+        {busy && <Loader2 size={14} style={{ animation: 'spin 1s linear infinite', color: NX.faint }} />}
+        <span style={{ fontSize: 11, color: NX.faint }}>or press Ctrl+V to paste a screenshot</span>
+      </div>
       {rows === null ? <div style={{ fontSize: 13, color: NX.faint, textAlign: 'center', padding: 16 }}>Loading…</div>
         : rows.length === 0 ? <div style={{ fontSize: 13, color: NX.faint, textAlign: 'center', padding: 16 }}>No attachments yet.</div>
           : (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
               {rows.map((a) => (
                 <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8, border: `1px solid ${NX.border}`, borderRadius: 10, padding: '6px 10px', fontSize: 12 }}>
-                  {a.kind === 'image' && a.url ? <img src={a.url} alt={a.name} style={{ width: 32, height: 32, borderRadius: 6, objectFit: 'cover' }} /> : <Paperclip size={13} style={{ color: NX.dim }} />}
+                  {a.kind === 'image' && a.url ? <img src={a.url} alt={a.name} style={{ width: 32, height: 32, borderRadius: 6, objectFit: 'cover' }} />
+                    : a.kind === 'video' && a.url ? <video src={a.url} muted style={{ width: 32, height: 32, borderRadius: 6, objectFit: 'cover', background: '#000' }} />
+                    : a.kind === 'video' ? <Play size={13} style={{ color: NX.dim }} />
+                    : <Paperclip size={13} style={{ color: NX.dim }} />}
                   <span style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name}</span>
                   <span style={{ color: NX.faint }}>{a.size}</span>
                   {a.url && <a href={a.url} download={a.name} title="Download" style={{ color: NX.faint, display: 'flex' }}><Download size={13} /></a>}
