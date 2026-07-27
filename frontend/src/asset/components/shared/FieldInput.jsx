@@ -2,22 +2,24 @@ import { useState, useEffect } from 'react';
 import { Upload, FileText, Plus, X } from 'lucide-react';
 import { fileToDataUrl } from '../../lib/format.js';
 
-// mm/dd/yyyy <-> yyyy-mm-dd (native <input type="date"> value) conversions.
-const mdyToIso = (s) => {
-  const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(String(s).trim());
-  return m ? `${m[3]}-${m[1].padStart(2, '0')}-${m[2].padStart(2, '0')}` : '';
+// Format free typing into mm/dd/yyyy as the user goes; validate the final shape.
+// A native <input type="date"> was rejected here: its displayed format follows the
+// browser LOCALE (e.g. en-IN shows dd-mm-yyyy), but the requirement is an explicit
+// mm/dd/yyyy field for everyone — so this is a masked text input, locale-independent.
+const fmtMdy = (raw) => {
+  const d = String(raw).replace(/\D/g, '').slice(0, 8);   // digits only, MMDDYYYY
+  if (d.length <= 2) return d;
+  if (d.length <= 4) return `${d.slice(0, 2)}/${d.slice(2)}`;
+  return `${d.slice(0, 2)}/${d.slice(2, 4)}/${d.slice(4)}`;
 };
-const isoToMdy = (iso) => {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso).trim());
-  return m ? `${m[2]}/${m[3]}/${m[1]}` : '';
-};
+const isValidMdy = (s) => /^(0[1-9]|1[0-2])\/(0[1-9]|[12]\d|3[01])\/\d{4}$/.test(String(s).trim());
 
 /**
- * Multi-date field (`type: 'dates'`) — several mm/dd/yyyy dates, each entered via a
- * native date picker so the value is always a valid calendar date in mm/dd/yyyy.
- * Stored back as a comma-separated string ("11/01/2025, 02/01/2026"), which keeps
- * the existing plain-text values readable. Property taxes fall due in installments,
- * so a single date input would drop the second date — hence the add/remove rows.
+ * Multi-date field (`type: 'dates'`) — one or more dates, each typed in explicit
+ * mm/dd/yyyy (auto-slashing as you go, validated on the spot). Stored as a
+ * comma-separated string ("11/01/2025, 02/01/2026"), keeping existing values
+ * readable. Property taxes fall due in installments, so a single input would drop
+ * the second date — hence the add/remove rows.
  */
 export function MultiDateInput({ value, onChange, readOnly }) {
   const parse = (v) => {
@@ -37,24 +39,30 @@ export function MultiDateInput({ value, onChange, readOnly }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-      {rows.map((r, i) => (
-        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <input
-            type="date"
-            className="form-input"
-            value={mdyToIso(r)}
-            readOnly={readOnly}
-            onChange={(e) => setRow(i, isoToMdy(e.target.value))}
-            style={{ fontSize: '0.85rem', flex: 1 }}
-          />
-          {!readOnly && (rows.length > 1 || r) && (
-            <button type="button" className="secondary-btn" onClick={() => removeRow(i)}
-              title="Remove this date" style={{ padding: '5px 8px', lineHeight: 0 }}>
-              <X size={13} />
-            </button>
-          )}
-        </div>
-      ))}
+      {rows.map((r, i) => {
+        const invalid = r.trim() && !isValidMdy(r);
+        return (
+          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <input
+              type="text"
+              inputMode="numeric"
+              placeholder="mm/dd/yyyy"
+              maxLength={10}
+              className="form-input"
+              value={r}
+              readOnly={readOnly}
+              onChange={(e) => setRow(i, fmtMdy(e.target.value))}
+              style={{ fontSize: '0.85rem', flex: 1, ...(invalid ? { borderColor: 'hsl(var(--color-red))' } : {}) }}
+            />
+            {!readOnly && (rows.length > 1 || r) && (
+              <button type="button" className="secondary-btn" onClick={() => removeRow(i)}
+                title="Remove this date" style={{ padding: '5px 8px', lineHeight: 0 }}>
+                <X size={13} />
+              </button>
+            )}
+          </div>
+        );
+      })}
       {!readOnly && (
         <button type="button" className="secondary-btn" onClick={addRow}
           style={{ alignSelf: 'flex-start', display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 11px', fontSize: '0.78rem' }}>
