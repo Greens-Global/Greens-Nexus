@@ -24,7 +24,7 @@ from pydantic import BaseModel
 from typing import Optional
 
 from database import get_db
-from models import NexusGroup, NexusGroupMember, NexusRole
+from models import NexusGroup, NexusGroupMember, NexusRole, NexusEmployee
 from auth import get_current_user, require_administrator, invalidate_role_cache, _MODULE_LEVEL_RANK
 from routers.roles import VALID_ROLES, ROLE_LEVEL, _get_role
 from routers.groups import ModuleGrant, _parse_modules, _modules_csv
@@ -82,6 +82,7 @@ def _serialize(jr: NexusGroup, db: Session) -> dict:
         "member_count": len(members),
         "members": members,
         "monitoring_exempt": bool(getattr(jr, "monitoring_exempt", False)),
+        "default_manager_email": (getattr(jr, "default_manager_email", "") or ""),
         "created_by": jr.created_by,
         "created_at": jr.created_at,
     }
@@ -95,6 +96,7 @@ class JobRoleBody(BaseModel):
     description: Optional[str] = ""
     allowed_modules: Optional[list[ModuleGrant]] = []
     monitoring_exempt: Optional[bool] = False
+    default_manager_email: Optional[str] = ""
 
 class JobRoleUpdate(BaseModel):
     name: Optional[str] = None
@@ -102,9 +104,13 @@ class JobRoleUpdate(BaseModel):
     description: Optional[str] = None
     allowed_modules: Optional[list[ModuleGrant]] = None
     monitoring_exempt: Optional[bool] = None
+    default_manager_email: Optional[str] = None
 
 class AssignBody(BaseModel):
     email: str
+
+class ApplyManagerBody(BaseModel):
+    manager_email: str
 
 
 def _clean_tier(tier: str) -> str:
@@ -147,6 +153,7 @@ def create_job_role(body: JobRoleBody, user: dict = Depends(require_administrato
         description=(body.description or "").strip(),
         allowed_modules=_modules_csv(body.allowed_modules),
         monitoring_exempt=1 if body.monitoring_exempt else 0,
+        default_manager_email=(body.default_manager_email or "").lower().strip(),
         created_by=user["email"],
         created_at=now,
     )
@@ -172,6 +179,8 @@ def update_job_role(jr_id: str, body: JobRoleUpdate, user: dict = Depends(requir
         jr.allowed_modules = _modules_csv(body.allowed_modules)
     if body.monitoring_exempt is not None:
         jr.monitoring_exempt = 1 if body.monitoring_exempt else 0
+    if body.default_manager_email is not None:
+        jr.default_manager_email = body.default_manager_email.lower().strip()
 
     tier_changed = False
     if body.tier is not None:
@@ -242,6 +251,15 @@ def assign_job_role(jr_id: str, body: AssignBody, user: dict = Depends(get_curre
         NexusGroupMember.group_id == jr_id, NexusGroupMember.email == email).first():
         db.add(NexusGroupMember(group_id=jr_id, email=email, added_by=user["email"], added_at=now))
 
+    # Role's default manager/approver: copy onto the person's card ONLY if they
+    # have no manager yet — per-person Manager stays the source of truth, so an
+    # existing (deliberate) assignment is never clobbered by a role change.
+    default_mgr = (getattr(jr, "default_manager_email", "") or "").strip()
+    if default_mgr and default_mgr != email:
+        emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == email).first()
+        if emp and not (emp.manager_email or "").strip():
+            emp.manager_email = default_mgr
+
     row = db.query(NexusRole).filter(NexusRole.email == email).first()
     if row:
         row.role = tier
@@ -276,6 +294,33 @@ def unassign_job_role(jr_id: str, body: AssignBody, user: dict = Depends(get_cur
     invalidate_role_cache(email)
     db.commit()
     return {"unassigned": email}
+
+
+@router.post("/{jr_id}/apply-manager")
+def apply_role_manager(jr_id: str, body: ApplyManagerBody,
+                       user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
+    """Bulk backfill: set `manager_email` (the timesheet approver) on EVERY current
+    member of this job role — the "ten people in one click" path. Overwrites
+    existing managers by design (that's what a backfill is for); individual cards
+    can still be changed afterwards, per-person Manager remains the truth."""
+    jr = db.query(NexusGroup).filter(NexusGroup.id == jr_id, NexusGroup.is_job_role == 1).first()  # noqa: E712
+    if not jr:
+        raise HTTPException(status_code=404, detail="Job role not found")
+    mgr = (body.manager_email or "").lower().strip()
+    if not mgr:
+        raise HTTPException(status_code=400, detail="Manager email is required")
+    if not db.query(NexusEmployee).filter(NexusEmployee.work_email == mgr).first():
+        raise HTTPException(status_code=400, detail="That manager isn't in the People directory")
+    changed = 0
+    for email in _member_emails(db, jr_id):
+        if email == mgr:
+            continue    # a person can't be their own approver
+        emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == email).first()
+        if emp and (emp.manager_email or "").lower().strip() != mgr:
+            emp.manager_email = mgr
+            changed += 1
+    db.commit()
+    return {"roleId": jr_id, "manager": mgr, "updated": changed}
 
 
 @router.get("/effective/{email}")

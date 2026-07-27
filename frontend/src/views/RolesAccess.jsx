@@ -170,6 +170,8 @@ export default function RolesAccess({ embedded = false }) {
       body: 'Each card is one job: “Runs: Accounting · Edits: Documents · Views: …”. Click a card for the full bundle and the people who hold it. Editing a role updates everyone in it at once.' },
     { target: 'duplicate', before: () => { setSub('jobroles'); if (!selId && (jobRoles || [])[0]) setSelId(jobRoles[0].id); }, title: 'Same job, more power? Duplicate.',
       body: 'For a supervisor version of an existing role: Duplicate, rename it, raise the tier and levels, save. The original role and its people are untouched.' },
+    { target: 'role-approver', before: () => { setSub('jobroles'); if (!selId && (jobRoles || [])[0]) setSelId(jobRoles[0].id); }, title: 'One approver for the whole role',
+      body: 'Pick who approves this role’s timesheets. Save as default — every NEW person mapped to the role reports to them automatically. “Apply to all members” backfills everyone already in the role in one click (ten people, two clicks). Individual People cards can still override.' },
     { target: 'new-group', before: () => setSub('groups'), title: 'Groups add extras on top',
       body: 'Same job but extra duties? Don’t touch the role — add the person to a group. Groups only ever ADD access, and removing one never affects the job-role baseline.' },
     { target: 'audit-matrix', before: () => setSub('audit'), title: 'The audit view — everything at once',
@@ -269,6 +271,9 @@ export default function RolesAccess({ embedded = false }) {
                     );
                   })}
                   {(selected.allowed_modules || []).length === 0 && <div style={{ color: 'var(--muted)', fontSize: 13, marginTop: 16 }}>No modules granted yet — press Edit to build the bundle.</div>}
+                  <div style={sectLabel}>Timesheet approver (default manager)</div>
+                  <ApproverPicker role={selected} people={people} nameOf={nameOf}
+                    onSaved={loadRoles} toastOk={toastOk} toastErr={toastErr} />
                   <div style={sectLabel}>People with this role · {selected.member_count}</div>
                   {(selected.members || []).length > 0 && (
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
@@ -602,6 +607,57 @@ function AuditMatrix({ jobRoles, groups }) {
       </div>
       <style>{`.ra-audit-row:hover td, .ra-audit-row:hover th { background: color-mix(in srgb, var(--ink) 4%, transparent); }`}</style>
     </>
+  );
+}
+
+// ── role approver — the "ten people, two clicks" control ─────────────────────
+// Default manager on the role: new members with no manager inherit it; "Apply to
+// all" backfills current members. Per-person Manager (People card) stays the
+// source of truth — this is a bulk tool, not a second truth.
+function ApproverPicker({ role, people, nameOf, onSaved, toastOk, toastErr }) {
+  const [val, setVal] = useState(role.default_manager_email || '');
+  const [busy, setBusy] = useState('');
+  useEffect(() => { setVal(role.default_manager_email || ''); }, [role.id, role.default_manager_email]);
+
+  async function saveDefault(v) {
+    setVal(v); setBusy('save');
+    try {
+      await api.updateJobRole(role.id, { default_manager_email: v });
+      toastOk(v ? `Default approver saved — new people mapped to “${role.name}” will report to ${nameOf(v)}.` : 'Default approver cleared.');
+      onSaved();
+    } catch (e) { toastErr(e?.message || 'Could not save the approver.'); }
+    setBusy('');
+  }
+  async function applyAll() {
+    if (!val) return;
+    if (!window.confirm(`Set ${nameOf(val)} as manager/timesheet approver for all ${role.member_count} people in “${role.name}”? This overwrites their current manager; individual cards can be changed afterwards.`)) return;
+    setBusy('apply');
+    try {
+      const r = await api.applyJobRoleManager(role.id, val);
+      toastOk(`${nameOf(val)} is now the approver for ${r.updated} ${r.updated === 1 ? 'person' : 'people'} in “${role.name}”.`);
+      onSaved();
+    } catch (e) { toastErr(e?.message || 'Could not apply to members.'); }
+    setBusy('');
+  }
+
+  return (
+    <div data-tour="role-approver">
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <select value={val} onChange={e => saveDefault(e.target.value)} disabled={busy === 'save'}
+          style={{ ...input, width: 'auto', minWidth: 210, padding: '7px 10px', fontSize: 12.5 }}>
+          <option value="">No default approver</option>
+          {people.map(p => <option key={p.email} value={p.email}>{p.name}</option>)}
+        </select>
+        <button className="secondary-btn" disabled={!val || !!busy || !role.member_count} onClick={applyAll}
+          style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          {busy === 'apply' && <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} />}
+          Apply to all {role.member_count} {role.member_count === 1 ? 'member' : 'members'}
+        </button>
+      </div>
+      <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 7, lineHeight: 1.5, maxWidth: '60ch' }}>
+        Who approves this role's timesheets and punch fixes. New people mapped to the role inherit them automatically (if they don't already have a manager); Apply to all backfills everyone currently in it. A person's own card always wins.
+      </div>
+    </div>
   );
 }
 

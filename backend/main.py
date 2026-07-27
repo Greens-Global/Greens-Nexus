@@ -160,6 +160,7 @@ def _run_migrations():
             "ALTER TABLE nexus_groups ADD COLUMN tier VARCHAR DEFAULT ''",
             "ALTER TABLE nexus_groups ADD COLUMN description VARCHAR DEFAULT ''",
             "ALTER TABLE nexus_groups ADD COLUMN monitoring_exempt INTEGER DEFAULT 0",
+            "ALTER TABLE nexus_groups ADD COLUMN default_manager_email VARCHAR DEFAULT ''",
             # Company email domains — drive M365 import + auto company tagging
             "ALTER TABLE hr_entities ADD COLUMN domains VARCHAR DEFAULT ''",
             # Company manager (operational head; escalation target)

@@ -478,6 +478,7 @@ export const api = {
   assignJobRole:     (id, email)         => req(`/jobroles/${id}/assign`, { method: 'POST', body: JSON.stringify({ email }) }),
   unassignJobRole:   (id, email)         => req(`/jobroles/${id}/unassign`, { method: 'POST', body: JSON.stringify({ email }) }),
   getEffectiveAccess: (email)            => req(`/jobroles/effective/${encodeURIComponent(email)}`),
+  applyJobRoleManager: (id, manager_email) => req(`/jobroles/${id}/apply-manager`, { method: 'POST', body: JSON.stringify({ manager_email }) }),
   getEffectiveAccess:(email)             => req(`/jobroles/effective/${encodeURIComponent(email)}`),
   // Row-level access scopes (sandbox external users to specific companies)
   getAccessScopes:   (email)             => req(`/access-scopes/${encodeURIComponent(email)}`),
