@@ -120,6 +120,24 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
   const shift = (n) => setPStart(new Date(pStart.getTime() + n * 14 * DAY));
   const label = `${pStart.toLocaleDateString([], { month: 'numeric', day: 'numeric', year: 'numeric' })} – ${new Date(pStart.getTime() + 13 * DAY).toLocaleDateString([], { month: 'numeric', day: 'numeric', year: 'numeric' })}`;
   const T = data?.totals;
+  const fin = data?.finalized;         // HR finalization — the period is LOCKED
+  const mgrAp = data?.approval;        // manager approval (step 1 of 2)
+  const nameFor = (em) => people.find(p => p.email === (em || '').toLowerCase())?.name || em || '';
+
+  async function finalize() {
+    if (!window.confirm(`Finalize ${nameFor(email)}'s timecard for ${label}? This locks all time records for the period — edits will need an unlock.`)) return;
+    setBusy(true);
+    try { await api.timeFinalize({ email, start, end }); toastOk?.('Timecard finalized — the period is locked.'); load(); }
+    catch (e) { toastErr?.(e?.message || 'Could not finalize.'); }
+    setBusy(false);
+  }
+  async function unfinalize() {
+    if (!window.confirm(`Unlock ${nameFor(email)}'s finalized timecard for ${label}? Edits become possible again; re-finalize when done.`)) return;
+    setBusy(true);
+    try { await api.timeUnfinalize({ email, start, end }); toastOk?.('Period unlocked.'); load(); }
+    catch (e) { toastErr?.(e?.message || 'Could not unlock.'); }
+    setBusy(false);
+  }
 
   const th = { fontSize: 10, fontWeight: 800, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--muted)', padding: '7px 10px', textAlign: 'right', whiteSpace: 'nowrap' };
   const td = { fontSize: 12.5, padding: '6px 10px', textAlign: 'right', borderTop: '1px solid var(--line)', whiteSpace: 'nowrap' };
@@ -232,6 +250,10 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
           {data.dept && <span><strong style={{ color: 'var(--ink)' }}>Department:</strong> {data.dept}</span>}
           <span><strong style={{ color: 'var(--ink)' }}>Pay rate:</strong> {money(rate)}/hr</span>
           <span><strong style={{ color: 'var(--ink)' }}>OT rule:</strong> {ruleInput === 'ca' ? 'California' : ruleInput === 'federal' ? 'Federal' : 'None'}</span>
+          {mgrAp && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 10px', borderRadius: 999, background: 'hsla(var(--color-green),0.1)', color: 'hsl(var(--color-green))', fontWeight: 700 }}>
+            <CheckCircle size={12} /> Manager approved · {nameFor(mgrAp.by)}</span>}
+          {fin && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 10px', borderRadius: 999, background: 'var(--ink)', color: 'var(--card)', fontWeight: 700 }}>
+            <CheckCircle size={12} /> Finalized · {nameFor(fin.by)} — period locked</span>}
         </div>
       )}
       {!stepLocked && !data?.rateSet && (
@@ -287,12 +309,12 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
                   <td style={{ ...td, textAlign: 'left', fontWeight: r.first === undefined ? 400 : 700, color: r.seg ? 'var(--ink)' : 'var(--muted)' }}>
                     {r.first === false ? '' : dow(r.ds)}
                   </td>
-                  <td style={{ ...td, textAlign: 'left' }}>{r.seg ? <InlineTime seg={r.seg} k="in" showRaw={showRaw} onSaved={load} toastErr={toastErr} /> : '—'}</td>
+                  <td style={{ ...td, textAlign: 'left' }}>{r.seg ? <InlineTime seg={r.seg} k="in" showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} /> : '—'}</td>
                   <td style={{ ...td, textAlign: 'left' }}>
                     {r.seg ? (r.seg.out
-                      ? <InlineTime seg={r.seg} k="out" showRaw={showRaw} onSaved={load} toastErr={toastErr} />
-                      : <button onClick={() => setEditDay({ date: r.ds, seg: r.seg })} title="Add the missing clock-out"
-                          style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: '#b91c1c', fontWeight: 700, font: 'inherit' }}>Missing</button>) : '—'}
+                      ? <InlineTime seg={r.seg} k="out" showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} />
+                      : <button onClick={() => !fin && setEditDay({ date: r.ds, seg: r.seg })} title={fin ? 'Period finalized — locked' : 'Add the missing clock-out'}
+                          style={{ background: 'none', border: 'none', padding: 0, cursor: fin ? 'default' : 'pointer', color: '#b91c1c', fontWeight: 700, font: 'inherit' }}>Missing</button>) : '—'}
                   </td>
                   <td style={{ ...td, color: r.seg?.deductedMin ? '#b45309' : 'var(--muted)' }}>{r.seg?.deductedMin ? `−${r.seg.deductedMin}m` : '—'}</td>
                   <td style={{ ...td, textAlign: 'left', color: r.seg?.category ? 'var(--ink)' : 'var(--muted)' }}>{r.seg?.category || '—'}</td>
@@ -308,11 +330,13 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
                   <td style={{ ...td, color: 'var(--muted)' }}>{r.seg ? `${money(rate)}/hr` : '—'}</td>
                   <td style={{ ...td, fontWeight: 700 }}>{r.seg ? money(r.seg.amount) : '—'}</td>
                   <td style={{ ...td, textAlign: 'center' }}>
-                    <button onClick={() => setEditDay({ date: r.ds, seg: r.seg })}
-                      title={r.seg ? 'Edit punch' : 'Add punch'}
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'inline-flex' }}>
-                      {r.seg ? <Pencil size={13} /> : <Plus size={14} />}
-                    </button>
+                    {!fin && (
+                      <button onClick={() => setEditDay({ date: r.ds, seg: r.seg })}
+                        title={r.seg ? 'Edit punch' : 'Add punch'}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'inline-flex' }}>
+                        {r.seg ? <Pencil size={13} /> : <Plus size={14} />}
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -390,7 +414,14 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
             )}
             <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
               <button className="secondary-btn" onClick={async () => { const up = await ensureStepUp(); if (!up.ok) { if (!up.cancelled) toastErr?.('Identity check didn’t complete.'); return; } api.timeExportCsv(start, end, 'punches'); }} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> CSV</button>
-              <button className="primary-btn" data-tour="pr-approve" onClick={approve} disabled={busy} style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 }}><CheckCircle size={13} /> Approve</button>
+              <button className="primary-btn" data-tour="pr-approve" onClick={approve} disabled={busy || !!fin}
+                title={fin ? 'Period is finalized' : mgrAp ? `Already approved by ${nameFor(mgrAp.by)} — re-approve to refresh` : 'Step 1: manager sign-off'}
+                style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 }}><CheckCircle size={13} /> Approve</button>
+              {isAdmin && (fin
+                ? <button className="secondary-btn" onClick={unfinalize} disabled={busy} title="HR: unlock this finalized period for corrections"
+                    style={{ fontSize: 12.5 }}>Unlock</button>
+                : <button className="secondary-btn" onClick={finalize} disabled={busy} title="Step 2 (HR): finalize for payroll and lock the period"
+                    style={{ fontSize: 12.5, fontWeight: 700 }}>Finalize</button>)}
             </div>
           </div>
         </div>
@@ -440,8 +471,8 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
           body: 'The pencil on any row edits that punch (or adds one on an empty day) — set the real in/out, location, and job category. Originals stay on record with who changed what, like SwipeClock\'s audit log.' },
         { target: 'pr-summary', title: 'Totals, in both formats',
           body: 'Regular, overtime (1.5×), and double-time (2×) hours with wages — shown as clock time AND decimal ("58:30 (58.50)"), matching SwipeClock\'s summary, so payroll can key either format.' },
-        { target: 'pr-approve', title: 'Approve = sign off',
-          body: 'When the card is right (and matches SwipeClock during the parallel run), Approve. That records the sign-off attestation below and notifies the employee. CSV exports the punches for records.' },
+        { target: 'pr-approve', title: 'Two-step sign-off',
+          body: 'Step 1 — the manager presses Approve when their person\'s card is right. Step 2 — HR presses Finalize: the period locks (no more edits, like SwipeClock\'s "finalized" periods) and payroll runs from it. Unlock reopens it if a correction is truly needed. CSV exports the punches for records.' },
       ]} />}
       <style>{`.pr-row:hover { background: var(--bg); } .pr-sidebar button:hover { background: var(--bg); }`}</style>
       </div>
@@ -456,10 +487,10 @@ const t12s = (iso) => iso ? new Date(iso + 'Z').toLocaleTimeString([], { hour: '
 // Shows the geo dot (green in-fence / red off-site) and, when "Show unrounded
 // times" is on, the raw seconds-precision time in small italics beside it —
 // exactly how SwipeClock renders its unrounded overlay.
-function InlineTime({ seg, k, showRaw, onSaved, toastErr }) {
+function InlineTime({ seg, k, showRaw, locked, onSaved, toastErr }) {
   const [editing, setEditing] = useState(false);
   const [val, setVal] = useState('');
-  const id = k === 'in' ? seg?.inId : seg?.outId;
+  const id = (locked ? '' : (k === 'in' ? seg?.inId : seg?.outId));
   const raw = k === 'in' ? seg?.in : seg?.out;
   const rounded = k === 'in' ? (seg?.inR || seg?.in) : (seg?.outR || seg?.out);
   if (!raw) return <span style={{ color: 'var(--muted)' }}>—</span>;

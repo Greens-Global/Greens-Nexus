@@ -161,6 +161,8 @@ def _run_migrations():
             "ALTER TABLE nexus_groups ADD COLUMN description VARCHAR DEFAULT ''",
             "ALTER TABLE nexus_groups ADD COLUMN monitoring_exempt INTEGER DEFAULT 0",
             "ALTER TABLE nexus_groups ADD COLUMN default_manager_email VARCHAR DEFAULT ''",
+            # Timecard two-step sign-off: manager approve vs HR finalize (locks)
+            "ALTER TABLE time_approvals ADD COLUMN kind VARCHAR DEFAULT 'manager'",
             # Company email domains — drive M365 import + auto company tagging
             "ALTER TABLE hr_entities ADD COLUMN domains VARCHAR DEFAULT ''",
             # Company manager (operational head; escalation target)
@@ -496,6 +498,7 @@ def _run_migrations():
         "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS description VARCHAR DEFAULT ''",
         "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS monitoring_exempt INTEGER DEFAULT 0",
         "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS default_manager_email VARCHAR DEFAULT ''",
+        "ALTER TABLE time_approvals ADD COLUMN IF NOT EXISTS kind VARCHAR DEFAULT 'manager'",
         # Company email domains — drive M365 import + auto company tagging
         "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS domains VARCHAR DEFAULT ''",
         # Company manager (operational head; escalation target)

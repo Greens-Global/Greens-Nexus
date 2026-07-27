@@ -477,6 +477,24 @@ def team_timesheet(start: str = "", end: str = "",
     return {"rows": rows}
 
 
+def _finalized_row(db: Session, email: str, d_start: str, d_end: str = ""):
+    """The non-revoked HR FINALIZATION covering [d_start, d_end or d_start] —
+    a finalized period is LOCKED: no punch edits, adds, voids, or re-approvals
+    until HR unlocks it. Mirrors SwipeClock's '(finalized)' periods."""
+    return (db.query(TimeApproval)
+            .filter(TimeApproval.employee_email == email,
+                    TimeApproval.revoked == 0,
+                    TimeApproval.kind == "final",
+                    TimeApproval.period_start <= d_start,
+                    TimeApproval.period_end >= (d_end or d_start))
+            .first())
+
+
+def _guard_not_finalized(db: Session, email: str, d_start: str, d_end: str = ""):
+    if _finalized_row(db, email, d_start, d_end):
+        raise HTTPException(403, "This pay period is finalized and locked. Ask HR to unlock it before changing time records.")
+
+
 class ApprovalIn(BaseModel):
     email: str
     start: str = ""
@@ -492,6 +510,11 @@ def approve_timecard(body: ApprovalIn, user: dict = Depends(require_team_write),
     scope = _visible_emails(db, user)
     if scope is not None and email not in scope:
         raise HTTPException(403, "You can only approve your own team's timecards.")
+    if body.days:
+        for _d in body.days:
+            _guard_not_finalized(db, email, _d)
+    elif body.start and body.end:
+        _guard_not_finalized(db, email, body.start, body.end)
     now = _now_iso()
 
     # ── Per-day mode: one approval row per date; re-approving a changed day
@@ -576,6 +599,71 @@ class PunchAdjust(BaseModel):
     category: Optional[str] = None       # job-costing / cost-code tag on the punch
 
 
+def _signoff_state(db: Session, email: str, start: str, end: str) -> dict:
+    """Both sign-off levels for one employee-period, for the timecard header:
+    the manager approval (kind 'manager' / legacy NULL) and the HR finalization."""
+    rows = (db.query(TimeApproval)
+            .filter(TimeApproval.employee_email == email, TimeApproval.revoked == 0,
+                    TimeApproval.period_start == start, TimeApproval.period_end == end).all())
+    approval = finalized = None
+    for r in rows:
+        d = {"by": r.approved_by, "at": r.approved_at, "workedMin": r.worked_min}
+        if (r.kind or "manager") == "final":
+            finalized = d
+        else:
+            approval = d
+    return {"approval": approval, "finalized": finalized}
+
+
+class FinalizeIn(BaseModel):
+    email: str
+    start: str
+    end: str
+
+
+@router.post("/finalize")
+def finalize_timecard(body: FinalizeIn, user: dict = Depends(require_administrator),
+                      db: Session = Depends(get_db)):
+    """HR's second-level sign-off (SwipeClock 'finalize'): locks the period —
+    punch edits/adds/approvals 403 until /unfinalize. Admin-only by design:
+    managers approve, HR finalizes."""
+    email = body.email.strip().lower()
+    if not body.start or not body.end:
+        raise HTTPException(400, "start and end are required")
+    if _finalized_row(db, email, body.start, body.end):
+        raise HTTPException(409, "Already finalized for this period")
+    _end_nx = (date.fromisoformat(body.end) + timedelta(days=1)).isoformat()
+    worked = sum(v["workedMin"] for k, v in _day_summaries(
+        _live_punches(db, email, body.start, _end_nx)).items() if k <= body.end)
+    row = TimeApproval(id=str(uuid.uuid4()), employee_email=email,
+                       period_start=body.start, period_end=body.end, worked_min=worked,
+                       approved_by=user["email"], approved_at=_now_iso(), kind="final")
+    db.add(row)
+    _hr_notify(db, email, "Timecard finalized",
+               f"Your timecard {body.start} – {body.end} is finalized for payroll. "
+               "Time records for this period are now locked.",
+               action={"view": "timeclock", "sub": ""})
+    db.commit()
+    return {"finalized": {"by": row.approved_by, "at": row.approved_at, "workedMin": worked}}
+
+
+@router.post("/unfinalize")
+def unfinalize_timecard(body: FinalizeIn, user: dict = Depends(require_administrator),
+                        db: Session = Depends(get_db)):
+    email = body.email.strip().lower()
+    row = (db.query(TimeApproval)
+           .filter(TimeApproval.employee_email == email, TimeApproval.revoked == 0,
+                   TimeApproval.kind == "final",
+                   TimeApproval.period_start == body.start,
+                   TimeApproval.period_end == body.end).first())
+    if not row:
+        raise HTTPException(404, "No finalization found for this period")
+    row.revoked = 1
+    row.revoked_by = user["email"]
+    db.commit()
+    return {"unfinalized": True}
+
+
 @router.patch("/punches/{punch_id}")
 def adjust_punch(punch_id: str, body: PunchAdjust,
                  user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
@@ -585,6 +673,7 @@ def adjust_punch(punch_id: str, body: PunchAdjust,
     scope = _visible_emails(db, user)
     if scope is not None and row.employee_email not in scope:
         raise HTTPException(403, "You can only adjust your own team's punches.")
+    _guard_not_finalized(db, row.employee_email, row.local_date)
     if body.at is not None:
         t = _parse_iso(body.at)
         if t is None:
@@ -637,6 +726,8 @@ def manager_add_punch(body: ManagerPunchIn, user: dict = Depends(require_team_wr
     scope = _visible_emails(db, user)
     if scope is not None and body.employee_email.strip().lower() not in scope:
         raise HTTPException(403, "You can only add punches for your own team.")
+    _guard_not_finalized(db, body.employee_email.strip().lower(),
+                         _local_date(body.at, body.tz_offset_min or 0))
     now = _now_iso()
     row = TimePunch(id=str(uuid.uuid4()), employee_email=body.employee_email.strip().lower(),
                     kind=body.kind, at=body.at[:19],
@@ -2380,7 +2471,9 @@ def payroll_timecard(email: str, start: str, end: str,
     scope = _visible_emails(db, user)
     if scope is not None and em not in scope:
         raise HTTPException(403, "Outside your team")
-    return _compute_timecard(db, em, start, end)
+    card = _compute_timecard(db, em, start, end)
+    card.update(_signoff_state(db, em, start, end))
+    return card
 
 
 @router.get("/my-payroll")
@@ -2392,6 +2485,7 @@ def my_payroll(start: str = "", user: dict = Depends(get_current_user), db: Sess
     anchor = start.strip() or today
     p_start, p_end = _pay_period(anchor)
     card = _compute_timecard(db, user["email"], p_start, p_end)
+    card.update(_signoff_state(db, user["email"], p_start, p_end))
     card["periodStart"], card["periodEnd"] = p_start, p_end
     card["periodDays"] = _PAYPERIOD_DAYS
     return card

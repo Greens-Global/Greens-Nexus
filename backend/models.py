@@ -1256,6 +1256,10 @@ class TimeApproval(Base):
     note           = Column(String, default="")
     revoked        = Column(Integer, default=0)
     revoked_by     = Column(String, default="")
+    # Two-step sign-off (SwipeClock parity): 'manager' = the direct manager's
+    # approval; 'final' = HR's payroll finalization, which LOCKS the period's
+    # punches against edits until revoked (unlock).
+    kind           = Column(String, default="manager")
 
 
 class TimeBod(Base):
