@@ -231,6 +231,36 @@ def _asana_push(task_id: str) -> None:
         pass
 
 
+def _asana_linked_gids(db: Session, task_ids: list) -> list:
+    """Asana gids for tasks about to be deleted, read BEFORE the rows go
+    (deleting them takes their AsanaTaskLink rows too). Fully guarded."""
+    try:
+        from asana_sync import linked_gids
+        return linked_gids(db, task_ids)
+    except Exception:
+        return []
+
+
+def _asana_queue_delete(db: Session, gids: list, title: str, code: str, actor: str) -> None:
+    """Record deletions owed to Asana, in the caller's transaction so the
+    tombstone commits with the delete. Fully guarded."""
+    try:
+        from asana_sync import queue_task_delete
+        queue_task_delete(db, gids, title, code, actor)
+    except Exception:
+        pass
+
+
+def _asana_push_deleted() -> None:
+    """Fire-and-forget drain of the queued deletions. No-op outside the sync
+    worker, where "Push all" drains them instead. Fully guarded."""
+    try:
+        from asana_sync import on_task_deleted
+        on_task_deleted()
+    except Exception:
+        pass
+
+
 def _asana_push_comment(comment_id: str) -> None:
     """Fire-and-forget outbound comment sync. Fully guarded."""
     try:
@@ -561,14 +591,31 @@ def delete_task(task_id: str, background_tasks: BackgroundTasks,
         if changed:
             other.modified_at = now_iso()
     # delete subtasks
-    for sub in db.query(models.Task).filter(models.Task.parent_task_id == task_id).all():
+    subs = db.query(models.Task).filter(models.Task.parent_task_id == task_id).all()
+    gone_ids = [task_id] + [sub.id for sub in subs]
+    # Asana counterparts of exactly the rows being deleted here, captured while
+    # the links still exist — once they're gone nothing can re-derive them, so
+    # unlike every other outbound change a lost deletion is lost for good.
+    asana_gids = _asana_linked_gids(db, gone_ids)
+    for sub in subs:
         db.delete(sub)
     db.query(models.TaskComment).filter(models.TaskComment.task_id == task_id).delete()
     db.query(models.TaskAttachment).filter(models.TaskAttachment.task_id == task_id).delete()
+    # A link left pointing at a deleted task blocks that Asana task from ever
+    # re-linking (_link_by_asana finds it, the task behind it is gone, and
+    # _apply_inbound bails) — so the links go when the tasks do.
+    db.query(models.AsanaTaskLink).filter(
+        models.AsanaTaskLink.nexus_task_id.in_(gone_ids)).delete(synchronize_session=False)
     log_activity(db, type="deleted", actor_email=user["email"], entity_id=task_id,
                  entity_code=t.code, entity_title=t.title, detail="deleted this task")
+    # Queued in THIS transaction so the tombstone lands with the delete. The
+    # actual Asana call happens after the commit (a failing one must never roll
+    # back the Nexus delete) and, off the sync worker, not at all until someone
+    # runs Push all.
+    _asana_queue_delete(db, asana_gids, t.title, t.code, user["email"])
     db.delete(t)
     db.commit()
+    _asana_push_deleted()
     fire_task_event(task_id, "deleted")
     background_tasks.add_task(notify_task_event, task_id, "deleted", user["email"], snapshot=deleted_snapshot)
 
