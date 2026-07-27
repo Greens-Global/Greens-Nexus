@@ -152,7 +152,7 @@ export const LINK_TYPES = [
 ];
 export const linkTypeLabel = (k) => (LINK_TYPES.find((l) => l.key === k) || {}).label || k;
 
-// ── Ticket status metadata (sentence-case labels; NX colours) ────────────────
+// ── Ticket status metadata (sentence-case labels; NX colors) ─────────────────
 export const TICKET_STATUS_META = {
   new:         { label: 'New',         color: NX.blue,   tint: 'rgba(37,99,235,0.15)' },
   open:        { label: 'Open',        color: NX.purple, tint: 'rgba(124,58,237,0.15)' },

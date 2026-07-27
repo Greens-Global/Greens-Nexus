@@ -259,6 +259,18 @@ def _run_migrations():
             "ALTER TABLE task_teams ADD COLUMN access_role VARCHAR DEFAULT 'editor'",
             # Manual override for ad-hoc-shared Asana teams the API can't reveal.
             "ALTER TABLE asana_project_map ADD COLUMN extra_team_names JSON DEFAULT '[]'",
+            # One Nexus task per Asana task. On a database that already carries
+            # duplicate links this can't build and is swallowed below — run
+            # Manage → Asana Sync → "Merge duplicates" (asana_sync.dedupe_tasks),
+            # which creates the same index once the duplicates are gone.
+            "CREATE UNIQUE INDEX IF NOT EXISTS ux_asana_task_link_gid ON asana_task_links (asana_gid) WHERE asana_gid <> ''",
+            # Two-way delete propagation (opt-out; see AsanaSyncConfig.delete_sync).
+            "ALTER TABLE asana_sync_config ADD COLUMN delete_sync BOOLEAN DEFAULT 1",
+            # Push-only digest (tags/followers/dependencies/section/attachments)
+            # so the reconcile sweep can skip an unchanged task outright.
+            "ALTER TABLE asana_task_links ADD COLUMN last_push_hash VARCHAR DEFAULT ''",
+            # Asana-side digest, so a pull only re-applies genuinely changed tasks.
+            "ALTER TABLE asana_task_links ADD COLUMN last_inbound_hash VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -535,6 +547,18 @@ def _run_migrations():
         "ALTER TABLE task_teams ADD COLUMN IF NOT EXISTS access_role VARCHAR DEFAULT 'editor'",
         # Manual override for ad-hoc-shared Asana teams the API can't reveal.
         "ALTER TABLE asana_project_map ADD COLUMN IF NOT EXISTS extra_team_names JSONB DEFAULT '[]'::jsonb",
+        # One Nexus task per Asana task. On a database that already carries
+        # duplicate links this can't build and is caught below — run
+        # Manage → Asana Sync → "Merge duplicates" (asana_sync.dedupe_tasks),
+        # which creates the same index once the duplicates are gone.
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_asana_task_link_gid ON asana_task_links (asana_gid) WHERE asana_gid <> ''",
+        # Two-way delete propagation (opt-out; see AsanaSyncConfig.delete_sync).
+        "ALTER TABLE asana_sync_config ADD COLUMN IF NOT EXISTS delete_sync BOOLEAN DEFAULT TRUE",
+        # Push-only digest (tags/followers/dependencies/section/attachments)
+        # so the reconcile sweep can skip an unchanged task outright.
+        "ALTER TABLE asana_task_links ADD COLUMN IF NOT EXISTS last_push_hash VARCHAR DEFAULT ''",
+        # Asana-side digest, so a pull only re-applies genuinely changed tasks.
+        "ALTER TABLE asana_task_links ADD COLUMN IF NOT EXISTS last_inbound_hash VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

@@ -3,7 +3,7 @@
 // Split out of the task module (Jul 2026, "Option A"): the ticket files live
 // here, but ticket state is still held in TasksContext and the shared UI atoms
 // and theme still come from ../tasks — so the task module itself is untouched.
-// Ticket statuses get their own colour map here (STATUS_META in tasks/theme.js
+// Ticket statuses get their own color map here (STATUS_META in tasks/theme.js
 // is for tasks, not tickets). Inline-styled to match the rest of the app.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Ticket, Plus, Search, Link2, Trash2, CheckCircle2, Clock, ClipboardList, Paperclip, Send, X, Download, MessageSquare, History, List as ListIcon, Columns3, BarChart3, ShieldAlert, ArrowUp, ArrowDown, ArrowUpDown, Star, Lock, Bookmark, SlidersHorizontal, Image as ImageIcon, ScanText, Camera, ImagePlus } from 'lucide-react';

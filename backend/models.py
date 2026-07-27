@@ -1999,6 +1999,11 @@ class AsanaSyncConfig(Base):
     default_project_gid = Column(String, default="")     # Asana project unmapped tasks push to
     last_pull_at        = Column(String, default="")      # ISO watermark for inbound polling
     updated_at          = Column(String, default="")
+    # Propagate deletions both ways: a task deleted in Asana is deleted in Nexus
+    # on the next pull/webhook, and deleting a Nexus task deletes its Asana
+    # counterpart. Separate from `enabled` because it's the one irreversible
+    # part of the sync — everything else this module does is additive.
+    delete_sync         = Column(Boolean, default=True)
 
 
 class AsanaProjectMap(Base):
@@ -2030,6 +2035,24 @@ class AsanaTaskLink(Base):
     asana_gid      = Column(String, default="", index=True)
     last_hash      = Column(String, default="")
     last_synced_at = Column(String, default="")
+    # Digest of the fields Asana can only take through a separate additive
+    # action rather than a task PUT — tags, followers, dependencies, section,
+    # attachments. They can't live in `last_hash` because that one is compared
+    # against a digest computed from Asana's own payload for loop prevention,
+    # and these have no comparable inbound form (dependencies are gids on one
+    # side and Nexus ids on the other). Keeping a second, push-only hash lets
+    # the reconcile sweep skip a task entirely instead of firing several HTTP
+    # calls per task per sweep.
+    last_push_hash = Column(String, default="")
+    # Digest of the ASANA-side values at the last inbound apply. `last_hash`
+    # can't do this job: it holds the NEXUS-side digest (what outbound compares
+    # against), and the two are legitimately unequal whenever the Asana project
+    # lacks the "Task Progress"/"Priority" custom fields — Nexus knows a status
+    # and priority that Asana simply cannot express. Comparing an inbound digest
+    # against it therefore never matched, so every pull re-applied every task,
+    # bumped modified_at and logged another "Updated from Asana" — 288 phantom
+    # activity entries per task per day at the 5-minute poll.
+    last_inbound_hash = Column(String, default="")
 
 
 class AsanaCommentLink(Base):
@@ -2051,6 +2074,42 @@ class AsanaAttachmentLink(Base):
     nexus_attachment_id = Column(String, default="", index=True)
     asana_attachment_gid = Column(String, default="", index=True)
     created_at          = Column(String, default="")
+
+
+class AsanaActivityLink(Base):
+    """Links a Nexus activity entry to the Asana story it came from. Asana's
+    /stories feed carries both comments (handled by AsanaCommentLink) and
+    SYSTEM stories — "changed the due date", "added to project", "marked
+    complete" — which are the Asana equivalent of Nexus's activity log. This
+    keys them by story gid so re-pulls don't replay the same history."""
+    __tablename__ = "asana_activity_links"
+    id                = Column(String, primary_key=True)
+    nexus_activity_id = Column(String, default="", index=True)
+    nexus_task_id     = Column(String, default="", index=True)
+    asana_story_gid   = Column(String, default="", index=True)
+    created_at        = Column(String, default="")
+
+
+class AsanaPendingDelete(Base):
+    """A Nexus task deletion still owed to Asana.
+
+    Every other outbound change can be re-derived from the Nexus rows on the
+    next push sweep — a deletion cannot: the task and its AsanaTaskLink are
+    gone, so nothing is left to notice the Asana counterpart is orphaned. The
+    fire-and-forget push is also the one outbound call with no safety net (it
+    is skipped entirely outside the sync worker, and a failed HTTP call or a
+    process restart loses it silently). Recording the gid in the SAME
+    transaction as the delete makes the intent durable, so it can be drained
+    later — by the sweep on dev/prod, or by "Push all" on a laptop."""
+    __tablename__ = "asana_pending_deletes"
+    id           = Column(String, primary_key=True)
+    asana_gid    = Column(String, default="", index=True)
+    task_title   = Column(String, default="")          # for reporting; the task row is gone
+    task_code    = Column(String, default="")
+    requested_by = Column(String, default="")
+    attempts     = Column(Integer, default=0)
+    last_error   = Column(String, default="")
+    created_at   = Column(String, default="")
 
 
 class AsanaWebhook(Base):

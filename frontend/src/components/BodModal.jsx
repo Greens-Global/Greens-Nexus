@@ -41,6 +41,15 @@ const MODES = {
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const FL = { fontSize: 11, fontWeight: 700, color: 'var(--muted)', letterSpacing: '.05em', textTransform: 'uppercase', display: 'block', marginBottom: 5 };
 
+// "24th", "1st", "22nd", "3rd" — the 11/12/13 exceptions fall through to "th".
+const ordinal = (n) => {
+  const v = n % 100;
+  if (v >= 11 && v <= 13) return `${n}th`;
+  return `${n}${['th', 'st', 'nd', 'rd'][n % 10] || 'th'}`;
+};
+const fmtWorked = (min) => `${Math.floor(min / 60)}:${String(min % 60).padStart(2, '0')} mins`;
+const todayLocalKey = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+
 export default function BodModal({ mode = 'bod', required = false, onSent, onSkip, onClose, toastOk, toastErr }) {
   const M = MODES[mode] || MODES.bod;
   const [message, setMessage] = useState('');
@@ -51,6 +60,7 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [ack, setAck] = useState(false);
+  const [workedMin, setWorkedMin] = useState(0);      // EOD only — total worked today, for the Line 3 tally
 
   // On open: resolve the ONE chat an admin bound to this person's group. Every
   // field starts EMPTY on purpose — pre-filling (yesterday's text, open tasks)
