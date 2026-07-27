@@ -1208,7 +1208,7 @@ function TicketDrawer({ ticketId, onClose, myDeptIds }) {
   const people = usePeople();
   const isMobile = useIsMobile();
   const { myLevel } = useRole();
-  const [tab, setTab] = useState('conversation');
+  const [tab, setTab] = useState('overview');
   const [companies, setCompanies] = useState([]);
   const [allDepts, setAllDepts] = useState([]);
   useEffect(() => {
@@ -1316,8 +1316,21 @@ function TicketDrawer({ ticketId, onClose, myDeptIds }) {
         {t.resolvedAt && <span style={{ fontSize: 12, color: NX.green, display: 'inline-flex', alignItems: 'center', gap: 4 }}><CheckCircle2 size={13} /> Resolved {fmtDate(t.resolvedAt)}{t.resolution ? ` · ${resolutionLabel(t.resolution)}` : ''}</span>}
       </div>
 
-      {/* Approval gate — the decision blocks triage, so it leads the drawer. */}
+      {/* Approval gate — the decision blocks triage, so it leads the drawer,
+          always visible regardless of which tab is open. */}
       <ApprovalPanel ticket={t} myEmail={myEmail} nameOf={nameOf} onDecided={onDecided} />
+
+      {/* Overview · Conversation · Attachments · Activity — a real tab strip up
+          top so Conversation/Attachments/Activity are one click away instead of
+          buried under the whole field list (people kept missing them). */}
+      <div style={{ borderTop: `1px solid ${NX.border}`, marginTop: 12, paddingTop: 12 }}>
+        <div style={{ display: 'flex', gap: 4, marginBottom: 14, flexWrap: 'wrap' }}>
+          {[['overview', 'Overview', ClipboardList], ['conversation', 'Conversation', MessageSquare], ['attachments', 'Attachments', Paperclip], ['activity', 'Activity', History]].map(([k, lab, Icon]) => (
+            <button key={k} onClick={() => setTab(k)} style={{ ...btn('ghost'), gap: 6, fontSize: 13, fontWeight: 600, padding: '6px 10px', borderRadius: 0, color: tab === k ? NX.blue : NX.dim, borderBottom: `2px solid ${tab === k ? NX.blue : 'transparent'}` }}><Icon size={14} />{lab}</button>
+          ))}
+        </div>
+
+        {tab === 'overview' && (<>
 
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
         <div style={field}>
@@ -1483,13 +1496,7 @@ function TicketDrawer({ ticketId, onClose, myDeptIds }) {
         </div>
       </div>
 
-      {/* Conversation · Attachments · Activity */}
-      <div style={{ borderTop: `1px solid ${NX.border}`, marginTop: 16, paddingTop: 12 }}>
-        <div style={{ display: 'flex', gap: 4, marginBottom: 12 }}>
-          {[['conversation', 'Conversation', MessageSquare], ['attachments', 'Attachments', Paperclip], ['activity', 'Activity', History]].map(([k, lab, Icon]) => (
-            <button key={k} onClick={() => setTab(k)} style={{ ...btn('ghost'), gap: 6, fontSize: 13, fontWeight: 600, padding: '6px 10px', borderRadius: 0, color: tab === k ? NX.blue : NX.dim, borderBottom: `2px solid ${tab === k ? NX.blue : 'transparent'}` }}><Icon size={14} />{lab}</button>
-          ))}
-        </div>
+        </>)}
         {tab === 'conversation' && <TicketConversation ticketId={t.id} nameOf={nameOf} />}
         {tab === 'attachments' && <TicketAttachments ticketId={t.id} />}
         {tab === 'activity' && <TicketActivity ticketId={t.id} nameOf={nameOf} />}
