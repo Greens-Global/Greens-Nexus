@@ -164,8 +164,11 @@ def _ticket_url(base_url: str, ticket_id: str) -> str:
 
 # ── Per-event builders — each returns (subject, html) ────────────────────────
 
+COMPANY_NAME = "Greens Global"
+
+
 def created_email_requester(*, t: dict, base_url: str, logo_url: str) -> tuple[str, str]:
-    subject = f"[Ticket #{t['code']}] Ticket Created Successfully – {t['code']} – {t['subject']}"
+    subject = f"{COMPANY_NAME} - {t['subject']} - Ticket Created"
     html = ticket_email_html(
         ticket_code=t["code"], ticket_subject=t["subject"], status=t["status"],
         heading="Your ticket has been submitted",
@@ -185,7 +188,7 @@ def created_email_requester(*, t: dict, base_url: str, logo_url: str) -> tuple[s
 
 
 def created_email_dept_head(*, t: dict, base_url: str, logo_url: str) -> tuple[str, str]:
-    subject = f"[Ticket #{t['code']}] New Ticket Requires Assignment – {t['code']} – {t['subject']}"
+    subject = f"{COMPANY_NAME} - {t['subject']} - Needs Assignment"
     html = ticket_email_html(
         ticket_code=t["code"], ticket_subject=t["subject"], status=t["status"],
         heading="A new ticket needs to be assigned",
@@ -204,7 +207,7 @@ def created_email_dept_head(*, t: dict, base_url: str, logo_url: str) -> tuple[s
 
 
 def approval_email(*, t: dict, base_url: str, logo_url: str) -> tuple[str, str]:
-    subject = f"[Ticket #{t['code']}] Approval Required – {t['code']} – {t['subject']}"
+    subject = f"{COMPANY_NAME} - {t['subject']} - Approval Required"
     html = ticket_email_html(
         ticket_code=t["code"], ticket_subject=t["subject"], status=t["status"],
         heading="This ticket is waiting for your approval",
@@ -223,7 +226,7 @@ def approval_email(*, t: dict, base_url: str, logo_url: str) -> tuple[str, str]:
 
 
 def assigned_email(*, t: dict, base_url: str, logo_url: str, audience: str) -> tuple[str, str]:
-    subject = f"[Ticket #{t['code']}] Ticket Assigned – {t['code']} – Assigned to {t.get('assigneeName') or t.get('assigneeId')}"
+    subject = f"{COMPANY_NAME} - {t['subject']} - Assigned to {t.get('assigneeName') or t.get('assigneeId')}"
     intro = (
         "You've been assigned this ticket — please review and take action."
         if audience == "assignee" else
@@ -255,7 +258,7 @@ def update_email(*, t: dict, base_url: str, logo_url: str, update_kind: str,
     # Comment updates render Zendesk-style: the conversation thread (avatars from
     # Nexus People, full bodies, newest first) replaces the details table.
     if thread:
-        subject = f"[Ticket #{t['code']}] New comment from {actor} – {t['code']} – {t['subject']}"
+        subject = f"{COMPANY_NAME} - {t['subject']} - New Comment from {actor}"
         html = ticket_email_html(
             ticket_code=t["code"], ticket_subject=t["subject"], status=t["status"],
             heading=f"{actor} replied to this ticket",
@@ -264,7 +267,7 @@ def update_email(*, t: dict, base_url: str, logo_url: str, update_kind: str,
             thread=thread,
         )
         return subject, html
-    subject = f"[Ticket #{t['code']}] Ticket Update – {t['code']} – {TICKET_STATUS_META.get(t['status'], {}).get('label', t['status'])}"
+    subject = f"{COMPANY_NAME} - {t['subject']} - Status Update: {TICKET_STATUS_META.get(t['status'], {}).get('label', t['status'])}"
     # No "Update" row — the intro line already says what changed. Comments get
     # their own full-width block below the table instead of a cramped row.
     rows = [
@@ -286,7 +289,7 @@ def update_email(*, t: dict, base_url: str, logo_url: str, update_kind: str,
 
 
 def resolved_email(*, t: dict, base_url: str, logo_url: str, audience: str) -> tuple[str, str]:
-    subject = f"[Ticket #{t['code']}] Ticket Resolved – {t['code']} – {t['subject']}"
+    subject = f"{COMPANY_NAME} - {t['subject']} - Resolved"
     secondary = None
     note = ""
     if audience == "requester":
@@ -316,7 +319,7 @@ def resolved_email(*, t: dict, base_url: str, logo_url: str, audience: str) -> t
 
 
 def reopened_email(*, t: dict, base_url: str, logo_url: str, reason: str = "") -> tuple[str, str]:
-    subject = f"[Ticket #{t['code']}] Ticket Reopened – {t['code']} – Action Required"
+    subject = f"{COMPANY_NAME} - {t['subject']} - Reopened, Action Required"
     html = ticket_email_html(
         ticket_code=t["code"], ticket_subject=t["subject"], status=t["status"],
         heading="This ticket has been reopened",

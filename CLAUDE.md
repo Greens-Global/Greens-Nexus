@@ -179,9 +179,12 @@ Old `hardware_assets` table (IT module) is legacy — planned to fold into
   dev.nexus site — if your local backend points at it via `DATABASE_URL`,
   SELECT freely but only mutate rows/tables you created.
 - DevTools "Disable cache" makes image caching look broken — uncheck it before
-  judging load behaviour.
+  judging load behavior.
 - The root README describes an old static site — ignore it; this file and
   `git log --oneline` are the real documentation.
+- Use American English spelling everywhere — code, comments, UI copy, email/
+  notification templates, docs (e.g. "color" not "colour", "behavior" not
+  "behaviour", "organize" not "organise", "license" not "licence").
 
 ## graphify
 
