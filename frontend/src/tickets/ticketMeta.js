@@ -35,11 +35,9 @@ export const TICKET_TYPE_ORDER = ['bug', 'incident', 'service_request', 'feature
 // Field types: text · textarea · select · radio · number · date · datetime ·
 //              person · multiperson · project · multiselect · checklist. `req`
 //              marks required (shown with *), `full` spans both grid columns.
-export const ENV_OPTS = ['Production', 'UAT', 'QA', 'Development'];
 export const TYPE_FIELDS = {
   bug: [
     { key: 'module', label: 'Application / Module', type: 'text', req: true },
-    { key: 'environment', label: 'Environment', type: 'radio', options: ENV_OPTS, req: true },
     { key: 'browser', label: 'Browser', type: 'select', options: ['Chrome', 'Firefox', 'Safari', 'Edge', 'Other'] },
     { key: 'os', label: 'OS', type: 'select', options: ['Windows', 'macOS', 'Linux', 'iOS', 'Android', 'Other'] },
     { key: 'stepsToReproduce', label: 'Steps to Reproduce', type: 'textarea', full: true, req: true, placeholder: '1.\n2.\n3.' },
@@ -50,7 +48,6 @@ export const TYPE_FIELDS = {
   ],
   incident: [
     { key: 'affectedService', label: 'Affected Service', type: 'text', req: true },
-    { key: 'environment', label: 'Environment', type: 'radio', options: ['Production', 'UAT', 'QA'], req: true },
     { key: 'occurredAt', label: 'Date & Time Occurred', type: 'datetime', req: true },
     // Impact = how wide the blast radius is. Urgency deliberately lives on the
     // common Priority field (which also derives the SLA date) — asking both here
@@ -59,7 +56,6 @@ export const TYPE_FIELDS = {
     { key: 'affectedUsers', label: 'Affected Users', type: 'multiperson' },
     { key: 'workaroundAvailable', label: 'Workaround Available?', type: 'radio', options: ['Yes', 'No'] },
     { key: 'workaroundDetail', label: 'Workaround (if yes)', type: 'textarea', full: true },
-    { key: 'errorLogs', label: 'Error Logs', type: 'textarea', full: true },
   ],
   service_request: [
     // Service Category removed — the department chosen in step 1 already says
