@@ -28,6 +28,11 @@ export const TICKET_TYPE_META = {
 // department lead assigns them). Escalate a ticket into a task instead.
 export const TICKET_TYPE_ORDER = ['bug', 'incident', 'service_request', 'feature_request', 'question', 'change_request', 'access_request'];
 
+// Screen recording is for showing a reproducible problem (bugs, incidents) —
+// feature and service requests are asks, not something to demonstrate on
+// screen, so the Record option is hidden for them (Upload still works).
+export const NO_RECORDING_TYPES = ['feature_request', 'service_request'];
+
 // Per-type intake fields — the extra questions each ticket type asks, on top of
 // the common ones: Company, Department and Type (wizard step 1), then Priority,
 // Title and Description (step 2). Don't re-ask any of those here.

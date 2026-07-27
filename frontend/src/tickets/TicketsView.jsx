@@ -18,7 +18,7 @@ import { Avatar, PriorityChip, EmptyState, Modal, PersonSelect, usePeople, DateF
 import MobileTaskBar, { BottomSheet } from '../tasks/MobileTaskBar';
 import { Card, LightBar, Donut } from '../tasks/views/charts';
 import {
-  fmtDate, today, requiredHint, TICKET_TYPE_META, TICKET_TYPE_ORDER, TYPE_FIELDS,
+  fmtDate, today, requiredHint, TICKET_TYPE_META, TICKET_TYPE_ORDER, TYPE_FIELDS, NO_RECORDING_TYPES,
   TICKET_RESOLUTION, LINK_TYPES, TICKET_STATUS_META, TICKET_STATUS_ORDER, CLOSED_STATES,
   SLA_TARGET_HOURS, SLA_META, slaState, slaDueFromPriority, isBlankFieldValue, toEmailList,
   label, field, resolutionLabel, linkTypeLabel, APPROVAL_META,
@@ -804,7 +804,7 @@ async function uploadTicketFile(ticketId, f) {
 // narration) or a plain file picker. `onFile(file)` gets a plain File each
 // time (recordings become File objects too); the caller decides whether to
 // queue it locally (pre-creation) or upload it immediately (post-creation).
-function RecordUploadButtons({ onFile, disabled }) {
+function RecordUploadButtons({ onFile, disabled, showRecord = true }) {
   const fileRef = useRef(null);
   const [menu, setMenu] = useState(false);
   const [recording, setRecording] = useState(false);
@@ -831,24 +831,26 @@ function RecordUploadButtons({ onFile, disabled }) {
 
   return (
     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-      <div style={{ position: 'relative' }}>
-        <button type="button" disabled={disabled || recording} onClick={() => setMenu((m) => !m)}
-          style={{ ...btn('outline'), fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          {recording ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <CircleDot size={13} style={{ color: NX.red }} />}
-          {recording ? 'Recording…' : 'Record'}
-        </button>
-        {menu && <div onClick={() => setMenu(false)} style={{ position: 'fixed', inset: 0, zIndex: 15 }} />}
-        {menu && (
-          <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 6, zIndex: 20, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 10px 30px rgba(0,0,0,.18)', padding: 4, width: 210 }}>
-            <button type="button" onClick={() => record(false)} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8, fontSize: 12 }}>
-              <Video size={14} /> Screen recording
-            </button>
-            <button type="button" onClick={() => record(true)} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8, fontSize: 12 }}>
-              <Mic size={14} /> Screen + narration
-            </button>
-          </div>
-        )}
-      </div>
+      {showRecord && (
+        <div style={{ position: 'relative' }}>
+          <button type="button" disabled={disabled || recording} onClick={() => setMenu((m) => !m)}
+            style={{ ...btn('outline'), fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            {recording ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <CircleDot size={13} style={{ color: NX.red }} />}
+            {recording ? 'Recording…' : 'Record'}
+          </button>
+          {menu && <div onClick={() => setMenu(false)} style={{ position: 'fixed', inset: 0, zIndex: 15 }} />}
+          {menu && (
+            <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 6, zIndex: 20, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 10px 30px rgba(0,0,0,.18)', padding: 4, width: 210 }}>
+              <button type="button" onClick={() => record(false)} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8, fontSize: 12 }}>
+                <Video size={14} /> Screen recording
+              </button>
+              <button type="button" onClick={() => record(true)} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8, fontSize: 12 }}>
+                <Mic size={14} /> Screen + narration
+              </button>
+            </div>
+          )}
+        </div>
+      )}
       <button type="button" disabled={disabled} onClick={() => fileRef.current?.click()}
         style={{ ...btn('outline'), fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
         <UploadIcon size={13} /> Upload
@@ -1147,7 +1149,7 @@ export function CreateTicketModal({ onClose }) {
 
       <div style={field}>
         <label style={label}>Evidence</label>
-        <RecordUploadButtons onFile={(f) => setAttachments((prev) => [...prev, f])} />
+        <RecordUploadButtons onFile={(f) => setAttachments((prev) => [...prev, f])} showRecord={!NO_RECORDING_TYPES.includes(form.type)} />
         {attachments.length > 0 && (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
             {attachments.map((f, i) => (
@@ -1498,7 +1500,7 @@ function TicketDrawer({ ticketId, onClose, myDeptIds }) {
 
         </>)}
         {tab === 'conversation' && <TicketConversation ticketId={t.id} nameOf={nameOf} />}
-        {tab === 'attachments' && <TicketAttachments ticketId={t.id} />}
+        {tab === 'attachments' && <TicketAttachments ticketId={t.id} ticketType={t.type} />}
         {tab === 'activity' && <TicketActivity ticketId={t.id} nameOf={nameOf} />}
       </div>
     </Modal>
@@ -1869,7 +1871,7 @@ function TicketConversation({ ticketId, nameOf }) {
 }
 
 // ── Attachments ──────────────────────────────────────────────────────────────
-function TicketAttachments({ ticketId }) {
+function TicketAttachments({ ticketId, ticketType }) {
   const [rows, setRows] = useState(null);
   const [busy, setBusy] = useState(false);
   const reload = () => api.getTicketAttachments(ticketId).then(setRows).catch(() => setRows([]));
@@ -1896,7 +1898,7 @@ function TicketAttachments({ ticketId }) {
   return (
     <div onPaste={onPaste} tabIndex={0} style={{ outline: 'none' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
-        <RecordUploadButtons onFile={sendFile} disabled={busy} />
+        <RecordUploadButtons onFile={sendFile} disabled={busy} showRecord={!NO_RECORDING_TYPES.includes(ticketType)} />
         {busy && <Loader2 size={14} style={{ animation: 'spin 1s linear infinite', color: NX.faint }} />}
         <span style={{ fontSize: 11, color: NX.faint }}>or press Ctrl+V to paste a screenshot</span>
       </div>
