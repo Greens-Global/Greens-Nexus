@@ -1,11 +1,12 @@
 import { useState, useEffect, useMemo } from 'react';
 import {
-  Shield, Plus, X, Search, Loader2, Pencil, Trash2, UserPlus, Check, ChevronRight, LayoutGrid, Copy, MonitorOff,
+  Shield, Plus, X, Search, Loader2, Pencil, Trash2, UserPlus, Check, ChevronRight, LayoutGrid, Copy, MonitorOff, PlayCircle,
 } from 'lucide-react';
 import { api } from '../api';
 import { useRole, MODULES, MODULE_LEVELS, ROLES } from '../contexts/RoleContext';
 import { useNameResolver } from '../lib/useNameResolver';
 import { capabilityText } from '../lib/moduleCapabilities';
+import GuidedTour from '../components/GuidedTour';
 
 // ── Roles & Access — access is defined by Job Roles (a template = tier + module
 // bundle, driven by job description) plus additive Groups on top. This screen
@@ -65,6 +66,7 @@ export default function RolesAccess({ embedded = false }) {
   const [selId, setSelId] = useState(null);
   const [openGroup, setOpenGroup] = useState(null); // group id whose member list is expanded
   const [toast, setToast] = useState(null);
+  const [tour, setTour] = useState(false);          // Simulate walkthrough open?
 
   const toastOk = m => { setToast({ m, kind: 'ok' }); setTimeout(() => setToast(null), 3500); };
   const toastErr = m => { setToast({ m, kind: 'error' }); setTimeout(() => setToast(null), 5000); };
@@ -97,6 +99,29 @@ export default function RolesAccess({ embedded = false }) {
     catch (e) { toastErr(e?.message || 'Could not remove.'); }
   }
 
+  // Simulate — the guided walkthrough. Clicks are shielded while it runs, so it
+  // can point at the real buttons without any risk of changing live access.
+  const tourSteps = [
+    { target: 'tabs', title: 'One rule runs this whole screen',
+      body: 'A person’s access = their job role + any extra groups. Nothing else. These three tabs are the whole system: the Matrix (see everything), Job roles (the baselines), and Groups (the extras).' },
+    { target: 'matrix', before: () => setSub('matrix'), title: 'The matrix — the whole company at a glance',
+      body: 'Each row is a job role, each column is a screen, and the pill says how much that role can do there. An empty dash means no access. Hover any pill for a plain-English description of what it allows.' },
+    { target: 'person-check', before: () => setSub('matrix'), title: 'Check any person',
+      body: 'Not sure what someone can actually do? Type their name here. You’ll get their full access list, and every line says where it came from — their job role or a specific group.' },
+    { target: 'new-role', before: () => setSub('jobroles'), title: 'Job roles live here',
+      body: 'A job role is a job title plus its access bundle. When someone is hired or changes jobs, you assign the role and all its access follows automatically. Click here to create one from scratch.' },
+    { target: 'role-list', before: () => setSub('jobroles'), title: 'Pick a role to see inside it',
+      body: 'Select any role to see its access bundle and the people who hold it. Editing the bundle updates everyone in the role at once — that’s the point.' },
+    { target: 'duplicate', before: () => { setSub('jobroles'); if (!selId && (jobRoles || [])[0]) setSelId(jobRoles[0].id); }, title: 'Same job, more power? Duplicate.',
+      body: 'For a supervisor version of an existing role: press Duplicate, rename it (“Site Supervisor”), raise the tier and the module levels, save. The original role and its people are untouched.' },
+    { target: 'assign', before: () => { setSub('jobroles'); if (!selId && (jobRoles || [])[0]) setSelId(jobRoles[0].id); }, title: 'Map people to the role',
+      body: 'This assigns the role as someone’s primary job role — their baseline access and seniority tier come with it. You can also do this from the person’s card in People.' },
+    { target: 'new-group', before: () => setSub('groups'), title: 'Groups — extra access on top',
+      body: 'Same job but extra duties? Don’t touch their role — add them to a group. Groups only ever ADD access on top of the role, and removing someone from a group never affects their job-role baseline.' },
+    { target: 'tabs', title: 'That’s the whole system',
+      body: 'Access = job role + groups. Hire → assign role. Promotion → switch role (Duplicate if the role doesn’t exist yet). Extra duties → group. And when in doubt, check the person in the Matrix tab.' },
+  ];
+
   return (
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
       {!embedded && (
@@ -109,7 +134,7 @@ export default function RolesAccess({ embedded = false }) {
       )}
 
       {/* underline tabs (native) */}
-      <div className="scroll-tabs" style={{ display: 'flex', gap: 8, marginBottom: 24, borderBottom: '1px solid var(--line)', paddingBottom: 1 }}>
+      <div className="scroll-tabs" data-tour="tabs" style={{ display: 'flex', gap: 8, marginBottom: 24, borderBottom: '1px solid var(--line)', paddingBottom: 1, alignItems: 'center' }}>
         {TABS.map(([key, label, Icon]) => (
           <button key={key} onClick={() => setSub(key)}
             style={{ background: 'none', border: 'none', padding: '10px 16px', fontFamily: 'Inter,sans-serif', fontWeight: 600, fontSize: 13.5, cursor: 'pointer', color: sub === key ? 'var(--ink)' : 'var(--muted)', position: 'relative', display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap' }}>
@@ -117,19 +142,28 @@ export default function RolesAccess({ embedded = false }) {
             {sub === key && <span style={{ position: 'absolute', left: 0, right: 0, bottom: -1, height: 2.5, background: 'var(--ink)', borderRadius: '4px 4px 0 0' }} />}
           </button>
         ))}
+        <span style={{ flex: 1 }} />
+        <button onClick={() => setTour(true)} title="A guided walkthrough of how to give out access — nothing is changed while it runs."
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'none', border: '1px solid var(--line)', borderRadius: 999, padding: '6px 14px', margin: '4px 4px 8px 0', fontFamily: 'Inter,sans-serif', fontWeight: 700, fontSize: 12.5, cursor: 'pointer', color: 'var(--ink)', whiteSpace: 'nowrap' }}>
+          <PlayCircle size={15} /> Simulate
+        </button>
       </div>
 
       {/* ── MATRIX ── */}
       {sub === 'matrix' && (
         <>
-          <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12, fontSize: 12, color: 'var(--muted)' }}>
+          <PersonAccessCheck nameOf={nameOf} />
+          <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center', margin: '18px 0 12px', fontSize: 12, color: 'var(--muted)' }}>
             <span style={{ fontWeight: 700 }}>Access level:</span>
-            {LEVEL_ORDER.map(l => <span key={l} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><LevelPill level={l} /></span>)}
+            {LEVEL_ORDER.map(l => (
+              <span key={l} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }} title={MODULE_LEVELS[l]?.description || ''}><LevelPill level={l} /></span>
+            ))}
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><LevelPill level={null} /> No access</span>
+            <span style={{ fontStyle: 'italic' }}>Hover any pill to see what it lets someone do.</span>
           </div>
           {!jobRoles ? <Spinner /> : jobRoles.length === 0 ? <Empty text="No job roles yet — create one in the Job roles tab." />
             : (
-              <div style={{ border: '1px solid var(--line)', borderRadius: 14, overflow: 'auto', maxHeight: '72vh', background: 'var(--card)', boxShadow: 'var(--shadow-sm)' }}>
+              <div data-tour="matrix" style={{ border: '1px solid var(--line)', borderRadius: 14, overflow: 'auto', maxHeight: '72vh', background: 'var(--card)', boxShadow: 'var(--shadow-sm)' }}>
                 <table style={{ borderCollapse: 'separate', borderSpacing: 0, width: 'max-content', minWidth: '100%' }}>
                   <thead>
                     <tr>
@@ -150,6 +184,29 @@ export default function RolesAccess({ embedded = false }) {
                         </tr>
                       );
                     })}
+                    {(groups || []).length > 0 && (
+                      <>
+                        <tr>
+                          <th style={{ ...thRow, borderTop: '2px solid var(--line)', paddingTop: 14 }} >
+                            <div style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--muted)' }}>Extra access groups</div>
+                            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3, fontWeight: 400 }}>Added on top of a job role</div>
+                          </th>
+                          {GRANTABLE.map(m => <td key={m.id} style={{ ...tdCell, borderTop: '2px solid var(--line)' }} />)}
+                        </tr>
+                        {groups.map(g => {
+                          const byId = Object.fromEntries((g.allowed_modules || []).map(x => [x.id, x.level]));
+                          return (
+                            <tr key={g.id}>
+                              <th style={thRow}>
+                                <div style={{ fontWeight: 700, fontSize: 13 }}>{g.name}</div>
+                                <div style={{ marginTop: 4, fontSize: 11, color: 'var(--muted)' }}>{(g.members || []).length} {(g.members || []).length === 1 ? 'person' : 'people'}</div>
+                              </th>
+                              {GRANTABLE.map(m => <td key={m.id} style={tdCell}><LevelPill level={byId[m.id]} title={byId[m.id] ? `${m.label} · ${MODULE_LEVELS[byId[m.id]]?.label}\n${capabilityText(m.id, byId[m.id], m.label)}` : ''} /></td>)}
+                            </tr>
+                          );
+                        })}
+                      </>
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -162,9 +219,9 @@ export default function RolesAccess({ embedded = false }) {
         !jobRoles ? <Spinner /> : (
           <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: 18 }} className="ra-grid">
             <div style={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'flex-end' }}>
-              <button className="primary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }} onClick={() => setEditing(null)}><Plus size={15} /> New Job Role</button>
+              <button className="primary-btn" data-tour="new-role" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }} onClick={() => setEditing(null)}><Plus size={15} /> New job role</button>
             </div>
-            <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 6, alignSelf: 'start' }}>
+            <div data-tour="role-list" style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 6, alignSelf: 'start' }}>
               {jobRoles.length === 0 ? <Empty text="No job roles yet." /> : jobRoles.map(r => (
                 <button key={r.id} onClick={() => setSelId(r.id)}
                   style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px', borderRadius: 10, border: 'none', width: '100%', textAlign: 'left', background: selId === r.id ? 'color-mix(in srgb, var(--ink) 8%, transparent)' : 'none', cursor: 'pointer' }}>
@@ -189,10 +246,10 @@ export default function RolesAccess({ embedded = false }) {
                     )}
                     <TierBadge tier={selected.tier} />
                     <button className="secondary-btn" style={{ padding: '6px 10px' }} onClick={() => setEditing(selected)} title="Edit role"><Pencil size={13} /></button>
-                    <button className="secondary-btn" style={{ padding: '6px 10px', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                    <button className="secondary-btn" data-tour="duplicate" style={{ padding: '6px 10px', display: 'inline-flex', alignItems: 'center', gap: 6 }}
                       onClick={() => setEditing({ ...selected, id: undefined, member_count: 0, members: [],
                         name: /\d+$/.test(selected.name) ? selected.name.replace(/(\d+)$/, m => String(+m + 1)) : `${selected.name} 2` })}
-                      title="Duplicate this role into a new one (e.g. for a promotion tier)"><Copy size={13} /> Duplicate</button>
+                      title="Duplicate this role into a new one (e.g. for a supervisor tier)"><Copy size={13} /> Duplicate</button>
                     <button className="secondary-btn" style={{ padding: '6px 10px' }} onClick={() => onDelete(selected)} title="Delete role"><Trash2 size={13} /></button>
                   </div>
                   {selected.description && <p style={{ color: 'var(--muted)', fontSize: 13, margin: '8px 0 0', maxWidth: '60ch' }}>{selected.description}</p>}
@@ -222,7 +279,7 @@ export default function RolesAccess({ embedded = false }) {
                       ))}
                     </div>
                   )}
-                  <button className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }} onClick={() => setAssignFor(selected)}>
+                  <button className="secondary-btn" data-tour="assign" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }} onClick={() => setAssignFor(selected)}>
                     <UserPlus size={14} /> Assign a person
                   </button>
                   <div style={{ marginTop: 14, background: 'hsla(var(--color-blue),0.08)', border: '1px solid hsla(var(--color-blue),0.2)', borderRadius: 10, padding: '10px 12px', fontSize: 12.5, color: 'var(--ink)' }}>
@@ -240,7 +297,7 @@ export default function RolesAccess({ embedded = false }) {
         !groups ? <Spinner /> : (
           <>
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
-              <button className="primary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }} onClick={() => setEditGroup(null)}><Plus size={15} /> New Group</button>
+              <button className="primary-btn" data-tour="new-group" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }} onClick={() => setEditGroup(null)}><Plus size={15} /> New group</button>
             </div>
             <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 6 }}>
               {groups.length === 0 ? <Empty text="No additive groups yet. Create one to grant extra access on top of a job role." /> : groups.map(g => {
@@ -295,11 +352,96 @@ export default function RolesAccess({ embedded = false }) {
         onSaved={g => { setEditGroup(undefined); toastOk(`Saved “${g.name}”.`); loadGroups(); }} onErr={toastErr} />}
       {assignFor && <AssignModal role={assignFor} onClose={() => setAssignFor(null)}
         onAssigned={n => { toastOk(`Assigned ${n} to “${assignFor.name}”.`); loadRoles(); }} onErr={toastErr} />}
+      {tour && <GuidedTour steps={tourSteps} onClose={() => setTour(false)} />}
 
       {toast && (
         <div style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', background: toast.kind === 'error' ? 'hsl(var(--color-red))' : 'hsl(var(--color-green))', color: '#fff', borderRadius: 10, padding: '10px 18px', fontSize: 13, fontWeight: 600, zIndex: 1300, boxShadow: 'var(--shadow-lg)', maxWidth: '90vw' }}>{toast.m}</div>
       )}
       <style>{`@media (max-width:820px){.ra-grid{grid-template-columns:1fr !important}}`}</style>
+    </div>
+  );
+}
+
+// ── person lookup — "what can this person do, and why?" ──────────────────────
+// Lives on the Matrix tab. Backed by /jobroles/effective/{email}: every line of
+// access carries its source, so the answer is always explainable.
+function PersonAccessCheck({ nameOf }) {
+  const [dir, setDir] = useState(null);
+  const [q, setQ] = useState('');
+  const [open, setOpen] = useState(false);
+  const [picked, setPicked] = useState(null);   // email
+  const [eff, setEff] = useState(null);         // effective-access payload
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => { api.getPeopleDirectory().then(setDir).catch(() => setDir([])); }, []);
+  const people = useMemo(() => (dir || [])
+    .map(p => ({ email: (p.email || p.workEmail || '').toLowerCase(), name: p.display_name || p.name || p.fullName || p.email || '' }))
+    .filter(p => p.email), [dir]);
+  const matches = q.trim()
+    ? people.filter(p => p.name.toLowerCase().includes(q.toLowerCase()) || p.email.includes(q.toLowerCase())).slice(0, 8)
+    : [];
+
+  async function pick(p) {
+    setQ(p.name); setOpen(false); setPicked(p.email); setBusy(true); setEff(null);
+    try { setEff(await api.getEffectiveAccess(p.email)); }
+    catch { setEff({ error: true }); }
+    setBusy(false);
+  }
+
+  return (
+    <div data-tour="person-check" style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 16, boxShadow: 'var(--shadow-sm)' }}>
+      <div style={{ fontSize: 13.5, fontWeight: 800, marginBottom: 4 }}>Check a person's access</div>
+      <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 10 }}>See exactly what someone can do, and where each permission comes from.</div>
+      <div style={{ position: 'relative', maxWidth: 420 }}>
+        <Search size={15} style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
+        <input value={q} onChange={e => { setQ(e.target.value); setOpen(true); setPicked(null); setEff(null); }}
+          placeholder="Type a name…" style={{ ...input, paddingLeft: 34 }} />
+        {open && matches.length > 0 && (
+          <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 20, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, marginTop: 4, boxShadow: 'var(--shadow-lg)', overflow: 'hidden' }}>
+            {matches.map(p => (
+              <button key={p.email} onClick={() => pick(p)}
+                style={{ display: 'block', width: '100%', textAlign: 'left', padding: '9px 12px', border: 'none', background: 'none', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}
+                onMouseOver={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--ink) 6%, transparent)'; }}
+                onMouseOut={e => { e.currentTarget.style.background = 'none'; }}>
+                <span style={{ fontWeight: 600, fontSize: 13 }}>{p.name}</span>
+                <span style={{ fontSize: 11, color: 'var(--muted)', marginLeft: 8 }}>{p.email}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+      {busy && <Spinner />}
+      {picked && eff && !busy && (
+        eff.error ? <div style={{ color: 'var(--muted)', fontSize: 13, marginTop: 12 }}>Could not load access for this person.</div> : (
+          <div style={{ marginTop: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <span style={{ fontWeight: 700, fontSize: 13.5 }}>{nameOf(eff.email)}</span>
+              {eff.job_role
+                ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 11px', borderRadius: 999, background: 'var(--ink)', color: 'var(--card)', fontSize: 11.5, fontWeight: 700 }}><Shield size={12} /> {eff.job_role.name}</span>
+                : <span style={{ fontSize: 12, color: 'var(--muted)', fontStyle: 'italic' }}>No job role yet — assign one on their People card.</span>}
+              {(eff.extra_groups || []).map(g => (
+                <span key={g.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 11px', borderRadius: 999, border: '1px dashed var(--line-strong,var(--line))', fontSize: 11.5, fontWeight: 600, color: 'var(--ink)' }}>+ {g.name}</span>
+              ))}
+            </div>
+            <div style={{ marginTop: 10 }}>
+              {(eff.modules || []).length === 0
+                ? <div style={{ fontSize: 13, color: 'var(--muted)' }}>No module access.</div>
+                : eff.modules.map(m => {
+                  const mod = MODULES.find(x => x.id === m.module);
+                  return (
+                    <div key={m.module} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0', borderBottom: '1px solid var(--line)' }}>
+                      <span style={{ fontWeight: 600, fontSize: 13, minWidth: 150 }}>{mod?.label || m.module}</span>
+                      <LevelPill level={m.level} title={capabilityText(m.module, m.level, mod?.label)} />
+                      <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+                        {m.manual ? <>extra, from group “{m.source}”</> : <>from job role “{m.source}”</>}
+                      </span>
+                    </div>
+                  );
+                })}
+            </div>
+          </div>
+        )
+      )}
     </div>
   );
 }
@@ -380,7 +522,7 @@ function RoleEditor({ role, onClose, onSaved, onErr }) {
       </div>
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 18 }}>
         <button className="secondary-btn" onClick={onClose}>Cancel</button>
-        <button className="primary-btn" disabled={busy} onClick={save} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>{busy && <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />} Save Job Role</button>
+        <button className="primary-btn" disabled={busy} onClick={save} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>{busy && <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />} Save job role</button>
       </div>
     </Modal>
   );
@@ -434,7 +576,7 @@ function GroupEditor({ group, onClose, onSaved, onErr }) {
       </div>
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 18 }}>
         <button className="secondary-btn" onClick={onClose}>Cancel</button>
-        <button className="primary-btn" disabled={busy} onClick={save} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>{busy && <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />} Save Group</button>
+        <button className="primary-btn" disabled={busy} onClick={save} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>{busy && <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />} Save group</button>
       </div>
     </Modal>
   );
