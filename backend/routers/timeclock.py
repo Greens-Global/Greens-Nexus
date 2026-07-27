@@ -2027,9 +2027,11 @@ def _week_start_str(date_str: str) -> str:
 
 
 # ── Bi-weekly pay period (California: Sunday→Saturday × 2 = 14 days) ───────────
-# Periods step 14 days from a fixed Sunday anchor. If the company's real payroll
-# calendar starts on a different Sunday, shift this anchor by 7 days once.
-_PAYPERIOD_ANCHOR = date(2024, 1, 7)   # a Sunday
+# Periods step 14 days from a fixed Sunday anchor, aligned to the company's REAL
+# payroll calendar in SwipeClock (site 47239: period 7/26/26–8/8/26, verified
+# Jul 27 2026 for the parallel run). The prior anchor (2024-01-07) put every
+# Nexus period off by exactly one week from SwipeClock.
+_PAYPERIOD_ANCHOR = date(2024, 1, 14)  # a Sunday on SwipeClock's period series
 _PAYPERIOD_DAYS = 14
 
 
@@ -2088,6 +2090,64 @@ def set_autolunch(body: AutoLunchIn, user: dict = Depends(require_administrator)
     return cfg
 
 
+# ── Punch rounding (SwipeClock parity) ─────────────────────────────────────────
+# SwipeClock drops seconds from every punch and rounds to the nearest N minutes
+# (site 47239: N=5, verified via the time card's "Show Unrounded Times" overlay,
+# Jul 27 2026). Raw punch times stay on record; ROUNDED times drive the timecard
+# math — exactly SwipeClock's model, and required for the parallel-run numbers
+# to match 1:1.
+_ROUNDING_KEY = "timeclock_rounding"
+_ROUNDING_DEFAULT = {"enabled": True, "nearestMin": 5}
+
+
+def _rounding_cfg(db: Session) -> dict:
+    row = db.query(NexusSetting).filter(NexusSetting.key == _ROUNDING_KEY).first()
+    cfg = dict(_ROUNDING_DEFAULT)
+    if row and row.value:
+        try:
+            cfg.update({k: v for k, v in json.loads(row.value).items() if k in cfg})
+        except (ValueError, TypeError):
+            pass
+    cfg["enabled"] = bool(cfg.get("enabled"))
+    cfg["nearestMin"] = min(30, max(0, int(cfg.get("nearestMin") or 0)))
+    return cfg
+
+
+def _round_punch(t: datetime, nearest: int) -> datetime:
+    """Drop seconds, then round the minute-of-day to the nearest `nearest`
+    (half rounds up): 1:22:00→1:20, 1:23:00→1:25, 9:04:00→9:05 at nearest=5."""
+    t = t.replace(second=0, microsecond=0)
+    if nearest <= 0:
+        return t
+    total = t.hour * 60 + t.minute
+    rounded = int((total + nearest / 2) // nearest) * nearest
+    return t.replace(hour=0, minute=0) + timedelta(minutes=rounded)
+
+
+@router.get("/payroll/rounding")
+def get_rounding(user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
+    return _rounding_cfg(db)
+
+
+class RoundingIn(BaseModel):
+    enabled: bool = True
+    nearestMin: int = 5
+
+
+@router.put("/payroll/rounding")
+def set_rounding(body: RoundingIn, user: dict = Depends(require_administrator),
+                 db: Session = Depends(get_db)):
+    cfg = {"enabled": bool(body.enabled), "nearestMin": min(30, max(0, int(body.nearestMin)))}
+    row = db.query(NexusSetting).filter(NexusSetting.key == _ROUNDING_KEY).first()
+    if not row:
+        row = NexusSetting(key=_ROUNDING_KEY)
+        db.add(row)
+    row.value = json.dumps(cfg)
+    row.updated_by = user["email"]
+    db.commit()
+    return cfg
+
+
 @router.get("/team-exceptions")
 def team_exceptions(start: str = "", end: str = "",
                     user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
@@ -2109,10 +2169,12 @@ def team_exceptions(start: str = "", end: str = "",
 
 
 def _compute_timecard(db: Session, em: str, start: str, end: str) -> dict:
-    """Per-day in/out segments, weekly overtime split (>40h at 1.5x), and wage
-    totals off the HR-set hourly rate over [start, end]. Exact minutes, no
-    rounding. Also aggregates break minutes and (when web capture ran) idle
-    minutes so the timesheet can show a worked/break/idle composition bar."""
+    """Per-day in/out segments, CA/federal overtime split, and wage totals off
+    the HR-set hourly rate over [start, end]. Punch times are rounded per the
+    SwipeClock-parity rule (_rounding_cfg — nearest 5 min by default) before any
+    math; raw times ride along per segment for the unrounded view. Also
+    aggregates break minutes and (when web capture ran) idle minutes so the
+    timesheet can show a worked/break/idle composition bar."""
     # Fetch one day PAST `end` so a shift that starts on the last day and clocks
     # out after midnight still has its out-punch to pair with — otherwise that
     # whole overnight shift (in on `end`, out on `end`+1) would be dropped from
@@ -2122,6 +2184,11 @@ def _compute_timecard(db: Session, em: str, start: str, end: str) -> dict:
     # the module-level `date` name across this whole function scope)
     _end_fetch = (datetime.strptime(end, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d") if end else end
     punches = _live_punches(db, em, start, _end_fetch)
+    # SwipeClock-parity rounding: rounded times drive ALL math below; the raw
+    # punch strings are still emitted per segment so the UI can offer a
+    # "show unrounded times" view, mirroring SwipeClock exactly.
+    _rnd = _rounding_cfg(db)
+    _rmin = _rnd["nearestMin"] if _rnd["enabled"] else 0
     rate_row = db.query(PayrollRate).filter(PayrollRate.employee_email == em).first()
     rate = float(rate_row.hourly_rate) if rate_row else 0.0
     rule = (getattr(rate_row, "overtime_rule", None) or "ca") if rate_row else "ca"
@@ -2138,7 +2205,7 @@ def _compute_timecard(db: Session, em: str, start: str, end: str) -> dict:
     # (the in-punch's local_date), which is where a night worker expects their
     # hours to land.
     segs_by_day = {}   # local_date -> [segment, ...]
-    open_in = open_in_at = open_in_id = open_in_date = None
+    open_in = open_in_at = open_in_at_r = open_in_id = open_in_date = None
     open_in_site = open_in_geo = open_in_site_id = open_in_cat = None
     open_break = None
     brk = 0.0
@@ -2148,7 +2215,7 @@ def _compute_timecard(db: Session, em: str, start: str, end: str) -> dict:
         # An in that never got an out → record it as a missing_out on its own day.
         nonlocal missing_punches
         segs_by_day.setdefault(open_in_date, []).append(
-            {"in": open_in_at, "out": "", "inId": open_in_id, "outId": "",
+            {"in": open_in_at, "out": "", "inR": open_in_at_r, "outR": "", "inId": open_in_id, "outId": "",
              "workedMin": 0, "flags": sorted(sflags | {"missing_out"}), "_break": int(round(brk)),
              "workSite": open_in_site or "", "workSiteId": open_in_site_id or "", "geo": open_in_geo or "", "category": open_in_cat or ""})
         missing_punches += 1
@@ -2157,10 +2224,13 @@ def _compute_timecard(db: Session, em: str, start: str, end: str) -> dict:
         t = _parse_iso(p.at)
         if t is None:
             continue
+        if _rmin:
+            t = _round_punch(t, _rmin)
         if p.kind == "in":
             if open_in is not None:      # a new in without an out closes the prior as missing
                 _flush_missing()
             open_in, open_in_at, open_in_id, open_in_date = t, p.at, p.id, p.local_date
+            open_in_at_r = t.strftime("%Y-%m-%dT%H:%M:%S")
             open_in_site, open_in_geo, open_in_site_id = (p.work_site_name or ""), (p.geo_status or ""), (p.work_site_id or "")
             open_in_cat = getattr(p, "category", "") or ""
             open_break, brk, sflags = None, 0.0, set()
@@ -2179,7 +2249,8 @@ def _compute_timecard(db: Session, em: str, start: str, end: str) -> dict:
                     sflags.add("adjusted")
                 mins = int(round((t - open_in).total_seconds() / 60 - brk))
                 segs_by_day.setdefault(open_in_date, []).append(
-                    {"in": open_in_at, "out": p.at, "inId": open_in_id, "outId": p.id,
+                    {"in": open_in_at, "out": p.at, "inR": open_in_at_r, "outR": t.strftime("%Y-%m-%dT%H:%M:%S"),
+                     "inId": open_in_id, "outId": p.id,
                      "workedMin": max(0, mins), "flags": sorted(sflags), "_break": int(round(brk)),
                      "workSite": open_in_site or "", "workSiteId": open_in_site_id or "", "geo": open_in_geo or "", "category": open_in_cat or ""})
                 open_in = None
@@ -2280,6 +2351,7 @@ def _compute_timecard(db: Session, em: str, start: str, end: str) -> dict:
 
     return {"email": em, "start": start, "end": end, "rate": rate, "rateSet": rate_row is not None,
             "dept": dept, "overtimeRule": rule, "days": days_out,
+            "rounding": {"enabled": _rnd["enabled"], "nearestMin": _rnd["nearestMin"]},
             "autoLunch": {"enabled": al["enabled"], "afterMin": al["afterMin"], "deductMin": al["deductMin"]},
             "byCategory": by_category,
             "totals": {"regMin": total_reg, "otMin": total_ot, "dtMin": total_dt,

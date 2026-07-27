@@ -1,27 +1,30 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { ChevronLeft, ChevronRight, Pencil, Plus, X, Loader2, CheckCircle, Download, AlertTriangle, MapPin } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Pencil, Plus, X, Loader2, CheckCircle, Download, AlertTriangle, MapPin, PlayCircle } from 'lucide-react';
 import { api } from '../api';
 import { ensureStepUp, isStepUpRequired, StepUpNeeded } from '../stepup/StepUp';
 import { useRole } from '../contexts/RoleContext';
+import GuidedTour from './GuidedTour';
 
-// ── Payroll timecard (SwipeClock-style, manager-editable) ─────────────────────
-// One employee, one pay period (biweekly). In/out segments per day with manager
-// edit/add, weekly overtime split (>40h at 1.5x), and wage totals off a
-// manager-set hourly rate. Exact minutes, no rounding.
+// ── Payroll timecard (SwipeClock 1:1, manager-editable) ───────────────────────
+// One employee, one pay period (biweekly, SUNDAY-anchored on SwipeClock's real
+// payroll calendar — site 47239: 7/26/26–8/8/26). Same column order as the
+// SwipeClock card, punch times rounded to the nearest 5 minutes exactly like
+// SwipeClock (raw times one toggle away), CA overtime split, wage totals.
 
-const ANCHOR = Date.UTC(2024, 0, 1);   // a Monday — biweekly periods count from here
+const ANCHOR = Date.UTC(2024, 0, 14);  // a Sunday on SwipeClock's period series
 const DAY = 86400000;
 const isoDate = (d) => new Date(d).toISOString().slice(0, 10);
 const hhmm = (min) => `${Math.floor((min || 0) / 60)}:${String((min || 0) % 60).padStart(2, '0')}`;
+const dec = (min) => ((min || 0) / 60).toFixed(2);
 const money = (n) => `$${(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const t12 = (iso) => iso ? new Date(iso + 'Z').toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }).replace(' ', '').toLowerCase() : '—';
 const utcToInput = (iso) => { const d = new Date(iso + 'Z'); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); };
 const inputToUtc = (v) => new Date(v).toISOString().slice(0, 19);
 
 function periodStartFor(date) {
-  const mon = new Date(date); mon.setHours(0, 0, 0, 0);
-  mon.setDate(mon.getDate() - ((mon.getDay() + 6) % 7));       // Monday of this week
-  const idx = Math.floor((mon.getTime() - ANCHOR) / (14 * DAY));
+  const sun = new Date(date); sun.setHours(0, 0, 0, 0);
+  sun.setDate(sun.getDate() - sun.getDay());                   // Sunday of this week
+  const idx = Math.floor((sun.getTime() - ANCHOR) / (14 * DAY));
   return new Date(ANCHOR + idx * 14 * DAY);
 }
 
@@ -55,8 +58,12 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
   const [busy, setBusy] = useState(false);
   const [stepLocked, setStepLocked] = useState(false);   // payroll $ needs a fresh step-up
   const [exceptions, setExceptions] = useState([]);      // per-employee missing/exception counts (sidebar)
+  const [showRaw, setShowRaw] = useState(false);         // SwipeClock's "Show Unrounded Times"
+  const [tour, setTour] = useState(false);               // Simulate walkthrough
   const { can } = useRole();
   const isAdmin = can('administrator');
+  // Rounded times drive the card (SwipeClock model); raw times one toggle away.
+  const showT = (seg, k) => t12(showRaw ? seg?.[k] : (seg?.[k === 'in' ? 'inR' : 'outR'] || seg?.[k]));
 
   const start = isoDate(pStart);
   const end = isoDate(pStart.getTime() + 13 * DAY);
@@ -141,7 +148,7 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
   return (
     <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start', fontFamily: 'Inter,sans-serif' }}>
       {/* Employee sidebar — who has missing punches / exceptions this period */}
-      <div style={{ width: 210, flexShrink: 0, border: '1px solid var(--line)', borderRadius: 12, overflow: 'hidden', maxHeight: 620, overflowY: 'auto' }} className="pr-sidebar">
+      <div data-tour="pr-sidebar" style={{ width: 210, flexShrink: 0, border: '1px solid var(--line)', borderRadius: 12, overflow: 'hidden', maxHeight: 620, overflowY: 'auto' }} className="pr-sidebar">
         <div style={{ padding: '8px 12px', background: 'var(--bg)', fontSize: 10.5, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)', display: 'flex' }}>
           <span style={{ flex: 1 }}>Employee</span><span title="Missing punches">M</span><span style={{ width: 22, textAlign: 'right' }} title="Exceptions">E</span>
         </div>
@@ -164,12 +171,32 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
         <select className="form-input" value={email} onChange={e => setEmail(e.target.value)} style={{ fontSize: 13, minWidth: 180, fontWeight: 700 }} title="Also selectable from the sidebar">
           {people.map(p => <option key={p.email} value={p.email}>{p.name}{exByEmail[p.email]?.missing ? ` (${exByEmail[p.email].missing} missing)` : ''}</option>)}
         </select>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+        <div data-tour="pr-period" style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
           <button className="icon-btn" onClick={() => shift(-1)} style={{ padding: 6 }}><ChevronLeft size={16} /></button>
           <span style={{ fontSize: 12.5, fontWeight: 700, minWidth: 175, textAlign: 'center' }}>{label}</span>
           <button className="icon-btn" onClick={() => shift(1)} style={{ padding: 6 }}><ChevronRight size={16} /></button>
         </div>
+        <button onClick={() => setTour(true)} title="A guided walkthrough of this screen — nothing is changed while it runs."
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: '1px solid var(--line)', borderRadius: 999, padding: '5px 12px', fontFamily: 'Inter,sans-serif', fontWeight: 700, fontSize: 12, cursor: 'pointer', color: 'var(--ink)' }}>
+          <PlayCircle size={14} /> Simulate
+        </button>
         <div style={{ flex: 1 }} />
+        <label data-tour="pr-rounding" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, color: 'var(--muted)', fontWeight: 700, cursor: 'pointer' }}
+          title="SwipeClock shows rounded times (nearest 5 min) and computes pay from them. Tick to see the raw punch times instead — totals stay computed from rounded.">
+          <input type="checkbox" checked={showRaw} onChange={e => setShowRaw(e.target.checked)} />
+          Show unrounded times
+        </label>
+        {isAdmin && data?.rounding && (
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, color: 'var(--muted)', fontWeight: 700, cursor: 'pointer' }}
+            title={`Round every punch to the nearest ${data.rounding.nearestMin || 5} minutes before computing hours — matches SwipeClock (site setting: nearest 5). Keep ON during the parallel run.`}>
+            <input type="checkbox" checked={!!data.rounding.enabled}
+              onChange={async e => {
+                try { await api.timeRoundingSet({ enabled: e.target.checked, nearestMin: data.rounding.nearestMin || 5 }); toastOk?.(`Punch rounding ${e.target.checked ? 'on' : 'off'}.`); load(); }
+                catch (err) { toastErr?.(err?.message || 'Could not update rounding.'); }
+              }} />
+            Round to {data.rounding.nearestMin || 5} min
+          </label>
+        )}
         {isAdmin && data?.autoLunch && (
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, color: 'var(--muted)', fontWeight: 700, cursor: 'pointer' }}
             title={`Auto-deduct ${data.autoLunch.deductMin}m lunch from any segment over ${Math.round(data.autoLunch.afterMin / 60)}h with no recorded break. Applies to everyone.`}>
@@ -215,29 +242,35 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
       ) : data === null ? (
         <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} /></div>
       ) : (
-        <div style={{ overflowX: 'auto', border: '1px solid var(--line)', borderRadius: 12 }}>
-          <table style={{ width: '100%', minWidth: 720, borderCollapse: 'collapse' }}>
+        <div data-tour="pr-table" style={{ overflowX: 'auto', border: '1px solid var(--line)', borderRadius: 12 }}>
+          {/* SwipeClock column order — Date, In, Out, Deducted, Category, Hours,
+              Hrs/day, Non-OT, OT, OT 2×, Loc, Department, Pay rate, Wage — so HR
+              reads this card exactly like the one they use today. */}
+          <table style={{ width: '100%', minWidth: 980, borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ background: 'var(--bg)' }}>
                 <th style={{ ...th, textAlign: 'left' }}>Date</th>
                 <th style={{ ...th, textAlign: 'left' }}>In</th>
                 <th style={{ ...th, textAlign: 'left' }}>Out</th>
-                <th style={{ ...th, textAlign: 'left' }}>Loc</th>
+                <th style={th}>Deducted time</th>
                 <th style={{ ...th, textAlign: 'left' }}>Category</th>
-                <th style={th}>Deducted</th>
                 <th style={th}>Hours</th>
                 <th style={th}>Hrs/day</th>
                 <th style={th}>Non-OT</th>
                 <th style={th}>OT</th>
+                <th style={th}>OT 2×</th>
+                <th style={{ ...th, textAlign: 'left' }}>Loc</th>
+                <th style={{ ...th, textAlign: 'left' }}>Department</th>
+                <th style={th}>Pay rate</th>
                 <th style={th}>Wage</th>
-                <th style={{ ...th, width: 40 }}></th>
+                <th data-tour="pr-edit" style={{ ...th, width: 40 }}></th>
               </tr>
             </thead>
             <tbody>
               {rows.map((r, i) => r.type === 'wk' ? (
                 <tr key={i} style={{ background: 'hsla(var(--color-green),0.05)' }}>
-                  <td colSpan={12} style={{ ...td, textAlign: 'center', fontWeight: 800, color: 'var(--pine)', fontSize: 12 }}>
-                    Total hours for week of {new Date(r.week + 'T00:00').toLocaleDateString([], { month: 'numeric', day: 'numeric' })}: {hhmm(weekTotals[r.week]?.min || 0)}
+                  <td colSpan={15} style={{ ...td, textAlign: 'center', fontWeight: 800, color: 'var(--pine)', fontSize: 12 }}>
+                    Total hours clocked for week of {new Date(r.week + 'T00:00').toLocaleDateString([], { month: 'numeric', day: 'numeric' })} to {new Date(new Date(r.week + 'T00:00').getTime() + 6 * DAY).toLocaleDateString([], { month: 'numeric', day: 'numeric' })}: {hhmm(weekTotals[r.week]?.min || 0)}
                   </td>
                 </tr>
               ) : (
@@ -245,17 +278,22 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
                   <td style={{ ...td, textAlign: 'left', fontWeight: r.first === undefined ? 400 : 700, color: r.seg ? 'var(--ink)' : 'var(--muted)' }}>
                     {r.first === false ? '' : dow(r.ds)}
                   </td>
-                  <td style={{ ...td, textAlign: 'left' }}>{r.seg ? t12(r.seg.in) : '—'}</td>
+                  <td style={{ ...td, textAlign: 'left' }}>{r.seg ? showT(r.seg, 'in') : '—'}</td>
                   <td style={{ ...td, textAlign: 'left', color: r.seg && !r.seg.out ? '#b91c1c' : 'var(--ink)', fontWeight: r.seg && !r.seg.out ? 700 : 400 }}>
-                    {r.seg ? (r.seg.out ? t12(r.seg.out) : 'Missing') : '—'}
+                    {r.seg ? (r.seg.out ? showT(r.seg, 'out') : 'Missing') : '—'}
                   </td>
-                  <td style={{ ...td, textAlign: 'left' }}><LocCell seg={r.seg} /></td>
-                  <td style={{ ...td, textAlign: 'left', color: r.seg?.category ? 'var(--ink)' : 'var(--muted)' }}>{r.seg?.category || '—'}</td>
                   <td style={{ ...td, color: r.seg?.deductedMin ? '#b45309' : 'var(--muted)' }}>{r.seg?.deductedMin ? `−${r.seg.deductedMin}m` : '—'}</td>
+                  <td style={{ ...td, textAlign: 'left', color: r.seg?.category ? 'var(--ink)' : 'var(--muted)' }}>{r.seg?.category || '—'}</td>
                   <td style={td}>{r.seg ? hhmm(r.seg.workedMin) : '—'}</td>
-                  <td style={{ ...td, fontWeight: 700 }}>{r.first && byDate[r.ds] ? hhmm(byDate[r.ds].workedMin) : ''}</td>
+                  <td style={{ ...td, fontWeight: 700 }}>{r.first && byDate[r.ds]
+                    ? hhmm(byDate[r.ds].workedMin)
+                    : (r.seg && byDate[r.ds]?.segments?.length > 1 ? '↓' : '')}</td>
                   <td style={td}>{r.seg?.regMin ? hhmm(r.seg.regMin) : '—'}</td>
                   <td style={{ ...td, color: r.seg?.otMin ? '#b45309' : 'var(--muted)', fontWeight: r.seg?.otMin ? 700 : 400 }}>{r.seg?.otMin ? hhmm(r.seg.otMin) : '—'}</td>
+                  <td style={{ ...td, color: r.seg?.dtMin ? '#b91c1c' : 'var(--muted)', fontWeight: r.seg?.dtMin ? 700 : 400 }}>{r.seg?.dtMin ? hhmm(r.seg.dtMin) : '—'}</td>
+                  <td style={{ ...td, textAlign: 'left' }}><LocCell seg={r.seg} /></td>
+                  <td style={{ ...td, textAlign: 'left', color: 'var(--muted)' }}>{r.seg ? (data?.dept || '—') : '—'}</td>
+                  <td style={{ ...td, color: 'var(--muted)' }}>{r.seg ? `${money(rate)}/hr` : '—'}</td>
                   <td style={{ ...td, fontWeight: 700 }}>{r.seg ? money(r.seg.amount) : '—'}</td>
                   <td style={{ ...td, textAlign: 'center' }}>
                     <button onClick={() => setEditDay({ date: r.ds, seg: r.seg })}
@@ -270,12 +308,17 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
             {T && (
               <tfoot>
                 <tr style={{ background: 'var(--bg)', fontWeight: 800 }}>
-                  <td colSpan={5} style={{ ...td, textAlign: 'left' }}>Totals</td>
+                  <td colSpan={3} style={{ ...td, textAlign: 'left' }}>Totals</td>
                   <td style={{ ...td, color: T.deductedMin ? '#b45309' : 'var(--muted)' }}>{T.deductedMin ? `−${T.deductedMin}m` : '—'}</td>
-                  <td style={td}>{hhmm(T.regMin + T.otMin)}</td>
+                  <td style={td}></td>
+                  <td style={td}>{hhmm(T.regMin + T.otMin + (T.dtMin || 0))}</td>
                   <td style={td}>{hhmm(T.regMin + T.otMin + (T.dtMin || 0))}</td>
                   <td style={td}>{hhmm(T.regMin)}</td>
                   <td style={td}>{hhmm(T.otMin)}</td>
+                  <td style={td}>{T.dtMin ? hhmm(T.dtMin) : '—'}</td>
+                  <td style={td}></td>
+                  <td style={td}></td>
+                  <td style={td}></td>
                   <td style={td}>{money(T.totalPay)}</td>
                   <td style={td}></td>
                 </tr>
@@ -288,17 +331,20 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
       {/* Summary + acknowledgment */}
       {T && (
         <div style={{ marginTop: 14, display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-start' }}>
-          <div style={{ flex: 1, minWidth: 260, border: '1px solid var(--line)', borderRadius: 12, overflow: 'hidden' }}>
+          <div data-tour="pr-summary" style={{ flex: 1, minWidth: 300, border: '1px solid var(--line)', borderRadius: 12, overflow: 'hidden' }}>
             {(() => {
+              // SwipeClock shows both clock time and decimal — "58:30 (58.50)" —
+              // so payroll can be keyed either way without converting by hand.
+              const hd = (min) => `${hhmm(min)} (${dec(min)})`;
               const rows = [
-                [`Regular hours at ${money(rate)}/hr`, hhmm(T.regMin), money(T.regPay)],
-                [`Overtime hours at ${money(rate * 1.5)}/hr`, hhmm(T.otMin), money(T.otPay)],
-                ...(T.dtMin ? [[`Double-time hours at ${money(rate * 2)}/hr`, hhmm(T.dtMin), money(T.dtPay)]] : []),
-                ['Totals', hhmm(T.regMin + T.otMin + (T.dtMin || 0)), money(T.totalPay)],
+                [`Total Regular hours at ${money(rate)}/hr`, hd(T.regMin), money(T.regPay)],
+                [`Total Overtime hours at ${money(rate * 1.5)}/hr`, hd(T.otMin), money(T.otPay)],
+                ...(T.dtMin ? [[`Total Double-time hours at ${money(rate * 2)}/hr`, hd(T.dtMin), money(T.dtPay)]] : []),
+                ['TOTALS', hd(T.regMin + T.otMin + (T.dtMin || 0)), money(T.totalPay)],
               ];
               const last = rows.length - 1;
               return rows.map(([lbl, hrs, amt], i) => (
-                <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 70px 100px', gap: 8, padding: '8px 12px', borderTop: i ? '1px solid var(--line)' : 'none', background: i === last ? 'var(--bg)' : 'transparent', fontWeight: i === last ? 800 : 500, fontSize: 12.5 }}>
+                <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 110px 100px', gap: 8, padding: '8px 12px', borderTop: i ? '1px solid var(--line)' : 'none', background: i === last ? 'var(--bg)' : 'transparent', fontWeight: i === last ? 800 : 500, fontSize: 12.5 }}>
                   <span style={{ color: i === last ? 'var(--ink)' : 'var(--muted)' }}>{lbl}</span>
                   <span style={{ textAlign: 'right' }}>{hrs}</span>
                   <span style={{ textAlign: 'right' }}>{amt}</span>
@@ -332,7 +378,7 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
             )}
             <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
               <button className="secondary-btn" onClick={async () => { const up = await ensureStepUp(); if (!up.ok) { if (!up.cancelled) toastErr?.('Identity check didn’t complete.'); return; } api.timeExportCsv(start, end, 'punches'); }} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> CSV</button>
-              <button className="primary-btn" onClick={approve} disabled={busy} style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 }}><CheckCircle size={13} /> Approve</button>
+              <button className="primary-btn" data-tour="pr-approve" onClick={approve} disabled={busy} style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 }}><CheckCircle size={13} /> Approve</button>
             </div>
           </div>
         </div>
@@ -368,6 +414,22 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
           onDone={() => { setEditDay(null); load(); }} onClose={() => setEditDay(null)}
           toastOk={toastOk} toastErr={toastErr} />
       )}
+      {tour && <GuidedTour onClose={() => setTour(false)} steps={[
+        { target: 'pr-sidebar', title: 'Start with the employee list',
+          body: 'Everyone in this pay period. M = missing punches, E = exceptions — the red numbers are your to-do list each morning. Click a name to open their card.' },
+        { target: 'pr-period', title: 'The pay period',
+          body: 'Bi-weekly, Sunday to Saturday — the SAME calendar as SwipeClock (current period 7/26–8/8), so the two cards always cover identical days. Arrows move one period.' },
+        { target: 'pr-table', title: 'The time card — same columns as SwipeClock',
+          body: 'Date, In, Out, Deducted time, Category, Hours, Hrs/day, then the California split: Non-OT, OT (1.5×), OT 2×, and Wage. Times are rounded to the nearest 5 minutes exactly like SwipeClock; weekly total rows appear after each week.' },
+        { target: 'pr-rounding', title: 'Rounded vs raw times',
+          body: 'SwipeClock computes pay from rounded times but keeps the raw punch — so does Nexus. Tick this to peek at raw times. During the comparison week, leave the rounding setting ON so the numbers can match 1:1.' },
+        { target: 'pr-edit', title: 'Fix punches here',
+          body: 'The pencil on any row edits that punch (or adds one on an empty day) — set the real in/out, location, and job category. Originals stay on record with who changed what, like SwipeClock\'s audit log.' },
+        { target: 'pr-summary', title: 'Totals, in both formats',
+          body: 'Regular, overtime (1.5×), and double-time (2×) hours with wages — shown as clock time AND decimal ("58:30 (58.50)"), matching SwipeClock\'s summary, so payroll can key either format.' },
+        { target: 'pr-approve', title: 'Approve = sign off',
+          body: 'When the card is right (and matches SwipeClock during the parallel run), Approve. That records the sign-off attestation below and notifies the employee. CSV exports the punches for records.' },
+      ]} />}
       <style>{`.pr-row:hover { background: var(--bg); } .pr-sidebar button:hover { background: var(--bg); }`}</style>
       </div>
     </div>
