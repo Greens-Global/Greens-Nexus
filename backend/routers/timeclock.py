@@ -2207,6 +2207,7 @@ def _compute_timecard(db: Session, em: str, start: str, end: str) -> dict:
     segs_by_day = {}   # local_date -> [segment, ...]
     open_in = open_in_at = open_in_at_r = open_in_id = open_in_date = None
     open_in_site = open_in_geo = open_in_site_id = open_in_cat = None
+    open_in_note = ""
     open_break = None
     brk = 0.0
     sflags = set()
@@ -2217,6 +2218,7 @@ def _compute_timecard(db: Session, em: str, start: str, end: str) -> dict:
         segs_by_day.setdefault(open_in_date, []).append(
             {"in": open_in_at, "out": "", "inR": open_in_at_r, "outR": "", "inId": open_in_id, "outId": "",
              "workedMin": 0, "flags": sorted(sflags | {"missing_out"}), "_break": int(round(brk)),
+             "note": open_in_note,
              "workSite": open_in_site or "", "workSiteId": open_in_site_id or "", "geo": open_in_geo or "", "category": open_in_cat or ""})
         missing_punches += 1
 
@@ -2231,6 +2233,7 @@ def _compute_timecard(db: Session, em: str, start: str, end: str) -> dict:
                 _flush_missing()
             open_in, open_in_at, open_in_id, open_in_date = t, p.at, p.id, p.local_date
             open_in_at_r = t.strftime("%Y-%m-%dT%H:%M:%S")
+            open_in_note = (p.note or "").strip()
             open_in_site, open_in_geo, open_in_site_id = (p.work_site_name or ""), (p.geo_status or ""), (p.work_site_id or "")
             open_in_cat = getattr(p, "category", "") or ""
             open_break, brk, sflags = None, 0.0, set()
@@ -2248,10 +2251,15 @@ def _compute_timecard(db: Session, em: str, start: str, end: str) -> dict:
                 if p.adjusted_by:
                     sflags.add("adjusted")
                 mins = int(round((t - open_in).total_seconds() / 60 - brk))
+                # Punch notes travel with the segment (SwipeClock shows them as a
+                # note line under the day) — auto-generated edit notes excluded.
+                _notes = " · ".join(n for n in (open_in_note, (p.note or "").strip())
+                                    if n and n not in ("payroll edit",))
                 segs_by_day.setdefault(open_in_date, []).append(
                     {"in": open_in_at, "out": p.at, "inR": open_in_at_r, "outR": t.strftime("%Y-%m-%dT%H:%M:%S"),
                      "inId": open_in_id, "outId": p.id,
                      "workedMin": max(0, mins), "flags": sorted(sflags), "_break": int(round(brk)),
+                     "note": _notes,
                      "workSite": open_in_site or "", "workSiteId": open_in_site_id or "", "geo": open_in_geo or "", "category": open_in_cat or ""})
                 open_in = None
             # else: orphan out with no open in — ignored (its in was outside the range)

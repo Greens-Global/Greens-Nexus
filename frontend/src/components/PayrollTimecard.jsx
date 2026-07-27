@@ -62,8 +62,6 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
   const [tour, setTour] = useState(false);               // Simulate walkthrough
   const { can } = useRole();
   const isAdmin = can('administrator');
-  // Rounded times drive the card (SwipeClock model); raw times one toggle away.
-  const showT = (seg, k) => t12(showRaw ? seg?.[k] : (seg?.[k === 'in' ? 'inR' : 'outR'] || seg?.[k]));
 
   const start = isoDate(pStart);
   const end = isoDate(pStart.getTime() + 13 * DAY);
@@ -126,17 +124,22 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
   const th = { fontSize: 10, fontWeight: 800, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--muted)', padding: '7px 10px', textAlign: 'right', whiteSpace: 'nowrap' };
   const td = { fontSize: 12.5, padding: '6px 10px', textAlign: 'right', borderTop: '1px solid var(--line)', whiteSpace: 'nowrap' };
 
-  // build rows: for each date, its segments (or one empty row); weekly subtotal after each week
+  // build rows: for each date, its segments (or one empty row); punch-note lines
+  // under their day (SwipeClock); weekly subtotal after each SUNDAY-anchored week
   const rows = [];
   let prevWeek = null;
   dates.forEach(ds => {
     const d = byDate[ds];
-    const wk = d?.weekStart || (() => { const x = new Date(ds); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return isoDate(x); })();
+    const wk = d?.weekStart || (() => { const x = new Date(ds + 'T00:00'); x.setDate(x.getDate() - x.getDay()); return isoDate(x); })();
     if (prevWeek && wk !== prevWeek) rows.push({ type: 'wk', week: prevWeek });
     prevWeek = wk;
     const segs = d?.segments || [];
     if (!segs.length) rows.push({ type: 'day', ds, seg: null });
-    else segs.forEach((seg, i) => rows.push({ type: 'day', ds, seg, first: i === 0 }));
+    else {
+      segs.forEach((seg, i) => rows.push({ type: 'day', ds, seg, first: i === 0, last: i === segs.length - 1 }));
+      const notes = segs.map(s => s.note).filter(Boolean);
+      if (notes.length) rows.push({ type: 'note', text: notes.join(' · ') });
+    }
   });
   if (prevWeek) rows.push({ type: 'wk', week: prevWeek });
 
@@ -273,21 +276,30 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
                     Total hours clocked for week of {new Date(r.week + 'T00:00').toLocaleDateString([], { month: 'numeric', day: 'numeric' })} to {new Date(new Date(r.week + 'T00:00').getTime() + 6 * DAY).toLocaleDateString([], { month: 'numeric', day: 'numeric' })}: {hhmm(weekTotals[r.week]?.min || 0)}
                   </td>
                 </tr>
+              ) : r.type === 'note' ? (
+                <tr key={i}>
+                  <td colSpan={15} style={{ ...td, textAlign: 'left', borderTop: 'none', paddingTop: 0, color: 'var(--muted)', fontStyle: 'italic', fontSize: 11.5 }}>
+                    <Pencil size={10} style={{ marginRight: 5, verticalAlign: 'middle' }} />{r.text}
+                  </td>
+                </tr>
               ) : (
                 <tr key={i} className="pr-row">
                   <td style={{ ...td, textAlign: 'left', fontWeight: r.first === undefined ? 400 : 700, color: r.seg ? 'var(--ink)' : 'var(--muted)' }}>
                     {r.first === false ? '' : dow(r.ds)}
                   </td>
-                  <td style={{ ...td, textAlign: 'left' }}>{r.seg ? showT(r.seg, 'in') : '—'}</td>
-                  <td style={{ ...td, textAlign: 'left', color: r.seg && !r.seg.out ? '#b91c1c' : 'var(--ink)', fontWeight: r.seg && !r.seg.out ? 700 : 400 }}>
-                    {r.seg ? (r.seg.out ? showT(r.seg, 'out') : 'Missing') : '—'}
+                  <td style={{ ...td, textAlign: 'left' }}>{r.seg ? <InlineTime seg={r.seg} k="in" showRaw={showRaw} onSaved={load} toastErr={toastErr} /> : '—'}</td>
+                  <td style={{ ...td, textAlign: 'left' }}>
+                    {r.seg ? (r.seg.out
+                      ? <InlineTime seg={r.seg} k="out" showRaw={showRaw} onSaved={load} toastErr={toastErr} />
+                      : <button onClick={() => setEditDay({ date: r.ds, seg: r.seg })} title="Add the missing clock-out"
+                          style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: '#b91c1c', fontWeight: 700, font: 'inherit' }}>Missing</button>) : '—'}
                   </td>
                   <td style={{ ...td, color: r.seg?.deductedMin ? '#b45309' : 'var(--muted)' }}>{r.seg?.deductedMin ? `−${r.seg.deductedMin}m` : '—'}</td>
                   <td style={{ ...td, textAlign: 'left', color: r.seg?.category ? 'var(--ink)' : 'var(--muted)' }}>{r.seg?.category || '—'}</td>
                   <td style={td}>{r.seg ? hhmm(r.seg.workedMin) : '—'}</td>
-                  <td style={{ ...td, fontWeight: 700 }}>{r.first && byDate[r.ds]
-                    ? hhmm(byDate[r.ds].workedMin)
-                    : (r.seg && byDate[r.ds]?.segments?.length > 1 ? '↓' : '')}</td>
+                  <td style={{ ...td, fontWeight: 700 }}>{r.seg && byDate[r.ds]
+                    ? (r.last ? hhmm(byDate[r.ds].workedMin) : '↓')
+                    : ''}</td>
                   <td style={td}>{r.seg?.regMin ? hhmm(r.seg.regMin) : '—'}</td>
                   <td style={{ ...td, color: r.seg?.otMin ? '#b45309' : 'var(--muted)', fontWeight: r.seg?.otMin ? 700 : 400 }}>{r.seg?.otMin ? hhmm(r.seg.otMin) : '—'}</td>
                   <td style={{ ...td, color: r.seg?.dtMin ? '#b91c1c' : 'var(--muted)', fontWeight: r.seg?.dtMin ? 700 : 400 }}>{r.seg?.dtMin ? hhmm(r.seg.dtMin) : '—'}</td>
@@ -391,19 +403,20 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
         </p>
       )}
 
-      {/* Signature / attestation — mirrors the payroll timecard sign-off line. */}
+      {/* Signature / attestation — SwipeClock's exact sign-off: attestation text
+          plus a BLANK X line. Nobody's name is pre-rendered — a signature that
+          hasn't happened yet must not look like it has. */}
       {T && (
         <div style={{ marginTop: 18, paddingTop: 14, borderTop: '1px solid var(--line)' }}>
           <p style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 14 }}>
-            By approving this time card, I agree I have reviewed it and that the hours stated are accurate and correct.
+            By execution and signature of this time sheet, I agree I have reviewed this time card, and agree the hours stated are accurate and correct.
           </p>
           <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap' }}>
-            <div style={{ borderBottom: '1.5px solid var(--ink)', minWidth: 240, paddingBottom: 3 }}>
-              <span style={{ fontSize: 14, fontWeight: 700, fontFamily: 'Georgia, serif', fontStyle: 'italic' }}>
-                {(people.find(p => p.email === email)?.name) || email}
-              </span>
+            <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4 }}>
+              <span style={{ fontSize: 14, fontWeight: 700 }}>X</span>
+              <span style={{ borderBottom: '1.5px solid var(--ink)', minWidth: 260, display: 'inline-block' }} />
             </div>
-            <span style={{ fontSize: 11, color: 'var(--muted)' }}>Signature (Approve to sign off) · {label}</span>
+            <span style={{ fontSize: 11, color: 'var(--muted)' }}>Employee signature · {label}</span>
           </div>
         </div>
       )}
@@ -433,6 +446,46 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
       <style>{`.pr-row:hover { background: var(--bg); } .pr-sidebar button:hover { background: var(--bg); }`}</style>
       </div>
     </div>
+  );
+}
+
+const t12s = (iso) => iso ? new Date(iso + 'Z').toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' }).replace(' ', '').toLowerCase() : '';
+
+// A punch time you can edit right in the sheet (SwipeClock-style): click the
+// time → it becomes an input, Enter/blur saves via the audited adjust endpoint.
+// Shows the geo dot (green in-fence / red off-site) and, when "Show unrounded
+// times" is on, the raw seconds-precision time in small italics beside it —
+// exactly how SwipeClock renders its unrounded overlay.
+function InlineTime({ seg, k, showRaw, onSaved, toastErr }) {
+  const [editing, setEditing] = useState(false);
+  const [val, setVal] = useState('');
+  const id = k === 'in' ? seg?.inId : seg?.outId;
+  const raw = k === 'in' ? seg?.in : seg?.out;
+  const rounded = k === 'in' ? (seg?.inR || seg?.in) : (seg?.outR || seg?.out);
+  if (!raw) return <span style={{ color: 'var(--muted)' }}>—</span>;
+  if (editing) return (
+    <input autoFocus type="datetime-local" className="form-input" value={val}
+      onChange={e => setVal(e.target.value)}
+      onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') { setVal(''); setEditing(false); } }}
+      onBlur={async () => {
+        const orig = utcToInput(raw); setEditing(false);
+        if (val && val !== orig) {
+          try { await api.timeAdjustPunch(id, { at: inputToUtc(val) }); onSaved?.(); }
+          catch (err) { toastErr?.(err?.message || 'Could not save the time.'); }
+        }
+      }}
+      style={{ fontSize: 12, padding: '2px 4px', width: 172 }} />
+  );
+  const geo = seg.geo || '';
+  return (
+    <button onClick={() => { if (!id) return; setVal(utcToInput(raw)); setEditing(true); }}
+      title={id ? 'Click to edit this punch time — the original stays on record' : ''}
+      style={{ background: 'none', border: 'none', padding: 0, cursor: id ? 'pointer' : 'default', font: 'inherit', color: 'inherit', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+      {geo && <span title={geo === 'in_fence' ? 'On site' : geo === 'out_of_fence' ? 'Off site' : 'No location'}
+        style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0, background: geo === 'in_fence' ? 'hsl(var(--color-green))' : geo === 'out_of_fence' ? '#b91c1c' : 'var(--line-strong,var(--line))' }} />}
+      <span style={{ borderBottom: '1px dashed var(--line-strong,var(--line))' }}>{t12(rounded)}</span>
+      {showRaw && <span style={{ fontSize: 10.5, fontStyle: 'italic', color: 'var(--muted)' }}>{t12s(raw)}</span>}
+    </button>
   );
 }
 
