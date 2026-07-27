@@ -1107,15 +1107,26 @@ function TicketDrawer({ ticketId, onClose, myDeptIds }) {
   const t = tickets.find((x) => x.id === ticketId);
   if (!t) return null;
 
-  // Someone just working the ticket (the assignee, or anyone with no other
-  // relationship to it) can triage/reassign/close it out but can't rewrite what
-  // it is or who it's for — that stays with whoever raised it, the department
-  // that owns the queue, or a manager+. Mirrors _ticket_edit_scope in
+  // Before a ticket is "in_progress" (with an assignee), the requester has
+  // full edit access and anyone else can triage/self-assign it (working
+  // fields only). Once it's in_progress and assigned, it becomes the
+  // assignee's to work — everyone else, including the requester, is locked
+  // out until it moves to another status. Manager+/dept lead-backup are
+  // unrestricted throughout. Mirrors _ticket_edit_scope in
   // backend/routers/tickets.py, which enforces the same split server-side (this
   // is UI convenience, not the security boundary — that's the backend check).
   const isRequester = (t.requesterId || '').toLowerCase() === (myEmail || '').toLowerCase();
+  const isAssignee = (t.assigneeId || '').toLowerCase() === (myEmail || '').toLowerCase();
   const isDeptOwner = t.hrDepartmentId ? (myDeptIds || new Set()).has(t.hrDepartmentId) : false;
-  const fullAccess = myLevel >= 3 || isRequester || isDeptOwner;
+  const privileged = myLevel >= 3 || isDeptOwner;
+  const locked = t.status === 'in_progress' && !!t.assigneeId;
+  const fullAccess = privileged || (locked ? isAssignee : isRequester);
+  // The always-open "working fields" (type/status/priority/assignee/department/
+  // resolution) — open to anyone pre-lock, restricted to the assignee once locked.
+  const canWorking = privileged || (locked ? isAssignee : true);
+  // Delete stays with whoever raised it or owns the queue — never just the
+  // assignee, and not affected by the in_progress lock. Mirrors delete_ticket.
+  const canDelete = privileged || isRequester;
 
   const patch = (p) => updateTicket(t.id, p).catch((e) => alert(`Could not update ticket: ${e.message || e}`));
   const escalate = () => escalateTicket(t.id).catch((e) => alert(`Could not escalate: ${e.message || e}`));
@@ -1151,14 +1162,16 @@ function TicketDrawer({ ticketId, onClose, myDeptIds }) {
   return (
     <Modal title={t.code || 'Ticket'} onClose={onClose} width={620} footer={
       <>
-        {fullAccess && (
+        {canDelete && (
           <button style={{ ...btn('outline'), color: NX.red, borderColor: NX.border, marginRight: 'auto' }} onClick={remove}><Trash2 size={14} /> Delete</button>
         )}
-        {t.priority !== 'urgent' && !CLOSED_STATES.includes(t.status) && (
+        {canWorking && t.priority !== 'urgent' && !CLOSED_STATES.includes(t.status) && (
           <button style={{ ...btn('outline'), color: NX.amber }} onClick={escalate} title="Bump priority and alert the assignee, watchers and managers"><ArrowUp size={14} /> Escalate</button>
         )}
         {!CLOSED_STATES.includes(t.status) ? (
-          <button style={{ ...btn('outline'), color: NX.green }} onClick={() => patch({ status: 'resolved', resolution: t.resolution || 'fixed' })}><CheckCircle2 size={14} /> Mark Resolved</button>
+          canWorking && (
+            <button style={{ ...btn('outline'), color: NX.green }} onClick={() => patch({ status: 'resolved', resolution: t.resolution || 'fixed' })}><CheckCircle2 size={14} /> Mark Resolved</button>
+          )
         ) : (
           <>
             {t.status === 'resolved' && (
@@ -1198,19 +1211,19 @@ function TicketDrawer({ ticketId, onClose, myDeptIds }) {
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
         <div style={field}>
           <label style={label}>Type</label>
-          <select value={t.type || 'request'} onChange={(e) => patch({ type: e.target.value })} style={sel}>
+          <select value={t.type || 'request'} onChange={(e) => patch({ type: e.target.value })} style={sel} disabled={!canWorking}>
             {TICKET_TYPE_ORDER.map((ty) => <option key={ty} value={ty}>{TICKET_TYPE_META[ty].label}</option>)}
           </select>
         </div>
         <div style={field}>
           <label style={label}>Status</label>
-          <select value={t.status} onChange={(e) => patch({ status: e.target.value })} style={sel}>
+          <select value={t.status} onChange={(e) => patch({ status: e.target.value })} style={sel} disabled={!canWorking}>
             {TICKET_STATUS_ORDER.map((s) => <option key={s} value={s}>{TICKET_STATUS_META[s].label}</option>)}
           </select>
         </div>
         <div style={field}>
           <label style={label}>Priority</label>
-          <select value={t.priority} onChange={(e) => patch({ priority: e.target.value })} style={sel}>
+          <select value={t.priority} onChange={(e) => patch({ priority: e.target.value })} style={sel} disabled={!canWorking}>
             {PRIORITY_ORDER.map((p) => <option key={p} value={p}>{PRIORITY_META[p].label}</option>)}
           </select>
         </div>
@@ -1222,7 +1235,7 @@ function TicketDrawer({ ticketId, onClose, myDeptIds }) {
         </div>
         <div style={field}>
           <label style={label}>Assign To</label>
-          <PersonSelect value={t.assigneeId || null} people={people} onChange={(v) => patch({ assigneeId: v || '' })} />
+          <PersonSelect value={t.assigneeId || null} people={people} onChange={(v) => patch({ assigneeId: v || '' })} disabled={!canWorking} />
         </div>
         <div style={field}>
           <label style={label}>Company</label>
@@ -1239,7 +1252,7 @@ function TicketDrawer({ ticketId, onClose, myDeptIds }) {
         </div>
         <div style={field}>
           <label style={label}>Department</label>
-          <select value={t.hrDepartmentId || ''} onChange={(e) => patch({ hrDepartmentId: e.target.value })} style={sel} disabled={!t.companyId}>
+          <select value={t.hrDepartmentId || ''} onChange={(e) => patch({ hrDepartmentId: e.target.value })} style={sel} disabled={!t.companyId || !canWorking}>
             <option value="">{t.companyId ? 'Select department' : 'Select a company first'}</option>
             {allDepts.filter((d) => d.companyId === t.companyId).map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
           </select>
@@ -1258,7 +1271,7 @@ function TicketDrawer({ ticketId, onClose, myDeptIds }) {
         {CLOSED_STATES.includes(t.status) && (
           <div style={field}>
             <label style={label}>Resolution</label>
-            <select value={t.resolution || ''} onChange={(e) => patch({ resolution: e.target.value })} style={sel}>
+            <select value={t.resolution || ''} onChange={(e) => patch({ resolution: e.target.value })} style={sel} disabled={!canWorking}>
               <option value="">— pick —</option>
               {TICKET_RESOLUTION.map((r) => <option key={r.key} value={r.key}>{r.label}</option>)}
             </select>

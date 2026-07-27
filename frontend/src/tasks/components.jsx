@@ -519,7 +519,7 @@ export function ProjectAccessButton({ project, teams, people }) {
   );
 }
 
-export function PersonSelect({ value, onChange, people, placeholder = 'Unassigned' }) {
+export function PersonSelect({ value, onChange, people, placeholder = 'Unassigned', disabled = false }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
   const ref = useRef(null);
@@ -536,14 +536,15 @@ export function PersonSelect({ value, onChange, people, placeholder = 'Unassigne
   const filtered = q ? people.filter((p) => (p.name + p.email).toLowerCase().includes(q.toLowerCase())) : people;
   return (
     <div ref={ref} style={{ position: 'relative' }}>
-      <button type="button" onClick={() => setOpen((o) => !o)} style={{ ...btn('outline'), width: '100%', justifyContent: 'space-between' }}>
+      <button type="button" disabled={disabled} onClick={() => setOpen((o) => !o)}
+        style={{ ...btn('outline'), width: '100%', justifyContent: 'space-between', opacity: disabled ? 0.6 : 1, cursor: disabled ? 'not-allowed' : 'pointer' }}>
         <span style={{ display: 'flex', alignItems: 'center', gap: 8, overflow: 'hidden' }}>
           {chosen ? <Avatar email={chosen.email} name={chosen.name} size={20} /> : null}
           <span style={{ color: chosen ? NX.ink : NX.faint, overflow: 'hidden', textOverflow: 'ellipsis' }}>{chosen ? chosen.name : placeholder}</span>
         </span>
         <ChevronDown size={15} style={{ color: NX.faint }} />
       </button>
-      {open && (
+      {open && !disabled && (
         <div className="nx-scroll" style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 4, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', zIndex: 50, maxHeight: 280, overflowY: 'auto' }}>
           <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people…" style={{ width: '100%', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '9px 12px', fontSize: 13, outline: 'none', fontFamily: FONT, boxSizing: 'border-box', background: 'transparent', color: NX.ink }} />
           <div onClick={() => { onChange(null); setOpen(false); }} style={{ padding: '8px 12px', fontSize: 13, color: NX.dim, cursor: 'pointer' }}>Unassigned</div>
