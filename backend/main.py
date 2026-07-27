@@ -1,4 +1,12 @@
 import os
+from dotenv import load_dotenv
+# Must run before any router import: routers/tasks.py (imported below) pulls in
+# auth.py, whose SKIP_AUTH is read once at module-import time via os.getenv().
+# unifi_client.py also calls load_dotenv(), but only as a side effect of
+# routers/unifi being imported later in the line below — by then auth.py has
+# already locked in SKIP_AUTH=False, so NEXUS_SKIP_AUTH in backend/.env was
+# silently ignored and every request 401'd even with the dev bypass configured.
+load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -230,6 +238,8 @@ def _run_migrations():
             "ALTER TABLE documents ADD COLUMN merge_overrides JSON DEFAULT '{}'",
             # Documents (DMS) Phase 12: same override/custom-variable support on templates
             "ALTER TABLE doc_templates ADD COLUMN merge_overrides JSON DEFAULT '{}'",
+            # Documents (DMS) Phase 13 (Template Builder): merge-field type/required/default/validation metadata
+            "ALTER TABLE doc_templates ADD COLUMN field_defs JSON DEFAULT '[]'",
             # ── HR Section A/B (nexus_employees): SQLite was missing columns the
             # Postgres list already carried — a pre-existing local DB 500s on
             # every nexus_employees SELECT without them (same class of bug as
@@ -244,6 +254,11 @@ def _run_migrations():
             "ALTER TABLE nexus_employees ADD COLUMN division VARCHAR DEFAULT ''",
             "ALTER TABLE nexus_employees ADD COLUMN identity_type VARCHAR DEFAULT 'internal'",
             "ALTER TABLE ir_funds ADD COLUMN property_asset_id VARCHAR DEFAULT ''",
+            # Share panel (Jul 2026): per-person/per-team project access role.
+            "ALTER TABLE task_projects ADD COLUMN member_roles JSON DEFAULT '{}'",
+            "ALTER TABLE task_teams ADD COLUMN access_role VARCHAR DEFAULT 'editor'",
+            # Manual override for ad-hoc-shared Asana teams the API can't reveal.
+            "ALTER TABLE asana_project_map ADD COLUMN extra_team_names JSON DEFAULT '[]'",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -513,6 +528,13 @@ def _run_migrations():
         "ALTER TABLE documents ADD COLUMN IF NOT EXISTS entity_id VARCHAR DEFAULT ''",
         "ALTER TABLE documents ADD COLUMN IF NOT EXISTS merge_overrides JSONB DEFAULT '{}'::jsonb",
         "ALTER TABLE doc_templates ADD COLUMN IF NOT EXISTS merge_overrides JSONB DEFAULT '{}'::jsonb",
+        # Documents (DMS) Phase 13 (Template Builder): merge-field type/required/default/validation metadata
+        "ALTER TABLE doc_templates ADD COLUMN IF NOT EXISTS field_defs JSONB DEFAULT '[]'::jsonb",
+        # Share panel (Jul 2026): per-person/per-team project access role.
+        "ALTER TABLE task_projects ADD COLUMN IF NOT EXISTS member_roles JSONB DEFAULT '{}'::jsonb",
+        "ALTER TABLE task_teams ADD COLUMN IF NOT EXISTS access_role VARCHAR DEFAULT 'editor'",
+        # Manual override for ad-hoc-shared Asana teams the API can't reveal.
+        "ALTER TABLE asana_project_map ADD COLUMN IF NOT EXISTS extra_team_names JSONB DEFAULT '[]'::jsonb",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -602,6 +624,16 @@ async def lifespan(app: FastAPI):
         print("[startup] ticket notification retry/auto-close loop scheduled")
     except Exception as e:
         print(f"[startup] ticket notification loop skipped: {e}")
+    # Task Notification workflow — retries failed/stuck Outlook emails and
+    # scans for due-date reminders. Same bare-asyncio-loop pattern as the
+    # Ticket Notification workflow above.
+    try:
+        import asyncio as _asyncio
+        from task_notify import task_notify_loop
+        _asyncio.create_task(task_notify_loop())
+        print("[startup] task notification retry/due-reminder loop scheduled")
+    except Exception as e:
+        print(f"[startup] task notification loop skipped: {e}")
     yield
 
 

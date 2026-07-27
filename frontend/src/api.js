@@ -349,6 +349,10 @@ export const api = {
   getTicketNotifySettings: () => req("/task-tickets/notify/settings"),
   updateTicketNotifySettings: (patch) => req("/task-tickets/notify/settings", { method: "PUT", body: JSON.stringify(patch) }),
   getTicketNotifyLog: (params = {}) => req(`/task-tickets/notify/log?${new URLSearchParams(params).toString()}`),
+  // Task Outlook notification workflow — admin settings + delivery log (manager+)
+  getTaskNotifySettings: () => req("/tasks/notify/settings"),
+  updateTaskNotifySettings: (patch) => req("/tasks/notify/settings", { method: "PUT", body: JSON.stringify(patch) }),
+  getTaskNotifyLog: (params = {}) => req(`/tasks/notify/log?${new URLSearchParams(params).toString()}`),
   // Ticket components / categories
   getTicketComponents: () => req("/task-ticket-components"),
   addTicketComponent: (data) => req("/task-ticket-components", { method: "POST", body: JSON.stringify(data) }),
@@ -599,6 +603,7 @@ export const api = {
   // Accounting
   getTransactions: () => req("/accounting/transactions"),
   getRamp: () => req("/accounting/ramp"),
+  updateRampMemo: (id, memo) => req(`/accounting/ramp/${id}`, { method: "PATCH", body: JSON.stringify({ memo }) }),
   getAma: () => req("/accounting/ama"),
 
   // Ops

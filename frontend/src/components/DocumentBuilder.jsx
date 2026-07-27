@@ -8,14 +8,17 @@ import {
   Table as TableIcon, ImagePlus, SeparatorHorizontal, Undo, Redo, Check, AlertCircle, Award,
   Users, FileDown, Printer, Send, History, RotateCcw,
   AlignLeft, AlignCenter, AlignRight, AlignJustify, Link2, Link2Off, FileSearch,
-  Shapes, Square, Circle, Minus, Triangle, ArrowRight, Type, Upload, Cloud,
+  Shapes, Square, Circle, Minus, Triangle, ArrowRight, Type, Upload, Cloud, Sparkles, FileStack,
+  Indent, Outdent, RotateCw, Rows, Columns, Combine, SquareSplitHorizontal, Trash2,
 } from 'lucide-react';
 import { api } from '../api';
 import { MERGE_TOKENS, FRIENDLY_MERGE, SHAPE_DEFAULTS, WRAP_MODES } from '../lib/docBuilderExtensions';
 import { BODY_EXTENSIONS } from '../lib/docBuilderSchema';
 import { uploadToSupabase, imageFromPaste } from '../lib/docBuilderUpload';
 import { importDocumentFile } from '../lib/docBuilderImport';
+import { PAGE_SIZES, ORIENTATIONS, MARGIN_PRESETS, DEFAULT_PAGE_SETUP, pageCanvasStyle } from '../lib/pageSetup';
 import EgnyteBrowser from './EgnyteBrowser';
+import DefineMergeFieldModal from './DefineMergeFieldModal';
 
 const FONT_GROUPS = {
   'Sans-serif': ['Inter', 'Arial', 'Helvetica', 'Verdana', 'Tahoma', 'Trebuchet MS', 'Segoe UI', 'Calibri', 'Roboto', 'Open Sans', 'Lato', 'Montserrat'],
@@ -109,6 +112,16 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   const [importPopoverOpen, setImportPopoverOpen] = useState(false);
   const [importing, setImporting] = useState(false);
   const [egnyteOpen, setEgnyteOpen] = useState(false);
+  // Template Builder (Phase 13) — field_defs is the single source of truth for
+  // a merge field's type/required/default/validation; only meaningful when
+  // kind==='template' (Documents generated from one just carry resolved
+  // values, not the field metadata itself).
+  const [fieldDefs, setFieldDefs] = useState([]);
+  const [mergeFieldModal, setMergeFieldModal] = useState(null); // null | { range?: {from,to}, existingDef?: object, initialLabel?: string }
+  // Page Setup (Phase 14) — content.pageSetup, a sibling of body/header/footer
+  // in the same JSON blob (no schema change needed).
+  const [pageSetup, setPageSetup] = useState(DEFAULT_PAGE_SETUP);
+  const [pageSetupOpen, setPageSetupOpen] = useState(false);
   const saveTimer = useRef(null);
   const fileInputRef = useRef(null);
   const importInputRef = useRef(null);
@@ -119,6 +132,11 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   // the editor's still-EMPTY default doc and silently overwrites real content.
   // Flips true only at the end of a successful load/applyContent below.
   const hydratedRef = useRef(false);
+  // Bumped on every selection change so the contextual Table/Shape/Textbox/
+  // Image toolbars below (which read bodyEditor.isActive(...) at render
+  // time) actually re-render as the cursor moves — TipTap's own state
+  // changes don't trigger a React re-render on their own.
+  const [, setSelectionTick] = useState(0);
 
   const bodyEditor = useEditor({
     extensions: [
@@ -127,6 +145,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
     ],
     content: null,
     onUpdate: () => { if (hydratedRef.current) scheduleSave(); },
+    onSelectionUpdate: () => setSelectionTick((t) => t + 1),
   });
 
   const headerEditor = useEditor({
@@ -168,6 +187,8 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
       setEmployeeId(d.employeeId || '');
       setEntityId(d.entityId || '');
       setMergeOverrides(d.mergeOverrides || {});
+      setFieldDefs(d.fieldDefs || []);
+      setPageSetup({ ...DEFAULT_PAGE_SETUP, ...(d.content?.pageSetup || {}) });
       applyContent(d.content);
       hydratedRef.current = true;
       setLoading(false);
@@ -188,7 +209,27 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
     body: bodyEditor?.getJSON() ?? null,
     header: headerVisible ? (headerEditor?.getJSON() ?? null) : null,
     footer: footerVisible ? (footerEditor?.getJSON() ?? null) : null,
-  }), [bodyEditor, headerEditor, footerEditor, headerVisible, footerVisible]);
+    pageSetup,
+  }), [bodyEditor, headerEditor, footerEditor, headerVisible, footerVisible, pageSetup]);
+
+  // Page Setup panel changes save immediately (like the letterhead/employee
+  // pickers) rather than going through the debounced content autosave —
+  // these are deliberate, infrequent choices, not typing.
+  const updatePageSetup = (patch) => {
+    const next = { ...pageSetup, ...patch };
+    setPageSetup(next);
+    const content = { ...currentContent(), pageSetup: next };
+    const payload = kind === 'document' ? { content, note: 'Page setup changed' } : { content };
+    apiUpdate(docId, payload).catch((e) => toastErr?.(e.message || 'Failed to update page setup'));
+  };
+  const toggleHeader = () => {
+    if (headerVisible) { setHeaderVisible(false); headerEditor?.commands.clearContent(); scheduleSave(); }
+    else setHeaderVisible(true);
+  };
+  const toggleFooter = () => {
+    if (footerVisible) { setFooterVisible(false); footerEditor?.commands.clearContent(); scheduleSave(); }
+    else setFooterVisible(true);
+  };
 
   const doSave = useCallback(() => {
     if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null; }
@@ -228,6 +269,15 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   };
 
   const close = () => {
+    // While viewing the rendered Preview & Send screen, X should back out to
+    // the editor (mirroring "Back to Edit"), not exit the document entirely
+    // — the two are easy to conflate since both sit in the same top-left
+    // corner, but only edit mode's X should actually leave the document.
+    if (kind === 'document' && preview) {
+      setPreview(false);
+      closePdfPreview();
+      return;
+    }
     if (saveTimer.current) doSave();
     onClose?.();
   };
@@ -380,6 +430,22 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
     }).catch(e => toastErr?.(e.message || 'Failed to prepare document for signature')).finally(() => setExporting(''));
   };
 
+  // Save as Template — copies this document's current content (its
+  // mergeField chips included: Document.content always keeps the raw
+  // {{token}} nodes, resolved against employee/entity/overrides only at
+  // export time, never baked into literal text) into a brand-new DocTemplate
+  // via the same create endpoint the Templates library itself uses.
+  const [savingTemplate, setSavingTemplate] = useState(false);
+  const saveAsTemplate = () => {
+    const name = (window.prompt('Template name', title || 'Untitled Template') || '').trim();
+    if (!name) return;
+    setSavingTemplate(true);
+    api.createDocTemplate({ name, category: 'general', requiresLetterhead, letterheadId, content: currentContent() })
+      .then(() => toastOk?.(`Saved as template "${name}"`))
+      .catch(e => toastErr?.(e.message || 'Failed to save as template'))
+      .finally(() => setSavingTemplate(false));
+  };
+
   const openHistory = () => {
     setHistoryOpen(true);
     getVersions(docId).then(setVersions).catch(() => setVersions([]));
@@ -402,6 +468,47 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
     if (!token) return;
     bodyEditor?.chain().focus().insertContent({ type: 'mergeField', attrs: { token } }).run();
     e.target.value = '';
+  };
+
+  // Template Builder (Phase 13) — "select text → Convert to Merge Field".
+  // Captures the selection's own range rather than trusting "current
+  // selection" once the modal (and its own inputs) has stolen focus.
+  const openConvertToMergeField = () => {
+    if (!bodyEditor) return;
+    const { from, to } = bodyEditor.state.selection;
+    if (from === to) { toastErr?.('Select some text first, then click Convert to Merge Field.'); return; }
+    const text = bodyEditor.state.doc.textBetween(from, to, ' ');
+    setMergeFieldModal({ range: { from, to }, initialLabel: text });
+  };
+
+  // Double-click an existing chip to edit its type/required/default/
+  // validation without moving it — chips render as plain HTML (not a TipTap
+  // NodeView), so this is a delegated DOM listener rather than a node-level
+  // click handler.
+  useEffect(() => {
+    if (!bodyEditor || kind !== 'template') return;
+    const dom = bodyEditor.view.dom;
+    const onDblClick = (e) => {
+      const chip = e.target.closest?.('[data-merge-token]');
+      if (!chip) return;
+      const token = chip.getAttribute('data-merge-token');
+      const existingDef = fieldDefs.find((f) => f.token === token)
+        || { token, label: FRIENDLY_MERGE[token] || token, type: 'text', required: false, validation: {} };
+      setMergeFieldModal({ existingDef });
+    };
+    dom.addEventListener('dblclick', onDblClick);
+    return () => dom.removeEventListener('dblclick', onDblClick);
+  }, [bodyEditor, kind, fieldDefs]);
+
+  const saveMergeFieldDef = (def) => {
+    if (mergeFieldModal?.range) {
+      const { from, to } = mergeFieldModal.range;
+      bodyEditor?.chain().focus().insertContentAt({ from, to }, { type: 'mergeField', attrs: { token: def.token } }).run();
+    }
+    const next = [...fieldDefs.filter((f) => f.token !== def.token), def];
+    setFieldDefs(next);
+    apiUpdate(docId, { fieldDefs: next }).catch((e) => toastErr?.(e.message || 'Failed to save the merge field'));
+    setMergeFieldModal(null);
   };
 
   const doUploadImage = async (file) => {
@@ -442,9 +549,13 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
     if (!bodyEditor?.isEmpty && !window.confirm('This will replace the current document content. Continue?')) return;
     setImporting(true);
     try {
-      const { html, warnings } = await importDocumentFile(file, { uploadImage: uploadImportedImage });
-      const json = generateJSON(html || '<p></p>', BODY_EXTENSIONS);
+      const { html, json: directJson, pageSetup: importedPageSetup, warnings } = await importDocumentFile(file, { uploadImage: uploadImportedImage });
+      const json = directJson || generateJSON(html || '<p></p>', BODY_EXTENSIONS);
       bodyEditor?.commands.setContent(json);
+      // .docx imports carry the source file's own page size/orientation/
+      // margins (docxToTiptap.js) — apply them so the imported page setup
+      // matches the original, not whatever this document had before.
+      if (importedPageSetup) updatePageSetup(importedPageSetup);
       if (warnings?.length) toastErr?.(`Imported with notes: ${warnings.slice(0, 2).join(' ')}`);
       else toastOk?.('Imported — review formatting before sending');
       setImportPopoverOpen(false);
@@ -626,46 +737,108 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
             )}
           </div>
         )}
-        {kind === 'document' && (
+        {kind === 'document' && !preview && (
+          <button onClick={() => { setPreview(true); openPdfPreview(); }} disabled={pdfPreviewLoading}
+            className="primary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, opacity: pdfPreviewLoading ? 0.6 : 1 }}>
+            {pdfPreviewLoading ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Send size={14} />} Preview & Send
+          </button>
+        )}
+        {kind === 'document' && preview && (
           <>
+            <button onClick={() => window.print()} title="Print"
+              style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, fontFamily: 'Inter, sans-serif' }}>
+              <Printer size={14} /> Print
+            </button>
+            <button onClick={saveAsTemplate} disabled={savingTemplate} title="Save as Template"
+              style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, fontFamily: 'Inter, sans-serif', opacity: savingTemplate ? 0.6 : 1 }}>
+              {savingTemplate ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <FileStack size={14} />} Save as Template
+            </button>
             <button onClick={() => doExport('pdf')} disabled={!!exporting} title="Export PDF"
               style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, fontFamily: 'Inter, sans-serif', opacity: exporting ? 0.6 : 1 }}>
-              <FileDown size={14} /> {exporting === 'pdf' ? 'Exporting…' : 'PDF'}
+              <FileDown size={14} /> {exporting === 'pdf' ? 'Exporting…' : 'Export PDF'}
             </button>
             <button onClick={() => doExport('docx')} disabled={!!exporting} title="Export DOCX"
               style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, fontFamily: 'Inter, sans-serif', opacity: exporting ? 0.6 : 1 }}>
-              <FileDown size={14} /> {exporting === 'docx' ? 'Exporting…' : 'DOCX'}
+              <FileDown size={14} /> {exporting === 'docx' ? 'Exporting…' : 'Export DOCX'}
             </button>
             <button onClick={doSendForSignature} disabled={!!exporting} title="Send for Signature"
               className="primary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, opacity: exporting ? 0.6 : 1 }}>
               <Send size={14} /> {exporting === 'send' ? 'Preparing…' : 'Send for Signature'}
             </button>
+            <button onClick={() => { setPreview(false); closePdfPreview(); }} title="Back to Edit"
+              style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, fontFamily: 'Inter, sans-serif' }}>
+              <EyeOff size={14} /> Back to Edit
+            </button>
           </>
         )}
-        <button onClick={openHistory} title="Version History"
-          style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, fontFamily: 'Inter, sans-serif' }}>
-          <History size={14} /> History
-        </button>
-        {preview && kind === 'document' && (
-          <button onClick={openPdfPreview} disabled={pdfPreviewLoading} title="PDF Preview"
-            style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, fontFamily: 'Inter, sans-serif', opacity: pdfPreviewLoading ? 0.6 : 1 }}>
-            {pdfPreviewLoading ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <FileSearch size={14} />} PDF Preview
-          </button>
-        )}
-        {preview && (
-          <button onClick={() => window.print()} title="Print"
+        {kind !== 'document' && (
+          <button onClick={() => setPreview(p => !p)}
             style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, fontFamily: 'Inter, sans-serif' }}>
-            <Printer size={14} /> Print
+            {preview ? <EyeOff size={14} /> : <Eye size={14} />} {preview ? 'Edit' : 'Preview'}
           </button>
         )}
-        <button onClick={() => setPreview(p => !p)}
-          style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, fontFamily: 'Inter, sans-serif' }}>
-          {preview ? <EyeOff size={14} /> : <Eye size={14} />} {preview ? 'Edit' : 'Preview'}
+        <button onClick={openHistory} title="Version History"
+          style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: 7, cursor: 'pointer', display: 'flex' }}>
+          <History size={16} />
         </button>
       </div>
 
+      {kind === 'document' && preview ? (
+        // Real rendered preview (Phase 17) — shows the document exactly as it
+        // will download: same backend PDF pipeline as Export PDF, so real
+        // pagination and a real page break, not the editor's own WYSIWYG
+        // canvas with editing merely disabled (which never looked like a
+        // finished document and rendered page breaks as a cosmetic divider).
+        // Inline in the page (not a modal) per the same reasoning as the
+        // rest of this module's "replace the tab content" convention.
+        <div style={{ flex: 1, minHeight: '70vh', display: 'flex', flexDirection: 'column' }}>
+          {pdfPreviewLoading ? (
+            <div style={{ padding: 60, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={22} style={{ animation: 'spin 1s linear infinite' }} /></div>
+          ) : pdfPreviewUrl ? (
+            <iframe title="Document Preview" src={pdfPreviewUrl} style={{ flex: 1, border: '1px solid var(--line)', borderRadius: 8, width: '100%', minHeight: '70vh' }} />
+          ) : null}
+        </div>
+      ) : (
+      <>
       {!preview && bodyEditor && (
         <div className="doc-toolbar">
+          <div style={{ position: 'relative' }}>
+            <ToolbarBtn title="Page Setup" onClick={() => setPageSetupOpen(o => !o)}><FileStack size={15} /></ToolbarBtn>
+            {pageSetupOpen && (
+              <div style={{ position: 'absolute', top: '110%', left: 0, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: 'var(--shadow-lg)', zIndex: 20, width: 260, padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>Page Size</label>
+                  <select className="form-input" style={{ width: '100%', fontSize: 12.5 }} value={pageSetup.size}
+                    onChange={e => updatePageSetup({ size: e.target.value })}>
+                    {PAGE_SIZES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>Orientation</label>
+                  <select className="form-input" style={{ width: '100%', fontSize: 12.5 }} value={pageSetup.orientation}
+                    onChange={e => updatePageSetup({ orientation: e.target.value })}>
+                    {ORIENTATIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>Margins</label>
+                  <select className="form-input" style={{ width: '100%', fontSize: 12.5 }} value={pageSetup.margins}
+                    onChange={e => updatePageSetup({ margins: e.target.value })}>
+                    {MARGIN_PRESETS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+                  </select>
+                </div>
+                <div style={{ borderTop: '1px solid var(--line)', paddingTop: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <label style={{ fontSize: 12.5, display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}>
+                    Header <input type="checkbox" checked={headerVisible} onChange={toggleHeader} />
+                  </label>
+                  <label style={{ fontSize: 12.5, display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}>
+                    Footer <input type="checkbox" checked={footerVisible} onChange={toggleFooter} />
+                  </label>
+                </div>
+              </div>
+            )}
+          </div>
+          <span className="doc-toolbar-sep" />
           <ToolbarBtn title="Bold" active={bodyEditor.isActive('bold')} onClick={() => bodyEditor.chain().focus().toggleBold().run()}><Bold size={15} /></ToolbarBtn>
           <ToolbarBtn title="Italic" active={bodyEditor.isActive('italic')} onClick={() => bodyEditor.chain().focus().toggleItalic().run()}><Italic size={15} /></ToolbarBtn>
           <ToolbarBtn title="Underline" active={bodyEditor.isActive('underline')} onClick={() => bodyEditor.chain().focus().toggleUnderline().run()}><Underline size={15} /></ToolbarBtn>
@@ -711,6 +884,12 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
           <span className="doc-toolbar-sep" />
           <ToolbarBtn title="Bullet list" active={bodyEditor.isActive('bulletList')} onClick={() => bodyEditor.chain().focus().toggleBulletList().run()}><List size={15} /></ToolbarBtn>
           <ToolbarBtn title="Numbered list" active={bodyEditor.isActive('orderedList')} onClick={() => bodyEditor.chain().focus().toggleOrderedList().run()}><ListOrdered size={15} /></ToolbarBtn>
+          {(bodyEditor.isActive('bulletList') || bodyEditor.isActive('orderedList')) && (
+            <>
+              <ToolbarBtn title="Decrease indent (outdent)" onClick={() => bodyEditor.chain().focus().liftListItem('listItem').run()}><Outdent size={15} /></ToolbarBtn>
+              <ToolbarBtn title="Increase indent (nest under previous item)" onClick={() => bodyEditor.chain().focus().sinkListItem('listItem').run()}><Indent size={15} /></ToolbarBtn>
+            </>
+          )}
           <span className="doc-toolbar-sep" />
           <ToolbarBtn title="Insert table" onClick={() => bodyEditor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()}><TableIcon size={15} /></ToolbarBtn>
           <ToolbarBtn title="Insert image" onClick={() => fileInputRef.current?.click()}><ImagePlus size={15} /></ToolbarBtn>
@@ -762,6 +941,11 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
             )}
           </div>
           <ToolbarBtn title="Insert page break" onClick={() => bodyEditor.chain().focus().insertContent({ type: 'pageBreak' }).run()}><SeparatorHorizontal size={15} /></ToolbarBtn>
+          {kind === 'template' && (
+            <ToolbarBtn title="Select text, then click to convert it into a named merge field" onClick={openConvertToMergeField}>
+              <Sparkles size={15} />
+            </ToolbarBtn>
+          )}
           <select onChange={insertMergeField} defaultValue=""
             style={{ fontSize: 12, fontFamily: 'Inter, sans-serif', border: '1px solid var(--line)', borderRadius: 7, padding: '5px 8px', cursor: 'pointer', color: 'var(--ink)', background: 'var(--card)' }}>
             <option value="">✨ Insert auto-filled detail…</option>
@@ -779,12 +963,103 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
         </div>
       )}
 
+      {/* Contextual toolbars — appear only while the cursor/selection is
+          inside the relevant node, mirroring Word's "click a table/picture/
+          shape and its own ribbon shows up" behavior instead of cluttering
+          the main toolbar with buttons that only apply some of the time. */}
+      {!preview && bodyEditor?.isActive('table') && (
+        <div className="doc-toolbar" style={{ marginTop: -8 }}>
+          <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', paddingLeft: 4 }}>Table:</span>
+          <ToolbarBtn title="Add row above" onClick={() => bodyEditor.chain().focus().addRowBefore().run()}><Rows size={15} /><span style={{ fontSize: 10 }}>↑+</span></ToolbarBtn>
+          <ToolbarBtn title="Add row below" onClick={() => bodyEditor.chain().focus().addRowAfter().run()}><Rows size={15} /><span style={{ fontSize: 10 }}>↓+</span></ToolbarBtn>
+          <ToolbarBtn title="Delete row" onClick={() => bodyEditor.chain().focus().deleteRow().run()}><Rows size={15} /><Trash2 size={11} /></ToolbarBtn>
+          <span className="doc-toolbar-sep" />
+          <ToolbarBtn title="Add column left" onClick={() => bodyEditor.chain().focus().addColumnBefore().run()}><Columns size={15} /><span style={{ fontSize: 10 }}>←+</span></ToolbarBtn>
+          <ToolbarBtn title="Add column right" onClick={() => bodyEditor.chain().focus().addColumnAfter().run()}><Columns size={15} /><span style={{ fontSize: 10 }}>→+</span></ToolbarBtn>
+          <ToolbarBtn title="Delete column" onClick={() => bodyEditor.chain().focus().deleteColumn().run()}><Columns size={15} /><Trash2 size={11} /></ToolbarBtn>
+          <span className="doc-toolbar-sep" />
+          <ToolbarBtn title="Merge cells" onClick={() => bodyEditor.chain().focus().mergeCells().run()}><Combine size={15} /></ToolbarBtn>
+          <ToolbarBtn title="Split cell" onClick={() => bodyEditor.chain().focus().splitCell().run()}><SquareSplitHorizontal size={15} /></ToolbarBtn>
+          <ToolbarBtn title="Toggle header row" active={bodyEditor.isActive('tableHeader')} onClick={() => bodyEditor.chain().focus().toggleHeaderRow().run()}>H</ToolbarBtn>
+          <span className="doc-toolbar-sep" />
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--muted)' }} title="Shade the current cell">
+            Shade
+            <input type="color" defaultValue="#f3f4f6"
+              onChange={(e) => {
+                const attrName = bodyEditor.isActive('tableHeader') ? 'tableHeader' : 'tableCell';
+                bodyEditor.chain().focus().updateAttributes(attrName, { backgroundColor: e.target.value }).run();
+              }}
+              style={{ width: 22, height: 22, padding: 0, border: '1px solid var(--line)', borderRadius: 5, cursor: 'pointer' }} />
+          </label>
+          <ToolbarBtn title="Delete table" onClick={() => bodyEditor.chain().focus().deleteTable().run()}><Trash2 size={15} /></ToolbarBtn>
+        </div>
+      )}
+
+      {!preview && (bodyEditor?.isActive('docShape') || bodyEditor?.isActive('docTextbox') || bodyEditor?.isActive('image')) && (
+        <div className="doc-toolbar" style={{ marginTop: -8 }}>
+          <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', paddingLeft: 4 }}>
+            {bodyEditor.isActive('docShape') ? 'Shape:' : bodyEditor.isActive('docTextbox') ? 'Text box:' : 'Image:'}
+          </span>
+          {(() => {
+            const type = bodyEditor.isActive('docShape') ? 'docShape' : bodyEditor.isActive('docTextbox') ? 'docTextbox' : 'image';
+            const attrs = bodyEditor.getAttributes(type);
+            const rotate = (delta) => bodyEditor.chain().focus().updateAttributes(type, { rotation: ((attrs.rotation || 0) + delta + 360) % 360 }).run();
+            return (
+              <>
+                <label style={{ fontSize: 11, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  Wrap
+                  <select value={attrs.wrapMode || 'inline'} onChange={(e) => bodyEditor.chain().focus().updateAttributes(type, { wrapMode: e.target.value }).run()}
+                    style={{ fontSize: 12, fontFamily: 'Inter, sans-serif', border: '1px solid var(--line)', borderRadius: 7, padding: '4px 6px', cursor: 'pointer', color: 'var(--ink)', background: 'var(--card)' }}>
+                    {WRAP_MODES.map(w => <option key={w.value} value={w.value}>{w.label}</option>)}
+                  </select>
+                </label>
+                <ToolbarBtn title="Rotate left 90°" onClick={() => rotate(-90)}><RotateCcw size={15} /></ToolbarBtn>
+                <ToolbarBtn title="Rotate right 90°" onClick={() => rotate(90)}><RotateCw size={15} /></ToolbarBtn>
+                {type === 'docShape' && (
+                  <>
+                    <label style={{ fontSize: 11, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                      Fill <input type="color" value={attrs.fillColor || '#dbeafe'} onChange={(e) => bodyEditor.chain().focus().updateAttributes('docShape', { fillColor: e.target.value }).run()}
+                        style={{ width: 22, height: 22, padding: 0, border: '1px solid var(--line)', borderRadius: 5, cursor: 'pointer' }} />
+                    </label>
+                    <label style={{ fontSize: 11, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                      Stroke <input type="color" value={attrs.strokeColor || '#2563eb'} onChange={(e) => bodyEditor.chain().focus().updateAttributes('docShape', { strokeColor: e.target.value }).run()}
+                        style={{ width: 22, height: 22, padding: 0, border: '1px solid var(--line)', borderRadius: 5, cursor: 'pointer' }} />
+                    </label>
+                  </>
+                )}
+                {type === 'docTextbox' && (
+                  <>
+                    <label style={{ fontSize: 11, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                      Border <input type="color" value={attrs.borderColor || '#9ca3af'} onChange={(e) => bodyEditor.chain().focus().updateAttributes('docTextbox', { borderColor: e.target.value }).run()}
+                        style={{ width: 22, height: 22, padding: 0, border: '1px solid var(--line)', borderRadius: 5, cursor: 'pointer' }} />
+                    </label>
+                    <label style={{ fontSize: 11, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                      Fill <input type="color" value={attrs.fillColor && attrs.fillColor !== 'transparent' ? attrs.fillColor : '#ffffff'}
+                        onChange={(e) => bodyEditor.chain().focus().updateAttributes('docTextbox', { fillColor: e.target.value }).run()}
+                        style={{ width: 22, height: 22, padding: 0, border: '1px solid var(--line)', borderRadius: 5, cursor: 'pointer' }} />
+                    </label>
+                  </>
+                )}
+                {type === 'image' && (
+                  <label style={{ fontSize: 11, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 4, flex: 1, minWidth: 140 }}>
+                    Alt text
+                    <input value={attrs.alt || ''} placeholder="Describe this image…"
+                      onChange={(e) => bodyEditor.chain().focus().updateAttributes('image', { alt: e.target.value }).run()}
+                      style={{ flex: 1, fontSize: 12, border: '1px solid var(--line)', borderRadius: 7, padding: '4px 7px', color: 'var(--ink)', background: 'var(--card)' }} />
+                  </label>
+                )}
+              </>
+            );
+          })()}
+        </div>
+      )}
+
       {!preview && !headerVisible && (
         <button onClick={() => setHeaderVisible(true)}
           style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: 11.5, fontWeight: 600, cursor: 'pointer', marginBottom: 6 }}>+ Add header</button>
       )}
 
-      <div className="doc-page">
+      <div className="doc-page" style={{ display: 'flex', flexDirection: 'column', ...pageCanvasStyle(pageSetup) }}>
         {activeLetterhead && (
           <div>
             {activeLetterhead.headerJson?.text && (
@@ -812,7 +1087,13 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
           </div>
         )}
 
-        <EditorContent editor={bodyEditor} className="doc-editor" onPaste={onBodyPaste} />
+        {/* flex:1 so the body fills whatever space is left between header and
+            footer up to the page's minHeight — without this the footer
+            followed the body directly in document flow and left a bare gap
+            below it whenever the body was short. */}
+        <div style={{ flex: 1 }}>
+          <EditorContent editor={bodyEditor} className="doc-editor" onPaste={onBodyPaste} />
+        </div>
 
         {footerVisible && (
           <div className="doc-band doc-footer">
@@ -828,6 +1109,8 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
       {!preview && !footerVisible && (
         <button onClick={() => setFooterVisible(true)}
           style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: 11.5, fontWeight: 600, cursor: 'pointer', marginTop: 6 }}>+ Add footer</button>
+      )}
+      </>
       )}
 
       {historyOpen && (
@@ -865,18 +1148,14 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
         </div>
       )}
 
-      {pdfPreviewUrl && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
-          onClick={closePdfPreview}>
-          <div style={{ background: 'var(--card)', borderRadius: 12, width: '100%', maxWidth: 900, height: '90vh', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', overflow: 'hidden' }}
-            onClick={e => e.stopPropagation()}>
-            <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span style={{ fontSize: 13, fontWeight: 700 }}>PDF Preview</span>
-              <button onClick={closePdfPreview} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex' }}><X size={18} /></button>
-            </div>
-            <iframe title="PDF Preview" src={pdfPreviewUrl} style={{ flex: 1, border: 'none', width: '100%' }} />
-          </div>
-        </div>
+      {mergeFieldModal && (
+        <DefineMergeFieldModal
+          initialLabel={mergeFieldModal.initialLabel}
+          existingDef={mergeFieldModal.existingDef}
+          existingTokens={fieldDefs.map((f) => f.token)}
+          onSave={saveMergeFieldDef}
+          onCancel={() => setMergeFieldModal(null)}
+        />
       )}
     </div>
   );

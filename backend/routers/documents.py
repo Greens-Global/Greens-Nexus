@@ -52,6 +52,14 @@ _SYSTEM_FOLDERS = [
 
 _TEMPLATE_CATEGORIES = ("letterhead", "hr", "legal", "finance", "operations", "sales", "engineering", "general")
 
+# Template Builder (Phase 13) — merge-field type registry. "Reserved" types
+# never get a value out of the Generate-Document fill form (signature/initials
+# are placed later by the separate E-Sign field-placement step; image/file
+# upload-at-fill-time is a documented fast-follow) — see _reserved_placeholder.
+_FIELD_TYPES = ("text", "multiline", "number", "currency", "date", "time",
+                "dropdown", "radio", "checkbox", "signature", "initials", "image", "file")
+_RESERVED_FIELD_TYPES = ("signature", "initials", "image", "file")
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -131,6 +139,7 @@ class DocumentIn(BaseModel):
     templateId: Optional[str] = ""
     content: Optional[dict] = None
     tags: Optional[List[str]] = None
+    fillValues: Optional[dict] = None   # Template Builder (Phase 13) — Generate Document fill-form values, keyed by token
 
 
 class DocumentUpdate(BaseModel):
@@ -214,6 +223,23 @@ def create_document(body: DocumentIn, user: dict = Depends(get_current_user), db
                     default_lh = db.query(DocLetterhead).filter(DocLetterhead.is_default == True).first()  # noqa: E712
                     letterhead_id = default_lh.id if default_lh else ""
             merge_overrides = dict(tpl.merge_overrides or {})
+            # Template Builder (Phase 13) — Generate Document: fill-form values
+            # win over the template's own defaults (same "last writer wins"
+            # convention resolve_merge_data already uses for its overrides).
+            if body.fillValues:
+                merge_overrides.update(body.fillValues)
+            merge_overrides = _clean_merge_overrides(merge_overrides)
+            # Required-field guard: the fill-form blocks this client-side, but a
+            # direct API call must not be able to create a blank required field
+            # silently. Reserved types (signature/initials/image/file) are
+            # legitimately empty at generation time — see _FIELD_TYPES.
+            missing = [
+                fd.get("label") or fd.get("token") for fd in (tpl.field_defs or [])
+                if fd.get("required") and fd.get("type") not in _RESERVED_FIELD_TYPES
+                and not (merge_overrides.get(fd.get("token")) or "").strip()
+            ]
+            if missing:
+                raise HTTPException(422, f"Missing required field(s): {', '.join(missing)}")
     row = Document(id=str(uuid.uuid4()), title=body.title.strip(), folder_id=body.folderId or "",
                     template_id=body.templateId or "", content=content, letterhead_id=letterhead_id,
                     merge_overrides=merge_overrides,
@@ -230,6 +256,7 @@ def _ser_template(t: DocTemplate) -> dict:
     return {"id": t.id, "name": t.name, "category": t.category, "tags": t.tags or [],
             "content": t.content, "requiresLetterhead": t.requires_letterhead,
             "letterheadId": t.letterhead_id, "mergeOverrides": t.merge_overrides or {},
+            "fieldDefs": t.field_defs or [],
             "status": t.status, "version": t.version,
             "createdBy": t.created_by, "createdAt": t.created_at,
             "updatedBy": t.updated_by, "updatedAt": t.updated_at}
@@ -248,6 +275,7 @@ class TemplateIn(BaseModel):
     content: Optional[dict] = None
     requiresLetterhead: Optional[bool] = False
     letterheadId: Optional[str] = ""
+    fieldDefs: Optional[List[dict]] = None
 
 
 class TemplateUpdate(BaseModel):
@@ -258,6 +286,7 @@ class TemplateUpdate(BaseModel):
     requiresLetterhead: Optional[bool] = None
     letterheadId: Optional[str] = None
     mergeOverrides: Optional[dict] = None
+    fieldDefs: Optional[List[dict]] = None
     status: Optional[str] = None
     note: Optional[str] = ""
 
@@ -315,6 +344,7 @@ def create_template(body: TemplateIn, user: dict = Depends(get_current_user), db
     row = DocTemplate(id=str(uuid.uuid4()), name=body.name.strip(), category=category,
                        tags=body.tags or [], content=content,
                        requires_letterhead=bool(body.requiresLetterhead), letterhead_id=body.letterheadId or "",
+                       field_defs=_clean_field_defs(body.fieldDefs or []),
                        status="active", version=1, created_by=user["email"], created_at=now,
                        updated_by=user["email"], updated_at=now)
     db.add(row); db.flush()
@@ -546,6 +576,8 @@ def update_template(tid: str, body: TemplateUpdate, user: dict = Depends(get_cur
         row.letterhead_id = body.letterheadId
     if body.mergeOverrides is not None:
         row.merge_overrides = _clean_merge_overrides(body.mergeOverrides)
+    if body.fieldDefs is not None:
+        row.field_defs = _clean_field_defs(body.fieldDefs)
     if body.status is not None:
         row.status = body.status
     if body.content is not None:
@@ -580,6 +612,11 @@ def get_template_version(tid: str, vid: str, user: dict = Depends(get_current_us
 @router.delete("/templates/{tid}")
 def delete_template(tid: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     row = _get_template_owned_or_admin(db, tid, user)
+    # A template can be deleted out from under documents already generated
+    # from it (Document.template_id is a plain string, no FK constraint) —
+    # block it instead of silently orphaning those documents.
+    if db.query(Document).filter(Document.template_id == tid).first():
+        raise HTTPException(409, "Cannot delete a template that has generated documents — archive it instead")
     db.delete(row); db.commit()
     return {"ok": True}
 
@@ -594,6 +631,7 @@ def duplicate_template(tid: str, user: dict = Depends(get_current_user), db: Ses
                        tags=src.tags or [], content=copy.deepcopy(src.content) if src.content else {},
                        requires_letterhead=src.requires_letterhead, letterhead_id=src.letterhead_id,
                        merge_overrides=src.merge_overrides or {},
+                       field_defs=copy.deepcopy(src.field_defs) if src.field_defs else [],
                        status="active", version=1, created_by=user["email"], created_at=now,
                        updated_by=user["email"], updated_at=now)
     db.add(row); db.commit(); db.refresh(row)
@@ -721,6 +759,38 @@ def get_document(did: str, user: dict = Depends(get_current_user), db: Session =
         raise HTTPException(404, "Document not found")
     statuses = _sign_statuses(db, [row])
     return _ser_document(row, statuses.get(row.sign_request_id, ""))
+
+
+def _clean_field_defs(defs: list) -> list:
+    """Template Builder (Phase 13) — validate/normalize field_defs before
+    persisting: dedupe by token (last one wins), enforce the token shape
+    _clean_merge_overrides already requires for the values themselves, drop
+    entries with an unknown type, strip unknown keys, coerce `required` to
+    bool. Options only kept for dropdown/radio."""
+    by_token = {}
+    for d in defs or []:
+        if not isinstance(d, dict):
+            continue
+        token = str(d.get("token") or "")
+        if not re.fullmatch(r"[a-z0-9_]+", token):
+            continue
+        ftype = d.get("type")
+        if ftype not in _FIELD_TYPES:
+            continue
+        validation = d.get("validation") if isinstance(d.get("validation"), dict) else {}
+        clean = {
+            "token": token,
+            "label": str(d.get("label") or token)[:200],
+            "type": ftype,
+            "required": bool(d.get("required")),
+            "default": str(d.get("default") or "")[:2000],
+            "validation": {k: v for k, v in validation.items()
+                          if k in ("maxLength", "regex", "min", "max", "minDate", "maxDate")},
+        }
+        if ftype in ("dropdown", "radio"):
+            clean["options"] = [str(o)[:200] for o in (d.get("options") or []) if str(o).strip()][:50]
+        by_token[token] = clean
+    return list(by_token.values())
 
 
 def _clean_merge_overrides(overrides: dict) -> dict:
@@ -863,30 +933,47 @@ def _export_prep(db: Session, did: str, user: dict):
         raise HTTPException(404, "Document not found")
     merge = resolve_merge_data(db, employee_id=row.employee_id, entity_id=row.entity_id,
                                overrides=row.merge_overrides or {})
+    # Template Builder (Phase 13) — a signature/initials/image/file field is
+    # never filled through the Generate-Document form (reserved for E-Sign /
+    # a fast-follow upload path); render its label as a visible placeholder
+    # instead of a raw "{{token}}" or a silent blank so whoever reviews the
+    # export knows exactly what's still missing.
+    if row.template_id:
+        tpl = db.query(DocTemplate).filter(DocTemplate.id == row.template_id).first()
+        if tpl and tpl.field_defs:
+            kind_label = {"signature": "Signature", "initials": "Initials", "image": "Image", "file": "Attachment"}
+            for fd in tpl.field_defs:
+                token, ftype = fd.get("token"), fd.get("type")
+                if ftype in _RESERVED_FIELD_TYPES and not merge.get(token):
+                    merge[token] = f"[{kind_label.get(ftype, 'Field')}: {fd.get('label') or token}]"
     content = row.content if isinstance(row.content, dict) else {}
     header_blocks = tiptap_to_blocks(content.get("header"), merge)
     body_blocks = tiptap_to_blocks(content.get("body"), merge)
     footer_blocks = tiptap_to_blocks(content.get("footer"), merge)
+    # Page Setup (Phase 14) — a sibling of body/header/footer in the same
+    # content JSON, no schema change needed. Missing/unknown values fall back
+    # to US Letter (_resolve_page_setup's own default).
+    page_setup = content.get("pageSetup") if isinstance(content.get("pageSetup"), dict) else {}
     letterhead = None
     if row.letterhead_id:
         lh = db.query(DocLetterhead).filter(DocLetterhead.id == row.letterhead_id).first()
         if lh:
             letterhead = _ser_letterhead(lh)
-    return row, header_blocks, body_blocks, footer_blocks, letterhead
+    return row, header_blocks, body_blocks, footer_blocks, letterhead, page_setup
 
 
 @router.get("/{did}/export/pdf")
 def export_document_pdf(did: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    row, header_blocks, body_blocks, footer_blocks, letterhead = _export_prep(db, did, user)
-    pdf_bytes = render_pdf(row.title, header_blocks, body_blocks, footer_blocks, letterhead)
+    row, header_blocks, body_blocks, footer_blocks, letterhead, page_setup = _export_prep(db, did, user)
+    pdf_bytes = render_pdf(row.title, header_blocks, body_blocks, footer_blocks, letterhead, page_setup)
     return Response(content=pdf_bytes, media_type="application/pdf",
                     headers={"Content-Disposition": _content_disposition(row.title, "pdf")})
 
 
 @router.get("/{did}/export/docx")
 def export_document_docx(did: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    row, header_blocks, body_blocks, footer_blocks, letterhead = _export_prep(db, did, user)
-    docx_bytes = render_docx(row.title, header_blocks, body_blocks, footer_blocks, letterhead)
+    row, header_blocks, body_blocks, footer_blocks, letterhead, page_setup = _export_prep(db, did, user)
+    docx_bytes = render_docx(row.title, header_blocks, body_blocks, footer_blocks, letterhead, page_setup)
     return Response(content=docx_bytes, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                     headers={"Content-Disposition": _content_disposition(row.title, "docx")})
 

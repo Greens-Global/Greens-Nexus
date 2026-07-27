@@ -1,18 +1,30 @@
-// Document import (Phase 10) — turns an uploaded Word/PDF/text file into an
-// HTML string that generateJSON() (called by the caller, with BODY_EXTENSIONS
-// — see docBuilderSchema.js) can parse straight into the editor's own schema.
-// This module stays UI/storage-agnostic: image bytes are handed to the
-// caller-supplied `uploadImage` rather than uploaded here, so it doesn't need
-// to know about Supabase, a document id, or any path convention.
+// Document import (Phase 10, hardened Phase 16) — turns an uploaded Word/PDF/
+// text file into either a TipTap JSON body (docx — see below) or an HTML
+// string that the caller runs through generateJSON() with BODY_EXTENSIONS
+// (docBuilderSchema.js) for everything else. This module stays UI/storage-
+// agnostic: image bytes are handed to the caller-supplied `uploadImage`
+// rather than uploaded here, so it doesn't need to know about Supabase, a
+// document id, or any path convention.
 //
-// Format scope (see the plan for the full reasoning):
-// - .docx: high-fidelity, via mammoth -> HTML -> generateJSON. Real editable
-//   nodes, not a picture/embed.
+// Format scope:
+// - .docx: reads the raw OOXML directly (docxToTiptap.js) instead of going
+//   through mammoth's HTML conversion — mammoth intentionally discards
+//   direct (non-named-style) font family/size/color/highlight and paragraph
+//   alignment, which is the actual cause of "the font/size changed on
+//   import" for ordinary Word documents. The direct converter preserves
+//   those, plus heading levels, bullet/numbered lists (incl. basic nesting),
+//   tables (incl. cell shading), images, page breaks, and even the source
+//   page size/orientation/margins (mapped onto this editor's Page Setup).
+//   See docxToTiptap.js's own header comment for the honest, permanent list
+//   of what this editor's schema still can't represent (footnotes, tracked
+//   changes, multi-level numbering styles beyond bullet/decimal, etc.) — no
+//   importer can close those without a different editor.
 // - .pdf: best-effort TEXT ONLY (paragraphs/headings/bold heuristics) — PDF
 //   isn't a flow-document format, so layout/tables/images/columns are not
 //   recoverable here. Always carries a warning saying so.
-// - .doc (legacy binary Word): rejected — mammoth has never supported it.
-//   Same message SOP.jsx already uses for the identical limitation.
+// - .doc (legacy binary Word): rejected — no reader here (or mammoth) has
+//   ever supported the old binary format. Same message SOP.jsx already uses
+//   for the identical limitation.
 // - .txt / unknown: blank-line-separated paragraphs.
 
 const _importLimit = (name) => (/\.(pdf|docx?)$/i.test(name) ? 15 : 2) * 1024 * 1024;
@@ -28,21 +40,35 @@ function extOf(name) {
 }
 
 async function importDocx(file, uploadImage) {
-  const mammoth = await import('mammoth');
-  let n = 0;
-  const result = await mammoth.convertToHtml({ arrayBuffer: await file.arrayBuffer() }, {
-    convertImage: mammoth.images.imgElement(async (image) => {
-      try {
-        const bytes = await image.readAsArrayBuffer();
-        const url = await uploadImage?.(bytes, image.contentType || 'image/png', ++n);
-        return { src: url || '' };
-      } catch {
-        return { src: '' };
-      }
-    }),
-  });
-  const warnings = (result.messages || []).map(m => m.message).filter(Boolean);
-  return { html: result.value, warnings };
+  const { convertDocxToTiptap } = await import('./docxToTiptap');
+  try {
+    const { body, pageSetup } = await convertDocxToTiptap(file, { uploadImage });
+    return { json: body, pageSetup, warnings: [] };
+  } catch (e) {
+    // A malformed/unusual .docx (rare, but real — e.g. one written by a
+    // non-Word tool with slightly off-spec XML) must not leave the user with
+    // zero options. Mammoth's own, more forgiving HTML conversion is a
+    // fallback here, at the cost of the font/size/color/alignment fidelity
+    // this module exists to fix — better than a hard failure.
+    const mammoth = await import('mammoth');
+    let n = 0;
+    const result = await mammoth.convertToHtml({ arrayBuffer: await file.arrayBuffer() }, {
+      convertImage: mammoth.images.imgElement(async (image) => {
+        try {
+          const bytes = await image.readAsArrayBuffer();
+          const url = await uploadImage?.(bytes, image.contentType || 'image/png', ++n);
+          return { src: url || '' };
+        } catch {
+          return { src: '' };
+        }
+      }),
+    });
+    const warnings = [
+      'Used a simplified import for this file (its formatting was not fully readable) — fonts, sizes, and exact layout may not be fully preserved.',
+      ...(result.messages || []).map(m => m.message).filter(Boolean),
+    ];
+    return { html: result.value, warnings };
+  }
 }
 
 // Groups pdfjs text items into rows (by Y proximity, using content-stream
@@ -71,7 +97,6 @@ async function importPdf(file) {
   const pdf = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise;
 
   const rows = []; // { page, y, size, bold, segments: [{text, x, endX}] }
-  const allSizes = [];
   for (let p = 1; p <= pdf.numPages; p++) {
     const page = await pdf.getPage(p);
     const content = await page.getTextContent();
@@ -83,8 +108,12 @@ async function importPdf(file) {
       const x = item.transform[4];
       const y = item.transform[5];
       const endX = x + (item.width || item.str.length * size * 0.5);
+      // pdf.js's TextItem.fontName is an internal id (e.g. "g_d0_f1"), never
+      // the PDF's actual font name — this can never match "Helvetica-Bold"
+      // etc. regardless of whether the source text is really bold. Kept
+      // anyway (harmless — it just never fires) rather than removed, in
+      // case a future pdf.js version exposes the real name for some fonts.
       const bold = /bold/i.test(item.fontName || '');
-      allSizes.push(size);
       // pdfjs represents the horizontal gap between two drawString() calls as
       // a synthetic whitespace-only item whose OWN width spans the entire
       // gap (not a real space character's width) — e.g. drawString('label',
@@ -125,9 +154,6 @@ async function importPdf(file) {
   // Restore real visual reading order — see the function comment above.
   rows.sort((a, b) => a.page - b.page || b.y - a.y);
 
-  const sorted = [...allSizes].sort((a, b) => a - b);
-  const median = sorted[Math.floor(sorted.length / 2)] || 10;
-
   const blocks = []; // { type: 'table', rows } | { type: 'para', text, size, bold }
   let i = 0;
   while (i < rows.length) {
@@ -147,6 +173,7 @@ async function importPdf(file) {
     let text = row.segments.map(s => s.text.trim()).join('  ');
     let size = row.size, bold = row.bold;
     let lastY = row.y;
+    let rowSpan = 1;
     let k = i + 1;
     while (k < rows.length) {
       const nxt = rows[k];
@@ -156,11 +183,35 @@ async function importPdf(file) {
       size = Math.max(size, nxt.size);
       bold = bold && nxt.bold;
       lastY = nxt.y;
+      rowSpan++;
       k++;
     }
-    blocks.push({ type: 'para', text: text.trim(), size, bold });
+    blocks.push({ type: 'para', text: text.trim(), size, bold, rowSpan });
     i = k;
   }
+
+  // Baseline "body text" size. A real document (esp. a signed-certificate-
+  // style PDF: SHA-256 hash, audit-chain log, tiny disclaimers) often has far
+  // more fine-print ROWS than visible body paragraphs even though the fine
+  // print is visually a minor part of the page — sampling every row equally
+  // (the old approach: a global median across every raw text item) let that
+  // fine print drag the baseline down, so ordinary body text ended up
+  // looking disproportionately large by comparison and got misclassified as
+  // a heading (rendered bold+large by the browser — i.e. "everything turned
+  // bold"). The reliable signal genuine body text has that fine print/labels/
+  // headers almost never do: it WRAPS across multiple merged rows (rowSpan
+  // >= 2) — a real paragraph of prose runs long enough to wrap, a footer
+  // disclaimer or log line usually doesn't. Prefer the mode among only those
+  // multi-row blocks; fall back to every block if the document has none
+  // (e.g. it's all short lines). An absolute floor (must be bigger by a few
+  // points, not just proportionally) is a second, independent safety net.
+  const wrapped = blocks.filter(b => b.type === 'para' && b.text && b.rowSpan >= 2);
+  const paraSizes = (wrapped.length ? wrapped : blocks.filter(b => b.type === 'para' && b.text)).map(b => Math.round(b.size * 2) / 2);
+  const counts = new Map();
+  for (const s of paraSizes) counts.set(s, (counts.get(s) || 0) + 1);
+  let bodySize = 10;
+  let bestCount = 0;
+  for (const [s, c] of counts) { if (c > bestCount) { bestCount = c; bodySize = s; } }
 
   const html = blocks.map(b => {
     if (b.type === 'table') {
@@ -170,8 +221,8 @@ async function importPdf(file) {
     if (!b.text) return '';
     const text = escapeHtml(b.text);
     const body = b.bold ? `<strong>${text}</strong>` : text;
-    if (b.size >= median * 1.6) return `<h1>${body}</h1>`;
-    if (b.size >= median * 1.25) return `<h2>${body}</h2>`;
+    if (b.size >= bodySize * 1.6 && b.size >= bodySize + 6) return `<h1>${body}</h1>`;
+    if (b.size >= bodySize * 1.25 && b.size >= bodySize + 3) return `<h2>${body}</h2>`;
     return `<p>${body}</p>`;
   }).filter(Boolean).join('\n');
 
