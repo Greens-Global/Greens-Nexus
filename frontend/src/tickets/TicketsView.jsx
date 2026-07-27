@@ -18,13 +18,13 @@ import { Avatar, PriorityChip, EmptyState, Modal, PersonSelect, usePeople, DateF
 import MobileTaskBar, { BottomSheet } from '../tasks/MobileTaskBar';
 import { Card, LightBar, Donut } from '../tasks/views/charts';
 import {
-  fmtDate, today, requiredHint, TICKET_TYPE_META, TICKET_TYPE_ORDER, TYPE_FIELDS,
+  fmtDate, today, requiredHint, TICKET_TYPE_META, TICKET_TYPE_ORDER, TYPE_FIELDS, NO_RECORDING_TYPES,
   TICKET_RESOLUTION, LINK_TYPES, TICKET_STATUS_META, TICKET_STATUS_ORDER, CLOSED_STATES,
   SLA_TARGET_HOURS, SLA_META, slaState, slaDueFromPriority, isBlankFieldValue, toEmailList,
   label, field, resolutionLabel, linkTypeLabel, APPROVAL_META,
 } from './ticketMeta';
 import {
-  TypeFieldInput, TicketTypeIcon, SlaBadge, TicketStatusChip, TicketCustomFieldInput,
+  TypeFieldInput, TicketTypeIcon, SlaBadge, TicketStatusChip,
 } from './TicketAtoms';
 
 // Views offered by the mobile bar's view sheet (desktop uses the inline switcher).
@@ -788,53 +788,69 @@ function attachmentKindOf(f) {
 
 // Posts one file to a ticket — the ticket must already exist (attachments are
 // keyed by ticket id). A failed storage upload still records the attachment
-// by name so the attempt isn't silently lost.
+// by name (returns false) so the attempt isn't silently lost — the caller
+// decides whether/how to surface that.
 async function uploadTicketFile(ticketId, f) {
   const size = `${Math.max(1, Math.round(f.size / 1024))} KB`;
   const kind = attachmentKindOf(f);
   let url = '';
-  try { url = await uploadTicketEvidence(f, kind); } catch { /* recorded by name only below */ }
-  return api.addTicketAttachment(ticketId, { name: f.name, size, kind, url }).catch(() => {});
+  let ok = true;
+  try { url = await uploadTicketEvidence(f, kind); } catch { ok = false; }
+  await api.addTicketAttachment(ticketId, { name: f.name, size, kind, url }).catch(() => {});
+  return ok;
 }
 
 // Shared Record + Upload control — a screen recording (optionally with mic
 // narration) or a plain file picker. `onFile(file)` gets a plain File each
 // time (recordings become File objects too); the caller decides whether to
 // queue it locally (pre-creation) or upload it immediately (post-creation).
-function RecordUploadButtons({ onFile, disabled }) {
+function RecordUploadButtons({ onFile, disabled, showRecord = true }) {
   const fileRef = useRef(null);
   const [menu, setMenu] = useState(false);
   const [recording, setRecording] = useState(false);
 
   const record = async (voice) => {
     setMenu(false);
-    const started = await startScreenRecording({ voice }, (blob) => {
-      setRecording(false);
-      if (blob) onFile(new File([blob], `ticket-recording-${Date.now()}.webm`, { type: 'video/webm' }));
-    });
-    if (started) setRecording(true);
+    try {
+      const started = await startScreenRecording({ voice }, (blob) => {
+        setRecording(false);
+        if (blob) onFile(new File([blob], `ticket-recording-${Date.now()}.webm`, { type: 'video/webm' }));
+        else alert('The recording came out empty — try again.');
+      });
+      if (started) setRecording(true);
+    } catch (e) {
+      // NotAllowedError covers both "dismissed the picker" and "denied
+      // permission" in Chrome — quiet in both cases, same as Testing's
+      // startBugRecording. Anything else (unsupported browser, NotFoundError,
+      // etc.) is worth telling the requester about.
+      if (e?.name !== 'NotAllowedError' && e?.name !== 'AbortError') {
+        alert(e?.message || 'Could not start screen recording.');
+      }
+    }
   };
 
   return (
     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-      <div style={{ position: 'relative' }}>
-        <button type="button" disabled={disabled || recording} onClick={() => setMenu((m) => !m)}
-          style={{ ...btn('outline'), fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          {recording ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <CircleDot size={13} style={{ color: NX.red }} />}
-          {recording ? 'Recording…' : 'Record'}
-        </button>
-        {menu && <div onClick={() => setMenu(false)} style={{ position: 'fixed', inset: 0, zIndex: 15 }} />}
-        {menu && (
-          <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 6, zIndex: 20, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 10px 30px rgba(0,0,0,.18)', padding: 4, width: 210 }}>
-            <button type="button" onClick={() => record(false)} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8, fontSize: 12 }}>
-              <Video size={14} /> Screen recording
-            </button>
-            <button type="button" onClick={() => record(true)} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8, fontSize: 12 }}>
-              <Mic size={14} /> Screen + narration
-            </button>
-          </div>
-        )}
-      </div>
+      {showRecord && (
+        <div style={{ position: 'relative' }}>
+          <button type="button" disabled={disabled || recording} onClick={() => setMenu((m) => !m)}
+            style={{ ...btn('outline'), fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            {recording ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <CircleDot size={13} style={{ color: NX.red }} />}
+            {recording ? 'Recording…' : 'Record'}
+          </button>
+          {menu && <div onClick={() => setMenu(false)} style={{ position: 'fixed', inset: 0, zIndex: 15 }} />}
+          {menu && (
+            <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 6, zIndex: 20, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 10px 30px rgba(0,0,0,.18)', padding: 4, width: 210 }}>
+              <button type="button" onClick={() => record(false)} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8, fontSize: 12 }}>
+                <Video size={14} /> Screen recording
+              </button>
+              <button type="button" onClick={() => record(true)} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8, fontSize: 12 }}>
+                <Mic size={14} /> Screen + narration
+              </button>
+            </div>
+          )}
+        </div>
+      )}
       <button type="button" disabled={disabled} onClick={() => fileRef.current?.click()}
         style={{ ...btn('outline'), fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
         <UploadIcon size={13} /> Upload
@@ -959,10 +975,16 @@ export function CreateTicketModal({ onClose }) {
         slaDueOn: slaDueFromPriority(form.priority),
         typeFields,
       });
-      // Attachments can only be posted once the ticket has an id. A failure here
-      // must not lose the ticket that was just created, so it's swallowed per file.
+      // Attachments can only be posted once the ticket has an id. A storage
+      // failure here must not lose the ticket that was just created — the
+      // ticket still saves, and any failed file gets one combined warning
+      // (not one alert per file) rather than being silently dropped.
       if (created?.id && attachments.length) {
-        await Promise.all(attachments.map((f) => uploadTicketFile(created.id, f)));
+        const results = await Promise.all(attachments.map((f) => uploadTicketFile(created.id, f)));
+        const failed = attachments.filter((_, i) => !results[i]);
+        if (failed.length) {
+          alert(`Ticket created, but ${failed.length} attachment${failed.length > 1 ? 's' : ''} couldn't be stored (${failed.map((f) => f.name).join(', ')}) — they won't be playable/downloadable.`);
+        }
       }
       onClose();
     } catch (e) { alert(`Could not create ticket: ${e.message || e}`); setBusy(false); }
@@ -1127,7 +1149,7 @@ export function CreateTicketModal({ onClose }) {
 
       <div style={field}>
         <label style={label}>Evidence</label>
-        <RecordUploadButtons onFile={(f) => setAttachments((prev) => [...prev, f])} />
+        <RecordUploadButtons onFile={(f) => setAttachments((prev) => [...prev, f])} showRecord={!NO_RECORDING_TYPES.includes(form.type)} />
         {attachments.length > 0 && (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
             {attachments.map((f, i) => (
@@ -1179,7 +1201,7 @@ function readOnlyFieldValue(f, value, nameOf) {
 }
 
 function TicketDrawer({ ticketId, onClose, myDeptIds }) {
-  const { tickets, tasks, projects = [], customFields = [],
+  const { tickets, tasks, projects = [],
     addTicketLink, removeTicketLink, escalateTicket, createTask, myEmail, nameOf, updateTicket, deleteTicket,
     refresh } = useTasks();
   // An approval decision changes status/resolution server-side, so pull the whole
@@ -1188,7 +1210,7 @@ function TicketDrawer({ ticketId, onClose, myDeptIds }) {
   const people = usePeople();
   const isMobile = useIsMobile();
   const { myLevel } = useRole();
-  const [tab, setTab] = useState('conversation');
+  const [tab, setTab] = useState('overview');
   const [companies, setCompanies] = useState([]);
   const [allDepts, setAllDepts] = useState([]);
   useEffect(() => {
@@ -1215,6 +1237,11 @@ function TicketDrawer({ ticketId, onClose, myDeptIds }) {
   // The always-open "working fields" (type/status/priority/assignee/department/
   // resolution) — open to anyone pre-lock, restricted to the assignee once locked.
   const canWorking = privileged || (locked ? isAssignee : true);
+  // Company is carved out of fullAccess: the assignee can work everything else
+  // about a locked ticket, but never reassign which company it belongs to —
+  // that stays with the requester (pre-lock) or a manager/dept lead. Mirrors
+  // the company_id carve-out in _ticket_edit_scope.
+  const canEditCompany = privileged || (!locked && isRequester);
   // Delete stays with whoever raised it or owns the queue — never just the
   // assignee, and not affected by the in_progress lock. Mirrors delete_ticket.
   const canDelete = privileged || isRequester;
@@ -1296,8 +1323,21 @@ function TicketDrawer({ ticketId, onClose, myDeptIds }) {
         {t.resolvedAt && <span style={{ fontSize: 12, color: NX.green, display: 'inline-flex', alignItems: 'center', gap: 4 }}><CheckCircle2 size={13} /> Resolved {fmtDate(t.resolvedAt)}{t.resolution ? ` · ${resolutionLabel(t.resolution)}` : ''}</span>}
       </div>
 
-      {/* Approval gate — the decision blocks triage, so it leads the drawer. */}
+      {/* Approval gate — the decision blocks triage, so it leads the drawer,
+          always visible regardless of which tab is open. */}
       <ApprovalPanel ticket={t} myEmail={myEmail} nameOf={nameOf} onDecided={onDecided} />
+
+      {/* Overview · Conversation · Attachments · Activity — a real tab strip up
+          top so Conversation/Attachments/Activity are one click away instead of
+          buried under the whole field list (people kept missing them). */}
+      <div style={{ borderTop: `1px solid ${NX.border}`, marginTop: 12, paddingTop: 12 }}>
+        <div style={{ display: 'flex', gap: 4, marginBottom: 14, flexWrap: 'wrap' }}>
+          {[['overview', 'Overview', ClipboardList], ['conversation', 'Conversation', MessageSquare], ['attachments', 'Attachments', Paperclip], ['activity', 'Activity', History]].map(([k, lab, Icon]) => (
+            <button key={k} onClick={() => setTab(k)} style={{ ...btn('ghost'), gap: 6, fontSize: 13, fontWeight: 600, padding: '6px 10px', borderRadius: 0, color: tab === k ? NX.blue : NX.dim, borderBottom: `2px solid ${tab === k ? NX.blue : 'transparent'}` }}><Icon size={14} />{lab}</button>
+          ))}
+        </div>
+
+        {tab === 'overview' && (<>
 
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
         <div style={field}>
@@ -1330,7 +1370,7 @@ function TicketDrawer({ ticketId, onClose, myDeptIds }) {
         </div>
         <div style={field}>
           <label style={label}>Company</label>
-          {fullAccess ? (
+          {canEditCompany ? (
             <select value={t.companyId || ''} onChange={(e) => patch({ companyId: e.target.value, hrDepartmentId: '' })} style={sel}>
               <option value="">Select company</option>
               {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -1394,11 +1434,6 @@ function TicketDrawer({ ticketId, onClose, myDeptIds }) {
       </div>
 
       <div style={field}>
-        <label style={label}>Watchers</label>
-        <WatcherEditor watchers={t.watcherIds || []} people={people} nameOf={nameOf} onChange={(list) => patch({ watcherIds: list })} readOnly={!fullAccess} />
-      </div>
-
-      <div style={field}>
         <label style={label}>Linked Tickets</label>
         <TicketLinks ticket={t} tickets={tickets} onAdd={(target, type) => addTicketLink(t.id, target, type).catch((e) => alert(e.message || e))}
           onRemove={(target) => removeTicketLink(t.id, target).catch(() => {})} readOnly={!fullAccess} />
@@ -1412,66 +1447,9 @@ function TicketDrawer({ ticketId, onClose, myDeptIds }) {
         </div>
       )}
 
-      {customFields.length > 0 && (
-        <div style={field}>
-          <label style={label}>Custom Fields</label>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {customFields.map((f) => (
-              <div key={f.id} style={{ display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'space-between' }}>
-                <span style={{ fontSize: 13, color: NX.dim }}>{f.name}</span>
-                {fullAccess ? (
-                  <TicketCustomFieldInput field={f} value={(t.customFieldValues || {})[f.id]}
-                    onChange={(v) => patch({ customFieldValues: { ...(t.customFieldValues || {}), [f.id]: v } })} />
-                ) : (
-                  <span style={{ fontSize: 13, color: NX.ink }}>{readOnlyFieldValue(f, (t.customFieldValues || {})[f.id], nameOf)}</span>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Tags, like Component, are triage-owned — editable here, not on create. */}
-      <div style={field}>
-        <label style={label}>Tags</label>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, alignItems: 'center' }}>
-          {(t.tags || []).length === 0 && !fullAccess && <span style={{ fontSize: 12.5, color: NX.faint }}>No tags</span>}
-          {(t.tags || []).map((tag) => (
-            <span key={tag} style={{ ...chip(NX.dim, NX.border2), display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-              {tag}
-              {fullAccess && (
-                <button type="button" onClick={() => patch({ tags: (t.tags || []).filter((x) => x !== tag) })}
-                  title={`Remove ${tag}`} style={{ ...btn('ghost'), padding: 0, lineHeight: 1, color: NX.faint }}>
-                  <X size={11} />
-                </button>
-              )}
-            </span>
-          ))}
-          {fullAccess && (
-            <input placeholder={(t.tags || []).length ? 'Add tag…' : 'Add a tag…'}
-              onKeyDown={(e) => {
-                if (e.key !== 'Enter') return;
-                const v = e.target.value.trim();
-                // Case-insensitive dedupe so "VPN" and "vpn" don't both accumulate.
-                if (v && !(t.tags || []).some((x) => x.toLowerCase() === v.toLowerCase())) {
-                  patch({ tags: [...(t.tags || []), v] });
-                }
-                e.target.value = '';
-              }}
-              style={{ ...inputStyle, width: 130, padding: '4px 8px', fontSize: 12 }} />
-          )}
-        </div>
-      </div>
-
-      {/* Conversation · Attachments · Activity */}
-      <div style={{ borderTop: `1px solid ${NX.border}`, marginTop: 16, paddingTop: 12 }}>
-        <div style={{ display: 'flex', gap: 4, marginBottom: 12 }}>
-          {[['conversation', 'Conversation', MessageSquare], ['attachments', 'Attachments', Paperclip], ['activity', 'Activity', History]].map(([k, lab, Icon]) => (
-            <button key={k} onClick={() => setTab(k)} style={{ ...btn('ghost'), gap: 6, fontSize: 13, fontWeight: 600, padding: '6px 10px', borderRadius: 0, color: tab === k ? NX.blue : NX.dim, borderBottom: `2px solid ${tab === k ? NX.blue : 'transparent'}` }}><Icon size={14} />{lab}</button>
-          ))}
-        </div>
+        </>)}
         {tab === 'conversation' && <TicketConversation ticketId={t.id} nameOf={nameOf} />}
-        {tab === 'attachments' && <TicketAttachments ticketId={t.id} />}
+        {tab === 'attachments' && <TicketAttachments ticketId={t.id} ticketType={t.type} />}
         {tab === 'activity' && <TicketActivity ticketId={t.id} nameOf={nameOf} />}
       </div>
     </Modal>
@@ -1549,34 +1527,6 @@ function ApprovalPanel({ ticket: t, myEmail, nameOf, onDecided }) {
         <div style={{ fontSize: 12.5, color: NX.dim }}>“{t.approvalNote}”</div>
       ) : null}
       {err && <div style={{ marginTop: 8, fontSize: 12.5, color: NX.red, fontWeight: 600 }}>{err}</div>}
-    </div>
-  );
-}
-
-// ── Watchers — get notified on status changes and new comments ────────────────
-function WatcherEditor({ watchers, people, nameOf, onChange, readOnly }) {
-  const list = (watchers || []).map((e) => (e || '').toLowerCase()).filter(Boolean);
-  const add = (email) => {
-    const e = (email || '').toLowerCase();
-    if (!e || list.includes(e)) return;
-    onChange([...list, e]);
-  };
-  const remove = (email) => onChange(list.filter((e) => e !== email));
-  return (
-    <div>
-      {list.length === 0 && readOnly && <span style={{ fontSize: 12.5, color: NX.faint }}>No watchers</span>}
-      {list.length > 0 && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
-          {list.map((e) => (
-            <span key={e} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: NX.border2, borderRadius: 999, padding: '3px 8px 3px 3px', fontSize: 12.5, color: NX.ink }}>
-              <Avatar email={e} name={nameOf(e)} size={20} />
-              {nameOf(e) || e}
-              {!readOnly && <button onClick={() => remove(e)} title="Remove watcher" style={{ ...btn('ghost'), padding: 1, color: NX.faint }}><X size={12} /></button>}
-            </span>
-          ))}
-        </div>
-      )}
-      {!readOnly && <PersonSelect value={null} people={people} onChange={add} placeholder="Add a watcher…" />}
     </div>
   );
 }
@@ -1842,7 +1792,7 @@ function TicketConversation({ ticketId, nameOf }) {
 }
 
 // ── Attachments ──────────────────────────────────────────────────────────────
-function TicketAttachments({ ticketId }) {
+function TicketAttachments({ ticketId, ticketType }) {
   const [rows, setRows] = useState(null);
   const [busy, setBusy] = useState(false);
   const reload = () => api.getTicketAttachments(ticketId).then(setRows).catch(() => setRows([]));
@@ -1853,7 +1803,11 @@ function TicketAttachments({ ticketId }) {
     const size = `${Math.max(1, Math.round(f.size / 1024))} KB`;
     const kind = attachmentKindOf(f);
     let url = '';
-    try { url = await uploadTicketEvidence(f, kind); } catch { /* recorded by name only below */ }
+    try {
+      url = await uploadTicketEvidence(f, kind);
+    } catch (e) {
+      alert(`"${f.name}" was recorded but couldn't be stored: ${e?.message || 'upload failed'}. It won't be playable/downloadable.`);
+    }
     await api.addTicketAttachment(ticketId, { name: f.name, size, kind, url }).catch(() => {});
     setBusy(false);
     reload();
@@ -1865,7 +1819,7 @@ function TicketAttachments({ ticketId }) {
   return (
     <div onPaste={onPaste} tabIndex={0} style={{ outline: 'none' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
-        <RecordUploadButtons onFile={sendFile} disabled={busy} />
+        <RecordUploadButtons onFile={sendFile} disabled={busy} showRecord={!NO_RECORDING_TYPES.includes(ticketType)} />
         {busy && <Loader2 size={14} style={{ animation: 'spin 1s linear infinite', color: NX.faint }} />}
         <span style={{ fontSize: 11, color: NX.faint }}>or press Ctrl+V to paste a screenshot</span>
       </div>
@@ -1873,18 +1827,34 @@ function TicketAttachments({ ticketId }) {
         : rows.length === 0 ? <div style={{ fontSize: 13, color: NX.faint, textAlign: 'center', padding: 16 }}>No attachments yet.</div>
           : (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              {rows.map((a) => (
-                <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8, border: `1px solid ${NX.border}`, borderRadius: 10, padding: '6px 10px', fontSize: 12 }}>
-                  {a.kind === 'image' && a.url ? <img src={a.url} alt={a.name} style={{ width: 32, height: 32, borderRadius: 6, objectFit: 'cover' }} />
-                    : a.kind === 'video' && a.url ? <video src={a.url} muted style={{ width: 32, height: 32, borderRadius: 6, objectFit: 'cover', background: '#000' }} />
-                    : a.kind === 'video' ? <Play size={13} style={{ color: NX.dim }} />
-                    : <Paperclip size={13} style={{ color: NX.dim }} />}
-                  <span style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name}</span>
-                  <span style={{ color: NX.faint }}>{a.size}</span>
-                  {a.url && <a href={a.url} download={a.name} title="Download" style={{ color: NX.faint, display: 'flex' }}><Download size={13} /></a>}
-                  <button onClick={() => del(a.id)} title="Remove" style={{ ...btn('ghost'), padding: 3, color: NX.faint }}><X size={13} /></button>
-                </div>
-              ))}
+              {rows.map((a) => {
+                const thumb = a.kind === 'image' && a.url ? <img src={a.url} alt={a.name} style={{ width: 32, height: 32, borderRadius: 6, objectFit: 'cover' }} />
+                  : a.kind === 'video' && a.url ? <video src={a.url} muted style={{ width: 32, height: 32, borderRadius: 6, objectFit: 'cover', background: '#000' }} />
+                  : a.kind === 'video' ? <Play size={13} style={{ color: NX.faint }} />
+                  : <Paperclip size={13} style={{ color: NX.dim }} />;
+                return (
+                  <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8, border: `1px solid ${NX.border}`, borderRadius: 10, padding: '6px 10px', fontSize: 12 }}>
+                    {a.url ? (
+                      // No `download` here — opening in a new tab lets the browser
+                      // play video/view images inline instead of forcing a save.
+                      <a href={a.url} target="_blank" rel="noreferrer" title={`Open ${a.name}`}
+                        style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, color: 'inherit', textDecoration: 'none' }}>
+                        {thumb}
+                        <span style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name}</span>
+                      </a>
+                    ) : (
+                      <span title="This file failed to upload and isn't available — remove it and re-attach"
+                        style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, color: NX.faint }}>
+                        {thumb}
+                        <span style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textDecoration: 'line-through' }}>{a.name}</span>
+                      </span>
+                    )}
+                    <span style={{ color: NX.faint }}>{a.size}</span>
+                    {a.url && <a href={a.url} download={a.name} title="Download" style={{ color: NX.faint, display: 'flex' }}><Download size={13} /></a>}
+                    <button onClick={() => del(a.id)} title="Remove" style={{ ...btn('ghost'), padding: 3, color: NX.faint }}><X size={13} /></button>
+                  </div>
+                );
+              })}
             </div>
           )}
     </div>
