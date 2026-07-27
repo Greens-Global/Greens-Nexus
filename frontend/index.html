@@ -7,18 +7,10 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet">
-    <script>
-      // Mid-deploy white-screen guard: if the ENTRY bundle 404s (new index.html
-      // live before its hashed chunk finishes propagating), no app code runs, so
-      // nothing can self-heal — catch the script-load error here and reload once.
-      // main.jsx clears the flag after a successful boot.
-      window.addEventListener('error', function (e) {
-        if (e.target && e.target.tagName === 'SCRIPT' && !sessionStorage.getItem('nx-entry-retry')) {
-          sessionStorage.setItem('nx-entry-retry', '1');
-          setTimeout(function () { location.reload(); }, 1500);
-        }
-      }, true);
-    </script>
+    <!-- Boot guard must be an EXTERNAL script: the CSP (script-src 'self')
+         blocks inline scripts, which silently disabled the previous inline
+         version of this watchdog (Jul 28 incident). -->
+    <script src="/guard.js"></script>
   </head>
   <body>
     <div id="root"></div>
