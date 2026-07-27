@@ -17,7 +17,6 @@ same event to the same person twice, including across a mid-send restart.
 """
 import asyncio
 import json
-import os
 import uuid
 from datetime import datetime, timezone
 
