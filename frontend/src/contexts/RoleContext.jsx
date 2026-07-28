@@ -62,7 +62,7 @@ export function RoleProvider({ children }) {
   // server-side). Without this, headless runs are stuck as 'employee' and the
   // nightly QA specs can never exercise manager/admin surfaces.
   const _e2eEmail       = import.meta.env.VITE_E2E === 'true' ? 'e2e@local' : '';
-  const myEmail         = (accounts[0]?.username ?? _e2eEmail).toLowerCase();
+  const realEmail       = (accounts[0]?.username ?? _e2eEmail).toLowerCase();
 
   // Live MSAL interaction status, readable inside the async role-fetch callback
   // (the effect closure would otherwise capture a stale value).
@@ -93,6 +93,13 @@ export function RoleProvider({ children }) {
     setActAsSessionId(null);
     return null;
   });
+
+  // The identity every client-side "mine" derivation keys on. While acting,
+  // this is the TARGET (Jul 28 bug: the sidebar gated modules against the
+  // ADMIN's group memberships, so impersonating Pranshu showed fewer modules
+  // than Pranshu really has). The server already overlays the same way via
+  // X-Act-As-Session; realEmail stays available for identity-anchored UI.
+  const myEmail = (actingAs?.targetEmail || realEmail).toLowerCase();
 
   // Fetch current user's role and group memberships on mount / account change.
   // Groups must be loaded here (not just in Admin) so that myGrantedModules is
@@ -298,7 +305,7 @@ export function RoleProvider({ children }) {
 
   return (
     <RoleCtx.Provider value={{
-      myRole, myEmail, loading,
+      myRole, myEmail, realEmail, loading,
       allRoles, getRole, refreshAllRoles,
       can, assignRole, ROLES,
       groups, refreshGroups, createGroup, updateGroup, deleteGroup,

@@ -68,7 +68,7 @@ export default class ViewErrorBoundary extends Component {
               : 'Something went wrong loading this section. Reloading usually fixes it.'}
           </div>
           <button
-            onClick={() => window.location.reload()}
+            onClick={() => window.location.replace(window.location.pathname + '?nxcb=' + Date.now())}
             style={{ background: 'var(--ink)', color: 'var(--card)', border: 'none', borderRadius: 9, padding: '9px 22px', fontWeight: 700, fontSize: 13, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
             Reload
           </button>

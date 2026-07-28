@@ -92,9 +92,11 @@ function Stat({ i, label, value, sub, chip, Icon, onGo, hero }) {
 
 export default function DeskHome({ kpis = {}, notifications = [], markRead }) {
   const { accounts } = useMsal();
-  const { can } = useRole();
+  const { can, actingAs } = useRole();
   const now = useNow();
-  const firstName = (accounts[0]?.name ?? 'there').split(' ')[0];
+  // While acting as someone, the greeting greets THEM - this whole screen is
+  // their day, and "Good evening, Visesh" on Pranshu's dashboard read wrong.
+  const firstName = ((actingAs?.targetName || accounts[0]?.name) ?? 'there').split(' ')[0];
 
   // Live extras: session state, pending signatures, team KPIs (managers).
   // All read-only, all existing endpoints, all safe to fail quietly.
