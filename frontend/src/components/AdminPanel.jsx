@@ -263,6 +263,16 @@ function AuditLogs() {
                         {r.user_role && (
                           <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 1 }}>{r.user_role}</div>
                         )}
+                        {/* Act As transparency: the row's actor is always the REAL
+                            person at the keyboard; this badge shows who they were
+                            operating as (details.acting_as, set server-side). */}
+                        {d.acting_as && (
+                          <div style={{ marginTop: 3 }}>
+                            <span title={d.acting_as} style={{ fontSize: 10.5, fontWeight: 700, color: '#b45309', background: 'rgba(180,83,9,0.1)', padding: '1px 8px', borderRadius: 999, display: 'inline-block', maxWidth: 170, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              acting as {nameOf(d.acting_as)}
+                            </span>
+                          </div>
+                        )}
                       </td>
                       <td data-th="What happened" style={{ padding: '10px 14px' }}>
                         <span style={{ fontWeight: 600, color: h.danger ? 'hsl(var(--color-red))' : actionColor(h.title), fontSize: 12.5 }}>
