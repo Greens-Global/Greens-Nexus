@@ -1,8 +1,7 @@
-// Task Module — Teams. Grid of project-scoped team cards + add/edit modal
-// (name, color, icon, members, PROJECT) + a member-request inbox for admins.
-// A team lives INSIDE exactly one project (IT Team / QA Team /... within
-// that project) — not to be confused with a project's own real People-module
-// department, which is auto-populated elsewhere and not managed here.
+// Task Module — Teams. Team cards + add/edit modal (name, color, icon, members,
+// PROJECTS) + a member-request inbox for admins. A team can serve ANY NUMBER of
+// projects, as Asana does it; pinning it to one meant a duplicate card per
+// project. Not the project's People-module department, which is set elsewhere.
 import { useMemo, useRef, useState } from 'react';
 import {
   Users, X, Trash2, Check, Clock, UserPlus, ArrowLeft, ChevronRight,
@@ -14,7 +13,7 @@ import {
 import { NX, FONT, btn, input as inputStyle, STATUS_META } from './theme';
 import { Avatar, EmptyState, Modal, usePeople, PersonSelect, useIsMobile } from './components';
 import { useTasks } from './TasksContext';
-import { topLevel } from './lib';
+import { topLevel, teamProjectIds } from './lib';
 import { CalendarView } from './views/extras';
 import { emailToName } from '../lib/utils';
 
@@ -45,7 +44,9 @@ export default function TeamsView({ onNavigate }) {
   const [editing, setEditing] = useState(null); // team object, or {} for new, or null
   const [detailId, setDetailId] = useState(null);
 
-  const projectName = (id) => projects.find((p) => p.id === id)?.name || '';
+  const projectsOf = (team) => teamProjectIds(team)
+    .map((id) => projects.find((p) => p.id === id))
+    .filter(Boolean);
 
   const taskCountByTeam = useMemo(() => {
     const m = {};
@@ -65,7 +66,7 @@ export default function TeamsView({ onNavigate }) {
     if (!team) { setDetailId(null); return null; }
     return (
       <TeamDetail
-        team={team} project={projects.find((p) => p.id === team.projectId) || null}
+        team={team} teamProjects={projectsOf(team)}
         onBack={() => setDetailId(null)}
         onEdit={() => setEditing(team)} onNavigate={onNavigate}
       />
@@ -133,7 +134,7 @@ export default function TeamsView({ onNavigate }) {
         ) : (
           <div style={{ display: 'grid', gap: 14, gridTemplateColumns: 'repeat(auto-fill, minmax(min(300px, 100%), 1fr))' }}>
             {sortedTeams.map((d) => (
-              <TeamCard key={d.id} team={d} projectName={projectName(d.projectId)} nameOf={nameOf} taskCount={taskCountByTeam[d.id] || 0} onOpen={() => setDetailId(d.id)} />
+              <TeamCard key={d.id} team={d} teamProjects={projectsOf(d)} nameOf={nameOf} taskCount={taskCountByTeam[d.id] || 0} onOpen={() => setDetailId(d.id)} />
             ))}
           </div>
         )}
@@ -150,7 +151,7 @@ export default function TeamsView({ onNavigate }) {
   );
 }
 
-function TeamCard({ team, projectName, nameOf, taskCount, onOpen }) {
+function TeamCard({ team, teamProjects, nameOf, taskCount, onOpen }) {
   const Icon = deptIcon(team.icon);
   const color = team.color || NX.blue;
   const members = team.memberIds || [];
@@ -169,16 +170,19 @@ function TeamCard({ team, projectName, nameOf, taskCount, onOpen }) {
           <div style={{ fontSize: 12, color: NX.faint, marginTop: 2 }}>
             {members.length} member{members.length === 1 ? '' : 's'} · {taskCount} task{taskCount === 1 ? '' : 's'}
           </div>
-          <div style={{ marginTop: 4 }}>
-            {projectName ? (
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 600, color: NX.dim, background: NX.surface2, borderRadius: 999, padding: '2px 8px' }}>
-                <FolderKanban size={11} />{projectName}
-              </span>
-            ) : (
+          {/* One chip per project — a team shared across several shows them all
+              here, which is what tells two same-named teams apart at a glance. */}
+          <div style={{ marginTop: 4, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+            {teamProjects.length === 0 ? (
               <span style={{ display: 'inline-flex', fontSize: 11, fontWeight: 600, color: NX.faint, background: NX.surface2, borderRadius: 999, padding: '2px 8px' }}>
                 No project
               </span>
-            )}
+            ) : teamProjects.map((p) => (
+              <span key={p.id} title={p.name} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, maxWidth: '100%', fontSize: 11, fontWeight: 600, color: NX.dim, background: NX.surface2, borderRadius: 999, padding: '2px 8px' }}>
+                <FolderKanban size={11} style={{ flexShrink: 0 }} />
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+              </span>
+            ))}
           </div>
         </div>
       </div>
@@ -209,7 +213,7 @@ export function TeamModal({ team, onClose, onDelete }) {
   const nameOfLocal = (email) => people.find((p) => p.email === email)?.name || emailToName(email);
 
   const [name, setName] = useState(team?.name || '');
-  const [projectId, setProjectId] = useState(team?.projectId || '');
+  const [projectIds, setProjectIds] = useState(() => teamProjectIds(team));
   const [color, setColor] = useState(team?.color || DEPT_COLORS[0]);
   const [icon, setIcon] = useState(team?.icon || 'building');
   // See ProjectsView.jsx's ProjectModal for why: autoFocus on the first field
@@ -229,7 +233,7 @@ export function TeamModal({ team, onClose, onDelete }) {
   const save = async () => {
     if (!canSave) return;
     setSaving(true);
-    const payload = { name: name.trim(), project_id: projectId, color, icon, memberIds: members };
+    const payload = { name: name.trim(), project_ids: projectIds, color, icon, memberIds: members };
     try {
       if (team) await updateTeam(team.id, payload);
       else await createTeam(payload);
@@ -262,13 +266,22 @@ export function TeamModal({ team, onClose, onDelete }) {
       <label style={labelStyle}>Name</label>
       <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. QA Team" autoFocus={!isMobile} style={inputStyle} />
 
-      {/* Project — optional; a team can stand alone or be assigned to a project
-          (here, or later from that project's own Teams picker). */}
-      <label style={{ ...labelStyle, marginTop: 16 }}>Project (optional)</label>
-      <select value={projectId} onChange={(e) => setProjectId(e.target.value)} style={inputStyle}>
-        <option value="">No project</option>
-        {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-      </select>
+      {/* Projects — optional and MANY. A team can stand alone, or serve any
+          number of projects (here, or from each project's own Teams picker). */}
+      <label style={{ ...labelStyle, marginTop: 16 }}>Projects (optional)</label>
+      {projects.length === 0 ? (
+        <div style={{ fontSize: 12.5, color: NX.faint }}>No projects yet.</div>
+      ) : (
+        <div style={{ maxHeight: 168, overflowY: 'auto', border: `1px solid ${NX.border}`, borderRadius: 10 }}>
+          {projects.map((p) => (
+            <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', fontSize: 13, cursor: 'pointer', borderBottom: `1px solid ${NX.border2}` }}>
+              <input type="checkbox" checked={projectIds.includes(p.id)} style={{ cursor: 'pointer' }}
+                onChange={() => setProjectIds((ids) => (ids.includes(p.id) ? ids.filter((x) => x !== p.id) : [...ids, p.id]))} />
+              <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+            </label>
+          ))}
+        </div>
+      )}
 
       {/* Color */}
       <label style={{ ...labelStyle, marginTop: 16 }}>Color</label>
@@ -333,7 +346,7 @@ const DETAIL_TABS = [
   { key: 'calendar', label: 'Calendar' },
 ];
 
-function TeamDetail({ team, project, onBack, onEdit, onNavigate }) {
+function TeamDetail({ team, teamProjects, onBack, onEdit, onNavigate }) {
   const { tasks, nameOf } = useTasks();
   const [tab, setTab] = useState('overview');
   const Icon = deptIcon(team.icon);
@@ -353,7 +366,10 @@ function TeamDetail({ team, project, onBack, onEdit, onNavigate }) {
             {team.name}
           </button>
           <div style={{ fontSize: 12, color: NX.faint }}>
-            {members.length} member{members.length === 1 ? '' : 's'} · {project ? project.name : 'No project'}
+            {members.length} member{members.length === 1 ? '' : 's'} ·{' '}
+            {teamProjects.length === 0 ? 'No project'
+              : teamProjects.length === 1 ? teamProjects[0].name
+                : `${teamProjects.length} projects`}
           </div>
         </div>
         <MemberStack members={members} nameOf={nameOf} />
@@ -373,10 +389,10 @@ function TeamDetail({ team, project, onBack, onEdit, onNavigate }) {
 
       {/* Body */}
       <div className="nx-scroll nx-gutter" style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: '20px' }}>
-        {tab === 'overview' && <TeamOverviewTab team={team} project={project} onSeeMembers={() => setTab('members')} onNavigate={onNavigate} />}
+        {tab === 'overview' && <TeamOverviewTab team={team} teamProjects={teamProjects} onSeeMembers={() => setTab('members')} onNavigate={onNavigate} />}
         {tab === 'members' && <TeamMembersTab team={team} />}
-        {tab === 'work' && <TeamWorkTab project={project} tasks={tasks} onNavigate={onNavigate} />}
-        {tab === 'calendar' && <TeamCalendarTab project={project} tasks={tasks} onNavigate={onNavigate} />}
+        {tab === 'work' && <TeamWorkTab teamProjects={teamProjects} tasks={tasks} onNavigate={onNavigate} />}
+        {tab === 'calendar' && <TeamCalendarTab teamProjects={teamProjects} tasks={tasks} onNavigate={onNavigate} />}
       </div>
     </div>
   );
@@ -399,7 +415,7 @@ function MemberStack({ members, nameOf }) {
   );
 }
 
-function TeamOverviewTab({ team, project, onSeeMembers, onNavigate }) {
+function TeamOverviewTab({ team, teamProjects, onSeeMembers, onNavigate }) {
   const { tasks, nameOf } = useTasks();
   const color = team.color || NX.blue;
   const members = team.memberIds || [];
@@ -408,7 +424,7 @@ function TeamOverviewTab({ team, project, onSeeMembers, onNavigate }) {
   const addRef = useRef(null);
   const people = usePeople();
 
-  const projectTaskCount = project ? tasks.filter((t) => t.projectId === project.id).length : 0;
+  const taskCountFor = (pid) => tasks.filter((t) => t.projectId === pid).length;
 
   return (
     <div>
@@ -416,24 +432,28 @@ function TeamOverviewTab({ team, project, onSeeMembers, onNavigate }) {
       <div style={{ height: 112, borderRadius: 16, marginBottom: 20, background: `linear-gradient(120deg, ${color}22, ${color}0a)` }} />
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 16 }}>
-        {/* Project (fixed — a team belongs to exactly one project; change it via Edit Team) */}
+        {/* Projects — a team can serve several; change the set via Edit Team. */}
         <div style={{ border: `1px solid ${NX.border}`, borderRadius: 16, background: NX.surface, padding: 16, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 15, fontWeight: 700, marginBottom: 12 }}>
-            <FolderKanban size={16} style={{ color: NX.faint }} /> Project
+            <FolderKanban size={16} style={{ color: NX.faint }} /> Projects
+            {teamProjects.length > 1 && <span style={{ fontSize: 12, fontWeight: 600, color: NX.faint }}>{teamProjects.length}</span>}
           </div>
-          {project ? (
-            <button onClick={() => onNavigate && onNavigate({ projectId: project.id })}
-              style={{ display: 'flex', alignItems: 'center', gap: 8, border: `1px solid ${NX.border}`, borderRadius: 10, padding: '10px 12px', background: 'transparent', cursor: 'pointer', textAlign: 'left', width: '100%' }}
-              onMouseEnter={(e) => { e.currentTarget.style.borderColor = NX.primary; e.currentTarget.style.background = NX.hover; }}
-              onMouseLeave={(e) => { e.currentTarget.style.borderColor = NX.border; e.currentTarget.style.background = 'transparent'; }}>
-              <span style={{ width: 28, height: 28, borderRadius: 8, flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: NX.surface2, color: NX.faint }}><FolderKanban size={14} /></span>
-              <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{project.name}</span>
-              <span style={{ fontSize: 12, color: NX.faint }}>{projectTaskCount} task{projectTaskCount === 1 ? '' : 's'}</span>
-              <ChevronRight size={15} style={{ color: NX.faint }} />
-            </button>
-          ) : (
+          {teamProjects.length === 0 ? (
             <p style={{ fontSize: 13, color: NX.faint }}>This team isn't part of a project yet. Assign it from Edit Team, or from a project's own Teams list.</p>
-          )}
+          ) : teamProjects.map((project) => {
+            const n = taskCountFor(project.id);
+            return (
+              <button key={project.id} onClick={() => onNavigate && onNavigate({ projectId: project.id })}
+                style={{ display: 'flex', alignItems: 'center', gap: 8, border: `1px solid ${NX.border}`, borderRadius: 10, padding: '10px 12px', marginBottom: 8, background: 'transparent', cursor: 'pointer', textAlign: 'left', width: '100%' }}
+                onMouseEnter={(e) => { e.currentTarget.style.borderColor = NX.primary; e.currentTarget.style.background = NX.hover; }}
+                onMouseLeave={(e) => { e.currentTarget.style.borderColor = NX.border; e.currentTarget.style.background = 'transparent'; }}>
+                <span style={{ width: 28, height: 28, borderRadius: 8, flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: NX.surface2, color: NX.faint }}><FolderKanban size={14} /></span>
+                <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{project.name}</span>
+                <span style={{ fontSize: 12, color: NX.faint, flexShrink: 0 }}>{n} task{n === 1 ? '' : 's'}</span>
+                <ChevronRight size={15} style={{ color: NX.faint, flexShrink: 0 }} />
+              </button>
+            );
+          })}
         </div>
 
         {/* Members */}
@@ -502,13 +522,24 @@ function TeamMembersTab({ team }) {
   );
 }
 
-function TeamWorkTab({ project, tasks, onNavigate }) {
-  const projectTasks = useMemo(() => (project ? topLevel(tasks.filter((t) => t.projectId === project.id)) : []), [project, tasks]);
-  const [open, setOpen] = useState(true);
-
-  if (!project) {
+// One collapsible section per project the team serves — a shared team's work
+// stays grouped by where it happens instead of collapsing into one flat list.
+function TeamWorkTab({ teamProjects, tasks, onNavigate }) {
+  if (teamProjects.length === 0) {
     return <EmptyState icon={FolderKanban} title="No Project Yet" hint="Edit this team to assign it to a project and see its work here." />;
   }
+  return (
+    <div style={{ display: 'grid', gap: 12 }}>
+      {teamProjects.map((project) => (
+        <ProjectWorkSection key={project.id} project={project} tasks={tasks} onNavigate={onNavigate} />
+      ))}
+    </div>
+  );
+}
+
+function ProjectWorkSection({ project, tasks, onNavigate }) {
+  const projectTasks = useMemo(() => topLevel(tasks.filter((t) => t.projectId === project.id)), [project, tasks]);
+  const [open, setOpen] = useState(true);
 
   return (
     <div style={{ border: `1px solid ${NX.border}`, borderRadius: 14, background: NX.surface, overflow: 'hidden' }}>
@@ -544,7 +575,9 @@ function TeamWorkTab({ project, tasks, onNavigate }) {
   );
 }
 
-function TeamCalendarTab({ project, tasks, onNavigate }) {
-  const teamTasks = project ? topLevel(tasks.filter((t) => t.projectId === project.id)) : [];
+function TeamCalendarTab({ teamProjects, tasks, onNavigate }) {
+  // One calendar across every project the team serves.
+  const ids = teamProjects.map((p) => p.id);
+  const teamTasks = topLevel(tasks.filter((t) => ids.includes(t.projectId)));
   return <CalendarView tasks={teamTasks} onOpen={(id) => { const t = tasks.find((x) => x.id === id); if (t) onNavigate && onNavigate({ projectId: t.projectId }); }} />;
 }

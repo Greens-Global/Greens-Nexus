@@ -33,9 +33,11 @@ import hashlib
 import hmac
 import mimetypes
 import os
+import re
 import threading
 import time
 import urllib.request
+from html import escape, unescape
 
 from sqlalchemy import text
 
@@ -268,13 +270,20 @@ def _nexus_project_for(db, asana_project_gid):
 
 
 # ── the synced-field digest (loop prevention) ────────────────────────────────
+def _fields_digest(values):
+    """Stable text for a {fieldId: value} map. Sorted, so dict ordering can never
+    make an unchanged task look changed and trigger a pointless push."""
+    return ",".join(f"{k}={v}" for k, v in sorted((values or {}).items()) if v not in ("", None))
+
+
 def _digest(title, description, due_on, completed, assignee="", progress="", priority="",
-           start_on="", tags=None, milestone=False, section=""):
+           start_on="", tags=None, milestone=False, section="", fields=None):
     raw = "\x1f".join([title or "", description or "", (due_on or "")[:10],
                        "1" if completed else "0", (assignee or "").lower(), (progress or "").lower(),
                        (priority or "").lower(), (start_on or "")[:10],
                        ",".join(sorted((t or "").strip().lower() for t in (tags or []))),
-                       "1" if milestone else "0", (section or "").strip().lower()])
+                       "1" if milestone else "0", (section or "").strip().lower(),
+                       _fields_digest(fields)])
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
@@ -288,7 +297,8 @@ def _nexus_section_name(db, t):
 def _task_digest(db, t):
     return _digest(t.title, t.description, t.due_on, bool(t.completed), t.assignee_email,
                    _status_progress_label(db, t), _BUILTIN_PRIORITY_LABELS.get(t.priority, ""),
-                   t.start_on, t.tags, bool(t.is_milestone), _nexus_section_name(db, t))
+                   t.start_on, t.tags, bool(t.is_milestone), _nexus_section_name(db, t),
+                   fields=t.custom_field_values)
 
 
 def _push_digest(db, t):
@@ -381,6 +391,143 @@ _PRIORITY_LABEL_TO_VALUE = {"low": "low", "medium": "medium", "high": "high"}
 
 def _priority_field(cfg, project_gid):
     return _find_enum_field(cfg, project_gid, "Priority")
+
+
+# ── Generic custom fields <-> Asana custom_fields ────────────────────────────
+# Nexus custom fields (TaskCustomField) map onto Asana's per-project fields BY
+# NAME, case-insensitively, like tags/teams/sections elsewhere here.
+#
+# These two Asana names are excluded: they already drive Nexus's native status
+# and priority, and storing them twice would make the two fight over edits.
+_RESERVED_ASANA_FIELDS = {"task progress", "priority"}
+
+# Asana resource_subtype -> the Nexus storage kind. multi_enum and people have
+# no Nexus equivalent yet and are skipped rather than flattened into text,
+# which would round-trip as garbage.
+_ASANA_TYPE_TO_NEXUS = {"enum": "select", "text": "text", "number": "number", "date": "date"}
+
+
+def _asana_field_value(cf):
+    """The value carried by one Asana custom_fields entry, as Nexus stores it."""
+    kind = (cf.get("resource_subtype") or "").lower()
+    if kind == "enum":
+        return ((cf.get("enum_value") or {}).get("name") or "").strip()
+    if kind == "text":
+        return (cf.get("text_value") or "").strip()
+    if kind == "number":
+        n = cf.get("number_value")
+        return None if n is None else (int(n) if float(n).is_integer() else float(n))
+    if kind == "date":
+        d = (cf.get("date_value") or {}).get("date") or ""
+        return d[:10]
+    return None
+
+
+def _ensure_nexus_field(db, name, kind, options, nexus_project_id):
+    """Find-or-create the Nexus field definition for an Asana field of this name.
+
+    Adopting by name means a field an admin already created in Manage is reused
+    rather than shadowed by a duplicate. A field created here is SCOPED to the
+    project it arrived from — without that, importing a project with fifteen
+    Asana fields would put fifteen columns on every board in the workspace."""
+    from routers.task_config import normalize_field_options
+    key = name.strip().lower()
+    f = next((x for x in db.query(models.TaskCustomField).all()
+              if (x.name or "").strip().lower() == key), None)
+    if f is None:
+        f = models.TaskCustomField(id=gen_id(), name=name.strip(), type=kind,
+                                   options=normalize_field_options(options or []),
+                                   project_ids=[nexus_project_id] if nexus_project_id else [],
+                                   required=False)
+        db.add(f)
+        db.flush()   # autoflush=False — must be visible to the rest of this pull
+        return f
+    # Existing field: widen its scope to this project, and absorb any option
+    # Asana has that we don't (someone added a stage there since the last pull).
+    if nexus_project_id:
+        scope = [p for p in (f.project_ids or []) if p]
+        if scope and nexus_project_id not in scope:
+            f.project_ids = scope + [nexus_project_id]
+    if kind == "select" and options:
+        have = {o["label"].strip().lower() for o in normalize_field_options(f.options or [])}
+        extra = [o for o in options if o.strip().lower() not in have]
+        if extra:
+            f.options = normalize_field_options([*(f.options or []), *extra])
+    return f
+
+
+def _inbound_custom_fields(db, at, nexus_project_id):
+    """Asana task -> {nexusFieldId: value} for Task.custom_field_values."""
+    from routers.task_config import coerce_custom_field_values
+    raw = {}
+    for cf in at.get("custom_fields") or []:
+        name = (cf.get("name") or "").strip()
+        if not name or name.lower() in _RESERVED_ASANA_FIELDS:
+            continue
+        kind = _ASANA_TYPE_TO_NEXUS.get((cf.get("resource_subtype") or "").lower())
+        if not kind:
+            continue
+        value = _asana_field_value(cf)
+        if value in ("", None):
+            continue
+        options = [(o.get("name") or "").strip() for o in (cf.get("enum_options") or [])] \
+            if kind == "select" else []
+        # Asana only returns enum_options on the project-settings call, not on the
+        # task payload, so seed the option list from the value itself; the rest
+        # arrive as tasks carrying them are pulled.
+        if kind == "select" and not options:
+            options = [value]
+        f = _ensure_nexus_field(db, name, kind, options, nexus_project_id)
+        raw[f.id] = value
+    # Same coercion the API applies, so a value that arrived from Asana is
+    # stored identically to one typed in Nexus — otherwise the two sides would
+    # differ by type alone and every pull would look like a change.
+    return coerce_custom_field_values(db, raw)
+
+
+def _outbound_custom_fields(db, cfg, task, project_gid):
+    """{asanaFieldGid: value} for the fields the Asana project ALREADY has.
+
+    Deliberately never creates a field in Asana: that needs workspace-level
+    calls plus a project-settings write, and a sync that invents fields in a
+    shared workspace is a much bigger blast radius than one that skips them.
+    A Nexus-only field simply doesn't travel."""
+    values = task.custom_field_values if isinstance(task.custom_field_values, dict) else {}
+    if not values or not project_gid:
+        return {}
+    from routers.task_config import normalize_field_options
+    defs = {f.id: f for f in db.query(models.TaskCustomField).all()}
+    settings = {}
+    for cfs in _custom_field_settings(cfg, project_gid):
+        cf = cfs.get("custom_field") or {}
+        nm = (cf.get("name") or "").strip().lower()
+        if nm and nm not in _RESERVED_ASANA_FIELDS:
+            settings[nm] = cf
+    out = {}
+    for fid, value in values.items():
+        f = defs.get(fid)
+        if f is None or value in ("", None):
+            continue
+        cf = settings.get((f.name or "").strip().lower())
+        if not cf or not cf.get("gid"):
+            continue   # Asana has no such field on this project — skip, don't create
+        kind = (f.type or "text").lower()
+        if kind == "select":
+            label = next((o["label"] for o in normalize_field_options(f.options or [])
+                          if o["id"] == value), str(value))
+            gid = next((o.get("gid") for o in (cf.get("enum_options") or [])
+                        if (o.get("name") or "").strip().lower() == label.strip().lower()), None)
+            if gid:
+                out[cf["gid"]] = gid
+        elif kind == "number":
+            out[cf["gid"]] = value
+        elif kind == "date":
+            out[cf["gid"]] = {"date": str(value)[:10]}
+        elif kind == "checkbox":
+            continue   # Asana has no checkbox custom field — nothing to map onto
+        else:
+            out[cf["gid"]] = str(value)
+    return out
 
 
 def _priority_from_custom_fields(at):
@@ -560,7 +707,11 @@ def push_task(db, task):
 
     fields = {
         "name": task.title or "(untitled)",
-        "notes": task.description or "",
+        # html_notes carries the rich text, reduced to the tag subset Asana accepts.
+        # Empty description -> plain notes, so clearing it clears on the Asana side.
+        # cfg lets @mentions resolve to real Asana mentions rather than mailto links.
+        **({"html_notes": _to_asana_html(task.description, cfg)}
+           if _to_asana_html(task.description, cfg) else {"notes": ""}),
         "start_on": (task.start_on or "")[:10] or None,
         "due_on": (task.due_on or "")[:10] or None,
         "completed": bool(task.completed),
@@ -594,6 +745,10 @@ def push_task(db, task):
         option_gid = priority_field["options"].get(_BUILTIN_PRIORITY_LABELS.get(task.priority, "medium"))
         if option_gid:
             custom_fields[priority_field["gid"]] = option_gid
+    # Generic Nexus custom fields ride alongside the two built-in ones. Built-ins
+    # win a gid collision: Task Progress / Priority are excluded from the generic
+    # map, so this can only ever add distinct gids.
+    custom_fields.update(_outbound_custom_fields(db, cfg, task, apid or progress_apid))
     if custom_fields:
         fields["custom_fields"] = custom_fields
     is_new = not (link and link.asana_gid) and not parent_link
@@ -603,7 +758,7 @@ def push_task(db, task):
         # immutable afterward, so this never appears on the PUT path below.
         fields["resource_subtype"] = "milestone"
     if link and link.asana_gid:
-        _asana_put(cfg.token, f"/tasks/{link.asana_gid}", {"data": fields})
+        _task_write(cfg.token, "PUT", f"/tasks/{link.asana_gid}", fields)
     else:
         # CREATE PATH — the only place outbound can mint a duplicate, and the
         # one that bit us on dev but never on localhost: gunicorn runs 8 worker
@@ -616,9 +771,9 @@ def push_task(db, task):
         _acquire_pull_lock(db)
         link = _link_by_nexus(db, task.id)   # a worker that beat us to the lock may have made it
         if link and link.asana_gid:
-            _asana_put(cfg.token, f"/tasks/{link.asana_gid}", {"data": fields})
+            _task_write(cfg.token, "PUT", f"/tasks/{link.asana_gid}", fields)
         elif parent_link:
-            created = _asana_post(cfg.token, f"/tasks/{parent_link.asana_gid}/subtasks", {"data": fields})
+            created = _task_write(cfg.token, "POST", f"/tasks/{parent_link.asana_gid}/subtasks", fields)
             gid = (created or {}).get("gid")
             if not gid:
                 return None
@@ -631,10 +786,10 @@ def push_task(db, task):
             name_key = (task.title or "").strip().lower()
             existing_gid = _asana_tasks_by_name(cfg, apid).get(name_key)
             if existing_gid:
-                _asana_put(cfg.token, f"/tasks/{existing_gid}", {"data": fields})
+                _task_write(cfg.token, "PUT", f"/tasks/{existing_gid}", fields)
                 gid = existing_gid
             else:
-                created = _asana_post(cfg.token, "/tasks", {"data": {**fields, "projects": [apid]}})
+                created = _task_write(cfg.token, "POST", "/tasks", {**fields, "projects": [apid]})
                 gid = (created or {}).get("gid")
                 if not gid:
                     return None
@@ -937,6 +1092,192 @@ def _map_email(email, email_map=None, db=None):
     return e
 
 
+# ── Rich-text descriptions <-> Asana html_notes ──────────────────────────────
+# Nexus descriptions are HTML (tasks/RichDescription.jsx). Asana holds the same
+# on html_notes but accepts only a fixed tag subset inside a <body> root —
+# anything else 400s the whole update. So outbound is sanitized to that subset,
+# inbound reads html_notes when present and falls back to plain `notes`.
+#
+# Asana's supported set (per its API docs). <p> is NOT in it: paragraphs become
+# newlines, which is why _to_asana_html unwraps them.
+_ASANA_HTML_TAGS = {"a", "b", "strong", "i", "em", "u", "s", "code", "pre",
+                    "blockquote", "ol", "ul", "li", "h1", "h2", "hr", "br"}
+_TAG_RE = re.compile(r"<\s*(/?)\s*([a-zA-Z0-9]+)([^>]*)>")
+_HREF_RE = re.compile(r'href\s*=\s*["\']([^"\']*)["\']', re.I)
+# A Nexus @mention is stored as a mailto link (tasks/RichDescription.jsx).
+_MAILTO_MENTION_RE = re.compile(r'<a\s+[^>]*href\s*=\s*["\']mailto:([^"\'>\s]+)["\'][^>]*>(.*?)</a>', re.I | re.S)
+# Asana mention: <a href=".../profile/<n>" data-asana-gid="<user gid>"
+# data-asana-type="user">@Name</a>. Two traps: the profile-URL number is NOT
+# the user gid (data-asana-gid is), and attachments use the identical anchor
+# with data-asana-type="attachment" — matching on the gid alone makes every
+# inline image a bogus mention. The self-closing form is what we write out.
+_ASANA_MENTION_RE = re.compile(
+    r'<a\s+(?=[^>]*data-asana-gid)(?![^>]*data-asana-type\s*=\s*["\'](?!user))'
+    r'([^>]*?)(?:/>|>(.*?)</a>)', re.I | re.S)
+_PROFILE_GID_RE = re.compile(r'/profile/(\d+)', re.I)
+_DATA_GID_RE = re.compile(r'data-asana-gid\s*=\s*["\'](\d+)["\']', re.I)
+
+
+def _task_write(token, method, path, fields):
+    """Create/update an Asana task, degrading rich text rather than losing the
+    whole write. Asana validates html_notes strictly and rejects the entire
+    request when it dislikes the markup — a task whose description contains
+    something _to_asana_html didn't anticipate would otherwise never sync at
+    all, taking its title, dates, and assignee down with it. On that one error
+    we retry with the plain-text equivalent on `notes`.
+
+    Sending both notes and html_notes is itself an error, hence the swap rather
+    than including both up front."""
+    send = _asana_put if method == "PUT" else _asana_post
+    try:
+        return send(token, path, {"data": fields})
+    except ImportError_ as e:
+        if "html_notes" not in str(e) or "html_notes" not in fields:
+            raise
+        plain = dict(fields)
+        plain.pop("html_notes", None)
+        plain["notes"] = _html_to_text(fields.get("html_notes") or "")
+        print(f"[asana] html_notes rejected for {path}; retrying as plain notes ({e})")
+        return send(token, path, {"data": plain})
+
+
+def _html_to_text(html):
+    """Visible text of an HTML fragment, with block boundaries as newlines."""
+    s = re.sub(r"(?i)<\s*/?\s*(p|div|li|br|h1|h2|h3|blockquote|pre)[^>]*>", "\n", html or "")
+    s = re.sub(r"<[^>]+>", "", s)
+    return re.sub(r"\n{3,}", "\n\n", unescape(s)).strip()
+
+
+def _mentions_to_asana(html, cfg):
+    """Rewrite Nexus @mentions into real Asana mentions.
+
+    Nexus stores a mention as `<a href="mailto:person@greensglobal.com">@Name</a>`;
+    Asana wants `<a data-asana-gid="123"/>` and renders its own @Name from the
+    gid, which is what makes the person actually get notified in Asana rather
+    than just seeing a mailto link.
+
+    Resolution goes through _asana_user_gid, so the guest-relay case is already
+    handled: someone stored in Nexus as person@greensglobal.com whose Asana
+    account is person@greensg.onmicrosoft.com matches on the bare local part.
+    A mention that can't be resolved is LEFT as a mailto link — better a
+    working link than a dropped name."""
+    if not cfg or not html:
+        return html
+
+    def swap(m):
+        gid = _asana_user_gid(cfg, m.group(1))
+        return f'<a data-asana-gid="{gid}"/>' if gid else m.group(0)
+
+    return _MAILTO_MENTION_RE.sub(swap, html)
+
+
+def _to_asana_html(html, cfg=None):
+    """Nexus description HTML -> the <body>…</body> string Asana's html_notes
+    accepts. Unsupported tags are dropped (their text survives); <p> becomes a
+    blank-line break; <mark> has no Asana equivalent so a highlight degrades to
+    plain text, and images can't be inlined at all so they are dropped — the
+    file itself still reaches Asana through the attachment push.
+
+    `cfg` enables real Asana mentions (see _mentions_to_asana); without it a
+    mention stays a mailto link, which still reads correctly."""
+    s = _mentions_to_asana(html or "", cfg)
+    if not s.strip():
+        return ""
+    s = re.sub(r"(?is)<\s*(script|style)[^>]*>.*?<\s*/\s*\1\s*>", "", s)
+    # Both ends of a paragraph become newlines: closing alone would glue a
+    # paragraph that follows a list straight onto the </ul>.
+    s = re.sub(r"(?i)</?\s*p[^>]*>", "\n", s)
+    s = re.sub(r"(?i)<\s*br\s*/?>", "\n", s)
+    s = re.sub(r"(?i)<\s*img[^>]*>", "", s)
+
+    def keep(m):
+        closing, tag, attrs = m.group(1), m.group(2).lower(), m.group(3)
+        if tag not in _ASANA_HTML_TAGS:
+            return ""
+        if tag == "a" and not closing:
+            gid = _DATA_GID_RE.search(attrs)
+            # Only OUR mention form (bare data-asana-gid) becomes a mention anchor. Anchors
+            # still carrying Asana's data-asana-type are inbound markup — an attachment there
+            # would be re-emitted as a mention of a gid that isn't a user.
+            if gid and "data-asana-type" not in attrs.lower():
+                # The gid is the whole payload: Asana rejects an anchor that
+                # carries both this and an href.
+                return f'<a data-asana-gid="{gid.group(1)}"/>'
+            href = (_HREF_RE.search(attrs) or [None, ""])[1] if _HREF_RE.search(attrs) else ""
+            return f'<a href="{escape(href, quote=True)}">' if href else ""
+        return f"<{'/' if closing else ''}{tag}>"
+
+    s = _TAG_RE.sub(keep, s)
+    s = re.sub(r"\n{3,}", "\n\n", s).strip()
+    return f"<body>{s}</body>" if s else ""
+
+
+def _asana_user_email(cfg, gid):
+    """Asana user gid -> the NEXUS email for that person (guest relay resolved
+    through the directory by _map_email). Cached with the same user map the
+    outbound direction uses."""
+    if not gid:
+        return ""
+    key = (cfg.token, cfg.workspace_gid)
+    ent = _USER_GID_CACHE.get(key)
+    if not ent or time.time() - ent[0] >= _USER_TTL:
+        table = {}
+        try:
+            for u in Asana(cfg.token).get(f"/workspaces/{cfg.workspace_gid}/users",
+                                          opt_fields="email,name"):
+                if u.get("gid"):
+                    table[str(u["gid"])] = {"email": (u.get("email") or "").lower(),
+                                            "name": u.get("name") or ""}
+        except Exception:
+            pass
+        ent = (time.time(), table)
+        _USER_GID_CACHE[key] = ent
+    return ent[1].get(str(gid)) or {}
+
+
+_USER_GID_CACHE = {}
+
+
+def _mentions_from_asana(html, cfg, db):
+    """Asana mention anchors -> the mailto form the Nexus editor understands, so
+    the mention stays clickable and keeps naming the right person."""
+    if not cfg or not html or not getattr(cfg, "workspace_gid", ""):
+        return html
+
+    def swap(m):
+        attrs, label = m.group(1) or "", (m.group(2) or "").strip()
+        # data-asana-gid is the user gid; the profile URL carries a different
+        # number, kept only as a fallback for markup that lacks the attribute.
+        hit = _DATA_GID_RE.search(attrs) or _PROFILE_GID_RE.search(attrs)
+        who = _asana_user_email(cfg, hit.group(1)) if hit else {}
+        email = _map_email(who.get("email", ""), None, db)
+        if not email:
+            # Nobody we know — keep the visible name rather than a bare profile
+            # URL, which is what Asana's plain-text fallback would have given.
+            return label or (f"@{who['name']}" if who.get("name") else "")
+        if not label:
+            label = f"@{who.get('name') or email}"
+        if not label.startswith("@"):
+            label = f"@{label}"
+        return f'<a href="mailto:{escape(email, quote=True)}">{escape(label)}</a>'
+
+    return _ASANA_MENTION_RE.sub(swap, html)
+
+
+def _from_asana_html(at):
+    """Asana task -> Nexus description HTML. Prefers html_notes (unwrapping the
+    <body> root Asana always adds); falls back to escaping plain `notes` so a
+    task written in Asana's plain editor doesn't render as literal markup."""
+    raw = (at.get("html_notes") or "").strip()
+    if raw:
+        m = re.search(r"(?is)^<body>(.*)</body>$", raw)
+        return (m.group(1) if m else raw).strip()
+    notes = at.get("notes") or ""
+    if not notes.strip():
+        return ""
+    return "".join(f"<p>{escape(line)}</p>" for line in notes.split("\n") if line.strip())
+
+
 def _apply_inbound(db, at, nexus_project_id, counts, parent_task_id="", email_map=None):
     """Apply one Asana task into Nexus (create or update). `parent_task_id` set
     means this is a subtask — matches asana_import.py's convention of an empty
@@ -955,9 +1296,12 @@ def _apply_inbound(db, at, nexus_project_id, counts, parent_task_id="", email_ma
                               for f in (at.get("followers") or []) if f.get("email")})
     section_name = _asana_section_name(at)
     link = _link_by_asana(db, gid)
-    inbound_digest = _digest(at.get("name"), at.get("notes"), at.get("due_on"), bool(at.get("completed")),
+    inbound_html = _mentions_from_asana(_from_asana_html(at), get_config(db), db)
+    inbound_fields = _inbound_custom_fields(db, at, nexus_project_id)
+    inbound_digest = _digest(at.get("name"), inbound_html, at.get("due_on"), bool(at.get("completed")),
                              assignee, progress_label, priority_label,
-                             at.get("start_on"), tag_names, is_milestone, section_name)
+                             at.get("start_on"), tag_names, is_milestone, section_name,
+                             fields=inbound_fields)
     if link:
         t = db.query(models.Task).filter(models.Task.id == link.nexus_task_id).first()
         if not t:
@@ -970,7 +1314,11 @@ def _apply_inbound(db, at, nexus_project_id, counts, parent_task_id="", email_ma
         # existed — treat it as "unknown", apply once, and it settles.
         if link.last_inbound_hash != inbound_digest:
             t.title = at.get("name") or t.title
-            t.description = at.get("notes") or ""
+            t.description = inbound_html
+            # Additive: a field Asana doesn't carry keeps whatever Nexus has, so
+            # a Nexus-only field isn't wiped by every pull.
+            if inbound_fields:
+                t.custom_field_values = {**(t.custom_field_values or {}), **inbound_fields}
             t.start_on = (at.get("start_on") or "")[:10]
             t.due_on = (at.get("due_on") or "")[:10]
             t.assignee_email = assignee
@@ -1037,7 +1385,7 @@ def _apply_inbound(db, at, nexus_project_id, counts, parent_task_id="", email_ma
     completed = bool(at.get("completed")) or mapped_status == "completed"
     t = models.Task(
         id=gen_id(), code=_next_code(db), title=at.get("name") or "(untitled)",
-        description=at.get("notes") or "", type="milestone" if is_milestone else "task",
+        description=inbound_html, type="milestone" if is_milestone else "task",
         status="completed" if completed else (mapped_status or "not_started"),
         priority=mapped_priority or "medium",
         assignee_email=assignee, project_id="" if parent_task_id else (nexus_project_id or ""),
@@ -1046,7 +1394,7 @@ def _apply_inbound(db, at, nexus_project_id, counts, parent_task_id="", email_ma
         due_on=(at.get("due_on") or "")[:10],
         completed=completed, completed_at=now if completed else "", is_milestone=is_milestone,
         follower_emails=follower_emails, liked_by_emails=[], subtask_ids=[], blocked_by_ids=[],
-        blocking_ids=[], dependency_types={}, tags=tag_names, custom_field_values={},
+        blocking_ids=[], dependency_types={}, tags=tag_names, custom_field_values=inbound_fields,
         comment_ids=[], attachment_ids=[], activity_ids=[],
         created_at=now, modified_at=now, created_by="asana-sync",
     )
@@ -1067,12 +1415,19 @@ def _apply_inbound(db, at, nexus_project_id, counts, parent_task_id="", email_ma
     return t.id
 
 
-def delete_nexus_task(db, task, actor="asana-sync"):
+def delete_nexus_task(db, task, actor="asana-sync", detail="Deleted in Asana"):
     """Delete a Nexus task and everything hanging off it, mirroring
     routers.tasks.delete_task (which can't be reused here — it's a route
     handler wired to Depends and a live user). Subtasks go with the parent,
     same as deleting in the UI, and their Asana links go too so a later pull
-    can't resurrect half a tree. Does not commit."""
+    can't resurrect half a tree. Does not commit.
+
+    NOTE: this NEVER calls queue_task_delete — it removes the Nexus side only
+    and deliberately leaves Asana untouched. That is what makes it safe to
+    reuse for purge_project_sync, where the whole point is to throw the Nexus
+    copy away and re-import it from an Asana project that must survive.
+    `detail` names the reason in the activity log, since the caller is no
+    longer always an inbound Asana deletion."""
     ids, frontier = {task.id}, [task.id]
     while frontier:
         children = db.query(models.Task).filter(models.Task.parent_task_id.in_(frontier)).all()
@@ -1112,7 +1467,7 @@ def delete_nexus_task(db, task, actor="asana-sync"):
         db.query(models.AsanaTaskLink).filter(
             models.AsanaTaskLink.nexus_task_id == tid).delete(synchronize_session=False)
     log_activity(db, type="deleted", actor_email=actor, entity_id=task.id, entity_code=task.code,
-                 entity_title=task.title, detail="Deleted in Asana")
+                 entity_title=task.title, detail=detail)
     db.query(models.Task).filter(models.Task.id.in_(ids)).delete(synchronize_session="fetch")
     return ids
 
@@ -1353,7 +1708,7 @@ def dedupe_tasks(db, apply=False):
     return out
 
 
-_STORY_OPT_FIELDS = "type,resource_subtype,text,created_at,created_by.name,created_by.email"
+_STORY_OPT_FIELDS = "type,resource_subtype,text,html_text,created_at,created_by.name,created_by.email"
 
 
 def _pull_stories(db, asana, asana_gid, nexus_task_id, counts):
@@ -1391,8 +1746,15 @@ def _pull_stories(db, asana, asana_gid, nexus_task_id, counts):
             if not text:
                 continue
             cid = gen_id()
+            # Keep Asana's formatting where it sent any — html_text is the rich version,
+            # `text` the flattened fallback, which is escaped so a comment containing < or
+            # & can't render as markup in the Nexus editor.
+            rich = _mentions_from_asana(_from_asana_html({"html_notes": s.get("html_text") or ""}), get_config(db), db)
+            body = (f'<p><em>[Asana · {escape(author_name)}]</em></p>{rich}' if rich
+                    else f'<p><em>[Asana · {escape(author_name)}]</em></p>'
+                         + "".join(f"<p>{escape(line)}</p>" for line in text.split("\n") if line.strip()))
             db.add(models.TaskComment(id=cid, task_id=nexus_task_id, author_email="asana-sync",
-                                      body=f"[Asana · {author_name}]\n{text}", created_at=at_ts,
+                                      body=body, created_at=at_ts,
                                       edited_at="", pinned=False))
             t = db.query(models.Task).filter(models.Task.id == nexus_task_id).first()
             if t:
@@ -1553,6 +1915,13 @@ def _team_users(asana, team_gid):
     return out
 
 
+# Asana access_level -> Nexus Share-panel role (task_util.PROJECT_ROLE_RANK).
+# Asana's "admin" is our "owner"; the rest share names. Anything unrecognized
+# leaves the team's existing role alone rather than guessing.
+_ACCESS_LEVEL_TO_ROLE = {"admin": "owner", "editor": "editor",
+                         "commenter": "commenter", "viewer": "viewer"}
+
+
 # {(token, workspace_gid): (ts, {name_lower: gid})} — workspace teams, for
 # resolving AsanaProjectMap.extra_team_names (see that column's docstring).
 _WORKSPACE_TEAMS_CACHE = {}
@@ -1578,58 +1947,73 @@ def _workspace_team_gid(asana, cfg, name):
 
 
 def _ensure_team(db, nexus_project_id, name):
-    """Find-or-create the TaskTeam named `name` for this project. Prefers a team
-    already scoped to this exact project; failing that, adopts an unassigned
-    team (project_id="") of the same name — e.g. one someone created locally
-    ahead of running sync — by assigning it here, rather than creating a
-    duplicate. A team already scoped to a DIFFERENT project is left alone
-    (TaskTeam belongs to at most one project; stealing it would break that
-    project's access) and a fresh one is created instead."""
+    """Find-or-create the TaskTeam named `name` and make sure it covers this
+    project.
+
+    ONE Nexus team per Asana team, no matter how many projects it works on. This
+    used to create a separate team row per project, because TaskTeam could only
+    hold one project_id — so a single real team (IT, Development) that Asana
+    shares across three projects became three identical Nexus cards, told apart
+    only by their project chips. Now a team carries a LIST of projects and the
+    existing row is simply extended.
+
+    Matching is by name, case- and whitespace-insensitive, the same key Asana
+    teams are resolved by everywhere else in this module."""
+    from routers.task_util import team_project_ids
     name_key = name.strip().lower()
-    candidates = db.query(models.TaskTeam).filter(
-        (models.TaskTeam.project_id == nexus_project_id) | (models.TaskTeam.project_id == "")
-    ).all()
-    scoped = next((t for t in candidates
-                  if t.project_id == nexus_project_id and (t.name or "").strip().lower() == name_key), None)
-    if scoped:
-        return scoped
-    unassigned = next((t for t in candidates
-                       if t.project_id == "" and (t.name or "").strip().lower() == name_key), None)
-    if unassigned:
-        unassigned.project_id = nexus_project_id
-        return unassigned
-    match = models.TaskTeam(id=gen_id(), project_id=nexus_project_id, name=name,
-                            color="", icon="", member_emails=[], created_at=now_iso())
+    match = next((t for t in db.query(models.TaskTeam).all()
+                  if (t.name or "").strip().lower() == name_key), None)
+    if match:
+        ids = team_project_ids(match)
+        if nexus_project_id and nexus_project_id not in ids:
+            match.project_ids = ids + [nexus_project_id]
+            if not (match.project_id or ""):
+                match.project_id = nexus_project_id   # legacy mirror: first project wins
+            db.flush()
+        return match
+    match = models.TaskTeam(id=gen_id(), project_id=nexus_project_id,
+                            project_ids=[nexus_project_id] if nexus_project_id else [],
+                            name=name, color="", icon="", member_emails=[], created_at=now_iso())
     db.add(match)
     db.flush()
     return match
 
 
-def _sync_project_access(db, asana, cfg, project_gid, nexus_project_id, extra_team_names=None):
+def _sync_project_access(db, asana, cfg, project_gid, nexus_project_id, extra_team_names=None,
+                         report=None):
     """Pull Asana's project-level access into real Nexus visibility, not just a
     display list: task_util.visible_project_ids() grants a restricted project's
     visibility via TaskProject.member_emails or via membership in a TaskTeam
     assigned to that project, so this is additive on top of both.
 
-    Three access sources:
-    - /projects/{gid}/project_memberships — individual users; the person is
-      under the `user` key (NOT `member` — an earlier version of this function
-      read the wrong key and silently synced nothing). Goes straight onto
-      TaskProject.member_emails.
+    Access sources, in order of what they can see:
+
+    - **GET /memberships?parent={project_gid}** — the one that actually answers
+      the question. It returns EVERY membership as a `member` union, tagged with
+      `resource_type` of "user" or "team", each with its `access_level`. An
+      ad-hoc team share shows up here as a plain row:
+          {"access_level": "editor",
+           "member": {"gid": "…", "resource_type": "team", "name": "IT"}}
+
+      This supersedes a long-standing note in this function claiming it was
+      CONFIRMED that Asana's API had no route exposing an ad-hoc team share.
+      That conclusion came from testing the full unfiltered /projects/{gid},
+      /projects/{gid}/project_memberships, and two guessed endpoints — the
+      generic /memberships collection was never tried. It was wrong: verified
+      live (Jul 2026) against a private project with team=null whose IT share
+      came back correctly. /projects/{gid}/project_memberships still returns
+      users only and silently drops a `member.*` opt_fields request, with or
+      without the new_memberships beta header, which is what made the old
+      conclusion look solid.
+
     - /projects/{gid}'s own `team` field — the project's OWNING team, if any.
-      Matched/created by name via _ensure_team.
-    - `extra_team_names` (AsanaProjectMap.extra_team_names) — a manual
-      operator override for ad-hoc-shared teams. CONFIRMED live (Jul 2026,
-      full unfiltered /projects/{gid}, project_memberships, and two guessed
-      endpoints) that Asana's REST API has NO field or route exposing "team X
-      was ad-hoc-invited to project Y via the Share dialog" when the project's
-      own `team` is null — every project this bit us on had team=null and only
-      individual users in members/followers/project_memberships. Since the API
-      genuinely cannot tell us, the operator names the team once (the Two-way
-      Sync panel); each pull re-resolves it in the Asana workspace by name and
-      refreshes its roster via the same find-or-create-by-name mechanism as
-      the owning-team case, so it stays current without needing to be
-      re-entered.
+      Still read, because a project can have an owning team that holds no
+      membership row.
+
+    - `extra_team_names` (AsanaProjectMap.extra_team_names) — the manual
+      override that existed only because detection was believed impossible. No
+      longer needed and no longer offered in the UI; still honored for any value
+      already saved, so an existing config keeps working.
 
     One-way and additive only, same as the rest of this module — someone
     removed from the Asana side keeps whatever Nexus access they already have
@@ -1638,22 +2022,56 @@ def _sync_project_access(db, asana, cfg, project_gid, nexus_project_id, extra_te
     ...@xyz.onmicrosoft.com) that doesn't match the person's real Nexus email;
     _map_email resolves those through the Nexus directory, so such an account
     now grants access to the actual person instead of adding a dead address
-    that matches nobody."""
+    that matches nobody.
+
+    `report` collects a one-line outcome per team so the caller can show it.
+    Every step here fails silently by design (a bad token or a renamed team must
+    not abort a pull), which is fine for the machine and useless for the human:
+    "the team didn't come across" had at least four indistinguishable causes —
+    no workspace GID configured, the name not matching anything in the
+    workspace, Asana returning no members, or the whole block throwing. Each one
+    now says which."""
+    def _say(msg):
+        if report is not None:
+            report.append(msg)
+
     if not nexus_project_id:
         return
     project = db.query(models.TaskProject).filter(models.TaskProject.id == nexus_project_id).first()
     if not project:
         return
     wanted = set()
+    granted_gids = set()   # Asana team gids already handled from the membership list
     try:
-        memberships = asana.get(f"/projects/{project_gid}/project_memberships",
-                                opt_fields="user.email")
-        for row in memberships:
-            em = _map_email((row.get("user") or {}).get("email"), None, db)
-            if em:
-                wanted.add(em)
-    except Exception:
-        pass
+        # One call, both kinds of member. `member` is a union — resource_type
+        # says which — so users and shared teams arrive together with the
+        # access_level Asana grants each.
+        for row in asana.get("/memberships", parent=project_gid,
+                             opt_fields="member.name,member.email,member.resource_type,access_level"):
+            m = row.get("member") or {}
+            kind = m.get("resource_type")
+            if kind == "user":
+                em = _map_email(m.get("email"), None, db)
+                if em:
+                    wanted.add(em)
+            elif kind == "team" and m.get("gid"):
+                tname = (m.get("name") or "").strip()
+                if not tname:
+                    continue
+                roster = [e for e in (_map_email(e, None, db) for e in _team_users(asana, m["gid"])) if e]
+                if not roster:
+                    _say(f"{tname}: shared with this project, but Asana returned no members for it")
+                    continue
+                nt = _ensure_team(db, nexus_project_id, tname)
+                nt.member_emails = sorted(set(nt.member_emails or []) | set(roster))
+                role = _ACCESS_LEVEL_TO_ROLE.get((row.get("access_level") or "").lower())
+                if role:
+                    nt.access_role = role
+                granted_gids.add(m["gid"])
+                _say(f"{tname}: granted from Asana's sharing list, {len(roster)} member(s)"
+                     + (f", as {role}" if role else ""))
+    except Exception as e:
+        _say(f"could not read this project's sharing list from Asana: {str(e)[:120]}")
     try:
         proj = asana.get(f"/projects/{project_gid}", opt_fields="team.gid,team.name,name,notes")
         # Kept refreshed on every pull — previously only ever set once at
@@ -1664,24 +2082,44 @@ def _sync_project_access(db, asana, cfg, project_gid, nexus_project_id, extra_te
         project.description = proj.get("notes") or ""
         team = (proj or {}).get("team") or {}
         team_gid, team_name = team.get("gid"), (team.get("name") or "").strip()
-        if team_gid and team_name:
-            roster = [_map_email(e, None, db) for e in _team_users(asana, team_gid)]
+        # Skipped when the membership list already covered it — the owning team
+        # is usually in there too, and re-fetching its roster costs a call for
+        # an answer we have.
+        if team_gid and team_name and team_gid not in granted_gids:
+            roster = [e for e in (_map_email(e, None, db) for e in _team_users(asana, team_gid)) if e]
             if roster:
                 nt = _ensure_team(db, nexus_project_id, team_name)
                 nt.member_emails = sorted(set(nt.member_emails or []) | set(roster))
-    except Exception:
-        pass
+                _say(f"{team_name}: owning team, {len(roster)} member(s)")
+            else:
+                _say(f"{team_name}: owning team, but Asana returned no members for it")
+    except Exception as e:
+        _say(f"could not read the project's own team from Asana: {str(e)[:120]}")
+    # Legacy escape hatch: nothing writes these any more (the field is gone from
+    # the UI now that /memberships detects shares on its own), but a config saved
+    # before that keeps being honored rather than silently going dead.
     for name in extra_team_names or []:
         name = (name or "").strip()
         if not name:
             continue
+        if not cfg.workspace_gid:
+            # _workspace_team_gid can only look teams up inside a workspace, so
+            # with none configured this could never have worked — and used to
+            # just `continue` forever without saying so.
+            _say(f"{name}: no Workspace GID configured, so named teams can't be looked up")
+            continue
         team_gid = _workspace_team_gid(asana, cfg, name)
         if not team_gid:
-            continue   # named team not found in the workspace this round — try again next pull
-        roster = [_map_email(e, None, db) for e in _team_users(asana, team_gid)]
-        if roster:
-            nt = _ensure_team(db, nexus_project_id, name)
-            nt.member_emails = sorted(set(nt.member_emails or []) | set(roster))
+            _say(f"{name}: no team by that name in the Asana workspace (check spelling)")
+            continue   # try again next pull — the team may be created later
+        roster = [e for e in (_map_email(e, None, db) for e in _team_users(asana, team_gid)) if e]
+        if not roster:
+            _say(f"{name}: found in Asana, but it returned no members "
+                 "(the sync token may not be allowed to see that team's roster)")
+            continue
+        nt = _ensure_team(db, nexus_project_id, name)
+        nt.member_emails = sorted(set(nt.member_emails or []) | set(roster))
+        _say(f"{name}: granted, {len(roster)} member(s)")
     if wanted - set(project.member_emails or []):
         project.member_emails = sorted(set(project.member_emails or []) | wanted)
 
@@ -1691,8 +2129,9 @@ def _sync_project_access(db, asana, cfg, project_gid, nexus_project_id, extra_te
 # _sync_task_dependencies need. One list, used by every inbound path (Pull,
 # webhook, one-shot Import) — a field added here reaches all three at once,
 # which is the only way "no detail gets missed" stays true as this grows.
-_TASK_OPT_FIELDS = ("name,notes,start_on,due_on,completed,assignee.email,modified_at,"
-                   "custom_fields.name,custom_fields.enum_value.name,"
+_TASK_OPT_FIELDS = ("name,notes,html_notes,start_on,due_on,completed,assignee.email,modified_at,"
+                   "custom_fields.name,custom_fields.resource_subtype,custom_fields.enum_value.name,"
+                   "custom_fields.text_value,custom_fields.number_value,custom_fields.date_value,"
                    "dependencies,dependents,tags.name,resource_subtype,followers.email,"
                    "memberships.section.name,num_subtasks")
 
@@ -1866,12 +2305,13 @@ def pull(db):
         refresh_directory_cache()   # people added since the last run resolve too
         asana = Asana(cfg.token)
         counts = {"created": 0, "updated": 0, "comments": 0, "activities": 0,
-                  "attachments": 0, "deleted": 0}
+                  "attachments": 0, "deleted": 0, "teams": []}
         seen = set()   # gids applied this run — one per run, across all mapped projects
         deferred = []  # (asana task, nexus id) for the dependency pass below
         for pm in db.query(models.AsanaProjectMap).all():
             if not pm.asana_project_gid:
                 continue
+            team_report = []
             # Raises on an Asana failure, which aborts the whole pull — so
             # _reap_deleted below only ever runs against a task list we know
             # came back complete. A half-fetched project must never be read as
@@ -1880,7 +2320,13 @@ def pull(db):
             for at in rows:
                 _pull_task_tree(db, asana, at, pm.nexus_project_id, "", counts, seen, None, deferred)
             _reap_deleted(db, cfg, pm.nexus_project_id, seen, counts)
-            _sync_project_access(db, asana, cfg, pm.asana_project_gid, pm.nexus_project_id, pm.extra_team_names)
+            _sync_project_access(db, asana, cfg, pm.asana_project_gid, pm.nexus_project_id,
+                                 pm.extra_team_names, report=team_report)
+            if team_report:
+                proj_row = db.query(models.TaskProject).filter(
+                    models.TaskProject.id == pm.nexus_project_id).first()
+                pname = proj_row.name if proj_row else pm.nexus_project_id
+                counts["teams"] += [f"{pname} — {line}" for line in team_report]
         resolve_dependencies(db, deferred)   # every link exists by now
         cfg.last_pull_at = now_iso()
         db.commit()
@@ -1920,6 +2366,7 @@ def import_project(db, cfg, nexus_project_id, asana_project_gid, counts=None,
     create one); this fills it."""
     counts = counts if counts is not None else {"created": 0, "updated": 0, "comments": 0,
                                                 "activities": 0, "attachments": 0, "deleted": 0}
+    counts.setdefault("teams", [])
     seen = seen if seen is not None else set()
     # Own the dependency pass unless the caller is batching several projects and
     # will run it once at the end (dependencies can cross projects).
@@ -1929,7 +2376,12 @@ def import_project(db, cfg, nexus_project_id, asana_project_gid, counts=None,
     asana = Asana(cfg.token)
     for at in asana.get(f"/projects/{asana_project_gid}/tasks", opt_fields=_TASK_OPT_FIELDS):
         _pull_task_tree(db, asana, at, nexus_project_id, "", counts, seen, email_map, deferred)
-    _sync_project_access(db, asana, cfg, asana_project_gid, nexus_project_id)
+    # An import has no saved extra_team_names yet (the mapping row is created
+    # alongside it), so only the project's own owning team can resolve here —
+    # the report says so rather than leaving the operator wondering.
+    team_report = []
+    _sync_project_access(db, asana, cfg, asana_project_gid, nexus_project_id, report=team_report)
+    counts["teams"] += team_report
     if own_pass:
         resolve_dependencies(db, deferred)
     return counts
@@ -1955,6 +2407,144 @@ def ensure_project_map(db, nexus_project_id, asana_project_gid):
     return pm
 
 
+def project_gid_for(db, nexus_project_id):
+    """The Asana project gid this Nexus project is mapped to, or "" if unmapped."""
+    if not nexus_project_id:
+        return ""
+    pm = (db.query(models.AsanaProjectMap)
+          .filter(models.AsanaProjectMap.nexus_project_id == nexus_project_id).first())
+    return (pm.asana_project_gid or "") if pm else ""
+
+
+def delete_asana_project(db, asana_project_gid):
+    """Delete the Asana PROJECT itself. Like Asana's task delete this is a soft
+    delete — it lands in the token user's trash for 30 days — so it is
+    recoverable there, but it is still the most destructive thing this module
+    can do and is reachable from exactly one place: an operator ticking "also
+    delete it in Asana" in the delete dialog. Never from a pull, a sweep, or
+    delete_sync, which govern TASK deletions only and must not be widened to
+    projects.
+
+    Deliberately does not check cfg.enabled/cfg.delete_sync: this is a direct
+    instruction about one named project, not background reconciliation.
+
+    Returns (done, error). A 404 counts as done — a project someone already
+    deleted by hand is the outcome we wanted."""
+    cfg = get_config(db)
+    if not (cfg.token and asana_project_gid):
+        return False, "sync has no token"
+    try:
+        _request("DELETE", f"{_ASANA_BASE}/projects/{asana_project_gid}", _headers(cfg.token))
+        return True, ""
+    except ImportError_ as e:
+        msg = str(e)
+        if msg.startswith("HTTP 404"):
+            return True, ""            # already gone — the desired end state
+        return False, msg[:200]
+    except Exception as e:
+        return False, str(e)[:200]
+
+
+def purge_project_sync(db, nexus_project_id, actor="", drop_tasks=True):
+    """Erase every trace of the two-way sync for ONE Nexus project, so the same
+    Asana project can be imported again from scratch.
+
+    This exists because "delete the Nexus project, then import it again" did not
+    actually work before. delete_project only ORPHANED the tasks (project_id="")
+    and left their AsanaTaskLink rows intact, and _apply_inbound matches on the
+    Asana gid first — so the re-import found every gid already linked, quietly
+    updated those now-invisible orphans (the update branch never re-parents a
+    task into nexus_project_id), and left the freshly created project empty. The
+    AsanaProjectMap row was left dangling as well, which is the same failure the
+    import route's own comment describes hitting three times in one session.
+
+    Removes, for this project: its tasks (subtasks included) with their task /
+    comment / attachment / activity links, and its AsanaProjectMap row(s).
+
+    Does NOT touch Asana — delete_nexus_task never queues a tombstone, which is
+    the whole point here: the Asana project has to survive for the re-import to
+    have anything to read. Deleting it there is a separate, explicit call to
+    delete_asana_project. Does NOT touch AsanaWebhook rows either — their
+    x_hook_secret still has to verify events from a webhook that is still
+    registered on the Asana side.
+
+    Does not commit; returns counts."""
+    out = {"tasks": 0, "maps": 0}
+    if not nexus_project_id:
+        return out
+    if drop_tasks:
+        # Top-level first: delete_nexus_task takes each one's whole subtree, so
+        # walking children separately would re-delete rows that are already gone.
+        for t in db.query(models.Task).filter(
+                models.Task.project_id == nexus_project_id,
+                models.Task.parent_task_id == "").all():
+            out["tasks"] += len(delete_nexus_task(db, t, actor=actor or "nexus",
+                                                  detail="Deleted with its project"))
+        # Anything still carrying this project_id is a subtask whose parent sits
+        # in another project — no subtree of its own left to protect.
+        for t in db.query(models.Task).filter(
+                models.Task.project_id == nexus_project_id).all():
+            out["tasks"] += len(delete_nexus_task(db, t, actor=actor or "nexus",
+                                                  detail="Deleted with its project"))
+    out["maps"] = db.query(models.AsanaProjectMap).filter(
+        models.AsanaProjectMap.nexus_project_id == nexus_project_id).delete(
+            synchronize_session=False)
+    db.flush()
+    return out
+
+
+def sweep_orphans(db, apply=False):
+    """Clean up the sync rows left behind by project deletes that predate
+    purge_project_sync. Dry run by default, same shape as dedupe_tasks.
+
+    All three kinds of garbage BLOCK a fresh import rather than merely waste
+    space, which is why this is worth a button:
+
+    - dead links — an AsanaTaskLink whose Nexus task no longer exists.
+      _apply_inbound finds the link by gid, looks up the task behind it, and
+      returns None when it is gone (see the `if not t: return None` branch), so
+      that Asana task can never be imported again by ANY path until the link is
+      removed.
+    - orphan tasks — a top-level task with no project that still carries a link:
+      exactly what the old delete_project produced. A re-import updates this
+      invisible row instead of creating a visible one in the new project. The
+      link is what makes this safe to identify: a project-less top-level task
+      with an Asana link can only have come from an import whose project was
+      deleted, so a hand-made personal task is never a candidate.
+    - dangling maps — an AsanaProjectMap whose Nexus project is gone. pull()
+      walks it every 5 minutes and applies its tasks against a project id that
+      resolves to nothing.
+
+    Asana is untouched throughout."""
+    counts = {"deadLinks": 0, "orphanTasks": 0, "danglingMaps": 0}
+    links = db.query(models.AsanaTaskLink).all()
+    live_task_ids = {row.id for row in db.query(models.Task.id).all()}
+    dead = [l for l in links if l.nexus_task_id not in live_task_ids]
+    counts["deadLinks"] = len(dead)
+
+    linked_ids = {l.nexus_task_id for l in links}
+    orphans = [t for t in db.query(models.Task).filter(
+        models.Task.project_id == "", models.Task.parent_task_id == "").all()
+        if t.id in linked_ids]
+    counts["orphanTasks"] = len(orphans)
+
+    live_project_ids = {row.id for row in db.query(models.TaskProject.id).all()}
+    dangling = [m for m in db.query(models.AsanaProjectMap).all()
+                if m.nexus_project_id not in live_project_ids]
+    counts["danglingMaps"] = len(dangling)
+
+    if apply:
+        for l in dead:
+            db.delete(l)
+        for t in orphans:
+            delete_nexus_task(db, t, actor="nexus",
+                              detail="Removed as an orphan of a deleted project")
+        for m in dangling:
+            db.delete(m)
+        db.commit()
+    return counts
+
+
 # ── OUTBOUND: Nexus comment -> Asana story ───────────────────────────────────
 def push_comment(db, comment):
     """Post a Nexus comment to its linked Asana task as a story. Asana stories are
@@ -1968,8 +2558,27 @@ def push_comment(db, comment):
     if not link or not link.asana_gid:
         return
     author = comment.author_email or ""
-    text = f"[Nexus · {author}] {comment.body or ''}" if author and author != "asana-sync" else (comment.body or "")
-    st = _asana_post(cfg.token, f"/tasks/{link.asana_gid}/stories", {"data": {"text": text}})
+    # Comment bodies are HTML now. Asana stories accept html_text with the same tag
+    # subset html_notes takes, so one sanitizer serves both and a formatted comment
+    # arrives formatted instead of showing its markup.
+    body_html = _to_asana_html(comment.body or "", cfg)
+    prefix = f"[Nexus · {author}] " if author and author != "asana-sync" else ""
+    if body_html:
+        inner = body_html[len("<body>"):-len("</body>")]
+        payload = {"html_text": f"<body>{escape(prefix)}{inner}</body>"}
+    else:
+        payload = {"text": prefix + _html_to_text(comment.body or "")}
+    try:
+        st = _asana_post(cfg.token, f"/tasks/{link.asana_gid}/stories", {"data": payload})
+    except ImportError_ as e:
+        # Same degrade-rather-than-lose rule as _task_write: Asana validates
+        # html_text strictly and rejects the whole story, which would drop the
+        # comment entirely rather than merely losing its bold.
+        if "html_text" not in str(e) or "html_text" not in payload:
+            raise
+        print(f"[asana] html_text rejected for a comment; retrying as plain text ({e})")
+        st = _asana_post(cfg.token, f"/tasks/{link.asana_gid}/stories",
+                         {"data": {"text": prefix + _html_to_text(comment.body or "")}})
     db.add(models.AsanaCommentLink(id=gen_id(), nexus_comment_id=comment.id,
                                    asana_story_gid=(st or {}).get("gid") or "", created_at=now_iso()))
     db.commit()

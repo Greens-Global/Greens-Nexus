@@ -151,6 +151,12 @@ def _recipients_for(db: Session, t: models.Task, event_type: str, actor_email: s
         add(assignee, "assignee")
         for f in followers:
             add(f, "follower")
+    elif event_type == "mentioned":
+        # ONLY the people named in the comment. Assignees and followers already
+        # got the "commented" mail for the same comment; adding them here would
+        # send two emails about one event.
+        for who in extra.get("mentioned", []) or []:
+            add(who, "mentioned")
     elif event_type == "follower_added":
         add(extra.get("new_follower", ""), "follower")
     elif event_type == "modified":
@@ -290,6 +296,10 @@ def notify_task_event(task_id: str, event_type: str, actor_email: str, **kw) -> 
                                                      audience="assignee" if role == "assignee" else "other")
             elif event_type == "completed":
                 subject, html = tmpl.completed_email(t=ctx, base_url=_APP_URL, logo_url=logo_url)
+            elif event_type == "mentioned":
+                subject, html = tmpl.mentioned_email(t=ctx, base_url=_APP_URL, logo_url=logo_url,
+                                                     comment_body=extra.get("comment_body", ""),
+                                                     actor_name=actor_name)
             elif event_type == "commented":
                 subject, html = tmpl.commented_email(t=ctx, base_url=_APP_URL, logo_url=logo_url,
                                                       comment_body=kw.get("comment_body", ""))

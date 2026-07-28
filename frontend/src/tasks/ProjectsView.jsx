@@ -4,8 +4,9 @@
 // inline-style idiom.
 import { useMemo, useState } from 'react';
 import { Plus, Search, FolderKanban, AlertTriangle, Pencil, Trash2, Archive, Globe, Lock } from 'lucide-react';
+import { api } from '../api';
 import { useTasks } from './TasksContext';
-import { taskStats } from './lib';
+import { taskStats, teamInProject, teamProjectIds } from './lib';
 import { NX, FONT, btn, input as inputStyle, card, chip } from './theme';
 import { Avatar, StatusChip, EmptyState, Modal, usePeople, PersonSelect, useIsMobile, MobileFab } from './components';
 import TasksWorkspace from './TasksWorkspace';
@@ -32,6 +33,7 @@ export default function ProjectsView({ onNavigate }) {
   const [search, setSearch] = useState('');
   const [showArchived, setShowArchived] = useState(false);
   const [editing, setEditing] = useState(null);    // form object | null
+  const [deleting, setDeleting] = useState(null);  // { project, mapped, alsoAsana, busy, err } | null
 
   // Rollups per project: count / done / progress / overdue, from live tasks.
   const cards = useMemo(() => {
@@ -64,9 +66,24 @@ export default function ProjectsView({ onNavigate }) {
     status: p.status || 'not_started', startOn: p.startOn || '', dueOn: p.dueOn || '', archived: !!p.archived,
   });
 
+  // Deleting is permanent and takes the project's tasks and Asana sync state with
+  // it, so it gets a real dialog — and for a synced project it must ask the one
+  // question only the operator can answer: does the Asana project go too?
   const remove = async (p) => {
-    if (!window.confirm(`Delete project "${p.name}"? Its tasks will be unlinked.`)) return;
-    try { await deleteProject(p.id); } catch { window.alert('Could not delete the project.'); }
+    let mapped = false;
+    try { mapped = !!(await api.getTaskProjectAsanaLink(p.id)).mapped; } catch { /* unmapped or no access */ }
+    setDeleting({ project: p, mapped, alsoAsana: false, busy: false, err: '' });
+  };
+
+  const confirmRemove = async () => {
+    const { project, alsoAsana } = deleting;
+    setDeleting((d) => ({ ...d, busy: true, err: '' }));
+    try {
+      await deleteProject(project.id, { deleteInAsana: alsoAsana });
+      setDeleting(null);
+    } catch (e) {
+      setDeleting((d) => ({ ...d, busy: false, err: e.message || 'Could not delete the project.' }));
+    }
   };
 
   return (
@@ -178,7 +195,73 @@ export default function ProjectsView({ onNavigate }) {
           onSaved={() => setEditing(null)}
         />
       )}
+
+      {deleting && (
+        <DeleteProjectModal
+          state={deleting}
+          setState={setDeleting}
+          onConfirm={confirmRemove}
+          onClose={() => setDeleting(null)}
+        />
+      )}
     </div>
+  );
+}
+
+// Permanent delete. For a synced project the Asana copy is the only place the
+// work still exists afterwards, so the choice is spelled out rather than buried
+// in a checkbox label: keep it (the default — re-import later) or delete it too.
+function DeleteProjectModal({ state, setState, onConfirm, onClose }) {
+  const { project, mapped, alsoAsana, busy, err } = state;
+  const set = (patch) => setState((d) => ({ ...d, ...patch }));
+
+  return (
+    <Modal
+      title={`Delete "${project.name}"?`}
+      onClose={busy ? () => {} : onClose}
+      footer={(
+        <>
+          <button onClick={onClose} disabled={busy} style={btn('outline')}>Cancel</button>
+          <button onClick={onConfirm} disabled={busy}
+            style={{ ...btn('primary'), background: NX.red, borderColor: NX.red, opacity: busy ? 0.6 : 1 }}>
+            {busy ? 'Deleting…' : (alsoAsana ? 'Delete in both' : 'Delete from Nexus')}
+          </button>
+        </>
+      )}
+    >
+      <p style={{ fontSize: 13.5, color: NX.ink, marginBottom: 12 }}>
+        This permanently deletes the project, <strong>all of its tasks</strong> (subtasks, comments and
+        attachments included), and its teams. This can’t be undone.
+      </p>
+
+      {mapped ? (
+        <>
+          <p style={{ fontSize: 13, color: NX.dim, marginBottom: 10 }}>
+            This project is synced with Asana. Its sync mapping and task links are cleared either way,
+            so you can import it again from scratch and re-map it.
+          </p>
+          {[
+            { key: false, label: 'Keep the Asana project', desc: 'Deletes the Nexus copy only. The Asana project stays exactly as it is — import it again whenever you want.' },
+            { key: true, label: 'Delete it in Asana too', desc: 'Also deletes the Asana project. Asana keeps it in your trash for 30 days, but nothing will be left here to re-import.' },
+          ].map((opt) => (
+            <button key={String(opt.key)} type="button" onClick={() => set({ alsoAsana: opt.key })}
+              style={{
+                display: 'block', width: '100%', textAlign: 'left', marginBottom: 8, cursor: 'pointer',
+                padding: '10px 12px', borderRadius: 10, fontFamily: FONT,
+                border: `1px solid ${alsoAsana === opt.key ? (opt.key ? NX.red : NX.primary) : NX.border}`,
+                background: alsoAsana === opt.key ? (opt.key ? 'rgba(220,38,38,0.08)' : NX.hover) : 'transparent',
+              }}>
+              <div style={{ fontSize: 13.5, fontWeight: 700, color: opt.key ? NX.red : NX.ink }}>{opt.label}</div>
+              <div style={{ fontSize: 12, color: NX.dim, marginTop: 2 }}>{opt.desc}</div>
+            </button>
+          ))}
+        </>
+      ) : (
+        <p style={{ fontSize: 12.5, color: NX.faint }}>This project isn’t synced with Asana.</p>
+      )}
+
+      {err && <div style={{ marginTop: 10, fontSize: 12.5, color: NX.red }}>{err}</div>}
+    </Modal>
   );
 }
 
@@ -206,7 +289,7 @@ function ProjectModal({ form, setForm, people, portfolios, onClose, onSaved }) {
 
   // Teams currently assigned to this project (none yet for a brand-new one),
   // staged locally until Save so create and edit behave the same way.
-  const [teamIds, setTeamIds] = useState(() => teams.filter((t) => t.projectId === form.id).map((t) => t.id));
+  const [teamIds, setTeamIds] = useState(() => teams.filter((t) => teamInProject(t, form.id)).map((t) => t.id));
   const toggleTeam = (id) => setTeamIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
 
   const save = async () => {
@@ -215,12 +298,17 @@ function ProjectModal({ form, setForm, people, portfolios, onClose, onSaved }) {
     try {
       const { id, ...data } = form;
       const project = id ? await updateProject(id, data) : await createProject(data);
-      const wasAssigned = teams.filter((t) => t.projectId === (id || project.id)).map((t) => t.id);
+      // A team can serve several projects, so this edits only THIS project's membership
+      // in each team's list — a bare project_id would replace the team's whole set and
+      // drop the other projects it works on.
+      const pid = id || project.id;
+      const wasAssigned = teams.filter((t) => teamInProject(t, pid)).map((t) => t.id);
       const toAssign = teamIds.filter((tid) => !wasAssigned.includes(tid));
       const toUnassign = wasAssigned.filter((tid) => !teamIds.includes(tid));
+      const projectsOf = (tid) => teamProjectIds(teams.find((t) => t.id === tid));
       await Promise.all([
-        ...toAssign.map((tid) => updateTeam(tid, { project_id: project.id }).catch(() => {})),
-        ...toUnassign.map((tid) => updateTeam(tid, { project_id: '' }).catch(() => {})),
+        ...toAssign.map((tid) => updateTeam(tid, { project_ids: [...projectsOf(tid), pid] }).catch(() => {})),
+        ...toUnassign.map((tid) => updateTeam(tid, { project_ids: projectsOf(tid).filter((x) => x !== pid) }).catch(() => {})),
       ]);
       onSaved(project);
     } catch {

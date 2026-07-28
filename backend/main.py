@@ -253,10 +253,25 @@ def _run_migrations():
             "ALTER TABLE nexus_employees ADD COLUMN status_log JSON DEFAULT '[]'",
             "ALTER TABLE nexus_employees ADD COLUMN division VARCHAR DEFAULT ''",
             "ALTER TABLE nexus_employees ADD COLUMN identity_type VARCHAR DEFAULT 'internal'",
+            "ALTER TABLE nexus_employees ADD COLUMN display_name VARCHAR DEFAULT ''",
             "ALTER TABLE ir_funds ADD COLUMN property_asset_id VARCHAR DEFAULT ''",
             # Share panel (Jul 2026): per-person/per-team project access role.
             "ALTER TABLE task_projects ADD COLUMN member_roles JSON DEFAULT '{}'",
             "ALTER TABLE task_teams ADD COLUMN access_role VARCHAR DEFAULT 'editor'",
+            # A team may now belong to MANY projects (one IT team shared across
+            # projects, as Asana does it) — project_ids replaces project_id,
+            # which is kept only as a write-only legacy mirror. Backfill folds
+            # every existing single assignment into the new list.
+            "ALTER TABLE task_teams ADD COLUMN project_ids JSON DEFAULT '[]'",
+            # Custom fields: per-project scoping + a required flag. An empty
+            # project_ids keeps a field global, which is the pre-scoping
+            # behavior, so existing fields keep showing everywhere.
+            "ALTER TABLE task_custom_fields ADD COLUMN project_ids JSON DEFAULT '[]'",
+            "ALTER TABLE task_custom_fields ADD COLUMN required BOOLEAN DEFAULT 0",
+            # Setup-only Asana PAT; blank falls back to the service token.
+            "ALTER TABLE asana_sync_config ADD COLUMN setup_token VARCHAR DEFAULT ''",
+            "UPDATE task_teams SET project_ids = json_array(project_id) "
+            "WHERE COALESCE(project_id, '') != '' AND COALESCE(project_ids, '[]') IN ('[]', 'null', '')",
             # Manual override for ad-hoc-shared Asana teams the API can't reveal.
             "ALTER TABLE asana_project_map ADD COLUMN extra_team_names JSON DEFAULT '[]'",
             # One Nexus task per Asana task. On a database that already carries
@@ -391,6 +406,7 @@ def _run_migrations():
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS division VARCHAR DEFAULT ''",
         # External users: identity type (internal MS365 / Entra B2B guest / non-MS365 external)
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS identity_type VARCHAR DEFAULT 'internal'",
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS display_name VARCHAR DEFAULT ''",
         # Investor Relations: optional soft link to an Asset Management PropertyAsset.id
         "ALTER TABLE ir_funds ADD COLUMN IF NOT EXISTS property_asset_id VARCHAR DEFAULT ''",
         # HR mailbox export: progress total (table itself is created by create_all)
@@ -545,6 +561,19 @@ def _run_migrations():
         # Share panel (Jul 2026): per-person/per-team project access role.
         "ALTER TABLE task_projects ADD COLUMN IF NOT EXISTS member_roles JSONB DEFAULT '{}'::jsonb",
         "ALTER TABLE task_teams ADD COLUMN IF NOT EXISTS access_role VARCHAR DEFAULT 'editor'",
+        # A team may now belong to MANY projects (one IT team shared across
+        # projects, as Asana does it) — project_ids replaces project_id, which is
+        # kept only as a write-only legacy mirror. Backfill folds every existing
+        # single assignment into the new list.
+        "ALTER TABLE task_teams ADD COLUMN IF NOT EXISTS project_ids JSONB DEFAULT '[]'::jsonb",
+        # Custom fields: per-project scoping + a required flag. An empty
+        # project_ids keeps a field global (the pre-scoping behavior).
+        "ALTER TABLE task_custom_fields ADD COLUMN IF NOT EXISTS project_ids JSONB DEFAULT '[]'::jsonb",
+        "ALTER TABLE task_custom_fields ADD COLUMN IF NOT EXISTS required BOOLEAN DEFAULT FALSE",
+        # Setup-only Asana PAT; blank falls back to the service token.
+        "ALTER TABLE asana_sync_config ADD COLUMN IF NOT EXISTS setup_token VARCHAR DEFAULT ''",
+        "UPDATE task_teams SET project_ids = jsonb_build_array(project_id) "
+        "WHERE COALESCE(project_id, '') != '' AND COALESCE(project_ids, '[]'::jsonb) = '[]'::jsonb",
         # Manual override for ad-hoc-shared Asana teams the API can't reveal.
         "ALTER TABLE asana_project_map ADD COLUMN IF NOT EXISTS extra_team_names JSONB DEFAULT '[]'::jsonb",
         # One Nexus task per Asana task. On a database that already carries

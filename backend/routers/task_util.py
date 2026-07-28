@@ -135,12 +135,24 @@ def visible_project_ids(db: Session, email: str) -> set[str]:
         if ((p.access_level or "org") == "org" or (p.owner_email or "").lower() == email
                 or email in [m.lower() for m in (p.member_emails or [])]):
             ids.add(p.id)
-    for t in db.query(TaskTeam).filter(TaskTeam.project_id != "").all():
+    for t in db.query(TaskTeam).all():
         if email in [m.lower() for m in (t.member_emails or [])]:
-            ids.add(t.project_id)
+            ids.update(team_project_ids(t))
     for t in db.query(Task).filter(Task.project_id != "").all():
         if (t.assignee_email or "").lower() == email:
             ids.add(t.project_id)
+    return ids
+
+
+def team_project_ids(t: TaskTeam) -> list:
+    """A team's projects. A team may belong to MANY (one IT team shared across
+    projects, as Asana does it); `project_ids` is the source of truth and
+    `project_id` survives only as a write-only legacy mirror. Falling back to it
+    keeps a row written before the column existed — or by an older instance
+    mid-deploy — resolving to its one project instead of to nothing."""
+    ids = [p for p in (t.project_ids or []) if p]
+    if not ids and (t.project_id or ""):
+        return [t.project_id]
     return ids
 
 
@@ -196,8 +208,8 @@ def project_role_for(db: Session, email: str, project) -> str | None:
         return "owner"
     role = (project.member_roles or {}).get(email)
     best_rank = PROJECT_ROLE_RANK.get(role, 0)
-    for t in db.query(TaskTeam).filter(TaskTeam.project_id == project.id).all():
-        if email in [m.lower() for m in (t.member_emails or [])]:
+    for t in db.query(TaskTeam).all():
+        if project.id in team_project_ids(t) and email in [m.lower() for m in (t.member_emails or [])]:
             r = PROJECT_ROLE_RANK.get(t.access_role or "editor", 0)
             if r > best_rank:
                 best_rank, role = r, (t.access_role or "editor")

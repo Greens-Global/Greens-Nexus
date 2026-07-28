@@ -265,6 +265,9 @@ export const api = {
   addTaskComment: (id, data) => req(`/tasks/${id}/comments`, { method: "POST", body: JSON.stringify(data) }),
   editTaskComment: (cid, data) => req(`/tasks/comments/${cid}`, { method: "PATCH", body: JSON.stringify(data) }),
   deleteTaskComment: (cid) => req(`/tasks/comments/${cid}`, { method: "DELETE" }),
+  // Description editor's AI rephrase — returns a suggestion the user accepts or
+  // discards; it never writes to the task.
+  taskAiRephrase: (data) => req("/task-ai/rephrase", { method: "POST", body: JSON.stringify(data), timeoutMs: 120000 }),
   getTaskAttachments: (id) => req(`/tasks/${id}/attachments`),
   addTaskAttachment: (id, data) => req(`/tasks/${id}/attachments`, { method: "POST", body: JSON.stringify(data) }),
   deleteTaskAttachment: (aid) => req(`/tasks/attachments/${aid}`, { method: "DELETE" }),
@@ -283,7 +286,14 @@ export const api = {
   getTaskProjects: () => req("/task-projects"),
   createTaskProject: (data) => req("/task-projects", { method: "POST", body: JSON.stringify(data) }),
   updateTaskProject: (id, data) => req(`/task-projects/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
-  deleteTaskProject: (id) => req(`/task-projects/${id}`, { method: "DELETE" }),
+  // deleteInAsana: the operator's explicit answer to "also delete it in Asana?".
+  // Omitted (false) means Nexus-only — the Asana project survives so it can be
+  // imported again from scratch.
+  deleteTaskProject: (id, deleteInAsana = false) =>
+    req(`/task-projects/${id}${deleteInAsana ? "?delete_in_asana=true" : ""}`, { method: "DELETE" }),
+  getTaskProjectAsanaLink: (id) => req(`/task-projects/${id}/asana-link`),
+  // Fills team_id on tasks whose project has exactly one team. Dry run by default.
+  backfillTaskTeams: (apply) => req(`/task-projects/backfill-teams?apply=${apply ? 'true' : 'false'}`, { method: 'POST', timeoutMs: 120000 }),
   getTaskPortfolios: () => req("/task-portfolios"),
   createTaskPortfolio: (data) => req("/task-portfolios", { method: "POST", body: JSON.stringify(data) }),
   updateTaskPortfolio: (id, data) => req(`/task-portfolios/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
@@ -312,6 +322,9 @@ export const api = {
   asanaSyncPull: () => req("/asana-sync/pull", { method: "POST", timeoutMs: 600000 }),
   asanaSyncPushAll: () => req("/asana-sync/push-all", { method: "POST", timeoutMs: 600000 }),
   asanaSyncDedupe: (apply) => req(`/asana-sync/dedupe?apply=${apply ? "true" : "false"}`, { method: "POST", timeoutMs: 600000 }),
+  // Walks every project in the workspace — same 10-min ceiling as Pull/Push all.
+  asanaSyncImportAll: () => req("/asana-sync/import-all", { method: "POST", timeoutMs: 600000 }),
+  asanaSyncPurgeOrphans: (apply) => req(`/asana-sync/purge-orphans?apply=${apply ? "true" : "false"}`, { method: "POST", timeoutMs: 600000 }),
   getAsanaSyncProjects: () => req("/asana-sync/asana-projects", { timeoutMs: 60000 }),
   getAsanaWebhooks: () => req("/asana-sync/webhooks"),
   registerAsanaWebhooks: (data) => req("/asana-sync/webhooks", { method: "POST", body: JSON.stringify(data), timeoutMs: 60000 }),

@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom';
 import { X, Check, ChevronDown, ChevronLeft, ChevronRight, Plus } from 'lucide-react';
 import { api } from '../api';
 import { NX, FONT, colorForKey, initialsOf, statusChip, priorityChip, btn, chip, STATUS_META, input as inputStyle } from './theme';
-import { fmtDate } from './lib';
+import { fmtDate, teamInProject, teamProjectIds } from './lib';
 import { useTasks } from './TasksContext';
 
 // People profile photos, fetched once per session and shared by every Avatar.
@@ -352,6 +352,46 @@ function RolePicker({ value, onChange, disabled }) {
 }
 
 // Full "Share" dialog — Asana parity: invite by email with a role, an
+// Searchable team picker for the Share panel. PersonSelect is people-shaped
+// (email is its key, it renders an Avatar) and is used in eight other places, so
+// teams get their own small control rather than a risky generalization.
+function TeamPicker({ teams, value, onChange, placeholder = 'Add a team…' }) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState('');
+  const ref = useRef(null);
+  useClickOutside(ref, () => setOpen(false), open);
+  const chosen = teams.find((t) => t.id === value) || null;
+  const shown = q ? teams.filter((t) => (t.name || '').toLowerCase().includes(q.toLowerCase())) : teams;
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button type="button" onClick={() => setOpen((o) => !o)} style={{ ...btn('outline'), width: '100%', justifyContent: 'space-between' }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 8, overflow: 'hidden' }}>
+          {chosen && <span style={{ width: 9, height: 9, borderRadius: 3, background: chosen.color || NX.dim, flexShrink: 0 }} />}
+          <span style={{ color: chosen ? NX.ink : NX.faint, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {chosen ? chosen.name : placeholder}
+          </span>
+        </span>
+        <ChevronDown size={15} style={{ color: NX.faint }} />
+      </button>
+      {open && (
+        <div className="nx-scroll" style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 4, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', zIndex: 50, maxHeight: 260, overflowY: 'auto' }}>
+          <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search teams…"
+            style={{ width: '100%', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '9px 12px', fontSize: 13, outline: 'none', fontFamily: FONT, boxSizing: 'border-box', background: 'transparent', color: NX.ink }} />
+          {shown.length === 0 && <div style={{ padding: '10px 12px', fontSize: 12.5, color: NX.faint }}>No teams match.</div>}
+          {shown.map((t) => (
+            <div key={t.id} onClick={() => { onChange(t.id); setOpen(false); setQ(''); }}
+              style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer', color: NX.ink }}>
+              <span style={{ width: 9, height: 9, borderRadius: 3, background: t.color || NX.dim, flexShrink: 0 }} />
+              <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</span>
+              <span style={{ fontSize: 11.5, color: NX.faint }}>{(t.memberIds || []).length} people</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // org-wide/private toggle, and a "Who has access" list (owner fixed, each
 // individual member and each project-scoped Team with its own role dropdown
 // + remove). Roles are ENFORCED server-side (task_util.require_project_role),
@@ -361,6 +401,8 @@ function ShareProjectModal({ project, teams, people, onClose }) {
   const { updateProject, updateTeam } = useTasks();
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState('editor');
+  const [inviteTeam, setInviteTeam] = useState('');
+  const [teamRole, setTeamRole] = useState('editor');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -368,7 +410,7 @@ function ShareProjectModal({ project, teams, people, onClose }) {
   const ownerEmail = (project.ownerId || '').toLowerCase();
   const memberRoles = project.memberRoles || {};
   const memberEmails = (project.memberIds || []).filter((em) => em.toLowerCase() !== ownerEmail);
-  const projectTeams = (teams || []).filter((t) => t.projectId === project.id);
+  const projectTeams = (teams || []).filter((t) => teamInProject(t, project.id));
 
   const run = async (fn) => {
     setError(''); setBusy(true);
@@ -389,8 +431,29 @@ function ShareProjectModal({ project, teams, people, onClose }) {
     });
   });
 
-  const setTeamRole = (team, role) => run(() => updateTeam(team.id, { access_role: role }));
-  const removeTeam = (team) => run(() => updateTeam(team.id, { project_id: '' }));
+  const setTeamRoleFor = (team, role) => run(() => updateTeam(team.id, { access_role: role }));
+
+  // Granting a team access = adding this project to the team's project list.
+  // Teams the project already has are filtered out of the picker, so the same
+  // team can't be added twice.
+  const availableTeams = (teams || []).filter((t) => !teamInProject(t, project.id));
+  const addTeam = () => {
+    const team = availableTeams.find((t) => t.id === inviteTeam);
+    if (!team) return;
+    run(async () => {
+      await updateTeam(team.id, {
+        project_ids: [...teamProjectIds(team), project.id],
+        access_role: teamRole,
+      });
+      setInviteTeam('');
+    });
+  };
+  // Drop THIS project only. Sending project_id:'' would clear the team's whole
+  // project list, so removing IT from one project would silently revoke it from
+  // every other project it serves.
+  const removeTeam = (team) => run(() => updateTeam(team.id, {
+    project_ids: teamProjectIds(team).filter((id) => id !== project.id),
+  }));
 
   const invite = () => {
     const email = (inviteEmail || '').trim().toLowerCase();
@@ -422,6 +485,19 @@ function ShareProjectModal({ project, teams, people, onClose }) {
         <button type="button" disabled={busy || !inviteEmail} onClick={invite} style={btn('primary')}>Invite</button>
       </div>
 
+      {/* Teams get access as a unit — everyone on the team inherits it, which is
+          how a whole department is granted a project in one step instead of
+          inviting each person. */}
+      <div style={{ fontSize: 13, fontWeight: 700, color: NX.ink, marginBottom: 8 }}>Add a team</div>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16, alignItems: 'flex-start' }}>
+        <div style={{ flex: 1 }}>
+          <TeamPicker teams={availableTeams} value={inviteTeam} onChange={setInviteTeam}
+            placeholder={availableTeams.length ? 'Search teams…' : 'Every team already has access'} />
+        </div>
+        <RolePicker value={teamRole} onChange={setTeamRole} />
+        <button type="button" disabled={busy || !inviteTeam} onClick={addTeam} style={btn('primary')}>Add</button>
+      </div>
+
       <div style={{ fontSize: 13, fontWeight: 700, color: NX.ink, marginBottom: 8 }}>Access settings</div>
       <select value={project.accessLevel || 'org'} disabled={busy}
         onChange={(e) => run(() => updateProject(project.id, { access_level: e.target.value }))}
@@ -451,7 +527,7 @@ function ShareProjectModal({ project, teams, people, onClose }) {
               <div style={{ fontSize: 13, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</div>
               <div style={{ fontSize: 11.5, color: NX.faint }}>{(t.memberIds || []).length} people</div>
             </div>
-            <RolePicker value={t.accessRole || 'editor'} onChange={(r) => setTeamRole(t, r)} disabled={busy} />
+            <RolePicker value={t.accessRole || 'editor'} onChange={(r) => setTeamRoleFor(t, r)} disabled={busy} />
             <button type="button" disabled={busy} onClick={() => removeTeam(t)} title="Remove team from this project"
               style={{ ...btn('ghost'), padding: 5, color: NX.faint }}><X size={14} /></button>
           </div>
@@ -492,7 +568,7 @@ export function ProjectAccessButton({ project, teams, people }) {
   const personFor = (em) => people.find((p) => p.email === em) || { email: em, name: emailToName(em) };
   const ownerEmail = (project.ownerId || '').toLowerCase();
   const memberEmails = Array.isArray(project.memberIds) ? project.memberIds : [];
-  const projectTeams = (teams || []).filter((t) => t.projectId === project.id);
+  const projectTeams = (teams || []).filter((t) => teamInProject(t, project.id));
   const allEmails = Array.from(new Set(
     [ownerEmail, ...memberEmails, ...projectTeams.flatMap((t) => t.memberIds || [])].filter(Boolean)
   ));

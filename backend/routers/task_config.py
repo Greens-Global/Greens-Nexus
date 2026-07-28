@@ -127,15 +127,43 @@ def asana_import(body: AsanaImportBody, user: dict = Depends(get_current_user), 
     nothing here can remove a Nexus task no matter what the saved config says.
     """
     from asana_import import Asana, ImportError_
-    from routers.task_projects import create_project, ProjectBody, project_to_dict
     import asana_sync
-
-    if not (body.project_gids or body.workspace):
-        raise HTTPException(400, "Provide at least one project GID or a workspace GID.")
 
     cfg = asana_sync.TokenConfig(body.token, body.workspace or "")
     asana = Asana(body.token)
     email_map = {k.lower(): v for k, v in (body.email_map or {}).items()}
+    try:
+        gids = list(body.project_gids or [])
+        if body.workspace:
+            gids += [p["gid"] for p in asana.get("/projects", workspace=body.workspace, opt_fields="name")]
+        # No GIDs and no workspace = "everything this token can see". A GID is the middle
+        # number of a project URL — easy to get wrong and impossible to verify before the
+        # import runs, and the token already knows what it can reach.
+        if not gids:
+            gids = [pr["gid"]
+                    for w in asana.get("/workspaces", opt_fields="name")
+                    for pr in asana.get("/projects", workspace=w["gid"], opt_fields="name,archived")
+                    if not pr.get("archived")]
+    except ImportError_ as e:
+        # first Asana call failed — almost always a bad token or GID.
+        raise HTTPException(400, f"Asana request failed: {e}")
+    if not gids:
+        raise HTTPException(400, "That token can't see any projects.")
+    return _import_asana_projects(db, cfg, asana, gids, user, email_map)
+
+
+def _import_asana_projects(db, cfg, asana, gids, user, email_map=None):
+    """Create-or-adopt a Nexus project per Asana project, map it, and import its
+    contents through asana_sync.import_project (which is _pull_task_tree, the
+    one and only inbound engine).
+
+    Shared by the token-based one-shot Import and the stored-token "Import
+    everything from Asana" button, so the two cannot drift the way Import and
+    Pull once did — the reason that engine has a single entry point at all."""
+    from routers.task_projects import create_project, ProjectBody, project_to_dict
+    import asana_sync
+
+    email_map = email_map or {}
     counts = {"projects": 0, "tasks": 0, "subtasks": 0, "comments": 0, "attachments": 0,
               "activities": 0, "skipped": 0, "errors": []}
     # Engine-native counters; mapped onto the UI's names at the end.
@@ -145,14 +173,6 @@ def asana_import(body: AsanaImportBody, user: dict = Depends(get_current_user), 
     # Dependencies can point across projects, so the resolution pass runs once
     # after every selected project is in, not per project.
     deferred = []
-
-    try:
-        gids = list(body.project_gids or [])
-        if body.workspace:
-            gids += [p["gid"] for p in asana.get("/projects", workspace=body.workspace, opt_fields="name")]
-    except ImportError_ as e:
-        # first Asana call failed — almost always a bad token or GID.
-        raise HTTPException(400, f"Asana request failed: {e}")
 
     for gid in gids:
         try:
@@ -344,9 +364,92 @@ def delete_intake_form(form_id: str, db: Session = Depends(get_db)):
 
 
 # ── Custom fields ────────────────────────────────────────────────────────────
+_FIELD_PALETTE = ["#2563eb", "#0d9488", "#16a34a", "#7c3aed", "#d97706",
+                  "#dc2626", "#db2777", "#0891b2", "#4f46e5", "#475569"]
+
+
+def normalize_field_options(options, ) -> list:
+    """Select options as [{id,label,color}].
+
+    Rows written before options carried colors hold plain strings, and the task
+    editors still send plain strings today, so both shapes have to read back the
+    same or every existing select field would render blank. A missing color is
+    assigned from the palette by position rather than left empty, so a field
+    always has usable chips."""
+    out = []
+    for i, o in enumerate(options or []):
+        if o is None:
+            continue   # str(None) is "None", which would become a real option
+        if isinstance(o, dict):
+            label = str(o.get("label") or o.get("id") or "").strip()
+            if not label:
+                continue
+            out.append({"id": str(o.get("id") or label), "label": label,
+                        "color": o.get("color") or _FIELD_PALETTE[i % len(_FIELD_PALETTE)]})
+        else:
+            label = str(o).strip()
+            if label:
+                out.append({"id": label, "label": label, "color": _FIELD_PALETTE[i % len(_FIELD_PALETTE)]})
+    return out
+
+
+def coerce_custom_field_values(db: Session, values) -> dict:
+    """Store custom-field values in the shape their field declares.
+
+    The column is a free JSON dict, so before this every value arrived as
+    whatever the widget produced — numbers as strings, dates in whatever the
+    input emitted, and selects holding labels that were no longer options after
+    the field was edited. Nothing downstream could group, sort, or roll them up
+    on that. Coercing here keeps the mess out of every reader.
+
+    Unknown field ids are dropped (the field was deleted); a value that can't be
+    coerced is dropped rather than stored wrong. Never raises — inbound Asana
+    tasks come through the same create path and must not be rejected."""
+    if not isinstance(values, dict) or not values:
+        return {}
+    defs = {f.id: f for f in db.query(models.TaskCustomField).all()}
+    out = {}
+    for fid, raw in values.items():
+        f = defs.get(fid)
+        if f is None or raw in ("", None):
+            continue
+        kind = (f.type or "text").lower()
+        try:
+            if kind == "number":
+                n = float(raw)
+                out[fid] = int(n) if n.is_integer() else n
+            elif kind == "checkbox":
+                out[fid] = raw if isinstance(raw, bool) else str(raw).strip().lower() in ("1", "true", "yes", "on")
+            elif kind == "date":
+                out[fid] = str(raw)[:10]
+            elif kind == "select":
+                allowed = {o["id"]: o for o in normalize_field_options(f.options or [])}
+                by_label = {o["label"]: o["id"] for o in allowed.values()}
+                key = str(raw)
+                # Accept either the option id or its label — the task editors
+                # have historically sent plain labels.
+                out[fid] = key if key in allowed else by_label.get(key, "")
+                if not out[fid]:
+                    out.pop(fid)
+            else:
+                out[fid] = str(raw)
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def field_applies_to(f: models.TaskCustomField, project_id: str) -> bool:
+    """Empty project_ids = a global field (every project), which is what every
+    field was before scoping existed."""
+    ids = [p for p in (f.project_ids or []) if p]
+    return not ids or (project_id or "") in ids
+
+
 def custom_field_to_dict(f: models.TaskCustomField) -> dict:
     return {"id": f.id, "name": f.name, "description": _nz(f.description), "type": f.type or "text",
-            "options": f.options if isinstance(f.options, list) else []}
+            "options": normalize_field_options(f.options if isinstance(f.options, list) else []),
+            "projectIds": [p for p in (f.project_ids or []) if p],
+            "required": bool(f.required)}
 
 
 class CustomFieldBody(BaseModel):
@@ -355,6 +458,8 @@ class CustomFieldBody(BaseModel):
     description: Optional[str] = ""
     type: Optional[str] = "text"
     options: Optional[list] = None
+    project_ids: Optional[list] = None
+    required: Optional[bool] = None
 
 
 @router.get("/task-custom-fields")
@@ -365,7 +470,10 @@ def list_custom_fields(db: Session = Depends(get_db)):
 @router.post("/task-custom-fields", status_code=201)
 def create_custom_field(body: CustomFieldBody, db: Session = Depends(get_db)):
     f = models.TaskCustomField(id=body.id or gen_id(), name=body.name, description=body.description or "",
-                               type=body.type or "text", options=body.options or [])
+                               type=body.type or "text",
+                               options=normalize_field_options(body.options or []),
+                               project_ids=[p for p in (body.project_ids or []) if p],
+                               required=bool(body.required))
     db.add(f)
     db.commit()
     db.refresh(f)
@@ -378,6 +486,10 @@ def update_custom_field(field_id: str, body: CustomFieldBody, db: Session = Depe
     if not f:
         raise HTTPException(404, "Custom field not found")
     data = body.model_dump(exclude_unset=True, exclude={"id"})
+    if "options" in data:
+        data["options"] = normalize_field_options(data["options"] or [])
+    if "project_ids" in data:
+        data["project_ids"] = [p for p in (data["project_ids"] or []) if p]
     for k, v in data.items():
         setattr(f, k, v)
     db.commit()
@@ -399,6 +511,7 @@ class AsanaSyncConfigBody(BaseModel):
     workspace_gid: Optional[str] = None
     default_project_gid: Optional[str] = None
     delete_sync: Optional[bool] = None
+    setup_token: Optional[str] = None
 
 
 class AsanaProjectMapBody(BaseModel):
@@ -408,7 +521,8 @@ class AsanaProjectMapBody(BaseModel):
 def _sync_config_dict(cfg) -> dict:
     return {"enabled": bool(cfg.enabled), "workspaceGid": _nz(cfg.workspace_gid),
             "defaultProjectGid": _nz(cfg.default_project_gid), "hasToken": bool(cfg.token),
-            "lastPullAt": _nz(cfg.last_pull_at), "deleteSync": bool(cfg.delete_sync)}
+            "lastPullAt": _nz(cfg.last_pull_at), "deleteSync": bool(cfg.delete_sync),
+            "hasSetupToken": bool(cfg.setup_token)}
 
 
 @router.get("/asana-sync/config", dependencies=[Depends(require_manager)])
@@ -436,6 +550,12 @@ def set_asana_sync_config(body: AsanaSyncConfigBody, db: Session = Depends(get_d
         if len(tok) > 200 or " " in tok:
             raise HTTPException(400, "That doesn't look like an Asana token. Paste just the token (starts with 1/).")
         cfg.token = tok
+    if body.setup_token is not None:
+        tok = body.setup_token.strip()
+        # Empty clears it, which falls back to the service token.
+        if tok and (len(tok) > 200 or " " in tok):
+            raise HTTPException(400, "That doesn't look like an Asana token. Paste just the token (starts with 1/).")
+        cfg.setup_token = tok
     if body.workspace_gid is not None:
         cfg.workspace_gid = body.workspace_gid
     if body.default_project_gid is not None:
@@ -452,17 +572,90 @@ def set_asana_sync_config(body: AsanaSyncConfigBody, db: Session = Depends(get_d
 @router.put("/asana-sync/projects", dependencies=[Depends(require_manager)])
 def set_asana_project_map(body: AsanaProjectMapBody, db: Session = Depends(get_db)):
     from routers.task_util import now_iso
-    db.query(models.AsanaProjectMap).delete()
+    rows = []
     for m in body.maps or []:
         npid = (m.get("nexusProjectId") or "").strip()
         agid = (m.get("asanaProjectGid") or "").strip()
         extra_teams = [n.strip() for n in (m.get("extraTeamNames") or []) if (n or "").strip()]
         if npid and agid:
-            db.add(models.AsanaProjectMap(id=gen_id(), nexus_project_id=npid,
-                                          asana_project_gid=agid, extra_team_names=extra_teams,
-                                          created_at=now_iso()))
+            rows.append((npid, agid, extra_teams))
+    # Two Nexus projects on ONE Asana project is silently destructive: pull() shares
+    # one `seen` set, so whichever row comes back first absorbs all the tasks and the
+    # other stays empty while the pull still reports success. The import path already
+    # refuses this (ensure_project_map re-points); this closes the same hole here.
+    by_gid = {}
+    for npid, agid, _ in rows:
+        by_gid.setdefault(agid, []).append(npid)
+    clashes = {g: ids for g, ids in by_gid.items() if len(ids) > 1}
+    if clashes:
+        names = {p.id: p.name for p in db.query(models.TaskProject).filter(
+            models.TaskProject.id.in_([i for ids in clashes.values() for i in ids])).all()}
+        detail = "; ".join(f"{g} ← " + ", ".join(names.get(i, i) for i in ids)
+                           for g, ids in clashes.items())
+        raise HTTPException(400, "Each Asana project can be mapped to only one Nexus project. "
+                                 f"Duplicate mapping(s): {detail}")
+    db.query(models.AsanaProjectMap).delete()
+    for npid, agid, extra_teams in rows:
+        db.add(models.AsanaProjectMap(id=gen_id(), nexus_project_id=npid,
+                                      asana_project_gid=agid, extra_team_names=extra_teams,
+                                      created_at=now_iso()))
     db.commit()
     return {"count": db.query(models.AsanaProjectMap).count()}
+
+
+@router.post("/asana-sync/import-all", dependencies=[Depends(require_manager)])
+def asana_sync_import_all(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """One click: bring EVERY non-archived Asana project the stored token can see
+    into Nexus — create-or-adopt the Nexus project, map it, import its full
+    contents — using the same engine and the same create/adopt/map loop as the
+    token-based Import (_import_asana_projects).
+
+    Uses the saved sync token and, when set, the configured workspace; with no
+    workspace configured it sweeps every workspace the token can see. Additive
+    by construction (TokenConfig forces delete_sync off), so re-running it tops
+    projects up rather than removing anything."""
+    from asana_import import Asana, ImportError_
+    import asana_sync
+
+    cfg = asana_sync.get_config(db)
+    # Setup runs under its own token when one is saved; otherwise the service
+    # token, so an existing config keeps working untouched.
+    token = (cfg.setup_token or "").strip() or cfg.token
+    if not token:
+        raise HTTPException(400, "Save an Asana token first.")
+    asana = Asana(token)
+    try:
+        if cfg.workspace_gid:
+            workspaces = [cfg.workspace_gid]
+        else:
+            workspaces = [w["gid"] for w in asana.get("/workspaces", opt_fields="name")]
+        gids = []
+        for ws in workspaces:
+            for p in asana.get("/projects", workspace=ws, opt_fields="name,archived"):
+                if not p.get("archived"):
+                    gids.append(p["gid"])
+    except ImportError_ as e:
+        raise HTTPException(400, f"Asana request failed — check the token. ({e})")
+    if not gids:
+        return {"projects": 0, "tasks": 0, "errors": ["No projects found in the workspace."]}
+    # The stored token, wrapped the same way Import wraps a pasted one, so this
+    # can never delete anything in Nexus whatever delete_sync is set to.
+    token_cfg = asana_sync.TokenConfig(token, cfg.workspace_gid or "")
+    counts = _import_asana_projects(db, token_cfg, asana, gids, user)
+    # Import + map only. Enabling sync and registering webhooks are their own
+    # buttons so each step can be run — and re-run — on its own.
+    counts["mapped"] = db.query(models.AsanaProjectMap).count()
+    return counts
+
+
+@router.post("/asana-sync/purge-orphans", dependencies=[Depends(require_manager)])
+def asana_sync_purge_orphans(apply: bool = False, db: Session = Depends(get_db)):
+    """Clear sync rows stranded by project deletes that predate the purge in
+    delete_project — dead task links, orphaned linked tasks, and map rows whose
+    Nexus project is gone. Each of these BLOCKS a fresh import of the Asana
+    tasks behind them. Defaults to a dry run; Asana is never touched."""
+    import asana_sync
+    return asana_sync.sweep_orphans(db, apply=apply)
 
 
 @router.post("/asana-sync/pull", dependencies=[Depends(require_manager)])
@@ -554,6 +747,87 @@ def delete_asana_webhooks(db: Session = Depends(get_db)):
 # Extracts text from an uploaded photo via Tesseract. The engine (pytesseract +
 # the `tesseract` binary) must be present on the host; if it isn't we return 501
 # so the client can degrade gracefully instead of 500-ing.
+# ── AI rephrase (task description editor) ────────────────────────────────────
+_REPHRASE_MODEL = "claude-opus-5"
+_REPHRASE_MAX_CHARS = 8000
+
+
+class RephraseBody(BaseModel):
+    text: str
+    tone: Optional[str] = "clear"   # clear | concise | formal | friendly
+
+
+_REPHRASE_TONES = {
+    "clear": "Rewrite it to be clearer and better organized.",
+    "concise": "Rewrite it to be as short as possible while keeping every fact.",
+    "formal": "Rewrite it in a professional, formal register.",
+    "friendly": "Rewrite it in a warm, approachable register.",
+}
+
+
+@router.post("/task-ai/rephrase")
+def task_ai_rephrase(body: RephraseBody):
+    """Rephrase a task description. Returns the suggestion only — the editor shows
+    it beside the original and the user accepts or rejects it, so nothing is
+    overwritten server-side.
+
+    Plain text in, plain text out: the client sends the editor's text content and
+    re-inserts the result as a paragraph, which keeps the model away from the
+    document's HTML structure entirely. Same httpx-to-api.anthropic.com shape as
+    routers/help.py and routers/hr_interviews.py rather than a new SDK dependency.
+    """
+    text = (body.text or "").strip()
+    if not text:
+        raise HTTPException(400, "Nothing to rephrase.")
+    if len(text) > _REPHRASE_MAX_CHARS:
+        raise HTTPException(400, f"That's too long to rephrase (limit {_REPHRASE_MAX_CHARS} characters).")
+    if not _ANTHROPIC_API_KEY:
+        raise HTTPException(503, "AI rephrasing isn't configured on this server (no ANTHROPIC_API_KEY).")
+
+    instruction = _REPHRASE_TONES.get((body.tone or "clear"), _REPHRASE_TONES["clear"])
+    prompt = (
+        "The following is the description of a task in an internal company work-tracking "
+        "tool. " + instruction + "\n\n"
+        "Rules:\n"
+        "- Keep every fact, name, date, number, and link exactly as given. Do not invent details.\n"
+        "- Keep it in American English.\n"
+        "- Preserve the paragraph and list structure of the original.\n"
+        "- Output ONLY the rewritten description. No preamble, no quotes, no code fences, "
+        "no commentary about what you changed.\n\n"
+        "DESCRIPTION:\n" + text
+    )
+    try:
+        with httpx.Client(timeout=90) as client:
+            r = client.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": _ANTHROPIC_API_KEY,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                },
+                json={
+                    "model": _REPHRASE_MODEL,
+                    "max_tokens": 4000,
+                    "messages": [{"role": "user", "content": prompt}],
+                },
+            )
+            r.raise_for_status()
+            data = r.json()
+    except Exception as e:   # noqa: BLE001
+        print(f"[task-ai] rephrase failed: {e}")
+        raise HTTPException(502, "The rephrase service didn't respond. Try again.")
+
+    # A safety decline comes back as a normal 200 with stop_reason "refusal" and
+    # empty content — check it before reading blocks, or this returns "" as if it
+    # had succeeded.
+    if data.get("stop_reason") == "refusal":
+        raise HTTPException(422, "The model declined to rewrite that text.")
+    out = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text").strip()
+    if not out:
+        raise HTTPException(502, "The rephrase service returned nothing. Try again.")
+    return {"text": out, "model": _REPHRASE_MODEL}
+
+
 @router.post("/task-ocr")
 async def task_ocr(image: UploadFile = File(...)):
     raw = await image.read()

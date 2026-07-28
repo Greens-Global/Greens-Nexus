@@ -567,6 +567,7 @@ class NexusEmployee(Base):
     updated_at      = Column(String, default="")
     division        = Column(String, default="")               # functional division head-tag; org chart inherits down the tree (Phase 5)
     identity_type   = Column(String, default="internal")        # internal (MS365 staff) | guest (Entra B2B partner) | external (non-MS365, HR-record only)
+    display_name    = Column(String, default="")               # Entra/Teams displayName verbatim — first+last drops middle names ("Sagar Kumar Shoundik" -> "Sagar Shoundik"), so people read as a different person than Teams shows. Refreshed by sync-m365; falls back to first+last when empty.
 
 
 class HrCandidate(Base):
@@ -1692,12 +1693,21 @@ class TaskPortfolio(Base):
 
 class TaskTeam(Base):
     """A named group (e.g. "IT Team", "QA Team") — not a cross-project
-    department. A team can exist standalone (project_id="") or be assigned to
-    a project (from the project's own Teams picker, at creation or later);
-    `project_id` is at most ONE project at a time, no DB constraint."""
+    department. A team can exist standalone (no projects) or be assigned to any
+    number of projects, from its own modal or a project's Teams picker.
+
+    `project_ids` is the source of truth. It replaced the single `project_id`,
+    which forced one Nexus team row per project and so minted a duplicate card
+    every time one real team (IT, Development) worked on a second project —
+    Asana teams are shared across projects routinely, and the sync had to create
+    a fresh team each time rather than steal one another project depended on.
+    `project_id` is kept as a WRITE-ONLY legacy mirror (first element) so an old
+    row or an unmigrated reader still resolves to something sane; nothing should
+    read it."""
     __tablename__ = "task_teams"
     id            = Column(String, primary_key=True)
-    project_id    = Column(String, default="", index=True)
+    project_id    = Column(String, default="", index=True)   # legacy mirror of project_ids[0]
+    project_ids   = Column(JSON, default=list)
     name          = Column(String, nullable=False)
     color         = Column(String, default="")
     icon          = Column(String, default="")           # key from the department icon registry
@@ -1812,12 +1822,26 @@ class TaskIntakeForm(Base):
 
 
 class TaskCustomField(Base):
+    """A user-defined field on tasks (Asana "custom field"). Definitions live
+    here; the per-task values live on Task.custom_field_values keyed by id."""
     __tablename__ = "task_custom_fields"
     id          = Column(String, primary_key=True)
     name        = Column(String, nullable=False)
     description = Column(String, default="")
-    type        = Column(String, default="text")         # text|number|single_select|... (15 types)
-    options     = Column(JSON, default=list)             # [{id,label,color}]
+    # text|number|date|checkbox|select — the five kinds a value is actually
+    # STORED as. The "+ Column" menu's fifteen visual types all map onto these
+    # (see views/richlist.jsx TYPE_GROUPS).
+    type        = Column(String, default="text")
+    # [{id,label,color}]. Older rows hold plain strings; task_config normalizes
+    # both shapes on read, so nothing needs backfilling.
+    options     = Column(JSON, default=list)
+    # Which projects use this field. EMPTY = every project, the pre-scoping behavior,
+    # so upgrading changes nothing until an admin narrows a field. Without it one
+    # field became a column on every board in the workspace.
+    project_ids = Column(JSON, default=list)
+    # Must have a value before a task can be created (checked on the create form,
+    # not on the API — inbound Asana tasks legitimately arrive without it).
+    required    = Column(Boolean, default=False)
 
 
 class TaskMemberRequest(Base):
@@ -1995,6 +2019,10 @@ class AsanaSyncConfig(Base):
     id                  = Column(String, primary_key=True, default="singleton")
     enabled             = Column(Boolean, default=False)
     token               = Column(String, default="")     # Asana service PAT (write scope)
+    # PAT for the Setup actions (import all / register webhooks) only. Separate from
+    # `token` so a one-off bulk import can run as an admin without that account
+    # becoming the identity every ongoing push is attributed to. Blank = use `token`.
+    setup_token         = Column(String, default="")
     workspace_gid       = Column(String, default="")
     default_project_gid = Column(String, default="")     # Asana project unmapped tasks push to
     last_pull_at        = Column(String, default="")      # ISO watermark for inbound polling
@@ -2012,15 +2040,10 @@ class AsanaProjectMap(Base):
     id                = Column(String, primary_key=True)
     nexus_project_id  = Column(String, default="", index=True)
     asana_project_gid = Column(String, default="", index=True)
-    # Manual override for a real Asana API gap: a team ad-hoc-invited to a
-    # project via Asana's Share dialog (as opposed to being the project's own
-    # `team` field) is NOT exposed by any Asana REST endpoint — confirmed live
-    # (full unfiltered /projects/{gid}, project_memberships, and two guessed
-    # endpoints all came back empty/404 for this exact case, Jul 2026). Since
-    # the API can't tell us, the operator does: names listed here are looked
-    # up in the Asana workspace by name and their rosters kept in sync onto a
-    # same-named Nexus TaskTeam (find-or-create), same mechanism as the
-    # project's own owning team — see asana_sync._sync_project_access.
+    # LEGACY. Manual override for what was thought to be an Asana API gap; in fact
+    # GET /memberships?parent={project} returns ad-hoc team shares as member rows
+    # (resource_type="team"). Detection is automatic now and the UI field is gone;
+    # saved values are still resolved by name. See asana_sync._sync_project_access.
     extra_team_names  = Column(JSON, default=list)
     created_at        = Column(String, default="")
 

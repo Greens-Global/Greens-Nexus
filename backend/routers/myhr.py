@@ -118,6 +118,14 @@ def my_documents(user: dict = Depends(get_current_user), db: Session = Depends(g
 
 # ── Directory card (hover profiles) — safe subset, any signed-in user ────────
 
+def _person_name(e) -> str:
+    """How a person is named across the app. Prefers the Entra/Teams
+    displayName, which is what colleagues recognize — first+last silently drops
+    middle names, so "Sagar Kumar Shoundik" in Teams read as "Sagar Shoundik"
+    here. Empty until an M365 sync has run, hence the fallback."""
+    return (e.display_name or "").strip() or f"{e.first_name} {e.last_name}".strip() or e.work_email
+
+
 @router.get("/directory")
 def people_directory(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """The curated Nexus People list (nexus_employees) as a name+email picker —
@@ -129,8 +137,7 @@ def people_directory(user: dict = Depends(get_current_user), db: Session = Depen
               .filter(NexusEmployee.status != "offboarded")
               .filter(NexusEmployee.work_email != "")
               .order_by(NexusEmployee.first_name, NexusEmployee.last_name).all())
-    return [{"email": e.work_email, "name": f"{e.first_name} {e.last_name}".strip() or e.work_email,
-             "photoUrl": e.photo_url or ""}
+    return [{"email": e.work_email, "name": _person_name(e), "photoUrl": e.photo_url or ""}
             for e in rows]
 
 
@@ -143,15 +150,17 @@ def person_card(q: str = "", user: dict = Depends(get_current_user), db: Session
         raise HTTPException(400, "q too short")
     match = None
     for e in db.query(NexusEmployee).filter(NexusEmployee.status != "offboarded").all():
-        name = f"{e.first_name} {e.last_name}".strip().lower()
-        if q == (e.work_email or "").lower() or q == name:
+        # Both spellings are searchable: people type the Teams name they see,
+        # but older links and emails still carry the first+last form.
+        names = {f"{e.first_name} {e.last_name}".strip().lower(), _person_name(e).lower()} - {""}
+        if q == (e.work_email or "").lower() or q in names:
             match = e
             break
-        if match is None and (q in name or q in (e.work_email or "").lower()):
+        if match is None and (any(q in n for n in names) or q in (e.work_email or "").lower()):
             match = e
     if not match:
         raise HTTPException(404, "No matching person")
-    return {"name": f"{match.first_name} {match.last_name}".strip(),
+    return {"name": _person_name(match),
             "jobTitle": match.job_title, "department": match.department,
             "photoUrl": match.photo_url, "workEmail": match.work_email,
             "location": match.location, "status": match.status}

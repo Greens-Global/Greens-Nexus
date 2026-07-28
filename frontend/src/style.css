@@ -2579,3 +2579,57 @@ button, [role="button"], select { touch-action: manipulation; }
     font-size: 16px !important;
   }
 }
+
+/* Task description editor (tasks/RichDescription.jsx). Scoped to .nx-rich so it
+   can't reach the Document Builder's own .doc-editor ProseMirror styles. */
+.nx-rich .ProseMirror { outline: none; font-size: 13.5px; line-height: 1.55; color: var(--ink, #111827); }
+.nx-rich .ProseMirror > *:first-child { margin-top: 0; }
+.nx-rich .ProseMirror > *:last-child { margin-bottom: 0; }
+.nx-rich .ProseMirror p { margin: 0 0 8px; }
+.nx-rich .ProseMirror ul, .nx-rich .ProseMirror ol { margin: 0 0 8px; padding-left: 22px; }
+.nx-rich .ProseMirror li { margin: 2px 0; }
+.nx-rich .ProseMirror li > p { margin: 0; }
+.nx-rich .ProseMirror a { color: #2563eb; text-decoration: underline; }
+.nx-rich .ProseMirror mark { background: #fde68a; border-radius: 2px; padding: 0 1px; }
+.nx-rich .ProseMirror code {
+  background: rgba(148,163,184,0.18); border-radius: 4px; padding: 1px 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.9em;
+}
+.nx-rich .ProseMirror pre {
+  background: #0f172a; color: #e2e8f0; border-radius: 8px; padding: 10px 12px; margin: 0 0 8px;
+  overflow-x: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px;
+}
+.nx-rich .ProseMirror pre code { background: none; color: inherit; padding: 0; font-size: inherit; }
+.nx-rich .ProseMirror blockquote { border-left: 3px solid var(--line, #e5e7eb); margin: 0 0 8px; padding-left: 10px; color: #6b7280; }
+.nx-rich .ProseMirror img { max-width: 100%; height: auto; border-radius: 8px; }
+.nx-rich .ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder); float: left; height: 0; pointer-events: none; color: #9ca3af;
+}
+/* Read-only rendering of a description (task detail, list previews). */
+.nx-rich-view { font-size: 13.5px; line-height: 1.55; }
+.nx-rich-view > *:first-child { margin-top: 0; }
+.nx-rich-view > *:last-child { margin-bottom: 0; }
+.nx-rich-view p { margin: 0 0 8px; }
+.nx-rich-view ul, .nx-rich-view ol { margin: 0 0 8px; padding-left: 22px; }
+.nx-rich-view a { color: #2563eb; text-decoration: underline; }
+.nx-rich-view mark { background: #fde68a; border-radius: 2px; padding: 0 1px; }
+.nx-rich-view img { max-width: 100%; height: auto; border-radius: 8px; }
+.nx-rich-view pre {
+  background: #0f172a; color: #e2e8f0; border-radius: 8px; padding: 10px 12px;
+  overflow-x: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px;
+}
+.nx-rich-view code {
+  background: rgba(148,163,184,0.18); border-radius: 4px; padding: 1px 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.9em;
+}
+/* @mentions are stored as mailto links (that is what carries the identity to
+   the backend and to Asana), but they should read as a PERSON, not an email
+   address — so they render as a chip here and in the editor, never underlined
+   blue like an ordinary link. */
+.nx-rich-view a[href^="mailto:"],
+.nx-rich .ProseMirror a[href^="mailto:"] {
+  color: #1d4ed8; background: rgba(37,99,235,0.10); text-decoration: none;
+  border-radius: 4px; padding: 0 3px; font-weight: 600; white-space: nowrap;
+}
+.nx-rich-view a[href^="mailto:"]:hover,
+.nx-rich .ProseMirror a[href^="mailto:"]:hover { background: rgba(37,99,235,0.18); }

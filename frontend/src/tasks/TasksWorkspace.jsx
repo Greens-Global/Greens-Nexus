@@ -5,7 +5,7 @@ import { useMemo, useState } from 'react';
 import { List, Columns3, Calendar as CalIcon, GanttChart, LayoutDashboard, Paperclip, Gauge, Plus, Search, CheckCircle2, Circle, Trash2, X, FolderKanban, ArrowLeft, Copy } from 'lucide-react';
 import { useTasks } from './TasksContext';
 import { useRole } from '../contexts/RoleContext';
-import { EMPTY_FILTER, matchesFilter, topLevel, sortTasks, groupTasks, taskStats, taskIdFromUrl } from './lib';
+import { EMPTY_FILTER, matchesFilter, topLevel, sortTasks, groupTasks, taskStats, taskIdFromUrl, fieldsForProject, cfKey } from './lib';
 import { NX, FONT, btn, input as inputStyle, STATUS_ORDER, STATUS_META, chip } from './theme';
 import { Avatar, StatusChip, PriorityChip, EmptyState, usePeople, useIsMobile, ProjectAccessButton } from './components';
 import CreateTaskModal from './CreateTaskModal';
@@ -15,7 +15,7 @@ import TaskDetailDrawer from './TaskDetailDrawer';
 import { CalendarView, DashboardView } from './views/extras';
 import { TimelineView, FilesView, WorkloadView } from './views/more';
 import { ProductivityBar, MobileFilters } from './productivity';
-import RichListView from './views/richlist';
+import RichListView, { useHiddenCols, ListColumnControls } from './views/richlist';
 import BoardView from './views/board';
 
 const VIEW_KINDS = [
@@ -32,6 +32,9 @@ const GROUPS = ['status', 'priority', 'assignee', 'project', 'none'];
 export default function TasksWorkspace({ lockedProjectId = null, mine = false, title = 'Tasks', onBack }) {
   const store = useTasks();
   const { tasks, nameOf, projectName, teamName, projectById, toggleComplete, bulkUpdate, deleteTask, myEmail, teams } = store;
+  // Owned here so the Hide / + Column controls can live in the toolbar above
+  // while RichListView below renders according to them.
+  const [hiddenCols, setHiddenCols] = useHiddenCols();
   const { can } = useRole();
   // Workload visibility:
   //  • Never on the project task view (lockedProjectId set) — removed per request.
@@ -59,9 +62,15 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
     projectIds: lockedProjectId ? [lockedProjectId] : filters.projectIds,
     assigneeIds: mine && myEmail ? [myEmail] : filters.assigneeIds,
   };
+  // Fields in play here — drives the Group/Sort/Filter menus below as well as
+  // the columns, so all four offer exactly the same set.
+  const activeFields = useMemo(
+    () => fieldsForProject(store.customFields || [], lockedProjectId),
+    [store.customFields, lockedProjectId],
+  );
   const visible = useMemo(
-    () => sortTasks(topLevel(tasks).filter((t) => matchesFilter(t, filter)), sort),
-    [tasks, search, filters, sort, lockedProjectId, mine, myEmail],
+    () => sortTasks(topLevel(tasks).filter((t) => matchesFilter(t, filter)), sort, activeFields),
+    [tasks, search, filters, sort, lockedProjectId, mine, myEmail, activeFields],
   );
 
   const applyView = (v) => {
@@ -79,8 +88,18 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
     const all = ids.length > 0 && ids.every((id) => s.has(id));
     return all ? new Set() : new Set(ids);
   });
-  const ctx = { nameOf, projectName, teamName };
+  const ctx = { nameOf, projectName, teamName, customFields: activeFields };
   const lockedProject = lockedProjectId ? projectById(lockedProjectId) : null;
+  // Only select fields can group or sort meaningfully — a free-text field would
+  // make one group per distinct string.
+  const groupableFields = activeFields.filter((f) => f.type === 'select');
+  const groupOptions = [
+    ...GROUPS.map((g) => ({ key: g, label: g === 'none' ? 'None' : g[0].toUpperCase() + g.slice(1) })),
+    ...groupableFields.map((f) => ({ key: cfKey(f.id), label: f.name })),
+  ];
+  const sortFieldOptions = activeFields
+    .filter((f) => ['select', 'number', 'date', 'text', 'checkbox'].includes(f.type))
+    .map((f) => ({ key: cfKey(f.id), label: f.name }));
 
   return (
     <div style={{ fontFamily: FONT, color: NX.ink, display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%', background: NX.canvas }}>
@@ -127,8 +146,18 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
             filters={filters} setFilters={setFilters} sort={sort} setSort={setSort}
             lockedProjectId={lockedProjectId} current={{ view, group }} onApplyView={applyView} onOpenTask={setOpenId}
             group={group} setGroup={setGroup}
-            groupOptions={(view === 'list' || view === 'board') ? GROUPS.map((g) => ({ key: g, label: g === 'none' ? 'None' : g[0].toUpperCase() + g.slice(1) })) : null}
+            customFields={activeFields} sortFieldOptions={sortFieldOptions}
+            groupOptions={(view === 'list' || view === 'board') ? groupOptions : null}
           />
+          {/* Column controls belong to the List view only — they'd have nothing
+              to act on in Board/Calendar/Timeline. */}
+          {view === 'list' && (
+            <ListColumnControls
+              hidden={hiddenCols} setHidden={setHiddenCols}
+              customFields={fieldsForProject(store.customFields || [], lockedProjectId)} createCustomField={store.createCustomField}
+              lockedProjectId={lockedProjectId}
+            />
+          )}
         </div>
       </div>
       )}
@@ -136,7 +165,7 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
       {/* Body */}
       <div className="nx-scroll" style={{ flex: 1, minHeight: 0, overflow: 'auto', background: NX.canvas, paddingBottom: isMobile ? 88 : undefined }}>
         {view === 'list' ? (
-          <RichListView visible={visible} group={group} ctx={ctx} store={store} people={people} selected={selected} toggleSel={toggleSel} onOpen={setOpenId} onSelectAll={selectAll} lockedProjectId={lockedProjectId} />
+          <RichListView visible={visible} group={group} ctx={ctx} store={store} people={people} selected={selected} toggleSel={toggleSel} onOpen={setOpenId} onSelectAll={selectAll} lockedProjectId={lockedProjectId} hidden={hiddenCols} setHidden={setHiddenCols} />
         ) : visible.length === 0 ? (
           <EmptyState icon={CheckCircle2} title="No Tasks Yet" hint="Create your first task to get going." />
         ) : view === 'board' ? (
@@ -202,10 +231,18 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
             <MobileFilters
               filters={filters} setFilters={setFilters} sort={sort} setSort={setSort}
               group={group} setGroup={setGroup}
-              groupOptions={(view === 'list' || view === 'board') ? GROUPS.map((g) => ({ key: g, label: g === 'none' ? 'None' : g[0].toUpperCase() + g.slice(1) })) : null}
+              customFields={activeFields} sortFieldOptions={sortFieldOptions}
+              groupOptions={(view === 'list' || view === 'board') ? groupOptions : null}
               current={{ view, group }} onApplyView={applyView}
               search={search} setSearch={setSearch}
               lockedProjectId={lockedProjectId}
+              columnControls={view === 'list' ? (
+                <ListColumnControls
+                  hidden={hiddenCols} setHidden={setHiddenCols}
+                  customFields={fieldsForProject(store.customFields || [], lockedProjectId)} createCustomField={store.createCustomField}
+                  lockedProjectId={lockedProjectId}
+                />
+              ) : null}
               onClose={onClose}
             />
           )}
