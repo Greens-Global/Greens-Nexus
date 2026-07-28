@@ -170,6 +170,8 @@ export default function RolesAccess({ embedded = false }) {
       body: 'Each card is one job: “Runs: Accounting · Edits: Documents · Views: …”. Click a card for the full bundle and the people who hold it. Editing a role updates everyone in it at once.' },
     { target: 'duplicate', before: () => { setSub('jobroles'); if (!selId && (jobRoles || [])[0]) setSelId(jobRoles[0].id); }, title: 'Same job, more power? Duplicate.',
       body: 'For a supervisor version of an existing role: Duplicate, rename it, raise the tier and levels, save. The original role and its people are untouched.' },
+    { target: 'role-approver', before: () => { setSub('jobroles'); if (!selId && (jobRoles || [])[0]) setSelId(jobRoles[0].id); }, title: 'One approver for the whole role',
+      body: 'Pick who approves this role’s timesheets. Save as default — every NEW person mapped to the role reports to them automatically. “Apply to all members” backfills everyone already in the role in one click (ten people, two clicks). Individual People cards can still override.' },
     { target: 'new-group', before: () => setSub('groups'), title: 'Groups add extras on top',
       body: 'Same job but extra duties? Don’t touch the role — add the person to a group. Groups only ever ADD access, and removing one never affects the job-role baseline.' },
     { target: 'audit-matrix', before: () => setSub('audit'), title: 'The audit view — everything at once',
@@ -269,6 +271,9 @@ export default function RolesAccess({ embedded = false }) {
                     );
                   })}
                   {(selected.allowed_modules || []).length === 0 && <div style={{ color: 'var(--muted)', fontSize: 13, marginTop: 16 }}>No modules granted yet — press Edit to build the bundle.</div>}
+                  <div style={sectLabel}>Timesheet approver (default manager)</div>
+                  <ApproverPicker role={selected} people={people} nameOf={nameOf}
+                    onSaved={loadRoles} toastOk={toastOk} toastErr={toastErr} />
                   <div style={sectLabel}>People with this role · {selected.member_count}</div>
                   {(selected.members || []).length > 0 && (
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
@@ -428,8 +433,14 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
       {/* right: person detail */}
       <div data-tour="person-panel" style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 20, alignSelf: 'start', minHeight: 220 }}>
         {!person ? (
-          <div style={{ color: 'var(--muted)', padding: '52px 10px', textAlign: 'center', fontSize: 13.5 }}>
-            Pick a person to see exactly what they can do — and change it.
+          <div style={{ padding: '48px 16px', textAlign: 'center' }}>
+            <div style={{ width: 44, height: 44, borderRadius: '50%', background: 'var(--paper)', border: '1px solid var(--line)', display: 'grid', placeItems: 'center', margin: '0 auto 12px' }}>
+              <User size={20} style={{ color: 'var(--muted)' }} />
+            </div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)' }}>Pick a person</div>
+            <div style={{ fontSize: 12.5, color: 'var(--muted)', maxWidth: '32ch', margin: '4px auto 0', lineHeight: 1.5 }}>
+              See exactly what they can do — and change their role or groups right here.
+            </div>
           </div>
         ) : busy || !eff ? <Spinner /> : eff.error ? (
           <div style={{ color: 'var(--muted)', padding: '40px 10px', textAlign: 'center', fontSize: 13.5 }}>Could not load access for this person.</div>
@@ -475,12 +486,17 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
             {(eff.modules || []).length === 0
               ? <div style={{ fontSize: 13, color: 'var(--muted)' }}>Nothing yet — assign a job role to give them their baseline.</div>
               : eff.modules.map(m => (
-                <div key={m.module} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0', borderBottom: '1px solid var(--line)' }}>
+                <div key={m.module} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--line)' }}>
                   <span style={{ fontWeight: 600, fontSize: 13, minWidth: 150 }}>{moduleLabel(m.module)}</span>
                   <LevelPill level={m.level} title={capabilityText(m.module, m.level, moduleLabel(m.module))} />
-                  <span style={{ fontSize: 12, color: 'var(--muted)' }}>
-                    {m.manual ? <>extra, from group “{m.source}”</> : <>from job role “{m.source}”</>}
-                  </span>
+                  <span style={{ flex: 1 }} />
+                  {/* Provenance reuses the dashed "+ group" language from the chips
+                      above, so baseline (quiet, from the role) vs extra (dashed
+                      add-on) reads at a glance — the whole point of this screen. */}
+                  {m.manual
+                    ? <span title={`Extra access from the “${m.source}” group`}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11.5, fontWeight: 600, color: 'var(--ink)', border: '1px dashed var(--line-strong,var(--line))', borderRadius: 999, padding: '2px 9px', whiteSpace: 'nowrap' }}>+ {m.source}</span>
+                    : <span title={`From their job role, “${m.source}”`} style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>from {m.source}</span>}
                 </div>
               ))}
           </>
@@ -602,6 +618,57 @@ function AuditMatrix({ jobRoles, groups }) {
       </div>
       <style>{`.ra-audit-row:hover td, .ra-audit-row:hover th { background: color-mix(in srgb, var(--ink) 4%, transparent); }`}</style>
     </>
+  );
+}
+
+// ── role approver — the "ten people, two clicks" control ─────────────────────
+// Default manager on the role: new members with no manager inherit it; "Apply to
+// all" backfills current members. Per-person Manager (People card) stays the
+// source of truth — this is a bulk tool, not a second truth.
+function ApproverPicker({ role, people, nameOf, onSaved, toastOk, toastErr }) {
+  const [val, setVal] = useState(role.default_manager_email || '');
+  const [busy, setBusy] = useState('');
+  useEffect(() => { setVal(role.default_manager_email || ''); }, [role.id, role.default_manager_email]);
+
+  async function saveDefault(v) {
+    setVal(v); setBusy('save');
+    try {
+      await api.updateJobRole(role.id, { default_manager_email: v });
+      toastOk(v ? `Default approver saved — new people mapped to “${role.name}” will report to ${nameOf(v)}.` : 'Default approver cleared.');
+      onSaved();
+    } catch (e) { toastErr(e?.message || 'Could not save the approver.'); }
+    setBusy('');
+  }
+  async function applyAll() {
+    if (!val) return;
+    if (!window.confirm(`Set ${nameOf(val)} as manager/timesheet approver for all ${role.member_count} people in “${role.name}”? This overwrites their current manager; individual cards can be changed afterwards.`)) return;
+    setBusy('apply');
+    try {
+      const r = await api.applyJobRoleManager(role.id, val);
+      toastOk(`${nameOf(val)} is now the approver for ${r.updated} ${r.updated === 1 ? 'person' : 'people'} in “${role.name}”.`);
+      onSaved();
+    } catch (e) { toastErr(e?.message || 'Could not apply to members.'); }
+    setBusy('');
+  }
+
+  return (
+    <div data-tour="role-approver">
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <select value={val} onChange={e => saveDefault(e.target.value)} disabled={busy === 'save'}
+          style={{ ...input, width: 'auto', minWidth: 210, padding: '7px 10px', fontSize: 12.5 }}>
+          <option value="">No default approver</option>
+          {people.map(p => <option key={p.email} value={p.email}>{p.name}</option>)}
+        </select>
+        <button className="secondary-btn" disabled={!val || !!busy || !role.member_count} onClick={applyAll}
+          style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          {busy === 'apply' && <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} />}
+          Apply to all {role.member_count} {role.member_count === 1 ? 'member' : 'members'}
+        </button>
+      </div>
+      <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 7, lineHeight: 1.5, maxWidth: '60ch' }}>
+        Who approves this role's timesheets and punch fixes. New people mapped to the role inherit them automatically (if they don't already have a manager); Apply to all backfills everyone currently in it. A person's own card always wins.
+      </div>
+    </div>
   );
 }
 

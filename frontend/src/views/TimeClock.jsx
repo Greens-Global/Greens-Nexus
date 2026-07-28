@@ -330,6 +330,20 @@ export default function TimeClock() {
   const days = status?.days || {};
   const dayKeys = Object.keys(days).sort().reverse();
 
+  // Long-session guard (Jul 27): the current session's in-punch, so we can tell
+  // someone clocked in 12+ hours "still working, or forgot to punch out?" —
+  // last.at alone isn't the session start when the newest punch is a break.
+  const [longAckAt, setLongAckAt] = useState(() => Number(localStorage.getItem('nexus:longShiftAck') || 0));
+  let sessionInAt = null;
+  if (clockedIn) {
+    Object.values(days).forEach(d => (d.punches || []).forEach(p => {
+      if (p.kind === 'in' && !p.voided && (!sessionInAt || p.at > sessionInAt)) sessionInAt = p.at;
+    }));
+    if (!sessionInAt && last?.kind === 'in') sessionInAt = last.at;
+  }
+  const sessionHours = sessionInAt ? (Date.now() - new Date(sessionInAt + 'Z').getTime()) / 3600000 : 0;
+  const showLongBanner = clockedIn && sessionHours >= 12 && (Date.now() - longAckAt) > 4 * 3600000;
+
   // Timesheet range filter — 7 days come with /status; longer ranges fetch on demand.
   const [tsRange, setTsRange] = useState(7);
   const [rangeDays, setRangeDays] = useState(null);
@@ -432,6 +446,29 @@ export default function TimeClock() {
 
       {/* Punch card + today panel, side by side on wide screens */}
       {tab === 'clock' && (<>
+      {showLongBanner && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 14, padding: '12px 16px', borderRadius: 12, background: 'rgba(180,83,9,0.09)', border: '1.5px solid rgba(180,83,9,0.4)' }}>
+          <AlertTriangle size={17} style={{ color: '#b45309', flexShrink: 0 }} />
+          <span style={{ fontSize: 13, fontWeight: 600, color: '#b45309', flex: 1, minWidth: 220 }}>
+            You've been clocked in for {Math.floor(sessionHours)} hours — still working, or did you forget to punch out?
+          </span>
+          <button className="secondary-btn" style={{ fontSize: 12 }}
+            onClick={() => { const t = Date.now(); localStorage.setItem('nexus:longShiftAck', String(t)); setLongAckAt(t); }}>
+            I'm still working
+          </button>
+          <button className="primary-btn" style={{ fontSize: 12 }}
+            onClick={() => {
+              // Prefill the punch-fix request (approver-confirmed) with kind=out, now.
+              const d = new Date();
+              const at = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+              setMissed({ kind: 'out', at, note: 'Forgot to punch out' });
+              setMissedOpen(true);
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}>
+            I forgot — fix my punch-out
+          </button>
+        </div>
+      )}
       <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'stretch', marginBottom: 18 }}>
       <div style={{ flex: '1.3 1 420px', background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 16, padding: '26px 28px', boxShadow: '0 1px 4px rgba(0,0,0,0.05)' }}>
         {!status ? (
@@ -735,6 +772,17 @@ export default function TimeClock() {
                       {segs.length > 1 && <span> · {segs.length} sessions</span>}
                       {d.breakMin > 0 && <span> · {d.breakMin}m break</span>}
                     </span>
+                    {(() => {
+                      // A single closed session of 12h+ is almost always a missed
+                      // punch-out — say so on the row, with the fix path.
+                      const longest = Math.max(0, ...segs.filter(s => s.out).map(s => s.workedMin || 0));
+                      return longest >= 720 ? (
+                        <span title="Use Remove on the session chip below, then Add clock-out with the real times — your approver confirms."
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 700, color: '#b45309', background: 'rgba(180,83,9,0.1)', padding: '2px 9px', borderRadius: 999 }}>
+                          <AlertTriangle size={11} /> {Math.round(longest / 60)}h in one session — missed punch-out?
+                        </span>
+                      ) : null;
+                    })()}
                     <span style={{ flex: 1 }} />
                     <span style={{ fontSize: 14, fontWeight: 800, color: 'var(--pine)' }}>{fmtMin(worked)}</span>
                   </div>

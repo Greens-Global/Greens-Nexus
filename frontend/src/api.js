@@ -491,7 +491,7 @@ export const api = {
   assignJobRole:     (id, email)         => req(`/jobroles/${id}/assign`, { method: 'POST', body: JSON.stringify({ email }) }),
   unassignJobRole:   (id, email)         => req(`/jobroles/${id}/unassign`, { method: 'POST', body: JSON.stringify({ email }) }),
   getEffectiveAccess: (email)            => req(`/jobroles/effective/${encodeURIComponent(email)}`),
-  getEffectiveAccess:(email)             => req(`/jobroles/effective/${encodeURIComponent(email)}`),
+  applyJobRoleManager: (id, manager_email) => req(`/jobroles/${id}/apply-manager`, { method: 'POST', body: JSON.stringify({ manager_email }) }),
   // Row-level access scopes (sandbox external users to specific companies)
   getAccessScopes:   (email)             => req(`/access-scopes/${encodeURIComponent(email)}`),
   addAccessScope:    (email, body)       => req(`/access-scopes/${encodeURIComponent(email)}`, { method: 'POST', body: JSON.stringify(body) }),
@@ -827,6 +827,10 @@ export const api = {
   timePayrollRate:   (data)      => req('/timeclock/payroll/rate', { method: 'PUT', body: JSON.stringify(data) }),
   timeAutoLunchGet:  ()          => req('/timeclock/payroll/autolunch'),
   timeAutoLunchSet:  (data)      => req('/timeclock/payroll/autolunch', { method: 'PUT', body: JSON.stringify(data) }),
+  timeRoundingGet:   ()          => req('/timeclock/payroll/rounding'),
+  timeRoundingSet:   (data)      => req('/timeclock/payroll/rounding', { method: 'PUT', body: JSON.stringify(data) }),
+  timeFinalize:      (data)      => req('/timeclock/finalize', { method: 'POST', body: JSON.stringify(data) }),
+  timeUnfinalize:    (data)      => req('/timeclock/unfinalize', { method: 'POST', body: JSON.stringify(data) }),
   timeTeamExceptions:(start, end) => req(`/timeclock/team-exceptions?start=${start || ''}&end=${end || ''}`),
   // Insights dashboard (Top Apps / Top Websites / activity), from the desktop agent
   timeInsights:      (email, start, end) => req(`/timeclock/insights?email=${encodeURIComponent(email || '')}&start=${start || ''}&end=${end || ''}&tz=${new Date().getTimezoneOffset()}`),

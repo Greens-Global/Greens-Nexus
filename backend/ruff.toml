@@ -9,7 +9,16 @@
 # We silence the noisy stylistic rules but keep the meaningful pyflakes checks
 # (undefined names, unused imports, redefinitions) fully on, so the gate still
 # catches real bugs. (Jun 17)
+#
+# `select` is pinned to ruff's historical stable default (E4/E7/E9 + F) so the
+# gate is REPRODUCIBLE across ruff versions. CI installs `ruff` unpinned, and
+# newer releases keep expanding the default rule set (B, UP, I, S, RUF, DTZ…) —
+# without an explicit select, an upgrade silently turns on hundreds of new
+# opinionated rules and fails the whole codebase (2200+ findings on ruff 0.16),
+# even though nothing changed. Pinning select keeps the meaningful pyflakes +
+# core-pycodestyle checks and nothing else. (Jul 28)
 [lint]
+select = ["E4", "E7", "E9", "F"]
 ignore = [
   "E701",  # multiple statements on one line (colon)
   "E702",  # multiple statements on one line (semicolon)

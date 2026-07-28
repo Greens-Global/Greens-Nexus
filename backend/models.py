@@ -478,6 +478,10 @@ class NexusGroup(Base):
     # monitoring: no capture is offered and clock-in is not gated on sharing a
     # screen (used for leadership). A person is exempt if ANY of their groups sets it.
     monitoring_exempt = Column(Integer, default=0)
+    # Job roles only: the role's default manager/timesheet approver. Assigning the
+    # role to someone with NO manager set copies this onto their People card —
+    # per-person Manager stays the source of truth and can always be overridden.
+    default_manager_email = Column(String, default="")
 
 
 class NexusGroupMember(Base):
@@ -1253,6 +1257,10 @@ class TimeApproval(Base):
     note           = Column(String, default="")
     revoked        = Column(Integer, default=0)
     revoked_by     = Column(String, default="")
+    # Two-step sign-off (SwipeClock parity): 'manager' = the direct manager's
+    # approval; 'final' = HR's payroll finalization, which LOCKS the period's
+    # punches against edits until revoked (unlock).
+    kind           = Column(String, default="manager")
 
 
 class TimeBod(Base):

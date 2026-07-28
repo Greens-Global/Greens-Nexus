@@ -279,19 +279,43 @@ def create_ticket(body: TicketBody, background_tasks: BackgroundTasks,
 # full field set. Mirrors the drawer's field gating in TicketsView.jsx —
 # keep the two in step.
 _WORKING_FIELDS = {"type", "status", "priority", "assignee_email", "hr_department_id", "resolution"}
+# Every field an unrestricted caller may touch, minus reopen_reason (not a
+# column — see TicketUpdate).
+_ALL_TICKET_FIELDS = set(TicketUpdate.model_fields.keys()) - {"reopen_reason"}
 
 
-def _ticket_edit_scope(db: Session, t: models.TaskTicket, user: dict) -> set | None:
-    """None = unrestricted. A set = the only TicketUpdate keys this caller may send."""
+def _ticket_privileged(db: Session, t: models.TaskTicket, user: dict) -> bool:
+    """Manager+ or the ticket's department lead/backup — full access regardless
+    of ticket state; they own the queue, not just this one ticket."""
     email = user["email"].lower()
     if user.get("level", 1) >= 3:                                    # manager+
-        return None
-    if (t.requester_email or "").lower() == email:                   # who raised it
-        return None
+        return True
     if t.hr_department_id:
         dept = db.query(models.HrDepartment).filter(models.HrDepartment.id == t.hr_department_id).first()
         if dept and email in {(dept.lead_email or "").lower(), (dept.backup_email or "").lower()}:
-            return None                                              # routes/owns this queue
+            return True                                              # routes/owns this queue
+    return False
+
+
+def _ticket_edit_scope(db: Session, t: models.TaskTicket, user: dict) -> set | None:
+    """None = unrestricted. A set = the only TicketUpdate keys this caller may
+    send (empty set = no edits at all right now).
+
+    Once a ticket is "in_progress" and assigned, it becomes the assignee's to
+    work: they get full access EXCEPT company_id — which stays with the
+    requester (pre-lock) or a manager/dept lead, never the working assignee
+    (Jul 28 policy). Everyone else — including the requester — is locked out
+    entirely once locked (Jul 27 policy). Before that point the requester has
+    full access; anyone else gets the working-field subset (self-assign,
+    triage). Manager+/dept lead-backup are unrestricted throughout, including
+    company_id."""
+    email = user["email"].lower()
+    if _ticket_privileged(db, t, user):
+        return None
+    if t.status == "in_progress" and t.assignee_email:
+        return (_ALL_TICKET_FIELDS - {"company_id"}) if email == t.assignee_email.lower() else set()
+    if (t.requester_email or "").lower() == email:                   # who raised it, pre-in_progress
+        return None
     return _WORKING_FIELDS
 
 
@@ -307,6 +331,10 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
     if scope is not None:
         blocked = sorted(set(data.keys()) - scope)
         if blocked:
+            if not scope:
+                raise HTTPException(403, f"This ticket is in progress and assigned to {t.assignee_email or 'someone else'} — only they (or a manager/department lead) can edit it right now.")
+            if blocked == ["company_id"]:
+                raise HTTPException(403, "Only the requester (before the ticket is picked up) or a manager/department lead can change the company on a ticket.")
             raise HTTPException(403, f"You can only update {', '.join(sorted(scope))} on a ticket you're not the requester/owner of — not: {', '.join(blocked)}")
     prev_status, prev_assignee, prev_priority = t.status, (t.assignee_email or ""), t.priority
     prev_due = t.sla_due_on
@@ -376,7 +404,10 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
 @router.delete("/task-tickets/{ticket_id}", status_code=204)
 def delete_ticket(ticket_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     t = _ticket_or_404(db, ticket_id)
-    if _ticket_edit_scope(db, t, user) is not None:
+    # Independent of the in_progress/assignee edit lock above — deleting stays
+    # with whoever raised it or owns the queue, never just the assignee.
+    is_requester = (t.requester_email or "").lower() == user["email"].lower()
+    if not (_ticket_privileged(db, t, user) or is_requester):
         raise HTTPException(403, "Only the requester, the ticket's department lead, or a manager can delete a ticket")
     # clean up the ticket's conversation / attachments / activity too
     db.query(models.TaskComment).filter(models.TaskComment.task_id == ticket_id).delete()

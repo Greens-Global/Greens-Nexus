@@ -17,7 +17,6 @@ same event to the same person twice, including across a mid-send restart.
 """
 import asyncio
 import json
-import os
 import uuid
 from datetime import datetime, timezone
 
@@ -263,9 +262,14 @@ def _ticket_context(db: Session, t: models.TaskTicket, actor_email: str) -> dict
     if t.hr_department_id:
         dept = db.query(models.HrDepartment).filter(models.HrDepartment.id == t.hr_department_id).first()
         dept_name = dept.name if dept else ""
+    company_name = ""
+    if t.company_id:
+        company = db.query(models.HrEntity).filter(models.HrEntity.id == t.company_id).first()
+        company_name = company.name if company else ""
     return {
         "id": t.id, "code": t.code or "", "subject": t.subject, "status": t.status,
         "description": t.description or "", "priority": t.priority,
+        "companyName": company_name,
         "departmentName": dept_name, "typeLabel": (t.type or "request").replace("_", " ").title(),
         "requesterId": t.requester_email or "", "requesterName": _name_of(db, t.requester_email or ""),
         "assigneeId": t.assignee_email or "", "assigneeName": _name_of(db, t.assignee_email or ""),
