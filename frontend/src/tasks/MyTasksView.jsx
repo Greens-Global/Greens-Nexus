@@ -6,7 +6,7 @@ import { useMemo, useRef, useState } from 'react';
 import { ChevronDown, Lock, Globe, Plus, List as ListIcon, Columns3, Calendar as CalIcon, LayoutDashboard, Paperclip, Circle, CheckCircle2 } from 'lucide-react';
 import { useTasks } from './TasksContext';
 import { EMPTY_FILTER, matchesFilter, sortTasks, groupTasks, groupAddDefaults, taskIdFromUrl } from './lib';
-import { NX, FONT, btn, input as inputStyle, colorForKey } from './theme';
+import { NX, FONT, btn, CONTROL_H, CONTROL_FS, input as inputStyle, colorForKey } from './theme';
 import { Avatar, EmptyState, useClickOutside, useIsMobile, DateField } from './components';
 import { ProductivityBar, MobileFilters } from './productivity';
 import MobileTaskBar from './MobileTaskBar';
@@ -175,9 +175,21 @@ export default function MyTasksView() {
   }, [tasks, projects, myEmail, nameOf]);
 
   const filter = { ...filters, assigneeIds: myEmail ? [myEmail] : [] };
+  // My Tasks is a to-do list, so finished work is hidden by default. Asking for
+  // it explicitly (Filters -> Completed) has to win over that default, or the
+  // filter matches nothing and reads as broken. `completed` and `status` are
+  // kept in sync server-side, so the status filter alone is enough to decide.
+  // Switching tabs starts clean. A filter set in List used to follow you into
+  // Board, where the panel is out of sight, so the missing rows read as lost
+  // data rather than a filter still doing its job. Saved Views set the view and
+  // its filters together and go through onApplyView, not this.
+  const switchView = (next) => { setView(next); setFilters(EMPTY_FILTER); };
+
+  const wantsCompleted = filters.statuses.includes('completed');
   const mine = useMemo(
-    () => sortTasks(tasks.filter((t) => !t.parentTaskId && !t.completed && matchesFilter(t, filter)), sort),
-    [tasks, filters, sort, myEmail],
+    () => sortTasks(tasks.filter((t) => !t.parentTaskId && (wantsCompleted || !t.completed)
+                                        && matchesFilter(t, filter)), sort),
+    [tasks, filters, sort, myEmail, wantsCompleted],
   );
   const allMine = useMemo(() => tasks.filter((t) => !t.parentTaskId && matchesFilter(t, filter)), [tasks, filters, myEmail]);
   const ctx = { nameOf, projectName: store.projectName, teamName: store.teamName };
@@ -207,7 +219,7 @@ export default function MyTasksView() {
             (consistency overwrite, Jul 28: no more underline tabs here) */}
         <div className="scroll-tabs" style={{ display: 'flex', alignItems: 'center', gap: 2, background: NX.border2, borderRadius: 9, padding: 2, margin: '8px 0', overflowX: 'auto', flexShrink: 0 }}>
           {VIEW_TABS.map((tb) => (
-            <button key={tb.key} onClick={() => setView(tb.key)} title={tb.label} style={{
+            <button key={tb.key} onClick={() => switchView(tb.key)} title={tb.label} style={{
               ...btn('ghost'), padding: '6px 10px', borderRadius: 7, whiteSpace: 'nowrap',
               background: view === tb.key ? NX.surface : 'transparent', color: view === tb.key ? NX.ink : NX.dim,
               boxShadow: view === tb.key ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
@@ -217,7 +229,7 @@ export default function MyTasksView() {
         {view === 'list' && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', overflowX: 'visible', flexWrap: 'wrap' }}>
             <ProductivityBar filters={filters} setFilters={setFilters} sort={sort} setSort={setSort} hideAssignee current={{ view, group }} onApplyView={(v) => { if (v.group) setGroup(v.group); }} onOpenTask={setOpenId} />
-            <select value={group} onChange={(e) => setGroup(e.target.value)} style={{ ...inputStyle, width: 'auto', flexShrink: 0, cursor: 'pointer' }}>
+            <select value={group} onChange={(e) => setGroup(e.target.value)} style={{ ...inputStyle, width: 'auto', flexShrink: 0, cursor: 'pointer', height: CONTROL_H, fontSize: CONTROL_FS, padding: '0 8px' }}>
               {['date', 'status', 'priority', 'project', 'assignee', 'none'].map((g) => <option key={g} value={g}>Group: {g === 'date' ? 'Due Date' : g === 'none' ? 'None' : g[0].toUpperCase() + g.slice(1)}</option>)}
             </select>
           </div>
@@ -275,7 +287,7 @@ export default function MyTasksView() {
 
       {isMobile && (
         <MobileTaskBar
-          views={VIEW_TABS} view={view} setView={setView}
+          views={VIEW_TABS} view={view} setView={switchView}
           onCreate={() => openCreate({ assigneeId: myEmail })}
           filterSheet={(onClose) => (
             <MobileFilters

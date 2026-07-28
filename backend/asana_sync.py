@@ -2512,7 +2512,7 @@ def sweep_orphans(db, apply=False):
       with an Asana link can only have come from an import whose project was
       deleted, so a hand-made personal task is never a candidate.
     - dangling maps - an AsanaProjectMap whose Nexus project is gone. pull()
-      walks it every 5 minutes and applies its tasks against a project id that
+      walks it every 2 minutes and applies its tasks against a project id that
       resolves to nothing.
 
     Asana is untouched throughout."""
@@ -2614,13 +2614,18 @@ def on_comment_added(comment_id):
 # sitting unsynced forever. Cheap because push_task short-circuits on both
 # digests - an untouched task costs zero HTTP calls.
 _AUTO_PULL_STARTED = False
-_AUTO_PULL_INTERVAL_MIN = 5
-_AUTO_PUSH_INTERVAL_MIN = 15
+# Inbound is the one people watch: an Asana edit should show up in Nexus quickly,
+# and the pull is cheap because last_inbound_hash skips unchanged tasks. Outbound
+# runs less often because it is only a safety net - a Nexus edit already pushes
+# immediately (fire-and-forget), and this sweep exists to catch the ones that
+# missed, which no one is waiting on.
+_AUTO_PULL_INTERVAL_MIN = 2      # Asana -> Nexus
+_AUTO_PUSH_INTERVAL_MIN = 10     # Nexus -> Asana (sweep)
 
 
 def start_auto_pull():
-    """Start the background reconcilers - inbound pull every 5 minutes, outbound
-    push sweep every 15 - when sync is enabled. Idempotent, safe to call once at
+    """Start the background reconcilers - inbound pull every 2 minutes, outbound
+    push sweep every 10 - when sync is enabled. Idempotent, safe to call once at
     startup. A no-op until a token is set, and a no-op entirely outside the
     designated sync worker (see is_sync_worker), which is what keeps this
     automatic on dev/prod and manual-only on a developer's laptop."""

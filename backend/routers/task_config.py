@@ -10,9 +10,11 @@ from typing import Optional, Any
 import os
 import json
 import subprocess
+import threading
+from datetime import datetime, timezone
 import httpx
 import models
-from database import get_db
+from database import get_db, SessionLocal
 from auth import get_current_user, require_level, require_manager
 from routers.task_util import now_iso, gen_id
 
@@ -152,7 +154,8 @@ def asana_import(body: AsanaImportBody, user: dict = Depends(get_current_user), 
     return _import_asana_projects(db, cfg, asana, gids, user, email_map)
 
 
-def _import_asana_projects(db, cfg, asana, gids, user, email_map=None):
+def _import_asana_projects(db, cfg, asana, gids, user, email_map=None, on_progress=None,
+                           should_stop=None):
     """Create-or-adopt a Nexus project per Asana project, map it, and import its
     contents through asana_sync.import_project (which is _pull_task_tree, the
     one and only inbound engine).
@@ -174,8 +177,21 @@ def _import_asana_projects(db, cfg, asana, gids, user, email_map=None):
     # after every selected project is in, not per project.
     deferred = []
 
-    for gid in gids:
+    for i, gid in enumerate(gids):
+        pname = ""
+        # Between projects is the only safe place to stop: a project in flight
+        # would be left half-imported. Checked before the work, so cancelling
+        # takes effect at the next boundary rather than at the end.
+        if should_stop and should_stop():
+            counts["cancelled"] = True
+            break
         try:
+            # Serialize each project against the scheduled pull. The
+            # lock is transaction-scoped and this loop commits per project, so
+            # it is taken per project rather than once around the whole run -
+            # which is the granularity that matters, since duplicates come from
+            # two writers touching the SAME project at once.
+            asana_sync._acquire_pull_lock(db)
             proj = asana.get(f"/projects/{gid}", opt_fields="name,notes")
             # Re-importing an Asana project that's already mapped (Two-way
             # Sync) must reuse that SAME Nexus project rather than create a
@@ -192,6 +208,14 @@ def _import_asana_projects(db, cfg, asana, gids, user, email_map=None):
                                .filter(models.TaskProject.id == existing_map.nexus_project_id).first()
                                if existing_map else None)
             pname = proj.get("name") or f"Asana {gid}"
+            # Announce the project BEFORE importing it. Reporting only on
+            # completion left the UI blank for as long as the first project
+            # took, which reads as a stalled run.
+            if on_progress:
+                try:
+                    on_progress(i, len(gids), pname)
+                except Exception:
+                    pass
             if not existing_project:
                 # No mapping yet - fall back to a Nexus project of the same name.
                 # Without this, every re-import of the same Asana project minted
@@ -220,6 +244,13 @@ def _import_asana_projects(db, cfg, asana, gids, user, email_map=None):
         except Exception as e:
             db.rollback()
             counts["errors"].append(f"project {gid}: {e}")
+        # Reported even when the project failed, so a run that hits a bad
+        # project still advances instead of looking stuck on it.
+        if on_progress:
+            try:
+                on_progress(i + 1, len(gids), pname)
+            except Exception:
+                pass
 
     try:
         asana_sync.resolve_dependencies(db, deferred)
@@ -603,18 +634,142 @@ def set_asana_project_map(body: AsanaProjectMapBody, db: Session = Depends(get_d
     return {"count": db.query(models.AsanaProjectMap).count()}
 
 
+# A job whose worker was recycled mid-run never reaches "done". Without an
+# expiry it would block every later run, so a heartbeat this old counts as dead.
+# Six missed beats: long enough that a busy worker is never called dead, short
+# enough that a deploy does not lock Import out for ten minutes afterwards.
+_IMPORT_HEARTBEAT_SECONDS = 30
+_IMPORT_JOB_STALE_SECONDS = _IMPORT_HEARTBEAT_SECONDS * 6
+
+
+def import_job_to_dict(j: models.AsanaImportJob) -> dict:
+    return {"id": j.id, "status": j.status, "startedBy": j.started_by,
+            "startedAt": j.started_at, "finishedAt": j.finished_at,
+            "total": j.total or 0, "done": j.done or 0, "current": j.current or "",
+            "result": j.result if isinstance(j.result, dict) else {},
+            "error": j.error or "", "cancelling": bool(j.cancel_requested)}
+
+
+def _job_is_alive(j: models.AsanaImportJob) -> bool:
+    if j.status != "running":
+        return False
+    try:
+        beat = datetime.fromisoformat(j.heartbeat_at or j.started_at)
+    except ValueError:
+        return False
+    if beat.tzinfo is None:
+        beat = beat.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - beat).total_seconds() < _IMPORT_JOB_STALE_SECONDS
+
+
+def _beat_while_running(job_id: str, stop: threading.Event):
+    """Keep the job's heartbeat current for as long as this process is alive.
+
+    Beating only when a project finishes was wrong: one big project can take
+    longer than the staleness window on its own, so a perfectly healthy run got
+    declared dead mid-import - and, worse, a second run could then start beside
+    it. The heartbeat answers "is the worker still there", which is a different
+    question from "has it made progress"."""
+    while not stop.wait(_IMPORT_HEARTBEAT_SECONDS):
+        db = SessionLocal()
+        try:
+            job = db.get(models.AsanaImportJob, job_id)
+            if not job or job.status != "running":
+                return
+            job.heartbeat_at = now_iso()
+            db.commit()
+        except Exception:
+            db.rollback()
+        finally:
+            db.close()
+
+
+def _run_import_all(job_id: str, token: str, workspace_gid: str, user: dict):
+    """The import itself, on a background thread with its OWN session.
+
+    The request's session belongs to the request and is closed the moment the
+    endpoint returns, so this cannot borrow it."""
+    from asana_import import Asana, ImportError_
+    import asana_sync
+
+    db = SessionLocal()
+    stop_beat = threading.Event()
+    threading.Thread(target=_beat_while_running, args=(job_id, stop_beat), daemon=True).start()
+    try:
+        job = db.get(models.AsanaImportJob, job_id)
+        asana = Asana(token)
+        try:
+            workspaces = [workspace_gid] if workspace_gid else [
+                w["gid"] for w in asana.get("/workspaces", opt_fields="name")]
+            gids = []
+            for ws in workspaces:
+                for p in asana.get("/projects", workspace=ws, opt_fields="name,archived"):
+                    if not p.get("archived"):
+                        gids.append(p["gid"])
+        except ImportError_ as e:
+            job.status, job.error = "error", f"Asana request failed - check the token. ({e})"
+            job.finished_at = now_iso()
+            db.commit()
+            return
+
+        job.total = len(gids)
+        job.heartbeat_at = now_iso()
+        db.commit()
+        if not gids:
+            job.status, job.finished_at = "done", now_iso()
+            job.result = {"projects": 0, "tasks": 0,
+                          "errors": ["No projects found in the workspace."]}
+            db.commit()
+            return
+
+        def progress(done, total, name):
+            job.done, job.total, job.current = done, total, name
+            job.heartbeat_at = now_iso()
+            db.commit()
+
+        def cancelled():
+            # Re-read rather than trusting the in-session object: the cancel
+            # arrives on a different request, and on dev usually a different
+            # process, so this session's copy would never show it.
+            db.expire(job, ["cancel_requested"])
+            return bool(job.cancel_requested)
+
+        # The stored token, wrapped the same way Import wraps a pasted one, so
+        # this can never delete anything in Nexus whatever delete_sync is set to.
+        token_cfg = asana_sync.TokenConfig(token, workspace_gid or "")
+        counts = _import_asana_projects(db, token_cfg, asana, gids, user,
+                                        on_progress=progress, should_stop=cancelled)
+        counts["mapped"] = db.query(models.AsanaProjectMap).count()
+        job.result = counts
+        job.status = "cancelled" if counts.get("cancelled") else "done"
+        job.current, job.finished_at = "", now_iso()
+        db.commit()
+    except Exception as e:
+        # A crash must land in the row: the poller has no other way to learn the
+        # run stopped, and would otherwise spin until the staleness timeout.
+        db.rollback()
+        job = db.get(models.AsanaImportJob, job_id)
+        if job:
+            job.status, job.error, job.finished_at = "error", str(e)[:500], now_iso()
+            db.commit()
+    finally:
+        stop_beat.set()
+        db.close()
+
+
 @router.post("/asana-sync/import-all", dependencies=[Depends(require_manager)])
 def asana_sync_import_all(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    """One click: bring EVERY non-archived Asana project the stored token can see
-    into Nexus - create-or-adopt the Nexus project, map it, import its full
-    contents - using the same engine and the same create/adopt/map loop as the
-    token-based Import (_import_asana_projects).
+    """Start importing EVERY non-archived Asana project the stored token can see
+    and return immediately with a job to poll.
 
-    Uses the saved sync token and, when set, the configured workspace; with no
-    workspace configured it sweeps every workspace the token can see. Additive
-    by construction (TokenConfig forces delete_sync off), so re-running it tops
-    projects up rather than removing anything."""
-    from asana_import import Asana, ImportError_
+    It runs in the background because a full workspace takes minutes and Azure
+    kills any request at ~230s - the synchronous version died there, returning a
+    bodyless 499 that the browser reported as a CORS error. Same engine and same
+    create/adopt/map loop as the token-based Import (_import_asana_projects), so
+    the two cannot drift.
+
+    Additive by construction (TokenConfig forces delete_sync off), so re-running
+    tops projects up rather than removing anything."""
     import asana_sync
 
     cfg = asana_sync.get_config(db)
@@ -623,29 +778,65 @@ def asana_sync_import_all(user: dict = Depends(get_current_user), db: Session = 
     token = (cfg.setup_token or "").strip() or cfg.token
     if not token:
         raise HTTPException(400, "Save an Asana token first.")
-    asana = Asana(token)
-    try:
-        if cfg.workspace_gid:
-            workspaces = [cfg.workspace_gid]
-        else:
-            workspaces = [w["gid"] for w in asana.get("/workspaces", opt_fields="name")]
-        gids = []
-        for ws in workspaces:
-            for p in asana.get("/projects", workspace=ws, opt_fields="name,archived"):
-                if not p.get("archived"):
-                    gids.append(p["gid"])
-    except ImportError_ as e:
-        raise HTTPException(400, f"Asana request failed - check the token. ({e})")
-    if not gids:
-        return {"projects": 0, "tasks": 0, "errors": ["No projects found in the workspace."]}
-    # The stored token, wrapped the same way Import wraps a pasted one, so this
-    # can never delete anything in Nexus whatever delete_sync is set to.
-    token_cfg = asana_sync.TokenConfig(token, cfg.workspace_gid or "")
-    counts = _import_asana_projects(db, token_cfg, asana, gids, user)
-    # Import + map only. Enabling sync and registering webhooks are their own
-    # buttons so each step can be run - and re-run - on its own.
-    counts["mapped"] = db.query(models.AsanaProjectMap).count()
-    return counts
+
+    running = (db.query(models.AsanaImportJob)
+                 .filter(models.AsanaImportJob.status == "running")
+                 .order_by(models.AsanaImportJob.started_at.desc()).first())
+    if running and _job_is_alive(running):
+        # Re-clicking the button joins the run in progress instead of starting a
+        # second one over the same projects.
+        return import_job_to_dict(running)
+    if running:
+        running.status, running.error = "error", "Interrupted - the server restarted mid-import."
+        running.finished_at = now_iso()
+        db.commit()
+
+    job = models.AsanaImportJob(id=gen_id(), status="running", started_by=user.get("email", ""),
+                                started_at=now_iso(), heartbeat_at=now_iso(), result={})
+    db.add(job)
+    db.commit()
+    threading.Thread(target=_run_import_all, daemon=True,
+                     args=(job.id, token, cfg.workspace_gid or "", dict(user))).start()
+    return import_job_to_dict(job)
+
+
+@router.post("/asana-sync/import-all/cancel", dependencies=[Depends(require_manager)])
+def asana_sync_import_all_cancel(db: Session = Depends(get_db)):
+    """Ask a running import to stop at the next project boundary.
+
+    A request, not a kill: the worker is on another thread (another process on
+    dev), and stopping it mid-project would leave that project half-imported.
+    What is already in stays in - import is additive, so re-running later
+    resumes rather than duplicating."""
+    job = (db.query(models.AsanaImportJob)
+             .filter(models.AsanaImportJob.status == "running")
+             .order_by(models.AsanaImportJob.started_at.desc()).first())
+    if not job:
+        return {"status": "idle"}
+    job.cancel_requested = True
+    # A job whose worker is already gone would never notice the flag, so retire
+    # it here rather than leaving the UI waiting for a stop that cannot come.
+    if not _job_is_alive(job):
+        job.status, job.finished_at = "cancelled", now_iso()
+    db.commit()
+    return import_job_to_dict(job)
+
+
+@router.get("/asana-sync/import-all/status", dependencies=[Depends(require_manager)])
+def asana_sync_import_all_status(db: Session = Depends(get_db)):
+    """Latest job, for the progress bar. Read from the DB rather than process
+    memory: dev runs 8 gunicorn workers, so the worker answering this poll is
+    usually not the one running the import."""
+    job = (db.query(models.AsanaImportJob)
+             .order_by(models.AsanaImportJob.started_at.desc()).first())
+    if not job:
+        return {"status": "idle"}
+    if job.status == "running" and not _job_is_alive(job):
+        job.status = "error"
+        job.error = "Interrupted - the server restarted mid-import."
+        job.finished_at = now_iso()
+        db.commit()
+    return import_job_to_dict(job)
 
 
 @router.post("/asana-sync/purge-orphans", dependencies=[Depends(require_manager)])

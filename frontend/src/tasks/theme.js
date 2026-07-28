@@ -79,11 +79,22 @@ export function priorityChip(priority) {
   const m = PRIORITY_META[priority] || { label: priority, color: NX.dim, tint: NX.border2 };
   return { ...chip(m.color, m.tint), label: m.label };
 }
+// Toolbar control sizing. The search input and the buttons beside it are styled
+// from different bases (input vs button metrics), so without shared numbers they
+// drift - the buttons used to sit ~4px shorter than the search bar. Kept out of
+// btn() itself, which also dresses tiny icon-only buttons that must stay small.
+// Deliberately compact: at full button size a row of six outlined controls reads
+// as a wall of boxes next to the list it sits above.
+export const CONTROL_H = 24;
+export const CONTROL_FS = 12;      // label size that fits CONTROL_H comfortably
+export const CONTROL_ICON = 13;
+
 export const btn = (variant = 'ghost') => {
   const base = {
     display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 12px',
     borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer',
     fontFamily: FONT, transition: 'background 0.13s, opacity 0.13s', lineHeight: 1,
+    boxSizing: 'border-box',   // so an explicit height means that height
   };
   if (variant === 'primary') return { ...base, background: NX.primary, color: '#fff', border: `1px solid ${NX.primary}` };
   if (variant === 'outline') return { ...base, background: NX.surface, color: NX.ink, border: `1px solid ${NX.border}` };
