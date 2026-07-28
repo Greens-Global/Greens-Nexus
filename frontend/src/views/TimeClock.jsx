@@ -23,13 +23,15 @@ const PUNCH_CHIP = {
 // blocks the punch - it's recorded and flagged for review instead. The button
 // set is state-aware ("intelligent clock"): only currently-valid punches show.
 
+// Title Case on titles and buttons (Neil, Jul 28 - supersedes the earlier
+// sentence-case rule; see CLAUDE.md).
 const KIND_META = {
-  in:          { label: 'Punch in',   Icon: LogIn,  bg: 'var(--wk-brand)', fg: '#fff' },
-  out:         { label: 'Punch out',  Icon: LogOut, bg: '#b91c1c',         fg: '#fff' },
-  break_start: { label: 'Start break', Icon: Coffee, bg: '#b45309',        fg: '#fff' },
-  break_end:   { label: 'End break',  Icon: Play,   bg: 'var(--wk-brand)', fg: '#fff' },
+  in:          { label: 'Punch In',   Icon: LogIn,  bg: 'var(--wk-brand)', fg: '#fff' },
+  out:         { label: 'Punch Out',  Icon: LogOut, bg: '#b91c1c',         fg: '#fff' },
+  break_start: { label: 'Start Break', Icon: Coffee, bg: '#b45309',        fg: '#fff' },
+  break_end:   { label: 'End Break',  Icon: Play,   bg: 'var(--wk-brand)', fg: '#fff' },
 };
-const KIND_LABEL = { in: 'In', out: 'Out', break_start: 'Break start', break_end: 'Break end' };
+const KIND_LABEL = { in: 'In', out: 'Out', break_start: 'Break Start', break_end: 'Break End' };
 const CARD_S = { background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14 };
 // Work OS card-header title (sentence case, no uppercase tracking).
 const HD = { fontSize: 13.5, fontWeight: 600, color: 'var(--ink)' };
@@ -120,13 +122,15 @@ function TimerDigits({ seconds, color, size = 24 }) {
   );
 }
 
-// Session ring - the arc sweeps as today's worked time progresses toward an 8h
-// day (real data: today's closed segments + the live session). Digits inside are
-// the CURRENT session's stopwatch.
-function SessionRing({ seconds, dayPct, color, label, sub }) {
+// Session ring - a stopwatch dial: the arc sweeps once per HOUR of the live
+// session (Neil, Jul 28: the old fill-toward-8h-day assumed everyone works an
+// 8h day - India runs 9h - so the workday denominator is gone entirely).
+// Digits inside are the CURRENT session's stopwatch. On break the arc becomes
+// the 60m allowance draining (that one is real policy, not an assumption).
+function SessionRing({ seconds, pct, color, label, sub }) {
   const size = 148, stroke = 9;
   const r = (size - stroke) / 2, c = 2 * Math.PI * r;
-  const off = c * (1 - Math.min(1, Math.max(0, dayPct)));
+  const off = c * (1 - Math.min(1, Math.max(0, pct)));
   return (
     <div style={{ position: 'relative', width: size, height: size, flexShrink: 0 }}>
       <svg width={size} height={size} style={{ transform: 'rotate(-90deg)' }}>
@@ -138,7 +142,7 @@ function SessionRing({ seconds, dayPct, color, label, sub }) {
       <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
         <TimerDigits seconds={seconds} color={color} />
         <span style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--muted)' }}>{label}</span>
-        <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', fontVariantNumeric: 'tabular-nums' }}>{sub || `${Math.round(Math.min(1, dayPct) * 100)}% of 8h day`}</span>
+        {sub && <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', fontVariantNumeric: 'tabular-nums' }}>{sub}</span>}
       </div>
     </div>
   );
@@ -180,10 +184,10 @@ function GeoChip({ p }) {
       title="This device gave only a rough Wi-Fi/IP location (no GPS) - too coarse to judge the geofence. Punch from a phone for a precise fix.">
       <MapPinOff size={12} /> approx. location (±{p.accuracyM >= 1000 ? `${(p.accuracyM / 1000).toFixed(1)}km` : `${p.accuracyM}m`})
     </span>);
-  return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 700, color: 'var(--muted)' }}>
-      <MapPinOff size={12} /> no location
-    </span>);
+  // No location on the punch: show NOTHING (Neil, Jul 28 - the "no location"
+  // chip read as an error state when it is the normal desktop case). The
+  // punch is still recorded location-less server-side, unchanged.
+  return null;
 }
 
 export default function TimeClock() {
@@ -350,7 +354,7 @@ export default function TimeClock() {
     } catch (e) { toast(false, e?.message || 'Could not send the request.'); }
   }
 
-  // Open the "Missed a punch?" form pre-filled to ADD the missing clock-out for a
+  // Open the "Missed a Punch?" form pre-filled to ADD the missing clock-out for a
   // given segment - so the fix is one click from where the gap is shown, instead
   // of hunting for the form and re-entering the kind/day by hand.
   function openAddClockOut(seg) {
@@ -422,9 +426,6 @@ export default function TimeClock() {
   const BREAK_ALLOWANCE_MIN = 60;
   const breakUsedMin = (todayData?.breakMin || 0) + (onBreak ? Math.floor(sinceSec / 60) : 0);
   const breakLeftMin = BREAK_ALLOWANCE_MIN - breakUsedMin;
-  // Hero ring: live progress through an 8h day (closed segments + this session).
-  const todayLiveMin = (todayData?.workedMin || 0) + (clockedIn && !onBreak ? sinceSec / 60 : 0);
-  const dayPct = todayLiveMin / 480;
   const weekFlags = Object.values(days).reduce((a, d) => a + d.flags.length, 0);
 
   // ── Bi-weekly pay period (the timesheet's data) ──────────────────────────────
@@ -496,8 +497,8 @@ export default function TimeClock() {
       <ModuleTabs
         tabs={[
           { key: 'clock',     label: 'Clock' },
-          { key: 'timesheet', label: 'Time sheet' },
-          { key: 'timeoff',   label: 'Time off' },
+          { key: 'timesheet', label: 'Time Sheet' },
+          { key: 'timeoff',   label: 'Time Off' },
         ]}
         active={tab} onChange={setTab} />
 
@@ -543,13 +544,12 @@ export default function TimeClock() {
         ) : (
           <div style={{ display: 'flex', alignItems: 'center', gap: 28, flexWrap: 'wrap' }}>
             {clockedIn && (
-              /* On break the ring flips meaning: arc = the 60m allowance being
-                 used up (red once over), caption = minutes left. Working: arc =
-                 progress through an 8h day. */
+              /* Working: stopwatch dial, one sweep per hour of this session.
+                 On break: arc = the 60m allowance draining (red once over). */
               <SessionRing seconds={sinceSec}
-                dayPct={onBreak ? breakUsedMin / BREAK_ALLOWANCE_MIN : dayPct}
+                pct={onBreak ? breakUsedMin / BREAK_ALLOWANCE_MIN : (sinceSec % 3600) / 3600}
                 color={onBreak ? (breakLeftMin < 0 ? '#b91c1c' : '#b45309') : 'var(--wk-brand)'}
-                label={onBreak ? 'on break' : 'this session'}
+                label={onBreak ? 'On Break' : 'This Session'}
                 sub={onBreak ? (breakLeftMin >= 0 ? `${breakLeftMin}m of 60m left` : `${-breakLeftMin}m over 60m`) : undefined} />
             )}
             <div style={{ flex: 1, minWidth: 250, display: 'flex', flexDirection: 'column', gap: 11 }}>
@@ -558,7 +558,7 @@ export default function TimeClock() {
                 background: onBreak ? '#b45309' : clockedIn ? 'var(--wk-brand)' : 'var(--wk-faint)',
                 '--ping': onBreak ? 'rgba(180,83,9,.4)' : 'rgba(43,69,225,.4)' }} />
               <span style={{ fontSize: 25, fontWeight: 700, color: onBreak ? '#b45309' : clockedIn ? 'var(--wk-brand)' : 'var(--ink)' }}>
-                {onBreak ? 'On break' : clockedIn ? 'Clocked in' : 'Clocked out'}
+                {onBreak ? 'On Break' : clockedIn ? 'Clocked In' : 'Clocked Out'}
               </span>
               {last && (
                 <span style={{ fontSize: 13, color: 'var(--muted)' }}>
@@ -619,9 +619,9 @@ export default function TimeClock() {
           <>
             <DayTimeline punches={todayData.punches} date={todayKey} />
             <div style={{ display: 'flex', gap: 26, marginTop: 18, flexWrap: 'wrap' }}>
-              {[['Worked today', fmtMin(todayData.workedMin), 'var(--ink)'],
+              {[['Worked Today', fmtMin(todayData.workedMin), 'var(--ink)'],
                 ['Breaks', `${breakUsedMin} / 60m`, breakUsedMin > 60 ? 'hsl(var(--color-red))' : 'var(--ink)'],
-                ['Last 7 days', fmtMin(weekTotal), 'var(--ink)']].map(([l, v, c]) => (
+                ['Last 7 Days', fmtMin(weekTotal), 'var(--ink)']].map(([l, v, c]) => (
                 <div key={l}>
                   <div style={STAT_L}>{l}</div>
                   <div style={{ fontSize: 19, fontWeight: 700, color: c, marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>{v}</div>
@@ -648,7 +648,7 @@ export default function TimeClock() {
 
         <div style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, padding: '20px 22px', boxShadow: 'var(--wk-shadow)', minWidth: 0, display: 'flex', flexDirection: 'column' }}>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 14 }}>
-            <span style={HD}>This pay period</span>
+            <span style={HD}>This Pay Period</span>
             {clockPeriod?.periodStart && (
               <span style={{ fontSize: 11, color: 'var(--muted)' }}>
                 {fmtShort(clockPeriod.periodStart)} – {fmtShort(clockPeriod.periodEnd)}
@@ -672,7 +672,7 @@ export default function TimeClock() {
               );
             })()}
             <button className="secondary-btn" style={{ fontSize: 11, padding: '4px 11px', marginTop: 12, alignSelf: 'flex-start' }} onClick={() => setTab('timesheet')}>
-              Open timesheet
+              Open Timesheet
             </button>
           </>) : (
             <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10, height: 110, color: 'var(--muted)' }}>
@@ -684,7 +684,7 @@ export default function TimeClock() {
         {/* This week - hours vs the 40h OT line, today's break allowance, est. pay
             and pending fix requests. Everything derives from data already loaded. */}
         <div style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, padding: '20px 22px', boxShadow: 'var(--wk-shadow)', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <div style={HD}>This week</div>
+          <div style={HD}>This Week</div>
           {(() => {
             const sun = new Date(); sun.setHours(0, 0, 0, 0); sun.setDate(sun.getDate() - sun.getDay());
             const sunKey = new Date(sun.getTime() - sun.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
@@ -699,7 +699,7 @@ export default function TimeClock() {
             return (<>
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6, gap: 8 }}>
-                  <span style={STAT_L}>Hours worked</span>
+                  <span style={STAT_L}>Hours Worked</span>
                   <span style={{ fontSize: 13, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{fmtMin(wkMin)} <span style={{ color: 'var(--muted)', fontWeight: 500 }}>of 40h</span></span>
                 </div>
                 <div style={{ height: 8, borderRadius: 99, background: 'var(--mist)', overflow: 'hidden' }}>
@@ -709,7 +709,7 @@ export default function TimeClock() {
               </div>
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6, gap: 8 }}>
-                  <span style={STAT_L}>Break today</span>
+                  <span style={STAT_L}>Break Today</span>
                   <span style={{ fontSize: 13, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{breakUsedMin}m <span style={{ color: 'var(--muted)', fontWeight: 500 }}>of 60m</span></span>
                 </div>
                 <div style={{ height: 8, borderRadius: 99, background: 'var(--mist)', overflow: 'hidden' }}>
@@ -718,7 +718,7 @@ export default function TimeClock() {
               </div>
               {clockPeriod?.rateSet && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', borderTop: '1px solid var(--line)', paddingTop: 10 }}>
-                  <span style={STAT_L}>Est. pay this period</span>
+                  <span style={STAT_L}>Est. Pay This Period</span>
                   <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--wk-brand)', fontVariantNumeric: 'tabular-nums' }}>${(PTc.totalPay || 0).toFixed(2)}</span>
                 </div>
               )}
@@ -734,7 +734,7 @@ export default function TimeClock() {
 
         <div style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, padding: '20px 22px', boxShadow: 'var(--wk-shadow)', minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
-            <span style={{ ...HD, flex: 1 }}>Time off coming up</span>
+            <span style={{ ...HD, flex: 1 }}>Time Off Coming Up</span>
             <button className="secondary-btn" style={{ fontSize: 11.5, padding: '4px 11px' }} onClick={() => setTab('timeoff')}>Request</button>
           </div>
           {(() => {
@@ -772,7 +772,7 @@ export default function TimeClock() {
         <div style={{ flex: 1 }} />
         <button className="secondary-btn" onClick={() => setMissedOpen(o => !o)}
           style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-          {missedOpen ? <X size={12} /> : <Plus size={12} />} {missedOpen ? 'Cancel' : 'Missed a punch?'}
+          {missedOpen ? <X size={12} /> : <Plus size={12} />} {missedOpen ? 'Cancel' : 'Missed a Punch?'}
         </button>
       </div>
 
@@ -787,7 +787,7 @@ export default function TimeClock() {
               onChange={e => setMissed(m => ({ ...m, at: e.target.value }))} style={{ fontSize: 12.5, width: 210 }} />
             <input className="form-input" placeholder="Why was it missed? (required)" value={missed.note}
               onChange={e => setMissed(m => ({ ...m, note: e.target.value }))} style={{ flex: 1, minWidth: 200, fontSize: 12.5 }} />
-            <button className="primary-btn" onClick={submitMissed} style={{ fontSize: 12.5 }}>Send request</button>
+            <button className="primary-btn" onClick={submitMissed} style={{ fontSize: 12.5 }}>Send Request</button>
           </div>
           <p style={{ margin: '8px 0 0', fontSize: 11, color: 'var(--muted)' }}>
             This goes to your approver - nothing changes on your timesheet until they approve it.
@@ -822,7 +822,7 @@ export default function TimeClock() {
       {/* Summary - one composition bar (worked/idle/break) + payroll totals */}
       <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 16 }}>
         <div style={{ flex: '2 1 380px', background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, padding: '18px 20px', boxShadow: 'var(--wk-shadow)' }}>
-          <div style={{ ...HD, marginBottom: 14 }}>How this period breaks down</div>
+          <div style={{ ...HD, marginBottom: 14 }}>How This Period Breaks Down</div>
           {/* 2px surface gaps between segments (dataviz spacer rule) */}
           <div style={{ display: 'flex', gap: 2, height: 22 }}>
             {COMP.every(([, v]) => v === 0)
@@ -845,8 +845,8 @@ export default function TimeClock() {
           <div style={{ display: 'grid', gap: 10 }}>
             {[['Regular', fmtMin(PT.regMin || 0), 'var(--ink)'],
               ['Overtime', fmtMin(PT.otMin || 0), PT.otMin ? '#b45309' : 'var(--muted)'],
-              ...(PT.dtMin ? [['Double time', fmtMin(PT.dtMin), '#b91c1c']] : []),
-              ['Total worked', fmtMin(PT.workedMin || 0), 'var(--ink)']].map(([l, v, c]) => (
+              ...(PT.dtMin ? [['Double Time', fmtMin(PT.dtMin), '#b91c1c']] : []),
+              ['Total Worked', fmtMin(PT.workedMin || 0), 'var(--ink)']].map(([l, v, c]) => (
               <div key={l} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
                 <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>{l}</span>
                 <span style={{ fontSize: 15, fontWeight: 700, color: c, fontVariantNumeric: 'tabular-nums' }}>{v}</span>
@@ -854,7 +854,7 @@ export default function TimeClock() {
             ))}
             {payData?.rateSet && (
               <div style={{ borderTop: '1px solid var(--line)', marginTop: 4, paddingTop: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 700 }}>Est. pay</span>
+                <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 700 }}>Est. Pay</span>
                 <span style={{ fontSize: 17, fontWeight: 700, color: 'var(--wk-brand)', fontVariantNumeric: 'tabular-nums' }}>${(PT.totalPay || 0).toFixed(2)}</span>
               </div>
             )}
@@ -915,7 +915,7 @@ export default function TimeClock() {
                       // punch-out - say so on the row, with the fix path.
                       const longest = Math.max(0, ...segs.filter(s => s.out).map(s => s.workedMin || 0));
                       return longest >= 720 ? (
-                        <span title="Use Remove on the session chip below, then Add clock-out with the real times - your approver confirms."
+                        <span title="Use Remove on the session chip below, then Add Clock-Out with the real times - your approver confirms."
                           style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 700, color: '#b45309', background: 'rgba(180,83,9,0.1)', padding: '2px 9px', borderRadius: 999 }}>
                           <AlertTriangle size={11} /> {Math.round(longest / 60)}h in one session - missed punch-out?
                         </span>
@@ -949,7 +949,7 @@ export default function TimeClock() {
                           {localTime(s.in)} → {s.out ? localTime(s.out) : 'missing'}
                           <span style={{ color: 'var(--muted)', fontWeight: 500 }}>{fmtMin(s.workedMin)}</span>
                           {open
-                            ? <button className="primary-btn" onClick={() => openAddClockOut(s)} style={{ fontSize: 10.5, padding: '2px 8px', marginLeft: 2 }}>Add clock-out</button>
+                            ? <button className="primary-btn" onClick={() => openAddClockOut(s)} style={{ fontSize: 10.5, padding: '2px 8px', marginLeft: 2 }}>Add Clock-Out</button>
                             : s.inId && <button className="secondary-btn" onClick={() => requestRemovePunch({ id: s.inId })} style={{ fontSize: 10.5, padding: '2px 7px', marginLeft: 2 }}>Remove</button>}
                         </span>
                       );
@@ -961,7 +961,7 @@ export default function TimeClock() {
           })()}
           {payData && (
             <div style={{ display: 'flex', alignItems: 'center', padding: '14px 16px', marginTop: 4, borderTop: '2px solid var(--line)' }}>
-              <span style={{ fontSize: 13, fontWeight: 700 }}>Total this period</span>
+              <span style={{ fontSize: 13, fontWeight: 700 }}>Total This Period</span>
               <span style={{ flex: 1 }} />
               {PT.breakMin > 0 && <span style={{ fontSize: 12, color: 'var(--muted)', marginRight: 16 }}>{PT.breakMin}m break</span>}
               <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--ink)', fontVariantNumeric: 'tabular-nums' }}>{fmtMin(PT.workedMin || 0)}</span>
@@ -970,7 +970,7 @@ export default function TimeClock() {
         </div>
       )}
       <p style={{ margin: '12px 2px 0', fontSize: 11, color: 'var(--muted)' }}>
-        Each bar shows your work sessions through the day - a dashed block is a missing clock-out. Overtime is time over 40h in a week (1.5×). Use “Add clock-out” to fix a gap or “Remove” to drop a wrong punch - it goes to your approver, and nothing changes until they approve.
+        Each bar shows your work sessions through the day - a dashed block is a missing clock-out. Overtime is time over 40h in a week (1.5×). Use “Add Clock-Out” to fix a gap or “Remove” to drop a wrong punch - it goes to your approver, and nothing changes until they approve.
       </p>
       </>)}
 
@@ -979,7 +979,7 @@ export default function TimeClock() {
       <div style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, padding: '16px 18px', marginBottom: 12, boxShadow: 'var(--wk-shadow)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 12 }}>
           <span className="wkc-chip"><CalendarDays size={14} /></span>
-          <span style={HD}>Request time off</span>
+          <span style={HD}>Request Time Off</span>
         </div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
           <select className="form-input" value={toForm.type} onChange={e => setToForm(f => ({ ...f, type: e.target.value }))}
@@ -1021,7 +1021,7 @@ export default function TimeClock() {
       {/* Year-at-a-glance side panel */}
       <div style={{ flex: '1 1 280px', background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, padding: '18px 20px', boxShadow: 'var(--wk-shadow)' }}>
         <div style={{ ...HD, marginBottom: 12 }}>
-          {new Date().getFullYear()} at a glance
+          {new Date().getFullYear()} at a Glance
         </div>
         {(() => {
           const yr = String(new Date().getFullYear());

@@ -290,7 +290,7 @@ export default function TimeclockWidget() {
               {fmtHMS(elapsedSec)}
             </span>
             <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>
-              {onBreak ? 'On break' : 'Working'}
+              {onBreak ? 'On Break' : 'Working'}
             </span>
           </button>
           {/* Disclosed-monitoring: capture control only appears when the policy enables screen tracking. */}
