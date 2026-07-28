@@ -2541,3 +2541,31 @@ class PropertyWorkspaceMeta(Base):
     ts         = Column(BigInteger, default=0)       # epoch ms of last accepted workspace PUT
     updated_by = Column(String, default="")
     updated_at = Column(String, default="")
+
+
+class AsanaImportJob(Base):
+    """One run of "Import All Projects", tracked in the DB rather than in memory.
+
+    The import walks every project the token can see and takes far longer than
+    Azure's ~230s request ceiling, which killed the old synchronous endpoint
+    mid-run: the gateway returned a bodyless 499 and, having no CORS headers,
+    the browser reported it as a CORS failure instead of a timeout.
+
+    State lives here, not in the worker's memory, because dev runs 8 gunicorn
+    processes - the request that starts a job and the requests that poll it are
+    usually served by DIFFERENT workers, so anything in-process would be
+    invisible to the polling. `heartbeat_at` is what lets a job whose worker was
+    recycled mid-run be recognized as dead instead of blocking the next one
+    forever."""
+    __tablename__ = "asana_import_jobs"
+    id           = Column(String, primary_key=True)
+    status       = Column(String, default="running")   # running | done | error
+    started_by   = Column(String, default="")
+    started_at   = Column(String, default="")
+    heartbeat_at = Column(String, default="")          # bumped after every project
+    finished_at  = Column(String, default="")
+    total        = Column(Integer, default=0)          # projects to do
+    done         = Column(Integer, default=0)          # projects finished
+    current      = Column(String, default="")          # project being imported now
+    result       = Column(JSON, default=dict)          # the counts dict the UI already renders
+    error        = Column(String, default="")

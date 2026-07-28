@@ -2,7 +2,7 @@
 // strip (Automation rules · Custom fields · Custom statuses · Templates · Intake
 // forms · Activity log · Reporting), ported from the export's manage/ + reporting/
 // screens onto the Nexus inline-style idiom + FastAPI-backed store.
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Zap, Plus, Trash2, Pencil, ListChecks, FileText, Inbox, Activity as ActivityIcon,
   BarChart3, Download, X, CheckCircle2, Flag, ArrowRightLeft, User, Calendar, MessageSquare,
@@ -254,6 +254,7 @@ function AsanaSyncPanel({ store }) {
   const [dupes, setDupes] = useState(null);   // dry-run result awaiting confirmation
   const [orphans, setOrphans] = useState(null); // stranded-row dry run, same shape
   const [teamReport, setTeamReport] = useState([]); // per-team access outcomes from the last pull
+  const [importJob, setImportJob] = useState(null); // live "Import All Projects" run, polled
   const [setupToken, setSetupToken] = useState('');   // Setup card's own PAT (write-only)
 
   const load = () => {
@@ -324,18 +325,51 @@ function AsanaSyncPanel({ store }) {
   // One click to bring the whole workspace across: create/adopt a Nexus project
   // per Asana project, map it, import its contents. Runs the same engine as
   // Pull, so nothing here is a second inbound path.
+  //
+  // The server runs it in the background and we poll, because a full workspace
+  // takes minutes and Azure kills any request at ~230s. Progress lives in the
+  // DB, so closing this page does not stop the import and coming back picks it
+  // up again.
+  const importDone = useCallback((job) => {
+    const res = job.result || {};
+    if (job.status === 'error') { setErr(job.error || 'Import failed.'); return; }
+    setMsg(`Imported ${res.projects || 0} project(s): +${res.tasks || 0} task(s), `
+      + `+${res.comments || 0} comment(s), +${res.attachments || 0} attachment(s)`
+      + (res.skipped ? `, ${res.skipped} already present` : '')
+      + `. ${res.mapped ?? res.projects ?? 0} project(s) mapped.`
+      + ((res.errors || []).length ? ` ${res.errors.length} issue(s): ${res.errors.join('; ')}` : ''));
+  }, []);
+
+  const watchImport = useCallback(async () => {
+    const job = await api.asanaSyncImportAllStatus().catch(() => null);
+    if (!job || job.status === 'idle') { setImportJob(null); return false; }
+    setImportJob(job);
+    if (job.status === 'running') return true;
+    setImportJob(null);
+    importDone(job);
+    await store.refresh?.();
+    load();
+    return false;
+  }, [importDone, store, load]);
+
+  // Poll only while a job is live, and stop on unmount so a closed page does
+  // not keep hitting the API.
+  useEffect(() => {
+    if (!importJob || importJob.status !== 'running') return undefined;
+    let alive = true;
+    const id = setInterval(() => { if (alive) watchImport(); }, 3000);
+    return () => { alive = false; clearInterval(id); };
+  }, [importJob, watchImport]);
+
+  // An import already running when this page opens (started here earlier, or by
+  // someone else) shows its progress instead of looking idle.
+  useEffect(() => { watchImport(); /* once on mount */ }, []);   // eslint-disable-line react-hooks/exhaustive-deps
+
   const importAll = async () => {
-    setErr(''); setMsg(''); setBusy('importall');
+    setErr(''); setMsg('');
     try {
-      const res = await api.asanaSyncImportAll();
-      await store.refresh?.();
-      setMsg(`Imported ${res.projects} project(s): +${res.tasks} task(s), `
-        + `+${res.comments || 0} comment(s), +${res.attachments || 0} attachment(s)`
-        + (res.skipped ? `, ${res.skipped} already present` : '')
-        + `. ${res.mapped ?? res.projects} project(s) mapped.`
-        + ((res.errors || []).length ? ` ${res.errors.length} issue(s): ${res.errors.join('; ')}` : ''));
-      load();
-    } catch (e) { setErr(e.message || String(e)); } finally { setBusy(''); }
+      setImportJob(await api.asanaSyncImportAll());
+    } catch (e) { setErr(e.message || String(e)); }
   };
 
   // Step 2 of setup - the same setting as the "Sync enabled" checkbox above, so the
@@ -451,9 +485,9 @@ function AsanaSyncPanel({ store }) {
         </Field>
 
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginTop: 4 }}>
-          <button onClick={importAll} disabled={(!cfg.hasToken && !cfg.hasSetupToken) || !!busy}
+          <button onClick={importAll} disabled={(!cfg.hasToken && !cfg.hasSetupToken) || !!busy || !!importJob}
             title={(cfg.hasToken || cfg.hasSetupToken) ? '' : 'Save a token first'} style={btn('outline')}>
-            <FolderPlus size={14} />{busy === 'importall' ? 'Importing…' : '1 · Import all projects'}
+            <FolderPlus size={14} />{importJob ? 'Importing…' : '1 · Import All Projects'}
           </button>
           <button onClick={toggleSync} disabled={!cfg.hasToken || !!busy}
             title={cfg.enabled ? 'Click to turn sync off' : 'Click to turn sync on'}
@@ -468,9 +502,29 @@ function AsanaSyncPanel({ store }) {
               ? 'Needs a public API URL - run this from the deployed site'
               : ''} style={hooks.length ? { ...btn('outline'), color: NX.green, borderColor: NX.green } : btn('outline')}>
             {hooks.length ? <CheckCircle2 size={14} /> : <Zap size={14} />}
-            {busy === 'hooks' ? 'Registering…' : (hooks.length ? `3 · ${hooks.length} webhook(s) live` : '3 · Register webhooks')}
+            {busy === 'hooks' ? 'Registering…' : (hooks.length ? `3 · ${hooks.length} webhook(s) live` : '3 · Register Webhooks')}
           </button>
         </div>
+        {importJob && (
+          // Progress comes from the server, so this survives a page reload and
+          // shows the same state to anyone else watching.
+          <div style={{ marginTop: 12 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: NX.dim, marginBottom: 5 }}>
+              <span>{importJob.current ? `Importing ${importJob.current}` : 'Listing projects in Asana'}</span>
+              <span>{importJob.total ? `${importJob.done} of ${importJob.total}` : ''}</span>
+            </div>
+            <div style={{ height: 6, borderRadius: 999, background: NX.border, overflow: 'hidden' }}>
+              <div style={{
+                height: '100%', borderRadius: 999, background: NX.primary,
+                width: importJob.total ? `${Math.round((importJob.done / importJob.total) * 100)}%` : '15%',
+                transition: 'width 0.4s ease',
+              }} />
+            </div>
+            <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 6 }}>
+              This runs on the server. You can leave this page; the import keeps going.
+            </div>
+          </div>
+        )}
         <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 8, lineHeight: 1.55 }}>
           <b>Import</b> creates and maps a Nexus project for every Asana project the token can see -
           additive, so re-running tops them up and never deletes. <b>Sync</b> toggles the 5-minute pull

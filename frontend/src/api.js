@@ -343,7 +343,10 @@ export const api = {
   asanaSyncPushAll: () => req("/asana-sync/push-all", { method: "POST", timeoutMs: 600000 }),
   asanaSyncDedupe: (apply) => req(`/asana-sync/dedupe?apply=${apply ? "true" : "false"}`, { method: "POST", timeoutMs: 600000 }),
   // Walks every project in the workspace - same 10-min ceiling as Pull/Push all.
-  asanaSyncImportAll: () => req("/asana-sync/import-all", { method: "POST", timeoutMs: 600000 }),
+  // Starts a background job and returns it right away; a whole workspace takes
+  // minutes and Azure kills any request at ~230s. Poll asanaSyncImportAllStatus.
+  asanaSyncImportAll: () => req("/asana-sync/import-all", { method: "POST" }),
+  asanaSyncImportAllStatus: () => req("/asana-sync/import-all/status"),
   asanaSyncPurgeOrphans: (apply) => req(`/asana-sync/purge-orphans?apply=${apply ? "true" : "false"}`, { method: "POST", timeoutMs: 600000 }),
   getAsanaSyncProjects: () => req("/asana-sync/asana-projects", { timeoutMs: 60000 }),
   getAsanaWebhooks: () => req("/asana-sync/webhooks"),
