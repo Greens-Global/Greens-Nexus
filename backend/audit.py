@@ -4,6 +4,7 @@ Generates a descriptive action string that includes the resource ID from the URL
 so logs read as "Approved requisition REQ-ABC" rather than just "Approved requisition".
 """
 import json
+import os
 from datetime import datetime
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -232,6 +233,13 @@ def _describe(method: str, path: str) -> tuple[str, str]:
 
 
 def _extract_email(request: Request) -> str:
+    # Local dev (NEXUS_SKIP_AUTH) has no bearer token, which left every local
+    # audit row as "Not signed in" AND silently disabled the acting-as
+    # resolution (it matches on the real actor's email) - so Act As could
+    # never be exercised end-to-end on a laptop. Mirror auth.py's bypass.
+    # Never active on Azure: main.py refuses to boot with SKIP_AUTH there.
+    if os.getenv("NEXUS_SKIP_AUTH", "").lower() == "true":
+        return os.getenv("NEXUS_DEV_EMAIL", "dev@localhost").lower()
     auth = request.headers.get("authorization", "")
     if not auth.startswith("Bearer "):
         return "anonymous"
