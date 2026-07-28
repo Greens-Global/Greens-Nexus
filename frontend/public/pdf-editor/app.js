@@ -849,13 +849,15 @@
 
             // Fit to the screen width first, then open in continuous scroll by
             // default so the user can scroll the whole document immediately.
-            // buildScrollView renders each page at Page-mode size (base × zoom),
-            // so scroll no longer shrinks the page. fitToWidth() runs inside a
-            // rAF, so defer enabling scroll until after it has set the zoom.
+            // fitToWidth() defers its work into a rAF (waits for layout), so we
+            // enable scroll on a short timeout AFTER that — a plain double-rAF
+            // could race fitToWidth and build the scroll view before the zoom is
+            // set, leaving it un-scrollable. The timeout guarantees layout+fit
+            // are done first.
             fitToWidth();
-            requestAnimationFrame(() => requestAnimationFrame(() => {
+            setTimeout(() => {
                 if (state.pdfDoc && window.setScrollMode && !window.isScrollMode()) setScrollMode(true);
-            }));
+            }, 120);
 
             // Generate thumbnails
             generateThumbnails();
