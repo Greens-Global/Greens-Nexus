@@ -191,6 +191,16 @@ export function useDashboards(target) {
     setViews(vs => vs.map(v => ({ ...v, isDefault: v.id === id })));
   };
 
+  // Back to the built-in Home as the landing view: un-default the personal view
+  // that currently holds it. (Without this, anyone who ever saved a layout was
+  // stuck landing on it forever — deleting the view was the only way out.)
+  const clearDefaultView = async () => {
+    const cur = views.find(v => v.scope === 'personal' && v.isDefault);
+    if (!cur) return;
+    await api.dashUpdateView(cur.id, { is_default: false });
+    setViews(vs => vs.map(v => ({ ...v, isDefault: false })));
+  };
+
   const removeView = async (id) => {
     await api.dashDeleteView(id);
     setViews(vs => vs.filter(v => v.id !== id));
@@ -205,6 +215,6 @@ export function useDashboards(target) {
   return {
     views, activeId, activeView, layout, kpis, department, canPublish, dirty, loading, editing,
     setEditing, setLayout, addWidget, removeWidget, autoFit, updateWidgetConfig,
-    switchView, save, saveAsNew, createNewView, publishDepartment, setDefaultView, removeView, renameView, reload: load,
+    switchView, save, saveAsNew, createNewView, publishDepartment, setDefaultView, clearDefaultView, removeView, renameView, reload: load,
   };
 }

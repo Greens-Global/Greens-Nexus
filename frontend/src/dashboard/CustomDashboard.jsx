@@ -151,6 +151,9 @@ export default function CustomDashboard({ target }) {
     [
       ...(canRename ? [{ label: 'Rename view', icon: Pencil, on: rename }] : []),
       ...(isOwnPersonal ? [{ label: 'Set as my default', icon: Star, on: makeDefault }] : []),
+      // Escape hatch: a saved default view otherwise hides the designed Home forever.
+      ...(target === 'dashboard' && d.views.some(v => v.scope === 'personal' && v.isDefault)
+        ? [{ label: 'Make Home my default', icon: LayoutGrid, on: wrap(async () => { setMenu(false); await d.clearDefaultView(); guardedSwitch(null); }, 'Home is your landing view again') }] : []),
     ],
     [
       { label: 'Save as new view', icon: Copy, on: saveAsNew },
