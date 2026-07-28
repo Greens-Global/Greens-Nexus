@@ -2838,6 +2838,15 @@ button, [role="button"], select { touch-action: manipulation; }
 [data-theme="dark"] .ppl-table tbody tr:hover td { background: var(--mist); }
 .ppl-cell-sub { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
 
+/* My HR layout (Jul 28): profile rail + disciplined 2-col main grid — rows
+   stretch to equal heights so card edges actually align (the auto-fit column
+   stacks read as random). */
+.myhr-grid { display: grid; grid-template-columns: 360px minmax(0, 1fr); gap: 16px; align-items: start; }
+.myhr-main { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.myhr-span2 { grid-column: span 2; }
+@media (max-width: 1100px) { .myhr-grid { grid-template-columns: 1fr; } }
+@media (max-width: 760px) { .myhr-main { grid-template-columns: 1fr; } .myhr-span2 { grid-column: auto; } }
+
 /* Segmented control (Stella's Day/Week/Month): light gray track, active
    option as a white pill with border + soft shadow */
 .wk-seg {

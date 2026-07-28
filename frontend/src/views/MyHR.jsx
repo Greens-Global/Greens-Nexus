@@ -63,16 +63,61 @@ function Row({ Icon, label, value }) {
 }
 
 // Stat tile — the shared dk-stat anatomy (tinted icon chip, big tabular
-// numeral) so My HR reads like Home/People. Old corner watercolor blob removed.
-function Stat({ label, value, hint, color, Icon }) {
+// numeral) so My HR reads like Home/People. `hero` = the one solid brand tile.
+function Stat({ label, value, hint, color, Icon, hero }) {
   return (
-    <div className="dk-stat" style={{ cursor: 'default' }}>
+    <div className={`dk-stat${hero ? ' dk-stat--hero' : ''}`} style={{ cursor: 'default' }}>
       <span className="dk-stat-top">
         <span className={`dk-chip dk-chip--${color}`}><Icon /></span>
       </span>
       <span className="dk-stat-num">{value}</span>
       <span className="dk-stat-label">{label}</span>
       <span className="dk-stat-sub">{hint}</span>
+    </div>
+  );
+}
+
+// Approved leave this year as a small kit donut (2px gaps, center total) with
+// a per-type legend — real request data only; hidden when there's none.
+const LEAVE_COLORS = { vacation: '#2b45e1', sick: '#dc7a18', personal: '#248f4b', unpaid: '#8a31c9', other: '#b8860b' };
+function LeaveDonut({ leave }) {
+  const yr = String(new Date().getFullYear());
+  const daySpan = (r) => { const a = new Date(r.startDate || r.start_date), b = new Date(r.endDate || r.end_date); return isNaN(a) || isNaN(b) ? 0 : Math.round((b - a) / 86400000) + 1; };
+  const byType = {};
+  leave.filter(r => r.status === 'approved' && String(r.startDate || r.start_date || '').startsWith(yr))
+    .forEach(r => { byType[r.type] = (byType[r.type] || 0) + daySpan(r); });
+  const entries = Object.entries(byType).sort((a, b) => b[1] - a[1]);
+  const total = entries.reduce((s, [, n]) => s + n, 0);
+  if (!total) return null;
+  const R = 34, SW = 10, C = 2 * Math.PI * R;
+  let acc = 0;
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 18, padding: '6px 0 12px', borderBottom: '1px solid var(--line)', marginBottom: 8 }}>
+      <div style={{ position: 'relative', width: 88, height: 88, flexShrink: 0 }}>
+        <svg width={88} height={88} style={{ transform: 'rotate(-90deg)' }}>
+          <circle cx={44} cy={44} r={R} fill="none" stroke="var(--mist)" strokeWidth={SW} />
+          {entries.map(([t, n]) => {
+            const frac = n / total;
+            const dash = Math.max(0.5, frac * C - 2.5);
+            const off = -acc * C; acc += frac;
+            return <circle key={t} cx={44} cy={44} r={R} fill="none" stroke={LEAVE_COLORS[t] || '#6b7280'} strokeWidth={SW}
+              strokeDasharray={`${dash} ${C - dash}`} strokeDashoffset={off} />;
+          })}
+        </svg>
+        <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+          <span style={{ fontSize: 17, fontWeight: 700, fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>{total}d</span>
+          <span style={{ fontSize: 9.5, fontWeight: 600, color: 'var(--muted)' }}>this year</span>
+        </div>
+      </div>
+      <div style={{ display: 'grid', gap: 5, minWidth: 0 }}>
+        {entries.map(([t, n]) => (
+          <div key={t} style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12 }}>
+            <span style={{ width: 9, height: 9, borderRadius: 3, background: LEAVE_COLORS[t] || '#6b7280', flexShrink: 0 }} />
+            <span style={{ color: 'var(--muted)', fontWeight: 600, textTransform: 'capitalize' }}>{t}</span>
+            <span style={{ fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{n}d</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -304,15 +349,15 @@ export default function MyHR() {
         <>
           {/* ── Stat tiles ── */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 14, marginBottom: 16 }}>
-            <Stat label={`Hours · ${(HOUR_RANGES.find(([v]) => v === range)?.[1] || '').toLowerCase()}`} value={sheet ? hm(workedTotal) : '…'} hint={`${daysWorked} day${daysWorked === 1 ? '' : 's'} worked`} color="blue" Icon={Clock} />
+            <Stat hero label={`Hours · ${(HOUR_RANGES.find(([v]) => v === range)?.[1] || '').toLowerCase()}`} value={sheet ? hm(workedTotal) : '…'} hint={`${daysWorked} day${daysWorked === 1 ? '' : 's'} worked`} color="blue" Icon={Clock} />
             <Stat label="Leave this year" value={`${leaveDaysThisYear}d`} hint="Approved time off" color="green" Icon={CalendarOff} />
             <Stat label="My documents" value={docs.length} hint="Signed & sealed" color="purple" Icon={FileText} />
             <Stat label="Time at Greens" value={tenure} hint={profile.startDate ? `Since ${fmtD(profile.startDate)}` : ''} color="orange" Icon={Hourglass} />
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16, alignItems: 'start' }}>
+          <div className="myhr-grid">
 
-            {/* ── Column 1: profile ── */}
+            {/* ── Left rail: profile + equipment ── */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               <div className="dash-card">
                 <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 14 }}>
@@ -422,9 +467,10 @@ export default function MyHR() {
               </div>
             </div>
 
-            {/* ── Column 2: hours graph + documents + paystubs ── */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-              <div className="dash-card">
+            {/* ── Main grid: hours spans both columns, then paired rows whose
+                cards stretch to equal heights (aligned edges by construction) ── */}
+            <div className="myhr-main">
+              <div className="dash-card myhr-span2">
                 {cardHead('My hours', 'Full detail lives in Time Clock',
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
                     <span style={{ fontSize: 12.5, color: 'var(--muted)' }}><strong style={{ color: 'var(--ink)' }}>{sheet ? hm(workedTotal) : '…'}</strong> total</span>
@@ -437,7 +483,13 @@ export default function MyHR() {
                   <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '12px 0' }}>Loading…</div>
                 ) : (
                   <>
-                    <HoursChart days={sheet.days} start={rStart} end={rEnd} />
+                    {workedTotal === 0 ? (
+                      <div style={{ height: 110, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12.5, color: 'var(--muted)', textAlign: 'center', padding: '0 16px' }}>
+                        No hours in this range yet — punch in from Time Clock and they chart here.
+                      </div>
+                    ) : (
+                      <HoursChart days={sheet.days} start={rStart} end={rEnd} />
+                    )}
                     {dayEntries.length > 0 && (
                       <div style={{ marginTop: 8 }}>
                         {dayEntries.sort((a, b) => b[0].localeCompare(a[0])).slice(0, 5).map(([date, d]) => (
@@ -502,10 +554,7 @@ export default function MyHR() {
                   </div>
                 ))}
               </div>
-            </div>
 
-            {/* ── Column 3: leave + Ask HR ── */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               <div className="dash-card">
                 {cardHead('My leave', 'Time-off requests and their status',
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
@@ -548,6 +597,7 @@ export default function MyHR() {
                   </div>
                 )}
 
+                {leave.length > 0 && <LeaveDonut leave={leave} />}
                 {leave.length === 0 ? (
                   <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '14px 0', textAlign: 'center' }}>No time-off requests yet.</div>
                 ) : leave.filter(r => leaveFilter === 'all' || r.status === leaveFilter).map(r => (
