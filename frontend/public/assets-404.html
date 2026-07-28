@@ -1,0 +1,31 @@
+<!doctype html>
+<!-- Target of the /assets/* 404 rule in _redirects. Lives OUTSIDE the root —
+     a root-level 404.html flips Cloudflare Pages out of automatic SPA mode and
+     404s every deep-route refresh (Jul 28 regression). Served no-cache, and if
+     a human ever lands on it, it returns to the app by itself. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta http-equiv="refresh" content="3;url=/" />
+  <title>One moment — Greens Nexus</title>
+  <style>
+    body { font-family: system-ui, sans-serif; background: #f2f4f8; color: #1d2139;
+           display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; }
+    main { text-align: center; }
+    .dot { width: 10px; height: 10px; border-radius: 50%; background: #2b45e1; margin: 0 auto 14px;
+           animation: pulse 1.4s ease-in-out infinite; }
+    @keyframes pulse { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
+    h1 { font-size: 19px; margin: 0 0 6px; }
+    p { font-size: 14px; color: #6b7280; margin: 0; }
+    a { color: #2b45e1; }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="dot"></div>
+    <h1>Nexus just updated</h1>
+    <p>Taking you back in a moment&hellip; or <a href="/">reload now</a>.</p>
+  </main>
+</body>
+</html>

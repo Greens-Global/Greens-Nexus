@@ -2,9 +2,12 @@
 # index.html (200, text/html) under an /assets/*.js URL is what poisoned
 # browsers/edge during deploy races (the _headers immutable rule keys on the
 # URL, so the HTML got cached for a year under the chunk's address — Jul 27/28
-# incidents). 404.html ships with Cache-Control: no-cache, so a mid-deploy miss
-# is retried cleanly by guard.js instead of being cached forever.
-/assets/* /404.html 404
+# incidents). The target page lives at the ROOT as assets-404.html — a root
+# 404.html file flips Pages out of automatic SPA mode and 404s every deep-route
+# refresh (Jul 28 regression: /timeclock reloads showed the 404 page).
+/assets/* /assets-404.html 404
 
-# SPA fallback: every other path serves the app shell; the client router takes over
+# SPA fallback: every other path serves the app shell; the client router takes
+# over. (Pages also does this automatically while no root 404.html exists —
+# keep it that way.)
 /* /index.html 200
