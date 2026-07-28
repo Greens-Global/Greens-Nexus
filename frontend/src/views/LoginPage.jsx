@@ -2,9 +2,11 @@
 THESIS: signing in feels like opening a premium work OS (canon, owner-pinned:
 monday.com-grade) - a confident split hero: the product's world on the left,
 one calm action on the right.
-OWN-WORLD: Work OS (DESIGN.md) - cobalt #2b45e1 brand panel with floating
-module cards (CSS-drawn, no fabricated numbers), white sign-in column,
-Figtree type, one Microsoft action.
+OWN-WORLD: Work OS (DESIGN.md) - brand panel with floating module cards
+(CSS-drawn, no fabricated numbers), white sign-in column, Figtree type, one
+Microsoft action. Accent defaults to green (Pranshu, Jul 28) and is a Global
+Admin-configurable setting, not hardcoded - see ACCENT_PALETTES below and
+backend/routers/branding.py.
 STORY: an employee lands, sees what Nexus IS (tasks, time, people) at a
 glance, presses the single button, and is at work.
 FIRST VIEWPORT: left - brand mark, headline, module cards; right - "Welcome
@@ -16,16 +18,22 @@ import { useEffect, useState } from "react";
 import { useMsal } from "@azure/msal-react";
 import { CheckSquare, Clock, Users } from "lucide-react";
 import { loginRequest } from "../authConfig";
+import { api } from "../api";
 
-const PANELS = [
-  { Icon: CheckSquare, tint: "#dff3fc", fg: "#0998c3", title: "Tasks", sub: "Projects, boards and deadlines" },
-  { Icon: Clock,       tint: "#e8ecfd", fg: "#2b45e1", title: "Time Clock", sub: "Punch in, timesheets, payroll" },
-  { Icon: Users,       tint: "#e6f7ef", fg: "#00a25b", title: "People", sub: "Profiles, leave and documents" },
-];
+// Accent is a Global Admin-configurable setting (AdminPanel -> Branding), not
+// hardcoded - see backend/routers/branding.py. The hero panel needs three
+// gradient stops (not just one brand color), so this keeps its own small
+// palette rather than trying to force everything through the single
+// --wk-brand var the rest of the app reads (see lib/brandAccent.js).
+const ACCENT_PALETTES = {
+  blue:  { light: "#3a52e6", base: "#2b45e1", dark: "#1f36c7", tint: "#e8ecfd", shadow: "rgba(43,69,225,.28)" },
+  green: { light: "hsl(142,55%,42%)", base: "hsl(142,60%,35%)", dark: "hsl(142,65%,25%)", tint: "hsla(142,60%,35%,0.14)", shadow: "hsla(142,60%,35%,.28)" },
+};
 
 export default function LoginPage() {
   const { instance } = useMsal();
   const [on, setOn] = useState(false);
+  const [accent, setAccent] = useState("green");
 
   useEffect(() => {
     const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
@@ -33,6 +41,17 @@ export default function LoginPage() {
     const id = requestAnimationFrame(() => setOn(true));
     return () => cancelAnimationFrame(id);
   }, []);
+
+  useEffect(() => {
+    api.getBrandingConfig().then(cfg => setAccent(cfg.accent === "blue" ? "blue" : "green")).catch(() => {});
+  }, []);
+
+  const P = ACCENT_PALETTES[accent];
+  const PANELS = [
+    { Icon: CheckSquare, tint: "#dff3fc", fg: "#0998c3", title: "Tasks", sub: "Projects, boards and deadlines" },
+    { Icon: Clock,       tint: P.tint,     fg: P.base,    title: "Time Clock", sub: "Punch in, timesheets, payroll" },
+    { Icon: Users,       tint: "#e6f7ef", fg: "#00a25b", title: "People", sub: "Profiles, leave and documents" },
+  ];
 
   return (
     <div className={`nxl${on ? " nxl-on" : ""}`}>
@@ -98,7 +117,7 @@ export default function LoginPage() {
         .nxl-hero {
           position: relative;
           flex: 1 1 52%;
-          background: linear-gradient(160deg, #3a52e6 0%, #2b45e1 55%, #1f36c7 100%);
+          background: linear-gradient(160deg, ${P.light} 0%, ${P.base} 55%, ${P.dark} 100%);
           color: #fff;
           display: flex; flex-direction: column; justify-content: center;
           padding: 56px clamp(36px, 6vw, 84px);
@@ -174,10 +193,10 @@ export default function LoginPage() {
 
         .nxl-badge {
           width: 60px; height: 60px; border-radius: 15px;
-          background: #2b45e1; color: #fff;
+          background: ${P.base}; color: #fff;
           display: flex; align-items: center; justify-content: center;
           font-weight: 800; font-size: 28px;
-          box-shadow: 0 10px 26px rgba(43,69,225,.28);
+          box-shadow: 0 10px 26px ${P.shadow};
           margin-bottom: 24px;
         }
         .nxl-title {
@@ -201,7 +220,7 @@ export default function LoginPage() {
         }
         .nxl-cta:hover { box-shadow: 0 8px 22px rgba(29,33,57,.12); border-color: #b6bbd1; transform: translateY(-1px); }
         .nxl-cta:active { transform: translateY(0); }
-        .nxl-cta:focus-visible { outline: 2px solid #2b45e1; outline-offset: 3px; }
+        .nxl-cta:focus-visible { outline: 2px solid ${P.base}; outline-offset: 3px; }
         .nxl-cta svg { flex-shrink: 0; }
 
         .nxl-note { margin: 16px 0 0; font-size: 12.5px; color: #9699a6; }

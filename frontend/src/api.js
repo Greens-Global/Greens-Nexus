@@ -931,6 +931,13 @@ export const api = {
   stepupStatus:  ()      => req('/stepup/status'),
   stepupVerify:  (token) => req('/stepup/verify', { method: 'POST', body: JSON.stringify({ token: token || '' }) }),
 
+  // ── Branding (login-screen accent color, Global Admin-configurable) ──
+  // GET is unauthenticated on the backend (the login screen itself needs it
+  // pre-login) - req() still works fine here since it just sends no auth
+  // header when there's no signed-in account yet.
+  getBrandingConfig:    ()        => req('/branding/config'),
+  updateBrandingConfig: (accent)  => req('/branding/config', { method: 'PUT', body: JSON.stringify({ accent }) }),
+
   // ── Investor Relations (GP capital management: funds, LPs, calls, distributions) ──
   // List endpoints drop empty/undefined params so filters never send "undefined".
   getIrDashboard:  ()          => req("/investor-relations/dashboard"),
