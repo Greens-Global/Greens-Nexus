@@ -192,14 +192,13 @@ export function RoleProvider({ children }) {
     };
     setActAsSessionId(info.sessionId);
     sessionStorage.setItem(ACT_AS_INFO_KEY, JSON.stringify(info));
-    setActingAsState(info);
-    setLoading(true);
-    try {
-      const roleData = await api.getMyRole();
-      setMyRole(roleData.role ?? 'employee');
-    } finally {
-      setLoading(false);
-    }
+    // FULL RELOAD, not a role refetch (Jul 28 bug: "Act As shows my own stuff").
+    // Refreshing only myRole left every mounted context and view - notifications,
+    // dashboards, Time Clock, My HR, the api GET cache - holding the ADMIN's
+    // already-fetched data, so nothing visibly changed but the banner. A boot
+    // from scratch re-runs every fetch with the X-Act-As-Session header attached
+    // (it persists in sessionStorage), so the whole app comes up as the target.
+    window.location.assign('/');
     return info;
   }, []);
 
@@ -207,17 +206,12 @@ export function RoleProvider({ children }) {
     const sessionId = getActAsSessionId();
     setActAsSessionId(null);
     sessionStorage.removeItem(ACT_AS_INFO_KEY);
-    setActingAsState(null);
     if (sessionId) {
       try { await api.stopActAs(sessionId); } catch { /* best-effort - TTL expiry covers it either way */ }
     }
-    setLoading(true);
-    try {
-      const roleData = await api.getMyRole();
-      setMyRole(roleData.role ?? 'employee');
-    } finally {
-      setLoading(false);
-    }
+    // Same reasoning as startActAs: reboot the app as the real account so no
+    // view keeps serving the target's data after exiting.
+    window.location.assign('/');
   }, []);
 
   // ── Access Groups ──────────────────────────────────────────────────────────

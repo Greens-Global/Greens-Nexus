@@ -365,7 +365,10 @@ export default function HomeView({ onNavigate }) {
             <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Completed this week</h2>
             <span style={{ fontSize: 13, color: NX.faint }}>{weekTotal} task{weekTotal === 1 ? '' : 's'}</span>
           </div>
-          <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', height: 96 }}>
+          <div role="button" tabIndex={0} title="Open your completed tasks"
+            onClick={() => { setTab('Completed'); onNavigate('mine'); }}
+            onKeyDown={(e) => { if (e.key === 'Enter') { setTab('Completed'); onNavigate('mine'); } }}
+            style={{ display: 'flex', gap: 10, alignItems: 'flex-end', height: 96, cursor: 'pointer' }}>
             {doneByDay.map((d) => (
               <div key={d.iso} title={`${d.iso}: ${d.n} completed`}
                 style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', alignItems: 'center', gap: 5, height: '100%' }}>
@@ -388,8 +391,10 @@ export default function HomeView({ onNavigate }) {
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           {dayCharts.dueByDay.map((d) => (
-            <div key={d.iso} title={`${d.iso}: ${d.n} due`}
-              style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, padding: '10px 4px', borderRadius: 12, background: d.today ? NX.ink : NX.hover, minWidth: 0 }}>
+            <div key={d.iso} role="button" tabIndex={0} title={`${d.iso}: ${d.n} due - open upcoming tasks`}
+              onClick={() => { setTab('Upcoming'); onNavigate('mine'); }}
+              onKeyDown={(e) => { if (e.key === 'Enter') { setTab('Upcoming'); onNavigate('mine'); } }}
+              style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, padding: '10px 4px', borderRadius: 12, background: d.today ? NX.ink : NX.hover, minWidth: 0, cursor: 'pointer' }}>
               <span style={{ fontSize: 11, color: d.today ? 'rgba(255,255,255,.7)' : NX.faint }}>{d.day}</span>
               <span style={{ fontSize: 15, fontWeight: 800, color: d.today ? '#fff' : NX.ink, fontVariantNumeric: 'tabular-nums' }}>{d.date}</span>
               <span style={{ minWidth: 20, textAlign: 'center', padding: '1px 6px', borderRadius: 10, fontSize: 11, fontWeight: 700, background: d.n > 0 ? (d.today ? 'rgba(255,255,255,.22)' : '#dff3fc') : 'transparent', color: d.n > 0 ? (d.today ? '#fff' : '#0998c3') : (d.today ? 'rgba(255,255,255,.4)' : NX.border) }}>
@@ -411,7 +416,10 @@ export default function HomeView({ onNavigate }) {
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {dayCharts.prio.map(({ p, color, n }) => (
-              <div key={p} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13 }}>
+              <div key={p} role="button" tabIndex={0} title={`Open your ${p}-priority tasks`}
+                onClick={() => { setTab('Upcoming'); onNavigate('mine'); }}
+                onKeyDown={(e) => { if (e.key === 'Enter') { setTab('Upcoming'); onNavigate('mine'); } }}
+                style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, cursor: 'pointer' }}>
                 <span style={{ width: 62, color: NX.dim, textTransform: 'capitalize', flexShrink: 0 }}>{p}</span>
                 <span style={{ flex: 1, height: 9, borderRadius: 6, background: NX.border2, overflow: 'hidden' }}>
                   <span style={{ display: 'block', height: '100%', width: `${Math.round((n / maxP) * 100)}%`, minWidth: n > 0 ? 10 : 0, borderRadius: 6, background: color }} />
