@@ -251,12 +251,20 @@ def assign_job_role(jr_id: str, body: AssignBody, user: dict = Depends(get_curre
         NexusGroupMember.group_id == jr_id, NexusGroupMember.email == email).first():
         db.add(NexusGroupMember(group_id=jr_id, email=email, added_by=user["email"], added_at=now))
 
+    emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == email).first()
+    # The job role IS the person's title now (Visesh, Jul 28): the card header
+    # showed a stale M365-imported title ("Construction Associate") while the
+    # role said "Marketing Lead". Overwrite deliberately — the M365 sync only
+    # backfills an EMPTY job_title, so this assignment survives future syncs;
+    # "Push to M365" carries it back to Entra when wanted.
+    if emp and (jr.name or "").strip():
+        emp.job_title = jr.name.strip()
+
     # Role's default manager/approver: copy onto the person's card ONLY if they
     # have no manager yet — per-person Manager stays the source of truth, so an
     # existing (deliberate) assignment is never clobbered by a role change.
     default_mgr = (getattr(jr, "default_manager_email", "") or "").strip()
     if default_mgr and default_mgr != email:
-        emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == email).first()
         if emp and not (emp.manager_email or "").strip():
             emp.manager_email = default_mgr
 

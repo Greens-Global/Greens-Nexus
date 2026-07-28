@@ -1030,7 +1030,7 @@ function AccessPicker({ title, items, onPick, onClose, renderItem }) {
   );
 }
 
-function EmployeeAccess({ email, identityType = 'internal', toastOk, toastErr }) {
+function EmployeeAccess({ email, identityType = 'internal', toastOk, toastErr, onChanged }) {
   const [data, setData] = useState(null);
   const [roles, setRoles] = useState([]);
   const [groups, setGroups] = useState([]);
@@ -1047,7 +1047,10 @@ function EmployeeAccess({ email, identityType = 'internal', toastOk, toastErr })
   if (!email) return <div style={{ color: 'var(--muted)', fontSize: 13.5, padding: '20px 4px' }}>This person has no work email yet — provision their account first to manage access.</div>;
   if (!data) return <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} /></div>;
 
-  const assign = async jr => { try { await api.assignJobRole(jr.id, email); setPick(null); toastOk(`Job role set to “${jr.name}”.`); load(); } catch (err) { toastErr(err?.message || 'Could not set job role.'); } };
+  // onChanged refreshes the parent employee record too — assigning a job role
+  // now also rewrites the person's job TITLE (server-side), so the card header
+  // must re-read it, not just the access panel.
+  const assign = async jr => { try { await api.assignJobRole(jr.id, email); setPick(null); toastOk(`Job role set to “${jr.name}” — their title now matches.`); load(); onChanged?.(); } catch (err) { toastErr(err?.message || 'Could not set job role.'); } };
   const addGroup = async g => { try { await api.addGroupMembers(g.id, [email]); setPick(null); toastOk(`Added “${g.name}”.`); load(); } catch (err) { toastErr(err?.message || 'Could not add group.'); } };
   const removeGroup = async g => { try { await api.removeGroupMember(g.id, email); toastOk(`Removed “${g.name}”.`); load(); } catch (err) { toastErr(err?.message || 'Could not remove.'); } };
   const held = new Set((data.extra_groups || []).map(g => g.id));
@@ -1347,7 +1350,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
 
         {tab === 'assets' && <AssetsSection employee={e} />}
 
-        {tab === 'access' && isAdmin && <EmployeeAccess email={meEmail} identityType={e.identityType} toastOk={toastOk} toastErr={toastErr} />}
+        {tab === 'access' && isAdmin && <EmployeeAccess email={meEmail} identityType={e.identityType} toastOk={toastOk} toastErr={toastErr} onChanged={onEmployeeUpdated} />}
 
         {tab === 'documents' && (
           <>
