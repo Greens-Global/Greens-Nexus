@@ -4,8 +4,8 @@ import { hasPending, getRetryCount } from '../../lib/sync.js';
 const STATE_CONFIG = {
   saved: { color: 'green', text: 'All changes saved' },
   saving: { color: 'blue', text: 'Saving…' },
-  retry: { color: 'orange', text: 'Reconnecting — changes will save' },
-  offline: { color: 'orange', text: 'Offline — changes will save when back online' },
+  retry: { color: 'orange', text: 'Reconnecting - changes will save' },
+  offline: { color: 'orange', text: 'Offline - changes will save when back online' },
 };
 
 /** Fixed bottom-left pill showing Saved/Saving/Reconnecting/Offline, polling sync globals every 900ms. */

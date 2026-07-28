@@ -22,13 +22,13 @@ const inputStyle = { width: '100%', padding: '5px 9px', fontSize: '0.82rem' };
  * Two very different data sources feed the same rendering path, and reconciling them is the
  * core trick of this component:
  *   - PROPERTIES read live from PT (the schema) + the free-text `snapshot` (values), via
- *     normLabel()-keyed lookup — PT defines the current desired grouping/order, snapshot only
+ *     normLabel()-keyed lookup - PT defines the current desired grouping/order, snapshot only
  *     holds values. This means renaming/reordering PT fields doesn't require migrating data.
  *   - VEHICLES/EQUIPMENT read directly from their own pre-built `snapshot` array (populated at
- *     seed/normalization time from VEHICLE_FIELDS/EQUIPMENT_FIELDS) — there is no live schema
+ *     seed/normalization time from VEHICLE_FIELDS/EQUIPMENT_FIELDS) - there is no live schema
  *     re-derivation step for these kinds, the snapshot already IS the display structure.
  *
- * Editing writes back through `onSaveDetail`, keyed by field LABEL (not field key) — the parent
+ * Editing writes back through `onSaveDetail`, keyed by field LABEL (not field key) - the parent
  * is responsible for mapping label -> the right storage location (top-level field vs. snapshot
  * value), same asymmetry as the read path above.
  */
@@ -94,7 +94,7 @@ export function AssetDetailForm({ p: asset, onSaveImages, highlight, onSaveDetai
     </div>
   ) : f.t === 'stage' ? (
     <select className="form-input" value={draft[f.l] ?? ''} onChange={(e) => setField(f.l, e.target.value)} style={inputStyle}>
-      <option value="">—</option>
+      <option value="">-</option>
       {STAGE_FORM.map((o) => <option key={o} value={o}>{o}</option>)}
     </select>
   ) : f.t === 'dates' ? (
@@ -204,14 +204,14 @@ export function AssetDetailForm({ p: asset, onSaveImages, highlight, onSaveDetai
                       : f.contact && String(value ?? '').trim()
                         ? <ContactCell name={value} label={f.l} contacts={asset.contacts} onSave={onSaveContact} />
                         : <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)', wordBreak: 'break-word', fontVariantNumeric: 'tabular-nums' }}>
-                          {(value ?? '') === '' ? '—' : f.unitLabel ? `${value} ${f.unitRaw}` : value}
+                          {(value ?? '') === '' ? '-' : f.unitLabel ? `${value} ${f.unitRaw}` : value}
                         </span>}
 
                     {onFlag ? (
                       isFlagged ? (
                         <button
                           onClick={(e) => { e.stopPropagation(); onFlag(asset.id, sec.title, label); }}
-                          title={`Flagged (${flagMap.get(flagKey) || 'Needs review'}) — click to clear`}
+                          title={`Flagged (${flagMap.get(flagKey) || 'Needs review'}) - click to clear`}
                           style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 26, boxSizing: 'border-box', borderRadius: '50%', border: 'none', cursor: 'pointer', backgroundColor: 'hsla(var(--color-orange), 0.18)', color: 'hsl(var(--color-orange))', fontSize: '1.05rem', lineHeight: 1, verticalAlign: 'middle', padding: 0, margin: 0 }}
                         >
                           ⚑
@@ -252,9 +252,9 @@ export function AssetDetailForm({ p: asset, onSaveImages, highlight, onSaveDetai
 /**
  * Derives the section/field list to render.
  *   - Property, part of an assembled group (not the lead parcel): a minimal "Parcel Information"
- *     section only — full detail lives on the lead parcel.
+ *     section only - full detail lives on the lead parcel.
  *   - Property (normal or lead): live from PT, filtered by devStage (dev-only fields hide once
- *     Stabilized, unless actively editing) and by asset class (`okC` — storage/self-storage/
+ *     Stabilized, unless actively editing) and by asset class (`okC` - storage/self-storage/
  *     RV/income gating per group/field `cls`).
  *   - Vehicle/equipment: straight from the pre-built `snapshot` array, no live schema filtering.
  */
@@ -294,11 +294,11 @@ function buildSections(asset, isProperty, editing) {
     return v !== undefined && v !== '' ? v : '';
   };
   // A dev-only field/group is decluttered from the VIEW of a Stabilized property, but only when
-  // it's empty — a populated one must stay visible, otherwise a value the user saved (dev fields
+  // it's empty - a populated one must stay visible, otherwise a value the user saved (dev fields
   // are still editable in edit mode) silently disappears from the view and looks unsaved.
   const hasValue = (field) => String(resolveValue(field) ?? '').trim() !== '';
   // Pulls a field's paired unit-picker value (see Lot Size's unitKey/unitLabel in
-  // propertyFields.js) alongside its own — resolved the same way as any other field, so it
+  // propertyFields.js) alongside its own - resolved the same way as any other field, so it
   // reads live from the top-level record or falls back to the free-text snapshot.
   const withUnit = (f) => f.unitLabel
     ? { unitLabel: f.unitLabel, unitRaw: resolveValue({ label: f.unitLabel, key: f.unitKey }) || 'Acres' }

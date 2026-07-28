@@ -14,7 +14,7 @@ import UpdatesTab from '../investor/UpdatesTab';
 
 // GP-side capital management: funds, LPs, commitments, capital calls,
 // distributions, capital-account statements, documents, and updates.
-// Tab keys are wired into App.jsx routing / the sidebar — do not rename.
+// Tab keys are wired into App.jsx routing / the sidebar - do not rename.
 const TABS = [
   { key: 'investor-dashboard',     label: 'Dashboard',        Icon: LayoutDashboard },
   { key: 'investor-funds',         label: 'Deals',            Icon: Briefcase },
@@ -32,7 +32,7 @@ export default function InvestorRelations({ activeSub, onSubChange }) {
   // reached this view via the "Investor" group's viewer grant (external portal
   // accounts) → the read-only, deal-scoped portal instead. The backend applies
   // the same line (see _my_visible_fund_ids in routers/investor_relations.py),
-  // so this branch is presentation only — never the security boundary.
+  // so this branch is presentation only - never the security boundary.
   const { can } = useRole();
   const isStaff = can('supervisor');
   const sub = activeSub || 'investor-dashboard';
@@ -43,14 +43,14 @@ export default function InvestorRelations({ activeSub, onSubChange }) {
         <div className="view-title-group">
           <h2>Investor Relations</h2>
           <p>{isStaff
-            ? 'Raise, call, distribute, and report — the GP-side capital platform'
-            : 'Your investments with Greens Global — statements, documents, and updates'}</p>
+            ? 'Raise, call, distribute, and report - the GP-side capital platform'
+            : 'Your investments with Greens Global - statements, documents, and updates'}</p>
         </div>
       </div>
 
       {!isStaff ? <InvestorPortal /> : (
         <>
-          {/* Tabs — desktop renders them centered in the top header; phones
+          {/* Tabs - desktop renders them centered in the top header; phones
               keep the in-page strip (ModuleTabs handles both) */}
           <ModuleTabs tabs={TABS} active={sub} onChange={onSubChange} />
 

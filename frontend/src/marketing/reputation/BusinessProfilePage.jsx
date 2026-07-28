@@ -70,7 +70,7 @@ export default function BusinessProfilePage({ range, onRangeChange, property, on
   const questions = questionsByPlatform[platform]
 
   // Only Google has a "Business Profile Performance" API equivalent in this
-  // mock universe — Facebook/Instagram are organic content platforms with no
+  // mock universe - Facebook/Instagram are organic content platforms with no
   // view/click/call analytics, so no insights data source exists for them.
   const insightsPlatform = platform === 'google' ? 'google' : null
   const activeMetricsByFacility = insightsPlatform === 'google' ? profileMetricsByFacility : null
@@ -280,7 +280,7 @@ export default function BusinessProfilePage({ range, onRangeChange, property, on
 
       {compareSelection && insightsPlatform && (
         <PropertyComparisonModal
-          title={`Compare Properties — ${INSIGHTS_TITLE[insightsPlatform]}`}
+          title={`Compare Properties - ${INSIGHTS_TITLE[insightsPlatform]}`}
           rows={comparisonRows.filter((r) => compareSelection.includes(r.name))}
           columns={COMPARISON_COLUMNS}
           onClose={() => setCompareSelection(null)}

@@ -16,9 +16,9 @@ import ModuleTabs from '../components/ModuleTabs';
 import RolesAccess, { LevelPill, ModuleLevelPill, TierBadge } from './RolesAccess';
 import { capabilityText } from '../lib/moduleCapabilities';
 
-// ── HR module — Phase 1: employee master + People directory ──────────────────
+// ── HR module - Phase 1: employee master + People directory ──────────────────
 // Hiring pipeline, org chart and leave land in later phases (tabs are stubs).
-// Old hardcoded onboarding/disclosure screens were dummy data — removed.
+// Old hardcoded onboarding/disclosure screens were dummy data - removed.
 
 const EMP_TYPES = [
   ['full_time', 'Full-Time'], ['part_time', 'Part-Time'], ['contractor', 'Contractor'], ['intern', 'Intern'],
@@ -84,7 +84,7 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
     notes:           employee?.notes || '',
   }));
   const [busy, setBusy] = useState(false);
-  // Department options come from the SELECTED company — no company, no department.
+  // Department options come from the SELECTED company - no company, no department.
   const [deptOptions, setDeptOptions] = useState([]);
   const [deptLoading, setDeptLoading] = useState(false);
   // Inline "add a department" so an empty company list never dead-ends the form.
@@ -135,10 +135,10 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
       if (!editing && jobRoleId) {
         const em = (saved?.workEmail || f.work_email || '').trim();
         if (em) {
-          try { await api.assignJobRole(jobRoleId, em); toastOk?.(`${fullName(saved)} added — job role & access assigned.`); }
-          catch (err) { toastErr(err?.message || 'Employee added, but the job role could not be assigned — set it on their Access tab.'); }
+          try { await api.assignJobRole(jobRoleId, em); toastOk?.(`${fullName(saved)} added - job role & access assigned.`); }
+          catch (err) { toastErr(err?.message || 'Employee added, but the job role could not be assigned - set it on their Access tab.'); }
         } else {
-          toastOk?.('Employee added — assign their job role from the Access tab once a work email is set.');
+          toastOk?.('Employee added - assign their job role from the Access tab once a work email is set.');
         }
       }
       onSaved(saved);
@@ -190,9 +190,9 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
               <select className="form-input" style={{ width: '100%' }} value={f.department} disabled={!f.company}
                 onChange={e => set('department', e.target.value)}>
                 {!f.company
-                  ? <option value="">— pick a company first —</option>
+                  ? <option value="">- pick a company first -</option>
                   : <>
-                      <option value="">{deptLoading ? 'Loading…' : (deptOptions.length ? '— select —' : '— none yet —')}</option>
+                      <option value="">{deptLoading ? 'Loading…' : (deptOptions.length ? '- select -' : '- none yet -')}</option>
                       {f.department && !deptOptions.includes(f.department) && <option value={f.department}>{f.department} (current)</option>}
                       {deptOptions.map(d => <option key={d}>{d}</option>)}
                     </>}
@@ -221,7 +221,7 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
           <div style={{ gridColumn: '1 / -1' }}>
             <label style={FL}>REPORTS TO</label>
             <select className="form-input" style={{ width: '100%' }} value={f.manager_email} onChange={e => set('manager_email', e.target.value)}>
-              <option value="">— no reporting line —</option>
+              <option value="">- no reporting line -</option>
               {managers.map(m => <option key={m.id} value={m.workEmail}>{fullName(m)} ({m.workEmail})</option>)}
             </select>
           </div>
@@ -229,7 +229,7 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
           <div>
             <label style={FL}>COMPANY / ENTITY</label>
             <select className="form-input" style={{ width: '100%' }} value={f.company} onChange={e => set('company', e.target.value)}>
-              <option value="">— not set —</option>
+              <option value="">- not set -</option>
               {entities.map(en => <option key={en.id} value={en.id}>{en.name}</option>)}
             </select>
           </div>
@@ -246,7 +246,7 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
             <div style={{ gridColumn: '1 / -1', border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px', background: 'color-mix(in srgb, var(--ink) 4%, transparent)' }}>
               <label style={FL}>JOB ROLE &amp; ACCESS</label>
               <select className="form-input" style={{ width: '100%' }} value={jobRoleId} onChange={e => setJobRoleId(e.target.value)}>
-                <option value="">— set later on the Access tab —</option>
+                <option value="">- set later on the Access tab -</option>
                 {jobRoles.map(r => <option key={r.id} value={r.id}>{r.name} · {ROLES[r.tier]?.label || r.tier}</option>)}
               </select>
               <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 6 }}>Sets their access &amp; seniority tier from a job role at onboarding. Needs a work email; otherwise assign it later on their card.</div>
@@ -297,10 +297,10 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
   );
 }
 
-// ── Documents (Phase 3) — private bucket, viewed via short-lived signed URLs ──
+// ── Documents (Phase 3) - private bucket, viewed via short-lived signed URLs ──
 const DOC_KINDS = [['resume', 'Resume'], ['id', 'ID'], ['contract', 'Contract'], ['certificate', 'Certificate'], ['other', 'Other']];
 
-// Mailbox export — start a Graph-backed .eml zip and poll it to completion.
+// Mailbox export - start a Graph-backed .eml zip and poll it to completion.
 function MailboxExportSection({ employee, toastOk, toastErr }) {
   const [job, setJob] = useState(undefined);   // undefined = loading, null = none
   const [busy, setBusy] = useState(false);
@@ -316,7 +316,7 @@ function MailboxExportSection({ employee, toastOk, toastErr }) {
 
   async function start() {
     if (busy) return; setBusy(true);
-    try { const j = await api.startMailboxExport(employee.id); setJob(j); toastOk('Mailbox export started — this can take a while for large mailboxes.'); }
+    try { const j = await api.startMailboxExport(employee.id); setJob(j); toastOk('Mailbox export started - this can take a while for large mailboxes.'); }
     catch (e) { toastErr(e?.message || 'Could not start export.'); }
     setBusy(false);
   }
@@ -368,7 +368,7 @@ function MailboxExportSection({ employee, toastOk, toastErr }) {
 }
 
 // Live read of what a person holds in Item Management (Section B5). No data is
-// stored here — Items stays the single source of truth; this deep-links into it.
+// stored here - Items stays the single source of truth; this deep-links into it.
 function AssetsSection({ employee }) {
   const [data, setData] = useState(null);
   useEffect(() => { api.getEmployeeAssets(employee.id).then(setData).catch(() => setData({ assignments: [], checkouts: [] })); }, [employee.id]);
@@ -401,7 +401,7 @@ function AssetsSection({ employee }) {
         <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0' }}>Loading…</div>
       ) : total === 0 ? (
         <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0' }}>
-          {employee.workEmail ? 'No assigned equipment or active checkouts.' : 'No work email yet — provision the account to link assets.'}
+          {employee.workEmail ? 'No assigned equipment or active checkouts.' : 'No work email yet - provision the account to link assets.'}
         </div>
       ) : (
         <div>
@@ -488,7 +488,7 @@ const STEP_COLOR = { ok: '--color-green', failed: '--color-red', manual: '--colo
 function ProvisionModal({ employee: e, onClose, onDone, toastErr }) {
   const guess = `${(e.firstName || '').toLowerCase()}.${(e.lastName || '').toLowerCase()}`.replace(/\.+$/, '') + '@greensglobal.com';
   const [email, setEmail] = useState(e.workEmail || guess);
-  // Usage location drives license compliance — guess India from the profile, else US
+  // Usage location drives license compliance - guess India from the profile, else US
   const [usageLoc, setUsageLoc] = useState(() =>
     /india/i.test(`${e.location} ${e.department} ${e.notes}`) ? 'IN' : 'US');
   const [skus, setSkus] = useState(null);
@@ -521,14 +521,14 @@ function ProvisionModal({ employee: e, onClose, onDone, toastErr }) {
       onClick={ev => ev.target === ev.currentTarget && !busy && onClose()}>
       <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 500, maxHeight: 'min(92dvh, 680px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
         <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
-          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>Provision accounts — {fullName(e)}</h3>
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>Provision accounts - {fullName(e)}</h3>
           <button onClick={onClose} disabled={busy} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
         <div style={{ overflowY: 'auto', flex: 1, padding: '18px 24px' }}>
           {!result ? (<>
             <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 16px', lineHeight: 1.55 }}>
-              Creates the Microsoft 365 account (with a temp password shown once to you), assigns the license — which
-              is what creates the Outlook mailbox — sets the Entra reporting line, and emails a welcome note to their
+              Creates the Microsoft 365 account (with a temp password shown once to you), assigns the license - which
+              is what creates the Outlook mailbox - sets the Entra reporting line, and emails a welcome note to their
               personal address. Asana and Ignite stay manual checklist items for now.
             </p>
             <label style={FL}>WORK EMAIL (becomes their sign-in) *</label>
@@ -538,7 +538,7 @@ function ProvisionModal({ employee: e, onClose, onDone, toastErr }) {
               <option value="US">United States</option>
               <option value="IN">India</option>
             </select>
-            <label style={FL}>LICENSES{picked.size > 0 ? ` (${picked.size} selected)` : ' — none selected: no mailbox'}</label>
+            <label style={FL}>LICENSES{picked.size > 0 ? ` (${picked.size} selected)` : ' - none selected: no mailbox'}</label>
             {skus === null ? <Loader2 size={16} style={{ animation: 'spin 0.8s linear infinite', color: 'var(--muted)' }} /> : (
               <div style={{ border: '1px solid var(--line)', borderRadius: 10, maxHeight: 220, overflowY: 'auto' }}>
                 {skus.map((s, i) => {
@@ -569,7 +569,7 @@ function ProvisionModal({ employee: e, onClose, onDone, toastErr }) {
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <span style={{ fontWeight: 600 }}>{STEP_LABEL[s.step]}</span>
                     <span style={{ color: 'var(--muted)', marginLeft: 7, fontSize: 12 }}>
-                      {s.status === 'manual' ? 'manual step' : s.status}{s.detail ? ` — ${s.detail}` : ''}
+                      {s.status === 'manual' ? 'manual step' : s.status}{s.detail ? ` - ${s.detail}` : ''}
                     </span>
                   </div>
                 </div>
@@ -577,13 +577,13 @@ function ProvisionModal({ employee: e, onClose, onDone, toastErr }) {
             </div>
             {result.tempPassword && (
               <div style={{ marginTop: 16, background: 'hsla(var(--color-orange),0.08)', border: '1px solid hsla(var(--color-orange),0.35)', borderRadius: 10, padding: '12px 14px' }}>
-                <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.06em', color: 'hsl(var(--color-orange))', marginBottom: 5 }}>TEMP PASSWORD — SHOWN ONLY ONCE</div>
+                <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.06em', color: 'hsl(var(--color-orange))', marginBottom: 5 }}>TEMP PASSWORD - SHOWN ONLY ONCE</div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <code style={{ fontSize: 14, fontWeight: 700 }}>{result.tempPassword}</code>
                   <button className="secondary-btn" style={{ fontSize: 11.5, padding: '4px 10px' }}
                     onClick={() => navigator.clipboard?.writeText(result.tempPassword)}>Copy</button>
                 </div>
-                <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 5 }}>Share it with {e.firstName} directly — they must change it on first sign-in. It is not stored anywhere.</div>
+                <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 5 }}>Share it with {e.firstName} directly - they must change it on first sign-in. It is not stored anywhere.</div>
               </div>
             )}
           </>)}
@@ -603,7 +603,7 @@ function ProvisionModal({ employee: e, onClose, onDone, toastErr }) {
   );
 }
 
-// ── Profile photo editor — view, re-crop (pan + zoom slider, thirds grid),
+// ── Profile photo editor - view, re-crop (pan + zoom slider, thirds grid),
 //    or choose a new photo; exports a 512px square JPEG via canvas ────────────
 function PhotoEditorModal({ employee: e, onClose, onSaved, toastOk, toastErr }) {
   const STAGE = 280;
@@ -681,7 +681,7 @@ function PhotoEditorModal({ employee: e, onClose, onSaved, toastOk, toastErr }) 
         try {
           ctx.drawImage(imgRef.current, -off.x / scale, -off.y / scale, src, src, 0, 0, 512, 512);
         } catch (err) { reject(err); return; }
-        canvas.toBlob(b => b ? resolve(b) : reject(new Error('Could not read the image — pick the file again.')), 'image/jpeg', 0.9);
+        canvas.toBlob(b => b ? resolve(b) : reject(new Error('Could not read the image - pick the file again.')), 'image/jpeg', 0.9);
       });
       const form = new FormData();
       form.append('file', blob, 'avatar.jpg');
@@ -690,7 +690,7 @@ function PhotoEditorModal({ employee: e, onClose, onSaved, toastOk, toastErr }) 
       toastOk('Profile photo updated.');
       onClose();
     } catch (err) {
-      toastErr(err?.message || 'Could not save the photo — try choosing the file again.');
+      toastErr(err?.message || 'Could not save the photo - try choosing the file again.');
       setBusy(false);
     }
   }
@@ -725,7 +725,7 @@ function PhotoEditorModal({ employee: e, onClose, onSaved, toastOk, toastErr }) 
             </div>
           ) : (
             <div style={{ width: STAGE, height: STAGE, borderRadius: 14, border: '1.5px dashed var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted)', fontSize: 13 }}>
-              No photo yet — choose one below
+              No photo yet - choose one below
             </div>
           )}
           {/* Zoom slider */}
@@ -770,7 +770,7 @@ function fmtTenure(startDate) {
   return y ? (m ? `${y}y ${m}m` : `${y}y`) : `${m}m`;
 }
 
-// The soonest date that matters for this person — right-to-work doc expiry or,
+// The soonest date that matters for this person - right-to-work doc expiry or,
 // for contractors, contract end. Returns { label, date, days } or null.
 function nextExpiry(e) {
   const cands = [
@@ -807,7 +807,7 @@ function PayTab({ employee, reloadToken, onEdit }) {
     api.getCompensation(employee.id)
       .then(r => { if (live) { setStepLocked(false); setData({ comp: r.compensation || {}, bank: r.bank || [] }); } })
       .catch(e => {
-        // Compensation/bank require a fresh step-up MFA — show the Verify gate.
+        // Compensation/bank require a fresh step-up MFA - show the Verify gate.
         if (isStepUpRequired(e)) { if (live) setStepLocked(true); return; }
         if (live) setData({ comp: {}, bank: [] });
       });
@@ -838,13 +838,13 @@ function PayTab({ employee, reloadToken, onEdit }) {
     try { await api.deleteEmployeeDoc(id); setStubs(s => s.filter(x => x.id !== id)); } catch { /* noop */ }
   };
 
-  const money = (v, cur) => v ? `${cur === 'INR' ? '₹' : '$'}${Number(v).toLocaleString()}` : '—';
+  const money = (v, cur) => v ? `${cur === 'INR' ? '₹' : '$'}${Number(v).toLocaleString()}` : '-';
   const label = (list, v) => (list.find(([x]) => x === v) || [])[1] || v || '';
   const sectionLabel = txt => <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.06em', color: 'var(--muted)', textTransform: 'uppercase', margin: '16px 0 8px' }}>{txt}</div>;
   const row2 = (k, lbl, value) => (
     <div key={k} style={{ display: 'flex', gap: 10, padding: '7px 0', borderBottom: '1px solid var(--line)' }}>
       <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.06em', color: 'var(--muted)', textTransform: 'uppercase', width: 150, flexShrink: 0 }}>{lbl}</span>
-      <span style={{ fontSize: 13.5, color: value ? 'var(--ink)' : 'var(--muted)' }}>{value || '—'}</span>
+      <span style={{ fontSize: 13.5, color: value ? 'var(--ink)' : 'var(--muted)' }}>{value || '-'}</span>
     </div>
   );
 
@@ -902,7 +902,7 @@ function PayTab({ employee, reloadToken, onEdit }) {
   );
 }
 
-// "Ask HR" inbox — employee self-service requests raised from My HR. Open ones
+// "Ask HR" inbox - employee self-service requests raised from My HR. Open ones
 // surface at the top of the People tab; resolving notifies the employee and
 // shows your response on their My HR screen.
 function EmployeeRequestsPanel({ toastOk, toastErr }) {
@@ -922,7 +922,7 @@ function EmployeeRequestsPanel({ toastOk, toastErr }) {
       await api.hrSelfRequestResolve(id, { response });
       setReqs(rs => rs.map(r => r.id === id ? { ...r, status: 'resolved', response } : r));
       setResolving(null); setResponse('');
-      toastOk?.('Resolved — the employee has been notified');
+      toastOk?.('Resolved - the employee has been notified');
     } catch (e) { toastErr?.(e?.message || 'Could not resolve'); }
     finally { setBusy(false); }
   };
@@ -940,7 +940,7 @@ function EmployeeRequestsPanel({ toastOk, toastErr }) {
   return (
     <div style={{ border: '1px solid hsla(var(--color-blue),0.25)', borderRadius: 12, background: 'hsla(var(--color-blue),0.03)', padding: '14px 16px', marginBottom: 18 }}>
       <div style={{ fontSize: 12, fontWeight: 700, color: 'hsl(var(--color-blue))', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 10 }}>
-        Employee requests — {open.length} open
+        Employee requests - {open.length} open
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {open.map(r => (
@@ -1005,7 +1005,7 @@ function EmployeeRequestsPanel({ toastOk, toastErr }) {
 }
 
 
-// ── Access section on a person's card (admin-only) — the "assign it on the
+// ── Access section on a person's card (admin-only) - the "assign it on the
 // person's card" flow: pick their Job Role (sets tier + base access) + any extra
 // groups, and see the resolved effective access. Backed by /jobroles/effective.
 const _accBox = { border: '1px solid var(--line)', borderRadius: 12, padding: 14, background: 'var(--paper)' };
@@ -1044,13 +1044,13 @@ function EmployeeAccess({ email, identityType = 'internal', toastOk, toastErr, o
   useEffect(() => { api.getJobRoles().then(setRoles).catch(() => {}); api.getGroups().then(gs => setGroups(gs.filter(g => !g.is_job_role))).catch(() => {}); api.getEntities().then(setEntities).catch(() => {}); }, []);
   const isExternal = identityType === 'external' || identityType === 'guest';
 
-  if (!email) return <div style={{ color: 'var(--muted)', fontSize: 13.5, padding: '20px 4px' }}>This person has no work email yet — provision their account first to manage access.</div>;
+  if (!email) return <div style={{ color: 'var(--muted)', fontSize: 13.5, padding: '20px 4px' }}>This person has no work email yet - provision their account first to manage access.</div>;
   if (!data) return <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} /></div>;
 
-  // onChanged refreshes the parent employee record too — assigning a job role
+  // onChanged refreshes the parent employee record too - assigning a job role
   // now also rewrites the person's job TITLE (server-side), so the card header
   // must re-read it, not just the access panel.
-  const assign = async jr => { try { await api.assignJobRole(jr.id, email); setPick(null); toastOk(`Job role set to “${jr.name}” — their title now matches.`); load(); onChanged?.(); } catch (err) { toastErr(err?.message || 'Could not set job role.'); } };
+  const assign = async jr => { try { await api.assignJobRole(jr.id, email); setPick(null); toastOk(`Job role set to “${jr.name}” - their title now matches.`); load(); onChanged?.(); } catch (err) { toastErr(err?.message || 'Could not set job role.'); } };
   const addGroup = async g => { try { await api.addGroupMembers(g.id, [email]); setPick(null); toastOk(`Added “${g.name}”.`); load(); } catch (err) { toastErr(err?.message || 'Could not add group.'); } };
   const removeGroup = async g => { try { await api.removeGroupMember(g.id, email); toastOk(`Removed “${g.name}”.`); load(); } catch (err) { toastErr(err?.message || 'Could not remove.'); } };
   const held = new Set((data.extra_groups || []).map(g => g.id));
@@ -1077,7 +1077,7 @@ function EmployeeAccess({ email, identityType = 'internal', toastOk, toastErr, o
         </div>
         <div style={_accBox}>
           <div style={_accLabel}><span>Additional groups</span><span>{(data.extra_groups || []).length}</span></div>
-          {(data.extra_groups || []).length === 0 ? <div style={{ color: 'var(--muted)', fontSize: 12.5 }}>None — access comes from the job role.</div>
+          {(data.extra_groups || []).length === 0 ? <div style={{ color: 'var(--muted)', fontSize: 12.5 }}>None - access comes from the job role.</div>
             : (data.extra_groups || []).map(g => (
               <div key={g.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 0', borderBottom: '1px solid var(--line)' }}>
                 <span style={{ fontWeight: 600, fontSize: 12.5, flex: 1 }}>{g.name}</span>
@@ -1091,7 +1091,7 @@ function EmployeeAccess({ email, identityType = 'internal', toastOk, toastErr, o
       </div>
 
       <div style={{ ..._accLabel, margin: '22px 0 10px' }}>Effective access · {(data.modules || []).length} modules</div>
-      {(data.modules || []).length === 0 ? <div style={{ color: 'var(--muted)', fontSize: 13 }}>No module access yet — set a job role above.</div> : (
+      {(data.modules || []).length === 0 ? <div style={{ color: 'var(--muted)', fontSize: 13 }}>No module access yet - set a job role above.</div> : (
         <div style={{ border: '1px solid var(--line)', borderRadius: 12, overflow: 'hidden' }}>
           {(data.modules || []).map((m, i) => {
             const mod = MODULES.find(x => x.id === m.module);
@@ -1131,7 +1131,7 @@ function EmployeeAccess({ email, identityType = 'internal', toastOk, toastErr, o
           )}
           <div style={{ display: 'flex', gap: 8 }}>
             <select className="form-input" style={{ flex: 1 }} value={addCo} onChange={e => setAddCo(e.target.value)}>
-              <option value="">— add a company —</option>
+              <option value="">- add a company -</option>
               {entities.filter(en => !scopedCoIds.has(en.id)).map(en => <option key={en.id} value={en.id}>{en.name}</option>)}
             </select>
             <button className="secondary-btn" onClick={addScope} disabled={!addCo} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: addCo ? 1 : 0.6 }}><Plus size={13} /> Limit</button>
@@ -1160,7 +1160,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
   const [tab, setTab] = useState('overview');
   const [payReload, setPayReload] = useState(0);   // bump to refetch PayTab after an edit
   const sm = STATUS_META[e.status] || STATUS_META.active;
-  // Case-insensitive email match — manager_email is stored lowercased server-side
+  // Case-insensitive email match - manager_email is stored lowercased server-side
   // and the org chart matches the same way, so a reassignment there reflects here.
   const meEmail = (e.workEmail || '').toLowerCase();
   const mgrEmail = (e.managerEmail || '').toLowerCase();
@@ -1170,7 +1170,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', borderBottom: '1px solid var(--line)' }}>
       <Icon size={14} style={{ color: 'var(--muted)', flexShrink: 0 }} />
       <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.06em', color: 'var(--muted)', textTransform: 'uppercase', width: 110, flexShrink: 0 }}>{label}</span>
-      <span style={{ fontSize: 13.5, color: value ? 'var(--ink)' : 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis' }}>{value || '—'}</span>
+      <span style={{ fontSize: 13.5, color: value ? 'var(--ink)' : 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis' }}>{value || '-'}</span>
     </div>
   );
   const tabs = [
@@ -1254,11 +1254,11 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
           </>
         )}
       </div>
-      {/* Stat cards — all derived from the loaded record, no extra fetch */}
+      {/* Stat cards - all derived from the loaded record, no extra fetch */}
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 16 }}>
-        <StatCard label="Tenure" value={fmtTenure(e.startDate) || '—'} sub={e.startDate ? `since ${e.startDate}` : 'no start date'} />
+        <StatCard label="Tenure" value={fmtTenure(e.startDate) || '-'} sub={e.startDate ? `since ${e.startDate}` : 'no start date'} />
         <StatCard label="Direct reports" value={reports.length} sub={manager ? `reports to ${fullName(manager)}` : 'no manager'} />
-        <StatCard label="Type" value={TYPE_LABEL[e.employmentType] || '—'} sub={e.department || '—'} />
+        <StatCard label="Type" value={TYPE_LABEL[e.employmentType] || '-'} sub={e.department || '-'} />
         {expiry
           ? <StatCard label={expiry.label} value={expiry.days < 0 ? 'Expired' : `${expiry.days}d`} sub={expiry.date} tone={expiry.days < 0 ? 'red' : expiry.days <= 60 ? 'orange' : undefined} />
           : <StatCard label="Compliance" value="Clear" sub="no upcoming expiry" />}
@@ -1425,7 +1425,7 @@ function CandidateFormModal({ onClose, onSaved, toastErr }) {
           {input('EMAIL', 'email', { type: 'email' })}
           {input('PHONE', 'phone')}
           {input('ROLE APPLYING FOR', 'role_title')}
-          {input('DEPARTMENT', 'department', { placeholder: 'target area — set for real on hire' })}
+          {input('DEPARTMENT', 'department', { placeholder: 'target area - set for real on hire' })}
           {input('EXPECTED START', 'expected_start', { type: 'date' })}
           {input('SOURCE', 'source', { placeholder: 'Referral, LinkedIn…' })}
           <div style={{ gridColumn: '1 / -1' }}><label style={FL}>NOTES</label>
@@ -1624,7 +1624,7 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
       setCandidates(prev => prev.map(x => x.id === c.id ? updated : x));
       setDetail(null);
       if (stage === 'hired') {
-        toastOk(`${candName(c)} hired — added to People as Onboarding (${updated.createdEmployee?.employeeCode || ''}).`);
+        toastOk(`${candName(c)} hired - added to People as Onboarding (${updated.createdEmployee?.employeeCode || ''}).`);
         if (updated.createdEmployee) onEmployeeCreated(updated.createdEmployee);
       } else if (stage === 'rejected') toastOk(`${candName(c)} marked rejected.`);
       else toastOk(`${candName(c)} → ${STAGE_META[stage].label}.`);
@@ -1649,7 +1649,7 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{candName(c)}</div>
-            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.roleTitle || c.department || '—'}</div>
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.roleTitle || c.department || '-'}</div>
           </div>
           <span style={{ fontSize: 10.5, color: 'var(--muted)', fontWeight: 600, flexShrink: 0 }}>{daysSince(c.updatedAt)}d</span>
         </div>
@@ -1708,7 +1708,7 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
         <div style={{ textAlign: 'center', padding: '56px 20px', color: 'var(--muted)', border: '1px dashed var(--line)', borderRadius: 14 }}>
           <UserPlus size={32} style={{ opacity: .25, display: 'block', margin: '0 auto 10px' }} />
           <div style={{ fontSize: 14, fontWeight: 600 }}>No candidates yet.</div>
-          <div style={{ fontSize: 12.5, marginTop: 4 }}>Add one and walk them through Applied → Hired — hiring creates the employee record automatically.</div>
+          <div style={{ fontSize: 12.5, marginTop: 4 }}>Add one and walk them through Applied → Hired - hiring creates the employee record automatically.</div>
         </div>
       ) : isMobile ? (
         /* Phone: stage-grouped stacks, same data as the desktop board */
@@ -1729,7 +1729,7 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
           })}
         </div>
       ) : (
-        /* Desktop: kanban lanes — full height so the board reads as a board */
+        /* Desktop: kanban lanes - full height so the board reads as a board */
         <div style={{ display: 'grid', gridTemplateColumns: `repeat(${showClosed ? 6 : 4}, 1fr)`, gap: 12, alignItems: 'stretch' }}>
           {[...STAGES.slice(0, 4), ...(showClosed ? ['hired', 'rejected'] : [])].map(s => {
             const items = byStage(s);
@@ -1765,7 +1765,7 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
   );
 }
 
-// ── Org chart (Phase 5) — top-down node chart on a pan/zoom canvas ────────────
+// ── Org chart (Phase 5) - top-down node chart on a pan/zoom canvas ────────────
 // Functional divisions colour the chart: a person's division is their own
 // head-tag if set, else inherited from the nearest tagged manager above them.
 // A fixed palette keeps each division's colour stable across renders.
@@ -1785,7 +1785,7 @@ const divColorFor = (name, names) => {
   return DIVISION_PALETTE[(i < 0 ? 0 : i) % DIVISION_PALETTE.length];
 };
 
-// A single node card — minimal, fixed-width, avatar-forward, with a coloured
+// A single node card - minimal, fixed-width, avatar-forward, with a coloured
 // division accent bar down its left edge. The reports pill hangs off the bottom
 // edge and doubles as the collapse toggle. data-orgcard lets the canvas tell a
 // card press from a pan; data-email lets drop resolve the target across the
@@ -1811,7 +1811,7 @@ function OrgNodeCard({ e, kids, isCollapsed, onToggle, onSelect, dnd, entityName
         <Avatar e={e} size={40} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fullName(e)}</div>
-          <div style={{ fontSize: 11, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.jobTitle || '—'}</div>
+          <div style={{ fontSize: 11, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.jobTitle || '-'}</div>
           <div style={{ fontSize: 10, color: 'var(--muted)', opacity: 0.85, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {[e.department, entityName(e.company)].filter(Boolean).join(' · ')}
           </div>
@@ -1911,7 +1911,7 @@ function OrgSidePanel({ e, people, entities, entityName, descendants, divisionNa
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontWeight: 800, fontSize: 16 }}>{fullName(e)}</div>
             <div style={{ fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {[e.jobTitle, e.department].filter(Boolean).join(' · ') || '—'}
+              {[e.jobTitle, e.department].filter(Boolean).join(' · ') || '-'}
             </div>
             {e.workEmail && <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{e.workEmail}</div>}
           </div>
@@ -1922,8 +1922,8 @@ function OrgSidePanel({ e, people, entities, entityName, descendants, divisionNa
           <label style={lbl}>Reports to</label>
           <select className="form-input" style={{ width: '100%' }} value={f.manager_email}
             onChange={ev => setF(x => ({ ...x, manager_email: ev.target.value }))}>
-            <option value="">— No manager (top of a tree) —</option>
-            {managerOptions.map(p => <option key={p.id} value={(p.workEmail || '').toLowerCase()}>{fullName(p)}{p.jobTitle ? ` — ${p.jobTitle}` : ''}</option>)}
+            <option value="">- No manager (top of a tree) -</option>
+            {managerOptions.map(p => <option key={p.id} value={(p.workEmail || '').toLowerCase()}>{fullName(p)}{p.jobTitle ? ` - ${p.jobTitle}` : ''}</option>)}
           </select>
 
           <label style={lbl}>Job title</label>
@@ -1934,13 +1934,13 @@ function OrgSidePanel({ e, people, entities, entityName, descendants, divisionNa
 
           <label style={lbl}>Company</label>
           <select className="form-input" style={{ width: '100%' }} value={f.company} onChange={ev => setF(x => ({ ...x, company: ev.target.value }))}>
-            <option value="">—</option>
+            <option value="">-</option>
             {entities.map(en => <option key={en.id} value={en.id}>{en.name}</option>)}
           </select>
 
           <label style={lbl}>Division lead of</label>
           <input className="form-input" style={{ width: '100%' }} list="org-divisions"
-            placeholder="e.g. Operations — leave blank if not a division lead"
+            placeholder="e.g. Operations - leave blank if not a division lead"
             value={f.division} onChange={ev => setF(x => ({ ...x, division: ev.target.value }))} />
           <datalist id="org-divisions">
             {(divisionNames || []).map(d => <option key={d} value={d} />)}
@@ -1950,7 +1950,7 @@ function OrgSidePanel({ e, people, entities, entityName, descendants, divisionNa
               ? `Everyone reporting under ${fullName(e)} is coloured as “${f.division.trim()}”, until another lead is tagged below them.`
               : inherited
                 ? `Inherits “${inherited}” from their manager. Type a name here to make ${fullName(e)} their own division lead.`
-                : `Not in any division. Type a name to make ${fullName(e)} a division lead — their whole team inherits it.`}
+                : `Not in any division. Type a name to make ${fullName(e)} a division lead - their whole team inherits it.`}
           </div>
 
           <button className="primary-btn" onClick={save} disabled={!dirty || busy}
@@ -2025,7 +2025,7 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
     }
   }
 
-  // Everyone below `email` in the tree — used to refuse drops that would loop
+  // Everyone below `email` in the tree - used to refuse drops that would loop
   function descendants(email) {
     const seen = new Set();
     const queue = [email];
@@ -2050,7 +2050,7 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
       if ((dragged.managerEmail || '').toLowerCase() === targetEmail) return;
       const myEmail = (dragged.workEmail || '').toLowerCase();
       if (myEmail && descendants(myEmail).has(targetEmail)) {
-        toastErr(`${fullName(target)} reports up to ${fullName(dragged)} — that would create a loop.`);
+        toastErr(`${fullName(target)} reports up to ${fullName(dragged)} - that would create a loop.`);
         return;
       }
     }
@@ -2063,7 +2063,7 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
     } catch (err) { toastErr(err?.message || 'Could not change the reporting line.'); }
   }
 
-  // Pointer-based drag (works with mouse AND touch — native HTML5 drag does
+  // Pointer-based drag (works with mouse AND touch - native HTML5 drag does
   // neither on a touch display). A small threshold distinguishes a tap (opens
   // the side panel) from a drag; while dragging we track the card under the
   // pointer via elementFromPoint (robust through the zoom transform) and show a
@@ -2103,7 +2103,7 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
   };
 
   const dnd = { draggingId, setDraggingId, overKey, setOverKey, drop, onCardPointerDown };
-  // Managers (people with reports) before leaves, then alphabetical — keeps
+  // Managers (people with reports) before leaves, then alphabetical - keeps
   // wide sibling rows readable
   const kidCount = e => (childrenMap.get((e.workEmail || '').toLowerCase()) || []).length;
   for (const arr of childrenMap.values()) {
@@ -2111,7 +2111,7 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
   }
   const hasManager = e => (e.managerEmail || '') && emails.has((e.managerEmail || '').toLowerCase());
   const roots = people.filter(e => !hasManager(e) && (childrenMap.get((e.workEmail || '').toLowerCase()) || []).length > 0);
-  // Busacta-style: surface the unlinked instead of hiding them — forces the data complete
+  // Busacta-style: surface the unlinked instead of hiding them - forces the data complete
   const unlinked = people.filter(e => !hasManager(e) && !(childrenMap.get((e.workEmail || '').toLowerCase()) || []).length);
   const linked = people.length - unlinked.length;
 
@@ -2139,12 +2139,12 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
   for (const p of people) { const d = divisionOf(p); if (d) divisionCounts[d] = (divisionCounts[d] || 0) + 1; }
 
   // ── Filters: company (live from the entities table), department, name search.
-  // Filtering rebuilds the tree from the filtered set — unmatched managers drop
+  // Filtering rebuilds the tree from the filtered set - unmatched managers drop
   // out and their matching reports surface as roots.
   const departments = [...new Set(people.map(e => e.department).filter(Boolean))].sort();
   const q = orgQ.trim().toLowerCase();
   // Company/department FILTER the tree; search FINDS within it (expand + center
-  // + highlight) — filtering by name would amputate the person's whole subtree.
+  // + highlight) - filtering by name would amputate the person's whole subtree.
   const visible = people.filter(e =>
     (!orgCompany || e.company === orgCompany) &&
     (!orgDept || e.department === orgDept));
@@ -2180,21 +2180,21 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
     divisionOf, divColor, activeDiv,
   };
 
-  // ── Pan & zoom canvas — the chart never overflows the page; you pan/zoom
+  // ── Pan & zoom canvas - the chart never overflows the page; you pan/zoom
   // within a fixed viewport. Default = 100% zoom, centered; Fit is opt-in.
   const centerView = () => requestAnimationFrame(() => {
     const c = canvasRef.current, k = contentRef.current;
     if (!c || !k) return;
     const kw = k.scrollWidth;
     setZoom(1);
-    // Centre on the content midpoint — when the tree is wider than the canvas
+    // Centre on the content midpoint - when the tree is wider than the canvas
     // this puts the middle in view (edges pan-reachable) rather than left-pinning.
     setPan({ x: (c.clientWidth - kw) / 2, y: 24 });
   });
   const fitToView = () => requestAnimationFrame(() => {
     const c = canvasRef.current, k = contentRef.current;
     if (!c || !k) return;
-    // scrollWidth reports untransformed layout size — no zoom correction needed
+    // scrollWidth reports untransformed layout size - no zoom correction needed
     const kw = k.scrollWidth, kh = k.scrollHeight;
     if (!kw || !kh) return;
     const s = Math.max(0.35, Math.min(1, (c.clientWidth - 48) / kw, (c.clientHeight - 48) / kh));
@@ -2253,7 +2253,7 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
   if (!people.length) return (
     <div style={{ textAlign: 'center', padding: '56px 20px', color: 'var(--muted)', border: '1px dashed var(--line)', borderRadius: 14 }}>
       <Network size={32} style={{ opacity: .25, display: 'block', margin: '0 auto 10px' }} />
-      <div style={{ fontSize: 14, fontWeight: 600 }}>Add people first — the chart draws itself from each person's "Reports to".</div>
+      <div style={{ fontSize: 14, fontWeight: 600 }}>Add people first - the chart draws itself from each person's "Reports to".</div>
     </div>
   );
   return (
@@ -2264,7 +2264,7 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
           onClick={() => { setCollapsedSet(new Set()); setTimeout(centerView, 60); }}>Expand all</button>
         <button className="secondary-btn" style={{ fontSize: 12, flex: '0 0 auto' }}
           onClick={() => { setCollapsedSet(new Set([...visChildren.keys()])); setTimeout(centerView, 60); }}>Collapse all</button>
-        {/* Kit proportion: search is a field, not a runway — cap its width. */}
+        {/* Kit proportion: search is a field, not a runway - cap its width. */}
         <div className="search-bar" style={{ flex: '1 1 240px', minWidth: 200, maxWidth: 360, height: 34 }}>
           <Search size={13} style={{ flexShrink: 0 }} />
           <input placeholder="Search people…" value={orgQ} onChange={ev => setOrgQ(ev.target.value)} />
@@ -2285,7 +2285,7 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
         </span>
       </div>
 
-      {/* Division legend — click a chip to spotlight that division (dim the rest).
+      {/* Division legend - click a chip to spotlight that division (dim the rest).
           Colours match each card's left accent bar. */}
       {divisionNames.length > 0 && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
@@ -2311,7 +2311,7 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
         </div>
       )}
 
-      {/* Detach zone appears only mid-drag — drag a card here to unlink it */}
+      {/* Detach zone appears only mid-drag - drag a card here to unlink it */}
       {draggingId && (
         <div data-detach="1"
           style={{ marginBottom: 10, border: `2px dashed ${overKey === '__none__' ? 'hsl(var(--color-red))' : 'var(--line)'}`, borderRadius: 12, padding: '10px 16px', textAlign: 'center', fontSize: 12, fontWeight: 700, color: overKey === '__none__' ? 'hsl(var(--color-red))' : 'var(--muted)', background: overKey === '__none__' ? 'hsla(var(--color-red),0.06)' : 'transparent' }}>
@@ -2319,7 +2319,7 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
         </div>
       )}
 
-      {/* The chart canvas — drag empty space to pan, controls to zoom/fit.
+      {/* The chart canvas - drag empty space to pan, controls to zoom/fit.
           Card drag is pointer-based (see onCardPointerDown), so it works with a
           finger and resolves the drop target through the zoom transform. */}
       <div ref={canvasRef} onPointerDown={startPan}
@@ -2357,7 +2357,7 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
       {visUnlinked.length > 0 && (
         <div style={{ marginTop: 14 }}>
           <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', color: 'hsl(var(--color-orange))', textTransform: 'uppercase', marginBottom: 8 }}>
-            No reporting line — drag onto the chart above, or tap to set who they report to
+            No reporting line - drag onto the chart above, or tap to set who they report to
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
             {visUnlinked.map(e => {
@@ -2372,7 +2372,7 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
         </div>
       )}
 
-      {/* Floating drag ghost — follows the pointer/finger while dragging a card */}
+      {/* Floating drag ghost - follows the pointer/finger while dragging a card */}
       {dragGhost && (
         <div style={{ position: 'fixed', left: dragGhost.x + 14, top: dragGhost.y + 8, zIndex: 2000, pointerEvents: 'none',
           background: 'var(--ink)', color: 'var(--card)', fontSize: 12, fontWeight: 700, padding: '5px 11px', borderRadius: 8,
@@ -2424,7 +2424,7 @@ function LeaveFormModal({ employees, onClose, onSaved, toastErr }) {
         <div style={{ overflowY: 'auto', flex: 1, padding: '18px 24px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
           <div style={{ gridColumn: '1 / -1' }}><label style={FL}>EMPLOYEE *</label>
             <select className="form-input" style={{ width: '100%' }} value={f.employee_id} onChange={e => set('employee_id', e.target.value)}>
-              <option value="">— pick a person —</option>
+              <option value="">- pick a person -</option>
               {employees.filter(e => e.status !== 'offboarded').map(e => <option key={e.id} value={e.id}>{fullName(e)} ({e.employeeCode})</option>)}
             </select></div>
           <div><label style={FL}>TYPE</label>
@@ -2480,7 +2480,7 @@ function PeopleFilter({ employees, selected, onChange }) {
           if (e.key === 'Enter' && matches[0]) { e.preventDefault(); pick(matches[0]); }
           if (e.key === 'Backspace' && !q && selected.length) onChange(selected.slice(0, -1));
         }}
-        placeholder={selected.length ? 'Add another person…' : 'Filter by person — type a name…'}
+        placeholder={selected.length ? 'Add another person…' : 'Filter by person - type a name…'}
         style={{ flex: 1, minWidth: 140, border: 'none', outline: 'none', background: 'transparent', fontSize: 12.5, fontFamily: 'Inter,sans-serif', color: 'var(--ink)', padding: '3px 0' }} />
       {selected.length > 0 && (
         <button onClick={() => onChange([])} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11.5, color: 'var(--muted)', fontFamily: 'Inter,sans-serif', flexShrink: 0 }}>Clear</button>
@@ -2502,7 +2502,7 @@ function PeopleFilter({ employees, selected, onChange }) {
 }
 
 
-// "Who's out this week" — Mon–Sun strip merging both leave sources: HR-recorded
+// "Who's out this week" - Mon–Sun strip merging both leave sources: HR-recorded
 // leave (HrLeaveRequest) and self-service time off (Time Clock / My HR).
 function WhosOutWeek({ employees, hrLeave, selIds = [] }) {
   const [timeoff, setTimeoff] = useState([]);
@@ -2539,7 +2539,7 @@ function WhosOutWeek({ employees, hrLeave, selIds = [] }) {
         Who's out this week
       </div>
       {!weekHasAnyone ? (
-        <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Everyone's in — no approved or pending leave this week.</div>
+        <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Everyone's in - no approved or pending leave this week.</div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 8 }}>
           {days.map(d => {
@@ -2552,7 +2552,7 @@ function WhosOutWeek({ employees, hrLeave, selIds = [] }) {
                   {d.toLocaleDateString('en-US', { weekday: 'short' })} {d.getDate()}
                 </div>
                 {out.length === 0 ? (
-                  <div style={{ fontSize: 10.5, color: 'var(--muted)', opacity: 0.6 }}>—</div>
+                  <div style={{ fontSize: 10.5, color: 'var(--muted)', opacity: 0.6 }}>-</div>
                 ) : out.map((e, i) => (
                   <div key={i} title={`${e.name} · ${e.type}${e.status === 'pending' ? ' (pending)' : ''}`}
                     style={{ fontSize: 10.5, fontWeight: 600, padding: '2px 6px', borderRadius: 8, marginBottom: 3,
@@ -2575,7 +2575,7 @@ function WhosOutWeek({ employees, hrLeave, selIds = [] }) {
 function LeaveTab({ employees, toastOk, toastErr }) {
   const [leave, setLeave] = useState(null);
   const [formOpen, setFormOpen] = useState(false);
-  const [selF, setSelF] = useState([]);          // people filter — empty = everyone
+  const [selF, setSelF] = useState([]);          // people filter - empty = everyone
   const [balances, setBalances] = useState(null);
   const [busyId, setBusyId] = useState(null);
   const year = new Date().getFullYear();
@@ -2610,7 +2610,7 @@ function LeaveTab({ employees, toastOk, toastErr }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
         <PeopleFilter employees={employees} selected={selF} onChange={setSelF} />
         <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>{pending} pending · {visible.length} shown</span>
-        {/* Employees request their own leave from My HR — this is the approve/track
+        {/* Employees request their own leave from My HR - this is the approve/track
             view. HR keeps a de-emphasised "log on behalf" for phone-ins and
             staff without portal access. */}
         <button className="secondary-btn" style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }} onClick={() => setFormOpen(true)}>
@@ -2620,7 +2620,7 @@ function LeaveTab({ employees, toastOk, toastErr }) {
 
       <WhosOutWeek employees={employees} hrLeave={leave} selIds={selF} />
 
-      {/* Balance cards when a person is picked — used computes from approvals */}
+      {/* Balance cards when a person is picked - used computes from approvals */}
       {balances && (
         <div className="kpi-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
           {balances.map(b => (
@@ -2671,7 +2671,7 @@ function LeaveTab({ employees, toastOk, toastErr }) {
         </div>
       )}
       {formOpen && <LeaveFormModal employees={employees} toastErr={toastErr} onClose={() => setFormOpen(false)}
-        onSaved={r => { setLeave(prev => [r, ...prev]); toastOk('Leave request recorded — pending approval.'); }} />}
+        onSaved={r => { setLeave(prev => [r, ...prev]); toastOk('Leave request recorded - pending approval.'); }} />}
     </div>
   );
 }
@@ -2679,14 +2679,14 @@ function LeaveTab({ employees, toastOk, toastErr }) {
 // ── Main view ─────────────────────────────────────────────────────────────────
 // ── Companies / legal entities manager (HR Section A) ────────────────────────
 // Manage one company's department list (Neil: departments live within a company,
-// custom per company — not a Nexus-wide hardcoded list).
+// custom per company - not a Nexus-wide hardcoded list).
 function CompanyDepartments({ entity, employees = [], toastOk, toastErr }) {
   const [depts, setDepts] = useState(null);
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
   const load = () => api.getCompanyDepartments(entity.id).then(setDepts).catch(() => setDepts([]));
   useEffect(() => { setDepts(null); load(); }, [entity.id]);
-  // Anyone with a work email can lead triage — not restricted to this company, since
+  // Anyone with a work email can lead triage - not restricted to this company, since
   // a shared function (IT, Finance) often serves several entities.
   const staff = employees.filter(e => e.workEmail && e.status !== 'offboarded');
   async function add() {
@@ -2720,7 +2720,7 @@ function CompanyDepartments({ entity, employees = [], toastOk, toastErr }) {
         </button>
       </div>
       {depts === null ? <div style={{ color: 'var(--muted)', fontSize: 13, padding: '10px 0' }}>Loading…</div>
-        : depts.length === 0 ? <div style={{ color: 'var(--muted)', fontSize: 13, padding: '10px 0' }}>No departments yet — add the first one above.</div>
+        : depts.length === 0 ? <div style={{ color: 'var(--muted)', fontSize: 13, padding: '10px 0' }}>No departments yet - add the first one above.</div>
         : (
           <div style={{ border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>
             <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1.4fr 1.4fr 32px', gap: 10, padding: '8px 12px', background: 'var(--paper)', borderBottom: '1px solid var(--line)', fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.3 }}>
@@ -2736,7 +2736,7 @@ function CompanyDepartments({ entity, employees = [], toastOk, toastErr }) {
                     <select key={fieldKey} className="form-input" value={current}
                       onChange={e => setOwner(d, fieldKey, e.target.value)}
                       style={{ fontSize: 12.5, padding: '5px 8px', ...(unset ? { borderColor: 'hsl(var(--color-amber))' } : null) }}>
-                      <option value="">{fieldKey === 'lead_email' ? '— no lead —' : '— none —'}</option>
+                      <option value="">{fieldKey === 'lead_email' ? '- no lead -' : '- none -'}</option>
                       {staff.map(p => <option key={p.workEmail} value={p.workEmail.toLowerCase()}>{p.fullName || p.workEmail}</option>)}
                     </select>
                   );
@@ -2753,9 +2753,9 @@ function CompanyDepartments({ entity, employees = [], toastOk, toastErr }) {
         )}
       <p style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 16 }}>
         Tickets raised against a department arrive unassigned and notify its <strong>ticket lead</strong> (and backup), who assigns them to an employee.
-        A department with no lead notifies nobody — its tickets sit in the triage queue until someone picks them up.
+        A department with no lead notifies nobody - its tickets sit in the triage queue until someone picks them up.
       </p>
-      <p style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 6 }}>Removing a department leaves anyone already in it untouched — it just stops being pickable.</p>
+      <p style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 6 }}>Removing a department leaves anyone already in it untouched - it just stops being pickable.</p>
     </div>
   );
 }
@@ -2844,7 +2844,7 @@ function EntitiesModal({ entities, employees = [], onClose, onChanged, toastOk, 
               <div>
                 <label style={FL}>COUNTRY</label>
                 <select className="form-input" style={{ width: '100%' }} value={f.country} onChange={e => set('country', e.target.value)}>
-                  <option value="">—</option><option value="US">United States (US)</option><option value="IN">India (IN)</option>
+                  <option value="">-</option><option value="US">United States (US)</option><option value="IN">India (IN)</option>
                 </select>
               </div>
               {field('TAX ID (EIN / GSTIN)', 'tax_id')}
@@ -2852,13 +2852,13 @@ function EntitiesModal({ entities, employees = [], onClose, onChanged, toastOk, 
               <div>
                 <label style={FL}>COMPANY MANAGER</label>
                 <select className="form-input" style={{ width: '100%' }} value={f.manager_email} onChange={e => set('manager_email', e.target.value)}>
-                  <option value="">— not set —</option>
+                  <option value="">- not set -</option>
                   {people.map(p => <option key={p.email} value={p.email}>{p.name} ({p.email})</option>)}
                 </select>
               </div>
               <div style={{ gridColumn: '1 / -1' }}>{field('REGISTERED ADDRESS', 'registered_address')}</div>
               <div style={{ gridColumn: '1 / -1' }}>
-                {field('EMAIL DOMAINS', 'domains', { placeholder: 'e.g. aaravconstruction.com — comma-separated' })}
+                {field('EMAIL DOMAINS', 'domains', { placeholder: 'e.g. aaravconstruction.com - comma-separated' })}
                 <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '6px 0 0' }}>
                   Sync from M365 imports accounts on these domains and tags them to this company automatically (never overwrites a company already set on a profile).
                 </p>
@@ -2881,10 +2881,10 @@ function EntitiesModal({ entities, employees = [], onClose, onChanged, toastOk, 
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '4px 10px 13px', borderBottom: '1px solid var(--line)', marginBottom: 4 }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 13, fontWeight: 700 }}>Group manager</div>
-                  <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>Oversees every company — the escalation step above each company's manager.</div>
+                  <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>Oversees every company - the escalation step above each company's manager.</div>
                 </div>
                 <select className="form-input" disabled={groupMgrBusy} value={groupMgr} onChange={e => saveGroupMgr(e.target.value)} style={{ width: 220, fontSize: 12.5, flexShrink: 0 }}>
-                  <option value="">— not set —</option>
+                  <option value="">- not set -</option>
                   {people.map(p => <option key={p.email} value={p.email}>{p.name}</option>)}
                 </select>
               </div>
@@ -2897,7 +2897,7 @@ function EntitiesModal({ entities, employees = [], onClose, onChanged, toastOk, 
                 <div key={en.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 10px', borderBottom: '1px solid var(--line)' }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 13.5, fontWeight: 700 }}>{en.name} {en.country && <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)' }}>· {en.country}</span>}</div>
-                    <div style={{ fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{[en.legalName, en.taxId && `Tax ${en.taxId}`, en.signatory, en.managerEmail && personName(en.managerEmail) && `Manager ${personName(en.managerEmail)}`, en.domains && en.domains.split(',').map(d => '@' + d.trim()).join(' ')].filter(Boolean).join(' · ') || '—'}</div>
+                    <div style={{ fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{[en.legalName, en.taxId && `Tax ${en.taxId}`, en.signatory, en.managerEmail && personName(en.managerEmail) && `Manager ${personName(en.managerEmail)}`, en.domains && en.domains.split(',').map(d => '@' + d.trim()).join(' ')].filter(Boolean).join(' · ') || '-'}</div>
                   </div>
                   <button className="secondary-btn" onClick={() => setMode('dept:' + en.id)} style={{ padding: '5px 10px', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Building2 size={13} /> Departments</button>
                   <button className="secondary-btn" onClick={() => startEdit(en)} style={{ padding: '5px 10px', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Pencil size={13} /> Edit</button>
@@ -2941,7 +2941,7 @@ function StatusChangeModal({ employee, employees = [], onClose, onSaved, toastOk
   const showOff = isInactive || isLeft;
   const mailboxAction = isInactive ? 'delegate' : (isLeft ? leftChoice : '');
   const needsDelegate = mailboxAction === 'delegate' || mailboxAction === 'share';
-  // Allow Apply when the status changed OR — for someone already inactive/left —
+  // Allow Apply when the status changed OR - for someone already inactive/left -
   // when there's a mailbox/license action to (re-)run (e.g. free a license that
   // didn't release the first time).
   const canApply = changed || (showOff && (mailboxAction !== '' || exportRequested || handoverTo));
@@ -2960,12 +2960,12 @@ function StatusChangeModal({ employee, employees = [], onClose, onSaved, toastOk
     psLines.push('Connect-ExchangeOnline');
     if (mailboxAction === 'share') psLines.push(`Set-Mailbox -Identity ${upn} -Type Shared`);
     trustees.forEach(t => psLines.push(`Add-MailboxPermission -Identity ${upn} -User ${t} -AccessRights FullAccess -AutoMapping $true`));
-    if (mailboxAction === 'share') psLines.push('# Shared mailboxes <50GB need no license — remove it after converting.');
+    if (mailboxAction === 'share') psLines.push('# Shared mailboxes <50GB need no license - remove it after converting.');
   }
   const psScript = psLines.join('\n');
   const copyPs = () => navigator.clipboard?.writeText(psScript)
     .then(() => toastOk('PowerShell copied to clipboard.'))
-    .catch(() => toastErr('Copy failed — select the text and copy manually.'));
+    .catch(() => toastErr('Copy failed - select the text and copy manually.'));
 
   function buildOffboarding() {
     if (!showOff) return null;
@@ -3022,7 +3022,7 @@ function StatusChangeModal({ employee, employees = [], onClose, onSaved, toastOk
   const delegatePicker = (
     <div>
       <label style={FL}>GRANT MAILBOX ACCESS TO</label>
-      {manager && <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6 }}>Defaulted to their manager <b>{fullName(manager)}</b> from the org chart — add or remove below.</div>}
+      {manager && <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6 }}>Defaulted to their manager <b>{fullName(manager)}</b> from the org chart - add or remove below.</div>}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
         {trustees.map(t => (
           <span key={t} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'var(--mist)', border: '1px solid var(--line)', borderRadius: 20, padding: '3px 6px 3px 11px', fontSize: 12, fontWeight: 600 }}>
@@ -3034,7 +3034,7 @@ function StatusChangeModal({ employee, employees = [], onClose, onSaved, toastOk
       </div>
       <div style={{ display: 'flex', gap: 6 }}>
         <select className="form-input" style={{ flex: 1 }} value={pick} onChange={e => setPick(e.target.value)}>
-          <option value="">— add a colleague —</option>
+          <option value="">- add a colleague -</option>
           {colleagues.filter(c => !trustees.includes((c.workEmail || '').toLowerCase()))
             .map(c => <option key={c.id} value={(c.workEmail || '').toLowerCase()}>{fullName(c)} ({c.workEmail})</option>)}
         </select>
@@ -3057,7 +3057,7 @@ function StatusChangeModal({ employee, employees = [], onClose, onSaved, toastOk
       onClick={e => e.target === e.currentTarget && onClose()}>
       <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 500, maxHeight: 'min(92dvh, 760px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
         <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>Change status — {fullName(employee)}</h3>
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>Change status - {fullName(employee)}</h3>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
         <div style={{ padding: '18px 24px', display: 'grid', gap: 14, overflowY: 'auto', flex: 1 }}>
@@ -3085,7 +3085,7 @@ function StatusChangeModal({ employee, employees = [], onClose, onSaved, toastOk
                   {mailboxAction === 'share' && delegatePicker}
                   <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginTop: 12, paddingTop: 12, borderTop: '1px dashed var(--line)', fontSize: 12, color: 'var(--muted)' }}>
                     <Briefcase size={13} style={{ flexShrink: 0, marginTop: 1, color: 'hsl(var(--color-orange))' }} />
-                    <span>All equipment {employee.firstName} still holds in Item Management will be <strong>force-returned</strong> automatically — checkouts closed and permanent assignments sent back to stock.</span>
+                    <span>All equipment {employee.firstName} still holds in Item Management will be <strong>force-returned</strong> automatically - checkouts closed and permanent assignments sent back to stock.</span>
                   </div>
                   {/* Task handover. The picker is the curated Nexus People list
                       (the `employees` prop), never an M365/GAL-derived one. */}
@@ -3093,7 +3093,7 @@ function StatusChangeModal({ employee, employees = [], onClose, onSaved, toastOk
                     <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 6 }}>Hand over their tasks</div>
                     <input list="handover-people" value={handoverTo}
                       onChange={e => setHandoverTo(e.target.value.trim().toLowerCase())}
-                      placeholder="Search for a person — leave blank to skip"
+                      placeholder="Search for a person - leave blank to skip"
                       style={{ width: '100%', padding: '7px 9px', fontSize: 13, borderRadius: 8, border: '1px solid var(--line)' }} />
                     <datalist id="handover-people">
                       {colleagues.map(c => <option key={c.id} value={(c.workEmail || '').toLowerCase()}>{fullName(c)}</option>)}
@@ -3108,7 +3108,7 @@ function StatusChangeModal({ employee, employees = [], onClose, onSaved, toastOk
                         <div style={{ marginTop: 8, fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.5 }}>
                           Their open tasks are reassigned to {nameFor(handoverTo)}. Tasks that already belong to a
                           project stay in it; anything with no project is collected into a new
-                          <strong> Handover — {fullName(employee)}</strong> project owned by them, along with any
+                          <strong> Handover - {fullName(employee)}</strong> project owned by them, along with any
                           projects {employee.firstName} owned.
                         </div>
                       </>
@@ -3127,7 +3127,7 @@ function StatusChangeModal({ employee, employees = [], onClose, onSaved, toastOk
                 <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px dashed var(--line)' }}>
                   <div style={{ display: 'flex', gap: 8, fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.5 }}>
                     <CheckCircle size={14} style={{ flexShrink: 0, marginTop: 1, color: 'hsl(var(--color-green))' }} />
-                    <span>On <strong>Apply</strong>, Nexus blocks sign-in and <strong>releases the license</strong> back to the pool automatically. Group-assigned licenses can’t be pulled per-user — if any are, the confirmation will name them so you can remove the person from that group.</span>
+                    <span>On <strong>Apply</strong>, Nexus blocks sign-in and <strong>releases the license</strong> back to the pool automatically. Group-assigned licenses can’t be pulled per-user - if any are, the confirmation will name them so you can remove the person from that group.</span>
                   </div>
                   <a href={M365_USERS} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 8, fontSize: 11, color: 'hsl(var(--color-blue))', textDecoration: 'none' }}>Verify licenses in M365 <ChevronRight size={11} /></a>
                 </div>
@@ -3164,7 +3164,7 @@ function StatusChangeModal({ employee, employees = [], onClose, onSaved, toastOk
   );
 }
 
-// ── Right-to-work & compliance (HR Section B — open to HR) ───────────────────
+// ── Right-to-work & compliance (HR Section B - open to HR) ───────────────────
 const WORK_AUTH = [['citizen', 'Citizen'], ['permanent_resident', 'Permanent resident'], ['work_visa', 'Work visa'], ['permit', 'Work permit'], ['other', 'Other']];
 const DOC_TYPES = [['passport', 'Passport'], ['national_id', 'National ID'], ['visa', 'Visa'], ['work_permit', 'Work permit'], ['other', 'Other']];
 const VERIFY_STATUS = { unverified: { label: 'Unverified', fg: 'var(--muted)', bg: 'var(--mist)' }, verified: { label: 'Verified', fg: 'hsl(var(--color-green))', bg: 'hsla(var(--color-green),0.12)' }, rejected: { label: 'Rejected', fg: 'hsl(var(--color-red))', bg: 'hsla(var(--color-red),0.12)' } };
@@ -3201,12 +3201,12 @@ function ComplianceModal({ employee, onClose, onSaved, toastOk, toastErr }) {
       <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 580, maxHeight: 'min(92dvh, 760px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
         <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
           <div style={{ width: 34, height: 34, borderRadius: 10, background: 'hsla(var(--color-purple),0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><ShieldCheck size={17} color="hsl(var(--color-purple))" /></div>
-          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>Right to Work — {fullName(employee)}</h3>
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>Right to Work - {fullName(employee)}</h3>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
         <div style={{ overflowY: 'auto', flex: 1, padding: '18px 24px' }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-            <div><label style={FL}>WORK AUTHORIZATION</label><select className="form-input" style={{ width: '100%' }} value={c.workAuth} onChange={e => set('workAuth', e.target.value)}><option value="">—</option>{WORK_AUTH.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></div>
+            <div><label style={FL}>WORK AUTHORIZATION</label><select className="form-input" style={{ width: '100%' }} value={c.workAuth} onChange={e => set('workAuth', e.target.value)}><option value="">-</option>{WORK_AUTH.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></div>
             <div><label style={FL}>DOCUMENT TYPE</label><select className="form-input" style={{ width: '100%' }} value={c.docType} onChange={e => set('docType', e.target.value)}>{DOC_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></div>
             <div style={{ gridColumn: '1 / -1' }}><label style={FL}>DOCUMENT NUMBER</label><input className="form-input" style={{ width: '100%' }} value={c.docNumber} onChange={e => set('docNumber', e.target.value)} /></div>
             <div><label style={FL}>ISSUE DATE</label><input className="form-input" style={{ width: '100%' }} type="date" value={c.issueDate} onChange={e => set('issueDate', e.target.value)} /></div>
@@ -3235,7 +3235,7 @@ function ComplianceModal({ employee, onClose, onSaved, toastOk, toastErr }) {
   );
 }
 
-// ── Personal details + emergency contact (HR Section B — open to HR) ─────────
+// ── Personal details + emergency contact (HR Section B - open to HR) ─────────
 function maskId(v) {
   const s = (v || '').replace(/\s/g, '');
   return s.length > 4 ? `${'•'.repeat(Math.min(s.length - 4, 8))}${s.slice(-4)}` : s;
@@ -3264,13 +3264,13 @@ function PersonalModal({ employee, onClose, onSaved, toastOk, toastErr }) {
       <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 580, maxHeight: 'min(92dvh, 760px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
         <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
           <div style={{ width: 34, height: 34, borderRadius: 10, background: 'hsla(var(--color-blue),0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Contact size={17} color="hsl(var(--color-blue))" /></div>
-          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>Personal — {fullName(employee)}</h3>
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>Personal - {fullName(employee)}</h3>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
         <div style={{ overflowY: 'auto', flex: 1, padding: '18px 24px' }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
             <div><label style={FL}>DATE OF BIRTH</label><input className="form-input" style={{ width: '100%' }} type="date" value={p.dob} onChange={e => set('dob', e.target.value)} /></div>
-            <div><label style={FL}>GENDER</label><select className="form-input" style={{ width: '100%' }} value={p.gender} onChange={e => set('gender', e.target.value)}><option value="">—</option><option>Male</option><option>Female</option><option>Other</option><option>Prefer not to say</option></select></div>
+            <div><label style={FL}>GENDER</label><select className="form-input" style={{ width: '100%' }} value={p.gender} onChange={e => set('gender', e.target.value)}><option value="">-</option><option>Male</option><option>Female</option><option>Other</option><option>Prefer not to say</option></select></div>
             <div style={{ gridColumn: '1 / -1' }}><label style={FL}>NATIONAL ID / SSN / AADHAAR</label><input className="form-input" style={{ width: '100%' }} value={p.nationalId} onChange={e => set('nationalId', e.target.value)} placeholder="stored securely, shown masked" /></div>
             <div style={{ gridColumn: '1 / -1' }}><label style={FL}>CURRENT ADDRESS</label><textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} value={p.currentAddress} onChange={e => set('currentAddress', e.target.value)} /></div>
             <div style={{ gridColumn: '1 / -1' }}><label style={FL}>PERMANENT ADDRESS</label><textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} value={p.permanentAddress} onChange={e => set('permanentAddress', e.target.value)} /></div>
@@ -3292,7 +3292,7 @@ function PersonalModal({ employee, onClose, onSaved, toastOk, toastErr }) {
   );
 }
 
-// ── Compensation + bank (HR Section B — gated by hr_comp grant / owner) ──────
+// ── Compensation + bank (HR Section B - gated by hr_comp grant / owner) ──────
 const PAY_BASIS = [['salary', 'Salary'], ['hourly', 'Hourly'], ['daily', 'Daily'], ['fixed_fee', 'Fixed fee']];
 const PAY_FREQ  = [['monthly', 'Monthly'], ['semimonthly', 'Semi-monthly'], ['biweekly', 'Bi-weekly'], ['weekly', 'Weekly']];
 const BANK_TYPES = [['checking', 'Checking'], ['savings', 'Savings'], ['current', 'Current']];
@@ -3333,7 +3333,7 @@ function CompensationModal({ employee, onClose, toastOk, toastErr }) {
       toastOk('Compensation saved.'); onClose();
     } catch (e) { toastErr(e?.message || 'Could not save compensation.'); setBusy(false); }
   }
-  const money = (v, cur) => v ? `${cur === 'INR' ? '₹' : '$'}${Number(v).toLocaleString()}` : '—';
+  const money = (v, cur) => v ? `${cur === 'INR' ? '₹' : '$'}${Number(v).toLocaleString()}` : '-';
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
@@ -3344,7 +3344,7 @@ function CompensationModal({ employee, onClose, toastOk, toastErr }) {
             <Wallet size={17} color="hsl(var(--color-green))" />
           </div>
           <div style={{ flex: 1 }}>
-            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>Pay, Benefits & Bank — {fullName(employee)}</h3>
+            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>Pay, Benefits & Bank - {fullName(employee)}</h3>
             <div style={{ fontSize: 11, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 2 }}><Lock size={11} /> Restricted · compensation grant</div>
           </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
@@ -3417,7 +3417,7 @@ function CompensationModal({ employee, onClose, toastOk, toastErr }) {
   );
 }
 
-// ── Work sites registry (HR Section A — geofence foundation for Time Clock) ───
+// ── Work sites registry (HR Section A - geofence foundation for Time Clock) ───
 function WorkSitesModal({ sites, entities, onClose, onChanged, toastOk, toastErr }) {
   const blank = { name: '', address: '', latitude: '', longitude: '', radius_m: 150, company: '', notes: '' };
   const [mode, setMode] = useState(null);
@@ -3470,7 +3470,7 @@ function WorkSitesModal({ sites, entities, onClose, onChanged, toastOk, toastErr
               <div>
                 <label style={FL}>COMPANY / ENTITY</label>
                 <select className="form-input" style={{ width: '100%' }} value={f.company} onChange={e => set('company', e.target.value)}>
-                  <option value="">— any —</option>
+                  <option value="">- any -</option>
                   {entities.map(en => <option key={en.id} value={en.id}>{en.name}</option>)}
                 </select>
               </div>
@@ -3495,7 +3495,7 @@ function WorkSitesModal({ sites, entities, onClose, onChanged, toastOk, toastErr
                 <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 10px', borderBottom: '1px solid var(--line)' }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 13.5, fontWeight: 700 }}>{s.name} {s.company && <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)' }}>· {entityName(s.company)}</span>}</div>
-                    <div style={{ fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{[s.address, (s.latitude && s.longitude) ? `${s.latitude}, ${s.longitude} · ${s.radiusM}m` : ''].filter(Boolean).join(' · ') || '—'}</div>
+                    <div style={{ fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{[s.address, (s.latitude && s.longitude) ? `${s.latitude}, ${s.longitude} · ${s.radiusM}m` : ''].filter(Boolean).join(' · ') || '-'}</div>
                   </div>
                   <button className="secondary-btn" onClick={() => startEdit(s)} style={{ padding: '5px 10px', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Pencil size={13} /> Edit</button>
                   <button onClick={() => remove(s)} title="Delete" style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, cursor: 'pointer', color: 'hsl(var(--color-red))', display: 'flex', padding: 7 }}><Trash2 size={13} /></button>
@@ -3513,8 +3513,8 @@ function WorkSitesModal({ sites, entities, onClose, onChanged, toastOk, toastErr
 }
 
 // ── People stat cards (Work OS redesign, Jul 28) ─────────────────────────────
-// Three designed cards with real mini-visuals — headcount with employment-type
-// composition, status breakdown, department spread — replacing the four
+// Three designed cards with real mini-visuals - headcount with employment-type
+// composition, status breakdown, department spread - replacing the four
 // identical number tiles. Everything is computed from the live employee list;
 // nothing is fabricated, and zero/loading states stay designed.
 const WK_STATUS_COLOR = {
@@ -3542,7 +3542,7 @@ function StatCardShell({ Icon, title, meta, children }) {
 
 // Donut for the status breakdown (Stella's Task Summary form): SVG stroke
 // arcs with 2px surface gaps, center total, native tooltips. Identity is
-// never color-alone — the legend rows beside it carry label + count.
+// never color-alone - the legend rows beside it carry label + count.
 function StatusDonut({ segments, total }) {
   const R = 30, C = 2 * Math.PI * R, SW = 11, GAP = 2;
   const live = segments.filter(s => s.n > 0);
@@ -3614,7 +3614,7 @@ export function HiresBars({ employees }) { // exported for reuse in other module
 
 // Cumulative headcount area chart (the reference dashboard's hero form):
 // gradient area under a 2px line, live crosshair + tooltip on hover, and
-// working time-range chips. Counts are real — everyone whose start date is
+// working time-range chips. Counts are real - everyone whose start date is
 // on or before each month's end.
 export function HeadcountArea({ employees }) { // exported for reuse in other modules' sweeps
   const [months, setMonths] = useState(12);
@@ -3678,7 +3678,7 @@ export function HeadcountArea({ employees }) { // exported for reuse in other mo
           )}
         </svg>
         {/* Persistent end-of-line marker + value callout (the "$451"-style tag
-            every reference kit uses) — hidden while hovering elsewhere */}
+            every reference kit uses) - hidden while hovering elsewhere */}
         {!hover && (
           <>
             <span style={{
@@ -3725,8 +3725,8 @@ export function HeadcountArea({ employees }) { // exported for reuse in other mo
   );
 }
 
-// KPI tile (owner's chosen concept, Jul 28): rounded-2xl tile — one solid
-// brand tile per row, the rest white — with label, big number, delta/sub
+// KPI tile (owner's chosen concept, Jul 28): rounded-2xl tile - one solid
+// brand tile per row, the rest white - with label, big number, delta/sub
 // caption, and a REAL corner arrow action (filter or jump), never decoration.
 function KpiTile({ label, value, delta, sub, solid, onGo, goTitle, loading }) {
   const fg = solid ? '#fff' : 'var(--ink)';
@@ -3741,7 +3741,7 @@ function KpiTile({ label, value, delta, sub, solid, onGo, goTitle, loading }) {
       <span style={{ fontSize: 13.5, fontWeight: 500, color: solid ? 'rgba(255,255,255,.8)' : 'var(--muted)' }}>{label}</span>
       <span style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
         <span style={{ fontSize: 30, fontWeight: 700, letterSpacing: '-.02em', color: fg, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
-          {loading ? '—' : value}
+          {loading ? '-' : value}
         </span>
         {delta && (
           <span style={{
@@ -3771,7 +3771,7 @@ function KpiTile({ label, value, delta, sub, solid, onGo, goTitle, loading }) {
 // headcount bars, latest bar solid brand with a value callout, labels under
 // every bar, native tooltips.
 function MonthlyBars({ employees }) {
-  // NEW JOINERS per month, from recorded start dates — deliberately NOT a
+  // NEW JOINERS per month, from recorded start dates - deliberately NOT a
   // cumulative headcount curve. Most legacy profiles were imported without a
   // start date, so a cumulative series claimed the company was near-empty
   // until the first dated hire (Jul 28 bug report: 57 people, bars ~0).
@@ -3788,7 +3788,7 @@ function MonthlyBars({ employees }) {
   }
   if (buckets.every(b => b.n === 0)) return (
     <div style={{ height: 155, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12.5, color: 'var(--muted)', textAlign: 'center', padding: '0 18px' }}>
-      No recorded start dates in the last 8 months — new joins chart here once profiles carry start dates.
+      No recorded start dates in the last 8 months - new joins chart here once profiles carry start dates.
     </div>
   );
   const max = Math.max(...buckets.map(b => b.n), 1);
@@ -3841,7 +3841,7 @@ function PeopleStatCards({ employees, loading, isMobile, onStatusFilter, onJumpT
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'minmax(300px, 1.05fr) 1.4fr 1.15fr', gap: 14, marginBottom: 16, alignItems: 'stretch' }}>
-      {/* 2×2 KPI tiles — solid brand hero + white siblings */}
+      {/* 2×2 KPI tiles - solid brand hero + white siblings */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
         <KpiTile solid label="Total people" value={total} loading={loading}
           delta={joined > 0 ? `↑ ${joined}` : undefined} sub="this year"
@@ -3876,7 +3876,7 @@ function PeopleStatCards({ employees, loading, isMobile, onStatusFilter, onJumpT
               <div key={s.key} style={{ display: 'flex', alignItems: 'center', gap: 9, fontSize: 13.5 }}>
                 <span style={{ width: 9, height: 9, borderRadius: 3, background: s.color, flexShrink: 0 }} />
                 <span style={{ color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.label}</span>
-                <span style={{ marginLeft: 'auto', fontWeight: 600, color: 'var(--ink)', fontVariantNumeric: 'tabular-nums' }}>{loading ? '—' : s.n}</span>
+                <span style={{ marginLeft: 'auto', fontWeight: 600, color: 'var(--ink)', fontVariantNumeric: 'tabular-nums' }}>{loading ? '-' : s.n}</span>
               </div>
             ))}
             {!loading && deptSegs.length === 0 && (
@@ -3896,7 +3896,7 @@ export default function HR({ activeSub, onSubChange }) {
   const sub = ['hr-people', 'hr-hiring', 'hr-org', 'hr-leave', 'hr-time', 'hr-access'].includes(activeSub) ? activeSub : 'hr-people';
   const isMobile = useIsMobile();
 
-  // Old notifications/URLs still point at hr/hr-esign* — bounce them to Documents
+  // Old notifications/URLs still point at hr/hr-esign* - bounce them to Documents
   // so those links don't dead-end on the People tab.
   useEffect(() => {
     if (String(activeSub || '').startsWith('hr-esign')) {
@@ -3939,7 +3939,7 @@ export default function HR({ activeSub, onSubChange }) {
       bits.push(`${r.linked} linked`, `${r.updated} updated`);
       if (r.removed?.length) bits.push(`${r.removed.length} removed (shared/inactive)`);
       if (r.unlinked?.length) bits.push(`unlinked (account deleted): ${r.unlinked.join(', ')}`);
-      // Photos are a second, slower pass — don't fail the whole sync if it errors.
+      // Photos are a second, slower pass - don't fail the whole sync if it errors.
       try {
         const p = await api.syncM365Photos();
         if (p.updated) bits.push(`${p.updated} photos`);
@@ -3963,7 +3963,7 @@ export default function HR({ activeSub, onSubChange }) {
   const entityName = id => entities.find(en => en.id === id)?.name || '';
 
   // Department filter choices are the departments actually in use, scoped to the
-  // chosen company — no hardcoded list.
+  // chosen company - no hardcoded list.
   const deptChoices = useMemo(() => {
     const src = companyF === 'All' ? employees : employees.filter(e => e.company === companyF);
     return [...new Set(src.map(e => (e.department || '').trim()).filter(Boolean))].sort();
@@ -3996,9 +3996,9 @@ export default function HR({ activeSub, onSubChange }) {
     });
     setSelectedId(saved.id);
     // Profile edits auto-mirror to the linked Entra account (backend, best-effort)
-    // — tell the user whether M365 actually took the change.
+    // - tell the user whether M365 actually took the change.
     if (saved.entra) {
-      if (saved.entra.synced) toastOk('Saved — profile synced to Microsoft 365.');
+      if (saved.entra.synced) toastOk('Saved - profile synced to Microsoft 365.');
       else toastErr(`Saved in Nexus, but the M365 sync failed: ${saved.entra.error || 'Graph error'}. Use "Push to M365" to retry.`);
     }
   };
@@ -4014,23 +4014,23 @@ export default function HR({ activeSub, onSubChange }) {
 
   return (
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
-      {/* Full-bleed (owner call, Jul 28): use the whole viewport width — the
+      {/* Full-bleed (owner call, Jul 28): use the whole viewport width - the
           .viewport padding provides the slight edge margin */}
       <div className="view-header" style={{ marginBottom: 18 }}>
-        {/* Icon-chip page title (Work OS grammar — the module's meaning color) */}
+        {/* Icon-chip page title (Work OS grammar - the module's meaning color) */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
           <span style={{ width: 38, height: 38, borderRadius: 10, background: 'var(--wk-brand-tint)', color: 'var(--wk-brand)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
             <Users size={19} />
           </span>
           <div className="view-title-group">
             <h2 style={{ fontFamily: 'var(--wk-font)' }}>People</h2>
-            <p>People, hiring, org structure and leave — one source of truth</p>
+            <p>People, hiring, org structure and leave - one source of truth</p>
           </div>
         </div>
         {sub === 'hr-people' && (
           <div style={{ display: 'flex', gap: 8, flexShrink: 0, flexWrap: 'wrap' }}>
             <button className="secondary-btn" disabled={syncBusy} style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}
-              title="Pull people from M365 (only @greensglobal.com and @greensstorage.com) — new people added, existing profiles linked, empty fields + profile photos backfilled from Entra."
+              title="Pull people from M365 (only @greensglobal.com and @greensstorage.com) - new people added, existing profiles linked, empty fields + profile photos backfilled from Entra."
               onClick={runSync}>
               {syncBusy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <History size={14} />} Sync from M365
             </button>
@@ -4052,7 +4052,7 @@ export default function HR({ activeSub, onSubChange }) {
         )}
       </div>
 
-      {/* Tabs — desktop renders them centered in the top header; phones keep
+      {/* Tabs - desktop renders them centered in the top header; phones keep
           the in-page strip (ModuleTabs handles both) */}
       <ModuleTabs tabs={TABS} active={sub} onChange={onSubChange} />
 
@@ -4060,10 +4060,10 @@ export default function HR({ activeSub, onSubChange }) {
         <HiringTab isMobile={isMobile} toastOk={toastOk} toastErr={toastErr}
           onEmployeeCreated={emp => setEmployees(prev => [...prev, emp].sort((a, b) => fullName(a).localeCompare(fullName(b))))}
           onSendForSignature={c => {
-            // E-Sign lives in the Documents module now — stash the offer and jump
+            // E-Sign lives in the Documents module now - stash the offer and jump
             // there; Documents picks up window.__esignPrefill on arrival.
             window.__esignPrefill = {
-              candidateId: c.id, title: `Offer — ${candName(c)}`,
+              candidateId: c.id, title: `Offer - ${candName(c)}`,
               parties: [{ role_key: 'employee', name: candName(c), email: c.email, kind: 'external', ordinal: 2 }],
             };
             window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'documents', sub: 'documents-esign' } }));
@@ -4076,7 +4076,7 @@ export default function HR({ activeSub, onSubChange }) {
 
       {sub === 'hr-people' && (<>
         <EmployeeRequestsPanel toastOk={toastOk} toastErr={toastErr} />
-        {/* Stat cards — headcount composition, status breakdown, department
+        {/* Stat cards - headcount composition, status breakdown, department
             spread (real data, designed zero/loading states) */}
         <PeopleStatCards employees={employees} loading={loading} isMobile={isMobile}
           onStatusFilter={s => { setStatusF(s); setSelectedId(null); }}
@@ -4090,7 +4090,7 @@ export default function HR({ activeSub, onSubChange }) {
 
         {selected ? (
           /* Profile takes the full width (Stella keeps one focused surface).
-             The back control lives HERE, always visible — EmployeeDetail's own
+             The back control lives HERE, always visible - EmployeeDetail's own
              back button is mobile-only, which left desktop with no way out. */
           <>
           <button onClick={() => setSelectedId(null)} className="secondary-btn"
@@ -4104,7 +4104,7 @@ export default function HR({ activeSub, onSubChange }) {
             onBack={() => setSelectedId(null)} />
           </>
         ) : (
-          /* Directory — Stella's employee table: card header carries the
+          /* Directory - Stella's employee table: card header carries the
              search + filters; gray column-header band; avatar + name + email
              rows; whole row opens the profile. */
           <div className="wkc">
@@ -4140,7 +4140,7 @@ export default function HR({ activeSub, onSubChange }) {
               <div style={{ textAlign: 'center', padding: '56px 20px', color: 'var(--muted)' }}>
                 <Users size={32} style={{ opacity: .25, display: 'block', margin: '0 auto 10px' }} />
                 <div style={{ fontSize: 14, fontWeight: 600 }}>No employees yet.</div>
-                <div style={{ fontSize: 12.5, marginTop: 4 }}>Add the first one — everything else in HR builds on these records.</div>
+                <div style={{ fontSize: 12.5, marginTop: 4 }}>Add the first one - everything else in HR builds on these records.</div>
               </div>
             ) : filtered.length === 0 ? (
               <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>No matches.</div>
@@ -4171,8 +4171,8 @@ export default function HR({ activeSub, onSubChange }) {
                             </div>
                           </div>
                         </td>
-                        <td className="ppl-col-secondary">{e.jobTitle || '—'}</td>
-                        <td className="ppl-col-secondary">{e.department || '—'}</td>
+                        <td className="ppl-col-secondary">{e.jobTitle || '-'}</td>
+                        <td className="ppl-col-secondary">{e.department || '-'}</td>
                         <td>
                           <span style={{ padding: '4px 11px', borderRadius: 6, fontSize: 12.5, fontWeight: 600, background: sm.bg, color: sm.fg, whiteSpace: 'nowrap' }}>{sm.label}</span>
                         </td>

@@ -12,7 +12,7 @@ import ModuleTabs from '../components/ModuleTabs';
 // E-Sign was carved out of HR into its own top-level module (Jul 2026), then
 // grown into a full DMS: Dashboard + My Documents + Templates sit alongside
 // the untouched E-Sign tab (whose own separate "Templates" sub-tab is for
-// e-sign envelope templates — unrelated, unchanged). Backend /esign/* routes
+// e-sign envelope templates - unrelated, unchanged). Backend /esign/* routes
 // are unchanged; the DMS half talks to the new /documents/* router.
 //
 // Cross-module handoff: HR → Hiring "Send for signature" stashes an offer on
@@ -28,15 +28,15 @@ const TABS = [
 
 export default function Documents({ activeSub, onSubChange }) {
   // Deep-links: 'documents-esign' / 'documents-esign-requests' both live on the
-  // E-Sign tab — ESign reads the raw activeSub to pick its own sub-tab.
+  // E-Sign tab - ESign reads the raw activeSub to pick its own sub-tab.
   const navSub = String(activeSub || '').startsWith('documents-esign') ? 'documents-esign' : activeSub;
   const sub = TABS.some(t => t.key === navSub) ? navSub : 'documents-dashboard';
   // "New Document"/"New Template" from the Dashboard hand off to the relevant
-  // tab and ask it to pop its create dialog open — a bumped counter (not a
+  // tab and ask it to pop its create dialog open - a bumped counter (not a
   // bool) so a second click while already on that tab still re-triggers it.
   const [browseCreateSignal, setBrowseCreateSignal] = useState(0);
   const [templateCreateSignal, setTemplateCreateSignal] = useState(0);
-  // Search (Phase 6) hands off a specific id to open — {id, nonce} so picking
+  // Search (Phase 6) hands off a specific id to open - {id, nonce} so picking
   // the same result twice in a row still re-triggers (nonce always bumps).
   const [openDocSignal, setOpenDocSignal] = useState(null);
   const [openTemplateSignal, setOpenTemplateSignal] = useState(null);
@@ -56,7 +56,7 @@ export default function Documents({ activeSub, onSubChange }) {
   const toastOk  = msg => { setToast({ msg, kind: 'ok' }); setTimeout(() => setToast(null), 4000); };
 
   // Employees + entities feed the Send wizard's internal-signer picker. A
-  // documents-only grant (no HR access) may 403 these — degrade to external
+  // documents-only grant (no HR access) may 403 these - degrade to external
   // parties rather than break the module.
   useEffect(() => {
     api.getEmployees().then(setEmployees).catch(() => setEmployees([]));
@@ -81,7 +81,7 @@ export default function Documents({ activeSub, onSubChange }) {
       <div className="view-header" style={{ marginBottom: 18, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
         <div className="view-title-group">
           <h2>Documents</h2>
-          <p>Send, sign and track company documents — one place</p>
+          <p>Send, sign and track company documents - one place</p>
         </div>
         <DocumentsSearchBar
           onOpenDocument={(id) => { onSubChange?.('documents-browse'); setOpenDocSignal({ id, nonce: Date.now() }); }}
@@ -116,7 +116,7 @@ export default function Documents({ activeSub, onSubChange }) {
           onPrefillConsumed={() => setEsignPrefill(null)} toastOk={toastOk} toastErr={toastErr}
           onSentRequest={(sent) => {
             // Phase 5 bridge: a send that originated from a Document Builder
-            // export carries sourceDocumentId on the prefill — link the new
+            // export carries sourceDocumentId on the prefill - link the new
             // envelope back onto the document once it's actually sent.
             const docId = esignPrefill?.sourceDocumentId;
             if (docId) api.updateDocument(docId, { signRequestId: sent.id, status: 'final' }).catch(toastErr);

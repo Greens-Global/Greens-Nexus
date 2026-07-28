@@ -1,8 +1,8 @@
-// Document Builder — Page Setup (Phase 14). Mirrors
-// backend/services/doc_export.py's PAGE_SIZES_IN/MARGINS_IN (not imported —
+// Document Builder - Page Setup (Phase 14). Mirrors
+// backend/services/doc_export.py's PAGE_SIZES_IN/MARGINS_IN (not imported -
 // different languages) so the on-screen canvas and the exported PDF/DOCX
 // agree on what "Letter, Portrait, Normal" actually means. Stored as
-// content.pageSetup, a sibling of body/header/footer in the same JSON blob —
+// content.pageSetup, a sibling of body/header/footer in the same JSON blob -
 // no backend schema change needed, `_export_prep` just reads the key.
 
 export const PAGE_SIZES = [
@@ -28,7 +28,7 @@ export const MARGIN_IN = Object.fromEntries(MARGIN_PRESETS.map((m) => [m.value, 
 export const DEFAULT_PAGE_SETUP = { size: 'letter', orientation: 'portrait', margins: 'normal' };
 
 // The live editor's ".doc-page" canvas is an editing-comfort width, not a
-// literal-scale page (850px was always a chosen default, not 8.5in*96dpi) —
+// literal-scale page (850px was always a chosen default, not 8.5in*96dpi) -
 // scale everything relative to that Letter/Normal baseline so switching page
 // size/margins visibly changes the canvas without disturbing the existing
 // look for the common case (Letter, Portrait, Normal).
@@ -44,11 +44,11 @@ export function pageCanvasStyle(pageSetup) {
   const widthPx = Math.round(wIn * WIDTH_PX_PER_IN);
   return {
     maxWidth: widthPx,
-    // minHeight (not height) — the canvas is a continuous, unpaginated
+    // minHeight (not height) - the canvas is a continuous, unpaginated
     // single box that grows with content (no live pagination exists), but
     // without this it always looked exactly as tall as its content and never
     // read as "a Letter/Portrait page" at all for short documents. box-sizing
-    // is border-box app-wide, so widthPx already includes padding — the
+    // is border-box app-wide, so widthPx already includes padding - the
     // aspect ratio math is just widthPx * (hIn/wIn), no separate border-box
     // correction needed.
     minHeight: Math.round(widthPx * (hIn / wIn)),

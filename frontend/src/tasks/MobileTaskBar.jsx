@@ -1,4 +1,4 @@
-// Task Module — Asana-style floating bottom bar for mobile: [filter] · [view ⇅] · [+].
+// Task Module - Asana-style floating bottom bar for mobile: [filter] · [view ⇅] · [+].
 // Replaces the stacked view-tabs strip + filter row on phones. Used by MyTasksView
 // and TasksWorkspace; desktop keeps its own toolbars (this renders only on mobile).
 import { useEffect, useState } from 'react';
@@ -7,7 +7,7 @@ import { SlidersHorizontal, Plus, ChevronsUpDown, X, Check, ChevronLeft } from '
 import { NX, FONT, btn } from './theme';
 
 // Bottom-anchored sheet (the top-anchored Modal in components.jsx doesn't fit here).
-// `onBack` (optional) renders a back arrow — used for the Asana-style filter drill-in.
+// `onBack` (optional) renders a back arrow - used for the Asana-style filter drill-in.
 export function BottomSheet({ title, onClose, onBack, children }) {
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') (onBack || onClose)(); };

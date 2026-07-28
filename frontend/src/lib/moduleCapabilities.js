@@ -1,4 +1,4 @@
-// What each access level actually lets someone do, per module — used for the
+// What each access level actually lets someone do, per module - used for the
 // hover tooltips and the "what they'll be able to do" summary when assigning
 // access in a job role or group. Levels are ordinal: viewer ⊂ editor ⊂ full ⊂
 // owner (each includes everything below it). Modules not listed here fall back
@@ -22,7 +22,7 @@ export const MODULE_CAPABILITIES = {
     viewer: 'View their own HR profile, documents and leave.',
     editor: 'Update their own contact details and raise requests.',
     full:   'Manage their own HR self-service fully.',
-    owner:  'Personal self-service — no admin over others.',
+    owner:  'Personal self-service - no admin over others.',
   },
   inventory: {
     viewer: 'See items, stock levels and their own requests.',

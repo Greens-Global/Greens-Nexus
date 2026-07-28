@@ -18,7 +18,7 @@ import { VEHICLE_FIELDS, EQUIPMENT_FIELDS, ASSET_SCHEMAS, inferAssetKind, buildA
 import { nexusCsvEsc, nexusCsvParse } from '../../lib/csvExport.js';
 import { normLabel, resizeImageToDataUrl } from '../../lib/format.js';
 
-// Full ASSET_SCHEMAS lookup including the property wizard schema — vehicleFields.js's
+// Full ASSET_SCHEMAS lookup including the property wizard schema - vehicleFields.js's
 // ASSET_SCHEMAS only covers vehicle/equipment since property has no single "the" schema outside
 // this wizard (PT is a different, grouped shape used for display/inline-edit elsewhere).
 const WIZARD_SCHEMAS = { ...ASSET_SCHEMAS, property: PROPERTY_WIZARD_FIELDS };
@@ -30,7 +30,7 @@ const ASSET_CLASSES = [
 ];
 
 // Address-related fields checked for changes when editing a property (see addressFieldsChanged
-// below) — mirrors PT's Project Details address fields.
+// below) - mirrors PT's Project Details address fields.
 const ADDRESS_FIELDS = [
   ['address', 'Street address'],
   ['city', 'City'],
@@ -99,7 +99,7 @@ export function AddAssetModal({ row, properties, onSave, onDelete, onClose }) {
       try {
         setField('image', await resizeImageToDataUrl(file));
       } catch {
-        // unreadable image — leave field unchanged
+        // unreadable image - leave field unchanged
       }
     }
     e.target.value = '';
@@ -116,7 +116,7 @@ export function AddAssetModal({ row, properties, onSave, onDelete, onClose }) {
           resizeImageToDataUrl(file)
             .then((url) => setField('image', url))
             .catch(() => {
-              // unreadable image — leave field unchanged
+              // unreadable image - leave field unchanged
             });
           return;
         }
@@ -258,7 +258,7 @@ export function AddAssetModal({ row, properties, onSave, onDelete, onClose }) {
         </>
       }
     >
-      {/* Asset class picker — always visible, even while editing (though changing it mid-edit
+      {/* Asset class picker - always visible, even while editing (though changing it mid-edit
           is unusual; the original leaves this enabled rather than disabling it for edits). */}
       <div style={{ marginBottom: 18, paddingBottom: 16, borderBottom: '1px solid var(--border-color)' }}>
         <div style={{ ...SECTION_LABEL_STYLE, color: 'var(--pine)', fontSize: '0.7rem', marginBottom: 10 }}>Asset class</div>
@@ -301,7 +301,7 @@ export function AddAssetModal({ row, properties, onSave, onDelete, onClose }) {
           }}
         >
           <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'hsl(var(--color-gold))', marginBottom: 6 }}>
-            ⚠ You changed the address — reason required
+            ⚠ You changed the address - reason required
           </div>
           <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginBottom: 8 }}>
             Changing: <strong style={{ color: 'var(--text-primary)' }}>{changedAddressFields.map(([, label]) => label).join(', ')}</strong>. A reason is recorded in the activity log.
@@ -326,7 +326,7 @@ export function AddAssetModal({ row, properties, onSave, onDelete, onClose }) {
           <div className="form-group">
             <label>Link this property to another</label>
             <select className="form-input" value={linkTargetId} onChange={(e) => setLinkTargetId(e.target.value)}>
-              <option value="">— Standalone (not linked) —</option>
+              <option value="">- Standalone (not linked) -</option>
               {otherAssets.filter((p) => inferAssetKind(p) === 'property').map((p) => (
                 <option key={p.id} value={p.id}>{p.name}</option>
               ))}

@@ -56,14 +56,14 @@ export default function LocalSearchCard({ rows }) {
           icon={Trophy}
           color={{ color: C.amber600, background: C.amber50 }}
           label="Avg. Map Pack Position"
-          value={stats.inMapPack > 0 ? `#${stats.avgMapPackPosition.toFixed(1)}` : '—'}
+          value={stats.inMapPack > 0 ? `#${stats.avgMapPackPosition.toFixed(1)}` : '-'}
           caption="Among queries in the pack"
         />
         <StatCard
           icon={TrendingUp}
           color={{ color: C.blue600, background: C.blue50 }}
           label="Avg. Organic Position"
-          value={stats.totalQueries > 0 ? `#${stats.avgOrganicPosition.toFixed(1)}` : '—'}
+          value={stats.totalQueries > 0 ? `#${stats.avgOrganicPosition.toFixed(1)}` : '-'}
           caption="Across all local queries"
         />
         <StatCard

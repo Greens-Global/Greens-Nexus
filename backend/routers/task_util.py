@@ -43,7 +43,7 @@ def _post_task_event(task_id: str, kind: str) -> None:
                 "Content-Type": "application/json",
                 "Prefer": "return=minimal",
             },
-            # affected_email deliberately blank — task_events is anon-readable for
+            # affected_email deliberately blank - task_events is anon-readable for
             # realtime pings, so nothing personal is written. Clients refetch via
             # the authenticated API.
             json={"task_id": task_id, "kind": kind, "affected_email": ""},
@@ -66,11 +66,11 @@ def task_notify(db: Session, *, kind: str, for_email: str, title: str, body: str
                 nexus_action: dict | None = None) -> None:
     """Create one in-app notification. `for_email` is a specific address or the
     literal "admins" to fan out to every administrator (resolved client-side).
-    Server-side only — employees can't POST notifications directly.
+    Server-side only - employees can't POST notifications directly.
 
     Also mirrors into the shared Nexus bell (nexus_notifications) so the same
     event surfaces in TopHeader's global bell, not just the module's own one.
-    `nexus_action`, if given, is `{"view": ..., "sub": ..., "label": ...}` —
+    `nexus_action`, if given, is `{"view": ..., "sub": ..., "label": ...}` -
     NotificationBell's default click handler dispatches nexus:navigate to it.
     """
     target = for_email if for_email == "admins" else (for_email or "").lower()
@@ -114,7 +114,7 @@ def admin_emails(db: Session) -> list[str]:
 
 # ── Visibility (Jul 2026) ─────────────────────────────────────────────────────
 def is_manager(user: dict) -> bool:
-    """Managers/admins bypass Task-module visibility restrictions entirely —
+    """Managers/admins bypass Task-module visibility restrictions entirely -
     same level cutoff as require_manager elsewhere in this app (auth.py)."""
     return (user or {}).get("level", 0) >= 3
 
@@ -123,7 +123,7 @@ def visible_project_ids(db: Session, email: str) -> set[str]:
     """Project ids a non-manager user may see: marked 'org' (Nexus Global),
     owned by them, an explicit project member, containing a team they're a
     member of, or containing a task they're the assignee of. Deliberately
-    does NOT look at individual tasks' own access_level here — Task.access_level
+    does NOT look at individual tasks' own access_level here - Task.access_level
     defaults to 'org' (its own pre-existing default, unchanged), so treating
     "has an org task" as "project is visible" would expose almost every
     project to everyone the moment it has any task in it. A task's own
@@ -148,8 +148,8 @@ def team_project_ids(t: TaskTeam) -> list:
     """A team's projects. A team may belong to MANY (one IT team shared across
     projects, as Asana does it); `project_ids` is the source of truth and
     `project_id` survives only as a write-only legacy mirror. Falling back to it
-    keeps a row written before the column existed — or by an older instance
-    mid-deploy — resolving to its one project instead of to nothing."""
+    keeps a row written before the column existed - or by an older instance
+    mid-deploy - resolving to its one project instead of to nothing."""
     ids = [p for p in (t.project_ids or []) if p]
     if not ids and (t.project_id or ""):
         return [t.project_id]
@@ -179,8 +179,8 @@ PROJECT_ROLE_RANK = {"viewer": 1, "commenter": 2, "editor": 3, "owner": 4}
 
 
 def project_for_task(db: Session, task: Task):
-    """The TaskProject a task belongs to — walking up parent_task_id for a
-    subtask, which (by convention — see asana_sync.py/asana_import.py) has its
+    """The TaskProject a task belongs to - walking up parent_task_id for a
+    subtask, which (by convention - see asana_sync.py/asana_import.py) has its
     own project_id blank and reaches its project only via its top-level
     ancestor. None for a standalone task with no project anywhere in its chain."""
     t = task
@@ -197,12 +197,12 @@ def project_for_task(db: Session, task: Task):
 def project_role_for(db: Session, email: str, project) -> str | None:
     """The highest Share-panel role `email` holds on `project`: project owner,
     else the best of an explicit member_roles entry or any TaskTeam (scoped to
-    this project) they belong to, else "editor" for an org-visible project —
+    this project) they belong to, else "editor" for an org-visible project -
     preserving the pre-Share-panel behavior where anyone could act on an
     org-wide project's tasks. None means no access at all (a restricted
     project this email isn't granted on)."""
     if not project:
-        return "editor"   # no project at all (a standalone task) — unrestricted, as before
+        return "editor"   # no project at all (a standalone task) - unrestricted, as before
     email = (email or "").lower()
     if (project.owner_email or "").lower() == email:
         return "owner"
@@ -222,7 +222,7 @@ def project_role_for(db: Session, email: str, project) -> str | None:
 
 def require_project_role(db: Session, user: dict, project, min_role: str) -> None:
     """Raise 403 unless `user` holds at least `min_role` on `project` (a
-    TaskProject or None — see project_for_task). Managers/admins always
+    TaskProject or None - see project_for_task). Managers/admins always
     bypass, same cutoff as is_manager elsewhere in this module."""
     if is_manager(user):
         return

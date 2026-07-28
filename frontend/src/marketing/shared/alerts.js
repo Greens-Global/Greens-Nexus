@@ -11,7 +11,7 @@ import { filterByRange as insFilterByRange, sumLeadTotals } from '../insights/ag
 
 // Alerts are always computed account-wide (all properties) for the current
 // calendar month, independent of whatever date range/property filter the
-// user currently has selected — a notification backlog should be stable,
+// user currently has selected - a notification backlog should be stable,
 // not change every time you tweak a report filter.
 export function computeAlerts({ monthlyBudget, leadGoal }) {
   const alerts = []

@@ -1,5 +1,5 @@
 /* eslint-disable react-hooks/refs -- the dropdown measures its trigger's DOM rect during render to clamp/flip the panel within the viewport (mobile); a safe intentional ref read the React-Compiler rule flags */
-// Task Module — productivity bar: Filters, Sort, Saved views, Templates, Intake.
+// Task Module - productivity bar: Filters, Sort, Saved views, Templates, Intake.
 // Ported from the export's productivity/* (FilterSortGroupBar, SavedViewsMenu,
 // TemplatePicker, IntakeFormModal) into one inline-styled component wired to the
 // TasksContext store. The export's store had applyTemplate/submitIntakeForm/
@@ -9,7 +9,7 @@ import { SlidersHorizontal, ArrowUpDown, Bookmark, LayoutTemplate, Inbox, Plus, 
 import { BottomSheet } from './MobileTaskBar';
 import { useTasks } from './TasksContext';
 import { Modal, PersonSelect, usePeople, useIsMobile, DateField } from './components';
-import { NX, FONT, btn, input as inputStyle, STATUS_META, STATUS_ORDER, PRIORITY_META, PRIORITY_ORDER } from './theme';
+import { NX, FONT, btn, CONTROL_H, CONTROL_FS, CONTROL_ICON, input as inputStyle, STATUS_META, STATUS_ORDER, PRIORITY_META, PRIORITY_ORDER } from './theme';
 import { emailToName } from '../lib/utils';
 
 const SORT_OPTIONS = [
@@ -51,9 +51,9 @@ function Popover({ label, icon: Icon, active, width = 240, children, sheet = fal
   }
   return (
     <div ref={ref} style={{ position: sheet ? 'static' : 'relative' }}>
-      {/* Icon-only on phones — four labelled buttons don't fit one row (except in the sheet). */}
-      <button ref={triggerRef} onClick={() => setOpen((o) => !o)} title={label} style={{ ...btn('outline'), padding: isMobile && !sheet ? 7 : undefined, width: sheet ? '100%' : undefined, justifyContent: sheet ? 'flex-start' : undefined, color: active ? NX.blue : NX.ink, borderColor: active || open ? NX.blue : NX.border }}>
-        <Icon size={15} />{showLabel && label}
+      {/* Icon-only on phones - four labelled buttons don't fit one row (except in the sheet). */}
+      <button ref={triggerRef} onClick={() => setOpen((o) => !o)} title={label} style={{ ...btn('outline'), padding: isMobile && !sheet ? 7 : '0 9px', height: sheet ? undefined : CONTROL_H, fontSize: sheet ? undefined : CONTROL_FS, gap: 5, width: sheet ? '100%' : undefined, justifyContent: sheet ? 'flex-start' : undefined, color: active ? NX.blue : NX.ink, borderColor: active || open ? NX.blue : NX.border }}>
+        <Icon size={sheet ? 15 : CONTROL_ICON} />{showLabel && label}
       </button>
       {open && (
         <div style={menuStyle}>
@@ -83,11 +83,11 @@ function SelectedChips({ items, onRemove }) {
   );
 }
 
-// ── Category bodies — shared by the desktop popovers and the mobile drill-in sheet ──
+// ── Category bodies - shared by the desktop popovers and the mobile drill-in sheet ──
 function FiltersBody({ filters, setFilters, people, projects, lockedProjectId, hideAssignee, statusOrder = STATUS_ORDER, statusMeta = STATUS_META, customFields = [] }) {
   const activeFilterCount = (hideAssignee ? 0 : filters.assigneeIds.length) + filters.statuses.length + filters.priorities.length + (lockedProjectId ? 0 : filters.projectIds.length)
     + Object.values(filters.customFields || {}).reduce((n, v) => n + (v?.length || 0), 0);
-  // Only select fields are filterable — a bounded option list is what makes a
+  // Only select fields are filterable - a bounded option list is what makes a
   // checkbox list possible at all. Text and number fields would need operators.
   const filterFields = (customFields || []).filter((f) => f.type === 'select' && (f.options || []).length);
   const cfSelected = (fid) => (filters.customFields || {})[fid] || [];
@@ -155,7 +155,7 @@ function FiltersBody({ filters, setFilters, people, projects, lockedProjectId, h
           </div>
         </div>
       )}
-      <p style={{ margin: 0, fontSize: 11, color: NX.faint }}>Applies to List, Board and Dashboard together in this view — switching tabs keeps these filters, it doesn't reset them.</p>
+      <p style={{ margin: 0, fontSize: 11, color: NX.faint }}>Applies to this tab. Switching to Board, Calendar or any other tab clears these filters.</p>
       {filterFields.map((f) => (
         <div key={f.id}>
           <div style={groupHead}>{f.name}</div>
@@ -271,7 +271,7 @@ export function ProductivityBar({ filters, setFilters, sort, setSort, lockedProj
         {() => <FiltersBody filters={filters} setFilters={setFilters} people={people} projects={projects} lockedProjectId={lockedProjectId} hideAssignee={hideAssignee} statusOrder={store.statusOrder} statusMeta={store.statusMeta} customFields={customFields} />}
       </Popover>
 
-      {/* Date — separate from Filters, matching the export's dedicated Date button */}
+      {/* Date - separate from Filters, matching the export's dedicated Date button */}
       <Popover sheet={sheet} label="Date" icon={CalendarRange} active={dateActive} width={240}>
         {() => <DateBody filters={filters} setFilters={setFilters} />}
       </Popover>
@@ -281,7 +281,7 @@ export function ProductivityBar({ filters, setFilters, sort, setSort, lockedProj
         {(close) => <SortBody sort={sort} setSort={setSort} close={close} sortFieldOptions={sortFieldOptions} />}
       </Popover>
 
-      {/* Group — optional; rendered between Sort and Saved views to match the export */}
+      {/* Group - optional; rendered between Sort and Saved views to match the export */}
       {groupOptions && setGroup && (
         <Popover sheet={sheet} label="Group" icon={LayoutGrid} width={190}>
           {(close) => <GroupBody group={group} setGroup={setGroup} groupOptions={groupOptions} close={close} />}
@@ -294,10 +294,10 @@ export function ProductivityBar({ filters, setFilters, sort, setSort, lockedProj
       </Popover>
 
       {templates.length > 0 && (
-        <button onClick={() => setTemplatesOpen(true)} title="Templates" style={{ ...btn('outline'), padding: isMobile && !sheet ? 7 : undefined, width: sheet ? '100%' : undefined, justifyContent: sheet ? 'flex-start' : undefined }}><LayoutTemplate size={15} />{(!isMobile || sheet) && 'Templates'}</button>
+        <button onClick={() => setTemplatesOpen(true)} title="Templates" style={{ ...btn('outline'), padding: isMobile && !sheet ? 7 : '0 9px', height: sheet ? undefined : CONTROL_H, fontSize: sheet ? undefined : CONTROL_FS, gap: 5, width: sheet ? '100%' : undefined, justifyContent: sheet ? 'flex-start' : undefined }}><LayoutTemplate size={CONTROL_ICON} />{(!isMobile || sheet) && 'Templates'}</button>
       )}
       {intakeForms.length > 0 && (
-        <button onClick={() => setIntakeOpen(true)} title="Intake" style={{ ...btn('outline'), padding: isMobile && !sheet ? 7 : undefined, width: sheet ? '100%' : undefined, justifyContent: sheet ? 'flex-start' : undefined }}><Inbox size={15} />{(!isMobile || sheet) && 'Intake'}</button>
+        <button onClick={() => setIntakeOpen(true)} title="Intake" style={{ ...btn('outline'), padding: isMobile && !sheet ? 7 : '0 9px', height: sheet ? undefined : CONTROL_H, fontSize: sheet ? undefined : CONTROL_FS, gap: 5, width: sheet ? '100%' : undefined, justifyContent: sheet ? 'flex-start' : undefined }}><Inbox size={CONTROL_ICON} />{(!isMobile || sheet) && 'Intake'}</button>
       )}
 
       {templatesOpen && <TemplatesModal templates={templates} createTask={createTask} onOpenTask={onOpenTask} onClose={() => setTemplatesOpen(false)} />}
@@ -307,8 +307,8 @@ export function ProductivityBar({ filters, setFilters, sort, setSort, lockedProj
 }
 
 // Asana-style mobile filter sheet: a category list that drills into a full panel
-// (Filters / Date / Sort / Group / Saved Views) with a back arrow — no popovers.
-// `columnControls` — the List view's Hide / + Column pair. On desktop they sit
+// (Filters / Date / Sort / Group / Saved Views) with a back arrow - no popovers.
+// `columnControls` - the List view's Hide / + Column pair. On desktop they sit
 // in the toolbar; there is no toolbar on mobile, so they ride along at the
 // bottom of this sheet rather than being unreachable on a phone.
 export function MobileFilters({ filters, setFilters, sort, setSort, group, setGroup, groupOptions, current, onApplyView, search, setSearch, lockedProjectId, hideAssignee, columnControls, customFields = [], sortFieldOptions = [], onClose }) {

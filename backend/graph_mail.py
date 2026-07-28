@@ -1,16 +1,16 @@
-"""Outbound mail via Microsoft Graph — app-only (client-credentials) flow.
+"""Outbound mail via Microsoft Graph - app-only (client-credentials) flow.
 
 Same auth pattern already used independently in routers/notifications.py,
 routers/hr.py, routers/esign.py and routers/qa.py (AZURE_TENANT_ID /
 AZURE_CLIENT_ID / AZURE_CLIENT_SECRET + a shared-mailbox sender). This module
 exists so the Ticket Notification workflow doesn't add a 5th copy of that
-token-fetch logic — those other call sites are left as-is (each is a small,
+token-fetch logic - those other call sites are left as-is (each is a small,
 independently-shipped feature; not touching them keeps this change scoped to
 tickets).
 
 Unlike the existing `send_alert` (routers/notifications.py), which calls
 `/sendMail` directly, this sends via create-draft → send-by-id. `/sendMail` is
-fire-and-forget and returns no body — no message id, so nothing to store for
+fire-and-forget and returns no body - no message id, so nothing to store for
 "which Outlook thread does this belong to." Create+send gives back `id`,
 `conversationId` and `internetMessageId` from the create response, which the
 Ticket Notification workflow needs to store (delivery log, future threading).
@@ -23,7 +23,7 @@ import httpx
 _AZURE_TENANT_ID     = os.getenv("AZURE_TENANT_ID", "")
 _AZURE_CLIENT_ID     = os.getenv("AZURE_CLIENT_ID", "")
 _AZURE_CLIENT_SECRET = os.getenv("AZURE_CLIENT_SECRET", "")
-# Default sender — the admin-configurable override (NexusSetting, see
+# Default sender - the admin-configurable override (NexusSetting, see
 # ticket_notify.py) takes precedence when set; this is only the fallback.
 DEFAULT_FROM_EMAIL = os.getenv("NEXUS_FROM_EMAIL", "")
 
@@ -39,7 +39,7 @@ def graph_configured() -> bool:
 def _graph_token() -> str:
     if not graph_configured():
         raise GraphMailError(
-            "Email not configured — set AZURE_CLIENT_SECRET (and AZURE_TENANT_ID/"
+            "Email not configured - set AZURE_CLIENT_SECRET (and AZURE_TENANT_ID/"
             "AZURE_CLIENT_ID) in env vars, and grant the Entra app the Mail.Send "
             "application permission."
         )
@@ -61,7 +61,7 @@ def send_mail(*, from_email: str, to: list[str], cc: list[str] | None,
               subject: str, html: str, reply_to: str = "") -> dict:
     """Sends one email; returns {messageId, conversationId, internetMessageId}
     on success. Raises GraphMailError on any failure (unconfigured, HTTP
-    error, network error) — callers must catch this, never let it propagate
+    error, network error) - callers must catch this, never let it propagate
     into a ticket-mutating request (email delivery must never block a ticket
     operation)."""
     if not from_email:
@@ -81,9 +81,9 @@ def send_mail(*, from_email: str, to: list[str], cc: list[str] | None,
         if reply_to:
             message["replyTo"] = [{"emailAddress": {"address": reply_to}}]
 
-        # 1) Create the draft — this response carries the ids we need to store.
+        # 1) Create the draft - this response carries the ids we need to store.
         # NOTE: creating a draft WRITES to the mailbox, so it needs the
-        # Mail.ReadWrite APPLICATION permission — Mail.Send alone only covers
+        # Mail.ReadWrite APPLICATION permission - Mail.Send alone only covers
         # /sendMail. With just Mail.Send, this step 403s (ErrorAccessDenied);
         # rather than fail the email, fall back to fire-and-forget /sendMail
         # below (the message still goes out, we just get no ids to store for

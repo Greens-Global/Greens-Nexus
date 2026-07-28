@@ -1,5 +1,5 @@
 """
-Unit tests for routers.task_projects.handover_person — the task side of HR
+Unit tests for routers.task_projects.handover_person - the task side of HR
 offboarding (routers/hr.py change_status), mirroring items.force_return_person.
 
 Uses a throwaway sqlite file so it never touches the real dev DB
@@ -138,7 +138,7 @@ class HandoverPersonTests(unittest.TestCase):
 
     def test_subtasks_are_reassigned_but_never_moved(self):
         """A subtask carries project_id='' and reaches its project through its
-        parent — relocating one on its own would detach it."""
+        parent - relocating one on its own would detach it."""
         parent = self._task(title="Parent", project_id="proj-live")
         sub = self._task(title="Sub", parent_task_id=parent.id)
 

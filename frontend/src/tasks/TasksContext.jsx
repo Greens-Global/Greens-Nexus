@@ -1,5 +1,5 @@
 /* eslint-disable react-hooks/refs -- the context value intentionally exposes a stable comment-cache ref's current map; a deliberate ref read the React-Compiler rule flags */
-// Task Module — data layer. Replaces the export's React-Query + Zustand +
+// Task Module - data layer. Replaces the export's React-Query + Zustand +
 // NexusTaskStore with a single Nexus-style context: loads from the FastAPI
 // backend, applies optimistic updates, and refetches on a task_events realtime
 // ping (with a poll fallback), mirroring RequisitionContext.
@@ -150,14 +150,14 @@ export function TasksProvider({ children }) {
     } catch (e) {
       refetchTasks().catch(() => {});
       // Surfaces things like a dependency-gate rejection (blocked by an
-      // unfinished FS/SS/FF/SF task) — the optimistic change above just got
+      // unfinished FS/SS/FF/SF task) - the optimistic change above just got
       // reverted by the refetch, so silence here would look like nothing happened.
       if (e?.status && e.status !== 401) alert(e.message || 'Could not update this task.');
       throw e;
     }
   }, [patchLocalTask, refetchTasks]);
 
-  // Undo toast — one at a time; label + a run() that reverses the action.
+  // Undo toast - one at a time; label + a run() that reverses the action.
   const [undo, setUndo] = useState(null);
   const undoTimer = useRef(null);
   const offerUndo = useCallback((label, run) => {
@@ -174,7 +174,7 @@ export function TasksProvider({ children }) {
   // update briefly so the row visibly turns green BEFORE it jumps to the
   // Completed bucket. Un-completing is instant and silent. The pending set
   // guards double-clicks during the hold. A task whose status is Recurring
-  // never completes — its due date rolls forward a week instead (the whole
+  // never completes - its due date rolls forward a week instead (the whole
   // point of a recurring task is that it comes back).
   const pendingComplete = useRef(new Set());
   const toggleComplete = useCallback((t) => {
@@ -190,7 +190,7 @@ export function TasksProvider({ children }) {
           const base = new Date(`${t.dueOn > today ? t.dueOn : today}T00:00:00`);
           base.setDate(base.getDate() + 7);
           const next = base.toISOString().slice(0, 10);
-          offerUndo(`Recurring — rolled to ${next}`, () => updateTask(t.id, { dueOn: t.dueOn }).catch(() => {}));
+          offerUndo(`Recurring - rolled to ${next}`, () => updateTask(t.id, { dueOn: t.dueOn }).catch(() => {}));
           resolve(updateTask(t.id, { dueOn: next }).catch(() => {}));
         } else {
           offerUndo(`Completed "${(t.title || '').slice(0, 40)}"`, () => updateTask(t.id, { completed: false }).catch(() => {}));
@@ -205,7 +205,7 @@ export function TasksProvider({ children }) {
     const gone = tasks.find((t) => t.id === id);
     setTasks((prev) => prev.filter((t) => t.id !== id));   // optimistic
     try { await api.deleteTask(id); } catch (e) { refetchTasks().catch(() => {}); throw e; }
-    // Undo recreates the task from its main fields (a fresh id — comments and
+    // Undo recreates the task from its main fields (a fresh id - comments and
     // subtask links don't survive a hard delete; the fields are the rescue).
     if (gone) {
       offerUndo(`Deleted "${(gone.title || '').slice(0, 40)}"`, () => createTask({
@@ -251,7 +251,7 @@ export function TasksProvider({ children }) {
   const mkDel = (delFn, setFn) => async (id) => { await delFn(id); setFn((p) => p.filter((x) => x.id !== id)); };
 
   // Adding/removing a project from a portfolio tags the project's own
-  // portfolioId server-side too (see backend update_portfolio) — mirror that
+  // portfolioId server-side too (see backend update_portfolio) - mirror that
   // here so ProjectsView's portfolio badge (which reads project.portfolioId,
   // not the portfolio's projectIds) updates without a full refetch.
   const updatePortfolio = async (id, patch) => {
@@ -335,7 +335,7 @@ export function TasksProvider({ children }) {
   }, []);
 
   // Merged status metadata + order (built-in + custom), recomputed when custom
-  // statuses change — the single source every status surface should read from.
+  // statuses change - the single source every status surface should read from.
   const statusMeta = useMemo(() => buildStatusMeta(customStatuses), [customStatuses]);
   const statusOrder = useMemo(() => buildStatusOrder(customStatuses), [customStatuses]);
 
@@ -352,7 +352,7 @@ export function TasksProvider({ children }) {
   return (
     <Ctx.Provider value={value}>
       {children}
-      {/* Undo toast — completes, deletes, and recurring rolls offer a 6s rescue. */}
+      {/* Undo toast - completes, deletes, and recurring rolls offer a 6s rescue. */}
       {undo && (
         <div style={{
           position: 'fixed', left: '50%', bottom: 24, transform: 'translateX(-50%)', zIndex: 6000,

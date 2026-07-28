@@ -87,7 +87,7 @@ export default function AiAnalystButton({ insights, onNavigate }) {
           </div>
           {shown.length === 0 ? (
             <div style={{ padding: '16px 8px', textAlign: 'center', fontSize: 12.5, color: C.gray400 }}>
-              No notable changes this month — performance is holding steady.
+              No notable changes this month - performance is holding steady.
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 2, maxHeight: 384, overflowY: 'auto' }}>

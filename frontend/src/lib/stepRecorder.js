@@ -1,8 +1,8 @@
 // ── Step recorder for the Testing module ─────────────────────────────────────
 // Records a bug the way a tester experiences it:
-//  • STEPS  — what they interact with (screen + control label), never the values.
-//  • VIDEO  — optional screen capture (getDisplayMedia) with the mic mixed in.
-//  • VOICE  — optional narration, embedded in the video AND transcribed live
+//  • STEPS  - what they interact with (screen + control label), never the values.
+//  • VIDEO  - optional screen capture (getDisplayMedia) with the mic mixed in.
+//  • VOICE  - optional narration, embedded in the video AND transcribed live
 //             (Web Speech API) so it can auto-fill the bug description.
 // One floating card owns all of it: Stop ends steps + video + voice together and
 // drops the tester back on Report a bug with everything attached. The card is
@@ -30,7 +30,7 @@ let _finishing = false;
 
 // Pretty names for the url slugs the app navigates between (App.jsx keeps the
 // address bar in sync with the active view, so the URL is the reliable "which
-// screen am I on" signal — document.title never changes).
+// screen am I on" signal - document.title never changes).
 const _SLUG_LABELS = {
   '': 'Dashboard', dashboard: 'Dashboard', 'manager-dashboard': 'Manager Dashboard',
   itemmanagement: 'Item Management', inventory: 'Item Management',
@@ -66,14 +66,14 @@ function _labelOf(el) {
 
 function _trackScreen() {
   // Auto-log screen changes by watching the URL (covers sidebar clicks, deep
-  // links, back/forward — everything), instead of relying on window events.
+  // links, back/forward - everything), instead of relying on window events.
   const path = _pathNow();
   if (path === _lastPath) return;
   _lastPath = path;
   const name = _screenName(path);
   const last = _events[_events.length - 1];
   // The click that just navigated here already logged a "clicked …" row; the
-  // navigation it caused would otherwise add a second "opened <Screen>" row —
+  // navigation it caused would otherwise add a second "opened <Screen>" row -
   // one user action, two entries. Since a top-level screen change is always
   // triggered by that immediately-preceding click, fold the two into a single
   // "opened <Screen>" (keeps the path so replay can still navigate).
@@ -90,7 +90,7 @@ function _onClick(e) {
   // Walk up to the nearest meaningful control so we log "button 'Save'", not "svg".
   const el = e.target.closest?.('button, a, [role="button"], [role="tab"], select, input, textarea, label, th, [onclick]') || e.target;
   const tag = el.tagName?.toLowerCase() || 'element';
-  // focusin exists only to catch typing/selecting — for buttons/links it just
+  // focusin exists only to catch typing/selecting - for buttons/links it just
   // echoes the click and doubled every entry.
   if (e.type === 'focusin' && !['input', 'textarea', 'select'].includes(tag)) return;
   const label = _labelOf(el);
@@ -193,7 +193,7 @@ function _startSpeech() {
       _interim = interim;   // held until finalised or committed at stop
     };
     // Surface failures instead of dying silently. 'no-speech'/'aborted'/'network'
-    // are transient — let onend restart. 'not-allowed'/'service-not-allowed' mean
+    // are transient - let onend restart. 'not-allowed'/'service-not-allowed' mean
     // the mic/speech service is blocked: stop trying.
     _recog.onerror = ev => {
       console.warn('[qa-recorder] speech error:', ev.error);
@@ -277,12 +277,12 @@ export async function startBugRecording(opts = {}) {
         try {
           _micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
           _micStream.getAudioTracks().forEach(t => _screenStream.addTrack(t));
-        } catch { /* mic denied — video only, transcript may still run below */ }
+        } catch { /* mic denied - video only, transcript may still run below */ }
       }
       _mediaRec = new MediaRecorder(_screenStream, { mimeType: _pickMime() });
       _mediaRec.ondataavailable = e => e.data.size && _chunks.push(e.data);
       _mediaRec.start(1000);
-      // Chrome's browser-chrome "Stop sharing" ends the video track — treat it
+      // Chrome's browser-chrome "Stop sharing" ends the video track - treat it
       // as a Stop so nothing is lost even if they use the browser control.
       _screenStream.getVideoTracks()[0].addEventListener('ended', () => _finishBug());
     } catch { haveVideo = false; /* cancelled the screen picker → steps only */ }
@@ -295,7 +295,7 @@ export async function startBugRecording(opts = {}) {
   if (haveVoice) parts.push('voice');
   parts.push('steps');
   _showPill({
-    text: `Recording bug — ${parts.join(' + ')}`,
+    text: `Recording bug - ${parts.join(' + ')}`,
     stopLabel: 'Stop',
     onStopClick: () => _finishBug(),
     onCancelClick: () => _cancelBug(),
@@ -312,7 +312,7 @@ async function _finishBug() {
   try {
     sessionStorage.setItem('qa-bug-steps', JSON.stringify(events));
     if (_transcript) sessionStorage.setItem('qa-bug-transcript', _transcript);
-  } catch { /* storage full — steps still return via the blob/transcript getters */ }
+  } catch { /* storage full - steps still return via the blob/transcript getters */ }
   _finishing = false;
   window.history.pushState(null, '', '/testing');
   window.dispatchEvent(new PopStateEvent('popstate'));

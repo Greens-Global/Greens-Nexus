@@ -1,4 +1,4 @@
-"""HTML email templates for the Task Notification workflow (Jul 2026) — same
+"""HTML email templates for the Task Notification workflow (Jul 2026) - same
 shell and visual language as ticket_mail_templates.py (dark-green NEXUS
 header, inline styles only since email clients ignore <style> sheets), so
 task emails look like they come from the same system. Per-event functions
@@ -17,7 +17,7 @@ PRIORITY_LABEL = {"urgent": "Urgent", "high": "High", "medium": "Medium", "low":
 
 
 def _status_badge(status: str) -> str:
-    m = STATUS_META.get(status, {"label": (status or "—").replace("_", " ").title(), "color": "#6b7280"})
+    m = STATUS_META.get(status, {"label": (status or "-").replace("_", " ").title(), "color": "#6b7280"})
     return (
         f"<span style='display:inline-block;padding:4px 12px;border-radius:999px;"
         f"background:{m['color']}1a;color:{m['color']};font-size:12px;font-weight:700;"
@@ -31,7 +31,7 @@ def _rows_table(rows: list[tuple[str, str]]) -> str:
         f"<td style='padding:8px 0;border-bottom:1px solid #f0f1f3;font-size:12.5px;"
         f"color:#6b7280;width:150px;vertical-align:top'>{escape(label)}</td>"
         f"<td style='padding:8px 0;border-bottom:1px solid #f0f1f3;font-size:13.5px;"
-        f"color:#1f2937;vertical-align:top'>{escape(str(value)) if value not in (None, '') else '—'}</td>"
+        f"color:#1f2937;vertical-align:top'>{escape(str(value)) if value not in (None, '') else '-'}</td>"
         f"</tr>"
         for label, value in rows
     )
@@ -96,7 +96,7 @@ def task_email_html(*, task_code: str, task_title: str, status: str, heading: st
 
 
 def _task_url(base_url: str, task_id: str) -> str:
-    # Matches App.jsx's parsePath() — /<view-path>/<sub> — plus a ?task= query
+    # Matches App.jsx's parsePath() - /<view-path>/<sub> - plus a ?task= query
     # param TasksWorkspace.jsx reads once on mount to auto-open that task.
     base = (base_url or "").rstrip("/")
     return f"{base}/tasks/mine?task={task_id}" if base else "#"
@@ -104,17 +104,32 @@ def _task_url(base_url: str, task_id: str) -> str:
 
 def _common_rows(t: dict) -> list[tuple[str, str]]:
     return [
-        ("Project", t.get("projectName") or "—"),
+        ("Project", t.get("projectName") or "-"),
         ("Assignee", t.get("assigneeName") or "Unassigned"),
         ("Priority", PRIORITY_LABEL.get(t.get("priority"), t.get("priority"))),
-        ("Due date", t.get("dueDateDisplay") or "—"),
+        ("Due date", t.get("dueDateDisplay") or "-"),
     ]
 
 
-# ── Per-event builders — each returns (subject, html) ────────────────────────
+# ── Per-event builders - each returns (subject, html) ────────────────────────
+
+# The portal is Greens Global's. Kept here rather than imported from the ticket
+# templates: the two modules format their subjects differently on purpose, and
+# sharing a symbol would invite someone to "align" them again.
+COMPANY_NAME = "Greens Global"
+
+
+def _task_subject(t: dict, state: str) -> str:
+    """One shape for every task email: [Company] - Task Name - State.
+
+    The task name leads because that is what the recipient recognizes in a full
+    inbox; the old subject opened with the code twice ("[Task TASK-1983] Overdue
+    - TASK-1983 - ...") and pushed the title past where most clients truncate.
+    Plain hyphens, never en/em dashes (CLAUDE.md)."""
+    return f"[{COMPANY_NAME}] - {t.get('title') or t.get('code') or 'Task'} - {state}"
 
 def created_email(*, t: dict, base_url: str, logo_url: str, audience: str) -> tuple[str, str]:
-    subject = f"[Task {t['code']}] New Task – {t['code']} – {t['title']}"
+    subject = _task_subject(t, "New Task")
     intro = (
         "A new task was created and assigned to you."
         if audience == "assignee" else
@@ -125,10 +140,10 @@ def created_email(*, t: dict, base_url: str, logo_url: str, audience: str) -> tu
         heading="New task" if audience != "assignee" else "You have a new task",
         intro=intro,
         rows=[
-            ("Description", (t.get("description") or "—")[:400]),
+            ("Description", (t.get("description") or "-")[:400]),
             *_common_rows(t),
             ("Created by", t.get("actorName") or t.get("actorEmail")),
-            ("Created", t.get("eventAtDisplay") or "—"),
+            ("Created", t.get("eventAtDisplay") or "-"),
         ],
         cta_label="View Task", cta_url=_task_url(base_url, t["id"]), logo_url=logo_url,
         note="Action required." if audience == "assignee" else "",
@@ -137,9 +152,9 @@ def created_email(*, t: dict, base_url: str, logo_url: str, audience: str) -> tu
 
 
 def assigned_email(*, t: dict, base_url: str, logo_url: str, audience: str) -> tuple[str, str]:
-    subject = f"[Task {t['code']}] Task Assigned – {t['code']} – Assigned to {t.get('assigneeName') or t.get('assigneeId')}"
+    subject = _task_subject(t, "Assigned")
     intro = (
-        "You've been assigned this task — please review and take action."
+        "You've been assigned this task - please review and take action."
         if audience == "assignee" else
         f"This task has been assigned to {t.get('assigneeName') or t.get('assigneeId')}."
     )
@@ -150,7 +165,7 @@ def assigned_email(*, t: dict, base_url: str, logo_url: str, audience: str) -> t
         rows=[
             *_common_rows(t),
             ("Assigned by", t.get("actorName") or t.get("actorEmail")),
-            ("Assigned", t.get("eventAtDisplay") or "—"),
+            ("Assigned", t.get("eventAtDisplay") or "-"),
         ],
         cta_label="Open Task", cta_url=_task_url(base_url, t["id"]), logo_url=logo_url,
         note="Action required." if audience == "assignee" else "",
@@ -161,15 +176,15 @@ def assigned_email(*, t: dict, base_url: str, logo_url: str, audience: str) -> t
 def due_reminder_email(*, t: dict, base_url: str, logo_url: str, days_left: int) -> tuple[str, str]:
     overdue = days_left < 0
     if overdue:
-        subject = f"[Task {t['code']}] Overdue – {t['code']} – {t['title']}"
+        subject = _task_subject(t, "Overdue")
         heading = "This task is overdue"
         intro = f"This task was due {t.get('dueDateDisplay') or 'earlier'} and is still not completed."
     elif days_left == 0:
-        subject = f"[Task {t['code']}] Due Today – {t['code']} – {t['title']}"
+        subject = _task_subject(t, "Due Today")
         heading = "This task is due today"
-        intro = "This task is due today — make sure it's on track."
+        intro = "This task is due today - make sure it's on track."
     else:
-        subject = f"[Task {t['code']}] Due Soon – {t['code']} – {t['title']}"
+        subject = _task_subject(t, "Due Soon")
         heading = f"This task is due in {days_left} day{'s' if days_left != 1 else ''}"
         intro = f"Reminder: this task is due {t.get('dueDateDisplay') or 'soon'}."
     html = task_email_html(
@@ -183,7 +198,7 @@ def due_reminder_email(*, t: dict, base_url: str, logo_url: str, days_left: int)
 
 
 def completed_email(*, t: dict, base_url: str, logo_url: str) -> tuple[str, str]:
-    subject = f"[Task {t['code']}] Task Completed – {t['code']} – {t['title']}"
+    subject = _task_subject(t, "Completed")
     html = task_email_html(
         task_code=t["code"], task_title=t["title"], status=t["status"],
         heading="This task has been completed",
@@ -191,7 +206,7 @@ def completed_email(*, t: dict, base_url: str, logo_url: str) -> tuple[str, str]
         rows=[
             *_common_rows(t),
             ("Completed by", t.get("actorName") or t.get("actorEmail")),
-            ("Completed", t.get("eventAtDisplay") or "—"),
+            ("Completed", t.get("eventAtDisplay") or "-"),
         ],
         cta_label="View Task", cta_url=_task_url(base_url, t["id"]), logo_url=logo_url,
     )
@@ -204,13 +219,13 @@ def mentioned_email(*, t: dict, base_url: str, logo_url: str, comment_body: str,
     from commented_email: a mention is addressed AT you, so it names who did it
     in the subject, where the comment mail is an FYI to assignees and followers."""
     who = actor_name or t.get("actorName") or t.get("actorEmail") or "Someone"
-    subject = f"[Task {t['code']}] {who} mentioned you – {t['title']}"
+    subject = _task_subject(t, f"{who} Mentioned You")
     html = task_email_html(
         task_code=t["code"], task_title=t["title"], status=t["status"],
         heading="You were mentioned in a comment",
         intro=f"{who} mentioned you on this task.",
         rows=[
-            ("Comment", (comment_body or "—")[:500]),
+            ("Comment", (comment_body or "-")[:500]),
             *_common_rows(t),
         ],
         cta_label="View Comment", cta_url=_task_url(base_url, t["id"]), logo_url=logo_url,
@@ -219,13 +234,13 @@ def mentioned_email(*, t: dict, base_url: str, logo_url: str, comment_body: str,
 
 
 def commented_email(*, t: dict, base_url: str, logo_url: str, comment_body: str) -> tuple[str, str]:
-    subject = f"[Task {t['code']}] New Comment – {t['code']} – {t['title']}"
+    subject = _task_subject(t, "New Comment")
     html = task_email_html(
         task_code=t["code"], task_title=t["title"], status=t["status"],
         heading="New comment on your task",
         intro=f"{t.get('actorName') or t.get('actorEmail')} commented on this task.",
         rows=[
-            ("Comment", (comment_body or "—")[:500]),
+            ("Comment", (comment_body or "-")[:500]),
             *_common_rows(t),
         ],
         cta_label="View Comment", cta_url=_task_url(base_url, t["id"]), logo_url=logo_url,
@@ -234,11 +249,11 @@ def commented_email(*, t: dict, base_url: str, logo_url: str, comment_body: str)
 
 
 def follower_added_email(*, t: dict, base_url: str, logo_url: str) -> tuple[str, str]:
-    subject = f"[Task {t['code']}] Added as Collaborator – {t['code']} – {t['title']}"
+    subject = _task_subject(t, "Added as Collaborator")
     html = task_email_html(
         task_code=t["code"], task_title=t["title"], status=t["status"],
         heading="You've been added to a task",
-        intro=f"{t.get('actorName') or t.get('actorEmail')} added you as a collaborator on this task — you'll now get updates on it.",
+        intro=f"{t.get('actorName') or t.get('actorEmail')} added you as a collaborator on this task - you'll now get updates on it.",
         rows=_common_rows(t),
         cta_label="View Task", cta_url=_task_url(base_url, t["id"]), logo_url=logo_url,
     )
@@ -246,7 +261,7 @@ def follower_added_email(*, t: dict, base_url: str, logo_url: str) -> tuple[str,
 
 
 def modified_email(*, t: dict, base_url: str, logo_url: str, update_kind: str) -> tuple[str, str]:
-    subject = f"[Task {t['code']}] Task Updated – {t['code']} – {t['title']}"
+    subject = _task_subject(t, "Updated")
     html = task_email_html(
         task_code=t["code"], task_title=t["title"], status=t["status"],
         heading="Your task has an update",
@@ -255,7 +270,7 @@ def modified_email(*, t: dict, base_url: str, logo_url: str, update_kind: str) -
             ("Update", update_kind),
             *_common_rows(t),
             ("Updated by", t.get("actorName") or t.get("actorEmail")),
-            ("Updated", t.get("eventAtDisplay") or "—"),
+            ("Updated", t.get("eventAtDisplay") or "-"),
         ],
         cta_label="View Task", cta_url=_task_url(base_url, t["id"]), logo_url=logo_url,
     )
@@ -263,15 +278,15 @@ def modified_email(*, t: dict, base_url: str, logo_url: str, update_kind: str) -
 
 
 def deleted_email(*, t: dict, base_url: str, logo_url: str) -> tuple[str, str]:
-    subject = f"[Task {t['code']}] Task Deleted – {t['code']} – {t['title']}"
+    subject = _task_subject(t, "Deleted")
     html = task_email_html(
         task_code=t["code"], task_title=t["title"], status=t.get("status") or "not_started",
         heading="A task you were on has been deleted",
-        intro=f"{t.get('actorName') or t.get('actorEmail')} deleted this task — no further action is needed.",
+        intro=f"{t.get('actorName') or t.get('actorEmail')} deleted this task - no further action is needed.",
         rows=[
-            ("Project", t.get("projectName") or "—"),
+            ("Project", t.get("projectName") or "-"),
             ("Deleted by", t.get("actorName") or t.get("actorEmail")),
-            ("Deleted", t.get("eventAtDisplay") or "—"),
+            ("Deleted", t.get("eventAtDisplay") or "-"),
         ],
         cta_label="Go to Tasks", cta_url=(base_url or "#").rstrip("/") + "/tasks/mine", logo_url=logo_url,
     )

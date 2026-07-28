@@ -1,11 +1,11 @@
 /*
 THESIS: the home screen reads like a premium work OS (canon, owner-pinned:
-monday.com-grade) — a personal command center, not a grid of identical
+monday.com-grade) - a personal command center, not a grid of identical
 widgets.
 OWN-WORLD: white cards on #f6f7fb, Figtree type, brand #2b45e1 (Stella cobalt), colored icon
 chips carrying meaning, soft shadows, friendly copy. Light always.
-STORY: an employee reads their day in five seconds — greeting, session chip,
-four numbers, the "needs your attention" list — then acts.
+STORY: an employee reads their day in five seconds - greeting, session chip,
+four numbers, the "needs your attention" list - then acts.
 FIRST VIEWPORT: greeting + session/timezone meta → four stat cards → attention
 queue (left) + team pulse / quick actions (right). Primary action = top queue
 row.
@@ -92,9 +92,11 @@ function Stat({ i, label, value, sub, chip, Icon, onGo, hero }) {
 
 export default function DeskHome({ kpis = {}, notifications = [], markRead }) {
   const { accounts } = useMsal();
-  const { can } = useRole();
+  const { can, actingAs } = useRole();
   const now = useNow();
-  const firstName = (accounts[0]?.name ?? 'there').split(' ')[0];
+  // While acting as someone, the greeting greets THEM - this whole screen is
+  // their day, and "Good evening, Visesh" on Pranshu's dashboard read wrong.
+  const firstName = ((actingAs?.targetName || accounts[0]?.name) ?? 'there').split(' ')[0];
 
   // Live extras: session state, pending signatures, team KPIs (managers).
   // All read-only, all existing endpoints, all safe to fail quietly.
@@ -240,7 +242,7 @@ export default function DeskHome({ kpis = {}, notifications = [], markRead }) {
             </div>
           )}
 
-          {/* My hours — last 7 days from the timeStatus call already made above.
+          {/* My hours - last 7 days from the timeStatus call already made above.
               Today's bar is solid brand; earlier days a lighter cobalt. */}
           {(() => {
             const days = status?.days || {};
@@ -251,11 +253,11 @@ export default function DeskHome({ kpis = {}, notifications = [], markRead }) {
               const key = d.toISOString().slice(0, 10);
               series.push({ key, min: days[key]?.workedMin || 0, wd: new Date(d.getTime() + off).toLocaleDateString([], { weekday: 'short' }).slice(0, 2), today: i === 0 });
             }
-            // Today's closed segments exclude the live session — add it so the
+            // Today's closed segments exclude the live session - add it so the
             // card agrees with the running timer (paused while on break).
             if (clockedIn && last?.kind !== 'break_start') series[6].min += Math.floor(elapsed / 60);
             const total = series.reduce((a, s) => a + s.min, 0);
-            if (total === 0 && !clockedIn) return null;   // no time-clock use — skip the card
+            if (total === 0 && !clockedIn) return null;   // no time-clock use - skip the card
             const max = Math.max(480, ...series.map(s => s.min));
             const fmtH = (m) => `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m`;
             return (
@@ -263,7 +265,7 @@ export default function DeskHome({ kpis = {}, notifications = [], markRead }) {
                 <div className="dk-pane-head">My hours <span className="dk-meta">last 7 days · {fmtH(total)}</span></div>
                 <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, height: 88, padding: '14px 16px 10px' }}>
                   {series.map(s => (
-                    <div key={s.key} title={`${s.key} — ${fmtH(s.min)}`}
+                    <div key={s.key} title={`${s.key} - ${fmtH(s.min)}`}
                       style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', gap: 5, minWidth: 0, height: '100%' }}>
                       <div style={{ width: '62%', maxWidth: 22, height: Math.max(s.min ? 6 : 3, (s.min / max) * 56), borderRadius: 99,
                         background: !s.min ? 'var(--mist)' : s.today ? 'var(--wk-brand)' : '#b9c4f4' }} />

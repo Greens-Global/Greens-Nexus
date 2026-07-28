@@ -42,7 +42,7 @@ export default function SerpOverviewModal({ keyword, onClose }) {
   const [hoverPos, setHoverPos] = useState(null)
 
   return (
-    <Modal title={`SERP Overview — ${keyword.keyword}`} onClose={onClose} width="max-w-3xl">
+    <Modal title={`SERP Overview - ${keyword.keyword}`} onClose={onClose} width="max-w-3xl">
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,minmax(0,1fr))', gap: 12, marginBottom: 16 }}>
         <StatBox icon={Search} color={{ color: C.blue600, background: C.blue50 }} value={formatNumber(keyword.volume)} label="Monthly Volume" />
         <StatBox icon={Gauge} color={kdColor(keyword.difficulty)} value={String(keyword.difficulty)} label="Difficulty (KD)" />

@@ -1,20 +1,31 @@
 import { useState, useRef, useEffect, useMemo, lazy, Suspense } from "react";
-import { Menu, Moon, Sun, Search, LogOut, Settings, User, ArrowLeft, Shield, Activity, Check, ChevronDown, LayoutDashboard, Maximize2, Minimize2, Palette, ZoomIn, ZoomOut, Camera, Clock, Sparkles, X } from "lucide-react";
+import { Menu, Moon, Sun, Search, LogOut, Settings, User, ArrowLeft, Shield, Activity, Check, ChevronDown, LayoutDashboard, Maximize2, Minimize2, Palette, ZoomIn, ZoomOut, Camera, Clock, Sparkles, X, UserCog, DoorOpen } from "lucide-react";
 import ScreenshotsAdmin from "./ScreenshotsAdmin";
 const Changelog = lazy(() => import("../tasks/ChangelogView"));
 import NotificationBell from "./NotificationBell";
 import PageHelp from "./PageHelp";
 import { useHeaderTabs } from "./ModuleTabs";
+import ActAsModal from "./ActAsModal";
 import { useMsal }        from "@azure/msal-react";
 import { useRole, ROLES, MODULES } from "../contexts/RoleContext";
 
 export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle, canGoBack, onBack, onNavigate, prevLabel, onOpenAdmin, helpKey, helpLabel }) {
   const { instance, accounts } = useMsal();
-  const { myRole, can, myGrantedModules } = useRole();
+  const { myRole, can, myGrantedModules, actingAs, startActAs, stopActAs } = useRole();
   // Module tab strip published by the active module (<ModuleTabs>). When
   // present it takes the header center (Work OS shell) and the global search
   // collapses to a magnifier icon on the right.
   const headerTabs = useHeaderTabs();
+  // Manager/IT Admin/Global Admin get Act As by role today; an 'act-as' Access
+  // Group grant (added to MODULES later) will let a Global Admin extend it to
+  // specific other employees without a backend change.
+  const canActAs = (can?.('manager') ?? false) || !!myGrantedModules?.has?.('act-as');
+  const [actAsModalOpen, setActAsModalOpen] = useState(false);
+  const [actAsStopping,  setActAsStopping]  = useState(false);
+  async function handleExitActAs() {
+    setActAsStopping(true);
+    try { await stopActAs(); } finally { setActAsStopping(false); }
+  }
   const account  = accounts[0];
   const name     = account?.name ?? "User";
   const email    = account?.username ?? "";
@@ -167,12 +178,13 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
   );
 
   return (
+    <>
     <header className="top-header">
       <div className="header-left">
         <button className="mobile-toggle" onClick={onMobileToggle} aria-label="Toggle Sidebar">
           <Menu style={{ width: 18, height: 18 }} />
         </button>
-        {/* Phone-only back button — the breadcrumb (with its back arrow) is
+        {/* Phone-only back button - the breadcrumb (with its back arrow) is
             hidden on mobile, leaving no way to step back to the parent screen
             (Jun 16). Mirrors the desktop breadcrumb-back: same onBack/canGoBack. */}
         {canGoBack && (
@@ -181,13 +193,13 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
             <ArrowLeft style={{ width: 18, height: 18 }} />
           </button>
         )}
-        {/* Phone search lives LEFT of the centered wordmark — a 4th icon on
+        {/* Phone search lives LEFT of the centered wordmark - a 4th icon on
             the right collided with NEXUS (Visesh screenshot, Jun 12) */}
         <button className="icon-btn header-search-left" aria-label="Search"
           onClick={() => window.dispatchEvent(new CustomEvent('nexus:search-open'))}>
           <Search style={{ width: 16, height: 16 }} />
         </button>
-        {/* Phone-only centered wordmark (desktop hides it) — tap = home */}
+        {/* Phone-only centered wordmark (desktop hides it) - tap = home */}
         <button className="header-brand" onClick={() => onNavigate('dashboard')} aria-label="Go to Dashboard">NEXUS</button>
         <div className="breadcrumb">
           {canGoBack && (
@@ -197,7 +209,7 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
           )}
           {canGoBack && prevLabel && (
             <>
-              <span className="breadcrumb-prev">{prevLabel}</span>
+              <button className="breadcrumb-prev" onClick={onBack} title={`Back to ${prevLabel}`}>{prevLabel}</button>
               <span style={{ color: "var(--muted)", opacity: 0.4, fontSize: 11, userSelect: "none" }}>/</span>
             </>
           )}
@@ -317,7 +329,7 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
               <button className="hud-item" onClick={onThemeToggle}>
                 {theme === "dark" ? <Sun size={14} /> : <Moon size={14} />} {theme === "dark" ? "Light mode" : "Dark mode"}
               </button>
-              {/* Work OS visual theme — cobalt (default) or warm sand */}
+              {/* Work OS visual theme - cobalt (default) or warm sand */}
               <div style={{ padding: '6px 12px 2px', fontSize: 10, fontWeight: 700, letterSpacing: '.06em', color: 'var(--muted)', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 5 }}>
                 <Palette size={11} /> Theme
               </div>
@@ -333,6 +345,26 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
                 </button>
               ))}
               {helpKey && <PageHelp pageKey={helpKey} label={helpLabel} variant="row" onActivate={() => setOpen(false)} />}
+
+              {/* Act As (Jul 2026): visible to Manager/IT Admin/Global Admin (or an
+                  'act-as' Access Group grant). Exit is always shown while a session
+                  is active - myRole may have dropped below manager because it's
+                  now reporting the impersonated employee's own role. */}
+              {(canActAs || actingAs) && (
+                <>
+                  <div className="hud-divider" />
+                  {actingAs ? (
+                    <button className="hud-item" onClick={() => { setOpen(false); handleExitActAs(); }} disabled={actAsStopping}
+                      style={{ color: 'hsl(var(--color-red))' }}>
+                      <DoorOpen size={14} /> {actAsStopping ? 'Exiting…' : `Exit Act As (${actingAs.targetName})`}
+                    </button>
+                  ) : (
+                    <button className="hud-item" onClick={() => { setOpen(false); setActAsModalOpen(true); }}>
+                      <UserCog size={14} /> Act As
+                    </button>
+                  )}
+                </>
+              )}
 
               {isAdmin && (
                 <>
@@ -374,5 +406,36 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
         </Suspense>
       )}
     </header>
+
+    {/* Persistent, hard-to-miss reminder that this is impersonation, not the
+        real signed-in identity - sits under the header on every screen for
+        the whole session, not just the profile menu (Jul 2026). */}
+    {actingAs && (
+      <div style={{
+        position: 'sticky', top: 56, zIndex: 105, display: 'flex', alignItems: 'center',
+        justifyContent: 'center', gap: 10, padding: '7px 16px',
+        background: 'hsla(var(--color-orange), 0.16)', borderBottom: '1px solid hsla(var(--color-orange), 0.4)',
+        fontFamily: 'Inter, sans-serif', fontSize: 12.5, color: 'var(--ink)', flexWrap: 'wrap', textAlign: 'center',
+      }}>
+        <UserCog size={13} style={{ color: 'hsl(var(--color-orange))', flexShrink: 0 }} />
+        <span>You're acting as <strong>{actingAs.targetName}</strong> ({actingAs.targetEmail}) - actions you take are attributed to them.</span>
+        <button onClick={handleExitActAs} disabled={actAsStopping}
+          style={{
+            background: 'hsl(var(--color-orange))', color: '#fff', border: 'none', borderRadius: 6,
+            padding: '3px 10px', fontSize: 11.5, fontWeight: 700, cursor: actAsStopping ? 'default' : 'pointer',
+            fontFamily: 'inherit', flexShrink: 0,
+          }}>
+          {actAsStopping ? 'Exiting…' : 'Exit Act As'}
+        </button>
+      </div>
+    )}
+
+    {actAsModalOpen && (
+      <ActAsModal
+        onClose={() => setActAsModalOpen(false)}
+        onStart={startActAs}
+      />
+    )}
+    </>
   );
 }

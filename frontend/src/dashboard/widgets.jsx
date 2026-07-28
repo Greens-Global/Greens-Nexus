@@ -86,7 +86,7 @@ function DashCard({ title, sub, action, children, onClick, style }) {
   );
 }
 
-// Stat tile — the DeskHome dk-stat anatomy (tinted icon chip top-left, hover
+// Stat tile - the DeskHome dk-stat anatomy (tinted icon chip top-left, hover
 // arrow top-right, big tabular numeral) so Home and the custom grid read as
 // ONE design world. The old corner watercolor blob is gone on purpose.
 function StatCard({ label, value, color, Icon, nav, hint }) {
@@ -185,7 +185,7 @@ const ACTIONS = [
   { label: 'Knowledge base',  view: 'sop',                      color: 'brand',  Icon: BookOpen },
 ];
 function QuickActionsWidget() {
-  // Same row anatomy as DeskHome's quick actions — icon chip, label, chevron.
+  // Same row anatomy as DeskHome's quick actions - icon chip, label, chevron.
   return (
     <DashCard title="Quick actions">
       <div style={{ display: 'flex', flexDirection: 'column', gap: 2, height: '100%', justifyContent: 'center' }}>
@@ -200,7 +200,7 @@ function QuickActionsWidget() {
   );
 }
 
-// Rough importance ranking by notification type — mirrors the color coding
+// Rough importance ranking by notification type - mirrors the color coding
 // used elsewhere (red = needs attention now, orange = action needed, blue =
 // informational, green = resolved/FYI). Unknown types default to "informational"
 // rather than sinking to the bottom, since new types show up before this map does.
@@ -215,7 +215,7 @@ const NOTIF_IMPORTANCE = {
 const importanceOf = (n) => NOTIF_IMPORTANCE[n.type] ?? 1;
 
 function NotificationsWidget({ notifications, markRead, markAllRead, dismiss, clearAll }) {
-  // Unread first, then most-important type, then most recent — so the thing
+  // Unread first, then most-important type, then most recent - so the thing
   // that most needs your attention is always at the top of the list.
   const sorted = [...(notifications || [])].sort((a, b) => {
     if (!!a.read !== !!b.read) return a.read ? 1 : -1;
@@ -309,7 +309,7 @@ function ClockWidget() {
 
 // ── Registry ──────────────────────────────────────────────────────────────────
 // target: undefined = both dashboards; minRole gates the gallery.
-// limits bound how far each widget can be resized — enforced during drag AND
+// limits bound how far each widget can be resized - enforced during drag AND
 // re-applied to saved layouts on load, so a stat tile can never balloon.
 const STAT_LIMITS = { minW: 2, minH: 2, maxW: 4, maxH: 3 };
 export const WIDGETS = {

@@ -237,7 +237,7 @@ function CellModal({ cell, shifts, busy, onSave, onDelete, onClose }) {
           {new Date(cell.date + 'T00:00').toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' })}
         </div>
         {shifts.length === 0 ? (
-          <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 14 }}>No shift presets yet — create one under “Presets & groups” first.</div>
+          <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 14 }}>No shift presets yet - create one under “Presets & groups” first.</div>
         ) : (
           <div style={{ display: 'grid', gap: 12 }}>
             <div>

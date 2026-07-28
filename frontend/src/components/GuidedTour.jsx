@@ -1,15 +1,15 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import { X, ArrowLeft, ArrowRight, Check } from 'lucide-react';
 
-// ── GuidedTour — spotlight walkthrough ("Simulate" mode) ─────────────────────
+// ── GuidedTour - spotlight walkthrough ("Simulate" mode) ─────────────────────
 // Highlights one element at a time (found via [data-tour="<target>"]), explains
 // what it does and what to click, and moves on with Next/Back. While the tour is
 // open a full-screen shield swallows every click outside the popover, so the
-// walkthrough can never change real data — it simulates, it doesn't do.
+// walkthrough can never change real data - it simulates, it doesn't do.
 //
 // steps: [{ target, title, body, before?() }]
-//   target  — value of the data-tour attribute to spotlight (null = centered card)
-//   before  — run before locating the element (switch tab, select a row, …)
+//   target  - value of the data-tour attribute to spotlight (null = centered card)
+//   before  - run before locating the element (switch tab, select a row, …)
 
 export default function GuidedTour({ steps, onClose }) {
   const [i, setI] = useState(0);
@@ -21,7 +21,7 @@ export default function GuidedTour({ steps, onClose }) {
     if (!step?.target) { setRect(null); return; }
     const el = document.querySelector(`[data-tour="${step.target}"]`);
     if (!el) {
-      // The element may still be rendering after before() switched tabs — retry briefly.
+      // The element may still be rendering after before() switched tabs - retry briefly.
       if (findTries.current < 20) { findTries.current += 1; setTimeout(locate, 60); }
       else setRect(null);
       return;
@@ -74,7 +74,7 @@ export default function GuidedTour({ steps, onClose }) {
 
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 1400 }} role="dialog" aria-label="Guided walkthrough">
-      {/* click shield — the whole point of Simulate: nothing underneath is clickable */}
+      {/* click shield - the whole point of Simulate: nothing underneath is clickable */}
       <div onClick={e => e.stopPropagation()} style={{ position: 'absolute', inset: 0 }} />
       {rect ? (
         <div style={{

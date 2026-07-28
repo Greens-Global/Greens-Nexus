@@ -1,7 +1,7 @@
 // Asset "Media" card: a collapsible section showing an asset's photo(s), with an inline edit
 // mode for uploading/removing pictures, and a fullscreen click-to-zoom lightbox.
 //
-// Supports the legacy single `image` field as well as the newer `images` array — reads whichever
+// Supports the legacy single `image` field as well as the newer `images` array - reads whichever
 // is present, always writes back through `images` via onSave.
 
 import { useState } from 'react';
@@ -21,7 +21,7 @@ const THUMB_STYLE = {
 /**
  * @param p        the asset record (reads p.images / p.image, p.name)
  * @param n        badge number shown next to the "Media" title (e.g. section index), or null to omit
- * @param onSave   (images: string[]) => void — called with the full new image list on Save
+ * @param onSave   (images: string[]) => void - called with the full new image list on Save
  */
 export function PhotoGallery({ p, n, onSave }) {
   const currentImages = p.images && p.images.length ? p.images : p.image ? [p.image] : [];
@@ -44,7 +44,7 @@ export function PhotoGallery({ p, n, onSave }) {
         try {
           resized.push(await resizeImageToDataUrl(file));
         } catch {
-          // unreadable/corrupt image — skip it
+          // unreadable/corrupt image - skip it
         }
       }
     }
@@ -233,7 +233,7 @@ export function PhotoGallery({ p, n, onSave }) {
                 backgroundColor: 'var(--bg-secondary)',
               }}
             >
-              {editing ? 'Upload pictures below.' : 'No pictures — click Edit to add.'}
+              {editing ? 'Upload pictures below.' : 'No pictures - click Edit to add.'}
             </div>
           )}
 

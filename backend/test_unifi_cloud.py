@@ -63,7 +63,7 @@ async def main():
         )
         hosts = r2.json().get("data", []) if r2.status_code == 200 else []
         if not hosts:
-            print("    No hosts via API key — trying cloud endpoint ...")
+            print("    No hosts via API key - trying cloud endpoint ...")
             r2b = await c.get("https://account.ui.com/api/consoles", headers=auth_headers)
             print(f"    Status: {r2b.status_code}  body: {r2b.text[:200]}")
             return

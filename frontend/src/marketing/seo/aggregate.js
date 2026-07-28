@@ -7,7 +7,7 @@ export function searchKeywords(database, query) {
   return database.filter((k) => k.keyword.includes(q))
 }
 
-// Generic keywords (no region tag, e.g. "self storage") always stay visible —
+// Generic keywords (no region tag, e.g. "self storage") always stay visible -
 // only region-tagged keywords get filtered out when they don't match.
 export function filterKeywordsByRegion(database, region) {
   if (region === ALL_REGIONS) return database

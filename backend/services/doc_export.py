@@ -1,22 +1,22 @@
-"""Documents (DMS) — Phase 4: TipTap JSON -> renderable blocks -> PDF/DOCX.
+"""Documents (DMS) - Phase 4: TipTap JSON -> renderable blocks -> PDF/DOCX.
 Phase 7: alignment/color/font/hyperlink formatting added to the block model
 so those editor features aren't silently stripped on export.
 
 Single AST walk (tiptap_to_blocks) shared by both exporters so table/list/image/
 merge-field handling isn't duplicated between the reportlab and python-docx
-paths. Unknown TipTap node types (blockquote, codeBlock, horizontalRule — all
+paths. Unknown TipTap node types (blockquote, codeBlock, horizontalRule - all
 StarterKit defaults not explicitly special-cased) fall back to recursing into
 `.content` so a stray node type can't crash export.
 
 PDF rendering mirrors routers/esign.py's _build_template_pdf(): reportlab
 Platypus flowables (not manual canvas.drawString), LETTER page size, mm-based
 margins, and the same _pesc()-style XML-escaping (duplicated for the same
-reason merge_fields.py duplicates _merge_data() — a small, self-contained,
+reason merge_fields.py duplicates _merge_data() - a small, self-contained,
 compliance-adjacent helper isn't worth an esign.py refactor to reuse).
 
 Known, deliberate approximations (see the plan, not silent gaps):
 - PDF font family maps to reportlab's built-in base-14 fonts (no TTF embedding).
-- DOCX hyperlinks render styled (colored+underlined) but are not clickable —
+- DOCX hyperlinks render styled (colored+underlined) but are not clickable -
   python-docx's public API has no support for the OOXML hyperlink relationship.
 """
 import io
@@ -25,7 +25,7 @@ import httpx
 
 
 # ── Page Setup (Phase 14) ────────────────────────────────────────────────────
-# `content.pageSetup` (a sibling of body/header/footer in the same JSON blob —
+# `content.pageSetup` (a sibling of body/header/footer in the same JSON blob -
 # no schema change needed) drives both exporters: {size, orientation, margins}.
 # Sizes in inches (w, h) as portrait; render_pdf/render_docx swap them for
 # landscape. Tabloid has no reportlab.lib.pagesizes constant, so all four are
@@ -37,7 +37,7 @@ PAGE_SIZES_IN = {
     "tabloid": (11.0, 17.0),   # large reports/drawings
     "a4": (8.27, 11.69),       # international
 }
-# Symmetric margins on all four sides — a simplification of Word's own
+# Symmetric margins on all four sides - a simplification of Word's own
 # presets (whose "Wide" is asymmetric, 2in sides/1in top-bottom); kept simple
 # since both export paths apply one margin value to every side.
 MARGINS_IN = {"normal": 1.0, "narrow": 0.5, "wide": 1.5}
@@ -47,7 +47,7 @@ DEFAULT_PAGE_SETUP = {"size": "letter", "orientation": "portrait", "margins": "n
 
 def _resolve_page_setup(page_setup: dict = None):
     """(width_in, height_in, margin_in) for the given {size, orientation,
-    margins} — unknown/missing values fall back to the US Letter default."""
+    margins} - unknown/missing values fall back to the US Letter default."""
     ps = {**DEFAULT_PAGE_SETUP, **(page_setup or {})}
     w, h = PAGE_SIZES_IN.get(ps.get("size"), PAGE_SIZES_IN["letter"])
     if ps.get("orientation") == "landscape":
@@ -124,7 +124,7 @@ def _walk_blocks(nodes, merge: dict) -> list:
                            "fillColor": attrs.get("fillColor", "#dbeafe"), "strokeColor": attrs.get("strokeColor", "#2563eb")})
         elif t == "docTextbox":
             # Floating position/wrap (x/y/wrapMode) is a live-editor-only
-            # concept — export keeps textboxes in document order like any
+            # concept - export keeps textboxes in document order like any
             # other block (documented Phase 9 scope trim, see the plan) and
             # renders the nested content as a bordered single-cell table,
             # reusing the existing table flowable rather than a new primitive.
@@ -145,7 +145,7 @@ def tiptap_to_blocks(tiptap_doc, merge: dict) -> list:
 
 
 def _blocks_to_plaintext(blocks: list) -> str:
-    """Single-line collapse for header/footer — not full wrapping, just a
+    """Single-line collapse for header/footer - not full wrapping, just a
     readable one-liner per page (documented tradeoff, see the plan)."""
     lines = []
     for b in blocks or []:
@@ -169,7 +169,7 @@ def _fetch_image_bytes(url: str):
 
 def _font_size_num(font_size):
     """'18px' -> 18. Treated as points directly (an approximation already
-    baked into this export pipeline — see module docstring)."""
+    baked into this export pipeline - see module docstring)."""
     if not font_size:
         return None
     digits = "".join(c for c in str(font_size) if c.isdigit())
@@ -183,7 +183,7 @@ def _letterhead_text(letterhead: dict, key: str) -> str:
 
 # ── PDF (reportlab Platypus) ─────────────────────────────────────────────────
 
-# Keyword heuristic (Phase 8) rather than an exhaustive per-name table — the
+# Keyword heuristic (Phase 8) rather than an exhaustive per-name table - the
 # frontend's font list grew to ~24 names and reportlab can only ever
 # approximate to its built-in base-14 fonts anyway (no TTF embedding), so a
 # per-name map would just be maintenance overhead for the same three buckets.
@@ -246,12 +246,12 @@ def _runs_to_markup(runs: list) -> str:
 
 
 def _para_style_for_runs(base_style, runs):
-    """A run's inline font-size (from a textStyle mark — e.g. an imported
+    """A run's inline font-size (from a textStyle mark - e.g. an imported
     Word heading with a real 26pt custom font) is applied via `_runs_to_markup`
     as a `<font size=X>` tag INSIDE the paragraph, but reportlab's Paragraph
     flowable allocates vertical space using the STYLE's own fixed `leading`,
     not the actual rendered glyph size. When an inline size exceeds that fixed
-    leading, the text visually overflows into whatever flows next — reportlab
+    leading, the text visually overflows into whatever flows next - reportlab
     doesn't reflow line height per inline tag the way a browser does. Widening
     the style's fontSize/leading to match the largest size actually used
     (keeping the style's own leading:fontSize ratio) fixes it for whichever
@@ -279,7 +279,7 @@ def _pdf_align_style(base_style, align):
 
 
 def _shape_drawing(b: dict):
-    """Real vector graphics (Phase 8) — reportlab draws these natively, no
+    """Real vector graphics (Phase 8) - reportlab draws these natively, no
     rasterization needed here (contrast with the DOCX path below, which has
     no vector-drawing API and must rasterize via Pillow)."""
     from reportlab.graphics.shapes import Drawing, Rect, Circle, Line, Polygon
@@ -338,7 +338,7 @@ def _blocks_to_flow(blocks: list, body_style, styles, content_width: float) -> l
                     ("LEFTPADDING", (0, 0), (-1, -1), 6), ("RIGHTPADDING", (0, 0), (-1, -1), 6),
                     ("TOPPADDING", (0, 0), (-1, -1), 4), ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
                 ]
-                # Word-style cell shading (Phase 15) — one BACKGROUND command
+                # Word-style cell shading (Phase 15) - one BACKGROUND command
                 # per shaded cell; unshaded cells are left to the table's
                 # default (white) background.
                 for ri, row in enumerate(rows):
@@ -349,13 +349,13 @@ def _blocks_to_flow(blocks: list, body_style, styles, content_width: float) -> l
                 flow.append(tbl)
                 flow.append(Spacer(1, 3 * mm))
         elif t == "image":
-            # Word-parity resize (Phase 15) — an explicit width (set by
+            # Word-parity resize (Phase 15) - an explicit width (set by
             # dragging the image's resize handle) is honored in points
             # (px * 72/96, the standard CSS-px-to-point conversion) as a max
             # width instead of always auto-scaling to the column width.
             # Known asymmetry vs. the DOCX path: _pdf_image_flowable always
             # preserves the source image's own aspect ratio and never
-            # upscales past its natural size (see that helper) — a
+            # upscales past its natural size (see that helper) - a
             # non-uniform (stretched) resize in the editor is honored
             # exactly in DOCX but only approximated (width capped, height
             # follows aspect ratio) here.
@@ -502,7 +502,7 @@ def _add_runs(paragraph, runs: list) -> None:
         run.bold = bool(r.get("bold"))
         run.italic = bool(r.get("italic"))
         link = r.get("link")
-        run.underline = bool(r.get("underline")) or bool(link)  # link: styled, not clickable — see module docstring
+        run.underline = bool(r.get("underline")) or bool(link)  # link: styled, not clickable - see module docstring
         color = _hex_to_rgbcolor(r.get("color")) or (RGBColor(0x1a, 0x0d, 0xab) if link and not r.get("color") else None)
         if color:
             run.font.color.rgb = color
@@ -514,7 +514,7 @@ def _add_runs(paragraph, runs: list) -> None:
 
 
 def _shape_png_bytes(b: dict):
-    """Rasterize via Pillow (Phase 8) — python-docx's public API has no
+    """Rasterize via Pillow (Phase 8) - python-docx's public API has no
     vector-drawing support (same category of limitation as Phase 7's
     non-clickable DOCX hyperlinks), so this is a deliberate, documented
     approximation rather than a native shape."""
@@ -545,7 +545,7 @@ def _shape_png_bytes(b: dict):
 
 
 def _shade_docx_cell(cell, hex_color: str) -> None:
-    """Word-style cell background shading (Phase 15) — python-docx has no
+    """Word-style cell background shading (Phase 15) - python-docx has no
     public API for this (unlike paragraph/run formatting), so it's set via
     the raw <w:shd> OOXML element on the cell's <w:tcPr>, the same technique
     Word itself uses under the hood for "Table > Shading"."""
@@ -613,12 +613,12 @@ def _blocks_to_docx(doc, blocks: list) -> None:
             data = _fetch_image_bytes(b["src"])
             if data:
                 try:
-                    # Word-parity resize (Phase 15) — an explicit width/height
+                    # Word-parity resize (Phase 15) - an explicit width/height
                     # (set by dragging the image's resize handle) is honored
                     # exactly (px/96 = inches, same convention `shape` below
                     # already uses). Passing ONLY width to add_picture makes
                     # python-docx auto-scale height to the source image's own
-                    # aspect ratio, silently ignoring a non-uniform resize —
+                    # aspect ratio, silently ignoring a non-uniform resize -
                     # both must be passed explicitly when both are known.
                     kwargs = {}
                     if b.get("width"):
@@ -664,7 +664,7 @@ def render_docx(title: str, header_blocks: list, body_blocks: list, footer_block
     doc = DocxDocument()
     section = doc.sections[0]
     section.orientation = WD_ORIENT.LANDSCAPE if (page_setup or {}).get("orientation") == "landscape" else WD_ORIENT.PORTRAIT
-    # python-docx's .orientation flag is metadata only — it does not swap
+    # python-docx's .orientation flag is metadata only - it does not swap
     # page_width/page_height itself, so w_in/h_in (already swapped by
     # _resolve_page_setup for landscape) are what actually reshape the page.
     section.page_width = Inches(w_in)

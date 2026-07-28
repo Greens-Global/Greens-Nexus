@@ -1,4 +1,4 @@
-// Task Module — Board view (1:1 port of the export's NexusBoardView).
+// Task Module - Board view (1:1 port of the export's NexusBoardView).
 // Status columns (built-in + custom statuses) with drag-and-drop, per-column
 // WIP limits, collapsible columns, an "Add section" column that creates a
 // custom status, an inline comment composer on cards, and orthogonal swimlanes
@@ -30,7 +30,7 @@ const dueColor = (iso, completed) => {
 const fmtDue = (iso) => fmtDate(iso);
 
 // defaultAssigneeId: who cards added from a column header belong to. My Tasks
-// passes the current user — a task created there with no assignee would drop
+// passes the current user - a task created there with no assignee would drop
 // straight out of the view.
 export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId, defaultAssigneeId = '' }) {
   const [dragId, setDragId] = useState(null);
@@ -90,7 +90,7 @@ export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId
     }
   };
 
-  // Swimlane rows — derived from the visible tasks so no people directory needed.
+  // Swimlane rows - derived from the visible tasks so no people directory needed.
   const lanes = useMemo(() => {
     if (swimlane === 'none') return [{ key: 'all', label: '', match: () => true }];
     if (swimlane === 'priority') {

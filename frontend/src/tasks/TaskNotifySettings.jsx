@@ -1,7 +1,7 @@
-// Task Notification workflow — admin settings + delivery log (Jul 2026).
+// Task Notification workflow - admin settings + delivery log (Jul 2026).
 // Manager+ only (mirrors the backend's require_manager gate on these
-// endpoints — this UI hides the controls, the backend is the real boundary).
-// Same shape as tickets/TicketNotifySettings.jsx — kept as its own component
+// endpoints - this UI hides the controls, the backend is the real boundary).
+// Same shape as tickets/TicketNotifySettings.jsx - kept as its own component
 // (not a shared generic) since the field sets genuinely differ (due-date
 // reminder cadence has no ticket equivalent; auto-close has no task one).
 import { useEffect, useState } from 'react';

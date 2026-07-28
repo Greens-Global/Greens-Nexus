@@ -17,7 +17,7 @@ const FACILITIES = [
 ];
 
 const REVIEWS = [
-  { author: "Marcus T.",  facility: "Harbor View Storage",  rating: 5, src: "Google", text: "Greens Storage did an outstanding job — spotless units and the climate control is the real deal.", replied: true  },
+  { author: "Marcus T.",  facility: "Harbor View Storage",  rating: 5, src: "Google", text: "Greens Storage did an outstanding job - spotless units and the climate control is the real deal.", replied: true  },
   { author: "Dana R.",    facility: "Downtown Self Storage", rating: 4, src: "Google", text: "Easy move-in, friendly staff. Gate hours could be a little longer.", replied: false },
   { author: "Priya S.",   facility: "Lakeline Storage",     rating: 5, src: "Meta",   text: "The craftsmanship of these facilities is a step above. Greens Storage project management is stellar.", replied: false },
   { author: "Will C.",    facility: "Summit Storage",       rating: 3, src: "Google", text: "Decent price but the access road needs repaving.", replied: false },
@@ -64,14 +64,14 @@ function FMS() {
 
       <div className="banner-warn">
         <Server size={16} />
-        <div>Currently connected to <strong>Hummingbird</strong>. Migration to <strong>Cubby</strong> is planned — this view switches over automatically once cutover completes.</div>
+        <div>Currently connected to <strong>Hummingbird</strong>. Migration to <strong>Cubby</strong> is planned - this view switches over automatically once cutover completes.</div>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 14 }}>
         {[
           { title: "Connection", rows: [["System","Hummingbird"],["Last sync","6 min ago"],["Interval","Every 15 min"],["Status","● Healthy"]] },
           { title: "Portfolio Totals", rows: [["Units", totalUnits.toLocaleString()],["Rented",totalRented.toLocaleString()],["Occupancy",avgOcc+"%"],["MRR","$"+(totalMrr/1000).toFixed(1)+"k"]] },
-          { title: "Sync Log", log: ["✓ Occupancy pulled — 5 facilities","✓ Tenant ledger reconciled","✓ 12 move-ins, 4 move-outs","✓ Rate changes applied"] },
+          { title: "Sync Log", log: ["✓ Occupancy pulled - 5 facilities","✓ Tenant ledger reconciled","✓ 12 move-ins, 4 move-outs","✓ Rate changes applied"] },
         ].map(c => (
           <div key={c.title} className="dash-card">
             <div className="dash-card-title" style={{ marginBottom: 12 }}>{c.title}</div>
@@ -212,7 +212,7 @@ function SiteStaff() {
             <div className="task-row">
               <span className="prio-dot prio-high" />
               <div className="task-content">
-                <div className="task-title">Summit Storage — Sat AM</div>
+                <div className="task-title">Summit Storage - Sat AM</div>
                 <div className="task-dept">No coverage</div>
               </div>
               <span className="task-due today">Open</span>
@@ -220,7 +220,7 @@ function SiteStaff() {
             <div className="task-row">
               <span className="prio-dot prio-med" />
               <div className="task-content">
-                <div className="task-title">Riverside — Sun</div>
+                <div className="task-title">Riverside - Sun</div>
                 <div className="task-dept">Awaiting confirm</div>
               </div>
               <span className="task-due">Pending</span>
@@ -229,7 +229,7 @@ function SiteStaff() {
         </div>
       </div>
       <div className="dash-card">
-        <div className="dash-card-title" style={{ marginBottom: 14 }}>Week of May 25 — Harbor View Storage</div>
+        <div className="dash-card-title" style={{ marginBottom: 14 }}>Week of May 25 - Harbor View Storage</div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 8 }}>
           {days.map((d, i) => (
             <div key={d}>

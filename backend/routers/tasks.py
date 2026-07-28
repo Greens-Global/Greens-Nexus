@@ -1,4 +1,4 @@
-"""Task Module — core tasks router (rewritten Jul 2026).
+"""Task Module - core tasks router (rewritten Jul 2026).
 
 Replaces the old flat demo endpoints. Covers tasks CRUD + subtasks/dependencies/
 completion/approval + bulk edits, and the per-task sub-resources: comments,
@@ -24,7 +24,7 @@ from routers.task_util import (
     project_for_task, require_project_role,
 )
 from task_notify import notify_task_event
-# Values are stored in the shape each field declares — see that function.
+# Values are stored in the shape each field declares - see that function.
 from routers.task_config import coerce_custom_field_values
 
 router = APIRouter(prefix="/tasks", tags=["Tasks"], dependencies=[Depends(get_current_user)])
@@ -126,7 +126,7 @@ class TaskCreate(BaseModel):
     follower_emails:  Optional[list] = None
     liked_by_emails:  Optional[list] = None
     # None (not "org") so create_task can tell "not specified" apart from an
-    # explicit choice — an unspecified task inherits its project's visibility
+    # explicit choice - an unspecified task inherits its project's visibility
     # instead of always defaulting to org-wide.
     access_level:     Optional[str] = None
     project_id:       Optional[str] = ""
@@ -187,7 +187,7 @@ def extract_mentions(html: str) -> list:
     """Emails @mentioned in a comment.
 
     The editor writes a mention as a mailto link (`<a href="mailto:x@y">@Name</a>`)
-    rather than a bespoke node type — that reuses the Link mark the editor
+    rather than a bespoke node type - that reuses the Link mark the editor
     already has, needs no extra TipTap package, and degrades to a working
     mailto: link anywhere the HTML is rendered plainly (including in the
     notification email itself)."""
@@ -245,7 +245,7 @@ def _check_dependency_gate(db: Session, t: models.Task, prev_status: str, prev_c
 
 
 def _asana_push(task_id: str) -> None:
-    """Fire-and-forget outbound Asana sync. Fully guarded — must never affect the
+    """Fire-and-forget outbound Asana sync. Fully guarded - must never affect the
     task operation that triggered it (runs in a daemon thread on its own session)."""
     try:
         from asana_sync import on_task_changed
@@ -297,7 +297,7 @@ def _asana_push_comment(comment_id: str) -> None:
 # recurrence = {freq, interval, dayOfWeek?, dayOfMonth?, until?, count?}
 # dayOfWeek is the frontend index (0=Sunday..6=Saturday); until/count are the
 # end condition. `count` on an instance means "occurrences remaining, this one
-# inclusive" — it is decremented each time the next occurrence is spawned, so a
+# inclusive" - it is decremented each time the next occurrence is spawned, so a
 # series with count=N produces exactly N tasks.
 def _add_months(d: date, n: int) -> date:
     m = d.month - 1 + n
@@ -336,7 +336,7 @@ def _next_due(base_iso: str, rec: dict) -> str:
 
 def _spawn_next_occurrence(db: Session, t: models.Task, user: dict) -> Optional[models.Task]:
     """When a recurring task is completed, create its next occurrence (unless the
-    end condition — `until` date or `count` — is reached). Returns the new task
+    end condition - `until` date or `count` - is reached). Returns the new task
     or None if the series has ended. Top-level tasks only; subtasks don't recur."""
     rec = t.recurrence
     if not isinstance(rec, dict) or not rec.get("freq") or t.parent_task_id:
@@ -510,7 +510,7 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
     # concept, so a caller changing just one has to imply the other: an explicit
     # `completed` (or status == "completed") sets completed True as before, but a
     # status set to anything ELSE with no explicit `completed` field now clears
-    # it too — otherwise reopening a task (status -> in_progress) left the
+    # it too - otherwise reopening a task (status -> in_progress) left the
     # `completed` bool stuck True, so list/board views kept it parked in their
     # Completed bucket even though its status read "In Progress".
     if "status" in data and data["status"] != "completed" and "completed" not in data:
@@ -526,7 +526,7 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
             val = (val or "").lower()
         setattr(t, field, val)
 
-    # completion handling — keep `completed` (+ its timestamp) and `status` in
+    # completion handling - keep `completed` (+ its timestamp) and `status` in
     # sync regardless of which one the caller actually sent.
     if new_completed != prev_completed:
         t.completed = new_completed
@@ -592,7 +592,7 @@ def delete_task(task_id: str, background_tasks: BackgroundTasks,
                 user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     t = _get_task(db, task_id)
     require_project_role(db, user, project_for_task(db, t), "editor")
-    # Captured before the row is gone — notify_task_event("deleted") runs in
+    # Captured before the row is gone - notify_task_event("deleted") runs in
     # the background AFTER this response, by which point db.delete(t) below
     # has already removed it, so there'd be nothing left to look up.
     deleted_snapshot = {
@@ -619,7 +619,7 @@ def delete_task(task_id: str, background_tasks: BackgroundTasks,
     subs = db.query(models.Task).filter(models.Task.parent_task_id == task_id).all()
     gone_ids = [task_id] + [sub.id for sub in subs]
     # Asana counterparts of exactly the rows being deleted here, captured while
-    # the links still exist — once they're gone nothing can re-derive them, so
+    # the links still exist - once they're gone nothing can re-derive them, so
     # unlike every other outbound change a lost deletion is lost for good.
     asana_gids = _asana_linked_gids(db, gone_ids)
     for sub in subs:
@@ -628,7 +628,7 @@ def delete_task(task_id: str, background_tasks: BackgroundTasks,
     db.query(models.TaskAttachment).filter(models.TaskAttachment.task_id == task_id).delete()
     # A link left pointing at a deleted task blocks that Asana task from ever
     # re-linking (_link_by_asana finds it, the task behind it is gone, and
-    # _apply_inbound bails) — so the links go when the tasks do.
+    # _apply_inbound bails) - so the links go when the tasks do.
     db.query(models.AsanaTaskLink).filter(
         models.AsanaTaskLink.nexus_task_id.in_(gone_ids)).delete(synchronize_session=False)
     log_activity(db, type="deleted", actor_email=user["email"], entity_id=task_id,
@@ -701,7 +701,7 @@ def list_comments(task_id: str, db: Session = Depends(get_db)):
 @router.post("/{task_id}/comments", status_code=201)
 def add_comment(task_id: str, body: CommentCreate, background_tasks: BackgroundTasks, notify: bool = True,
                 user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    # `notify=false` (query param) posts silently — used by the Asana importer to
+    # `notify=false` (query param) posts silently - used by the Asana importer to
     # backfill historical comments without pinging assignees/followers. Defaults
     # to true, so normal in-app commenting is unchanged.
     t = _get_task(db, task_id)
@@ -730,7 +730,7 @@ def add_comment(task_id: str, body: CommentCreate, background_tasks: BackgroundT
     if notify:
         background_tasks.add_task(notify_task_event, task_id, "commented", user["email"], comment_body=body.body or "")
         # Mentions are their own event so the mail can say "X mentioned you"
-        # instead of the generic comment FYI. The author is dropped — mentioning
+        # instead of the generic comment FYI. The author is dropped - mentioning
         # yourself shouldn't email you.
         mentioned = [e for e in extract_mentions(body.body or "") if e != author]
         if mentioned:

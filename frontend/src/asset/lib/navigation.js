@@ -3,7 +3,7 @@
 // TAB_LIST order matters: it's the literal left-to-right tab order. Property-only tabs
 // (maintenance, inspections, warranties, documents, utilities, ahj, vendors, permit, timeline)
 // and vehicle/equipment-only tabs (vservice, odometer, vdocs) are filtered per-asset-kind at
-// render time — see visibleTabsFor() below.
+// render time - see visibleTabsFor() below.
 export const TAB_LIST = [
   ['portfolio', 'Portfolio'],
   ['property', 'Overview'],
@@ -71,9 +71,9 @@ export const UNDOABLE_FIELD_KEYS = {
   Private: 'private',
 };
 
-/** Stage badge tone. Compound stages ("Stabilized — Renovation") use the base stage's tone. */
+/** Stage badge tone. Compound stages ("Stabilized - Renovation") use the base stage's tone. */
 export function stageTone(stage) {
-  const base = stage.split(/\s+[—–-]+\s+/)[0].trim();
+  const base = stage.split(/\s+[-–-]+\s+/)[0].trim();
   if (base === 'On Hold') return 'red';
   if (base === 'Stabilized') return 'green';
   if (base === 'Lease-Up') return 'gold';

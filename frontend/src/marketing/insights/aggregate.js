@@ -7,7 +7,7 @@ export function filterByRange(rows, range) {
 
 // For "All Properties" this is just the precomputed daily series. For a
 // specific property it re-derives sessions/organicSessions/leads/moveIns by
-// summing the exact matching GA4 rows — an exact filter, not an estimate.
+// summing the exact matching GA4 rows - an exact filter, not an estimate.
 // NPS/promoter/detractor are survey data, not property-attributed, so they
 // pass through unfiltered either way.
 export function dailyRowsForProperty(property) {
@@ -62,7 +62,7 @@ export function sumLeadTotals(rows) {
   }
 }
 
-// Genuinely date-range- and property-scoped — pulled straight from the
+// Genuinely date-range- and property-scoped - pulled straight from the
 // parsed GA4 event rows rather than a fixed percentage snapshot.
 export function leadsByChannelInRange(range, property) {
   const rows = eventRows.filter(

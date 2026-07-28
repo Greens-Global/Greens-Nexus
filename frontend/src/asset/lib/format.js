@@ -17,18 +17,18 @@ export function acresOf(value, unit) {
 /** Thousands-separated number, or an em dash if empty/zero. */
 export function formatNumber(v) {
   const n = toNumber(v);
-  return n ? n.toLocaleString() : '—';
+  return n ? n.toLocaleString() : '-';
 }
 
 /** Currency, or an em dash if empty/zero. */
 export function formatMoney(v) {
   const n = toNumber(v);
-  return n ? '$' + n.toLocaleString() : '—';
+  return n ? '$' + n.toLocaleString() : '-';
 }
 
 /** "Jan 1, 2026" style date, or an em dash if empty/invalid. Accepts "YYYY-MM-DD" or full ISO. */
 export function formatDate(v) {
-  if (!v) return '—';
+  if (!v) return '-';
   const d = new Date(String(v).slice(0, 10));
   return isNaN(d) ? String(v) : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
@@ -79,7 +79,7 @@ export function currentUser() { return _currentUser; }
  * Flatten an asset's free-text snapshot (array of `{ group, fields: [{ label, value }] }`)
  * into a single lowercased-label lookup map, e.g. `{ 'google maps link': '...' }`.
  * Snapshot fields are how record-only data (fields with no top-level `key`, see PT in
- * propertyFields.js) gets read back out — normLabel() keeps lookups tolerant of label
+ * propertyFields.js) gets read back out - normLabel() keeps lookups tolerant of label
  * punctuation/whitespace drift ("Google Maps Link" vs "google maps link").
  */
 export function snapMap(asset) {
@@ -105,7 +105,7 @@ export function fileToDataUrl(file) {
 /**
  * Read an image File as a downscaled JPEG base64 data URL: resizes so the longer edge is at
  * most `maxDim` px (never upscales) and re-encodes at `quality`. Used for asset photos, where
- * keeping stored size small matters — base64 images are what blow out localStorage's ~5MB quota
+ * keeping stored size small matters - base64 images are what blow out localStorage's ~5MB quota
  * (see the IndexedDB persistence note). Full-res document uploads use fileToDataUrl() instead.
  */
 export function resizeImageToDataUrl(file, maxDim = 1000, quality = 0.82) {

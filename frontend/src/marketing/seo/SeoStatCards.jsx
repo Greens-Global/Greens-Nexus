@@ -52,7 +52,7 @@ export default function SeoStatCards({ stats, totalKeywordUniverse }) {
         icon={TrendingUp}
         color={{ color: C.emerald600, background: C.emerald50 }}
         label="Avg. Position"
-        value={stats.count > 0 ? `#${stats.avgPosition.toFixed(1)}` : '—'}
+        value={stats.count > 0 ? `#${stats.avgPosition.toFixed(1)}` : '-'}
         caption={`${stats.improved} improved · ${stats.declined} declined`}
       />
       <Card

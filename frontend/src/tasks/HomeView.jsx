@@ -1,4 +1,4 @@
-// Task Module — Home (ported 1:1 from the export's HomePage). A customizable
+// Task Module - Home (ported 1:1 from the export's HomePage). A customizable
 // widget dashboard: a "My week/day/month" header with completed/collaborator
 // stats + Customize, over a reorderable grid of widgets (My tasks · Projects ·
 // Teams · Team members · Notifications), persisted to localStorage.
@@ -31,9 +31,9 @@ const RANGES = [{ key: 'day', label: 'My Day', days: 0 }, { key: 'week', label: 
 // Row-order masonry cell: measures its content and spans that many 8px grid
 // rows, so widgets keep left-to-right order while short ones pull UP to fill
 // vertical gaps (CSS columns flow top-to-bottom per column, which made drop
-// positions unpredictable — this replaces that).
+// positions unpredictable - this replaces that).
 function MasonryCell({ masonry, style, children, ...rest }) {
-  // Measure a dedicated inner wrapper, NOT firstElementChild — in customize
+  // Measure a dedicated inner wrapper, NOT firstElementChild - in customize
   // mode the first child is the absolute-positioned grip overlay (~26px),
   // which made every cell claim a tiny span and stack widgets on top of
   // each other. The wrapper's height = the widget's real height (absolute
@@ -93,7 +93,7 @@ export default function HomeView({ onNavigate }) {
   const [dragKey, setDragKey] = useState(null);
   const [overKey, setOverKey] = useState(null);
   // Default ON: grid rows size to the tallest widget, so short widgets can
-  // never tuck into the vertical gaps — masonry packing is what fills them.
+  // never tuck into the vertical gaps - masonry packing is what fills them.
   const [autofit, setAutofit] = useState(() => localStorage.getItem('nexus.homeAutofit') !== '0');
   const toggleAutofit = () => setAutofit((v) => { localStorage.setItem('nexus.homeAutofit', v ? '0' : '1'); return !v; });
   const reorder = (from, to) => {
@@ -142,7 +142,7 @@ export default function HomeView({ onNavigate }) {
       .slice(0, 4);
   }, [projects, tasks, projStats]);
 
-  // Chart widgets — all derived from real task rows, nothing sampled.
+  // Chart widgets - all derived from real task rows, nothing sampled.
   const dayCharts = useMemo(() => {
     const today = todayISO();
     const doneByDay = [];   // trailing 7 days, from completedAt
@@ -185,7 +185,7 @@ export default function HomeView({ onNavigate }) {
   };
 
   const widgetBox = (children) => <div style={{ ...card, borderRadius: 16, padding: 20, breakInside: 'avoid' }}>{children}</div>;
-  // Widget options (remove/drag) live on the customize-mode overlay only —
+  // Widget options (remove/drag) live on the customize-mode overlay only -
   // no always-visible more-options buttons (owner call, Jul 28).
   const moreBtn = () => null;
 
@@ -234,7 +234,7 @@ export default function HomeView({ onNavigate }) {
               <div key={t.id} data-task-row onClick={() => setOpenId(t.id)} style={{ display: 'flex', alignItems: 'center', gap: 8, borderTop: `1px solid ${NX.border2}`, padding: '8px 6px', margin: '0 -6px', borderRadius: 6, fontSize: 13, cursor: 'pointer', transition: 'background 0.12s' }}
                 onMouseEnter={(e) => { e.currentTarget.style.background = NX.hover; }} onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}>
                 <button onClick={(e) => { e.stopPropagation(); toggleComplete(t); }} style={{ ...btn('ghost'), padding: 0, color: t.completed ? NX.green : NX.faint }}>{t.completed ? <CheckCircle2 size={16} /> : <Circle size={16} />}</button>
-                {/* status color tick — monday-style at-a-glance state */}
+                {/* status color tick - monday-style at-a-glance state */}
                 <span title={store.statusMeta[t.status]?.label || t.status} style={{ width: 8, height: 8, borderRadius: 2, background: store.statusMeta[t.status]?.color || NX.faint, flexShrink: 0 }} />
                 <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: t.completed ? NX.faint : NX.ink, textDecoration: t.completed ? 'line-through' : 'none' }}>{t.title}</span>
                 {t.dueOn && <span style={{ fontSize: 12, fontWeight: 600, color: dueColor(t.dueOn, t.completed) }}>{fmtUS(t.dueOn)}</span>}
@@ -250,7 +250,7 @@ export default function HomeView({ onNavigate }) {
           <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Projects</h2>
           {moreBtn(() => onNavigate('projects'))}
         </div>
-        {/* Kit "Recently Visit" anatomy — colored cover band (the project's real
+        {/* Kit "Recently Visit" anatomy - colored cover band (the project's real
             color; no fabricated screenshots), then name, tally, progress. */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: 12 }}>
           <button onClick={() => setCreatingProject(true)} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, minWidth: 0, minHeight: 128, border: `1px dashed ${NX.border}`, borderRadius: 12, padding: 12, cursor: 'pointer', background: 'transparent', fontFamily: FONT }}>
@@ -330,7 +330,7 @@ export default function HomeView({ onNavigate }) {
           <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Urgent tasks</h2>
           {moreBtn(() => onNavigate('projects'))}
         </div>
-        {urgentProjects.length === 0 ? <p style={{ padding: '16px 0', fontSize: 13, color: NX.faint }}>No projects with open tasks — nothing is on fire.</p> : (
+        {urgentProjects.length === 0 ? <p style={{ padding: '16px 0', fontSize: 13, color: NX.faint }}>No projects with open tasks - nothing is on fire.</p> : (
           <>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               {urgentProjects.map(({ p, overdue: od, total, done }) => (
@@ -365,7 +365,10 @@ export default function HomeView({ onNavigate }) {
             <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Completed this week</h2>
             <span style={{ fontSize: 13, color: NX.faint }}>{weekTotal} task{weekTotal === 1 ? '' : 's'}</span>
           </div>
-          <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', height: 96 }}>
+          <div role="button" tabIndex={0} title="Open your completed tasks"
+            onClick={() => { setTab('Completed'); onNavigate('mine'); }}
+            onKeyDown={(e) => { if (e.key === 'Enter') { setTab('Completed'); onNavigate('mine'); } }}
+            style={{ display: 'flex', gap: 10, alignItems: 'flex-end', height: 96, cursor: 'pointer' }}>
             {doneByDay.map((d) => (
               <div key={d.iso} title={`${d.iso}: ${d.n} completed`}
                 style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', alignItems: 'center', gap: 5, height: '100%' }}>
@@ -388,8 +391,10 @@ export default function HomeView({ onNavigate }) {
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           {dayCharts.dueByDay.map((d) => (
-            <div key={d.iso} title={`${d.iso}: ${d.n} due`}
-              style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, padding: '10px 4px', borderRadius: 12, background: d.today ? NX.ink : NX.hover, minWidth: 0 }}>
+            <div key={d.iso} role="button" tabIndex={0} title={`${d.iso}: ${d.n} due - open upcoming tasks`}
+              onClick={() => { setTab('Upcoming'); onNavigate('mine'); }}
+              onKeyDown={(e) => { if (e.key === 'Enter') { setTab('Upcoming'); onNavigate('mine'); } }}
+              style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, padding: '10px 4px', borderRadius: 12, background: d.today ? NX.ink : NX.hover, minWidth: 0, cursor: 'pointer' }}>
               <span style={{ fontSize: 11, color: d.today ? 'rgba(255,255,255,.7)' : NX.faint }}>{d.day}</span>
               <span style={{ fontSize: 15, fontWeight: 800, color: d.today ? '#fff' : NX.ink, fontVariantNumeric: 'tabular-nums' }}>{d.date}</span>
               <span style={{ minWidth: 20, textAlign: 'center', padding: '1px 6px', borderRadius: 10, fontSize: 11, fontWeight: 700, background: d.n > 0 ? (d.today ? 'rgba(255,255,255,.22)' : '#dff3fc') : 'transparent', color: d.n > 0 ? (d.today ? '#fff' : '#0998c3') : (d.today ? 'rgba(255,255,255,.4)' : NX.border) }}>
@@ -411,7 +416,10 @@ export default function HomeView({ onNavigate }) {
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {dayCharts.prio.map(({ p, color, n }) => (
-              <div key={p} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13 }}>
+              <div key={p} role="button" tabIndex={0} title={`Open your ${p}-priority tasks`}
+                onClick={() => { setTab('Upcoming'); onNavigate('mine'); }}
+                onKeyDown={(e) => { if (e.key === 'Enter') { setTab('Upcoming'); onNavigate('mine'); } }}
+                style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, cursor: 'pointer' }}>
                 <span style={{ width: 62, color: NX.dim, textTransform: 'capitalize', flexShrink: 0 }}>{p}</span>
                 <span style={{ flex: 1, height: 9, borderRadius: 6, background: NX.border2, overflow: 'hidden' }}>
                   <span style={{ display: 'block', height: '100%', width: `${Math.round((n / maxP) * 100)}%`, minWidth: n > 0 ? 10 : 0, borderRadius: 6, background: color }} />
@@ -451,14 +459,14 @@ export default function HomeView({ onNavigate }) {
         {/* Counts only. The greeting and the date both went: neither told the
             reader anything they didn't know, and they pushed the two numbers
             that actually matter into a subtitle. With both gone this can be
-            empty (nothing upcoming, nothing overdue) — the flex row still lays
+            empty (nothing upcoming, nothing overdue) - the flex row still lays
             out correctly, the right-hand controls just sit alone. */}
         <div style={{ minWidth: 0, fontSize: 15, fontWeight: 700, letterSpacing: -0.2 }}>
           {upcoming.length > 0 && <span style={{ color: NX.blue }}>{upcoming.length} upcoming</span>}
           {upcoming.length > 0 && overdue.length > 0 && <span style={{ color: NX.faint }}> · </span>}
           {overdue.length > 0 && <span style={{ color: NX.red }}>{overdue.length} overdue</span>}
         </div>
-        {/* Header holds ONE page-level control (Customize) — the range picker
+        {/* Header holds ONE page-level control (Customize) - the range picker
             and task stats moved into the "My tasks" card they actually scope,
             so switching to Tickets no longer swaps header anatomies. */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: isMobile ? 'wrap' : 'nowrap', overflowX: 'visible' }}>
@@ -475,7 +483,7 @@ export default function HomeView({ onNavigate }) {
 
       {/* Taskboard-kit summary tiles (owner-adopted concept): pastel tiles with
           solid icon chips and X/Y fractions of MY real tasks. Each tile is a
-          real action — it switches the My Tasks widget tab or jumps to a view.
+          real action - it switches the My Tasks widget tab or jumps to a view.
           Wrapped in the kit's titled section card so the row reads as one
           composed group even at full-bleed width. */}
       <div style={{ ...card, borderRadius: 16, padding: 20, marginBottom: 16 }}>
@@ -505,7 +513,7 @@ export default function HomeView({ onNavigate }) {
           { label: 'Overdue', n: overdue.length, of: myTasks.length, unit: 'tasks', Icon: Clock, chip: '#7c6af0', bg: '#eae6fc', go: () => setTab('Overdue'), title: 'Show overdue' },
           { label: 'Completed', n: completed.length, of: myTasks.length, unit: 'tasks', Icon: CheckCircle2, chip: '#fc6363', bg: '#fde8e3', go: () => setTab('Completed'), title: 'Show completed' },
         ].map(({ label, n, of, unit, Icon, chip, bg, go, title }) => (
-          /* Horizontal anatomy — chip left, text right. A vertical (chip-on-top)
+          /* Horizontal anatomy - chip left, text right. A vertical (chip-on-top)
              tile is a ~180px pattern; stretched across a wide column it reads
              as empty wash. Horizontal stays balanced at any width. */
           <button key={label} onClick={go} title={title}
@@ -558,7 +566,7 @@ export default function HomeView({ onNavigate }) {
           <MasonryCell key={key} masonry={autofit}
             draggable={customizing}
             onDragStart={customizing ? () => setDragKey(key) : undefined}
-            /* dragover fires continuously — functional setState with a same-value
+            /* dragover fires continuously - functional setState with a same-value
                bail keeps it from re-rendering the whole grid per mouse move
                (the drag lag), and skipping dragLeave kills the enter/leave
                flicker churn; overKey clears on drop/end instead. */

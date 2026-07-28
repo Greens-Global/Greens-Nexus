@@ -1,11 +1,11 @@
-// Task Module — pure helpers (ported from nexus/lib/filters.ts + stats.ts).
+// Task Module - pure helpers (ported from nexus/lib/filters.ts + stats.ts).
 // Operates on the runtime task shape (email used as person id).
 import { PRIORITY_ORDER, PRIORITY_META, STATUS_ORDER, STATUS_META } from './theme';
 
 export const EMPTY_FILTER = {
   assigneeIds: [], statuses: [], priorities: [], teamIds: [], projectIds: [],
   tags: [], due: 'any', dueFrom: null, dueTo: null, search: '',
-  // {fieldId: [selectedOptionId, ...]} — only select-type fields are filterable;
+  // {fieldId: [selectedOptionId, ...]} - only select-type fields are filterable;
   // a free-text or number field has no bounded option list to offer.
   customFields: {},
 };
@@ -45,7 +45,7 @@ export function matchesFilter(task, f = EMPTY_FILTER) {
   if (f.projectIds?.length && !f.projectIds.includes(task.projectId)) return false;
   if (f.tags?.length && !f.tags.some((t) => (task.tags || []).includes(t))) return false;
   // Each selected field narrows independently (AND across fields, OR within
-  // one) — the same shape as the assignee/status/priority filters above.
+  // one) - the same shape as the assignee/status/priority filters above.
   for (const [fieldId, wanted] of Object.entries(f.customFields || {})) {
     if (!wanted?.length) continue;
     if (!wanted.includes(taskFieldValue(task, fieldId))) return false;
@@ -60,7 +60,7 @@ export function matchesFilter(task, f = EMPTY_FILTER) {
 }
 
 // A team belongs to MANY projects, as Asana does it. `projectIds` is the real
-// field; `projectId` is the first of them, kept for older readers — so go through
+// field; `projectId` is the first of them, kept for older readers - so go through
 // these helpers, never `team.projectId`, which silently sees only the first.
 export const teamProjectIds = (team) => (
   (team?.projectIds && team.projectIds.length) ? team.projectIds
@@ -70,7 +70,7 @@ export const teamInProject = (team, projectId) => !!projectId && teamProjectIds(
 
 // Custom fields are scoped to projects; empty `projectIds` = global, which is how
 // every field behaved before scoping, so nothing changes until an admin narrows
-// one. Outside a project only global fields apply — a project-specific field has
+// one. Outside a project only global fields apply - a project-specific field has
 // no meaning on a task that isn't in that project.
 export const fieldsForProject = (customFields, projectId) =>
   (customFields || []).filter((f) => {
@@ -100,7 +100,7 @@ const SORTERS = {
   assignee: (a, b) => (a.assigneeId || '').localeCompare(b.assigneeId || ''),
 };
 
-// A custom field sorts by its OWN order where it has one — a select by the order
+// A custom field sorts by its OWN order where it has one - a select by the order
 // its options are defined in (Design before Build), which is what makes a stage or
 // severity field read correctly. Numbers sort numerically, else text. Empty last.
 function customFieldSorter(field) {
@@ -130,14 +130,14 @@ export function sortTasks(list, sort = { key: 'manual', dir: 'asc' }, customFiel
   return sort.dir === 'desc' ? out.reverse() : out;
 }
 
-/** The context a new task inherits when added under a given group section —
+/** The context a new task inherits when added under a given group section -
  *  so "Do Today" dates it today, a status column sets that status, a project
  *  group scopes it to that project, etc. (Asana's add-from-anywhere flow). */
 export function groupAddDefaults(group, key) {
-  // Under a custom-field group, a new task inherits that group's value — the
+  // Under a custom-field group, a new task inherits that group's value - the
   // same "add where you're looking" behavior status/priority groups have.
   const cfId = cfFieldId(group);
-  if (cfId) return key && key !== '—' ? { customFieldValues: { [cfId]: key } } : {};
+  if (cfId) return key && key !== '-' ? { customFieldValues: { [cfId]: key } } : {};
   if (group === 'date') {
     const today = todayISO();
     if (key === 'today') return { dueOn: today };
@@ -147,8 +147,8 @@ export function groupAddDefaults(group, key) {
   }
   if (group === 'status') return { status: key };
   if (group === 'priority') return { priority: key };
-  if (group === 'project') return key && key !== '—' ? { projectId: key } : {};
-  if (group === 'team') return key && key !== '—' ? { teamId: key } : {};
+  if (group === 'project') return key && key !== '-' ? { projectId: key } : {};
+  if (group === 'team') return key && key !== '-' ? { teamId: key } : {};
   return {}; // assignee, none
 }
 
@@ -187,7 +187,7 @@ export function groupTasks(list, group, ctx = {}) {
     const opts = (field.options || []).map((o) => (typeof o === 'string' ? { id: o, label: o, color: '' } : o));
     const out = opts.map((o) => ({ key: o.id, label: o.label, color: o.color, tasks: [] }));
     const byKey = Object.fromEntries(out.map((g) => [g.key, g]));
-    const none = { key: '—', label: `No ${field.name}`, tasks: [] };
+    const none = { key: '-', label: `No ${field.name}`, tasks: [] };
     for (const t of list) {
       const v = taskFieldValue(t, cfId);
       const bucket = (v !== undefined && v !== null && v !== '')
@@ -204,10 +204,10 @@ export function groupTasks(list, group, ctx = {}) {
   for (const t of list) {
     if (group === 'status') push(t.status || 'not_started', statusMeta[t.status]?.label || t.status, t);
     else if (group === 'priority') push(t.priority || 'low', (t.priority || 'low').replace(/^\w/, (c) => c.toUpperCase()), t);
-    else if (group === 'assignee') push(t.assigneeId || '—', ctx.nameOf ? ctx.nameOf(t.assigneeId) : (t.assigneeId || 'Unassigned'), t);
-    else if (group === 'project') push(t.projectId || '—', ctx.projectName?.(t.projectId) || 'No Project', t);
-    else if (group === 'team') push(t.teamId || '—', ctx.teamName?.(t.teamId) || 'No Team', t);
-    else if (group === 'date') push(t.dueOn || '—', t.dueOn || 'No Due Date', t);
+    else if (group === 'assignee') push(t.assigneeId || '-', ctx.nameOf ? ctx.nameOf(t.assigneeId) : (t.assigneeId || 'Unassigned'), t);
+    else if (group === 'project') push(t.projectId || '-', ctx.projectName?.(t.projectId) || 'No Project', t);
+    else if (group === 'team') push(t.teamId || '-', ctx.teamName?.(t.teamId) || 'No Team', t);
+    else if (group === 'date') push(t.dueOn || '-', t.dueOn || 'No Due Date', t);
     else push('all', '', t);
   }
   let arr = [...buckets.values()];
@@ -236,7 +236,7 @@ export function taskStats(list) {
 
 // ── Clipboard ────────────────────────────────────────────────────────────────
 /** Image files from a paste event (Ctrl+V screenshot). Pasted blobs sometimes
- *  arrive nameless — give them one so upload paths that read `f.name` work. */
+ *  arrive nameless - give them one so upload paths that read `f.name` work. */
 export function filesFromPaste(e) {
   const out = [];
   for (const item of e.clipboardData?.items || []) {
@@ -252,21 +252,21 @@ export function filesFromPaste(e) {
 // One date format for the whole module: mm/dd/yyyy. The views previously each
 // rolled their own (`Jul 15`, `15 July 2026`, locale default…), so a task's due
 // date read differently depending on which screen you were looking at.
-// `en-US` is pinned explicitly — the browser locale must not decide this.
+// `en-US` is pinned explicitly - the browser locale must not decide this.
 const asDate = (v) => {
   if (!v) return null;
   const d = new Date(typeof v === 'string' && v.length <= 10 ? `${v}T00:00:00` : v);
   return isNaN(d) ? null : d;
 };
 
-/** mm/dd/yyyy — e.g. 07/15/2026. Returns '' for empty, the raw value if unparseable. */
+/** mm/dd/yyyy - e.g. 07/15/2026. Returns '' for empty, the raw value if unparseable. */
 export function fmtDate(v) {
   const d = asDate(v);
   if (!d) return v || '';
   return d.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' });
 }
 
-/** mm/dd/yyyy, h:mm AM — for activity/comment timestamps. */
+/** mm/dd/yyyy, h:mm AM - for activity/comment timestamps. */
 export function fmtDateTime(v) {
   const d = asDate(v);
   if (!d) return v || '';
@@ -277,7 +277,7 @@ export function fmtDateTime(v) {
 }
 
 /** 1.25 -> "1h 15m" (drops the minutes when they're 0, and hours when there are
- * none) — "Copy Task Link" and the estimate/actual fields store plain float
+ * none) - "Copy Task Link" and the estimate/actual fields store plain float
  * hours, but showing "1.25h" isn't a format anyone reads at a glance. */
 export function fmtHours(h) {
   const total = Math.round((Number(h) || 0) * 60);
@@ -288,7 +288,7 @@ export function fmtHours(h) {
 }
 
 /** The id from a copied "Copy Task Link" (?task=<id>), or '' if this page load
- * didn't come from one. Read once at mount — the workspace views pass this as
+ * didn't come from one. Read once at mount - the workspace views pass this as
  * the initial value of their `openId` state so the drawer opens automatically. */
 export function taskIdFromUrl() {
   if (typeof window === 'undefined') return '';
@@ -319,7 +319,7 @@ const RICH_TAGS = new Set(['P', 'BR', 'B', 'STRONG', 'I', 'EM', 'U', 'S', 'STRIK
 const RICH_ATTRS = { A: ['href', 'title'], IMG: ['src', 'alt', 'title'] };
 const SAFE_URL = /^(https?:|mailto:|data:image\/)/i;
 
-/** Comment and description bodies are stored as HTML and come from people —
+/** Comment and description bodies are stored as HTML and come from people -
  * and from Asana, which is outside our control. Render them through this, never
  * raw: a body containing <script> or an onerror handler would otherwise run
  * with the signed-in user's session. Uses the browser parser (no dependency),
@@ -352,11 +352,11 @@ export function sanitizeRichHtml(html, nameOf) {
         const href = child.getAttribute('href') || '';
         if (/^mailto:/i.test(href)) {
           // A mention. Show the person the way the rest of the module names
-          // them — Asana's copy of the name can differ from ours, and a body
+          // them - Asana's copy of the name can differ from ours, and a body
           // written elsewhere may carry the raw address as its label.
           const email = href.slice(7).trim();
           // nameOf falls back to the address for people it doesn't know, which
-          // is the one thing we don't want to show — use the local part then.
+          // is the one thing we don't want to show - use the local part then.
           const name = nameOf?.(email);
           if (name && name !== email) child.textContent = `@${name}`;
           else if (!child.textContent.trim() || child.textContent.trim().replace(/^@/, '') === email) {

@@ -1,6 +1,6 @@
 import { AlertCircle } from 'lucide-react';
 
-// Shared "couldn't load this" presentation — never surfaces raw exception text
+// Shared "couldn't load this" presentation - never surfaces raw exception text
 // (e.g. "Failed to fetch", "API error 500") to end users. The technical reason
 // stays in the console for whoever's debugging; the user just sees a friendly,
 // retry-able message.
@@ -19,7 +19,7 @@ export function ErrorBanner({ message, onRetry, retryLabel = 'Retry' }) {
   );
 }
 
-// Pulsing placeholder rows/cards while content loads — keeps layout stable and
+// Pulsing placeholder rows/cards while content loads - keeps layout stable and
 // avoids a jarring blank-then-pop transition.
 export function SkeletonBlocks({ count = 3, height = 120, borderRadius = 14, gridTemplateColumns }) {
   return (
@@ -37,7 +37,7 @@ export function SkeletonBlocks({ count = 3, height = 120, borderRadius = 14, gri
 // view handles it the same friendly way instead of rolling its own.
 export default function AsyncSection({
   loading, error, isEmpty,
-  errorMessage = "This couldn't be loaded right now — please try again.",
+  errorMessage = "This couldn't be loaded right now - please try again.",
   emptyContent = null,
   onRetry,
   skeleton = <SkeletonBlocks />,

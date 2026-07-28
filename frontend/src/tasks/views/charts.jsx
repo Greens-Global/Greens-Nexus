@@ -1,4 +1,4 @@
-// Task Module — Dashboard chart primitives (Card / LightBar / Donut) and the
+// Task Module - Dashboard chart primitives (Card / LightBar / Donut) and the
 // Custom Charts panel + builder. Ported from the export's dashboard/charts.tsx
 // and CustomCharts.tsx to the Nexus inline-style idiom. Custom charts persist to
 // localStorage, namespaced by a scope key (project id, or "workspace").
@@ -74,7 +74,7 @@ export function Donut({ segments, total, unit = 'tasks' }) {
 }
 
 export function TrendArea({ buckets, color = NX.primary, height = 90, ariaLabel }) {
-  // Smooth gradient area (the reference kits' hero chart) — generic over
+  // Smooth gradient area (the reference kits' hero chart) - generic over
   // {label, n} buckets so any view can feed it real counts.
   const W = 320, H = height, PAD = 4;
   const max = Math.max(...buckets.map((b) => b.n), 1);
@@ -164,7 +164,7 @@ function computeSeries(cfg, tasks, store) {
   if (cfg.dimension === 'project') {
     return store.projects.map((p, i) => ({ label: p.name, value: val(rows.filter((t) => t.projectId === p.id)), color: PALETTE[i % PALETTE.length] })).filter((d) => d.value > 0);
   }
-  // assignee — derived from the tasks themselves
+  // assignee - derived from the tasks themselves
   const seen = new Map();
   for (const t of rows) if (t.assigneeId && !seen.has(t.assigneeId)) seen.set(t.assigneeId, (store.nameOf?.(t.assigneeId) || t.assigneeId).split(' ')[0]);
   const out = [...seen.entries()].map(([id, label], i) => ({ label, value: val(rows.filter((t) => t.assigneeId === id)), color: PALETTE[i % PALETTE.length] })).filter((d) => d.value > 0);

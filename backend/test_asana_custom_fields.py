@@ -1,5 +1,5 @@
 """
-Unit tests for phase 3 — generic Nexus custom fields <-> Asana custom_fields.
+Unit tests for phase 3 - generic Nexus custom fields <-> Asana custom_fields.
 
 The property that matters most here is loop prevention. CLAUDE.md records that
 using the wrong digest for inbound comparison made every pull re-apply every
@@ -95,7 +95,7 @@ class AsanaCustomFieldTests(unittest.TestCase):
         self.assertEqual(labels, ["Design", "Ship"])
 
     def test_reserved_fields_never_become_custom_fields(self):
-        """Task Progress and Priority already drive native status/priority —
+        """Task Progress and Priority already drive native status/priority -
         mapping them again would store each value twice and let the two fight."""
         at = {"custom_fields": [enum_cf("Task Progress", "In Progress"),
                                 enum_cf("Priority", "High"),
@@ -136,7 +136,7 @@ class AsanaCustomFieldTests(unittest.TestCase):
 
     # ── loop prevention ─────────────────────────────────────────────────
     def test_the_same_payload_twice_produces_the_same_digest(self):
-        """If this drifts, every pull re-applies every task forever — the exact
+        """If this drifts, every pull re-applies every task forever - the exact
         failure CLAUDE.md records for the Task Progress field."""
         at = {"name": "T", "custom_fields": [enum_cf("Stage", "Build", ["Design", "Build"])]}
 
@@ -160,7 +160,7 @@ class AsanaCustomFieldTests(unittest.TestCase):
                             asana_sync._fields_digest({"f1": "y"}))
 
     def test_inbound_is_additive_and_keeps_nexus_only_values(self):
-        """A field Asana doesn't carry must survive the pull — otherwise every
+        """A field Asana doesn't carry must survive the pull - otherwise every
         pull wipes any field that only exists in Nexus."""
         self.db.add(models.TaskCustomField(id="nx", name="Nexus Only", type="text", project_ids=[]))
         self.db.commit()
@@ -185,7 +185,7 @@ class AsanaCustomFieldTests(unittest.TestCase):
         """The end-to-end version of the loop guarantee, and the one that would
         actually have caught the historical bug: pull the same payload three
         times and nothing re-applies, both hashes stay put, and a push straight
-        afterwards sees no change — so inbound can't ping-pong into outbound."""
+        afterwards sees no change - so inbound can't ping-pong into outbound."""
         at = {"gid": "g1", "name": "Task",
               "custom_fields": [enum_cf("Stage", "Build", ["Design", "Build"]),
                                 {"name": "Points", "resource_subtype": "number", "number_value": 3.0}]}
@@ -232,7 +232,7 @@ class AsanaCustomFieldTests(unittest.TestCase):
                          {"CF1": "OPT_BUILD"})
 
     def test_outbound_skips_a_field_asana_does_not_have(self):
-        """Never invent fields in a shared Asana workspace — a Nexus-only field
+        """Never invent fields in a shared Asana workspace - a Nexus-only field
         simply doesn't travel."""
         self.db.add(models.TaskCustomField(id="f1", name="Nexus Only", type="text", project_ids=[PROJ]))
         t = models.Task(id="t1", title="T", project_id=PROJ, custom_field_values={"f1": "x"})

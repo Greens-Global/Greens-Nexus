@@ -4,29 +4,29 @@
 // vite.config.js) is a single JSON file on the machine running the dev server (nexus-data.json).
 // The desktop running that dev server is the master copy; every device (phone, laptop, etc.)
 // reads and writes the SAME file through the tunnel. There is no per-field merge, no operational
-// transform, no multi-writer CRDT — conflicts are resolved with a blunt rule, applied on both
+// transform, no multi-writer CRDT - conflicts are resolved with a blunt rule, applied on both
 // the server (vite.config.js) and the client (`pickBest` below):
 //
 //     more log entries wins; if log counts are tied, the newer `_ts` (write timestamp) wins.
 //
 // "Logs" here means the app's activity/audit log array (`store.logs`), used as a cheap proxy for
-// "how much has happened in this copy of the data" — more logged activity is assumed to mean a
+// "how much has happened in this copy of the data" - more logged activity is assumed to mean a
 // more historically-complete snapshot, so it's preferred over a same-or-later-but-thinner one.
 // This is a genuinely lossy strategy: if two devices edit different, unrelated fields offline at
 // the same time, ONE of those edits silently loses. It is good enough for "one small team, rare
-// simultaneous edits, desktop is home base" — it is not a real sync protocol. Do not build on
+// simultaneous edits, desktop is home base" - it is not a real sync protocol. Do not build on
 // this assuming stronger guarantees; see README-HANDOFF.md.
 //
 // This module owns:
 //   - serverGet / serverPut: the raw HTTP calls to /api/state.
 //   - a pending-write queue with retry/backoff (__nexusFlush), so a failed POST (e.g. tunnel
-//     hiccup) doesn't silently drop an edit — it keeps retrying with exponential backoff.
+//     hiccup) doesn't silently drop an edit - it keeps retrying with exponential backoff.
 //   - pickBest: the same "most logs, then newest timestamp" rule, applied client-side when
 //     reconciling localStorage / IndexedDB / server copies on load.
 //   - wiring helpers for the flush-on-hide / pull-on-visible / retry-on-online lifecycle that
 //     the app's root component drives from React effects.
 
-// Usage pattern (matches the original app's three root-level React effects — this module is
+// Usage pattern (matches the original app's three root-level React effects - this module is
 // deliberately framework-agnostic, so the calling component owns the useEffect wiring):
 //
 //   1. On mount, hydrate once: read localStorage + idbGet(KEY) + serverGet() in parallel. The
@@ -34,8 +34,8 @@
 //      stamped server-side with _ts); pickBest([local, idb]) is only the offline fallback, and
 //      the fallback is never pushed back to the server. (The old "most logs wins across all
 //      three, push the winner back" rule let a stale device both hide and clobber newer server
-//      data — see useNexusStore.js.)
-//   2. On every state change (debounced), once isHydrated() is true: queueWrite(state) — this
+//      data - see useNexusStore.js.)
+//   2. On every state change (debounced), once isHydrated() is true: queueWrite(state) - this
 //      also mirrors the write to localStorage/idbSet at the call site (sync.js only owns the
 //      SERVER side of persistence; local persistence is idb.js + localStorage directly).
 //   3. Once on mount: wireBackgroundSync(onServerNewer) to start the poll/flush/listener
@@ -45,8 +45,8 @@
 
 // NEXUS INTEGRATION: the prototype talked to the vite dev server's /api/state file store.
 // Inside the Nexus platform the whole workspace lives in Supabase behind the authenticated
-// FastAPI endpoint GET/PUT /property-assets/workspace — same {properties, ...collections, logs}
-// shape — so serverGet/serverPut below delegate to Nexus's api.js (which attaches the MSAL
+// FastAPI endpoint GET/PUT /property-assets/workspace - same {properties, ...collections, logs}
+// shape - so serverGet/serverPut below delegate to Nexus's api.js (which attaches the MSAL
 // Bearer token). Everything else in this file (queue/debounce/backoff/background poll) is
 // unchanged.
 import { api } from '../../api.js';
@@ -54,7 +54,7 @@ import { api } from '../../api.js';
 /** localStorage / IndexedDB key the app's full state blob is stored under (both tiers use the same key). */
 export const STORAGE_KEY = 'nexus_asset_neil_v2';
 
-/** GET the server's current state. Resolves to `null` on any failure or empty workspace — never rejects. */
+/** GET the server's current state. Resolves to `null` on any failure or empty workspace - never rejects. */
 export function serverGet() {
   return api.getPropertyWorkspace()
     .then((ws) => (ws && Array.isArray(ws.properties) ? ws : null))
@@ -64,7 +64,7 @@ export function serverGet() {
 /**
  * PUT a JSON-stringified state blob to Nexus. Resolves to { status, ts }: status is an HTTP-like
  * code the queue uses to decide retries (200 = accepted, 0 = request failed → transient, retried
- * with backoff), and ts is the SERVER-stamped epoch-ms freshness marker of the accepted write —
+ * with backoff), and ts is the SERVER-stamped epoch-ms freshness marker of the accepted write -
  * the flush path records it as lastTs so the pull loop doesn't re-download our own write.
  */
 export function serverPut(json) {
@@ -73,7 +73,7 @@ export function serverPut(json) {
   return api.savePropertyWorkspace(ws)
     .then((r) => ({ status: 200, ts: (r && r._ts) || 0 }))
     // 409 = the server refused this write outright (e.g. empty-over-populated
-    // guard) — a definitive rejection, not a transient failure: surface it as
+    // guard) - a definitive rejection, not a transient failure: surface it as
     // 409 so the queue drops the write and the next pull re-syncs, instead of
     // retrying a write that can never be accepted.
     .catch((e) => ({ status: e && e.status === 409 ? 409 : 0, ts: 0 }));
@@ -92,7 +92,7 @@ export function pickBest(candidates) {
     const logs = (candidate.logs && candidate.logs.length) || 0;
     const ts = candidate._ts || 0;
     // Strictly more logs wins outright. Equal logs: newer-or-equal timestamp wins (>=, so the
-    // LAST candidate in a same-logs/same-ts tie wins — candidates are conventionally passed
+    // LAST candidate in a same-logs/same-ts tie wins - candidates are conventionally passed
     // [local, idb, server], so server wins such ties).
     if (logs > bestLogs || (logs === bestLogs && ts >= bestTs)) {
       bestLogs = logs;
@@ -104,7 +104,7 @@ export function pickBest(candidates) {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Pending-write queue: module-level (not per-component) state, matching the original — there is
+// Pending-write queue: module-level (not per-component) state, matching the original - there is
 // only ever one Nexus store in the app, so a singleton queue is fine and lets any code path
 // (including page-hide/beacon handlers that can't easily reach into React state) flush it.
 // ---------------------------------------------------------------------------------------------
@@ -132,7 +132,7 @@ export function getRetryCount() { return retryCount; }
 /**
  * Queue `stateObj` (already stamped with `_ts`) to be written to the server, debounced by
  * `debounceMs` (the original app uses 1200ms so rapid successive edits coalesce into one PUT).
- * Also updates the lastTs/lastLogCount bookkeeping immediately (optimistic — we know what WE
+ * Also updates the lastTs/lastLogCount bookkeeping immediately (optimistic - we know what WE
  * just wrote, independent of whether the network call has completed yet).
  */
 export function queueWrite(stateObj, debounceMs = 1200) {
@@ -141,7 +141,7 @@ export function queueWrite(stateObj, debounceMs = 1200) {
   try {
     json = JSON.stringify({ ...stateObj, _ts: ts });
   } catch (e) {
-    return; // circular/unserializable state — nothing we can do, drop silently like the original
+    return; // circular/unserializable state - nothing we can do, drop silently like the original
   }
   lastTs = ts;
   lastLogCount = (stateObj.logs && stateObj.logs.length) || 0;
@@ -152,11 +152,11 @@ export function queueWrite(stateObj, debounceMs = 1200) {
 
 /**
  * Attempt to send the pending write now (bypassing the debounce timer). Safe to call
- * unconditionally (e.g. from an interval or an online/visibility handler) — it's a no-op if
+ * unconditionally (e.g. from an interval or an online/visibility handler) - it's a no-op if
  * nothing is pending.
  *
  * Retry/backoff behavior:
- *   - 200 (accepted) or 409 (server has a copy that wins by the pickBest rule — our write is
+ *   - 200 (accepted) or 409 (server has a copy that wins by the pickBest rule - our write is
  *     moot, not an error worth retrying): clear the pending write, reset retry count to 0.
  *   - anything else (network failure -> 0, or a 5xx): treat as transient. Bump retryCount (capped
  *     at 6) and reschedule via exponential backoff: 1.5s, 3s, 6s, 12s, 24s, capped at 30s.
@@ -176,7 +176,7 @@ export function flush() {
       if (pending === inFlight) pending = null;
       retryCount = 0;
       // Adopt the server's stamp for the write we just landed (even if it's
-      // "behind" our client clock — server time is the only one pulls compare).
+      // "behind" our client clock - server time is the only one pulls compare).
       if (status === 200 && ts) lastTs = ts;
     } else {
       retryCount = Math.min((retryCount || 0) + 1, 6);
@@ -188,14 +188,14 @@ export function flush() {
 /**
  * Best-effort synchronous-ish flush for page unload: `fetch` can be cancelled mid-flight when a
  * tab closes, so use `navigator.sendBeacon` instead, which the browser guarantees to complete.
- * Does not update pending/retry state — the beacon fire-and-forgets, we just want the bytes to
+ * Does not update pending/retry state - the beacon fire-and-forgets, we just want the bytes to
  * arrive; a subsequent page load will reconcile via the normal hydrate path regardless.
  */
 export function flushBeacon() {
   if (!pending) return;
   // The original beaconed the raw JSON to the vite dev server's /api/state. Nexus's workspace
   // endpoint is MSAL-authenticated, and navigator.sendBeacon can't attach the Bearer token, so
-  // fall back to the normal authenticated flush() — best-effort on pagehide (the periodic poll +
+  // fall back to the normal authenticated flush() - best-effort on pagehide (the periodic poll +
   // visibilitychange flush cover the common cases; a subsequent load reconciles regardless).
   flush();
 }
@@ -216,7 +216,7 @@ export function flushBeacon() {
  *   - browser comes back online -> flush immediately (in case writes queued up while offline).
  *
  * `onServerNewer(serverState)` should apply the server's state as the new source of truth
- * (typically after running it through VNORM — see dataNormalization.js) and update the
+ * (typically after running it through VNORM - see dataNormalization.js) and update the
  * lastTs/lastLogCount bookkeeping via setLastKnown().
  */
 export function wireBackgroundSync(onServerNewer, pollMs = 7000) {
@@ -229,7 +229,7 @@ export function wireBackgroundSync(onServerNewer, pollMs = 7000) {
       const logs = (serverState.logs && serverState.logs.length) || 0;
       const ts = serverState._ts || 0;
       // The server stamps _ts on every accepted write, so ts alone detects ANY
-      // newer copy — including value-only edits that don't change the log count,
+      // newer copy - including value-only edits that don't change the log count,
       // and recovery states where the log count went DOWN. The log-count check
       // stays as a fallback for a server that predates _ts (deploy skew).
       if (ts > lastTs || logs > lastLogCount) {

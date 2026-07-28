@@ -1,4 +1,4 @@
-// ── Step-up MFA — real, Entra-native re-verification before sensitive data ────
+// ── Step-up MFA - real, Entra-native re-verification before sensitive data ────
 // Replaces the vault's old client-side "MFA theater" (browser-generated codes).
 // `ensureStepUp()` guarantees the caller has a fresh, server-verified step-up
 // session before proceeding: it checks the server, and if needed triggers a
@@ -8,7 +8,7 @@
 //
 // Usage in any click handler:
 //   const r = await ensureStepUp();
-//   if (!r.ok) return;            // cancelled / failed — do nothing
+//   if (!r.ok) return;            // cancelled / failed - do nothing
 //   ...reveal the secret / open payroll...
 //
 // Mount <StepUpOverlay/> once (App.jsx) for the "approve the prompt…" UI.
@@ -115,7 +115,7 @@ export function StepUpOverlay() {
   const [state, setState] = useState(null);   // null idle | {phase:'start'|'verified'|'error'}
   useEffect(() => {
     // On load, if we just returned from a step-up redirect that succeeded, the
-    // msal handler fires 'verified' — but it may fire before this mounts, so also
+    // msal handler fires 'verified' - but it may fire before this mounts, so also
     // show the success note if the marker was just cleared this session.
     const on = (e) => {
       const d = e.detail || {};
@@ -161,13 +161,13 @@ export function StepUpOverlay() {
     <div style={{ fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5 }}>You can now view the protected information for the next few minutes.</div>
   </>);
 
-  // 'start' — redirecting to Microsoft
+  // 'start' - redirecting to Microsoft
   return card(<>
     <div style={{ width: 46, height: 46, borderRadius: '50%', margin: '0 auto 14px', display: 'grid', placeItems: 'center', background: 'hsla(var(--color-blue),0.12)' }}>
       <ShieldCheck size={24} style={{ color: 'hsl(var(--color-blue))' }} /></div>
     <div style={{ fontSize: 15.5, fontWeight: 800, color: 'var(--ink)', marginBottom: 6 }}>Confirming it’s you</div>
     <div style={{ fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5, marginBottom: 16 }}>
-      Taking you to <strong>Microsoft</strong> to re-confirm your sign-in — approve the Authenticator / SMS prompt if asked. You’ll come right back.
+      Taking you to <strong>Microsoft</strong> to re-confirm your sign-in - approve the Authenticator / SMS prompt if asked. You’ll come right back.
     </div>
     <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: 'var(--muted)', fontSize: 12 }}>
       <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Redirecting…

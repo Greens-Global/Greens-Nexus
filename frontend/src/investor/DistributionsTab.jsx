@@ -106,7 +106,7 @@ export default function DistributionsTab() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap', marginBottom: 18 }}>
         <div>
           <h3 style={{ fontSize: 16, fontWeight: 700, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>Distributions</h3>
-          <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '3px 0 0' }}>Capital returned to LPs — expand a distribution to confirm investor payments</p>
+          <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '3px 0 0' }}>Capital returned to LPs - expand a distribution to confirm investor payments</p>
         </div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
           <select className="form-select" style={{ width: 200 }} value={fundFilter} onChange={e => setFundFilter(e.target.value)}>
@@ -175,7 +175,7 @@ export default function DistributionsTab() {
                     {actionErr && <ErrorState message={actionErr} />}
 
                     {allocs.loading ? <LoadingState label="Loading allocations…" /> : allocs.error ? <ErrorState message={allocs.error} onRetry={() => loadAllocs(dist.id)} /> : allocs.rows.length === 0 ? (
-                      <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '8px 0' }}>No allocations yet — they generate when the distribution is issued.</div>
+                      <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '8px 0' }}>No allocations yet - they generate when the distribution is issued.</div>
                     ) : (
                       <div style={{ overflowX: 'auto' }}>
                         <table className="req-table">
@@ -194,7 +194,7 @@ export default function DistributionsTab() {
                                 <td style={{ fontWeight: 600 }}>{a.investorName}</td>
                                 <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(a.amount)}</td>
                                 <td><StatusText status={a.status} /></td>
-                                <td style={{ fontSize: 12, color: 'var(--muted)' }}>{a.status === 'paid' ? formatDate(a.paidDate) : '—'}</td>
+                                <td style={{ fontSize: 12, color: 'var(--muted)' }}>{a.status === 'paid' ? formatDate(a.paidDate) : '-'}</td>
                                 <td style={{ textAlign: 'right' }}>
                                   {a.status === 'pending' && payEdit?.allocId !== a.id && (
                                     <span style={{ display: 'inline-flex', gap: 6 }}>

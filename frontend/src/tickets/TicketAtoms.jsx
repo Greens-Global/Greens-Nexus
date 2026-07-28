@@ -1,4 +1,4 @@
-// Ticket Module — small presentational pieces shared by the list, the create
+// Ticket Module - small presentational pieces shared by the list, the create
 // wizard and the drawer. Everything here is driven by ticketMeta.js.
 import { useEffect, useState } from 'react';
 import { NX, FONT, chip, btn, input as inputStyle } from '../tasks/theme';
@@ -8,7 +8,7 @@ import {
 } from './ticketMeta';
 
 export function TypeFieldInput({ field: f, value, onChange, people, projects, invalid }) {
-  // `invalid` only tints the border — the "Required" text is rendered by the caller.
+  // `invalid` only tints the border - the "Required" text is rendered by the caller.
   const iStyle = invalid ? { ...inputStyle, borderColor: NX.red } : inputStyle;
   const selStyle = { ...iStyle, appearance: 'auto', cursor: 'pointer' };
   if (f.type === 'textarea') return <textarea value={value ?? ''} onChange={(e) => onChange(e.target.value)} rows={3} placeholder={f.placeholder || ''} style={{ ...iStyle, resize: 'vertical', fontFamily: FONT }} />;
@@ -102,7 +102,7 @@ export function TicketStatusChip({ status }) {
 }
 
 
-// Saved-views dropdown — apply a saved filter set, save the current one, or delete.
+// Saved-views dropdown - apply a saved filter set, save the current one, or delete.
 
 // ── Custom field input (reuses the Manage custom-field definitions) ───────────
 export function TicketCustomFieldInput({ field, value, onChange }) {
@@ -112,7 +112,7 @@ export function TicketCustomFieldInput({ field, value, onChange }) {
   if (field.type === 'select' && Array.isArray(field.options)) {
     return (
       <select value={v} onChange={(e) => { setV(e.target.value); onChange(e.target.value); }} style={{ ...style, appearance: 'auto', cursor: 'pointer' }}>
-        <option value="">—</option>
+        <option value="">-</option>
         {field.options.map((o) => <option key={o} value={o}>{o}</option>)}
       </select>
     );

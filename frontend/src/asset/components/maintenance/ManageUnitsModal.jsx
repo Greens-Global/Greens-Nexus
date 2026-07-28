@@ -3,7 +3,7 @@ import { Modal } from '../shared/Modal.jsx';
 import { genId } from '../../lib/format.js';
 
 /** Lets a property define its named suites/units (property.tenantUnits: [{id, label}]) for
- *  multi-tenant maintenance tracking — see PropertyMaintenanceSection's unit-filter pills. */
+ *  multi-tenant maintenance tracking - see PropertyMaintenanceSection's unit-filter pills. */
 export function ManageUnitsModal({ units, onSave, onClose }) {
   const [list, setList] = useState(units.map((u) => ({ ...u })));
   const [draft, setDraft] = useState('');

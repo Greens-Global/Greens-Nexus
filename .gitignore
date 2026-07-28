@@ -12,6 +12,10 @@ dist/
 venv/
 env/
 *.db
+# WAL sidecars: sqlite runs in WAL mode now (backend/database.py), so every
+# local db grows a -wal/-shm pair that *.db above does not match.
+*.db-wal
+*.db-shm
 *.sqlite3
 
 # Environment secrets

@@ -1,4 +1,4 @@
-"""Native E-Sign (HR Section C) — templates, ordered multi-party signing,
+"""Native E-Sign (HR Section C) - templates, ordered multi-party signing,
 tokenized external links, and a tamper-evident certificate of completion.
 
 Design notes:
@@ -37,7 +37,7 @@ from database import get_db
 from auth import get_current_user
 from models import (HrSignTemplate, HrSignRequest, HrSignParty, HrSignEvent,
                     HrDocument, HrEntity, HrCandidate, NexusEmployee)
-# Reuse the HR module's storage/Graph/notification plumbing — same bucket, same
+# Reuse the HR module's storage/Graph/notification plumbing - same bucket, same
 # service key, same bell. hr.py owns those constants; do not duplicate them.
 from routers.hr import (require_hr_read, require_hr_write, require_hr_delete,
                         _storage_headers, _graph_token, _hr_notify,
@@ -45,7 +45,7 @@ from routers.hr import (require_hr_read, require_hr_write, require_hr_delete,
 
 router = APIRouter(prefix="/esign", tags=["esign"])
 
-# NEXUS_APP_URL override, else derived per environment (see app_url.py) — the
+# NEXUS_APP_URL override, else derived per environment (see app_url.py) - the
 # old hardcoded dev default made PROD e-sign emails link to dev.nexus.
 from app_url import app_url as _app_url_fn
 _APP_URL = _app_url_fn()
@@ -53,10 +53,10 @@ _APP_URL = _app_url_fn()
 # ── Local-dev storage fallback (E-Sign only) ──────────────────────────────────
 # Every real deployment (Azure) always has SUPABASE_URL/SUPABASE_SERVICE_KEY
 # set, so this branch never executes outside a local machine missing those two
-# env vars — it self-disables the moment real credentials exist, same category
+# env vars - it self-disables the moment real credentials exist, same category
 # as the NEXUS_SKIP_AUTH local-only bypass this codebase already has elsewhere.
 # Scoped deliberately to e-sign's own storage calls only (not hr.py's HR
-# document uploads, which are untouched) — see the E-Sign compliance plan.
+# document uploads, which are untouched) - see the E-Sign compliance plan.
 _LOCAL_STORAGE_ROOT = pathlib.Path("Generated File")
 
 
@@ -66,7 +66,7 @@ def _storage_configured() -> bool:
 
 def _local_storage_path(bucket: str, path: str) -> pathlib.Path:
     """Resolves a bucket+path to a file under Generated File/, rejecting any
-    attempt to escape that directory (defense in depth — `path` values are
+    attempt to escape that directory (defense in depth - `path` values are
     normally server-generated, e.g. f"esign/{req.id}/final.pdf", but the local
     file-serving endpoint below accepts `path` from the URL, so this check is
     load-bearing there, not just decorative)."""
@@ -79,7 +79,7 @@ def _local_storage_path(bucket: str, path: str) -> pathlib.Path:
 
 class _StorageResult:
     """Minimal stand-in for the bits of an httpx.Response the 9 call sites in
-    this file actually use (.is_success/.text/.content/.json()) — lets the
+    this file actually use (.is_success/.text/.content/.json()) - lets the
     Supabase and local-file code paths share the exact same call-site shape
     below, so each site's existing error-handling needed almost no changes."""
     def __init__(self, is_success: bool, content: bytes = b"", text: str = "", json_data=None):
@@ -100,7 +100,7 @@ def _storage_put(bucket: str, path: str, content: bytes, content_type: str, upse
         r = httpx.post(f"{_SUPABASE_URL}/storage/v1/object/{bucket}/{path}",
                        headers=headers, content=content, timeout=60)
         return _StorageResult(r.is_success, content=r.content, text=r.text)
-    # Local filesystem writes are inherently upsert (always overwrite) — no
+    # Local filesystem writes are inherently upsert (always overwrite) - no
     # separate flag needed for this branch.
     p = _local_storage_path(bucket, path)
     p.parent.mkdir(parents=True, exist_ok=True)
@@ -132,7 +132,7 @@ def _storage_signed_url(bucket: str, path: str, expires_in: int = 300) -> _Stora
         return _StorageResult(False, text="Local file not found")
     # _APP_URL is the FRONTEND's origin (used for /sign, /verify links) and
     # defaults to the production domain when NEXUS_APP_URL isn't set locally
-    # — using it here would produce an unreachable link. This is the BACKEND
+    # - using it here would produce an unreachable link. This is the BACKEND
     # API's own origin instead, matching this project's documented local-dev
     # convention (CLAUDE.md: "frontend talks to localhost:8000 by default").
     # Override with NEXUS_LOCAL_API_URL if the backend runs on a different port.
@@ -143,10 +143,10 @@ def _storage_signed_url(bucket: str, path: str, expires_in: int = 300) -> _Stora
 
 @router.get("/local-file/{bucket}/{path:path}")
 def local_file(bucket: str, path: str):
-    """Serves files from Generated File/ — the local-dev stand-in for a
+    """Serves files from Generated File/ - the local-dev stand-in for a
     Supabase signed URL (see _storage_signed_url above). Immediately 404s if
     real storage IS configured, so this can never become a live path in any
-    environment that has actual credentials — not just "unused," structurally
+    environment that has actual credentials - not just "unused," structurally
     unreachable. No auth (matches a Supabase signed URL's own bearer-in-URL
     posture) but strictly sandboxed to Generated File/ via _local_storage_path,
     which rejects any path that would resolve outside it."""
@@ -164,7 +164,7 @@ _TEMPLATE_KINDS = ("offer", "nda", "direct_deposit", "handbook_ack", "w9",
 _MAX_PDF_BYTES = 15 * 1024 * 1024
 _MAX_SIG_BYTES = 200 * 1024          # decoded PNG cap for drawn signatures
 
-# ESIGN/UETA consent — shown verbatim to every signer; version stamped per party
+# ESIGN/UETA consent - shown verbatim to every signer; version stamped per party
 # so we can prove exactly what they agreed to even if the wording evolves.
 _CONSENT_VERSION = "1.0-2026-07"
 _CONSENT_TEXT = (
@@ -183,7 +183,7 @@ def _now_iso() -> str:
 
 def _pesc(s) -> str:
     """Escape a user string for reportlab Paragraph markup. reportlab's paraparser
-    treats <...> and & as XML — an unescaped name/title/typed-signature (e.g.
+    treats <...> and & as XML - an unescaped name/title/typed-signature (e.g.
     'Ben & Co', 'a<b') otherwise CRASHES sealing and permanently bricks the
     envelope (nothing is committed, so every retry re-crashes)."""
     from xml.sax.saxutils import escape
@@ -192,7 +192,7 @@ def _pesc(s) -> str:
 
 def _strip_port(addr: str) -> str:
     """Azure's x-forwarded-for carries the client port ('1.2.3.4:56789',
-    '[::1]:443') — an audit trail wants the address only."""
+    '[::1]:443') - an audit trail wants the address only."""
     addr = (addr or "").strip()
     if addr.startswith("["):                      # bracketed IPv6
         return addr.split("]")[0].lstrip("[")
@@ -202,7 +202,7 @@ def _strip_port(addr: str) -> str:
 
 
 def _client_meta(request: Optional[Request]) -> tuple:
-    """(ip, user_agent) — x-forwarded-for first (Azure sits behind a proxy)."""
+    """(ip, user_agent) - x-forwarded-for first (Azure sits behind a proxy)."""
     if request is None:
         return "", ""
     fwd = request.headers.get("x-forwarded-for", "")
@@ -212,7 +212,7 @@ def _client_meta(request: Optional[Request]) -> tuple:
 
 def _event_hash(prev_hash: str, request_id: str, type: str, detail: str,
                 ip: str, user_agent: str, at: str, seq: int) -> str:
-    """Each event commits to the entire history before it for this envelope —
+    """Each event commits to the entire history before it for this envelope -
     editing, deleting, or reordering a row breaks the chain from that point
     forward, detectably. Genesis link (the first event) chains to the
     envelope's own id rather than an empty string, so two different
@@ -224,7 +224,7 @@ def _event_hash(prev_hash: str, request_id: str, type: str, detail: str,
 
 def _log(db: Session, request_id: str, type: str, detail: str = "",
          party_id: str = "", ip: str = "", user_agent: str = "") -> None:
-    # autoflush=False (this codebase's own established gotcha — see _finalize's
+    # autoflush=False (this codebase's own established gotcha - see _finalize's
     # own comment on the same issue) means a _log() call later in the SAME
     # request wouldn't see an earlier, uncommitted _log() call's row here,
     # silently breaking the hash chain (two events computing the same "prior"
@@ -249,7 +249,7 @@ def _verify_chain(events: List[HrSignEvent]) -> dict:
     """Tamper-evidence check for the audit trail itself (distinct from the
     final-PDF byte hash in verify_final): replays the hash chain over the
     stored rows and confirms every event_hash matches what _log() would have
-    computed. Events created before this feature shipped have seq=0/no hash —
+    computed. Events created before this feature shipped have seq=0/no hash -
     reported as "chain not available", never as a false pass or fail."""
     if not events:
         return {"chainAvailable": False, "valid": None, "eventCount": 0}
@@ -310,7 +310,7 @@ def _ser_request(r: HrSignRequest, parties: Optional[List[HrSignParty]] = None,
 def _merge_data(db: Session, employee_id: str, candidate_id: str, entity_id: str,
                 overrides: dict) -> dict:
     """Merge dict for {{token}} resolution. Subject person + company + overrides
-    (overrides win — e.g. salary is typed by the sender, never read from the
+    (overrides win - e.g. salary is typed by the sender, never read from the
     hr_comp-restricted compensation column)."""
     data = {"today": datetime.now(timezone.utc).strftime("%B %d, %Y")}
     if employee_id:
@@ -372,7 +372,7 @@ def _fields_in_body(body: list) -> List[dict]:
 # ── Turn / expiry helpers ─────────────────────────────────────────────────────
 
 def _check_expiry(db: Session, req: HrSignRequest) -> None:
-    """Lazy expiry — flip a stale pending envelope to expired on any access."""
+    """Lazy expiry - flip a stale pending envelope to expired on any access."""
     if req.status == "pending" and req.expires_on:
         exp = str(req.expires_on)[:10]
         # Compare dates, not raw strings: a non-ISO value (e.g. '12/31/2026')
@@ -398,7 +398,7 @@ def _its_their_turn(req: HrSignRequest, party: HrSignParty) -> bool:
     if req.status != "pending" or (party.party_role or "signer") != "signer" \
             or party.status not in ("waiting", "notified", "viewed"):
         return False
-    # Parallel envelopes have no order — every unsigned signer may sign now.
+    # Parallel envelopes have no order - every unsigned signer may sign now.
     if (req.routing or "sequential") == "parallel":
         return True
     return party.ordinal == req.current_order
@@ -426,7 +426,7 @@ def _sign_email_html(party: HrSignParty, req: HrSignRequest, sender_name: str, l
         Review &amp; sign</a></p>
       <p style="margin:0;font-size:12px;color:#6b7280;line-height:1.6">
         {('This request expires on ' + escape(req.expires_on) + '. ') if req.expires_on else ''}
-        The link is unique to you — please don't forward it.</p>
+        The link is unique to you - please don't forward it.</p>
     </td></tr>
     <tr><td style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:14px 36px;font-size:11.5px;color:#6b7280;line-height:1.5">
       Sent via Greens Nexus e-sign. This mailbox isn't monitored.
@@ -459,7 +459,7 @@ _ATTACH_MAX = 3_000_000  # Graph simple sendMail caps the whole message at ~4 MB
 
 def _send_sealed_email(to_name: str, to_email: str, req: HrSignRequest, pdf: bytes,
                        link: str, link_label: str, note: str = "") -> tuple:
-    """Everyone-signed email — sender, signers and CC alike get the sealed PDF
+    """Everyone-signed email - sender, signers and CC alike get the sealed PDF
     ATTACHED (their retained copy, ESIGN retention), plus a link. Oversized
     documents fall back to link-only."""
     from html import escape
@@ -469,7 +469,7 @@ def _send_sealed_email(to_name: str, to_email: str, req: HrSignRequest, pdf: byt
     attach = len(pdf) <= _ATTACH_MAX
     doc_line = ("The sealed document, with its Certificate of Completion, is attached to this email."
                 if attach else
-                "The sealed document (with its Certificate of Completion) is too large to attach — "
+                "The sealed document (with its Certificate of Completion) is too large to attach - "
                 "use the button below to download your copy.")
     html = f"""<div style="font-family:Inter,Segoe UI,Arial,sans-serif;background:#f3f4f6;padding:28px 12px">
   <table style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:14px;overflow:hidden;border-collapse:collapse;width:100%">
@@ -516,7 +516,7 @@ def _send_sealed_email(to_name: str, to_email: str, req: HrSignRequest, pdf: byt
 
 
 def _notify_party(db: Session, party: HrSignParty, req: HrSignRequest, sender_name: str) -> None:
-    """Tell a party it's their turn. Bell for internal, email for both (best-effort —
+    """Tell a party it's their turn. Bell for internal, email for both (best-effort -
     an email hiccup must never lose the envelope; the event log records it)."""
     if party.kind == "internal":
         _hr_notify(db, party.email, f"Signature required: {req.title}",
@@ -525,7 +525,7 @@ def _notify_party(db: Session, party: HrSignParty, req: HrSignRequest, sender_na
                    action={"view": "documents", "sub": "documents-esign"})
     ok, detail = _send_sign_email(party, req, sender_name)
     _log(db, req.id, "sent",
-         f"notified {party.name} ({party.kind})" + ("" if ok else f" — email failed: {detail}"),
+         f"notified {party.name} ({party.kind})" + ("" if ok else f" - email failed: {detail}"),
          party_id=party.id)
     party.status = "notified"
 
@@ -534,7 +534,7 @@ _FIELD_TYPES = ("sign", "initials", "date", "text", "check", "dropdown", "radio"
 
 
 def _clean_fields(fields: list) -> list:
-    """Normalize/validate placed field boxes — shared by PDF sends AND template
+    """Normalize/validate placed field boxes - shared by PDF sends AND template
     attachments. _stamp_pdf at finalize must never meet garbage: a crash there
     permanently wedges a fully-signed envelope, so reject/coerce at save time."""
     for f in fields:
@@ -547,7 +547,7 @@ def _clean_fields(fields: list) -> list:
             if len(opts) < 2:
                 raise HTTPException(400, "Dropdown and radio fields need at least two options")
             f["options"] = opts
-        # Freeze CLEAN geometry — _stamp_pdf does int(page)/float(x,y,w,h) at
+        # Freeze CLEAN geometry - _stamp_pdf does int(page)/float(x,y,w,h) at
         # finalize; a null/non-numeric coord there crashes sealing.
         try:
             f["page"] = max(0, int(f.get("page") or 0))
@@ -555,13 +555,13 @@ def _clean_fields(fields: list) -> list:
                 if f.get(k) is not None:
                     f[k] = min(1.0, max(0.0, float(f[k])))
         except (TypeError, ValueError):
-            raise HTTPException(400, "A field has an invalid position — please replace it and re-send.")
+            raise HTTPException(400, "A field has an invalid position - please replace it and re-send.")
     return fields
 
 
 def _clean_attachments(attachments: Optional[list]) -> list:
     """Template attachments carry field boxes that are frozen verbatim onto
-    envelopes at send — validate them with the same rules as PDF sends."""
+    envelopes at send - validate them with the same rules as PDF sends."""
     out = []
     for a in attachments or []:
         if not isinstance(a, dict) or not a.get("path"):
@@ -648,7 +648,7 @@ _STARTER_TEMPLATES = [
          "Dear {{first_name}},",
          "We are delighted to offer you the position of {{job_title}} at {{company}}. Your anticipated start date is {{start_date}}, and your starting compensation will be {{salary}}.",
          "This offer is contingent on the successful completion of our standard background verification and your continued eligibility to work. Your employment will be governed by the policies of {{company_legal}}.",
-         "We are excited to have you join the team — please confirm your acceptance by signing below.",
+         "We are excited to have you join the team - please confirm your acceptance by signing below.",
          "For {{company}}:",
          "[[sign:company]]",
          "[[date:company]]",
@@ -711,7 +711,7 @@ def upload_template_attachment(file: UploadFile = File(...), user: dict = Depend
         if pages == 0:
             raise ValueError("no pages")
     except Exception:
-        raise HTTPException(400, "This PDF can't be processed — it may be corrupt or password-protected.")
+        raise HTTPException(400, "This PDF can't be processed - it may be corrupt or password-protected.")
     safe = re.sub(r"[^a-zA-Z0-9._-]", "_", file.filename or "document.pdf")
     path = f"esign/templates/{uuid.uuid4()}-{safe}"
     up = _storage_put(_DOC_BUCKET, path, blob, "application/pdf")
@@ -740,7 +740,7 @@ class PartyIn(BaseModel):
     kind:        Optional[str] = "internal"  # internal|external
     ordinal:     Optional[int] = 1
     party_role:  Optional[str] = "signer"    # signer | cc (gets the sealed copy, never signs)
-    access_code: Optional[str] = ""          # external signers only — code the link asks for
+    access_code: Optional[str] = ""          # external signers only - code the link asks for
 
 
 class SendIn(BaseModel):
@@ -815,7 +815,7 @@ def _create_request(db: Session, user: dict, *, title: str, source: str, templat
                                 status="waiting", token=secrets.token_urlsafe(32)))
         db.add(rows[-1])
     _log(db, req.id, "created",
-         f"by {user['email']} — {len(rows)} parties ({routing})", ip=ip, user_agent=user_agent)
+         f"by {user['email']} - {len(rows)} parties ({routing})", ip=ip, user_agent=user_agent)
     sender_name = user["email"].split("@")[0].replace(".", " ").title()
     # Sequential: only the first signer hears about it now. Parallel: every
     # signer is invited at once. CC parties hear at completion, not at send.
@@ -880,7 +880,7 @@ def send_pdf_request(request: Request, file: UploadFile = File(...), payload: st
     blob = file.file.read()
     if not blob or len(blob) > _MAX_PDF_BYTES:
         raise HTTPException(400, "PDF is empty or larger than 15 MB")
-    # Validate NOW with the same parser finalize uses — a corrupt PDF must be
+    # Validate NOW with the same parser finalize uses - a corrupt PDF must be
     # rejected at send time, not when the last signer hits Finish.
     try:
         from pypdf import PdfReader
@@ -888,7 +888,7 @@ def send_pdf_request(request: Request, file: UploadFile = File(...), payload: st
         if page_count == 0:
             raise ValueError("no pages")
     except Exception:
-        raise HTTPException(400, "This PDF can't be processed — it may be corrupt or password-protected. "
+        raise HTTPException(400, "This PDF can't be processed - it may be corrupt or password-protected. "
                                  "Re-export it (e.g. print to PDF) and try again.")
     fields = data.get("fields") or []
     if not fields:
@@ -1001,7 +1001,7 @@ def correct_party(rid: str, pid: str, body: PartyFix, request: Request,
     if req.status != "pending":
         raise HTTPException(409, f"Request is {req.status}")
     if party.status in ("signed", "declined"):
-        raise HTTPException(409, f"{party.name} has already {party.status} — correction is impossible")
+        raise HTTPException(409, f"{party.name} has already {party.status} - correction is impossible")
     changes = []
     credential_changed = False   # token rotation or new code → resets brute-force lockout
     if body.name is not None and body.name.strip() and body.name.strip() != party.name:
@@ -1029,10 +1029,10 @@ def correct_party(rid: str, pid: str, body: PartyFix, request: Request,
     if not changes:
         return _ser_request(req, parties=_parties(db, rid))
     ip, ua = _client_meta(request)
-    _log(db, rid, "corrected", f"{'; '.join(changes)} — by {user['email']}",
+    _log(db, rid, "corrected", f"{'; '.join(changes)} - by {user['email']}",
          party_id=party.id, ip=ip, user_agent=ua)
     if credential_changed:   # only a fresh credential clears the lockout, not a name typo fix
-        _log(db, rid, "code_reset", "credential changed — access-code lockout reset",
+        _log(db, rid, "code_reset", "credential changed - access-code lockout reset",
              party_id=party.id)
     if email_changed and _its_their_turn(req, party):
         sender_name = user["email"].split("@")[0].replace(".", " ").title()
@@ -1045,14 +1045,14 @@ def correct_party(rid: str, pid: str, body: PartyFix, request: Request,
 def party_link(rid: str, pid: str, user: dict = Depends(require_hr_write),
                db: Session = Depends(get_db)):
     """The external recipient's signing link, for the sender to copy into a chat
-    (email fallback). Write grant + audit trail — this link signs as them."""
+    (email fallback). Write grant + audit trail - this link signs as them."""
     req = db.query(HrSignRequest).filter(HrSignRequest.id == rid).first()
     party = db.query(HrSignParty).filter(HrSignParty.id == pid,
                                          HrSignParty.request_id == rid).first()
     if not req or not party:
         raise HTTPException(404, "Not found")
     if party.kind != "external":
-        raise HTTPException(400, "Teammates sign inside Nexus — there is no external link")
+        raise HTTPException(400, "Teammates sign inside Nexus - there is no external link")
     if req.status != "pending":
         raise HTTPException(409, f"Request is {req.status}")
     _log(db, rid, "link_copied", f"{party.name}'s signing link copied by {user['email']}",
@@ -1077,7 +1077,7 @@ def download_final(rid: str, user: dict = Depends(require_hr_read), db: Session 
 
 
 def _check_final_integrity(req: HrSignRequest) -> dict:
-    """Live re-hash of the stored final PDF vs. the sealed hash — shared by the
+    """Live re-hash of the stored final PDF vs. the sealed hash - shared by the
     internal /verify endpoint and the public /verify/{token} page so the two
     never drift out of sync with each other."""
     resp = _storage_fetch(_DOC_BUCKET, req.final_pdf_path)
@@ -1093,7 +1093,7 @@ def verify_final(rid: str, user: dict = Depends(require_hr_read), db: Session = 
     hash, plus the audit-trail hash-chain status. Also lazily backfills
     verify_token for envelopes completed before the QR/public-verify feature
     shipped, so every completed envelope ends up with a working /verify/{token}
-    link to share — even though only newly-sealed PDFs get the QR printed on
+    link to share - even though only newly-sealed PDFs get the QR printed on
     the certificate page itself (an already-sealed PDF can't be edited to add
     one without invalidating its own hash)."""
     req = db.query(HrSignRequest).filter(HrSignRequest.id == rid).first()
@@ -1156,7 +1156,7 @@ def _render_payload(db: Session, req: HrSignRequest, party: HrSignParty) -> dict
         payload["pdfUrl"] = sign_url(req.pdf_storage_path)
         payload["fields"] = req.fields or []
         payload["myFields"] = [f for f in (req.fields or []) if f.get("role") == party.role_key]
-    # Attached packet documents (template attachments) — signed as one envelope
+    # Attached packet documents (template attachments) - signed as one envelope
     docs = []
     for d in (req.documents or []):
         docs.append({"name": d.get("name", "document.pdf"), "pdfUrl": sign_url(d.get("path", "")),
@@ -1199,7 +1199,7 @@ def _apply_signature(db: Session, req: HrSignRequest, party: HrSignParty, body: 
 
     Serialized on the request row: two signers of the SAME envelope (parallel
     routing, or a double-submit of the last signer) must not both read sibling
-    statuses before the other commits — otherwise each sees the other unsigned,
+    statuses before the other commits - otherwise each sees the other unsigned,
     both skip finalize (envelope stuck pending forever) or both finalize (double
     HrDocument + double notifications). This is the batch-notification race
     CLAUDE.md warns needs with_for_update(). SQLite ignores the lock but
@@ -1242,9 +1242,9 @@ def _apply_signature(db: Session, req: HrSignRequest, party: HrSignParty, body: 
             req.current_order = nxt.ordinal
             sender_name = req.created_by.split("@")[0].replace(".", " ").title()
             _notify_party(db, nxt, req, sender_name)
-        # parallel: every signer was invited at send — nothing to advance
+        # parallel: every signer was invited at send - nothing to advance
     else:
-        # Sealing must never surface as a raw 500 — an unhandled exception here
+        # Sealing must never surface as a raw 500 - an unhandled exception here
         # bypasses CORSMiddleware and the browser reports a bare "Failed to
         # fetch". Convert to a real error response; nothing is committed, so
         # the signer can simply retry once the cause is fixed.
@@ -1254,7 +1254,7 @@ def _apply_signature(db: Session, req: HrSignRequest, party: HrSignParty, body: 
             raise
         except Exception as e:
             raise HTTPException(502, f"The sealed PDF could not be generated ({str(e)[:150]}). "
-                                     f"Your signature was not saved — please try again or contact HR.")
+                                     f"Your signature was not saved - please try again or contact HR.")
     db.commit()
     return {"ok": True, "status": req.status,
             "next": remaining[0].name if remaining else None}
@@ -1305,10 +1305,10 @@ def _apply_decline(db: Session, req: HrSignRequest, party: HrSignParty, reason: 
     party = db.query(HrSignParty).filter(HrSignParty.id == party.id).first()
     if not req or not party:
         raise HTTPException(404, "Not found")
-    # CC recipients receive a copy, they never sign — so they can't decline the
+    # CC recipients receive a copy, they never sign - so they can't decline the
     # whole envelope out from under the real signers.
     if (party.party_role or "signer") != "signer":
-        raise HTTPException(403, "You are on this document for a copy only — there is nothing to decline.")
+        raise HTTPException(403, "You are on this document for a copy only - there is nothing to decline.")
     _check_expiry(db, req)
     if req.status != "pending":
         raise HTTPException(409, f"This document is {req.status}")
@@ -1338,7 +1338,7 @@ def my_decline(party_id: str, body: DeclineIn, request: Request,
     return _apply_decline(db, req, party, body.reason or "", ip, ua)
 
 
-# ── Public signing (token is the credential — NO auth) ────────────────────────
+# ── Public signing (token is the credential - NO auth) ────────────────────────
 
 _CODE_LOCKOUT_ATTEMPTS = 10
 
@@ -1358,12 +1358,12 @@ def _party_by_token(db: Session, token: str) -> tuple:
 def _check_access_code(db: Session, req: HrSignRequest, party: HrSignParty,
                        code: str, request: Request) -> bool:
     """True = unlocked. Wrong attempts are audited and locked out after
-    _CODE_LOCKOUT_ATTEMPTS — the code is the second factor on top of the token."""
+    _CODE_LOCKOUT_ATTEMPTS - the code is the second factor on top of the token."""
     expected = (party.access_code or "").strip()
     if not expected:
         return True
     # A NEW code or a rotated token (email change) makes old brute-force attempts
-    # moot, so it resets the lockout. A cosmetic fix (name-only) must NOT — it
+    # moot, so it resets the lockout. A cosmetic fix (name-only) must NOT - it
     # leaves the credential unchanged. correct_party logs 'code_reset' only when
     # the code/token actually changed.
     last_fix = (db.query(HrSignEvent)
@@ -1377,7 +1377,7 @@ def _check_access_code(db: Session, req: HrSignRequest, party: HrSignParty,
         fq = fq.filter(HrSignEvent.at > last_fix.at)
     failed = fq.count()
     if failed >= _CODE_LOCKOUT_ATTEMPTS:
-        raise HTTPException(429, "Too many wrong access-code attempts — ask the sender "
+        raise HTTPException(429, "Too many wrong access-code attempts - ask the sender "
                                  "to resend the document with a fresh link.")
     if hmac.compare_digest(expected.encode(), (code or "").strip().encode()):
         return True
@@ -1394,7 +1394,7 @@ def public_render(token: str, request: Request, code: str = "",
                   x_access_code: str = Header(""), db: Session = Depends(get_db)):
     req, party = _party_by_token(db, token)
     _check_expiry(db, req)
-    code = code or x_access_code   # prefer the header — a query param leaks into logs/history
+    code = code or x_access_code   # prefer the header - a query param leaks into logs/history
     if not _check_access_code(db, req, party, code, request):
         # Locked teaser: enough to render the code prompt, nothing signable.
         return {"locked": True, "title": req.title, "requiresCode": True,
@@ -1431,10 +1431,10 @@ def public_decline(token: str, body: DeclineIn, request: Request, db: Session = 
 @router.get("/public/{token}/download")
 def public_download(token: str, request: Request, code: str = "",
                     x_access_code: str = Header(""), db: Session = Depends(get_db)):
-    """A party's own copy of the SEALED document — only once completed. Externals
+    """A party's own copy of the SEALED document - only once completed. Externals
     have no Nexus login; this is how they retain their copy (ESIGN retention)."""
     req, party = _party_by_token(db, token)
-    code = code or x_access_code   # prefer the header — a query param leaks into logs/history
+    code = code or x_access_code   # prefer the header - a query param leaks into logs/history
     if not _check_access_code(db, req, party, code, request):
         raise HTTPException(403, "Wrong access code")
     if req.status != "completed" or not req.final_pdf_path:
@@ -1451,14 +1451,14 @@ def public_download(token: str, request: Request, code: str = "",
 
 @router.get("/public/verify/{verify_token}")
 def public_verify(verify_token: str, db: Session = Depends(get_db)):
-    """Public, unauthenticated certificate verification — what the QR code on
+    """Public, unauthenticated certificate verification - what the QR code on
     the Certificate of Completion links to. Anyone holding a copy of the
     document (an auditor, opposing counsel, the other party) can confirm it's
-    unaltered and see the signer timeline WITHOUT a Nexus login — same posture
+    unaltered and see the signer timeline WITHOUT a Nexus login - same posture
     as DocuSign/Adobe Sign's own public certificate-ID lookups.
 
     Deliberately redacted vs. the internal certificate/verify: no emails, IP
-    addresses, user-agents, or raw event log — only what's needed to prove
+    addresses, user-agents, or raw event log - only what's needed to prove
     "this exact document was signed, by these named people, on these dates,
     and hasn't been altered since." Full detail stays behind require_hr_read
     (verify_final above) and the certificate pages sealed into the PDF itself
@@ -1503,7 +1503,7 @@ def _sig_flowable(party: HrSignParty, width_mm: float = 58):
 
 
 def _initials(name: str) -> str:
-    return "".join(w[0].upper() for w in (name or "").split()[:3]) or "—"
+    return "".join(w[0].upper() for w in (name or "").split()[:3]) or "-"
 
 
 def _build_template_pdf(req: HrSignRequest, parties: List[HrSignParty]) -> bytes:
@@ -1533,7 +1533,7 @@ def _build_template_pdf(req: HrSignRequest, parties: List[HrSignParty]) -> bytes
             return _initials(p.name)
         if ftype == "check":
             # Default UNCHECKED: a checkbox the signer never affirmatively ticked
-            # must never seal as [x] — that would fabricate an acknowledgment on a
+            # must never seal as [x] - that would fabricate an acknowledgment on a
             # legal document. The signing UI starts these unchecked too.
             checked = bool((p.field_values or {}).get(f"check:{label}", False))
             return f"[{'x' if checked else ' '}] {label}"
@@ -1548,14 +1548,14 @@ def _build_template_pdf(req: HrSignRequest, parties: List[HrSignParty]) -> bytes
             lambda m: "" if m.group(1) == "sign" else m.group(0), para)).strip()
         if text:
             # The template editor allows in-paragraph line breaks (Enter) and
-            # shows them to the author — Paragraph collapses \n, so <br/> them.
+            # shows them to the author - Paragraph collapses \n, so <br/> them.
             flow.append(Paragraph(_pesc(text).replace("\n", "<br/>"), body_style))
         for m in sig_tokens:
             p = by_role.get(m.group(2))
             if not p:
                 continue
             sig = _sig_flowable(p)
-            t = Table([[sig], [Paragraph(f"{_pesc(p.name)} — signed {(p.signed_at or '')[:19].replace('T', ' ')} UTC",
+            t = Table([[sig], [Paragraph(f"{_pesc(p.name)} - signed {(p.signed_at or '')[:19].replace('T', ' ')} UTC",
                                          cap_style)]], colWidths=[75 * mm])
             t.setStyle(TableStyle([("LINEBELOW", (0, 0), (0, 0), 0.7, colors.black),
                                    ("TOPPADDING", (0, 1), (0, 1), 2),
@@ -1578,7 +1578,7 @@ def _stamp_pdf(source: bytes, fields: list, parties: List[HrSignParty]) -> bytes
     writer = PdfWriter()
     for idx, page in enumerate(reader.pages):
         # A /Rotate 90/270 page (common from scanners/phones) renders upright in
-        # viewers, so the field coords were placed against the VISUAL size — but
+        # viewers, so the field coords were placed against the VISUAL size - but
         # merge_page ignores /Rotate and works in mediabox space. Bake the
         # rotation into the content first so mediabox == what the placer saw.
         if getattr(page, "rotation", 0):
@@ -1599,7 +1599,7 @@ def _stamp_pdf(source: bytes, fields: list, parties: List[HrSignParty]) -> bytes
             c = rl_canvas.Canvas(obuf, pagesize=(pw, ph))
             for f in page_fields:
               # One malformed field (legacy template data predating _clean_fields)
-              # must never sink sealing — a _finalize crash bricks the envelope.
+              # must never sink sealing - a _finalize crash bricks the envelope.
               try:
                 p = by_role.get(f.get("role", ""))
                 if not p:
@@ -1664,7 +1664,7 @@ def _stamp_pdf(source: bytes, fields: list, parties: List[HrSignParty]) -> bytes
 
 
 def _certificate_qr_flowable(req: HrSignRequest):
-    """QR image linking to the public, unauthenticated /verify/{token} page —
+    """QR image linking to the public, unauthenticated /verify/{token} page -
     generated in-memory (never touches disk), same idiom as every other
     generated-bytes helper in this codebase. Returns None (caller skips the QR
     block entirely) when there's no verify_token yet, which should not happen
@@ -1685,7 +1685,7 @@ def _certificate_qr_flowable(req: HrSignRequest):
 
 def _certificate_pdf(req: HrSignRequest, parties: List[HrSignParty],
                      events: List[HrSignEvent], content_sha: str) -> bytes:
-    """The Certificate of Completion — signer identity, consent, IP/UA, timeline,
+    """The Certificate of Completion - signer identity, consent, IP/UA, timeline,
     and the content hash. Appended as the final page(s) of the sealed PDF.
     Every cell is a Paragraph so long values WRAP instead of clipping; column
     widths sum to the printable width (LETTER 216mm − 2×17mm margins = 182mm)."""
@@ -1733,7 +1733,7 @@ def _certificate_pdf(req: HrSignRequest, parties: List[HrSignParty],
     if chain["chainAvailable"]:
         chain_line = (f"Audit trail hash chain: {'✓ verified' if chain['valid'] else '⚠ BROKEN'} "
                       f"across {chain['eventCount']} events. Each recorded action cryptographically "
-                      f"commits to every action before it — editing, deleting, or reordering an "
+                      f"commits to every action before it - editing, deleting, or reordering an "
                       f"event afterward is detectable.")
     else:
         chain_line = "Audit trail hash chain: not available (this envelope predates the hash-chain feature)."
@@ -1755,7 +1755,7 @@ def _certificate_pdf(req: HrSignRequest, parties: List[HrSignParty],
     qr_flowable = _certificate_qr_flowable(req)
     if qr_flowable is not None:
         qr_table = Table([[qr_flowable,
-                           Paragraph("Scan to verify this certificate online — confirms document "
+                           Paragraph("Scan to verify this certificate online - confirms document "
                                     "integrity and the signer timeline without requiring a Nexus "
                                     f"login.<br/><font face='Courier' size='7'>{_APP_URL}/verify/"
                                     f"{req.verify_token}</font>", small)]],
@@ -1769,12 +1769,12 @@ def _certificate_pdf(req: HrSignRequest, parties: List[HrSignParty],
 
     rows = [[PH("#"), PH("Signer"), PH("Consented"), PH("Viewed"), PH("Signed"), PH("IP address")]]
     for p in sorted(signers, key=lambda x: x.ordinal):
-        who = (f"<b>{escape(p.name or '—')}</b><br/>{escape(p.email or '')}"
+        who = (f"<b>{escape(p.name or '-')}</b><br/>{escape(p.email or '')}"
                f"<br/><font color='#6b7280'>{escape(p.kind or '')}</font>")
         rows.append([PM(str(p.ordinal)), P(who),
                      P(f"{ts(p.consent_at)}<br/><font color='#6b7280'>consent v{escape(str(p.consent_text_version or ''))}</font>"),
-                     P(ts(p.viewed_at) or "—"), P(ts(p.signed_at) or "—"),
-                     P(escape(_strip_port(p.ip)) or "—")])
+                     P(ts(p.viewed_at) or "-"), P(ts(p.signed_at) or "-"),
+                     P(escape(_strip_port(p.ip)) or "-")])
     t = Table(rows, colWidths=[8 * mm, 58 * mm, 32 * mm, 28 * mm, 28 * mm, 28 * mm],
               repeatRows=1)
     t.setStyle(grid())
@@ -1787,7 +1787,7 @@ def _certificate_pdf(req: HrSignRequest, parties: List[HrSignParty],
     erows = [[PH("Time (UTC)"), PH("Event"), PH("Detail"), PH("IP address")]]
     for e in events:
         erows.append([P(ts(e.at)), P(escape(e.type or "")),
-                      P(escape((e.detail or "")[:300])), P(escape(_strip_port(e.ip)) or "—")])
+                      P(escape((e.detail or "")[:300])), P(escape(_strip_port(e.ip)) or "-")])
     et = Table(erows, colWidths=[30 * mm, 20 * mm, 104 * mm, 28 * mm], repeatRows=1)
     et.setStyle(grid())
     flow.append(et)
@@ -1799,7 +1799,7 @@ def _certificate_pdf(req: HrSignRequest, parties: List[HrSignParty],
     buf = io.BytesIO()
     SimpleDocTemplate(buf, pagesize=LETTER, topMargin=16 * mm, bottomMargin=14 * mm,
                       leftMargin=17 * mm, rightMargin=17 * mm,
-                      title=f"Certificate — {req.title}").build(flow)
+                      title=f"Certificate - {req.title}").build(flow)
     return buf.getvalue()
 
 
@@ -1809,12 +1809,12 @@ def _egnyte_push(req: HrSignRequest, blob: bytes) -> tuple:
     (e.g. greensglobal.egnyte.com) + EGNYTE_TOKEN on the app service. Returns
     (ok, note) for the audit log; note '' = not configured / no folder.
     NOTE: runs inside the sealing transaction (like the completion emails), so
-    the timeout stays short — a slow Egnyte must not hold the envelope lock."""
+    the timeout stays short - a slow Egnyte must not hold the envelope lock."""
     import os as _os
     from urllib.parse import quote as _q
     dom = (_os.getenv("EGNYTE_DOMAIN") or "").strip().rstrip("/")
     tok = (_os.getenv("EGNYTE_TOKEN") or "").strip()
-    # The folder is client-supplied config — strip empty/'.'/'..' segments so it
+    # The folder is client-supplied config - strip empty/'.'/'..' segments so it
     # can't traverse outside the intended tree with the service-wide token.
     folder = "/".join(s.strip() for s in (req.egnyte_folder or "").split("/")
                       if s.strip() and s.strip() not in (".", ".."))[:400]
@@ -1911,7 +1911,7 @@ def _finalize(db: Session, req: HrSignRequest) -> None:
                           created_at=req.completed_at))
 
     # Completion fan-out: bell notification for the sender and every internal
-    # party, and an EMAIL WITH THE SEALED PDF ATTACHED for everyone involved —
+    # party, and an EMAIL WITH THE SEALED PDF ATTACHED for everyone involved -
     # sender, signers and CC, internal or external (link fallback when the
     # document is too big to attach). Best-effort and audited per recipient.
     n_signers = sum(1 for p in parties if (p.party_role or "signer") == "signer")
@@ -1928,7 +1928,7 @@ def _finalize(db: Session, req: HrSignRequest) -> None:
         emailed.add(key)
         ok, detail = _send_sealed_email(name, email, req, final, link, label)
         _log(db, req.id, "sent", f"sealed copy emailed to {name or email}"
-             + ("" if ok else f" — email failed: {detail}"), party_id=party_id)
+             + ("" if ok else f" - email failed: {detail}"), party_id=party_id)
 
     sender_name = req.created_by.split("@")[0].replace(".", " ").title()
     _mail_copy(sender_name, req.created_by, f"{_APP_URL}/documents/documents-esign", "Open in Nexus")
@@ -1941,6 +1941,6 @@ def _finalize(db: Session, req: HrSignRequest) -> None:
                            action={"view": "documents", "sub": "documents-esign"})
             _mail_copy(p.name, p.email, f"{_APP_URL}/documents/documents-esign", "Open in Nexus", party_id=p.id)
         else:
-            # Externals have no Nexus login — their unique link also serves the
+            # Externals have no Nexus login - their unique link also serves the
             # sealed copy (public download).
             _mail_copy(p.name, p.email, f"{_APP_URL}/sign/{p.token}", "View & download", party_id=p.id)

@@ -4,7 +4,7 @@ import { useMsal } from '@azure/msal-react';
 import { useRole, ROLES } from '../contexts/RoleContext';
 import { NAV } from './Sidebar';
 
-// Sub-screens per module — the same sub ids the views' tab strips use, so a
+// Sub-screens per module - the same sub ids the views' tab strips use, so a
 // tap deep-links exactly where the in-page tab would. Modules absent here
 // (Dashboard, Tasks, Asset Management, Investor Relations…) navigate directly.
 export const SUBMENUS = {
@@ -71,8 +71,8 @@ export const SUBMENUS = {
   ],
 };
 
-// Full-screen phone menu. Mirrors the desktop sidebar EXACTLY — same NAV
-// definition, same order, same dividers, same minRole/group gating — so the
+// Full-screen phone menu. Mirrors the desktop sidebar EXACTLY - same NAV
+// definition, same order, same dividers, same minRole/group gating - so the
 // app never presents two different navigation structures (Visesh).
 // Modules with sub-screens open a second panel that slides in from the RIGHT
 // over the left-slid menu (adidas criss-cross); back slides it out again.
@@ -106,7 +106,7 @@ export default function MobileMenu({ open, onClose, onNavigate, activeView, them
   };
 
   // Mirror the sidebar's icon rendering (lucide component or custom SVG path)
-  // so menu rows carry the SAME left icon — Neil: icons on the left help people
+  // so menu rows carry the SAME left icon - Neil: icons on the left help people
   // who fat-finger, and give the eye an anchor per row.
   const renderIcon = (item, size = 19) => item.icon
     ? <item.icon style={{ width: size, height: size, flexShrink: 0 }} />
@@ -153,7 +153,7 @@ export default function MobileMenu({ open, onClose, onNavigate, activeView, them
       </div>
       <div className="mobile-menu-divider" />
       <div className="mobile-menu-rows secondary">
-        {/* Dark mode moved to the profile dropdown (avatar, top-right) — Neil */}
+        {/* Dark mode moved to the profile dropdown (avatar, top-right) - Neil */}
         <button className="mobile-menu-row signout"
           onClick={() => instance.logoutRedirect({ account, postLogoutRedirectUri: window.location.origin + window.location.pathname })}>
           <span>Sign Out</span>

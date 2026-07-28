@@ -42,7 +42,7 @@ export default function InsightsPanel({ insights, onNavigate, onViewMetric }) {
 
       {insights.length === 0 ? (
         <div style={{ textAlign: 'center', color: C.gray400, fontSize: 12.5, padding: '32px 0' }}>
-          No notable changes this period — performance is holding steady across all monitored channels.
+          No notable changes this period - performance is holding steady across all monitored channels.
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>

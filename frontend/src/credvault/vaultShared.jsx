@@ -1,4 +1,4 @@
-/* Credential Vault — shared building blocks and modals.
+/* Credential Vault - shared building blocks and modals.
    1:1 port of the standalone credential-vault-dev app's components, translated
    from Tailwind to the Nexus inline-style idiom + the scoped credvault.css. */
 import React, { useState, useRef, useMemo } from "react";
@@ -21,7 +21,7 @@ export const TIERS = ["Standard", "High", "Critical"];
 export const TYPES = ["Password", "API key", "Access key", "Certificate"];
 
 // Fixed vault policy (the standalone app's ManagePanel settings sections were
-// already removed upstream — these are its shipped defaults).
+// already removed upstream - these are its shipped defaults).
 export const SETTINGS = {
   revealSeconds: 30, rotationDays: 90,
   requireApprovalCritical: true, breachScan: true, logRetentionDays: 365,
@@ -457,7 +457,7 @@ export function AddModal({ onClose, onSave, depts, userName, userEmail, people }
           </Field>
           <Field label="Backup owner">
             <select value={form.backupOwner} onChange={(e) => set("backupOwner", e.target.value)} className="cv-ipt">
-              <option value="">— Select by email —</option>
+              <option value="">- Select by email -</option>
               {people.filter((u) => u.email !== userEmail).map((u) => <option key={u.email} value={u.email}>{u.email}</option>)}
             </select>
           </Field>
@@ -476,7 +476,7 @@ export function AddModal({ onClose, onSave, depts, userName, userEmail, people }
 }
 
 export function EditModal({ cred, onClose, onSave, depts, ownerName, people }) {
-  const [form, setForm] = useState({ name: cred.name, dept: cred.dept, type: cred.type, username: cred.username === "—" ? "" : cred.username, secret: "", url: cred.url || "", backupOwner: cred.backupOwner || "", rotationMax: cred.rotationMax || 90, customExpiry: cred.customExpiry || false, tier: cred.tier });
+  const [form, setForm] = useState({ name: cred.name, dept: cred.dept, type: cred.type, username: cred.username === "-" ? "" : cred.username, secret: "", url: cred.url || "", backupOwner: cred.backupOwner || "", rotationMax: cred.rotationMax || 90, customExpiry: cred.customExpiry || false, tier: cred.tier });
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
   return (
     <Modal onClose={onClose}>
@@ -500,7 +500,7 @@ export function EditModal({ cred, onClose, onSave, depts, ownerName, people }) {
           </Field>
           <Field label="Backup owner">
             <select value={form.backupOwner} onChange={(e) => set("backupOwner", e.target.value)} className="cv-ipt">
-              <option value="">— Select by email —</option>
+              <option value="">- Select by email -</option>
               {people.filter((u) => u.email !== cred.owner).map((u) => <option key={u.email} value={u.email}>{u.email}</option>)}
             </select>
           </Field>
@@ -556,7 +556,7 @@ export function ImportModal({ onClose, onImport, depts }) {
             {rows.map((r, i) => (
               <div key={i} style={{ padding: "8px 12px", display: "flex", alignItems: "center", gap: 8, fontSize: 13.5 }}>
                 {r.valid ? <CheckCircle2 size={15} style={{ color: "var(--cv-emerald)", flexShrink: 0 }} /> : <AlertCircle size={15} style={{ color: "var(--cv-rose)", flexShrink: 0 }} />}
-                <span className="cv-truncate" style={{ fontWeight: 500, flex: 1 }}>{r.data.name || <span style={{ color: "var(--text-muted)" }}>— no name —</span>}</span>
+                <span className="cv-truncate" style={{ fontWeight: 500, flex: 1 }}>{r.data.name || <span style={{ color: "var(--text-muted)" }}>- no name -</span>}</span>
                 <span style={{ fontSize: 11.5, color: "var(--text-muted)" }}>{r.data.department} · {r.data.tier}</span>
                 {!r.valid && <span style={{ fontSize: 11.5, color: "var(--cv-rose)", flexShrink: 0 }}>check: {r.errors.join(", ")}</span>}
               </div>
@@ -587,7 +587,7 @@ export function ManagePanel({ onClose, isAdmin, editMode, onToggleEdit }) {
           <button onClick={onClose} style={{ marginLeft: "auto", background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer" }}><X size={19} /></button>
         </div>
         <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 16 }}>
-          <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: 0 }}>{isAdmin ? "Global Admin — changes apply company-wide." : "Changes are scoped to credentials you own."}</p>
+          <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: 0 }}>{isAdmin ? "Global Admin - changes apply company-wide." : "Changes are scoped to credentials you own."}</p>
           <div className="cv-card" style={{ padding: 16 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5, fontWeight: 600, marginBottom: 4 }}><Pencil size={15} style={{ color: "var(--text-secondary)" }} /> Edit Credentials</div>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, padding: "10px 0" }}>
@@ -634,7 +634,7 @@ export function PersonalVaultAuthModal({ userEmail, onClose, onUnlock, isFirstTi
       {msaTag}
       {isFirstTime && (
         <div style={{ borderRadius: 12, background: "var(--cv-amber-bg)", border: "1px solid var(--cv-amber-line)", padding: "10px 14px", marginBottom: 16, fontSize: 12, color: "var(--cv-amber)" }}>
-          Your Personal Vault will be bound to <strong>{userEmail}</strong>. No one else — including Global Admin — can access it.
+          Your Personal Vault will be bound to <strong>{userEmail}</strong>. No one else - including Global Admin - can access it.
         </div>
       )}
       <p style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 10 }}>Choose your authentication method:</p>
@@ -675,7 +675,7 @@ export function PersonalVaultAuthModal({ userEmail, onClose, onUnlock, isFirstTi
           <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: "0 0 8px" }}>Enter the 6-digit code from your Microsoft Authenticator app:</p>
           <input value={totpInput} onChange={(e) => { setTotpInput(e.target.value.replace(/\D/g, "").slice(0, 6)); setTotpError(""); }} placeholder="000 000" maxLength={6} className="cv-ipt cv-mono" style={codeInput} autoFocus onKeyDown={(e) => e.key === "Enter" && totpInput.length === 6 && submitTotp()} />
           <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: 8, display: "flex", alignItems: "center", gap: 4 }}><RefreshCw size={12} /> Refreshes in {secondsLeft}s</div>
-          <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 6 }}>Demo hint — your app shows: <span className="cv-mono" style={{ fontWeight: 600 }}>{totp.slice(0, 3)} {totp.slice(3)}</span></div>
+          <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 6 }}>Demo hint - your app shows: <span className="cv-mono" style={{ fontWeight: 600 }}>{totp.slice(0, 3)} {totp.slice(3)}</span></div>
         </div>
         {totpError && <div style={{ fontSize: 12, color: "var(--cv-rose)", marginBottom: 8 }}>{totpError}</div>}
         <div style={rowSplit}>
@@ -771,7 +771,7 @@ export function RequestAccessModal({ cred, userEmail, ownerName, onClose, onSubm
           <p style={{ margin: 0 }}>As the owner, access will be <strong>granted immediately</strong>. The recipient will see the password in their Credential Vault for the selected duration.</p>
         ) : (<>
           <p style={{ margin: 0 }}>A request will be sent to <strong>{ownerName}</strong> (owner) for approval.</p>
-          <p style={{ margin: "4px 0 0" }}>The password will appear only in the recipient's <strong>Credential Vault</strong> — never by email. It auto-disappears when time expires.</p>
+          <p style={{ margin: "4px 0 0" }}>The password will appear only in the recipient's <strong>Credential Vault</strong> - never by email. It auto-disappears when time expires.</p>
         </>)}
       </div>
       <div style={{ marginBottom: 20 }}>
@@ -862,7 +862,7 @@ export function ApproveAccessModal({ request: a, onClose, onConfirm, onDeny, mas
           <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: "0 0 8px" }}>Enter the 6-digit code from your app:</p>
           <input value={totpInput} onChange={(e) => { setTotpInput(e.target.value.replace(/\D/g, "").slice(0, 6)); setTotpError(""); }} placeholder="000 000" maxLength={6} className="cv-ipt cv-mono" style={codeInput} autoFocus onKeyDown={(e) => e.key === "Enter" && totpInput.length === 6 && submitTotp()} />
           <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: 8, display: "flex", alignItems: "center", gap: 4 }}><RefreshCw size={12} /> Refreshes in {secondsLeft}s</div>
-          <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 6 }}>Demo hint — your app shows: <span className="cv-mono" style={{ fontWeight: 600 }}>{totp.slice(0, 3)} {totp.slice(3)}</span></div>
+          <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 6 }}>Demo hint - your app shows: <span className="cv-mono" style={{ fontWeight: 600 }}>{totp.slice(0, 3)} {totp.slice(3)}</span></div>
         </div>
         {totpError && <div style={{ fontSize: 12, color: "var(--cv-rose)", marginBottom: 8 }}>{totpError}</div>}
         <div style={rowSplit}>

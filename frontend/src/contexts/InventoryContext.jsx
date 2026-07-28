@@ -10,7 +10,7 @@ function genCheckoutId() {
   return `ICHK-${Date.now().toString(36).toUpperCase()}-${crypto.randomUUID().replace(/-/g,'').slice(0,8).toUpperCase()}`;
 }
 
-// Polls usually return identical data — keeping the previous array reference
+// Polls usually return identical data - keeping the previous array reference
 // lets React bail out of re-rendering every consumer on each 10s cycle.
 function keepIfSame(prev, next) {
   return JSON.stringify(prev) === JSON.stringify(next) ? prev : next;
@@ -41,7 +41,7 @@ export function InventoryProvider({ children }) {
       .finally(() => { setItemsLoading(false); itemsInFlight.current = false; });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Optimistic local mutations — apply a known result straight to state instead
+  // Optimistic local mutations - apply a known result straight to state instead
   // of re-fetching all ~440 items after every edit/delete/add. The 10s poll
   // still reconciles against the server, so any drift self-heals within a cycle.
   // patch merges (keeps list-only enrichment like hasActiveRequest/activeDueDate
@@ -146,7 +146,7 @@ export function InventoryProvider({ children }) {
       // second subscription watched item_checkouts directly, which required an
       // anon SELECT policy that exposed the ENTIRE table (names, emails,
       // reasons) to anyone holding the public anon key. Refetching through the
-      // authenticated API keeps the same freshness — the server filters
+      // authenticated API keeps the same freshness - the server filters
       // visibility, and the inFlight guards dedupe concurrent calls.
       eventsRef.current = supabase
         .channel('item_events_inserts')
@@ -191,7 +191,7 @@ export function InventoryProvider({ children }) {
         checkoutPhotoUrl: cartItem.photoUrl || null, orderId,
       };
       setCheckouts(prev => [optimistic, ...prev]);
-      // asset_value is informational (audit log capture) — the API ignores it
+      // asset_value is informational (audit log capture) - the API ignores it
       const itemValue = Number(cartItem.item.assetValue ?? items.find(i => i.id === cartItem.item.id)?.assetValue) || 0;
       return api.createItemCheckout({
         id, item_id: cartItem.item.id, item_name: cartItem.item.name,
@@ -307,7 +307,7 @@ export function InventoryProvider({ children }) {
         permanentUrl = urlData.publicUrl;
       } else if (error) {
         photoUploadError = error.message || 'Photo upload failed';
-        // Evidence is mandatory unless the item is flagged photo-optional — never
+        // Evidence is mandatory unless the item is flagged photo-optional - never
         // mark the checkout returned without it. Reject BEFORE the status change.
         if (pictureRequired !== false) throw new Error(photoUploadError);
       }

@@ -5,7 +5,7 @@ import { api, API_BASE } from '../api';
 
 // Enrol a field worker's phone: mint a one-time device token (reuses the
 // silent-agent model) and render a QR that carries EVERYTHING the Nexus Field
-// app needs — server URL + pairing code — so one scan pairs the phone with no
+// app needs - server URL + pairing code - so one scan pairs the phone with no
 // typing. Token is generated locally into the QR; it never leaves the browser.
 export default function EnrolPhone({ employees = [], onClose, toastErr }) {
   const [email, setEmail] = useState('');
@@ -41,7 +41,7 @@ export default function EnrolPhone({ employees = [], onClose, toastErr }) {
       const r = await api.timeAgentEnroll({ email: em, label: 'Field phone' });
       setPairing({ code: r.token });
       loadDevices();
-    } catch (e) { setErr(e?.message || 'Could not enrol — admin permission is required.'); }
+    } catch (e) { setErr(e?.message || 'Could not enrol - admin permission is required.'); }
     setBusy(false);
   }
 
@@ -98,7 +98,7 @@ export default function EnrolPhone({ employees = [], onClose, toastErr }) {
           <>
             <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 12px', lineHeight: 1.55 }}>
               In the <strong>Nexus Fields</strong> app tap <strong>Scan pairing QR</strong> and point it here.
-              This code is shown once — generate a new one per phone.
+              This code is shown once - generate a new one per phone.
             </p>
             <div style={{ display: 'flex', justifyContent: 'center', margin: '4px 0 14px' }}>
               {qr

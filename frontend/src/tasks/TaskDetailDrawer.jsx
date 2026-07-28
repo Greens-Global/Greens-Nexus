@@ -1,4 +1,4 @@
-// Task Module — the Task Detail drawer: a right-side, resizable, tabbed panel
+// Task Module - the Task Detail drawer: a right-side, resizable, tabbed panel
 // (Overview / Comments / Activity / Attachments / Subtasks / Dependencies /
 // Properties). Ported from the export's features/task-detail/* (24 files) into a
 // single consolidated file matching this module's inline-style idiom, wired to
@@ -16,7 +16,7 @@ import { useTasks } from './TasksContext';
 import { fmtDate as fmtDateRaw, fmtDateTime, filesFromPaste, parseImportedAuthor, fmtHours, teamInProject, fieldsForProject, fieldOption, richBodyHtml } from './lib';
 
 // Drawer shows an em-dash for an unset date rather than an empty cell.
-const fmtDate = (iso) => (iso ? fmtDateRaw(iso) : '—');
+const fmtDate = (iso) => (iso ? fmtDateRaw(iso) : '-');
 import { NX, FONT, btn, input as inputStyle, STATUS_META, STATUS_ORDER, PRIORITY_META, PRIORITY_ORDER } from './theme';
 import { Avatar, PersonSelect, usePeople, useIsMobile, DateField } from './components';
 import RichDescription, { isEmptyDoc } from './RichDescription';
@@ -64,7 +64,7 @@ function Chip({ color, tint, children }) {
 }
 // Lightweight popover anchored under its trigger; closes on outside click / Esc.
 // Opens left-aligned, but flips to right-aligned when that would run past the
-// viewport's right edge — a trigger near the edge (the header's "more actions")
+// viewport's right edge - a trigger near the edge (the header's "more actions")
 // otherwise pushes the panel off-screen, which is unreachable on a phone.
 function Pop({ trigger, children, width = 200 }) {
   const [open, setOpen] = useState(false);
@@ -96,7 +96,7 @@ function Pop({ trigger, children, width = 200 }) {
     </div>
   );
 }
-// Searchable list inside the "Add Dependency" popover — filters by title/code
+// Searchable list inside the "Add Dependency" popover - filters by title/code
 // as you type, same shape as PersonSelect's search-then-list.
 function DependencyPickerBody({ candidates, onPick }) {
   const [q, setQ] = useState('');
@@ -245,7 +245,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit }) {
         {/* header */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderBottom: `1px solid ${NX.border}`, flexShrink: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            {/* On a phone this collapses to its circle-check icon — the label is
+            {/* On a phone this collapses to its circle-check icon - the label is
                 the widest thing in the header and crowds out the actions. */}
             <button onClick={() => store.toggleComplete(task)} title={task.completed ? 'Completed' : 'Mark complete'}
               style={{ ...btn('outline'), padding: isMobile ? 7 : '6px 10px', fontSize: 12, color: task.completed ? NX.green : NX.dim }}>
@@ -259,7 +259,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit }) {
             <button onClick={() => setShareOpen(true)} title="Share" style={{ ...btn('outline'), padding: '6px 10px', fontSize: 12, color: NX.dim }}><Share2 size={14} /> Share</button>
             <div style={{ display: 'flex', alignItems: 'center' }}>
               <button onClick={() => patch({ likedByIds: liked ? task.likedByIds.filter((e) => e !== myEmail) : [...(task.likedByIds || []), myEmail] })}
-                title={liked ? 'Remove your like' : 'Like — a quick, visible signal to the team that you support or agree with this task'}
+                title={liked ? 'Remove your like' : 'Like - a quick, visible signal to the team that you support or agree with this task'}
                 style={{ ...btn('ghost'), padding: 7, color: liked ? NX.blue : NX.faint }}>
                 <ThumbsUp size={16} fill={liked ? 'currentColor' : 'none'} />
               </button>
@@ -334,7 +334,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit }) {
           )}
         </div>
 
-        {/* body — one tab on desktop; on mobile the sections stack in a single
+        {/* body - one tab on desktop; on mobile the sections stack in a single
             scroll: Overview, Attachments, then Comments/Activity as one block
             with its own sub-tabs. Subtasks, Dependencies and Properties are
             desktop-only. */}
@@ -465,7 +465,7 @@ function OverviewTab({ task, patch, people, projectName, teamName, teams, projec
   const isMobile = useIsMobile();
   const { statusMeta, statusOrder } = useTasks();
   const [recStep, setRecStep] = useState('root');
-  // Recurrence end condition ("Ends" — Never / On date / After occurrences).
+  // Recurrence end condition ("Ends" - Never / On date / After occurrences).
   // Local mode so "On date"/"After" stay selected before a value is entered
   // (an empty until/count is falsy and would otherwise read back as "Never").
   const [recEndMode, setRecEndMode] = useState('never');
@@ -699,7 +699,7 @@ function OverviewTab({ task, patch, people, projectName, teamName, teams, projec
         <Approval task={task} patch={patch} />
       </Section>
 
-      {/* Add comment — dropped on mobile: the Comments/All-activity block at the
+      {/* Add comment - dropped on mobile: the Comments/All-activity block at the
           bottom of the stacked layout already has a composer. */}
       {!isMobile && (
         <Section title="Comments">
@@ -717,7 +717,7 @@ function OverviewTab({ task, patch, people, projectName, teamName, teams, projec
 }
 
 // Overview's comment block: the latest few comments for context, then the same
-// rich editor the description uses — with @mentions, which email the people
+// rich editor the description uses - with @mentions, which email the people
 // named (backend routers/tasks.py extract_mentions).
 const RECENT_COMMENTS = 3;
 
@@ -742,7 +742,7 @@ function QuickComment({ task, addComment, getComments, nameOf, onViewAll }) {
     } catch { /* surfaced by the store */ } finally { setBusy(false); }
   };
 
-  // Newest last, like a chat log — the composer sits directly under the most
+  // Newest last, like a chat log - the composer sits directly under the most
   // recent line so the thread reads top to bottom into the box you type in.
   const all = rows || [];
   const shown = all.slice(-RECENT_COMMENTS);
@@ -791,7 +791,7 @@ function QuickComment({ task, addComment, getComments, nameOf, onViewAll }) {
         </button>
       </div>
       <div style={{ fontSize: 11, color: NX.faint, marginTop: 4 }}>
-        Type <b>@</b> to mention someone — they'll get an email. ⌘/Ctrl+Enter to post.
+        Type <b>@</b> to mention someone - they'll get an email. ⌘/Ctrl+Enter to post.
       </div>
     </div>
   );
@@ -922,7 +922,7 @@ function CommentsTab({ task, nameOf, myEmail, getComments, addComment }) {
           mentionPeople={people} minHeight={64} />
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8 }}>
           <span style={{ fontSize: 11, color: NX.faint }}>
-            Type <b>@</b> to mention someone — they'll get an email.
+            Type <b>@</b> to mention someone - they'll get an email.
           </span>
           <button onClick={submit} disabled={isEmptyDoc(body)}
             style={{ ...btn('primary'), marginLeft: 'auto', opacity: isEmptyDoc(body) ? 0.5 : 1 }}>Send</button>
@@ -1143,7 +1143,7 @@ function DependenciesTab({ blockedBy, blocking, task, removeDependency }) {
 
 // ── Properties ──────────────────────────────────────────────────────────────
 function PropertiesTab({ task, nameOf, projectName, teamName, customFields, patch }) {
-  // Fields scoped to this task's project (plus global ones) — not every field
+  // Fields scoped to this task's project (plus global ones) - not every field
   // defined anywhere in the workspace.
   const activeFields = fieldsForProject(customFields, task.projectId);
   const { statusMeta } = useTasks();
@@ -1154,14 +1154,14 @@ function PropertiesTab({ task, nameOf, projectName, teamName, customFields, patc
     ['Status', <Chip color={sm.color} tint={sm.tint}>{sm.label}</Chip>],
     ['Priority', <Chip color={pm.color} tint={pm.tint}>{pm.label}</Chip>],
     ['Assignee', task.assigneeId ? <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Avatar email={task.assigneeId} name={nameOf(task.assigneeId)} size={18} /> {nameOf(task.assigneeId)}</span> : 'Unassigned'],
-    ['Project', task.projectId ? projectName(task.projectId) : '—'],
-    ['Team', task.teamId ? teamName(task.teamId) : '—'],
+    ['Project', task.projectId ? projectName(task.projectId) : '-'],
+    ['Team', task.teamId ? teamName(task.teamId) : '-'],
     ['Start Date', fmtDate(task.startOn)],
     ['Due Date', fmtDate(task.dueOn)],
-    ['Estimate', task.estimateHours != null ? fmtHours(task.estimateHours) : '—'],
-    ['Actual', task.actualHours != null ? fmtHours(task.actualHours) : '—'],
+    ['Estimate', task.estimateHours != null ? fmtHours(task.estimateHours) : '-'],
+    ['Actual', task.actualHours != null ? fmtHours(task.actualHours) : '-'],
     ['Milestone', task.isMilestone ? 'Yes' : 'No'],
-    ['Approval', !task.approvalStatus || task.approvalStatus === 'none' ? '—' : task.approvalStatus.replace('_', ' ')],
+    ['Approval', !task.approvalStatus || task.approvalStatus === 'none' ? '-' : task.approvalStatus.replace('_', ' ')],
     ['Recurrence', recurrenceLabel(task.recurrence)],
     ['Created', fmtDate(task.createdAt)],
     ['Modified', fmtDate(task.modifiedAt)],
@@ -1233,7 +1233,7 @@ export function CustomFieldInput({ field, value, onChange }) {
           ...inputStyle, width: 'auto', padding: '6px 9px', fontSize: 13,
           ...(picked?.color ? { background: `${picked.color}1a`, borderColor: picked.color, color: picked.color, fontWeight: 600 } : {}),
         }}>
-        <option value="">—</option>
+        <option value="">-</option>
         {opts.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
       </select>
     );

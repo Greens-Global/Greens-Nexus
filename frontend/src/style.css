@@ -62,7 +62,7 @@
   --color-red:    350,65%,48%;
   --color-gold:   42,80%,42%;
 
-  /* Task Module palette — structural tokens (theme-aware). The module's NX
+  /* Task Module palette - structural tokens (theme-aware). The module's NX
      palette in theme.js points at these; accent colours (blue/green/…) stay
      literal since they're alpha-composited. */
   --nx-canvas:   #f4f5f7;
@@ -115,7 +115,7 @@
   --shadow-md: 0 2px 12px rgba(0,0,0,.6), 0 4px 24px rgba(0,0,0,.45);
   --shadow-lg: 0 8px 32px rgba(0,0,0,.7), 0 2px 10px rgba(0,0,0,.5);
 
-  /* Task Module palette — dark theme. Elevation order (darkest→lightest):
+  /* Task Module palette - dark theme. Elevation order (darkest→lightest):
      canvas < surface2 < surface, mirroring light where page < band < card. */
   --nx-canvas:   #0d1117;
   --nx-surface:  #171c29;
@@ -236,29 +236,30 @@ h1,h2,h3,h4,h5,h6,
   width: 38px;
   height: 38px;
   border-radius: 10px;
-  background: var(--pine);
+  background: var(--wk-brand);
   color: #fff;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-family: 'Inter', sans-serif;
+  font-family: var(--wk-font);
   font-weight: 700;
   font-size: 15px;
   flex-shrink: 0;
 }
 
 .company-info { display: flex; flex-direction: column; gap: 1px; }
-.company-name { font-family: 'Inter', sans-serif; font-weight: 700; font-size: 17px; letter-spacing: -.02em; line-height: 1; }
-.brand-sub { font-size: 10px; color: var(--muted); font-weight: 600; letter-spacing: .06em; text-transform: uppercase; margin-top: 2px; }
+.company-name { font-family: var(--wk-font); font-weight: 700; font-size: 17px; letter-spacing: -.02em; line-height: 1; }
+.brand-sub { font-size: 11px; color: var(--muted); font-weight: 500; margin-top: 2px; }
 
+/* Section kickers: quiet sentence-case labels (kit grammar - no uppercase tracking) */
 .nav-section-title {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: .08em;
-  text-transform: uppercase;
-  color: var(--muted);
-  padding: 14px 20px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--wk-faint);
+  padding: 16px 20px 5px;
+  font-family: var(--wk-font);
 }
+[data-theme="dark"] .nav-section-title { color: var(--muted); }
 
 .sidebar-nav { flex: 1; overflow-y: auto; padding: 4px 10px 8px; }
 .sidebar-nav::-webkit-scrollbar { width: 5px; }
@@ -384,7 +385,7 @@ h1,h2,h3,h4,h5,h6,
 
 /* â”€â”€ Top header â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .top-header {
-  height: 64px; /* Jul 28 (Visesh): the whole bar ran small — scaled up with the tabs/icons below */
+  height: 64px; /* Jul 28 (Visesh): the whole bar ran small - scaled up with the tabs/icons below */
   border-bottom: 1px solid var(--header-border);
   background: var(--header-bg);
   backdrop-filter: blur(12px);
@@ -451,7 +452,7 @@ h1,h2,h3,h4,h5,h6,
   transition: background var(--transition-fast);
 }
 .search-bar:focus-within { background: var(--search-bg-focus); }
-/* Active/filled state — a search box holding text reads like a hidden filter, so
+/* Active/filled state - a search box holding text reads like a hidden filter, so
    light it up (tinted bg + subtle accent ring) whenever the input isn't empty.
    Global: every .search-bar with a placeholder gets this for free. Pair with an
    X-clear button in the markup so it's obvious a filter is on and how to drop it. */
@@ -636,14 +637,14 @@ h1,h2,h3,h4,h5,h6,
 .viewport { padding: 32px 36px; overflow-y: auto; background: transparent; }
 
 /* Task module manages its own full-height flex layout + internal scrolling
-   (fixed header/tabs, scrolling body per sub-view) — the default .viewport
+   (fixed header/tabs, scrolling body per sub-view) - the default .viewport
    padding + content-based sizing left empty margins on every side and let
    the module's white chrome fall short of the viewport instead of filling
    it. Strip padding and give it a definite height (100vh minus the 56px
    .top-header) so height:100% cascades correctly through the module. */
 .viewport-flush { padding: 0; overflow: hidden; display: flex; flex-direction: column; height: calc(100vh - 56px); }
 /* Two classes (0,2,0) so this wins over every single-class `.viewport { padding: … }`
-   rule regardless of source order — there are seven of them across the responsive
+   rule regardless of source order - there are seven of them across the responsive
    blocks, and the flush variant (task/ticket module) must keep zero padding at all
    widths so its cards can run edge to edge on phones. */
 .viewport.viewport-flush { padding: 0; }
@@ -694,8 +695,8 @@ h1,h2,h3,h4,h5,h6,
 .form-group label { font-size: 12px; font-weight: 600; color: var(--muted); letter-spacing: .01em; text-transform: uppercase; }
 
 /* Work OS field system (Jul 28): white fields, hairline border, cobalt focus
-   ring, quiet placeholders. Selects — whether .form-select OR the far more
-   common `select.form-input` — lose the native arrow for the kit chevron. */
+   ring, quiet placeholders. Selects - whether .form-select OR the far more
+   common `select.form-input` - lose the native arrow for the kit chevron. */
 .form-input, .form-select {
   background: var(--card);
   border: 1px solid var(--wk-line2);
@@ -889,7 +890,7 @@ input[type="checkbox"], input[type="radio"], input[type="range"], progress { acc
   gap: 16px;
   flex-wrap: wrap;
   /* Jul 28 (Visesh): every module separates its title band from its content
-     with the same hairline — the consistent "eye separation" across screens. */
+     with the same hairline - the consistent "eye separation" across screens. */
   padding-bottom: 16px;
   border-bottom: 1px solid var(--wk-line);
 }
@@ -1253,7 +1254,7 @@ input[type="checkbox"], input[type="radio"], input[type="range"], progress { acc
     transition: transform var(--transition-slow);
     z-index: 200;
   }
-  /* Shadow only while open — parked off-canvas it bleeds back into the
+  /* Shadow only while open - parked off-canvas it bleeds back into the
      viewport as a grey band along the screen edge */
   .sidebar.open { transform: translateX(0); box-shadow: 0 0 50px rgba(0,0,0,.3); }
   .main-content { margin-left: 0; }
@@ -1438,7 +1439,7 @@ input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
 
 /* Task list table (richlist.jsx): on mobile this scrolls itself horizontally,
    same as before. On desktop its own overflow-x is turned off so the wide
-   table overflows into the viewport-bounded `.nx-scroll` ancestor instead —
+   table overflows into the viewport-bounded `.nx-scroll` ancestor instead -
    that one has a fixed height, so its scrollbar sits at a constant spot
    instead of trailing the (possibly very tall) table's real bottom edge. */
 .nx-list-scroll { overflow-x: auto; }
@@ -1446,7 +1447,7 @@ input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
   .nx-list-scroll { overflow-x: visible; }
 }
 
-/* Task Module themed scrollbars — theme-aware (light/dark) via --nx-* tokens.
+/* Task Module themed scrollbars - theme-aware (light/dark) via --nx-* tokens.
    color-scheme (set on :root per theme) already darkens native/unstyled bars;
    these give the module's styled scroll areas a slimmer, on-brand thumb. */
 .nx-scroll { scrollbar-width: thin; scrollbar-color: var(--nx-faint) transparent; }
@@ -1458,7 +1459,7 @@ input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
 }
 .nx-scroll::-webkit-scrollbar-thumb:hover { background-color: var(--nx-dim); background-clip: padding-box; }
 
-/* ── Work OS KPI cards (Jul 28 — replaces the June gradient pass) ──────────
+/* ── Work OS KPI cards (Jul 28 - replaces the June gradient pass) ──────────
    White card, soft border + shadow, sentence-case label with a small colored
    meaning-dot (the card-* class), big tabular numeral. The old gradient wash
    + 4px colored left edge read as dated; color now lives in one quiet dot. */
@@ -1530,10 +1531,10 @@ mark.search-hit {
   .viewport { padding: 24px 22px; }
 }
 
-/* ── Task Module rich list — hover-reveal cell affordances ───────────────────
+/* ── Task Module rich list - hover-reveal cell affordances ───────────────────
    Hovering a row greys the whole row (set inline in JS); hovering a specific
    editable cell lifts it with a white surface + subtle blue ring and reveals
-   its picker affordance — pill dropdown chevrons, the native date-picker
+   its picker affordance - pill dropdown chevrons, the native date-picker
    calendar icon, and number-input spinners. Matches the standalone export's
    table. Kept as real CSS since inline styles can't express :hover on their own. */
 .rl-cell { border-radius: 6px; transition: background 0.1s, box-shadow 0.1s; }
@@ -1671,7 +1672,7 @@ html { overflow-x: hidden; }
 @media (max-width: 900px) {
   .top-header { justify-content: flex-start; }
   .breadcrumb { display: none; }
-  /* Centered wordmark is a real button — tapping it goes home */
+  /* Centered wordmark is a real button - tapping it goes home */
   .header-brand {
     display: block;
     position: absolute;
@@ -1699,7 +1700,7 @@ html { overflow-x: hidden; }
   display: flex;
   flex-direction: column;
   overflow-y: auto;
-  /* adidas-style entrance: the whole panel slides in from the left —
+  /* adidas-style entrance: the whole panel slides in from the left -
      long enough to actually read as a slide, not a blink */
   animation: menuIn 0.45s cubic-bezier(.32,.72,0,1);
 }
@@ -1775,7 +1776,7 @@ html { overflow-x: hidden; }
 }
 
 /* ── Mobile v2 fixes (from phone screenshots) ───────────────────────────────
-   1) NOTHING may render wider than the screen — pages were panning/cutting
+   1) NOTHING may render wider than the screen - pages were panning/cutting
    2) Header: Menu button top-left (opens the full-screen menu), NEXUS
       wordmark centered via the absolute ::before; bottom bar = actions only
    3) Cart becomes a floating action button above the tab bar
@@ -1820,7 +1821,7 @@ html { overflow-x: hidden; }
    text never squeezes into vertical letters. */
 @media (max-width: 900px) {
   .mobile-nav { align-items: stretch; }
-  /* All actions share the bar's width — items shrink to fit instead of
+  /* All actions share the bar's width - items shrink to fit instead of
      overflowing past the right edge (Visesh: buttons were getting cut off).
      Labels ellipsize when a screen has many actions. */
   .mobile-nav-actions {
@@ -1873,7 +1874,7 @@ html { overflow-x: hidden; }
     flex-wrap: wrap;
   }
 
-  /* Order header: same treatment — the requester name/meta keeps the full row
+  /* Order header: same treatment - the requester name/meta keeps the full row
      and the bulk-action buttons (Reject All / Hand Over All) wrap onto their own
      row below instead of crushing the name into per-word wrapping (Jun 16). */
   .co-order-head > div:first-child { flex: 1 1 100% !important; }
@@ -1991,7 +1992,7 @@ html { overflow-x: hidden; }
   [data-theme="dark"] { --line: rgba(255,255,255,0.07); }
 
   /* KPI cards on phones: same Work OS card as desktop (Jul 28 redesign
-     replaced the June gradient/left-edge pass) — only the sizing compacts */
+     replaced the June gradient/left-edge pass) - only the sizing compacts */
   .kpi-card { padding: 12px 14px; }
   .kpi-value { font-size: 20px; margin: 4px 0 0; }
   .kpi-label { font-size: 11px; }
@@ -2003,7 +2004,7 @@ html { overflow-x: hidden; }
   }
 }
 
-/* Phone: flat page background — the ambient 145° gradient reads as a darker
+/* Phone: flat page background - the ambient 145° gradient reads as a darker
    band down the right side of the screen (Neil, Jun 12: "harder to see").
    var(--paper) is what the sticky tab strips already use, so they blend in. */
 @media (max-width: 900px) {
@@ -2071,9 +2072,9 @@ html { overflow-x: hidden; }
 
 /* ── Phone: stacked-card tables (mobile-first pass, Jun 12) ─────────────────
    Tables tagged .stack-table re-flow into a card per row at ≤640px: the
-   header row disappears and each cell renders as a LABEL — VALUE line, the
+   header row disappears and each cell renders as a LABEL - VALUE line, the
    label coming from the cell's data-th attribute. Cells WITHOUT data-th act
-   as the card title (full width, bolder). Desktop rendering is untouched —
+   as the card title (full width, bolder). Desktop rendering is untouched -
    on wide screens .stack-table behaves exactly like .req-table. */
 @media (max-width: 640px) {
   table.stack-table { display: block; overflow-x: visible; }
@@ -2105,7 +2106,7 @@ html { overflow-x: hidden; }
 
 /* ── Touch & accessibility polish (app-wide) ────────────────────────────────
    Kill the gray tap flash, keep double-tap zoom off interactive elements,
-   and give keyboard users a consistent focus ring (mouse clicks unaffected —
+   and give keyboard users a consistent focus ring (mouse clicks unaffected -
    :focus-visible only fires for keyboard/AT focus). */
 button, [role="button"], a, input, select, textarea, label { -webkit-tap-highlight-color: transparent; }
 button, [role="button"], select { touch-action: manipulation; }
@@ -2162,7 +2163,7 @@ button, [role="button"], select { touch-action: manipulation; }
   .header-back-mobile  { display: flex; }
 }
 
-/* Fullscreen + zoom controls live in the desktop top nav only — phones already
+/* Fullscreen + zoom controls live in the desktop top nav only - phones already
    have native browser zoom/pinch, and a row of extra icons would crowd the
    compact mobile header (Neil, Jun 16). */
 .header-desktop-tools { display: inline-flex; align-items: center; gap: 4px; }
@@ -2280,11 +2281,11 @@ button, [role="button"], select { touch-action: manipulation; }
 .mobile-submenu-back { position: absolute; left: 10px; top: 12px; background: none; border: none; color: var(--ink); padding: 10px; cursor: pointer; }
 .mobile-submenu-title { font-weight: 800; font-size: 14px; letter-spacing: 0.08em; text-transform: uppercase; max-width: 65%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* ── HR org chart — top-down tree with connector lines (Busacta-style) ───────
+/* ── HR org chart - top-down tree with connector lines (Busacta-style) ───────
    Classic nested-list chart: each <li> draws its half-width top connector via
    ::before/::after, each child <ul> drops a vertical line from its parent. */
 .org-tree-wrap { overflow-x: auto; padding: 6px 8px 14px; -webkit-overflow-scrolling: touch; }
-/* width:max-content — the tree must be as wide as its widest rank, otherwise
+/* width:max-content - the tree must be as wide as its widest rank, otherwise
    the overflow clips straight through the last card (it sliced Sai's card in
    half and painted the clip edge as a phantom line). min-width keeps small
    trees centered in the wrap. */
@@ -2300,7 +2301,7 @@ button, [role="button"], select { touch-action: manipulation; }
 .org-tree li:first-child::before, .org-tree li:last-child::after { border-top: 0 none; }
 .org-tree li:last-child::before  { border-right: 2px solid var(--sage); border-radius: 0 8px 0 0; }
 .org-tree li:first-child::after  { border-radius: 8px 0 0 0; }
-/* Nested lists get their own 26px band for the parent drop-line — without it
+/* Nested lists get their own 26px band for the parent drop-line - without it
    the ::before painted upward INTO the parent card (lines crossed the cards) */
 .org-tree li > ul { padding-top: 26px; }
 .org-tree li > ul::before {
@@ -2317,7 +2318,7 @@ button, [role="button"], select { touch-action: manipulation; }
   padding: 10px 14px; box-shadow: var(--shadow-sm); white-space: nowrap;
 }
 
-/* ── Skeleton shimmer — loading placeholder for stats/text (HR KPI strip) ──── */
+/* ── Skeleton shimmer - loading placeholder for stats/text (HR KPI strip) ──── */
 @keyframes shimmer {
   0%   { background-position: 200% 0; }
   100% { background-position: -200% 0; }
@@ -2330,7 +2331,7 @@ button, [role="button"], select { touch-action: manipulation; }
   animation: shimmer 1.4s ease-in-out infinite;
 }
 
-/* ── E-Sign template editor — paper document (WYSIWYG block editing) ────────── */
+/* ── E-Sign template editor - paper document (WYSIWYG block editing) ────────── */
 .tpl-block { position: relative; }
 .tpl-block .tpl-ctl { opacity: 0; transition: opacity 0.13s ease; }
 .tpl-block:hover .tpl-ctl,
@@ -2384,8 +2385,8 @@ button, [role="button"], select { touch-action: manipulation; }
   cursor: default;
 }
 
-/* ── Documents — Document Builder (Phase 2) ──────────────────────────────────
-   Page-styled canvas (no existing precedent in the repo to reuse) — a white
+/* ── Documents - Document Builder (Phase 2) ──────────────────────────────────
+   Page-styled canvas (no existing precedent in the repo to reuse) - a white
    card sized like a printed page, typography matched to .tpl-para above for
    visual consistency with E-Sign's template editor. */
 .doc-toolbar {
@@ -2437,7 +2438,7 @@ button, [role="button"], select { touch-action: manipulation; }
 .doc-shape { display: inline-block; margin: 6px 0; vertical-align: middle; user-select: none; }
 .doc-shape svg { display: block; }
 
-/* Floating shapes/text boxes (Phase 9) — drag-to-reposition + Word-style
+/* Floating shapes/text boxes (Phase 9) - drag-to-reposition + Word-style
    text wrap. .doc-floatable is applied to both DocShape's and DocTextbox's
    NodeView root; wrap-mode positioning itself (float/absolute/x/y) is set
    inline per-node by applyWrapStyle() in docBuilderExtensions.js, since it's
@@ -2461,7 +2462,7 @@ button, [role="button"], select { touch-action: manipulation; }
 .doc-textbox-content .ProseMirror { outline: none; min-height: 100%; }
 .doc-textbox-content p { margin: 0 0 6px; }
 
-/* Resize grip (shapes/textboxes/images) — unlike the drag handle, resizing
+/* Resize grip (shapes/textboxes/images) - unlike the drag handle, resizing
    works in every wrap mode including inline, so this shows on hover
    regardless of .doc-draggable. */
 .doc-resize-handle {
@@ -2472,7 +2473,7 @@ button, [role="button"], select { touch-action: manipulation; }
 }
 .doc-floatable:hover .doc-resize-handle { display: block; }
 
-/* Word-parity resizable/wrappable image (Phase 15) — mirrors .doc-shape's
+/* Word-parity resizable/wrappable image (Phase 15) - mirrors .doc-shape's
    inline-block + floatable pattern so the same drag/resize handles work
    identically across shapes, text boxes, and images. */
 .doc-image-wrap { display: inline-block; vertical-align: middle; line-height: 0; }
@@ -2480,11 +2481,11 @@ button, [role="button"], select { touch-action: manipulation; }
 
 /* Print Preview (Phase 4): hide everything except the page canvas so the
    browser's native print/save-as-PDF dialog shows just the document.
-   !important is required here — the Knowledge Base module's own print rule
+   !important is required here - the Knowledge Base module's own print rule
    (above, "Print only the certificate or the open SOP") sets
    `body * { visibility: hidden !important; }` globally (not scoped to its
    own page), which silently wins over any non-!important rule regardless of
-   selector specificity or source order — that was blanking every printed
+   selector specificity or source order - that was blanking every printed
    Document/Template until these were bumped to match it. */
 @media print {
   body * { visibility: hidden !important; }
@@ -2493,18 +2494,18 @@ button, [role="button"], select { touch-action: manipulation; }
 }
 
 /* ============================================================
-   Task module — responsive chrome
+   Task module - responsive chrome
    The module is inline-styled (ported 1:1 from the export), so these rules
    need !important to win over the element's own style attribute. Breakpoints
    match the rest of the app: 1366 (laptop) / 900 (tablet) / 640 (phone).
    ============================================================ */
 
-/* Laptops and small notebooks — trim the chrome a little. */
+/* Laptops and small notebooks - trim the chrome a little. */
 @media (max-width: 1366px) {
   .nx-module-tab { padding: 11px 10px !important; }
 }
 
-/* Tablets / iPad — tighter tabs, less page gutter. */
+/* Tablets / iPad - tighter tabs, less page gutter. */
 @media (max-width: 900px) {
   .nx-ptab { padding: 10px 12px !important; font-size: 0.9rem !important; }
   .nx-primary-bar { padding: 0 12px !important; }
@@ -2513,7 +2514,7 @@ button, [role="button"], select { touch-action: manipulation; }
   .nx-page { padding: 16px !important; }
 }
 
-/* Phones — icon-only Create/Manage, compact navbar, full-bleed cards. */
+/* Phones - icon-only Create/Manage, compact navbar, full-bleed cards. */
 @media (max-width: 640px) {
   /* Create / Manage / Exit collapse to their icon. */
   .nx-tasks .nx-btn-label { display: none; }
@@ -2542,7 +2543,7 @@ button, [role="button"], select { touch-action: manipulation; }
   .nx-gutter { padding: 8px 0 !important; }
 
   /* A full-width card has nothing to round against, so square the corners and
-     drop the side borders — it reads as a native list rather than a card that
+     drop the side borders - it reads as a native list rather than a card that
      happens to be clipped by the viewport. Opt in with .nx-edge-card. */
   .nx-edge-card {
     border-radius: 0 !important;
@@ -2557,14 +2558,14 @@ button, [role="button"], select { touch-action: manipulation; }
   .nx-module-tab-icon { display: none !important; }
 }
 
-/* ---- Task module — small-screen corrections ------------------------------
+/* ---- Task module - small-screen corrections ------------------------------
    1. No `zoom` scaling. It was tried and reverted: zoom shrinks an element's
       used size, so the module and its fixed overlays no longer covered the
-      viewport — that was the white strip down the right/bottom edge.
+      viewport - that was the white strip down the right/bottom edge.
    2. The global `.scroll-tabs` rule turns every tab strip into a sticky bar
       (top: 56px) below 900px. Inside the task module that made the module tabs
       and view tabs float over the content beneath them, so it's turned off
-      here — the strips still scroll/swipe horizontally, they just don't stick. */
+      here - the strips still scroll/swipe horizontally, they just don't stick. */
 @media (max-width: 900px) {
   .nx-tasks .scroll-tabs,
   .nx-tasks-portal .scroll-tabs {
@@ -2574,7 +2575,7 @@ button, [role="button"], select { touch-action: manipulation; }
   }
 }
 
-/* ---- Task module — smaller type on phones ---------------------------------
+/* ---- Task module - smaller type on phones ---------------------------------
    Font sizes in this module are inline px literals, so CSS can only reach them
    with !important, and only where a selector can name the element. Controls
    (button/input/select/textarea/label) are nameable and carry most of the
@@ -2649,7 +2650,7 @@ button, [role="button"], select { touch-action: manipulation; }
 }
 /* @mentions are stored as mailto links (that is what carries the identity to
    the backend and to Asana), but they should read as a PERSON, not an email
-   address — so they render as a chip here and in the editor, never underlined
+   address - so they render as a chip here and in the editor, never underlined
    blue like an ordinary link. */
 .nx-rich-view a[href^="mailto:"],
 .nx-rich .ProseMirror a[href^="mailto:"] {
@@ -2660,7 +2661,7 @@ button, [role="button"], select { touch-action: manipulation; }
 .nx-rich .ProseMirror a[href^="mailto:"]:hover { background: rgba(37,99,235,0.18); }
 
 /* ==========================================================================
-   WORK OS — committed visual world (Jul 28, 2026; see DESIGN.md)
+   WORK OS - committed visual world (Jul 28, 2026; see DESIGN.md)
    White, professional, enterprise-grade. Craft bar: monday.com.
    White cards on a soft cool-gray canvas, one brand accent, colored icon
    chips for meaning, friendly Figtree type. No dark chrome, no mono/terminal
@@ -2676,7 +2677,7 @@ button, [role="button"], select { touch-action: manipulation; }
   --wk-line:      #d0d4e4;
   --wk-line2:     #e6e9f2;
   --wk-hover:     #f5f6f8;
-  /* Vibrant Stella cobalt (owner call, Jul 28) — replaces the softer #5b5fef */
+  /* Vibrant Stella cobalt (owner call, Jul 28) - replaces the softer #5b5fef */
   --wk-brand:     #2b45e1;
   --wk-brand-hov: #1f36c7;
   --wk-brand-tint:#e8ecfd;
@@ -2694,7 +2695,7 @@ button, [role="button"], select { touch-action: manipulation; }
   --wk-font:      'Figtree', 'Inter', sans-serif;
 }
 
-/* ── Warm theme ("Sand" — Lisso-inspired, owner request Jul 28) ────────────
+/* ── Warm theme ("Sand" - Lisso-inspired, owner request Jul 28) ────────────
    A second light world selectable from the profile menu: warm cream canvas,
    soft sand borders, near-black primary (Lisso's black pills) with an amber
    wash as the active/tint accent. Everything driven by the same --wk-* tokens,
@@ -2716,9 +2717,9 @@ button, [role="button"], select { touch-action: manipulation; }
   --wk-shadow-hov:0 8px 20px rgba(64,55,30,.10);
 }
 
-/* Warm theme — floating card stack (Lisso concept, owner request Jul 28).
+/* Warm theme - floating card stack (Lisso concept, owner request Jul 28).
    In the warm world the home attention queue sheds its container: each row
-   becomes its own floating card — soft layered shadow, a whisper of tilt
+   becomes its own floating card - soft layered shadow, a whisper of tilt
    that straightens on hover, staggered rise-in, and the stack scrolls.
    Cobalt keeps the contained list; all motion respects reduced-motion. */
 :root[data-wktheme="warm"] .dk-queue {
@@ -2773,7 +2774,7 @@ button, [role="button"], select { touch-action: manipulation; }
   font-family: var(--wk-font);
   min-width: 0;
   overflow: hidden;
-  /* Grid rows stretch every card to the tallest sibling — flex column so the
+  /* Grid rows stretch every card to the tallest sibling - flex column so the
      body can absorb the extra height instead of pinning content to the top */
   display: flex;
   flex-direction: column;
@@ -2837,6 +2838,15 @@ button, [role="button"], select { touch-action: manipulation; }
 .ppl-table tbody tr:hover td { background: var(--wk-hover); }
 [data-theme="dark"] .ppl-table tbody tr:hover td { background: var(--mist); }
 .ppl-cell-sub { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+
+/* My HR layout (Jul 28): profile rail + disciplined 2-col main grid - rows
+   stretch to equal heights so card edges actually align (the auto-fit column
+   stacks read as random). */
+.myhr-grid { display: grid; grid-template-columns: 360px minmax(0, 1fr); gap: 16px; align-items: start; }
+.myhr-main { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.myhr-span2 { grid-column: span 2; }
+@media (max-width: 1100px) { .myhr-grid { grid-template-columns: 1fr; } }
+@media (max-width: 760px) { .myhr-main { grid-template-columns: 1fr; } .myhr-span2 { grid-column: auto; } }
 
 /* Segmented control (Stella's Day/Week/Month): light gray track, active
    option as a white pill with border + soft shadow */
@@ -2925,7 +2935,7 @@ button, [role="button"], select { touch-action: manipulation; }
 .sidebar .sidebar-user-name { font-family: var(--wk-font); }
 .sidebar .sidebar-user-role { font-family: var(--wk-font); }
 
-/* Dark theme still works on the shell (legacy tokens drive it) — but the
+/* Dark theme still works on the shell (legacy tokens drive it) - but the
    brand accents above stay brand-colored in both. */
 [data-theme="dark"] .sidebar .nav-item { color: var(--nav-text); }
 [data-theme="dark"] .sidebar .nav-item:hover { background: var(--sidebar-hover-bg); color: var(--nav-text-hover); }
@@ -2934,7 +2944,34 @@ button, [role="button"], select { touch-action: manipulation; }
 
 /* ── Shell polish: header ───────────────────────────────────────────────── */
 .top-header { font-family: var(--wk-font); }
-.top-header .breadcrumb { font-family: var(--wk-font); font-size: 14.5px; font-weight: 600; }
+.top-header .breadcrumb { font-family: var(--wk-font); font-size: 14.5px; font-weight: 600; gap: 9px; }
+
+/* Breadcrumb on the kit (Jul 28): the back arrow is a real bordered chip that
+   lights up brand on hover; the previous crumb is a clickable step back. */
+.breadcrumb-back {
+  width: 30px; height: 30px;
+  border: 1px solid var(--wk-line2); border-radius: 8px;
+  background: var(--card); color: var(--muted);
+  opacity: 1;
+  transition: color .13s, border-color .13s, background .13s;
+}
+.breadcrumb-back:hover { color: var(--wk-brand); border-color: transparent; background: var(--wk-brand-tint); }
+[data-theme="dark"] .breadcrumb-back { border-color: var(--line); background: var(--mist); }
+.breadcrumb-prev {
+  background: none; border: none; padding: 0; cursor: pointer;
+  font: inherit; font-weight: 500; color: var(--wk-dim);
+  transition: color .13s;
+}
+.breadcrumb-prev:hover { color: var(--ink); }
+.breadcrumb-current { font-weight: 700; }
+
+/* Sidebar on the kit (Jul 28): Figtree, brand-tint active pill (no side bars) */
+.sidebar { font-family: var(--wk-font); }
+.nav-item { font-size: 13.5px; }
+.nav-item.active { background: var(--wk-brand-tint); color: var(--wk-brand); font-weight: 700; }
+.nav-item.active:not(.has-submenu) svg { color: var(--wk-brand); }
+[data-theme="dark"] .nav-item.active { background: rgba(43, 69, 225, .22); color: #b9bbff; }
+[data-theme="dark"] .nav-item.active:not(.has-submenu) svg { color: #b9bbff; }
 .top-header .search-bar { border-radius: 8px; }
 .top-header .icon-btn { border-radius: 8px; }
 .top-header .header-user-pill { border-radius: 8px; }
@@ -3008,7 +3045,7 @@ button, [role="button"], select { touch-action: manipulation; }
   box-shadow: none;
 }
 
-/* ── Work OS buttons — app-wide restyle of the shared button classes ──────
+/* ── Work OS buttons - app-wide restyle of the shared button classes ──────
    Primary: brand-filled (was near-black --pine). Secondary: white with a real
    border (was a gray tint pill). Both Figtree, radius 8, quiet 150ms hovers. */
 .primary-btn, .btn-primary {
@@ -3037,14 +3074,14 @@ button, [role="button"], select { touch-action: manipulation; }
 }
 [data-theme="dark"] .secondary-btn:hover, [data-theme="dark"] .btn-sm:hover { background: var(--mist); }
 
-/* KPI card hover — Work OS depth: 1px lift, deeper shadow (the legacy rule's
+/* KPI card hover - Work OS depth: 1px lift, deeper shadow (the legacy rule's
    -5px jump reads as bouncy next to the quiet cards) */
 .kpi-card:hover {
   transform: translateY(-1px);
   box-shadow: var(--wk-shadow-hov);
 }
 
-/* Search popover (module screens — the magnifier next to the bell) */
+/* Search popover (module screens - the magnifier next to the bell) */
 .hdr-search-wrap { position: relative; }
 .hdr-search-pop {
   position: absolute;
@@ -3060,7 +3097,7 @@ button, [role="button"], select { touch-action: manipulation; }
 }
 @media (max-width: 900px) { .hdr-search-wrap { display: none; } }
 
-/* In-page fallback strip: phones only — the header center is hidden ≤900px,
+/* In-page fallback strip: phones only - the header center is hidden ≤900px,
    so <ModuleTabs> renders the classic swipeable strip in the page body. */
 .module-tabs-inline { display: none; }
 @media (max-width: 900px) {
@@ -3205,7 +3242,7 @@ button, [role="button"], select { touch-action: manipulation; }
 [data-theme="dark"] .dk-stat-label { color: var(--ink); }
 [data-theme="dark"] .dk-stat-sub { color: var(--text-muted); }
 
-/* Hero stat — the first tile carries the page's focal color (owner's
+/* Hero stat - the first tile carries the page's focal color (owner's
    Hello-Barbara concept: one solid brand tile, the rest quiet white). */
 .dk-stat--hero {
   background: linear-gradient(135deg, #4256e8, var(--wk-brand));

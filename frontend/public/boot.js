@@ -1,4 +1,4 @@
-/* Boot watchdog — see index.html. Runs before the app's entry module so it can
+/* Boot watchdog - see index.html. Runs before the app's entry module so it can
    catch the module failing to load. If a bundle asset 404s (the classic
    "stale index.html after a deploy points at deleted /assets hashes" case) or
    nothing has rendered into #root after 12s, cache-bust a single reload so the

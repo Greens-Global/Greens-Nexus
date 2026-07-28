@@ -197,7 +197,7 @@ export default function ReputationPage({ range, onRangeChange, property, onPrope
 
       {compareSelection && (
         <PropertyComparisonModal
-          title="Compare Properties — Reputation"
+          title="Compare Properties - Reputation"
           rows={comparisonRows.filter((r) => compareSelection.includes(r.name))}
           columns={COMPARISON_COLUMNS}
           onClose={() => setCompareSelection(null)}

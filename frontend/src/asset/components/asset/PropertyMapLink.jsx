@@ -25,7 +25,7 @@ function formatAddressForSearch(asset) {
   }
 
   // A segment of the comma-split address is "redundant" if it's just the county, the
-  // state+zip, or a restatement of the city — those get dropped from the street portion.
+  // state+zip, or a restatement of the city - those get dropped from the street portion.
   const isRedundantSegment = (segment) => {
     const lower = segment.toLowerCase();
     return !!(
@@ -84,8 +84,8 @@ function toEmbedUrl(url) {
  * (`p.mapUrl`, or the "Google Maps Link" snapshot field for records that predate the
  * top-level field); falls back to a plain address search when no link is on file.
  *
- * Props: `p` — the asset record. `n` — optional number shown in a small badge in the header
- * (used when this card is one of several numbered sections on the page). `onSave` — optional;
+ * Props: `p` - the asset record. `n` - optional number shown in a small badge in the header
+ * (used when this card is one of several numbered sections on the page). `onSave` - optional;
  * when provided, an editable "paste a link" input is shown and committed on blur.
  */
 export function PropertyMapLink({ p: asset, n: number, onSave }) {
@@ -204,7 +204,7 @@ export function PropertyMapLink({ p: asset, n: number, onSave }) {
             {(customLink ? !customEmbedUrl : true) && (
               <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
                 {customLink
-                  ? 'Showing the area — paste a full maps.google.com link (with the @lat,lng) to drop the pin exactly; your link still powers Open in Google Maps'
+                  ? 'Showing the area - paste a full maps.google.com link (with the @lat,lng) to drop the pin exactly; your link still powers Open in Google Maps'
                   : 'Tip: paste a Google Maps link in Project Details for a 100% accurate pin'}
               </span>
             )}

@@ -22,11 +22,11 @@ const TYPE_COLOR = { vacation: '#2563eb', sick: '#16a34a', personal: '#8b5cf6', 
 // stamp who adjusted; voids hide from totals but stay in the record.
 
 const KIND_LABEL = { in: 'In', out: 'Out', break_start: 'Break start', break_end: 'Break end' };
-const localTime = (iso) => iso ? new Date(iso + 'Z').toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—';
+const localTime = (iso) => iso ? new Date(iso + 'Z').toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-';
 const fmtMin = (m) => `${Math.floor((m || 0) / 60)}h ${String((m || 0) % 60).padStart(2, '0')}m`;
 const isoDate = (d) => d.toISOString().slice(0, 10);
 
-// One day inside the person drawer — click to reveal the working/idle
+// One day inside the person drawer - click to reveal the working/idle
 // breakdown and the desktop agent's app/window log for that day.
 function AdminDayRow({ date, email, d, approval, onApprove }) {
   const [open, setOpen] = useState(false);
@@ -44,7 +44,7 @@ function AdminDayRow({ date, email, d, approval, onApprove }) {
               <CheckCircle size={10} /> OK
             </span>
           ) : approval?.stale ? (
-            <span onClick={e => { e.stopPropagation(); onApprove(); }} role="button" title="Punches changed after sign-off — click to re-approve this day"
+            <span onClick={e => { e.stopPropagation(); onApprove(); }} role="button" title="Punches changed after sign-off - click to re-approve this day"
               style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10.5, fontWeight: 700, color: '#b45309', background: 'rgba(180,83,9,0.1)', padding: '2px 9px', borderRadius: 999, flexShrink: 0, cursor: 'pointer' }}>
               <AlertTriangle size={10} /> Re-approve
             </span>
@@ -91,7 +91,7 @@ function weekRange(offset = 0) {
   return [isoDate(mon), isoDate(sun)];
 }
 
-// Form label + card-header title (Work OS grammar — sentence case, no tracking).
+// Form label + card-header title (Work OS grammar - sentence case, no tracking).
 const FL = { fontSize: 12, fontWeight: 600, color: 'var(--muted)' };
 const HD = { fontSize: 13.5, fontWeight: 600, color: 'var(--ink)' };
 
@@ -124,7 +124,7 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
     setAttMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
   };
 
-  // Per-day approvals: a day is "approved" only while its punches are untouched —
+  // Per-day approvals: a day is "approved" only while its punches are untouched -
   // any add/adjust after sign-off marks it stale and it must be re-approved.
   const isRowApproved = (r) => {
     const dk = Object.keys(r.days || {});
@@ -138,7 +138,7 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
     if (!daysArr.length) { toastErr('No worked days in this period to approve.'); return; }
     try {
       await api.timeApprove({ email, days: daysArr });
-      if (!quiet) toastOk(daysArr.length === 1 ? 'Day approved — the employee gets a notification.' : `Approved ${daysArr.length} days — the employee gets a notification.`);
+      if (!quiet) toastOk(daysArr.length === 1 ? 'Day approved - the employee gets a notification.' : `Approved ${daysArr.length} days - the employee gets a notification.`);
       load();
     } catch (e) { toastErr(e?.message || 'Could not approve.'); }
   }
@@ -148,7 +148,7 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
     if (!targets.length || approvingAll) return;
     setApprovingAll(true);
     let ok = 0;
-    for (const r of targets) { // sequential — one bell per person, no request race
+    for (const r of targets) { // sequential - one bell per person, no request race
       try { await api.timeApprove({ email: r.email, days: Object.keys(r.days) }); ok++; }
       catch { /* keep going; the count tells the story */ }
     }
@@ -175,7 +175,7 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
     api.timeTeamShots(shotDate, shotWho.email).then(r => setShotFrames(r.shots || [])).catch(() => setShotFrames([]));
   }, [shotWho, shotDate]);
 
-  // Disclosed-monitoring tamper/coverage alerts — surfaces employees who are
+  // Disclosed-monitoring tamper/coverage alerts - surfaces employees who are
   // clocked in while their agent has gone quiet (killed/uninstalled/offline), so
   // evasion is a visible, attributable event rather than a silent success. Polled.
   const [monAlerts, setMonAlerts] = useState([]);
@@ -244,7 +244,7 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
         at: edit.atInput ? new Date(edit.atInput).toISOString().slice(0, 19) : undefined,
         note: edit.note, void: edit.voided, adjust_note: edit.adjustNote || '',
       });
-      toastOk('Punch updated — the original time stays on record.');
+      toastOk('Punch updated - the original time stays on record.');
       setEdit(null); load();
     } catch (e) { toastErr(e?.message || 'Could not update the punch.'); }
     setBusy(false);
@@ -271,7 +271,7 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
 
   return (
     <div style={{ fontFamily: 'var(--wk-font)' }}>
-      {/* KPI strip — Work OS kpi-cards (meaning-dot label + big tabular numeral) */}
+      {/* KPI strip - Work OS kpi-cards (meaning-dot label + big tabular numeral) */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, marginBottom: 16 }}>
         {[['Team hours', fmtMin(totalMin), 'card-blue'],
           ['Approved', `${approvedCount}/${(rows || []).length}`, approvedCount === (rows || []).length && rows?.length ? 'card-green' : ''],
@@ -284,7 +284,7 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
         ))}
       </div>
 
-      {/* Monitoring tamper/coverage alerts — clocked in but agent quiet. */}
+      {/* Monitoring tamper/coverage alerts - clocked in but agent quiet. */}
       {monAlerts.length > 0 && (
         <div style={{ marginBottom: 16, border: '1px solid hsla(var(--color-red),0.4)', background: 'hsla(var(--color-red),0.06)', borderRadius: 12, padding: '12px 16px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
@@ -308,7 +308,7 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
         </div>
       )}
 
-      {/* Sub-screen nav — these are PAGES of a complex module, so they get the
+      {/* Sub-screen nav - these are PAGES of a complex module, so they get the
           Documents-style underline tab band (icons, brand underline, hairline
           base) instead of floating pills that merged into the content. */}
       <div className="scroll-tabs" style={{ display: 'flex', gap: 2, marginBottom: 18, borderBottom: '1px solid var(--wk-line)' }}>
@@ -403,7 +403,7 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
               </span>
             ) : rowStale(r) ? (
               <button className="primary-btn" onClick={e => { e.stopPropagation(); approveDays(r.email, Object.keys(r.days || {})); }}
-                title="Punches changed after sign-off — the approval is stale and needs redoing"
+                title="Punches changed after sign-off - the approval is stale and needs redoing"
                 style={{ fontSize: 11, padding: '5px 14px', display: 'inline-flex', alignItems: 'center', gap: 5, background: '#b45309' }}>
                 <AlertTriangle size={11} /> Re-approve
               </button>
@@ -436,7 +436,7 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
                           border: '1px solid var(--line)', color: p.voided ? 'var(--line)' : 'var(--ink)',
                           textDecoration: p.voided ? 'line-through' : 'none' }}>
                           <b>{KIND_LABEL[p.kind]}</b> {localTime(p.at)}
-                          {p.originalAt && <span title={`Originally ${localTime(p.originalAt)} — adjusted by ${p.adjustedBy}`} style={{ color: '#b45309', fontWeight: 700 }}>✎</span>}
+                          {p.originalAt && <span title={`Originally ${localTime(p.originalAt)} - adjusted by ${p.adjustedBy}`} style={{ color: '#b45309', fontWeight: 700 }}>✎</span>}
                           {p.lat && (
                             <a href={`https://www.google.com/maps?q=${p.lat},${p.lng}`} target="_blank" rel="noopener noreferrer"
                               title={`${p.geoStatus === 'in_fence' ? `At ${p.workSiteName}` : `${p.distanceM}m from ${p.workSiteName || 'nearest site'}`} (±${p.accuracyM}m)`}
@@ -465,7 +465,7 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
       ))}
       </>)}
 
-      {/* Attendance — month calendar with leave bars (TrackingTime overview) */}
+      {/* Attendance - month calendar with leave bars (TrackingTime overview) */}
       {view === 'attendance' && (() => {
         const [y, m] = attMonth.split('-').map(Number);
         const daysIn = new Date(y, m, 0).getDate();
@@ -505,7 +505,7 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
                     background: ds === today ? 'var(--wk-brand-tint)' : 'var(--card)' }}>
                     <div style={{ fontSize: 10.5, fontWeight: 700, color: ds === today ? 'var(--wk-brand)' : 'var(--muted)' }}>{n}</div>
                     {entries.slice(0, 3).map(r => (
-                      <div key={r.id} title={`${r.name || r.email} — ${r.type} ${r.startDate} → ${r.endDate}${r.status === 'pending' ? ' (pending)' : ''}`}
+                      <div key={r.id} title={`${r.name || r.email} - ${r.type} ${r.startDate} → ${r.endDate}${r.status === 'pending' ? ' (pending)' : ''}`}
                         style={{ fontSize: 9.5, fontWeight: 700, color: '#fff', background: TYPE_COLOR[r.type] || '#6b7280',
                           borderRadius: 4, padding: '1px 5px', marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                           opacity: r.status === 'pending' ? 0.55 : 1 }}>
@@ -521,7 +521,7 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
         );
       })()}
 
-      {/* Insights — activity dashboard (Top Apps / Websites / productivity), then
+      {/* Insights - activity dashboard (Top Apps / Websites / productivity), then
           the hours breakdown from the punch data. */}
       {view === 'insights' && (
         <div style={{ marginBottom: 18 }}>
@@ -559,7 +559,7 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
                 {dates.length === 0 && <div style={{ fontSize: 12, color: 'var(--muted)' }}>No hours in this range.</div>}
                 <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, height: 140 }}>
                   {dates.map(d => (
-                    <div key={d} title={`${d} — ${fmtMin(dayTotals[d])}`} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, minWidth: 0 }}>
+                    <div key={d} title={`${d} - ${fmtMin(dayTotals[d])}`} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, minWidth: 0 }}>
                       <div style={{ width: '70%', maxWidth: 38, height: `${Math.max(5, (dayTotals[d] / maxDay) * 110)}px`, background: 'var(--wk-brand)', borderRadius: 99 }} />
                       <span style={{ fontSize: 9.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
                         {new Date(d + 'T12:00:00').toLocaleDateString([], { weekday: 'short' })}
@@ -572,7 +572,7 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
           );
         })())}
 
-      {/* Shifts — weekly schedule grid + preset/group manager */}
+      {/* Shifts - weekly schedule grid + preset/group manager */}
       {view === 'shifts' && (
         <>
           <div className="chip-row" style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
@@ -594,12 +594,12 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
         </>
       )}
 
-      {/* Payroll — per-employee, per-pay-period editable timecard */}
+      {/* Payroll - per-employee, per-pay-period editable timecard */}
       {view === 'payroll' && <PayrollTimecard toastOk={toastOk} toastErr={toastErr} />}
 
       {view === 'livemap' && <LiveCrewMap toastErr={toastErr} employees={employees} />}
 
-      {/* Punch-fix requests — employee asked to add/remove a punch; approve applies it. */}
+      {/* Punch-fix requests - employee asked to add/remove a punch; approve applies it. */}
       {view === 'requests' && (
         <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden' }}>
           {punchReqs.length === 0 ? (
@@ -631,7 +631,7 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
         </div>
       )}
 
-      {/* Time-off register — requests table, pending rows carry the decisions */}
+      {/* Time-off register - requests table, pending rows carry the decisions */}
       {view === 'timeoff' && (
         <div style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, overflow: 'hidden', boxShadow: 'var(--wk-shadow)' }}>
           <div style={{ display: 'grid', gridTemplateColumns: '200px 110px 1fr 70px 160px 170px', gap: 10, padding: '10px 14px', background: 'var(--wk-hover)', fontSize: 12.5, fontWeight: 500, color: 'var(--wk-dim)' }}>
@@ -647,8 +647,8 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
                 <span style={{ fontSize: 12.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name || r.email}</span>
                 <span style={{ fontSize: 12, textTransform: 'capitalize' }}>{r.type}</span>
                 <span style={{ fontSize: 12, color: 'var(--muted)' }} title={r.note}>{r.startDate} → {r.endDate}{r.note ? ' · “' + r.note + '”' : ''}</span>
-                <span style={{ fontSize: 12, fontWeight: 700 }}>{isNaN(days) ? '—' : days}</span>
-                <span style={{ fontSize: 11.5, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.approver || '—'}</span>
+                <span style={{ fontSize: 12, fontWeight: 700 }}>{isNaN(days) ? '-' : days}</span>
+                <span style={{ fontSize: 11.5, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.approver || '-'}</span>
                 <span style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
                   {r.status === 'pending' ? (<>
                     <button className="secondary-btn" onClick={() => decideTimeoff(r.id, 'rejected')} style={{ fontSize: 11, color: '#b91c1c', padding: '4px 10px' }}>Reject</button>
@@ -667,7 +667,7 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
         </div>
       )}
 
-      {/* Screenshots — disclosed-monitoring, manager-scoped team gallery.
+      {/* Screenshots - disclosed-monitoring, manager-scoped team gallery.
           Pick a day → team members with captures → their frame grid (signed URLs). */}
       {view === 'screenshots' && (
         <div>
@@ -679,7 +679,7 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
               </button>
             )}
             <span className="wkc-chip"><Camera size={14} /></span>
-            <span style={{ fontSize: 13.5, fontWeight: 600 }}>Screenshots{shotWho ? ` — ${shotWho.name}` : ''}</span>
+            <span style={{ fontSize: 13.5, fontWeight: 600 }}>Screenshots{shotWho ? ` - ${shotWho.name}` : ''}</span>
             <div style={{ flex: 1 }} />
             <input className="form-input" type="date" value={shotDate} onChange={e => setShotDate(e.target.value)}
               style={{ fontSize: 12, width: 150 }} />
@@ -733,7 +733,7 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
         </div>
       )}
 
-      {/* Person time portal — everything time-related for one employee.
+      {/* Person time portal - everything time-related for one employee.
           Portaled to <body>: host cards (Manager Dashboard) have transformed
           ancestors that would otherwise trap position:fixed overlays. */}
       {person && createPortal((() => {
@@ -795,7 +795,7 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
                       <div style={{ ...HD, marginBottom: 8 }}>Daily hours</div>
                       <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, height: 90 }}>
                         {dts.map(d => (
-                          <div key={d} title={`${d} — ${fmtMin(p.days[d].workedMin)}`} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, minWidth: 0 }}>
+                          <div key={d} title={`${d} - ${fmtMin(p.days[d].workedMin)}`} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, minWidth: 0 }}>
                             <div style={{ width: '65%', maxWidth: 34, height: `${Math.max(5, (p.days[d].workedMin / mx) * 66)}px`, background: 'var(--wk-brand)', borderRadius: 99 }} />
                             <span style={{ fontSize: 9, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{new Date(d + 'T12:00:00').toLocaleDateString([], { weekday: 'short' })}</span>
                           </div>
@@ -805,7 +805,7 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
                   );
                 })()}
                 <div style={{ ...HD, marginBottom: 8 }}>
-                  Days <span style={{ fontWeight: 500, color: 'var(--muted)' }}>— click one for its punches</span>
+                  Days <span style={{ fontWeight: 500, color: 'var(--muted)' }}>- click one for its punches</span>
                 </div>
                 {Object.keys(p.days || {}).sort().map(date => (
                   <AdminDayRow key={date} date={date} email={p.email} d={p.days[date]}
@@ -841,7 +841,7 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
           <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 430, boxShadow: 'var(--shadow-lg)' }}>
             <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 8 }}>
               <span className="wkc-chip"><Clock size={14} /></span>
-              <h3 style={{ margin: 0, fontSize: 14.5, fontWeight: 700, flex: 1 }}>Adjust punch — {KIND_LABEL[edit.kind]}</h3>
+              <h3 style={{ margin: 0, fontSize: 14.5, fontWeight: 700, flex: 1 }}>Adjust punch - {KIND_LABEL[edit.kind]}</h3>
               <button onClick={() => setEdit(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}><X size={16} /></button>
             </div>
             <div style={{ padding: '16px 20px', display: 'grid', gap: 10 }}>
@@ -879,7 +879,7 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
           <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 430, boxShadow: 'var(--shadow-lg)' }}>
             <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 8 }}>
               <span className="wkc-chip"><Plus size={14} /></span>
-              <h3 style={{ margin: 0, fontSize: 14.5, fontWeight: 700, flex: 1 }}>Add punch — {addFor}</h3>
+              <h3 style={{ margin: 0, fontSize: 14.5, fontWeight: 700, flex: 1 }}>Add punch - {addFor}</h3>
               <button onClick={() => setAddFor(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}><X size={16} /></button>
             </div>
             <div style={{ padding: '16px 20px', display: 'grid', gap: 10 }}>

@@ -1,6 +1,6 @@
-// Task Module — create/edit-task modal (ported 1:1 from the export's
+// Task Module - create/edit-task modal (ported 1:1 from the export's
 // CreateTaskModal): Title, Description, Project, Assignee, Priority, Status,
-// Due date, Estimated hours, Recurrence, Labels, Subtasks, Attachments — wired
+// Due date, Estimated hours, Recurrence, Labels, Subtasks, Attachments - wired
 // to the TasksContext (subtasks + attachments created after the parent).
 import { useRef, useState } from 'react';
 import { Plus, X, Paperclip, ListChecks, CircleCheck, Save, Image as ImageIcon, ScanText, Camera, ImagePlus } from 'lucide-react';
@@ -64,7 +64,7 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
   const onFiles = (list) => { if (list) setAttachments((prev) => [...prev, ...Array.from(list)]); };
   const onPasteFiles = (e) => { const files = filesFromPaste(e); if (files.length) { e.preventDefault(); onFiles(files); } };
 
-  // Mobile capture shortcuts in the footer — photo / attach / scan, mirroring the
+  // Mobile capture shortcuts in the footer - photo / attach / scan, mirroring the
   // quick-create sheet so the same three actions are one tap away on a phone
   // instead of buried at the bottom of a long scrolling form.
   const isMobile = useIsMobile();
@@ -111,7 +111,7 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
   };
 
   // Required on CREATE: Task Name, Assignee, Due Date, Project (a locked project
-  // already satisfies the last). Editing is NOT gated — the rule is about what a
+  // already satisfies the last). Editing is NOT gated - the rule is about what a
   // new task must carry, and gating Save would strand every older task.
   const missing = isEdit ? [] : [
     !form.title.trim() && 'title',
@@ -119,7 +119,7 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
     !form.dueOn && 'due',
     !(lockedProjectId || form.projectId) && 'project',
   ].filter(Boolean);
-  // Only the fields that apply to the chosen project — a field scoped to
+  // Only the fields that apply to the chosen project - a field scoped to
   // another project must not appear, let alone be required here.
   const activeFields = fieldsForProject(customFields, lockedProjectId || form.projectId);
   const missingFields = isEdit ? [] : activeFields.filter(
@@ -158,7 +158,7 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
   return (
     <Modal title={isEdit ? 'Edit Task' : 'Create a Task'} width={640} onClose={() => onClose(false)} footer={
       <>
-        {/* Phone only — desktop already has the Attachments field in view without
+        {/* Phone only - desktop already has the Attachments field in view without
             scrolling, and a camera/scan shortcut is meaningless with a mouse. */}
         {isMobile && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 2, marginRight: 'auto', position: 'relative' }}>
@@ -173,7 +173,7 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
               <span style={{ fontSize: 12, color: NX.faint, marginLeft: 2 }}>{attachments.length}</span>
             )}
             {photoMenu && (
-              /* Opens upward — the footer is pinned to the bottom of the modal. */
+              /* Opens upward - the footer is pinned to the bottom of the modal. */
               <div style={{ position: 'absolute', bottom: '100%', left: 0, marginBottom: 6, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 10px 28px rgba(0,0,0,0.18)', zIndex: 10, padding: 4, minWidth: 180 }}>
                 <button type="button" onClick={() => { setPhotoMenu(false); camRef.current?.click(); }} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8 }}><Camera size={16} /> Take photo</button>
                 <button type="button" onClick={() => { setPhotoMenu(false); libRef.current?.click(); }} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8 }}><ImagePlus size={16} /> Choose from device</button>
@@ -208,7 +208,7 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-          {/* Already scoped to a project (opened from inside one) — no need to
+          {/* Already scoped to a project (opened from inside one) - no need to
               show/change Project or Team here. */}
           {!lockedProjectId && (
             <>
@@ -217,7 +217,7 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
                 <select value={form.projectId} onChange={(e) => {
                   if (e.target.value === '__new') { setCreatingProject(true); return; }
                   // Pre-fill Team from the project when there's exactly one
-                  // associated team — with several there's no right answer, so
+                  // associated team - with several there's no right answer, so
                   // it stays blank and the picker below lists them.
                   const pid = e.target.value;
                   const own = teams.filter((t) => teamInProject(t, pid));
@@ -381,7 +381,7 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
         </div>
       </div>
 
-      {/* Inline "create a project" — the new project is auto-selected for this task. */}
+      {/* Inline "create a project" - the new project is auto-selected for this task. */}
       {creatingProject && <ProjectCreateModal onClose={() => setCreatingProject(false)} onCreated={(p) => set('projectId', p.id)} />}
     </Modal>
   );

@@ -7,7 +7,7 @@ import { graphToken, postChatMessage } from '../teamsGraph';
 // ── Beginning / End-of-day / Break message ────────────────────────────────────
 // BOD on first punch-in, EOD on punch-out, BREAK when stepping away. The message
 // posts to a Teams GROUP CHAT from the employee's OWN ACCOUNT and is recorded in
-// Nexus. Each person posts to exactly ONE chat — the one an admin bound to their
+// Nexus. Each person posts to exactly ONE chat - the one an admin bound to their
 // group (managed under Shifts → Presets & groups). Employees never pick from a
 // list; if their group has no bound chat, the message is recorded in Nexus only.
 // Prompts skip only via the "already sent" tick, so nobody silently skips and
@@ -16,7 +16,7 @@ import { graphToken, postChatMessage } from '../teamsGraph';
 const MODES = {
   bod: {
     title: 'Beginning of Day', Icon: Sunrise, color: '#f59e0b', tag: 'BOD',
-    sub: "First punch-in today — tell the team what's on your plate.",
+    sub: "First punch-in today - tell the team what's on your plate.",
     msgLabel: 'Message', msgPlaceholder: 'Good morning! Starting my day…',
     tasksLabel: "Today's tasks (one per line)", tasksHead: 'Tasks',
     tasksPlaceholder: 'Finish the Lakeline report\nCall the Riverside vendor\nReview Q2 numbers',
@@ -24,15 +24,15 @@ const MODES = {
   },
   eod: {
     title: 'End of Day', Icon: Sunset, color: '#7c3aed', tag: 'EOD',
-    sub: 'Wrapping up — post your summary and the tasks you worked on.',
-    msgLabel: 'Summary', msgPlaceholder: 'Wrapping up — good progress today.',
+    sub: 'Wrapping up - post your summary and the tasks you worked on.',
+    msgLabel: 'Summary', msgPlaceholder: 'Wrapping up - good progress today.',
     tasksLabel: 'Tasks (one per line)', tasksHead: 'Tasks (Completed)',
     tasksPlaceholder: 'Lakeline report\nRiverside vendor call\nQ2 numbers review',
     cta: 'Send & clock out', ackLabel: 'I already sent my logout (EOD) message',
   },
   break: {
     title: 'Going on break', Icon: Coffee, color: '#b45309', tag: 'BREAK', reasonOnly: true,
-    sub: 'Let the team know — this posts "I\'m on a break for …" to your chat.',
+    sub: 'Let the team know - this posts "I\'m on a break for …" to your chat.',
     msgLabel: 'Reason', msgPlaceholder: 'Lunch',
     cta: 'Start break & notify', ackLabel: 'I already told my team',
   },
@@ -41,29 +41,29 @@ const MODES = {
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const FL = { fontSize: 11, fontWeight: 700, color: 'var(--muted)', letterSpacing: '.05em', textTransform: 'uppercase', display: 'block', marginBottom: 5 };
 
-// "24th", "1st", "22nd", "3rd" — the 11/12/13 exceptions fall through to "th".
+// "24th", "1st", "22nd", "3rd" - the 11/12/13 exceptions fall through to "th".
 const ordinal = (n) => {
   const v = n % 100;
   if (v >= 11 && v <= 13) return `${n}th`;
   return `${n}${['th', 'st', 'nd', 'rd'][n % 10] || 'th'}`;
 };
-const fmtWorked = (min) => `${Math.floor(min / 60)}:${String(min % 60).padStart(2, '0')} mins`;
+const fmtWorked = (min) => `${Math.floor(min / 60)}hrs:${String(min % 60).padStart(2, '0')}mins`;
 const todayLocalKey = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
 
 export default function BodModal({ mode = 'bod', required = false, onSent, onSkip, onClose, toastOk, toastErr }) {
   const M = MODES[mode] || MODES.bod;
   const [message, setMessage] = useState('');
   const [tasks, setTasks] = useState('');
-  const [pending, setPending] = useState('');        // EOD only — starts empty; empty = no section in the post
+  const [pending, setPending] = useState('');        // EOD only - starts empty; empty = no section in the post
   const [pendingSugg, setPendingSugg] = useState(''); // open Nexus tasks, offered via one-click insert
   const [bound, setBound] = useState(null);          // { id, name } from the group binding
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [ack, setAck] = useState(false);
-  const [workedMin, setWorkedMin] = useState(0);      // EOD only — total worked today, for the Line 3 tally
+  const [workedMin, setWorkedMin] = useState(0);      // EOD only - total worked today, for the Line 3 tally
 
   // On open: resolve the ONE chat an admin bound to this person's group. Every
-  // field starts EMPTY on purpose — pre-filling (yesterday's text, open tasks)
+  // field starts EMPTY on purpose - pre-filling (yesterday's text, open tasks)
   // kept getting posted untouched (Jul 25). The person's open Nexus tasks are
   // fetched as a SUGGESTION they can insert with one click, never auto-posted.
   useEffect(() => {
@@ -91,17 +91,15 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
     // Three-line header (spec, Jul 24):
     //   End of Day
     //   Fri, July 24th, 2026
-    //   12:50 AM (8:30 mins)     ← the tally is total worked today, EOD only
+    //   12:50 AM (8hrs:30mins)     ← the tally is total worked today, EOD only
     const now = new Date();
     const ordinal = (n) => { const v = n % 100; return n + (['th', 'st', 'nd', 'rd'][(v - 20) % 10] || ['th', 'st', 'nd', 'rd'][v] || 'th'); };
     // Locale pinned to en-US so the post reads the same for everyone regardless
     // of the sender's browser locale. Date line format: "Fri, July 24th, 2026".
     const dateStr = `${now.toLocaleDateString('en-US', { weekday: 'short' })}, ${now.toLocaleDateString('en-US', { month: 'long' })} ${ordinal(now.getDate())}, ${now.getFullYear()}`;
     const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-    const h = Math.floor(workedMin / 60), m = workedMin % 60;
-    const tally = mode === 'eod' && workedMin > 0
-      ? ` (${h > 0 ? `${h} hr ` : ''}${m > 0 || h === 0 ? `${m} mins` : ''}`.trimEnd() + ')' : '';
-    // Lists are auto-numbered "1. …" — strip any numbering people typed
+    const tally = mode === 'eod' && workedMin > 0 ? ` (${fmtWorked(workedMin)})` : '';
+    // Lists are auto-numbered "1. …" - strip any numbering people typed
     // themselves so lines don't come out as "1. 1) Task".
     const normalize = (s) => s.split('\n').map(t => t.trim().replace(/^\d+[).:]?\s*/, '')).filter(Boolean);
     const numbered = (lines) => lines.map((t, i) => `${i + 1}. ${esc(t)}`).join('<br/>');
@@ -117,7 +115,7 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
     if (!message.trim()) { toastErr(M.reasonOnly ? 'Add a short reason.' : `Write a short ${M.title.toLowerCase()} message.`); return; }
     setBusy(true);
     // EOD tally: total minutes worked today, straight from the server's punch
-    // math (same figure the Time Clock "Worked today" card shows). Best-effort —
+    // math (same figure the Time Clock "Worked today" card shows). Best-effort -
     // a failed fetch just posts the message without the tally.
     let workedMin = 0;
     if (mode === 'eod') {
@@ -134,7 +132,15 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
         let ms = 0, openIn = null, openInDate = '', openBreak = null, brkMs = 0;
         for (const p of all) {
           const t = utc(p.at);
-          if (p.kind === 'in') { if (openIn == null) { openIn = t; openInDate = p.localDate; brkMs = 0; } }
+          // A new 'in' always (re)opens the session - mirrors the backend's
+          // _day_summaries, which does the same unconditionally and just flags
+          // the abandoned one as "missing_out". Gating this on `openIn == null`
+          // meant a single forgotten punch-out anywhere in the trailing 7 days
+          // left `openIn`/`openInDate` stuck on that stale day forever after:
+          // every later 'in' was silently ignored, so `openInDate` could never
+          // match today's `key` again and the tally stayed 0 - for anyone with
+          // one missed punch-out in the window, not just that one day.
+          if (p.kind === 'in') { openIn = t; openInDate = p.localDate; openBreak = null; brkMs = 0; }
           else if (p.kind === 'break_start') { if (openIn != null && openBreak == null) openBreak = t; }
           else if (p.kind === 'break_end') { if (openBreak != null) { brkMs += t - openBreak; openBreak = null; } }
           else if (p.kind === 'out' && openIn != null) {
@@ -170,7 +176,7 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
     } catch { /* the Teams post is the user-visible outcome */ }
     if (sent) toastOk(`Posted to ${targetName || 'your chat'} and recorded.`);
     else if (!targetId) toastOk('Recorded in Nexus.');
-    else toastErr(`Recorded in Nexus, but the Teams post failed${sendError ? ` — ${sendError}` : ''}.`);
+    else toastErr(`Recorded in Nexus, but the Teams post failed${sendError ? ` - ${sendError}` : ''}.`);
     setBusy(false);
     if (onSent) onSent(); else onClose();
   }
@@ -207,7 +213,7 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
             <div>
               <label style={FL}>Pending tasks (one per line)</label>
               <textarea className="form-input" rows={3} value={pending} onChange={e => setPending(e.target.value)}
-                placeholder="Anything still open — leave empty to skip this section"
+                placeholder="Anything still open - leave empty to skip this section"
                 style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} />
               {pendingSugg && !pending.trim() ? (
                 <button type="button" onClick={() => setPending(pendingSugg)}
@@ -222,7 +228,7 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
               )}
             </div>
           )}
-          {/* Target chat — the single chat an admin bound to this person's group */}
+          {/* Target chat - the single chat an admin bound to this person's group */}
           <div>
             <label style={FL}>Posts to</label>
             {loading ? (
@@ -235,7 +241,7 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
               </div>
             ) : (
               <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
-                No team chat set up for you yet — your message is recorded in Nexus.
+                No team chat set up for you yet - your message is recorded in Nexus.
                 An admin can link one under Shifts → Presets &amp; groups.
               </div>
             )}

@@ -10,7 +10,7 @@ import { api } from '../api';
 // Cache fetched help across opens within a session so reopening is instant.
 const _cache = new Map();
 
-// Tiny Markdown → React renderer (headings, bullets, bold, paragraphs) — enough
+// Tiny Markdown → React renderer (headings, bullets, bold, paragraphs) - enough
 // for the short guides the help endpoint returns; no external dependency.
 function renderInline(text, keyBase) {
   const parts = String(text).split(/(\*\*[^*]+\*\*)/g).filter(Boolean);

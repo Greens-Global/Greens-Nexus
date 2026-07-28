@@ -161,7 +161,7 @@ export default function InsightsPage({
   const reviewsInRange = useMemo(() => repFilterByRange(scopedReviews, range), [scopedReviews, range])
 
   // Budget/goal pacing, property/campaign standouts, SEO opportunities, lead
-  // response time, and cross-platform reputation gaps — always computed
+  // response time, and cross-platform reputation gaps - always computed
   // account-wide for the current calendar month, independent of this page's
   // own range/property filter, mirroring how shared/alerts.ts stays stable
   // regardless of whatever the user has selected.
@@ -196,7 +196,7 @@ export default function InsightsPage({
     return computeSourceSummary(asOfAll, asOfAll).map((s) => ({ platform: s.platform, rating: s.avgRating, reviews: s.reviews }))
   }, [range.end])
 
-  // AI Marketing Analyst — synthesizes signals already computed above plus
+  // AI Marketing Analyst - synthesizes signals already computed above plus
   // SEO/Leads/GBP-content signals (account-wide, current snapshot) into
   // structured, explained insights. See insightEngine.ts.
   const insights = useMemo(() => {
@@ -307,7 +307,7 @@ export default function InsightsPage({
         const passives = Math.max(0, 100 - promoters - detractors)
         return {
           kind: 'bar',
-          sectionTitle: `Respondent breakdown — NPS = promoters − detractors = ${Math.round(totals.npsAvg)}`,
+          sectionTitle: `Respondent breakdown - NPS = promoters − detractors = ${Math.round(totals.npsAvg)}`,
           data: [
             { label: 'Promoters', value: promoters },
             { label: 'Passives', value: passives },
@@ -347,7 +347,7 @@ export default function InsightsPage({
 
   // "View" on an AI-analyst insight whose subject is already a KPI on this
   // page (traffic, NPS) opens that metric's own detail modal instead of
-  // navigating nowhere — every "View" click always shows something.
+  // navigating nowhere - every "View" click always shows something.
   function handleViewMetric(key) {
     const def = KPI_CARD_DEFS.find((c) => c.key === key)
     if (def) setSelectedMetric({ key: def.key, label: def.label, format: def.format })
@@ -423,7 +423,7 @@ export default function InsightsPage({
 
       {compareSelection && (
         <PropertyComparisonModal
-          title="Compare Properties — Insights"
+          title="Compare Properties - Insights"
           rows={propertyRowsAll.filter((r) => compareSelection.includes(r.name))}
           columns={COMPARISON_COLUMNS}
           onClose={() => setCompareSelection(null)}

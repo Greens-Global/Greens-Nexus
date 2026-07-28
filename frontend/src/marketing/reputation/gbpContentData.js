@@ -26,7 +26,7 @@ function slug(facility) {
 // --- Posts ---------------------------------------------------------------
 
 const POST_TEMPLATES = [
-  { type: 'OFFER', summary: () => 'Move in this month and get 50% off your first month — limited units available.', ctaLabel: 'Redeem', ctaUrl: 'https://greensstorage.com/offers', lifespanDays: 14 },
+  { type: 'OFFER', summary: () => 'Move in this month and get 50% off your first month - limited units available.', ctaLabel: 'Redeem', ctaUrl: 'https://greensstorage.com/offers', lifespanDays: 14 },
   { type: 'STANDARD', summary: (city) => `Now offering climate-controlled units at our ${city} facility. Book a tour today.`, ctaLabel: 'Learn more', ctaUrl: 'https://greensstorage.com', lifespanDays: 7 },
   { type: 'EVENT', summary: () => 'Free moving truck with any 3-month lease, this weekend only.', ctaLabel: 'Sign up', ctaUrl: 'https://greensstorage.com/promo', lifespanDays: 10 },
 ]
@@ -61,7 +61,7 @@ function buildPostsForFacility(facility, rng) {
 
 const CATEGORIES = ['EXTERIOR', 'INTERIOR', 'TEAM']
 
-// Fairfield and Georgetown are our smallest, least-staffed properties — a
+// Fairfield and Georgetown are our smallest, least-staffed properties - a
 // realistic candidate for a stale, unmaintained photo gallery.
 const STALE_FACILITIES = new Set(['Greens Fairfield', 'Greens Georgetown'])
 
@@ -90,10 +90,10 @@ function buildPhotosForFacility(facility, rng) {
 // --- Q&A ---------------------------------------------------------------
 
 const QUESTION_TEMPLATES = [
-  { question: 'Do you have 24-hour access?', answer: 'Yes — 24/7 gate access is included with every unit at this location.' },
+  { question: 'Do you have 24-hour access?', answer: 'Yes - 24/7 gate access is included with every unit at this location.' },
   { question: 'Is climate control available for all unit sizes?', answer: "We offer climate-controlled units in 5x5, 10x10, and 10x15 sizes. Give us a call and we'll find the right fit." },
   { question: 'What size unit fits a 1-bedroom apartment?', answer: 'Most 1-bedroom apartments fit comfortably in a 10x10 unit.' },
-  { question: 'Do you require a long-term lease?', answer: 'No long-term commitment required — we offer flexible month-to-month leases.' },
+  { question: 'Do you require a long-term lease?', answer: 'No long-term commitment required - we offer flexible month-to-month leases.' },
   { question: 'Is there a discount for military or students?', answer: null },
   { question: 'Can I access my unit on holidays?', answer: null },
 ]

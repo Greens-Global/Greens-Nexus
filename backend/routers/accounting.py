@@ -5,7 +5,7 @@ import models
 from database import get_db
 from auth import require_module_grant
 
-# Grant-driven (Jun 17): a manager role no longer opens Accounting by itself —
+# Grant-driven (Jun 17): a manager role no longer opens Accounting by itself -
 # it needs an "accounting" Access Group grant (or IT Admin+). The router has no
 # per-endpoint read/write split, so a grant = full accounting access; grant it
 # only to finance people.

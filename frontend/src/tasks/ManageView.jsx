@@ -1,8 +1,8 @@
-// Task Module — Manage: admin surface for the whole workspace. Internal sub-tab
+// Task Module - Manage: admin surface for the whole workspace. Internal sub-tab
 // strip (Automation rules · Custom fields · Custom statuses · Templates · Intake
 // forms · Activity log · Reporting), ported from the export's manage/ + reporting/
 // screens onto the Nexus inline-style idiom + FastAPI-backed store.
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Zap, Plus, Trash2, Pencil, ListChecks, FileText, Inbox, Activity as ActivityIcon,
   BarChart3, Download, X, CheckCircle2, Flag, ArrowRightLeft, User, Calendar, MessageSquare,
@@ -81,7 +81,7 @@ export default function ManageView() {
 
   return (
     <div style={{ fontFamily: FONT, color: NX.ink, display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%' }}>
-      {/* Sub-tab strip — underline tabs, horizontally scrollable on mobile */}
+      {/* Sub-tab strip - underline tabs, horizontally scrollable on mobile */}
       <div className="scroll-tabs" style={{ display: 'flex', alignItems: 'center', gap: 2, padding: '0 16px', borderBottom: `1px solid ${NX.border}`, background: NX.surface, overflowX: 'auto' }}>
         {SUBTABS.map((t) => {
           const active = tab === t.key;
@@ -97,7 +97,7 @@ export default function ManageView() {
         })}
       </div>
 
-      {/* Body — the Task List is full-bleed (wide, self-scrolling table); the rest
+      {/* Body - the Task List is full-bleed (wide, self-scrolling table); the rest
           keep the centered admin column. */}
       {tab === 'tasklist' ? (
         <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
@@ -125,7 +125,7 @@ export default function ManageView() {
 }
 
 
-// ── Import from Asana — paste a token + project GIDs, runs server-side ─────────
+// ── Import from Asana - paste a token + project GIDs, runs server-side ─────────
 function AsanaImportTab({ store }) {
   const [token, setToken] = useState('');
   const [gids, setGids] = useState('');
@@ -179,7 +179,7 @@ function AsanaImportTab({ store }) {
           </div>
         </Field>
 
-        {/* Project picker — populated by "Load projects" */}
+        {/* Project picker - populated by "Load projects" */}
         {projects && projects.length > 0 && (
           <Field label={`Projects  (${picked.size} selected)`}>
             <div style={{ maxHeight: 240, overflowY: 'auto', border: `1px solid ${NX.border}`, borderRadius: 8 }}>
@@ -194,7 +194,7 @@ function AsanaImportTab({ store }) {
           </Field>
         )}
 
-        <Field label="Project GID(s) — optional">
+        <Field label="Project GID(s) - optional">
           <input value={gids} onChange={(e) => setGids(e.target.value)} placeholder="Leave blank to import everything this token can see" style={inputStyle} />
           <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>
             Only needed to import a specific subset. Otherwise leave it blank, or tick projects
@@ -206,13 +206,13 @@ function AsanaImportTab({ store }) {
           <button onClick={run} disabled={busy} style={{ ...btn('primary'), opacity: busy ? 0.6 : 1 }}>
             <Download size={15} />{busy ? 'Importing…' : 'Import'}
           </button>
-          {busy && <span style={{ fontSize: 12.5, color: NX.dim }}>Reading Asana and creating tasks — this can take a minute for large projects.</span>}
+          {busy && <span style={{ fontSize: 12.5, color: NX.dim }}>Reading Asana and creating tasks - this can take a minute for large projects.</span>}
         </div>
         {result && (
           <div style={{ marginTop: 14, padding: 12, borderRadius: 10, background: NX.hover, fontSize: 13 }}>
             <div style={{ fontWeight: 700, color: NX.green, marginBottom: 6 }}>✓ Import complete</div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, color: NX.dim }}>
-              {/* "tasks" counts subtasks too — the importer walks one tree and
+              {/* "tasks" counts subtasks too - the importer walks one tree and
                   doesn't split the two. "updated" covers rows that already
                   existed and were refreshed rather than created. */}
               <span><b style={{ color: NX.ink }}>{result.projects}</b> projects</span>
@@ -254,6 +254,7 @@ function AsanaSyncPanel({ store }) {
   const [dupes, setDupes] = useState(null);   // dry-run result awaiting confirmation
   const [orphans, setOrphans] = useState(null); // stranded-row dry run, same shape
   const [teamReport, setTeamReport] = useState([]); // per-team access outcomes from the last pull
+  const [importJob, setImportJob] = useState(null); // live "Import All Projects" run, polled
   const [setupToken, setSetupToken] = useState('');   // Setup card's own PAT (write-only)
 
   const load = () => {
@@ -324,21 +325,62 @@ function AsanaSyncPanel({ store }) {
   // One click to bring the whole workspace across: create/adopt a Nexus project
   // per Asana project, map it, import its contents. Runs the same engine as
   // Pull, so nothing here is a second inbound path.
+  //
+  // The server runs it in the background and we poll, because a full workspace
+  // takes minutes and Azure kills any request at ~230s. Progress lives in the
+  // DB, so closing this page does not stop the import and coming back picks it
+  // up again.
+  const importDone = useCallback((job) => {
+    const res = job.result || {};
+    if (job.status === 'error') { setErr(job.error || 'Import failed.'); return; }
+    // A cancelled run keeps everything it already imported - saying so matters,
+    // or it reads as if the work was thrown away.
+    setMsg((job.status === 'cancelled' ? 'Import stopped. Kept what it had already imported: ' : '')
+      + `Imported ${res.projects || 0} project(s): +${res.tasks || 0} task(s), `
+      + `+${res.comments || 0} comment(s), +${res.attachments || 0} attachment(s)`
+      + (res.skipped ? `, ${res.skipped} already present` : '')
+      + `. ${res.mapped ?? res.projects ?? 0} project(s) mapped.`
+      + ((res.errors || []).length ? ` ${res.errors.length} issue(s): ${res.errors.join('; ')}` : ''));
+  }, []);
+
+  const watchImport = useCallback(async () => {
+    const job = await api.asanaSyncImportAllStatus().catch(() => null);
+    if (!job || job.status === 'idle') { setImportJob(null); return false; }
+    setImportJob(job);
+    if (job.status === 'running') return true;
+    setImportJob(null);
+    importDone(job);
+    await store.refresh?.();
+    load();
+    return false;
+  }, [importDone, store, load]);
+
+  // Poll only while a job is live, and stop on unmount so a closed page does
+  // not keep hitting the API.
+  useEffect(() => {
+    if (!importJob || importJob.status !== 'running') return undefined;
+    let alive = true;
+    const id = setInterval(() => { if (alive) watchImport(); }, 3000);
+    return () => { alive = false; clearInterval(id); };
+  }, [importJob, watchImport]);
+
+  // An import already running when this page opens (started here earlier, or by
+  // someone else) shows its progress instead of looking idle.
+  useEffect(() => { watchImport(); /* once on mount */ }, []);   // eslint-disable-line react-hooks/exhaustive-deps
+
   const importAll = async () => {
-    setErr(''); setMsg(''); setBusy('importall');
+    setErr(''); setMsg('');
     try {
-      const res = await api.asanaSyncImportAll();
-      await store.refresh?.();
-      setMsg(`Imported ${res.projects} project(s): +${res.tasks} task(s), `
-        + `+${res.comments || 0} comment(s), +${res.attachments || 0} attachment(s)`
-        + (res.skipped ? `, ${res.skipped} already present` : '')
-        + `. ${res.mapped ?? res.projects} project(s) mapped.`
-        + ((res.errors || []).length ? ` ${res.errors.length} issue(s): ${res.errors.join('; ')}` : ''));
-      load();
-    } catch (e) { setErr(e.message || String(e)); } finally { setBusy(''); }
+      setImportJob(await api.asanaSyncImportAll());
+    } catch (e) { setErr(e.message || String(e)); }
   };
 
-  // Step 2 of setup — the same setting as the "Sync enabled" checkbox above, so the
+  const cancelImport = async () => {
+    try { setImportJob(await api.asanaSyncImportAllCancel()); }
+    catch (e) { setErr(e.message || String(e)); }
+  };
+
+  // Step 2 of setup - the same setting as the "Sync enabled" checkbox above, so the
   // three steps read as a sequence. A toggle, not a one-way switch: turning sync off
   // is the fastest way to stop a mess reaching the shared Asana workspace.
   const toggleSync = async () => {
@@ -348,8 +390,8 @@ function AsanaSyncPanel({ store }) {
       const c = await api.setAsanaSyncConfig({ enabled: next });
       setCfg((p) => ({ ...p, ...c }));
       setMsg(next
-        ? 'Sync is ON — mapped projects pull every 5 minutes and push changes out automatically (on the deployed API).'
-        : 'Sync is OFF — nothing pulls or pushes until you turn it back on. Manual Pull / Push all still work.');
+        ? 'Sync is ON - mapped projects pull from Asana every 2 minutes and push changes out automatically (on the deployed API).'
+        : 'Sync is OFF - nothing pulls or pushes until you turn it back on. Manual Pull / Push all still work.');
     } catch (e) { setErr(e.message || String(e)); } finally { setBusy(''); }
   };
 
@@ -360,7 +402,7 @@ function AsanaSyncPanel({ store }) {
       const c = await api.setAsanaSyncConfig({ setup_token: setupToken.trim() });
       setCfg((p) => ({ ...p, ...c }));
       setSetupToken('');
-      setMsg(c.hasSetupToken ? 'Setup token saved.' : 'Setup token cleared — setup will use the service token.');
+      setMsg(c.hasSetupToken ? 'Setup token saved.' : 'Setup token cleared - setup will use the service token.');
     } catch (e) { setErr(e.message || String(e)); } finally { setBusy(''); }
   };
 
@@ -370,7 +412,7 @@ function AsanaSyncPanel({ store }) {
     setErr(''); setMsg(''); setBusy('hooks');
     try {
       const r = await api.registerAsanaWebhooks({ target_base: targetBase.trim() });
-      setMsg(`Registered ${r.registered ?? 0} webhook(s) — Asana changes now stream in live.`);
+      setMsg(`Registered ${r.registered ?? 0} webhook(s) - Asana changes now stream in live.`);
       load();
     } catch (e) { setErr(e.message || String(e)); } finally { setBusy(''); }
   };
@@ -400,7 +442,7 @@ function AsanaSyncPanel({ store }) {
   };
 
   // Duplicate cleanup: dry run first (reports the count), then the same button
-  // applies it. Merges tasks that all point at one Asana task — see
+  // applies it. Merges tasks that all point at one Asana task - see
   // asana_sync.dedupe_tasks.
   const dedupe = async (apply) => {
     setErr(''); setMsg(''); setBusy('dedupe');
@@ -429,12 +471,12 @@ function AsanaSyncPanel({ store }) {
   const projects = store.projects || [];
   return (
     <div>
-      {/* Setup — its own section, above the detailed sync config. Three
+      {/* Setup - its own section, above the detailed sync config. Three
           independent, individually re-runnable steps, each showing whether it's
           already done, so a half-finished setup is obvious at a glance. */}
       <SectionHead title="Setup" hint="Get Asana connected in three steps. Each one is independent and safe to re-run." />
       <div style={{ ...card, padding: 16, maxWidth: 640, marginBottom: 22 }}>
-        <Field label={`Setup token ${cfg.hasSetupToken ? '(set — leave blank to keep)' : '(optional — defaults to the service token below)'}`}>
+        <Field label={`Setup token ${cfg.hasSetupToken ? '(set - leave blank to keep)' : '(optional - defaults to the service token below)'}`}>
           <div style={{ display: 'flex', gap: 8 }}>
             <input type="password" value={setupToken} onChange={(e) => setSetupToken(e.target.value)}
               placeholder={cfg.hasSetupToken ? '•••••• set' : '1/… Asana PAT used only for setup'}
@@ -451,9 +493,9 @@ function AsanaSyncPanel({ store }) {
         </Field>
 
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginTop: 4 }}>
-          <button onClick={importAll} disabled={(!cfg.hasToken && !cfg.hasSetupToken) || !!busy}
+          <button onClick={importAll} disabled={(!cfg.hasToken && !cfg.hasSetupToken) || !!busy || !!importJob}
             title={(cfg.hasToken || cfg.hasSetupToken) ? '' : 'Save a token first'} style={btn('outline')}>
-            <FolderPlus size={14} />{busy === 'importall' ? 'Importing…' : '1 · Import all projects'}
+            <FolderPlus size={14} />{importJob ? 'Importing…' : '1 · Import All Projects'}
           </button>
           <button onClick={toggleSync} disabled={!cfg.hasToken || !!busy}
             title={cfg.enabled ? 'Click to turn sync off' : 'Click to turn sync on'}
@@ -465,15 +507,43 @@ function AsanaSyncPanel({ store }) {
           </button>
           <button onClick={setupWebhooks} disabled={(!cfg.hasToken && !cfg.hasSetupToken) || !!busy || (!hookEnv.publicBase && !targetBase.trim())}
             title={!hookEnv.publicBase && !targetBase.trim()
-              ? 'Needs a public API URL — run this from the deployed site'
+              ? 'Needs a public API URL - run this from the deployed site'
               : ''} style={hooks.length ? { ...btn('outline'), color: NX.green, borderColor: NX.green } : btn('outline')}>
             {hooks.length ? <CheckCircle2 size={14} /> : <Zap size={14} />}
-            {busy === 'hooks' ? 'Registering…' : (hooks.length ? `3 · ${hooks.length} webhook(s) live` : '3 · Register webhooks')}
+            {busy === 'hooks' ? 'Registering…' : (hooks.length ? `3 · ${hooks.length} webhook(s) live` : '3 · Register Webhooks')}
           </button>
         </div>
+        {importJob && (
+          // Progress comes from the server, so this survives a page reload and
+          // shows the same state to anyone else watching.
+          <div style={{ marginTop: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12, color: NX.dim, marginBottom: 5 }}>
+              <span>{importJob.cancelling
+                ? `Stopping after ${importJob.current || 'this project'}…`
+                : (importJob.current ? `Importing ${importJob.current}` : 'Listing projects in Asana')}</span>
+              <span style={{ marginLeft: 'auto' }}>{importJob.total ? `${importJob.done} of ${importJob.total}` : ''}</span>
+              <button onClick={cancelImport} disabled={importJob.cancelling}
+                style={{ ...btn('outline'), height: 24, fontSize: 11.5, padding: '0 9px',
+                         opacity: importJob.cancelling ? 0.5 : 1 }}>
+                {importJob.cancelling ? 'Stopping…' : 'Cancel'}
+              </button>
+            </div>
+            <div style={{ height: 6, borderRadius: 999, background: NX.border, overflow: 'hidden' }}>
+              <div style={{
+                height: '100%', borderRadius: 999, background: NX.primary,
+                width: importJob.total ? `${Math.round((importJob.done / importJob.total) * 100)}%` : '15%',
+                transition: 'width 0.4s ease',
+              }} />
+            </div>
+            <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 6 }}>
+              This runs on the server. You can leave this page; the import keeps going.
+              Cancelling stops it after the current project and keeps everything already imported.
+            </div>
+          </div>
+        )}
         <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 8, lineHeight: 1.55 }}>
-          <b>Import</b> creates and maps a Nexus project for every Asana project the token can see —
-          additive, so re-running tops them up and never deletes. <b>Sync</b> toggles the 5-minute pull
+          <b>Import</b> creates and maps a Nexus project for every Asana project the token can see -
+          additive, so re-running tops them up and never deletes. <b>Sync</b> toggles the 2-minute pull
           and automatic pushes; turning it off stops both immediately, and manual Pull / Push all still
           work. <b>Webhooks</b> add live streaming and need a public API URL, so they only register from
           the deployed site.
@@ -495,10 +565,10 @@ function AsanaSyncPanel({ store }) {
           <span style={{ color: NX.faint }}>
             {cfg.deleteSync
               ? 'deleting a task on either side deletes it on the other'
-              : 'off — a deleted task is only unlinked, never removed'}
+              : 'off - a deleted task is only unlinked, never removed'}
           </span>
         </label>
-        <Field label={`Service token ${cfg.hasToken ? '(set — leave blank to keep)' : '(required)'}`}>
+        <Field label={`Service token ${cfg.hasToken ? '(set - leave blank to keep)' : '(required)'}`}>
           <div style={{ display: 'flex', gap: 8 }}>
             <input type="password" value={token} onChange={(e) => setToken(e.target.value)} placeholder={cfg.hasToken ? '•••••• set' : '1/… Asana PAT with write access'} style={{ ...inputStyle, flex: 1 }} autoComplete="off" />
             <button onClick={() => saveConfig({ token })} disabled={!token.trim() || busy === 'config'} style={{ ...btn('outline'), flexShrink: 0 }}>Save token</button>
@@ -527,7 +597,7 @@ function AsanaSyncPanel({ store }) {
                 <span style={{ flex: 1, minWidth: 0, fontSize: 13, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
                 {asanaProjects ? (
                   <select value={map[p.id] || ''} onChange={(e) => setMap((m) => ({ ...m, [p.id]: e.target.value }))} style={{ ...inputStyle, appearance: 'auto', cursor: 'pointer', width: 230, padding: '5px 8px', fontSize: 12 }}>
-                    <option value="">— not synced —</option>
+                    <option value="">- not synced -</option>
                     {asanaProjects.map((ap) => <option key={ap.gid} value={ap.gid}>{ap.name}</option>)}
                   </select>
                 ) : (
@@ -583,7 +653,7 @@ function AsanaSyncPanel({ store }) {
         {/* Real-time inbound via Asana webhooks (needs a public API URL) */}
         <div style={{ borderTop: `1px solid ${NX.border2}`, marginTop: 16, paddingTop: 14 }}>
           <div style={{ fontSize: 12.5, fontWeight: 700, color: NX.dim, marginBottom: 8 }}>Real-time (webhooks)</div>
-          <Field label={hookEnv.publicBase ? 'Public API base URL (override — blank uses this API)' : 'Public API base URL (Asana must reach it)'}>
+          <Field label={hookEnv.publicBase ? 'Public API base URL (override - blank uses this API)' : 'Public API base URL (Asana must reach it)'}>
             <div style={{ display: 'flex', gap: 8 }}>
               <input value={targetBase} onChange={(e) => setTargetBase(e.target.value)} placeholder={hookEnv.publicBase || 'https://your-public-api-host'} style={{ ...inputStyle, flex: 1 }} />
               <button onClick={() => webhooks('register')} disabled={(!hookEnv.publicBase && !targetBase.trim()) || !!busy} style={{ ...btn('outline'), flexShrink: 0 }}>{busy === 'register' ? 'Registering…' : 'Register'}</button>
@@ -591,30 +661,30 @@ function AsanaSyncPanel({ store }) {
             </div>
           </Field>
           <div style={{ fontSize: 12, color: hooks.length ? NX.green : NX.faint }}>
-            {hooks.length ? `✓ ${hooks.length} active webhook(s) — Asana changes stream in live.` : 'No webhooks — inbound relies on the auto-pull + manual Pull.'}
+            {hooks.length ? `✓ ${hooks.length} active webhook(s) - Asana changes stream in live.` : 'No webhooks - inbound relies on the auto-pull + manual Pull.'}
           </div>
           <div style={{ fontSize: 11, color: NX.faint, marginTop: 4 }}>
             {hookEnv.publicBase
-              ? `Registers against ${hookEnv.publicBase} — leave the field blank unless you're pointing Asana somewhere else.`
+              ? `Registers against ${hookEnv.publicBase} - leave the field blank unless you're pointing Asana somewhere else.`
               : 'This API has no public URL, so Asana can’t reach it. Register from the deployed dev/prod site, or paste a public tunnel URL.'}
           </div>
           {!hookEnv.isSyncWorker && (
             <div style={{ fontSize: 11, color: NX.amber, marginTop: 6 }}>
-              Background sync is off in this backend — automatic push and the periodic pull only run on the deployed API, so one instance owns the shared Asana workspace. “Push all” and “Pull” below still work from here.
+              Background sync is off in this backend - automatic push and the periodic pull only run on the deployed API, so one instance owns the shared Asana workspace. “Push all” and “Pull” below still work from here.
             </div>
           )}
         </div>
 
         <div style={{ marginTop: 12, fontSize: 11.5, color: NX.faint }}>
           Syncs both ways: title · description · start &amp; due date · status · priority · done · assignee · followers · tags · section · milestone · subtasks · dependencies · comments · attachments, plus Asana’s activity history inbound.
-          On the deployed API inbound is live via webhooks with a 5-min auto-pull fallback, and a 15-min push sweep re-sends anything an edit-time push missed. Locally nothing runs automatically — use “Pull” and “Push all”.
+          On the deployed API inbound is live via webhooks with a 5-min auto-pull fallback, and a 15-min push sweep re-sends anything an edit-time push missed. Locally nothing runs automatically - use “Pull” and “Push all”.
         </div>
       </div>
     </div>
   );
 }
 
-// ── 0. Teams — creation lives here (Manage-only); Teams page browses/edits ──
+// ── 0. Teams - creation lives here (Manage-only); Teams page browses/edits ──
 function TeamsTab({ store }) {
   const { teams, tasks, nameOf, deleteTeam, projects } = store;
   const [editing, setEditing] = useState(null); // {} for new, team object to edit, null closed
@@ -631,7 +701,7 @@ function TeamsTab({ store }) {
         setFill(r);
         setFillMsg(r.filled
           ? `${r.filled} task(s) across ${r.projects} project(s) would get their project's team. Click again to apply.`
-          : 'Nothing to fill in — every task already has a team, or its project has none (or more than one).');
+          : 'Nothing to fill in - every task already has a team, or its project has none (or more than one).');
       } else {
         setFill(null);
         await store.refresh?.();
@@ -652,7 +722,7 @@ function TeamsTab({ store }) {
       <SectionHead title="Teams" hint="Create and manage the teams members are grouped into. A team can serve several projects."
         action={<button style={btn('primary')} onClick={() => setEditing({})}><Plus size={15} />New Team</button>} />
 
-      {/* Tasks created before a project had a team show "—" forever, because
+      {/* Tasks created before a project had a team show "-" forever, because
           nothing ever set team_id. This fills those in from the project. */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginBottom: 14 }}>
         <button onClick={() => backfill(!!(fill && fill.filled))} disabled={fillBusy}
@@ -661,7 +731,7 @@ function TeamsTab({ store }) {
         </button>
         <span style={{ fontSize: 11.5, color: NX.faint, flex: 1, minWidth: 240 }}>
           Sets the Team on tasks that have none, in projects with exactly one team. Never overwrites a
-          team already chosen, and skips projects with several — there'd be no right answer.
+          team already chosen, and skips projects with several - there'd be no right answer.
         </span>
       </div>
       {fillMsg && <div style={{ fontSize: 12.5, color: NX.dim, marginBottom: 12 }}>{fillMsg}</div>}
@@ -744,7 +814,7 @@ function RulesTab({ store }) {
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 13.5, fontWeight: 700 }}>{r.name}</div>
             <div style={{ fontSize: 12, color: NX.dim, marginTop: 1 }}>
-              {describeTrigger(r.trigger)} → {(r.actions || []).map(describeAction).join(', ') || '—'}
+              {describeTrigger(r.trigger)} → {(r.actions || []).map(describeAction).join(', ') || '-'}
             </div>
           </div>
           <Toggle on={!!r.enabled} onChange={() => updateRule(r.id, { enabled: !r.enabled })} />
@@ -962,7 +1032,7 @@ function FieldModal({ projects = [], onClose, onSave }) {
               <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                 <input value={o.label} onChange={(e) => setOpt(i, { label: e.target.value })} placeholder={`Option ${i + 1}`} style={{ ...inputStyle, flex: 1 }} />
                 {/* Colors are what make a select readable at a glance in the list
-                    view — the same reason Asana colors its option chips. */}
+                    view - the same reason Asana colors its option chips. */}
                 <div style={{ display: 'flex', gap: 3 }}>
                   {FIELD_OPTION_COLORS.slice(0, 6).map((c) => (
                     <button key={c} type="button" title={c} onClick={() => setOpt(i, { color: c })}
@@ -1067,7 +1137,7 @@ function TemplatesTab({ store }) {
     <div>
       <SectionHead
         title="Templates"
-        hint="Reusable task blueprints — default fields plus a pre-built subtask list."
+        hint="Reusable task blueprints - default fields plus a pre-built subtask list."
         action={<button style={btn('primary')} onClick={() => setAdding(true)}><Plus size={15} />New Template</button>}
       />
       {templates.length === 0 ? (
@@ -1344,7 +1414,7 @@ function ReportingTab({ store }) {
       store.statusMeta[t.status]?.label || t.status || '',
       PRIORITY_META[t.priority]?.label || t.priority || '',
       t.assigneeId ? nameOf(t.assigneeId) : 'Unassigned',
-      t.projectId ? (projectName(t.projectId) || '—') : '—',
+      t.projectId ? (projectName(t.projectId) || '-') : '-',
       t.dueOn || '',
     ]);
     downloadCSV(`task-report-${new Date().toISOString().slice(0, 10)}.csv`, headers, rows);

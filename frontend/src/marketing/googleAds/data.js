@@ -32,7 +32,7 @@ function daysInMonth(year, monthIndex) {
 
 // Builds rows already shaped like a real Google Ads API GoogleAdsRow, so the
 // only thing a real integration needs to change is where these rows come
-// from — the shape downstream code consumes is identical either way.
+// from - the shape downstream code consumes is identical either way.
 function generateMonth(year, monthIndex, targets, seedBase) {
   const dim = daysInMonth(year, monthIndex)
   const impressions = distribute(dim, targets.impressions, seedBase + 1)

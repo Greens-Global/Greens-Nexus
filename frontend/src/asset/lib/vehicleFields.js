@@ -1,5 +1,5 @@
 // Vehicle and Equipment spec-sheet schemas. Unlike properties (PT, which reads/writes through
-// a `snapshot` group array keyed by label), vehicles and equipment are FLAT — every field here
+// a `snapshot` group array keyed by label), vehicles and equipment are FLAT - every field here
 // maps directly to a top-level field on the asset record via `k`. `{ sec: 'Group Name' }` entries
 // are section-header markers, not fields.
 //
@@ -33,7 +33,7 @@ export const VEHICLE_FIELDS = [
   { k: 'titleNumber', label: 'Title #' },
 
   // Note: there used to be a "Service & Maintenance" section here (serviceIntervalMi,
-  // nextServiceMi, lastServiceDate, nextServiceDate) — removed as dead/redundant. Real service
+  // nextServiceMi, lastServiceDate, nextServiceDate) - removed as dead/redundant. Real service
   // tracking lives exclusively in the Service & Maintenance TAB (see vservice collection +
   // RecommendedMaintenance), not in the Overview spec sheet.
 

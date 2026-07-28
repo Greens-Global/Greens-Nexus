@@ -1,4 +1,4 @@
-// Task Module — the Tasks workspace: toolbar (search / group / view-kind) + the
+// Task Module - the Tasks workspace: toolbar (search / group / view-kind) + the
 // List and Board views + bulk action bar. Owns the shared view state, mirroring
 // the export's viewContext. Calendar/Timeline/Dashboard live in ./views/extras.
 import { useMemo, useState } from 'react';
@@ -6,7 +6,7 @@ import { List, Columns3, Calendar as CalIcon, GanttChart, LayoutDashboard, Paper
 import { useTasks } from './TasksContext';
 import { useRole } from '../contexts/RoleContext';
 import { EMPTY_FILTER, matchesFilter, topLevel, sortTasks, groupTasks, taskStats, taskIdFromUrl, fieldsForProject, cfKey } from './lib';
-import { NX, FONT, btn, input as inputStyle, STATUS_ORDER, STATUS_META, chip } from './theme';
+import { NX, FONT, btn, CONTROL_H, CONTROL_FS, CONTROL_ICON, input as inputStyle, STATUS_ORDER, STATUS_META, chip } from './theme';
 import { Avatar, StatusChip, PriorityChip, EmptyState, usePeople, useIsMobile, ProjectAccessButton } from './components';
 import CreateTaskModal from './CreateTaskModal';
 import QuickCreateTask from './QuickCreateTask';
@@ -37,7 +37,7 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
   const [hiddenCols, setHiddenCols] = useHiddenCols();
   const { can } = useRole();
   // Workload visibility:
-  //  • Never on the project task view (lockedProjectId set) — removed per request.
+  //  • Never on the project task view (lockedProjectId set) - removed per request.
   //  • Elsewhere (e.g. the Manage → Task List embed): management/oversight view,
   //    shown only to manage access (manager+), matching the ChangelogView convention.
   const canManage = !!can?.('manager');
@@ -62,7 +62,7 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
     projectIds: lockedProjectId ? [lockedProjectId] : filters.projectIds,
     assigneeIds: mine && myEmail ? [myEmail] : filters.assigneeIds,
   };
-  // Fields in play here — drives the Group/Sort/Filter menus below as well as
+  // Fields in play here - drives the Group/Sort/Filter menus below as well as
   // the columns, so all four offer exactly the same set.
   const activeFields = useMemo(
     () => fieldsForProject(store.customFields || [], lockedProjectId),
@@ -77,8 +77,15 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
     if (v.filters) setFilters({ ...EMPTY_FILTER, ...v.filters });
     if (v.sort) setSort(v.sort);
     if (v.group) setGroup(v.group);
+    // setView, not switchView: a saved view carries its own filters and must
+    // not have them wiped by the tab change it asks for.
     if (v.view) setView(v.view);
   };
+
+  // Switching tabs starts clean. A filter set in List used to follow you into
+  // Board, where the panel is out of sight, so the missing rows read as lost
+  // data rather than a filter still doing its job.
+  const switchView = (next) => { setView(next); setFilters(EMPTY_FILTER); };
   const stats = useMemo(() => taskStats(visible), [visible]);
 
   const toggleSel = (id) => setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
@@ -90,7 +97,7 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
   });
   const ctx = { nameOf, projectName, teamName, customFields: activeFields };
   const lockedProject = lockedProjectId ? projectById(lockedProjectId) : null;
-  // Only select fields can group or sort meaningfully — a free-text field would
+  // Only select fields can group or sort meaningfully - a free-text field would
   // make one group per distinct string.
   const groupableFields = activeFields.filter((f) => f.type === 'select');
   const groupOptions = [
@@ -103,7 +110,7 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
 
   return (
     <div style={{ fontFamily: FONT, color: NX.ink, display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%', background: NX.canvas }}>
-      {/* Row 1 — back to Projects + project name/team, New task on the right */}
+      {/* Row 1 - back to Projects + project name/team, New task on the right */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 20px 12px', flexWrap: 'wrap', background: NX.surface }}>
         {onBack && (
           <button onClick={onBack} title="Back" aria-label="Back" style={{ ...btn('ghost'), padding: 6, marginLeft: -6, color: NX.dim }}><ArrowLeft size={18} /></button>
@@ -125,12 +132,12 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
         )}
       </div>
 
-      {/* Row 2 — view tabs + search & filters (desktop). Mobile: replaced by the floating MobileTaskBar. */}
+      {/* Row 2 - view tabs + search & filters (desktop). Mobile: replaced by the floating MobileTaskBar. */}
       {!isMobile && (
       <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 12, padding: '0 20px 12px', borderBottom: `1px solid ${NX.border}`, background: NX.surface, overflowX: 'visible' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 2, background: NX.border2, borderRadius: 9, padding: 2, flexShrink: 0, maxWidth: '100%', overflowX: 'visible' }}>
           {viewKinds.map((v) => (
-            <button key={v.key} onClick={() => setView(v.key)} title={v.label} style={{
+            <button key={v.key} onClick={() => switchView(v.key)} title={v.label} style={{
               ...btn('ghost'), padding: '6px 10px', borderRadius: 7, whiteSpace: 'nowrap',
               background: view === v.key ? NX.surface : 'transparent', color: view === v.key ? NX.ink : NX.dim,
               boxShadow: view === v.key ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
@@ -138,9 +145,9 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
           ))}
         </div>
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-          <div style={{ position: 'relative', width: 220 }}>
-            <Search size={15} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: NX.faint }} />
-            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search tasks…" style={{ ...inputStyle, paddingLeft: 32 }} />
+          <div style={{ position: 'relative', width: 143 }}>
+            <Search size={CONTROL_ICON} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: NX.faint }} />
+            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search tasks…" style={{ ...inputStyle, paddingLeft: 28, height: CONTROL_H, fontSize: CONTROL_FS, padding: '0 10px 0 28px' }} />
           </div>
           <ProductivityBar
             filters={filters} setFilters={setFilters} sort={sort} setSort={setSort}
@@ -149,7 +156,7 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
             customFields={activeFields} sortFieldOptions={sortFieldOptions}
             groupOptions={(view === 'list' || view === 'board') ? groupOptions : null}
           />
-          {/* Column controls belong to the List view only — they'd have nothing
+          {/* Column controls belong to the List view only - they'd have nothing
               to act on in Board/Calendar/Timeline. */}
           {view === 'list' && (
             <ListColumnControls
@@ -211,9 +218,9 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
             <option value="" disabled>Priority…</option>
             {['urgent', 'high', 'medium', 'low'].map((p) => <option key={p} value={p} style={{ color: NX.ink }}>{p[0].toUpperCase() + p.slice(1)}</option>)}
           </select>
-          <select onChange={(e) => { if (e.target.value) { bulkUpdate([...selected], { assigneeId: e.target.value === '—' ? '' : e.target.value }); clearSel(); } }} defaultValue="" style={selStyle}>
+          <select onChange={(e) => { if (e.target.value) { bulkUpdate([...selected], { assigneeId: e.target.value === '-' ? '' : e.target.value }); clearSel(); } }} defaultValue="" style={selStyle}>
             <option value="" disabled>Assign…</option>
-            <option value="—" style={{ color: NX.ink }}>Unassigned</option>
+            <option value="-" style={{ color: NX.ink }}>Unassigned</option>
             {people.map((p) => <option key={p.email} value={p.email} style={{ color: NX.ink }}>{p.name}</option>)}
           </select>
           <button onClick={duplicate} title="Duplicate the selected tasks" style={{ ...btn('ghost'), color: '#fff' }}><Copy size={14} />Duplicate</button>
@@ -225,7 +232,7 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
 
       {isMobile && (
         <MobileTaskBar
-          views={viewKinds} view={view} setView={setView}
+          views={viewKinds} view={view} setView={switchView}
           onCreate={() => openCreate({ projectId: lockedProjectId || '' })}
           filterSheet={(onClose) => (
             <MobileFilters
@@ -277,7 +284,7 @@ function TaskRow({ t, store, selected, toggleSel, onOpen }) {
       {t.assigneeId ? <Avatar email={t.assigneeId} name={nameOf(t.assigneeId)} size={24} /> : <span style={{ width: 24 }} />}
       <PriorityChip priority={t.priority} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <span style={{ fontSize: 12, color: overdue ? NX.red : NX.dim, fontWeight: overdue ? 600 : 400, minWidth: 74, textAlign: 'right' }}>{t.dueOn || '—'}</span>
+        <span style={{ fontSize: 12, color: overdue ? NX.red : NX.dim, fontWeight: overdue ? 600 : 400, minWidth: 74, textAlign: 'right' }}>{t.dueOn || '-'}</span>
         <StatusChip status={t.status} />
       </div>
     </div>

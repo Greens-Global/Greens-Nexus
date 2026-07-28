@@ -49,8 +49,8 @@ def _get_public_key(token: str):
 _LEVELS = {"employee": 1, "supervisor": 2, "manager": 3, "administrator": 4, "owner": 5}
 
 # get_current_user runs on every single API request (it's a dependency of every
-# router), so an uncached _role_for meant every request — regardless of which
-# endpoint it hit — did a DB round trip just to resolve the caller's role.
+# router), so an uncached _role_for meant every request - regardless of which
+# endpoint it hit - did a DB round trip just to resolve the caller's role.
 # Under load that was a huge multiplier on connection-pool pressure for data
 # that changes only via rare admin actions. Cache it for a short, safe TTL.
 _ROLE_CACHE_TTL = 120.0
@@ -81,13 +81,14 @@ def invalidate_role_cache(email: str | None = None) -> None:
 
 def get_current_user(
     authorization: str = Header(default=None),
+    x_act_as_session: str = Header(default=None, alias="X-Act-As-Session"),
 ) -> dict:
     """
     FastAPI dependency. Validates the Azure AD ID token from the Authorization
     header, returns {email, role, level}. Set NEXUS_SKIP_AUTH=true to bypass
     in local development (never set in production).
 
-    Deliberately does NOT take `db: Session = Depends(get_db)` — that would
+    Deliberately does NOT take `db: Session = Depends(get_db)` - that would
     check out a pooled connection for every request, including ones rejected
     for a missing/expired/malformed token before any DB access is needed. Under
     load, that turned auth rejections into pool-contention bottlenecks too. A
@@ -138,13 +139,32 @@ def get_current_user(
     # the same ~180 employees re-authenticate on every request they make).
     cached = _role_cache.get(email)
     if cached and time.time() - cached[2] < _ROLE_CACHE_TTL:
-        return {"email": email, "role": cached[0], "level": cached[1]}
+        role, level = cached[0], cached[1]
+    else:
+        db = SessionLocal()
+        try:
+            role, level = _role_for(email, db)
+        finally:
+            db.close()
 
-    db = SessionLocal()
-    try:
-        role, level = _role_for(email, db)
-    finally:
-        db.close()
+    # Act As overlay (Jul 2026): a Manager/IT Admin/Global Admin running an
+    # active impersonation session sees business logic run as the TARGET -
+    # same permission checks, notifications, and ownership fields, scoped to
+    # whatever the target could do (act_as.start_session only ever allows
+    # acting as someone strictly below the real actor's role, so this can
+    # narrow access here, never grant anything extra). Only opens a second DB
+    # connection when the header is actually present - i.e. only while someone
+    # is actively acting as someone else, not on every request.
+    if x_act_as_session:
+        from act_as import resolve_target
+        db2 = SessionLocal()
+        try:
+            target = resolve_target(x_act_as_session, email, db2)
+        finally:
+            db2.close()
+        if target:
+            return target
+
     return {"email": email, "role": role, "level": level}
 
 
@@ -165,7 +185,7 @@ require_owner         = require_level(5)
 
 # Per-module permission levels an Access Group can grant (mirrors the
 # folder-permission pattern: each grant carries both visibility AND a level of
-# capability, decided together in one place — Viewer/Editor/Full/Owner).
+# capability, decided together in one place - Viewer/Editor/Full/Owner).
 # Rank order matters: a higher level always implies everything lower grants.
 MODULE_LEVELS = ("viewer", "editor", "full", "owner")
 _MODULE_LEVEL_RANK = {lvl: i + 1 for i, lvl in enumerate(MODULE_LEVELS)}
@@ -173,7 +193,7 @@ _MODULE_LEVEL_RANK = {lvl: i + 1 for i, lvl in enumerate(MODULE_LEVELS)}
 
 def _module_level(email: str, module_id: str, db: Session) -> int:
     """Highest permission-level rank any Access Group grants this user for
-    `module_id` (0 if none) — mirrors the frontend's myGrantedModules
+    `module_id` (0 if none) - mirrors the frontend's myGrantedModules
     (RoleContext.jsx), which stores the same per-module level per group."""
     from models import NexusGroup, NexusGroupMember
 
@@ -195,7 +215,7 @@ def _module_level(email: str, module_id: str, db: Session) -> int:
 def require_level_or_module(min_level: int, module_id: str, min_module_level: str):
     """Returns a dependency admitting users at/above `min_level` globally, OR
     anyone whose Access Group grants at least `min_module_level` for
-    `module_id` — lets a group's scoped grant raise someone's capability for
+    `module_id` - lets a group's scoped grant raise someone's capability for
     that module specifically, without elevating their role anywhere else.
     Purely additive: never narrows what `min_level` alone would already allow."""
     threshold = _MODULE_LEVEL_RANK[min_module_level]
@@ -209,11 +229,11 @@ def require_level_or_module(min_level: int, module_id: str, min_module_level: st
 
 def require_module_grant(module_id: str, min_module_level: str = "viewer", bypass_level: str = "administrator"):
     """Grant-driven access (Jun 17): admits admins at/above `bypass_level`
-    (administrator by default — they manage every screen), OR anyone whose Access
+    (administrator by default - they manage every screen), OR anyone whose Access
     Group grants at least `min_module_level` for `module_id`.
 
     Unlike require_level_or_module, a supervisor/manager role does NOT by itself
-    open the module — only an explicit Access Group grant does. This mirrors the
+    open the module - only an explicit Access Group grant does. This mirrors the
     frontend's grant-driven sidebar/route visibility so a screen hidden in the UI
     is also blocked at the API (UI hiding alone is not a security boundary)."""
     threshold = _MODULE_LEVEL_RANK[min_module_level]
@@ -234,7 +254,7 @@ def scoped_ids(email: str, module_id: str, db: Session):
 
     Any user WITH scope rows for the module is restricted to them. A user with
     none is unrestricted UNLESS they are identity_type='external', who then see
-    nothing — least-privilege by default so a misconfigured external can never
+    nothing - least-privilege by default so a misconfigured external can never
     see every row. Callers apply the returned set as a WHERE scope_id IN (...)
     filter; a None result means apply no filter. Example:
 

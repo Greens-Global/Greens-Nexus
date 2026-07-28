@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { api } from '../api';
 
-// My HR — employee self-service. Shows ONLY the signed-in person's own record:
+// My HR - employee self-service. Shows ONLY the signed-in person's own record:
 // profile (with self-service contact edits), hours graph, equipment, sealed
 // e-sign documents, paystubs, leave, and an "Ask HR" request channel.
 // The HR module remains the HR team's admin console; this screen is baseline.
@@ -28,11 +28,11 @@ const ASK_TYPES = [
   ['question', 'Question for HR'], ['other', 'Something else'],
 ];
 
-const fmtD = (iso) => iso ? new Date(iso + (iso.length === 10 ? 'T00:00:00' : '')).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
+const fmtD = (iso) => iso ? new Date(iso + (iso.length === 10 ? 'T00:00:00' : '')).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '-';
 const hm = (min) => `${Math.floor((min || 0) / 60)}h ${String((min || 0) % 60).padStart(2, '0')}m`;
-const fmtT = (v) => !v ? '—' : (String(v).includes('T') ? new Date(v).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : v);
+const fmtT = (v) => !v ? '-' : (String(v).includes('T') ? new Date(v).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : v);
 
-// Hours range filter — start/end in local time, ISO date keys.
+// Hours range filter - start/end in local time, ISO date keys.
 const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const HOUR_RANGES = [
   ['week',     'This week'],
@@ -62,16 +62,62 @@ function Row({ Icon, label, value }) {
   );
 }
 
-function Stat({ label, value, hint, color, Icon }) {
+// Stat tile - the shared dk-stat anatomy (tinted icon chip, big tabular
+// numeral) so My HR reads like Home/People. `hero` = the one solid brand tile.
+function Stat({ label, value, hint, color, Icon, hero }) {
   return (
-    <div className="kpi-card" style={{ position: 'relative', overflow: 'hidden' }}>
-      <div style={{ position: 'absolute', top: -30, right: -30, width: 100, height: 100, borderRadius: '50%', background: `hsla(var(--color-${color}),0.09)`, pointerEvents: 'none' }} />
-      <div className="kpi-card-header" style={{ marginBottom: 0 }}>
-        <span className="kpi-label">{label}</span>
-        <div className="kpi-icon-container" style={{ width: 34, height: 34, borderRadius: 10, background: `hsla(var(--color-${color}),0.14)`, color: `hsl(var(--color-${color}))` }}><Icon size={16} /></div>
+    <div className={`dk-stat${hero ? ' dk-stat--hero' : ''}`} style={{ cursor: 'default' }}>
+      <span className="dk-stat-top">
+        <span className={`dk-chip dk-chip--${color}`}><Icon /></span>
+      </span>
+      <span className="dk-stat-num">{value}</span>
+      <span className="dk-stat-label">{label}</span>
+      <span className="dk-stat-sub">{hint}</span>
+    </div>
+  );
+}
+
+// Approved leave this year as a small kit donut (2px gaps, center total) with
+// a per-type legend - real request data only; hidden when there's none.
+const LEAVE_COLORS = { vacation: '#2b45e1', sick: '#dc7a18', personal: '#248f4b', unpaid: '#8a31c9', other: '#b8860b' };
+function LeaveDonut({ leave }) {
+  const yr = String(new Date().getFullYear());
+  const daySpan = (r) => { const a = new Date(r.startDate || r.start_date), b = new Date(r.endDate || r.end_date); return isNaN(a) || isNaN(b) ? 0 : Math.round((b - a) / 86400000) + 1; };
+  const byType = {};
+  leave.filter(r => r.status === 'approved' && String(r.startDate || r.start_date || '').startsWith(yr))
+    .forEach(r => { byType[r.type] = (byType[r.type] || 0) + daySpan(r); });
+  const entries = Object.entries(byType).sort((a, b) => b[1] - a[1]);
+  const total = entries.reduce((s, [, n]) => s + n, 0);
+  if (!total) return null;
+  const R = 34, SW = 10, C = 2 * Math.PI * R;
+  let acc = 0;
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 18, padding: '6px 0 12px', borderBottom: '1px solid var(--line)', marginBottom: 8 }}>
+      <div style={{ position: 'relative', width: 88, height: 88, flexShrink: 0 }}>
+        <svg width={88} height={88} style={{ transform: 'rotate(-90deg)' }}>
+          <circle cx={44} cy={44} r={R} fill="none" stroke="var(--mist)" strokeWidth={SW} />
+          {entries.map(([t, n]) => {
+            const frac = n / total;
+            const dash = Math.max(0.5, frac * C - 2.5);
+            const off = -acc * C; acc += frac;
+            return <circle key={t} cx={44} cy={44} r={R} fill="none" stroke={LEAVE_COLORS[t] || '#6b7280'} strokeWidth={SW}
+              strokeDasharray={`${dash} ${C - dash}`} strokeDashoffset={off} />;
+          })}
+        </svg>
+        <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+          <span style={{ fontSize: 17, fontWeight: 700, fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>{total}d</span>
+          <span style={{ fontSize: 9.5, fontWeight: 600, color: 'var(--muted)' }}>this year</span>
+        </div>
       </div>
-      <div className="kpi-value" style={{ fontSize: 26, margin: '10px 0 2px' }}>{value}</div>
-      <div className="kpi-delta">{hint}</div>
+      <div style={{ display: 'grid', gap: 5, minWidth: 0 }}>
+        {entries.map(([t, n]) => (
+          <div key={t} style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12 }}>
+            <span style={{ width: 9, height: 9, borderRadius: 3, background: LEAVE_COLORS[t] || '#6b7280', flexShrink: 0 }} />
+            <span style={{ color: 'var(--muted)', fontWeight: 600, textTransform: 'capitalize' }}>{t}</span>
+            <span style={{ fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{n}d</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -116,8 +162,8 @@ function HoursChart({ days, start, end }) {
           return (
             <g key={s.key} onMouseEnter={() => setHov(i)} onMouseLeave={() => setHov(null)}>
               <rect x={x} y={padT} width={bw} height={h - padB - padT} fill="transparent" />
-              <rect x={x} y={y} width={bw} height={bh} rx={4}
-                fill={active ? 'hsl(var(--color-blue))' : 'hsla(var(--color-blue),0.35)'}
+              <rect x={x} y={y} width={bw} height={bh} rx={Math.min(bw / 2, 99)}
+                fill={active ? 'var(--wk-brand)' : '#b9c4f4'}
                 style={{ transition: 'fill 0.15s' }} />
               <text x={x + bw / 2} y={h - 6} textAnchor="middle" fontSize="9.5" fontFamily="Inter,sans-serif"
                 style={{ fill: active ? 'var(--ink)' : 'var(--muted)' }}>{label(s, i)}</text>
@@ -235,7 +281,7 @@ export default function MyHR() {
       setAskForm({ type: 'document', message: '' });
       setAskFile(null);
       if (askFileRef.current) askFileRef.current.value = '';
-      flash('Sent to HR — you’ll hear back here');
+      flash('Sent to HR - you’ll hear back here');
     } catch (e) { flash(e?.message || 'Could not send', false); }
     finally { setAskBusy(false); }
   };
@@ -253,7 +299,7 @@ export default function MyHR() {
       return s + (isNaN(a) || isNaN(b) ? 0 : Math.round((b - a) / 86400000) + 1);
     }, 0);
   const tenure = (() => {
-    if (!profile?.startDate) return '—';
+    if (!profile?.startDate) return '-';
     const days = Math.max(0, Math.round((Date.now() - new Date(profile.startDate + 'T00:00:00')) / 86400000));
     if (days < 31) return `${days}d`;
     if (days < 365) return `${Math.floor(days / 30.44)}mo`;
@@ -276,11 +322,16 @@ export default function MyHR() {
   );
 
   return (
-    <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
+    <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out', fontFamily: 'var(--wk-font)' }}>
       <div className="view-header">
-        <div className="view-title-group">
-          <h2>My HR</h2>
-          <p>Your profile, hours, documents and leave — only you see this</p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+          <span style={{ width: 38, height: 38, borderRadius: 10, background: 'var(--wk-brand-tint)', color: 'var(--wk-brand)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <User size={19} />
+          </span>
+          <div className="view-title-group">
+            <h2>My HR</h2>
+            <p>Your profile, hours, documents and leave - only you see this</p>
+          </div>
         </div>
       </div>
 
@@ -298,15 +349,15 @@ export default function MyHR() {
         <>
           {/* ── Stat tiles ── */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 14, marginBottom: 16 }}>
-            <Stat label={`Hours · ${(HOUR_RANGES.find(([v]) => v === range)?.[1] || '').toLowerCase()}`} value={sheet ? hm(workedTotal) : '…'} hint={`${daysWorked} day${daysWorked === 1 ? '' : 's'} worked`} color="blue" Icon={Clock} />
+            <Stat hero label={`Hours · ${(HOUR_RANGES.find(([v]) => v === range)?.[1] || '').toLowerCase()}`} value={sheet ? hm(workedTotal) : '…'} hint={`${daysWorked} day${daysWorked === 1 ? '' : 's'} worked`} color="blue" Icon={Clock} />
             <Stat label="Leave this year" value={`${leaveDaysThisYear}d`} hint="Approved time off" color="green" Icon={CalendarOff} />
             <Stat label="My documents" value={docs.length} hint="Signed & sealed" color="purple" Icon={FileText} />
             <Stat label="Time at Greens" value={tenure} hint={profile.startDate ? `Since ${fmtD(profile.startDate)}` : ''} color="orange" Icon={Hourglass} />
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16, alignItems: 'start' }}>
+          <div className="myhr-grid">
 
-            {/* ── Column 1: profile ── */}
+            {/* ── Left rail: profile + equipment ── */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               <div className="dash-card">
                 <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 14 }}>
@@ -331,7 +382,7 @@ export default function MyHR() {
                 <Row Icon={Building2} label="Employment" value={(profile.employmentType || '').replace('_', ' ')} />
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '16px 0 2px' }}>
-                  <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', color: 'var(--muted)', textTransform: 'uppercase', flex: 1 }}>Contact & emergency</span>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', flex: 1 }}>Contact & emergency</span>
                   {!editing && (
                     <button className="secondary-btn" onClick={startEdit} style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px' }}>
                       <Pencil size={12} /> Edit
@@ -345,7 +396,7 @@ export default function MyHR() {
                     <Row Icon={Phone} label="Phone" value={profile.phone} />
                     <Row Icon={Heart} label="Emergency" value={em.name ? [em.name, em.relationship && `(${em.relationship})`, em.phone].filter(Boolean).join(' · ') : ''} />
                     {!profile.personalEmail && !profile.phone && !em.name && (
-                      <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '10px 0' }}>Nothing here yet — add your contact details so HR can reach you.</div>
+                      <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '10px 0' }}>Nothing here yet - add your contact details so HR can reach you.</div>
                     )}
                   </div>
                 ) : (
@@ -373,7 +424,7 @@ export default function MyHR() {
                       </button>
                     </div>
                     <p style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 10 }}>
-                      Name, job, department or bank changes go through HR — use "Ask HR" for those.
+                      Name, job, department or bank changes go through HR - use "Ask HR" for those.
                     </p>
                   </div>
                 )}
@@ -416,9 +467,10 @@ export default function MyHR() {
               </div>
             </div>
 
-            {/* ── Column 2: hours graph + documents + paystubs ── */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-              <div className="dash-card">
+            {/* ── Main grid: hours spans both columns, then paired rows whose
+                cards stretch to equal heights (aligned edges by construction) ── */}
+            <div className="myhr-main">
+              <div className="dash-card myhr-span2">
                 {cardHead('My hours', 'Full detail lives in Time Clock',
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
                     <span style={{ fontSize: 12.5, color: 'var(--muted)' }}><strong style={{ color: 'var(--ink)' }}>{sheet ? hm(workedTotal) : '…'}</strong> total</span>
@@ -431,7 +483,13 @@ export default function MyHR() {
                   <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '12px 0' }}>Loading…</div>
                 ) : (
                   <>
-                    <HoursChart days={sheet.days} start={rStart} end={rEnd} />
+                    {workedTotal === 0 ? (
+                      <div style={{ height: 110, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12.5, color: 'var(--muted)', textAlign: 'center', padding: '0 16px' }}>
+                        No hours in this range yet - punch in from Time Clock and they chart here.
+                      </div>
+                    ) : (
+                      <HoursChart days={sheet.days} start={rStart} end={rEnd} />
+                    )}
                     {dayEntries.length > 0 && (
                       <div style={{ marginTop: 8 }}>
                         {dayEntries.sort((a, b) => b[0].localeCompare(a[0])).slice(0, 5).map(([date, d]) => (
@@ -481,7 +539,7 @@ export default function MyHR() {
                       style={{ fontSize: 12, padding: '5px 10px', height: 'auto', width: 130 }} />
                   ) : <Banknote size={15} style={{ color: 'var(--muted)' }} />)}
                 {stubs.length === 0 ? (
-                  <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '14px 0', textAlign: 'center' }}>No paystubs yet — they'll appear here when HR uploads them.</div>
+                  <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '14px 0', textAlign: 'center' }}>No paystubs yet - they'll appear here when HR uploads them.</div>
                 ) : stubs.filter(s => !stubQuery || (s.name || '').toLowerCase().includes(stubQuery.toLowerCase())).map(s => (
                   <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', borderBottom: '1px solid var(--line)' }}>
                     <Banknote size={15} style={{ color: 'hsl(var(--color-green))', flexShrink: 0 }} />
@@ -496,10 +554,7 @@ export default function MyHR() {
                   </div>
                 ))}
               </div>
-            </div>
 
-            {/* ── Column 3: leave + Ask HR ── */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               <div className="dash-card">
                 {cardHead('My leave', 'Time-off requests and their status',
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
@@ -511,7 +566,7 @@ export default function MyHR() {
                       <option value="rejected">Rejected</option>
                     </select>
                     <button className="primary-btn" onClick={() => setLoOpen(o => !o)} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, padding: '6px 12px' }}>
-                      <Plus size={13} /> Request Time Off
+                      <Plus size={13} /> Request time off
                     </button>
                   </span>)}
 
@@ -542,6 +597,7 @@ export default function MyHR() {
                   </div>
                 )}
 
+                {leave.length > 0 && <LeaveDonut leave={leave} />}
                 {leave.length === 0 ? (
                   <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '14px 0', textAlign: 'center' }}>No time-off requests yet.</div>
                 ) : leave.filter(r => leaveFilter === 'all' || r.status === leaveFilter).map(r => (
@@ -567,9 +623,9 @@ export default function MyHR() {
                 </select>
                 <label style={lbl}>Details</label>
                 <textarea className="form-input" rows={3} style={{ ...input, resize: 'vertical' }} value={askForm.message}
-                  placeholder='e.g. "My visa was renewed — please update my right-to-work document."'
+                  placeholder='e.g. "My visa was renewed - please update my right-to-work document."'
                   onChange={e => setAskForm(f => ({ ...f, message: e.target.value }))} />
-                {/* Optional attachment — the new/updated document itself */}
+                {/* Optional attachment - the new/updated document itself */}
                 <input ref={askFileRef} type="file" style={{ display: 'none' }}
                   onChange={e => setAskFile(e.target.files?.[0] || null)} />
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
@@ -592,7 +648,7 @@ export default function MyHR() {
                 {asks.length > 0 && (
                   <div style={{ marginTop: 14 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                      <span style={{ flex: 1, fontSize: 11, fontWeight: 700, letterSpacing: '.06em', color: 'var(--muted)', textTransform: 'uppercase' }}>My requests</span>
+                      <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>My requests</span>
                       <select className="form-input" value={askFilter} onChange={e => setAskFilter(e.target.value)}
                         style={{ fontSize: 11.5, fontWeight: 600, padding: '3px 22px 3px 8px', height: 'auto' }}>
                         <option value="all">All</option>

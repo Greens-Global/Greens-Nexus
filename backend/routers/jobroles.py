@@ -1,10 +1,10 @@
-"""Roles & Access redesign (Jul 2026) — Job Roles.
+"""Roles & Access redesign (Jul 2026) - Job Roles.
 
 A Job Role is a reusable template driven by a person's job description. It is
 stored as an Access Group (nexus_groups) flagged is_job_role=1 that ALSO carries
 a seniority tier + a plain-language description. Assigning a job role to a person:
 
-  * makes them the single member-of-one job-role group (their primary role) —
+  * makes them the single member-of-one job-role group (their primary role) -
     reassigning removes them from any other job-role group, and
   * sets their tier (nexus_roles.role) from the job role's tier.
 
@@ -254,14 +254,14 @@ def assign_job_role(jr_id: str, body: AssignBody, user: dict = Depends(get_curre
     emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == email).first()
     # The job role IS the person's title now (Visesh, Jul 28): the card header
     # showed a stale M365-imported title ("Construction Associate") while the
-    # role said "Marketing Lead". Overwrite deliberately — the M365 sync only
+    # role said "Marketing Lead". Overwrite deliberately - the M365 sync only
     # backfills an EMPTY job_title, so this assignment survives future syncs;
     # "Push to M365" carries it back to Entra when wanted.
     if emp and (jr.name or "").strip():
         emp.job_title = jr.name.strip()
 
     # Role's default manager/approver: copy onto the person's card ONLY if they
-    # have no manager yet — per-person Manager stays the source of truth, so an
+    # have no manager yet - per-person Manager stays the source of truth, so an
     # existing (deliberate) assignment is never clobbered by a role change.
     default_mgr = (getattr(jr, "default_manager_email", "") or "").strip()
     if default_mgr and default_mgr != email:
@@ -308,7 +308,7 @@ def unassign_job_role(jr_id: str, body: AssignBody, user: dict = Depends(get_cur
 def apply_role_manager(jr_id: str, body: ApplyManagerBody,
                        user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
     """Bulk backfill: set `manager_email` (the timesheet approver) on EVERY current
-    member of this job role — the "ten people in one click" path. Overwrites
+    member of this job role - the "ten people in one click" path. Overwrites
     existing managers by design (that's what a backfill is for); individual cards
     can still be changed afterwards, per-person Manager remains the truth."""
     jr = db.query(NexusGroup).filter(NexusGroup.id == jr_id, NexusGroup.is_job_role == 1).first()  # noqa: E712

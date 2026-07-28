@@ -1,9 +1,9 @@
-"""Task Module — organisation router: projects, portfolios, teams, and the
+"""Task Module - organisation router: projects, portfolios, teams, and the
 team member-request workflow. Single router with absolute paths (one include
 in main.py). Email-keyed; serialisers emit the export's runtime shape.
 
 "Team" (TaskTeam) is scoped to ONE project (IT Team/QA Team/... WITHIN a
-project) — not to be confused with a project's `hr_department_id`, which
+project) - not to be confused with a project's `hr_department_id`, which
 points at the real People-module department (HrDepartment) that owns the
 project. Same dual-field shape TaskTicket already uses for this distinction.
 """
@@ -27,7 +27,7 @@ def _nz(v):
 
 def _resolve_hr_department(db: Session, email: str):
     """Auto-populate a project's department from its creator's own People-module
-    record, rather than a manual picker — name-matches NexusEmployee.department
+    record, rather than a manual picker - name-matches NexusEmployee.department
     against that person's company's HrDepartment list (_ensure_departments
     already seeds/backfills that list from employee data). No match (employee
     not found, no department set, etc.) -> ("", ""); a project without a
@@ -85,7 +85,7 @@ def member_request_to_dict(m: models.TaskMemberRequest) -> dict:
 class ProjectBody(BaseModel):
     id: Optional[str] = None
     # Optional so a partial PATCH (e.g. the Share panel updating only
-    # member_roles/access_level) doesn't have to resend the name — same reason
+    # member_roles/access_level) doesn't have to resend the name - same reason
     # TeamBody/PortfolioBody make theirs optional too. Required in practice on
     # create, checked explicitly in create_project below.
     name: Optional[str] = None
@@ -123,7 +123,7 @@ def create_project(body: ProjectBody, user: dict = Depends(get_current_user), db
         member_emails=body.member_emails or [], portfolio_id=body.portfolio_id or "",
         hr_department_id=hr_dept_id, hr_department_name=hr_dept_name,
         # New projects default to 'restricted' (visible only to the owner,
-        # its teams' members, and task assignees) — a stricter default than
+        # its teams' members, and task assignees) - a stricter default than
         # the DB column's own 'org' backfill for pre-existing rows.
         access_level=body.access_level or "restricted",
         status=body.status or "not_started",
@@ -148,7 +148,7 @@ def update_project(project_id: str, body: ProjectBody, user: dict = Depends(get_
     if not p:
         raise HTTPException(404, "Project not found")
     # Renaming, archiving, changing access, or managing who's on the Share
-    # panel are all project-settings actions — Asana's "Project admin" tier,
+    # panel are all project-settings actions - Asana's "Project admin" tier,
     # not "Editor" (which only covers the tasks inside it).
     require_project_role(db, user, p, "owner")
     data = body.model_dump(exclude_unset=True, exclude={"id"})
@@ -158,7 +158,7 @@ def update_project(project_id: str, body: ProjectBody, user: dict = Depends(get_
         if k == "member_roles" and v:
             v = {em.lower(): role for em, role in v.items()}
         setattr(p, k, v)
-    # A role grant is also an access grant — keep member_emails (the flat
+    # A role grant is also an access grant - keep member_emails (the flat
     # "has access at all" list every other visibility check relies on) a
     # superset of member_roles' keys rather than two lists that can drift.
     if "member_roles" in data:
@@ -172,7 +172,7 @@ def update_project(project_id: str, body: ProjectBody, user: dict = Depends(get_
 @router.get("/task-projects/{project_id}/asana-link")
 def project_asana_link(project_id: str, user: dict = Depends(get_current_user),
                        db: Session = Depends(get_db)):
-    """Whether this project is mapped to an Asana project — so the delete dialog
+    """Whether this project is mapped to an Asana project - so the delete dialog
     knows whether to offer "also delete it in Asana" at all, instead of showing
     a choice that would only 400. Owner-gated like the delete it precedes."""
     import asana_sync
@@ -191,7 +191,7 @@ def delete_project(project_id: str, delete_in_asana: bool = False,
     with it, so the same Asana project can be imported again from scratch.
 
     `delete_in_asana` is the caller's explicit answer to "also delete it in
-    Asana?" — default FALSE, because the normal reason to do this is to
+    Asana?" - default FALSE, because the normal reason to do this is to
     re-import from an Asana project that must survive. When true the Asana
     project is deleted FIRST and a failure there aborts the whole thing with
     nothing removed on either side: the alternative (delete Nexus, then fail on
@@ -202,7 +202,7 @@ def delete_project(project_id: str, delete_in_asana: bool = False,
 
     The tasks are now DELETED rather than orphaned. Orphaning them left rows
     with no project and a live AsanaTaskLink, which silently absorbed every
-    later re-import — see asana_sync.purge_project_sync."""
+    later re-import - see asana_sync.purge_project_sync."""
     import asana_sync
     p = db.query(models.TaskProject).filter(models.TaskProject.id == project_id).first()
     if not p:
@@ -215,13 +215,13 @@ def delete_project(project_id: str, delete_in_asana: bool = False,
             raise HTTPException(400, "This project isn't mapped to an Asana project, so there is nothing to delete in Asana.")
         done, err = asana_sync.delete_asana_project(db, gid)
         if not done:
-            raise HTTPException(502, f"Asana refused to delete the project ({err}). Nothing was deleted — try again, or untick 'also delete in Asana'.")
+            raise HTTPException(502, f"Asana refused to delete the project ({err}). Nothing was deleted - try again, or untick 'also delete in Asana'.")
 
     # Tasks + every Asana link + the project map row. Asana itself is untouched
     # by this call (the optional deletion above already happened).
     purged = asana_sync.purge_project_sync(db, project_id, actor=user["email"])
 
-    # Detach the project from its teams. A team shared with other projects survives —
+    # Detach the project from its teams. A team shared with other projects survives -
     # only one that existed solely for THIS project is removed.
     for team in db.query(models.TaskTeam).all():
         ids = team_project_ids(team)
@@ -246,7 +246,7 @@ def backfill_task_teams(apply: bool = False, db: Session = Depends(get_db)):
     """Give tasks the team their project already implies.
 
     A task's `team_id` is really an override of its project's team, but nothing
-    ever set it — so every task created before teams were assigned shows "—" in
+    ever set it - so every task created before teams were assigned shows "-" in
     the Team column even though the project has exactly one team. This fills
     those in.
 
@@ -279,13 +279,13 @@ def backfill_task_teams(apply: bool = False, db: Session = Depends(get_db)):
 def handover_person(db: Session, email: str, to_email: str, include_completed: bool = False,
                     actor: str = "") -> dict:
     """Hand a departing person's task work to someone else. Called by HR
-    offboarding — Tasks stays the single source of truth for these transitions,
+    offboarding - Tasks stays the single source of truth for these transitions,
     the same split routers.items.force_return_person uses for equipment.
     Operates in the CALLER's session (the caller commits); no per-task
     notifications, as this is a bulk admin action.
 
       • Every task assigned to them  -> reassigned to `to_email`.
-      • Their project-less tasks     -> moved into a new "Handover — <name>"
+      • Their project-less tasks     -> moved into a new "Handover - <name>"
                                         project owned by `to_email`.
       • Projects they OWNED          -> owner transferred to `to_email`.
 
@@ -293,7 +293,7 @@ def handover_person(db: Session, email: str, to_email: str, include_completed: b
 
     Tasks that already sit in a project KEEP that project and are only
     reassigned. Moving them would strip live projects of their work to build the
-    handover project — a departing engineer's twenty tasks would vanish out of
+    handover project - a departing engineer's twenty tasks would vanish out of
     the boards their teams are still running. Only genuinely homeless tasks
     (My Tasks items, project_id="") have nowhere else to be, so those are what
     the handover project collects.
@@ -316,7 +316,7 @@ def handover_person(db: Session, email: str, to_email: str, include_completed: b
         tasks = [t for t in tasks if not t.completed]
 
     # Homeless top-level tasks are the only ones that need a new home. A subtask
-    # (parent_task_id set) is never homeless — its parent holds its project.
+    # (parent_task_id set) is never homeless - its parent holds its project.
     homeless = [t for t in tasks if not (t.project_id or "") and not (t.parent_task_id or "")]
     owned = db.query(models.TaskProject).filter(models.TaskProject.owner_email == email).all()
 
@@ -326,14 +326,14 @@ def handover_person(db: Session, email: str, to_email: str, include_completed: b
         label = " ".join(x for x in [(getattr(who, "first_name", "") or ""),
                                      (getattr(who, "last_name", "") or "")] if x).strip() or email
         project = models.TaskProject(
-            id=gen_id(), name=f"Handover — {label}",
+            id=gen_id(), name=f"Handover - {label}",
             description=f"Tasks handed over from {label} on offboarding.",
             owner_email=to_email, member_emails=[to_email], member_roles={to_email: "owner"},
             access_level="restricted", status="not_started",
             created_at=now, modified_at=now, created_by=actor or to_email,
         )
         db.add(project)
-        db.flush()   # sessions are autoflush=False — the id must be visible below
+        db.flush()   # sessions are autoflush=False - the id must be visible below
         out["projectId"] = project.id
         for t in homeless:
             t.project_id = project.id
@@ -344,7 +344,7 @@ def handover_person(db: Session, email: str, to_email: str, include_completed: b
         t.modified_at = now
         out["reassigned"] += 1
 
-    # A project whose owner has left has nobody who can edit its Share panel —
+    # A project whose owner has left has nobody who can edit its Share panel -
     # move it with the rest of the handover rather than leaving it orphaned.
     for p in owned:
         p.owner_email = to_email
@@ -403,7 +403,7 @@ def update_portfolio(portfolio_id: str, body: PortfolioBody, db: Session = Depen
     p.modified_at = now_iso()
     # A project's own portfolio_id is the source of truth ProjectsView reads for
     # its portfolio badge, but this endpoint only used to touch the portfolio's
-    # side of the relationship — adding a project here never tagged the project
+    # side of the relationship - adding a project here never tagged the project
     # itself. Diff old vs new project_ids and update both directions.
     if "project_ids" in data:
         new_project_ids = set(p.project_ids or [])
@@ -432,7 +432,7 @@ def delete_portfolio(portfolio_id: str, db: Session = Depends(get_db)):
     db.commit()
 
 
-# ── Teams (may belong to many projects — see the TaskTeam model docstring) ──
+# ── Teams (may belong to many projects - see the TaskTeam model docstring) ──
 class TeamBody(BaseModel):
     id: Optional[str] = None
     # project_ids is the real field; project_id is still accepted from older
@@ -440,7 +440,7 @@ class TeamBody(BaseModel):
     project_ids: Optional[list] = None
     project_id: Optional[str] = None
     # Optional so a partial PATCH (e.g. assigning just projects from a
-    # project's Teams checklist) doesn't have to resend the name — required
+    # project's Teams checklist) doesn't have to resend the name - required
     # in practice on create, checked explicitly below.
     name: Optional[str] = None
     color: Optional[str] = ""

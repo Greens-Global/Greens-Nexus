@@ -86,7 +86,7 @@ export default function UpdatesTab() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap', marginBottom: 18 }}>
         <div>
           <h3 style={{ fontSize: 16, fontWeight: 700, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>Updates</h3>
-          <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '3px 0 0' }}>Investor communications feed — pinned announcements stay on top</p>
+          <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '3px 0 0' }}>Investor communications feed - pinned announcements stay on top</p>
         </div>
         <button className="primary-btn" onClick={openAdd} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
           <Plus size={14} /> Post Update
@@ -97,7 +97,7 @@ export default function UpdatesTab() {
 
       {loading ? <LoadingState /> : error ? <ErrorState message={error} onRetry={reload} /> : rows.length === 0 ? (
         <EmptyState icon={Megaphone} title="No Updates Posted"
-          sub="Share deal progress, quarterly letters, and announcements — they land here and on the module dashboard." />
+          sub="Share deal progress, quarterly letters, and announcements - they land here and on the module dashboard." />
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12, maxWidth: 760 }}>
           {rows.map(u => (
@@ -132,7 +132,7 @@ export default function UpdatesTab() {
           <form onSubmit={save}>
             <div className="form-grid">
               <FG label="Title" full>
-                <input className="form-input" required value={modal.title} placeholder="e.g. Riverside Renovation — Phase 1 Complete"
+                <input className="form-input" required value={modal.title} placeholder="e.g. Riverside Renovation - Phase 1 Complete"
                   onChange={e => setModal(m => ({ ...m, title: e.target.value }))} />
               </FG>
               <FG label="Update" full>

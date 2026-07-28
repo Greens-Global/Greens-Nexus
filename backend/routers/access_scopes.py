@@ -1,7 +1,7 @@
-"""Row-level access scopes (Roles & Access — external users, Jul 2026).
+"""Row-level access scopes (Roles & Access - external users, Jul 2026).
 
 Admins narrow WHICH records a person can see within a module they already have
-access to — mainly to sandbox external/guest users (a client scoped to one
+access to - mainly to sandbox external/guest users (a client scoped to one
 property sees only that property). Enforcement lives in auth.scoped_ids(), which
 data endpoints call to get the allowed id set. This router is just the admin CRUD
 behind the scope picker on a person's Access tab.

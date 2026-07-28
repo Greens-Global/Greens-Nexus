@@ -34,7 +34,7 @@ const COLS = 12;
 const collides = (a, b) =>
   a.i !== b.i && a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 
-// Place items one by one at the topmost-leftmost free spot — unlike a plain
+// Place items one by one at the topmost-leftmost free spot - unlike a plain
 // "slide up/left", an item can jump across columns into a hole.
 function placeAll(order) {
   const placed = [];
@@ -53,9 +53,9 @@ function placeAll(order) {
   return placed;
 }
 
-// Auto-fit: true bin-packing. Tries several orderings — reading order (keeps
+// Auto-fit: true bin-packing. Tries several orderings - reading order (keeps
 // the user's arrangement), biggest-area-first and tallest-first (pack better
-// when sizes vary) — and picks the one with the shortest board; ties go to the
+// when sizes vary) - and picks the one with the shortest board; ties go to the
 // result that moved widgets the least. Deterministic, never overlaps.
 export function compactLayout(items) {
   if (!items.length) return items;
@@ -193,7 +193,7 @@ export function useDashboards(target) {
 
   // Back to the built-in Home as the landing view: un-default the personal view
   // that currently holds it. (Without this, anyone who ever saved a layout was
-  // stuck landing on it forever — deleting the view was the only way out.)
+  // stuck landing on it forever - deleting the view was the only way out.)
   const clearDefaultView = async () => {
     const cur = views.find(v => v.scope === 'personal' && v.isDefault);
     if (!cur) return;

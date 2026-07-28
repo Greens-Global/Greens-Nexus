@@ -1,5 +1,5 @@
 """
-Unit tests for custom fields phase 1 — routers.task_config option normalization,
+Unit tests for custom fields phase 1 - routers.task_config option normalization,
 typed value coercion, and per-project scoping.
 
 Uses a throwaway sqlite file so it never touches the real dev DB
@@ -24,7 +24,7 @@ from routers.task_config import (
 
 class NormalizeOptionsTests(unittest.TestCase):
     def test_plain_strings_still_read_back(self):
-        """Rows written before options carried colors hold bare strings — if
+        """Rows written before options carried colors hold bare strings - if
         those stopped normalizing, every existing select would render empty."""
         out = normalize_field_options(["Low", "High"])
 
@@ -96,7 +96,7 @@ class CoerceValuesTests(unittest.TestCase):
         self.assertEqual(coerce_custom_field_values(self.db, {"f-sel": "s1"}), {"f-sel": "s1"})
 
     def test_select_accepts_a_label_and_stores_the_id(self):
-        """The task editors have always sent plain labels — accepting them keeps
+        """The task editors have always sent plain labels - accepting them keeps
         existing clients working while normalizing what lands in the column."""
         self.assertEqual(coerce_custom_field_values(self.db, {"f-sel": "Build"}), {"f-sel": "s2"})
 

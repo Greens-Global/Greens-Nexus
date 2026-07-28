@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { useRole } from '../contexts/RoleContext';
 
-// Icons for broadcast (dynamic) actions, keyed by action id — keeps the bar
+// Icons for broadcast (dynamic) actions, keyed by action id - keeps the bar
 // visually identical whether actions are static or registered by a view.
 const DYN_ICONS = {
   overview: Building2, utilities: Plug, timeline: ListChecks, permit: FileCheck,

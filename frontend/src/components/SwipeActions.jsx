@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 
 // iOS-mail-style swipe row: drag the content left to reveal action buttons
-// under its right edge. Touch-only — mouse users never engage it, so desktop
+// under its right edge. Touch-only - mouse users never engage it, so desktop
 // keeps the regular inline buttons. Tapping an action closes the row first.
 // actions: [{ key, label, Icon, background, onClick }]
 export default function SwipeActions({ children, actions = [], disabled = false }) {

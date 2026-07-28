@@ -1,22 +1,22 @@
-// PT — the property spec-sheet schema. Drives both the grouped read-only display and the
+// PT - the property spec-sheet schema. Drives both the grouped read-only display and the
 // inline "Edit Details" form for real-estate assets. Order here is display order.
 //
 // Field shape: { label, key?, type?, dev?, cls?, contact?, team? }
 //   - key:     when present, this field maps to a top-level property record field (p[key]).
 //              When absent, the field's value only lives in the free-text snapshot group
-//              (label-keyed, via normLabel() matching) — see snapMap()/normLabel in ./format.js.
-//   - type:    'date' | 'money' | 'pct' | 'num' | 'stage' — drives input control + formatting.
+//              (label-keyed, via normLabel() matching) - see snapMap()/normLabel in ./format.js.
+//   - type:    'date' | 'money' | 'pct' | 'num' | 'stage' - drives input control + formatting.
 //   - dev:     hidden once the asset's devStage normalizes to "Stabilized", unless actively editing.
 //   - cls:     gates the field/group to specific asset classes (e.g. 'storage', 'income',
-//              'selfstorage') — see okC() classification in this file.
+//              'selfstorage') - see okC() classification in this file.
 //   - team:    marks the "Project Team" group, whose fields render as contact cards (ContactCell)
 //              instead of plain text when filled in.
 //   - contact: this individual field is a contact (name/company) eligible for the ContactCell
 //              expand-to-phone/email treatment.
 //   - unitKey/unitLabel: pairs this field with a companion unit-picker field (see Lot Size
-//              below) — unitKey is the companion's top-level record key, unitLabel its PT
+//              below) - unitKey is the companion's top-level record key, unitLabel its PT
 //              field label, so AssetDetailForm can render/save it inline as a dropdown.
-//   - hidden:  a real PT field (persists, undoes) that never renders its own row — it's
+//   - hidden:  a real PT field (persists, undoes) that never renders its own row - it's
 //              folded into another field's row via that field's unitKey/unitLabel.
 
 export const PT = [
@@ -150,7 +150,7 @@ export const PT = [
     group: 'Site Data',
     fields: [
       { label: 'Lot Size (SF / Acres)', key: 'acreage', unitKey: 'acreageUnit', unitLabel: 'Lot Size Unit' },
-      // Companion to the field above — the SF/Acres picker. A real PT field (so it persists
+      // Companion to the field above - the SF/Acres picker. A real PT field (so it persists
       // and undoes like any other), but `hidden` keeps it out of its own row: AssetDetailForm
       // renders it as a dropdown alongside the Lot Size input instead.
       { label: 'Lot Size Unit', key: 'acreageUnit', hidden: true },
@@ -162,7 +162,7 @@ export const PT = [
       { label: 'Flood Zone', key: 'floodZone' },
       { label: 'Soils / Geotech Notes' },
     ],
-    // Note: this group used to be dev-gated (hidden once Stabilized) — that hid it on most of
+    // Note: this group used to be dev-gated (hidden once Stabilized) - that hid it on most of
     // the portfolio since most storage assets are Stabilized. Fixed: lot size/easements/flood
     // zone stay useful reference info after stabilization, so no `dev` flag here.
   },
@@ -195,19 +195,19 @@ export const PT = [
 
 // Options for PROPERTY_WIZARD_FIELDS' Asset Type / Development Stage selects.
 export const ASSET_TYPE_OPTIONS = ['Self-Storage', 'Vehicle Storage', 'Retail', 'Office / Medical', 'Residential', 'Mixed-Use', 'Land', 'Vehicle', 'Heavy Equipment', 'Other'];
-export const DEV_STAGE_OPTIONS = ['In Escrow', 'Entitlement', 'Construction Drawings', 'Construction', 'Lease-Up', 'Stabilized', 'Stabilized — Renovation', 'Stabilized — Expansion', 'Stabilized — Capital Improvement', 'Stabilized — Repositioning', 'Stabilized — Re-Tenanting', 'On Hold'];
+export const DEV_STAGE_OPTIONS = ['In Escrow', 'Entitlement', 'Construction Drawings', 'Construction', 'Lease-Up', 'Stabilized', 'Stabilized - Renovation', 'Stabilized - Expansion', 'Stabilized - Capital Improvement', 'Stabilized - Repositioning', 'Stabilized - Re-Tenanting', 'On Hold'];
 
-// PROPERTY_WIZARD_FIELDS — the FLAT schema used by the Add Asset wizard's guided property form
+// PROPERTY_WIZARD_FIELDS - the FLAT schema used by the Add Asset wizard's guided property form
 // (step 1 when Asset class = Property). Unlike PT above (a grouped display/inline-edit schema
 // where most fields live only in the free-text snapshot), every field here has a `k` and maps
-// directly to a top-level field on the new property record — same flat shape as
+// directly to a top-level field on the new property record - same flat shape as
 // VEHICLE_FIELDS/EQUIPMENT_FIELDS in vehicleFields.js, so the wizard can treat all three asset
 // classes uniformly. On save, AddAssetModal converts this flat data into PT's grouped snapshot
 // shape via buildAssetSnapshot().
 export const PROPERTY_WIZARD_FIELDS = [
   { sec: 'Identity & Ownership' },
   { k: 'name', label: 'Property / Parcel Name', req: true },
-  { k: 'parentId', label: 'Role — leave blank for a PRIMARY asset, or pick the primary to make this a SECONDARY linked under it', type: 'select', dynamic: 'primaries' },
+  { k: 'parentId', label: 'Role - leave blank for a PRIMARY asset, or pick the primary to make this a SECONDARY linked under it', type: 'select', dynamic: 'primaries' },
   { k: 'parcelRole', label: 'Parcel Role (E.g. Vehicle Yard, Detention, Outparcel)' },
   { k: 'entity', label: 'Operating Entity' },
   { k: 'builder', label: 'Builder (GC)' },

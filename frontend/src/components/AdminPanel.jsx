@@ -11,7 +11,7 @@ import TimeTrackingAdmin from './TimeTrackingAdmin';
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function fmtTime(iso) {
-  if (!iso) return '—';
+  if (!iso) return '-';
   try {
     const d = new Date(iso + 'Z');
     return d.toLocaleString('en-GB', {
@@ -21,7 +21,7 @@ function fmtTime(iso) {
   } catch { return iso.slice(0, 16).replace('T', ' '); }
 }
 
-// Renders the JSON `details` payload as a compact, human-scannable line —
+// Renders the JSON `details` payload as a compact, human-scannable line -
 // e.g. `qty: 2 · reason: "Replacing cracked screen" · condition: damaged`.
 // Falls back silently to nothing for path/status-only entries (older rows,
 // or routes that don't carry a meaningful business payload).
@@ -48,7 +48,7 @@ function summarizeDetails(raw) {
 }
 
 // Older rows were logged as raw HTTP ("PUT /myhr") before the describer knew
-// those modules — translate them (and the security events) into plain English.
+// those modules - translate them (and the security events) into plain English.
 const _LEGACY_MAP = [
   [/PUT myhr profile/,            'Updated their own profile (My HR)'],
   [/POST myhr requests/,          'Sent a request to HR'],
@@ -81,7 +81,7 @@ const _LEGACY_MAP = [
 function humanizeAction(r) {
   const a = r.action || '';
   if (a === 'Authentication failed')
-    return { title: 'Failed sign-in', hint: 'A request arrived without a valid login — usually an expired session.', danger: true };
+    return { title: 'Failed sign-in', hint: 'A request arrived without a valid login - usually an expired session.', danger: true };
   if (a === 'Authorization denied')
     return { title: 'Access denied', hint: "Tried to open something their role doesn't allow.", danger: true };
   const m = a.match(/^(GET|POST|PUT|PATCH|DELETE)\s+\/?(.*)$/);
@@ -263,6 +263,16 @@ function AuditLogs() {
                         {r.user_role && (
                           <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 1 }}>{r.user_role}</div>
                         )}
+                        {/* Act As transparency: the row's actor is always the REAL
+                            person at the keyboard; this badge shows who they were
+                            operating as (details.acting_as, set server-side). */}
+                        {d.acting_as && (
+                          <div style={{ marginTop: 3 }}>
+                            <span title={d.acting_as} style={{ fontSize: 10.5, fontWeight: 700, color: '#b45309', background: 'rgba(180,83,9,0.1)', padding: '1px 8px', borderRadius: 999, display: 'inline-block', maxWidth: 170, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              acting as {nameOf(d.acting_as)}
+                            </span>
+                          </div>
+                        )}
                       </td>
                       <td data-th="What happened" style={{ padding: '10px 14px' }}>
                         <span style={{ fontWeight: 600, color: h.danger ? 'hsl(var(--color-red))' : actionColor(h.title), fontSize: 12.5 }}>
@@ -271,7 +281,7 @@ function AuditLogs() {
                         {h.hint && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2, fontWeight: 400 }}>{h.hint}</div>}
                       </td>
                       <td data-th="Details" style={{ padding: '10px 14px', color: 'var(--muted)', fontSize: 11.5, maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={biz}>
-                        {biz || '—'}
+                        {biz || '-'}
                       </td>
                       <td data-th="Result" style={{ padding: '10px 14px' }}>
                         <StatusChip status={d.status || (h.danger ? 401 : 0)} />
@@ -359,7 +369,7 @@ export default function AdminPanel({ open, initialTab = 'audit', onClose }) {
 
   if (!can('administrator')) return null;
 
-  // Access Manager retired (Jul 2026) — roles/job-roles/groups moved to
+  // Access Manager retired (Jul 2026) - roles/job-roles/groups moved to
   // People → Roles & Access, and per-person access is set on the employee card.
   const tabs = [
     { id: 'audit',  icon: <Activity size={14} />, label: 'Audit Logs' },

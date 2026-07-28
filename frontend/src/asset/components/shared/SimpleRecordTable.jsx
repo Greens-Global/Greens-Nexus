@@ -22,7 +22,7 @@ function statusTone(status) {
   return 'mut';
 }
 
-/** First non-empty cell across the row's columns — used to build a stable-ish identity string
+/** First non-empty cell across the row's columns - used to build a stable-ish identity string
  *  for highlightItem matching (these rows don't reliably have a meaningful `id` to key off of). */
 function rowIdentity(row, cols) {
   for (const [key] of cols) {
@@ -36,13 +36,13 @@ function rowIdentity(row, cols) {
  * @param title           e.g. "Permit Matrix" or "Development Timeline"
  * @param subtitle        e.g. the asset name
  * @param rows            the raw row objects (asset.permits or asset.timeline)
- * @param cols            [key, label][] — if omitted, derived from the union of keys in `rows`
+ * @param cols            [key, label][] - if omitted, derived from the union of keys in `rows`
  * @param query           free-text filter string
  * @param highlightItem   a row-identity string to scroll to + highlight
  * @param onAdd           () => void
  * @param onEdit          (index) => void
  * @param onDelete        (index) => void, or omit to hide the Delete button
- * @param onStatusClick   (index, currentStatus) => void — if provided, the "status" column
+ * @param onStatusClick   (index, currentStatus) => void - if provided, the "status" column
  *                        renders as a clickable chip button instead of a plain badge
  */
 export function SimpleRecordTable({ title, subtitle, rows, cols, query, highlightItem, onAdd, onEdit, onDelete, onStatusClick }) {
@@ -134,7 +134,7 @@ export function SimpleRecordTable({ title, subtitle, rows, cols, query, highligh
                       } else if (key === 'status' && value) {
                         content = <StatusBadge tone={statusTone(value)}>{value}</StatusBadge>;
                       } else {
-                        content = value || '—';
+                        content = value || '-';
                       }
                       return (
                         <td key={key} style={{ padding: '9px 12px', borderBottom: '1px solid var(--border-color)', verticalAlign: 'top', color: 'var(--text-primary)', fontSize: '0.78rem' }}>
@@ -167,7 +167,7 @@ export function SimpleRecordTable({ title, subtitle, rows, cols, query, highligh
           </table>
         </div>
       ) : (
-        <EmptyState>No {title.toLowerCase()} data yet — use "Add row" to add one.</EmptyState>
+        <EmptyState>No {title.toLowerCase()} data yet - use "Add row" to add one.</EmptyState>
       )}
     </Card>
   );

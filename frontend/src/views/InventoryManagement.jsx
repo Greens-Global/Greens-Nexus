@@ -21,7 +21,7 @@ import { useAssignments, MyPermanentPanel, AssignmentsQueue, AssignItemModal } f
 import { renderNotifBody } from '../components/NotificationBell';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
-// Controlled item types — mirror _ITEM_TYPES in backend/routers/items.py. Add/edit
+// Controlled item types - mirror _ITEM_TYPES in backend/routers/items.py. Add/edit
 // is dropdown-only; unrecognised types on import are saved as "Other" (Neil).
 const ITEM_TYPES = ['Computer', 'Peripheral', 'Networking', 'Server', 'Storage', 'IP Camera', 'Devices', 'Tools', 'Equipment', 'Vehicles', 'Furniture', 'Keys', 'Other'];
 
@@ -62,18 +62,18 @@ const STATUS_META = {
   unassigned:           { label: 'Unassigned',         bg: 'hsla(var(--color-purple),0.12)', fg: 'hsl(var(--color-purple))' },
   location_assigned:    { label: 'Assigned · Location', bg: 'hsla(var(--color-blue),0.12)',  fg: 'hsl(var(--color-blue))'   },
   checked_out:          { label: 'Checked out',        bg: 'hsla(var(--color-orange),0.12)', fg: 'hsl(var(--color-orange))' },
-  // Display-only: a merely-pending (not yet allocated) request — the list view
+  // Display-only: a merely-pending (not yet allocated) request - the list view
   // must read "Under review" like the tile view, not "Checked out" (P4 status coherence).
   under_review:         { label: 'Under review',       bg: 'hsla(var(--color-orange),0.12)', fg: 'hsl(var(--color-orange))' },
   permanently_assigned: { label: 'Perm. Assigned',    bg: 'hsla(var(--color-blue),0.12)',   fg: 'hsl(var(--color-blue))'   },
   retired:              { label: 'Retired',             bg: 'hsla(var(--color-red),0.12)',    fg: 'hsl(var(--color-red))'    },
 };
 
-// Operational status (Neil) — condition/deployment state of a unit, SEPARATE from
+// Operational status (Neil) - condition/deployment state of a unit, SEPARATE from
 // the lifecycle `status` above (which checkouts/assignments drive automatically).
 // '' = unset. Mirror _OP_STATUSES in backend/routers/items.py if you change this.
 const OP_STATUSES = ['deployed', 'in_storage', 'in_repair', 'needs_replacement', 'retired', 'lost'];
-// Recycle bin retention — keep in sync with _RECYCLE_BIN_DAYS in routers/items.py.
+// Recycle bin retention - keep in sync with _RECYCLE_BIN_DAYS in routers/items.py.
 const RECYCLE_BIN_DAYS = 30;
 const OP_STATUS_META = {
   deployed:          { label: 'Deployed',          bg:'hsla(var(--color-green),0.12)',  fg:'hsl(var(--color-green))'  },
@@ -91,7 +91,7 @@ const OP_STATUS_META = {
 const OP_STATUS_PERSON = new Set(['lost', 'retired']);
 
 // Display status: a permanent item that nobody holds is "Unassigned", not
-// "Available" — green Available implies it could be checked out, which
+// "Available" - green Available implies it could be checked out, which
 // permanent items can't be. A permanent item placed at a location with no
 // person holding it counts as assigned to that location (Neil, Jul 17), so
 // batch "assign to location" visibly lands instead of still reading Unassigned.
@@ -102,7 +102,7 @@ function displayStatus(item) {
   return item.status;
 }
 
-// First image on a paste event (screenshot Ctrl+V) as an upload-ready File —
+// First image on a paste event (screenshot Ctrl+V) as an upload-ready File -
 // wire onto photo modals so every upload spot also accepts a pasted image.
 function imageFromPaste(e) {
   for (const it of e.clipboardData?.items || []) {
@@ -124,7 +124,7 @@ const CHECKOUT_STATUS_META = {
   cancelled:       { label: 'Cancelled',          bg: 'hsla(var(--color-red),0.12)',    fg: 'hsl(var(--color-red))',    Icon: XCircle },
 };
 
-// Manager-facing variant: at pending_receipt the ball is in the EMPLOYEE's court —
+// Manager-facing variant: at pending_receipt the ball is in the EMPLOYEE's court -
 // "Confirm Receipt" (the employee's call to action) would read as the manager's job.
 const MANAGER_CHECKOUT_STATUS_META = {
   ...CHECKOUT_STATUS_META,
@@ -143,7 +143,7 @@ function useEscapeKey(fn) {
   }, [fn]);
 }
 
-// Renders text with URLs as clickable links (truncated for readability) —
+// Renders text with URLs as clickable links (truncated for readability) -
 // requisition reasons carry "Reference: https://…" from the purchase form.
 function Linkify({ text }) {
   if (!text) return null;
@@ -219,7 +219,7 @@ function StatusBadge({ status, item }) {
 
 // Operational status pill (Neil's status column). '' renders as a muted dash.
 function OpStatusBadge({ value }) {
-  if (!value) return <span style={{ fontSize:11, color:'var(--muted)' }}>—</span>;
+  if (!value) return <span style={{ fontSize:11, color:'var(--muted)' }}>-</span>;
   const m = OP_STATUS_META[value] || { label: value, bg:'var(--mist)', fg:'var(--muted)' };
   return (
     <span style={{ display:'inline-flex', alignItems:'center', gap:4, padding:'2px 8px', borderRadius:20, fontSize:'11px', fontWeight:600, background:m.bg, color:m.fg, whiteSpace:'nowrap' }}>
@@ -228,7 +228,7 @@ function OpStatusBadge({ value }) {
   );
 }
 
-// Name typeahead over the people directory — shows closest matches as you type
+// Name typeahead over the people directory - shows closest matches as you type
 // (used for "Declared by" on person-bound op statuses). Picking a match captures
 // the email so the backend can notify them; free-typed text leaves email blank.
 function PersonTypeahead({ valueName, onPick, placeholder = 'Type a name…' }) {
@@ -284,7 +284,7 @@ function PersonTypeahead({ valueName, onPick, placeholder = 'Type a name…' }) 
 function PhotoThumb({ url, name, onPreview, size = 44 }) {
   if (!url) return (
     <div style={{ width:size, height:size, borderRadius:8, background:'hsla(var(--color-red),0.08)', border:'1px dashed hsla(var(--color-red),0.4)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}
-      title="No photo — required">
+      title="No photo - required">
       <Camera size={size * 0.38} color="hsl(var(--color-red))" />
     </div>
   );
@@ -392,7 +392,7 @@ function AddItemModal({ onClose, onSave, initial = {}, types = ITEM_TYPES }) {
   const [year,          setYear]          = useState('');
   const [department,    setDepartment]    = useState(initial.department || '');
   // Owner now defaults to the department (Neil: a free-text owner per item just
-  // produced 100 unhelpful values — the department is the real owner).
+  // produced 100 unhelpful values - the department is the real owner).
   const [defaultOwner,  setDefaultOwner]  = useState(initial.department || '');
   const [ownershipType, setOwnershipType] = useState(initial.ownershipType || 'transient');
   const [location,      setLocation]      = useState('');
@@ -409,7 +409,7 @@ function AddItemModal({ onClose, onSave, initial = {}, types = ITEM_TYPES }) {
   function handleTypeChange(t) {
     setItemType(t);
   }
-  // Department drives the owner — keep them in sync as the department is picked.
+  // Department drives the owner - keep them in sync as the department is picked.
   function handleDeptChange(d) {
     setDepartment(d);
     setDefaultOwner(d);
@@ -425,7 +425,7 @@ function AddItemModal({ onClose, onSave, initial = {}, types = ITEM_TYPES }) {
       picture_required: pictureRequired, asset_value: parseFloat(assetValue) || 0,
     }, { assignNow: ownershipType === 'permanent' && assignNow, aiFill: !photoUrl && skipPhoto && aiFill }))
       .then(onClose)
-      .catch(err => setError(err?.message || 'Could not add item — please try again.'))
+      .catch(err => setError(err?.message || 'Could not add item - please try again.'))
       .finally(() => setSaving(false));
   }
 
@@ -460,14 +460,14 @@ function AddItemModal({ onClose, onSave, initial = {}, types = ITEM_TYPES }) {
             </div>
           </div>
 
-          {/* Permanent items start UNASSIGNED — adding one doesn't put it under
+          {/* Permanent items start UNASSIGNED - adding one doesn't put it under
               the adder's name. Optionally jump straight into the assign flow. */}
           {ownershipType === 'permanent' && (
             <label style={{ display:'flex', alignItems:'flex-start', gap:8, fontSize:12.5, color:'var(--muted)', cursor:'pointer', marginTop:-4 }}>
               <input type="checkbox" checked={assignNow} onChange={e => setAssignNow(e.target.checked)}
                 style={{ cursor:'pointer', accentColor:'var(--pine)', marginTop:2 }} />
               <span>
-                <strong style={{ color:'var(--ink)' }}>Assign to a person right away</strong> — pick who after
+                <strong style={{ color:'var(--ink)' }}>Assign to a person right away</strong> - pick who after
                 saving. Otherwise the item stays unassigned until you use Assign in the Manage tab.
               </span>
             </label>
@@ -511,13 +511,13 @@ function AddItemModal({ onClose, onSave, initial = {}, types = ITEM_TYPES }) {
             </div>
           </div>
 
-          {/* Per-item photo policy — keys etc. shouldn't demand pictures (Neil).
+          {/* Per-item photo policy - keys etc. shouldn't demand pictures (Neil).
               Default yes; when off, every photo in this item's flows goes optional. */}
           <label style={{ display:'flex', alignItems:'flex-start', gap:8, fontSize:12.5, color:'var(--muted)', cursor:'pointer' }}>
             <input type="checkbox" checked={pictureRequired} onChange={e => setPictureRequired(e.target.checked)}
               style={{ cursor:'pointer', accentColor:'var(--pine)', marginTop:2 }} />
             <span>
-              <strong style={{ color:'var(--ink)' }}>Require photos in workflows</strong> — handover, receipt and
+              <strong style={{ color:'var(--ink)' }}>Require photos in workflows</strong> - handover, receipt and
               return photos are mandatory for this item. Untick for items like keys where photos add no value.
             </span>
           </label>
@@ -528,7 +528,7 @@ function AddItemModal({ onClose, onSave, initial = {}, types = ITEM_TYPES }) {
               <input type="checkbox" checked={skipPhoto} onChange={e => setSkipPhoto(e.target.checked)}
                 style={{ cursor:'pointer', accentColor:'var(--pine)', marginTop:2 }} />
               <span>
-                <strong style={{ color:'var(--ink)' }}>Add without a photo for now</strong> — the item will show
+                <strong style={{ color:'var(--ink)' }}>Add without a photo for now</strong> - the item will show
                 under Missing photos; add one later via Batch update photos or AI photo fill.
               </span>
             </label>
@@ -539,7 +539,7 @@ function AddItemModal({ onClose, onSave, initial = {}, types = ITEM_TYPES }) {
               <input type="checkbox" checked={aiFill} onChange={e => setAiFill(e.target.checked)}
                 style={{ cursor:'pointer', accentColor:'var(--pine)', marginTop:2 }} />
               <span>
-                <strong style={{ color:'hsl(var(--color-purple))' }}>Let AI find a product photo after saving</strong> —
+                <strong style={{ color:'hsl(var(--color-purple))' }}>Let AI find a product photo after saving</strong> -
                 uses the make/model to fetch a stock image. Replace it with a real unit photo when you can.
               </span>
             </label>
@@ -620,9 +620,9 @@ function EditItemModal({ item, onClose, onSave, types = ITEM_TYPES }) {
       const { results } = await api.autoFillItemPhotos([item.id], true);  // replace allowed when editing
       const r = (results || [])[0];
       if (r?.status === 'ok' && r.photo_url) setPhotoUrl(r.photo_url);
-      else setError('No product photo found — upload one manually.');
+      else setError('No product photo found - upload one manually.');
     } catch {
-      setError('AI photo search failed — try again or upload manually.');
+      setError('AI photo search failed - try again or upload manually.');
     } finally {
       setAiFilling(false);
     }
@@ -718,7 +718,7 @@ function EditItemModal({ item, onClose, onSave, types = ITEM_TYPES }) {
             <div>
               <label style={FL}>STATUS <span style={{ fontWeight:400, textTransform:'none' }}>(deployed, in repair…)</span></label>
               <select className="form-input" style={{ width:'100%' }} value={opStatus} onChange={e => setOpStatus(e.target.value)}>
-                <option value="">— not set —</option>
+                <option value="">- not set -</option>
                 {OP_STATUSES.map(s => <option key={s} value={s}>{OP_STATUS_META[s]?.label || s}</option>)}
               </select>
             </div>
@@ -740,11 +740,11 @@ function EditItemModal({ item, onClose, onSave, types = ITEM_TYPES }) {
             <input type="checkbox" checked={pictureRequired} onChange={e => setPictureRequired(e.target.checked)}
               style={{ cursor:'pointer', accentColor:'var(--pine)', marginTop:2 }} />
             <span>
-              <strong style={{ color:'var(--ink)' }}>Require photos in workflows</strong> — handover, receipt and
+              <strong style={{ color:'var(--ink)' }}>Require photos in workflows</strong> - handover, receipt and
               return photos are mandatory for this item. Untick for items like keys where photos add no value.
             </span>
           </label>
-          <PhotoUpload value={photoUrl} onChange={setPhotoUrl} hint="Replace photo if needed — must clearly identify this specific unit." />
+          <PhotoUpload value={photoUrl} onChange={setPhotoUrl} hint="Replace photo if needed - must clearly identify this specific unit." />
           <button type="button" onClick={aiFindPhoto} disabled={aiFilling}
             style={{ marginTop:8, display:'inline-flex', alignItems:'center', gap:6, height:34, padding:'0 14px', fontSize:12.5, fontWeight:700, background:'hsla(var(--color-purple),0.1)', color:'hsl(var(--color-purple))', border:'1px solid hsla(var(--color-purple),0.35)', borderRadius:8, cursor: aiFilling ? 'default' : 'pointer', fontFamily:'Inter,sans-serif' }}>
             {aiFilling ? <><Loader2 size={13} style={{ animation:'spin 1s linear infinite' }} /> Finding…</> : <><Wand2 size={13} /> Let AI find a photo</>}
@@ -767,7 +767,7 @@ function EditItemModal({ item, onClose, onSave, types = ITEM_TYPES }) {
 
 // ── Delete Confirm Modal ───────────────────────────────────────────────────────
 // Ankush: deleting must require typing "DELETE" so a stray click can't drop a row.
-// Deletes are now soft — the item moves to the recycle bin and can be restored.
+// Deletes are now soft - the item moves to the recycle bin and can be restored.
 function DeleteItemModal({ item, onClose, onConfirm }) {
   const [busy, setBusy] = useState(false);
   const [confirmText, setConfirmText] = useState('');
@@ -807,11 +807,11 @@ function DeleteItemModal({ item, onClose, onConfirm }) {
 // ── Import helpers ──────────────────────────────────────────────────────────────
 // Maps a parsed spreadsheet (array-of-rows, header first) to item rows. Works
 // for CSV, XLSX, and XLS because SheetJS produces the same matrix for all three
-// — and it strips the UTF-8 BOM Excel prepends to the first header cell (the
+// - and it strips the UTF-8 BOM Excel prepends to the first header cell (the
 // reason "Name column not found" fired on a file that clearly had one). Jun 16.
 function mapItemsMatrix(matrix, customFields = []) {
   const grid = (matrix || []).filter(r => Array.isArray(r) && r.some(c => String(c ?? '').trim() !== ''));
-  if (grid.length < 2) return { rows: [], error: 'File looks empty — needs a header row plus at least one item.' };
+  if (grid.length < 2) return { rows: [], error: 'File looks empty - needs a header row plus at least one item.' };
   const header = grid[0].map(h => String(h ?? '').trim().toLowerCase());
   const idx = {
     serial_number: header.findIndex(h => ['serial','serial number','serial_number','serial no','asset tag','asset_tag'].includes(h)),
@@ -865,9 +865,9 @@ async function parseItemsFile(file, customFields = []) {
   return mapItemsMatrix(matrix, customFields);
 }
 
-// Spreadsheets use "N/A", "-", "none" etc. to mean "no value" — treat a whole-field
+// Spreadsheets use "N/A", "-", "none" etc. to mean "no value" - treat a whole-field
 // placeholder as blank so it never renders (e.g. Model showing "DS-2CD2143G2-IU N/A").
-const NA_TOKENS = new Set(['', 'n/a', 'na', 'n.a.', 'n.a', 'none', 'null', 'nil', '-', '–', '—']);
+const NA_TOKENS = new Set(['', 'n/a', 'na', 'n.a.', 'n.a', 'none', 'null', 'nil', '-', '–', '-']);
 const cleanField = v => { const s = String(v ?? '').trim(); return NA_TOKENS.has(s.toLowerCase()) ? '' : s; };
 
 function csvField(v) { const s = String(v ?? ''); return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; }
@@ -904,7 +904,7 @@ function downloadItemsCsv(items, customFields = []) {
 }
 
 function downloadImportTemplate(customFields = []) {
-  // Leave Serial blank for new units — Nexus assigns one. Keep a row's serial to
+  // Leave Serial blank for new units - Nexus assigns one. Keep a row's serial to
   // update that exact unit on re-import. Custom-field columns are appended so the
   // template stays in sync with whatever fields have been defined.
   const cf = customFields || [];
@@ -952,14 +952,14 @@ function ImportItemsModal({ onClose, onImport, customFields = [] }) {
     Promise.resolve(onImport(valid))
       .then(res => setDone(res))
       // Surface the failure inline instead of silently leaving the modal open (P4).
-      .catch(err => setImportErr(err?.message || 'Import failed — please try again.'))
+      .catch(err => setImportErr(err?.message || 'Import failed - please try again.'))
       .finally(() => setImporting(false));
   }
 
   const valid   = rows?.filter(r => r._valid) ?? [];
   const invalid = rows?.filter(r => !r._valid) ?? [];
   const warned  = rows?.filter(r => r._unknownType) ?? [];
-  // The distinct unknown type names (not just a count) — Amy needs to SEE all of
+  // The distinct unknown type names (not just a count) - Amy needs to SEE all of
   // them before importing, not just "14 unknown".
   const unknownTypes = [...new Set(warned.map(r => (r.item_type || '').trim()).filter(Boolean))];
   const PREVIEW_CAP = 1000;
@@ -975,9 +975,9 @@ function ImportItemsModal({ onClose, onImport, customFields = [] }) {
             <p style={{ fontSize:13.5, color:'var(--muted)', marginBottom:20 }}>
               <strong>{done.created}</strong> items added{done.updated ? <>, <strong>{done.updated}</strong> updated</> : null}. <strong>{done.skipped}</strong> rows skipped.
               {done.added_types?.length ? <> <strong>{done.added_types.length}</strong> new type{done.added_types.length !== 1 ? 's' : ''} created: {done.added_types.join(', ')}.</> : null}
-              New rows each get a Nexus serial. Re-importing the same file updates units in place — matched by <strong>Serial</strong>,
-              or by content for rows without one — so it won't create duplicates. To change fields, edit the exported file or use Batch Edit.
-              Photos must be added manually in the Manage tab — one item at a time.
+              New rows each get a Nexus serial. Re-importing the same file updates units in place - matched by <strong>Serial</strong>,
+              or by content for rows without one - so it won't create duplicates. To change fields, edit the exported file or use Batch Edit.
+              Photos must be added manually in the Manage tab - one item at a time.
             </p>
             <div style={{ display:'flex', justifyContent:'flex-end' }}><button className="primary-btn" onClick={onClose}>Done</button></div>
           </>
@@ -991,7 +991,7 @@ function ImportItemsModal({ onClose, onImport, customFields = [] }) {
             </div>
             <p style={{ fontSize:12.5, color:'var(--muted)', marginBottom:16 }}>
               Each row = one physical item. Accepts .csv, .xlsx, and .xls. Photos are always added manually after import. Required columns: <strong>Name</strong>.
-              Leave <strong>Serial</strong> blank and Nexus assigns one — keep a serial to update that exact unit on re-import.
+              Leave <strong>Serial</strong> blank and Nexus assigns one - keep a serial to update that exact unit on re-import.
             </p>
 
             <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" style={{ display:'none' }} onChange={e => handleFile(e.target.files?.[0])} />
@@ -1009,13 +1009,13 @@ function ImportItemsModal({ onClose, onImport, customFields = [] }) {
                   {warned.length > 0 && <>, <strong style={{ color:'hsl(var(--color-orange))' }}>{warned.length} row{warned.length !== 1 ? 's' : ''} with a new/unknown type</strong></>}
                 </div>
                 {/* Show EVERY distinct new/unknown type so they can all be reviewed
-                    before importing — not just a count (Amy: "could not see all 14").
+                    before importing - not just a count (Amy: "could not see all 14").
                     The backend AI-matches these to an existing type or creates them,
                     then reports the created ones after import (P1-12). */}
                 {unknownTypes.length > 0 && (
                   <div style={{ border:'1px solid hsla(var(--color-orange),0.35)', background:'hsla(var(--color-orange),0.06)', borderRadius:8, padding:'10px 12px', marginBottom:14 }}>
                     <div style={{ fontSize:12, fontWeight:700, color:'hsl(var(--color-orange))', marginBottom:7 }}>
-                      {unknownTypes.length} type{unknownTypes.length !== 1 ? 's' : ''} not in your list yet — these may be matched to an existing type or created on import (you'll get the created list afterwards):
+                      {unknownTypes.length} type{unknownTypes.length !== 1 ? 's' : ''} not in your list yet - these may be matched to an existing type or created on import (you'll get the created list afterwards):
                     </div>
                     <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
                       {unknownTypes.map(t => (
@@ -1050,7 +1050,7 @@ function ImportItemsModal({ onClose, onImport, customFields = [] }) {
                 </div>
                 {rows.length > PREVIEW_CAP && (
                   <p style={{ fontSize:12, color:'var(--muted)', margin:'0 0 12px' }}>
-                    Previewing the first {PREVIEW_CAP.toLocaleString()} of {rows.length.toLocaleString()} rows — all {valid.length.toLocaleString()} valid rows will still be imported.
+                    Previewing the first {PREVIEW_CAP.toLocaleString()} of {rows.length.toLocaleString()} rows - all {valid.length.toLocaleString()} valid rows will still be imported.
                   </p>
                 )}
                 {importErr && <p style={{ fontSize:12.5, color:'hsl(var(--color-red))', margin:'0 0 10px', textAlign:'right' }}>{importErr}</p>}
@@ -1081,7 +1081,7 @@ function ReportModal({ onClose, checkouts, initial }) {
   const [error,     setError]     = useState('');
   useEscapeKey(onClose);
 
-  // People who appear in checkout history — offered as autocomplete for the person filter
+  // People who appear in checkout history - offered as autocomplete for the person filter
   const knownPeople = Array.from(new Set((checkouts || []).map(c => c.requestedBy).filter(Boolean))).sort();
 
   function exportAs(format) {
@@ -1106,7 +1106,7 @@ function ReportModal({ onClose, checkouts, initial }) {
       <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:420, boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
         <h3 style={{ fontSize:16, fontWeight:700, marginBottom: (initial?.dept && initial.dept !== 'All') || (initial?.itemType && initial.itemType !== 'All') ? 6 : 16 }}>Export Report</h3>
         {((initial?.dept && initial.dept !== 'All') || (initial?.itemType && initial.itemType !== 'All')) && (
-          <p style={{ fontSize:12, color:'var(--muted)', marginBottom:16 }}>Pre-filled from your current filters — adjust below, then export as PDF or Excel.</p>
+          <p style={{ fontSize:12, color:'var(--muted)', marginBottom:16 }}>Pre-filled from your current filters - adjust below, then export as PDF or Excel.</p>
         )}
         <div style={{ display:'flex', flexDirection:'column', gap:14, marginBottom:20 }}>
           <div>
@@ -1130,7 +1130,7 @@ function ReportModal({ onClose, checkouts, initial }) {
             </select>
           </div>
           <div>
-            <label style={FL}>PERSON <span style={{ fontSize:11, fontWeight:400 }}>(optional — separate multiple names with commas)</span></label>
+            <label style={FL}>PERSON <span style={{ fontSize:11, fontWeight:400 }}>(optional - separate multiple names with commas)</span></label>
             <input className="form-input" style={{ width:'100%' }} list="report-people"
               placeholder="e.g. Sahil, Valinda" value={person} onChange={e => setPerson(e.target.value)} />
             <datalist id="report-people">{knownPeople.map(n => <option key={n} value={n} />)}</datalist>
@@ -1218,7 +1218,7 @@ function ReturnModal({ checkout, onClose, onSubmit, photoOptional = false }) {
             )}
             <p style={{ fontSize:11, color:'var(--muted)', margin:'6px 0 0' }}>or press Ctrl+V to paste a screenshot</p>
           </div>
-          {/* Explicit condition (P1-13) — the backend uses this instead of sniffing the note. */}
+          {/* Explicit condition (P1-13) - the backend uses this instead of sniffing the note. */}
           <div>
             <label style={FL}>CONDITION</label>
             <div style={{ display:'flex', gap:8 }}>
@@ -1237,7 +1237,7 @@ function ReturnModal({ checkout, onClose, onSubmit, photoOptional = false }) {
             </div>
           </div>
           <div>
-            <label style={FL}>CONDITION NOTES <span style={{ fontSize:11, fontWeight:400 }}>(optional — note any damage)</span></label>
+            <label style={FL}>CONDITION NOTES <span style={{ fontSize:11, fontWeight:400 }}>(optional - note any damage)</span></label>
             <textarea rows={3} className="form-input" style={{ width:'100%', resize:'vertical', fontSize:13 }}
               placeholder="e.g. Minor scuff on handle, otherwise good condition"
               value={conditionNote} onChange={e => setConditionNote(e.target.value)} />
@@ -1318,10 +1318,10 @@ function ExtendRequestModal({ checkout, onClose, onSubmit }) {
   );
 }
 
-// ── In-Use Summary — replaces the full workflow tracker once an item is with the
+// ── In-Use Summary - replaces the full workflow tracker once an item is with the
 //    employee: all they need is how long they have left, plus Extend / Return. ──
 function checkoutDueInfo(checkout) {
-  // The checkout period starts when the item physically changes hands —
+  // The checkout period starts when the item physically changes hands -
   // approval delay must not eat into the employee's days.
   const start = checkout.allocatedAt || checkout.handedOverAt || checkout.createdAt;
   const due = new Date(start);
@@ -1333,7 +1333,7 @@ function checkoutDueInfo(checkout) {
 
 const fmtMoney = v => '$' + Math.round(Number(v) || 0).toLocaleString('en-US');
 
-// Live viewport check — phone layouts render genuinely different structures
+// Live viewport check - phone layouts render genuinely different structures
 // (cards instead of tables) rather than squeezing the desktop UI sideways.
 function useIsMobile(bp = 640) {
   const [mobile, setMobile] = useState(() => typeof window !== 'undefined' && window.matchMedia(`(max-width: ${bp}px)`).matches);
@@ -1346,14 +1346,14 @@ function useIsMobile(bp = 640) {
   return mobile;
 }
 
-// Short request number derived from the order/checkout id — Neil: tag the
+// Short request number derived from the order/checkout id - Neil: tag the
 // backend request number on the front end and make it searchable
 // ("hey, I'm talking about request number 818").
 function requestNo(key) {
   return (key || '').replace(/[^a-zA-Z0-9]/g, '').slice(-8).toUpperCase();
 }
 
-// Highlights the active search query inside a name — flashes on arrival (CSS
+// Highlights the active search query inside a name - flashes on arrival (CSS
 // animation), then stays softly marked. key={q} remounts the <mark> when the
 // query changes so the flash replays for each new search.
 function HighlightMatch({ text, query }) {
@@ -1370,7 +1370,7 @@ function HighlightMatch({ text, query }) {
   );
 }
 
-// Neil: show the actual date, not just days — "you have it for 4 days,
+// Neil: show the actual date, not just days - "you have it for 4 days,
 // until 06-14-2026".
 function fmtDueDate(co) {
   const d = checkoutDueInfo(co).due;
@@ -1405,7 +1405,7 @@ function InUseSummary({ checkout }) {
       {checkout.extensionStatus === 'pending' && (
         <div style={{ display:'flex', alignItems:'center', gap:6, marginTop:8, fontSize:12, fontWeight:600, color:'hsl(var(--color-blue))' }}>
           <Loader2 size={12} style={{ animation:'spin 2s linear infinite' }} />
-          Extension requested: +{checkout.extensionDays} day{checkout.extensionDays !== 1 ? 's' : ''} — awaiting manager approval
+          Extension requested: +{checkout.extensionDays} day{checkout.extensionDays !== 1 ? 's' : ''} - awaiting manager approval
         </div>
       )}
     </div>
@@ -1415,7 +1415,7 @@ function InUseSummary({ checkout }) {
 // ── Audit helpers ─────────────────────────────────────────────────────────────
 function formatAuditDetails(action, rawDetails) {
   let d = {};
-  try { d = JSON.parse(rawDetails || '{}'); } catch { return rawDetails || '—'; }
+  try { d = JSON.parse(rawDetails || '{}'); } catch { return rawDetails || '-'; }
   const a = (action || '').toLowerCase();
   const skip = new Set(['path', 'status']);
 
@@ -1428,9 +1428,9 @@ function formatAuditDetails(action, rawDetails) {
     if (d.item_type) parts.push(`(${d.item_type})`);
     if (d.days)      parts.push(`for **${d.days} day${d.days !== 1 ? 's' : ''}**`);
     if (Number(d.asset_value) > 0) parts.push(`· worth **${money(d.asset_value)}**`);
-    if (d.reason)    parts.push(`— "${d.reason}"`);
+    if (d.reason)    parts.push(`- "${d.reason}"`);
     if (d.department) parts.push(`[${d.department}]`);
-    return parts.length ? parts.join(' ') : '—';
+    return parts.length ? parts.join(' ') : '-';
   }
   if (a.includes('deleted item cart') || (a.includes('cart') && a.includes('delet'))) {
     return 'Removed item from cart';
@@ -1443,30 +1443,30 @@ function formatAuditDetails(action, rawDetails) {
     if (Number(d.asset_value) > 0) parts.push(`· worth **${money(d.asset_value)}**`);
     if (d.location)   parts.push(`@ ${d.location}`);
     if (d.ownership_type) parts.push(d.ownership_type === 'permanent' ? '· permanent' : '· temporary');
-    return parts.length ? parts.join(' ') : '—';
+    return parts.length ? parts.join(' ') : '-';
   }
   if (a.includes('approved')) {
     const parts = [];
     if (d.item_name) parts.push(`**${d.item_name}**`);
     if (d.allocator_name) parts.push(`→ assigned to **${d.allocator_name}**`);
-    return parts.length ? parts.join(' ') : '—';
+    return parts.length ? parts.join(' ') : '-';
   }
   if (a.includes('rejected')) {
     const parts = [];
     if (d.item_name) parts.push(`**${d.item_name}**`);
     if (d.reason)    parts.push(`Reason: "${d.reason}"`);
-    return parts.join(' — ') || '—';
+    return parts.join(' - ') || '-';
   }
   if (a.includes('return')) {
-    return d.item_name ? `**${d.item_name}** returned${d.condition_note ? ` — ${d.condition_note}` : ''}` : '—';
+    return d.item_name ? `**${d.item_name}** returned${d.condition_note ? ` - ${d.condition_note}` : ''}` : '-';
   }
   if (a.includes('allocated') || a.includes('hand over')) {
-    return d.item_name ? `**${d.item_name}** handed over${d.requested_by ? ` to **${d.requested_by}**` : ''}` : '—';
+    return d.item_name ? `**${d.item_name}** handed over${d.requested_by ? ` to **${d.requested_by}**` : ''}` : '-';
   }
 
-  // Generic fallback — drop path/status, render remaining keys with bold values
+  // Generic fallback - drop path/status, render remaining keys with bold values
   const entries = Object.entries(d).filter(([k, v]) => !skip.has(k) && v !== null && v !== undefined && v !== '');
-  return entries.length ? entries.map(([k, v]) => `${k.replace(/_/g, ' ')}: **${v}**`).join(' · ') : '—';
+  return entries.length ? entries.map(([k, v]) => `${k.replace(/_/g, ' ')}: **${v}**`).join(' · ') : '-';
 }
 
 function orderActivitySummary(orderItems) {
@@ -1503,7 +1503,7 @@ function orderActivitySummary(orderItems) {
   }
   if (rejected.length === orderItems.length) {
     const reason = rejected[0].rejectReason;
-    return `${who} requested ${items} on ${fmtFull(first.createdAt)} — request was rejected${reason ? ` ("${reason}")` : ''}.`;
+    return `${who} requested ${items} on ${fmtFull(first.createdAt)} - request was rejected${reason ? ` ("${reason}")` : ''}.`;
   }
   if (returned.length > 0) {
     const allocator = returned[0].assignedAllocatorName || 'the allocator';
@@ -1515,7 +1515,7 @@ function orderActivitySummary(orderItems) {
 }
 
 // ── Audit Log Panel ───────────────────────────────────────────────────────────
-// Audit rows are stored as NAIVE UTC (no timezone suffix) — parsing them raw
+// Audit rows are stored as NAIVE UTC (no timezone suffix) - parsing them raw
 // makes JS treat them as local time, which is the "wrong timestamps" Sai saw.
 // Force UTC parse, display as California time per Neil.
 function fmtAuditStamp(iso) {
@@ -1524,12 +1524,12 @@ function fmtAuditStamp(iso) {
   return d.toLocaleString('en-US', { timeZone: 'America/Los_Angeles', month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true }) + ' PT';
 }
 
-// Audit rows store raw emails and full checkout IDs — display friendly forms:
+// Audit rows store raw emails and full checkout IDs - display friendly forms:
 // "Visesh Lodha" instead of the address, "Req #F1AC60E7" instead of
 // ICHK-CAF2CE90-F1AC60E7 (Visesh: make the log human-understandable).
 function auditName(email) {
   const local = (email || '').split('@')[0];
-  return local.split(/[._]/).filter(Boolean).map(p => p[0].toUpperCase() + p.slice(1)).join(' ') || email || '—';
+  return local.split(/[._]/).filter(Boolean).map(p => p[0].toUpperCase() + p.slice(1)).join(' ') || email || '-';
 }
 
 // Icon + tone + plain-English verb for an audit action, so the log reads like a
@@ -1574,7 +1574,7 @@ function buildAuditDiffs(rows) {
     let changes = null, baseline = false;
     if (fieldEvent) {
       changes = [];
-      // The first field-event we see is the baseline snapshot — we have no prior
+      // The first field-event we see is the baseline snapshot - we have no prior
       // state to diff against, so don't paint the whole thing as "changed". An
       // actual Add stays green (those values really were set on creation).
       baseline = firstFieldEvent && !isAdd;
@@ -1592,7 +1592,7 @@ function buildAuditDiffs(rows) {
   });
 }
 
-// Interactive per-item history — clicking a log row opens this: the item's whole
+// Interactive per-item history - clicking a log row opens this: the item's whole
 // life as a top-to-bottom flow (added → checked out → returned → updated →
 // deleted), with who/when and a plain-English note for each step.
 function AuditHistoryModal({ item, onClose, onOpenItem }) {
@@ -1622,7 +1622,7 @@ function AuditHistoryModal({ item, onClose, onOpenItem }) {
         <div style={{ padding:'18px 22px 14px', borderBottom:'1px solid var(--line)', display:'flex', alignItems:'flex-start', justifyContent:'space-between', flexShrink:0 }}>
           <div style={{ minWidth:0 }}>
             <h3 style={{ margin:0, fontSize:16, fontWeight:700, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.name || 'Item History'}</h3>
-            <p style={{ margin:'3px 0 0', fontSize:12.5, color:'var(--muted)' }}>Full activity timeline — newest at the bottom</p>
+            <p style={{ margin:'3px 0 0', fontSize:12.5, color:'var(--muted)' }}>Full activity timeline - newest at the bottom</p>
           </div>
           <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', display:'flex', padding:4, flexShrink:0 }}><X size={18} /></button>
         </div>
@@ -1651,14 +1651,14 @@ function AuditHistoryModal({ item, onClose, onOpenItem }) {
                                 <span style={{ color: baseline ? 'var(--ink)' : 'hsl(var(--color-green))', fontWeight:600 }}>{auditVal(c.field, c.to, baseline ? 'baseline' : 'to')}</span>
                               </div>
                             ))}
-                            {baseline ? <div style={{ fontSize:10.5, color:'var(--muted)', marginTop:2, fontStyle:'italic' }}>earliest recorded state — changes are tracked from here</div>
+                            {baseline ? <div style={{ fontSize:10.5, color:'var(--muted)', marginTop:2, fontStyle:'italic' }}>earliest recorded state - changes are tracked from here</div>
                               : isAdd ? <div style={{ fontSize:10.5, color:'var(--muted)', marginTop:2, fontStyle:'italic' }}>values set when the item was added</div>
                               : <div style={{ fontSize:10.5, color:'var(--muted)', marginTop:2, fontStyle:'italic' }}>only the fields that changed are shown</div>}
                           </div>
                         ) : <div style={{ fontSize:12, color:'var(--muted)', marginTop:5 }}>No field values changed.</div>
                       ) : (() => {
                         const det = formatAuditDetails(r.action, r.details);
-                        return det && det !== '—' ? <div style={{ fontSize:12, color:'var(--muted)', marginTop:4, lineHeight:1.5 }}>{renderNotifBody(det)}</div> : null;
+                        return det && det !== '-' ? <div style={{ fontSize:12, color:'var(--muted)', marginTop:4, lineHeight:1.5 }}>{renderNotifBody(det)}</div> : null;
                       })()}
                     </div>
                   </div>
@@ -1677,7 +1677,7 @@ function AuditHistoryModal({ item, onClose, onOpenItem }) {
 }
 
 // ── Activity feed helpers ─────────────────────────────────────────────────────
-// Day bucket for grouping (PT — same zone the timestamps render in). en-CA gives
+// Day bucket for grouping (PT - same zone the timestamps render in). en-CA gives
 // YYYY-MM-DD which both sorts and compares against <input type="date"> values.
 function auditDayKey(iso) {
   if (!iso) return '';
@@ -1750,7 +1750,7 @@ function buildGlobalFeed(rows) {
       }
       seen[rid] = true;
     } else if (fieldEvent) {
-      // Bulk add/edit (no single resource_id) — show the submitted values flat.
+      // Bulk add/edit (no single resource_id) - show the submitted values flat.
       changes = [];
       for (const [f, label] of _AUDIT_FIELDS) {
         if (!(f in d)) continue;
@@ -1795,7 +1795,7 @@ function humanList(arr, max = 4) {
 }
 const _q = (v) => `“${v}”`;
 
-// One-line plain-English summary for the collapsed card — written like a sentence
+// One-line plain-English summary for the collapsed card - written like a sentence
 // a non-technical user can read. The full field/value detail (with the red→green
 // animation) lives behind "Show details". Returns null for non-field events so
 // the caller falls back to the humanised details text.
@@ -1805,7 +1805,7 @@ function feedSummary(entry) {
     const n = ch.length;
     // An item created with its values set.
     if (entry.isAdd) return n ? `Added to Items with ${n} detail${n !== 1 ? 's' : ''} filled in.` : 'Added to Items.';
-    // A photo change is the action people recognise — always name it, even on a
+    // A photo change is the action people recognise - always name it, even on a
     // first record (don't bury it under a generic "first record" message).
     const photo = ch.find(c => c.field === 'photo_url');
     if (photo) {
@@ -1816,7 +1816,7 @@ function feedSummary(entry) {
       if (!others.length || entry.baseline) return verb + '.';
       return `${verb}, and ${others.length === 1 ? `changed the ${others[0].label.toLowerCase()}` : `updated ${others.length} other fields`}.`;
     }
-    if (entry.baseline) return `This is the first record we have for this item — here’s what it looked like (${n} detail${n !== 1 ? 's' : ''}).`;
+    if (entry.baseline) return `This is the first record we have for this item - here’s what it looked like (${n} detail${n !== 1 ? 's' : ''}).`;
     if (n === 0)        return 'Saved with no changes.';
     if (n === 1) {
       const c = ch[0];
@@ -1991,7 +1991,7 @@ const AuditLogPanel = memo(function AuditLogPanel({ items = [], onOpenItem, onLo
                         {/* Plain-English summary + a Show details toggle for the field changes */}
                         <div style={{ display:'flex', alignItems:'baseline', gap:8, marginTop:6, flexWrap:'wrap' }}>
                           <span style={{ fontSize:12.5, color:'var(--ink)', lineHeight:1.5, minWidth:0 }}>
-                            {summary != null ? summary : (det && det !== '—' ? renderNotifBody(det) : auditEventMeta(r.action).verb)}
+                            {summary != null ? summary : (det && det !== '-' ? renderNotifBody(det) : auditEventMeta(r.action).verb)}
                           </span>
                           {hasDetail && (
                             <button onClick={() => toggleExpand(r.id)}
@@ -2085,7 +2085,7 @@ function StageTracker({ checkout }) {
 
   if (isRejected || isCancelled) return (
     <div style={{ marginTop:8, fontSize:12, color:'hsl(var(--color-red))', background:'hsla(var(--color-red),0.08)', borderRadius:6, padding:'4px 10px', display:'inline-block' }}>
-      {isRejected ? `Rejected${checkout.rejectReason ? ` — "${checkout.rejectReason}"` : ''}` : 'Cancelled'}
+      {isRejected ? `Rejected${checkout.rejectReason ? ` - "${checkout.rejectReason}"` : ''}` : 'Cancelled'}
     </div>
   );
 
@@ -2126,7 +2126,7 @@ const TYPE_DEPT_FALLBACK = {
 
 function CartDrawer({ open, cart, onClose, onRemove, onSubmit, submitting, onDaysChange, showApprover = false, items = [] }) {
   const [reason, setReason] = useState('');
-  // $ value per line + cart total — restored cart rows only carry id/name/type,
+  // $ value per line + cart total - restored cart rows only carry id/name/type,
   // so values are looked up from the live items list
   const valueOf = ci => Number(items.find(i => i.id === ci.item.id)?.assetValue) || 0;
   const totalValue = cart.reduce((s, c) => s + valueOf(c), 0);
@@ -2166,7 +2166,7 @@ function CartDrawer({ open, cart, onClose, onRemove, onSubmit, submitting, onDay
   }, [open, showApprover]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const approver  = approvers.find(a => a.email === approverEmail) || null;
-  // On-behalf needs a real directory match (email) — a free-typed name isn't enough.
+  // On-behalf needs a real directory match (email) - a free-typed name isn't enough.
   const behalfOk  = forSelf || !!forEmail;
   const canSubmit = cart.length > 0 && reason.trim() && !submitting && (!showApprover || !!approver) && behalfOk;
 
@@ -2227,7 +2227,7 @@ function CartDrawer({ open, cart, onClose, onRemove, onSubmit, submitting, onDay
                             {valueOf(cartItem) > 0 && <span style={{ fontSize:10.5, fontWeight:700, color:'var(--muted)' }}>{fmtMoney(valueOf(cartItem))}</span>}
                           </div>
                         </div>
-                        {/* Days stepper — explicit "days" unit so it can't be mistaken for quantity */}
+                        {/* Days stepper - explicit "days" unit so it can't be mistaken for quantity */}
                         <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:2, flexShrink:0 }}>
                           <div style={{ display:'flex', alignItems:'center', gap:4 }}>
                             <button onClick={() => onDaysChange(cartItem.id, Math.max(1, itemDays - 1))}
@@ -2288,7 +2288,7 @@ function CartDrawer({ open, cart, onClose, onRemove, onSubmit, submitting, onDay
                     </div>
                   ) : (
                     <select className="form-input" style={{ width:'100%' }} value={approverEmail} onChange={e => setApproverEmail(e.target.value)}>
-                      <option value="">— select a manager —</option>
+                      <option value="">- select a manager -</option>
                       {approvers.map(a => <option key={a.email} value={a.email}>{a.name}</option>)}
                     </select>
                   )}
@@ -2341,13 +2341,13 @@ function BatchReRequestModal({ checkouts, onClose, onSubmit }) {
   const [approverEmail, setApproverEmail] = useState('');
   const [busy,          setBusy]          = useState(false);
   const [error,         setError]         = useState('');
-  // Days are pre-filled from each item's last checkout but stay editable —
+  // Days are pre-filled from each item's last checkout but stay editable -
   // users can change the duration before re-submitting (Pranshu, Jun 16).
   const [days,          setDays]          = useState(() =>
     Object.fromEntries(checkouts.map(c => [c.id, c.days || 1])));
   const setItemDays = (id, v) => {
     const n = parseInt(v, 10);
-    // Backend rejects >90 days — clamp here too (cart/extension already cap at 90).
+    // Backend rejects >90 days - clamp here too (cart/extension already cap at 90).
     setDays(d => ({ ...d, [id]: Number.isNaN(n) ? '' : Math.max(1, Math.min(90, n)) }));
   };
   useEscapeKey(onClose);
@@ -2387,7 +2387,7 @@ function BatchReRequestModal({ checkouts, onClose, onSubmit }) {
       <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:440, boxShadow:'0 20px 60px rgba(0,0,0,0.3)', maxHeight:'85vh', overflowY:'auto' }}>
         <h3 style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>Request Again</h3>
         <p style={{ fontSize:12.5, color:'var(--muted)', marginBottom:16 }}>
-          {checkouts.length} item{checkouts.length !== 1 ? 's' : ''} from your past checkouts will go in as one new request. Days are pre-filled from last time — adjust any of them below before submitting.
+          {checkouts.length} item{checkouts.length !== 1 ? 's' : ''} from your past checkouts will go in as one new request. Days are pre-filled from last time - adjust any of them below before submitting.
         </p>
 
         <div style={{ border:'1px solid var(--line)', borderRadius:10, marginBottom:16, overflow:'hidden' }}>
@@ -2409,7 +2409,7 @@ function BatchReRequestModal({ checkouts, onClose, onSubmit }) {
         <div style={{ marginBottom:16 }}>
           <label style={FL}>WHO SHOULD APPROVE THIS? <span style={{ color:'hsl(var(--color-red))' }}>*</span></label>
           <select className="form-input" style={{ width:'100%' }} value={approverEmail} onChange={e => setApproverEmail(e.target.value)}>
-            <option value="">— select a manager —</option>
+            <option value="">- select a manager -</option>
             {approvers.map(a => <option key={a.email} value={a.email}>{a.name}</option>)}
           </select>
         </div>
@@ -2464,7 +2464,7 @@ async function runBatchReRequest(cos, { reason, approverEmail, approverName, day
       'error'
     );
   }
-  if (okCount === 0) throw new Error('Nothing was submitted — each item already has an active request.');
+  if (okCount === 0) throw new Error('Nothing was submitted - each item already has an active request.');
 }
 
 // ── My Checkouts Panel ────────────────────────────────────────────────────────
@@ -2501,13 +2501,13 @@ const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, 
     window.addEventListener('nexus:navigate', h);
     return () => window.removeEventListener('nexus:navigate', h);
   }, []);
-  // Filters — type/dept apply to both tabs, status + sort to Past
+  // Filters - type/dept apply to both tabs, status + sort to Past
   const [fStatus,         setFStatus]         = useState('All');
   const [fType,           setFType]           = useState('All');
   const [fDept,           setFDept]           = useState('All');
   const [mySearch,        setMySearch]        = useState('');
   const [sortOldest,      setSortOldest]      = useState(false);
-  // Date-range filter on submission date — both tabs (Pranshu, Jun 16)
+  // Date-range filter on submission date - both tabs (Pranshu, Jun 16)
   const [fFrom,           setFFrom]           = useState('');
   const [fTo,             setFTo]             = useState('');
 
@@ -2575,7 +2575,7 @@ const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, 
   const myDepts = ['All', ...Array.from(new Set(mine.map(c => c.department).filter(Boolean))).sort()];
   const myTypes = ['All', ...Array.from(new Set(mine.map(c => c.itemType).filter(Boolean))).sort()];
 
-  // Batch re-request: dedupe ticked rows by item — the same item often appears
+  // Batch re-request: dedupe ticked rows by item - the same item often appears
   // many times in history, but only one fresh request per item makes sense.
   // Most recent row wins (its days carry over to the new request).
   const batchItems = (() => {
@@ -2605,7 +2605,7 @@ const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, 
   const liveAssignCount = myAssignments.filter(a => ['pending_acceptance','active','return_initiated'].includes(a.status)).length;
   if (!mine.length && !myAssignments.length) return null;
 
-  // The Active / Past / Permanent sub-tabs — rendered BELOW the search/filter bar
+  // The Active / Past / Permanent sub-tabs - rendered BELOW the search/filter bar
   // so the toolbar stays at the same height as every other tab (Neil: fixed spot).
   const segmentTabs = (
     <div className="chip-row" style={{ display:'flex', gap:8, marginBottom:16 }}>
@@ -2634,10 +2634,10 @@ const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, 
 
   return (
     <div>
-      {/* Filters — type/dept on both tabs; status chips + date sort on Past */}
+      {/* Filters - type/dept on both tabs; status chips + date sort on Past */}
       {(mine.length > 3) && (
         <div style={{ display:'flex', gap:10, flexWrap:'wrap', alignItems:'center', marginBottom:14 }}>
-          {/* Consistent toolbar — search left, filters right — same shape as Manage. */}
+          {/* Consistent toolbar - search left, filters right - same shape as Manage. */}
           <div className="search-bar" style={{ flex:1, minWidth:200, marginBottom:0 }}>
             <Search size={14} style={{ flexShrink:0 }} />
             <input placeholder="Search my items…" value={mySearch} onChange={e => setMySearch(e.target.value)} />
@@ -2663,7 +2663,7 @@ const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, 
               {myDepts.map(d => <option key={d} value={d}>{d === 'All' ? 'All departments' : d}</option>)}
             </select>
           )}
-          {/* Submission date range — jump straight to a period instead of scrolling */}
+          {/* Submission date range - jump straight to a period instead of scrolling */}
           <div style={{ display:'inline-flex', alignItems:'center', gap:5 }}>
             <span style={{ fontSize:11.5, color:'var(--muted)', fontWeight:600 }}>From</span>
             <input type="date" className="form-input" value={fFrom} max={fTo || undefined}
@@ -2704,13 +2704,13 @@ const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, 
       {panelTab === 'active' && activeGroups.map(groupItems => {
         const firstItem = groupItems[0];
         const groupKey = firstItem.orderId || firstItem.id;
-        // Count siblings across ALL of the user's checkouts (incl. returned) —
+        // Count siblings across ALL of the user's checkouts (incl. returned) -
         // the Order header must survive partial returns, not vanish when only
         // one active item remains in a multi-item order.
         const orderSiblings = firstItem.orderId ? mine.filter(c => c.orderId === firstItem.orderId) : groupItems;
         const isMulti = firstItem.orderId ? orderSiblings.length > 1 : groupItems.length > 1;
         const cancellableItems = groupItems.filter(c => ['pending','approved'].includes(c.status));
-        // Batch buttons key off the RELEVANT items, not the whole order — a
+        // Batch buttons key off the RELEVANT items, not the whole order - a
         // rejected/cancelled sibling must not hide "Confirm Receipt for All".
         const pendingReceiptItems = groupItems.filter(c => c.status === 'pending_receipt');
         const showBatchReceipt    = pendingReceiptItems.length > 1;
@@ -2733,7 +2733,7 @@ const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, 
                     <span style={{ fontSize:12, color:'var(--ink)' }}>{firstItem.reason}</span>
                   </span>
                 )}
-                {/* Group-level confirm receipt — covers every item awaiting receipt */}
+                {/* Group-level confirm receipt - covers every item awaiting receipt */}
                 {showBatchReceipt && onConfirmReceipt && (
                   <button className="primary-btn"
                     style={{ marginLeft:'auto', fontSize:11.5, padding:'4px 12px', display:'inline-flex', alignItems:'center', gap:4 }}
@@ -2811,7 +2811,7 @@ const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, 
                               onReRequest(c, reRequestReason.trim())
                                 .then(() => {
                                   setReRequestId(null); setReRequestReason('');
-                                  // Fresh request created — just hide the rejected card
+                                  // Fresh request created - just hide the rejected card
                                   // locally. Do NOT cancel the rejected row (P1-11): it must
                                   // stay 'rejected' so history keeps the manager's decision.
                                   setDismissedIds(prev => new Set([...prev, c.id]));
@@ -2829,7 +2829,7 @@ const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, 
                     ) : (
                       <div style={{ display:'flex', gap:8, justifyContent:'flex-end', flexWrap:'wrap', marginTop:10 }}>
                         <button className="secondary-btn" onClick={() => {
-                            // Just dismiss the card from this view — the rejected row stays
+                            // Just dismiss the card from this view - the rejected row stays
                             // 'rejected' (P1-11: never rewrite it to cancelled).
                             setDismissedIds(prev => new Set([...prev, c.id]));
                           }}
@@ -2927,7 +2927,7 @@ const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, 
         </div>
       )}
       {panelTab === 'past' && completedView.length > 0 && (() => {
-        // Group by order like Active Checkouts — Req # makes "what was taken
+        // Group by order like Active Checkouts - Req # makes "what was taken
         // with what" traceable; checkboxes work per order and per item
         const visible = completedView.slice(0, 60);
         const groups = [];
@@ -3116,7 +3116,7 @@ const ItemPhotoGrid = memo(function ItemPhotoGrid({ items, checkouts, itemsLoadi
           const tm = TYPE_META[item.itemType] || TYPE_META.Other;
           const alreadyInCart = inCart?.has(item.id);
           const isAvailable = item.status === 'available';
-          // hasPending: item has a request in flight — block Add to Cart for everyone.
+          // hasPending: item has a request in flight - block Add to Cart for everyone.
           // item.hasActiveRequest comes from the server and is visible to all users,
           // even employees who can't see other users' checkouts.
           const hasPending  = isAvailable && (pendingCheckoutIds.has(item.id) || !!item.hasActiveRequest);
@@ -3137,7 +3137,7 @@ const ItemPhotoGrid = memo(function ItemPhotoGrid({ items, checkouts, itemsLoadi
             }
           }
 
-          // Phones: minimal tiles — photo floating on the background with a
+          // Phones: minimal tiles - photo floating on the background with a
           // small + on the image, one quiet info line, no card chrome or
           // colored chips (Visesh: amazon-app minimal, not high-school cards)
           if (isMobile) {
@@ -3179,7 +3179,7 @@ const ItemPhotoGrid = memo(function ItemPhotoGrid({ items, checkouts, itemsLoadi
               style={{ border:'1px solid var(--line)', borderRadius:12, overflow:'hidden', background:'var(--card)', display:'flex', flexDirection:'column', transition:'box-shadow 0.15s', boxShadow:'var(--shadow-sm)' }}
               onMouseEnter={e => e.currentTarget.style.boxShadow = 'var(--shadow-md)'}
               onMouseLeave={e => e.currentTarget.style.boxShadow = 'var(--shadow-sm)'}>
-              {/* Photo — only this part fades when unavailable; status info below stays full-colour */}
+              {/* Photo - only this part fades when unavailable; status info below stays full-colour */}
               <div onClick={() => item.photoUrl && isAvailable && !hasPending && setLightbox({ src: item.photoUrl, alt: item.name })}
                 style={{ height:160, background: item.photoUrl ? 'transparent' : tm.bg, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, cursor: item.photoUrl && isAvailable && !hasPending ? 'zoom-in' : 'default', position:'relative', overflow:'hidden', opacity: (isAvailable && !hasPending) ? 1 : 0.55 }}>
                 {item.photoUrl
@@ -3211,7 +3211,7 @@ const ItemPhotoGrid = memo(function ItemPhotoGrid({ items, checkouts, itemsLoadi
                   </div>
                 )}
               </div>
-              {/* Info — one calm meta line; the full spec lives behind the photo/
+              {/* Info - one calm meta line; the full spec lives behind the photo/
                   details affordances rather than stacked on the card face. */}
               <div style={{ padding:'10px 12px', flex:1, display:'flex', flexDirection:'column', gap:5 }}>
                 <div style={{ fontWeight:700, fontSize:13, lineHeight:1.3, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }} title={item.name}>{item.name}</div>
@@ -3333,7 +3333,7 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
   const [mode,           setMode]           = useState('home');
 
   // Deep-link from notifications: 'myitems'/'checkouts' lands on My Checkouts,
-  // 'catalog' on the catalog — skipping the home screen.
+  // 'catalog' on the catalog - skipping the home screen.
   useEffect(() => {
     if (activeSub === 'handover')                                { setMode('catalog'); setTab('handover'); }
     else if (['myitems','checkouts','permanent','active-checkouts'].includes(activeSub)) { setMode('catalog'); setTab('checkouts'); }
@@ -3377,7 +3377,7 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
     return p.then(() => {
       toast(photoBy === 'employee'
         ? `${co.requestedBy} has been notified to confirm receipt.`
-        : `Item handed over to ${co.requestedBy} — checkout confirmed.`);
+        : `Item handed over to ${co.requestedBy} - checkout confirmed.`);
       refreshItems(); refreshCheckouts();
     });
   }
@@ -3393,7 +3393,7 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
   );
   const activeCheckouts = myCheckouts.filter(c => ['pending','approved','pending_receipt','allocated'].includes(c.status));
   const allTransient    = useMemo(() => items.filter(i => i.ownershipType === 'transient'), [items]);
-  // Items flagged picture_required=false — every photo step for them is optional
+  // Items flagged picture_required=false - every photo step for them is optional
   const photoOptionalIds = useMemo(() => new Set(items.filter(i => i.pictureRequired === false).map(i => i.id)), [items]);
   const availableItems  = allTransient.filter(i => i.status === 'available');
   const inCart          = new Set(cart.map(c => c.item.id));
@@ -3470,9 +3470,9 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
   function handleReturn(co) { setReturningCo(co); }
   function handleReturnSubmit(data) {
     return onReturn(returningCo.id, data).then(() => {
-      toast(`Return confirmed — ${returningCo.itemName}`);
+      toast(`Return confirmed - ${returningCo.itemName}`);
       setReturningCo(null);
-    }).catch(() => toast('Could not confirm return — please try again.', 'error'));
+    }).catch(() => toast('Could not confirm return - please try again.', 'error'));
   }
   function handleCancel(co, opts = {}) {
     return cancelRequest(co.id, userName)
@@ -3535,7 +3535,7 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
             // Covers BOTH return and extend, so the title says so (UX-030).
             { Icon:RotateCcw,     colorVar:'color-blue',   title:'Return or Extend', sub:activeCheckouts.length > 0 ? `${activeCheckouts.length} item${activeCheckouts.length!==1?'s':''} currently checked out.` : 'Return equipment you have, or ask for more time.', go:() => { setMode('catalog'); setTab('checkouts'); }, badge:activeCheckouts.length||null },
             // Managers get a Manage card right on the home screen (Neil: no way in from here).
-            ...(showManage && onEnterManage ? [{ Icon:Box, colorVar:'color-purple', title:'Manage Items', sub:'Add, edit, assign, import, types and the activity log — the full management tools.', go:onEnterManage, badge:null }] : []),
+            ...(showManage && onEnterManage ? [{ Icon:Box, colorVar:'color-purple', title:'Manage Items', sub:'Add, edit, assign, import, types and the activity log - the full management tools.', go:onEnterManage, badge:null }] : []),
           ];
           const purchaseCard = { Icon:ClipboardList, colorVar:'color-orange', title:'Purchase Request', sub:'Need something not in the catalog? Submit a formal purchase request.', go:() => window.dispatchEvent(new CustomEvent('nexus:navigate',{detail:{view:'purchase'}})), badge:null };
           // All actions in one responsive grid so every card is the same size
@@ -3582,7 +3582,7 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
         </button>
       </div>
 
-      {/* Tab strip — desktop renders it centered in the top header; phones
+      {/* Tab strip - desktop renders it centered in the top header; phones
           keep the in-page strip (ModuleTabs handles both) */}
       <ModuleTabs
         tabs={[
@@ -3628,7 +3628,7 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
                   {filteredItems.filter(i => i.status === 'available').length} available · {filteredItems.length} total
                 </span>
               </div>
-              {/* Tile/List toggle shows on phones too — list is a horizontally
+              {/* Tile/List toggle shows on phones too - list is a horizontally
                   scrollable table, reachable in portrait now (Neil, Jun 16) */}
               <div style={{ display:'flex', gap:4, flexShrink:0 }}>
                 <button onClick={() => setViewMode('tile')}
@@ -3693,7 +3693,7 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
                       const alreadyInCart = inCart.has(item.id);
                       const hasPending = item.status==='available' && (
                         checkouts.some(c => ['pending','approved','pending_receipt'].includes(c.status) && c.itemId===item.id) ||
-                        !!item.hasActiveRequest // server flag — covers other users' requests employees can't see
+                        !!item.hasActiveRequest // server flag - covers other users' requests employees can't see
                       );
                       const canAdd = item.status==='available' && !hasPending && item.ownershipType==='transient';
                       return (
@@ -3705,9 +3705,9 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
                           </td>
                           <td style={{ padding:'8px 14px', fontWeight:600 }}>{item.name}</td>
                           <td style={{ padding:'8px 14px' }}><TypeBadge type={item.itemType} /></td>
-                          <td style={{ padding:'8px 14px', color:'var(--muted)', fontSize:12 }}>{item.make||'—'}</td>
-                          <td style={{ padding:'8px 14px', color:'var(--muted)', fontSize:12 }}>{item.model||'—'}</td>
-                          <td style={{ padding:'8px 14px', color:'var(--muted)', fontSize:12 }}>{item.location||'—'}</td>
+                          <td style={{ padding:'8px 14px', color:'var(--muted)', fontSize:12 }}>{item.make||'-'}</td>
+                          <td style={{ padding:'8px 14px', color:'var(--muted)', fontSize:12 }}>{item.model||'-'}</td>
+                          <td style={{ padding:'8px 14px', color:'var(--muted)', fontSize:12 }}>{item.location||'-'}</td>
                           <td style={{ padding:'8px 14px' }}><StatusBadge status={hasPending ? 'under_review' : displayStatus(item)} item={item} /></td>
                           <td style={{ padding:'8px 14px' }}>
                             {canAdd && (
@@ -3746,7 +3746,7 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
       {tab === 'checkouts' && (
         <div>
           {/* P0-5: mount the panel (which holds the Permanent tab where assignments
-              are accepted) whenever the user has EITHER checkouts OR assignments —
+              are accepted) whenever the user has EITHER checkouts OR assignments -
               today's acceptance banner deep-links here and must not dead-end. */}
           {myCheckouts.length === 0 && !assignments.some(a => a.assigneeEmail === userEmail) ? (
             <div style={{ textAlign:'center', padding:'64px 20px', color:'var(--muted)' }}>
@@ -3780,7 +3780,7 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
               }}
               onRequestExtension={(co, days, reason) =>
                 api.requestItemExtension(co.id, { days, reason })
-                  .then(() => { toast(`Extension requested for ${co.itemName} — awaiting approval.`); refreshCheckouts && refreshCheckouts(); })
+                  .then(() => { toast(`Extension requested for ${co.itemName} - awaiting approval.`); refreshCheckouts && refreshCheckouts(); })
               }
             />
           )}
@@ -3881,7 +3881,7 @@ const ManagerCatalogTab = memo(function ManagerCatalogTab({ items, itemsLoading,
 
   return (
     <>
-      {/* One consistent toolbar — search on the LEFT, filters + view toggle on the
+      {/* One consistent toolbar - search on the LEFT, filters + view toggle on the
           RIGHT, on a single row directly below the tabs. Same shape as Manage so the
           search bar never jumps position between tabs (Neil). */}
       <div style={{ display:'flex', gap:10, marginBottom:12, flexWrap:'wrap', alignItems:'center' }}>
@@ -3959,9 +3959,9 @@ const ManagerCatalogTab = memo(function ManagerCatalogTab({ items, itemsLoading,
                         {co && <div style={{ fontSize:11, color:'hsl(var(--color-orange))', marginTop:1 }}>With {co.requestedBy}</div>}
                       </td>
                       <td style={{ padding:'8px 14px' }}><TypeBadge type={item.itemType} /></td>
-                      <td style={{ padding:'8px 14px', color:'var(--muted)', fontSize:12 }}>{item.make || '—'}</td>
-                      <td style={{ padding:'8px 14px', color:'var(--muted)', fontSize:12 }}>{item.model || '—'}</td>
-                      <td style={{ padding:'8px 14px', color:'var(--muted)', fontSize:12 }}>{item.location || '—'}</td>
+                      <td style={{ padding:'8px 14px', color:'var(--muted)', fontSize:12 }}>{item.make || '-'}</td>
+                      <td style={{ padding:'8px 14px', color:'var(--muted)', fontSize:12 }}>{item.model || '-'}</td>
+                      <td style={{ padding:'8px 14px', color:'var(--muted)', fontSize:12 }}>{item.location || '-'}</td>
                       <td style={{ padding:'8px 14px' }}><StatusBadge status={hasPending ? 'under_review' : displayStatus(item)} item={item} /></td>
                       <td style={{ padding:'8px 14px' }}>
                         {canAdd && (
@@ -3990,7 +3990,7 @@ function BatchDeleteConfirmModal({ selectedItems, blockedItems, onClose, onConfi
   useEscapeKey(onClose);
   const [confirmText, setConfirmText] = useState('');
   const deletable = selectedItems.filter(i => !blockedItems.find(b => b.id === i.id));
-  // Ankush: "someone can just select all and delete all" — a typed confirmation is
+  // Ankush: "someone can just select all and delete all" - a typed confirmation is
   // the guard. The bigger the batch, the more this matters.
   const armed = confirmText.trim().toUpperCase() === 'DELETE';
   return (
@@ -4042,7 +4042,7 @@ function BatchDeleteConfirmModal({ selectedItems, blockedItems, onClose, onConfi
 }
 
 // ── Batch Edit Modal ──────────────────────────────────────────────────────────
-// Change the same descriptive field(s) across many selected items at once — the
+// Change the same descriptive field(s) across many selected items at once - the
 // replacement for editing fields by re-uploading a CSV. Serial is the static
 // identity and is never editable here; only ticked fields are written.
 const BATCH_FIELDS = [
@@ -4061,7 +4061,7 @@ const BATCH_FIELDS = [
 
 // Shared Fields/Photos toggle that sits at the top of the unified Batch modal
 // (Neil: one batch feature, two tabs). The active tab is just a render; clicking
-// the other swaps which face shows via onTab — both operate on the same scope.
+// the other swaps which face shows via onTab - both operate on the same scope.
 function BatchTabs({ tab, onTab }) {
   const Tab = ({ k, label, Icon }) => (
     <button onClick={() => k !== tab && onTab(k)}
@@ -4084,7 +4084,7 @@ function BatchEditModal({ selectedItems, usingSelection, onSwitchTab, onClose, o
   useEscapeKey(onClose);
   const [enabled, setEnabled] = useState(new Set());
   const [vals,    setVals]    = useState({});
-  // Assignment lives in Batch Edit now (Neil: not a separate button). Optional —
+  // Assignment lives in Batch Edit now (Neil: not a separate button). Optional -
   // tick it to also assign the selection to a place or a person.
   const [assignOn,    setAssignOn]    = useState(false);
   const [assignKind,  setAssignKind]  = useState('location');
@@ -4125,7 +4125,7 @@ function BatchEditModal({ selectedItems, usingSelection, onSwitchTab, onClose, o
         <p style={{ margin:'0 0 16px', fontSize:13, color:'var(--muted)' }}>
           {usingSelection
             ? 'Tick a field to apply the same value to every selected item.'
-            : 'No rows selected — this applies to every item the current filters show. Tick rows first to narrow it.'} Unticked fields are left untouched. Serials never change.
+            : 'No rows selected - this applies to every item the current filters show. Tick rows first to narrow it.'} Unticked fields are left untouched. Serials never change.
         </p>
         <div style={{ overflowY:'auto', minHeight:0, display:'flex', flexDirection:'column', gap:10 }}>
           {BATCH_FIELDS.map(f => {
@@ -4140,11 +4140,11 @@ function BatchEditModal({ selectedItems, usingSelection, onSwitchTab, onClose, o
                   <span style={{ fontSize:12.5, fontWeight:600, color: on ? 'var(--ink)' : 'var(--muted)' }}>{f.label}</span>
                 </label>
                 {opts ? (
-                  // Unticked dropdowns show blank, not a default value — otherwise it
+                  // Unticked dropdowns show blank, not a default value - otherwise it
                   // looks like (e.g.) "Transient" will be applied when it won't (Neil).
                   <select disabled={!on} value={on ? (vals[f.key] ?? opts[0]) : ''} onChange={e => setVal(f.key, e.target.value)}
                     style={{ flex:1, padding:'8px 10px', borderRadius:8, border:'1px solid var(--line)', background: on ? 'var(--card)' : 'var(--mist)', fontSize:13, fontFamily:'Inter,sans-serif', color: on ? 'var(--ink)' : 'var(--muted)' }}>
-                    {!on && <option value="">—</option>}
+                    {!on && <option value="">-</option>}
                     {opts.map(o => <option key={o} value={o}>{
                       f.key === 'op_status'       ? (OP_STATUS_META[o]?.label || o)
                       : f.key === 'ownership_type' ? (o === 'transient' ? 'Temporary' : 'Permanent')
@@ -4160,7 +4160,7 @@ function BatchEditModal({ selectedItems, usingSelection, onSwitchTab, onClose, o
             );
           })}
         </div>
-        {/* Assignment — fold-in of the old separate Assign button (Neil) */}
+        {/* Assignment - fold-in of the old separate Assign button (Neil) */}
         <div style={{ marginTop:14, paddingTop:14, borderTop:'1px solid var(--line)', flexShrink:0 }}>
           <label style={{ display:'flex', alignItems:'center', gap:8, cursor:'pointer', userSelect:'none' }}>
             <input type="checkbox" checked={assignOn} onChange={() => setAssignOn(v => !v)} style={{ cursor:'pointer', accentColor:'var(--pine)' }} />
@@ -4179,13 +4179,13 @@ function BatchEditModal({ selectedItems, usingSelection, onSwitchTab, onClose, o
               {assignKind === 'location' ? (
                 <>
                   <input className="form-input" list="batch-assign-locs" value={assignLoc} onChange={e => setAssignLoc(e.target.value)}
-                    placeholder="Location — e.g. GG Corp, GSE" style={{ width:'100%' }} />
+                    placeholder="Location - e.g. GG Corp, GSE" style={{ width:'100%' }} />
                   <datalist id="batch-assign-locs">{locations.map(l => <option key={l} value={l} />)}</datalist>
                 </>
               ) : (
                 // Type a name → pick from the company directory (fills the email we
                 // need so they can accept). Free-typed names without a pick can't be
-                // assigned — there's no inbox to notify.
+                // assigned - there's no inbox to notify.
                 <PersonTypeahead valueName={assignName}
                   onPick={({ email, name }) => { setAssignName(name); setAssignEmail(email); }}
                   placeholder="Type a person's name…" />
@@ -4195,17 +4195,17 @@ function BatchEditModal({ selectedItems, usingSelection, onSwitchTab, onClose, o
                   <input type="checkbox" checked={assignSkip} onChange={e => setAssignSkip(e.target.checked)}
                     style={{ cursor:'pointer', accentColor:'var(--pine)' }} />
                   <span style={{ fontSize:12, color:'var(--muted)' }}>
-                    <strong style={{ color:'var(--ink)' }}>Skip acceptance</strong> — assignments go active right away
+                    <strong style={{ color:'var(--ink)' }}>Skip acceptance</strong> - assignments go active right away
                   </span>
                 </label>
               )}
               <p style={{ fontSize:11, color:'var(--muted)', margin:0 }}>
                 {assignKind === 'location'
-                  ? 'Sets where these items physically live — their holder (if any) is unchanged.'
+                  ? 'Sets where these items physically live - their holder (if any) is unchanged.'
                   : (assignName && !assignEmail
                       ? 'Pick a person from the list so they can be notified to accept.'
                       : assignSkip
-                        ? 'The person is notified, but the items are theirs immediately — no acceptance step.'
+                        ? 'The person is notified, but the items are theirs immediately - no acceptance step.'
                         : 'Each person must accept their item (with a photo) from My Items.')}
               </p>
             </div>
@@ -4228,7 +4228,7 @@ function BatchEditModal({ selectedItems, usingSelection, onSwitchTab, onClose, o
 // ── Batch Photo Modal ─────────────────────────────────────────────────────────
 const PHOTO_TYPE_ORDER = ['Vehicles', 'Devices', 'Tools', 'Equipment', 'Keys', 'Other'];
 
-// `items` is the CURRENTLY FILTERED list from Manage — Sai: filtering to 34
+// `items` is the CURRENTLY FILTERED list from Manage - Sai: filtering to 34
 // Computers must scope this modal to those 34, not all 437. The master link bar
 // (Visesh) sets one image on every shown item at once, and AI fill now lives here
 // (Neil: AI fill belongs in batch photo edit, never on the Manage bar).
@@ -4323,7 +4323,7 @@ function BatchPhotoModal({ items, usingSelection, onSwitchTab, onClose, onUpdate
     }
   }
 
-  // AI fill ONE item. Never replaces an existing photo (replace=false) — Neil's
+  // AI fill ONE item. Never replaces an existing photo (replace=false) - Neil's
   // hard rule. This is also the fix for "can't AI-fill a single item" (the old
   // Manage button always ran every photo-less item).
   async function aiFillOne(item) {
@@ -4378,7 +4378,7 @@ function BatchPhotoModal({ items, usingSelection, onSwitchTab, onClose, onUpdate
     }
   }
 
-  // Paste an image straight onto a slot (Ctrl/Cmd+V) — copy a screenshot or an
+  // Paste an image straight onto a slot (Ctrl/Cmd+V) - copy a screenshot or an
   // image file, click the photo box, and paste. Clipboard images often arrive as
   // a nameless blob, so give them a filename for the upload.
   function handlePaste(item, e) {
@@ -4408,7 +4408,7 @@ function BatchPhotoModal({ items, usingSelection, onSwitchTab, onClose, onUpdate
           <h3 style={{ margin:0, fontSize:16, fontWeight:700 }}>Photos · {items.length} {usingSelection ? 'selected' : 'shown'} item{items.length !== 1 ? 's' : ''}</h3>
           <p style={{ margin:'3px 0 0', fontSize:12.5, color:'var(--muted)' }}>{withPhotos} / {items.length} have a photo · click a photo box and press <strong>Ctrl/Cmd+V</strong> to paste an image</p>
         </div>
-        {/* Controls: a single master image — pasted as a link OR uploaded —
+        {/* Controls: a single master image - pasted as a link OR uploaded -
             applied to every shown item. Apply sits on the right; Upload to all
             beside it on the left. */}
         <div onPaste={handleMasterPaste} style={{ padding:'12px 24px', borderBottom:'1px solid var(--line)', display:'flex', gap:10, flexWrap:'wrap', alignItems:'center', flexShrink:0 }}>
@@ -4441,7 +4441,7 @@ function BatchPhotoModal({ items, usingSelection, onSwitchTab, onClose, onUpdate
             const isUploading = uploading[item.id];
             return (
               <div key={item.id} style={{ display:'flex', alignItems:'center', gap:12, padding:'10px 0', borderBottom:'1px solid var(--line)' }}>
-                {/* Thumb — also a paste target: click it, then Ctrl/Cmd+V to paste an image */}
+                {/* Thumb - also a paste target: click it, then Ctrl/Cmd+V to paste an image */}
                 <div tabIndex={0} role="button"
                   title="Click, then press Ctrl/Cmd+V to paste an image"
                   onPaste={e => handlePaste(item, e)}
@@ -4505,7 +4505,7 @@ function BatchPhotoModal({ items, usingSelection, onSwitchTab, onClose, onUpdate
           <button className="secondary-btn" onClick={onClose}>Done</button>
         </div>
       </div>
-      {/* In-app confirm for the master "apply to all" actions — one prompt, Nexus
+      {/* In-app confirm for the master "apply to all" actions - one prompt, Nexus
           styled, never the browser's native dialog. */}
       {confirmState && (
         <div onClick={e => e.target === e.currentTarget && setConfirmState(null)}
@@ -4528,8 +4528,8 @@ function BatchPhotoModal({ items, usingSelection, onSwitchTab, onClose, onUpdate
 }
 
 // ── Item Details Panel ────────────────────────────────────────────────────────
-// Ankush: a Details button per item that opens everything NOT in the main table —
-// operational status, location assignment, and admin-defined custom fields — so
+// Ankush: a Details button per item that opens everything NOT in the main table -
+// operational status, location assignment, and admin-defined custom fields - so
 // the table stays lean. Editable in place.
 function ItemDetailsPanel({ item, customFields, canEdit, onClose, onSaved, toast }) {
   useEscapeKey(onClose);
@@ -4583,21 +4583,21 @@ function ItemDetailsPanel({ item, customFields, canEdit, onClose, onSaved, toast
           </div>
           <div style={{ flex:1, minWidth:0 }}>
             <div style={{ fontWeight:700, fontSize:15, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.name}</div>
-            <div style={{ fontSize:11.5, color:'var(--muted)', fontFamily:'ui-monospace,Menlo,monospace' }}>{item.serialNumber || '—'}</div>
+            <div style={{ fontSize:11.5, color:'var(--muted)', fontFamily:'ui-monospace,Menlo,monospace' }}>{item.serialNumber || '-'}</div>
           </div>
           <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', display:'flex', padding:4 }}><X size={18} /></button>
         </div>
 
         <div style={{ overflowY:'auto', flex:1, padding:'14px 22px' }}>
-          {/* Core facts — read-only here, edited via the Edit modal */}
+          {/* Core facts - read-only here, edited via the Edit modal */}
           <div style={{ fontSize:10.5, fontWeight:800, color:'var(--muted)', letterSpacing:'.06em', marginBottom:4 }}>CORE</div>
           <Row label="Type"><TypeBadge type={item.itemType} /></Row>
-          <Row label="Make / Model">{[cleanField(item.make), cleanField(item.model), cleanField(item.year)].filter(Boolean).join(' ') || '—'}</Row>
-          <Row label="Department">{cleanField(item.department) || '—'}</Row>
-          <Row label="Location">{cleanField(item.location) || '—'}</Row>
+          <Row label="Make / Model">{[cleanField(item.make), cleanField(item.model), cleanField(item.year)].filter(Boolean).join(' ') || '-'}</Row>
+          <Row label="Department">{cleanField(item.department) || '-'}</Row>
+          <Row label="Location">{cleanField(item.location) || '-'}</Row>
           <Row label="Ownership">{item.ownershipType === 'permanent' ? 'Permanent' : 'Temporary'}</Row>
           <Row label="Lifecycle"><StatusBadge status={displayStatus(item)} item={item} /></Row>
-          <Row label="Asset value">{Number(item.assetValue) > 0 ? fmtMoney(item.assetValue) : '—'}</Row>
+          <Row label="Asset value">{Number(item.assetValue) > 0 ? fmtMoney(item.assetValue) : '-'}</Row>
           {personHeld && <Row label="Held by">{nameOf(item.assignedToEmail, item.assignedToName)}</Row>}
 
           {/* Operational status (Neil) */}
@@ -4605,7 +4605,7 @@ function ItemDetailsPanel({ item, customFields, canEdit, onClose, onSaved, toast
           <Row label="Status">
             {canEdit ? (
               <select className="form-input" style={{ width:'100%' }} value={op} onChange={e => setOp(e.target.value)}>
-                <option value="">— not set —</option>
+                <option value="">- not set -</option>
                 {OP_STATUSES.map(s => <option key={s} value={s}>{OP_STATUS_META[s]?.label || s}</option>)}
               </select>
             ) : <OpStatusBadge value={op} />}
@@ -4615,17 +4615,17 @@ function ItemDetailsPanel({ item, customFields, canEdit, onClose, onSaved, toast
               {canEdit
                 ? <PersonTypeahead valueName={opPersonName} placeholder="Type a name…"
                     onPick={({ email, name }) => { setOpPersonEmail(email); setOpPersonName(name); }} />
-                : (opPersonName || opPersonEmail || '—')}
+                : (opPersonName || opPersonEmail || '-')}
             </Row>
           )}
 
-          {/* Location assignment (Ankush) — only when not held by a person */}
+          {/* Location assignment (Ankush) - only when not held by a person */}
           {canEdit && item.ownershipType === 'permanent' && !personHeld && (
             <>
               <div style={{ fontSize:10.5, fontWeight:800, color:'var(--muted)', letterSpacing:'.06em', margin:'16px 0 4px' }}>ASSIGN TO LOCATION</div>
               <Row label="Location">
                 <input className="form-input" style={{ width:'100%' }} value={loc} onChange={e => setLoc(e.target.value)}
-                  placeholder="e.g. GSVC Server Room — leave blank to unassign" />
+                  placeholder="e.g. GSVC Server Room - leave blank to unassign" />
                 <div style={{ fontSize:11, color:'var(--muted)', marginTop:4 }}>Items assigned to a place don't appear under “Who has it”.</div>
               </Row>
             </>
@@ -4637,7 +4637,7 @@ function ItemDetailsPanel({ item, customFields, canEdit, onClose, onSaved, toast
             <div style={{ fontSize:12.5, color:'var(--muted)', padding:'6px 0' }}>No custom fields defined for this item type.</div>
           ) : applicable.map(f => (
             <Row key={f.id} label={f.label}>
-              {!canEdit ? <span>{String(values[f.fieldKey] ?? '') || '—'}</span>
+              {!canEdit ? <span>{String(values[f.fieldKey] ?? '') || '-'}</span>
                 : f.fieldType === 'boolean' ? (
                   <label style={{ display:'inline-flex', alignItems:'center', gap:7, cursor:'pointer' }}>
                     <input type="checkbox" checked={!!values[f.fieldKey]} onChange={e => setVal(f.fieldKey, e.target.checked ? 'yes' : '')} style={{ accentColor:'var(--pine)', cursor:'pointer' }} />
@@ -4645,7 +4645,7 @@ function ItemDetailsPanel({ item, customFields, canEdit, onClose, onSaved, toast
                   </label>
                 ) : f.fieldType === 'select' ? (
                   <select className="form-input" style={{ width:'100%' }} value={values[f.fieldKey] ?? ''} onChange={e => setVal(f.fieldKey, e.target.value)}>
-                    <option value="">—</option>
+                    <option value="">-</option>
                     {(f.options || []).map(o => <option key={o} value={o}>{o}</option>)}
                   </select>
                 ) : (
@@ -4715,10 +4715,10 @@ function ManageTypesModal({ types, counts = {}, onClose, onChanged, toast }) {
           <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', display:'flex', padding:4 }}><X size={18} /></button>
         </div>
         <p style={{ margin:'0 0 14px', fontSize:12.5, color:'var(--muted)' }}>
-          These are the types everyone picks from. A CSV import may match a new/unknown type to one of these or create it — the created ones are reported after the import. Add or curate them here.
+          These are the types everyone picks from. A CSV import may match a new/unknown type to one of these or create it - the created ones are reported after the import. Add or curate them here.
         </p>
         <div style={{ display:'flex', gap:8, marginBottom:14 }}>
-          <input className="form-input" style={{ flex:1 }} value={newType} placeholder="New type — e.g. Office"
+          <input className="form-input" style={{ flex:1 }} value={newType} placeholder="New type - e.g. Office"
             onChange={e => setNewType(e.target.value)} onKeyDown={e => e.key === 'Enter' && add()} />
           <button className="primary-btn" onClick={add} disabled={!newType.trim() || busy} style={{ display:'inline-flex', alignItems:'center', gap:6 }}>
             {busy ? <Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> : <Plus size={14} />} Add
@@ -4741,7 +4741,7 @@ function ManageTypesModal({ types, counts = {}, onClose, onChanged, toast }) {
               </div>
               {confirmDel === t && (
                 <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:8, fontSize:12 }}>
-                  <span style={{ color:'var(--muted)' }}>{(counts[t] || 0) > 0 ? `${counts[t]} item${counts[t] !== 1 ? 's' : ''} use this — remove anyway?` : 'Remove this type?'}</span>
+                  <span style={{ color:'var(--muted)' }}>{(counts[t] || 0) > 0 ? `${counts[t]} item${counts[t] !== 1 ? 's' : ''} use this - remove anyway?` : 'Remove this type?'}</span>
                   <span style={{ display:'flex', gap:6, flexShrink:0 }}>
                     <button className="secondary-btn" style={{ fontSize:11.5, padding:'3px 10px' }} onClick={() => setConfirmDel(null)} disabled={busy}>Cancel</button>
                     <button onClick={() => remove(t)} disabled={busy} style={{ fontSize:11.5, padding:'3px 10px', borderRadius:7, border:'none', background:'hsl(var(--color-red))', color:'#fff', fontWeight:700, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>Remove</button>
@@ -4961,7 +4961,7 @@ function DeletedItemsModal({ onClose, onRestored, toast, highlightId }) {
                     ); })()}
                   </div>
                   <div style={{ fontSize:11.5, color:'var(--muted)' }}>
-                    {item.serialNumber || '—'} · Deleted in <strong style={{ color:'var(--ink)' }}>{item.deletedLocation || '—'}</strong>
+                    {item.serialNumber || '-'} · Deleted in <strong style={{ color:'var(--ink)' }}>{item.deletedLocation || '-'}</strong>
                     {item.deletedAt && <> · {fmtWhen(item.deletedAt)}</>}
                     {item.deletedBy && <> · by {nameOf(item.deletedBy)}</>}
                   </div>
@@ -5023,7 +5023,7 @@ function SendAlertModal({ onClose, toast }) {
       const res = await api.sendAlert({ to: [...selected], subject: subject.trim(), message: message.trim() });
       toast?.(res.email_sent
         ? `Alert sent to ${selected.size} recipient${selected.size !== 1 ? 's' : ''}.`
-        : `Notification sent (email delivery failed — check Azure config).`, res.email_sent ? 'success' : 'error');
+        : `Notification sent (email delivery failed - check Azure config).`, res.email_sent ? 'success' : 'error');
       onClose();
     } catch (err) {
       toast?.(err?.message || 'Could not send alert.', 'error');
@@ -5084,7 +5084,7 @@ function SendAlertModal({ onClose, toast }) {
           {/* Message */}
           <div>
             <label style={FL}>Message</label>
-            <textarea value={message} onChange={e => setMessage(e.target.value)} placeholder={`Write your message…\n\n— ${senderName}`} rows={4}
+            <textarea value={message} onChange={e => setMessage(e.target.value)} placeholder={`Write your message…\n\n- ${senderName}`} rows={4}
               className="form-input" style={{ width:'100%', resize:'vertical', fontFamily:'Inter,sans-serif', fontSize:13 }} />
           </div>
         </div>
@@ -5128,7 +5128,7 @@ function OverdueAlertModal({ checkouts, onClose, toast, onCustomAlert }) {
     return list.sort((a, b) => b.items.length - a.items.length);
   }, [checkouts]);
 
-  // Everyone with an email starts selected — the common case is "alert them all"
+  // Everyone with an email starts selected - the common case is "alert them all"
   const sel = selected ?? new Set(groups.filter(g => g.email).map(g => g.key));
   const sendable = groups.filter(g => g.email && sel.has(g.key));
 
@@ -5147,7 +5147,7 @@ function OverdueAlertModal({ checkouts, onClose, toast, onCustomAlert }) {
     for (const g of sendable) {
       const lines = g.items.map(({ co, daysLeft }) => {
         const od = Math.abs(daysLeft);
-        return `• ${co.itemName} — was due ${fmtDueDate(co)} (${od} day${od !== 1 ? 's' : ''} overdue)`;
+        return `• ${co.itemName} - was due ${fmtDueDate(co)} (${od} day${od !== 1 ? 's' : ''} overdue)`;
       });
       const firstName = (g.name || '').split(' ')[0] || g.name;
       const message = `Hi ${firstName},\n\nThe following item${g.items.length !== 1 ? 's are' : ' is'} overdue. Please return ${g.items.length !== 1 ? 'them' : 'it'} as soon as possible:\n\n${lines.join('\n')}${note.trim() ? `\n\n${note.trim()}` : ''}`;
@@ -5162,7 +5162,7 @@ function OverdueAlertModal({ checkouts, onClose, toast, onCustomAlert }) {
     }
     setSending(false);
     if (failed) toast?.(`Alerted ${sendable.length - failed} of ${sendable.length} people · ${failed} failed.`, 'error');
-    else if (emailFailed) toast?.(`Bell alerts sent to ${sendable.length} — email did NOT go out${emailErr ? `: ${emailErr.slice(0, 160)}` : ' (check Azure config).'}`, 'error');
+    else if (emailFailed) toast?.(`Bell alerts sent to ${sendable.length} - email did NOT go out${emailErr ? `: ${emailErr.slice(0, 160)}` : ' (check Azure config).'}`, 'error');
     else toast?.(`Overdue alert sent to ${sendable.length} ${sendable.length !== 1 ? 'people' : 'person'} (bell + email).`);
     onClose();
   }
@@ -5218,11 +5218,11 @@ function OverdueAlertModal({ checkouts, onClose, toast, onCustomAlert }) {
                         {g.items.length} overdue
                       </span>
                     </div>
-                    {!g.email && <div style={{ fontSize:11, color:'hsl(var(--color-red))', paddingLeft:24, marginTop:2 }}>No email on file — can't alert</div>}
+                    {!g.email && <div style={{ fontSize:11, color:'hsl(var(--color-red))', paddingLeft:24, marginTop:2 }}>No email on file - can't alert</div>}
                     <div style={{ paddingLeft:24, marginTop:6, display:'flex', flexDirection:'column', gap:3 }}>
                       {g.items.map(({ co, daysLeft }) => (
                         <div key={co.id} style={{ fontSize:12, color:'var(--muted)' }}>
-                          · {co.itemName} <span style={{ color:'hsl(var(--color-red))', fontWeight:600 }}>— {Math.abs(daysLeft)} day{Math.abs(daysLeft) !== 1 ? 's' : ''} overdue</span> (was due {fmtDueDate(co)})
+                          · {co.itemName} <span style={{ color:'hsl(var(--color-red))', fontWeight:600 }}>- {Math.abs(daysLeft)} day{Math.abs(daysLeft) !== 1 ? 's' : ''} overdue</span> (was due {fmtDueDate(co)})
                         </div>
                       ))}
                     </div>
@@ -5262,7 +5262,7 @@ function OverdueAlertModal({ checkouts, onClose, toast, onCustomAlert }) {
 
 // ── Manager Manage Tab ────────────────────────────────────────────────────────
 // Memoised rows so toggling ONE checkbox re-renders only that row, not all 360+
-// (selecting an item used to repaint the whole table — visible mouse lag). isSelected
+// (selecting an item used to repaint the whole table - visible mouse lag). isSelected
 // is a boolean and every handler is stable, so memo skips the untouched rows.
 const ManageRow = memo(function ManageRow({ item, isSelected, highlight, onToggle, onEdit, onDelete, onAssign, onDetails, onPreview, canDelete }) {
   const ref = useRef(null);
@@ -5277,7 +5277,7 @@ const ManageRow = memo(function ManageRow({ item, isSelected, highlight, onToggl
           onMouseDown={e => { if (e.shiftKey) e.preventDefault(); }}
           style={{ cursor:'pointer', accentColor:'var(--pine)' }} />
       </td>
-      {/* Item — photo + name with make/model/year as a quiet second line; the
+      {/* Item - photo + name with make/model/year as a quiet second line; the
           old Photo/Make/Model/Ownership columns folded in here so the face of
           the table stays calm. "Permanent" only tags the exceptions. */}
       <td style={{ padding:'10px 14px', maxWidth:300 }}>
@@ -5312,10 +5312,10 @@ const ManageRow = memo(function ManageRow({ item, isSelected, highlight, onToggl
           </div>
         </div>
       </td>
-      <td style={{ padding:'10px 14px', fontFamily:'ui-monospace,SFMono-Regular,Menlo,monospace', fontSize:12, color:'var(--muted)', whiteSpace:'nowrap' }}>{item.serialNumber || '—'}</td>
+      <td style={{ padding:'10px 14px', fontFamily:'ui-monospace,SFMono-Regular,Menlo,monospace', fontSize:12, color:'var(--muted)', whiteSpace:'nowrap' }}>{item.serialNumber || '-'}</td>
       <td style={{ padding:'10px 14px' }}><TypeBadge type={item.itemType} /></td>
-      <td style={{ padding:'10px 14px', color:'var(--muted)', fontSize:12 }}>{cleanField(item.department) || '—'}</td>
-      <td style={{ padding:'10px 14px', color:'var(--muted)', fontSize:12 }}>{cleanField(item.location) || '—'}</td>
+      <td style={{ padding:'10px 14px', color:'var(--muted)', fontSize:12 }}>{cleanField(item.department) || '-'}</td>
+      <td style={{ padding:'10px 14px', color:'var(--muted)', fontSize:12 }}>{cleanField(item.location) || '-'}</td>
       {/* One Status cell: lifecycle badge, with the op-status chip beside it only
           when something is actually flagged (lost/dead/…). */}
       <td style={{ padding:'10px 14px' }}>
@@ -5325,13 +5325,13 @@ const ManageRow = memo(function ManageRow({ item, isSelected, highlight, onToggl
         </div>
       </td>
       {/* Actions pinned to the right so they stay reachable when the table is wider
-          than the viewport. Compact aligned icon buttons — labels moved to tooltips
+          than the viewport. Compact aligned icon buttons - labels moved to tooltips
           so every row's actions line up regardless of which ones apply. */}
       <td style={{ padding:'10px 14px', position:'sticky', right:0, background:'var(--card)' }}>
         <div style={{ display:'flex', gap:5, justifyContent:'flex-end' }}>
           {item.ownershipType === 'permanent' && onAssign && (
             <button onClick={() => onAssign(item, item.assignedToEmail ? 'reassign' : 'assign')}
-              title={item.assignedToEmail ? `Held by ${item.assignedToName || item.assignedToEmail}${item.location ? ` · at ${item.location}` : ''} — reassign` : item.location ? `At ${item.location} · no person assigned — assign` : 'Assign a person or set a location'}
+              title={item.assignedToEmail ? `Held by ${item.assignedToName || item.assignedToEmail}${item.location ? ` · at ${item.location}` : ''} - reassign` : item.location ? `At ${item.location} · no person assigned - assign` : 'Assign a person or set a location'}
               aria-label={item.assignedToEmail ? 'Reassign' : 'Assign'}
               style={{ width:28, height:28, display:'inline-flex', alignItems:'center', justifyContent:'center', background:'none', border:'1px solid hsla(var(--color-purple),0.4)', borderRadius:7, color:'hsl(var(--color-purple))', cursor:'pointer' }}>
               <User size={13} />
@@ -5380,7 +5380,7 @@ const ManageCard = memo(function ManageCard({ item, isSelected, highlight, onTog
             {item.name}
           </div>
           <div style={{ fontSize:11.5, color:'var(--muted)', marginTop:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-            {[item.serialNumber, cleanField(item.make), cleanField(item.model), cleanField(item.location)].filter(Boolean).join(' · ') || '—'}
+            {[item.serialNumber, cleanField(item.make), cleanField(item.model), cleanField(item.location)].filter(Boolean).join(' · ') || '-'}
           </div>
         </div>
         <StatusBadge status={displayStatus(item)} item={item} />
@@ -5425,7 +5425,7 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
   const [batchDeleting,      setBatchDeleting]      = useState(false);
   const isMobile = useIsMobile(); // phones render cards, not the table
 
-  // (AI photo fill lives inside BatchPhotoModal now — Neil moved it off this bar.)
+  // (AI photo fill lives inside BatchPhotoModal now - Neil moved it off this bar.)
 
   const TYPE_ORDER = ['Vehicles', 'Devices', 'Tools', 'Equipment', 'Keys', 'Other'];
 
@@ -5517,8 +5517,8 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
   );
   // What a batch action operates on: the explicit selection if any rows are
   // ticked, otherwise everything currently shown under the filters (Neil: never
-  // forced to all 500 — selecting six, or filtering to a type, scopes the batch).
-  // Batch acts ONLY on the explicit selection — never "everything shown" by
+  // forced to all 500 - selecting six, or filtering to a type, scopes the batch).
+  // Batch acts ONLY on the explicit selection - never "everything shown" by
   // default (Neil: people will mass-edit by accident; make them tick rows first.
   // Select-all is one click away when they really want every row).
   const usingSelection = selItems.length > 0;
@@ -5526,7 +5526,7 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
 
   // Refs let toggleSelect stay STABLE (so memoized rows don't all re-render) while
   // still reading the current sorted order + the last-ticked anchor for shift-range.
-  // The ref is synced in an effect (not during render) — toggleSelect only reads it
+  // The ref is synced in an effect (not during render) - toggleSelect only reads it
   // from a click handler, which fires after commit, so it always sees the latest list.
   const sortedRef = useRef(sorted);
   useEffect(() => { sortedRef.current = sorted; });
@@ -5558,7 +5558,7 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
     const ids = batchScope.map(i => i.id);
     try {
       const parts = [];
-      // "Assign to location" already writes location — drop a ticked location
+      // "Assign to location" already writes location - drop a ticked location
       // field so the same value isn't written twice by two endpoints.
       if (fields && assignment?.kind === 'location') delete fields.location;
       if (fields && Object.keys(fields).length) {
@@ -5594,7 +5594,7 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
     setBatchDeleting(true);
     const deletable = selItems.filter(i => !blockedItems.find(b => b.id === i.id));
     try {
-      // One request, one transaction — the old per-item loop made deleting 30+
+      // One request, one transaction - the old per-item loop made deleting 30+
       // items take 10-20s (Jun 16).
       const res = await api.bulkDeleteItems(deletable.map(i => i.id));
       await refreshItems();
@@ -5628,7 +5628,7 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
 
   return (
     <>
-      {/* Phone search — the desktop tab-strip search is hidden on mobile */}
+      {/* Phone search - the desktop tab-strip search is hidden on mobile */}
       {isMobile && onSearchChange && (
         <div className="search-bar" style={{ width:'100%', marginBottom:12 }}>
           <Search size={14} style={{ flexShrink:0 }} />
@@ -5636,7 +5636,7 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
           {searchValue && <button className="search-clear" onClick={() => onSearchChange('')} title="Clear search" aria-label="Clear search"><X size={13} /></button>}
         </div>
       )}
-      {/* Filter + search bar — directly above the items, one consistent spot
+      {/* Filter + search bar - directly above the items, one consistent spot
           (Neil): search on the left, filter dropdowns pushed to the right. The
           phone search is rendered separately above, so this one is desktop-only. */}
       <div style={{ display:'flex', gap:10, marginBottom:16, flexWrap:'wrap', alignItems:'center' }}>
@@ -5654,7 +5654,7 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
       {/* KPI cards sit BELOW the toolbar so the search/filter row stays at the same
           height as every other tab (Neil: fixed position, no jumping). */}
       {kpiStrip}
-      {/* Action bar — one row: primary action first, everyday secondaries next,
+      {/* Action bar - one row: primary action first, everyday secondaries next,
           admin extras collected under Manage ▾ so the bar never wraps into soup. */}
       <div style={{ display:'flex', gap:10, marginBottom:16, flexWrap:'wrap', alignItems:'center' }}>
         <button className="primary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7 }} onClick={onAdd}>
@@ -5663,7 +5663,7 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
         <button className="secondary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7 }} onClick={onImport}>
           <UploadCloud size={14} /> Import CSV
         </button>
-        {/* Export ▾ — two choices (Neil): every item unfiltered (CSV or PDF), or a
+        {/* Export ▾ - two choices (Neil): every item unfiltered (CSV or PDF), or a
             custom report honoring the filters currently applied. */}
         <div style={{ position:'relative' }}>
           <button className="secondary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7 }} onClick={() => setExportMenu(o => !o)}>
@@ -5674,10 +5674,10 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
               {/* click-away backdrop */}
               <div style={{ position:'fixed', inset:0, zIndex:40 }} onClick={() => setExportMenu(false)} />
               <div style={{ position:'absolute', top:'calc(100% + 6px)', left:0, zIndex:41, background:'var(--card)', border:'1px solid var(--line)', borderRadius:10, boxShadow:'var(--shadow-lg)', minWidth:268, overflow:'hidden', padding:5 }}>
-                {/* All Items — unfiltered; pick a format */}
+                {/* All Items - unfiltered; pick a format */}
                 <div style={{ padding:'9px 11px' }}>
                   <span style={{ display:'flex', alignItems:'center', gap:7, fontSize:13, fontWeight:700, color:'var(--ink)' }}><FileSpreadsheet size={14} /> All items (CSV / PDF)</span>
-                  <span style={{ display:'block', fontSize:11.5, color:'var(--muted)', paddingLeft:21, margin:'1px 0 8px' }}>Unfiltered — every item, all {items.length}.</span>
+                  <span style={{ display:'block', fontSize:11.5, color:'var(--muted)', paddingLeft:21, margin:'1px 0 8px' }}>Unfiltered - every item, all {items.length}.</span>
                   <div style={{ display:'flex', gap:7, paddingLeft:21 }}>
                     <button onClick={() => { setExportMenu(false); onExport(items); }}
                       style={{ flex:1, padding:'6px 0', borderRadius:7, border:'1px solid var(--line)', background:'var(--card)', cursor:'pointer', fontFamily:'Inter,sans-serif', fontSize:12, fontWeight:700, color:'var(--ink)' }}
@@ -5688,7 +5688,7 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
                   </div>
                 </div>
                 <div style={{ height:1, background:'var(--line)', margin:'4px 6px' }} />
-                {/* Custom Report — honors the filters currently applied */}
+                {/* Custom Report - honors the filters currently applied */}
                 <button onClick={() => { setExportMenu(false); onReport({ dept: deptFilter, itemType: typeFilter }); }}
                   style={{ display:'flex', flexDirection:'column', alignItems:'flex-start', gap:1, width:'100%', textAlign:'left', background:'none', border:'none', cursor:'pointer', padding:'9px 11px', borderRadius:7, fontFamily:'Inter,sans-serif' }}
                   onMouseEnter={e => e.currentTarget.style.background='var(--mist)'} onMouseLeave={e => e.currentTarget.style.background='none'}>
@@ -5699,7 +5699,7 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
             </>
           )}
         </div>
-        {/* Manage ▾ — the admin extras (types, custom fields, deleted items) live
+        {/* Manage ▾ - the admin extras (types, custom fields, deleted items) live
             behind one button instead of crowding the bar. */}
         {(onManageTypes || onManageCustomFields || (canDelete && onShowDeleted)) && (
           <div style={{ position:'relative' }}>
@@ -5726,7 +5726,7 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
             )}
           </div>
         )}
-        {/* Batch Edit — one feature, two tabs (Fields / Photos). Only available
+        {/* Batch Edit - one feature, two tabs (Fields / Photos). Only available
             once rows are ticked (Neil: never act on everything by default). The
             "select all" header checkbox + Batch Edit covers the whole-list case.
             (AI photo fill lives inside the Photos tab.) */}
@@ -5737,7 +5737,7 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
             <Pencil size={14} /> Batch edit ({selItems.length})
           </button>
         )}
-        {/* Assignment moved INTO Batch Edit (Neil) — no separate Assign button. */}
+        {/* Assignment moved INTO Batch Edit (Neil) - no separate Assign button. */}
         {/* Batch delete */}
         {canDelete && selected.size > 0 && (
           <button className="primary-btn" onClick={() => setBatchDeleteConfirm(true)}
@@ -5760,10 +5760,10 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
           {items.length ? 'No items match your filters.' : 'No items yet. Add one above or import a CSV.'}
         </div>
       ) : isMobile ? (
-        /* Phone layout: one card per item — name, badges and actions all
+        /* Phone layout: one card per item - name, badges and actions all
            visible without sideways scrolling (the "Add/Edit is hiding" bug) */
         <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-          {/* Select all — lives in the table header on desktop, which cards don't have */}
+          {/* Select all - lives in the table header on desktop, which cards don't have */}
           <label style={{ display:'flex', alignItems:'center', gap:10, padding:'6px 14px', cursor:'pointer', userSelect:'none' }}>
             <input type="checkbox"
               checked={selected.size === filtered.length && filtered.length > 0}
@@ -5974,7 +5974,7 @@ function AllocateModal({ checkout, checkouts: checkoutBatch, onClose, onConfirm,
 
   // P0-4: the "Photos by You" path had NO photo guard (button only disabled while
   // uploading), letting a handover complete with no evidence. Mirror
-  // ReceiptConfirmModal — require the photo(s) unless the item is photo-optional.
+  // ReceiptConfirmModal - require the photo(s) unless the item is photo-optional.
   const hasPhotos = photoOptional || (photoMode === 'batch'
     ? !!photos['batch']?.file
     : coItems.every(co => !!photos[co.id]?.file));
@@ -6006,7 +6006,7 @@ function AllocateModal({ checkout, checkouts: checkoutBatch, onClose, onConfirm,
       await Promise.resolve(onConfirm({ photoBy: 'allocator', batch: photoMode === 'batch', photoMap }));
       onClose();
     } catch (err) {
-      setError(err?.message || 'Upload failed — please try again.');
+      setError(err?.message || 'Upload failed - please try again.');
       setUploading(false);
     }
   }
@@ -6035,13 +6035,13 @@ function AllocateModal({ checkout, checkouts: checkoutBatch, onClose, onConfirm,
           <>
             <h3 style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>Hand over {isMulti ? `${coItems.length} Items` : first.itemName}</h3>
             <p style={{ fontSize:13, color:'var(--muted)', marginBottom:20 }}>
-              To <strong>{first.requestedBy}</strong> — who will upload the handover photo?
+              To <strong>{first.requestedBy}</strong> - who will upload the handover photo?
             </p>
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:20 }}>
-              {/* Neil: no icons here (misleading), and "Employee" → "Requester" —
+              {/* Neil: no icons here (misleading), and "Employee" → "Requester" -
                   everyone is technically an employee */}
               {[
-                { id:'you',      title:'Photos by You',       sub:'You upload now — individual items or a batch shot.' },
+                { id:'you',      title:'Photos by You',       sub:'You upload now - individual items or a batch shot.' },
                 { id:'employee', title:'Photos by Requester', sub:'Requester confirms receipt and uploads on their side.' },
               ].map(opt => (
                 <button key={opt.id} onClick={() => opt.id === 'you' ? setStep(isMulti ? 'mode' : 'upload') || setPhotoMode('batch') : setStep('employee')}
@@ -6068,8 +6068,8 @@ function AllocateModal({ checkout, checkouts: checkoutBatch, onClose, onConfirm,
             </p>
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:20 }}>
               {[
-                { id:'individual', title:'Individual Photos', sub:'One photo per item — best for high-value assets.' },
-                { id:'batch',      title:'Batch Photo',       sub:'One photo of all items together — quick for groups.' },
+                { id:'individual', title:'Individual Photos', sub:'One photo per item - best for high-value assets.' },
+                { id:'batch',      title:'Batch Photo',       sub:'One photo of all items together - quick for groups.' },
               ].map(opt => (
                 <button key={opt.id} onClick={() => { setPhotoMode(opt.id); setStep('upload'); }}
                   style={{ display:'flex', flexDirection:'column', alignItems:'flex-start', gap:6, padding:'14px 16px', borderRadius:12, border:'1.5px solid var(--line)', background:'var(--mist)', cursor:'pointer', textAlign:'left', fontFamily:'Inter,sans-serif', transition:'border-color .15s' }}
@@ -6144,7 +6144,7 @@ function AllocateModal({ checkout, checkouts: checkoutBatch, onClose, onConfirm,
                 <button className="primary-btn" disabled={uploading}
                   style={{ display:'inline-flex', alignItems:'center', gap:7, minWidth:160, justifyContent:'center' }}
                   onClick={submitEmployee}>
-                  {uploading ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Please wait…</> : <><CheckCircle size={14} /> Handed over — notify {(first.requestedBy || 'Requester').split(' ')[0]}</>}
+                  {uploading ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Please wait…</> : <><CheckCircle size={14} /> Handed over - notify {(first.requestedBy || 'Requester').split(' ')[0]}</>}
                 </button>
               </div>
             </div>
@@ -6200,7 +6200,7 @@ function ReceiptConfirmModal({ checkout, checkouts: checkoutBatch, onClose, onCo
       await Promise.resolve(onConfirm({ batch: photoMode === 'batch', photoMap }));
       onClose();
     } catch (err) {
-      setError(err?.message || 'Upload failed — please try again.');
+      setError(err?.message || 'Upload failed - please try again.');
       setUploading(false);
     }
   }
@@ -6222,7 +6222,7 @@ function ReceiptConfirmModal({ checkout, checkouts: checkoutBatch, onClose, onCo
         {step === 'mode' && (
           <>
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:20 }}>
-              {/* No emoji icons here — matches AllocateModal (Neil rejected them). */}
+              {/* No emoji icons here - matches AllocateModal (Neil rejected them). */}
               {[
                 { id:'individual', title:'Individual Photos', sub:'One photo per item.' },
                 { id:'batch',      title:'Batch Photo',       sub:'One photo of all items together.' },
@@ -6270,8 +6270,8 @@ function ReceiptConfirmModal({ checkout, checkouts: checkoutBatch, onClose, onCo
   );
 }
 
-// ── Approve Modal (manager picks allocator) — supports single or batch ────────
-// Default allocator by department — the person who usually hands over that
+// ── Approve Modal (manager picks allocator) - supports single or batch ────────
+// Default allocator by department - the person who usually hands over that
 // department's items (Neil: Construction → Sahil, Operations → Valinda).
 // Matched by first name against the allocators list so it survives email changes.
 const DEPT_ALLOCATOR_HINTS = {
@@ -6377,14 +6377,14 @@ function ApproveCheckoutModal({ checkout, checkouts: checkoutBatch, onClose, onC
             </div>
           ) : (
             <select className="form-input" style={{ width:'100%' }} value={pickedEmail} onChange={e => setPickedEmail(e.target.value)}>
-              <option value="">— select allocator —</option>
+              <option value="">- select allocator -</option>
               {allocators.map(a => <option key={a.email} value={a.email}>{a.name} ({a.role})</option>)}
             </select>
           )}
           {suggested && pickedEmail === suggested.email && (
             <p style={{ display:'flex', alignItems:'center', gap:5, fontSize:11.5, color:'hsl(var(--color-blue))', margin:'7px 0 0' }}>
               <CheckCircle size={12} style={{ flexShrink:0 }} />
-              Suggested — {suggested.name} usually handles {suggested.majorityDept.charAt(0).toUpperCase() + suggested.majorityDept.slice(1)} items
+              Suggested - {suggested.name} usually handles {suggested.majorityDept.charAt(0).toUpperCase() + suggested.majorityDept.slice(1)} items
             </p>
           )}
         </div>
@@ -6401,7 +6401,7 @@ function ApproveCheckoutModal({ checkout, checkouts: checkoutBatch, onClose, onC
   );
 }
 
-// ── Reject Modal — supports single or batch ───────────────────────────────────
+// ── Reject Modal - supports single or batch ───────────────────────────────────
 function RejectCheckoutModal({ checkout, checkouts: checkoutBatch, onClose, onConfirm }) {
   const items   = checkoutBatch || (checkout ? [checkout] : []);
   const first   = items[0] || {};
@@ -6448,7 +6448,7 @@ function RejectCheckoutModal({ checkout, checkouts: checkoutBatch, onClose, onCo
 }
 
 // ── Force Return Modal ────────────────────────────────────────────────────────
-// Manager reclaims an item without the holder's action. Reason is mandatory —
+// Manager reclaims an item without the holder's action. Reason is mandatory -
 // it is stored on the checkout and shows up in the audit trail (Neil: "leaves
 // 100% of the control with the manager here and an auditable log of why").
 function ForceReturnModal({ checkout, checkouts, onClose, onConfirm }) {
@@ -6484,14 +6484,14 @@ function ForceReturnModal({ checkout, checkouts, onClose, onConfirm }) {
           <div style={{ overflowY:'auto', minHeight:0, background:'var(--mist)', borderRadius:10, padding:'10px 14px', marginBottom:14 }}>
             {list.map(c => (
               <div key={c.id} style={{ fontSize:12, color:'var(--muted)', paddingLeft:4 }}>
-                · {c.itemName}{holders.length > 1 ? <span style={{ opacity:.75 }}> — {c.requestedBy}</span> : null}
+                · {c.itemName}{holders.length > 1 ? <span style={{ opacity:.75 }}> - {c.requestedBy}</span> : null}
               </div>
             ))}
           </div>
         )}
         <label style={FL}>REASON <span style={{ color:'hsl(var(--color-red))' }}>*</span></label>
         <textarea rows={3} autoFocus className="form-input" style={{ width:'100%', resize:'vertical', fontSize:13 }}
-          placeholder="e.g. Collected from site office — employee on leave"
+          placeholder="e.g. Collected from site office - employee on leave"
           value={reason} onChange={e => setReason(e.target.value)} />
         {error && <p style={{ fontSize:12.5, color:'hsl(var(--color-red))', marginTop:8 }}>{error}</p>}
         <div style={{ display:'flex', gap:10, justifyContent:'flex-end', marginTop:18 }}>
@@ -6514,7 +6514,7 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
   const [assignFocus, setAssignFocus] = useState(null);
   const { canAccessModule } = useRole();
   // Manager tier OR an Access-Group/job-role grant of Item Management at
-  // editor+ — grants layer additively (Jul 24: Employee-tier people with
+  // editor+ - grants layer additively (Jul 24: Employee-tier people with
   // "Item Management: Full" were locked out despite the grant).
   const isManager = canAccessModule('inventory', 'manager', 'editor');
   const isMobile = useIsMobile(); // shorten the segment labels so they fit
@@ -6532,7 +6532,7 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
   // IDs of completed items dismissed from the active-order view via X button
   const [dismissedIds,   setDismissedIds]   = useState(new Set());
   const [extBusyId,      setExtBusyId]      = useState(null);
-  // Order cards collapsed via the header chevron — big orders eat the screen
+  // Order cards collapsed via the header chevron - big orders eat the screen
   const [collapsedKeys,  setCollapsedKeys]  = useState(new Set());
   const toggleCollapsed = key => setCollapsedKeys(prev => {
     const next = new Set(prev);
@@ -6551,7 +6551,7 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
     }
   }, [prefilter]);
 
-  // Bell/banner clicks land on the TEMPORARY segment — `segment` persists, so
+  // Bell/banner clicks land on the TEMPORARY segment - `segment` persists, so
   // after a visit to Assignments every later notification click looked like it
   // "opened Permanent by default" (handover notifications especially).
   // 'checkouts-completed' additionally lands on the Completed filter
@@ -6584,7 +6584,7 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
     api.resolveItemExtension(co.id, { action })
       .then(() => {
         toast(action === 'approve'
-          ? `Extension approved — ${co.requestedBy} has ${co.extensionDays} more day${co.extensionDays !== 1 ? 's' : ''} with ${co.itemName}.`
+          ? `Extension approved - ${co.requestedBy} has ${co.extensionDays} more day${co.extensionDays !== 1 ? 's' : ''} with ${co.itemName}.`
           : `Extension declined for ${co.itemName}.`);
         refreshCheckouts();
       })
@@ -6592,7 +6592,7 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
       .finally(() => setExtBusyId(null));
   }
 
-  // Items flagged picture_required=false — every photo step for them is optional
+  // Items flagged picture_required=false - every photo step for them is optional
   const photoOptionalIds = useMemo(() => new Set(items.filter(i => i.pictureRequired === false).map(i => i.id)), [items]);
 
   // Group ALL checkouts by orderId first, then filter groups
@@ -6608,7 +6608,7 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
 
   const groupedOrders = allGrouped.filter(groupItems => {
     const first = groupItems[0];
-    // Person search — matches requester name or any item name in the order,
+    // Person search - matches requester name or any item name in the order,
     // across every status (chips only covered people with ACTIVE checkouts)
     if (personQuery.trim()) {
       const q = personQuery.trim().toLowerCase().replace(/^#/, '');
@@ -6627,20 +6627,20 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
 
   function handleApprove(co, allocEmail, allocName) {
     return approveRequest(co.id, userName, allocEmail, allocName)
-      .then(() => { toast(`Approved ${co.itemName} — assigned to ${allocName}.`); refreshCheckouts(); });
+      .then(() => { toast(`Approved ${co.itemName} - assigned to ${allocName}.`); refreshCheckouts(); });
   }
 
   // Order-level actions run sequentially (not Promise.all) so the backend's
   // per-order notification batching sees each update committed in turn.
   async function handleApproveOrder(orderItems, allocEmail, allocName) {
-    // P1-5: count real successes/failures — the loop used to swallow per-item
+    // P1-5: count real successes/failures - the loop used to swallow per-item
     // errors then always claim "N approved".
     let ok = 0, failed = 0;
     for (const co of orderItems) {
       try { await approveRequest(co.id, userName, allocEmail, allocName); ok++; } catch { failed++; }
     }
     refreshCheckouts();
-    if (failed === 0) toast(`Approved ${ok} item${ok !== 1 ? 's' : ''} — assigned to ${allocName}.`);
+    if (failed === 0) toast(`Approved ${ok} item${ok !== 1 ? 's' : ''} - assigned to ${allocName}.`);
     else toast(`Approved ${ok} · ${failed} failed.`, 'error');
   }
 
@@ -6670,19 +6670,19 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
   }
 
   // Neil's "one big bug": the manager must be able to check an item back in
-  // even if the holder never opens the app — with a mandatory reason that
+  // even if the holder never opens the app - with a mandatory reason that
   // lands in condition_note (visible on the past checkout + audit log).
   function handleForceReturn(co, reason) {
     return api.updateItemCheckout(co.id, {
       status: 'returned',
-      condition_note: `Force-returned by ${userName} — ${reason}`,
+      condition_note: `Force-returned by ${userName} - ${reason}`,
     }).then(() => {
       toast(`${co.itemName} checked back in.`);
       refreshCheckouts(); refreshItems();
     }).catch(err => { toast(err?.message || 'Could not check the item back in.', 'error'); throw err; });
   }
 
-  // Sequential like handleAllocateOrder — the backend's row-locked notification
+  // Sequential like handleAllocateOrder - the backend's row-locked notification
   // dedupe keeps it one notification per order, never per item
   async function handleForceReturnBatch(cos, reason) {
     let failed = 0;
@@ -6690,7 +6690,7 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
       try {
         await api.updateItemCheckout(co.id, {
           status: 'returned',
-          condition_note: `Force-returned by ${userName} — ${reason}`,
+          condition_note: `Force-returned by ${userName} - ${reason}`,
         });
       } catch { failed++; }
     }
@@ -6707,7 +6707,7 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
       if (photoBy === 'employee') {
         toast(`${co.requestedBy} has been notified to confirm receipt.`);
       } else {
-        toast(`Item handed over to ${co.requestedBy} — checkout confirmed.`);
+        toast(`Item handed over to ${co.requestedBy} - checkout confirmed.`);
         refreshItems();
       }
       refreshCheckouts();
@@ -6739,7 +6739,7 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
   const liveAssignments = assignments.filter(a => ['pending_acceptance','active','return_initiated'].includes(a.status)).length;
   return (
     <div>
-      {/* Transient vs Permanent — Neil's separation. Phones get the short forms
+      {/* Transient vs Permanent - Neil's separation. Phones get the short forms
           ("Temporary" / "Permanent · N") so the two chips fit one row. */}
       <div className="chip-row" style={{ display:'flex', gap:8, marginBottom:14, flexWrap:'wrap' }}>
         {[
@@ -6756,7 +6756,7 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
         <AssignmentsQueue assignments={assignments} userEmail={userEmail} refresh={refreshAssignments || (() => {})} toast={toast} focus={assignFocus} />
       )}
       {segment === 'checkouts' && (<>
-      {/* Toolbar — search on the LEFT, status filters + Send Alert on the RIGHT, one
+      {/* Toolbar - search on the LEFT, status filters + Send Alert on the RIGHT, one
           row directly below the segment toggle. Same shape as Manage/Catalog/My Items
           so the search/filters sit in the same spot (Neil). */}
       <div style={{ display:'flex', alignItems:'center', marginBottom:14, flexWrap:'wrap', gap:10 }}>
@@ -6783,7 +6783,7 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
           </button>
         ))}
         </div>
-        {/* Company-wide "Force Return All" removed (Neil, Jun 16): too dangerous —
+        {/* Company-wide "Force Return All" removed (Neil, Jun 16): too dangerous -
             force return now lives only at the individual order/item level below. */}
         {onSendAlert && (
           <button className="secondary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7, color:'hsl(var(--color-orange))', flexShrink:0 }} onClick={onSendAlert}>
@@ -6813,7 +6813,7 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
 
             return (
               <div key={groupKey} style={{ border:'1px solid var(--line)', borderRadius:12, overflow:'hidden', background:'var(--card)', boxShadow:'var(--shadow-sm)' }}>
-                {/* Order header — click the chevron (or the name area) to collapse */}
+                {/* Order header - click the chevron (or the name area) to collapse */}
                 <div className="co-order-head" style={{ padding:'14px 18px', display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:12, flexWrap:'wrap', background: isMulti ? 'var(--mist)' : 'transparent', borderBottom: isCollapsed ? 'none' : '1px solid var(--line)' }}>
                   <div onClick={() => toggleCollapsed(groupKey)} style={{ cursor:'pointer', flex:1, minWidth:0 }}>
                     <div style={{ display:'flex', alignItems:'center', gap:7 }}>
@@ -6956,7 +6956,7 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
                           )}
                           {co.status === 'allocated' && isManager && (
                             <button className="secondary-btn" onClick={() => setForceReturnCo(co)}
-                              title="Check the item back in yourself — for when the holder can't or won't return it in the app"
+                              title="Check the item back in yourself - for when the holder can't or won't return it in the app"
                               style={{ fontSize:12, color:'hsl(var(--color-orange))', display:'inline-flex', alignItems:'center', gap:4 }}>
                               <RotateCcw size={12} /> Force Return
                             </button>
@@ -7047,7 +7047,7 @@ const PurchaseRequestsTab = memo(function PurchaseRequestsTab({ userEmail, userN
 
   const fmtDate = iso => new Date(iso).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
 
-  // manager_approved displays as plain "Approved" in green — the raw status
+  // manager_approved displays as plain "Approved" in green - the raw status
   // string leaking into the UI was Neil/Visesh feedback.
   const STATUS_META = {
     pending_manager:  { label:'Pending approval', bg:'hsla(var(--color-orange),0.12)', fg:'hsl(var(--color-orange))' },
@@ -7076,7 +7076,7 @@ const PurchaseRequestsTab = memo(function PurchaseRequestsTab({ userEmail, userN
     if (!chosen) return;
     setBusyId(r.id);
     Promise.resolve(approveRequisition(r.id, userName, { email: chosen.email, name: chosen.name }))
-      .then(() => { toast?.(`Approved — ${chosen.name} will purchase ${r.item}.`); setApprovingId(null); setPickedFulfiller(''); })
+      .then(() => { toast?.(`Approved - ${chosen.name} will purchase ${r.item}.`); setApprovingId(null); setPickedFulfiller(''); })
       .catch(err => toast?.(err?.message || 'Could not approve.', 'error'))
       .finally(() => setBusyId(null));
   }
@@ -7098,7 +7098,7 @@ const PurchaseRequestsTab = memo(function PurchaseRequestsTab({ userEmail, userN
       .finally(() => setBusyId(null));
   }
 
-  // The purchase form appends "Reference: <url>" to the reason — split it out
+  // The purchase form appends "Reference: <url>" to the reason - split it out
   // so the link renders as its own clean action instead of a wall of URL text.
   function splitReason(reason) {
     const m = (reason || '').match(/\s*Reference:\s*(https?:\/\/\S+)\s*$/i);
@@ -7153,7 +7153,7 @@ const PurchaseRequestsTab = memo(function PurchaseRequestsTab({ userEmail, userN
           <a href={refLink} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}
             style={{ display:'inline-flex', alignItems:'center', gap:6, marginTop:10, padding:'6px 12px', borderRadius:8, border:'1px solid hsla(var(--color-blue),0.3)', background:'hsla(var(--color-blue),0.06)', color:'hsl(var(--color-blue))', fontSize:12, fontWeight:700, textDecoration:'none' }}
             title={refLink}>
-            <Link2 size={13} /> View reference — {refHost}
+            <Link2 size={13} /> View reference - {refHost}
           </a>
         )}
         {r.rejectionReason && <div style={{ fontSize:12, color:'hsl(var(--color-red))', marginTop:10 }}>Reason of rejection: "{r.rejectionReason}"</div>}
@@ -7201,11 +7201,11 @@ const PurchaseRequestsTab = memo(function PurchaseRequestsTab({ userEmail, userN
             </div>
           )
         )}
-        {/* Fulfillment actions — assigned fulfiller or any manager */}
+        {/* Fulfillment actions - assigned fulfiller or any manager */}
         {canFulfill(r) && (
           orderingId === r.id ? (
             <div style={{ marginTop:12, display:'flex', flexDirection:'column', gap:8 }}>
-              <input className="form-input" autoFocus placeholder="Optional note — vendor, expected arrival…" value={orderNote}
+              <input className="form-input" autoFocus placeholder="Optional note - vendor, expected arrival…" value={orderNote}
                 onChange={e => setOrderNote(e.target.value)} style={{ fontSize:13, padding:'8px 12px' }} />
               <div style={{ display:'flex', gap:8, justifyContent:'flex-end' }}>
                 <button className="secondary-btn" style={{ fontSize:12 }} onClick={() => { setOrderingId(null); setOrderNote(''); }} disabled={busyId === r.id}>Cancel</button>
@@ -7217,7 +7217,7 @@ const PurchaseRequestsTab = memo(function PurchaseRequestsTab({ userEmail, userN
             </div>
           ) : noInvId === r.id ? (
             <div style={{ marginTop:12, display:'flex', flexDirection:'column', gap:8 }}>
-              <input className="form-input" autoFocus placeholder="Required — where did it go? e.g. consumables handed to requester" value={noInvNote}
+              <input className="form-input" autoFocus placeholder="Required - where did it go? e.g. consumables handed to requester" value={noInvNote}
                 onChange={e => setNoInvNote(e.target.value)} style={{ fontSize:13, padding:'8px 12px' }} />
               <div style={{ display:'flex', gap:8, justifyContent:'flex-end' }}>
                 <button className="secondary-btn" style={{ fontSize:12 }} onClick={() => { setNoInvId(null); setNoInvNote(''); }} disabled={busyId === r.id}>Cancel</button>
@@ -7236,14 +7236,14 @@ const PurchaseRequestsTab = memo(function PurchaseRequestsTab({ userEmail, userN
                 </button>
               )}
               <button className="secondary-btn" style={{ fontSize:12, display:'inline-flex', alignItems:'center', gap:5, color:'var(--muted)' }}
-                title="For consumables that don't belong in the items list — a note is required"
+                title="For consumables that don't belong in the items list - a note is required"
                 onClick={() => { setNoInvId(r.id); setNoInvNote(''); }}>
                 <CheckCircle size={12} /> Fulfill Without Adding
               </button>
               <button className="primary-btn" style={{ fontSize:12, display:'inline-flex', alignItems:'center', gap:5 }}
-                title="Item received — add it to the items catalog (and optionally assign it to the requester)"
+                title="Item received - add it to the items catalog (and optionally assign it to the requester)"
                 onClick={() => setAddingForReq(r)}>
-                <Package size={12} /> Received — add to items
+                <Package size={12} /> Received - add to items
               </button>
             </div>
           )
@@ -7254,7 +7254,7 @@ const PurchaseRequestsTab = memo(function PurchaseRequestsTab({ userEmail, userN
 
   return (
     <div>
-      {/* Managers fulfill here but had no way to RAISE a request — the New
+      {/* Managers fulfill here but had no way to RAISE a request - the New
           Request form lives on the Purchase view, which isn't in the sidebar */}
       <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:14 }}>
         <button className="primary-btn" style={{ fontSize:12.5, display:'inline-flex', alignItems:'center', gap:6, padding:'7px 16px' }}
@@ -7265,7 +7265,7 @@ const PurchaseRequestsTab = memo(function PurchaseRequestsTab({ userEmail, userN
       {pending.length > 0 && (
         <>
           <div style={{ fontSize:11.5, fontWeight:700, letterSpacing:'.07em', color:'var(--muted)', textTransform:'uppercase', marginBottom:10 }}>
-            Pending Approval — {pending.length}
+            Pending Approval - {pending.length}
           </div>
           {pending.map(renderCard)}
         </>
@@ -7273,7 +7273,7 @@ const PurchaseRequestsTab = memo(function PurchaseRequestsTab({ userEmail, userN
       {active.length > 0 && (
         <>
           <div style={{ fontSize:11.5, fontWeight:700, letterSpacing:'.07em', color:'var(--muted)', textTransform:'uppercase', margin:'20px 0 10px' }}>
-            {active.some(canFulfill) ? 'To Fulfill' : 'In Progress'} — {active.length}
+            {active.some(canFulfill) ? 'To Fulfill' : 'In Progress'} - {active.length}
           </div>
           {active.map(renderCard)}
         </>
@@ -7281,7 +7281,7 @@ const PurchaseRequestsTab = memo(function PurchaseRequestsTab({ userEmail, userN
       {resolved.length > 0 && (
         <>
           <div style={{ fontSize:11.5, fontWeight:700, letterSpacing:'.07em', color:'var(--muted)', textTransform:'uppercase', margin:'20px 0 10px' }}>
-            Past Requests — {resolved.length}
+            Past Requests - {resolved.length}
           </div>
           {resolved.map(renderCard)}
         </>
@@ -7293,7 +7293,7 @@ const PurchaseRequestsTab = memo(function PurchaseRequestsTab({ userEmail, userN
           <div style={{ fontSize:13 }}>Requests submitted via Purchase Requisition will appear here.</div>
         </div>
       )}
-      {/* "Received — Add to Inventory": prefilled from the requisition; saving
+      {/* "Received - Add to Inventory": prefilled from the requisition; saving
           creates the real item, fulfills the requisition, and (via the
           assign-right-away checkbox) can flow straight into assignment. */}
       {addingForReq && (
@@ -7303,7 +7303,7 @@ const PurchaseRequestsTab = memo(function PurchaseRequestsTab({ userEmail, userN
           onSave={async (data, opts = {}) => {
             const created = await api.createItem(data);
             await fulfillRequisition(addingForReq.id, userName, { note: `Added to Items: ${data.name}`, itemId: created?.id || '' });
-            toast?.(`${data.name} added to Items — requisition fulfilled.`);
+            toast?.(`${data.name} added to Items - requisition fulfilled.`);
             if (opts.assignNow && created?.id && onAssign) onAssign(created, 'assign');
           }}
         />
@@ -7313,7 +7313,7 @@ const PurchaseRequestsTab = memo(function PurchaseRequestsTab({ userEmail, userN
 });
 
 // Neil: clicking an item under a person shows that item's details and picture
-// as a card — acting on it still routes through Checkouts / Assignments.
+// as a card - acting on it still routes through Checkouts / Assignments.
 function WhwItemDetailCard({ item, checkout, holderName, onClose, onAct, actLabel }) {
   useEscapeKey(onClose);
   const tm = TYPE_META[item?.itemType || checkout?.itemType] || TYPE_META.Other;
@@ -7323,11 +7323,11 @@ function WhwItemDetailCard({ item, checkout, holderName, onClose, onAct, actLabe
   const inUse = checkout?.status === 'allocated';
   const rows = [
     ['Held by', holderName],
-    ['Type', [item?.itemType || checkout?.itemType, item?.department || checkout?.department].filter(Boolean).join(' · ') || '—'],
+    ['Type', [item?.itemType || checkout?.itemType, item?.department || checkout?.department].filter(Boolean).join(' · ') || '-'],
     item && (item.make || item.model) ? ['Make / Model', [item.make, item.model].filter(Boolean).join(' ')] : null,
     checkout
       ? ['Status', inUse
-          ? (due.daysLeft < 0 ? `In use — overdue ${Math.abs(due.daysLeft)}d` : due.daysLeft === 0 ? 'In use — due today' : `In use — ${due.daysLeft}d left`)
+          ? (due.daysLeft < 0 ? `In use - overdue ${Math.abs(due.daysLeft)}d` : due.daysLeft === 0 ? 'In use - due today' : `In use - ${due.daysLeft}d left`)
           : (MANAGER_CHECKOUT_STATUS_META[checkout.status]?.label || checkout.status)]
       : ['Status', 'Permanently assigned'],
     checkout?.reason ? ['Reason', checkout.reason] : null,
@@ -7338,7 +7338,7 @@ function WhwItemDetailCard({ item, checkout, holderName, onClose, onAct, actLabe
       style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:16, overflowY:'auto' }}
       onClick={e => e.target === e.currentTarget && onClose()}>
       <div style={{ background:'var(--card)', borderRadius:14, width:'100%', maxWidth:380, overflow:'hidden', boxShadow:'0 20px 60px rgba(0,0,0,0.25)' }}>
-        {/* Full photo, never cropped — the box grows to the image's own ratio */}
+        {/* Full photo, never cropped - the box grows to the image's own ratio */}
         <div style={{ background:'var(--mist)', display:'flex', alignItems:'center', justifyContent:'center', minHeight:120 }}>
           {photo
             ? <img src={photo} alt={name} style={{ width:'100%', maxHeight:'45vh', objectFit:'contain', display:'block' }} />
@@ -7366,7 +7366,7 @@ function WhwItemDetailCard({ item, checkout, holderName, onClose, onAct, actLabe
 
 // ── Who Has It Tab ────────────────────────────────────────────────────────────
 // Per-person view of every allocation: searchable, split into permanent
-// assignments and transient checkouts — Neil's "permanent vs transient" ask.
+// assignments and transient checkouts - Neil's "permanent vs transient" ask.
 const WhoHasItTab = memo(function WhoHasItTab({ items, checkouts, onOpenCheckouts }) {
   const [search, setSearch] = useState('');
   const [view, setView] = useState('person'); // 'person' | 'location' (Neil: split Who Has What)
@@ -7384,13 +7384,13 @@ const WhoHasItTab = memo(function WhoHasItTab({ items, checkouts, onOpenCheckout
       map.get(key).transient.push(c);
     }
     // Permanent: only items tagged to a REAL person via the assignment flow.
-    // No defaultOwner fallback — that's a department label, not a holder, and
+    // No defaultOwner fallback - that's a department label, not a holder, and
     // it filed unassigned items under whoever added them (Sai's Oneplus bug).
     for (const i of items) {
       if (i.ownershipType !== 'permanent' && i.status !== 'permanently_assigned') continue;
       // A person holder is required here. Location is just where the item lives now
       // (independent of the holder), so a person-held item that also sits at a place
-      // still belongs under that person — no location-based exclusion.
+      // still belongs under that person - no location-based exclusion.
       const email = (i.assignedToEmail || '').toLowerCase();
       const owner = (i.assignedToName || '').trim();
       if (!email && !owner) continue;
@@ -7405,7 +7405,7 @@ const WhoHasItTab = memo(function WhoHasItTab({ items, checkouts, onOpenCheckout
       }
       map.get(key).permanent.push(i);
     }
-    // Declared statuses (lost/retired) tied to a person — show under that person as
+    // Declared statuses (lost/retired) tied to a person - show under that person as
     // Person → Status → Item, so accountability is visible on the same board.
     for (const i of items) {
       if (!i.opStatus) continue;
@@ -7434,17 +7434,17 @@ const WhoHasItTab = memo(function WhoHasItTab({ items, checkouts, onOpenCheckout
 
   const initials = name => name.split(/\s+/).map(p => p[0]).filter(Boolean).slice(0, 2).join('').toUpperCase();
 
-  // Neil: "this person's holding $6,000 worth of items" — total value in hand
+  // Neil: "this person's holding $6,000 worth of items" - total value in hand
   const holderValue = h =>
     h.transient.reduce((s, c) => s + (Number(items.find(i => i.id === c.itemId)?.assetValue) || 0), 0) +
     h.permanent.reduce((s, i) => s + (Number(i.assetValue) || 0), 0);
 
-  // By-location view — everything physically AT a place (Neil: "search GSE, see
+  // By-location view - everything physically AT a place (Neil: "search GSE, see
   // everything that's there"). Groups every item by its location field.
   const places = useMemo(() => {
     const map = new Map();
     for (const i of items) {
-      const loc = (i.location || '').trim() || '— No location set —';
+      const loc = (i.location || '').trim() || '- No location set -';
       if (!map.has(loc)) map.set(loc, { location: loc, items: [], value: 0 });
       const g = map.get(loc);
       g.items.push(i);
@@ -7525,9 +7525,9 @@ const WhoHasItTab = memo(function WhoHasItTab({ items, checkouts, onOpenCheckout
         <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(330px,1fr))', gap:14 }}>
           {filtered.map(h => (
             <div key={h.name} style={{ border:'1px solid var(--line)', borderRadius:12, background:'var(--card)', boxShadow:'var(--shadow-sm)', overflow:'hidden' }}>
-              {/* Person header — click-through to their orders & actions */}
+              {/* Person header - click-through to their orders & actions */}
               <div onClick={() => onOpenCheckouts?.({ q: h.name, segment: h.transient.length ? 'checkouts' : 'assignments' })}
-                title={`Open ${h.name}'s checkouts — approve, hand over, force return`}
+                title={`Open ${h.name}'s checkouts - approve, hand over, force return`}
                 style={{ display:'flex', alignItems:'center', gap:11, padding:'13px 16px', borderBottom:'1px solid var(--line)', background:'var(--mist)', cursor:'pointer', transition:'background .12s' }}
                 onMouseEnter={e => e.currentTarget.style.background = 'hsla(var(--color-blue),0.08)'}
                 onMouseLeave={e => e.currentTarget.style.background = 'var(--mist)'}>
@@ -7625,7 +7625,7 @@ const WhoHasItTab = memo(function WhoHasItTab({ items, checkouts, onOpenCheckout
                     </div>
                   </div>
                 )}
-                {/* Declared (lost / retired) — Person → Status → Item */}
+                {/* Declared (lost / retired) - Person → Status → Item */}
                 {h.declared.length > 0 && (
                   <div>
                     <div style={{ fontSize:10.5, fontWeight:800, color:'hsl(var(--color-red))', letterSpacing:'.06em', marginBottom:7 }}>DECLARED</div>
@@ -7686,7 +7686,7 @@ export default function InventoryManagement({ activeSub }) {
   const userEmail = (accounts[0]?.username ?? '').toLowerCase();
 
   // Manager tier OR an Access-Group/job-role grant of Item Management at
-  // editor+ (grants layer additively — an Employee-tier person with the
+  // editor+ (grants layer additively - an Employee-tier person with the
   // "Item Management: Full" grant gets the full Manage experience).
   const isManager = canAccessModule('inventory', 'manager', 'editor');
   const canDelete = canAccessModule('inventory', 'owner', 'full');
@@ -7701,7 +7701,7 @@ export default function InventoryManagement({ activeSub }) {
     (c.requestedByEmail && c.requestedByEmail.toLowerCase() === userEmail) || c.requestedBy === userName
   ).length;
 
-  // Cart — DB-backed, survives logout and device switches
+  // Cart - DB-backed, survives logout and device switches
   const { assignments, refreshAssignments } = useAssignments();
   const [assigningItem, setAssigningItem] = useState(null); // {item, mode}
   const [cart,        setCart]        = useState([]);
@@ -7716,7 +7716,7 @@ export default function InventoryManagement({ activeSub }) {
   }, []);
 
   const inCart = useMemo(() => new Set(cart.map(c => c.item.id)), [cart]);
-  // Items flagged picture_required=false — every photo step for them is optional
+  // Items flagged picture_required=false - every photo step for them is optional
   const photoOptionalIds = useMemo(() => new Set(items.filter(i => i.pictureRequired === false).map(i => i.id)), [items]);
   const addToCart = useCallback(item => {
     if (inCart.has(item.id)) return;
@@ -7788,7 +7788,7 @@ export default function InventoryManagement({ activeSub }) {
     setMainTab('checkouts');
   }, []);
 
-  // Deep-link: NotificationBell navigates with ('inventory', subTab) — land on
+  // Deep-link: NotificationBell navigates with ('inventory', subTab) - land on
   // that tab instead of the default Catalog so the click shows the relevant info.
   const VALID_SUBTABS = INV_VALID_TABS;
   // 'permanent' / 'active-checkouts' are sub-tabs inside My Items;
@@ -7818,7 +7818,7 @@ export default function InventoryManagement({ activeSub }) {
   // Lets managers filter permanent items out of Catalog/Manage (Neil, Jun 16).
   // Default the ownership filter to Temporary (Neil: opening to hundreds of items
   // is overwhelming; lead with the checkout-able/temporary ones). One click to All.
-  // Catalog is the employee browse view — they check out Temporary items and have
+  // Catalog is the employee browse view - they check out Temporary items and have
   // no reason to see Permanent ones, so it leads with Temporary. Manage is the
   // manager view and shows All ownership. The default resets per tab when you
   // switch between the two (Neil).
@@ -7826,7 +7826,7 @@ export default function InventoryManagement({ activeSub }) {
   const [locationFilter, setLocationFilter] = useState('All');
   const [modelFilter,    setModelFilter]    = useState('All');
   // Reset the ownership default when moving between the employee (Catalog) and
-  // manager (Manage) views — Temporary-only vs All.
+  // manager (Manage) views - Temporary-only vs All.
   useEffect(() => {
     if (mainTab === 'catalog')     setOwnershipFilter('transient');
     else if (mainTab === 'manage') setOwnershipFilter('All');
@@ -7834,7 +7834,7 @@ export default function InventoryManagement({ activeSub }) {
   // Type filter auto-populates from the data so imported types (e.g. "IP Camera")
   // appear alongside the built-in ones; "Other" stays last.
   // Ankush: when a DEPARTMENT is selected, hide types that department never has
-  // (Ops has no networking, IT has no vehicles) — derived from the live data so
+  // (Ops has no networking, IT has no vehicles) - derived from the live data so
   // the full set still exists system-wide. With "All departments" we show
   // everything, keeping the complexity available.
   const typeOptions = useMemo(() => {
@@ -7859,7 +7859,7 @@ export default function InventoryManagement({ activeSub }) {
   const locationOptions = useMemo(() =>
     [...new Set(items.map(i => (i.location || '').trim()).filter(Boolean))].sort(),
   [items]);
-  // Model filter — derived from the data, scoped to the chosen department + type so
+  // Model filter - derived from the data, scoped to the chosen department + type so
   // the list stays relevant (you don't see every model in the company at once).
   const modelOptions = useMemo(() => {
     const pool = items.filter(i =>
@@ -7872,7 +7872,7 @@ export default function InventoryManagement({ activeSub }) {
     if (modelFilter !== 'All' && !modelOptions.includes(modelFilter)) setModelFilter('All');
   }, [modelOptions, modelFilter]);
   const [search,        setSearch]        = useState('');
-  // Items scoped to the active filters — the KPI tiles must follow ALL of them
+  // Items scoped to the active filters - the KPI tiles must follow ALL of them
   // (department, ownership, location, type), not show company-wide totals (Sai).
   const deptItems = useMemo(
     () => items.filter(i =>
@@ -7901,21 +7901,21 @@ export default function InventoryManagement({ activeSub }) {
   const [reportInitial, setReportInitial] = useState(null); // seeds the report with the active filters
   const [sendAlertOpen, setSendAlertOpen] = useState(false);       // generic compose-your-own alert
   const [overdueAlertOpen, setOverdueAlertOpen] = useState(false); // person-grouped overdue alert (default)
-  // Admin-defined custom field definitions — loaded once, surfaced in the Details
+  // Admin-defined custom field definitions - loaded once, surfaced in the Details
   // panel and editable via the Custom Fields modal.
   const [customFields, setCustomFields] = useState([]);
   const refreshCustomFields = useCallback(() => {
     api.getItemCustomFields().then(setCustomFields).catch(() => {});
   }, []);
   useEffect(() => { refreshCustomFields(); }, [refreshCustomFields]);
-  // Manager-curated item types — loaded from the server (falls back to the static
+  // Manager-curated item types - loaded from the server (falls back to the static
   // list). Used by the Add/Edit/Batch dropdowns and the Manage Types modal.
   const [itemTypes, setItemTypes] = useState(ITEM_TYPES);
   const refreshItemTypes = useCallback(() => {
     api.getItemTypes().then(t => setItemTypes(Array.isArray(t) && t.length ? t : ITEM_TYPES)).catch(() => {});
   }, []);
   useEffect(() => { refreshItemTypes(); }, [refreshItemTypes]);
-  // How many items use each type — shown in Manage Types (Neil).
+  // How many items use each type - shown in Manage Types (Neil).
   const typeCounts = useMemo(() => {
     const m = {};
     for (const i of items) { const t = i.itemType || 'Other'; m[t] = (m[t] || 0) + 1; }
@@ -7937,7 +7937,7 @@ export default function InventoryManagement({ activeSub }) {
         // Permanent item + "assign right away" → straight into the normal
         // assign flow (acceptance + photo), same as the Manage-tab button
         if (opts.assignNow && created?.id) setAssigningItem({ item: created, mode: 'assign' });
-        // "Let AI find a photo" — fire-and-forget, photo lands via refresh
+        // "Let AI find a photo" - fire-and-forget, photo lands via refresh
         if (opts.aiFill && created?.id) {
           toast(`AI is finding a photo for "${data.name}"…`);
           api.autoFillItemPhotos([created.id], false)
@@ -7965,7 +7965,7 @@ export default function InventoryManagement({ activeSub }) {
       .then(res => {
         refreshItems();
         toast(`Imported ${res.created} item${res.created !== 1 ? 's' : ''}${res.updated ? `, updated ${res.updated}` : ''}.`);
-        // The import can extend the type list — pull the new types in and say so.
+        // The import can extend the type list - pull the new types in and say so.
         const added = res.added_types || [];
         if (added.length) {
           refreshItemTypes();
@@ -7983,15 +7983,15 @@ export default function InventoryManagement({ activeSub }) {
     .then(() => { if (!opts.silent) toast('Checkout cancelled.'); })
     .catch(() => { if (!opts.silent) toast('Could not cancel.', 'error'); }), [cancelRequest, userName, toast]);
   const selfAllocate = useCallback(co => allocateItem(co.id, userName)
-    .then(() => toast(`Confirmed — ${co.itemName} is with you.`))
+    .then(() => toast(`Confirmed - ${co.itemName} is with you.`))
     .catch(() => toast('Could not confirm.', 'error')), [allocateItem, userName, toast]);
   // Manager accepting their OWN approved checkout: must upload a handover photo
-  // just like an employee does — receipts are evidence (Jun 16 bug: this path
+  // just like an employee does - receipts are evidence (Jun 16 bug: this path
   // skipped the photo modal and auto-accepted). Throws on failure so the modal
   // surfaces the error and stays open.
   const handleSelfAccept = useCallback((co, url, name) =>
     allocateItem(co.id, userName, url, name)
-      .then(() => toast(`Confirmed — ${co.itemName} is with you.`))
+      .then(() => toast(`Confirmed - ${co.itemName} is with you.`))
       .catch(() => { throw new Error(`Could not confirm receipt for ${co.itemName}.`); }),
     [allocateItem, userName, toast]);
   const openAdd       = useCallback(() => setAddItemOpen(true), []);
@@ -8023,7 +8023,7 @@ export default function InventoryManagement({ activeSub }) {
   }, [returnItem, toast, refreshCheckouts]);
   const handleRequestExtension = useCallback((co, days, reason) =>
     api.requestItemExtension(co.id, { days, reason })
-      .then(() => { toast(`Extension requested for ${co.itemName} — awaiting approval.`); refreshCheckouts(); }),
+      .then(() => { toast(`Extension requested for ${co.itemName} - awaiting approval.`); refreshCheckouts(); }),
     [toast, refreshCheckouts]);
   const handleReRequest = useCallback(async (co, newReason) => {
     try {
@@ -8049,7 +8049,7 @@ export default function InventoryManagement({ activeSub }) {
 
   if (roleLoading) return <SkeletonBlocks count={6} height={56} borderRadius={10} />;
 
-  // Items assigned to me still awaiting my acceptance — persistent callout; the
+  // Items assigned to me still awaiting my acceptance - persistent callout; the
   // 7s toast alone is easy to miss (Neil couldn't find where his iPhone landed).
   const awaitingAcceptance = assignments.filter(a => a.assigneeEmail === userEmail && a.status === 'pending_acceptance').length;
   const goAccept = () => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view:'inventory', sub:'permanent' } }));
@@ -8059,7 +8059,7 @@ export default function InventoryManagement({ activeSub }) {
                background:'hsla(var(--color-blue),0.08)', border:'1px solid hsla(var(--color-blue),0.35)', cursor:'pointer' }}>
       <Package size={16} style={{ color:'hsl(var(--color-blue))', flexShrink:0 }} />
       <span style={{ fontSize:13, color:'var(--ink)' }}>
-        <strong>{awaitingAcceptance} item{awaitingAcceptance !== 1 ? 's' : ''}</strong> assigned to you — waiting for your acceptance.
+        <strong>{awaitingAcceptance} item{awaitingAcceptance !== 1 ? 's' : ''}</strong> assigned to you - waiting for your acceptance.
       </span>
       <span style={{ marginLeft:'auto', fontSize:12.5, fontWeight:700, color:'hsl(var(--color-blue))', whiteSpace:'nowrap' }}>Review →</span>
     </div>
@@ -8092,7 +8092,7 @@ export default function InventoryManagement({ activeSub }) {
   }
 
   // The filter selects, rendered directly above the table on Catalog and Manage
-  // (no longer in the page header — Neil: filters must sit in one consistent spot,
+  // (no longer in the page header - Neil: filters must sit in one consistent spot,
   // not jump around). Any filter that isn't on "All" gets a tinted background so
   // it's obvious one is active and nothing is silently hidden.
   const baseSel   = { padding:'6px 10px', fontSize:13, height:34, width:'auto' };
@@ -8143,12 +8143,12 @@ export default function InventoryManagement({ activeSub }) {
           <p>Browse company assets, check out what you need, or request a purchase</p>
         </div>
         <div style={{ display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
-          {/* Filters no longer live in the header — each tab renders them directly
+          {/* Filters no longer live in the header - each tab renders them directly
               above its own table so they never jump around between tabs (Neil). */}
           {/* Cart last: it's the one control visible on every tab, so it anchors
               the right edge instead of floating next to hidden filters */}
           {/* header-cart: phones pin this to ONE fixed spot (title row, top
-              right) on every tab — no FAB, no drifting (Visesh) */}
+              right) on every tab - no FAB, no drifting (Visesh) */}
           <button className="header-cart"
             style={{ display:'inline-flex', alignItems:'center', gap:7, position:'relative', background:'#000', color:'#fff', border:'1px solid #000', borderRadius:9, fontWeight:700, padding:'8px 18px', cursor:'pointer', fontFamily:'Inter,sans-serif' }}
             onClick={() => setCartOpen(true)}>
@@ -8162,8 +8162,8 @@ export default function InventoryManagement({ activeSub }) {
         </div>
       </div>
 
-      {/* Tab strip — desktop only; on phones the bottom action bar replaces it */}
-      {/* Manager tabs — desktop renders them centered in the top header; on
+      {/* Tab strip - desktop only; on phones the bottom action bar replaces it */}
+      {/* Manager tabs - desktop renders them centered in the top header; on
           phones the bottom action bar replaces them (mobileInline off, same as
           the old `.im-tabs { display:none }` rule). */}
       <ModuleTabs mobileInline={false}
@@ -8178,7 +8178,7 @@ export default function InventoryManagement({ activeSub }) {
         ]}
         active={mainTab} onChange={setMainTab} />
 
-      {/* Pending approvals banner — below the tab strip so the nav itself never moves */}
+      {/* Pending approvals banner - below the tab strip so the nav itself never moves */}
       {pendingCount > 0 && (
         <div onClick={() => setMainTab('checkouts')}
           style={{ margin:'0 0 16px', background:'hsla(var(--color-orange),0.1)', border:'1px solid hsla(var(--color-orange),0.35)', borderRadius:12, padding:'12px 18px', display:'flex', alignItems:'center', gap:12, cursor:'pointer' }}>
@@ -8348,14 +8348,14 @@ export default function InventoryManagement({ activeSub }) {
         <ReturnModal checkout={returningCo} onClose={() => setReturningCo(null)}
           photoOptional={photoOptionalIds.has(returningCo.itemId)}
           onSubmit={data => returnItem(returningCo.id, data)
-            .then(() => { toast(`Return confirmed — ${returningCo.itemName}`); setReturningCo(null); })
-            .catch(err => toast(err?.message || 'Could not confirm return — please try again.', 'error'))} />
+            .then(() => { toast(`Return confirmed - ${returningCo.itemName}`); setReturningCo(null); })
+            .catch(err => toast(err?.message || 'Could not confirm return - please try again.', 'error'))} />
       )}
 
-      {/* P1-15: managers pick a targeted approver here too — without showApprover this
+      {/* P1-15: managers pick a targeted approver here too - without showApprover this
           cart submitted approver_email:'' and broadcast to every manager. (Follow-up:
           this Manage-mode cart is a second, divergent cart state from the employee
-          path — unify to one cart context in a later refactor.) */}
+          path - unify to one cart context in a later refactor.) */}
       <CartDrawer open={cartOpen} cart={cart} items={items} onClose={() => setCartOpen(false)}
         onRemove={removeFromCart} onSubmit={handleSubmitCart} submitting={cartBusy}
         onDaysChange={handleDaysChange} showApprover />

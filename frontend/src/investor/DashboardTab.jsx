@@ -36,13 +36,13 @@ export default function DashboardTab({ onOpenTab }) {
           {seeding ? <Loader size={14} style={{ animation: 'spin 0.8s linear infinite' }} /> : <Sprout size={14} />} Load Sample Portfolio
         </button>
         <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 10 }}>
-          Demo / sample data for local review — deals, investors, commitments, capital calls, and distributions.
+          Demo / sample data for local review - deals, investors, commitments, capital calls, and distributions.
         </div>
       </EmptyState>
     );
   }
 
-  const calledPct = d.totalCommitted > 0 ? `${((d.totalCalled / d.totalCommitted) * 100).toFixed(0)}% of committed` : '—';
+  const calledPct = d.totalCommitted > 0 ? `${((d.totalCalled / d.totalCommitted) * 100).toFixed(0)}% of committed` : '-';
   const byStatus = d.fundsByStatus || {};
   const kpis = [
     ['card-blue',   'Total Committed',     formatCurrency(d.totalCommitted),   `Across ${d.fundCount} deal${d.fundCount === 1 ? '' : 's'}`],
@@ -83,7 +83,7 @@ export default function DashboardTab({ onOpenTab }) {
         ))}
       </div>
 
-      {/* Deals by status — flat dot legend, no chips */}
+      {/* Deals by status - flat dot legend, no chips */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 18, flexWrap: 'wrap', fontSize: 12.5, color: 'var(--muted)' }}>
         <span style={{ fontWeight: 700, fontSize: 11, textTransform: 'uppercase', letterSpacing: '.04em' }}>Deals by Status</span>
         {['raising', 'active', 'exited'].map(s => (

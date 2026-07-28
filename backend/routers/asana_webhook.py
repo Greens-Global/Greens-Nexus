@@ -1,4 +1,4 @@
-"""Public Asana webhook receiver (NO auth — Asana calls it; requests are verified
+"""Public Asana webhook receiver (NO auth - Asana calls it; requests are verified
 by the X-Hook-Signature HMAC instead). Kept in its own router because the Task
 routers require a logged-in user, which Asana obviously isn't.
 
@@ -24,15 +24,15 @@ async def asana_webhook(request: Request, db: Session = Depends(get_db)):
     body = await request.body()
     secret = request.headers.get("X-Hook-Secret")
     if secret:
-        # Handshake — store the secret and echo it back to activate the webhook.
+        # Handshake - store the secret and echo it back to activate the webhook.
         asana_sync.store_handshake_secret(db, secret)
         return Response(status_code=200, headers={"X-Hook-Secret": secret})
 
     if not asana_sync.verify_signature(db, body, request.headers.get("X-Hook-Signature", "")):
         return Response(status_code=401)
 
-    # A deleted task never reappears in pull()'s project task-list poll — it's
-    # simply gone — so the 'deleted' event is the only chance to notice and
+    # A deleted task never reappears in pull()'s project task-list poll - it's
+    # simply gone - so the 'deleted' event is the only chance to notice and
     # unlink it. Handle that inline; everything else still goes through the
     # regular pull.
     try:

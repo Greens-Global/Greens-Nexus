@@ -1,4 +1,4 @@
-// Task Module — Teams. Team cards + add/edit modal (name, color, icon, members,
+// Task Module - Teams. Team cards + add/edit modal (name, color, icon, members,
 // PROJECTS) + a member-request inbox for admins. A team can serve ANY NUMBER of
 // projects, as Asana does it; pinning it to one meant a duplicate card per
 // project. Not the project's People-module department, which is set elsewhere.
@@ -75,7 +75,7 @@ export default function TeamsView({ onNavigate }) {
 
   return (
     <div style={{ fontFamily: FONT, color: NX.ink, height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0, background: NX.canvas }}>
-      {/* Toolbar — creating a new team is a Manage-only action (Manage → Teams);
+      {/* Toolbar - creating a new team is a Manage-only action (Manage → Teams);
           this page is for browsing/editing existing ones. */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', borderBottom: `1px solid ${NX.border}`, flexWrap: 'wrap', background: NX.surface, flexShrink: 0 }}>
         <div style={{ fontSize: 17, fontWeight: 700 }}>Teams</div>
@@ -169,7 +169,7 @@ function TeamCard({ team, teamProjects, nameOf, taskCount, onOpen }) {
           <div style={{ fontSize: 12, color: NX.faint, marginTop: 2 }}>
             {members.length} member{members.length === 1 ? '' : 's'} · {taskCount} task{taskCount === 1 ? '' : 's'}
           </div>
-          {/* One chip per project — a team shared across several shows them all
+          {/* One chip per project - a team shared across several shows them all
               here, which is what tells two same-named teams apart at a glance. */}
           <div style={{ marginTop: 4, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
             {teamProjects.length === 0 ? (
@@ -265,7 +265,7 @@ export function TeamModal({ team, onClose, onDelete }) {
       <label style={labelStyle}>Name</label>
       <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. QA Team" autoFocus={!isMobile} style={inputStyle} />
 
-      {/* Projects — optional and MANY. A team can stand alone, or serve any
+      {/* Projects - optional and MANY. A team can stand alone, or serve any
           number of projects (here, or from each project's own Teams picker). */}
       <label style={{ ...labelStyle, marginTop: 16 }}>Projects (optional)</label>
       {projects.length === 0 ? (
@@ -337,7 +337,7 @@ export function TeamModal({ team, onClose, onDelete }) {
 
 const labelStyle = { display: 'block', fontSize: 12.5, fontWeight: 600, color: NX.dim, marginBottom: 6 };
 
-// ── Team detail — Overview / Members / All work / Calendar ──────────────────
+// ── Team detail - Overview / Members / All work / Calendar ──────────────────
 const DETAIL_TABS = [
   { key: 'overview', label: 'Overview' },
   { key: 'members', label: 'Members' },
@@ -431,7 +431,7 @@ function TeamOverviewTab({ team, teamProjects, onSeeMembers, onNavigate }) {
       <div style={{ height: 112, borderRadius: 16, marginBottom: 20, background: `linear-gradient(120deg, ${color}22, ${color}0a)` }} />
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 16 }}>
-        {/* Projects — a team can serve several; change the set via Edit Team. */}
+        {/* Projects - a team can serve several; change the set via Edit Team. */}
         <div style={{ border: `1px solid ${NX.border}`, borderRadius: 16, background: NX.surface, padding: 16, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 15, fontWeight: 700, marginBottom: 12 }}>
             <FolderKanban size={16} style={{ color: NX.faint }} /> Projects
@@ -521,7 +521,7 @@ function TeamMembersTab({ team }) {
   );
 }
 
-// One collapsible section per project the team serves — a shared team's work
+// One collapsible section per project the team serves - a shared team's work
 // stays grouped by where it happens instead of collapsing into one flat list.
 function TeamWorkTab({ teamProjects, tasks, onNavigate }) {
   if (teamProjects.length === 0) {

@@ -1,4 +1,4 @@
-// Task Module — Projects. A card grid of projects with live task rollups, an
+// Task Module - Projects. A card grid of projects with live task rollups, an
 // add/edit modal, and a drill-in that reuses the Tasks workspace locked to one
 // project. Ported from the export's ProjectsPage/ProjectOverview into the Nexus
 // inline-style idiom.
@@ -25,7 +25,7 @@ const VISIBILITY_OPTS = [
 export default function ProjectsView({ onNavigate }) {
   const isMobile = useIsMobile();
   const store = useTasks();
-  const { projects, portfolios, tasks, nameOf, portfolioById,
+  const { projects, portfolios, tasks, nameOf, portfolioById, teams,
     createProject, updateProject, deleteProject } = store;
   const people = usePeople();
 
@@ -38,16 +38,23 @@ export default function ProjectsView({ onNavigate }) {
   // Rollups per project: count / done / progress / overdue, from live tasks.
   const cards = useMemo(() => {
     const q = search.trim().toLowerCase();
+    // A team serves many projects, so this reads the team side of the link
+    // rather than any single field on the project.
+    const teamsOf = (pid) => (teams || []).filter((t) => teamInProject(t, pid));
     return projects
       .filter((p) => showArchived || !p.archived)
-      .filter((p) => !q || p.name.toLowerCase().includes(q) || (p.hrDepartmentName || '').toLowerCase().includes(q))
+      .map((p) => ({ ...p, teams: teamsOf(p.id) }))
+      // Team names are searchable too now that they are what the card shows.
+      .filter((p) => !q || p.name.toLowerCase().includes(q)
+        || (p.hrDepartmentName || '').toLowerCase().includes(q)
+        || p.teams.some((t) => (t.name || '').toLowerCase().includes(q)))
       .map((p) => {
         const own = tasks.filter((t) => t.projectId === p.id);
         return { project: p, stats: taskStats(own) };
       })
       .sort((a, b) => Number(a.project.archived) - Number(b.project.archived)
         || a.project.name.localeCompare(b.project.name));
-  }, [projects, tasks, search, showArchived]);
+  }, [projects, tasks, teams, search, showArchived]);
 
   const openProject = openId ? projects.find((p) => p.id === openId) : null;
 
@@ -67,7 +74,7 @@ export default function ProjectsView({ onNavigate }) {
   });
 
   // Deleting is permanent and takes the project's tasks and Asana sync state with
-  // it, so it gets a real dialog — and for a synced project it must ask the one
+  // it, so it gets a real dialog - and for a synced project it must ask the one
   // question only the operator can answer: does the Asana project go too?
   const remove = async (p) => {
     let mapped = false;
@@ -88,7 +95,7 @@ export default function ProjectsView({ onNavigate }) {
 
   return (
     <div style={{ fontFamily: FONT, color: NX.ink, height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0, background: NX.canvas }}>
-      {/* Header — title/subtitle left, New Project top-right, full-width search below */}
+      {/* Header - title/subtitle left, New Project top-right, full-width search below */}
       <div style={{ padding: isMobile ? '12px 12px 10px' : '20px 24px 16px', borderBottom: `1px solid ${NX.border}`, background: NX.surface, flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
           <div>
@@ -99,7 +106,7 @@ export default function ProjectsView({ onNavigate }) {
               bottom of the screen creates a project instead (see MobileFab below). */}
           {!isMobile && <button style={{ ...btn('primary'), padding: '10px 18px', fontSize: 13.5, borderRadius: 10 }} onClick={startCreate}><Plus size={16} />New Project</button>}
         </div>
-        {/* Search · Show archived — one line on mobile */}
+        {/* Search · Show archived - one line on mobile */}
         <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 14, marginTop: isMobile ? 10 : 16, flexWrap: isMobile ? 'nowrap' : 'wrap' }}>
           <div style={{ position: 'relative', flex: '1 1 260px', minWidth: 0, maxWidth: isMobile ? 'none' : 420 }}>
             <Search size={16} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: NX.faint }} />
@@ -113,7 +120,7 @@ export default function ProjectsView({ onNavigate }) {
         </div>
       </div>
 
-      {/* Grid — grey body, white project cards */}
+      {/* Grid - grey body, white project cards */}
       <div className="nx-scroll" style={{ flex: 1, minHeight: 0, overflow: 'auto', background: NX.canvas }}>
       {cards.length === 0 ? (
         <EmptyState icon={FolderKanban} title={search.trim() ? 'No Projects Match Your Search' : 'No Projects Yet'} hint={search.trim() ? undefined : 'Create your first project to group tasks and track progress.'} />
@@ -142,7 +149,20 @@ export default function ProjectsView({ onNavigate }) {
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontSize: 14.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
-                    {p.hrDepartmentName && <span style={chip(dcolor, `${dcolor}1a`)}>{p.hrDepartmentName}</span>}
+                    {/* The teams that work this project, each in its own color.
+                        This used to show hrDepartmentName - the CREATOR's People
+                        department - so every project imported by one person read
+                        as that person's department ("IT" across the board),
+                        which says nothing about the project. Department is the
+                        fallback only where no team is assigned yet. */}
+                    {p.teams.length > 0
+                      ? p.teams.slice(0, 2).map((t) => (
+                          <span key={t.id} style={chip(t.color || NX.blue, `${t.color || NX.blue}1a`)}>{t.name}</span>
+                        ))
+                      : p.hrDepartmentName && <span style={chip(dcolor, `${dcolor}1a`)}>{p.hrDepartmentName}</span>}
+                    {p.teams.length > 2 && (
+                      <span title={p.teams.map((t) => t.name).join(', ')} style={chip(NX.dim, NX.border2)}>+{p.teams.length - 2}</span>
+                    )}
                     {p.archived && <span style={chip(NX.faint, NX.border2)}><Archive size={11} />Archived</span>}
                   </div>
                 </div>
@@ -211,7 +231,7 @@ export default function ProjectsView({ onNavigate }) {
 
 // Permanent delete. For a synced project the Asana copy is the only place the
 // work still exists afterwards, so the choice is spelled out rather than buried
-// in a checkbox label: keep it (the default — re-import later) or delete it too.
+// in a checkbox label: keep it (the default - re-import later) or delete it too.
 function DeleteProjectModal({ state, setState, onConfirm, onClose }) {
   const { project, mapped, alsoAsana, busy, err } = state;
   const set = (patch) => setState((d) => ({ ...d, ...patch }));
@@ -242,7 +262,7 @@ function DeleteProjectModal({ state, setState, onConfirm, onClose }) {
             so you can import it again from scratch and re-map it.
           </p>
           {[
-            { key: false, label: 'Keep the Asana project', desc: 'Deletes the Nexus copy only. The Asana project stays exactly as it is — import it again whenever you want.' },
+            { key: false, label: 'Keep the Asana project', desc: 'Deletes the Nexus copy only. The Asana project stays exactly as it is - import it again whenever you want.' },
             { key: true, label: 'Delete it in Asana too', desc: 'Also deletes the Asana project. Asana keeps it in your trash for 30 days, but nothing will be left here to re-import.' },
           ].map((opt) => (
             <button key={String(opt.key)} type="button" onClick={() => set({ alsoAsana: opt.key })}
@@ -281,11 +301,11 @@ function ProjectModal({ form, setForm, people, portfolios, onClose, onSaved }) {
   // instant the modal opens on touch devices. The modal's sizing is vh-based
   // (Modal component: 7vh top padding, 86vh max-height), and mobile Chrome
   // recalculates vh against the keyboard-shrunk viewport differently than
-  // Safari/Edge — its scroll-focused-input-into-view then overshoots and
+  // Safari/Edge - its scroll-focused-input-into-view then overshoots and
   // scrolls the whole modal content past Name/Description/Owner, landing on
   // Department instead (reported: fields "missing" in Chrome mobile, present
   // in Safari/Edge). Skipping autoFocus on mobile avoids triggering that
-  // keyboard-open scroll entirely — desktop keeps the autofocus convenience.
+  // keyboard-open scroll entirely - desktop keeps the autofocus convenience.
   const isMobile = useIsMobile();
 
   // Teams currently assigned to this project (none yet for a brand-new one),
@@ -300,7 +320,7 @@ function ProjectModal({ form, setForm, people, portfolios, onClose, onSaved }) {
       const { id, ...data } = form;
       const project = id ? await updateProject(id, data) : await createProject(data);
       // A team can serve several projects, so this edits only THIS project's membership
-      // in each team's list — a bare project_id would replace the team's whole set and
+      // in each team's list - a bare project_id would replace the team's whole set and
       // drop the other projects it works on.
       const pid = id || project.id;
       const wasAssigned = teams.filter((t) => teamInProject(t, pid)).map((t) => t.id);
@@ -348,7 +368,7 @@ function ProjectModal({ form, setForm, people, portfolios, onClose, onSaved }) {
             <label style={label}>Department</label>
             {form.id ? (
               <div style={{ fontSize: 13, color: form.hrDepartmentName ? NX.ink : NX.faint, padding: '8px 0' }}>
-                {form.hrDepartmentName || 'None — auto-populated from the creator’s People-module profile'}
+                {form.hrDepartmentName || 'None - auto-populated from the creator’s People-module profile'}
               </div>
             ) : (
               <div style={{ fontSize: 12.5, color: NX.faint, padding: '8px 0' }}>
@@ -368,7 +388,7 @@ function ProjectModal({ form, setForm, people, portfolios, onClose, onSaved }) {
         <div>
           <label style={label}>Teams</label>
           {teams.length === 0 ? (
-            <div style={{ fontSize: 12.5, color: NX.faint }}>No teams yet — create one from the Manage tab, then assign it here.</div>
+            <div style={{ fontSize: 12.5, color: NX.faint }}>No teams yet - create one from the Manage tab, then assign it here.</div>
           ) : (
             <div style={{ maxHeight: 160, overflowY: 'auto', border: `1px solid ${NX.border2}`, borderRadius: 8, padding: 8, display: 'flex', flexDirection: 'column', gap: 2 }}>
               {teams.map((t) => {

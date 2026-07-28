@@ -23,7 +23,7 @@ function slug(facility) {
 }
 
 // Facebook has no "Business Profile Performance" API equivalent in this
-// mock universe (no view/click/call analytics) — only organic Page posts.
+// mock universe (no view/click/call analytics) - only organic Page posts.
 const POST_TEMPLATES = [
   {
     type: 'STANDARD',
@@ -41,7 +41,7 @@ const POST_TEMPLATES = [
   },
   {
     type: 'EVENT',
-    summary: (city) => `Join us for our community open house at ${city} this Saturday — free coffee & donuts!`,
+    summary: (city) => `Join us for our community open house at ${city} this Saturday - free coffee & donuts!`,
     ctaLabel: 'Sign up',
     ctaUrl: 'https://facebook.com/events/greensstorage',
     lifespanDays: 14,
