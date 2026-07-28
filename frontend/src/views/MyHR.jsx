@@ -62,16 +62,17 @@ function Row({ Icon, label, value }) {
   );
 }
 
+// Stat tile — the shared dk-stat anatomy (tinted icon chip, big tabular
+// numeral) so My HR reads like Home/People. Old corner watercolor blob removed.
 function Stat({ label, value, hint, color, Icon }) {
   return (
-    <div className="kpi-card" style={{ position: 'relative', overflow: 'hidden' }}>
-      <div style={{ position: 'absolute', top: -30, right: -30, width: 100, height: 100, borderRadius: '50%', background: `hsla(var(--color-${color}),0.09)`, pointerEvents: 'none' }} />
-      <div className="kpi-card-header" style={{ marginBottom: 0 }}>
-        <span className="kpi-label">{label}</span>
-        <div className="kpi-icon-container" style={{ width: 34, height: 34, borderRadius: 10, background: `hsla(var(--color-${color}),0.14)`, color: `hsl(var(--color-${color}))` }}><Icon size={16} /></div>
-      </div>
-      <div className="kpi-value" style={{ fontSize: 26, margin: '10px 0 2px' }}>{value}</div>
-      <div className="kpi-delta">{hint}</div>
+    <div className="dk-stat" style={{ cursor: 'default' }}>
+      <span className="dk-stat-top">
+        <span className={`dk-chip dk-chip--${color}`}><Icon /></span>
+      </span>
+      <span className="dk-stat-num">{value}</span>
+      <span className="dk-stat-label">{label}</span>
+      <span className="dk-stat-sub">{hint}</span>
     </div>
   );
 }
@@ -116,8 +117,8 @@ function HoursChart({ days, start, end }) {
           return (
             <g key={s.key} onMouseEnter={() => setHov(i)} onMouseLeave={() => setHov(null)}>
               <rect x={x} y={padT} width={bw} height={h - padB - padT} fill="transparent" />
-              <rect x={x} y={y} width={bw} height={bh} rx={4}
-                fill={active ? 'hsl(var(--color-blue))' : 'hsla(var(--color-blue),0.35)'}
+              <rect x={x} y={y} width={bw} height={bh} rx={Math.min(bw / 2, 99)}
+                fill={active ? 'var(--wk-brand)' : '#b9c4f4'}
                 style={{ transition: 'fill 0.15s' }} />
               <text x={x + bw / 2} y={h - 6} textAnchor="middle" fontSize="9.5" fontFamily="Inter,sans-serif"
                 style={{ fill: active ? 'var(--ink)' : 'var(--muted)' }}>{label(s, i)}</text>
@@ -276,11 +277,16 @@ export default function MyHR() {
   );
 
   return (
-    <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
+    <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out', fontFamily: 'var(--wk-font)' }}>
       <div className="view-header">
-        <div className="view-title-group">
-          <h2>My HR</h2>
-          <p>Your profile, hours, documents and leave — only you see this</p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+          <span style={{ width: 38, height: 38, borderRadius: 10, background: 'var(--wk-brand-tint)', color: 'var(--wk-brand)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <User size={19} />
+          </span>
+          <div className="view-title-group">
+            <h2>My HR</h2>
+            <p>Your profile, hours, documents and leave — only you see this</p>
+          </div>
         </div>
       </div>
 
@@ -331,7 +337,7 @@ export default function MyHR() {
                 <Row Icon={Building2} label="Employment" value={(profile.employmentType || '').replace('_', ' ')} />
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '16px 0 2px' }}>
-                  <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', color: 'var(--muted)', textTransform: 'uppercase', flex: 1 }}>Contact & emergency</span>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', flex: 1 }}>Contact & emergency</span>
                   {!editing && (
                     <button className="secondary-btn" onClick={startEdit} style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px' }}>
                       <Pencil size={12} /> Edit
@@ -511,7 +517,7 @@ export default function MyHR() {
                       <option value="rejected">Rejected</option>
                     </select>
                     <button className="primary-btn" onClick={() => setLoOpen(o => !o)} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, padding: '6px 12px' }}>
-                      <Plus size={13} /> Request Time Off
+                      <Plus size={13} /> Request time off
                     </button>
                   </span>)}
 
@@ -592,7 +598,7 @@ export default function MyHR() {
                 {asks.length > 0 && (
                   <div style={{ marginTop: 14 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                      <span style={{ flex: 1, fontSize: 11, fontWeight: 700, letterSpacing: '.06em', color: 'var(--muted)', textTransform: 'uppercase' }}>My requests</span>
+                      <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>My requests</span>
                       <select className="form-input" value={askFilter} onChange={e => setAskFilter(e.target.value)}
                         style={{ fontSize: 11.5, fontWeight: 600, padding: '3px 22px 3px 8px', height: 'auto' }}>
                         <option value="all">All</option>
