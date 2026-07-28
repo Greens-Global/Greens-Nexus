@@ -236,29 +236,30 @@ h1,h2,h3,h4,h5,h6,
   width: 38px;
   height: 38px;
   border-radius: 10px;
-  background: var(--pine);
+  background: var(--wk-brand);
   color: #fff;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-family: 'Inter', sans-serif;
+  font-family: var(--wk-font);
   font-weight: 700;
   font-size: 15px;
   flex-shrink: 0;
 }
 
 .company-info { display: flex; flex-direction: column; gap: 1px; }
-.company-name { font-family: 'Inter', sans-serif; font-weight: 700; font-size: 17px; letter-spacing: -.02em; line-height: 1; }
-.brand-sub { font-size: 10px; color: var(--muted); font-weight: 600; letter-spacing: .06em; text-transform: uppercase; margin-top: 2px; }
+.company-name { font-family: var(--wk-font); font-weight: 700; font-size: 17px; letter-spacing: -.02em; line-height: 1; }
+.brand-sub { font-size: 11px; color: var(--muted); font-weight: 500; margin-top: 2px; }
 
+/* Section kickers: quiet sentence-case labels (kit grammar - no uppercase tracking) */
 .nav-section-title {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: .08em;
-  text-transform: uppercase;
-  color: var(--muted);
-  padding: 14px 20px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--wk-faint);
+  padding: 16px 20px 5px;
+  font-family: var(--wk-font);
 }
+[data-theme="dark"] .nav-section-title { color: var(--muted); }
 
 .sidebar-nav { flex: 1; overflow-y: auto; padding: 4px 10px 8px; }
 .sidebar-nav::-webkit-scrollbar { width: 5px; }
@@ -2943,7 +2944,34 @@ button, [role="button"], select { touch-action: manipulation; }
 
 /* ── Shell polish: header ───────────────────────────────────────────────── */
 .top-header { font-family: var(--wk-font); }
-.top-header .breadcrumb { font-family: var(--wk-font); font-size: 14.5px; font-weight: 600; }
+.top-header .breadcrumb { font-family: var(--wk-font); font-size: 14.5px; font-weight: 600; gap: 9px; }
+
+/* Breadcrumb on the kit (Jul 28): the back arrow is a real bordered chip that
+   lights up brand on hover; the previous crumb is a clickable step back. */
+.breadcrumb-back {
+  width: 30px; height: 30px;
+  border: 1px solid var(--wk-line2); border-radius: 8px;
+  background: var(--card); color: var(--muted);
+  opacity: 1;
+  transition: color .13s, border-color .13s, background .13s;
+}
+.breadcrumb-back:hover { color: var(--wk-brand); border-color: transparent; background: var(--wk-brand-tint); }
+[data-theme="dark"] .breadcrumb-back { border-color: var(--line); background: var(--mist); }
+.breadcrumb-prev {
+  background: none; border: none; padding: 0; cursor: pointer;
+  font: inherit; font-weight: 500; color: var(--wk-dim);
+  transition: color .13s;
+}
+.breadcrumb-prev:hover { color: var(--ink); }
+.breadcrumb-current { font-weight: 700; }
+
+/* Sidebar on the kit (Jul 28): Figtree, brand-tint active pill (no side bars) */
+.sidebar { font-family: var(--wk-font); }
+.nav-item { font-size: 13.5px; }
+.nav-item.active { background: var(--wk-brand-tint); color: var(--wk-brand); font-weight: 700; }
+.nav-item.active:not(.has-submenu) svg { color: var(--wk-brand); }
+[data-theme="dark"] .nav-item.active { background: rgba(43, 69, 225, .22); color: #b9bbff; }
+[data-theme="dark"] .nav-item.active:not(.has-submenu) svg { color: #b9bbff; }
 .top-header .search-bar { border-radius: 8px; }
 .top-header .icon-btn { border-radius: 8px; }
 .top-header .header-user-pill { border-radius: 8px; }

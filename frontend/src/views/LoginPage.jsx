@@ -1,18 +1,27 @@
 /*
 THESIS: signing in feels like opening a premium work OS (canon, owner-pinned:
-monday.com-grade) - clean, white, confident, zero clutter.
-OWN-WORLD: Work OS (DESIGN.md) - white ground with faint brand-tinted washes,
-Figtree type, brand #2b45e1 mark, one Microsoft action.
-STORY: an employee lands, instantly trusts it ("this is a real product"),
-presses the single button, and is at work.
-FIRST VIEWPORT: brand mark top-left, centered column - mark, "Welcome to
-Nexus", one-line promise, Microsoft button, SSO note. Nothing else.
-FORM: category standard played straight at full fidelity (user's canon call,
+monday.com-grade) - a confident split hero: the product's world on the left,
+one calm action on the right.
+OWN-WORLD: Work OS (DESIGN.md) - cobalt #2b45e1 brand panel with floating
+module cards (CSS-drawn, no fabricated numbers), white sign-in column,
+Figtree type, one Microsoft action.
+STORY: an employee lands, sees what Nexus IS (tasks, time, people) at a
+glance, presses the single button, and is at work.
+FIRST VIEWPORT: left - brand mark, headline, module cards; right - "Welcome
+to Nexus", Microsoft button, SSO note. Nothing else.
+FORM: category standard played straight at full fidelity (owner's canon call,
 Jul 28); craft bar monday.com's login.
 */
 import { useEffect, useState } from "react";
 import { useMsal } from "@azure/msal-react";
+import { CheckSquare, Clock, Users } from "lucide-react";
 import { loginRequest } from "../authConfig";
+
+const PANELS = [
+  { Icon: CheckSquare, tint: "#dff3fc", fg: "#0998c3", title: "Tasks", sub: "Projects, boards and deadlines" },
+  { Icon: Clock,       tint: "#e8ecfd", fg: "#2b45e1", title: "Time Clock", sub: "Punch in, timesheets, payroll" },
+  { Icon: Users,       tint: "#e6f7ef", fg: "#00a25b", title: "People", sub: "Profiles, leave and documents" },
+];
 
 export default function LoginPage() {
   const { instance } = useMsal();
@@ -27,108 +36,163 @@ export default function LoginPage() {
 
   return (
     <div className={`nxl${on ? " nxl-on" : ""}`}>
-      <div className="nxl-wash" aria-hidden="true" />
+      {/* Left: the product's world - brand panel with floating module cards */}
+      <aside className="nxl-hero" aria-hidden="true">
+        <div className="nxl-hero-wash" />
+        <div className="nxl-hero-brand" style={{ "--i": 0 }}>
+          <span className="nxl-mark nxl-mark--inverse">N</span>
+          <span className="nxl-hero-name">Nexus</span>
+        </div>
+        <h2 className="nxl-hero-title" style={{ "--i": 1 }}>Everything Greens runs on.</h2>
+        <p className="nxl-hero-sub" style={{ "--i": 2 }}>
+          Tasks, time, people, items and documents - one workspace for the whole company.
+        </p>
+        <div className="nxl-cards" style={{ "--i": 3 }}>
+          {PANELS.map((p, i) => (
+            <div key={p.title} className="nxl-card" style={{ "--i": 3 + i }}>
+              <span className="nxl-card-chip" style={{ background: p.tint, color: p.fg }}><p.Icon size={16} /></span>
+              <span className="nxl-card-text">
+                <span className="nxl-card-title">{p.title}</span>
+                <span className="nxl-card-sub">{p.sub}</span>
+              </span>
+            </div>
+          ))}
+        </div>
+      </aside>
 
-      <header className="nxl-top">
-        <span className="nxl-mark">N</span>
-        <span className="nxl-brand">Nexus</span>
-      </header>
-
+      {/* Right: one calm action */}
       <main className="nxl-stage">
-        <div className="nxl-badge" style={{ "--i": 0 }} aria-hidden="true">N</div>
-        <h1 className="nxl-title" style={{ "--i": 1 }}>Welcome to Nexus</h1>
-        <p className="nxl-sub" style={{ "--i": 2 }}>
-          One place to run every operation - tasks, items, people, time, and more.
-        </p>
+        <div className="nxl-stage-inner">
+          <div className="nxl-badge" style={{ "--i": 0 }} aria-hidden="true">N</div>
+          <h1 className="nxl-title" style={{ "--i": 1 }}>Welcome to Nexus</h1>
+          <p className="nxl-sub" style={{ "--i": 2 }}>
+            Sign in with your Greens Global account to continue.
+          </p>
 
-        <button className="nxl-cta" style={{ "--i": 3 }} onClick={() => instance.loginRedirect(loginRequest)}>
-          <svg width="18" height="18" viewBox="0 0 21 21" fill="none" aria-hidden="true">
-            <rect width="10" height="10" fill="#F35325" />
-            <rect x="11" width="10" height="10" fill="#81BC06" />
-            <rect y="11" width="10" height="10" fill="#05A6F0" />
-            <rect x="11" y="11" width="10" height="10" fill="#FFBA08" />
-          </svg>
-          Continue with Microsoft
-        </button>
+          <button className="nxl-cta" style={{ "--i": 3 }} onClick={() => instance.loginRedirect(loginRequest)}>
+            <svg width="18" height="18" viewBox="0 0 21 21" fill="none" aria-hidden="true">
+              <rect width="10" height="10" fill="#F35325" />
+              <rect x="11" width="10" height="10" fill="#81BC06" />
+              <rect y="11" width="10" height="10" fill="#05A6F0" />
+              <rect x="11" y="11" width="10" height="10" fill="#FFBA08" />
+            </svg>
+            Continue with Microsoft
+          </button>
 
-        <p className="nxl-note" style={{ "--i": 4 }}>
-          Single sign-on with your work account · Microsoft Entra ID
-        </p>
+          <p className="nxl-note" style={{ "--i": 4 }}>
+            Single sign-on with your work account · Microsoft Entra ID
+          </p>
+          <p className="nxl-foot" style={{ "--i": 5 }}>Secure company workspace</p>
+        </div>
       </main>
-
-      <footer className="nxl-foot" style={{ "--i": 5 }}>
-        Secure company workspace
-      </footer>
 
       <style>{`
         .nxl {
           position: fixed; inset: 0; overflow: hidden;
           background: #ffffff; color: #323338;
           font-family: 'Figtree', 'Inter', sans-serif;
-          display: flex; flex-direction: column;
+          display: flex;
         }
-        .nxl-wash {
+
+        /* ── Left brand panel ── */
+        .nxl-hero {
+          position: relative;
+          flex: 1 1 52%;
+          background: linear-gradient(160deg, #3a52e6 0%, #2b45e1 55%, #1f36c7 100%);
+          color: #fff;
+          display: flex; flex-direction: column; justify-content: center;
+          padding: 56px clamp(36px, 6vw, 84px);
+          overflow: hidden;
+        }
+        .nxl-hero-wash {
           position: absolute; inset: 0; pointer-events: none;
           background:
-            radial-gradient(52% 44% at 12% -6%,  rgba(43,69,225,.09)  0%, rgba(43,69,225,0)  70%),
-            radial-gradient(46% 40% at 100% 12%, rgba(0,200,117,.07)  0%, rgba(0,200,117,0)  70%),
-            radial-gradient(56% 44% at 50% 112%, rgba(253,171,61,.08) 0%, rgba(253,171,61,0) 70%);
+            radial-gradient(48% 42% at 88% 4%,  rgba(255,255,255,.13) 0%, rgba(255,255,255,0) 70%),
+            radial-gradient(56% 48% at -4% 104%, rgba(15,23,90,.35)   0%, rgba(15,23,90,0)   70%);
         }
-
-        .nxl-top {
-          position: relative; z-index: 1;
-          display: flex; align-items: center; gap: 9px;
-          padding: 22px 28px;
+        .nxl-hero > * { position: relative; }
+        .nxl-hero-brand {
+          position: absolute; top: 26px; left: clamp(36px, 6vw, 84px);
+          display: flex; align-items: center; gap: 10px;
         }
         .nxl-mark {
-          width: 30px; height: 30px; border-radius: 8px;
-          background: #2b45e1; color: #fff;
+          width: 32px; height: 32px; border-radius: 9px;
           display: inline-flex; align-items: center; justify-content: center;
-          font-weight: 800; font-size: 15px;
+          font-weight: 800; font-size: 16px;
         }
-        .nxl-brand { font-size: 17px; font-weight: 800; letter-spacing: -.01em; }
+        .nxl-mark--inverse { background: rgba(255,255,255,.16); color: #fff; }
+        .nxl-hero-name { font-size: 18px; font-weight: 800; letter-spacing: -.01em; }
 
-        .nxl-stage {
-          position: relative; z-index: 1;
-          flex: 1;
-          display: flex; flex-direction: column; align-items: center; justify-content: center;
-          text-align: center; padding: 24px;
-          margin-top: -30px;
+        .nxl-hero-title {
+          margin: 0;
+          font-size: clamp(30px, 3.4vw, 42px);
+          font-weight: 800; letter-spacing: -.02em; line-height: 1.1;
+          max-width: 14ch;
         }
-        .nxl-stage > *, .nxl-foot {
+        .nxl-hero-sub {
+          margin: 16px 0 0;
+          font-size: clamp(14.5px, 1.35vw, 16.5px);
+          line-height: 1.55; color: rgba(255,255,255,.78);
+          max-width: 42ch;
+        }
+
+        .nxl-cards { display: flex; flex-direction: column; gap: 14px; margin-top: 40px; max-width: 340px; }
+        .nxl-card {
+          display: flex; align-items: center; gap: 12px;
+          background: #ffffff; color: #323338;
+          border-radius: 13px; padding: 13px 16px;
+          box-shadow: 0 14px 34px rgba(15, 23, 90, .28);
+        }
+        .nxl-card:nth-child(1) { transform: rotate(-1.2deg) translateX(-6px); }
+        .nxl-card:nth-child(2) { transform: rotate(.8deg) translateX(14px); }
+        .nxl-card:nth-child(3) { transform: rotate(-.6deg); }
+        .nxl-card-chip {
+          width: 34px; height: 34px; border-radius: 9px; flex-shrink: 0;
+          display: inline-flex; align-items: center; justify-content: center;
+        }
+        .nxl-card-text { display: flex; flex-direction: column; min-width: 0; }
+        .nxl-card-title { font-size: 13.5px; font-weight: 700; }
+        .nxl-card-sub { font-size: 12px; color: #676879; }
+
+        /* ── Right sign-in column ── */
+        .nxl-stage {
+          flex: 1 1 48%;
+          display: flex; align-items: center; justify-content: center;
+          padding: 32px;
+        }
+        .nxl-stage-inner { display: flex; flex-direction: column; align-items: center; text-align: center; max-width: 380px; }
+
+        .nxl-hero > *:not(.nxl-hero-wash), .nxl-stage-inner > * {
           opacity: 0; transform: translateY(8px);
           transition: opacity .5s cubic-bezier(.16,1,.3,1), transform .5s cubic-bezier(.16,1,.3,1);
-          transition-delay: calc(var(--i) * 80ms + 60ms);
+          transition-delay: calc(var(--i, 0) * 80ms + 60ms);
         }
-        .nxl-on .nxl-stage > *, .nxl-on .nxl-foot { opacity: 1; transform: none; }
+        .nxl-on .nxl-hero > *:not(.nxl-hero-wash), .nxl-on .nxl-stage-inner > * { opacity: 1; transform: none; }
+        .nxl-on .nxl-card:nth-child(1) { transform: rotate(-1.2deg) translateX(-6px); }
+        .nxl-on .nxl-card:nth-child(2) { transform: rotate(.8deg) translateX(14px); }
+        .nxl-on .nxl-card:nth-child(3) { transform: rotate(-.6deg); }
 
         .nxl-badge {
-          width: 64px; height: 64px; border-radius: 16px;
+          width: 60px; height: 60px; border-radius: 15px;
           background: #2b45e1; color: #fff;
           display: flex; align-items: center; justify-content: center;
-          font-weight: 800; font-size: 30px;
+          font-weight: 800; font-size: 28px;
           box-shadow: 0 10px 26px rgba(43,69,225,.28);
-          margin-bottom: 26px;
+          margin-bottom: 24px;
         }
         .nxl-title {
-          font-size: clamp(30px, 4.4vw, 44px);
-          font-weight: 800; letter-spacing: -.02em; line-height: 1.08;
-          margin: 0;
-          color: #323338;
+          font-size: clamp(26px, 3vw, 34px);
+          font-weight: 800; letter-spacing: -.02em; line-height: 1.1;
+          margin: 0; color: #323338;
         }
-        .nxl-sub {
-          margin: 14px 0 0;
-          font-size: clamp(14.5px, 1.6vw, 16.5px);
-          color: #676879; line-height: 1.55;
-          max-width: 46ch;
-        }
+        .nxl-sub { margin: 12px 0 0; font-size: 15px; color: #676879; line-height: 1.55; }
 
         .nxl-cta {
           display: inline-flex; align-items: center; gap: 11px;
-          margin-top: 34px;
+          margin-top: 30px;
           padding: 14px 28px;
           background: #ffffff; color: #323338;
-          border: 1px solid #d0d4e4; border-radius: 8px;
+          border: 1px solid #d0d4e4; border-radius: 10px;
           font-family: 'Figtree', 'Inter', sans-serif;
           font-size: 15.5px; font-weight: 700;
           cursor: pointer;
@@ -140,21 +204,18 @@ export default function LoginPage() {
         .nxl-cta:focus-visible { outline: 2px solid #2b45e1; outline-offset: 3px; }
         .nxl-cta svg { flex-shrink: 0; }
 
-        .nxl-note { margin: 18px 0 0; font-size: 12.5px; color: #9699a6; }
+        .nxl-note { margin: 16px 0 0; font-size: 12.5px; color: #9699a6; }
+        .nxl-foot { margin: 34px 0 0; font-size: 12px; color: #9699a6; }
 
-        .nxl-foot {
-          position: relative; z-index: 1;
-          text-align: center; padding: 20px;
-          font-size: 12px; color: #9699a6;
-        }
-
-        @media (max-width: 560px) {
+        @media (max-width: 880px) {
+          .nxl-hero { display: none; }
+          .nxl-stage { padding: 24px; }
           .nxl-cta { width: 100%; justify-content: center; }
-          .nxl-stage { padding: 20px; }
         }
 
         @media (prefers-reduced-motion: reduce) {
-          .nxl-stage > *, .nxl-foot { transition: none; opacity: 1; transform: none; }
+          .nxl-hero > *, .nxl-stage-inner > * { transition: none !important; opacity: 1 !important; }
+          .nxl-on .nxl-hero > *, .nxl-on .nxl-stage-inner > * { transform: none; }
         }
       `}</style>
     </div>

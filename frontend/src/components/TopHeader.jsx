@@ -209,7 +209,7 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
           )}
           {canGoBack && prevLabel && (
             <>
-              <span className="breadcrumb-prev">{prevLabel}</span>
+              <button className="breadcrumb-prev" onClick={onBack} title={`Back to ${prevLabel}`}>{prevLabel}</button>
               <span style={{ color: "var(--muted)", opacity: 0.4, fontSize: 11, userSelect: "none" }}>/</span>
             </>
           )}
