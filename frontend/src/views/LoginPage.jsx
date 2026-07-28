@@ -1,189 +1,162 @@
-import { useEffect, useRef, useState } from "react";
+/*
+THESIS: signing in feels like opening a premium work OS (canon, owner-pinned:
+monday.com-grade) — clean, white, confident, zero clutter.
+OWN-WORLD: Work OS (DESIGN.md) — white ground with faint brand-tinted washes,
+Figtree type, brand #2b45e1 mark, one Microsoft action.
+STORY: an employee lands, instantly trusts it ("this is a real product"),
+presses the single button, and is at work.
+FIRST VIEWPORT: brand mark top-left, centered column — mark, "Welcome to
+Nexus", one-line promise, Microsoft button, SSO note. Nothing else.
+FORM: category standard played straight at full fidelity (user's canon call,
+Jul 28); craft bar monday.com's login.
+*/
+import { useEffect, useState } from "react";
 import { useMsal } from "@azure/msal-react";
 import { loginRequest } from "../authConfig";
-import GlobeLogo from "../components/GlobeLogo";
 
-// ─── Background neural network ────────────────────────────────────────────────
-function NeuralCanvas() {
-  const canvasRef = useRef(null);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-
-    let animId;
-    let W, H;
-    let particles = [];
-    const mouse       = { x: -9999, y: -9999 };
-    const MAX_DIST    = 150;
-    const MOUSE_R     = 200;
-    const COUNT       = 140;
-
-    function initSize() {
-      W = canvas.width  = window.innerWidth;
-      H = canvas.height = window.innerHeight;
-    }
-
-    function initParticles() {
-      particles = Array.from({ length: COUNT }, () => ({
-        x:  Math.random() * W,
-        y:  Math.random() * H,
-        vx: (Math.random() - 0.5) * 1.1,
-        vy: (Math.random() - 0.5) * 1.1,
-        r:  Math.random() * 2 + 1.5,
-      }));
-    }
-
-    function isDark() {
-      return document.documentElement.getAttribute("data-theme") === "dark";
-    }
-
-    function frame() {
-      ctx.clearRect(0, 0, W, H);
-      const dark = isDark();
-      const [r, g, b] = dark ? [96, 165, 250] : [15, 23, 42];
-      const nodeBase  = dark ? "rgba(96,165,250," : "rgba(15,23,42,";
-
-      for (const p of particles) {
-        const dx = p.x - mouse.x;
-        const dy = p.y - mouse.y;
-        const d2 = dx * dx + dy * dy;
-        if (d2 < MOUSE_R * MOUSE_R && d2 > 0.1) {
-          const d = Math.sqrt(d2);
-          const f = ((MOUSE_R - d) / MOUSE_R) * 0.9;
-          p.vx += (dx / d) * f;
-          p.vy += (dy / d) * f;
-        }
-        p.vx *= 0.992; p.vy *= 0.992;
-        p.x  += p.vx;  p.y  += p.vy;
-        if (p.x < 0) p.x = W; if (p.x > W) p.x = 0;
-        if (p.y < 0) p.y = H; if (p.y > H) p.y = 0;
-      }
-
-      for (let i = 0; i < particles.length; i++) {
-        for (let j = i + 1; j < particles.length; j++) {
-          const a = particles[i], c = particles[j];
-          const dx = a.x - c.x, dy = a.y - c.y;
-          const dist = Math.sqrt(dx * dx + dy * dy);
-          if (dist >= MAX_DIST) continue;
-          const alpha = (1 - dist / MAX_DIST) * (dark ? 0.5 : 0.35);
-          ctx.beginPath();
-          ctx.moveTo(a.x, a.y);
-          ctx.lineTo(c.x, c.y);
-          ctx.strokeStyle = `rgba(${r},${g},${b},${alpha.toFixed(3)})`;
-          ctx.lineWidth   = 0.8;
-          ctx.stroke();
-        }
-      }
-
-      for (const p of particles) {
-        const dx = p.x - mouse.x, dy = p.y - mouse.y;
-        const near = dx * dx + dy * dy < MOUSE_R * MOUSE_R;
-        if (dark && near) { ctx.shadowBlur = 10; ctx.shadowColor = "rgba(96,165,250,0.5)"; }
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, near ? p.r * 1.5 : p.r, 0, Math.PI * 2);
-        ctx.fillStyle = near
-          ? nodeBase + (dark ? "1.0)"  : "0.9)")
-          : nodeBase + (dark ? "0.50)" : "0.50)");
-        ctx.fill();
-        if (dark) ctx.shadowBlur = 0;
-      }
-
-      animId = requestAnimationFrame(frame);
-    }
-
-    const onMM = e => { mouse.x = e.clientX; mouse.y = e.clientY; };
-    const onML = () => { mouse.x = -9999; mouse.y = -9999; };
-    const onRz = () => { initSize(); for (const p of particles) { p.x = Math.min(p.x,W); p.y = Math.min(p.y,H); } };
-
-    initSize(); initParticles(); frame();
-    window.addEventListener("mousemove",  onMM);
-    window.addEventListener("mouseleave", onML);
-    window.addEventListener("resize",     onRz);
-    return () => {
-      cancelAnimationFrame(animId);
-      window.removeEventListener("mousemove",  onMM);
-      window.removeEventListener("mouseleave", onML);
-      window.removeEventListener("resize",     onRz);
-    };
-  }, []);
-
-  return (
-    <canvas ref={canvasRef} style={{ position:"fixed", inset:0, width:"100%", height:"100%", pointerEvents:"none", zIndex:0 }} />
-  );
-}
-
-// ─── Looping typewriter ───────────────────────────────────────────────────────
-function TypewriterTitle() {
-  const WORD        = "Nexus";
-  const TYPE_MS     = 110;
-  const ERASE_MS    = 65;
-  const PAUSE_FULL  = 1800;
-  const PAUSE_EMPTY = 500;
-
-  const [text,   setText]   = useState("");
-  const [cursor, setCursor] = useState(true);
-
-  useEffect(() => {
-    let t;
-    function tick(cur, erasing) {
-      if (!erasing) {
-        if (cur.length < WORD.length) {
-          const next = WORD.slice(0, cur.length + 1);
-          setText(next);
-          t = setTimeout(() => tick(next, false), TYPE_MS);
-        } else {
-          t = setTimeout(() => tick(cur, true), PAUSE_FULL);
-        }
-      } else {
-        if (cur.length > 0) {
-          const next = cur.slice(0, -1);
-          setText(next);
-          t = setTimeout(() => tick(next, true), ERASE_MS);
-        } else {
-          t = setTimeout(() => tick("", false), PAUSE_EMPTY);
-        }
-      }
-    }
-    tick("", false);
-    return () => clearTimeout(t);
-  }, []);
-
-  useEffect(() => {
-    const id = setInterval(() => setCursor(c => !c), 530);
-    return () => clearInterval(id);
-  }, []);
-
-  return (
-    <h1 className="login-title">
-      {text}
-      <span style={{ opacity: cursor ? 1 : 0, transition: "opacity 0.1s", fontWeight: 200, marginLeft: "1px" }}>|</span>
-    </h1>
-  );
-}
-
-// ─── Login page ───────────────────────────────────────────────────────────────
 export default function LoginPage() {
   const { instance } = useMsal();
+  const [on, setOn] = useState(false);
+
+  useEffect(() => {
+    const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+    if (reduce) { setOn(true); return; }
+    const id = requestAnimationFrame(() => setOn(true));
+    return () => cancelAnimationFrame(id);
+  }, []);
 
   return (
-    <div className="login-page">
-      <NeuralCanvas />
-      <div className="login-card" style={{ position: "relative", zIndex: 1 }}>
-        <GlobeLogo size={220} borderRadius="50%" interactive={true} nodeCount={130} />
-        <TypewriterTitle />
-        <p className="login-subtitle">Sign in with your Greens Global account</p>
-        <button className="login-btn" onClick={() => instance.loginRedirect(loginRequest)}>
-          <svg width="20" height="20" viewBox="0 0 21 21" fill="none">
-            <rect width="10" height="10"             fill="#F35325" />
-            <rect x="11" width="10" height="10"      fill="#81BC06" />
-            <rect y="11" width="10" height="10"      fill="#05A6F0" />
+    <div className={`nxl${on ? " nxl-on" : ""}`}>
+      <div className="nxl-wash" aria-hidden="true" />
+
+      <header className="nxl-top">
+        <span className="nxl-mark">N</span>
+        <span className="nxl-brand">Nexus</span>
+      </header>
+
+      <main className="nxl-stage">
+        <div className="nxl-badge" style={{ "--i": 0 }} aria-hidden="true">N</div>
+        <h1 className="nxl-title" style={{ "--i": 1 }}>Welcome to Nexus</h1>
+        <p className="nxl-sub" style={{ "--i": 2 }}>
+          One place to run every operation — tasks, items, people, time, and more.
+        </p>
+
+        <button className="nxl-cta" style={{ "--i": 3 }} onClick={() => instance.loginRedirect(loginRequest)}>
+          <svg width="18" height="18" viewBox="0 0 21 21" fill="none" aria-hidden="true">
+            <rect width="10" height="10" fill="#F35325" />
+            <rect x="11" width="10" height="10" fill="#81BC06" />
+            <rect y="11" width="10" height="10" fill="#05A6F0" />
             <rect x="11" y="11" width="10" height="10" fill="#FFBA08" />
           </svg>
-          Sign in with Microsoft
+          Continue with Microsoft
         </button>
-      </div>
+
+        <p className="nxl-note" style={{ "--i": 4 }}>
+          Single sign-on with your work account · Microsoft Entra ID
+        </p>
+      </main>
+
+      <footer className="nxl-foot" style={{ "--i": 5 }}>
+        Secure company workspace
+      </footer>
+
+      <style>{`
+        .nxl {
+          position: fixed; inset: 0; overflow: hidden;
+          background: #ffffff; color: #323338;
+          font-family: 'Figtree', 'Inter', sans-serif;
+          display: flex; flex-direction: column;
+        }
+        .nxl-wash {
+          position: absolute; inset: 0; pointer-events: none;
+          background:
+            radial-gradient(52% 44% at 12% -6%,  rgba(43,69,225,.09)  0%, rgba(43,69,225,0)  70%),
+            radial-gradient(46% 40% at 100% 12%, rgba(0,200,117,.07)  0%, rgba(0,200,117,0)  70%),
+            radial-gradient(56% 44% at 50% 112%, rgba(253,171,61,.08) 0%, rgba(253,171,61,0) 70%);
+        }
+
+        .nxl-top {
+          position: relative; z-index: 1;
+          display: flex; align-items: center; gap: 9px;
+          padding: 22px 28px;
+        }
+        .nxl-mark {
+          width: 30px; height: 30px; border-radius: 8px;
+          background: #2b45e1; color: #fff;
+          display: inline-flex; align-items: center; justify-content: center;
+          font-weight: 800; font-size: 15px;
+        }
+        .nxl-brand { font-size: 17px; font-weight: 800; letter-spacing: -.01em; }
+
+        .nxl-stage {
+          position: relative; z-index: 1;
+          flex: 1;
+          display: flex; flex-direction: column; align-items: center; justify-content: center;
+          text-align: center; padding: 24px;
+          margin-top: -30px;
+        }
+        .nxl-stage > *, .nxl-foot {
+          opacity: 0; transform: translateY(8px);
+          transition: opacity .5s cubic-bezier(.16,1,.3,1), transform .5s cubic-bezier(.16,1,.3,1);
+          transition-delay: calc(var(--i) * 80ms + 60ms);
+        }
+        .nxl-on .nxl-stage > *, .nxl-on .nxl-foot { opacity: 1; transform: none; }
+
+        .nxl-badge {
+          width: 64px; height: 64px; border-radius: 16px;
+          background: #2b45e1; color: #fff;
+          display: flex; align-items: center; justify-content: center;
+          font-weight: 800; font-size: 30px;
+          box-shadow: 0 10px 26px rgba(43,69,225,.28);
+          margin-bottom: 26px;
+        }
+        .nxl-title {
+          font-size: clamp(30px, 4.4vw, 44px);
+          font-weight: 800; letter-spacing: -.02em; line-height: 1.08;
+          margin: 0;
+          color: #323338;
+        }
+        .nxl-sub {
+          margin: 14px 0 0;
+          font-size: clamp(14.5px, 1.6vw, 16.5px);
+          color: #676879; line-height: 1.55;
+          max-width: 46ch;
+        }
+
+        .nxl-cta {
+          display: inline-flex; align-items: center; gap: 11px;
+          margin-top: 34px;
+          padding: 14px 28px;
+          background: #ffffff; color: #323338;
+          border: 1px solid #d0d4e4; border-radius: 8px;
+          font-family: 'Figtree', 'Inter', sans-serif;
+          font-size: 15.5px; font-weight: 700;
+          cursor: pointer;
+          box-shadow: 0 4px 12px rgba(29,33,57,.07);
+          transition: box-shadow .16s ease, border-color .16s ease, transform .16s ease;
+        }
+        .nxl-cta:hover { box-shadow: 0 8px 22px rgba(29,33,57,.12); border-color: #b6bbd1; transform: translateY(-1px); }
+        .nxl-cta:active { transform: translateY(0); }
+        .nxl-cta:focus-visible { outline: 2px solid #2b45e1; outline-offset: 3px; }
+        .nxl-cta svg { flex-shrink: 0; }
+
+        .nxl-note { margin: 18px 0 0; font-size: 12.5px; color: #9699a6; }
+
+        .nxl-foot {
+          position: relative; z-index: 1;
+          text-align: center; padding: 20px;
+          font-size: 12px; color: #9699a6;
+        }
+
+        @media (max-width: 560px) {
+          .nxl-cta { width: 100%; justify-content: center; }
+          .nxl-stage { padding: 20px; }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          .nxl-stage > *, .nxl-foot { transition: none; opacity: 1; transform: none; }
+        }
+      `}</style>
     </div>
   );
 }

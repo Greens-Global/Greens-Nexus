@@ -135,8 +135,8 @@ export default function LiveCrewMap({ toastErr, employees = [] }) {
             return (
               <button key={c.email} onClick={() => setSel(active ? null : c.email)}
                 style={{ textAlign: 'left', padding: '9px 11px', borderRadius: 10, cursor: 'pointer',
-                  border: `1px solid ${active ? 'var(--pine)' : 'var(--line)'}`,
-                  background: active ? 'hsla(var(--color-green),0.08)' : 'var(--card)', fontFamily: 'Inter,sans-serif' }}>
+                  border: `1px solid ${active ? 'var(--wk-brand)' : 'var(--wk-line2)'}`,
+                  background: active ? 'var(--wk-brand-tint)' : 'var(--card)', fontFamily: 'var(--wk-font)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
                   <span style={{ width: 9, height: 9, borderRadius: '50%', background: st.color, flexShrink: 0 }} />
                   <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--ink)' }}>{c.name}</span>

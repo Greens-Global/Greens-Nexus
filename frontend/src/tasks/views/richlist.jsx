@@ -671,7 +671,7 @@ export default function RichListView({ visible, group, ctx, store, people, selec
         {[0, 1].map((b) => (
           <div key={b} style={{ marginTop: b ? 22 : 0 }}>
             <span className="skel" style={{ width: 160, height: 18, display: 'block', marginBottom: 10 }} />
-            <div style={{ border: `1px solid ${NX.border}`, borderLeft: `6px solid ${NX.border}`, borderRadius: 8, background: NX.surface, padding: '4px 0' }}>
+            <div style={{ border: `1px solid ${NX.border}`, borderRadius: 12, background: NX.surface, padding: '4px 0' }}>
               {[0, 1, 2, 3].map((r) => (
                 <div key={r} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '9px 16px' }}>
                   <span className="skel" style={{ width: 16, height: 16, borderRadius: 4 }} />
@@ -754,15 +754,16 @@ export default function RichListView({ visible, group, ctx, store, people, selec
               onDragOver={(e) => { if (dragId && dropPatch(g.key)) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dropKey !== g.key) setDropKey(g.key); } }}
               onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setDropKey((k) => (k === g.key ? null : k)); }}
               onDrop={(e) => { e.preventDefault(); const patch = dropPatch(g.key); if (dragId && patch) store.updateTask(dragId, patch).catch(() => {}); setDragId(null); setDropKey(null); }}>
-              <button onClick={() => toggleGroup(g.key)} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '2px 2px 8px', border: 'none', background: 'transparent', cursor: 'pointer', textAlign: 'left', fontFamily: FONT }}>
-                <ChevronDown size={17} style={{ color: gc, transform: isCol ? 'rotate(-90deg)' : 'none', transition: 'transform 0.15s' }} />
-                <span style={{ fontSize: 17, fontWeight: 600, color: gc, letterSpacing: -0.2 }}>{g.label}</span>
+              <button onClick={() => toggleGroup(g.key)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '2px 2px 8px', border: 'none', background: 'transparent', cursor: 'pointer', textAlign: 'left', fontFamily: FONT }}>
+                <ChevronDown size={17} style={{ color: NX.faint, transform: isCol ? 'rotate(-90deg)' : 'none', transition: 'transform 0.15s' }} />
+                <span style={{ width: 10, height: 10, borderRadius: 3, background: gc, flexShrink: 0 }} />
+                <span style={{ fontSize: 16, fontWeight: 700, color: NX.ink, letterSpacing: -0.2 }}>{g.label}</span>
                 <span style={{ fontSize: 12.5, color: NX.faint, fontWeight: 500, marginLeft: 4 }}>{total} item{total !== 1 ? 's' : ''}</span>
                 {/* collapsed: the status mix stays visible on the header line */}
                 {isCol && total > 0 && <span style={{ display: 'inline-flex', width: 130, marginLeft: 10 }}>{statusBar(12)}</span>}
               </button>
               {!isCol && (
-                <div style={{ border: `1px solid ${isDropTarget ? gc : NX.border}`, borderLeft: `6px solid ${gc}`, borderRadius: 8, overflow: 'hidden', background: NX.surface, boxShadow: isDropTarget ? `0 0 0 2px ${gc}55` : 'none', transition: 'box-shadow 0.12s' }}>
+                <div style={{ border: `1px solid ${isDropTarget ? gc : NX.border}`, borderRadius: 12, overflow: 'hidden', background: NX.surface, boxShadow: isDropTarget ? `0 0 0 2px ${gc}55` : 'none', transition: 'box-shadow 0.12s' }}>
                   {groupHeader}
                   {g.tasks.map((t) => (
                     <TaskRow key={t.id} t={t} cols={cols} customFields={customFields} template={template} store={store} people={people} selected={selected.has(t.id)} toggleSel={toggleSel} onOpen={onOpen}

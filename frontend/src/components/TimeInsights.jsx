@@ -46,8 +46,9 @@ const initials = (s) => (s || '?').replace(/^www\./, '').slice(0, 2).toUpperCase
 const hueOf = (s) => { let h = 0; for (const ch of (s || '')) h = (h * 31 + ch.charCodeAt(0)) % 360; return h; };
 const localTime = (iso) => { try { return new Date(iso + (iso.endsWith('Z') ? '' : 'Z')).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); } catch { return iso; } };
 
-const CARD = { background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 16, padding: '18px 20px' };
-const H = { fontSize: 11.5, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 7 };
+const CARD = { background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, padding: '18px 20px', boxShadow: 'var(--wk-shadow)' };
+// Card-header title (Work OS grammar — sentence case, no uppercase tracking).
+const H = { fontSize: 13.5, fontWeight: 600, color: 'var(--ink)', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 7 };
 
 // ── Productivity ring ─────────────────────────────────────────────────────────
 function Ring({ pct, size = 118, stroke = 12, color }) {
@@ -61,8 +62,8 @@ function Ring({ pct, size = 118, stroke = 12, color }) {
           strokeLinecap="round" strokeDasharray={c} strokeDashoffset={off} style={{ '--ring-c': c }} />
       </svg>
       <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-        <span style={{ fontSize: 27, fontWeight: 800, color: 'var(--ink)', lineHeight: 1 }}>{pct}%</span>
-        <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)', marginTop: 3 }}>Productive</span>
+        <span style={{ fontSize: 27, fontWeight: 700, color: 'var(--ink)', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{pct}%</span>
+        <span style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--muted)', marginTop: 3 }}>Productive</span>
       </div>
     </div>
   );
@@ -73,9 +74,9 @@ function StatBlock({ icon: Icon, label, value, accent, bar }) {
     <div style={{ flex: '1 1 130px', minWidth: 120 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
         <Icon size={13} style={{ color: accent }} />
-        <span style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--muted)' }}>{label}</span>
+        <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--muted)' }}>{label}</span>
       </div>
-      <div style={{ fontSize: 21, fontWeight: 800, color: 'var(--ink)', fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>{value}</div>
+      <div style={{ fontSize: 21, fontWeight: 700, color: 'var(--ink)', fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>{value}</div>
       {bar != null && (
         <div style={{ height: 5, borderRadius: 3, background: 'var(--mist)', overflow: 'hidden', marginTop: 8 }}>
           <div className="ti-grow" style={{ width: `${bar}%`, height: '100%', background: accent, borderRadius: 3 }} />
@@ -104,7 +105,7 @@ function HourStrip({ hourly }) {
             <div key={h.hour} title={`${label(h.hour)} — active ${fmtDur(h.activeSec)} of ${fmtDur(h.totalSec)}`}
               style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', minWidth: 0, height: '100%' }}>
               <div className="ti-rise" style={{ height: th, borderRadius: '4px 4px 2px 2px', overflow: 'hidden', display: 'flex', flexDirection: 'column-reverse', background: 'var(--mist)' }}>
-                <div style={{ height: `${aPct}%`, background: 'var(--pine)' }} />
+                <div style={{ height: `${aPct}%`, background: 'var(--wk-brand)' }} />
               </div>
             </div>
           );
@@ -118,7 +119,7 @@ function HourStrip({ hourly }) {
         ))}
       </div>
       <div style={{ display: 'flex', gap: 16, marginTop: 10, fontSize: 11 }}>
-        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ width: 9, height: 9, borderRadius: 3, background: 'var(--pine)' }} /><span style={{ color: 'var(--muted)', fontWeight: 600 }}>Active</span></span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ width: 9, height: 9, borderRadius: 3, background: 'var(--wk-brand)' }} /><span style={{ color: 'var(--muted)', fontWeight: 600 }}>Active</span></span>
         <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ width: 9, height: 9, borderRadius: 3, background: 'var(--mist)' }} /><span style={{ color: 'var(--muted)', fontWeight: 600 }}>Idle / tracked</span></span>
       </div>
     </div>
@@ -191,7 +192,7 @@ function RatingsModal({ seed, onClose, onChanged }) {
                 const on = cur === rk; const R = rateOf(rk);
                 return (
                   <button key={rk} onClick={() => setRate(it, rk)} title={R.label}
-                    style={{ border: 'none', cursor: 'pointer', padding: '5px 11px', fontSize: 11, fontWeight: 800, fontFamily: 'Inter,sans-serif',
+                    style={{ border: 'none', cursor: 'pointer', padding: '5px 11px', fontSize: 11, fontWeight: 700, fontFamily: 'var(--wk-font)',
                       background: on ? R.c : 'transparent', color: on ? '#fff' : 'var(--muted)' }}>{R.label[0]}</button>
                 );
               })}
@@ -204,12 +205,12 @@ function RatingsModal({ seed, onClose, onChanged }) {
 
   return (
     <div onClick={e => e.target === e.currentTarget && onClose()}
-      style={{ position: 'fixed', inset: 0, zIndex: 1500, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 18, fontFamily: 'Inter,sans-serif' }}>
-      <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 16, width: '100%', maxWidth: 520, maxHeight: '86vh', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
+      style={{ position: 'fixed', inset: 0, zIndex: 1500, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 18, fontFamily: 'var(--wk-font)' }}>
+      <div style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, width: '100%', maxWidth: 520, maxHeight: '86vh', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 70px rgba(17,24,39,0.30)' }}>
         <div style={{ padding: '16px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
-          <SlidersHorizontal size={17} style={{ color: 'var(--pine)' }} />
+          <span className="wkc-chip"><SlidersHorizontal size={14} /></span>
           <div style={{ flex: 1 }}>
-            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 800 }}>Rate apps &amp; websites</h3>
+            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>Rate apps &amp; websites</h3>
             <p style={{ margin: 0, fontSize: 11.5, color: 'var(--muted)' }}>Sets the productive / neutral / unproductive split across the dashboard.</p>
           </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
@@ -291,7 +292,7 @@ export default function TimeInsights({ start, end, people = [] }) {
   );
 
   return (
-    <div style={{ fontFamily: 'Inter,sans-serif' }}>
+    <div style={{ fontFamily: 'var(--wk-font)' }}>
       {selector}
 
       {/* Hero — productivity ring + summary stats */}
@@ -299,7 +300,7 @@ export default function TimeInsights({ start, end, people = [] }) {
         <Ring pct={data.prodPct} color="hsl(var(--color-green))" />
         <div style={{ flex: 1, display: 'flex', gap: 22, flexWrap: 'wrap', minWidth: 260 }}>
           <StatBlock icon={Clock} label="Tracked" value={fmtDur(data.totalSec)} accent="hsl(var(--color-blue))" />
-          <StatBlock icon={Zap} label="Active" value={fmtDur(data.activeSec)} accent="var(--pine)" bar={data.activePct} />
+          <StatBlock icon={Zap} label="Active" value={fmtDur(data.activeSec)} accent="var(--wk-brand)" bar={data.activePct} />
           <StatBlock icon={Coffee} label="Idle" value={fmtDur(data.idleSec)} accent="#b45309" bar={data.totalSec ? Math.round(data.idleSec * 100 / data.totalSec) : 0} />
           <StatBlock icon={Activity} label="Active rate" value={`${data.activePct}%`} accent="hsl(var(--color-purple))" />
         </div>
@@ -314,12 +315,15 @@ export default function TimeInsights({ start, end, people = [] }) {
       {/* Productivity composition */}
       <div className="ti-fade" style={{ ...CARD, marginBottom: 14, animationDelay: '.08s' }}>
         <div style={H}><TrendingUp size={13} /> How the time breaks down</div>
-        <div style={{ display: 'flex', height: 22, borderRadius: 8, overflow: 'hidden', background: 'var(--mist)' }}>
-          {['productive', 'neutral', 'unproductive'].map(k => {
-            const w = (cats[k] / catTotal) * 100;
-            return w > 0 ? <div key={k} className="ti-grow" title={`${rateOf(k).label}: ${fmtDur(cats[k])}`}
-              style={{ width: `${w}%`, background: rateOf(k).c, opacity: 0.92 }} /> : null;
-          })}
+        {/* 2px surface gaps between segments (dataviz spacer rule) */}
+        <div style={{ display: 'flex', gap: 2, height: 22 }}>
+          {(cats.productive + cats.neutral + cats.unproductive) === 0
+            ? <div style={{ flex: 1, borderRadius: 6, background: 'var(--mist)' }} />
+            : ['productive', 'neutral', 'unproductive'].map(k => {
+              const w = (cats[k] / catTotal) * 100;
+              return w > 0 ? <div key={k} className="ti-grow" title={`${rateOf(k).label}: ${fmtDur(cats[k])}`}
+                style={{ width: `${w}%`, background: rateOf(k).c, borderRadius: 6 }} /> : null;
+            })}
         </div>
         <div style={{ display: 'flex', gap: 20, marginTop: 12, flexWrap: 'wrap' }}>
           {['productive', 'neutral', 'unproductive'].map(k => (
@@ -358,11 +362,11 @@ export default function TimeInsights({ start, end, people = [] }) {
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, marginBottom: 4 }}>
                   <span style={{ fontWeight: 700, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.name}</span>
-                  <span style={{ fontWeight: 800, color: 'var(--pine)', flexShrink: 0 }}>{fmtDur(m.totalSec)}</span>
+                  <span style={{ fontWeight: 700, color: 'var(--ink)', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>{fmtDur(m.totalSec)}</span>
                 </div>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <div style={{ flex: 1, height: 6, borderRadius: 4, background: 'var(--mist)', overflow: 'hidden' }}>
-                    <div className="ti-grow" style={{ width: `${(m.totalSec / maxMember) * 100}%`, height: '100%', background: 'var(--pine)', borderRadius: 4 }} />
+                  <div style={{ flex: 1, height: 6, borderRadius: 99, background: 'var(--mist)', overflow: 'hidden' }}>
+                    <div className="ti-grow" style={{ width: `${(m.totalSec / maxMember) * 100}%`, height: '100%', background: 'var(--wk-brand)', borderRadius: 99 }} />
                   </div>
                   <span style={{ fontSize: 10.5, color: 'var(--muted)', fontWeight: 700, flexShrink: 0 }}>{m.activePct}% active · {m.prodPct}% prod.</span>
                 </div>
@@ -402,7 +406,7 @@ export default function TimeInsights({ start, end, people = [] }) {
                   color: `hsl(${hueOf(l.app)},55%,32%)`, background: `hsl(${hueOf(l.app)},70%,93%)` }}>{initials(l.app)}</span>
                 <span style={{ flex: 1, minWidth: 0, paddingTop: 1 }}>
                   <span style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
-                    {isTeam && <span style={{ fontWeight: 700, color: 'var(--pine)' }}>{l.name}</span>}
+                    {isTeam && <span style={{ fontWeight: 700, color: 'var(--wk-brand)' }}>{l.name}</span>}
                     <span style={{ fontWeight: 800, color: 'var(--ink)' }}>{l.app}</span>
                     <span style={{ fontSize: 10.5, fontWeight: 700, color: R.c }}>{R.label}</span>
                   </span>

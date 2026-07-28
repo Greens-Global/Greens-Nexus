@@ -15,7 +15,7 @@ import { Avatar, EmptyState, Modal, usePeople, PersonSelect, useIsMobile, Mobile
 function ProgressBar({ pct, color, height = 8 }) {
   return (
     <div style={{ flex: 1, height, borderRadius: 999, background: NX.border2, overflow: 'hidden' }}>
-      <div style={{ height: '100%', width: `${pct}%`, borderRadius: 999, background: color, transition: 'width 0.2s' }} />
+      <div style={{ height: '100%', width: `${pct}%`, borderRadius: 999, background: color }} />
     </div>
   );
 }
@@ -89,7 +89,7 @@ export default function PortfoliosView({ onNavigate }) {
           <div style={{ border: `1px solid ${NX.border}`, borderRadius: 12, background: NX.surface, overflow: 'hidden' }}>
             <div className="nx-scroll" style={{ overflowX: 'auto' }}>
               <div style={{ minWidth: 900 }}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,2fr) 90px 200px minmax(0,2fr) 76px', alignItems: 'center', gap: 12, padding: '9px 16px', borderBottom: `1px solid ${NX.border}`, background: NX.surface2, fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.3, color: NX.faint }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,2fr) 90px 200px minmax(0,2fr) 76px', alignItems: 'center', gap: 12, padding: '9px 16px', borderBottom: `1px solid ${NX.border}`, background: NX.surface2, fontSize: 12.5, fontWeight: 600, color: NX.dim }}>
                   <span>Portfolio</span><span>Tasks</span><span>Progress</span><span>Projects</span><span />
                 </div>
                 {visible.map((pf) => {

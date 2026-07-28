@@ -5,6 +5,7 @@ import { useNotifications } from '../contexts/NotificationContext';
 import { useDashboards } from './useDashboards';
 import { WIDGETS } from './widgets.jsx';
 import DashboardGrid from './DashboardGrid';
+import DeskHome from './DeskHome';
 import { WidgetGallery, ConfigModal } from './WidgetGallery';
 
 // Small, reliable name dialog (replaces window.prompt, which wouldn't let the
@@ -20,9 +21,9 @@ function NameModal({ title, label = 'View name', initial = '', cta = 'Save', onS
   return (
     <div onClick={e => { if (e.target === e.currentTarget) onClose(); }}
       style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1450, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 420, boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
+      <div style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, width: '100%', maxWidth: 420, boxShadow: '0 24px 70px rgba(17,24,39,0.30)', fontFamily: 'var(--wk-font)' }}>
         <div style={{ padding: '15px 20px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center' }}>
-          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 800, flex: 1 }}>{title}</h3>
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>{title}</h3>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}><X size={18} /></button>
         </div>
         <div style={{ padding: 18 }}>
@@ -99,24 +100,24 @@ export default function CustomDashboard({ target }) {
   const save = () => {
     if (canEditInPlace) return wrap(() => d.save(), 'Layout saved')();
     openName({
-      title: 'Save Your Dashboard', initial: 'My view', cta: 'Save View',
+      title: 'Save your dashboard', initial: 'My view', cta: 'Save view',
       onSubmit: wrap(async (name) => { const v = await d.saveAsNew(name); await d.setDefaultView(v.id); }, 'View saved'),
     });
   };
   const saveAsNew = () => openName({
-    title: 'Save as a New View', initial: '', cta: 'Create View',
+    title: 'Save as a new view', initial: '', cta: 'Create view',
     onSubmit: wrap(name => d.saveAsNew(name), 'View created'),
   });
   const rename = () => openName({
-    title: 'Rename View', initial: d.activeView?.name || '', cta: 'Rename',
+    title: 'Rename view', initial: d.activeView?.name || '', cta: 'Rename',
     onSubmit: wrap(name => d.renameView(d.activeId, name), 'Renamed'),
   });
   const createNew = () => openName({
-    title: 'Create a New View', label: 'Starts from the default layout — customize it after', initial: '', cta: 'Create View',
+    title: 'Create a new view', label: 'Starts from the default layout — customize it after', initial: '', cta: 'Create view',
     onSubmit: wrap(name => d.createNewView(name), 'View created — customize away'),
   });
   const publish = () => openName({
-    title: 'Publish to Your Department', label: 'Everyone in your department gets this view', initial: `${d.department || 'Department'} view`, cta: 'Publish',
+    title: 'Publish to your department', label: 'Everyone in your department gets this view', initial: `${d.department || 'Department'} view`, cta: 'Publish',
     onSubmit: wrap(name => d.publishDepartment(name), 'Published to your department'),
   });
   const makeDefault = wrap(async () => { setMenu(false); if (d.activeId) await d.setDefaultView(d.activeId); }, 'Set as your default');
@@ -135,7 +136,7 @@ export default function CustomDashboard({ target }) {
   const guardedNew = () => { if (confirmDiscard()) createNew(); };
   const guardedDone = () => { if (confirmDiscard()) { d.setEditing(false); d.reload(); } };
 
-  const btn = { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, fontFamily: 'Inter,sans-serif', cursor: 'pointer' };
+  const btn = { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, fontFamily: 'var(--wk-font)', cursor: 'pointer' };
 
   // Delete: your own personal views always; a department view only if you're a
   // manager AND you're the one who published it — members can never delete a
@@ -148,15 +149,15 @@ export default function CustomDashboard({ target }) {
   // buttons). Sections: manage this view / make a copy of this layout / delete.
   const menuSections = [
     [
-      ...(canRename ? [{ label: 'Rename View', icon: Pencil, on: rename }] : []),
-      ...(isOwnPersonal ? [{ label: 'Set as My Default', icon: Star, on: makeDefault }] : []),
+      ...(canRename ? [{ label: 'Rename view', icon: Pencil, on: rename }] : []),
+      ...(isOwnPersonal ? [{ label: 'Set as my default', icon: Star, on: makeDefault }] : []),
     ],
     [
-      { label: 'Save as New View', icon: Copy, on: saveAsNew },
-      ...(d.canPublish ? [{ label: 'Publish to Department', icon: Share2, on: publish }] : []),
+      { label: 'Save as new view', icon: Copy, on: saveAsNew },
+      ...(d.canPublish ? [{ label: 'Publish to department', icon: Share2, on: publish }] : []),
     ],
     [
-      ...(canDelete ? [{ label: 'Delete View', icon: Trash2, on: del, danger: true }] : []),
+      ...(canDelete ? [{ label: 'Delete view', icon: Trash2, on: del, danger: true }] : []),
     ],
   ].filter(s => s.length > 0);
 
@@ -175,72 +176,95 @@ export default function CustomDashboard({ target }) {
           color: toast.ok ? 'hsl(var(--color-green))' : '#b91c1c' }}>{toast.t}</div>
       )}
 
-      {/* Toolbar */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 16 }}>
-        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, color: 'var(--muted)' }}>
-          <LayoutGrid size={16} />
-        </div>
-        <select value={d.activeId || ''}
-          onChange={e => { const val = e.target.value; if (val === '__new__') guardedNew(); else guardedSwitch(val || null); }}
-          className="form-input" style={{ fontSize: 13, fontWeight: 600, maxWidth: 260, padding: '8px 28px 8px 12px', lineHeight: 1.4, height: 'auto' }}>
-          <option value="">Default Layout</option>
-          {d.views.filter(v => v.scope === 'personal').length > 0 && (
-            <optgroup label="My Views">
-              {d.views.filter(v => v.scope === 'personal').map(v => (
-                <option key={v.id} value={v.id}>{v.name}{v.isDefault ? ' ★' : ''}</option>
-              ))}
-            </optgroup>
-          )}
-          {d.views.filter(v => v.scope === 'department').length > 0 && (
-            <optgroup label="Department Views">
-              {d.views.filter(v => v.scope === 'department').map(v => (
-                <option key={v.id} value={v.id}>{v.name} (dept)</option>
-              ))}
-            </optgroup>
-          )}
-          <option value="__new__">＋ New View…</option>
-        </select>
-        <div style={{ flex: 1 }} />
-
-        {d.editing ? (
-          <>
-            <button className="secondary-btn" style={btn} onClick={() => setGallery(true)}><Plus size={14} /> Add Widget</button>
-            <button className="secondary-btn" style={btn} onClick={d.autoFit} title="Slide widgets up and left to fill blank space"><Wand2 size={14} /> Auto-fit</button>
-            <button className="primary-btn" style={{ ...btn, opacity: d.dirty ? 1 : 0.6 }} onClick={save} disabled={!d.dirty}><Save size={14} /> {d.dirty ? 'Save' : 'Saved'}</button>
-            <button className="secondary-btn" style={btn} onClick={guardedDone}><X size={14} /> Done</button>
-          </>
-        ) : (
-          <button className="secondary-btn" style={btn} onClick={() => d.setEditing(true)}><SlidersHorizontal size={14} /> Customize</button>
-        )}
-        {/* The single home for view-level actions (rename, default, publish,
-            delete). Lives outside edit mode too — renaming a view shouldn't
-            require entering Customize — and stays available while editing so
-            you can fork the on-screen layout with "Save as New View". */}
-        <div style={{ position: 'relative' }}>
-          <button className="secondary-btn" style={{ ...btn, padding: '6px 9px' }} onClick={() => setMenu(m => !m)} title="View options"><MoreHorizontal size={15} /></button>
-          {menu && (
-            <div onMouseLeave={() => setMenu(false)} style={{ position: 'absolute', right: 0, top: 40, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: 'var(--shadow-lg)', padding: 6, zIndex: 50, minWidth: 220 }}>
-              <div style={{ padding: '6px 10px 9px', borderBottom: '1px solid var(--line)', marginBottom: 5 }}>
-                <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink)', maxWidth: 220, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.activeView?.name || 'Default Layout'}</div>
-                <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em', marginTop: 2 }}>{scopeCaption}</div>
-              </div>
-              {menuSections.map((section, si) => (
-                <div key={si} style={si > 0 ? { borderTop: '1px solid var(--line)', marginTop: 5, paddingTop: 5 } : undefined}>
-                  {section.map((m, i) => (
-                    <button key={i} onClick={m.on} style={{ display: 'flex', alignItems: 'center', gap: 9, width: '100%', padding: '8px 10px', border: 'none', background: 'none', borderRadius: 7, cursor: 'pointer', fontSize: 12.5, textAlign: 'left', fontFamily: 'Inter,sans-serif', color: m.danger ? 'hsl(var(--color-red))' : 'var(--ink)' }}
-                      onMouseEnter={e => e.currentTarget.style.background = 'var(--mist)'} onMouseLeave={e => e.currentTarget.style.background = 'none'}>
-                      <m.icon size={14} /> {m.label}
-                    </button>
+      {/* Controls: view picker + Customize + the "…" view menu. On the Home
+          dashboard these sit in the standard module header (title band + hairline,
+          like every other module); Manager Dashboard brings its own header, so
+          there they stay a plain right-aligned toolbar. */}
+      {(() => {
+        const controls = (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <select value={d.activeId || ''}
+              onChange={e => { const val = e.target.value; if (val === '__new__') guardedNew(); else guardedSwitch(val || null); }}
+              className="form-input" title="Switch dashboard view"
+              style={{ fontSize: 12.5, fontWeight: 600, width: 170, padding: '7px 30px 7px 11px', lineHeight: 1.4, height: 'auto' }}>
+              <option value="">{target === 'dashboard' ? 'Home' : 'Default layout'}</option>
+              {d.views.filter(v => v.scope === 'personal').length > 0 && (
+                <optgroup label="My views">
+                  {d.views.filter(v => v.scope === 'personal').map(v => (
+                    <option key={v.id} value={v.id}>{v.name}{v.isDefault ? ' ★' : ''}</option>
+                  ))}
+                </optgroup>
+              )}
+              {d.views.filter(v => v.scope === 'department').length > 0 && (
+                <optgroup label="Department views">
+                  {d.views.filter(v => v.scope === 'department').map(v => (
+                    <option key={v.id} value={v.id}>{v.name} (dept)</option>
+                  ))}
+                </optgroup>
+              )}
+              <option value="__new__">＋ New view…</option>
+            </select>
+            {d.editing ? (
+              <>
+                <button className="secondary-btn" style={btn} onClick={() => setGallery(true)}><Plus size={14} /> Add widget</button>
+                <button className="secondary-btn" style={btn} onClick={d.autoFit} title="Slide widgets up and left to fill blank space"><Wand2 size={14} /> Auto-fit</button>
+                <button className="primary-btn" style={{ ...btn, opacity: d.dirty ? 1 : 0.6 }} onClick={save} disabled={!d.dirty}><Save size={14} /> {d.dirty ? 'Save' : 'Saved'}</button>
+                <button className="secondary-btn" style={btn} onClick={guardedDone}><X size={14} /> Done</button>
+              </>
+            ) : (
+              <button className="secondary-btn" style={btn} onClick={() => d.setEditing(true)}><SlidersHorizontal size={14} /> Customize</button>
+            )}
+            {/* The single home for view-level actions (rename, default, publish,
+                delete). Lives outside edit mode too — renaming a view shouldn't
+                require entering Customize — and stays available while editing so
+                you can fork the on-screen layout with "Save as new view". */}
+            <div style={{ position: 'relative' }}>
+              <button className="secondary-btn" style={{ ...btn, padding: '6px 9px' }} onClick={() => setMenu(m => !m)} title="View options"><MoreHorizontal size={15} /></button>
+              {menu && (
+                <div onMouseLeave={() => setMenu(false)} style={{ position: 'absolute', right: 0, top: 40, background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 12, boxShadow: '0 18px 50px rgba(17,24,39,0.18)', padding: 6, zIndex: 50, minWidth: 220 }}>
+                  <div style={{ padding: '6px 10px 9px', borderBottom: '1px solid var(--line)', marginBottom: 5 }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink)', maxWidth: 220, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.activeView?.name || 'Default layout'}</div>
+                    <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--muted)', marginTop: 2 }}>{scopeCaption}</div>
+                  </div>
+                  {menuSections.map((section, si) => (
+                    <div key={si} style={si > 0 ? { borderTop: '1px solid var(--line)', marginTop: 5, paddingTop: 5 } : undefined}>
+                      {section.map((m, i) => (
+                        <button key={i} onClick={m.on} style={{ display: 'flex', alignItems: 'center', gap: 9, width: '100%', padding: '8px 10px', border: 'none', background: 'none', borderRadius: 7, cursor: 'pointer', fontSize: 12.5, textAlign: 'left', fontFamily: 'var(--wk-font)', color: m.danger ? 'hsl(var(--color-red))' : 'var(--ink)' }}
+                          onMouseEnter={e => e.currentTarget.style.background = 'var(--mist)'} onMouseLeave={e => e.currentTarget.style.background = 'none'}>
+                          <m.icon size={14} /> {m.label}
+                        </button>
+                      ))}
+                    </div>
                   ))}
                 </div>
-              ))}
+              )}
             </div>
-          )}
-        </div>
-      </div>
+          </div>
+        );
+        return target === 'dashboard' ? (
+          <div className="view-header">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+              <span style={{ width: 38, height: 38, borderRadius: 10, background: 'var(--wk-brand-tint)', color: 'var(--wk-brand)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <LayoutGrid size={19} />
+              </span>
+              <div className="view-title-group">
+                <h2 style={{ margin: 0 }}>Dashboard</h2>
+                <p style={{ margin: '2px 0 0' }}>{d.activeView?.name ? `Viewing “${d.activeView.name}”` : 'Your day at a glance'}</p>
+              </div>
+            </div>
+            {controls}
+          </div>
+        ) : (
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>{controls}</div>
+        );
+      })()}
 
       {d.loading ? (
         <div style={{ padding: '60px 0', textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>Loading your dashboard…</div>
+      ) : (target === 'dashboard' && !d.editing && !d.activeId) ? (
+        /* The Operations Desk home — the designed default. Saved views and
+           Customize keep the widget grid untouched below. */
+        <DeskHome kpis={d.kpis} notifications={notifications} markRead={markRead} />
       ) : (
         <DashboardGrid
           layout={d.layout}

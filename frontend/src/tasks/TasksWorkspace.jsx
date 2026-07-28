@@ -106,7 +106,7 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
       {/* Row 1 — back to Projects + project name/team, New task on the right */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 20px 12px', flexWrap: 'wrap', background: NX.surface }}>
         {onBack && (
-          <button onClick={onBack} title="Back to Projects" style={{ ...btn('ghost'), padding: 6, marginLeft: -6, color: NX.dim }}><ArrowLeft size={18} /></button>
+          <button onClick={onBack} title="Back" aria-label="Back" style={{ ...btn('ghost'), padding: 6, marginLeft: -6, color: NX.dim }}><ArrowLeft size={18} /></button>
         )}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 20, fontWeight: 700, minWidth: 0 }}>
           {lockedProject ? (
@@ -290,7 +290,7 @@ function ListBody({ groups, store, selected, toggleSel, onOpen }) {
       {groups.map((g) => (
         <div key={g.key}>
           {g.label && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px 6px', fontSize: 12.5, fontWeight: 700, color: NX.dim, textTransform: 'uppercase', letterSpacing: 0.3 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px 6px', fontSize: 13, fontWeight: 700, color: NX.dim }}>
               {g.label} <span style={{ color: NX.faint, fontWeight: 600 }}>{g.tasks.length}</span>
             </div>
           )}

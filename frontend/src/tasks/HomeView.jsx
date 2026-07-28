@@ -2,11 +2,11 @@
 // widget dashboard: a "My week/day/month" header with completed/collaborator
 // stats + Customize, over a reorderable grid of widgets (My tasks · Projects ·
 // Teams · Team members · Notifications), persisted to localStorage.
-import { useMemo, useRef, useState } from 'react';
-import { MoreHorizontal, ChevronDown, ChevronRight, CheckCircle2, Users, LayoutGrid, Plus, Circle, CalendarDays, FolderKanban, Bell, ArrowUp, ArrowDown, X, Building2 } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { ChevronDown, ChevronRight, CheckCircle2, Users, LayoutGrid, Plus, Circle, CalendarDays, FolderKanban, Bell, X, Building2, Flag, Clock, GripVertical, Check } from 'lucide-react';
 import { useTasks } from './TasksContext';
 import { fmtDate, taskIdFromUrl } from './lib';
-import { NX, FONT, btn, card } from './theme';
+import { NX, FONT, btn, card, PRIORITY_ORDER } from './theme';
 import { Avatar, useClickOutside, useIsMobile } from './components';
 import TaskDetailDrawer from './TaskDetailDrawer';
 import { ProjectCreateModal } from './ProjectsView';
@@ -14,14 +14,51 @@ import { ProjectCreateModal } from './ProjectsView';
 const WIDGET_META = [
   { key: 'my_tasks', label: 'My Tasks' },
   { key: 'projects', label: 'Projects' },
+  { key: 'urgent', label: 'Urgent tasks' },
+  { key: 'activity', label: 'Completed this week' },
+  { key: 'week', label: 'Week ahead' },
+  { key: 'priorities', label: 'By priority' },
   { key: 'teams', label: 'Teams' },
   { key: 'team_members', label: 'Team Members' },
   { key: 'notifications', label: 'Notifications' },
 ];
-const DEFAULT_LAYOUT = ['my_tasks', 'projects'];
+const DEFAULT_LAYOUT = ['my_tasks', 'projects', 'urgent', 'activity', 'week', 'priorities'];
+const PRIORITY_COLORS = { urgent: '#fc6363', high: '#ffb546', medium: '#0998c3', low: '#9699a6' };
 const LAYOUT_KEY = 'nexus.homeWidgets';
 const TABS = ['Upcoming', 'Overdue', 'Completed'];
 const RANGES = [{ key: 'day', label: 'My Day', days: 0 }, { key: 'week', label: 'My Week', days: 7 }, { key: 'month', label: 'My Month', days: 30 }];
+
+// Row-order masonry cell: measures its content and spans that many 8px grid
+// rows, so widgets keep left-to-right order while short ones pull UP to fill
+// vertical gaps (CSS columns flow top-to-bottom per column, which made drop
+// positions unpredictable — this replaces that).
+function MasonryCell({ masonry, style, children, ...rest }) {
+  // Measure a dedicated inner wrapper, NOT firstElementChild — in customize
+  // mode the first child is the absolute-positioned grip overlay (~26px),
+  // which made every cell claim a tiny span and stack widgets on top of
+  // each other. The wrapper's height = the widget's real height (absolute
+  // overlays contribute nothing).
+  const innerRef = useRef(null);
+  const [span, setSpan] = useState(0);
+  useEffect(() => {
+    if (!masonry) return;
+    const el = innerRef.current;
+    if (!el) return;
+    const measure = () => setSpan((s) => {
+      const next = Math.ceil((el.getBoundingClientRect().height + 16) / 8);
+      return next === s ? s : next;
+    });
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [masonry]);
+  return (
+    <div {...rest} style={{ ...style, ...(masonry ? { gridRowEnd: `span ${span || 40}` } : {}) }}>
+      <div ref={innerRef} style={{ position: 'relative' }}>{children}</div>
+    </div>
+  );
+}
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
 const addDays = (iso, n) => { const d = new Date(iso); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
@@ -50,6 +87,23 @@ export default function HomeView({ onNavigate }) {
   });
   const persist = (next) => { localStorage.setItem(LAYOUT_KEY, JSON.stringify(next)); setWidgets(next); };
 
+  // Customize mode: drag-to-rearrange + remove + add, all inline on the grid
+  // (the old list modal is gone). Autofit packs widgets masonry-style so tall
+  // and short widgets fill the page without holes; both persist.
+  const [dragKey, setDragKey] = useState(null);
+  const [overKey, setOverKey] = useState(null);
+  // Default ON: grid rows size to the tallest widget, so short widgets can
+  // never tuck into the vertical gaps — masonry packing is what fills them.
+  const [autofit, setAutofit] = useState(() => localStorage.getItem('nexus.homeAutofit') !== '0');
+  const toggleAutofit = () => setAutofit((v) => { localStorage.setItem('nexus.homeAutofit', v ? '0' : '1'); return !v; });
+  const reorder = (from, to) => {
+    if (!from || from === to) return;
+    const next = widgets.filter((k) => k !== from);
+    next.splice(next.indexOf(to) >= 0 ? next.indexOf(to) : next.length, 0, from);
+    persist(next);
+  };
+  const availableWidgets = WIDGET_META.filter((w) => !widgets.includes(w.key));
+
   const myTasks = useMemo(() => tasks.filter((t) => !t.parentTaskId && t.assigneeId === myEmail), [tasks, myEmail]);
   const rangeDef = RANGES.find((r) => r.key === range);
   const rangeEnd = addDays(todayISO(), rangeDef.days);
@@ -71,6 +125,55 @@ export default function HomeView({ onNavigate }) {
     }
     return m;
   }, [tasks]);
+  // Taskboard-kit summary tiles: my open totals split by what needs attention.
+  const openMine = myTasks.filter((t) => !t.completed);
+  const priorityMine = openMine.filter((t) => t.priority === 'urgent' || t.priority === 'high');
+  // Kit "Urgently task" list: projects ranked by overdue load, bar = completion.
+  const urgentProjects = useMemo(() => {
+    const today = todayISO();
+    const od = {};
+    for (const t of tasks) {
+      if (t.projectId && !t.parentTaskId && !t.completed && t.dueOn && t.dueOn < today) od[t.projectId] = (od[t.projectId] || 0) + 1;
+    }
+    return projects
+      .map((p) => ({ p, overdue: od[p.id] || 0, ...(projStats[p.id] || { total: 0, done: 0 }) }))
+      .filter((x) => x.total > 0)
+      .sort((a, b) => b.overdue - a.overdue || (b.total - b.done) - (a.total - a.done))
+      .slice(0, 4);
+  }, [projects, tasks, projStats]);
+
+  // Chart widgets — all derived from real task rows, nothing sampled.
+  const dayCharts = useMemo(() => {
+    const today = todayISO();
+    const doneByDay = [];   // trailing 7 days, from completedAt
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(); d.setDate(d.getDate() - i);
+      const iso = d.toISOString().slice(0, 10);
+      doneByDay.push({
+        iso, label: d.toLocaleDateString('en-US', { weekday: 'short' }).slice(0, 2),
+        n: myTasks.filter((t) => t.completed && (t.completedAt || '').slice(0, 10) === iso).length,
+      });
+    }
+    const dueByDay = [];    // next 7 days incl. today, from dueOn (open tasks)
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(); d.setDate(d.getDate() + i);
+      const iso = d.toISOString().slice(0, 10);
+      dueByDay.push({
+        iso, today: iso === today,
+        day: d.toLocaleDateString('en-US', { weekday: 'short' }).slice(0, 2),
+        date: d.getDate(),
+        n: myTasks.filter((t) => !t.completed && t.dueOn === iso).length,
+      });
+    }
+    const prio = PRIORITY_ORDER.map((p) => ({ p, color: PRIORITY_COLORS[p], n: openMine.filter((t) => (t.priority || 'low') === p).length }));
+    return { doneByDay, dueByDay, prio };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [myTasks]);
+
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+  const firstName = (nameOf(myEmail) || '').split(' ')[0] || 'there';
+  const todayLong = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
 
   const cancelCreate = () => { setCreating(false); setNewTitle(''); setNewDue(null); };
   const commitCreate = async (openDetails) => {
@@ -81,8 +184,10 @@ export default function HomeView({ onNavigate }) {
     if (openDetails && t) { setCreating(false); setOpenId(t.id); }
   };
 
-  const widgetBox = (children) => <div style={{ ...card, borderRadius: 16, padding: 20 }}>{children}</div>;
-  const moreBtn = (onClick) => <button onClick={onClick} style={{ ...btn('outline'), padding: 6 }}><MoreHorizontal size={16} /></button>;
+  const widgetBox = (children) => <div style={{ ...card, borderRadius: 16, padding: 20, breakInside: 'avoid' }}>{children}</div>;
+  // Widget options (remove/drag) live on the customize-mode overlay only —
+  // no always-visible more-options buttons (owner call, Jul 28).
+  const moreBtn = () => null;
 
   const renderWidget = (key) => {
     if (key === 'my_tasks') return widgetBox(
@@ -145,9 +250,11 @@ export default function HomeView({ onNavigate }) {
           <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Projects</h2>
           {moreBtn(() => onNavigate('projects'))}
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 12 }}>
-          <button onClick={() => setCreatingProject(true)} style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, border: `1px dashed ${NX.border}`, borderRadius: 12, padding: 12, cursor: 'pointer', background: 'transparent', textAlign: 'left', fontFamily: FONT }}>
-            <span style={{ display: 'flex', width: 40, height: 40, flexShrink: 0, alignItems: 'center', justifyContent: 'center', borderRadius: 10, border: `1px dashed ${NX.border}`, color: NX.faint }}><Plus size={18} /></span>
+        {/* Kit "Recently Visit" anatomy — colored cover band (the project's real
+            color; no fabricated screenshots), then name, tally, progress. */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: 12 }}>
+          <button onClick={() => setCreatingProject(true)} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, minWidth: 0, minHeight: 128, border: `1px dashed ${NX.border}`, borderRadius: 12, padding: 12, cursor: 'pointer', background: 'transparent', fontFamily: FONT }}>
+            <span style={{ display: 'flex', width: 36, height: 36, alignItems: 'center', justifyContent: 'center', borderRadius: 10, border: `1px dashed ${NX.border}`, color: NX.faint }}><Plus size={17} /></span>
             <span style={{ fontSize: 13, fontWeight: 600, color: NX.dim, whiteSpace: 'nowrap' }}>Create Project</span>
           </button>
           {recentProjects.map((p) => {
@@ -155,16 +262,18 @@ export default function HomeView({ onNavigate }) {
             const st = projStats[p.id] || { total: 0, done: 0 };
             const pct = st.total ? Math.round((st.done / st.total) * 100) : 0;
             return (
-              <button key={p.id} onClick={() => onNavigate({ projectId: p.id })} style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, border: `1px solid ${NX.border}`, borderLeft: `4px solid ${pc}`, borderRadius: 12, padding: 12, cursor: 'pointer', background: NX.surface, textAlign: 'left', fontFamily: FONT, transition: 'box-shadow 0.15s, transform 0.15s' }}
+              <button key={p.id} onClick={() => onNavigate({ projectId: p.id })} style={{ display: 'flex', flexDirection: 'column', minWidth: 0, border: `1px solid ${NX.border}`, borderRadius: 12, padding: 0, overflow: 'hidden', cursor: 'pointer', background: NX.surface, textAlign: 'left', fontFamily: FONT, transition: 'box-shadow 0.15s, transform 0.15s' }}
                 onMouseEnter={(e) => { e.currentTarget.style.boxShadow = '0 6px 18px rgba(0,0,0,0.10)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
                 onMouseLeave={(e) => { e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.transform = 'none'; }}>
-                <span style={{ display: 'flex', width: 40, height: 40, flexShrink: 0, alignItems: 'center', justifyContent: 'center', borderRadius: 10, background: `${pc}26`, color: pc }}><FolderKanban size={18} /></span>
-                <span style={{ minWidth: 0, flex: 1 }}>
-                  <span style={{ display: 'block', fontSize: 13, fontWeight: 600, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
-                  <span style={{ display: 'block', fontSize: 11.5, color: NX.faint, marginTop: 1 }}>{st.total ? `${st.done}/${st.total} tasks done` : 'No tasks yet'}</span>
+                <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: 56, background: `linear-gradient(135deg, ${pc}33, ${pc}1a)`, color: pc }}>
+                  <FolderKanban size={22} />
+                </span>
+                <span style={{ display: 'block', minWidth: 0, width: '100%', padding: '10px 12px 12px' }}>
+                  <span style={{ display: 'block', fontSize: 13.5, fontWeight: 700, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+                  <span style={{ display: 'block', fontSize: 11.5, color: NX.faint, marginTop: 2 }}>{st.total ? `${st.done}/${st.total} tasks done` : 'No tasks yet'}</span>
                   {st.total > 0 && (
-                    <span style={{ display: 'block', height: 4, borderRadius: 2, background: NX.border2, marginTop: 5, overflow: 'hidden' }}>
-                      <span style={{ display: 'block', height: '100%', width: `${pct}%`, borderRadius: 2, background: pct === 100 ? '#00c875' : pc, transition: 'width 0.3s' }} />
+                    <span style={{ display: 'block', height: 5, borderRadius: 3, background: NX.border2, marginTop: 7, overflow: 'hidden' }}>
+                      <span style={{ display: 'block', height: '100%', width: `${pct}%`, borderRadius: 3, background: pct === 100 ? '#00c875' : pc }} />
                     </span>
                   )}
                 </span>
@@ -215,6 +324,105 @@ export default function HomeView({ onNavigate }) {
         )}
       </>
     );
+    if (key === 'urgent') return widgetBox(
+      <>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 16 }}>
+          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Urgent tasks</h2>
+          {moreBtn(() => onNavigate('projects'))}
+        </div>
+        {urgentProjects.length === 0 ? <p style={{ padding: '16px 0', fontSize: 13, color: NX.faint }}>No projects with open tasks — nothing is on fire.</p> : (
+          <>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              {urgentProjects.map(({ p, overdue: od, total, done }) => (
+                <button key={p.id} onClick={() => onNavigate({ projectId: p.id })}
+                  style={{ ...btn('ghost'), display: 'block', width: '100%', padding: 0, textAlign: 'left' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, fontSize: 13 }}>
+                    <span style={{ fontWeight: 600, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{p.name}</span>
+                    {od > 0 && <span style={{ padding: '1px 8px', borderRadius: 10, fontSize: 11, fontWeight: 700, background: `${NX.red}1a`, color: NX.red }}>{od} overdue</span>}
+                    <span style={{ fontSize: 12, color: NX.faint, fontVariantNumeric: 'tabular-nums' }}>{done}/{total}</span>
+                  </div>
+                  {/* Kit's dark bars: near-black fill on a light track */}
+                  <div style={{ height: 10, borderRadius: 99, background: NX.border2, overflow: 'hidden' }}>
+                    <div style={{ height: '100%', width: `${total ? Math.max(4, Math.round((done / total) * 100)) : 0}%`, borderRadius: 99, background: NX.ink }} />
+                  </div>
+                </button>
+              ))}
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 10, fontSize: 11, color: NX.faint }}>
+              <span>0%</span><span>50%</span><span>100%</span>
+            </div>
+          </>
+        )}
+      </>
+    );
+    if (key === 'activity') {
+      const { doneByDay } = dayCharts;
+      const maxDone = Math.max(...doneByDay.map((d) => d.n), 1);
+      const weekTotal = doneByDay.reduce((s, d) => s + d.n, 0);
+      return widgetBox(
+        <>
+          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 16 }}>
+            <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Completed this week</h2>
+            <span style={{ fontSize: 13, color: NX.faint }}>{weekTotal} task{weekTotal === 1 ? '' : 's'}</span>
+          </div>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', height: 96 }}>
+            {doneByDay.map((d) => (
+              <div key={d.iso} title={`${d.iso}: ${d.n} completed`}
+                style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', alignItems: 'center', gap: 5, height: '100%' }}>
+                {d.n > 0 && <span style={{ fontSize: 11.5, fontWeight: 700, color: '#06c698', fontVariantNumeric: 'tabular-nums' }}>{d.n}</span>}
+                <div style={{ width: '100%', maxWidth: 26, height: d.n === 0 ? 3 : Math.max(10, Math.round((d.n / maxDone) * 66)), borderRadius: 99, background: d.n === 0 ? NX.border2 : 'linear-gradient(180deg, #4fd9b3 0%, #06c698 100%)' }} />
+              </div>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: 10, marginTop: 6 }}>
+            {doneByDay.map((d) => <span key={d.iso} style={{ flex: 1, textAlign: 'center', fontSize: 11, color: NX.faint }}>{d.label}</span>)}
+          </div>
+        </>
+      );
+    }
+    if (key === 'week') return widgetBox(
+      <>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 16 }}>
+          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Week ahead</h2>
+          {moreBtn(() => { setTab('Upcoming'); onNavigate('mine'); })}
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {dayCharts.dueByDay.map((d) => (
+            <div key={d.iso} title={`${d.iso}: ${d.n} due`}
+              style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, padding: '10px 4px', borderRadius: 12, background: d.today ? NX.ink : NX.hover, minWidth: 0 }}>
+              <span style={{ fontSize: 11, color: d.today ? 'rgba(255,255,255,.7)' : NX.faint }}>{d.day}</span>
+              <span style={{ fontSize: 15, fontWeight: 800, color: d.today ? '#fff' : NX.ink, fontVariantNumeric: 'tabular-nums' }}>{d.date}</span>
+              <span style={{ minWidth: 20, textAlign: 'center', padding: '1px 6px', borderRadius: 10, fontSize: 11, fontWeight: 700, background: d.n > 0 ? (d.today ? 'rgba(255,255,255,.22)' : '#dff3fc') : 'transparent', color: d.n > 0 ? (d.today ? '#fff' : '#0998c3') : (d.today ? 'rgba(255,255,255,.4)' : NX.border) }}>
+                {d.n > 0 ? d.n : '·'}
+              </span>
+            </div>
+          ))}
+        </div>
+        <div style={{ marginTop: 10, fontSize: 12, color: NX.faint }}>Open tasks due per day</div>
+      </>
+    );
+    if (key === 'priorities') {
+      const maxP = Math.max(...dayCharts.prio.map((x) => x.n), 1);
+      return widgetBox(
+        <>
+          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 16 }}>
+            <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>By priority</h2>
+            <span style={{ fontSize: 13, color: NX.faint }}>{openMine.length} open</span>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {dayCharts.prio.map(({ p, color, n }) => (
+              <div key={p} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13 }}>
+                <span style={{ width: 62, color: NX.dim, textTransform: 'capitalize', flexShrink: 0 }}>{p}</span>
+                <span style={{ flex: 1, height: 9, borderRadius: 6, background: NX.border2, overflow: 'hidden' }}>
+                  <span style={{ display: 'block', height: '100%', width: `${Math.round((n / maxP) * 100)}%`, minWidth: n > 0 ? 10 : 0, borderRadius: 6, background: color }} />
+                </span>
+                <span style={{ fontWeight: 700, color: NX.ink, fontVariantNumeric: 'tabular-nums', width: 18, textAlign: 'right' }}>{n}</span>
+              </div>
+            ))}
+          </div>
+        </>
+      );
+    }
     if (key === 'notifications') return widgetBox(
       <>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
@@ -250,82 +458,132 @@ export default function HomeView({ onNavigate }) {
           {upcoming.length > 0 && overdue.length > 0 && <span style={{ color: NX.faint }}> · </span>}
           {overdue.length > 0 && <span style={{ color: NX.red }}>{overdue.length} overdue</span>}
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: isMobile ? 'wrap' : 'nowrap', width: isMobile ? '100%' : 'auto', overflowX: 'visible' }}>
-          <div ref={rangeRef} style={{ position: 'relative', flexBasis: isMobile ? '100%' : 'auto' }}>
-            <button onClick={() => setRangeOpen((o) => !o)} style={{ ...btn('outline'), whiteSpace: 'nowrap' }}>{rangeDef.label} <ChevronDown size={14} style={{ color: NX.faint }} /></button>
+        {/* Header holds ONE page-level control (Customize) — the range picker
+            and task stats moved into the "My tasks" card they actually scope,
+            so switching to Tickets no longer swaps header anatomies. */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: isMobile ? 'wrap' : 'nowrap', overflowX: 'visible' }}>
+          {customizing ? (
+            <>
+              <button onClick={toggleAutofit} title="Pack widgets to fill gaps" style={{ ...btn('outline'), flexShrink: 0, whiteSpace: 'nowrap', background: autofit ? NX.hover : undefined }}>{autofit ? <Check size={14} /> : null} Autofit</button>
+              <button onClick={() => { setCustomizing(false); setDragKey(null); setOverKey(null); }} style={{ ...btn('primary'), flexShrink: 0, whiteSpace: 'nowrap' }}><Check size={14} /> Done</button>
+            </>
+          ) : (
+            <button onClick={() => setCustomizing(true)} title="Customize widgets" style={{ ...btn('outline'), flexShrink: 0, whiteSpace: 'nowrap' }}><LayoutGrid size={14} /> Customize</button>
+          )}
+        </div>
+      </div>
+
+      {/* Taskboard-kit summary tiles (owner-adopted concept): pastel tiles with
+          solid icon chips and X/Y fractions of MY real tasks. Each tile is a
+          real action — it switches the My Tasks widget tab or jumps to a view.
+          Wrapped in the kit's titled section card so the row reads as one
+          composed group even at full-bleed width. */}
+      <div style={{ ...card, borderRadius: 16, padding: 20, marginBottom: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', margin: '0 0 14px' }}>
+        <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>My tasks</h2>
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 12.5, color: NX.dim, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            <CheckCircle2 size={14} style={{ color: NX.green }} /> {completed.length} completed
+          </span>
+          <span style={{ fontSize: 12.5, color: NX.dim, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            <Users size={14} style={{ color: NX.faint }} /> {collaborators} collaborator{collaborators === 1 ? '' : 's'}
+          </span>
+          <div ref={rangeRef} style={{ position: 'relative' }}>
+            <button onClick={() => setRangeOpen((o) => !o)} style={{ ...btn('outline'), whiteSpace: 'nowrap', padding: '6px 12px', fontSize: 12.5 }}>{rangeDef.label} <ChevronDown size={14} style={{ color: NX.faint }} /></button>
             {rangeOpen && (
-              <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, width: 150, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', zIndex: 40, padding: 4 }}>
+              <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 4, width: 150, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', zIndex: 40, padding: 4 }}>
                 {RANGES.map((r) => <button key={r.key} onClick={() => { setRange(r.key); setRangeOpen(false); }} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', color: range === r.key ? NX.blue : NX.ink }}>{r.label}</button>)}
               </div>
             )}
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 12, flexShrink: 0, whiteSpace: 'nowrap', border: `1px solid ${NX.border}`, borderRadius: 8, padding: isMobile ? '6px 9px' : '8px 12px', fontSize: isMobile ? 12 : 13, color: NX.dim }}>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><CheckCircle2 size={14} style={{ color: NX.green }} /> {completed.length}{isMobile ? '' : ' tasks'} completed</span>
-            <span style={{ width: 1, height: 16, background: NX.border }} />
-            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Users size={14} /> {collaborators} collaborator{collaborators === 1 ? '' : 's'}</span>
-          </div>
-          {/* Outline, not primary — this is a page-settings action, not the
-              page's main call to action, and the label stays visible on
-              mobile too (an icon-only button with only a hover tooltip has
-              no affordance on a touchscreen). */}
-          <button onClick={() => setCustomizing(true)} title="Customize widgets" style={{ ...btn('outline'), flexShrink: 0, whiteSpace: 'nowrap' }}><LayoutGrid size={14} /> Customize</button>
         </div>
       </div>
-
-      {/* min(340px, 100%) so a column can never be wider than the viewport —
-          a bare 340px minimum overflows narrow phones and leaves the cards
-          floating short of the screen edge. */}
-      <div className="nx-card-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(340px, 100%), 1fr))', gap: 16, alignItems: 'start' }}>
-        {widgets.map((key) => <div key={key} style={{ minWidth: 0 }}>{renderWidget(key)}</div>)}
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, 1fr)', gap: isMobile ? 10 : 16 }}>
+        {[
+          { label: 'Priority', n: priorityMine.length, of: openMine.length, unit: 'open', Icon: Flag, chip: '#06c698', bg: '#e4f5ee', go: () => onNavigate('mine'), title: 'Open my tasks' },
+          { label: 'Upcoming', n: upcoming.length, of: myTasks.length, unit: 'tasks', Icon: CalendarDays, chip: '#0998c3', bg: '#dff3fc', go: () => setTab('Upcoming'), title: 'Show upcoming' },
+          { label: 'Overdue', n: overdue.length, of: myTasks.length, unit: 'tasks', Icon: Clock, chip: '#7c6af0', bg: '#eae6fc', go: () => setTab('Overdue'), title: 'Show overdue' },
+          { label: 'Completed', n: completed.length, of: myTasks.length, unit: 'tasks', Icon: CheckCircle2, chip: '#fc6363', bg: '#fde8e3', go: () => setTab('Completed'), title: 'Show completed' },
+        ].map(({ label, n, of, unit, Icon, chip, bg, go, title }) => (
+          /* Horizontal anatomy — chip left, text right. A vertical (chip-on-top)
+             tile is a ~180px pattern; stretched across a wide column it reads
+             as empty wash. Horizontal stays balanced at any width. */
+          <button key={label} onClick={go} title={title}
+            style={{ background: bg, border: 'none', borderRadius: 16, padding: '16px 18px', cursor: 'pointer', textAlign: 'left', fontFamily: FONT, display: 'flex', alignItems: 'center', gap: 14, minWidth: 0, transition: 'transform .15s, box-shadow .15s' }}
+            onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 8px 20px rgba(29,33,57,.10)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = 'none'; }}>
+            <span style={{ width: 44, height: 44, borderRadius: 13, background: chip, color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <Icon size={20} />
+            </span>
+            <span style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
+              <span style={{ fontSize: 13.5, color: NX.dim }}>{label}</span>
+              <span style={{ fontSize: 24, fontWeight: 800, color: NX.ink, lineHeight: 1, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+                {n}
+                <span style={{ fontSize: 14, fontWeight: 600, color: NX.dim }}> /{of} {unit}</span>
+              </span>
+            </span>
+          </button>
+        ))}
+      </div>
       </div>
 
-      {customizing && <CustomizeModal widgets={widgets} setWidgets={persist} onClose={() => setCustomizing(false)} />}
+      {/* Customize mode: add-widget tray (only unused widgets) */}
+      {customizing && availableWidgets.length > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
+          <span style={{ fontSize: 12.5, fontWeight: 600, color: NX.dim }}>Add widgets:</span>
+          {availableWidgets.map((w) => (
+            <button key={w.key} onClick={() => persist([...widgets, w.key])}
+              style={{ ...btn('ghost'), border: `1px dashed ${NX.border}`, borderRadius: 20, padding: '5px 13px', fontSize: 12.5, color: NX.dim }}>
+              <Plus size={13} /> {w.label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* min(340px, 100%) so a column can never be wider than the viewport.
+          Autofit = masonry packing (CSS columns) so short and tall widgets
+          fill the page without holes; source order is still the saved order. */}
+      <div className="nx-card-grid"
+        onDragOver={customizing ? (e) => e.preventDefault() : undefined}
+        onDrop={customizing ? (e) => { e.preventDefault(); if (dragKey) { reorder(dragKey, null); } setDragKey(null); setOverKey(null); } : undefined}
+        style={{
+          display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(340px, 100%), 1fr))',
+          columnGap: 16,
+          /* autofit = row-order masonry: 8px auto-rows, each cell spans its
+             measured height, so short widgets tuck up into vertical gaps while
+             the left-to-right order stays the saved order */
+          ...(autofit ? { gridAutoRows: 8, rowGap: 0 } : { rowGap: 16, alignItems: 'start' }),
+        }}>
+        {widgets.map((key) => (
+          <MasonryCell key={key} masonry={autofit}
+            draggable={customizing}
+            onDragStart={customizing ? () => setDragKey(key) : undefined}
+            /* dragover fires continuously — functional setState with a same-value
+               bail keeps it from re-rendering the whole grid per mouse move
+               (the drag lag), and skipping dragLeave kills the enter/leave
+               flicker churn; overKey clears on drop/end instead. */
+            onDragOver={customizing ? (e) => { e.preventDefault(); if (dragKey && dragKey !== key) setOverKey((k) => (k === key ? k : key)); } : undefined}
+            onDrop={customizing ? (e) => { e.preventDefault(); e.stopPropagation(); reorder(dragKey, key); setDragKey(null); setOverKey(null); } : undefined}
+            onDragEnd={customizing ? () => { setDragKey(null); setOverKey(null); } : undefined}
+            style={{
+              minWidth: 0, position: 'relative', borderRadius: 16,
+              outline: customizing ? `2px dashed ${overKey === key ? NX.primary : NX.border}` : 'none', outlineOffset: -2,
+              cursor: customizing ? 'grab' : undefined,
+              opacity: dragKey === key ? 0.45 : 1,
+            }}>
+            {customizing && (
+              <div style={{ position: 'absolute', top: -12, right: 6, zIndex: 5, display: 'flex', gap: 4 }}>
+                <span title="Drag to rearrange" style={{ width: 26, height: 26, borderRadius: '50%', border: `1px solid ${NX.border}`, background: NX.surface, color: NX.faint, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 6px rgba(0,0,0,.12)', cursor: 'grab' }}><GripVertical size={14} /></span>
+                <button onClick={() => persist(widgets.filter((k) => k !== key))} title="Remove widget"
+                  style={{ width: 26, height: 26, borderRadius: '50%', border: `1px solid ${NX.border}`, background: NX.surface, color: NX.dim, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 6px rgba(0,0,0,.12)', cursor: 'pointer' }}><X size={14} /></button>
+              </div>
+            )}
+            {renderWidget(key)}
+          </MasonryCell>
+        ))}
+      </div>
       {creatingProject && <ProjectCreateModal onClose={() => setCreatingProject(false)} onCreated={(p) => onNavigate({ projectId: p.id })} />}
       {openId && <TaskDetailDrawer taskId={openId} onClose={() => setOpenId(null)} />}
-    </div>
-  );
-}
-
-function CustomizeModal({ widgets, setWidgets, onClose }) {
-  const [draft, setDraft] = useState(widgets);
-  const available = WIDGET_META.filter((w) => !draft.includes(w.key));
-  const move = (i, dir) => { const j = i + dir; if (j < 0 || j >= draft.length) return; const n = [...draft]; [n[i], n[j]] = [n[j], n[i]]; setDraft(n); };
-  return (
-    <div onMouseDown={(e) => e.target === e.currentTarget && onClose()} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 5000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, fontFamily: FONT }}>
-      <div style={{ width: 460, maxWidth: '100%', background: NX.surface, borderRadius: 16, border: `1px solid ${NX.border}`, boxShadow: '0 24px 60px rgba(0,0,0,0.28)', overflow: 'hidden' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: `1px solid ${NX.border}`, padding: '14px 20px' }}>
-          <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>Customize Home</h2>
-          <button onClick={onClose} style={{ ...btn('ghost'), padding: 6 }}><X size={16} /></button>
-        </div>
-        <div style={{ maxHeight: '70vh', overflow: 'auto', padding: 16 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: NX.faint, marginBottom: 6 }}>Shown Widgets</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 16 }}>
-            {draft.length === 0 && <p style={{ fontSize: 12, color: NX.faint }}>No widgets. Add one below.</p>}
-            {draft.map((key, i) => (
-              <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 8, border: `1px solid ${NX.border}`, borderRadius: 8, padding: '8px 12px' }}>
-                <span style={{ flex: 1, fontSize: 13, fontWeight: 500 }}>{WIDGET_META.find((w) => w.key === key)?.label}</span>
-                <button onClick={() => move(i, -1)} disabled={i === 0} style={{ ...btn('ghost'), padding: 4, color: NX.faint, opacity: i === 0 ? 0.3 : 1 }}><ArrowUp size={14} /></button>
-                <button onClick={() => move(i, 1)} disabled={i === draft.length - 1} style={{ ...btn('ghost'), padding: 4, color: NX.faint, opacity: i === draft.length - 1 ? 0.3 : 1 }}><ArrowDown size={14} /></button>
-                <button onClick={() => setDraft(draft.filter((k) => k !== key))} style={{ ...btn('ghost'), padding: 4, color: NX.faint }}><X size={14} /></button>
-              </div>
-            ))}
-          </div>
-          <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: NX.faint, marginBottom: 6 }}>Add Widgets</div>
-          {available.length === 0 ? <p style={{ fontSize: 12, color: NX.faint }}>All widgets are already on your Home.</p> : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {available.map((w) => (
-                <button key={w.key} onClick={() => setDraft([...draft, w.key])} style={{ display: 'flex', alignItems: 'center', gap: 8, border: `1px dashed ${NX.border}`, borderRadius: 8, padding: '8px 12px', cursor: 'pointer', background: 'transparent', textAlign: 'left', fontFamily: FONT }}>
-                  <Plus size={14} style={{ color: NX.faint }} /><span style={{ fontSize: 13, fontWeight: 500 }}>{w.label}</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, borderTop: `1px solid ${NX.border}`, padding: '12px 20px' }}>
-          <button onClick={onClose} style={btn('outline')}>Cancel</button>
-          <button onClick={() => { setWidgets(draft); onClose(); }} style={btn('primary')}>Save Layout</button>
-        </div>
-      </div>
     </div>
   );
 }

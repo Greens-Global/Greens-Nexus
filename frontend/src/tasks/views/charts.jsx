@@ -19,48 +19,94 @@ export function Card({ title, children }) {
 }
 
 export function LightBar({ data }) {
+  // Kit bar list: quiet label, slim rounded bar on a track, ink count outside
+  // (numbers wear text tokens, never white-on-series-color).
   const max = Math.max(1, ...data.map((d) => d.value));
   if (data.length === 0) return <Empty />;
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 13 }}>
       {data.map((d) => (
-        <div key={d.label} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <span style={{ width: 96, flexShrink: 0, fontSize: 12, color: NX.dim, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.label}</span>
-          <div style={{ height: 24, flex: 1, borderRadius: 6, background: NX.surface2, overflow: 'hidden' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', height: '100%', borderRadius: 6, padding: '0 8px', fontSize: 11, fontWeight: 700, color: '#fff', width: `${Math.max(8, (d.value / max) * 100)}%`, background: d.color }}>
-              {d.value > 0 ? d.value : ''}
-            </div>
+        <div key={d.label} style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 13 }}>
+          <span style={{ width: 96, flexShrink: 0, color: NX.dim, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.label}</span>
+          <div style={{ height: 9, flex: 1, borderRadius: 6, background: NX.surface2, overflow: 'hidden' }}>
+            <div style={{ height: '100%', borderRadius: 6, width: `${Math.max(5, (d.value / max) * 100)}%`, background: d.color }} />
           </div>
+          <span style={{ width: 26, textAlign: 'right', fontWeight: 700, color: NX.ink, fontVariantNumeric: 'tabular-nums' }}>{d.value}</span>
         </div>
       ))}
     </div>
   );
 }
 
-export function Donut({ segments, total }) {
-  const r = 64, stroke = 30, c = 2 * Math.PI * r;
+export function Donut({ segments, total, unit = 'tasks' }) {
+  // Kit donut: slim ring with 2px gaps, center total + quiet unit label.
+  const r = 46, stroke = 14, c = 2 * Math.PI * r, GAP = 2.5;
+  const live = segments.filter((s) => s.value > 0);
   let off = 0;
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 32, flexWrap: 'wrap' }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 26, flexWrap: 'wrap' }}>
       <div style={{ position: 'relative' }}>
-        <svg width={160} height={160} viewBox="0 0 160 160">
-          <g transform="rotate(-90 80 80)">
-            {total === 0 ? <circle cx={80} cy={80} r={r} fill="none" stroke={NX.border2} strokeWidth={stroke} /> :
-              segments.filter((s) => s.value > 0).map((s) => {
-                const len = (s.value / total) * c;
-                const el = <circle key={s.label} cx={80} cy={80} r={r} fill="none" stroke={s.color} strokeWidth={stroke} strokeDasharray={`${len} ${c - len}`} strokeDashoffset={-off} />;
-                off += len; return el;
-              })}
+        <svg width={124} height={124} viewBox="0 0 124 124">
+          <circle cx={62} cy={62} r={r} fill="none" stroke={NX.surface2} strokeWidth={stroke} />
+          <g transform="rotate(-90 62 62)">
+            {total > 0 && live.map((s) => {
+              const len = Math.max((s.value / total) * c - (live.length > 1 ? GAP : 0), 1.5);
+              const el = <circle key={s.label} cx={62} cy={62} r={r} fill="none" stroke={s.color} strokeWidth={stroke} strokeDasharray={`${len} ${c - len}`} strokeDashoffset={-off} />;
+              off += (s.value / total) * c; return el;
+            })}
           </g>
         </svg>
-        <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 26, fontWeight: 700, color: NX.ink }}>{total}</div>
+        <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', lineHeight: 1.15 }}>
+          <span style={{ fontSize: 24, fontWeight: 700, color: NX.ink, fontVariantNumeric: 'tabular-nums' }}>{total}</span>
+          <span style={{ fontSize: 10.5, color: NX.faint }}>{unit}</span>
+        </div>
       </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
         {segments.map((s) => (
-          <div key={s.label} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: NX.ink }}>
-            <span style={{ width: 10, height: 10, borderRadius: 3, background: s.color }} /> {s.label} <span style={{ color: NX.faint }}>{s.value}</span>
+          <div key={s.label} style={{ display: 'flex', alignItems: 'center', gap: 9, fontSize: 13, color: NX.dim }}>
+            <span style={{ width: 9, height: 9, borderRadius: 3, background: s.color, flexShrink: 0 }} /> {s.label}
+            <span style={{ fontWeight: 700, color: NX.ink, fontVariantNumeric: 'tabular-nums' }}>{s.value}</span>
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+export function TrendArea({ buckets, color = NX.primary, height = 90, ariaLabel }) {
+  // Smooth gradient area (the reference kits' hero chart) — generic over
+  // {label, n} buckets so any view can feed it real counts.
+  const W = 320, H = height, PAD = 4;
+  const max = Math.max(...buckets.map((b) => b.n), 1);
+  const px = (i) => PAD + (i / Math.max(buckets.length - 1, 1)) * (W - PAD * 2);
+  const py = (n) => H - PAD - (n / max) * (H - PAD * 2);
+  const pts = buckets.map((b, i) => ({ x: px(i), y: py(b.n) }));
+  const curve = pts.reduce((acc, p, i, arr) => {
+    if (!i) return `M ${p.x} ${p.y}`;
+    const p0 = arr[i - 1], cx = (p0.x + p.x) / 2;
+    return `${acc} C ${cx} ${p0.y}, ${cx} ${p.y}, ${p.x} ${p.y}`;
+  }, '');
+  const gid = `ta-${color.replace(/[^a-z0-9]/gi, '')}`;
+  const last = pts[pts.length - 1];
+  return (
+    <div>
+      <div style={{ position: 'relative' }}>
+        <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} preserveAspectRatio="none" role="img" aria-label={ariaLabel}>
+          <defs>
+            <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={color} stopOpacity="0.22" />
+              <stop offset="100%" stopColor={color} stopOpacity="0.02" />
+            </linearGradient>
+          </defs>
+          <path d={`${curve} L ${pts[pts.length - 1].x} ${H - PAD} L ${PAD} ${H - PAD} Z`} fill={`url(#${gid})`} />
+          <path d={curve} fill="none" stroke={color} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+        </svg>
+        <span style={{ position: 'absolute', left: `${(last.x / W) * 100}%`, top: `${(last.y / H) * 100}%`, width: 9, height: 9, borderRadius: '50%', background: color, border: `2px solid ${NX.surface}`, transform: 'translate(-50%, -50%)', pointerEvents: 'none' }} />
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4, fontSize: 10.5, color: NX.faint }}>
+        <span>{buckets[0]?.label}</span>
+        <span>{buckets[Math.floor(buckets.length / 2)]?.label}</span>
+        <span>{buckets[buckets.length - 1]?.label}</span>
       </div>
     </div>
   );

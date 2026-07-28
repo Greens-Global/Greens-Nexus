@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useMsal } from '@azure/msal-react';
 import { useRole } from '../contexts/RoleContext';
 import { api } from '../api';
+import ModuleTabs from '../components/ModuleTabs';
 import {
   BookOpen, CheckSquare, Search, Clock, Sparkles,
   X, ArrowLeft, Plus, Trash2, Edit3, Send, Archive, ArchiveRestore, Loader, ChevronUp, ChevronDown,
@@ -1904,14 +1905,14 @@ export default function SOP({ activeSub, onSubChange }) {
 
   return (
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
-      <div style={{ display: 'flex', gap: 8, marginBottom: 24, borderBottom: '1px solid var(--line)', paddingBottom: 1 }}>
-        {Object.entries(TAB_LABELS).map(([key, label]) => (
-          <button key={key} onClick={() => switchTab(key)} style={{ background: 'none', border: 'none', padding: '10px 18px', fontFamily: 'Inter, sans-serif', fontWeight: 600, fontSize: 13.5, cursor: 'pointer', color: sub === key ? 'var(--ink)' : 'var(--muted)', position: 'relative', whiteSpace: 'nowrap', flexShrink: 0 }}>
-            {label}
-            {sub === key && <span style={{ position: 'absolute', bottom: -1, left: 0, right: 0, height: 2.5, backgroundColor: 'var(--ink)', borderRadius: '4px 4px 0 0' }} />}
-          </button>
-        ))}
-        <div style={{ marginLeft: 'auto', alignSelf: 'center', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+      {/* Tabs — desktop renders them centered in the top header; phones keep
+          the in-page strip (ModuleTabs handles both). Manage + Help keep
+          their own right-aligned row in the page. */}
+      <ModuleTabs
+        tabs={Object.entries(TAB_LABELS).map(([key, label]) => ({ key, label }))}
+        active={sub} onChange={switchTab} />
+      <div style={{ display: 'flex', marginBottom: 20 }}>
+        <div style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
           {isManager && (() => {
             const active = ['manage', 'matrix', 'insights', 'signoffs', 'tasks'].includes(sub);
             return (

@@ -231,7 +231,7 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
               </div>
             ) : bound ? (
               <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '7px 12px', borderRadius: 9, background: 'var(--bg)', fontSize: 12.5, fontWeight: 700 }}>
-                <MessageSquare size={13} style={{ color: 'var(--pine)' }} /> {bound.name || 'Your team chat'}
+                <MessageSquare size={13} style={{ color: 'var(--wk-brand)' }} /> {bound.name || 'Your team chat'}
               </div>
             ) : (
               <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>

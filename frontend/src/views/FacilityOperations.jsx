@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Server, Star, Calendar } from "lucide-react";
+import ModuleTabs from "../components/ModuleTabs";
 
 const TABS = [
   { key: "fms",        label: "FMS Integration",         Icon: Server   },
@@ -247,15 +248,9 @@ export default function FacilityOperations({ activeSub = "fms", onSubChange }) {
   const sub = activeSub || "fms";
   return (
     <div style={{ animation: "fadeIn var(--transition-normal) ease-in-out" }}>
-      <div style={{ display: "flex", gap: 4, marginBottom: 24, borderBottom: "1px solid var(--line)", paddingBottom: 1 }}>
-        {TABS.map(({ key, label, Icon }) => (
-          <button key={key} onClick={() => onSubChange && onSubChange(key)}
-            style={{ background: "none", border: "none", padding: "10px 16px", fontFamily: "'Hanken Grotesk',sans-serif", fontWeight: 600, fontSize: ".9rem", cursor: "pointer", color: sub === key ? "var(--ink)" : "var(--muted)", position: "relative", transition: "color .15s", display: "flex", alignItems: "center", gap: 7 }}>
-            <Icon size={16} /> {label}
-            {sub === key && <span style={{ position: "absolute", bottom: -1, left: 0, right: 0, height: 2.5, backgroundColor: "var(--pine)", borderRadius: "4px 4px 0 0" }} />}
-          </button>
-        ))}
-      </div>
+      {/* Desktop: tabs render centered in the top header; phones keep the
+          in-page strip (ModuleTabs handles both) */}
+      <ModuleTabs tabs={TABS} active={sub} onChange={onSubChange} />
       {sub === "fms"        && <FMS />}
       {sub === "reputation" && <Reputation />}
       {sub === "site-staff" && <SiteStaff />}

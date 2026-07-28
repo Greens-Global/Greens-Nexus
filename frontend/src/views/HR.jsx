@@ -6,12 +6,13 @@ import {
   ChevronLeft, Network, CalendarOff, UserPlus, Pencil, FileText,
   CheckCircle, XCircle, ChevronRight, History, CalendarDays, Camera,
   Building2, Trash2, MapPinned, Wallet, Landmark, Lock, Contact, Heart,
-  ShieldCheck, Shield, AlertTriangle, Clock,
+  ShieldCheck, Shield, AlertTriangle, Clock, ArrowUpRight,
 } from 'lucide-react';
 import { api } from '../api';
 import { ensureStepUp, isStepUpRequired, StepUpNeeded } from '../stepup/StepUp';
 import { useRole, MODULES, MODULE_LEVELS, ROLES } from '../contexts/RoleContext';
 import TimeAdmin from '../components/TimeAdmin';
+import ModuleTabs from '../components/ModuleTabs';
 import RolesAccess, { LevelPill, ModuleLevelPill, TierBadge } from './RolesAccess';
 import { capabilityText } from '../lib/moduleCapabilities';
 
@@ -3507,6 +3508,373 @@ function WorkSitesModal({ sites, entities, onClose, onChanged, toastOk, toastErr
   );
 }
 
+// ── People stat cards (Work OS redesign, Jul 28) ─────────────────────────────
+// Three designed cards with real mini-visuals — headcount with employment-type
+// composition, status breakdown, department spread — replacing the four
+// identical number tiles. Everything is computed from the live employee list;
+// nothing is fabricated, and zero/loading states stay designed.
+const WK_STATUS_COLOR = {
+  onboarding: 'hsl(var(--color-blue))',
+  active: 'hsl(var(--color-green))',
+  inactive: 'hsl(var(--color-orange))',
+  offboarded: 'var(--wk-faint)',
+};
+const WK_TYPE_COLORS = ['var(--wk-brand)', 'hsl(var(--color-blue))', 'hsl(var(--color-orange))', 'hsl(var(--color-purple))'];
+
+function StatCardShell({ Icon, title, meta, children }) {
+  // Stella card anatomy: bordered icon chip + title over a hairline divider,
+  // then the body at its own rhythm (see .wkc in style.css).
+  return (
+    <div className="wkc">
+      <div className="wkc-head">
+        <span className="wkc-chip"><Icon size={14} /></span>
+        <span className="wkc-title">{title}</span>
+        {meta && <span className="wkc-meta">{meta}</span>}
+      </div>
+      <div className="wkc-body">{children}</div>
+    </div>
+  );
+}
+
+// Donut for the status breakdown (Stella's Task Summary form): SVG stroke
+// arcs with 2px surface gaps, center total, native tooltips. Identity is
+// never color-alone — the legend rows beside it carry label + count.
+function StatusDonut({ segments, total }) {
+  const R = 30, C = 2 * Math.PI * R, SW = 11, GAP = 2;
+  const live = segments.filter(s => s.n > 0);
+  let acc = 0;
+  return (
+    <svg viewBox="0 0 84 84" width={118} height={118} role="img" aria-label={`${total} people by status`} style={{ flexShrink: 0 }}>
+      <circle cx={42} cy={42} r={R} fill="none" stroke="var(--mist)" strokeWidth={SW} />
+      {total > 0 && live.map(s => {
+        const frac = s.n / total;
+        const len = Math.max(frac * C - (live.length > 1 ? GAP : 0), 1.5);
+        const el = (
+          <circle key={s.key} cx={42} cy={42} r={R} fill="none"
+            stroke={s.color} strokeWidth={SW}
+            strokeDasharray={`${len} ${C - len}`}
+            strokeDashoffset={-acc}
+            transform="rotate(-90 42 42)">
+            <title>{`${s.label}: ${s.n}`}</title>
+          </circle>
+        );
+        acc += frac * C;
+        return el;
+      })}
+      <text x={42} y={41} textAnchor="middle" style={{ fontFamily: 'var(--wk-font)', fontSize: 20, fontWeight: 700, fill: 'var(--ink)' }}>{total}</text>
+      <text x={42} y={54} textAnchor="middle" style={{ fontFamily: 'var(--wk-font)', fontSize: 8.5, fill: 'var(--muted)' }}>people</text>
+    </svg>
+  );
+}
+
+// Mini bar chart for hires by start year: one hue with a soft vertical
+// gradient, current year emphasized, 4px rounded data-ends on the baseline,
+// year labels under every bar, native tooltips.
+export function HiresBars({ employees }) { // exported for reuse in other modules' sweeps
+  const nowYear = new Date().getFullYear();
+  const years = [nowYear - 3, nowYear - 2, nowYear - 1, nowYear];
+  const buckets = years.map(y => ({
+    year: y,
+    n: employees.filter(e => (e.startDate || '').slice(0, 4) === String(y)).length,
+  }));
+  const max = Math.max(...buckets.map(b => b.n), 1);
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', height: 96 }}>
+        {buckets.map(b => (
+          <div key={b.year} title={`${b.year}: ${b.n} hire${b.n === 1 ? '' : 's'}`}
+            style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', alignItems: 'center', gap: 5, height: '100%' }}>
+            {b.n > 0 && (
+              <span style={{ fontSize: 12, fontWeight: 700, color: b.year === nowYear ? 'var(--wk-brand)' : 'var(--wk-faint)', fontVariantNumeric: 'tabular-nums' }}>{b.n}</span>
+            )}
+            <div style={{
+              width: '100%',
+              height: b.n === 0 ? 3 : Math.max(10, Math.round((b.n / max) * 74)),
+              borderRadius: '6px 6px 0 0',
+              background: b.n === 0 ? 'var(--mist)'
+                : (b.year === nowYear
+                  ? 'linear-gradient(180deg, #5f74ec 0%, var(--wk-brand) 100%)'
+                  : 'linear-gradient(180deg, var(--wk-brand-tint) 0%, #ccd5f8 100%)'),
+            }} />
+          </div>
+        ))}
+      </div>
+      <div style={{ display: 'flex', gap: 12, marginTop: 6 }}>
+        {buckets.map(b => (
+          <span key={b.year} style={{ flex: 1, textAlign: 'center', fontSize: 11.5, color: 'var(--wk-faint)', fontVariantNumeric: 'tabular-nums' }}>{b.year}</span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Cumulative headcount area chart (the reference dashboard's hero form):
+// gradient area under a 2px line, live crosshair + tooltip on hover, and
+// working time-range chips. Counts are real — everyone whose start date is
+// on or before each month's end.
+export function HeadcountArea({ employees }) { // exported for reuse in other modules' sweeps
+  const [months, setMonths] = useState(12);
+  const [hover, setHover] = useState(null); // { i, xPct }
+  const W = 320, H = 96, PAD = 4;
+
+  const now = new Date();
+  const buckets = [];
+  for (let i = months - 1; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i + 1, 0); // month end
+    const iso = d.toISOString().slice(0, 10);
+    buckets.push({
+      label: d.toLocaleString('en-US', { month: 'short' }) + (d.getMonth() === 0 || buckets.length === 0 ? ` ’${String(d.getFullYear()).slice(2)}` : ''),
+      n: employees.filter(e => e.startDate && e.startDate <= iso).length,
+    });
+  }
+  const max = Math.max(...buckets.map(b => b.n), 1);
+  const px = i => PAD + (i / (buckets.length - 1)) * (W - PAD * 2);
+  const py = n => H - PAD - (n / max) * (H - PAD * 2);
+
+  const onMove = ev => {
+    const r = ev.currentTarget.getBoundingClientRect();
+    const frac = Math.min(1, Math.max(0, (ev.clientX - r.left) / r.width));
+    setHover({ i: Math.round(frac * (buckets.length - 1)) });
+  };
+  const hb = hover ? buckets[hover.i] : null;
+
+  // Smooth curve (research refs: soft bezier, not a jagged polyline)
+  const pts = buckets.map((b, i) => ({ x: px(i), y: py(b.n) }));
+  const curve = pts.reduce((acc, p, i, arr) => {
+    if (!i) return `M ${p.x} ${p.y}`;
+    const p0 = arr[i - 1], cx = (p0.x + p.x) / 2;
+    return `${acc} C ${cx} ${p0.y}, ${cx} ${p.y}, ${p.x} ${p.y}`;
+  }, '');
+  const areaPath = `${curve} L ${pts[pts.length - 1].x} ${H - PAD} L ${PAD} ${H - PAD} Z`;
+  const last = pts[pts.length - 1];
+
+  return (
+    <div>
+      {/* Segmented range control (Stella's Day/Week/Month pattern) */}
+      <div className="wk-seg" style={{ marginBottom: 12, alignSelf: 'flex-start' }}>
+        {[[12, '12 months'], [24, '2 years'], [48, '4 years']].map(([m, label]) => (
+          <button key={m} className={months === m ? 'on' : ''} onClick={() => setMonths(m)}>{label}</button>
+        ))}
+      </div>
+      <div style={{ position: 'relative' }} onMouseMove={onMove} onMouseLeave={() => setHover(null)}>
+        <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} preserveAspectRatio="none" role="img"
+          aria-label={`Headcount over the last ${months} months, now ${buckets[buckets.length - 1].n}`}>
+          <defs>
+            <linearGradient id="hcArea" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="var(--wk-brand)" stopOpacity="0.22" />
+              <stop offset="100%" stopColor="var(--wk-brand)" stopOpacity="0.02" />
+            </linearGradient>
+          </defs>
+          <path d={areaPath} fill="url(#hcArea)" />
+          <path d={curve} fill="none" stroke="var(--wk-brand)" strokeWidth={2}
+            strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+          {hover && (
+            <line x1={px(hover.i)} y1={PAD} x2={px(hover.i)} y2={H - PAD}
+              stroke="var(--wk-line)" strokeWidth={1} vectorEffect="non-scaling-stroke" />
+          )}
+        </svg>
+        {/* Persistent end-of-line marker + value callout (the "$451"-style tag
+            every reference kit uses) — hidden while hovering elsewhere */}
+        {!hover && (
+          <>
+            <span style={{
+              position: 'absolute', left: `${(last.x / W) * 100}%`, top: `${(last.y / H) * 100}%`,
+              width: 9, height: 9, borderRadius: '50%', background: 'var(--wk-brand)',
+              border: '2px solid var(--card)', transform: 'translate(-50%, -50%)', pointerEvents: 'none',
+              boxShadow: '0 1px 4px rgba(29,33,57,.25)',
+            }} />
+            <span style={{
+              position: 'absolute', left: `${(last.x / W) * 100}%`, top: `${(last.y / H) * 100}%`,
+              transform: 'translate(-105%, -135%)',
+              background: 'var(--wk-brand)', color: '#fff', borderRadius: 7, padding: '3px 9px',
+              fontSize: 12, fontWeight: 700, fontFamily: 'var(--wk-font)', pointerEvents: 'none',
+              fontVariantNumeric: 'tabular-nums',
+            }}>{buckets[buckets.length - 1].n}</span>
+          </>
+        )}
+        {hover && (
+          <>
+            <span style={{
+              position: 'absolute', left: `${(px(hover.i) / W) * 100}%`, top: `${(py(hb.n) / H) * 100}%`,
+              width: 9, height: 9, borderRadius: '50%', background: 'var(--wk-brand)',
+              border: '2px solid var(--card)', transform: 'translate(-50%, -50%)', pointerEvents: 'none',
+              boxShadow: '0 1px 4px rgba(29,33,57,.25)',
+            }} />
+            <div style={{
+              position: 'absolute', left: `${(px(hover.i) / W) * 100}%`, top: `${(py(hb.n) / H) * 100}%`,
+              transform: `translate(${hover.i > buckets.length / 2 ? '-108%' : '8%'}, -130%)`,
+              background: 'var(--ink)', color: 'var(--card)', borderRadius: 7,
+              padding: '5px 9px', fontSize: 11, fontFamily: 'var(--wk-font)', fontWeight: 600,
+              whiteSpace: 'nowrap', pointerEvents: 'none', boxShadow: '0 4px 12px rgba(29,33,57,.2)', zIndex: 5,
+            }}>
+              {hb.label.trim()} · {hb.n} {hb.n === 1 ? 'person' : 'people'}
+            </div>
+          </>
+        )}
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 3, fontSize: 10, color: 'var(--wk-faint)' }}>
+          <span>{buckets[0].label.trim()}</span>
+          <span>{buckets[Math.floor(buckets.length / 2)].label.trim()}</span>
+          <span>{buckets[buckets.length - 1].label.trim()}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// KPI tile (owner's chosen concept, Jul 28): rounded-2xl tile — one solid
+// brand tile per row, the rest white — with label, big number, delta/sub
+// caption, and a REAL corner arrow action (filter or jump), never decoration.
+function KpiTile({ label, value, delta, sub, solid, onGo, goTitle, loading }) {
+  const fg = solid ? '#fff' : 'var(--ink)';
+  return (
+    <div style={{
+      position: 'relative', borderRadius: 16, padding: '16px 18px', minWidth: 0,
+      background: solid ? 'linear-gradient(135deg, #4256e8 0%, var(--wk-brand) 100%)' : 'var(--card)',
+      border: solid ? '1px solid transparent' : '1px solid var(--wk-line2)',
+      boxShadow: 'var(--wk-shadow)', fontFamily: 'var(--wk-font)',
+      display: 'flex', flexDirection: 'column', gap: 7, justifyContent: 'center',
+    }}>
+      <span style={{ fontSize: 13.5, fontWeight: 500, color: solid ? 'rgba(255,255,255,.8)' : 'var(--muted)' }}>{label}</span>
+      <span style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+        <span style={{ fontSize: 30, fontWeight: 700, letterSpacing: '-.02em', color: fg, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
+          {loading ? '—' : value}
+        </span>
+        {delta && (
+          <span style={{
+            padding: '3px 9px', borderRadius: 20, fontSize: 11.5, fontWeight: 700,
+            background: solid ? 'rgba(255,255,255,.22)' : 'hsla(var(--color-green),0.12)',
+            color: solid ? '#fff' : 'hsl(var(--color-green))',
+          }}>{delta}</span>
+        )}
+      </span>
+      {sub && <span style={{ fontSize: 12, color: solid ? 'rgba(255,255,255,.65)' : 'var(--wk-faint)' }}>{sub}</span>}
+      {onGo && (
+        <button onClick={onGo} title={goTitle} aria-label={goTitle}
+          style={{
+            position: 'absolute', top: 12, right: 12, width: 30, height: 30, borderRadius: '50%',
+            border: 'none', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            background: solid ? 'rgba(255,255,255,.2)' : 'var(--wk-hover)',
+            color: solid ? '#fff' : 'var(--muted)',
+          }}>
+          <ArrowUpRight size={15} />
+        </button>
+      )}
+    </div>
+  );
+}
+
+// Rounded bar chart (the concept's Revenue card): fully-rounded monthly
+// headcount bars, latest bar solid brand with a value callout, labels under
+// every bar, native tooltips.
+function MonthlyBars({ employees }) {
+  const now = new Date();
+  const buckets = [];
+  for (let i = 7; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i + 1, 0);
+    const iso = d.toISOString().slice(0, 10);
+    buckets.push({
+      label: d.toLocaleString('en-US', { month: 'short' }),
+      n: employees.filter(e => e.startDate && e.startDate <= iso).length,
+    });
+  }
+  const max = Math.max(...buckets.map(b => b.n), 1);
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', height: 132 }}>
+        {buckets.map((b, i) => {
+          const isLast = i === buckets.length - 1;
+          return (
+            <div key={i} title={`${b.label}: ${b.n} people`}
+              style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', alignItems: 'center', gap: 6, height: '100%' }}>
+              {isLast && (
+                <span style={{ padding: '2px 8px', borderRadius: 12, fontSize: 12, fontWeight: 700, background: 'var(--wk-brand-tint)', color: 'var(--wk-brand)', fontVariantNumeric: 'tabular-nums' }}>{b.n}</span>
+              )}
+              <div style={{
+                width: '100%', maxWidth: 30,
+                height: b.n === 0 ? 4 : Math.max(12, Math.round((b.n / max) * 100)),
+                borderRadius: 99,
+                background: isLast
+                  ? 'linear-gradient(180deg, #5f74ec 0%, var(--wk-brand) 100%)'
+                  : 'linear-gradient(180deg, var(--wk-brand-tint) 0%, #ccd5f8 100%)',
+              }} />
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ display: 'flex', gap: 12, marginTop: 7 }}>
+        {buckets.map((b, i) => (
+          <span key={i} style={{ flex: 1, textAlign: 'center', fontSize: 11.5, color: 'var(--wk-faint)' }}>{b.label}</span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const DEPT_COLORS = ['#2b45e1', '#dc7a18', '#248f4b', '#8a31c9', '#b8860b'];
+
+function PeopleStatCards({ employees, loading, isMobile, onStatusFilter, onJumpToDirectory }) {
+  const total = employees.length;
+  const nActive = employees.filter(e => e.status === 'active').length;
+  const nOnboarding = employees.filter(e => e.status === 'onboarding').length;
+  const joined = employees.filter(e => (e.startDate || '').slice(0, 4) === String(new Date().getFullYear())).length;
+  const types = EMP_TYPES
+    .map(([k, label], i) => ({ key: k, label, color: WK_TYPE_COLORS[i % WK_TYPE_COLORS.length], n: employees.filter(e => e.employmentType === k).length }));
+  const depts = [...employees.reduce((m, e) => {
+    if (e.department) m.set(e.department, (m.get(e.department) || 0) + 1);
+    return m;
+  }, new Map())].sort((a, b) => b[1] - a[1]);
+  const deptSegs = depts.map(([name, n], i) => ({ key: name, label: name, color: DEPT_COLORS[i % DEPT_COLORS.length], n }));
+
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'minmax(300px, 1.05fr) 1.4fr 1.15fr', gap: 14, marginBottom: 16, alignItems: 'stretch' }}>
+      {/* 2×2 KPI tiles — solid brand hero + white siblings */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        <KpiTile solid label="Total people" value={total} loading={loading}
+          delta={joined > 0 ? `↑ ${joined}` : undefined} sub="this year"
+          onGo={onJumpToDirectory} goTitle="See the directory" />
+        <KpiTile label="Active" value={nActive} loading={loading} sub={total ? `${Math.round((nActive / total) * 100)}% of people` : 'no people yet'}
+          onGo={() => onStatusFilter?.('active')} goTitle="Filter directory to active" />
+        <KpiTile label="Onboarding" value={nOnboarding} loading={loading} sub="joining now"
+          onGo={() => onStatusFilter?.('onboarding')} goTitle="Filter directory to onboarding" />
+        <KpiTile label="Departments" value={depts.length} loading={loading} sub="across the company" />
+      </div>
+
+      {/* Rounded-bar headcount chart (the concept's Revenue card) */}
+      <StatCardShell Icon={Users} title="Headcount" meta="last 8 months">
+        <MonthlyBars employees={employees} />
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px 14px', fontSize: 12.5, color: 'var(--muted)' }}>
+          {types.filter(t => t.n > 0).map(t => (
+            <span key={t.key} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ width: 8, height: 8, borderRadius: 2, background: t.color }} />
+              {t.label} <b style={{ color: 'var(--ink)', fontWeight: 600 }}>{t.n}</b>
+            </span>
+          ))}
+          {!loading && total === 0 && <span>No people yet</span>}
+        </div>
+      </StatCardShell>
+
+      {/* Category donut + side legend (the concept's Sales by Category card) */}
+      <StatCardShell Icon={Building2} title="By department" meta={depts.length ? `${depts.length} total` : undefined}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
+          <StatusDonut segments={deptSegs} total={total} />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 1, minWidth: 0 }}>
+            {deptSegs.slice(0, 5).map(s => (
+              <div key={s.key} style={{ display: 'flex', alignItems: 'center', gap: 9, fontSize: 13.5 }}>
+                <span style={{ width: 9, height: 9, borderRadius: 3, background: s.color, flexShrink: 0 }} />
+                <span style={{ color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.label}</span>
+                <span style={{ marginLeft: 'auto', fontWeight: 600, color: 'var(--ink)', fontVariantNumeric: 'tabular-nums' }}>{loading ? '—' : s.n}</span>
+              </div>
+            ))}
+            {!loading && deptSegs.length === 0 && (
+              <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>Departments appear as people are added.</span>
+            )}
+          </div>
+        </div>
+      </StatCardShell>
+    </div>
+  );
+}
+
 export default function HR({ activeSub, onSubChange }) {
   // Legacy subviews (hr-ms / hr-asana / …) all collapse into People for now.
   // E-Sign moved to its own top-level Documents module (Jul 2026); legacy
@@ -3632,10 +4000,18 @@ export default function HR({ activeSub, onSubChange }) {
 
   return (
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
+      {/* Full-bleed (owner call, Jul 28): use the whole viewport width — the
+          .viewport padding provides the slight edge margin */}
       <div className="view-header" style={{ marginBottom: 18 }}>
-        <div className="view-title-group">
-          <h2>People</h2>
-          <p>People, hiring, org structure and leave — one source of truth</p>
+        {/* Icon-chip page title (Work OS grammar — the module's meaning color) */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+          <span style={{ width: 38, height: 38, borderRadius: 10, background: 'var(--wk-brand-tint)', color: 'var(--wk-brand)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <Users size={19} />
+          </span>
+          <div className="view-title-group">
+            <h2 style={{ fontFamily: 'var(--wk-font)' }}>People</h2>
+            <p>People, hiring, org structure and leave — one source of truth</p>
+          </div>
         </div>
         {sub === 'hr-people' && (
           <div style={{ display: 'flex', gap: 8, flexShrink: 0, flexWrap: 'wrap' }}>
@@ -3647,31 +4023,24 @@ export default function HR({ activeSub, onSubChange }) {
             <button className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}
               title="Manage companies & their departments"
               onClick={() => setEntitiesOpen(true)}>
-              <Building2 size={14} /> Company Setup
+              <Building2 size={14} /> Company setup
             </button>
             <button className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}
               title="Manage work sites (for geofenced clock-in)"
               onClick={() => setSitesOpen(true)}>
-              <MapPinned size={14} /> Work Sites
+              <MapPinned size={14} /> Work sites
             </button>
             <button className="primary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}
               onClick={() => { setEditing(null); setFormOpen(true); }}>
-              <Plus size={15} /> Add Employee
+              <Plus size={15} /> Add employee
             </button>
           </div>
         )}
       </div>
 
-      {/* Tabs */}
-      <div className="scroll-tabs" style={{ display: 'flex', gap: 8, marginBottom: 24, borderBottom: '1px solid var(--line)', paddingBottom: 1 }}>
-        {TABS.map(({ key, label, Icon }) => (
-          <button key={key} onClick={() => onSubChange ? onSubChange(key) : null}
-            style={{ background: 'none', border: 'none', padding: '10px 18px', fontFamily: 'Inter, sans-serif', fontWeight: 600, fontSize: 13.5, cursor: 'pointer', color: sub === key ? 'var(--ink)' : 'var(--muted)', position: 'relative', transition: 'color 0.15s', display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap', flexShrink: 0 }}>
-            <Icon size={17} /> {label}
-            {sub === key && <span style={{ position: 'absolute', bottom: -1, left: 0, right: 0, height: 2.5, backgroundColor: 'var(--ink)', borderRadius: '4px 4px 0 0' }} />}
-          </button>
-        ))}
-      </div>
+      {/* Tabs — desktop renders them centered in the top header; phones keep
+          the in-page strip (ModuleTabs handles both) */}
+      <ModuleTabs tabs={TABS} active={sub} onChange={onSubChange} />
 
       {sub === 'hr-hiring' && (
         <HiringTab isMobile={isMobile} toastOk={toastOk} toastErr={toastErr}
@@ -3693,47 +4062,11 @@ export default function HR({ activeSub, onSubChange }) {
 
       {sub === 'hr-people' && (<>
         <EmployeeRequestsPanel toastOk={toastOk} toastErr={toastErr} />
-        {/* KPI strip — skeleton shimmer while loading, never a flash of zeros */}
-        <div className="kpi-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
-          {[['card-blue', 'Total People', counts.total], ['card-green', 'Active', counts.active],
-            ['card-orange', 'Onboarding', counts.onboarding], ['card-purple', 'Departments', counts.depts]]
-            .map(([cls, label, value]) => (
-              <div key={label} className={`kpi-card ${cls}`}>
-                <div className="kpi-label">{label}</div>
-                <div className="kpi-value">
-                  {loading
-                    ? <span className="skel" style={{ width: 46, height: 20, margin: '7px 0' }} />
-                    : value}
-                </div>
-              </div>
-            ))}
-        </div>
-
-        {/* Filters — search fills the row, the two dropdowns stay compact on the right */}
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 14 }}>
-          <div className="search-bar" style={{ flex: '1 1 260px', minWidth: 200 }}>
-            <Search size={13} style={{ flexShrink: 0 }} />
-            <input placeholder="Search people…" value={search} onChange={e => setSearch(e.target.value)} />
-            {search && <button onClick={() => setSearch('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 2 }}><X size={13} /></button>}
-          </div>
-          <select className="form-input" value={companyF} onChange={e => { setCompanyF(e.target.value); setDeptF('All'); }} style={{ flex: '0 0 auto', width: 150, padding: '6px 10px', fontSize: 13, height: 34 }}>
-            <option value="All">All companies</option>
-            {entities.map(en => <option key={en.id} value={en.id}>{en.name}</option>)}
-          </select>
-          <select className="form-input" value={deptF} onChange={e => setDeptF(e.target.value)} style={{ flex: '0 0 auto', width: 150, padding: '6px 10px', fontSize: 13, height: 34 }}>
-            <option value="All">All departments</option>
-            {deptChoices.map(d => <option key={d}>{d}</option>)}
-          </select>
-          <select className="form-input" value={statusF} onChange={e => setStatusF(e.target.value)} style={{ flex: '0 0 auto', width: 140, padding: '6px 10px', fontSize: 13, height: 34 }}>
-            <option value="All">All statuses</option>
-            {Object.entries(STATUS_META).map(([v, m]) => <option key={v} value={v}>{m.label}</option>)}
-          </select>
-          <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>
-            {loading
-              ? <span className="skel" style={{ width: 150, height: 11, verticalAlign: 'middle' }} />
-              : `${counts.total} total · ${counts.active} active · ${filtered.length} shown`}
-          </span>
-        </div>
+        {/* Stat cards — headcount composition, status breakdown, department
+            spread (real data, designed zero/loading states) */}
+        <PeopleStatCards employees={employees} loading={loading} isMobile={isMobile}
+          onStatusFilter={s => { setStatusF(s); setSelectedId(null); }}
+          onJumpToDirectory={() => { setSelectedId(null); setStatusF('All'); }} />
 
         {error && (
           <div style={{ background: 'var(--bad-bg)', color: 'var(--bad-fg)', borderRadius: 10, padding: '10px 14px', fontSize: 13, marginBottom: 14 }}>
@@ -3741,62 +4074,100 @@ export default function HR({ activeSub, onSubChange }) {
           </div>
         )}
 
-        {loading ? (
-          <div style={{ display: 'flex', justifyContent: 'center', padding: '48px 0' }}>
-            <Loader2 size={26} style={{ animation: 'spin 0.8s linear infinite', color: 'var(--muted)' }} />
-          </div>
-        ) : employees.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '56px 20px', color: 'var(--muted)', border: '1px dashed var(--line)', borderRadius: 14 }}>
-            <Users size={32} style={{ opacity: .25, display: 'block', margin: '0 auto 10px' }} />
-            <div style={{ fontSize: 14, fontWeight: 600 }}>No employees yet.</div>
-            <div style={{ fontSize: 12.5, marginTop: 4 }}>Add the first one — everything else in HR builds on these records.</div>
-          </div>
+        {selected ? (
+          /* Profile takes the full width (Stella keeps one focused surface).
+             The back control lives HERE, always visible — EmployeeDetail's own
+             back button is mobile-only, which left desktop with no way out. */
+          <>
+          <button onClick={() => setSelectedId(null)} className="secondary-btn"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 12 }}>
+            <ChevronLeft size={14} /> Back to directory
+          </button>
+          <EmployeeDetail e={selected} employees={employees} isMobile={isMobile}
+            companyName={entityName(selected.company)} canSeeComp={canSeeComp} isAdmin={isAdmin}
+            toastOk={toastOk} toastErr={toastErr} onEmployeeUpdated={onSaved}
+            onEdit={emp => { setEditing(emp); setFormOpen(true); }}
+            onBack={() => setSelectedId(null)} />
+          </>
         ) : (
-          /* Master–detail on desktop; list ⇄ detail swap on phones.
-             Both panes are capped to the viewport: the list scrolls inside
-             itself (the page no longer grows to 100+ rows tall) and the detail
-             is sticky, so clicking anyone — even at the bottom — keeps their
-             profile in view without scrolling back up. */
-          <div style={{ display: isMobile ? 'block' : 'grid', gridTemplateColumns: '340px 1fr', gap: 16, alignItems: 'start' }}>
-            {(!isMobile || !selected) && (
-              <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden', boxShadow: 'var(--shadow-sm)', ...(isMobile ? {} : { maxHeight: 'calc(100vh - 280px)', minHeight: 380, overflowY: 'auto' }) }}>
-                {filtered.length === 0 && (
-                  <div style={{ padding: '28px 16px', textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>No matches.</div>
-                )}
-                {filtered.map((e, i) => {
-                  const sm = STATUS_META[e.status] || STATUS_META.active;
-                  const sel = e.id === selectedId;
-                  return (
-                    <button key={e.id} onClick={() => setSelectedId(e.id)}
-                      style={{ display: 'flex', alignItems: 'center', gap: 11, width: '100%', textAlign: 'left', padding: '11px 14px', background: sel ? 'hsla(var(--color-green),0.06)' : 'transparent', border: 'none', borderTop: i > 0 ? '1px solid var(--line)' : 'none', borderLeft: sel ? '3px solid hsl(var(--color-green))' : '3px solid transparent', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
-                      <Avatar e={e} />
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontWeight: 700, fontSize: 13.5, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fullName(e)}</div>
-                        <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {[e.employeeCode, e.jobTitle, e.department].filter(Boolean).join(' · ')}
-                        </div>
-                      </div>
-                      <span style={{ padding: '2px 8px', borderRadius: 20, fontSize: 10, fontWeight: 700, background: sm.bg, color: sm.fg, flexShrink: 0 }}>{sm.label}</span>
-                    </button>
-                  );
-                })}
+          /* Directory — Stella's employee table: card header carries the
+             search + filters; gray column-header band; avatar + name + email
+             rows; whole row opens the profile. */
+          <div className="wkc">
+            <div className="wkc-head">
+              <span className="wkc-chip"><Users size={14} /></span>
+              <span className="wkc-title">Directory</span>
+              {!loading && filtered.length > 0 && <span className="dk-count">{filtered.length}</span>}
+              <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                <div className="search-bar" style={{ width: 210 }}>
+                  <Search size={13} style={{ flexShrink: 0 }} />
+                  <input placeholder="Search people…" value={search} onChange={e => setSearch(e.target.value)} />
+                  {search && <button onClick={() => setSearch('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 2 }}><X size={13} /></button>}
+                </div>
+                <select className="form-input" value={companyF} onChange={e => { setCompanyF(e.target.value); setDeptF('All'); }} style={{ width: 150, padding: '7px 10px', fontSize: 13.5, height: 38 }}>
+                  <option value="All">All companies</option>
+                  {entities.map(en => <option key={en.id} value={en.id}>{en.name}</option>)}
+                </select>
+                <select className="form-input" value={deptF} onChange={e => setDeptF(e.target.value)} style={{ width: 155, padding: '7px 10px', fontSize: 13.5, height: 38 }}>
+                  <option value="All">All departments</option>
+                  {deptChoices.map(d => <option key={d}>{d}</option>)}
+                </select>
+                <select className="form-input" value={statusF} onChange={e => setStatusF(e.target.value)} style={{ width: 135, padding: '7px 10px', fontSize: 13.5, height: 38 }}>
+                  <option value="All">All statuses</option>
+                  {Object.entries(STATUS_META).map(([v, m]) => <option key={v} value={v}>{m.label}</option>)}
+                </select>
               </div>
-            )}
-            {(!isMobile || selected) && (
-              <div style={isMobile ? undefined : { position: 'sticky', top: 68, alignSelf: 'start', maxHeight: 'calc(100vh - 280px)', minHeight: 380, overflowY: 'auto' }}>
-                {selected ? (
-                  <EmployeeDetail e={selected} employees={employees} isMobile={isMobile}
-                    companyName={entityName(selected.company)} canSeeComp={canSeeComp} isAdmin={isAdmin}
-                    toastOk={toastOk} toastErr={toastErr} onEmployeeUpdated={onSaved}
-                    onEdit={emp => { setEditing(emp); setFormOpen(true); }}
-                    onBack={() => setSelectedId(null)} />
-                ) : (
-                  <div style={{ textAlign: 'center', padding: '64px 20px', color: 'var(--muted)', border: '1px dashed var(--line)', borderRadius: 14 }}>
-                    <Users size={28} style={{ opacity: .25, display: 'block', margin: '0 auto 10px' }} />
-                    <div style={{ fontSize: 13 }}>Select a person to see their profile.</div>
-                  </div>
-                )}
+            </div>
+            {loading ? (
+              <div style={{ display: 'flex', justifyContent: 'center', padding: '48px 0' }}>
+                <Loader2 size={26} style={{ animation: 'spin 0.8s linear infinite', color: 'var(--muted)' }} />
               </div>
+            ) : employees.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '56px 20px', color: 'var(--muted)' }}>
+                <Users size={32} style={{ opacity: .25, display: 'block', margin: '0 auto 10px' }} />
+                <div style={{ fontSize: 14, fontWeight: 600 }}>No employees yet.</div>
+                <div style={{ fontSize: 12.5, marginTop: 4 }}>Add the first one — everything else in HR builds on these records.</div>
+              </div>
+            ) : filtered.length === 0 ? (
+              <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>No matches.</div>
+            ) : (
+              <table className="ppl-table">
+                <thead>
+                  <tr>
+                    <th>Employee</th>
+                    <th className="ppl-col-secondary">Position</th>
+                    <th className="ppl-col-secondary">Department</th>
+                    <th>Status</th>
+                    <th style={{ width: 34 }} aria-label="Open profile" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map(e => {
+                    const sm = STATUS_META[e.status] || STATUS_META.active;
+                    return (
+                      <tr key={e.id} onClick={() => setSelectedId(e.id)}>
+                        <td>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 11, minWidth: 0 }}>
+                            <Avatar e={e} />
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fullName(e)}</div>
+                              <div className="ppl-cell-sub" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {e.workEmail || e.employeeCode}
+                              </div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="ppl-col-secondary">{e.jobTitle || '—'}</td>
+                        <td className="ppl-col-secondary">{e.department || '—'}</td>
+                        <td>
+                          <span style={{ padding: '4px 11px', borderRadius: 6, fontSize: 12.5, fontWeight: 600, background: sm.bg, color: sm.fg, whiteSpace: 'nowrap' }}>{sm.label}</span>
+                        </td>
+                        <td><ChevronRight size={14} style={{ color: 'var(--wk-faint)' }} /></td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             )}
           </div>
         )}

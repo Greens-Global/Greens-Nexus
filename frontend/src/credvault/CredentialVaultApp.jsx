@@ -16,6 +16,7 @@ import { api } from "../api";
 import { ensureStepUp } from "../stepup/StepUp";
 import { useRole } from "../contexts/RoleContext";
 import { useNameResolver } from "../lib/useNameResolver";
+import ModuleTabs from "../components/ModuleTabs";
 import {
   DEFAULT_DEPTS, TYPES, SETTINGS, iconFor, tierStyle, actionStyle, agoLabel,
   Dot, Empty, Dropdown, Modal, StatPill, ViewBtn, Select, ResizeHandle,
@@ -519,18 +520,18 @@ export default function CredentialVaultApp() {
           onClick={() => { setTab("vault"); setAtRiskOnly((v) => !v); setRiskFilter(null); }} />
       </div>
 
-      {/* ── Tabs ── */}
-      <div className="scroll-tabs" style={{ marginTop: 20, display: "flex", alignItems: "center", gap: 4, borderBottom: "1px solid var(--border-color)", flexWrap: "wrap" }}>
-        <TabBtn active={tab === "vault"} onClick={() => setTab("vault")}>Vault</TabBtn>
-        {showApprovalsTab && (
-          <TabBtn active={tab === "approvals"} onClick={() => setTab("approvals")}>
-            Approvals {approvals.length > 0 && <span style={{ marginLeft: 2, display: "inline-flex", height: 18, minWidth: 18, alignItems: "center", justifyContent: "center", borderRadius: 999, background: "var(--cv-rose)", padding: "0 5px", fontSize: 11, fontWeight: 600, color: "#fff" }}>{approvals.length}</span>}
-          </TabBtn>
-        )}
-        <TabBtn active={tab === "log"} onClick={() => setTab("log")}>Activity Log</TabBtn>
-        <TabBtn active={tab === "trash"} onClick={() => setTab("trash")}>
-          Trash {trash.length > 0 && <span style={{ marginLeft: 2, display: "inline-flex", height: 18, minWidth: 18, alignItems: "center", justifyContent: "center", borderRadius: 999, background: "var(--text-muted)", padding: "0 5px", fontSize: 11, fontWeight: 600, color: "var(--bg-card)" }}>{trash.length}</span>}
-        </TabBtn>
+      {/* ── Tabs — desktop renders them centered in the top header; phones
+          keep the in-page strip (ModuleTabs handles both). The credential
+          search + bulk delete keep their own right-aligned row. ── */}
+      <ModuleTabs
+        tabs={[
+          { key: "vault", label: "Vault" },
+          ...(showApprovalsTab ? [{ key: "approvals", label: "Approvals", badge: approvals.length || null }] : []),
+          { key: "log", label: "Activity log" },
+          { key: "trash", label: "Trash", badge: trash.length || null },
+        ]}
+        active={tab} onChange={setTab} />
+      <div style={{ marginTop: 12, display: "flex", alignItems: "center", flexWrap: "wrap" }}>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8, paddingBottom: 4 }}>
           <div style={{ position: "relative" }}>
             <Search size={15} style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)", color: "var(--text-muted)" }} />

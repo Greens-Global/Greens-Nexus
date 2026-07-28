@@ -6,6 +6,7 @@ import DocumentsDashboard from '../components/DocumentsDashboard';
 import DocumentsBrowser from '../components/DocumentsBrowser';
 import DocumentTemplates from '../components/DocumentTemplates';
 import DocumentsSearchBar from '../components/DocumentsSearchBar';
+import ModuleTabs from '../components/ModuleTabs';
 
 // ── Documents module ─────────────────────────────────────────────────────────
 // E-Sign was carved out of HR into its own top-level module (Jul 2026), then
@@ -89,15 +90,9 @@ export default function Documents({ activeSub, onSubChange }) {
       </div>
 
       {/* Tabs */}
-      <div className="scroll-tabs" style={{ display: 'flex', gap: 8, marginBottom: 24, borderBottom: '1px solid var(--line)', paddingBottom: 1 }}>
-        {TABS.map(({ key, label, Icon }) => (
-          <button key={key} onClick={() => onSubChange ? onSubChange(key) : null}
-            style={{ background: 'none', border: 'none', padding: '10px 18px', fontFamily: 'Inter, sans-serif', fontWeight: 600, fontSize: 13.5, cursor: 'pointer', color: sub === key ? 'var(--ink)' : 'var(--muted)', position: 'relative', transition: 'color 0.15s', display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap', flexShrink: 0 }}>
-            <Icon size={17} /> {label}
-            {sub === key && <span style={{ position: 'absolute', bottom: -1, left: 0, right: 0, height: 2.5, backgroundColor: 'var(--ink)', borderRadius: '4px 4px 0 0' }} />}
-          </button>
-        ))}
-      </div>
+      {/* Desktop: tabs render centered in the top header; phones keep the
+          in-page strip (ModuleTabs handles both) */}
+      <ModuleTabs tabs={TABS} active={sub} onChange={onSubChange} />
 
       {sub === 'documents-dashboard' && (
         <DocumentsDashboard

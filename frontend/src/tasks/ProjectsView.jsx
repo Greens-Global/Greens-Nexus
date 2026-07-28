@@ -124,26 +124,26 @@ export default function ProjectsView({ onNavigate }) {
             const dcolor = p.color || NX.blue;
             return (
               <div key={p.id} onClick={() => setOpenId(p.id)} style={{
-                ...card, padding: 15, cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: 11,
+                ...card, padding: 0, overflow: 'hidden', cursor: 'pointer', display: 'flex', flexDirection: 'column',
                 opacity: p.archived ? 0.62 : 1, position: 'relative',
               }}
-                onMouseEnter={(e) => { e.currentTarget.style.borderColor = NX.border; e.currentTarget.style.boxShadow = '0 2px 10px rgba(0,0,0,0.06)'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.borderColor = NX.border; e.currentTarget.style.boxShadow = 'none'; }}>
-                {/* Header: swatch + name + row actions */}
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-                  <span style={{ width: 34, height: 34, borderRadius: 9, flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: `${dcolor}1a`, color: dcolor }}>
-                    <FolderKanban size={17} />
-                  </span>
-                  <div style={{ minWidth: 0, flex: 1 }}>
-                    <div style={{ fontSize: 14.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
-                      {p.hrDepartmentName && <span style={chip(dcolor, `${dcolor}1a`)}>{p.hrDepartmentName}</span>}
-                      {p.archived && <span style={chip(NX.faint, NX.border2)}><Archive size={11} />Archived</span>}
-                    </div>
+                onMouseEnter={(e) => { e.currentTarget.style.boxShadow = '0 6px 18px rgba(0,0,0,0.09)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.transform = 'none'; }}>
+                {/* Kit cover band: the project's real color, actions overlaid */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 54, background: `linear-gradient(135deg, ${dcolor}33, ${dcolor}14)`, color: dcolor, position: 'relative', flexShrink: 0 }}>
+                  <FolderKanban size={20} />
+                  <div style={{ position: 'absolute', top: 8, right: 8, display: 'flex', gap: 2 }} onClick={(e) => e.stopPropagation()}>
+                    <button title="Edit Project" onClick={() => startEdit(p)} style={{ ...btn('ghost'), padding: 5, background: 'rgba(255,255,255,.7)', borderRadius: 7 }}><Pencil size={13} /></button>
+                    <button title="Delete Project" onClick={() => remove(p)} style={{ ...btn('ghost'), padding: 5, color: NX.red, background: 'rgba(255,255,255,.7)', borderRadius: 7 }}><Trash2 size={13} /></button>
                   </div>
-                  <div style={{ display: 'flex', gap: 2 }} onClick={(e) => e.stopPropagation()}>
-                    <button title="Edit Project" onClick={() => startEdit(p)} style={{ ...btn('ghost'), padding: 5 }}><Pencil size={14} /></button>
-                    <button title="Delete Project" onClick={() => remove(p)} style={{ ...btn('ghost'), padding: 5, color: NX.red }}><Trash2 size={14} /></button>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: '12px 14px 14px', flex: 1 }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 14.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
+                    {p.hrDepartmentName && <span style={chip(dcolor, `${dcolor}1a`)}>{p.hrDepartmentName}</span>}
+                    {p.archived && <span style={chip(NX.faint, NX.border2)}><Archive size={11} />Archived</span>}
                   </div>
                 </div>
 
@@ -161,7 +161,7 @@ export default function ProjectsView({ onNavigate }) {
                     </span>
                   </div>
                   <div style={{ height: 6, borderRadius: 999, background: NX.border2, overflow: 'hidden' }}>
-                    <div style={{ height: '100%', width: `${stats.pct}%`, borderRadius: 999, background: NX.green, transition: 'width 0.2s' }} />
+                    <div style={{ height: '100%', width: `${stats.pct}%`, borderRadius: 999, background: NX.green }} />
                   </div>
                 </div>
 
@@ -175,6 +175,7 @@ export default function ProjectsView({ onNavigate }) {
                   ) : <span style={{ fontSize: 12, color: NX.faint }}>No owner</span>}
                   {pf && <span style={chip(NX.purple, `${NX.purple}1a`)}>{pf.name}</span>}
                   <span style={{ marginLeft: 'auto' }}><StatusChip status={p.status} /></span>
+                </div>
                 </div>
               </div>
             );

@@ -5,6 +5,7 @@ import {
   Paperclip, Send, Pencil, Archive, Check, CircleDot, Play, Bot, Mic, Download, Upload, Trash2,
 } from 'lucide-react';   // eslint-disable-line
 import { api } from '../api';
+import ModuleTabs from '../components/ModuleTabs';
 import { supabase } from '../lib/supabase';
 import { useRole } from '../contexts/RoleContext';
 import { useNameResolver } from '../lib/useNameResolver';
@@ -878,15 +879,9 @@ export default function Testing() {
         </div>
       </div>
 
-      <div className="scroll-tabs" style={{ display: 'flex', gap: 8, marginBottom: 22, borderBottom: '1px solid var(--line)', paddingBottom: 1 }}>
-        {TABS.map(([key, label, Icon]) => (
-          <button key={key} onClick={() => setTab(key)}
-            style={{ background: 'none', border: 'none', padding: '10px 16px', fontFamily: 'Inter,sans-serif', fontWeight: 600, fontSize: 13.5, cursor: 'pointer', color: tab === key ? 'var(--ink)' : 'var(--muted)', position: 'relative', display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap' }}>
-            <Icon size={16} /> {label}
-            {tab === key && <span style={{ position: 'absolute', left: 0, right: 0, bottom: -1, height: 2.5, background: 'var(--ink)', borderRadius: '4px 4px 0 0' }} />}
-          </button>
-        ))}
-      </div>
+      {/* Desktop: tabs render centered in the top header; phones keep the
+          in-page strip (ModuleTabs handles both) */}
+      <ModuleTabs tabs={TABS.map(([key, label, Icon]) => ({ key, label, Icon }))} active={tab} onChange={setTab} />
 
       {/* ── RUN TESTS ── */}
       {tab === 'run' && (

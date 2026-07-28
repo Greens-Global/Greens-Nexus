@@ -7,6 +7,7 @@ import {
   ArrowLeft, ChevronRight, Megaphone, ArrowUpDown, Send, Users, Image, LayoutGrid, User, Wand2, Link2, Tag, Settings,
 } from 'lucide-react';
 import { ErrorBanner, SkeletonBlocks } from '../components/AsyncState';
+import ModuleTabs from '../components/ModuleTabs';
 import { useInventory }     from '../contexts/InventoryContext';
 import { useNotifications } from '../contexts/NotificationContext';
 import { useRequisitions }  from '../contexts/RequisitionContext';
@@ -3581,31 +3582,27 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
         </button>
       </div>
 
-      {/* Tab strip — scrolls horizontally on phones */}
-      <div className="scroll-tabs" style={{ display:'flex', alignItems:'center', borderBottom:'2px solid var(--line)', marginBottom:24 }}>
-        {[
-          { id:'catalog',   label:'Browse Catalog', Icon: Package,       badge: null },
-          { id:'checkouts', label:'My Checkouts',   Icon: ClipboardList, badge: activeCheckouts.length || null },
-          ...(isAllocator ? [{ id:'handover', label:'To Hand Over', Icon: Camera, badge: myAllocations.length || null }] : []),
-        ].map(({ id, label, Icon, badge }) => (
-          <button key={id} onClick={() => setTab(id)}
-            style={{ display:'inline-flex', alignItems:'center', gap:7, padding:'10px 18px', background:'none', border:'none',
-              borderBottom: tab === id ? '2px solid var(--pine)' : '2px solid transparent',
-              color: tab === id ? 'var(--ink)' : 'var(--muted)', fontWeight: tab === id ? 700 : 500,
-              fontSize:14, cursor:'pointer', fontFamily:'Inter,sans-serif', marginBottom:-2, transition:'color 0.15s', whiteSpace:'nowrap', flexShrink:0 }}>
-            <Icon size={15} /> {label}
-            {badge > 0 && <span style={{ background:'hsl(var(--color-blue))', color:'#fff', borderRadius:20, fontSize:10.5, fontWeight:800, padding:'1px 7px', marginLeft:3 }}>{badge}</span>}
-          </button>
-        ))}
-        {/* Managers get a big Manage button here that opens the full management UI (Neil). */}
-        {showManage && onEnterManage && (
+      {/* Tab strip — desktop renders it centered in the top header; phones
+          keep the in-page strip (ModuleTabs handles both) */}
+      <ModuleTabs
+        tabs={[
+          { key:'catalog',   label:'Browse Catalog', Icon: Package },
+          { key:'checkouts', label:'My Checkouts',   Icon: ClipboardList, badge: activeCheckouts.length || null },
+          ...(isAllocator ? [{ key:'handover', label:'To Hand Over', Icon: Camera, badge: myAllocations.length || null }] : []),
+        ]}
+        active={tab} onChange={setTab} />
+      {/* Managers get a big Manage button that opens the full management UI
+          (Neil). It used to ride the tab strip row; with the tabs in the
+          header it gets its own right-aligned row. */}
+      {showManage && onEnterManage && (
+        <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:16 }}>
           <button onClick={onEnterManage} title="Open the management tools"
-            style={{ display:'inline-flex', alignItems:'center', gap:8, marginLeft:'auto', marginBottom:8, padding:'9px 22px', background:'hsl(var(--color-purple))', color:'#fff', border:'none', borderRadius:10, fontWeight:700, fontSize:14, cursor:'pointer', fontFamily:'Inter,sans-serif', whiteSpace:'nowrap', flexShrink:0, boxShadow:'var(--shadow-sm)' }}
+            style={{ display:'inline-flex', alignItems:'center', gap:8, padding:'9px 22px', background:'hsl(var(--color-purple))', color:'#fff', border:'none', borderRadius:10, fontWeight:700, fontSize:14, cursor:'pointer', fontFamily:'Inter,sans-serif', whiteSpace:'nowrap', flexShrink:0, boxShadow:'var(--shadow-sm)' }}
             onMouseEnter={e => e.currentTarget.style.filter='brightness(1.08)'} onMouseLeave={e => e.currentTarget.style.filter='none'}>
             <ClipboardList size={16} /> Manage
           </button>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* ── CATALOG TAB ── */}
       {tab === 'catalog' && (
@@ -8166,25 +8163,20 @@ export default function InventoryManagement({ activeSub }) {
       </div>
 
       {/* Tab strip — desktop only; on phones the bottom action bar replaces it */}
-      <div className="scroll-tabs im-tabs" style={{ display:'flex', gap:0, marginBottom:20, borderBottom:'1px solid var(--line)' }}>
-        {[
-          { id:'myitems',      label:'My Items',          Icon: User,         badge: myActiveCount          },
-          { id:'catalog',      label:'Catalog',           Icon: Package                                     },
-          { id:'manage',       label:'Manage',            Icon: ClipboardList                               },
-          { id:'checkouts',    label:'Checkouts',         Icon: ShoppingCart, badge: pendingCount + approvedCount },
-          { id:'whohasit',     label:'Who Has What',      Icon: Users                                       },
-          { id:'purchasereqs', label:'Purchase Requests', Icon: FileText                                    },
-          { id:'audit',        label:'Activity Log',      Icon: History                                     },
-        ].map(({ id, label, Icon, badge }) => (
-          <button key={id} onClick={() => setMainTab(id)}
-            style={{ display:'inline-flex', alignItems:'center', gap:7, padding:'10px 16px', background:'none', border:'none', borderBottom: mainTab === id ? '2px solid var(--pine)' : '2px solid transparent', color: mainTab === id ? 'var(--ink)' : 'var(--muted)', fontWeight: mainTab === id ? 700 : 600, fontSize:13, cursor:'pointer', fontFamily:'Inter,sans-serif', marginBottom:-1, whiteSpace:'nowrap', flexShrink:0 }}>
-            <Icon size={14} /> {label}
-            {badge > 0 && <span style={{ background:'hsl(var(--color-orange))', color:'#fff', borderRadius:20, fontSize:10, fontWeight:800, padding:'1px 6px', marginLeft:2 }}>{badge}</span>}
-          </button>
-        ))}
-        {/* Manage's search now sits in-line with its filters, directly above the
-            table (Neil) — not up here in the tab strip. */}
-      </div>
+      {/* Manager tabs — desktop renders them centered in the top header; on
+          phones the bottom action bar replaces them (mobileInline off, same as
+          the old `.im-tabs { display:none }` rule). */}
+      <ModuleTabs mobileInline={false}
+        tabs={[
+          { key:'myitems',      label:'My Items',          Icon: User,         badge: myActiveCount          },
+          { key:'catalog',      label:'Catalog',           Icon: Package                                     },
+          { key:'manage',       label:'Manage',            Icon: ClipboardList                               },
+          { key:'checkouts',    label:'Checkouts',         Icon: ShoppingCart, badge: pendingCount + approvedCount },
+          { key:'whohasit',     label:'Who Has What',      Icon: Users                                       },
+          { key:'purchasereqs', label:'Purchase Requests', Icon: FileText                                    },
+          { key:'audit',        label:'Activity Log',      Icon: History                                     },
+        ]}
+        active={mainTab} onChange={setMainTab} />
 
       {/* Pending approvals banner — below the tab strip so the nav itself never moves */}
       {pendingCount > 0 && (

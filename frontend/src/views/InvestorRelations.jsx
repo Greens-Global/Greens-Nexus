@@ -1,6 +1,7 @@
 import { ArrowDownToLine, ArrowUpFromLine, Briefcase, FileSignature, FileSpreadsheet, Files, LayoutDashboard, Megaphone, Users } from 'lucide-react';
 import { useRole } from '../contexts/RoleContext';
 import InvestorPortal from '../investor/InvestorPortal';
+import ModuleTabs from '../components/ModuleTabs';
 import DashboardTab from '../investor/DashboardTab';
 import FundsTab from '../investor/FundsTab';
 import InvestorsTab from '../investor/InvestorsTab';
@@ -49,16 +50,9 @@ export default function InvestorRelations({ activeSub, onSubChange }) {
 
       {!isStaff ? <InvestorPortal /> : (
         <>
-          {/* Tabs — standard app-wide strip (Inter 13.5, ink/muted, underline) */}
-          <div className="scroll-tabs" style={{ display: 'flex', gap: 8, marginBottom: 24, borderBottom: '1px solid var(--line)', paddingBottom: 1 }}>
-            {TABS.map(({ key, label, Icon }) => (
-              <button key={key} onClick={() => onSubChange(key)}
-                style={{ background: 'none', border: 'none', padding: '10px 18px', fontFamily: 'Inter, sans-serif', fontWeight: 600, fontSize: 13.5, cursor: 'pointer', color: sub === key ? 'var(--ink)' : 'var(--muted)', position: 'relative', transition: 'color 0.15s', display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap', flexShrink: 0 }}>
-                <Icon size={17} /> {label}
-                {sub === key && <span style={{ position: 'absolute', bottom: -1, left: 0, right: 0, height: 2.5, backgroundColor: 'var(--ink)', borderRadius: '4px 4px 0 0' }} />}
-              </button>
-            ))}
-          </div>
+          {/* Tabs — desktop renders them centered in the top header; phones
+              keep the in-page strip (ModuleTabs handles both) */}
+          <ModuleTabs tabs={TABS} active={sub} onChange={onSubChange} />
 
           {sub === 'investor-dashboard'     && <DashboardTab onOpenTab={onSubChange} />}
           {sub === 'investor-funds'         && <FundsTab />}

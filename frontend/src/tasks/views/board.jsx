@@ -143,10 +143,19 @@ export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId
 
   const renderCard = (t) => {
     const dc = dueColor(t.dueOn, t.completed);
+    // Kit card signature: a colored project tag pill leads the card (hidden
+    // when the whole board is already locked to one project).
+    const proj = !lockedProjectId && t.projectId ? store.projects.find((p) => p.id === t.projectId) : null;
+    const projColor = proj?.color || NX.purple;
     return (
       <div key={t.id} draggable data-task-row onDragStart={() => setDragId(t.id)} onDragEnd={() => setDragId(null)} onClick={() => onOpen(t.id)}
-        style={{ background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 12, padding: 14, cursor: 'grab', boxShadow: '0 1px 2px rgba(0,0,0,0.04)', opacity: dragId === t.id ? 0.5 : 1 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        onMouseEnter={(e) => { e.currentTarget.style.boxShadow = '0 6px 16px rgba(0,0,0,0.09)'; }}
+        onMouseLeave={(e) => { e.currentTarget.style.boxShadow = '0 1px 2px rgba(0,0,0,0.04)'; }}
+        style={{ background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 12, padding: 14, cursor: 'grab', boxShadow: '0 1px 2px rgba(0,0,0,0.04)', opacity: dragId === t.id ? 0.5 : 1, transition: 'box-shadow .15s' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+          {proj && (
+            <span style={{ padding: '2px 8px', borderRadius: 5, fontSize: 10.5, fontWeight: 600, background: `${projColor}1a`, color: projColor, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 130 }}>{proj.name}</span>
+          )}
           <span style={{ fontSize: 10, fontWeight: 700, color: NX.faint, letterSpacing: 0.3 }}>{t.code}</span>
           {t.isMilestone && <Diamond size={11} style={{ color: NX.purple }} />}
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 2 }}>
@@ -350,7 +359,7 @@ function WipMenu({ limit, onSet }) {
       <button onClick={() => { setVal(limit ?? ''); setOpen((o) => !o); }} title="Set WIP limit" style={{ ...btn('ghost'), padding: 4, color: limit != null ? NX.blue : NX.faint }}><Gauge size={14} /></button>
       {open && (
         <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 4, width: 176, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', zIndex: 40, padding: 10 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: NX.faint, marginBottom: 6 }}>WIP limit</div>
+          <div style={{ fontSize: 12, fontWeight: 600, color: NX.dim, marginBottom: 6 }}>WIP limit</div>
           <input type="number" min={0} autoFocus value={val} onChange={(e) => setVal(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') { onSet(val === '' ? null : Number(val) || null); setOpen(false); } }}
             placeholder="No limit" style={{ ...inputStyle, padding: '6px 8px', fontSize: 13 }} />

@@ -223,18 +223,34 @@ function TicketFilterMenu({
   );
 }
 
-function SavedViewsMenu({ views, onApply, onSave, onDelete }) {
+// One overflow menu for every occasional control — saved views, group-by,
+// export — so the toolbar stays search + Filters + More (owner call, Jul 28).
+function MoreMenu({ views, onApply, onSave, onDelete, onExport, groupBy, setGroupBy, showGroup }) {
   const [open, setOpen] = useState(false);
-  const btnStyle = { ...btn('outline'), padding: '7px 11px', fontSize: 13 };
-  const item = { display: 'flex', alignItems: 'center', gap: 6, width: '100%', padding: '8px 10px', fontSize: 13, border: 'none', background: 'transparent', cursor: 'pointer', fontFamily: FONT, color: NX.ink, textAlign: 'left' };
+  const item = { display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 12px', fontSize: 13, border: 'none', background: 'transparent', cursor: 'pointer', fontFamily: FONT, color: NX.ink, textAlign: 'left' };
+  const sectionLabel = { padding: '8px 12px 4px', fontSize: 12, fontWeight: 600, color: NX.dim };
   return (
     <div style={{ position: 'relative' }}>
-      <button onClick={() => setOpen((o) => !o)} style={btnStyle} title="Saved views"><Bookmark size={15} />Views{views.length ? ` · ${views.length}` : ''}</button>
+      <button onClick={() => setOpen((o) => !o)} style={{ ...btn('outline'), padding: '7px 11px', fontSize: 13 }} title="Views, grouping and export">
+        <Bookmark size={15} />More
+      </button>
       {open && (
         <>
           <div onClick={() => setOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 40 }} />
-          <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 4, zIndex: 41, minWidth: 220, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', overflow: 'hidden', fontFamily: FONT }}>
-            {views.length === 0 && <div style={{ padding: '10px 12px', fontSize: 12.5, color: NX.faint }}>No saved views yet.</div>}
+          <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 4, zIndex: 41, minWidth: 240, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', overflow: 'hidden', fontFamily: FONT }}>
+            {showGroup && (
+              <>
+                <div style={sectionLabel}>Group by</div>
+                <div style={{ padding: '0 12px 10px' }}>
+                  <select value={groupBy} onChange={(e) => setGroupBy(e.target.value)} style={{ ...inputStyle, cursor: 'pointer' }}>
+                    {['none', 'status', 'priority', 'type', 'assignee'].map((g) => <option key={g} value={g}>{g === 'none' ? 'None' : g[0].toUpperCase() + g.slice(1)}</option>)}
+                  </select>
+                </div>
+                <div style={{ borderTop: `1px solid ${NX.border2}` }} />
+              </>
+            )}
+            <div style={sectionLabel}>Saved views</div>
+            {views.length === 0 && <div style={{ padding: '0 12px 8px', fontSize: 12.5, color: NX.faint }}>No saved views yet.</div>}
             {views.map((v) => (
               <div key={v.id} style={{ display: 'flex', alignItems: 'center' }}>
                 <button onClick={() => { onApply(v); setOpen(false); }} style={{ ...item, flex: 1, minWidth: 0 }}>
@@ -243,8 +259,9 @@ function SavedViewsMenu({ views, onApply, onSave, onDelete }) {
                 <button onClick={() => onDelete(v.id)} title="Delete view" style={{ ...btn('ghost'), padding: 6, color: NX.faint }}><X size={13} /></button>
               </div>
             ))}
+            <button onClick={() => { onSave(); setOpen(false); }} style={{ ...item, color: NX.blue, fontWeight: 600 }}><Plus size={14} />Save current view…</button>
             <div style={{ borderTop: `1px solid ${NX.border2}` }}>
-              <button onClick={() => { onSave(); setOpen(false); }} style={{ ...item, color: NX.blue, fontWeight: 600 }}><Plus size={14} />Save current view…</button>
+              <button onClick={() => { onExport(); setOpen(false); }} style={item}><Download size={14} style={{ color: NX.faint }} />Export to CSV</button>
             </div>
           </div>
         </>
@@ -448,39 +465,53 @@ export default function TicketsView() {
       {/* Header — two rows, matching the task module: title + primary action, then
           a bordered tab strip with the toolbar on its right. On phones the tabs,
           filters and New Ticket move into the floating MobileTaskBar. */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: isMobile ? '12px 12px 8px' : '18px 24px 12px', flexWrap: 'wrap' }}>
-        <div style={{ fontSize: isMobile ? 19 : 22, fontWeight: 700 }}>Tickets</div>
-        {/* Scope pills scroll rather than wrap — there can be five once
-            To Assign / To Approve appear. */}
-        <div className="scroll-tabs" style={{ display: 'flex', alignItems: 'center', gap: 2, background: NX.border2, borderRadius: 9, padding: 2, maxWidth: '100%', overflowX: 'auto' }}>
-          {[['all', 'All'], ['mine', isMobile ? 'Mine' : 'My Requests'], ['assigned', isMobile ? 'Assigned' : 'Assigned to Me'],
-            ...(myDeptIds.size > 0 ? [['triage', `To Assign${triageCount ? ` (${triageCount})` : ''}`]] : []),
-            ...(approvalCount > 0 ? [['approve', `To Approve (${approvalCount})`]] : [])].map(([k, lab]) => (
-            <button key={k} onClick={() => setScope(k)} style={{ ...toggleBtn(scope === k), whiteSpace: 'nowrap' }}>{lab}</button>
-          ))}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: isMobile ? '12px 12px 8px' : '18px 24px 12px', flexWrap: 'wrap', background: NX.surface }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+          <span style={{ fontSize: isMobile ? 19 : 22, fontWeight: 700 }}>Tickets</span>
+          <span style={{ padding: '2px 9px', borderRadius: 12, background: NX.border2, color: NX.dim, fontSize: 12, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{visible.length}</span>
         </div>
         {!isMobile && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginLeft: 'auto' }}>
-            <span style={{ fontSize: 12.5, color: NX.dim, fontWeight: 600 }}>{visible.length} ticket{visible.length === 1 ? '' : 's'}</span>
-            <button style={btn('outline')} onClick={() => downloadTicketsCsv(tickets, nameOf, companyName, hrDeptName)} title="Export every ticket to a CSV/Excel file">
-              <Download size={15} /> Export
-            </button>
             <button style={btn('primary')} onClick={() => setCreating(true)}><Plus size={15} /> New Ticket</button>
           </div>
         )}
       </div>
 
+      {/* Phones keep a scope strip under the title (the desktop scope pills
+          moved into the toolbar row, which doesn't render on mobile). */}
+      {isMobile && (
+        <div className="scroll-tabs" style={{ display: 'flex', alignItems: 'center', gap: 2, background: NX.border2, borderRadius: 9, padding: 2, margin: '0 12px 8px', overflowX: 'auto' }}>
+          {[['all', 'All'], ['mine', 'Mine'], ['assigned', 'Assigned'],
+            ...(myDeptIds.size > 0 ? [['triage', `To Assign${triageCount ? ` (${triageCount})` : ''}`]] : []),
+            ...(approvalCount > 0 ? [['approve', `To Approve (${approvalCount})`]] : [])].map(([k, lab]) => (
+            <button key={k} onClick={() => setScope(k)} style={{ ...toggleBtn(scope === k), whiteSpace: 'nowrap' }}>{lab}</button>
+          ))}
+        </div>
+      )}
+
       {!isMobile && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, borderBottom: `1px solid ${NX.border}`, padding: '0 24px', flexWrap: 'wrap' }}>
-          <div className="scroll-tabs" style={{ display: 'flex', alignItems: 'center', gap: 2, overflowX: 'auto' }}>
-            {TICKET_VIEW_TABS.map((tb) => (
-              <button key={tb.key} onClick={() => setView(tb.key)} style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '10px 12px', whiteSpace: 'nowrap',
-                border: 'none', background: 'transparent', cursor: 'pointer',
-                borderBottom: `2px solid ${view === tb.key ? NX.ink : 'transparent'}`, fontSize: 13, fontWeight: 600, fontFamily: FONT,
-                color: view === tb.key ? NX.ink : NX.dim,
-              }}><tb.icon size={15} /> {tb.label}</button>
-            ))}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, borderBottom: `1px solid ${NX.border}`, padding: '0 24px', flexWrap: 'wrap', background: NX.surface }}>
+          {/* Row 2 pairs the two mode controls: scope (WHICH tickets) first,
+              then view (HOW they're shown) — row 1 stays title + New Ticket,
+              matching My Tasks' header anatomy. */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+            <div className="scroll-tabs" style={{ display: 'flex', alignItems: 'center', gap: 2, background: NX.border2, borderRadius: 9, padding: 2, margin: '8px 0', overflowX: 'auto', flexShrink: 1, minWidth: 0 }}>
+              {[['all', 'All'], ['mine', 'My Requests'], ['assigned', 'Assigned to Me'],
+                ...(myDeptIds.size > 0 ? [['triage', `To Assign${triageCount ? ` (${triageCount})` : ''}`]] : []),
+                ...(approvalCount > 0 ? [['approve', `To Approve (${approvalCount})`]] : [])].map(([k, lab]) => (
+                <button key={k} onClick={() => setScope(k)} style={{ ...toggleBtn(scope === k), whiteSpace: 'nowrap' }}>{lab}</button>
+              ))}
+            </div>
+            <span style={{ width: 1, height: 20, background: NX.border, flexShrink: 0 }} />
+            <div className="scroll-tabs" style={{ display: 'flex', alignItems: 'center', gap: 2, background: NX.border2, borderRadius: 9, padding: 2, margin: '8px 0', overflowX: 'auto', flexShrink: 0 }}>
+              {TICKET_VIEW_TABS.map((tb) => (
+                <button key={tb.key} onClick={() => setView(tb.key)} title={tb.label} style={{
+                  ...btn('ghost'), padding: '6px 10px', borderRadius: 7, whiteSpace: 'nowrap',
+                  background: view === tb.key ? NX.surface : 'transparent', color: view === tb.key ? NX.ink : NX.dim,
+                  boxShadow: view === tb.key ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
+                }}><tb.icon size={15} /> {tb.label}</button>
+              ))}
+            </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', flexWrap: 'wrap' }}>
             <div style={{ position: 'relative', width: 210 }}>
@@ -494,15 +525,44 @@ export default function TicketsView() {
               slaFilter={slaFilter} setSlaFilter={setSlaFilter}
               hrDeptFilter={hrDeptFilter} setHrDeptFilter={setHrDeptFilter} hrDepts={hrDepts}
             />
-            <SavedViewsMenu views={ticketViews} onApply={applyTicketView} onSave={saveTicketView} onDelete={(id) => deleteTicketView(id).catch(() => {})} />
-            {view === 'list' && (
-              <select value={groupBy} onChange={(e) => setGroupBy(e.target.value)} style={{ ...inputStyle, width: 'auto', flexShrink: 0, cursor: 'pointer' }}>
-                {['none', 'status', 'priority', 'type', 'assignee'].map((g) => <option key={g} value={g}>Group: {g === 'none' ? 'None' : g[0].toUpperCase() + g.slice(1)}</option>)}
-              </select>
-            )}
+            <MoreMenu views={ticketViews} onApply={applyTicketView} onSave={saveTicketView} onDelete={(id) => deleteTicketView(id).catch(() => {})}
+              onExport={() => downloadTicketsCsv(tickets, nameOf, companyName, hrDeptName)}
+              groupBy={groupBy} setGroupBy={setGroupBy} showGroup={view === 'list'} />
           </div>
         </div>
       )}
+
+      {/* Status summary tiles (owner's chosen Order-list concept): colored
+          header band + count + caption. Every tile is a real filter action. */}
+      {!isMobile && view !== 'reports' && (() => {
+        const openCount = tickets.filter((t) => !CLOSED_STATES.includes(t.status)).length;
+        const breachedCount = tickets.filter((t) => slaState(t) === 'breached').length;
+        const resolvedCount = tickets.filter((t) => t.status === 'resolved').length;
+        const tile = (label, bandBg, bandFg, n, sub, onGo, active) => (
+          <button key={label} onClick={onGo}
+            style={{ textAlign: 'left', border: `1px solid ${active ? bandFg : NX.border}`, borderRadius: 14, overflow: 'hidden', background: NX.surface, cursor: 'pointer', fontFamily: FONT, padding: 0, boxShadow: active ? `0 0 0 1px ${bandFg}` : 'none', transition: 'transform .15s, box-shadow .15s' }}
+            onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 8px 20px rgba(0,0,0,.08)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = active ? `0 0 0 1px ${bandFg}` : 'none'; }}>
+            <span style={{ display: 'block', padding: '6px 14px', background: bandBg, color: bandFg, fontSize: 12.5, fontWeight: 700 }}>{label}</span>
+            <span style={{ display: 'flex', alignItems: 'baseline', gap: 8, padding: '10px 14px 12px' }}>
+              <span style={{ fontSize: 24, fontWeight: 800, color: NX.ink, fontVariantNumeric: 'tabular-nums' }}>{n}</span>
+              <span style={{ fontSize: 12, color: NX.faint }}>{sub}</span>
+            </span>
+          </button>
+        );
+        return (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14, padding: '14px 24px 0', background: NX.canvas }}>
+            {tile('Open', 'rgba(9,152,195,0.14)', '#0998c3', openCount, 'not yet resolved',
+              () => { setScope('all'); setStatusFilter('all'); setSlaFilter('all'); }, scope === 'all' && statusFilter === 'all' && slaFilter === 'all' && false)}
+            {myDeptIds.size > 0 && tile('To assign', 'rgba(217,119,6,0.15)', NX.amber, triageCount, 'waiting for triage',
+              () => setScope('triage'), scope === 'triage')}
+            {tile('SLA breached', 'rgba(220,38,38,0.12)', NX.red, breachedCount, 'past their target',
+              () => { setSlaFilter(slaFilter === 'breached' ? 'all' : 'breached'); }, slaFilter === 'breached')}
+            {tile('Resolved', 'rgba(22,163,74,0.14)', NX.green, resolvedCount, 'awaiting closure',
+              () => { setStatusFilter(statusFilter === 'resolved' ? 'all' : 'resolved'); }, statusFilter === 'resolved')}
+          </div>
+        );
+      })()}
 
       {/* Body. paddingBottom clears the floating mobile bar (matches My Tasks). */}
       <div className="nx-scroll nx-gutter" style={{ flex: 1, minHeight: 0, overflow: 'auto', background: NX.canvas, padding: view === 'board' ? 12 : 16, paddingBottom: isMobile ? 88 : undefined }}>
@@ -1331,9 +1391,14 @@ function TicketDrawer({ ticketId, onClose, myDeptIds }) {
           top so Conversation/Attachments/Activity are one click away instead of
           buried under the whole field list (people kept missing them). */}
       <div style={{ borderTop: `1px solid ${NX.border}`, marginTop: 12, paddingTop: 12 }}>
-        <div style={{ display: 'flex', gap: 4, marginBottom: 14, flexWrap: 'wrap' }}>
+        {/* Segmented control — same mode-switch grammar as the rest of the module */}
+        <div style={{ display: 'inline-flex', gap: 2, marginBottom: 16, background: NX.border2, borderRadius: 9, padding: 2, flexWrap: 'wrap' }}>
           {[['overview', 'Overview', ClipboardList], ['conversation', 'Conversation', MessageSquare], ['attachments', 'Attachments', Paperclip], ['activity', 'Activity', History]].map(([k, lab, Icon]) => (
-            <button key={k} onClick={() => setTab(k)} style={{ ...btn('ghost'), gap: 6, fontSize: 13, fontWeight: 600, padding: '6px 10px', borderRadius: 0, color: tab === k ? NX.blue : NX.dim, borderBottom: `2px solid ${tab === k ? NX.blue : 'transparent'}` }}><Icon size={14} />{lab}</button>
+            <button key={k} onClick={() => setTab(k)} style={{
+              ...btn('ghost'), gap: 6, fontSize: 12.5, fontWeight: 600, padding: '6px 10px', borderRadius: 7,
+              background: tab === k ? NX.surface : 'transparent', color: tab === k ? NX.ink : NX.dim,
+              boxShadow: tab === k ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
+            }}><Icon size={14} />{lab}</button>
           ))}
         </div>
 

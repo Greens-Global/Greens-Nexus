@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { TrendingUp, TrendingDown, DollarSign, FileText, ArrowUpRight, ArrowDownRight, CreditCard, SlidersHorizontal, Download, Plus, X, UploadCloud, PiggyBank, Loader2, Check, Wallet, ClipboardList, Receipt, Plane, FileCheck, Landmark, BookOpen, Building2, Briefcase, RefreshCcw, LayoutGrid, Map, Layers, FileSignature, Users, Plug, Gift, Settings, Search, Columns3, CalendarDays, Ban, Lock } from 'lucide-react';
 import { api } from '../api';
+import ModuleTabs from '../components/ModuleTabs';
 
 const INIT_TRX = [
   { id: 'TRX-1234', title: 'Project Payment - Downtown Complex', date: 'May 20, 2026', cost: 125000 },
@@ -459,13 +460,9 @@ export default function Accounting({ activeSub, onSubChange }) {
       </div>
 
       {/* Scrollable Tab Pills */}
-      <div className="scroll-tabs" style={{ display: 'flex', gap: 8, marginBottom: 24, paddingBottom: 8, borderBottom: '1px solid var(--border-color)' }}>
-        {TABS.map(t => (
-          <button key={t} className={`tab-pill${sub === t ? ' active' : ''}`} style={{ whiteSpace: 'nowrap' }} onClick={() => onSubChange(t)}>
-            {TAB_LABELS[t]}
-          </button>
-        ))}
-      </div>
+      {/* Desktop: tabs render centered in the top header; phones keep the
+          in-page strip (ModuleTabs handles both) */}
+      <ModuleTabs tabs={TABS.map(t => ({ key: t, label: TAB_LABELS[t] }))} active={sub} onChange={onSubChange} />
 
       {/* Tab Content */}
       <div style={{ marginBottom: 24 }}>

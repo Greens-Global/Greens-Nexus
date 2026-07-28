@@ -101,15 +101,16 @@ export function Modal({ title, onClose, children, footer, width = 560 }) {
       fontFamily: FONT, animation: 'fadeIn 0.13s ease',
     }}>
       <div onClick={(e) => e.stopPropagation()} style={{
-        background: NX.surface, borderRadius: 14, width, maxWidth: '100%', maxHeight: '86vh',
-        display: 'flex', flexDirection: 'column', boxShadow: '0 24px 60px rgba(0,0,0,0.28)', overflow: 'hidden',
+        background: NX.surface, borderRadius: 16, width, maxWidth: '100%', maxHeight: '86vh',
+        display: 'flex', flexDirection: 'column', boxShadow: '0 24px 70px rgba(17,24,39,0.30)', overflow: 'hidden',
+        border: `1px solid ${NX.border}`,
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '15px 20px', borderBottom: `1px solid ${NX.border}` }}>
-          <div style={{ fontSize: 16, fontWeight: 700, color: NX.ink }}>{title}</div>
-          <button onClick={onClose} style={{ ...btn('ghost'), padding: 6 }} aria-label="Close"><X size={18} /></button>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', borderBottom: `1px solid ${NX.border2}` }}>
+          <div style={{ fontSize: 15, fontWeight: 700, color: NX.ink }}>{title}</div>
+          <button onClick={onClose} style={{ ...btn('ghost'), padding: 6, borderRadius: 8 }} aria-label="Close"><X size={18} /></button>
         </div>
         <div style={{ padding: 20, overflowY: 'auto' }}>{children}</div>
-        {footer && <div style={{ padding: '13px 20px', borderTop: `1px solid ${NX.border}`, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>{footer}</div>}
+        {footer && <div style={{ padding: '12px 20px', borderTop: `1px solid ${NX.border2}`, background: NX.surface2, display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>{footer}</div>}
       </div>
     </div>,
     document.body,

@@ -101,8 +101,7 @@ export default function TeamsView({ onNavigate }) {
                       <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
                         <span style={{ fontSize: 13.5, fontWeight: 600, color: NX.ink }}>{nameOf(r.userId)}</span>
                         <span style={{
-                          display: 'inline-flex', padding: '1px 7px', borderRadius: 5, fontSize: 10, fontWeight: 700,
-                          textTransform: 'uppercase', letterSpacing: 0.3,
+                          display: 'inline-flex', padding: '2px 8px', borderRadius: 5, fontSize: 11, fontWeight: 700,
                           color: isRemove ? NX.red : NX.green, background: isRemove ? 'rgba(220,38,38,0.15)' : 'rgba(22,163,74,0.15)',
                         }}>{isRemove ? 'Remove' : 'Add'}</span>
                       </div>
@@ -187,7 +186,7 @@ function TeamCard({ team, teamProjects, nameOf, taskCount, onOpen }) {
         </div>
       </div>
       <div style={{ marginTop: 14 }}>
-        <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.3, color: NX.faint, marginBottom: 7 }}>Teammates</div>
+        <div style={{ fontSize: 12.5, fontWeight: 600, color: NX.dim, marginBottom: 7 }}>Teammates</div>
         {members.length === 0 ? (
           <div style={{ fontSize: 12.5, color: NX.faint }}>No members yet.</div>
         ) : (

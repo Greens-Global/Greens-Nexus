@@ -1,2 +1,10 @@
-# SPA fallback: every path serves the app shell; the client router takes over
+# A missing hashed asset must be a REAL 404 — never the SPA fallback. Serving
+# index.html (200, text/html) under an /assets/*.js URL is what poisoned
+# browsers/edge during deploy races (the _headers immutable rule keys on the
+# URL, so the HTML got cached for a year under the chunk's address — Jul 27/28
+# incidents). 404.html ships with Cache-Control: no-cache, so a mid-deploy miss
+# is retried cleanly by guard.js instead of being cached forever.
+/assets/* /404.html 404
+
+# SPA fallback: every other path serves the app shell; the client router takes over
 /* /index.html 200

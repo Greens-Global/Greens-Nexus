@@ -274,48 +274,51 @@ export default function TimeclockWidget() {
 
   return (
     <div ref={wrapRef} style={{ position: 'fixed', bottom, right: 18, zIndex: 1190, display: 'flex',
-      flexDirection: 'column', alignItems: 'flex-end', gap: 8, fontFamily: 'Inter,sans-serif', transition: 'bottom .18s ease' }}>
+      flexDirection: 'column', alignItems: 'flex-end', gap: 8, fontFamily: 'var(--wk-font)', transition: 'bottom .18s ease' }}>
       {expanded && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, minWidth: 216,
-          background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 16, padding: '12px 14px',
-          boxShadow: '0 8px 28px rgba(0,0,0,0.22)' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 11, minWidth: 232,
+          background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, padding: '14px 16px',
+          boxShadow: '0 24px 70px rgba(17,24,39,0.30)' }}>
+          {/* Timer row — click opens the Time Clock page (matches the hero's anatomy). */}
           <button onClick={() => { window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'timeclock' } })); setExpanded(false); }}
             title="Open Time Clock"
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontFamily: 'Inter,sans-serif' }}>
-            <Clock size={15} style={{ color: onBreak ? '#b45309' : 'var(--pine)' }} />
-            <span style={{ fontSize: 16, fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: 'var(--ink)' }}>
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 9, background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontFamily: 'var(--wk-font)' }}>
+            <span style={{ width: 10, height: 10, borderRadius: '50%', flexShrink: 0,
+              background: onBreak ? '#b45309' : 'var(--wk-brand)',
+              animation: onBreak ? 'none' : 'pulse 2s ease-in-out infinite' }} />
+            <span style={{ fontSize: 18, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: onBreak ? '#b45309' : 'var(--wk-brand)', lineHeight: 1 }}>
               {fmtHMS(elapsedSec)}
             </span>
-            <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em' }}>
-              {onBreak ? 'break' : 'working'}
+            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>
+              {onBreak ? 'On break' : 'Working'}
             </span>
           </button>
           {/* Disclosed-monitoring: capture control only appears when the policy enables screen tracking. */}
           {canCapture && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <button onClick={capturing ? stopCapture : startCapture}
-                title={paused ? 'Screen capture is PAUSED for your break — no frames are saved until you end the break. Click to stop capture entirely.'
-                  : capturing ? `Screen capture is ON (${capturing} screen${capturing === 1 ? '' : 's'}) — a frame of each is saved every ${intervalMin} minute${intervalMin === 1 ? '' : 's'}${randomizeRef.current ? ' (timing varies)' : ''}. Click to stop.`
+                title={paused ? 'Screen capture is paused for your break — no frames are saved until you end the break. Click to stop capture entirely.'
+                  : capturing ? `Screen capture is on (${capturing} screen${capturing === 1 ? '' : 's'}) — a frame of each is saved every ${intervalMin} minute${intervalMin === 1 ? '' : 's'}${randomizeRef.current ? ' (timing varies)' : ''}. Click to stop.`
                   : 'Start work-session screen capture (you pick the screen; your browser shows a sharing indicator the whole time)'}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 9px', borderRadius: 999, cursor: 'pointer',
-                  border: `1.5px solid ${capturing ? capTint : 'var(--line)'}`,
-                  background: paused ? 'rgba(180,83,9,0.09)' : capturing ? 'rgba(220,38,38,0.08)' : 'transparent',
-                  color: capTint, fontSize: 10.5, fontWeight: 800, fontFamily: 'Inter,sans-serif' }}>
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 11px', borderRadius: 999, cursor: 'pointer',
+                  border: `1px solid ${capturing ? 'transparent' : 'var(--wk-line2)'}`,
+                  background: paused ? 'rgba(180,83,9,0.1)' : capturing ? 'rgba(220,38,38,0.08)' : 'transparent',
+                  color: capTint, fontSize: 11.5, fontWeight: 700, fontFamily: 'var(--wk-font)' }}>
                 {paused ? <MonitorPause size={12} /> : capturing ? <MonitorUp size={12} /> : <MonitorX size={12} />}
-                {paused ? 'PAUSED' : capturing ? `REC${capturing > 1 ? ` ×${capturing}` : ''}` : 'capture off'}
+                {paused ? 'Paused for break' : capturing ? `Recording${capturing > 1 ? ` · ${capturing} screens` : ''}` : 'Capture off'}
               </button>
               {capturing > 0 && (
                 <button onClick={startCapture} title="Also capture another screen (pick your second monitor)"
-                  style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 22, height: 22, borderRadius: '50%', cursor: 'pointer',
-                    border: '1.5px solid var(--line)', background: 'transparent', color: 'var(--muted)', fontSize: 13, fontWeight: 800, fontFamily: 'Inter,sans-serif', padding: 0 }}>
+                  style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 24, height: 24, borderRadius: '50%', cursor: 'pointer',
+                    border: '1px solid var(--wk-line2)', background: 'transparent', color: 'var(--muted)', fontSize: 14, fontWeight: 700, fontFamily: 'var(--wk-font)', padding: 0 }}>
                   +
                 </button>
               )}
             </div>
           )}
           <button onClick={quickPunchOut} disabled={busy} title="Punch out"
-            style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7, padding: '8px 12px', borderRadius: 999,
-              border: 'none', cursor: 'pointer', background: '#b91c1c', color: '#fff', fontSize: 12.5, fontWeight: 800, fontFamily: 'Inter,sans-serif' }}>
+            style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7, padding: '9px 12px', borderRadius: 10,
+              border: 'none', cursor: 'pointer', background: '#b91c1c', color: '#fff', fontSize: 13, fontWeight: 700, fontFamily: 'var(--wk-font)' }}>
             {busy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <LogOut size={13} />}
             Punch out
           </button>
@@ -326,11 +329,11 @@ export default function TimeclockWidget() {
           (e.g. the asset "Save before you leave" bar). Click to expand upward. */}
       <button onClick={() => setExpanded(v => !v)}
         title={expanded ? 'Collapse' : 'Time clock — click for controls'}
-        style={{ display: 'inline-flex', alignItems: 'center', gap: 7, background: 'var(--card)', border: '1px solid var(--line)',
-          borderRadius: 999, padding: '7px 11px 7px 13px', boxShadow: '0 4px 18px rgba(0,0,0,0.18)', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
-        <span style={{ width: 9, height: 9, borderRadius: '50%', background: onBreak ? '#b45309' : 'hsl(var(--color-green))',
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 7, background: 'var(--card)', border: '1px solid var(--wk-line2)',
+          borderRadius: 999, padding: '7px 11px 7px 13px', boxShadow: '0 6px 22px rgba(17,24,39,0.16)', cursor: 'pointer', fontFamily: 'var(--wk-font)' }}>
+        <span style={{ width: 9, height: 9, borderRadius: '50%', background: onBreak ? '#b45309' : 'var(--wk-brand)',
           animation: onBreak ? 'none' : 'pulse 2s ease-in-out infinite' }} />
-        <span style={{ fontSize: 13.5, fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: 'var(--ink)' }}>
+        <span style={{ fontSize: 13.5, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: 'var(--ink)' }}>
           {fmtHMS(elapsedSec)}
         </span>
         {/* Capture stays visibly disclosed even while collapsed. */}

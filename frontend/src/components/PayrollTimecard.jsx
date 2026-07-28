@@ -139,7 +139,7 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
     setBusy(false);
   }
 
-  const th = { fontSize: 10, fontWeight: 800, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--muted)', padding: '7px 10px', textAlign: 'right', whiteSpace: 'nowrap' };
+  const th = { fontSize: 11.5, fontWeight: 600, color: 'var(--wk-dim)', padding: '8px 10px', textAlign: 'right', whiteSpace: 'nowrap' };
   const td = { fontSize: 12.5, padding: '6px 10px', textAlign: 'right', borderTop: '1px solid var(--line)', whiteSpace: 'nowrap' };
 
   // build rows: for each date, its segments (or one empty row); punch-note lines
@@ -167,17 +167,17 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
   const sidebar = (exceptions.length ? exceptions : people.map(p => ({ ...p, missing: 0, exceptions: 0 })));
 
   return (
-    <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start', fontFamily: 'Inter,sans-serif' }}>
+    <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start', fontFamily: 'var(--wk-font)' }}>
       {/* Employee sidebar — who has missing punches / exceptions this period */}
-      <div data-tour="pr-sidebar" style={{ width: 210, flexShrink: 0, border: '1px solid var(--line)', borderRadius: 12, overflow: 'hidden', maxHeight: 620, overflowY: 'auto' }} className="pr-sidebar">
-        <div style={{ padding: '8px 12px', background: 'var(--bg)', fontSize: 10.5, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)', display: 'flex' }}>
+      <div data-tour="pr-sidebar" style={{ width: 210, flexShrink: 0, border: '1px solid var(--wk-line2)', borderRadius: 14, overflow: 'hidden', maxHeight: 620, overflowY: 'auto', background: 'var(--card)', boxShadow: 'var(--wk-shadow)' }} className="pr-sidebar">
+        <div style={{ padding: '9px 12px', background: 'var(--wk-hover)', fontSize: 12, fontWeight: 500, color: 'var(--wk-dim)', display: 'flex' }}>
           <span style={{ flex: 1 }}>Employee</span><span title="Missing punches">M</span><span style={{ width: 22, textAlign: 'right' }} title="Exceptions">E</span>
         </div>
         {sidebar.map(p => {
           const sel = p.email === email;
           return (
             <button key={p.email} onClick={() => setEmail(p.email)}
-              style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', textAlign: 'left', padding: '8px 12px', border: 'none', borderTop: '1px solid var(--line)', cursor: 'pointer', fontFamily: 'Inter,sans-serif', fontSize: 12.5, background: sel ? 'var(--mist)' : 'transparent', fontWeight: sel ? 700 : 500, color: 'var(--ink)' }}>
+              style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', textAlign: 'left', padding: '8px 12px', border: 'none', borderTop: '1px solid var(--line)', cursor: 'pointer', fontFamily: 'var(--wk-font)', fontSize: 12.5, background: sel ? 'var(--wk-brand-tint)' : 'transparent', fontWeight: sel ? 700 : 500, color: sel ? 'var(--wk-brand)' : 'var(--ink)' }}>
               <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
               <span style={{ width: 16, textAlign: 'center', color: '#b91c1c', fontWeight: 800 }}>{p.missing || ''}</span>
               <span style={{ width: 22, textAlign: 'right', color: '#b45309', fontWeight: 800 }}>{p.exceptions || ''}</span>
@@ -198,7 +198,7 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
           <button className="icon-btn" onClick={() => shift(1)} style={{ padding: 6 }}><ChevronRight size={16} /></button>
         </div>
         <button onClick={() => setTour(true)} title="A guided walkthrough of this screen — nothing is changed while it runs."
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: '1px solid var(--line)', borderRadius: 999, padding: '5px 12px', fontFamily: 'Inter,sans-serif', fontWeight: 700, fontSize: 12, cursor: 'pointer', color: 'var(--ink)' }}>
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: '1px solid var(--wk-line2)', borderRadius: 999, padding: '5px 12px', fontFamily: 'var(--wk-font)', fontWeight: 700, fontSize: 12, cursor: 'pointer', color: 'var(--ink)' }}>
           <PlayCircle size={14} /> Simulate
         </button>
         <div style={{ flex: 1 }} />
@@ -267,13 +267,13 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
       ) : data === null ? (
         <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} /></div>
       ) : (
-        <div data-tour="pr-table" style={{ overflowX: 'auto', border: '1px solid var(--line)', borderRadius: 12 }}>
+        <div data-tour="pr-table" style={{ overflowX: 'auto', border: '1px solid var(--wk-line2)', borderRadius: 14, background: 'var(--card)', boxShadow: 'var(--wk-shadow)' }}>
           {/* SwipeClock column order — Date, In, Out, Deducted, Category, Hours,
               Hrs/day, Non-OT, OT, OT 2×, Loc, Department, Pay rate, Wage — so HR
               reads this card exactly like the one they use today. */}
           <table style={{ width: '100%', minWidth: 980, borderCollapse: 'collapse' }}>
             <thead>
-              <tr style={{ background: 'var(--bg)' }}>
+              <tr style={{ background: 'var(--wk-hover)' }}>
                 <th style={{ ...th, textAlign: 'left' }}>Date</th>
                 <th style={{ ...th, textAlign: 'left' }}>In</th>
                 <th style={{ ...th, textAlign: 'left' }}>Out</th>
@@ -293,8 +293,8 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
             </thead>
             <tbody>
               {rows.map((r, i) => r.type === 'wk' ? (
-                <tr key={i} style={{ background: 'hsla(var(--color-green),0.05)' }}>
-                  <td colSpan={15} style={{ ...td, textAlign: 'center', fontWeight: 800, color: 'var(--pine)', fontSize: 12 }}>
+                <tr key={i} style={{ background: 'var(--wk-brand-tint)' }}>
+                  <td colSpan={15} style={{ ...td, textAlign: 'center', fontWeight: 700, color: 'var(--wk-brand)', fontSize: 12 }}>
                     Total hours clocked for week of {new Date(r.week + 'T00:00').toLocaleDateString([], { month: 'numeric', day: 'numeric' })} to {new Date(new Date(r.week + 'T00:00').getTime() + 6 * DAY).toLocaleDateString([], { month: 'numeric', day: 'numeric' })}: {hhmm(weekTotals[r.week]?.min || 0)}
                   </td>
                 </tr>
@@ -343,7 +343,7 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
             </tbody>
             {T && (
               <tfoot>
-                <tr style={{ background: 'var(--bg)', fontWeight: 800 }}>
+                <tr style={{ background: 'var(--wk-hover)', fontWeight: 700 }}>
                   <td colSpan={3} style={{ ...td, textAlign: 'left' }}>Totals</td>
                   <td style={{ ...td, color: T.deductedMin ? '#b45309' : 'var(--muted)' }}>{T.deductedMin ? `−${T.deductedMin}m` : '—'}</td>
                   <td style={td}></td>
@@ -367,7 +367,7 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
       {/* Summary + acknowledgment */}
       {T && (
         <div style={{ marginTop: 14, display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-start' }}>
-          <div data-tour="pr-summary" style={{ flex: 1, minWidth: 300, border: '1px solid var(--line)', borderRadius: 12, overflow: 'hidden' }}>
+          <div data-tour="pr-summary" style={{ flex: 1, minWidth: 300, border: '1px solid var(--wk-line2)', borderRadius: 14, overflow: 'hidden', background: 'var(--card)', boxShadow: 'var(--wk-shadow)' }}>
             {(() => {
               // SwipeClock shows both clock time and decimal — "58:30 (58.50)" —
               // so payroll can be keyed either way without converting by hand.
@@ -376,11 +376,11 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
                 [`Total Regular hours at ${money(rate)}/hr`, hd(T.regMin), money(T.regPay)],
                 [`Total Overtime hours at ${money(rate * 1.5)}/hr`, hd(T.otMin), money(T.otPay)],
                 ...(T.dtMin ? [[`Total Double-time hours at ${money(rate * 2)}/hr`, hd(T.dtMin), money(T.dtPay)]] : []),
-                ['TOTALS', hd(T.regMin + T.otMin + (T.dtMin || 0)), money(T.totalPay)],
+                ['Totals', hd(T.regMin + T.otMin + (T.dtMin || 0)), money(T.totalPay)],
               ];
               const last = rows.length - 1;
               return rows.map(([lbl, hrs, amt], i) => (
-                <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 110px 100px', gap: 8, padding: '8px 12px', borderTop: i ? '1px solid var(--line)' : 'none', background: i === last ? 'var(--bg)' : 'transparent', fontWeight: i === last ? 800 : 500, fontSize: 12.5 }}>
+                <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 110px 100px', gap: 8, padding: '8px 12px', borderTop: i ? '1px solid var(--line)' : 'none', background: i === last ? 'var(--wk-hover)' : 'transparent', fontWeight: i === last ? 700 : 500, fontSize: 12.5 }}>
                   <span style={{ color: i === last ? 'var(--ink)' : 'var(--muted)' }}>{lbl}</span>
                   <span style={{ textAlign: 'right' }}>{hrs}</span>
                   <span style={{ textAlign: 'right' }}>{amt}</span>
@@ -389,8 +389,8 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
             })()}
           </div>
           {(data?.byCategory || []).length > 1 && (
-            <div style={{ minWidth: 240, border: '1px solid var(--line)', borderRadius: 12, overflow: 'hidden' }}>
-              <div style={{ padding: '7px 12px', background: 'var(--bg)', fontSize: 11, fontWeight: 800, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--muted)' }}>By category (job costing)</div>
+            <div style={{ minWidth: 240, border: '1px solid var(--wk-line2)', borderRadius: 14, overflow: 'hidden', background: 'var(--card)', boxShadow: 'var(--wk-shadow)' }}>
+              <div style={{ padding: '8px 12px', background: 'var(--wk-hover)', fontSize: 12, fontWeight: 500, color: 'var(--wk-dim)' }}>By category (job costing)</div>
               {data.byCategory.map((c, i) => (
                 <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 70px 90px', gap: 8, padding: '7px 12px', borderTop: '1px solid var(--line)', fontSize: 12.5 }}>
                   <span style={{ color: c.category === 'Uncategorised' ? 'var(--muted)' : 'var(--ink)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.category}</span>
@@ -402,10 +402,10 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
           )}
           <div style={{ minWidth: 200, fontSize: 12 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', color: 'var(--muted)' }}>
-              <span>Missing Punches</span><span style={{ fontWeight: 700, color: T.missingPunches ? '#b91c1c' : 'var(--ink)' }}>{T.missingPunches}</span>
+              <span>Missing punches</span><span style={{ fontWeight: 700, color: T.missingPunches ? '#b91c1c' : 'var(--ink)' }}>{T.missingPunches}</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', color: 'var(--muted)' }}>
-              <span>Edited Punches</span><span style={{ fontWeight: 700 }}>{T.editedPunches}</span>
+              <span>Edited punches</span><span style={{ fontWeight: 700 }}>{T.editedPunches}</span>
             </div>
             {T.deductedMin > 0 && (
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', color: 'var(--muted)' }}>
@@ -559,11 +559,11 @@ function PunchEditModal({ day, email, categories = [], busy, setBusy, onDone, on
   }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, fontFamily: 'Inter,sans-serif' }}
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, fontFamily: 'var(--wk-font)' }}
       onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background: 'var(--card)', borderRadius: 14, width: '100%', maxWidth: 400, padding: 20 }}>
+      <div style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, width: '100%', maxWidth: 400, padding: 20, boxShadow: '0 24px 70px rgba(17,24,39,0.30)' }}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
-          <span style={{ fontSize: 15, fontWeight: 800, flex: 1 }}>{seg ? 'Edit punch' : 'Add punch'}</span>
+          <span style={{ fontSize: 15, fontWeight: 700, flex: 1 }}>{seg ? 'Edit punch' : 'Add punch'}</span>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
         </div>
         <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>{new Date(day.date + 'T00:00').toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}</div>
@@ -588,7 +588,7 @@ function PunchEditModal({ day, email, categories = [], busy, setBusy, onDone, on
           )}
         </div>
         <div style={{ display: 'flex', gap: 8, marginTop: 16, alignItems: 'center' }}>
-          {seg?.outId && <button onClick={removeOut} disabled={busy} style={{ background: 'none', border: 'none', color: '#b91c1c', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>Void Out-Punch</button>}
+          {seg?.outId && <button onClick={removeOut} disabled={busy} style={{ background: 'none', border: 'none', color: '#b91c1c', cursor: 'pointer', fontSize: 12, fontWeight: 700, fontFamily: 'var(--wk-font)' }}>Void out-punch</button>}
           <div style={{ flex: 1 }} />
           <button className="secondary-btn" onClick={onClose}>Cancel</button>
           <button className="primary-btn" onClick={save} disabled={busy}>{busy ? '…' : 'Save'}</button>

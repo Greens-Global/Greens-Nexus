@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { api } from '../api';
 import DayTimeline from '../components/DayTimeline';
+import ModuleTabs from '../components/ModuleTabs';
 import BodModal from '../components/BodModal';
 
 const PUNCH_CHIP = {
@@ -23,13 +24,17 @@ const PUNCH_CHIP = {
 // set is state-aware ("intelligent clock"): only currently-valid punches show.
 
 const KIND_META = {
-  in:          { label: 'Punch in',   Icon: LogIn,  bg: 'var(--pine)', fg: '#fff' },
-  out:         { label: 'Punch out',  Icon: LogOut, bg: '#b91c1c',     fg: '#fff' },
-  break_start: { label: 'Start break', Icon: Coffee, bg: '#b45309',    fg: '#fff' },
-  break_end:   { label: 'End break',  Icon: Play,   bg: 'var(--pine)', fg: '#fff' },
+  in:          { label: 'Punch in',   Icon: LogIn,  bg: 'var(--wk-brand)', fg: '#fff' },
+  out:         { label: 'Punch out',  Icon: LogOut, bg: '#b91c1c',         fg: '#fff' },
+  break_start: { label: 'Start break', Icon: Coffee, bg: '#b45309',        fg: '#fff' },
+  break_end:   { label: 'End break',  Icon: Play,   bg: 'var(--wk-brand)', fg: '#fff' },
 };
 const KIND_LABEL = { in: 'In', out: 'Out', break_start: 'Break start', break_end: 'Break end' };
-const CARD_S = { background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12 };
+const CARD_S = { background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14 };
+// Work OS card-header title (sentence case, no uppercase tracking).
+const HD = { fontSize: 13.5, fontWeight: 600, color: 'var(--ink)' };
+// Small stat label / value inside cards.
+const STAT_L = { fontSize: 12, fontWeight: 600, color: 'var(--muted)' };
 
 // Timesheet motion (module-scoped, CSS keyframes — reliable regardless of tab focus).
 if (typeof document !== 'undefined' && !document.getElementById('ts-anim')) {
@@ -43,7 +48,18 @@ if (typeof document !== 'undefined' && !document.getElementById('ts-anim')) {
     .ts-block:hover { filter: brightness(1.08); }
     .ts-day   { animation: tsIn .4s cubic-bezier(.22,1,.36,1) forwards; transition: background .12s ease, box-shadow .12s ease; }
     .ts-day:hover { background: var(--mist); }
-    .ts-open  { animation: tsPulse 1.6s ease-in-out infinite; }`;
+    .ts-open  { animation: tsPulse 1.6s ease-in-out infinite; }
+    /* Clock tab: ONE shared grid so card edges align across both rows. */
+    .tc-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; align-items: stretch; }
+    .tc-span2 { grid-column: span 2; }
+    @media (max-width: 1080px) { .tc-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    @media (max-width: 720px) { .tc-grid { grid-template-columns: 1fr; } .tc-span2 { grid-column: auto; } }
+    /* Clocked-in hero: pinging live dot, per-second digit tick, smooth ring sweep. */
+    @keyframes tcPing { 0% { box-shadow: 0 0 0 0 var(--ping, rgba(34,150,83,.4)); } 70% { box-shadow: 0 0 0 10px rgba(0,0,0,0); } 100% { box-shadow: 0 0 0 0 rgba(0,0,0,0); } }
+    @keyframes tcTick { from { transform: translateY(-40%); opacity: 0; } to { transform: none; opacity: 1; } }
+    .tc-live { animation: tcPing 1.8s cubic-bezier(.22,1,.36,1) infinite; }
+    .tc-tick { animation: tcTick .22s ease-out; }
+    @media (prefers-reduced-motion: reduce) { .tc-live, .tc-tick { animation: none; } }`;
   document.head.appendChild(s);
 }
 
@@ -61,11 +77,11 @@ function WeekBars({ days }) {
       {series.map(s => (
         <div key={s.key} title={`${s.key} — ${Math.floor(s.min / 60)}h ${String(s.min % 60).padStart(2, '0')}m`}
           style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, minWidth: 0 }}>
-          <span style={{ fontSize: 10, fontWeight: 700, color: s.min ? 'var(--pine)' : 'transparent' }}>
+          <span style={{ fontSize: 10, fontWeight: 700, color: s.min ? 'var(--ink)' : 'transparent', fontVariantNumeric: 'tabular-nums' }}>
             {s.min ? `${(s.min / 60).toFixed(1)}h` : '·'}
           </span>
-          <div style={{ width: '70%', maxWidth: 40, height: Math.max(s.min ? 5 : 2, (s.min / max) * 70),
-            background: s.min ? 'var(--pine)' : 'var(--mist)', borderRadius: '5px 5px 2px 2px', opacity: 0.9 }} />
+          <div style={{ width: '70%', maxWidth: 40, height: Math.max(s.min ? 6 : 3, (s.min / max) * 70),
+            background: s.min ? 'var(--wk-brand)' : 'var(--mist)', borderRadius: 99 }} />
           <span style={{ fontSize: 9.5, color: 'var(--muted)' }}>{s.date.toLocaleDateString([], { weekday: 'short' })}</span>
         </div>
       ))}
@@ -82,11 +98,48 @@ function PeriodBars({ days }) {
       {series.map(s => (
         <div key={s.key} title={`${s.key} — ${Math.floor(s.min / 60)}h ${String(s.min % 60).padStart(2, '0')}m`}
           style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, minWidth: 0 }}>
-          <div style={{ width: '78%', maxWidth: 26, height: Math.max(s.min ? 4 : 2, (s.min / max) * 74),
-            background: s.min ? 'var(--pine)' : 'var(--mist)', borderRadius: '4px 4px 2px 2px', opacity: 0.9 }} />
+          <div style={{ width: '78%', maxWidth: 26, height: Math.max(s.min ? 5 : 3, (s.min / max) * 74),
+            background: s.min ? 'var(--wk-brand)' : 'var(--mist)', borderRadius: 99 }} />
           <span style={{ fontSize: 8.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{s.date.getDate()}</span>
         </div>
       ))}
+    </div>
+  );
+}
+
+// Live session timer digits — the seconds pair slides in on each tick (keyed
+// remount drives the .tc-tick animation; reduced-motion users get a static swap).
+function TimerDigits({ seconds, color, size = 24 }) {
+  const h = Math.floor(seconds / 3600);
+  const mm = String(Math.floor((seconds % 3600) / 60)).padStart(2, '0');
+  const ss = String(seconds % 60).padStart(2, '0');
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'baseline', fontVariantNumeric: 'tabular-nums', fontWeight: 700, fontSize: size, color, lineHeight: 1 }}>
+      {h}:{mm}:<span key={ss} className="tc-tick" style={{ display: 'inline-block' }}>{ss}</span>
+    </span>
+  );
+}
+
+// Session ring — the arc sweeps as today's worked time progresses toward an 8h
+// day (real data: today's closed segments + the live session). Digits inside are
+// the CURRENT session's stopwatch.
+function SessionRing({ seconds, dayPct, color, label, sub }) {
+  const size = 148, stroke = 9;
+  const r = (size - stroke) / 2, c = 2 * Math.PI * r;
+  const off = c * (1 - Math.min(1, Math.max(0, dayPct)));
+  return (
+    <div style={{ position: 'relative', width: size, height: size, flexShrink: 0 }}>
+      <svg width={size} height={size} style={{ transform: 'rotate(-90deg)' }}>
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--mist)" strokeWidth={stroke} />
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={color} strokeWidth={stroke}
+          strokeLinecap="round" strokeDasharray={c} strokeDashoffset={off}
+          style={{ transition: 'stroke-dashoffset .8s cubic-bezier(.22,1,.36,1), stroke .3s ease' }} />
+      </svg>
+      <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+        <TimerDigits seconds={seconds} color={color} />
+        <span style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--muted)' }}>{label}</span>
+        <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', fontVariantNumeric: 'tabular-nums' }}>{sub || `${Math.round(Math.min(1, dayPct) * 100)}% of 8h day`}</span>
+      </div>
     </div>
   );
 }
@@ -96,6 +149,7 @@ const fmtMin = (m) => `${Math.floor((m || 0) / 60)}h ${String((m || 0) % 60).pad
 const fmtHMS = (sec) => `${Math.floor(sec / 3600)}:${String(Math.floor((sec % 3600) / 60)).padStart(2, '0')}:${String(sec % 60).padStart(2, '0')}`;
 const TIMEOFF_TYPES = { vacation: 'Vacation', sick: 'Sick', personal: 'Personal', unpaid: 'Unpaid', other: 'Other' };
 const TO_STATUS = { pending: '#b45309', approved: 'hsl(var(--color-green))', rejected: '#b91c1c', cancelled: 'var(--muted)' };
+const TO_TINT = { pending: 'rgba(180,83,9,0.1)', approved: 'hsla(var(--color-green),0.1)', rejected: 'rgba(185,28,28,0.08)', cancelled: 'var(--mist)' };
 
 // One-shot position with a hard timeout: never keep the user waiting on GPS.
 const getPosition = () => new Promise((resolve) => {
@@ -368,6 +422,9 @@ export default function TimeClock() {
   const BREAK_ALLOWANCE_MIN = 60;
   const breakUsedMin = (todayData?.breakMin || 0) + (onBreak ? Math.floor(sinceSec / 60) : 0);
   const breakLeftMin = BREAK_ALLOWANCE_MIN - breakUsedMin;
+  // Hero ring: live progress through an 8h day (closed segments + this session).
+  const todayLiveMin = (todayData?.workedMin || 0) + (clockedIn && !onBreak ? sinceSec / 60 : 0);
+  const dayPct = todayLiveMin / 480;
   const weekFlags = Object.values(days).reduce((a, d) => a + d.flags.length, 0);
 
   // ── Bi-weekly pay period (the timesheet's data) ──────────────────────────────
@@ -379,6 +436,7 @@ export default function TimeClock() {
   const [openDay, setOpenDay]   = useState(null);
   useEffect(() => {
     if (tab !== 'timesheet') return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch-effect loading flag; fires only on tab/period change, no cascade
     setPayLoading(true); setPayErr('');
     api.timeMyPayroll(payStart)
       .then(d => { setPayData(d); setPayErr(''); })
@@ -413,28 +471,35 @@ export default function TimeClock() {
   const compTotal = Math.max(1, compActive + compIdle + compBreak);
   const fmtDay = (ds) => new Date(ds + 'T12:00:00').toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
   const fmtShort = (ds) => new Date(ds + 'T12:00:00').toLocaleDateString([], { month: 'short', day: 'numeric' });
-  const COMP = [['Active', compActive, 'var(--pine)'], ['Idle', compIdle, '#b45309'], ['Break', compBreak, 'hsl(var(--color-blue))']];
+  const COMP = [['Active', compActive, 'var(--wk-brand)'], ['Idle', compIdle, '#dc7a18'], ['Break', compBreak, '#248f4b']];
   const GRID_COLS = '1.4fr 1fr 1fr 0.8fr 1fr 22px';
 
   return (
-    <div style={{ maxWidth: 1440, margin: '0 auto', padding: '26px 22px', fontFamily: 'Inter,sans-serif' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
-        <Clock size={20} style={{ color: 'var(--pine)' }} />
-        <h1 style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>Time Clock</h1>
+    <div style={{ fontFamily: 'var(--wk-font)', animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
+      {/* Standard module header band (view-header carries the hairline divider
+          that separates every module's title from its content). */}
+      <div className="view-header">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+          <span style={{ width: 38, height: 38, borderRadius: 10, background: 'var(--wk-brand-tint)', color: 'var(--wk-brand)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <Clock size={19} />
+          </span>
+          <div className="view-title-group">
+            <h2 style={{ margin: 0 }}>Time Clock</h2>
+            <p style={{ margin: '2px 0 0' }}>Punch in and out, your timesheet and time off</p>
+          </div>
+        </div>
       </div>
 
-      {/* Tabs — one job per screen (the everything-in-one page read as clutter) */}
-      <div className="chip-row scroll-tabs" style={{ display: 'flex', gap: 8, marginBottom: 18 }}>
-        {[['clock', 'Clock'], ['timesheet', 'Time Sheet'], ['timeoff', 'Time Off']].map(([key, label]) => (
-          <button key={key} onClick={() => setTab(key)}
-            style={{ padding: '7px 16px', borderRadius: 10, border: `1px solid ${tab === key ? 'var(--pine)' : 'var(--line)'}`,
-              background: tab === key ? 'hsla(var(--color-green),0.08)' : 'var(--card)',
-              color: tab === key ? 'hsl(var(--color-green))' : 'var(--muted)',
-              fontWeight: tab === key ? 700 : 600, fontSize: 13, cursor: 'pointer', fontFamily: 'Inter,sans-serif', whiteSpace: 'nowrap', flexShrink: 0 }}>
-            {label}
-          </button>
-        ))}
-      </div>
+      {/* Tabs — one job per screen (the everything-in-one page read as clutter).
+          Desktop renders them centered in the top header; phones keep the
+          in-page strip (ModuleTabs handles both). */}
+      <ModuleTabs
+        tabs={[
+          { key: 'clock',     label: 'Clock' },
+          { key: 'timesheet', label: 'Time sheet' },
+          { key: 'timeoff',   label: 'Time off' },
+        ]}
+        active={tab} onChange={setTab} />
 
       {msg && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderRadius: 10, marginBottom: 14,
@@ -469,32 +534,41 @@ export default function TimeClock() {
           </button>
         </div>
       )}
-      <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'stretch', marginBottom: 18 }}>
-      <div style={{ flex: '1.3 1 420px', background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 16, padding: '26px 28px', boxShadow: '0 1px 4px rgba(0,0,0,0.05)' }}>
+      <div className="tc-grid" style={{ marginBottom: 18 }}>
+      <div className="tc-span2" style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, padding: '20px 22px', boxShadow: 'var(--wk-shadow)', minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
         {!status ? (
           <div style={{ textAlign: 'center', color: 'var(--muted)', padding: 20 }}>
             <Loader2 size={22} style={{ animation: 'spin 1s linear infinite' }} />
           </div>
         ) : (
-          <>
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap', marginBottom: 6 }}>
-              <span style={{ fontSize: 26, fontWeight: 800, color: onBreak ? '#b45309' : clockedIn ? 'var(--pine)' : 'var(--ink)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 28, flexWrap: 'wrap' }}>
+            {clockedIn && (
+              /* On break the ring flips meaning: arc = the 60m allowance being
+                 used up (red once over), caption = minutes left. Working: arc =
+                 progress through an 8h day. */
+              <SessionRing seconds={sinceSec}
+                dayPct={onBreak ? breakUsedMin / BREAK_ALLOWANCE_MIN : dayPct}
+                color={onBreak ? (breakLeftMin < 0 ? '#b91c1c' : '#b45309') : 'var(--wk-brand)'}
+                label={onBreak ? 'on break' : 'this session'}
+                sub={onBreak ? (breakLeftMin >= 0 ? `${breakLeftMin}m of 60m left` : `${-breakLeftMin}m over 60m`) : undefined} />
+            )}
+            <div style={{ flex: 1, minWidth: 250, display: 'flex', flexDirection: 'column', gap: 11 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 11, flexWrap: 'wrap' }}>
+              <span className={clockedIn ? 'tc-live' : ''} style={{ width: 11, height: 11, borderRadius: '50%', flexShrink: 0,
+                background: onBreak ? '#b45309' : clockedIn ? 'var(--wk-brand)' : 'var(--wk-faint)',
+                '--ping': onBreak ? 'rgba(180,83,9,.4)' : 'rgba(43,69,225,.4)' }} />
+              <span style={{ fontSize: 25, fontWeight: 700, color: onBreak ? '#b45309' : clockedIn ? 'var(--wk-brand)' : 'var(--ink)' }}>
                 {onBreak ? 'On break' : clockedIn ? 'Clocked in' : 'Clocked out'}
               </span>
-              {last && clockedIn && (
-                <span style={{ fontSize: 22, fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: onBreak ? '#b45309' : 'var(--pine)' }}>
-                  {fmtHMS(sinceSec)}
-                </span>
-              )}
               {last && (
                 <span style={{ fontSize: 13, color: 'var(--muted)' }}>
                   since {localTime(last.at)}
                 </span>
               )}
             </div>
-            {last && <div style={{ marginBottom: onBreak ? 10 : 16 }}><GeoChip p={last} /></div>}
+            {last && <div><GeoChip p={last} /></div>}
             {onBreak && (
-              <div style={{ marginBottom: 16, display: 'inline-flex', alignItems: 'center', gap: 7, padding: '7px 13px', borderRadius: 10,
+              <div style={{ display: 'inline-flex', alignSelf: 'flex-start', alignItems: 'center', gap: 7, padding: '7px 13px', borderRadius: 10,
                 background: breakLeftMin < 0 ? 'hsla(var(--color-red),0.1)' : 'rgba(180,83,9,0.09)',
                 color: breakLeftMin < 0 ? 'hsl(var(--color-red))' : '#b45309', fontSize: 13, fontWeight: 700 }}>
                 <Coffee size={14} />
@@ -503,7 +577,7 @@ export default function TimeClock() {
                   : `Break over by ${-breakLeftMin} min — over your 1h daily allowance`}
               </div>
             )}
-            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 3 }}>
               {(status.allowed || []).map(kind => {
                 const M = KIND_META[kind];
                 return (
@@ -526,30 +600,31 @@ export default function TimeClock() {
                       doPunch(kind);
                     }} disabled={!!busy}
                     style={{ display: 'inline-flex', alignItems: 'center', gap: 9, padding: '14px 26px', borderRadius: 12,
-                      border: 'none', cursor: busy ? 'default' : 'pointer', fontFamily: 'Inter,sans-serif',
-                      fontSize: 15, fontWeight: 800, background: M.bg, color: M.fg, opacity: busy && busy !== kind ? 0.55 : 1 }}>
+                      border: 'none', cursor: busy ? 'default' : 'pointer', fontFamily: 'var(--wk-font)',
+                      fontSize: 15, fontWeight: 700, background: M.bg, color: M.fg, opacity: busy && busy !== kind ? 0.55 : 1 }}>
                     {busy === kind ? <Loader2 size={17} style={{ animation: 'spin 1s linear infinite' }} /> : <M.Icon size={17} />}
                     {busy === kind ? 'Getting location…' : M.label}
                   </button>
                 );
               })}
             </div>
-          </>
+            </div>
+          </div>
         )}
       </div>
 
-      <div style={{ flex: '1 1 320px', background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 16, padding: '22px 24px' }}>
-        <div style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 12 }}>Today</div>
+      <div style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, padding: '20px 22px', boxShadow: 'var(--wk-shadow)', minWidth: 0 }}>
+        <div style={{ ...HD, marginBottom: 12 }}>Today</div>
         {todayData ? (
           <>
             <DayTimeline punches={todayData.punches} date={todayKey} />
             <div style={{ display: 'flex', gap: 26, marginTop: 18, flexWrap: 'wrap' }}>
-              {[['Worked today', fmtMin(todayData.workedMin), 'var(--pine)'],
+              {[['Worked today', fmtMin(todayData.workedMin), 'var(--ink)'],
                 ['Breaks', `${breakUsedMin} / 60m`, breakUsedMin > 60 ? 'hsl(var(--color-red))' : 'var(--ink)'],
                 ['Last 7 days', fmtMin(weekTotal), 'var(--ink)']].map(([l, v, c]) => (
                 <div key={l}>
-                  <div style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--muted)' }}>{l}</div>
-                  <div style={{ fontSize: 19, fontWeight: 800, color: c, marginTop: 2 }}>{v}</div>
+                  <div style={STAT_L}>{l}</div>
+                  <div style={{ fontSize: 19, fontWeight: 700, color: c, marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>{v}</div>
                 </div>
               ))}
             </div>
@@ -565,18 +640,15 @@ export default function TimeClock() {
           </div>
         )}
       </div>
-      </div>
       {/* Jul 24: the standing location/monitoring notice paragraphs were removed by
           management decision — capture is initiated by the employee's own share
           action (with the browser's persistent sharing indicator), and standing
           disclosure lives in the signed monitoring policy. The consent-gate modal
           below stays as dormant code (the server no longer requests it). */}
 
-      {/* Fill the fold: week chart, today's screen activity, upcoming time off */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 18 }}>
-        <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 16, padding: '18px 20px' }}>
+        <div style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, padding: '20px 22px', boxShadow: 'var(--wk-shadow)', minWidth: 0, display: 'flex', flexDirection: 'column' }}>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 14 }}>
-            <span style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)' }}>This pay period</span>
+            <span style={HD}>This pay period</span>
             {clockPeriod?.periodStart && (
               <span style={{ fontSize: 11, color: 'var(--muted)' }}>
                 {fmtShort(clockPeriod.periodStart)} – {fmtShort(clockPeriod.periodEnd)}
@@ -584,7 +656,11 @@ export default function TimeClock() {
             )}
           </div>
           {clockPeriod ? (<>
-            <PeriodBars days={clockPeriod.days} />
+            {(clockPeriod.totals?.workedMin || 0) > 0 ? <PeriodBars days={clockPeriod.days} /> : (
+              <div style={{ height: 110, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12.5, color: 'var(--muted)', textAlign: 'center', padding: '0 12px' }}>
+                No hours yet this period — your days chart here as you punch in.
+              </div>
+            )}
             {(() => {
               const t = clockPeriod.totals || {};
               const activeDays = (clockPeriod.days || []).filter(d => (d.workedMin || 0) > 0).length;
@@ -595,7 +671,7 @@ export default function TimeClock() {
                 </div>
               );
             })()}
-            <button className="secondary-btn" style={{ fontSize: 11, padding: '4px 11px', marginTop: 12 }} onClick={() => setTab('timesheet')}>
+            <button className="secondary-btn" style={{ fontSize: 11, padding: '4px 11px', marginTop: 12, alignSelf: 'flex-start' }} onClick={() => setTab('timesheet')}>
               Open timesheet
             </button>
           </>) : (
@@ -604,9 +680,61 @@ export default function TimeClock() {
             </div>
           )}
         </div>
-        <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 16, padding: '18px 20px' }}>
+
+        {/* This week — hours vs the 40h OT line, today's break allowance, est. pay
+            and pending fix requests. Everything derives from data already loaded. */}
+        <div style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, padding: '20px 22px', boxShadow: 'var(--wk-shadow)', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div style={HD}>This week</div>
+          {(() => {
+            const sun = new Date(); sun.setHours(0, 0, 0, 0); sun.setDate(sun.getDate() - sun.getDay());
+            const sunKey = new Date(sun.getTime() - sun.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+            const wkMin = clockPeriod
+              ? (clockPeriod.days || []).filter(d => d.date >= sunKey).reduce((a, d) => a + (d.workedMin || 0), 0)
+              : weekTotal;
+            const otMin = Math.max(0, wkMin - 40 * 60);
+            const pct = Math.min(100, (wkMin / (40 * 60)) * 100);
+            const bPct = Math.min(100, (breakUsedMin / BREAK_ALLOWANCE_MIN) * 100);
+            const PTc = clockPeriod?.totals || {};
+            const pendingReqs = myReqs.filter(r => r.status === 'pending').length;
+            return (<>
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6, gap: 8 }}>
+                  <span style={STAT_L}>Hours worked</span>
+                  <span style={{ fontSize: 13, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{fmtMin(wkMin)} <span style={{ color: 'var(--muted)', fontWeight: 500 }}>of 40h</span></span>
+                </div>
+                <div style={{ height: 8, borderRadius: 99, background: 'var(--mist)', overflow: 'hidden' }}>
+                  <div style={{ width: `${pct}%`, height: '100%', borderRadius: 99, background: otMin ? '#dc7a18' : 'var(--wk-brand)' }} />
+                </div>
+                {otMin > 0 && <div style={{ fontSize: 11.5, fontWeight: 700, color: '#b45309', marginTop: 5 }}>{fmtMin(otMin)} into overtime (1.5×)</div>}
+              </div>
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6, gap: 8 }}>
+                  <span style={STAT_L}>Break today</span>
+                  <span style={{ fontSize: 13, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{breakUsedMin}m <span style={{ color: 'var(--muted)', fontWeight: 500 }}>of 60m</span></span>
+                </div>
+                <div style={{ height: 8, borderRadius: 99, background: 'var(--mist)', overflow: 'hidden' }}>
+                  <div style={{ width: `${bPct}%`, height: '100%', borderRadius: 99, background: breakUsedMin > BREAK_ALLOWANCE_MIN ? '#b91c1c' : '#248f4b' }} />
+                </div>
+              </div>
+              {clockPeriod?.rateSet && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', borderTop: '1px solid var(--line)', paddingTop: 10 }}>
+                  <span style={STAT_L}>Est. pay this period</span>
+                  <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--wk-brand)', fontVariantNumeric: 'tabular-nums' }}>${(PTc.totalPay || 0).toFixed(2)}</span>
+                </div>
+              )}
+              {pendingReqs > 0 && (
+                <button onClick={() => setTab('timesheet')}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(180,83,9,0.08)', border: 'none', borderRadius: 8, padding: '7px 10px', cursor: 'pointer', fontFamily: 'var(--wk-font)', fontSize: 12, fontWeight: 600, color: '#b45309', textAlign: 'left' }}>
+                  <AlertTriangle size={12} /> {pendingReqs} punch-fix request{pendingReqs === 1 ? '' : 's'} awaiting your approver
+                </button>
+              )}
+            </>);
+          })()}
+        </div>
+
+        <div style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, padding: '20px 22px', boxShadow: 'var(--wk-shadow)', minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
-            <span style={{ flex: 1, fontSize: 11.5, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)' }}>Time off coming up</span>
+            <span style={{ ...HD, flex: 1 }}>Time off coming up</span>
             <button className="secondary-btn" style={{ fontSize: 11.5, padding: '4px 11px' }} onClick={() => setTab('timeoff')}>Request</button>
           </div>
           {(() => {
@@ -615,10 +743,12 @@ export default function TimeClock() {
               <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '10px 0' }}>Nothing booked — your approved leave shows here.</div>
             ) : upcoming.map(r => (
               <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 0', borderBottom: '1px solid var(--line)', fontSize: 12.5 }}>
-                <CalendarDays size={13} style={{ color: 'var(--pine)', flexShrink: 0 }} />
+                <CalendarDays size={13} style={{ color: 'var(--wk-brand)', flexShrink: 0 }} />
                 <span style={{ fontWeight: 700, textTransform: 'capitalize' }}>{r.type}</span>
                 <span style={{ color: 'var(--muted)', flex: 1 }}>{r.startDate} → {r.endDate}</span>
-                <span style={{ fontSize: 10.5, fontWeight: 800, textTransform: 'uppercase', color: r.status === 'approved' ? 'var(--pine)' : '#b45309' }}>{r.status}</span>
+                <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'capitalize', padding: '2px 9px', borderRadius: 999,
+                  background: r.status === 'approved' ? 'hsla(var(--color-green),0.1)' : 'rgba(180,83,9,0.1)',
+                  color: r.status === 'approved' ? 'hsl(var(--color-green))' : '#b45309' }}>{r.status}</span>
               </div>
             ));
           })()}
@@ -654,10 +784,10 @@ export default function TimeClock() {
               {Object.entries(KIND_LABEL).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
             </select>
             <input className="form-input" type="datetime-local" value={missed.at}
-              onChange={e => setMissed(m => ({ ...m, at: e.target.value }))} style={{ fontSize: 12.5 }} />
+              onChange={e => setMissed(m => ({ ...m, at: e.target.value }))} style={{ fontSize: 12.5, width: 210 }} />
             <input className="form-input" placeholder="Why was it missed? (required)" value={missed.note}
               onChange={e => setMissed(m => ({ ...m, note: e.target.value }))} style={{ flex: 1, minWidth: 200, fontSize: 12.5 }} />
-            <button className="primary-btn" onClick={submitMissed} style={{ fontSize: 12.5 }}>Send Request</button>
+            <button className="primary-btn" onClick={submitMissed} style={{ fontSize: 12.5 }}>Send request</button>
           </div>
           <p style={{ margin: '8px 0 0', fontSize: 11, color: 'var(--muted)' }}>
             This goes to your approver — nothing changes on your timesheet until they approve it.
@@ -686,38 +816,41 @@ export default function TimeClock() {
 
       {/* Summary — one composition bar (worked/idle/break) + payroll totals */}
       <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 16 }}>
-        <div style={{ flex: '2 1 380px', background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '18px 20px' }}>
-          <div style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 14 }}>How this period breaks down</div>
-          <div style={{ display: 'flex', height: 22, borderRadius: 8, overflow: 'hidden', background: 'var(--mist)' }}>
-            {COMP.map(([l, v, c]) => v > 0 ? <div key={l} title={`${l}: ${fmtMin(v)}`} style={{ width: `${(v / compTotal) * 100}%`, background: c }} /> : null)}
+        <div style={{ flex: '2 1 380px', background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, padding: '18px 20px', boxShadow: 'var(--wk-shadow)' }}>
+          <div style={{ ...HD, marginBottom: 14 }}>How this period breaks down</div>
+          {/* 2px surface gaps between segments (dataviz spacer rule) */}
+          <div style={{ display: 'flex', gap: 2, height: 22 }}>
+            {COMP.every(([, v]) => v === 0)
+              ? <div style={{ flex: 1, borderRadius: 6, background: 'var(--mist)' }} />
+              : COMP.map(([l, v, c]) => v > 0 ? <div key={l} title={`${l}: ${fmtMin(v)}`} style={{ width: `${(v / compTotal) * 100}%`, background: c, borderRadius: 6 }} /> : null)}
           </div>
           <div style={{ display: 'flex', gap: 18, marginTop: 12, flexWrap: 'wrap' }}>
             {COMP.map(([l, v, c]) => (
               <div key={l} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
                 <span style={{ width: 10, height: 10, borderRadius: 3, background: c, flexShrink: 0 }} />
                 <span style={{ color: 'var(--muted)', fontWeight: 600 }}>{l}</span>
-                <span style={{ fontWeight: 800 }}>{fmtMin(v)}</span>
+                <span style={{ fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{fmtMin(v)}</span>
               </div>
             ))}
           </div>
           {compIdle === 0 && <p style={{ margin: '10px 0 0', fontSize: 11, color: 'var(--muted)' }}>Idle is measured only while screen capture is running.</p>}
         </div>
-        <div style={{ flex: '1 1 230px', background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '18px 20px' }}>
-          <div style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 12 }}>Payroll</div>
+        <div style={{ flex: '1 1 230px', background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, padding: '18px 20px', boxShadow: 'var(--wk-shadow)' }}>
+          <div style={{ ...HD, marginBottom: 12 }}>Payroll</div>
           <div style={{ display: 'grid', gap: 10 }}>
             {[['Regular', fmtMin(PT.regMin || 0), 'var(--ink)'],
               ['Overtime', fmtMin(PT.otMin || 0), PT.otMin ? '#b45309' : 'var(--muted)'],
               ...(PT.dtMin ? [['Double time', fmtMin(PT.dtMin), '#b91c1c']] : []),
-              ['Total worked', fmtMin(PT.workedMin || 0), 'var(--pine)']].map(([l, v, c]) => (
+              ['Total worked', fmtMin(PT.workedMin || 0), 'var(--ink)']].map(([l, v, c]) => (
               <div key={l} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
                 <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>{l}</span>
-                <span style={{ fontSize: 15, fontWeight: 800, color: c }}>{v}</span>
+                <span style={{ fontSize: 15, fontWeight: 700, color: c, fontVariantNumeric: 'tabular-nums' }}>{v}</span>
               </div>
             ))}
             {payData?.rateSet && (
               <div style={{ borderTop: '1px solid var(--line)', marginTop: 4, paddingTop: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
                 <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 700 }}>Est. pay</span>
-                <span style={{ fontSize: 17, fontWeight: 800, color: 'var(--pine)' }}>${(PT.totalPay || 0).toFixed(2)}</span>
+                <span style={{ fontSize: 17, fontWeight: 700, color: 'var(--wk-brand)', fontVariantNumeric: 'tabular-nums' }}>${(PT.totalPay || 0).toFixed(2)}</span>
               </div>
             )}
           </div>
@@ -768,7 +901,7 @@ export default function TimeClock() {
                     <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--ink)', minWidth: 100 }}>{fmtDay(ds)}</span>
                     <span style={{ fontSize: 12, color: 'var(--muted)' }}>
                       {localTime(firstIn)} → {missingOut ? <span style={{ color: '#b45309', fontWeight: 700 }}>missing</span>
-                        : lastOut ? localTime(lastOut) : <span style={{ color: 'var(--pine)', fontWeight: 700 }}>still in</span>}
+                        : lastOut ? localTime(lastOut) : <span style={{ color: 'hsl(var(--color-green))', fontWeight: 700 }}>still in</span>}
                       {segs.length > 1 && <span> · {segs.length} sessions</span>}
                       {d.breakMin > 0 && <span> · {d.breakMin}m break</span>}
                     </span>
@@ -784,7 +917,7 @@ export default function TimeClock() {
                       ) : null;
                     })()}
                     <span style={{ flex: 1 }} />
-                    <span style={{ fontSize: 14, fontWeight: 800, color: 'var(--pine)' }}>{fmtMin(worked)}</span>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)', fontVariantNumeric: 'tabular-nums' }}>{fmtMin(worked)}</span>
                   </div>
                   {/* Timeline: each work session is a block placed by time-of-day; gaps are breaks. */}
                   <div style={{ position: 'relative', height: 24, borderRadius: 7, background: 'var(--mist)', overflow: 'hidden', marginBottom: 9 }}>
@@ -795,7 +928,7 @@ export default function TimeClock() {
                       return (
                         <div key={i} className="ts-block" title={`${localTime(s.in)} → ${s.out ? localTime(s.out) : 'missing'} · ${fmtMin(s.workedMin)}`}
                           style={{ position: 'absolute', left: `${l}%`, width: `${w}%`, top: 3, bottom: 3, borderRadius: 5,
-                            background: isOpen ? 'repeating-linear-gradient(45deg,rgba(180,83,9,.28),rgba(180,83,9,.28) 6px,rgba(180,83,9,.12) 6px,rgba(180,83,9,.12) 12px)' : 'var(--pine)',
+                            background: isOpen ? 'repeating-linear-gradient(45deg,rgba(180,83,9,.28),rgba(180,83,9,.28) 6px,rgba(180,83,9,.12) 6px,rgba(180,83,9,.12) 12px)' : 'var(--wk-brand)',
                             border: isOpen ? '1.5px dashed #b45309' : 'none' }} />
                       );
                     })}
@@ -807,7 +940,7 @@ export default function TimeClock() {
                       return (
                         <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '4px 9px', borderRadius: 8, fontSize: 11.5, fontWeight: 600,
                           background: open ? 'rgba(180,83,9,0.1)' : 'var(--mist)', color: open ? '#b45309' : 'var(--ink)' }}>
-                          <span className={open ? 'ts-open' : ''} style={{ width: 7, height: 7, borderRadius: '50%', background: open ? '#b45309' : 'var(--pine)', flexShrink: 0 }} />
+                          <span className={open ? 'ts-open' : ''} style={{ width: 7, height: 7, borderRadius: '50%', background: open ? '#b45309' : 'var(--wk-brand)', flexShrink: 0 }} />
                           {localTime(s.in)} → {s.out ? localTime(s.out) : 'missing'}
                           <span style={{ color: 'var(--muted)', fontWeight: 500 }}>{fmtMin(s.workedMin)}</span>
                           {open
@@ -823,10 +956,10 @@ export default function TimeClock() {
           })()}
           {payData && (
             <div style={{ display: 'flex', alignItems: 'center', padding: '14px 16px', marginTop: 4, borderTop: '2px solid var(--line)' }}>
-              <span style={{ fontSize: 13, fontWeight: 800 }}>Total this period</span>
+              <span style={{ fontSize: 13, fontWeight: 700 }}>Total this period</span>
               <span style={{ flex: 1 }} />
               {PT.breakMin > 0 && <span style={{ fontSize: 12, color: 'var(--muted)', marginRight: 16 }}>{PT.breakMin}m break</span>}
-              <span style={{ fontSize: 16, fontWeight: 800, color: 'var(--pine)' }}>{fmtMin(PT.workedMin || 0)}</span>
+              <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--ink)', fontVariantNumeric: 'tabular-nums' }}>{fmtMin(PT.workedMin || 0)}</span>
             </div>
           )}
         </div>
@@ -838,11 +971,11 @@ export default function TimeClock() {
 
       {/* Time off */}
       {tab === 'timeoff' && (<>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 8px' }}>
-        <CalendarDays size={15} style={{ color: 'var(--pine)' }} />
-        <span style={{ fontSize: 13.5, fontWeight: 800 }}>Time Off</span>
-      </div>
-      <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '14px 16px', marginBottom: 10 }}>
+      <div style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, padding: '16px 18px', marginBottom: 12, boxShadow: 'var(--wk-shadow)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 12 }}>
+          <span className="wkc-chip"><CalendarDays size={14} /></span>
+          <span style={HD}>Request time off</span>
+        </div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
           <select className="form-input" value={toForm.type} onChange={e => setToForm(f => ({ ...f, type: e.target.value }))}
             style={{ width: 140, fontSize: 12.5 }}>
@@ -859,7 +992,7 @@ export default function TimeClock() {
         </div>
       </div>
       <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'flex-start' }}>
-      <div style={{ flex: '1.7 1 440px', background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden', marginBottom: 24 }}>
+      <div style={{ flex: '1.7 1 440px', background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, overflow: 'hidden', marginBottom: 24, boxShadow: 'var(--wk-shadow)' }}>
         {(timeoff || []).length === 0 && (
           <div style={{ padding: '16px 18px', fontSize: 12.5, color: 'var(--muted)', textAlign: 'center' }}>
             No time-off requests yet.
@@ -872,7 +1005,8 @@ export default function TimeClock() {
             {r.note && <span style={{ fontSize: 11.5, color: 'var(--muted)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>“{r.note}”</span>}
             <div style={{ flex: 1 }} />
             {r.decideNote && <span style={{ fontSize: 11, color: 'var(--muted)' }} title={r.decideNote}>💬</span>}
-            <span style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.04em', color: TO_STATUS[r.status] || 'var(--muted)' }}>
+            <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'capitalize', padding: '2px 10px', borderRadius: 999,
+              background: TO_TINT[r.status] || 'var(--mist)', color: TO_STATUS[r.status] || 'var(--muted)' }}>
               {r.status}
             </span>
           </div>
@@ -880,8 +1014,8 @@ export default function TimeClock() {
       </div>
 
       {/* Year-at-a-glance side panel */}
-      <div style={{ flex: '1 1 280px', background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '18px 20px' }}>
-        <div style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 12 }}>
+      <div style={{ flex: '1 1 280px', background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, padding: '18px 20px', boxShadow: 'var(--wk-shadow)' }}>
+        <div style={{ ...HD, marginBottom: 12 }}>
           {new Date().getFullYear()} at a glance
         </div>
         {(() => {
@@ -897,7 +1031,7 @@ export default function TimeClock() {
           const pending = (timeoff || []).filter(r => r.status === 'pending').length;
           return (
             <>
-              <div style={{ fontSize: 26, fontWeight: 800, color: 'var(--pine)' }}>{totalDays}<span style={{ fontSize: 13, color: 'var(--muted)', fontWeight: 600 }}> day{totalDays !== 1 ? 's' : ''} approved</span></div>
+              <div style={{ fontSize: 26, fontWeight: 700, color: 'var(--wk-brand)', fontVariantNumeric: 'tabular-nums' }}>{totalDays}<span style={{ fontSize: 13, color: 'var(--muted)', fontWeight: 600 }}> day{totalDays !== 1 ? 's' : ''} approved</span></div>
               <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
                 {Object.keys(byType).length === 0 && <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No approved leave this year yet.</div>}
                 {Object.entries(byType).map(([t, n]) => (
@@ -942,11 +1076,11 @@ export default function TimeClock() {
           acknowledges before the first in-punch is recorded. */}
       {monGate && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1440, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-          <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 540, maxHeight: 'min(90dvh, 680px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
+          <div style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, width: '100%', maxWidth: 540, maxHeight: 'min(90dvh, 680px)', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 70px rgba(17,24,39,0.30)', fontFamily: 'var(--wk-font)' }}>
             <div style={{ padding: '15px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
-              <Monitor size={18} style={{ color: 'var(--pine)' }} />
+              <span className="wkc-chip"><Monitor size={14} /></span>
               <div style={{ flex: 1 }}>
-                <h3 style={{ margin: 0, fontSize: 15, fontWeight: 800 }}>Before You Clock In</h3>
+                <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>Before you clock in</h3>
                 <p style={{ margin: 0, fontSize: 11.5, color: 'var(--muted)' }}>Please read and acknowledge how this device is monitored.</p>
               </div>
               <button onClick={() => setMonGate(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
@@ -957,7 +1091,7 @@ export default function TimeClock() {
             <div style={{ padding: '12px 22px', borderTop: '1px solid var(--line)' }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: 9, fontSize: 13, fontWeight: 600, cursor: 'pointer', marginBottom: 12 }}>
                 <input type="checkbox" checked={monAgree} onChange={e => setMonAgree(e.target.checked)}
-                  style={{ width: 16, height: 16, accentColor: 'var(--pine)' }} />
+                  style={{ width: 16, height: 16, accentColor: 'var(--wk-brand)' }} />
                 I understand and agree
               </label>
               <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>

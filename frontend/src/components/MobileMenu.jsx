@@ -137,7 +137,7 @@ export default function MobileMenu({ open, onClose, onNavigate, activeView, them
         <div className="mobile-menu-avatar">{initials}</div>
         <div style={{ minWidth: 0 }}>
           <div className="mobile-menu-name">{name}</div>
-          <div className="mobile-menu-role">{roleMeta.label} · Greens Global</div>
+          <div className="mobile-menu-role">{roleMeta.label}</div>
         </div>
       </div>
       <div className="mobile-menu-rows">

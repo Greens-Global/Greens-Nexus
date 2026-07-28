@@ -8,6 +8,7 @@ import Sidebar from "./components/Sidebar";
 import MobileNav from "./components/MobileNav";
 import MobileMenu from "./components/MobileMenu";
 import TopHeader from "./components/TopHeader";
+import { HeaderTabsProvider } from "./components/ModuleTabs";
 import AdminPanel from "./components/AdminPanel";
 import NotificationToasts from "./components/NotificationToasts";
 import TimeclockWidget from "./components/TimeclockWidget";
@@ -216,6 +217,12 @@ export default function App() {
       </Suspense>
     );
   }
+  // Dev-only login preview (/__login) — with VITE_DEV_SKIP_AUTH the MSAL gates
+  // never show LoginPage, so this is the only way to see it locally. Stripped
+  // from production builds by the DEV guard.
+  if (import.meta.env.DEV && window.location.pathname === '/__login') {
+    return <LoginPage />;
+  }
   return <MainApp />;
 }
 
@@ -387,6 +394,9 @@ function MainApp() {
           <MobileMenu open={mobileMenuOpen} onClose={() => setMobileMenuOpen(false)}
             onNavigate={navigate} activeView={activeView}
             theme={theme} onThemeToggle={() => setTheme(t => t === "dark" ? "light" : "dark")} />
+          {/* HeaderTabsProvider: modules publish their tab strip into the header
+              center via <ModuleTabs> (Work OS shell — Stella-style layout) */}
+          <HeaderTabsProvider>
           <main className={`main-content${sidebarCollapsed ? " main-collapsed" : ""}`}>
             <TopHeader
               title={viewLabel(activeView)}
@@ -401,7 +411,11 @@ function MainApp() {
               prevLabel={navHistory.length > 0 ? viewLabel(navHistory[navHistory.length - 1].view) : null}
               onOpenAdmin={tab => { setAdminPanelTab(tab); setAdminPanelOpen(true); }}
             />
-            <div className={activeView === 'tasks' ? 'viewport viewport-flush' : 'viewport'}>
+            {/* viewport-desk: the Work OS canvas (soft gray --wk-bg) for the
+                dashboard surfaces — see the Work OS section in style.css */}
+            <div className={activeView === 'tasks' ? 'viewport viewport-flush'
+              : (activeView === 'dashboard' || activeView === 'manager-dashboard') ? 'viewport viewport-desk'
+              : 'viewport'}>
               <ViewErrorBoundary resetKey={`${activeView}/${activeSub}/${viewEpoch}`}>
               <Suspense fallback={
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh' }}>
@@ -419,6 +433,7 @@ function MainApp() {
               </ViewErrorBoundary>
             </div>
           </main>
+          </HeaderTabsProvider>
         </div>
         <AdminPanel
           open={adminPanelOpen}
