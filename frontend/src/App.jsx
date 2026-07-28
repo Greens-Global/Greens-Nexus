@@ -38,6 +38,7 @@ const HR                  = lazy(() => import("./views/HR"));
 const Documents           = lazy(() => import("./views/Documents"));
 const InvestorRelations   = lazy(() => import("./views/InvestorRelations"));
 const Marketing           = lazy(() => import("./views/Marketing"));
+const PdfEditorModule     = lazy(() => import("./views/PdfEditorModule"));
 const Admin               = lazy(() => import("./views/Admin"));
 const ExternalLinks       = lazy(() => import("./views/ExternalLinks"));
 const ManagerDashboard    = lazy(() => import("./views/ManagerDashboard"));
@@ -151,6 +152,7 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
     case "hr":                 return <HR activeSub={activeSub} onSubChange={onSubChange} />;
     case "documents":          return <Documents activeSub={activeSub} onSubChange={onSubChange} />;
     case "marketing":          return <Marketing activeSub={activeSub} onSubChange={onSubChange} />;
+    case "pdf-editor":         return <PdfEditorModule />;
     case "inventory":          return <InventoryManagement activeSub={activeSub} onSubChange={onSubChange} onNavigate={onNavigate} />;
     case "admin":              return <Admin />;
     case "external-links":     return <ExternalLinks />;
@@ -350,6 +352,7 @@ function MainApp() {
       : `/${seg}${activeSub ? `/${activeSub}` : ''}`;
     if (window.location.pathname !== path) window.history.pushState(null, '', path);
   }, [activeView, activeSub]);
+
 
   return (
     <>

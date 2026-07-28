@@ -118,6 +118,7 @@ export const NAV = [
     view: "marketing", code: "MKT", label: "Marketing", icon: Megaphone, minRole: 'supervisor',
   },
   { view: "credvault", code: "VLT", label: "Credential Vault", icon: KeyRound, minRole: 'supervisor' },
+  { view: "pdf-editor", code: "PDF", label: "PDF Editor", icon: FileText },
   { divider: true },
   { view: "support", code: "SUP",        label: "Support",        icon: HelpCircle },
   { view: "external-links", code: "EXT", label: "External Links", icon: ExternalLink },
