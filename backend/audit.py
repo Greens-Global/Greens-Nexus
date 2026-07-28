@@ -9,6 +9,7 @@ from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 from database import SessionLocal
 import models
+from act_as import resolve_target as _resolve_act_as_target
 
 
 def _describe(method: str, path: str) -> tuple[str, str]:
@@ -252,6 +253,24 @@ def _extract_email(request: Request) -> str:
         return "unknown"
 
 
+def _acting_as_target(request: Request, real_email: str, db) -> str:
+    """If this request was made during an active Act As session, return who
+    was being impersonated — so a mutation shows up as e.g.
+    "pranshu@x.com approved requisition REQ-12" with details.acting_as =
+    "jane@x.com", never just silently as jane. real_email always comes from
+    the raw bearer token (see _extract_email), independent of the identity
+    get_current_user hands the route — so this is never lost even though the
+    overlay changes what the route itself sees."""
+    session_id = request.headers.get("x-act-as-session", "")
+    if not session_id:
+        return ""
+    try:
+        target = _resolve_act_as_target(session_id, real_email, db)
+    except Exception:
+        return ""
+    return target["email"] if target else ""
+
+
 # Resources where the request body carries the meaningful business event (item,
 # quantity, reason, condition, etc.) that a path-only log entry would discard.
 # These fields, when present in the JSON body, are copied into `details` so an
@@ -341,6 +360,10 @@ class AuditMiddleware(BaseHTTPMiddleware):
                 sec_action = "Authentication failed" if response.status_code == 401 else "Authorization denied"
                 db = SessionLocal()
                 try:
+                    sec_details = {"path": path, "method": method, "status": response.status_code}
+                    acting_as = _acting_as_target(request, user_email, db)
+                    if acting_as:
+                        sec_details["acting_as"] = acting_as
                     db.add(models.AuditLog(
                         timestamp=datetime.utcnow().isoformat(),
                         user_email=user_email,
@@ -348,7 +371,7 @@ class AuditMiddleware(BaseHTTPMiddleware):
                         action=sec_action,
                         resource_type=resource,
                         resource_id="",
-                        details=json.dumps({"path": path, "method": method, "status": response.status_code}),
+                        details=json.dumps(sec_details),
                         ip_address=ip,
                     ))
                     db.commit()
@@ -374,6 +397,9 @@ class AuditMiddleware(BaseHTTPMiddleware):
 
             db = SessionLocal()
             try:
+                acting_as = _acting_as_target(request, user_email, db)
+                if acting_as:
+                    details["acting_as"] = acting_as
                 db.add(models.AuditLog(
                     timestamp=datetime.utcnow().isoformat(),
                     user_email=user_email,

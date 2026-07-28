@@ -77,6 +77,25 @@ export function onBackendHealth(fn) {
 }
 export function isBackendDown() { return _backendDown; }
 
+// ── Act As (Jul 2026) ──────────────────────────────────────────────────────
+// While a session is active, every request (not just Act-As-specific ones)
+// carries X-Act-As-Session so the backend's get_current_user overlays the
+// impersonated employee's identity — the whole app then just works as that
+// employee for free (same role/permissions/data everywhere), no per-view
+// changes needed. Persisted in sessionStorage so a page refresh doesn't
+// silently drop back to the real account mid-session.
+const ACT_AS_KEY = 'nexus:act-as-session';
+let _actAsSessionId = sessionStorage.getItem(ACT_AS_KEY) || null;
+export function getActAsSessionId() { return _actAsSessionId; }
+export function setActAsSessionId(id) {
+  _actAsSessionId = id;
+  if (id) sessionStorage.setItem(ACT_AS_KEY, id);
+  else sessionStorage.removeItem(ACT_AS_KEY);
+}
+function _actAsHeader() {
+  return _actAsSessionId ? { 'X-Act-As-Session': _actAsSessionId } : {};
+}
+
 // ── Keep-warm ─────────────────────────────────────────────────────────────────
 // The dev/prod API is Azure App Service, which parks the process after a few
 // idle minutes and then cold-starts (5-15s) on the next request — so the FIRST
@@ -146,6 +165,7 @@ async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
           // FormData bodies set their own multipart boundary — forcing JSON breaks them
           ...(options.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
           ...authHeader,
+          ..._actAsHeader(),
           ...(options.headers ?? {}),
         },
       });
@@ -217,7 +237,7 @@ async function reqBlob(path, options = {}, attempt = 1, tokenRefreshed = false) 
       res = await fetch(`${BASE}${path}`, {
         ...options,
         signal: controller.signal,
-        headers: { ...authHeader, ...(options.headers ?? {}) },
+        headers: { ...authHeader, ..._actAsHeader(), ...(options.headers ?? {}) },
       });
     } finally {
       clearTimeout(tid);
@@ -548,6 +568,11 @@ export const api = {
   getItemAllocators:   ()             => cachedGet('/items/allocators'),
   getItemApprovers:    ()             => cachedGet('/items/approvers'),
   getRolesDirectory:   ()             => cachedGet('/roles/directory'),
+  // Act As — start/stop are excluded from cachedGet (they're mutations); the
+  // eligible-targets list is fine to cache briefly like other directories.
+  getActAsEligibleTargets: ()         => cachedGet('/act-as/eligible-targets', 30_000),
+  startActAs:          (target_email) => req('/act-as/start', { method: 'POST', body: JSON.stringify({ target_email }) }),
+  stopActAs:           (session_id)   => req('/act-as/stop',  { method: 'POST', body: JSON.stringify({ session_id }) }),
   // Curated Nexus People (nexus_employees), not the ~150-account M365 GAL — for
   // assigning items to real Nexus people. Same {email,name} shape.
   getPeopleDirectory:  ()             => cachedGet('/myhr/directory'),

@@ -2332,6 +2332,26 @@ class StepUpSession(Base):
     user_agent  = Column(String, default="")
 
 
+class ActAsSession(Base):
+    """A live 'Act As' impersonation (Jul 2026) — a Manager/IT Admin/Global Admin
+    working as another, always lower-role, employee so they see and can do
+    exactly what that employee can. auth.get_current_user layers the TARGET's
+    identity on top of the real, Entra-verified caller for every downstream
+    permission check, notification, and ownership field — see act_as.py for the
+    full contract. audit.py independently decodes the raw bearer token, so the
+    real actor is never lost from the audit trail even while this overlay is
+    active. New table — create_all builds it, no migration line needed."""
+    __tablename__ = "act_as_sessions"
+    id           = Column(String, primary_key=True)            # uuid
+    real_email   = Column(String, nullable=False, index=True)  # who is actually signed in
+    target_email = Column(String, nullable=False)              # who they're acting as
+    started_at   = Column(String, default="")
+    expires_at   = Column(String, default="", index=True)
+    ended_at     = Column(String, default="")                  # set by /act-as/stop
+    ip           = Column(String, default="")
+    user_agent   = Column(String, default="")
+
+
 # ── Investor Relations (Jul 2026) ────────────────────────────────────────────
 # GP-side capital-management platform for single-purpose-LLC deals and small
 # syndications (not blind-pool PE funds): one deal per property/project, a
