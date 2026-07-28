@@ -2082,7 +2082,7 @@ class AsanaTaskLink(Base):
     # and priority that Asana simply cannot express. Comparing an inbound digest
     # against it therefore never matched, so every pull re-applied every task,
     # bumped modified_at and logged another "Updated from Asana" - 288 phantom
-    # activity entries per task per day at the 5-minute poll.
+    # activity entries per task per day at the inbound poll.
     last_inbound_hash = Column(String, default="")
 
 
@@ -2569,3 +2569,8 @@ class AsanaImportJob(Base):
     current      = Column(String, default="")          # project being imported now
     result       = Column(JSON, default=dict)          # the counts dict the UI already renders
     error        = Column(String, default="")
+    # Cancel is a REQUEST, not an act: the worker is mid-project on another
+    # thread (another process, on dev) and killing it there would leave that
+    # project half-imported. The loop checks this between projects and stops
+    # cleanly. Import is additive, so a partial run is safe to resume.
+    cancel_requested = Column(Boolean, default=False)

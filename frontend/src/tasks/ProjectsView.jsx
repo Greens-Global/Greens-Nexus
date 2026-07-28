@@ -25,7 +25,7 @@ const VISIBILITY_OPTS = [
 export default function ProjectsView({ onNavigate }) {
   const isMobile = useIsMobile();
   const store = useTasks();
-  const { projects, portfolios, tasks, nameOf, portfolioById,
+  const { projects, portfolios, tasks, nameOf, portfolioById, teams,
     createProject, updateProject, deleteProject } = store;
   const people = usePeople();
 
@@ -38,16 +38,23 @@ export default function ProjectsView({ onNavigate }) {
   // Rollups per project: count / done / progress / overdue, from live tasks.
   const cards = useMemo(() => {
     const q = search.trim().toLowerCase();
+    // A team serves many projects, so this reads the team side of the link
+    // rather than any single field on the project.
+    const teamsOf = (pid) => (teams || []).filter((t) => teamInProject(t, pid));
     return projects
       .filter((p) => showArchived || !p.archived)
-      .filter((p) => !q || p.name.toLowerCase().includes(q) || (p.hrDepartmentName || '').toLowerCase().includes(q))
+      .map((p) => ({ ...p, teams: teamsOf(p.id) }))
+      // Team names are searchable too now that they are what the card shows.
+      .filter((p) => !q || p.name.toLowerCase().includes(q)
+        || (p.hrDepartmentName || '').toLowerCase().includes(q)
+        || p.teams.some((t) => (t.name || '').toLowerCase().includes(q)))
       .map((p) => {
         const own = tasks.filter((t) => t.projectId === p.id);
         return { project: p, stats: taskStats(own) };
       })
       .sort((a, b) => Number(a.project.archived) - Number(b.project.archived)
         || a.project.name.localeCompare(b.project.name));
-  }, [projects, tasks, search, showArchived]);
+  }, [projects, tasks, teams, search, showArchived]);
 
   const openProject = openId ? projects.find((p) => p.id === openId) : null;
 
@@ -142,7 +149,20 @@ export default function ProjectsView({ onNavigate }) {
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontSize: 14.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
-                    {p.hrDepartmentName && <span style={chip(dcolor, `${dcolor}1a`)}>{p.hrDepartmentName}</span>}
+                    {/* The teams that work this project, each in its own color.
+                        This used to show hrDepartmentName - the CREATOR's People
+                        department - so every project imported by one person read
+                        as that person's department ("IT" across the board),
+                        which says nothing about the project. Department is the
+                        fallback only where no team is assigned yet. */}
+                    {p.teams.length > 0
+                      ? p.teams.slice(0, 2).map((t) => (
+                          <span key={t.id} style={chip(t.color || NX.blue, `${t.color || NX.blue}1a`)}>{t.name}</span>
+                        ))
+                      : p.hrDepartmentName && <span style={chip(dcolor, `${dcolor}1a`)}>{p.hrDepartmentName}</span>}
+                    {p.teams.length > 2 && (
+                      <span title={p.teams.map((t) => t.name).join(', ')} style={chip(NX.dim, NX.border2)}>+{p.teams.length - 2}</span>
+                    )}
                     {p.archived && <span style={chip(NX.faint, NX.border2)}><Archive size={11} />Archived</span>}
                   </div>
                 </div>

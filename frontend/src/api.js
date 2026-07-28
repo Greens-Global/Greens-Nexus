@@ -347,6 +347,8 @@ export const api = {
   // minutes and Azure kills any request at ~230s. Poll asanaSyncImportAllStatus.
   asanaSyncImportAll: () => req("/asana-sync/import-all", { method: "POST" }),
   asanaSyncImportAllStatus: () => req("/asana-sync/import-all/status"),
+  // Asks the run to stop at the next project boundary; it does not kill it.
+  asanaSyncImportAllCancel: () => req("/asana-sync/import-all/cancel", { method: "POST" }),
   asanaSyncPurgeOrphans: (apply) => req(`/asana-sync/purge-orphans?apply=${apply ? "true" : "false"}`, { method: "POST", timeoutMs: 600000 }),
   getAsanaSyncProjects: () => req("/asana-sync/asana-projects", { timeoutMs: 60000 }),
   getAsanaWebhooks: () => req("/asana-sync/webhooks"),

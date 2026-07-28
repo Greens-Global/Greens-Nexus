@@ -135,6 +135,80 @@ class ImportJobStateTests(unittest.TestCase):
         self.assertEqual(len(self.started), 1)   # the worker was actually dispatched
 
 
+class CancelTests(unittest.TestCase):
+    """Cancel is a request the worker honors at the next project boundary, not
+    a kill - stopping mid-project would leave that project half-imported."""
+
+    @classmethod
+    def setUpClass(cls):
+        models.Base.metadata.create_all(bind=database.engine)
+
+    def setUp(self):
+        self.db = database.SessionLocal()
+        self.db.query(models.AsanaImportJob).delete()
+        self.db.commit()
+
+    def tearDown(self):
+        self.db.close()
+
+    def _running(self, **kw):
+        kw.setdefault("heartbeat_at", now_iso())
+        j = models.AsanaImportJob(id=gen_id(), status="running", started_at=now_iso(),
+                                  total=10, done=3, **kw)
+        self.db.add(j)
+        self.db.commit()
+        return j
+
+    def test_cancel_flags_the_job_and_leaves_it_running(self):
+        """It keeps running until the worker reaches a boundary; reporting it as
+        stopped straight away would be a lie while a project is still importing."""
+        job = self._running()
+
+        out = task_config.asana_sync_import_all_cancel(db=self.db)
+
+        self.assertEqual(out["status"], "running")
+        self.assertTrue(out["cancelling"])
+        self.assertTrue(self.db.get(models.AsanaImportJob, job.id).cancel_requested)
+
+    def test_cancelling_a_job_whose_worker_is_gone_retires_it(self):
+        """Nothing is left to notice the flag, so waiting for a clean stop would
+        hang the UI forever."""
+        self._running(heartbeat_at=_ago(task_config._IMPORT_JOB_STALE_SECONDS + 60))
+
+        out = task_config.asana_sync_import_all_cancel(db=self.db)
+
+        self.assertEqual(out["status"], "cancelled")
+
+    def test_cancel_with_nothing_running_is_a_noop(self):
+        self.assertEqual(task_config.asana_sync_import_all_cancel(db=self.db)["status"], "idle")
+
+    def test_the_loop_stops_at_the_next_project(self):
+        """And reports what it did import - the run is additive, so the finished
+        projects stay and a later run picks up the rest."""
+        self.db.query(models.TaskProject).delete()
+        for name in ("Alpha", "Beta"):
+            self.db.add(models.TaskProject(id=f"c-{name}", name=name, created_at=now_iso()))
+        self.db.commit()
+        real = (asana_sync.import_project, asana_sync.ensure_project_map, asana_sync.resolve_dependencies)
+        asana_sync.import_project = lambda *a, **kw: None
+        asana_sync.ensure_project_map = lambda *a, **kw: None
+        asana_sync.resolve_dependencies = lambda *a, **kw: None
+        try:
+            seen = []
+            counts = task_config._import_asana_projects(
+                self.db, object(), ProgressReportingTests._FakeAsana(), ["gid-1", "gid-2"],
+                {"email": "s@x.com"},
+                on_progress=lambda d, t, n: seen.append(n),
+                # Stop before the second project.
+                should_stop=lambda: len(seen) >= 2)
+        finally:
+            asana_sync.import_project, asana_sync.ensure_project_map, asana_sync.resolve_dependencies = real
+
+        self.assertTrue(counts["cancelled"])
+        self.assertEqual(counts["projects"], 1)          # Alpha finished, Beta never started
+        self.assertNotIn("Beta", seen)
+
+
 class HeartbeatTests(unittest.TestCase):
     """The heartbeat says the WORKER is alive, which is not the same as saying
     progress was made - a single large project can take longer than the whole

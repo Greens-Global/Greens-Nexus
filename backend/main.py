@@ -258,6 +258,7 @@ def _run_migrations():
             "ALTER TABLE nexus_employees ADD COLUMN division VARCHAR DEFAULT ''",
             "ALTER TABLE nexus_employees ADD COLUMN identity_type VARCHAR DEFAULT 'internal'",
             "ALTER TABLE nexus_employees ADD COLUMN display_name VARCHAR DEFAULT ''",
+            "ALTER TABLE asana_import_jobs ADD COLUMN cancel_requested BOOLEAN DEFAULT 0",
             "ALTER TABLE ir_funds ADD COLUMN property_asset_id VARCHAR DEFAULT ''",
             # Share panel (Jul 2026): per-person/per-team project access role.
             "ALTER TABLE task_projects ADD COLUMN member_roles JSON DEFAULT '{}'",
@@ -411,6 +412,7 @@ def _run_migrations():
         # External users: identity type (internal MS365 / Entra B2B guest / non-MS365 external)
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS identity_type VARCHAR DEFAULT 'internal'",
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS display_name VARCHAR DEFAULT ''",
+        "ALTER TABLE asana_import_jobs ADD COLUMN IF NOT EXISTS cancel_requested BOOLEAN DEFAULT FALSE",
         # Investor Relations: optional soft link to an Asset Management PropertyAsset.id
         "ALTER TABLE ir_funds ADD COLUMN IF NOT EXISTS property_asset_id VARCHAR DEFAULT ''",
         # HR mailbox export: progress total (table itself is created by create_all)

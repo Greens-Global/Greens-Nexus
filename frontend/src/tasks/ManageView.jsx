@@ -333,7 +333,10 @@ function AsanaSyncPanel({ store }) {
   const importDone = useCallback((job) => {
     const res = job.result || {};
     if (job.status === 'error') { setErr(job.error || 'Import failed.'); return; }
-    setMsg(`Imported ${res.projects || 0} project(s): +${res.tasks || 0} task(s), `
+    // A cancelled run keeps everything it already imported - saying so matters,
+    // or it reads as if the work was thrown away.
+    setMsg((job.status === 'cancelled' ? 'Import stopped. Kept what it had already imported: ' : '')
+      + `Imported ${res.projects || 0} project(s): +${res.tasks || 0} task(s), `
       + `+${res.comments || 0} comment(s), +${res.attachments || 0} attachment(s)`
       + (res.skipped ? `, ${res.skipped} already present` : '')
       + `. ${res.mapped ?? res.projects ?? 0} project(s) mapped.`
@@ -372,6 +375,11 @@ function AsanaSyncPanel({ store }) {
     } catch (e) { setErr(e.message || String(e)); }
   };
 
+  const cancelImport = async () => {
+    try { setImportJob(await api.asanaSyncImportAllCancel()); }
+    catch (e) { setErr(e.message || String(e)); }
+  };
+
   // Step 2 of setup - the same setting as the "Sync enabled" checkbox above, so the
   // three steps read as a sequence. A toggle, not a one-way switch: turning sync off
   // is the fastest way to stop a mess reaching the shared Asana workspace.
@@ -382,7 +390,7 @@ function AsanaSyncPanel({ store }) {
       const c = await api.setAsanaSyncConfig({ enabled: next });
       setCfg((p) => ({ ...p, ...c }));
       setMsg(next
-        ? 'Sync is ON - mapped projects pull every 5 minutes and push changes out automatically (on the deployed API).'
+        ? 'Sync is ON - mapped projects pull from Asana every 2 minutes and push changes out automatically (on the deployed API).'
         : 'Sync is OFF - nothing pulls or pushes until you turn it back on. Manual Pull / Push all still work.');
     } catch (e) { setErr(e.message || String(e)); } finally { setBusy(''); }
   };
@@ -509,9 +517,16 @@ function AsanaSyncPanel({ store }) {
           // Progress comes from the server, so this survives a page reload and
           // shows the same state to anyone else watching.
           <div style={{ marginTop: 12 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: NX.dim, marginBottom: 5 }}>
-              <span>{importJob.current ? `Importing ${importJob.current}` : 'Listing projects in Asana'}</span>
-              <span>{importJob.total ? `${importJob.done} of ${importJob.total}` : ''}</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12, color: NX.dim, marginBottom: 5 }}>
+              <span>{importJob.cancelling
+                ? `Stopping after ${importJob.current || 'this project'}…`
+                : (importJob.current ? `Importing ${importJob.current}` : 'Listing projects in Asana')}</span>
+              <span style={{ marginLeft: 'auto' }}>{importJob.total ? `${importJob.done} of ${importJob.total}` : ''}</span>
+              <button onClick={cancelImport} disabled={importJob.cancelling}
+                style={{ ...btn('outline'), height: 24, fontSize: 11.5, padding: '0 9px',
+                         opacity: importJob.cancelling ? 0.5 : 1 }}>
+                {importJob.cancelling ? 'Stopping…' : 'Cancel'}
+              </button>
             </div>
             <div style={{ height: 6, borderRadius: 999, background: NX.border, overflow: 'hidden' }}>
               <div style={{
@@ -522,12 +537,13 @@ function AsanaSyncPanel({ store }) {
             </div>
             <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 6 }}>
               This runs on the server. You can leave this page; the import keeps going.
+              Cancelling stops it after the current project and keeps everything already imported.
             </div>
           </div>
         )}
         <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 8, lineHeight: 1.55 }}>
           <b>Import</b> creates and maps a Nexus project for every Asana project the token can see -
-          additive, so re-running tops them up and never deletes. <b>Sync</b> toggles the 5-minute pull
+          additive, so re-running tops them up and never deletes. <b>Sync</b> toggles the 2-minute pull
           and automatic pushes; turning it off stops both immediately, and manual Pull / Push all still
           work. <b>Webhooks</b> add live streaming and need a public API URL, so they only register from
           the deployed site.

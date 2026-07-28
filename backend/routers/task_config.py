@@ -154,7 +154,8 @@ def asana_import(body: AsanaImportBody, user: dict = Depends(get_current_user), 
     return _import_asana_projects(db, cfg, asana, gids, user, email_map)
 
 
-def _import_asana_projects(db, cfg, asana, gids, user, email_map=None, on_progress=None):
+def _import_asana_projects(db, cfg, asana, gids, user, email_map=None, on_progress=None,
+                           should_stop=None):
     """Create-or-adopt a Nexus project per Asana project, map it, and import its
     contents through asana_sync.import_project (which is _pull_task_tree, the
     one and only inbound engine).
@@ -178,8 +179,14 @@ def _import_asana_projects(db, cfg, asana, gids, user, email_map=None, on_progre
 
     for i, gid in enumerate(gids):
         pname = ""
+        # Between projects is the only safe place to stop: a project in flight
+        # would be left half-imported. Checked before the work, so cancelling
+        # takes effect at the next boundary rather than at the end.
+        if should_stop and should_stop():
+            counts["cancelled"] = True
+            break
         try:
-            # Serialize each project against the scheduled 5-minute pull. The
+            # Serialize each project against the scheduled pull. The
             # lock is transaction-scoped and this loop commits per project, so
             # it is taken per project rather than once around the whole run -
             # which is the granularity that matters, since duplicates come from
@@ -640,7 +647,7 @@ def import_job_to_dict(j: models.AsanaImportJob) -> dict:
             "startedAt": j.started_at, "finishedAt": j.finished_at,
             "total": j.total or 0, "done": j.done or 0, "current": j.current or "",
             "result": j.result if isinstance(j.result, dict) else {},
-            "error": j.error or ""}
+            "error": j.error or "", "cancelling": bool(j.cancel_requested)}
 
 
 def _job_is_alive(j: models.AsanaImportJob) -> bool:
@@ -720,13 +727,21 @@ def _run_import_all(job_id: str, token: str, workspace_gid: str, user: dict):
             job.heartbeat_at = now_iso()
             db.commit()
 
+        def cancelled():
+            # Re-read rather than trusting the in-session object: the cancel
+            # arrives on a different request, and on dev usually a different
+            # process, so this session's copy would never show it.
+            db.expire(job, ["cancel_requested"])
+            return bool(job.cancel_requested)
+
         # The stored token, wrapped the same way Import wraps a pasted one, so
         # this can never delete anything in Nexus whatever delete_sync is set to.
         token_cfg = asana_sync.TokenConfig(token, workspace_gid or "")
         counts = _import_asana_projects(db, token_cfg, asana, gids, user,
-                                        on_progress=progress)
+                                        on_progress=progress, should_stop=cancelled)
         counts["mapped"] = db.query(models.AsanaProjectMap).count()
-        job.result, job.status = counts, "done"
+        job.result = counts
+        job.status = "cancelled" if counts.get("cancelled") else "done"
         job.current, job.finished_at = "", now_iso()
         db.commit()
     except Exception as e:
@@ -782,6 +797,28 @@ def asana_sync_import_all(user: dict = Depends(get_current_user), db: Session = 
     db.commit()
     threading.Thread(target=_run_import_all, daemon=True,
                      args=(job.id, token, cfg.workspace_gid or "", dict(user))).start()
+    return import_job_to_dict(job)
+
+
+@router.post("/asana-sync/import-all/cancel", dependencies=[Depends(require_manager)])
+def asana_sync_import_all_cancel(db: Session = Depends(get_db)):
+    """Ask a running import to stop at the next project boundary.
+
+    A request, not a kill: the worker is on another thread (another process on
+    dev), and stopping it mid-project would leave that project half-imported.
+    What is already in stays in - import is additive, so re-running later
+    resumes rather than duplicating."""
+    job = (db.query(models.AsanaImportJob)
+             .filter(models.AsanaImportJob.status == "running")
+             .order_by(models.AsanaImportJob.started_at.desc()).first())
+    if not job:
+        return {"status": "idle"}
+    job.cancel_requested = True
+    # A job whose worker is already gone would never notice the flag, so retire
+    # it here rather than leaving the UI waiting for a stop that cannot come.
+    if not _job_is_alive(job):
+        job.status, job.finished_at = "cancelled", now_iso()
+    db.commit()
     return import_job_to_dict(job)
 
 
