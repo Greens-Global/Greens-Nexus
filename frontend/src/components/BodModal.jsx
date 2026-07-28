@@ -47,7 +47,7 @@ const ordinal = (n) => {
   if (v >= 11 && v <= 13) return `${n}th`;
   return `${n}${['th', 'st', 'nd', 'rd'][n % 10] || 'th'}`;
 };
-const fmtWorked = (min) => `${Math.floor(min / 60)}:${String(min % 60).padStart(2, '0')} mins`;
+const fmtWorked = (min) => `${Math.floor(min / 60)}hrs:${String(min % 60).padStart(2, '0')}mins`;
 const todayLocalKey = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
 
 export default function BodModal({ mode = 'bod', required = false, onSent, onSkip, onClose, toastOk, toastErr }) {
@@ -91,16 +91,14 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
     // Three-line header (spec, Jul 24):
     //   End of Day
     //   Fri, July 24th, 2026
-    //   12:50 AM (8:30 mins)     ← the tally is total worked today, EOD only
+    //   12:50 AM (8hrs:30mins)     ← the tally is total worked today, EOD only
     const now = new Date();
     const ordinal = (n) => { const v = n % 100; return n + (['th', 'st', 'nd', 'rd'][(v - 20) % 10] || ['th', 'st', 'nd', 'rd'][v] || 'th'); };
     // Locale pinned to en-US so the post reads the same for everyone regardless
     // of the sender's browser locale. Date line format: "Fri, July 24th, 2026".
     const dateStr = `${now.toLocaleDateString('en-US', { weekday: 'short' })}, ${now.toLocaleDateString('en-US', { month: 'long' })} ${ordinal(now.getDate())}, ${now.getFullYear()}`;
     const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-    const h = Math.floor(workedMin / 60), m = workedMin % 60;
-    const tally = mode === 'eod' && workedMin > 0
-      ? ` (${h > 0 ? `${h} hr ` : ''}${m > 0 || h === 0 ? `${m} mins` : ''}`.trimEnd() + ')' : '';
+    const tally = mode === 'eod' && workedMin > 0 ? ` (${fmtWorked(workedMin)})` : '';
     // Lists are auto-numbered "1. …" — strip any numbering people typed
     // themselves so lines don't come out as "1. 1) Task".
     const normalize = (s) => s.split('\n').map(t => t.trim().replace(/^\d+[).:]?\s*/, '')).filter(Boolean);
@@ -134,7 +132,15 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
         let ms = 0, openIn = null, openInDate = '', openBreak = null, brkMs = 0;
         for (const p of all) {
           const t = utc(p.at);
-          if (p.kind === 'in') { if (openIn == null) { openIn = t; openInDate = p.localDate; brkMs = 0; } }
+          // A new 'in' always (re)opens the session — mirrors the backend's
+          // _day_summaries, which does the same unconditionally and just flags
+          // the abandoned one as "missing_out". Gating this on `openIn == null`
+          // meant a single forgotten punch-out anywhere in the trailing 7 days
+          // left `openIn`/`openInDate` stuck on that stale day forever after:
+          // every later 'in' was silently ignored, so `openInDate` could never
+          // match today's `key` again and the tally stayed 0 — for anyone with
+          // one missed punch-out in the window, not just that one day.
+          if (p.kind === 'in') { openIn = t; openInDate = p.localDate; openBreak = null; brkMs = 0; }
           else if (p.kind === 'break_start') { if (openIn != null && openBreak == null) openBreak = t; }
           else if (p.kind === 'break_end') { if (openBreak != null) { brkMs += t - openBreak; openBreak = null; } }
           else if (p.kind === 'out' && openIn != null) {
