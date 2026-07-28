@@ -2923,6 +2923,10 @@ function StatusChangeModal({ employee, employees = [], onClose, onSaved, toastOk
   const [effectiveDate, setEffectiveDate] = useState('');
   const [leftChoice, setLeftChoice] = useState('remove');   // offboarded: 'remove' | 'share'
   const [exportRequested, setExportRequested] = useState(false);
+  // Task handover: who inherits this person's work, and whether their
+  // finished tasks come along. Only offered when they're actually leaving.
+  const [handoverTo, setHandoverTo] = useState('');
+  const [handoverIncludeCompleted, setHandoverIncludeCompleted] = useState(false);
   const [pick, setPick] = useState('');
   const [busy, setBusy] = useState(false);
   const changed = status !== employee.status;
@@ -2935,7 +2939,7 @@ function StatusChangeModal({ employee, employees = [], onClose, onSaved, toastOk
   // Allow Apply when the status changed OR — for someone already inactive/left —
   // when there's a mailbox/license action to (re-)run (e.g. free a license that
   // didn't release the first time).
-  const canApply = changed || (showOff && (mailboxAction !== '' || exportRequested));
+  const canApply = changed || (showOff && (mailboxAction !== '' || exportRequested || handoverTo));
   const colleagues = employees.filter(x => x.workEmail && x.id !== employee.id);
   // Default the trustee to the person's manager (reports-to) from the org chart.
   const manager = employees.find(x => (x.workEmail || '').toLowerCase() === (employee.managerEmail || '').toLowerCase());
@@ -2965,6 +2969,8 @@ function StatusChangeModal({ employee, employees = [], onClose, onSaved, toastOk
       delegateTo: needsDelegate ? trustees : [],
       exportRequested,
       freeUpLicense: mailboxAction === 'remove',
+      handoverTo: isLeft ? handoverTo : '',
+      handoverIncludeCompleted,
     };
   }
 
@@ -2982,6 +2988,15 @@ function StatusChangeModal({ employee, employees = [], onClose, onSaved, toastOk
       if (m?.export) bits.push('mailbox export started');
       if (m?.error) bits.push(`M365 issue: ${m.error}`);
       const it = saved.items;
+      const ho = saved.handover;
+      if (ho && (ho.reassigned || ho.projectsTransferred)) {
+        const parts = [
+          ho.reassigned && `${ho.reassigned} task${ho.reassigned === 1 ? '' : 's'} reassigned`,
+          ho.moved && `${ho.moved} moved to a handover project`,
+          ho.projectsTransferred && `${ho.projectsTransferred} project${ho.projectsTransferred === 1 ? '' : 's'} transferred`,
+        ].filter(Boolean);
+        bits.push(parts.join(' + '));
+      }
       if (it && (it.checkouts || it.assignments)) {
         const parts = [it.checkouts && `${it.checkouts} checkout${it.checkouts === 1 ? '' : 's'}`, it.assignments && `${it.assignments} assignment${it.assignments === 1 ? '' : 's'}`].filter(Boolean);
         bits.push(`${parts.join(' + ')} force-returned`);
@@ -3066,6 +3081,33 @@ function StatusChangeModal({ employee, employees = [], onClose, onSaved, toastOk
                   <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginTop: 12, paddingTop: 12, borderTop: '1px dashed var(--line)', fontSize: 12, color: 'var(--muted)' }}>
                     <Briefcase size={13} style={{ flexShrink: 0, marginTop: 1, color: 'hsl(var(--color-orange))' }} />
                     <span>All equipment {employee.firstName} still holds in Item Management will be <strong>force-returned</strong> automatically — checkouts closed and permanent assignments sent back to stock.</span>
+                  </div>
+                  {/* Task handover. The picker is the curated Nexus People list
+                      (the `employees` prop), never an M365/GAL-derived one. */}
+                  <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px dashed var(--line)' }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 6 }}>Hand over their tasks</div>
+                    <input list="handover-people" value={handoverTo}
+                      onChange={e => setHandoverTo(e.target.value.trim().toLowerCase())}
+                      placeholder="Search for a person — leave blank to skip"
+                      style={{ width: '100%', padding: '7px 9px', fontSize: 13, borderRadius: 8, border: '1px solid var(--line)' }} />
+                    <datalist id="handover-people">
+                      {colleagues.map(c => <option key={c.id} value={(c.workEmail || '').toLowerCase()}>{fullName(c)}</option>)}
+                    </datalist>
+                    {handoverTo && (
+                      <>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10, fontSize: 13, cursor: 'pointer' }}>
+                          <input type="checkbox" checked={handoverIncludeCompleted}
+                            onChange={e => setHandoverIncludeCompleted(e.target.checked)} style={{ width: 16, height: 16 }} />
+                          Include completed tasks
+                        </label>
+                        <div style={{ marginTop: 8, fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.5 }}>
+                          Their open tasks are reassigned to {nameFor(handoverTo)}. Tasks that already belong to a
+                          project stay in it; anything with no project is collected into a new
+                          <strong> Handover — {fullName(employee)}</strong> project owned by them, along with any
+                          projects {employee.firstName} owned.
+                        </div>
+                      </>
+                    )}
                   </div>
                 </>
               )}

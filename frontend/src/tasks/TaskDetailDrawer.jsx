@@ -3,7 +3,7 @@
 // Properties). Ported from the export's features/task-detail/* (24 files) into a
 // single consolidated file matching this module's inline-style idiom, wired to
 // the real TasksContext store + api.js instead of the export's mocked Zustand store.
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   ArrowLeft, ArrowRightToLine, CheckCircle2, Circle, ChevronDown, ChevronRight,
@@ -13,12 +13,13 @@ import {
 } from 'lucide-react';
 import { api } from '../api';
 import { useTasks } from './TasksContext';
-import { fmtDate as fmtDateRaw, fmtDateTime, filesFromPaste, parseImportedAuthor, fmtHours } from './lib';
+import { fmtDate as fmtDateRaw, fmtDateTime, filesFromPaste, parseImportedAuthor, fmtHours, teamInProject, fieldsForProject, fieldOption, richBodyHtml } from './lib';
 
 // Drawer shows an em-dash for an unset date rather than an empty cell.
 const fmtDate = (iso) => (iso ? fmtDateRaw(iso) : '—');
 import { NX, FONT, btn, input as inputStyle, STATUS_META, STATUS_ORDER, PRIORITY_META, PRIORITY_ORDER } from './theme';
 import { Avatar, PersonSelect, usePeople, useIsMobile, DateField } from './components';
+import RichDescription, { isEmptyDoc } from './RichDescription';
 
 const DEP_TYPES = { FS: 'Finish → Start', SS: 'Start → Start', FF: 'Finish → Finish', SF: 'Start → Finish' };
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -220,6 +221,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit }) {
           setDependencyType={setDependencyType}
           subtasks={subtasks} createTask={createTask} updateTask={updateTask} onOpenSub={setActiveId}
           nameOf={nameOf} myEmail={myEmail} getComments={getComments} addComment={addComment} refresh={store.refresh}
+          onViewAllComments={() => setTab('comments')}
         />
       );
       case 'comments':     return <CommentsTab task={task} nameOf={nameOf} myEmail={myEmail} getComments={getComments} addComment={addComment} />;
@@ -459,7 +461,7 @@ function TitleInput({ value, completed, onCommit }) {
 }
 
 // ── Overview ────────────────────────────────────────────────────────────────
-function OverviewTab({ task, patch, people, projectName, teamName, teams, projects, blockedBy, depCandidates, addDependency, removeDependency, setDependencyType, subtasks, createTask, updateTask, onOpenSub, nameOf, myEmail, getComments, addComment, refresh }) {
+function OverviewTab({ task, patch, people, projectName, teamName, teams, projects, blockedBy, depCandidates, addDependency, removeDependency, setDependencyType, subtasks, createTask, updateTask, onOpenSub, nameOf, myEmail, getComments, addComment, refresh, onViewAllComments }) {
   const isMobile = useIsMobile();
   const { statusMeta, statusOrder } = useTasks();
   const [recStep, setRecStep] = useState('root');
@@ -501,7 +503,7 @@ function OverviewTab({ task, patch, people, projectName, teamName, teams, projec
   const recSel = { ...inputStyle, width: 'auto', padding: '5px 8px', fontSize: 12, cursor: 'pointer' };
   const sm = statusMeta[task.status] || {};
   const pm = PRIORITY_META[task.priority] || {};
-  const projectTeams = (teams || []).filter((tm) => tm.projectId === task.projectId);
+  const projectTeams = (teams || []).filter((tm) => teamInProject(tm, task.projectId));
   const followers = task.followerIds || [];
   const toggleFollower = (email) => patch({ followerIds: followers.includes(email) ? followers.filter((e) => e !== email) : [...followers, email] });
 
@@ -678,7 +680,8 @@ function OverviewTab({ task, patch, people, projectName, teamName, teams, projec
 
       {/* Description */}
       <Section title="Description">
-        <DescriptionInput value={task.description || ''} onCommit={(v) => v !== (task.description || '') && patch({ description: v })} />
+        <DescriptionInput task={task} value={task.description || ''} refresh={refresh}
+          onCommit={(v) => v !== (task.description || '') && patch({ description: v })} />
       </Section>
 
       {/* Subtasks (inline) */}
@@ -699,8 +702,9 @@ function OverviewTab({ task, patch, people, projectName, teamName, teams, projec
       {/* Add comment — dropped on mobile: the Comments/All-activity block at the
           bottom of the stacked layout already has a composer. */}
       {!isMobile && (
-        <Section title="Add Comment">
-          <QuickComment task={task} addComment={addComment} />
+        <Section title="Comments">
+          <QuickComment task={task} addComment={addComment} getComments={getComments}
+            nameOf={nameOf} onViewAll={onViewAllComments} />
         </Section>
       )}
 
@@ -712,25 +716,117 @@ function OverviewTab({ task, patch, people, projectName, teamName, teams, projec
   );
 }
 
-// Compact comment composer for the Overview tab.
-function QuickComment({ task, addComment }) {
+// Overview's comment block: the latest few comments for context, then the same
+// rich editor the description uses — with @mentions, which email the people
+// named (backend routers/tasks.py extract_mentions).
+const RECENT_COMMENTS = 3;
+
+function QuickComment({ task, addComment, getComments, nameOf, onViewAll }) {
   const [body, setBody] = useState('');
-  const submit = async () => { const b = body.trim(); if (!b) return; setBody(''); await addComment(task.id, b).catch(() => {}); };
+  const [rows, setRows] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const people = usePeople();
+
+  const load = useCallback(() => {
+    getComments?.(task.id).then((r) => setRows(r || [])).catch(() => setRows([]));
+  }, [getComments, task.id]);
+  useEffect(() => { load(); }, [load]);
+
+  const submit = async () => {
+    if (isEmptyDoc(body) || busy) return;
+    setBusy(true);
+    try {
+      await addComment(task.id, body);
+      setBody('');
+      load();
+    } catch { /* surfaced by the store */ } finally { setBusy(false); }
+  };
+
+  // Newest last, like a chat log — the composer sits directly under the most
+  // recent line so the thread reads top to bottom into the box you type in.
+  const all = rows || [];
+  const shown = all.slice(-RECENT_COMMENTS);
+  const hidden = all.length - shown.length;
+
   return (
-    <div style={{ display: 'flex', gap: 8 }}>
-      <textarea value={body} onChange={(e) => setBody(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submit(); }} rows={2} placeholder="Add a comment… (⌘/Ctrl+Enter)"
-        style={{ ...inputStyle, resize: 'vertical', fontSize: 13 }} />
-      <button onClick={submit} disabled={!body.trim()} style={{ ...btn('primary'), alignSelf: 'flex-end', opacity: body.trim() ? 1 : 0.5 }}>Comment</button>
+    <div>
+      {shown.length > 0 && (
+        <div style={{ marginBottom: 10 }}>
+          {hidden > 0 && (
+            <button onClick={onViewAll} style={{ ...btn('ghost'), padding: 0, fontSize: 12, fontWeight: 600, color: NX.primary, marginBottom: 6 }}>
+              View {hidden} earlier comment{hidden === 1 ? '' : 's'}
+            </button>
+          )}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {shown.map((c) => (
+              <div key={c.id} style={{ display: 'flex', gap: 8 }}>
+                <Avatar email={c.authorId} name={nameOf?.(c.authorId)} size={26} />
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+                    <span style={{ fontSize: 12.5, fontWeight: 700, color: NX.ink }}>{nameOf?.(c.authorId) || c.authorId}</span>
+                    <span style={{ fontSize: 11, color: NX.faint }}>{fmtDateTime(c.createdAt)}</span>
+                  </div>
+                  <div className="nx-rich-view" style={{ color: NX.dim, marginTop: 1 }}
+                    dangerouslySetInnerHTML={{ __html: richBodyHtml(c.body, nameOf) }} />
+                </div>
+              </div>
+            ))}
+          </div>
+          <button onClick={onViewAll} style={{ ...btn('ghost'), padding: 0, fontSize: 12, fontWeight: 600, color: NX.primary, marginTop: 8 }}>
+            View all comments ({all.length})
+          </button>
+        </div>
+      )}
+      <RichDescription
+        value={body}
+        onChange={setBody}
+        onSubmit={submit}
+        mentionPeople={people}
+        minHeight={64}
+      />
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
+        <button onClick={submit} disabled={isEmptyDoc(body) || busy}
+          style={{ ...btn('primary'), opacity: (isEmptyDoc(body) || busy) ? 0.5 : 1 }}>
+          {busy ? 'Posting…' : 'Comment'}
+        </button>
+      </div>
+      <div style={{ fontSize: 11, color: NX.faint, marginTop: 4 }}>
+        Type <b>@</b> to mention someone — they'll get an email. ⌘/Ctrl+Enter to post.
+      </div>
     </div>
   );
 }
 
-function DescriptionInput({ value, onCommit }) {
+function DescriptionInput({ task, value, onCommit, refresh }) {
   const [v, setV] = useState(value);
   useEffect(() => setV(value), [value]);
+
+  // "+ → Attach file" puts the file on the TASK (so it shows in Attachments and
+  // syncs to Asana) and hands the stored URL back so the editor can embed it.
+  // Mirrors AttachmentsTab's small-file inline / large-file metadata-only split.
+  const attach = async (file) => {
+    const size = `${Math.max(1, Math.round(file.size / 1024))} KB`;
+    const kind = file.type.startsWith('image/') ? 'image' : 'doc';
+    const url = await new Promise((resolve) => {
+      if (file.size > MAX_INLINE) { resolve(''); return; }
+      const r = new FileReader();
+      r.onload = () => resolve(typeof r.result === 'string' ? r.result : '');
+      r.onerror = () => resolve('');
+      r.readAsDataURL(file);
+    });
+    await api.addTaskAttachment(task.id, { name: file.name, size, kind, url }).catch(() => {});
+    refresh?.();
+    return { url, name: file.name };
+  };
+
   return (
-    <textarea value={v} onChange={(e) => setV(e.target.value)} onBlur={() => onCommit(v)} rows={3} placeholder="Add a description…"
-      style={{ ...inputStyle, resize: 'vertical', fontSize: 13, lineHeight: 1.5 }} />
+    <RichDescription
+      value={v}
+      onChange={setV}
+      onCommit={(html) => onCommit(html)}
+      onAttachFile={attach}
+      minHeight={90}
+    />
   );
 }
 
@@ -808,10 +904,11 @@ function DiscussionPane({ task, taskId, nameOf, myEmail, getComments, addComment
 function CommentsTab({ task, nameOf, myEmail, getComments, addComment }) {
   const [comments, setComments] = useState(null);
   const [body, setBody] = useState('');
+  const people = usePeople();
   const reload = () => getComments(task.id).then(setComments).catch(() => setComments([]));
   useEffect(() => { reload(); /* eslint-disable-next-line */ }, [task.id]);
 
-  const submit = async () => { const b = body.trim(); if (!b) return; setBody(''); await addComment(task.id, b).catch(() => {}); reload(); };
+  const submit = async () => { if (isEmptyDoc(body)) return; setBody(''); await addComment(task.id, body).catch(() => {}); reload(); };
   const pin = async (c) => { await api.editTaskComment(c.id, { pinned: !c.pinned }).catch(() => {}); reload(); };
   const edit = async (c, text) => { await api.editTaskComment(c.id, { body: text }).catch(() => {}); reload(); };
   const del = async (c) => { if (!window.confirm('Delete this comment?')) return; await api.deleteTaskComment(c.id).catch(() => {}); reload(); };
@@ -820,10 +917,16 @@ function CommentsTab({ task, nameOf, myEmail, getComments, addComment }) {
 
   return (
     <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <div style={{ display: 'flex', gap: 8 }}>
-        <textarea value={body} onChange={(e) => setBody(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submit(); }} rows={2} placeholder="Add a comment… (⌘/Ctrl+Enter)"
-          style={{ ...inputStyle, resize: 'vertical', fontSize: 13 }} />
-        <button onClick={submit} style={{ ...btn('primary'), alignSelf: 'flex-end' }}>Send</button>
+      <div>
+        <RichDescription value={body} onChange={setBody} onSubmit={submit}
+          mentionPeople={people} minHeight={64} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8 }}>
+          <span style={{ fontSize: 11, color: NX.faint }}>
+            Type <b>@</b> to mention someone — they'll get an email.
+          </span>
+          <button onClick={submit} disabled={isEmptyDoc(body)}
+            style={{ ...btn('primary'), marginLeft: 'auto', opacity: isEmptyDoc(body) ? 0.5 : 1 }}>Send</button>
+        </div>
       </div>
       {comments === null ? <div style={{ color: NX.faint, fontSize: 13, textAlign: 'center', padding: 20 }}>Loading…</div>
         : list.length === 0 ? <div style={{ color: NX.faint, fontSize: 13, textAlign: 'center', padding: 24 }}>No comments yet.</div>
@@ -857,13 +960,20 @@ function CommentItem({ c, nameOf, mine, onPin, onEdit, onDelete }) {
         </div>
         {editing ? (
           <div style={{ marginTop: 6, display: 'flex', gap: 6 }}>
-            <textarea value={text} autoFocus onChange={(e) => setText(e.target.value)} rows={2} style={{ ...inputStyle, fontSize: 13, resize: 'vertical' }} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <RichDescription value={text} onChange={setText} minHeight={56} />
+            </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               <button onClick={() => { onEdit(text); setEditing(false); }} style={{ ...btn('primary'), padding: '5px 10px', fontSize: 12 }}>Save</button>
               <button onClick={() => setEditing(false)} style={{ ...btn('outline'), padding: '5px 10px', fontSize: 12 }}>Cancel</button>
             </div>
           </div>
-        ) : <p style={{ margin: '2px 0 0', whiteSpace: 'pre-wrap', fontSize: 13, color: NX.dim }}>{displayBody}</p>}
+        ) : (
+          // Bodies are HTML now (rich editor + Asana's html_text); richBodyHtml
+          // sanitizes them and escapes the older plain-text rows.
+          <div className="nx-rich-view" style={{ marginTop: 2, color: NX.dim }}
+            dangerouslySetInnerHTML={{ __html: richBodyHtml(displayBody, nameOf) }} />
+        )}
       </div>
     </div>
   );
@@ -1033,6 +1143,9 @@ function DependenciesTab({ blockedBy, blocking, task, removeDependency }) {
 
 // ── Properties ──────────────────────────────────────────────────────────────
 function PropertiesTab({ task, nameOf, projectName, teamName, customFields, patch }) {
+  // Fields scoped to this task's project (plus global ones) — not every field
+  // defined anywhere in the workspace.
+  const activeFields = fieldsForProject(customFields, task.projectId);
   const { statusMeta } = useTasks();
   const sm = statusMeta[task.status] || {};
   const pm = PRIORITY_META[task.priority] || {};
@@ -1068,11 +1181,11 @@ function PropertiesTab({ task, nameOf, projectName, teamName, customFields, patc
         </div>
       </div>
 
-      {customFields.length > 0 && (
+      {activeFields.length > 0 && (
         <div style={{ marginTop: 16 }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: NX.ink, marginBottom: 8 }}>Custom Fields</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {customFields.map((f) => (
+            {activeFields.map((f) => (
               <Row key={f.id} label={f.name}>
                 <CustomFieldInput field={f} value={(task.customFieldValues || {})[f.id]} onChange={(v) => patch({ customFieldValues: { ...(task.customFieldValues || {}), [f.id]: v } })} />
               </Row>
@@ -1109,11 +1222,27 @@ export function CustomFieldInput({ field, value, onChange }) {
   const [v, setV] = useState(value ?? '');
   useEffect(() => setV(value ?? ''), [value]);
   if (field.type === 'select' && Array.isArray(field.options)) {
+    // Options are {id,label,color} now; older rows are plain strings, so read
+    // both shapes. The chosen option's color tints the control the way Asana's
+    // single-select chips do.
+    const opts = field.options.map((o) => (typeof o === 'string' ? { id: o, label: o, color: '' } : o));
+    const picked = fieldOption(field, v);
     return (
-      <select value={v} onChange={(e) => { setV(e.target.value); onChange(e.target.value); }} style={{ ...inputStyle, width: 'auto', padding: '6px 9px', fontSize: 13 }}>
+      <select value={v} onChange={(e) => { setV(e.target.value); onChange(e.target.value); }}
+        style={{
+          ...inputStyle, width: 'auto', padding: '6px 9px', fontSize: 13,
+          ...(picked?.color ? { background: `${picked.color}1a`, borderColor: picked.color, color: picked.color, fontWeight: 600 } : {}),
+        }}>
         <option value="">—</option>
-        {field.options.map((o) => <option key={o} value={o}>{o}</option>)}
+        {opts.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
       </select>
+    );
+  }
+  if (field.type === 'checkbox') {
+    return (
+      <input type="checkbox" checked={v === true || v === 'true'}
+        onChange={(e) => { setV(e.target.checked); onChange(e.target.checked); }}
+        style={{ width: 16, height: 16, cursor: 'pointer' }} />
     );
   }
   return (

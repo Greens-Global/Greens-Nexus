@@ -198,6 +198,26 @@ def completed_email(*, t: dict, base_url: str, logo_url: str) -> tuple[str, str]
     return subject, html
 
 
+def mentioned_email(*, t: dict, base_url: str, logo_url: str, comment_body: str,
+                    actor_name: str = "") -> tuple[str, str]:
+    """Someone @mentioned this person in a task comment. Deliberately distinct
+    from commented_email: a mention is addressed AT you, so it names who did it
+    in the subject, where the comment mail is an FYI to assignees and followers."""
+    who = actor_name or t.get("actorName") or t.get("actorEmail") or "Someone"
+    subject = f"[Task {t['code']}] {who} mentioned you – {t['title']}"
+    html = task_email_html(
+        task_code=t["code"], task_title=t["title"], status=t["status"],
+        heading="You were mentioned in a comment",
+        intro=f"{who} mentioned you on this task.",
+        rows=[
+            ("Comment", (comment_body or "—")[:500]),
+            *_common_rows(t),
+        ],
+        cta_label="View Comment", cta_url=_task_url(base_url, t["id"]), logo_url=logo_url,
+    )
+    return subject, html
+
+
 def commented_email(*, t: dict, base_url: str, logo_url: str, comment_body: str) -> tuple[str, str]:
     subject = f"[Task {t['code']}] New Comment – {t['code']} – {t['title']}"
     html = task_email_html(

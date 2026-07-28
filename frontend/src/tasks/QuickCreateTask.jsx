@@ -3,7 +3,7 @@
 // Assignee plus a Photo · Attachment · Scan-text toolbar; "Full details" hands off
 // to CreateTaskModal. Inherits the screen's context via `defaults`. Mobile only.
 import { useRef, useState } from 'react';
-import { CalendarDays, User, X, Image as ImageIcon, Paperclip, ScanText, Camera, ImagePlus } from 'lucide-react';
+import { CalendarDays, User, X, Image as ImageIcon, Paperclip, ScanText, Camera, ImagePlus, FolderKanban } from 'lucide-react';
 import { api } from '../api';
 import { useTasks } from './TasksContext';
 import { usePeople, PersonSelect, DateField } from './components';
@@ -27,7 +27,7 @@ async function uploadAttachment(taskId, f) {
 
 export default function QuickCreateTask({ defaults = {}, onClose, onFullDetails }) {
   const store = useTasks();
-  const { createTask, myEmail } = store;
+  const { createTask, myEmail, projects = [] } = store;
   const people = usePeople();
   const [title, setTitle] = useState(defaults.title || '');
   const [dueOn, setDueOn] = useState(defaults.dueOn || '');
@@ -63,13 +63,18 @@ export default function QuickCreateTask({ defaults = {}, onClose, onFullDetails 
     finally { setOcrBusy(false); }
   };
 
+  // Same four required fields as the desktop Create-a-Task form — the rule has
+  // to hold on mobile too or it's only a suggestion. Project is pre-filled and
+  // hidden when the sheet was opened from inside one.
+  const [projectId, setProjectId] = useState(defaults.projectId || '');
+  const lockedProject = !!defaults.projectId;
+
   const draft = () => ({ title: title.trim(), dueOn, assigneeId });
-  const canCreate = title.trim() && !busy;
+  const canCreate = !!(title.trim() && assigneeId && dueOn && (lockedProject || projectId)) && !busy;
 
   const submit = async () => {
     if (!canCreate) return;
     setBusy(true);
-    const projectId = defaults.projectId || '';
     try {
       const t = await createTask({
         title: title.trim(), type: 'task', status: defaults.status || 'not_started',
@@ -88,18 +93,28 @@ export default function QuickCreateTask({ defaults = {}, onClose, onFullDetails 
       <div onPaste={onPaste} tabIndex={0} style={{ display: 'flex', flexDirection: 'column', gap: 14, fontFamily: FONT, outline: 'none' }}>
         <input autoFocus value={title} onChange={(e) => setTitle(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') submit(); }}
-          placeholder="Task name" style={{ ...inputStyle, fontSize: 17, fontWeight: 600, padding: '10px 12px' }} />
+          placeholder="Task name *" style={{ ...inputStyle, fontSize: 17, fontWeight: 600, padding: '10px 12px' }} />
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           <div>
-            <span style={fieldLabel}><CalendarDays size={13} /> Due date</span>
+            <span style={fieldLabel}><CalendarDays size={13} /> Due date <span style={{ color: NX.red }}>*</span></span>
             <DateField value={dueOn} onChange={(v) => setDueOn(v || '')} placeholder="Pick a date" style={sel} />
           </div>
           <div>
-            <span style={fieldLabel}><User size={13} /> Assignee</span>
+            <span style={fieldLabel}><User size={13} /> Assignee <span style={{ color: NX.red }}>*</span></span>
             <PersonSelect value={assigneeId} onChange={setAssigneeId} people={people} />
           </div>
         </div>
+
+        {!lockedProject && (
+          <div>
+            <span style={fieldLabel}><FolderKanban size={13} /> Project <span style={{ color: NX.red }}>*</span></span>
+            <select value={projectId} onChange={(e) => setProjectId(e.target.value)} style={sel}>
+              <option value="">Select a project…</option>
+              {projects.filter((p) => !p.archived).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </div>
+        )}
 
         {/* Attachment previews */}
         {files.length > 0 && (

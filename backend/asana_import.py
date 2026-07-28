@@ -241,25 +241,41 @@ def import_project(asana, nexus, project_gid, state, email_map, args):
 
 def _ensure_department(asana, nexus, team, nexus_pid, state, email_map, args):
     """Map an Asana team (compact {gid, name} from the project's `team` field) to
-    a Nexus Team (TaskTeam) scoped to `nexus_pid`. TaskTeam became project-scoped
-    in the Jul 2026 redesign (one Team belongs to exactly one project), so the
-    same Asana team used across several Asana projects now needs one Nexus Team
-    row per project — state is keyed by (team_gid, nexus_pid), not just team_gid.
+    a Nexus Team (TaskTeam) covering `nexus_pid`.
+
+    ONE Nexus team per Asana team. State is keyed by team_gid alone: a TaskTeam
+    now holds a LIST of projects, so an Asana team used by several projects
+    extends the row it already has. It was briefly keyed by (team_gid, nexus_pid)
+    instead, back when a TaskTeam could only carry one project and the same real
+    team therefore needed a duplicate row per project.
+
     Pulls the team's members in too."""
     team_gid = team.get("gid")
     if not team_gid:
         return ""
-    key = f"{team_gid}:{nexus_pid}"
-    if key in state["teams"]:
-        return state["teams"][key]
+    # Older state files stored a bare team id per (gid, pid) key; normalize.
+    entry = state["teams"].get(team_gid)
+    if isinstance(entry, str):
+        entry = {"id": entry, "projects": []}
     name = team.get("name") or f"Asana Team {team_gid}"
+    if entry:
+        if nexus_pid and nexus_pid not in entry["projects"]:
+            entry["projects"] = entry["projects"] + [nexus_pid]
+            if not args.dry_run:
+                nexus.patch(f"/task-teams/{entry['id']}", {"project_ids": entry["projects"]})
+                state["teams"][team_gid] = entry
+                save_state(state)
+                print(f"  team → {name} now also covers this project")
+        return entry["id"]
     members = asana.get(f"/teams/{team_gid}/users", opt_fields="name,email")
     member_emails = sorted({resolve_member_email(m, email_map) for m in members} - {""})
     if args.dry_run:
         print(f"  [dry-run] would create team '{name}' ({len(member_emails)} members)")
         return f"DRY-{team_gid}"
-    dept = nexus.post("/task-teams", {"name": name, "project_id": nexus_pid, "member_emails": member_emails})
-    state["teams"][key] = dept["id"]
+    projects = [nexus_pid] if nexus_pid else []
+    dept = nexus.post("/task-teams", {"name": name, "project_ids": projects,
+                                      "member_emails": member_emails})
+    state["teams"][team_gid] = {"id": dept["id"], "projects": projects}
     save_state(state)
     print(f"  created team → {name} ({len(member_emails)} members)")
     return dept["id"]

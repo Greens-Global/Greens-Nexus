@@ -1323,6 +1323,12 @@ def sync_m365(user: dict = Depends(require_hr_write), db: Session = Depends(get_
                                   ("location", "officeLocation"), ("department", "department")):
                 if not getattr(emp, local) and (g.get(remote) or "").strip():
                     setattr(emp, local, g[remote].strip()); changed = True
+            # Entra owns this one, so it tracks rather than backfills: it is the
+            # name Teams/Outlook show, and a stale copy makes Nexus look like it
+            # means a different person.
+            entra_name = (g.get("displayName") or "").strip()
+            if entra_name and emp.display_name != entra_name:
+                emp.display_name = entra_name; changed = True
             if not emp.company and domain_map.get(addr.split("@")[-1]):
                 emp.company = domain_map[addr.split("@")[-1]]; changed = True
             if changed:
@@ -1333,6 +1339,7 @@ def sync_m365(user: dict = Depends(require_hr_write), db: Session = Depends(get_
                 id=str(uuid.uuid4()),
                 employee_code=f"GG-{next_num:03d}",
                 first_name=first, last_name=last,
+                display_name=(g.get("displayName") or "").strip(),
                 work_email=addr,
                 job_title=(g.get("jobTitle") or "").strip(),
                 department=(g.get("department") or "").strip(),
@@ -1921,7 +1928,8 @@ class StatusChangeIn(BaseModel):
     # Nexus records the intent; the mailbox-permission / shared-conversion steps
     # themselves are done in the Exchange admin center (Graph has no coverage).
     #   {mailboxAction: 'delegate'|'share'|'remove'|'',
-    #    delegateTo: ['a@x.com', …], exportRequested: bool, freeUpLicense: bool}
+    #    delegateTo: ['a@x.com', …], exportRequested: bool, freeUpLicense: bool,
+    #    handoverTo: 'b@x.com', handoverIncludeCompleted: bool}
     offboarding:   Optional[dict] = None
 
 
@@ -1977,12 +1985,18 @@ def change_status(eid: str, body: StatusChangeIn, user: dict = Depends(require_h
     # free a license that didn't release the first time.
     off = body.offboarding or {}
     off_block = None
-    if off.get("mailboxAction") or off.get("delegateTo") or off.get("exportRequested") or off.get("freeUpLicense"):
+    if (off.get("mailboxAction") or off.get("delegateTo") or off.get("exportRequested")
+            or off.get("freeUpLicense") or off.get("handoverTo")):
         off_block = {
             "mailboxAction":   (off.get("mailboxAction") or "").strip(),
             "delegateTo":      [e.strip().lower() for e in (off.get("delegateTo") or []) if e and e.strip()],
             "exportRequested": bool(off.get("exportRequested")),
             "freeUpLicense":   bool(off.get("freeUpLicense")),
+            # Who inherits the person's task work, and whether their finished
+            # tasks come along. Recorded on the log entry as the audit trail for
+            # a bulk reassignment nobody gets a notification about.
+            "handoverTo":      (off.get("handoverTo") or "").strip().lower(),
+            "handoverIncludeCompleted": bool(off.get("handoverIncludeCompleted")),
             "done":            False,   # flips true once an admin completes the M365 steps
         }
     if did_change:
@@ -1996,11 +2010,22 @@ def change_status(eid: str, body: StatusChangeIn, user: dict = Depends(require_h
     # Offboarding (-> Left) force-returns everything the person still holds in Item
     # Management. Items owns the transition; we stamp the counts on the log entry.
     items_returned = None
+    handover = None
     if did_change and body.status == "offboarded" and row.work_email:
         from routers.items import force_return_person
         items_returned = force_return_person(db, row.work_email, user["email"])
         if entry is not None and (items_returned["checkouts"] or items_returned["assignments"]):
             entry["itemsReturned"] = items_returned
+        # Task work moves at the same moment equipment does, in this same
+        # session, so a half-completed offboarding can't leave tasks assigned to
+        # someone who no longer exists.
+        if off_block and off_block.get("handoverTo"):
+            from routers.task_projects import handover_person
+            handover = handover_person(db, row.work_email, off_block["handoverTo"],
+                                       include_completed=off_block["handoverIncludeCompleted"],
+                                       actor=user["email"])
+            if entry is not None and (handover["reassigned"] or handover["projectsTransferred"]):
+                entry["taskHandover"] = handover
     row.status = body.status
     row.status_log = log
     row.updated_at = now
@@ -2041,7 +2066,7 @@ def change_status(eid: str, body: StatusChangeIn, user: dict = Depends(require_h
         except Exception:
             pass
 
-    return {**_serialize(row), "m365": m365, "items": items_returned}
+    return {**_serialize(row), "m365": m365, "items": items_returned, "handover": handover}
 
 
 # ---------------------------------------------------------------------------

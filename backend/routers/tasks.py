@@ -8,6 +8,7 @@ with email used as the person id) so the ported frontend maps cleanly.
 Reference implementation: routers/items.py.
 """
 import calendar
+import re
 from datetime import date, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
@@ -23,6 +24,8 @@ from routers.task_util import (
     project_for_task, require_project_role,
 )
 from task_notify import notify_task_event
+# Values are stored in the shape each field declares — see that function.
+from routers.task_config import coerce_custom_field_values
 
 router = APIRouter(prefix="/tasks", tags=["Tasks"], dependencies=[Depends(get_current_user)])
 
@@ -175,6 +178,26 @@ class TaskUpdate(BaseModel):
     is_milestone:     Optional[bool] = None
     approval_status:  Optional[str] = None
     completed:        Optional[bool] = None
+
+
+_MENTION_RE = re.compile(r'href\s*=\s*["\']mailto:([^"\'>\s]+)["\']', re.I)
+
+
+def extract_mentions(html: str) -> list:
+    """Emails @mentioned in a comment.
+
+    The editor writes a mention as a mailto link (`<a href="mailto:x@y">@Name</a>`)
+    rather than a bespoke node type — that reuses the Link mark the editor
+    already has, needs no extra TipTap package, and degrades to a working
+    mailto: link anywhere the HTML is rendered plainly (including in the
+    notification email itself)."""
+    seen, out = set(), []
+    for m in _MENTION_RE.findall(html or ""):
+        e = m.strip().lower()
+        if e and "@" in e and e not in seen:
+            seen.add(e)
+            out.append(e)
+    return out
 
 
 def _next_code(db: Session) -> str:
@@ -427,7 +450,7 @@ def create_task(body: TaskCreate, background_tasks: BackgroundTasks,
         blocking_ids=body.blocking_ids or [],
         dependency_types=body.dependency_types or {},
         tags=body.tags or [],
-        custom_field_values=body.custom_field_values or {},
+        custom_field_values=coerce_custom_field_values(db, body.custom_field_values),
         start_on=body.start_on or "",
         due_on=body.due_on or "",
         estimate_hours=body.estimate_hours,
@@ -474,6 +497,8 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
     t = _get_task(db, task_id)
     require_project_role(db, user, project_for_task(db, t), "editor")
     data = upd.model_dump(exclude_unset=True)
+    if "custom_field_values" in data:
+        data["custom_field_values"] = coerce_custom_field_values(db, data["custom_field_values"])
     prev_assignee = (t.assignee_email or "").lower()
     prev_status = t.status
     prev_completed = bool(t.completed)
@@ -704,6 +729,19 @@ def add_comment(task_id: str, body: CommentCreate, background_tasks: BackgroundT
     _asana_push_comment(cid)
     if notify:
         background_tasks.add_task(notify_task_event, task_id, "commented", user["email"], comment_body=body.body or "")
+        # Mentions are their own event so the mail can say "X mentioned you"
+        # instead of the generic comment FYI. The author is dropped — mentioning
+        # yourself shouldn't email you.
+        mentioned = [e for e in extract_mentions(body.body or "") if e != author]
+        if mentioned:
+            for who in mentioned:
+                task_notify(db, kind="task_activity", for_email=who,
+                            title="You were mentioned in a comment",
+                            body=f"{t.code} · {t.title}", task_id=task_id,
+                            nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
+            db.commit()
+            background_tasks.add_task(notify_task_event, task_id, "mentioned", user["email"],
+                                      comment_body=body.body or "", mentioned=mentioned)
     return comment_to_dict(c)
 
 

@@ -1,11 +1,22 @@
 // Task Module — pure helpers (ported from nexus/lib/filters.ts + stats.ts).
 // Operates on the runtime task shape (email used as person id).
-import { PRIORITY_ORDER, STATUS_ORDER, STATUS_META } from './theme';
+import { PRIORITY_ORDER, PRIORITY_META, STATUS_ORDER, STATUS_META } from './theme';
 
 export const EMPTY_FILTER = {
   assigneeIds: [], statuses: [], priorities: [], teamIds: [], projectIds: [],
   tags: [], due: 'any', dueFrom: null, dueTo: null, search: '',
+  // {fieldId: [selectedOptionId, ...]} — only select-type fields are filterable;
+  // a free-text or number field has no bounded option list to offer.
+  customFields: {},
 };
+
+// Group/sort keys for custom fields are namespaced so they can share one key
+// space with the built-ins ('status', 'priority', …) without ever colliding
+// with a field whose id happens to look like one.
+export const CF_PREFIX = 'cf:';
+export const cfKey = (fieldId) => `${CF_PREFIX}${fieldId}`;
+export const cfFieldId = (key) => (String(key || '').startsWith(CF_PREFIX) ? key.slice(CF_PREFIX.length) : '');
+export const taskFieldValue = (task, fieldId) => (task.customFieldValues || {})[fieldId];
 
 export const todayISO = () => new Date().toISOString().slice(0, 10);
 export const addDays = (iso, n) => { const d = new Date(iso); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
@@ -33,6 +44,12 @@ export function matchesFilter(task, f = EMPTY_FILTER) {
   if (f.teamIds?.length && !f.teamIds.includes(task.teamId)) return false;
   if (f.projectIds?.length && !f.projectIds.includes(task.projectId)) return false;
   if (f.tags?.length && !f.tags.some((t) => (task.tags || []).includes(t))) return false;
+  // Each selected field narrows independently (AND across fields, OR within
+  // one) — the same shape as the assignee/status/priority filters above.
+  for (const [fieldId, wanted] of Object.entries(f.customFields || {})) {
+    if (!wanted?.length) continue;
+    if (!wanted.includes(taskFieldValue(task, fieldId))) return false;
+  }
   if (!dueMatches(task, f.due || 'any', f.dueFrom, f.dueTo)) return false;
   if (f.search) {
     const q = f.search.toLowerCase();
@@ -41,6 +58,29 @@ export function matchesFilter(task, f = EMPTY_FILTER) {
   }
   return true;
 }
+
+// A team belongs to MANY projects, as Asana does it. `projectIds` is the real
+// field; `projectId` is the first of them, kept for older readers — so go through
+// these helpers, never `team.projectId`, which silently sees only the first.
+export const teamProjectIds = (team) => (
+  (team?.projectIds && team.projectIds.length) ? team.projectIds
+    : (team?.projectId ? [team.projectId] : [])
+);
+export const teamInProject = (team, projectId) => !!projectId && teamProjectIds(team).includes(projectId);
+
+// Custom fields are scoped to projects; empty `projectIds` = global, which is how
+// every field behaved before scoping, so nothing changes until an admin narrows
+// one. Outside a project only global fields apply — a project-specific field has
+// no meaning on a task that isn't in that project.
+export const fieldsForProject = (customFields, projectId) =>
+  (customFields || []).filter((f) => {
+    const ids = (f.projectIds || []).filter(Boolean);
+    return ids.length === 0 || (projectId ? ids.includes(projectId) : false);
+  });
+
+// The chosen option object for a select value, so callers can render its color.
+export const fieldOption = (field, value) =>
+  (field?.options || []).find((o) => (o?.id ?? o) === value || (o?.label ?? o) === value) || null;
 
 export const isSection = (t) => t.type === 'section';
 export const isSubtask = (t) => !!t.parentTaskId;
@@ -60,8 +100,32 @@ const SORTERS = {
   assignee: (a, b) => (a.assigneeId || '').localeCompare(b.assigneeId || ''),
 };
 
-export function sortTasks(list, sort = { key: 'manual', dir: 'asc' }) {
-  const fn = SORTERS[sort.key] || SORTERS.manual;
+// A custom field sorts by its OWN order where it has one — a select by the order
+// its options are defined in (Design before Build), which is what makes a stage or
+// severity field read correctly. Numbers sort numerically, else text. Empty last.
+function customFieldSorter(field) {
+  const order = (field?.options || []).map((o) => (o?.id ?? o));
+  const rank = (t) => {
+    const v = taskFieldValue(t, field.id);
+    if (v === undefined || v === null || v === '') return null;
+    if (field.type === 'select') { const i = order.indexOf(v); return i === -1 ? order.length : i; }
+    if (field.type === 'number') return Number(v);
+    if (field.type === 'checkbox') return v ? 0 : 1;
+    return String(v).toLowerCase();
+  };
+  return (a, b) => {
+    const x = rank(a); const y = rank(b);
+    if (x === null && y === null) return 0;
+    if (x === null) return 1;
+    if (y === null) return -1;
+    return typeof x === 'string' ? x.localeCompare(y) : x - y;
+  };
+}
+
+export function sortTasks(list, sort = { key: 'manual', dir: 'asc' }, customFields = []) {
+  const fieldId = cfFieldId(sort.key);
+  const field = fieldId ? (customFields || []).find((f) => f.id === fieldId) : null;
+  const fn = field ? customFieldSorter(field) : (SORTERS[sort.key] || SORTERS.manual);
   const out = [...list].sort(fn);
   return sort.dir === 'desc' ? out.reverse() : out;
 }
@@ -70,6 +134,10 @@ export function sortTasks(list, sort = { key: 'manual', dir: 'asc' }) {
  *  so "Do Today" dates it today, a status column sets that status, a project
  *  group scopes it to that project, etc. (Asana's add-from-anywhere flow). */
 export function groupAddDefaults(group, key) {
+  // Under a custom-field group, a new task inherits that group's value — the
+  // same "add where you're looking" behavior status/priority groups have.
+  const cfId = cfFieldId(group);
+  if (cfId) return key && key !== '—' ? { customFieldValues: { [cfId]: key } } : {};
   if (group === 'date') {
     const today = todayISO();
     if (key === 'today') return { dueOn: today };
@@ -109,6 +177,26 @@ export function groupTasks(list, group, ctx = {}) {
     if (!buckets.has(k)) buckets.set(k, { key: k, label, tasks: [] });
     buckets.get(k).tasks.push(t);
   };
+  // Grouping by a custom field. Every option gets a bucket even when empty, so a
+  // board grouped by Stage shows the stages nobody has reached yet; the option's
+  // own color carries through to the header, as status/priority colors do.
+  const cfId = cfFieldId(group);
+  if (cfId) {
+    const field = (ctx.customFields || []).find((f) => f.id === cfId);
+    if (!field) return [{ key: 'all', label: '', tasks: list }];
+    const opts = (field.options || []).map((o) => (typeof o === 'string' ? { id: o, label: o, color: '' } : o));
+    const out = opts.map((o) => ({ key: o.id, label: o.label, color: o.color, tasks: [] }));
+    const byKey = Object.fromEntries(out.map((g) => [g.key, g]));
+    const none = { key: '—', label: `No ${field.name}`, tasks: [] };
+    for (const t of list) {
+      const v = taskFieldValue(t, cfId);
+      const bucket = (v !== undefined && v !== null && v !== '')
+        ? (byKey[v] || (byKey[v] = out[out.push({ key: String(v), label: String(v), tasks: [] }) - 1]))
+        : none;
+      bucket.tasks.push(t);
+    }
+    return [...out, ...(none.tasks.length ? [none] : [])];
+  }
   // Callers may pass merged status metadata/order (built-in + custom) via ctx so
   // group-by-status headers + ordering reflect Manage → Custom Statuses.
   const statusMeta = ctx.statusMeta || STATUS_META;
@@ -123,8 +211,18 @@ export function groupTasks(list, group, ctx = {}) {
     else push('all', '', t);
   }
   let arr = [...buckets.values()];
-  if (group === 'status') arr.sort((a, b) => statusOrder.indexOf(a.key) - statusOrder.indexOf(b.key));
-  if (group === 'priority') arr.sort((a, b) => PRIORITY_ORDER.indexOf(a.key) - PRIORITY_ORDER.indexOf(b.key));
+  // Status and priority carry a MEANING, so their group headers use the status/
+  // priority color the chips and progress bar already use. The colorForKey fallback
+  // hashes the key into an avatar palette, which made "Completed" orange. Groupings
+  // with no inherent color (assignee/project/team/date) still use that hash.
+  if (group === 'status') {
+    arr.sort((a, b) => statusOrder.indexOf(a.key) - statusOrder.indexOf(b.key));
+    for (const g of arr) g.color = statusMeta[g.key]?.color;
+  }
+  if (group === 'priority') {
+    arr.sort((a, b) => PRIORITY_ORDER.indexOf(a.key) - PRIORITY_ORDER.indexOf(b.key));
+    for (const g of arr) g.color = PRIORITY_META[g.key]?.color;
+  }
   return arr;
 }
 
@@ -203,7 +301,87 @@ export function taskIdFromUrl() {
  * so it can be shown as the real author instead of a raw fallback string, and
  * drop the bracket line from the rendered body so it isn't shown twice. */
 export function parseImportedAuthor(body) {
-  const m = /^\[Asana · ([^·\]]+?)(?:\s*·\s*(\d{4}-\d{2}-\d{2}))?\]\n?/.exec(body || '');
-  if (!m) return null;
-  return { name: m[1].trim(), date: m[2] || '', text: body.slice(m[0].length) };
+  const s = body || '';
+  const m = /^\[Asana · ([^·\]]+?)(?:\s*·\s*(\d{4}-\d{2}-\d{2}))?\]\n?/.exec(s);
+  if (m) return { name: m[1].trim(), date: m[2] || '', text: s.slice(m[0].length) };
+  // Rich bodies wrap the same stamp in markup: "<p><em>[Asana · Name]</em></p>".
+  const h = /^\s*<p>\s*<em>\s*\[Asana · ([^·\]]+?)(?:\s*·\s*(\d{4}-\d{2}-\d{2}))?\]\s*<\/em>\s*<\/p>/i.exec(s);
+  if (h) return { name: h[1].trim(), date: h[2] || '', text: s.slice(h[0].length) };
+  return null;
+}
+
+// Tags and attributes the rich editor can produce, plus what Asana sends back.
+// Everything else is unwrapped (children survive) rather than deleted, so a
+// stray <div> costs formatting, not words.
+const RICH_TAGS = new Set(['P', 'BR', 'B', 'STRONG', 'I', 'EM', 'U', 'S', 'STRIKE', 'DEL',
+  'CODE', 'PRE', 'BLOCKQUOTE', 'UL', 'OL', 'LI', 'A', 'IMG', 'MARK', 'SPAN',
+  'H1', 'H2', 'H3', 'H4', 'HR', 'TABLE', 'THEAD', 'TBODY', 'TR', 'TD', 'TH']);
+const RICH_ATTRS = { A: ['href', 'title'], IMG: ['src', 'alt', 'title'] };
+const SAFE_URL = /^(https?:|mailto:|data:image\/)/i;
+
+/** Comment and description bodies are stored as HTML and come from people —
+ * and from Asana, which is outside our control. Render them through this, never
+ * raw: a body containing <script> or an onerror handler would otherwise run
+ * with the signed-in user's session. Uses the browser parser (no dependency),
+ * inert because <template> content is never fetched or executed. */
+export function sanitizeRichHtml(html, nameOf) {
+  if (!html) return '';
+  if (typeof document === 'undefined') return '';
+  const tpl = document.createElement('template');
+  tpl.innerHTML = String(html);
+
+  const walk = (node) => {
+    for (const child of Array.from(node.childNodes)) {
+      if (child.nodeType === 3) continue;                      // text
+      if (child.nodeType !== 1) { child.remove(); continue; }  // comments, etc.
+      const tag = child.tagName.toUpperCase();
+      if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'IFRAME' || tag === 'OBJECT'
+          || tag === 'EMBED' || tag === 'FORM') { child.remove(); continue; }
+      walk(child);
+      if (!RICH_TAGS.has(tag)) { child.replaceWith(...child.childNodes); continue; }
+      for (const attr of Array.from(child.attributes)) {
+        const name = attr.name.toLowerCase();
+        const allowed = RICH_ATTRS[tag] || [];
+        if (!allowed.includes(name)) { child.removeAttribute(attr.name); continue; }
+        // javascript: and vbscript: URLs are the whole point of the allowlist.
+        if ((name === 'href' || name === 'src') && !SAFE_URL.test(attr.value.trim())) {
+          child.removeAttribute(attr.name);
+        }
+      }
+      if (tag === 'A') {
+        const href = child.getAttribute('href') || '';
+        if (/^mailto:/i.test(href)) {
+          // A mention. Show the person the way the rest of the module names
+          // them — Asana's copy of the name can differ from ours, and a body
+          // written elsewhere may carry the raw address as its label.
+          const email = href.slice(7).trim();
+          // nameOf falls back to the address for people it doesn't know, which
+          // is the one thing we don't want to show — use the local part then.
+          const name = nameOf?.(email);
+          if (name && name !== email) child.textContent = `@${name}`;
+          else if (!child.textContent.trim() || child.textContent.trim().replace(/^@/, '') === email) {
+            child.textContent = `@${email.split('@')[0]}`;
+          }
+        } else {
+          child.setAttribute('target', '_blank');
+          child.setAttribute('rel', 'noreferrer noopener');
+        }
+      }
+    }
+  };
+  walk(tpl.content);
+  return tpl.innerHTML;
+}
+
+/** True when `body` is HTML rather than one of the old plain-text rows. Plain
+ * text has to be escaped before it can be rendered as HTML, or a comment
+ * containing "a < b" loses everything after the "<". */
+export function richBodyHtml(body, nameOf) {
+  const s = body || '';
+  if (!/<[a-z/][\s\S]*>/i.test(s)) {
+    return s.split('\n').filter((l) => l.trim())
+      .map((l) => `<p>${l.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>`)
+      .join('');
+  }
+  return sanitizeRichHtml(s, nameOf);
 }

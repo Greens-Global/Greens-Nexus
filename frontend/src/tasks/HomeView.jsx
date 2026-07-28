@@ -71,10 +71,6 @@ export default function HomeView({ onNavigate }) {
     }
     return m;
   }, [tasks]);
-  const hour = new Date().getHours();
-  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
-  const firstName = (nameOf(myEmail) || '').split(' ')[0] || 'there';
-  const todayLong = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
 
   const cancelCreate = () => { setCreating(false); setNewTitle(''); setNewDue(null); };
   const commitCreate = async (openDetails) => {
@@ -241,16 +237,18 @@ export default function HomeView({ onNavigate }) {
 
   return (
     <div className="nx-page" style={{ padding: 24, fontFamily: FONT, color: NX.ink, height: '100%', overflow: 'auto' }}>
-      {/* Desktop: greeting left, range · stats · Customize right. Mobile: the
-          range button takes the full first line so stats + Customize wrap. */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: isMobile ? 12 : 20 }}>
-        <div style={{ minWidth: 200 }}>
-          <div style={{ fontSize: 21, fontWeight: 800, letterSpacing: -0.3 }}>{greeting}, {firstName}!</div>
-          <div style={{ fontSize: 12.5, color: NX.dim, marginTop: 2 }}>
-            {todayLong}
-            {upcoming.length > 0 && <> · <span style={{ color: NX.blue, fontWeight: 600 }}>{upcoming.length} upcoming</span></>}
-            {overdue.length > 0 && <> · <span style={{ color: NX.red, fontWeight: 600 }}>{overdue.length} overdue</span></>}
-          </div>
+      {/* Desktop: workload counts left, range · stats · Customize right. Mobile:
+          the range button takes the full first line so stats + Customize wrap. */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: isMobile ? 12 : 20 }}>
+        {/* Counts only. The greeting and the date both went: neither told the
+            reader anything they didn't know, and they pushed the two numbers
+            that actually matter into a subtitle. With both gone this can be
+            empty (nothing upcoming, nothing overdue) — the flex row still lays
+            out correctly, the right-hand controls just sit alone. */}
+        <div style={{ minWidth: 0, fontSize: 15, fontWeight: 700, letterSpacing: -0.2 }}>
+          {upcoming.length > 0 && <span style={{ color: NX.blue }}>{upcoming.length} upcoming</span>}
+          {upcoming.length > 0 && overdue.length > 0 && <span style={{ color: NX.faint }}> · </span>}
+          {overdue.length > 0 && <span style={{ color: NX.red }}>{overdue.length} overdue</span>}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: isMobile ? 'wrap' : 'nowrap', width: isMobile ? '100%' : 'auto', overflowX: 'visible' }}>
           <div ref={rangeRef} style={{ position: 'relative', flexBasis: isMobile ? '100%' : 'auto' }}>

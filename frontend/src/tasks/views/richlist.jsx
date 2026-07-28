@@ -9,7 +9,7 @@ import {
   CheckCircle2, Circle, MessageSquare, Paperclip, Diamond, ChevronDown, Check, Minus, ListTree, Plus, Trash2, Folder,
   Hash, List, Calendar, CheckSquare, ListOrdered, CircleDot, BarChart3, TrendingUp, Star, CalendarPlus, CalendarClock, Timer, ArrowLeft, EyeOff,
 } from 'lucide-react';
-import { groupTasks, matchesFilter, sortTasks, topLevel, groupAddDefaults } from '../lib';
+import { groupTasks, matchesFilter, sortTasks, topLevel, groupAddDefaults, fieldsForProject, teamInProject } from '../lib';
 import { NX, FONT, btn, input as inputStyle, PRIORITY_META, PRIORITY_ORDER, STATUS_META, STATUS_ORDER, colorForKey } from '../theme';
 import { Avatar, useClickOutside, DateField } from '../components';
 import { emailToName } from '../../lib/utils';
@@ -316,7 +316,7 @@ function TaskRow({ t, cols, customFields = [], template, store, people, selected
             label={team ? team.name : '—'} color={team ? team.color : NX.faint} tint={team ? `${team.color}1a` : 'transparent'}
             icon={team ? <span style={{ width: 8, height: 8, borderRadius: '50%', background: team.color, flexShrink: 0 }} /> : null}
             currentKey={t.teamId || ''}
-            options={[{ key: '', label: 'No team', color: NX.faint }, ...store.teams.filter((tm) => tm.projectId === t.projectId).map((tm) => ({ key: tm.id, label: tm.name, color: tm.color }))]}
+            options={[{ key: '', label: 'No team', color: NX.faint }, ...store.teams.filter((tm) => teamInProject(tm, t.projectId)).map((tm) => ({ key: tm.id, label: tm.name, color: tm.color }))]}
             onSelect={(k) => store.updateTask(t.id, { teamId: k || null })} />
         </div>
         )}
@@ -520,7 +520,7 @@ function TimelineCell({ t, color, onChange }) {
 }
 
 // Eye menu — hide/show columns, persisted per person (monday's "Hide" toolbar).
-function HideColsMenu({ customFields, hidden, setHidden }) {
+function HideColsMenu({ customFields, hidden, setHidden, lockedProjectId }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   const panelRef = useRef(null);
@@ -532,7 +532,10 @@ function HideColsMenu({ customFields, hidden, setHidden }) {
     setHidden(n);
   };
   const entries = [
-    ...BASE_COLS.filter((c) => HIDEABLE.includes(c.key)).map((c) => ({ key: c.key, label: c.label })),
+    // Project isn't offered inside a project — it isn't rendered there, so a
+    // toggle for it would be a switch that does nothing.
+    ...BASE_COLS.filter((c) => HIDEABLE.includes(c.key) && !(c.key === 'project' && lockedProjectId))
+      .map((c) => ({ key: c.key, label: c.label })),
     ...customFields.map((f) => ({ key: f.id, label: f.name })),
   ];
   return (
@@ -560,6 +563,13 @@ function HideColsMenu({ customFields, hidden, setHidden }) {
 // Inline "+ Add task" under each group section — the created task inherits the
 // section's group context (status / priority / project / due-date bucket) plus
 // the workspace's locked project, matching Asana's add-from-a-section flow.
+// A project with exactly one team hands it to new tasks automatically; with
+// several there's no right answer, so the Team cell stays blank.
+const soleTeamId = (store, projectId) => {
+  const own = (store.teams || []).filter((t) => teamInProject(t, projectId));
+  return own.length === 1 ? own[0].id : '';
+};
+
 function AddTaskInline({ store, defaults, lockedProjectId }) {
   const [title, setTitle] = useState('');
   const add = () => {
@@ -567,7 +577,8 @@ function AddTaskInline({ store, defaults, lockedProjectId }) {
     store.createTask({
       title: t, type: 'task',
       status: defaults.status || 'not_started', priority: defaults.priority || 'medium',
-      projectId: defaults.projectId || lockedProjectId || '', teamId: defaults.teamId || '',
+      projectId: defaults.projectId || lockedProjectId || '',
+      teamId: defaults.teamId || soleTeamId(store, defaults.projectId || lockedProjectId || ''),
       dueOn: defaults.dueOn || '', assigneeId: defaults.assigneeId || '',
     }).catch(() => {});
     setTitle('');
@@ -581,16 +592,43 @@ function AddTaskInline({ store, defaults, lockedProjectId }) {
   );
 }
 
-export default function RichListView({ visible, group, ctx, store, people, selected, toggleSel, onOpen, onSelectAll, lockedProjectId = '' }) {
-  const [collapsed, setCollapsed] = useState(new Set());
-  const effGroup = group === 'none' ? 'status' : group;
-  // Hidden columns (eye menu), persisted per person.
+// Hidden columns (the Hide menu), persisted per person in localStorage. A hook so
+// the state can live in TasksWorkspace — the controls belong in the main toolbar
+// while the table that obeys them is down here.
+export function useHiddenCols() {
   const [hidden, setHidden] = useState(() => {
     try { return new Set(JSON.parse(localStorage.getItem(HIDDEN_KEY) || '[]')); } catch { return new Set(); }
   });
-  const cols = BASE_COLS.filter((c) => !hidden.has(c.key));
-  const allCustomFields = store.customFields || [];
-  const customFields = allCustomFields.filter((f) => !hidden.has(f.id));
+  return [hidden, setHidden];
+}
+
+// The Hide + "+ Column" pair, for the workspace toolbar. Rendered there rather
+// than above the table so they cost no vertical space at all — they used to sit
+// inside the column-header row, which repeated them once per group.
+export function ListColumnControls({ hidden, setHidden, customFields, createCustomField, lockedProjectId }) {
+  return (
+    <>
+      <HideColsMenu customFields={customFields} hidden={hidden} setHidden={setHidden} lockedProjectId={lockedProjectId} />
+      <AddFieldMenu createCustomField={createCustomField} />
+    </>
+  );
+}
+
+export default function RichListView({ visible, group, ctx, store, people, selected, toggleSel, onOpen, onSelectAll, lockedProjectId = '', hidden, setHidden }) {
+  const [collapsed, setCollapsed] = useState(new Set());
+  const effGroup = group === 'none' ? 'status' : group;
+  // Inside a project every row has the same project, so the column is noise. It has
+  // to go through the hidden SET: TaskRow gates cells on `hidden` while the header
+  // and grid template come from `cols`, so filtering one alone misaligns every row.
+  const hiddenEff = useMemo(
+    () => (lockedProjectId ? new Set([...hidden, 'project']) : hidden),
+    [hidden, lockedProjectId],
+  );
+  const cols = BASE_COLS.filter((c) => !hiddenEff.has(c.key));
+  // Only fields scoped to this project (plus global ones) become columns.
+  // Unscoped, one field defined anywhere was a column on every board.
+  const allCustomFields = fieldsForProject(store.customFields || [], lockedProjectId);
+  const customFields = allCustomFields.filter((f) => !hiddenEff.has(f.id));
   const [widths, setWidths] = useState(() => Object.fromEntries(BASE_COLS.map((c) => [c.key, c.width])));
   // Drag a row onto another group to move it there (status/priority/project/…).
   const [dragId, setDragId] = useState(null);
@@ -613,10 +651,13 @@ export default function RichListView({ visible, group, ctx, store, people, selec
   const template = [
     ...cols.map((c) => `${widths[c.key] ?? c.width}px`),
     ...customFields.map((f) => `${widths[f.id] ?? 150}px`),
-    '110px',
+    // Trailing gutter — just the gap after the last column now that Hide / + Column
+    // moved to the toolbar. Header, rows and group footer each still render one empty
+    // cell here, so the column has to stay.
+    '12px',
   ].join(' ');
 
-  const groupCtx = { ...ctx, statusMeta: store.statusMeta, statusOrder: store.statusOrder };
+  const groupCtx = { ...ctx, statusMeta: store.statusMeta, statusOrder: store.statusOrder, customFields: allCustomFields };
   const groups = useMemo(() => groupTasks(visible, effGroup, groupCtx).filter((g) => g.tasks.length > 0), [visible, effGroup, ctx, store.statusMeta, store.statusOrder]);
   const visibleIds = groups.flatMap((g) => g.tasks.map((t) => t.id));
   const allSel = visibleIds.length > 0 && visibleIds.every((id) => selected.has(id));
@@ -677,10 +718,11 @@ export default function RichListView({ visible, group, ctx, store, people, selec
           <ColResizer onMouseDown={startResize(f.id, widths[f.id] ?? 150)} />
         </div>
       ))}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 2, padding: '2px 8px' }} onClick={(e) => e.stopPropagation()}>
-        <HideColsMenu customFields={allCustomFields} hidden={hidden} setHidden={setHidden} />
-        <AddFieldMenu createCustomField={store.createCustomField} />
-      </div>
+      {/* Trailing spacer. Hide / + Column used to live here — inside the header
+          row, and therefore repeated in every group block and sitting flush
+          against the last column's label. They're now one toolbar above the
+          table (see below). */}
+      <div />
     </div>
   );
 
@@ -724,7 +766,7 @@ export default function RichListView({ visible, group, ctx, store, people, selec
                   {groupHeader}
                   {g.tasks.map((t) => (
                     <TaskRow key={t.id} t={t} cols={cols} customFields={customFields} template={template} store={store} people={people} selected={selected.has(t.id)} toggleSel={toggleSel} onOpen={onOpen}
-                      hidden={hidden} groupColor={gc} onDragStartRow={setDragId} onDragEndRow={() => { setDragId(null); setDropKey(null); }} />
+                      hidden={hiddenEff} groupColor={gc} onDragStartRow={setDragId} onDragEndRow={() => { setDragId(null); setDropKey(null); }} />
                   ))}
                   <AddTaskInline store={store} lockedProjectId={lockedProjectId} defaults={groupAddDefaults(effGroup, g.key)} />
                   {/* summary footer — mirrors monday's group tallies */}
