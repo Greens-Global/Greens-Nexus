@@ -81,6 +81,7 @@ def invalidate_role_cache(email: str | None = None) -> None:
 
 def get_current_user(
     authorization: str = Header(default=None),
+    x_act_as_session: str = Header(default=None, alias="X-Act-As-Session"),
 ) -> dict:
     """
     FastAPI dependency. Validates the Azure AD ID token from the Authorization
@@ -138,13 +139,32 @@ def get_current_user(
     # the same ~180 employees re-authenticate on every request they make).
     cached = _role_cache.get(email)
     if cached and time.time() - cached[2] < _ROLE_CACHE_TTL:
-        return {"email": email, "role": cached[0], "level": cached[1]}
+        role, level = cached[0], cached[1]
+    else:
+        db = SessionLocal()
+        try:
+            role, level = _role_for(email, db)
+        finally:
+            db.close()
 
-    db = SessionLocal()
-    try:
-        role, level = _role_for(email, db)
-    finally:
-        db.close()
+    # Act As overlay (Jul 2026): a Manager/IT Admin/Global Admin running an
+    # active impersonation session sees business logic run as the TARGET —
+    # same permission checks, notifications, and ownership fields, scoped to
+    # whatever the target could do (act_as.start_session only ever allows
+    # acting as someone strictly below the real actor's role, so this can
+    # narrow access here, never grant anything extra). Only opens a second DB
+    # connection when the header is actually present — i.e. only while someone
+    # is actively acting as someone else, not on every request.
+    if x_act_as_session:
+        from act_as import resolve_target
+        db2 = SessionLocal()
+        try:
+            target = resolve_target(x_act_as_session, email, db2)
+        finally:
+            db2.close()
+        if target:
+            return target
+
     return {"email": email, "role": role, "level": level}
 
 

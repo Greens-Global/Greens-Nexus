@@ -2,7 +2,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useMsal } from '@azure/msal-react';
 import { InteractionStatus } from '@azure/msal-browser';
-import { api }     from '../api';
+import { api, setActAsSessionId, getActAsSessionId } from '../api';
 import { apiTokenRequest } from '../authConfig';
 
 const RoleCtx = createContext(null);
@@ -73,6 +73,26 @@ export function RoleProvider({ children }) {
   const [allRoles,  setAllRoles]  = useState({});   // { email: role }
   const [loading,   setLoading]   = useState(true);
   const [groups,    setGroups]    = useState([]);   // [{ id, name, department, allowed_modules, members, ... }]
+
+  // ── Act As (Jul 2026) ──────────────────────────────────────────────────────
+  // { sessionId, targetEmail, targetName, expiresAt } while impersonating, else
+  // null. api.js already persists the session id and attaches it to every
+  // request, so the getMyRole() effect below transparently comes back with the
+  // TARGET's role on a fresh page load — this only needs to restore the
+  // display info (name/banner), not re-derive access.
+  const ACT_AS_INFO_KEY = 'nexus:act-as-info';
+  const [actingAs, setActingAsState] = useState(() => {
+    try {
+      const raw = sessionStorage.getItem(ACT_AS_INFO_KEY);
+      const info = raw ? JSON.parse(raw) : null;
+      if (info?.expiresAt && getActAsSessionId() && new Date(info.expiresAt).getTime() > Date.now()) {
+        return info;
+      }
+    } catch { /* ignore malformed storage */ }
+    sessionStorage.removeItem(ACT_AS_INFO_KEY);
+    setActAsSessionId(null);
+    return null;
+  });
 
   // Fetch current user's role and group memberships on mount / account change.
   // Groups must be loaded here (not just in Admin) so that myGrantedModules is
@@ -159,6 +179,46 @@ export function RoleProvider({ children }) {
 
   const getRole = useCallback((email) =>
     allRoles[email?.toLowerCase()] ?? 'employee', [allRoles]);
+
+  // Begin impersonating `targetEmail`. The backend re-validates permission
+  // (strictly-lower-role target, Manager+ or an 'act-as' Access Group grant)
+  // on every request via the session id, not just here — this call only opens
+  // the session and refreshes local role/UI state to match immediately.
+  const startActAs = useCallback(async (targetEmail) => {
+    const result = await api.startActAs(targetEmail);
+    const info = {
+      sessionId: result.session_id, targetEmail: result.target_email,
+      targetName: result.target_name, expiresAt: result.expires_at,
+    };
+    setActAsSessionId(info.sessionId);
+    sessionStorage.setItem(ACT_AS_INFO_KEY, JSON.stringify(info));
+    setActingAsState(info);
+    setLoading(true);
+    try {
+      const roleData = await api.getMyRole();
+      setMyRole(roleData.role ?? 'employee');
+    } finally {
+      setLoading(false);
+    }
+    return info;
+  }, []);
+
+  const stopActAs = useCallback(async () => {
+    const sessionId = getActAsSessionId();
+    setActAsSessionId(null);
+    sessionStorage.removeItem(ACT_AS_INFO_KEY);
+    setActingAsState(null);
+    if (sessionId) {
+      try { await api.stopActAs(sessionId); } catch { /* best-effort — TTL expiry covers it either way */ }
+    }
+    setLoading(true);
+    try {
+      const roleData = await api.getMyRole();
+      setMyRole(roleData.role ?? 'employee');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   // ── Access Groups ──────────────────────────────────────────────────────────
   const refreshGroups = useCallback(() => {
@@ -250,6 +310,7 @@ export function RoleProvider({ children }) {
       groups, refreshGroups, createGroup, updateGroup, deleteGroup,
       addGroupMembers, removeGroupMember, assignGroupRole,
       myGrantedModules, canAccessModule,
+      actingAs, startActAs, stopActAs,
     }}>
       {children}
     </RoleCtx.Provider>

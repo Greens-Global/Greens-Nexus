@@ -1,20 +1,31 @@
 import { useState, useRef, useEffect, useMemo, lazy, Suspense } from "react";
-import { Menu, Moon, Sun, Search, LogOut, Settings, User, ArrowLeft, Shield, Activity, Check, ChevronDown, LayoutDashboard, Maximize2, Minimize2, Palette, ZoomIn, ZoomOut, Camera, Clock, Sparkles, X } from "lucide-react";
+import { Menu, Moon, Sun, Search, LogOut, Settings, User, ArrowLeft, Shield, Activity, Check, ChevronDown, LayoutDashboard, Maximize2, Minimize2, Palette, ZoomIn, ZoomOut, Camera, Clock, Sparkles, X, UserCog, DoorOpen } from "lucide-react";
 import ScreenshotsAdmin from "./ScreenshotsAdmin";
 const Changelog = lazy(() => import("../tasks/ChangelogView"));
 import NotificationBell from "./NotificationBell";
 import PageHelp from "./PageHelp";
 import { useHeaderTabs } from "./ModuleTabs";
+import ActAsModal from "./ActAsModal";
 import { useMsal }        from "@azure/msal-react";
 import { useRole, ROLES, MODULES } from "../contexts/RoleContext";
 
 export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle, canGoBack, onBack, onNavigate, prevLabel, onOpenAdmin, helpKey, helpLabel }) {
   const { instance, accounts } = useMsal();
-  const { myRole, can, myGrantedModules } = useRole();
+  const { myRole, can, myGrantedModules, actingAs, startActAs, stopActAs } = useRole();
   // Module tab strip published by the active module (<ModuleTabs>). When
   // present it takes the header center (Work OS shell) and the global search
   // collapses to a magnifier icon on the right.
   const headerTabs = useHeaderTabs();
+  // Manager/IT Admin/Global Admin get Act As by role today; an 'act-as' Access
+  // Group grant (added to MODULES later) will let a Global Admin extend it to
+  // specific other employees without a backend change.
+  const canActAs = (can?.('manager') ?? false) || !!myGrantedModules?.has?.('act-as');
+  const [actAsModalOpen, setActAsModalOpen] = useState(false);
+  const [actAsStopping,  setActAsStopping]  = useState(false);
+  async function handleExitActAs() {
+    setActAsStopping(true);
+    try { await stopActAs(); } finally { setActAsStopping(false); }
+  }
   const account  = accounts[0];
   const name     = account?.name ?? "User";
   const email    = account?.username ?? "";
@@ -167,6 +178,7 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
   );
 
   return (
+    <>
     <header className="top-header">
       <div className="header-left">
         <button className="mobile-toggle" onClick={onMobileToggle} aria-label="Toggle Sidebar">
@@ -334,6 +346,26 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
               ))}
               {helpKey && <PageHelp pageKey={helpKey} label={helpLabel} variant="row" onActivate={() => setOpen(false)} />}
 
+              {/* Act As (Jul 2026): visible to Manager/IT Admin/Global Admin (or an
+                  'act-as' Access Group grant). Exit is always shown while a session
+                  is active — myRole may have dropped below manager because it's
+                  now reporting the impersonated employee's own role. */}
+              {(canActAs || actingAs) && (
+                <>
+                  <div className="hud-divider" />
+                  {actingAs ? (
+                    <button className="hud-item" onClick={() => { setOpen(false); handleExitActAs(); }} disabled={actAsStopping}
+                      style={{ color: 'hsl(var(--color-red))' }}>
+                      <DoorOpen size={14} /> {actAsStopping ? 'Exiting…' : `Exit Act As (${actingAs.targetName})`}
+                    </button>
+                  ) : (
+                    <button className="hud-item" onClick={() => { setOpen(false); setActAsModalOpen(true); }}>
+                      <UserCog size={14} /> Act As
+                    </button>
+                  )}
+                </>
+              )}
+
               {isAdmin && (
                 <>
                   <div className="hud-divider" />
@@ -374,5 +406,36 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
         </Suspense>
       )}
     </header>
+
+    {/* Persistent, hard-to-miss reminder that this is impersonation, not the
+        real signed-in identity — sits under the header on every screen for
+        the whole session, not just the profile menu (Jul 2026). */}
+    {actingAs && (
+      <div style={{
+        position: 'sticky', top: 56, zIndex: 105, display: 'flex', alignItems: 'center',
+        justifyContent: 'center', gap: 10, padding: '7px 16px',
+        background: 'hsla(var(--color-orange), 0.16)', borderBottom: '1px solid hsla(var(--color-orange), 0.4)',
+        fontFamily: 'Inter, sans-serif', fontSize: 12.5, color: 'var(--ink)', flexWrap: 'wrap', textAlign: 'center',
+      }}>
+        <UserCog size={13} style={{ color: 'hsl(var(--color-orange))', flexShrink: 0 }} />
+        <span>You're acting as <strong>{actingAs.targetName}</strong> ({actingAs.targetEmail}) — actions you take are attributed to them.</span>
+        <button onClick={handleExitActAs} disabled={actAsStopping}
+          style={{
+            background: 'hsl(var(--color-orange))', color: '#fff', border: 'none', borderRadius: 6,
+            padding: '3px 10px', fontSize: 11.5, fontWeight: 700, cursor: actAsStopping ? 'default' : 'pointer',
+            fontFamily: 'inherit', flexShrink: 0,
+          }}>
+          {actAsStopping ? 'Exiting…' : 'Exit Act As'}
+        </button>
+      </div>
+    )}
+
+    {actAsModalOpen && (
+      <ActAsModal
+        onClose={() => setActAsModalOpen(false)}
+        onStart={startActAs}
+      />
+    )}
+    </>
   );
 }
