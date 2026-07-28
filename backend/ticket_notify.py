@@ -115,17 +115,39 @@ def _is_sendable(db: Session, email: str) -> bool:
     return not (emp and emp.status in ("inactive", "offboarded"))
 
 
-def _dept_head(db: Session, hr_department_id: str) -> str:
-    """Lead, else backup, else "" (caller falls back to the Ticket Administrator)."""
+def _is_punched_in(db: Session, email: str) -> bool:
+    """True if `email`'s most recent non-voided punch leaves them on the
+    clock (in, or on break) rather than punched out or never punched in.
+    Mirrors timeclock.py's own state machine (_allowed_kinds): the next
+    allowed action is 'in' only when nobody is currently clocked in, i.e.
+    the last punch is missing or was 'out'."""
+    if not email:
+        return False
+    last = (db.query(models.TimePunch)
+            .filter(models.TimePunch.employee_email == email.lower(), models.TimePunch.voided == 0)
+            .order_by(models.TimePunch.at.desc()).first())
+    return bool(last) and last.kind != "out"
+
+
+def _dept_recipients(db: Session, hr_department_id: str) -> list[str]:
+    """Who to notify to triage/assign a ticket for this department. The lead
+    is the primary owner; the backup is ALSO notified whenever the lead isn't
+    currently punched in — a ticket must never sit waiting on someone who
+    isn't at their desk to see it, or the SLA clock runs out unnoticed.
+    Returns [] if neither lead nor backup is usable (caller falls back to
+    the Ticket Administrator)."""
     if not hr_department_id:
-        return ""
+        return []
     dept = db.query(models.HrDepartment).filter(models.HrDepartment.id == hr_department_id).first()
     if not dept:
-        return ""
-    for candidate in (dept.lead_email, dept.backup_email):
-        if candidate and _is_sendable(db, candidate):
-            return candidate.strip().lower()
-    return ""
+        return []
+    lead = (dept.lead_email or "").strip().lower()
+    backup = (dept.backup_email or "").strip().lower()
+    lead_ok = bool(lead) and _is_sendable(db, lead)
+    backup_ok = bool(backup) and _is_sendable(db, backup)
+    if lead_ok and _is_punched_in(db, lead):
+        return [lead]
+    return [e for e, ok in ((lead, lead_ok), (backup, backup_ok)) if ok]
 
 
 def _recipients_for(db: Session, t: models.TaskTicket, event_type: str, cfg: dict) -> list[tuple[str, str]]:
@@ -142,16 +164,23 @@ def _recipients_for(db: Session, t: models.TaskTicket, event_type: str, cfg: dic
 
     requester = (t.requester_email or "").strip().lower()
     assignee = (t.assignee_email or "").strip().lower()
-    dept_head = _dept_head(db, t.hr_department_id)
-    if not dept_head and t.hr_department_id:
+    dept_heads = _dept_recipients(db, t.hr_department_id)
+    if not dept_heads and t.hr_department_id:
         # Spec requirement: no department lead configured -> notify the Ticket
         # Administrator instead, and record the gap.
         admin = (cfg.get("ticketAdminEmail") or "").strip().lower()
         if admin:
-            dept_head = admin
+            dept_heads = [admin]
         log_activity(db, type="notify_gap", actor_email="system", entity_kind="ticket",
                      entity_id=t.id, entity_code=t.code, entity_title=t.subject,
                      detail=f"Department has no lead/backup configured — routed to {'Ticket Administrator' if admin else 'nobody (Ticket Administrator not configured either)'}")
+
+    def add_dept_heads():
+        # Both lead and backup only when the lead isn't currently punched
+        # in — otherwise just the lead — so a ticket never sits waiting on
+        # someone who isn't at their desk (missing this risks the SLA).
+        for email in dept_heads:
+            add(email, "dept_head")
 
     if event_type in ("created",):
         add(requester, "requester")
@@ -159,19 +188,19 @@ def _recipients_for(db: Session, t: models.TaskTicket, event_type: str, cfg: dic
         # lead yet — their "needs assignment" copy is queued by decide_approval
         # once the approver approves (mirrors the in-app bell gate in tickets.py).
         if (t.approval_status or "none") != "pending":
-            add(dept_head, "dept_head")
+            add_dept_heads()
     elif event_type == "assigned":
         add(requester, "requester")
-        add(dept_head, "dept_head")
+        add_dept_heads()
         add(assignee, "assignee")
     elif event_type == "updated":
         add(requester, "requester")   # spec: update emails go to the end user only
     elif event_type == "resolved":
         add(requester, "requester")
-        add(dept_head, "dept_head")
+        add_dept_heads()
         add(assignee, "assignee")
     elif event_type == "reopened":
-        add(dept_head, "dept_head")
+        add_dept_heads()
         add(assignee, "assignee")
         add(requester, "requester")
     elif event_type == "approval_required":
