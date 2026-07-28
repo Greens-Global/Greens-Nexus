@@ -801,13 +801,18 @@ export default function TimeClock() {
           {myReqs.slice(0, 6).map(r => {
             const c = r.status === 'approved' ? 'hsl(var(--color-green))'
               : r.status === 'rejected' ? 'hsl(var(--color-red))' : '#b45309';
+            const tint = r.status === 'approved' ? 'hsla(var(--color-green),0.1)'
+              : r.status === 'rejected' ? 'rgba(185,28,28,0.08)' : 'rgba(180,83,9,0.1)';
             const when = r.action === 'add' && r.at ? ` at ${localTime(r.at)}` : '';
             return (
-              <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 12, padding: '7px 12px', background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10 }}>
-                <span style={{ fontWeight: 700, textTransform: 'capitalize', color: c, minWidth: 64 }}>{r.status}</span>
-                <span style={{ color: 'var(--ink)' }}>{r.action === 'add' ? `Add ${KIND_LABEL[r.punchKind] || r.punchKind}${when}` : 'Remove a punch'}</span>
-                {r.reason && <span style={{ color: 'var(--muted)' }}>· {r.reason}</span>}
-                {r.status === 'rejected' && r.decisionNote && <span style={{ color: 'hsl(var(--color-red))' }}>· {r.decisionNote}</span>}
+              /* Status is a PILL and free-text (your reason, the approver's note)
+                 is QUOTED with a label — bare dot-separated fragments read as
+                 buttons/errors ("· Reject" looked like a dead action). */
+              <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap', fontSize: 12.5, padding: '8px 12px', background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 10 }}>
+                <span style={{ fontWeight: 700, fontSize: 11, textTransform: 'capitalize', color: c, background: tint, padding: '2px 10px', borderRadius: 999, flexShrink: 0 }}>{r.status}</span>
+                <span style={{ color: 'var(--ink)', fontWeight: 600 }}>{r.action === 'add' ? `Add ${(KIND_LABEL[r.punchKind] || r.punchKind).toLowerCase()}${when}` : 'Remove a punch'}</span>
+                {r.reason && <span style={{ color: 'var(--muted)' }}>Your reason: “{r.reason}”</span>}
+                {r.status === 'rejected' && r.decisionNote && <span style={{ color: 'hsl(var(--color-red))' }}>Approver: “{r.decisionNote}”</span>}
               </div>
             );
           })}

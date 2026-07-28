@@ -3767,16 +3767,26 @@ function KpiTile({ label, value, delta, sub, solid, onGo, goTitle, loading }) {
 // headcount bars, latest bar solid brand with a value callout, labels under
 // every bar, native tooltips.
 function MonthlyBars({ employees }) {
+  // NEW JOINERS per month, from recorded start dates — deliberately NOT a
+  // cumulative headcount curve. Most legacy profiles were imported without a
+  // start date, so a cumulative series claimed the company was near-empty
+  // until the first dated hire (Jul 28 bug report: 57 people, bars ~0).
+  // Per-month joins only assert what the data actually records.
   const now = new Date();
   const buckets = [];
   for (let i = 7; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i + 1, 0);
-    const iso = d.toISOString().slice(0, 10);
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
     buckets.push({
       label: d.toLocaleString('en-US', { month: 'short' }),
-      n: employees.filter(e => e.startDate && e.startDate <= iso).length,
+      n: employees.filter(e => (e.startDate || '').slice(0, 7) === key).length,
     });
   }
+  if (buckets.every(b => b.n === 0)) return (
+    <div style={{ height: 155, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12.5, color: 'var(--muted)', textAlign: 'center', padding: '0 18px' }}>
+      No recorded start dates in the last 8 months — new joins chart here once profiles carry start dates.
+    </div>
+  );
   const max = Math.max(...buckets.map(b => b.n), 1);
   return (
     <div>
@@ -3784,7 +3794,7 @@ function MonthlyBars({ employees }) {
         {buckets.map((b, i) => {
           const isLast = i === buckets.length - 1;
           return (
-            <div key={i} title={`${b.label}: ${b.n} people`}
+            <div key={i} title={`${b.label}: ${b.n} joined`}
               style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', alignItems: 'center', gap: 6, height: '100%' }}>
               {isLast && (
                 <span style={{ padding: '2px 8px', borderRadius: 12, fontSize: 12, fontWeight: 700, background: 'var(--wk-brand-tint)', color: 'var(--wk-brand)', fontVariantNumeric: 'tabular-nums' }}>{b.n}</span>
@@ -3840,7 +3850,7 @@ function PeopleStatCards({ employees, loading, isMobile, onStatusFilter, onJumpT
       </div>
 
       {/* Rounded-bar headcount chart (the concept's Revenue card) */}
-      <StatCardShell Icon={Users} title="Headcount" meta="last 8 months">
+      <StatCardShell Icon={Users} title="New joiners" meta="last 8 months">
         <MonthlyBars employees={employees} />
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px 14px', fontSize: 12.5, color: 'var(--muted)' }}>
           {types.filter(t => t.n > 0).map(t => (
