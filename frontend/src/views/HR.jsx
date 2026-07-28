@@ -2258,10 +2258,11 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
       {/* Toolbar: expand controls · full-width search · filters + count (People-tab style) */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
         <button className="secondary-btn" style={{ fontSize: 12, flex: '0 0 auto' }}
-          onClick={() => { setCollapsedSet(new Set()); setTimeout(centerView, 60); }}>Expand All</button>
+          onClick={() => { setCollapsedSet(new Set()); setTimeout(centerView, 60); }}>Expand all</button>
         <button className="secondary-btn" style={{ fontSize: 12, flex: '0 0 auto' }}
-          onClick={() => { setCollapsedSet(new Set([...visChildren.keys()])); setTimeout(centerView, 60); }}>Collapse All</button>
-        <div className="search-bar" style={{ flex: '1 1 240px', minWidth: 200 }}>
+          onClick={() => { setCollapsedSet(new Set([...visChildren.keys()])); setTimeout(centerView, 60); }}>Collapse all</button>
+        {/* Kit proportion: search is a field, not a runway — cap its width. */}
+        <div className="search-bar" style={{ flex: '1 1 240px', minWidth: 200, maxWidth: 360, height: 34 }}>
           <Search size={13} style={{ flexShrink: 0 }} />
           <input placeholder="Search people…" value={orgQ} onChange={ev => setOrgQ(ev.target.value)} />
           {orgQ && <button onClick={() => setOrgQ('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 2 }}><X size={13} /></button>}

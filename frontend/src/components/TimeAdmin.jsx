@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import {
   Clock, ChevronDown, ChevronRight, ChevronLeft, MapPin, AlertTriangle, Download,
   Pencil, Plus, Loader2, X, CheckCircle, Ban, Camera, MoonStar,
+  CalendarDays, Activity, Inbox, CalendarClock, Banknote, CalendarOff,
 } from 'lucide-react';
 import { api } from '../api';
 import DayTimeline from './DayTimeline';
@@ -307,20 +308,29 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
         </div>
       )}
 
-      {/* Sub-tabs */}
-      <div className="chip-row scroll-tabs" style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-        {[['timecards', 'Timecards'], ['livemap', 'Live Map'], ['attendance', 'Attendance'], ['insights', 'Insights'],
-          ['requests', `Punch requests${punchReqs.length ? ` (${punchReqs.length})` : ''}`],
-          ['screenshots', 'Screenshots'], ['shifts', 'Shifts'], ['payroll', 'Payroll'],
-          ['timeoff', `Time off${pendingCount ? ` (${pendingCount})` : ''}`]].map(([key, label]) => (
-          <button key={key} onClick={() => setView(key)}
-            style={{ padding: '6px 15px', borderRadius: 999, border: `1px solid ${view === key ? 'transparent' : 'var(--wk-line2)'}`,
-              background: view === key ? 'var(--wk-brand-tint)' : 'var(--card)',
-              color: view === key ? 'var(--wk-brand)' : 'var(--muted)',
-              fontWeight: view === key ? 700 : 600, fontSize: 12.5, cursor: 'pointer', fontFamily: 'var(--wk-font)', whiteSpace: 'nowrap' }}>
-            {label}
-          </button>
-        ))}
+      {/* Sub-screen nav — these are PAGES of a complex module, so they get the
+          Documents-style underline tab band (icons, brand underline, hairline
+          base) instead of floating pills that merged into the content. */}
+      <div className="scroll-tabs" style={{ display: 'flex', gap: 2, marginBottom: 18, borderBottom: '1px solid var(--wk-line)' }}>
+        {[['timecards', 'Timecards', Clock], ['livemap', 'Live map', MapPin], ['attendance', 'Attendance', CalendarDays],
+          ['insights', 'Insights', Activity], ['requests', 'Punch requests', Inbox, punchReqs.length],
+          ['screenshots', 'Screenshots', Camera], ['shifts', 'Shifts', CalendarClock], ['payroll', 'Payroll', Banknote],
+          ['timeoff', 'Time off', CalendarOff, pendingCount]].map(([key, label, Icon, badge]) => {
+          const on = view === key;
+          return (
+            <button key={key} onClick={() => setView(key)}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '10px 14px', border: 'none', background: 'none',
+                cursor: 'pointer', fontFamily: 'var(--wk-font)', fontSize: 13.5, fontWeight: on ? 700 : 600,
+                color: on ? 'var(--wk-brand)' : 'var(--muted)', whiteSpace: 'nowrap', marginBottom: -1,
+                borderBottom: on ? '2.5px solid var(--wk-brand)' : '2.5px solid transparent',
+                transition: 'color .12s, border-color .12s' }}>
+              <Icon size={15} /> {label}
+              {badge > 0 && (
+                <span style={{ background: on ? 'var(--wk-brand)' : 'var(--wk-faint)', color: '#fff', borderRadius: 20, fontSize: 11, fontWeight: 700, padding: '1px 7px', lineHeight: 1.4 }}>{badge}</span>
+              )}
+            </button>
+          );
+        })}
       </div>
 
       {/* Range + export bar (shared by Timecards and Insights) */}
