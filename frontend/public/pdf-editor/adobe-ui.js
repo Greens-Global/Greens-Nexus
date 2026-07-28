@@ -154,10 +154,11 @@
       return false;
     };
     const clickExport = (k) => { if (!needDoc()) el(`#exportMenu [data-export="${k}"]`)?.click(); };
-    const mk = (text, title, fn) => {
+    const mk = (text, title, fn, revealKey) => {
       const b = document.createElement('button');
       b.className = 'tool-btn';
       b.title = title;
+      if (revealKey) b.dataset.reveal = revealKey; // so landing cards can pulse it
       b.innerHTML = `<span style="display:inline">${text}</span>`;
       b.addEventListener('click', fn);
       box.appendChild(b);
@@ -190,11 +191,11 @@
       e.target.value = '';
     });
     document.body.appendChild(imgPdfInput);
-    mk('Image → PDF', 'Combine PNG/JPG images into a PDF (one page per image)', () => imgPdfInput.click());
+    mk('Image → PDF', 'Combine PNG/JPG images into a PDF (one page per image)', () => window.imageToPdfDialog ? window.imageToPdfDialog() : imgPdfInput.click());
 
     mk('PDF → Word', 'Editable Word file — font sizes and bold are kept; scanned pages are included as exact images',
-      () => { if (!needDoc()) window.exportWordSmart && window.exportWordSmart(); });
-    mk('PDF → Excel', 'Extract the text into an Excel spreadsheet', () => clickExport('excel'));
+      () => { if (!needDoc()) window.exportWordSmart && window.exportWordSmart(); }, 'word');
+    mk('PDF → Excel', 'Extract the text into an Excel spreadsheet', () => clickExport('excel'), 'excel');
 
     // PDF → Image with a type submenu
     const imgBtn = mk('PDF → Image ▾', 'Export pages as PNG, JPEG or TIFF images', () => {
@@ -202,7 +203,7 @@
       imgMenu.style.top = r.bottom + 4 + 'px';
       imgMenu.style.left = r.left + 'px';
       imgMenu.classList.toggle('open');
-    });
+    }, 'image');
     const imgMenu = document.createElement('div');
     imgMenu.className = 'dropdown-menu';
     imgMenu.id = 'imgExportMenu';
@@ -506,7 +507,7 @@
       members: [el('#textTool'), el('[data-tool="edittext"]'), el('#drawTool'), el('#highlightTool'), el('#shapeTool'), wrapOf('#stampBtn'), el('#imageTool'), el('#cropTool'), el('#toolOptions')] },
     { id: 'organize', label: 'Organize Pages',  tint: '#4caf7d',
       desc: 'Rotate, add, merge, split pages',
-      members: [el('#rotateBtn'), el('#addPageBtn'), el('#templatePageBtn'), el('#mergeBtn'), el('#splitBtn'), el('#watermarkBtn'), el('#pageNumBtn'), el('#nupBtn'), el('#rmBlankBtn')] },
+      members: [el('#rotateBtn'), el('#addPageBtn'), el('#addImagePageBtn'), el('#templatePageBtn'), el('#mergeBtn'), el('#splitBtn'), el('#watermarkBtn'), el('#pageNumBtn'), el('#nupBtn'), el('#rmBlankBtn')] },
     { id: 'sign',     label: 'Fill & Sign',     tint: '#5aa2e8',
       desc: 'Add your signature to the document',
       // A clear "signing" icon: a fountain pen writing on a signature line.
@@ -671,7 +672,6 @@
     const brand = document.createElement('div');
     brand.className = 'welcome-brand';
     brand.innerHTML =
-      `<span class="brand-mark brand-mark-lg">${BRAND_MARK}</span>` +
       '<span class="brand-name">Nexus <em>PDF Editor</em></span>';
     dz.insertBefore(brand, dz.firstChild);
     if (ps[0]) ps[0].textContent = 'What do you want to do?';
@@ -681,21 +681,50 @@
     const expItem = (k) => el(`#exportMenu [data-export="${k}"]`)?.click();
     const openGroup = (id) => { const g = GROUPS.find(x => x.id === id); if (g) open(g); };
 
+    // Landing card → navigate to the tab where the tool lives and pulse the
+    // exact button, so the user learns WHERE the option is (instead of the tool
+    // just running silently). `target` is a CSS selector for the button to
+    // highlight; omit it to just open the tab.
+    const revealTool = (groupId, target) => {
+      openGroup(groupId);
+      if (!target) return;
+      // Wait a frame so the group's box is displayed before we pulse the button.
+      requestAnimationFrame(() => {
+        const btn = el(target);
+        if (!btn) return;
+        btn.scrollIntoView({ inline: 'center', block: 'nearest' });
+        btn.classList.add('tool-reveal-pulse');
+        setTimeout(() => btn.classList.remove('tool-reveal-pulse'), 2400);
+      });
+    };
+    // For export tools (Word/Excel/Image), open the Export tab and pulse the
+    // matching labeled button in the export bar (tagged with data-reveal).
+    const revealExport = (k) => {
+      openGroup('export');
+      requestAnimationFrame(() => {
+        const item = el(`[data-reveal="${k}"]`);
+        if (!item) return;
+        item.scrollIntoView({ inline: 'center', block: 'nearest' });
+        item.classList.add('tool-reveal-pulse');
+        setTimeout(() => item.classList.remove('tool-reveal-pulse'), 2400);
+      });
+    };
+
     const CARDS = [
-      ['Edit PDF',        '#b06ee8', 'M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5ZM15 5l4 4', () => pickPdfThen(() => openGroup('edit'))],
-      ['Sign PDF',        '#5aa2e8', 'M3 17c2.5 0 3-6 5-6s1.5 4 3 4 2-8 4-8 1.5 6 3 6M3 21h18', () => pickPdfThen(() => { openGroup('sign'); el('#signatureBtn')?.click(); })],
-      ['Organize Pages',  '#4caf7d', 'M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z', () => pickPdfThen(() => openGroup('organize'))],
-      ['Merge PDF',       '#e8734a', 'M2 2h8v12H2zM14 10h8v12h-8zM10 8h4m-2-2v4', () => pickPdfThen(() => el('#mergeBtn')?.click())],
-      ['OCR (scanned)',   '#7dc243', 'M11 3a8 8 0 1 0 0 16 8 8 0 0 0 0-16zM21 21l-4.35-4.35M8 11h6M11 8v6', () => pickPdfThen(() => el('#ocrBtn')?.click())],
+      ['Edit PDF',        '#b06ee8', 'M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5ZM15 5l4 4', () => pickPdfThen(() => revealTool('edit', '#textTool'))],
+      ['Organize Pages',  '#4caf7d', 'M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z', () => pickPdfThen(() => revealTool('organize', '#rotateBtn'))],
+      ['Merge PDF',       '#e8734a', 'M2 2h8v12H2zM14 10h8v12h-8zM10 8h4m-2-2v4', () => pickPdfThen(() => revealTool('organize', '#mergeBtn'))],
+      ['OCR (scanned)',   '#7dc243', 'M11 3a8 8 0 1 0 0 16 8 8 0 0 0 0-16zM21 21l-4.35-4.35M8 11h6M11 8v6', () => pickPdfThen(() => revealTool('ocr', '#ocrBtn'))],
       ['Word → PDF',      '#2b7cd3', 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M8 13l2 5 2-5 2 5 2-5', () => docxPicker && docxPicker.click()],
-      ['Image → PDF',     '#e8b93a', 'M3 3h18v18H3zM8.5 10a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zM21 15l-5-5L5 21', () => imgPicker && imgPicker.click()],
-      ['PDF → Word',      '#185abd', 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M8 13l2 5 2-5 2 5 2-5', () => pickPdfThen(() => window.exportWordSmart && window.exportWordSmart())],
-      ['PDF → Excel',     '#1d7044', 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M9 12l6 6M15 12l-6 6', () => pickPdfThen(() => expItem('excel'))],
-      ['Compress PDF',    '#5c9e57', 'M8 3l4 4 4-4M8 21l4-4 4 4M12 7v10', () => pickPdfThen(() => el('#compressBtn')?.click())],
-      ['Fill Form',       '#8c6ed6', 'M3 4h18v16H3zM7 9h10M7 13h6M15 15l2 2 4-4', () => pickPdfThen(() => el('#formsBtn')?.click())],
-      ['Protect (password)','#d4506e', 'M4 11h16v10H4zM8 11V7a4 4 0 0 1 8 0v4', () => pickPdfThen(() => el('#protectBtn')?.click())],
-      ['Compare PDFs',    '#5c9e57', 'M4 4h6v16H4zM14 4h6v16h-6', () => pickPdfThen(() => el('#compareBtn')?.click())],
-      ['PDF → Image',     '#c2588f', 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M9 13a1 1 0 1 0 0-2 1 1 0 0 0 0 2zM20 17l-4-4-7 7', () => pickPdfThen(() => openGroup('export'))],
+      ['Image → PDF',     '#e8b93a', 'M3 3h18v18H3zM8.5 10a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zM21 15l-5-5L5 21', () => window.imageToPdfDialog && window.imageToPdfDialog()],
+      ['PDF → Image',     '#c2588f', 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M9 13a1 1 0 1 0 0-2 1 1 0 0 0 0 2zM20 17l-4-4-7 7', () => pickPdfThen(() => revealExport('image'))],
+      ['PDF → Word',      '#185abd', 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M8 13l2 5 2-5 2 5 2-5', () => pickPdfThen(() => revealExport('word'))],
+      ['PDF → Excel',     '#1d7044', 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M9 12l6 6M15 12l-6 6', () => pickPdfThen(() => revealExport('excel'))],
+      ['Compress PDF',    '#5c9e57', 'M8 3l4 4 4-4M8 21l4-4 4 4M12 7v10', () => pickPdfThen(() => revealTool('export', '#compressBtn'))],
+      ['Sign PDF',        '#5aa2e8', 'M3 17c2.5 0 3-6 5-6s1.5 4 3 4 2-8 4-8 1.5 6 3 6M3 21h18', () => pickPdfThen(() => revealTool('sign', '#signatureBtn'))],
+      ['Protect (password)','#d4506e', 'M4 11h16v10H4zM8 11V7a4 4 0 0 1 8 0v4', () => pickPdfThen(() => revealTool('sign', '#protectBtn'))],
+      ['Fill Form',       '#8c6ed6', 'M3 4h18v16H3zM7 9h10M7 13h6M15 15l2 2 4-4', () => pickPdfThen(() => revealTool('sign', '#formsBtn'))],
+      ['Compare PDFs',    '#5c9e57', 'M4 4h6v16H4zM14 4h6v16h-6', () => pickPdfThen(() => revealTool('sign', '#compareBtn'))],
     ];
 
     const grid = document.createElement('div');
@@ -875,6 +904,9 @@
   });
   const searchBtnRef = el('#searchToggle');
   if (searchBtnRef) searchBtnRef.after(histBtn); else right.appendChild(histBtn);
+  // Hidden per request: Recent files (clock) button is not shown in the toolbar.
+  // All its logic is kept above so it can be re-enabled by removing this line.
+  histBtn.style.display = 'none';
 
   // Document Info (i) button
   const infoBtn = document.createElement('button');
@@ -883,6 +915,8 @@
   infoBtn.innerHTML = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>';
   infoBtn.addEventListener('click', () => window.documentInfoDialog && window.documentInfoDialog());
   histBtn.after(infoBtn);
+  // Hidden per request: Document information (i) button is not shown.
+  infoBtn.style.display = 'none';
 
   // ── Outline / bookmarks panel (opens from a button in the Pages sidebar) ──
   const outlinePanel = document.createElement('aside');
@@ -913,6 +947,9 @@
     outlinePanel.style.display = 'flex';
   }
   window.toggleOutline = toggleOutline;
+  // Bind the bookmarks button here (was an inline onclick=, removed so the CSP
+  // can use script-src 'self' without 'unsafe-inline').
+  el('#bookmarksBtn')?.addEventListener('click', () => toggleOutline());
 
   // ── Close document: obvious way back to the welcome screen ─────────────────
   // A full reload is the one reliable way to reset every bit of app.js state

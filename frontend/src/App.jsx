@@ -245,6 +245,15 @@ function MainApp() {
   const [adminPanelOpen,   setAdminPanelOpen]   = useState(false);
   const [adminPanelTab,    setAdminPanelTab]    = useState('audit');
   const [backendDown,      setBackendDown]      = useState(false);
+  // PDF Editor tells us (via PdfEditorModule → window event) whether a document
+  // is open. We hide the top header only while editing a doc; the landing screen
+  // keeps the bar.
+  const [pdfHasDoc,        setPdfHasDoc]        = useState(false);
+  useEffect(() => {
+    const onDocState = (e) => setPdfHasDoc(!!(e.detail && e.detail.hasDoc));
+    window.addEventListener('nexus:pdf-doc-state', onDocState);
+    return () => window.removeEventListener('nexus:pdf-doc-state', onDocState);
+  }, []);
   const sidebarRef = useRef(null);
   // Remount ticket for the active view. A module opened while the backend was
   // down/restarting fetches nothing and settles into a false "no data yet — add
@@ -401,6 +410,9 @@ function MainApp() {
               center via <ModuleTabs> (Work OS shell — Stella-style layout) */}
           <HeaderTabsProvider>
           <main className={`main-content${sidebarCollapsed ? " main-collapsed" : ""}`}>
+            {/* PDF Editor is a full-bleed workspace with its own toolbar — hide
+                the Nexus top header so it gets the whole viewport height. */}
+            {!(activeView === 'pdf-editor' && pdfHasDoc) && (
             <TopHeader
               title={viewLabel(activeView)}
               helpKey={activeSub ? `${activeView}:${activeSub}` : activeView}
@@ -414,6 +426,7 @@ function MainApp() {
               prevLabel={navHistory.length > 0 ? viewLabel(navHistory[navHistory.length - 1].view) : null}
               onOpenAdmin={tab => { setAdminPanelTab(tab); setAdminPanelOpen(true); }}
             />
+            )}
             {/* viewport-desk: the Work OS canvas (soft gray --wk-bg) for the
                 dashboard surfaces — see the Work OS section in style.css */}
             <div className={activeView === 'tasks' ? 'viewport viewport-flush'

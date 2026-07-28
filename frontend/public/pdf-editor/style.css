@@ -1427,16 +1427,20 @@ header.toolbar {
    ============================ */
 .search-highlight {
     position: absolute;
-    background: rgba(255, 235, 59, 0.45);
-    border: 1.5px solid rgba(255, 193, 7, 0.9);
+    /* Faint fill so the text stays fully readable, with a clear thin border
+       so the match is still easy to spot. */
+    background: rgba(255, 235, 59, 0.22);
+    border: 1px solid rgba(255, 193, 7, 0.7);
     border-radius: 3px;
     pointer-events: none;
     z-index: 50;
 }
 
 .search-highlight.active {
-    background: rgba(255, 152, 0, 0.5);
-    border-color: rgba(255, 152, 0, 0.8);
+    /* Current match: a touch stronger + orange border so it stands out from
+       the other matches, but still light enough to read through. */
+    background: rgba(255, 152, 0, 0.28);
+    border-color: rgba(255, 138, 0, 0.9);
 }
 
 /* ============================
@@ -3095,3 +3099,133 @@ html[data-theme="light"] {
     line-height: 1.4;
 }
 #scrollModeBtn.active { background: var(--accent); color: #fff; }
+
+/* ── Word export preview (PDF → Word): show before download ───────────────── */
+.word-preview-overlay {
+  position: fixed; inset: 0; z-index: 10000;
+  background: rgba(15,17,26,0.55); backdrop-filter: blur(2px);
+  display: flex; align-items: center; justify-content: center; padding: 24px;
+}
+.word-preview-modal {
+  background: #fff; color: #1a1a1a; border-radius: 12px; overflow: hidden;
+  width: min(920px, 96vw); height: min(88vh, 1000px);
+  display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+}
+.word-preview-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 12px 16px; border-bottom: 1px solid #e5e7eb; background: #f8fafc;
+}
+.word-preview-title { font-weight: 600; font-size: 14px; color: #111827;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.word-preview-actions { display: flex; gap: 8px; flex-shrink: 0; }
+.wp-btn { border: none; border-radius: 8px; padding: 8px 16px; font-size: 13px;
+  font-weight: 600; cursor: pointer; font-family: inherit; }
+.wp-cancel { background: #eef0f4; color: #374151; }
+.wp-cancel:hover { background: #e2e5ea; }
+.wp-download { background: #185abd; color: #fff; }
+.wp-download:hover { background: #1349a0; }
+.word-preview-body { flex: 1; overflow: auto; background: #edeef2; padding: 24px; }
+/* Emulate a Word page so the preview reads like the real document. */
+.word-preview-page {
+  background: #fff; max-width: 720px; margin: 0 auto; padding: 56px 64px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.12); border-radius: 2px;
+  font-family: 'Calibri', 'Segoe UI', Arial, sans-serif; font-size: 15px;
+  line-height: 1.5; color: #1a1a1a;
+}
+.word-preview-page img { max-width: 100%; height: auto; }
+.word-preview-page table { border-collapse: collapse; width: 100%; margin: 8px 0; }
+.word-preview-page td, .word-preview-page th { border: 1px solid #cbd5e1; padding: 4px 8px; }
+/* Full-page image preview (exact-look PDF → Word) */
+.word-preview-pageimg {
+  display: block; width: min(720px, 100%); margin: 0 auto 18px;
+  background: #fff; box-shadow: 0 2px 10px rgba(0,0,0,0.15); border-radius: 2px;
+}
+
+/* ── "Coming soon" popup (Fill Form / Compare PDFs — not ready yet) ────────── */
+.cs-overlay {
+  position: fixed; inset: 0; z-index: 10001;
+  background: rgba(15,17,26,0.55); backdrop-filter: blur(3px);
+  display: flex; align-items: center; justify-content: center; padding: 24px;
+  animation: cs-fade 0.18s ease;
+}
+@keyframes cs-fade { from { opacity: 0; } to { opacity: 1; } }
+.cs-card {
+  background: #fff; color: #1a1a2e; border-radius: 18px;
+  width: min(400px, 92vw); padding: 32px 30px 26px; text-align: center;
+  box-shadow: 0 24px 70px rgba(0,0,0,0.35);
+  animation: cs-pop 0.22s cubic-bezier(0.34,1.56,0.64,1);
+}
+@keyframes cs-pop { from { transform: scale(0.9) translateY(8px); opacity: 0; } to { transform: none; opacity: 1; } }
+.cs-icon {
+  width: 60px; height: 60px; margin: 0 auto 16px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center; color: #fff;
+  background: linear-gradient(135deg, #6a5cff, #9b6cff);
+  box-shadow: 0 8px 22px rgba(106,92,255,0.4);
+}
+.cs-icon svg { width: 30px; height: 30px; }
+.cs-badge {
+  display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: 0.06em;
+  text-transform: uppercase; color: #6a5cff; background: rgba(106,92,255,0.12);
+  padding: 4px 12px; border-radius: 999px; margin-bottom: 12px;
+}
+.cs-title { font-size: 19px; font-weight: 700; margin: 0 0 8px; }
+.cs-blurb { font-size: 14px; color: #4b4b63; margin: 0 0 14px; line-height: 1.5; }
+.cs-note { font-size: 13px; color: #7a7a90; margin: 0 0 22px; line-height: 1.55; }
+.cs-btn {
+  border: none; border-radius: 10px; padding: 11px 30px; font-size: 14px;
+  font-weight: 600; cursor: pointer; color: #fff; font-family: inherit;
+  background: linear-gradient(135deg, #6a5cff, #9b6cff);
+  box-shadow: 0 6px 16px rgba(106,92,255,0.35); transition: transform 0.12s;
+}
+.cs-btn:hover { transform: translateY(-1px); }
+.cs-btn:active { transform: translateY(0); }
+
+/* Landing-card → tool reveal: pulse the button so the user sees where the
+   option lives after navigating to its tab. */
+.tool-reveal-pulse {
+  animation: tool-pulse 0.7s ease-in-out 3;
+  border-radius: 8px;
+  position: relative;
+  z-index: 5;
+}
+@keyframes tool-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(106,92,255,0); }
+  50%      { box-shadow: 0 0 0 4px rgba(106,92,255,0.55); background: rgba(106,92,255,0.12); }
+}
+
+/* ── Image → PDF dialog ───────────────────────────────────────────────────── */
+.i2p-overlay {
+  position: fixed; inset: 0; z-index: 10001;
+  background: rgba(15,17,26,0.55); backdrop-filter: blur(3px);
+  display: flex; align-items: center; justify-content: center; padding: 24px;
+  animation: cs-fade 0.18s ease;
+}
+.i2p-modal {
+  background: #fff; color: #1a1a2e; border-radius: 16px;
+  width: min(620px, 94vw); max-height: 86vh; display: flex; flex-direction: column;
+  box-shadow: 0 24px 70px rgba(0,0,0,0.35); overflow: hidden;
+  animation: cs-pop 0.22s cubic-bezier(0.34,1.56,0.64,1);
+}
+.i2p-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 20px; border-bottom: 1px solid #eceef3;
+}
+.i2p-title { font-size: 17px; font-weight: 700; }
+.i2p-x { border: none; background: none; font-size: 17px; color: #888; cursor: pointer; border-radius: 6px; padding: 4px 8px; }
+.i2p-x:hover { background: #f1f2f6; color: #333; }
+.i2p-body { padding: 18px 20px; overflow-y: auto; flex: 1; }
+.i2p-empty { color: #8a8a9a; font-size: 14px; text-align: center; padding: 32px 12px; }
+.i2p-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 12px; }
+.i2p-cell { position: relative; border-radius: 10px; overflow: hidden; border: 1px solid #e6e8ef; background: #f7f8fb; aspect-ratio: 3/4; }
+.i2p-cell img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.i2p-n { position: absolute; top: 5px; left: 5px; background: rgba(0,0,0,0.6); color: #fff; font-size: 11px; font-weight: 700; border-radius: 5px; padding: 1px 6px; }
+.i2p-del { position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; border: none; border-radius: 50%; background: rgba(0,0,0,0.6); color: #fff; cursor: pointer; font-size: 12px; line-height: 1; }
+.i2p-del:hover { background: #d4506e; }
+.i2p-foot { display: flex; align-items: center; gap: 12px; padding: 14px 20px; border-top: 1px solid #eceef3; }
+.i2p-count { color: #8a8a9a; font-size: 13px; margin-right: auto; }
+.i2p-btn { border: none; border-radius: 9px; padding: 9px 18px; font-size: 14px; font-weight: 600; cursor: pointer; font-family: inherit; }
+.i2p-add { background: #eef0f4; color: #374151; }
+.i2p-add:hover { background: #e2e5ea; }
+.i2p-create { background: linear-gradient(135deg, #6a5cff, #9b6cff); color: #fff; box-shadow: 0 6px 16px rgba(106,92,255,0.32); }
+.i2p-create:disabled { opacity: 0.5; cursor: not-allowed; box-shadow: none; }
+.i2p-create:not(:disabled):hover { transform: translateY(-1px); }

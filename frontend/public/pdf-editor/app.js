@@ -583,6 +583,13 @@
         dom.mergeBtn.addEventListener('click', () => dom.mergeInput.click());
         dom.mergeInput.addEventListener('change', handleMergeSelect);
         dom.addPageBtn.addEventListener('click', addBlankPage);
+        // Add Images as new pages (Organize tab) → opens a multi-select picker.
+        const addImagePageInput = document.getElementById('addImagePageInput');
+        document.getElementById('addImagePageBtn')?.addEventListener('click', () => addImagePageInput?.click());
+        addImagePageInput?.addEventListener('change', (e) => {
+            if (e.target.files?.length) appendImagesAsPages(e.target.files);
+            e.target.value = ''; // allow re-selecting the same files later
+        });
         const templatePageBtn = document.getElementById('templatePageBtn');
         if (templatePageBtn) templatePageBtn.addEventListener('click', addTemplatePage);
 
@@ -827,7 +834,7 @@
             const tplBtn = document.getElementById('templatePageBtn');
             if (tplBtn) tplBtn.disabled = false;
             for (const id of ['watermarkBtn', 'pageNumBtn', 'compressBtn', 'formsBtn',
-                              'protectBtn', 'compareBtn', 'sanitizeBtn', 'rmBlankBtn', 'nupBtn']) {
+                              'protectBtn', 'compareBtn', 'sanitizeBtn', 'rmBlankBtn', 'nupBtn', 'addImagePageBtn']) {
                 const b = document.getElementById(id);
                 if (b) b.disabled = false;
             }
@@ -840,13 +847,23 @@
             // Initialize Fabric canvas
             initFabricCanvas();
 
-            // Fit to width first, then render
+            // Fit to the screen width first, then open in continuous scroll by
+            // default so the user can scroll the whole document immediately.
+            // buildScrollView renders each page at Page-mode size (base × zoom),
+            // so scroll no longer shrinks the page. fitToWidth() runs inside a
+            // rAF, so defer enabling scroll until after it has set the zoom.
             fitToWidth();
+            requestAnimationFrame(() => requestAnimationFrame(() => {
+                if (state.pdfDoc && window.setScrollMode && !window.isScrollMode()) setScrollMode(true);
+            }));
 
             // Generate thumbnails
             generateThumbnails();
 
             setStatus('PDF loaded successfully');
+            // Tell the Nexus shell a document is open, so it can hide the top bar
+            // for full-bleed editing (the landing screen keeps the bar).
+            try { window.parent && window.parent.postMessage({ type: 'pdf-editor:doc-state', hasDoc: true }, '*'); } catch (_) {}
         } catch (err) {
             console.error(err);
             // A malformed/damaged PDF: try to REPAIR it with pdf-lib (which is
@@ -2405,7 +2422,7 @@
             document.body.appendChild(frame);
             const doc = frame.contentDocument;
             doc.open();
-            doc.write('<html><head><title>' + state.fileName.replace(/</g, '&lt;') + '</title><style>' +
+            doc.write('<html><head><title>' + escapeHtml(state.fileName || 'document') + '</title><style>' +
                 '@page{margin:0}body{margin:0}img{width:100%;display:block;page-break-after:always}' +
                 'img:last-child{page-break-after:auto}</style></head><body>' +
                 imgs.map(u => '<img src="' + u + '">').join('') + '</body></html>');
@@ -3131,6 +3148,7 @@
         if (!files.length) return;
         e.target.value = '';
 
+        pushDocSnapshot('Merge');
         setStatus('Merging PDFs...');
 
         try {
@@ -3201,6 +3219,7 @@
             <p class="modal-hint" style="margin-top:8px;">The page is inserted after page ${state.currentPage}.</p>`, 'Add Page');
         if (!v) return;
 
+        pushDocSnapshot('Add page');
         setStatus('Adding blank page...');
 
         try {
@@ -3445,6 +3464,7 @@
         if (fromPage < 1 || fromPage > state.totalPages) return;
         if (toPage < 1 || toPage > state.totalPages) return;
 
+        pushDocSnapshot('Reorder pages');
         setStatus('Reordering pages...');
 
         try {
@@ -3532,6 +3552,7 @@
             return;
         }
 
+        pushDocSnapshot('Delete page');
         setStatus('Deleting page...');
 
         try {
@@ -5209,19 +5230,25 @@
         dom.stampMenu.classList.toggle('open');
     }
 
-    // Custom stamp dialog: stamp text + an optional date (with date picker).
+    // Custom stamp dialog: stamp text + optional date, colour, an "Approval
+    // stamp" quick-fill (name + date), and "apply to all pages".
+    const STAMP_NAME_KEY = 'pdfEditorStampName';
     function customStampDialog(defaultColor = '#d32f2f') {
         return new Promise((resolve) => {
             const overlay = document.createElement('div');
             overlay.className = 'modal-overlay';
             overlay.style.display = 'flex';
             const today = new Date().toISOString().slice(0, 10);
+            const savedName = (() => { try { return localStorage.getItem(STAMP_NAME_KEY) || ''; } catch { return ''; } })();
             overlay.innerHTML = `
                 <div class="modal">
                     <div class="modal-header"><span>Custom stamp</span></div>
                     <div class="modal-body">
-                        <label class="modal-label">Stamp text:</label>
-                        <input type="text" class="modal-input" id="csText" placeholder="e.g. GREENS GLOBAL" maxlength="40">
+                        <button type="button" class="crop-btn" id="csApproval" style="width:100%;margin-bottom:12px;background:hsla(140,60%,40%,0.14);color:#1a7a3f;border:1px solid hsla(140,60%,40%,0.35);font-weight:600;">✓ Approval stamp (your name + today's date)</button>
+                        <label class="modal-label">Your name (for approval stamps):</label>
+                        <input type="text" class="modal-input" id="csName" placeholder="e.g. Ankush Narkhede" maxlength="40" value="${escapeHtml(savedName)}">
+                        <label class="modal-label" style="margin-top:10px;">Stamp text:</label>
+                        <input type="text" class="modal-input" id="csText" placeholder="e.g. GREENS GLOBAL" maxlength="60">
                         <label class="stamp-date-row" style="padding:10px 0 0;">
                             <input type="checkbox" id="csDateOn">
                             <span>Add date</span>
@@ -5231,6 +5258,10 @@
                             <span>Stamp colour</span>
                             <input type="color" id="csColor" value="${defaultColor}">
                         </label>
+                        <label class="stamp-date-row" style="padding:10px 0 0;">
+                            <input type="checkbox" id="csAllPages">
+                            <span>Apply to all pages</span>
+                        </label>
                     </div>
                     <div class="modal-footer">
                         <button class="crop-btn apply" data-act="ok">Add Stamp</button>
@@ -5238,19 +5269,38 @@
                     </div>
                 </div>`;
             document.body.appendChild(overlay);
+            const nameInput = overlay.querySelector('#csName');
             const input = overlay.querySelector('#csText');
             input.focus();
             const done = (val) => { overlay.remove(); resolve(val); };
+
+            // "Approval stamp": fill the text with APPROVED — <name>, tick the
+            // date, and set the colour green. Remembers the name for next time.
+            overlay.querySelector('#csApproval').addEventListener('click', () => {
+                const nm = nameInput.value.trim();
+                if (!nm) { nameInput.focus(); showToast('Enter your name first'); return; }
+                try { localStorage.setItem(STAMP_NAME_KEY, nm); } catch { /* ignore */ }
+                input.value = 'APPROVED — ' + nm;
+                overlay.querySelector('#csDateOn').checked = true;
+                overlay.querySelector('#csColor').value = '#1a7a3f';
+            });
+
             const submit = () => {
                 const text = input.value.trim();
                 if (!text) { input.focus(); return; }
+                const nm = nameInput.value.trim();
+                if (nm) { try { localStorage.setItem(STAMP_NAME_KEY, nm); } catch { /* ignore */ } }
                 let date = null;
                 if (overlay.querySelector('#csDateOn').checked) {
                     const v = overlay.querySelector('#csDateVal').value;
                     const d = v ? new Date(v + 'T00:00:00') : new Date();
                     date = d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
                 }
-                done({ text, date, color: overlay.querySelector('#csColor').value });
+                done({
+                    text, date,
+                    color: overlay.querySelector('#csColor').value,
+                    allPages: overlay.querySelector('#csAllPages').checked,
+                });
             };
             overlay.querySelector('[data-act="ok"]').addEventListener('click', submit);
             overlay.querySelector('[data-act="cancel"]').addEventListener('click', () => done(null));
@@ -5300,13 +5350,21 @@
     async function addStamp(stampText) {
         if (!fabricCanvas) return;
 
-        let stampColor = (document.getElementById('stampColor') || {}).value || '#d32f2f';
+        // Per-preset default colours (green = approved, red = warning, grey = draft).
+        const PRESET_COLORS = {
+            APPROVED: '#1a7a3f', DRAFT: '#6b7280', COPY: '#6b7280',
+            FINAL: '#1d4ed8', VOID: '#d32f2f', CONFIDENTIAL: '#d32f2f',
+        };
+        let stampColor = PRESET_COLORS[stampText]
+            || (document.getElementById('stampColor') || {}).value || '#d32f2f';
+        let allPages = false;
         if (stampText === 'custom') {
             const res = await customStampDialog(stampColor);
             if (!res) return;
             stampText = res.text;
             if (res.date) stampText += '\n' + res.date;
             stampColor = res.color || stampColor;
+            allPages = !!res.allPages;
         }
 
         const text = new fabric.Text(stampText, {
@@ -5326,7 +5384,26 @@
         fabricCanvas.setActiveObject(text);
         fabricCanvas.renderAll();
         setActiveTool('select');
-        showToast('Stamp "' + stampText + '" added');
+
+        if (allPages && state.totalPages > 1) {
+            // Persist the stamp onto every OTHER page's stored annotations. The
+            // current page keeps its live object (saved on navigation); we clone
+            // its serialized form (centred at each page's own dimensions) into
+            // the rest so the stamp appears document-wide.
+            saveCurrentAnnotations();
+            const stampJson = text.toObject();
+            for (let p = 1; p <= state.totalPages; p++) {
+                if (p === state.currentPage) continue;
+                if (!state.annotations[p]) state.annotations[p] = { fabricData: { objects: [] }, zoom: state.zoom };
+                const fd = state.annotations[p].fabricData || (state.annotations[p].fabricData = { objects: [] });
+                if (!fd.objects) fd.objects = [];
+                // Centre on the stored page's canvas if we know it, else reuse coords.
+                fd.objects.push({ ...stampJson });
+            }
+            showToast('Stamp added to all ' + state.totalPages + ' pages');
+        } else {
+            showToast('Stamp "' + stampText + '" added');
+        }
     }
 
     // ── Split / Extract Pages ──
@@ -5509,8 +5586,15 @@
         const result = searchResults[idx];
         if (!result) return;
 
-        // Navigate to the page if needed
-        if (state.currentPage !== result.page) {
+        // Search highlights are drawn on the single-page (edit) canvas, which is
+        // hidden in continuous-scroll mode. Since PDFs open in scroll mode by
+        // default, jumping to a result must first switch to edit mode on that
+        // page so the highlight is actually visible.
+        if (window.isScrollMode && window.isScrollMode()) {
+            state.currentPage = result.page;
+            setScrollMode(false);           // shows the single-page canvas
+            await renderPage(result.page);  // await so highlights land on the drawn page
+        } else if (state.currentPage !== result.page) {
             saveCurrentAnnotations();
             await renderPage(result.page);
         }
@@ -5720,7 +5804,12 @@
                 // Reload into PDF.js
                 const pdf = await pdfjsLib.getDocument({ data: newBytes.slice(), fontExtraProperties: true }).promise;
                 if (state.pdfDoc && state.pdfDoc.destroy) { try { state.pdfDoc.destroy(); } catch (_) {} }
-            state.pdfDoc = pdf;
+                state.pdfDoc = pdf;
+                // Keep totalPages in sync with the reloaded doc — the search loop
+                // iterates 1..totalPages, so a stale value would limit search to
+                // fewer pages (this is why search only covered the current page).
+                state.totalPages = pdf.numPages;
+                if (dom.totalPages) dom.totalPages.textContent = state.totalPages;
 
                 dom.ocrProgressBar.style.width = '100%';
                 dom.ocrStatus.textContent = 'OCR complete!';
@@ -5750,13 +5839,18 @@
                 try { await ocrWorker.terminate(); } catch (e) { /* ignore */ }
                 ocrWorker = null;
             }
+        } finally {
+            // Always clear the re-entry guard, or OCR is bricked after the first
+            // run for the life of the document (the button looks enabled but the
+            // guard at the top silently returns).
+            _ocrRunning = false;
+            dom.ocrBtn.disabled = false;
         }
-
-        dom.ocrBtn.disabled = false;
     }
 
     async function cancelOCR() {
         ocrCancelled = true;
+        _ocrRunning = false;
         if (ocrWorker) {
             try { await ocrWorker.terminate(); } catch (e) { /* ignore */ }
             ocrWorker = null;
@@ -5829,6 +5923,7 @@
             <label class="stamp-date-row" style="padding:8px 0 0;">
                 <input type="checkbox" data-k="diag" checked><span>Diagonal</span></label>`, 'Add Watermark');
         if (!v || !v.text.trim()) return;
+        pushDocSnapshot('Watermark');
         setStatus('Adding watermark...');
         try {
             const doc = await PDFLib.PDFDocument.load(new Uint8Array(state.pdfBytes));
@@ -5875,6 +5970,7 @@
             <label class="modal-label" style="margin-top:10px;">Start counting from:</label>
             <input type="number" class="modal-input" data-k="start" value="1" min="1" max="9999">`, 'Add Numbers');
         if (!v) return;
+        pushDocSnapshot('Page numbers');
         setStatus('Adding page numbers...');
         try {
             const doc = await PDFLib.PDFDocument.load(new Uint8Array(state.pdfBytes));
@@ -6389,6 +6485,7 @@
             </select>
             <p class="modal-hint" style="margin-top:8px;">Great for handouts and saving paper. Saved as a new file.</p>`, 'Create N-up');
         if (!v) return;
+        pushDocSnapshot('N-up');
         setStatus('Building N-up...');
         try {
             const n = parseInt(v.n, 10);
@@ -6451,23 +6548,23 @@
         cont = document.createElement('div');
         cont.id = 'continuousView';
         _scrollEls = [];
-        // Reserve correct height per page up front (from its aspect ratio) so
-        // the layout is right and lazy rendering only draws visible pages.
-        // Fit page to the viewport width (minus a little breathing room), then
-        // scroll. A generous cap keeps very wide monitors sensible.
-        const rawW = host.clientWidth || host.getBoundingClientRect().width || 900;
-        const fitW = Math.max(320, Math.min(rawW - 48, 1400));
-        const dispW = fitW * (state.zoom >= 1 ? state.zoom : 1); // zoom>1 enlarges; <1 stays fit
+        // Render each page at the SAME on-screen size as single-page (Page) mode
+        // (base page width × zoom, per renderPage). To avoid a multi-second blank
+        // stall on open, we DON'T await getPage for every page here — that was
+        // O(pages) sequential awaits before first paint. Instead we size all
+        // wrappers from page 1's dimensions as an estimate and build them
+        // synchronously; renderScrollPage() corrects each wrapper to its real
+        // size as it scrolls into view.
+        let estRatio = 1.294, estBaseW = 612;
+        try { const pg1 = await state.pdfDoc.getPage(1); const v = pg1.view; estBaseW = v[2]-v[0]; estRatio = (v[3]-v[1]) / (v[2]-v[0]); } catch (_) {}
+        const estDispW = estBaseW * state.zoom;
 
         for (let p = 1; p <= state.totalPages; p++) {
             const wrap = document.createElement('div');
             wrap.className = 'cv-page';
             wrap.dataset.page = p;
-            // placeholder aspect from page dimensions (cheap — no render)
-            let ratio = 1.294;
-            try { const pg = await state.pdfDoc.getPage(p); const v = pg.view; ratio = (v[3]-v[1]) / (v[2]-v[0]); } catch (_) {}
-            wrap.style.width = dispW + 'px';
-            wrap.style.height = (dispW * ratio) + 'px';
+            wrap.style.width = estDispW + 'px';
+            wrap.style.height = (estDispW * estRatio) + 'px';
             const canvas = document.createElement('canvas');
             wrap.appendChild(canvas);
             const num = document.createElement('div');
@@ -6476,7 +6573,7 @@
             wrap.appendChild(num);
             wrap.addEventListener('click', () => { setScrollMode(false); goToPage(p); });
             cont.appendChild(wrap);
-            _scrollEls.push({ wrap, canvas, rendered: false, page: p, dispW });
+            _scrollEls.push({ wrap, canvas, rendered: false, page: p, dispW: estDispW, sized: false });
         }
         host.appendChild(cont);
 
@@ -6530,7 +6627,16 @@
         try {
             const page = await state.pdfDoc.getPage(el.page);
             const base = page.getViewport({ scale: 1 });
-            const dispW = (el.dispW && el.dispW > 10) ? el.dispW : 700; // guard
+            // This page's true display width at the current zoom (matches Page
+            // mode). Correct the estimated placeholder to the real size once, so
+            // mixed-size documents lay out accurately.
+            const dispW = base.width * state.zoom;
+            el.dispW = dispW;
+            if (!el.sized) {
+                el.sized = true;
+                el.wrap.style.width = dispW + 'px';
+                el.wrap.style.height = (dispW * (base.height / base.width)) + 'px';
+            }
             const scale = (dispW / base.width) * 1.5; // 1.5 = retina sharpness
             const vp = page.getViewport({ scale });
             el.canvas.width = vp.width;
@@ -6584,6 +6690,29 @@
     window.isScrollMode = () => _scrollOn;
     // Re-render scroll pages when zoom changes while scrolling
     window.rerenderScrollForZoom = () => { if (_scrollOn) { destroyScrollView(); buildScrollView(); } };
+
+    // Auto-return to continuous scroll: while editing a single page, the user
+    // can still scroll within that (possibly tall) page. Only when they scroll
+    // PAST the top or bottom edge — i.e. try to leave the page — do we flip back
+    // to scroll mode, landing on the page they were editing. This lets someone
+    // click a page, edit it, then just keep scrolling to move through the doc.
+    (function wireEditScrollToContinuous() {
+        const sc = dom.canvasScrollWrapper;
+        if (!sc) return;
+        let armed = 0; // consecutive over-edge wheel ticks (debounce accidental flicks)
+        sc.addEventListener('wheel', (e) => {
+            if (_scrollOn || !state.pdfDoc) { armed = 0; return; } // only in edit mode
+            const atTop = sc.scrollTop <= 1;
+            const atBottom = sc.scrollTop + sc.clientHeight >= sc.scrollHeight - 1;
+            const goingUp = e.deltaY < 0, goingDown = e.deltaY > 0;
+            if ((atTop && goingUp) || (atBottom && goingDown)) {
+                // Already at the edge and pushing further → user wants to leave.
+                if (++armed >= 2) { armed = 0; setScrollMode(true); }
+            } else {
+                armed = 0; // scrolling within the page — stay in edit mode
+            }
+        }, { passive: true });
+    })();
 
     function loadScript(src) {
         return new Promise((resolve, reject) => {
@@ -6672,6 +6801,31 @@
         toast.classList.add('show');
         setTimeout(() => toast.classList.remove('show'), 3000);
     }
+
+    // Polished "coming soon" popup for features that aren't ready yet.
+    function showComingSoon(feature, blurb) {
+        document.querySelector('.cs-overlay')?.remove();
+        const ov = document.createElement('div');
+        ov.className = 'cs-overlay';
+        ov.innerHTML =
+            '<div class="cs-card" role="dialog" aria-modal="true">' +
+              '<div class="cs-icon">' +
+                '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' +
+                  '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>' +
+              '</div>' +
+              '<div class="cs-badge">Coming soon</div>' +
+              '<h3 class="cs-title">' + escapeHtml(feature) + ' is on the way</h3>' +
+              '<p class="cs-blurb">' + escapeHtml(blurb || '') + '</p>' +
+              '<p class="cs-note">We’re putting the finishing touches on this feature so it works flawlessly. It’ll be available here shortly — thanks for your patience!</p>' +
+              '<button class="cs-btn">Got it</button>' +
+            '</div>';
+        document.body.appendChild(ov);
+        const close = () => ov.remove();
+        ov.querySelector('.cs-btn').addEventListener('click', close);
+        ov.addEventListener('click', (e) => { if (e.target === ov) close(); });
+        document.addEventListener('keydown', function esc(e) { if (e.key === 'Escape') { close(); document.removeEventListener('keydown', esc); } });
+    }
+    window.showComingSoon = showComingSoon;
 
     // ═══════════════════════════════════════════════════
     //  AI PANEL — Ollama Integration (Streaming + Smart Q&A)
@@ -6821,7 +6975,7 @@
 
         // Prepare the output panel for streaming
         dom.aiOutputArea.innerHTML = `
-            <div class="ai-response-header" id="aiStreamTitle">${title}</div>
+            <div class="ai-response-header" id="aiStreamTitle">${escapeHtml(String(title || ''))}</div>
             <div class="ai-response" id="aiStreamBody"></div>`;
         const bodyEl = document.getElementById('aiStreamBody');
         let fullText = '';
@@ -6892,7 +7046,11 @@
 
     // ── Light markdown formatter for AI responses ──
     function formatAiResponse(text) {
-        return text
+        // Escape HTML FIRST — the model is fed raw PDF text, so an untrusted
+        // document could otherwise inject <img onerror=…>/<script> that runs in
+        // the portal origin. Markdown regexes then run on the safe string and
+        // only add our own known-safe tags.
+        return escapeHtml(text)
             // Bold **text**
             .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
             // Headers: lines starting with # or numbered like "1." "2."
@@ -7019,7 +7177,7 @@ ${summaries.join('\n\n---\n\n')}`;
         } catch (err) {
             hideAiProgress();
             console.error(err);
-            dom.aiOutputArea.innerHTML = `<div class="ai-response" style="color:var(--danger)">Error: ${err.message}</div>`;
+            dom.aiOutputArea.innerHTML = `<div class="ai-response" style="color:var(--danger)">Error: ${escapeHtml(String(err && err.message || err))}</div>`;
             setStatus('AI summarize failed');
         }
     }
@@ -7073,7 +7231,7 @@ Answer directly and briefly:`
         } catch (err) {
             hideAiProgress();
             console.error(err);
-            dom.aiOutputArea.innerHTML = `<div class="ai-response" style="color:var(--danger)">Error: ${err.message}</div>`;
+            dom.aiOutputArea.innerHTML = `<div class="ai-response" style="color:var(--danger)">Error: ${escapeHtml(String(err && err.message || err))}</div>`;
             setStatus('AI Q&A failed');
         }
 
@@ -7124,7 +7282,7 @@ ${sample}`;
         } catch (err) {
             hideAiProgress();
             console.error(err);
-            dom.aiOutputArea.innerHTML = `<div class="ai-response" style="color:var(--danger)">Error: ${err.message}</div>`;
+            dom.aiOutputArea.innerHTML = `<div class="ai-response" style="color:var(--danger)">Error: ${escapeHtml(String(err && err.message || err))}</div>`;
             setStatus('AI tagging failed');
         }
     }
@@ -7649,9 +7807,74 @@ Replacement:`;
         return blocks;
     }
 
+    // Extract Word headers & footers from the .docx zip. mammoth ignores these
+    // (they live in word/header*.xml / word/footer*.xml, not document.xml), so
+    // we read them directly to carry over logos/company text/page furniture.
+    // Returns { headerText, footerText, headerImg, footerImg } — img = {bytes,
+    // type, w, h} (first image found in that region), text = concatenated runs.
+    async function _extractDocxHeaderFooter(file) {
+        const out = { headerText: '', footerText: '', headerImg: null, footerImg: null };
+        try {
+            if (!window.JSZip) await loadScript('libs/jszip.min.js').catch(() => loadScript('https://cdn.jsdelivr.net/npm/jszip@3/dist/jszip.min.js'));
+            if (!window.JSZip) return out;
+            const zip = await JSZip.loadAsync(await file.arrayBuffer());
+
+            const readXml = async (path) => {
+                const f = zip.file(path); if (!f) return null;
+                return new DOMParser().parseFromString(await f.async('string'), 'application/xml');
+            };
+            const textOf = (xml) => {
+                if (!xml) return '';
+                return [...xml.getElementsByTagName('w:t')].map(t => t.textContent).join('').trim();
+            };
+            // Map an r:embed id → media bytes via the part's .rels file.
+            const firstImage = async (partName, xml) => {
+                if (!xml) return null;
+                const blip = xml.getElementsByTagName('a:blip')[0];
+                const embed = blip && (blip.getAttribute('r:embed') || blip.getAttribute('embed'));
+                if (!embed) return null;
+                const relsXml = await readXml('word/_rels/' + partName + '.rels');
+                if (!relsXml) return null;
+                let target = null;
+                for (const rel of relsXml.getElementsByTagName('Relationship')) {
+                    if (rel.getAttribute('Id') === embed) { target = rel.getAttribute('Target'); break; }
+                }
+                if (!target) return null;
+                const mediaPath = ('word/' + target).replace('word/../', '').replace('word/word/', 'word/');
+                const mf = zip.file(mediaPath) || zip.file('word/' + target.replace(/^\/+/, ''));
+                if (!mf) return null;
+                const bytes = await mf.async('uint8array');
+                const type = /\.png$/i.test(target) ? 'png' : 'jpg';
+                return { bytes, type };
+            };
+
+            // Find the header/footer part names referenced by the document.
+            const findParts = (regex) => Object.keys(zip.files).filter(n => regex.test(n)).sort();
+            const headerParts = findParts(/^word\/header\d*\.xml$/i);
+            const footerParts = findParts(/^word\/footer\d*\.xml$/i);
+
+            for (const p of headerParts) {
+                const name = p.replace(/^word\//, '');
+                const xml = await readXml(p);
+                if (!out.headerText) out.headerText = textOf(xml);
+                if (!out.headerImg) out.headerImg = await firstImage(name, xml);
+                if (out.headerText || out.headerImg) break;
+            }
+            for (const p of footerParts) {
+                const name = p.replace(/^word\//, '');
+                const xml = await readXml(p);
+                if (!out.footerText) out.footerText = textOf(xml);
+                if (!out.footerImg) out.footerImg = await firstImage(name, xml);
+                if (out.footerText || out.footerImg) break;
+            }
+        } catch (e) { console.warn('header/footer extraction failed', e); }
+        return out;
+    }
+
     // Word (.docx) → PDF, entirely client-side: mammoth → HTML → flow layout
     // with pdf-lib. Headings, bold/italic runs, lists, simple tables and inline
-    // images survive (images are embedded as-is). Exotic Word layout flows as text.
+    // images survive (images are embedded as-is). Headers/footers (text + logo)
+    // are extracted separately from the .docx zip and drawn on every page.
     async function convertWordToPdf(file) {
         setStatus('Converting Word to PDF...');
         try {
@@ -7676,9 +7899,54 @@ Replacement:`;
             const fontOf = (r) => r.bold && r.italic ? F.bi : r.bold ? F.b : r.italic ? F.i : F.r;
             const ink = rgb(0.07, 0.09, 0.15), lineCol = rgb(0.72, 0.75, 0.78);
 
+            // Word header/footer (logo + text) — extracted from the .docx zip and
+            // stamped on every page. Reserve vertical bands so the body doesn't
+            // overlap them.
+            const hf = await _extractDocxHeaderFooter(file);
+            const embedImg = async (im) => {
+                if (!im) return null;
+                try {
+                    const pi = im.type === 'png' ? await doc.embedPng(im.bytes) : await doc.embedJpg(im.bytes);
+                    return pi;
+                } catch (_) { return null; }
+            };
+            const hImg = await embedImg(hf.headerImg);
+            const fImg = await embedImg(hf.footerImg);
+            const HF_IMG_MAX_H = 46;                    // cap logo height
+            const hasHeader = !!(hImg || hf.headerText);
+            const hasFooter = !!(fImg || hf.footerText);
+            const TOP_BAND = hasHeader ? 60 : 0;        // extra space below top margin
+            const BOT_BAND = hasFooter ? 44 : 0;        // extra space above bottom margin
+            const topLimit = PAGE_H - MARGIN - TOP_BAND;
+            const botLimit = MARGIN + BOT_BAND;
+
+            const drawHeaderFooter = (pg) => {
+                if (hImg) {
+                    const s = Math.min(HF_IMG_MAX_H / hImg.height, (USABLE * 0.5) / hImg.width);
+                    const w = hImg.width * s, h = hImg.height * s;
+                    pg.drawImage(hImg, { x: MARGIN, y: PAGE_H - MARGIN - h + 6, width: w, height: h });
+                }
+                if (hf.headerText) {
+                    pg.drawText(_winAnsi(hf.headerText).slice(0, 200), {
+                        x: hImg ? PAGE_W - MARGIN - F.r.widthOfTextAtSize(_winAnsi(hf.headerText).slice(0, 60), 9) : MARGIN,
+                        y: PAGE_H - MARGIN - 10, size: 9, font: F.r, color: rgb(0.4, 0.42, 0.48) });
+                }
+                if (hasHeader) pg.drawLine({ start: { x: MARGIN, y: topLimit + 8 }, end: { x: PAGE_W - MARGIN, y: topLimit + 8 }, thickness: 0.5, color: lineCol });
+                if (fImg) {
+                    const s = Math.min(HF_IMG_MAX_H / fImg.height, (USABLE * 0.4) / fImg.width);
+                    const w = fImg.width * s, h = fImg.height * s;
+                    pg.drawImage(fImg, { x: MARGIN, y: MARGIN - 4, width: w, height: h });
+                }
+                if (hf.footerText) {
+                    pg.drawText(_winAnsi(hf.footerText).slice(0, 200), {
+                        x: MARGIN, y: MARGIN + 6, size: 9, font: F.r, color: rgb(0.4, 0.42, 0.48) });
+                }
+                if (hasFooter) pg.drawLine({ start: { x: MARGIN, y: botLimit - 8 }, end: { x: PAGE_W - MARGIN, y: botLimit - 8 }, thickness: 0.5, color: lineCol });
+            };
+
             let page = null, y = 0;
-            const newPage = () => { page = doc.addPage([PAGE_W, PAGE_H]); y = PAGE_H - MARGIN; };
-            const ensure = (h) => { if (!page || y - h < MARGIN) newPage(); };
+            const newPage = () => { page = doc.addPage([PAGE_W, PAGE_H]); drawHeaderFooter(page); y = topLimit; };
+            const ensure = (h) => { if (!page || y - h < botLimit) newPage(); };
             newPage();
 
             function wrapRuns(runs, size, width) {
@@ -7816,14 +8084,114 @@ Replacement:`;
             const name = list.length === 1
                 ? list[0].name.replace(/\.(png|jpe?g)$/i, '') + '.pdf' : 'images.pdf';
             await loadPDF(new File([bytes], name, { type: 'application/pdf' }));
-            setStatus('Images converted — click "Save" (top right) to save the PDF');
-            showToast('Converted — click "Save" (top right) to save it');
+            setStatus('Images converted — use Organize ▸ "Add Images" to add more, then "Save"');
+            showToast('Converted — add more via Organize ▸ Add Images');
         } catch (err) {
             console.error(err);
             showToast('Could not convert those images');
         }
     }
     window.convertImagesToPdf = convertImagesToPdf;
+
+    // Image → PDF dialog: pick images, review them as thumbnails, add more or
+    // remove, then create the PDF. Gives the user control before converting.
+    function imageToPdfDialog() {
+        let picked = []; // File[]
+        document.querySelector('.i2p-overlay')?.remove();
+        const ov = document.createElement('div');
+        ov.className = 'i2p-overlay';
+        ov.innerHTML =
+            '<div class="i2p-modal" role="dialog" aria-modal="true">' +
+              '<div class="i2p-head">' +
+                '<span class="i2p-title">Image → PDF</span>' +
+                '<button class="i2p-x" title="Close">✕</button>' +
+              '</div>' +
+              '<div class="i2p-body">' +
+                '<div class="i2p-empty">No images yet — add PNG or JPG images to build your PDF.</div>' +
+                '<div class="i2p-grid"></div>' +
+              '</div>' +
+              '<div class="i2p-foot">' +
+                '<button class="i2p-btn i2p-add">＋ Add images</button>' +
+                '<span class="i2p-count"></span>' +
+                '<button class="i2p-btn i2p-create" disabled>Create PDF</button>' +
+              '</div>' +
+              '<input type="file" class="i2p-input" accept="image/png,image/jpeg" multiple style="display:none">' +
+            '</div>';
+        document.body.appendChild(ov);
+        const $ = (s) => ov.querySelector(s);
+        const grid = $('.i2p-grid'), empty = $('.i2p-empty'), input = $('.i2p-input');
+        const close = () => ov.remove();
+
+        const render = () => {
+            grid.innerHTML = '';
+            empty.style.display = picked.length ? 'none' : 'block';
+            $('.i2p-count').textContent = picked.length ? picked.length + ' image' + (picked.length > 1 ? 's' : '') : '';
+            $('.i2p-create').disabled = !picked.length;
+            picked.forEach((f, idx) => {
+                const cell = document.createElement('div');
+                cell.className = 'i2p-cell';
+                const url = URL.createObjectURL(f);
+                cell.innerHTML =
+                    '<img src="' + url + '" alt="">' +
+                    '<span class="i2p-n">' + (idx + 1) + '</span>' +
+                    '<button class="i2p-del" title="Remove">✕</button>';
+                cell.querySelector('img').onload = () => URL.revokeObjectURL(url);
+                cell.querySelector('.i2p-del').addEventListener('click', () => { picked.splice(idx, 1); render(); });
+                grid.appendChild(cell);
+            });
+        };
+
+        input.addEventListener('change', (e) => {
+            const imgs = [...(e.target.files || [])].filter(f => /^image\/(png|jpe?g)$/i.test(f.type));
+            picked = picked.concat(imgs);
+            e.target.value = '';
+            render();
+        });
+        $('.i2p-add').addEventListener('click', () => input.click());
+        $('.i2p-x').addEventListener('click', close);
+        ov.addEventListener('click', (e) => { if (e.target === ov) close(); });
+        $('.i2p-create').addEventListener('click', async () => {
+            if (!picked.length) return;
+            close();
+            await convertImagesToPdf(picked);
+        });
+
+        // Open the file picker immediately so the flow feels one-step.
+        input.click();
+    }
+    window.imageToPdfDialog = imageToPdfDialog;
+
+    // Append one or more images as new pages at the END of the currently open
+    // PDF. Lets a user add photos/scans to an existing document (or to a PDF
+    // they just built from images) without starting over.
+    async function appendImagesAsPages(files) {
+        if (!state.pdfDoc || !state.pdfBytes) { showToast('Open a PDF first'); return; }
+        const list = [...files].filter(f => /^image\/(png|jpe?g)$/i.test(f.type));
+        if (!list.length) { showToast('Choose PNG or JPG images'); return; }
+        setStatus('Adding ' + list.length + ' image' + (list.length > 1 ? 's' : '') + ' to the PDF...');
+        try {
+            const { PDFDocument } = PDFLib;
+            const src = state.pdfBytes instanceof ArrayBuffer ? new Uint8Array(state.pdfBytes) : state.pdfBytes;
+            const doc = await PDFDocument.load(src, { ignoreEncryption: true });
+            for (const f of list) {
+                const bytes = new Uint8Array(await f.arrayBuffer());
+                const emb = /png/i.test(f.type) ? await doc.embedPng(bytes) : await doc.embedJpg(bytes);
+                const maxW = 1240;
+                const scale = Math.min(1, maxW / emb.width);
+                const w = emb.width * scale, h = emb.height * scale;
+                const page = doc.addPage([w, h]);
+                page.drawImage(emb, { x: 0, y: 0, width: w, height: h });
+            }
+            const out = await doc.save();
+            await loadPDF(new File([out], state.fileName || 'document.pdf', { type: 'application/pdf' }));
+            setStatus('Added ' + list.length + ' image page' + (list.length > 1 ? 's' : '') + ' — click "Save" to keep them');
+            showToast('Images added as new pages');
+        } catch (err) {
+            console.error(err);
+            showToast('Could not add those images');
+        }
+    }
+    window.appendImagesAsPages = appendImagesAsPages;
 
     // PDF → Word (exact look): every page goes into the .docx as a full-width
     // image, so layout, fonts and images are preserved EXACTLY as in the PDF.
@@ -7927,86 +8295,166 @@ Replacement:`;
             if (!window.docx) await loadScript('libs/docx.umd.js').catch(() => loadScript('https://cdn.jsdelivr.net/npm/docx@8/build/index.umd.js'));
             const children = [];
 
+            // Editable mode. Layout reconstruction based on pdf2docx's published
+            // heuristics (Y-clustering for lines, free-space ratios for paragraph
+            // vs line breaks, X-cluster columns for tables). Fully editable text;
+            // layout is approximate — a browser can't match Adobe exactly.
+            const previewUrls = null;
+            const AL = docx.AlignmentType;
             for (let i = 1; i <= state.totalPages; i++) {
                 setStatus('Converting page ' + i + '/' + state.totalPages + '...');
                 const page = await state.pdfDoc.getPage(i);
+                const pageW = page.getViewport({ scale: 1 }).width;
                 const tc = await page.getTextContent();
                 const items = (tc.items || []).filter(it => it.str && it.str.trim());
-                const totalChars = items.reduce((n, it) => n + it.str.trim().length, 0);
-                const first = i === 1 ? {} : { pageBreakBefore: true };
-
-                if (totalChars < 40) {
-                    // Scanned / image page → exact-look image so content survives.
-                    const vp = page.getViewport({ scale: 2 });
-                    const canvas = document.createElement('canvas');
-                    canvas.width = vp.width; canvas.height = vp.height;
-                    await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
-                    const b64 = canvas.toDataURL('image/png').split(',')[1];
-                    const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
-                    const wPx = 690, hPx = Math.round(wPx * vp.height / vp.width);
-                    children.push(new docx.Paragraph({
-                        children: [new docx.ImageRun({ data: bytes, transformation: { width: wPx, height: hPx } })],
-                        ...first,
-                    }));
+                if (!items.length) {
+                    if (i < state.totalPages) children.push(new docx.Paragraph({ children: [], pageBreakBefore: true }));
                     continue;
                 }
 
-                // Cluster items into lines by baseline (y), left-to-right.
-                const lines = [];
+                // 1) Build lines: cluster items by baseline y, then merge fragments
+                //    that are horizontally adjacent (gap < font width) into words so
+                //    paragraph/column detection isn't scrambled by split glyphs.
+                const rawLines = [];
                 for (const it of items) {
                     const y = it.transform[5], x = it.transform[4];
                     const size = Math.max(6, Math.hypot(it.transform[2], it.transform[3]));
-                    const bold = /bold|black|heavy|semi|demi/i.test(it.fontName || '');
-                    const L = lines.find(l => Math.abs(l.y - y) < Math.max(2, size * 0.4));
-                    const run = { x, str: it.str, size, bold };
-                    if (L) { L.runs.push(run); L.y = (L.y + y) / 2; }
-                    else lines.push({ y, runs: [run] });
+                    const fn = it.fontName || '';
+                    const bold = /bold|black|heavy|semi|demi/i.test(fn);
+                    const italic = /italic|oblique|-it\b|it$/i.test(fn);
+                    const w = it.width || (it.str.length * size * 0.5);
+                    const L = rawLines.find(l => Math.abs(l.y - y) < Math.max(2, size * 0.4));
+                    const frag = { x, xEnd: x + w, str: it.str, size, bold, italic };
+                    if (L) { L.frags.push(frag); L.y = (L.y + y) / 2; }
+                    else rawLines.push({ y, frags: [frag] });
                 }
-                lines.sort((a, b) => b.y - a.y);
-                lines.forEach(l => l.runs.sort((a, b) => a.x - b.x));
+                rawLines.sort((a, b) => b.y - a.y);
+                // Per line: sort by x, compute segments (fragments separated by a big
+                // gap → candidate table cells), plus geometry for alignment.
+                const lines = rawLines.map(l => {
+                    l.frags.sort((a, b) => a.x - b.x);
+                    const size = l.frags[0].size;
+                    const segs = [];
+                    let cur = { text: l.frags[0].str, x0: l.frags[0].x, x1: l.frags[0].xEnd,
+                                bold: l.frags[0].bold, italic: l.frags[0].italic, size };
+                    for (let k = 1; k < l.frags.length; k++) {
+                        const f = l.frags[k];
+                        if (f.x - cur.x1 > size * 1.4) { segs.push(cur); cur = { text: f.str, x0: f.x, x1: f.xEnd, bold: f.bold, italic: f.italic, size: f.size }; }
+                        else { cur.text += (cur.text.endsWith(' ') || f.str.startsWith(' ') ? '' : ' ') + f.str; cur.x1 = f.xEnd; cur.bold = cur.bold && f.bold; }
+                    }
+                    segs.push(cur);
+                    const x0 = l.frags[0].x, x1 = l.frags[l.frags.length - 1].xEnd;
+                    return { y: l.y, size, segs, x0, x1 };
+                });
 
-                // Pull embedded images (photos/logos) so mixed pages keep them.
+                // 2) Median font size + line height for heading/paragraph thresholds.
+                const sizes = lines.map(l => l.size).sort((a, b) => a - b);
+                const medSize = sizes[Math.floor(sizes.length / 2)] || 12;
+                const gaps = [];
+                for (let k = 1; k < lines.length; k++) gaps.push(lines[k - 1].y - lines[k].y);
+                gaps.sort((a, b) => a - b);
+                const lineH = gaps[Math.floor(gaps.length / 2)] || medSize * 1.2;
+
                 const pageImages = await _extractPageImages(page);
 
-                let pageBreakUsed = false;
-                for (const l of lines) {
-                    // Merge consecutive runs with the same style; keep word gaps.
-                    const runs = [];
-                    for (const r of l.runs) {
-                        const prev = runs[runs.length - 1];
-                        const sz = Math.round(r.size);
-                        if (prev && prev.sz === sz && prev.bold === r.bold) prev.text += (prev.text.endsWith(' ') || r.str.startsWith(' ') ? '' : ' ') + r.str;
-                        else runs.push({ text: r.str, sz, bold: r.bold });
+                const alignOf = (l) => {
+                    const leftGap = l.x0, rightGap = pageW - l.x1, span = l.x1 - l.x0;
+                    if (span > pageW * 0.6) return AL.JUSTIFIED;
+                    if (Math.abs(leftGap - rightGap) < pageW * 0.08 && leftGap > pageW * 0.12) return AL.CENTER;
+                    if (rightGap < pageW * 0.12 && leftGap > pageW * 0.25) return AL.RIGHT;
+                    return AL.LEFT;
+                };
+
+                // 3) Emit table (accumulated rows) as a Word table with column
+                //    clustering so cells line up even when x drifts slightly.
+                let tableRows = null;
+                const flushTable = () => {
+                    if (!tableRows || tableRows.length < 2) {
+                        // Not enough rows to be a real table → fall back to paragraphs.
+                        if (tableRows) for (const r of tableRows) children.push(new docx.Paragraph({
+                            children: [new docx.TextRun({ text: r.map(c => c.text).join('   '), size: Math.round(medSize * 2) })],
+                        }));
+                        tableRows = null; return;
                     }
-                    children.push(new docx.Paragraph({
-                        children: runs.map(r => new docx.TextRun({
-                            text: r.text, bold: r.bold, size: Math.max(12, Math.min(96, r.sz * 2)), // half-points
+                    // Cluster all cell x0 across rows into column anchors (tol = medSize).
+                    const anchors = [];
+                    tableRows.forEach(r => r.forEach(c => {
+                        const a = anchors.find(v => Math.abs(v - c.x0) < medSize * 1.2);
+                        if (a === undefined) anchors.push(c.x0);
+                    }));
+                    anchors.sort((a, b) => a - b);
+                    const colOf = (x0) => { let best = 0, bd = 1e9; anchors.forEach((a, idx) => { const d = Math.abs(a - x0); if (d < bd) { bd = d; best = idx; } }); return best; };
+                    const grid = tableRows.map(r => { const row = Array(anchors.length).fill(''); r.forEach(c => { const ci = colOf(c.x0); row[ci] = (row[ci] ? row[ci] + ' ' : '') + c.text; }); return row; });
+                    children.push(new docx.Table({
+                        width: { size: 100, type: docx.WidthType.PERCENTAGE },
+                        rows: grid.map(row => new docx.TableRow({
+                            children: row.map(txt => new docx.TableCell({
+                                children: [new docx.Paragraph({ children: [new docx.TextRun({ text: txt.trim(), size: Math.round(medSize * 2) })] })],
+                            })),
                         })),
-                        ...(pageBreakUsed || i === 1 ? {} : { pageBreakBefore: true }),
                     }));
-                    pageBreakUsed = true;
-                }
-                // Append this page's images below its text (each scaled to fit).
-                for (const im of pageImages) {
-                    const maxW = 620;
-                    const w = Math.min(maxW, im.w);
-                    const h = Math.round(w * (im.h / im.w));
+                    tableRows = null;
+                };
+
+                // 4) Walk lines, joining wrapped lines into paragraphs by the
+                //    free-space ratio; route multi-column lines to the table buffer.
+                let para = null;
+                const flushPara = () => {
+                    if (!para) return;
                     children.push(new docx.Paragraph({
-                        children: [new docx.ImageRun({ data: im.bytes, transformation: { width: w, height: h } })],
+                        alignment: para.align,
+                        spacing: { after: 60 },
+                        children: para.runs.map(r => new docx.TextRun({
+                            text: r.text, bold: r.bold, italics: r.italic,
+                            size: Math.max(12, Math.min(96, Math.round(r.size * 2))),
+                        })),
                     }));
+                    para = null;
+                };
+
+                for (let li = 0; li < lines.length; li++) {
+                    const l = lines[li];
+                    const isTableRow = l.segs.length >= 2 && l.segs.some((s, k) => k > 0 && (s.x0 - l.segs[k - 1].x1) > l.size * 2);
+                    if (isTableRow) { flushPara(); if (!tableRows) tableRows = []; tableRows.push(l.segs); continue; }
+                    flushTable();
+
+                    const prev = lines[li - 1];
+                    const gap = prev ? (prev.y - l.y) : lineH;
+                    const isHeading = l.size > medSize * 1.15 && l.segs.length === 1;
+                    // New paragraph if: big vertical gap (>0.85 line-height beyond
+                    // normal), a heading, or an alignment change.
+                    const startNew = !para || isHeading || gap > lineH * 1.6;
+                    const align = alignOf(l);
+                    if (startNew) { flushPara(); para = { align, runs: [] }; }
+                    // Append this line's segments as runs; keep a space at wraps.
+                    for (const s of l.segs) {
+                        const prevRun = para.runs[para.runs.length - 1];
+                        if (prevRun && prevRun.bold === s.bold && prevRun.italic === s.italic && Math.round(prevRun.size) === Math.round(s.size)) {
+                            prevRun.text += (prevRun.text.endsWith(' ') ? '' : ' ') + s.text;
+                        } else para.runs.push({ text: s.text, bold: s.bold || isHeading, italic: s.italic, size: s.size });
+                    }
                 }
+                flushPara();
+                flushTable();
+
+                for (const im of pageImages) {
+                    const w = Math.min(620, im.w);
+                    const h = Math.round(w * (im.h / im.w));
+                    children.push(new docx.Paragraph({ children: [new docx.ImageRun({ data: im.bytes, transformation: { width: w, height: h } })] }));
+                }
+                if (i < state.totalPages) children.push(new docx.Paragraph({ children: [], pageBreakBefore: true }));
             }
 
-            const doc = new docx.Document({ sections: [{ children }] });
+            const doc = new docx.Document({
+                sections: [{ children }],
+            });
             const blob = await docx.Packer.toBlob(doc);
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = state.fileName.replace(/\.pdf$/i, '') + '.docx';
-            a.click();
-            URL.revokeObjectURL(url);
-            setStatus('Exported to Word');
-            showToast('Saved as Word document');
+            const fileName = state.fileName.replace(/\.pdf$/i, '') + '.docx';
+            setStatus('Word ready — preview');
+            // Don't auto-download: show how the Word file will look first, then
+            // let the user download from the preview. The preview shows the exact
+            // page images that were embedded in the .docx.
+            await showWordPreview(blob, fileName, previewUrls);
         } catch (err) {
             console.error(err);
             setStatus('Word export failed: ' + err.message);
@@ -8014,6 +8462,61 @@ Replacement:`;
         }
     }
     window.exportWordSmart = exportWordSmart;
+
+    // Preview the generated .docx before saving. Shows the exact page images
+    // that were embedded, so what you see is what the Word file contains.
+    // Downloads only when the user clicks Download — no more silent auto-save.
+    async function showWordPreview(blob, fileName, previewUrls) {
+        const dl = () => {
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = fileName; a.click();
+            URL.revokeObjectURL(url);
+            setStatus('Saved ' + fileName);
+            showToast('Saved as Word document');
+        };
+
+        // Editable mode: render the real .docx to HTML via mammoth so the preview
+        // reflects the actual Word content (text, tables, images). (Image-mode
+        // passes previewUrls and shows those directly.)
+        let bodyHtml, wrap = true;
+        if (previewUrls && previewUrls.length) {
+            bodyHtml = previewUrls
+                .map(u => '<img class="word-preview-pageimg" src="' + u + '" alt="page">')
+                .join('');
+            wrap = false;
+        } else {
+            bodyHtml = '<p style="color:#888">Preview unavailable — you can still download.</p>';
+            try {
+                if (!window.mammoth) await loadScript('libs/mammoth.browser.min.js').catch(() => {});
+                if (window.mammoth) {
+                    const buf = await blob.arrayBuffer();
+                    const res = await window.mammoth.convertToHtml({ arrayBuffer: buf });
+                    if (res && res.value) bodyHtml = res.value;
+                }
+            } catch (e) { console.warn('Word preview render failed', e); }
+        }
+        const inner = wrap ? '<div class="word-preview-page">' + bodyHtml + '</div>' : bodyHtml;
+
+        const ov = document.createElement('div');
+        ov.className = 'word-preview-overlay';
+        ov.innerHTML =
+            '<div class="word-preview-modal">' +
+              '<div class="word-preview-head">' +
+                '<span class="word-preview-title">Word preview — ' + escapeHtml(fileName) + '</span>' +
+                '<div class="word-preview-actions">' +
+                  '<button class="wp-btn wp-cancel">Close</button>' +
+                  '<button class="wp-btn wp-download">Download .docx</button>' +
+                '</div>' +
+              '</div>' +
+              '<div class="word-preview-body">' + inner + '</div>' +
+            '</div>';
+        document.body.appendChild(ov);
+        const close = () => ov.remove();
+        ov.querySelector('.wp-cancel').addEventListener('click', close);
+        ov.addEventListener('click', (e) => { if (e.target === ov) close(); });
+        ov.querySelector('.wp-download').addEventListener('click', () => { dl(); close(); });
+    }
 
     // Expose downloadPDF globally so the menu can call it
     window.downloadPDF = downloadPDF;
@@ -8040,4 +8543,7 @@ Replacement:`;
 
     // ── Start ──
     init();
+    // Announce the landing state to the Nexus shell so it shows the top bar on
+    // the welcome screen (a document open later posts hasDoc:true).
+    try { window.parent && window.parent.postMessage({ type: 'pdf-editor:doc-state', hasDoc: false }, '*'); } catch (_) {}
 })();

@@ -3350,11 +3350,16 @@ button, [role="button"], select { touch-action: manipulation; }
 
 /* ── PDF Editor module: full-bleed workspace below the header ────────────── */
 .pdf-editor-module {
-  /* cancel .viewport padding (32px 36px) and fill to the exact header line */
+  /* Landing screen: the Nexus top header (56px) is still shown, so fill the
+     remaining viewport below it. Cancel .viewport padding to sit edge-to-edge. */
   margin: -32px -36px;
-  height: calc(100vh - 56px);   /* 56px = .top-header */
+  height: calc(100vh - 56px);
   overflow: hidden;
   background: #1e1e2e;
+}
+/* A document is open → App.jsx hides the top header → fill the whole viewport. */
+.pdf-editor-module.has-doc {
+  height: 100vh;
 }
 .pdf-editor-module iframe {
   width: 100%;
