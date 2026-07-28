@@ -2,13 +2,13 @@
 // businessprofileperformance) resources for managing listing content:
 // accounts.locations.localPosts, accounts.locations.media, and the Q&A
 // resource. When the real API is wired in, only the fetch*Report()
-// functions in gbpContentData.ts need to change — these adapters already
+// functions in gbpContentData.ts need to change - these adapters already
 // know how to read that exact JSON.
 
 export function adaptPosts(posts) {
   return posts.map((p) => ({
     // The full resource name (not just its trailing segment) is what's
-    // globally unique — each facility's mock IDs restart from 1, so slicing
+    // globally unique - each facility's mock IDs restart from 1, so slicing
     // down to the last path segment alone would collide across facilities.
     id: p.name,
     facility: p.locationId,

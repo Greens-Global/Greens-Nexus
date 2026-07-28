@@ -23,7 +23,7 @@ function completenessTone(pct) {
 }
 
 /**
- * The Manage page — admin / data-quality dashboard reachable from the "Manage" button.
+ * The Manage page - admin / data-quality dashboard reachable from the "Manage" button.
  * KPI tiles up top, then 4 tabs: Flagged for Review, Data Completeness, Activity Log, Trash.
  *
  * props:
@@ -216,7 +216,7 @@ export function ManagePage({
         <div style={CARD_STYLE}>
           <h3 style={{ fontSize: '1rem', fontFamily: "'Plus Jakarta Sans', sans-serif", margin: '0 0 2px' }}>Data Completeness</h3>
           <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: 13 }}>
-            Sorted by least complete first — open an asset to fill the gaps.
+            Sorted by least complete first - open an asset to fill the gaps.
           </div>
 
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 14 }}>
@@ -277,8 +277,8 @@ export function ManagePage({
           {rows.length === 0 ? (
             <div style={{ fontSize: '0.84rem', color: 'var(--text-secondary)' }}>
               {q ? 'No assets match your search.'
-                : serverOk === false ? "Couldn't reach the server to load assets — retrying automatically. Nothing has been deleted."
-                : 'No assets yet — use Add Asset to register the first one.'}
+                : serverOk === false ? "Couldn't reach the server to load assets - retrying automatically. Nothing has been deleted."
+                : 'No assets yet - use Add Asset to register the first one.'}
             </div>
           ) : (
             <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, overflow: 'hidden' }}>
@@ -305,7 +305,7 @@ export function ManagePage({
                         )}
                       </div>
                       <div style={{ fontSize: '0.73rem', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 1 }}>
-                        {cityRegion(p) || '—'}{p.devStage ? ' · ' + p.devStage : ''}
+                        {cityRegion(p) || '-'}{p.devStage ? ' · ' + p.devStage : ''}
                       </div>
                     </div>
 
@@ -395,7 +395,7 @@ export function ManagePage({
                 Permanently delete “{purgeTarget.name}”?
               </div>
               <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginBottom: 11 }}>
-                This <strong>cannot be undone</strong> — the asset is gone for good.
+                This <strong>cannot be undone</strong> - the asset is gone for good.
               </div>
               <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
                 <button className="secondary-btn" onClick={() => setPurgeTarget(null)} style={{ fontSize: '0.8rem' }}>Cancel</button>
@@ -421,7 +421,7 @@ export function ManagePage({
                   <div style={{ minWidth: 0, flex: 1 }}>
                     <strong style={{ fontSize: '0.85rem', color: 'var(--text-primary)' }}>{x.name}</strong>
                     <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {cityRegion(x) || '—'}
+                      {cityRegion(x) || '-'}
                     </div>
                   </div>
                   <button

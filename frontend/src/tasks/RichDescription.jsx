@@ -1,9 +1,9 @@
-// Task Module — rich description editor. TipTap document with an Asana-style
+// Task Module - rich description editor. TipTap document with an Asana-style
 // toolbar, shared by the Create-a-Task modal and the task detail drawer.
 //
 // The value is HTML. Old plain-text descriptions still render (TipTap wraps
 // them in a paragraph), so no migration. Outbound sync sends this HTML to
-// Asana's html_notes — see backend/asana_sync.py.
+// Asana's html_notes - see backend/asana_sync.py.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
@@ -32,7 +32,7 @@ const Highlight = Mark.create({
   },
 });
 
-// An empty TipTap document serializes as "<p></p>", not "" — callers comparing
+// An empty TipTap document serializes as "<p></p>", not "" - callers comparing
 // against '' would otherwise see every untouched description as dirty.
 export const isEmptyDoc = (html) => !String(html || '').replace(/<p>\s*<\/p>/g, '').replace(/<[^>]*>/g, '').trim();
 
@@ -85,7 +85,7 @@ export default function RichDescription({
   const fileRef = useRef(null);
   const imageRef = useRef(null);
   // handlePaste is captured once when the editor is created, so it can't close
-  // over `attach` directly — that would freeze the first render's callback.
+  // over `attach` directly - that would freeze the first render's callback.
   const pasteRef = useRef(() => {});
   // Same reason as pasteRef: editorProps/onUpdate are captured once at creation.
   const mentionScanRef = useRef(() => {});
@@ -107,7 +107,7 @@ export default function RichDescription({
         return mentionKeyRef.current(event);
       },
       // Ctrl+V of a screenshot embeds it (and attaches it to the task when the
-      // parent supports that) — the module-wide clipboard rule from CLAUDE.md.
+      // parent supports that) - the module-wide clipboard rule from CLAUDE.md.
       // Returning false for everything else leaves TipTap's normal HTML/text
       // paste handling alone.
       handlePaste: (_view, event) => {
@@ -172,7 +172,7 @@ export default function RichDescription({
 
   useEffect(() => { mentionScanRef.current = scanForMention; }, [scanForMention]);
   useEffect(() => { submitRef.current = onSubmit || null; }, [onSubmit]);
-  // Declared before the key handler below, which calls it — a `const` isn't
+  // Declared before the key handler below, which calls it - a `const` isn't
   // hoisted, so referencing it from an effect defined above throws.
   const insertMention = useCallback((person) => {
     if (!editor || !mention || !person) return;

@@ -7,7 +7,7 @@ import { apiTokenRequest } from '../authConfig';
 
 const RoleCtx = createContext(null);
 
-// Canonical list of screens/modules — single source of truth shared by
+// Canonical list of screens/modules - single source of truth shared by
 // navigation (Sidebar), routing (App's VIEW_LABELS), and the group editor's
 // module-access checkboxes, so they can never drift out of sync.
 export const MODULES = [
@@ -25,7 +25,7 @@ export const MODULES = [
   { id: 'accounting',          label: 'Accounting' },
   { id: 'investor-relations',  label: 'Investor Relations' },
   { id: 'hr',                  label: 'People' },
-  { id: 'hr_comp',             label: 'People — Compensation (salary/bank)' },
+  { id: 'hr_comp',             label: 'People - Compensation (salary/bank)' },
   { id: 'documents',           label: 'Documents' },
   { id: 'marketing',           label: 'Marketing' },
   { id: 'external-links',      label: 'External Links' },
@@ -36,10 +36,10 @@ export const MODULES = [
   { id: 'credvault',           label: 'Credential Vault' },
 ];
 
-// Per-module permission levels an Access Group can grant — mirrors a
+// Per-module permission levels an Access Group can grant - mirrors a
 // folder-permission row (Viewer/Editor/Full/Owner): visibility and capability
 // are decided together, as one explicit, auditable choice per screen.
-// Rank order matters — a higher level always implies everything lower grants.
+// Rank order matters - a higher level always implies everything lower grants.
 export const MODULE_LEVELS = {
   viewer: { label: 'Viewer', rank: 1, description: 'See and use the screen normally' },
   editor: { label: 'Editor', rank: 2, description: 'Also create and edit records' },
@@ -50,14 +50,14 @@ export const MODULE_LEVELS = {
 export const ROLES = {
   employee:      { label: 'Employee',      level: 1, color: 'var(--color-blue)',   bg: 'hsla(var(--color-blue),0.12)',   description: 'Raise requests, view own activity' },
   supervisor:    { label: 'Supervisor',     level: 2, color: 'var(--color-green)',  bg: 'hsla(var(--color-green),0.12)',  description: 'Allocate items, manage returns' },
-  manager:       { label: 'Manager',        level: 3, color: 'var(--color-orange)', bg: 'hsla(var(--color-orange),0.12)', description: 'Approve requests, team oversight — no access-granting or deletion rights' },
-  administrator: { label: 'IT Admin',       level: 4, color: 'var(--color-purple)', bg: 'hsla(var(--color-purple),0.12)', description: 'Manage settings & inventory, grant access up to Manager — cannot manage other admins or delete core records' },
-  owner:         { label: 'Global Admin',   level: 5, color: 'var(--color-gold)',   bg: 'hsla(var(--color-gold),0.12)',   description: 'Full, unrestricted access — including managing other admins and deleting core records' },
+  manager:       { label: 'Manager',        level: 3, color: 'var(--color-orange)', bg: 'hsla(var(--color-orange),0.12)', description: 'Approve requests, team oversight - no access-granting or deletion rights' },
+  administrator: { label: 'IT Admin',       level: 4, color: 'var(--color-purple)', bg: 'hsla(var(--color-purple),0.12)', description: 'Manage settings & inventory, grant access up to Manager - cannot manage other admins or delete core records' },
+  owner:         { label: 'Global Admin',   level: 5, color: 'var(--color-gold)',   bg: 'hsla(var(--color-gold),0.12)',   description: 'Full, unrestricted access - including managing other admins and deleting core records' },
 };
 
 export function RoleProvider({ children }) {
   const { instance, accounts, inProgress } = useMsal();
-  // E2E builds have no MSAL account — use a placeholder identity so the role
+  // E2E builds have no MSAL account - use a placeholder identity so the role
   // still loads from the API (the NEXUS_SKIP_AUTH backend resolves who we are
   // server-side). Without this, headless runs are stuck as 'employee' and the
   // nightly QA specs can never exercise manager/admin surfaces.
@@ -78,7 +78,7 @@ export function RoleProvider({ children }) {
   // { sessionId, targetEmail, targetName, expiresAt } while impersonating, else
   // null. api.js already persists the session id and attaches it to every
   // request, so the getMyRole() effect below transparently comes back with the
-  // TARGET's role on a fresh page load — this only needs to restore the
+  // TARGET's role on a fresh page load - this only needs to restore the
   // display info (name/banner), not re-derive access.
   const ACT_AS_INFO_KEY = 'nexus:act-as-info';
   const [actingAs, setActingAsState] = useState(() => {
@@ -96,13 +96,13 @@ export function RoleProvider({ children }) {
 
   // Fetch current user's role and group memberships on mount / account change.
   // Groups must be loaded here (not just in Admin) so that myGrantedModules is
-  // populated for all users — otherwise group-granted sidebar items never appear.
+  // populated for all users - otherwise group-granted sidebar items never appear.
   // Role fetch retries up to 3× with backoff; groups fail silently.
   useEffect(() => {
     let cancelled = false;
     if (!myEmail) {
       // MSAL (and the dev-login bypass) start with an empty accounts[] on the
-      // very first render — msal-react only populates it after
+      // very first render - msal-react only populates it after
       // handleRedirectPromise() resolves (see msalInstance.js). Do not drop
       // straight to the employee default and mark loading done: that flashes
       // "Access Restricted" on every gated view on a hard reload/deep link,
@@ -121,7 +121,7 @@ export function RoleProvider({ children }) {
           }
         })
         .catch((err) => {
-          // A 401 means the ID token was rejected — the silent (hidden-iframe)
+          // A 401 means the ID token was rejected - the silent (hidden-iframe)
           // token renewal failed. That iframe depends on third-party cookies, so
           // when a browser blocks them (or a CSP/extension blocks the frame) it
           // fails for anyone whose cached token has expired, and every call 401s
@@ -168,7 +168,7 @@ export function RoleProvider({ children }) {
       .catch(() => {});
   }, []);
 
-  // Assign a role — writes to backend, refreshes local state
+  // Assign a role - writes to backend, refreshes local state
   const assignRole = useCallback(async (email, role, displayName) => {
     const lowerEmail = email.toLowerCase();
     await api.assignRole(lowerEmail, role, myEmail, displayName);
@@ -182,7 +182,7 @@ export function RoleProvider({ children }) {
 
   // Begin impersonating `targetEmail`. The backend re-validates permission
   // (strictly-lower-role target, Manager+ or an 'act-as' Access Group grant)
-  // on every request via the session id, not just here — this call only opens
+  // on every request via the session id, not just here - this call only opens
   // the session and refreshes local role/UI state to match immediately.
   const startActAs = useCallback(async (targetEmail) => {
     const result = await api.startActAs(targetEmail);
@@ -209,7 +209,7 @@ export function RoleProvider({ children }) {
     sessionStorage.removeItem(ACT_AS_INFO_KEY);
     setActingAsState(null);
     if (sessionId) {
-      try { await api.stopActAs(sessionId); } catch { /* best-effort — TTL expiry covers it either way */ }
+      try { await api.stopActAs(sessionId); } catch { /* best-effort - TTL expiry covers it either way */ }
     }
     setLoading(true);
     try {
@@ -272,7 +272,7 @@ export function RoleProvider({ children }) {
 
   // Modules granted to the current user via any group they belong to, mapped
   // to the highest permission level any of those groups grants for it (e.g.
-  // {"inventory": "full", "it": "viewer"}) — purely additive on top of
+  // {"inventory": "full", "it": "viewer"}) - purely additive on top of
   // role-based nav access (Sidebar.jsx): membership can only ever widen
   // access, never narrow it. A module present in this map (any level) is
   // visible in the nav; the level additionally decides what they can DO there.
@@ -292,7 +292,7 @@ export function RoleProvider({ children }) {
   const myLevel = ROLES[myRole]?.level ?? 1;
   const can     = (minRole) => myLevel >= (ROLES[minRole]?.level ?? 1);
 
-  // True if the user can act on `moduleId` at least at `minModuleLevel` —
+  // True if the user can act on `moduleId` at least at `minModuleLevel` -
   // either because their global role already implies it (`minRole`), or
   // because an Access Group grants that module at/above `minModuleLevel`
   // (e.g. canAccessModule('inventory', 'manager', 'editor')).

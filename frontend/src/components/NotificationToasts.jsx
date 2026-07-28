@@ -5,7 +5,7 @@ import { renderNotifBody, destinationFor } from './NotificationBell';
 import { useMsal }          from '@azure/msal-react';
 import { useRole }          from '../contexts/RoleContext';
 
-// Icon + colour per type — must match the sentiment of the event: negative
+// Icon + colour per type - must match the sentiment of the event: negative
 // events (rejections, overdue, returns) previously fell through to the green
 // check default, which read as "all good" for a rejection.
 const TYPE_META = {
@@ -32,7 +32,7 @@ const TYPE_META = {
 
 const LIFESPAN = 7000; // how long a popup stays before auto-dismissing
 
-// On-screen popups for incoming notifications — the bell badge alone is easy to
+// On-screen popups for incoming notifications - the bell badge alone is easy to
 // miss when you're heads-down in another view, so freshly-arrived notifications
 // also surface here briefly before settling into the bell's list.
 export default function NotificationToasts({ onNavigate }) {
@@ -49,7 +49,7 @@ export default function NotificationToasts({ onNavigate }) {
   useEffect(() => {
     // First run: remember everything that already exists so refreshes/logins
     // don't dump a wall of "new" popups on screen. The context starts with an
-    // empty array before its first fetch — seeding against THAT made the whole
+    // empty array before its first fetch - seeding against THAT made the whole
     // history look "fresh" and toast-bombed managers on every page load.
     if (seenIds.current === null) {
       if (notifications.length === 0) return;   // wait for the first real payload
@@ -75,7 +75,7 @@ export default function NotificationToasts({ onNavigate }) {
 
     // One popup per request/order: a lifecycle update (approved → handed over →
     // confirmed) REPLACES the previous popup for the same refId instead of
-    // stacking — four toasts for one order buried the rest of the screen.
+    // stacking - four toasts for one order buried the rest of the screen.
     setPopups(prev => {
       let next = [...prev];
       // Within this batch too, keep only the newest per refId
@@ -118,16 +118,16 @@ export default function NotificationToasts({ onNavigate }) {
   }
 
   function handleClick(n) {
-    // extension_pending is actionable too (matches the bell's ACTIONABLE_TYPES) —
+    // extension_pending is actionable too (matches the bell's ACTIONABLE_TYPES) -
     // clicking an extension toast should open the approval flow, not just navigate.
     const isActionable = (n.type === 'inv_request' || n.type === 'req_pending' || n.type === 'checkout_pending' || n.type === 'extension_pending')
       && (!n.recipient || n.recipient === myEmail);
     if (isActionable && can('manager')) {
       // Jump straight into the approval workflow (allocator picker / reject
-      // reason) in the bell panel — no extra navigation or hunting required.
+      // reason) in the bell panel - no extra navigation or hunting required.
       openApproval(n.id);
     } else {
-      // Server notifications write action="" — fall back to the bell's type→
+      // Server notifications write action="" - fall back to the bell's type→
       // destination map so lifecycle toasts (assigned / approved / returned)
       // still navigate to the right tab instead of doing nothing.
       const dest = destinationFor(n);

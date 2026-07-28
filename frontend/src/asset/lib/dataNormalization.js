@@ -1,18 +1,18 @@
 // Data migration / self-healing normalization for asset records.
 //
-// Four independent passes, all safe to re-run on every load (idempotent — running twice
+// Four independent passes, all safe to re-run on every load (idempotent - running twice
 // produces the same result as running once):
 //   - healPropTeam: migrates legacy "Project Team" snapshot field labels/contacts to current
 //     naming.
 //   - VNORM: module-level normalizer applied whenever we accept a state blob from the server
 //     during sync (renames a stale vocabulary term + re-runs healPropTeam).
 //   - mergeSeed: reconciles a user's STORED property record with the current SEED record on
-//     every load. This is the most important invariant in the whole data layer — see the long
+//     every load. This is the most important invariant in the whole data layer - see the long
 //     comment on mergeSeed() below before touching it.
 //   - AO: applies a small number of hardcoded one-off corrections (STAGE_OVERRIDE/TYPE_OVERRIDE)
 //     to specific assets by id, plus flags officer-residence assets as private.
 //
-// All four operate on plain data objects and are pure (no mutation of their inputs) — each
+// All four operate on plain data objects and are pure (no mutation of their inputs) - each
 // returns either the original reference unchanged (when nothing needed fixing, so callers can
 // cheaply skip re-renders via `!==` checks) or a new object.
 
@@ -24,7 +24,7 @@ import { normLabel } from './format.js';
 
 // Legacy "Project Team" snapshot field label -> current label(s) it should be split/renamed
 // into. Some legacy labels expand into MULTIPLE current fields (e.g. one old combined
-// "GC / CM" field becomes two distinct fields today) — when that happens the old field's
+// "GC / CM" field becomes two distinct fields today) - when that happens the old field's
 // stored contact info (keyed by normalized label in `p.contacts`) is copied onto every new
 // label it expands into, so nobody's saved phone/email gets silently dropped by the split.
 const PROJECT_TEAM_RELABEL = [
@@ -77,7 +77,7 @@ export function healPropTeam(property) {
       : group;
   });
 
-  // Drop the defunct "Service & Maintenance" snapshot group entirely — superseded by the
+  // Drop the defunct "Service & Maintenance" snapshot group entirely - superseded by the
   // dedicated Service & Maintenance tab (vservice collection).
   let finalSnapshot = snapshot;
   if (snapshot.some((g) => g.group === 'Service & Maintenance')) {
@@ -112,9 +112,9 @@ function renameRvToVehicle(value) {
  * healPropTeam on each.
  *
  * IMPORTANT: this must be applied on every path that can bring in "live" data from outside the
- * current in-memory state — both the initial load reconcile AND the background server-pull path.
+ * current in-memory state - both the initial load reconcile AND the background server-pull path.
  * Missing it on one path means data arriving via that path silently keeps stale labels/legacy
- * Project Team fields. (See "Two Load Paths" — localStorage-driven load vs. server reconcile —
+ * Project Team fields. (See "Two Load Paths" - localStorage-driven load vs. server reconcile -
  * this normalizer belongs on both.)
  *
  * Idempotent and returns the original object unchanged if nothing needed normalizing.
@@ -159,14 +159,14 @@ export function VNORM(state) {
 /**
  * Reconciles a user's STORED property record (`stored`) with the current SEED record
  * (`seed`) for the same asset, on every load. This is the single most important data-safety
- * invariant in the app — see README "Data model notes": structure/labels always come from the
- * seed (so shipping an improved seed — new fields, renamed groups, reordered sections —
+ * invariant in the app - see README "Data model notes": structure/labels always come from the
+ * seed (so shipping an improved seed - new fields, renamed groups, reordered sections -
  * propagates to every existing user's data), while user-ENTERED VALUES ARE NEVER LOST, even
  * when the seed's shape around them changes.
  *
  * Do NOT reintroduce a "touched -> skip all updates" bypass here. An earlier version of this
  * migration had a fast path that, once a user had edited a record at all, stopped applying seed
- * updates to it entirely — the intent was "don't stomp on user edits," but the actual effect was
+ * updates to it entirely - the intent was "don't stomp on user edits," but the actual effect was
  * that ANY edit (even to one unrelated field) froze that asset's structure at whatever seed
  * version existed when the user first touched it, silently hiding every subsequent seed
  * improvement (new fields, corrected labels, newly-added groups) from that asset forever. The
@@ -175,7 +175,7 @@ export function VNORM(state) {
  * record level.
  *
  * Precedence, precisely:
- *   1. Snapshot (the free-text grouped field data): walk the SEED's groups/fields — this fixes
+ *   1. Snapshot (the free-text grouped field data): walk the SEED's groups/fields - this fixes
  *      the group order, the set of groups/fields that exist, and every field's LABEL to whatever
  *      the seed currently says. For each seed field, look up whether the user's stored data has
  *      a non-empty value for a field with the same normalized label anywhere in their snapshot;
@@ -184,26 +184,26 @@ export function VNORM(state) {
  *      seed's own (placeholder/default) value is kept. Net effect: seed controls WHAT fields
  *      exist and their labels/order; the user's entered VALUES win wherever they exist.
  *   2. Top-level record fields (name, address, entity, notes, etc.): start from the seed, then
- *      spread the user's stored record OVER it — so stored top-level values win by default
+ *      spread the user's stored record OVER it - so stored top-level values win by default
  *      (a user-renamed asset stays renamed, an edited address stays edited).
  *   3. EXCEPT: `kind`, `assetType`, `make`, `model`, `trim` are force-reset to the SEED's values
  *      every time, even though step 2 would otherwise let stored values win. These are asset
- *      CLASSIFICATION fields (is this a property/vehicle/equipment, and which schema applies) —
+ *      CLASSIFICATION fields (is this a property/vehicle/equipment, and which schema applies) -
  *      they're deliberately not user-editable data, so the seed is always authoritative for them.
  *      This guards against a stored record's classification drifting out of sync with the seed
  *      (e.g. if a seed correction reclassifies an asset) and silently applying the wrong field
  *      schema forever.
  *
- * `stored.snapshot`'s OWN group structure is discarded in favor of the seed's — only its field
+ * `stored.snapshot`'s OWN group structure is discarded in favor of the seed's - only its field
  * VALUES are harvested (into a flat normalized-label -> value map) before being discarded. This
  * is what makes the whole thing seed-structure-authoritative: even if the user's stored snapshot
  * has stale groups/labels/order from an old seed version, only the values survive.
  */
 export function mergeSeed(stored, seed) {
   // Harvest every non-empty value out of the stored snapshot, keyed by normalized label. This
-  // is a flat map, so it doesn't matter which GROUP a value lived in on either side — only the
+  // is a flat map, so it doesn't matter which GROUP a value lived in on either side - only the
   // label match matters. (This is also why a seed relabel that changes normLabel()'s output,
-  // e.g. a real rename rather than a formatting tweak, will NOT carry the old value forward —
+  // e.g. a real rename rather than a formatting tweak, will NOT carry the old value forward -
   // matching is intentionally label-based, not id-based, because these are free-text fields
   // with no stable key.)
   const storedValues = {};
@@ -226,7 +226,7 @@ export function mergeSeed(stored, seed) {
   return {
     ...seed,
     ...stored,
-    // Classification fields are always seed-authoritative — see precedence note above.
+    // Classification fields are always seed-authoritative - see precedence note above.
     kind: seed.kind,
     assetType: seed.assetType,
     make: seed.make,
@@ -237,11 +237,11 @@ export function mergeSeed(stored, seed) {
 }
 
 // ------------------------------------------------------------------------------------------
-// AO — hardcoded seed corrections for specific assets
+// AO - hardcoded seed corrections for specific assets
 // ------------------------------------------------------------------------------------------
 
 // Development-stage corrections for specific assets, keyed by asset id. These override whatever
-// devStage the seed/stored record otherwise carries — used when the seed's generic stage data is
+// devStage the seed/stored record otherwise carries - used when the seed's generic stage data is
 // known to be wrong/stale for a specific asset and re-deriving it isn't practical, so it's
 // hardcoded here instead.
 export const STAGE_OVERRIDE = {
@@ -290,14 +290,14 @@ export const TYPE_OVERRIDE = {
 };
 
 // Officer-residence assets: private-flagged and gated from non-officers regardless of what the
-// `private` flag on the stored/seed record says (belt-and-suspenders — see AO() below, which
+// `private` flag on the stored/seed record says (belt-and-suspenders - see AO() below, which
 // ORs this in rather than replacing the existing flag, so a record explicitly marked private for
 // some other reason stays private too).
 export const PRIVATE_IDS = new Set(['rjk-residence', 'nrk-ank-residence', 'spd-csd-residence']);
 
 /**
  * Applies the hardcoded STAGE_OVERRIDE / TYPE_OVERRIDE seed corrections and the officer-residence
- * private flag to a single asset record, by id. Pure — returns a new object only when an
+ * private flag to a single asset record, by id. Pure - returns a new object only when an
  * override actually applies to this record's id; otherwise returns the input unchanged.
  */
 export function AO(record) {

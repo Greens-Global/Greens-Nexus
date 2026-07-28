@@ -1,4 +1,4 @@
-// Task Module — Asana-style mobile quick-add. Tapping the floating + opens this
+// Task Module - Asana-style mobile quick-add. Tapping the floating + opens this
 // lightweight name-first bottom sheet (not the dense full form). Name / Due date /
 // Assignee plus a Photo · Attachment · Scan-text toolbar; "Full details" hands off
 // to CreateTaskModal. Inherits the screen's context via `defaults`. Mobile only.
@@ -12,7 +12,7 @@ import { filesFromPaste } from './lib';
 import { NX, FONT, btn, input as inputStyle } from './theme';
 
 const fieldLabel = { display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: NX.dim, marginBottom: 5 };
-const MAX_INLINE = 2 * 1024 * 1024; // 2 MB — larger files store a link-less record (matches CreateTaskModal)
+const MAX_INLINE = 2 * 1024 * 1024; // 2 MB - larger files store a link-less record (matches CreateTaskModal)
 
 // Upload one file as a task attachment (inline data URL for small files).
 async function uploadAttachment(taskId, f) {
@@ -63,7 +63,7 @@ export default function QuickCreateTask({ defaults = {}, onClose, onFullDetails 
     finally { setOcrBusy(false); }
   };
 
-  // Same four required fields as the desktop Create-a-Task form — the rule has
+  // Same four required fields as the desktop Create-a-Task form - the rule has
   // to hold on mobile too or it's only a suggestion. Project is pre-filled and
   // hidden when the sheet was opened from inside one.
   const [projectId, setProjectId] = useState(defaults.projectId || '');
@@ -144,7 +144,7 @@ export default function QuickCreateTask({ defaults = {}, onClose, onFullDetails 
               <button onClick={() => { setPhotoMenu(false); libRef.current?.click(); }} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8 }}><ImagePlus size={16} /> Choose from device</button>
             </div>
           )}
-          {/* Hidden inputs — capture=environment opens the camera on mobile */}
+          {/* Hidden inputs - capture=environment opens the camera on mobile */}
           <input ref={camRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={addFiles} />
           <input ref={libRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={addFiles} />
           <input ref={attachRef} type="file" multiple style={{ display: 'none' }} onChange={addFiles} />

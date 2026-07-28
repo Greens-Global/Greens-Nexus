@@ -1,18 +1,18 @@
 """Step-up authentication (Jul 2026).
 
-Real, server-enforced re-authentication before sensitive data is shown —
+Real, server-enforced re-authentication before sensitive data is shown -
 credential-vault secrets, cross-employee payroll ($), and confidential HR
 (compensation/bank/paystubs). Replaces the old client-side "MFA theater"
 (browser-generated codes shown as a demo hint, never checked by the server).
 
-FREE-TIER design (works on Entra ID Free — no Conditional Access / P1 needed):
+FREE-TIER design (works on Entra ID Free - no Conditional Access / P1 needed):
   1. The frontend forces a FRESH interactive Microsoft sign-in (MSAL popup with
      prompt=login). If the tenant enforces MFA (Security Defaults or per-user
-     MFA — both free), that re-login includes the Authenticator/SMS challenge.
+     MFA - both free), that re-login includes the Authenticator/SMS challenge.
   2. The resulting ID token carries `auth_time` = when the user actually
      authenticated. The frontend POSTs it to /stepup/verify.
   3. We validate the ID token (signature via Azure JWKS, issuer, audience, same
-     user) and require `auth_time` to be FRESH — proving a just-now re-auth, not
+     user) and require `auth_time` to be FRESH - proving a just-now re-auth, not
      a silently-refreshed token from a login hours ago. Optionally require the
      `amr` claim to show an MFA factor (NEXUS_STEPUP_REQUIRE_MFA).
   4. On success we open a short-lived StepUpSession (default 5 min); the
@@ -52,7 +52,7 @@ STEPUP_MAX_AGE   = int(os.getenv("NEXUS_STEPUP_MAX_AGE", "120"))       # re-auth
 # once Security Defaults / per-user MFA is active to hard-enforce MFA.
 STEPUP_REQUIRE_MFA = os.getenv("NEXUS_STEPUP_REQUIRE_MFA", "").lower() in ("1", "true", "yes")
 # Master switch. Off by default so the feature ships + wires end-to-end BEFORE
-# any Entra changes — require_stepup is a no-op until this is true, so nothing
+# any Entra changes - require_stepup is a no-op until this is true, so nothing
 # breaks pre-config. Flip NEXUS_STEPUP_ENFORCE=true to activate.
 STEPUP_ENFORCE   = os.getenv("NEXUS_STEPUP_ENFORCE", "").lower() in ("1", "true", "yes")
 
@@ -109,7 +109,7 @@ def _validate_reauth_token(token: str, email: str) -> dict:
                        "'auth_time' optional claim to the app registration.",
         })
     if (int(time.time()) - int(auth_time)) > STEPUP_MAX_AGE:
-        raise HTTPException(status_code=401, detail="Sign-in wasn’t recent enough — please verify again.")
+        raise HTTPException(status_code=401, detail="Sign-in wasn’t recent enough - please verify again.")
 
     if STEPUP_REQUIRE_MFA and not (_MFA_AMR & set(_amr_list(claims))):
         raise HTTPException(status_code=401, detail={
@@ -150,7 +150,7 @@ def require_stepup(user: dict = Depends(get_current_user), db: Session = Depends
         return user
     raise HTTPException(status_code=403, detail={
         "code": "stepup_required",
-        "message": "This needs a quick identity check — please re-confirm your "
+        "message": "This needs a quick identity check - please re-confirm your "
                    "Microsoft sign-in to continue.",
     })
 

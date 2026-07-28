@@ -1,13 +1,13 @@
 // Thin IndexedDB key/value wrapper used as a second, larger-quota persistence tier alongside
 // localStorage. Why this exists: localStorage has a ~5MB quota, and Nexus state (base64 asset
-// images included) can exceed that. A blown quota makes `localStorage.setItem` throw — if that
+// images included) can exceed that. A blown quota makes `localStorage.setItem` throw - if that
 // throw is swallowed (as it is, deliberately, at the call sites) edits silently fail to persist.
 // IndexedDB has a much higher quota, so it's used as the durable store; localStorage is kept
 // only as a fast-path/fallback read on boot. See sync.js for how the two are reconciled on load.
 //
 // Every function here is defensive: any failure (IndexedDB unavailable, blocked, private
 // browsing, transaction error) resolves to `null`/`undefined` instead of rejecting, so callers
-// never need try/catch — a missing IndexedDB just degrades to "no cached value".
+// never need try/catch - a missing IndexedDB just degrades to "no cached value".
 
 const DB_NAME = 'nexus_store';
 const STORE_NAME = 'kv';
@@ -18,7 +18,7 @@ let _dbPromise;
 
 /**
  * Opens (or returns the cached open promise for) the single IndexedDB database used for
- * persistence. Resolves to `null` — never rejects — if IndexedDB is unavailable, blocked,
+ * persistence. Resolves to `null` - never rejects - if IndexedDB is unavailable, blocked,
  * errors, or doesn't respond within `OPEN_TIMEOUT_MS` (e.g. a hung `onblocked` from another
  * open tab holding a version-change lock).
  */
@@ -33,7 +33,7 @@ export function idbDB() {
         try {
           req.result.createObjectStore(STORE_NAME);
         } catch (e) {
-          // store already exists or creation failed — onsuccess/onerror below still fires
+          // store already exists or creation failed - onsuccess/onerror below still fires
         }
       };
       req.onsuccess = () => {
@@ -73,7 +73,7 @@ export function idbGet(key) {
     .catch(() => null);
 }
 
-/** Write a value by key. Resolves (no return value) once the write transaction completes, aborts, or errors — never rejects. */
+/** Write a value by key. Resolves (no return value) once the write transaction completes, aborts, or errors - never rejects. */
 export function idbSet(key, value) {
   return idbDB()
     .then((db) => {

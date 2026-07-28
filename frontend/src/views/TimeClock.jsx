@@ -17,10 +17,10 @@ const PUNCH_CHIP = {
   break_end:   { bg: 'rgba(245,158,11,0.12)',        fg: '#b45309' },
 };
 
-// ── Time Clock — punch in/out with geofencing (all employees) ─────────────────
+// ── Time Clock - punch in/out with geofencing (all employees) ─────────────────
 // Soft-gate design (research-verified SwipeClock behavior): location is asked
 // for AT THE MOMENT of punching only; a denied prompt or coarse fix never
-// blocks the punch — it's recorded and flagged for review instead. The button
+// blocks the punch - it's recorded and flagged for review instead. The button
 // set is state-aware ("intelligent clock"): only currently-valid punches show.
 
 const KIND_META = {
@@ -36,7 +36,7 @@ const HD = { fontSize: 13.5, fontWeight: 600, color: 'var(--ink)' };
 // Small stat label / value inside cards.
 const STAT_L = { fontSize: 12, fontWeight: 600, color: 'var(--muted)' };
 
-// Timesheet motion (module-scoped, CSS keyframes — reliable regardless of tab focus).
+// Timesheet motion (module-scoped, CSS keyframes - reliable regardless of tab focus).
 if (typeof document !== 'undefined' && !document.getElementById('ts-anim')) {
   const s = document.createElement('style');
   s.id = 'ts-anim';
@@ -75,7 +75,7 @@ function WeekBars({ days }) {
   return (
     <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10, height: 110 }}>
       {series.map(s => (
-        <div key={s.key} title={`${s.key} — ${Math.floor(s.min / 60)}h ${String(s.min % 60).padStart(2, '0')}m`}
+        <div key={s.key} title={`${s.key} - ${Math.floor(s.min / 60)}h ${String(s.min % 60).padStart(2, '0')}m`}
           style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, minWidth: 0 }}>
           <span style={{ fontSize: 10, fontWeight: 700, color: s.min ? 'var(--ink)' : 'transparent', fontVariantNumeric: 'tabular-nums' }}>
             {s.min ? `${(s.min / 60).toFixed(1)}h` : '·'}
@@ -96,7 +96,7 @@ function PeriodBars({ days }) {
   return (
     <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, height: 110 }}>
       {series.map(s => (
-        <div key={s.key} title={`${s.key} — ${Math.floor(s.min / 60)}h ${String(s.min % 60).padStart(2, '0')}m`}
+        <div key={s.key} title={`${s.key} - ${Math.floor(s.min / 60)}h ${String(s.min % 60).padStart(2, '0')}m`}
           style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, minWidth: 0 }}>
           <div style={{ width: '78%', maxWidth: 26, height: Math.max(s.min ? 5 : 3, (s.min / max) * 74),
             background: s.min ? 'var(--wk-brand)' : 'var(--mist)', borderRadius: 99 }} />
@@ -107,7 +107,7 @@ function PeriodBars({ days }) {
   );
 }
 
-// Live session timer digits — the seconds pair slides in on each tick (keyed
+// Live session timer digits - the seconds pair slides in on each tick (keyed
 // remount drives the .tc-tick animation; reduced-motion users get a static swap).
 function TimerDigits({ seconds, color, size = 24 }) {
   const h = Math.floor(seconds / 3600);
@@ -120,7 +120,7 @@ function TimerDigits({ seconds, color, size = 24 }) {
   );
 }
 
-// Session ring — the arc sweeps as today's worked time progresses toward an 8h
+// Session ring - the arc sweeps as today's worked time progresses toward an 8h
 // day (real data: today's closed segments + the live session). Digits inside are
 // the CURRENT session's stopwatch.
 function SessionRing({ seconds, dayPct, color, label, sub }) {
@@ -144,7 +144,7 @@ function SessionRing({ seconds, dayPct, color, label, sub }) {
   );
 }
 
-const localTime = (iso) => iso ? new Date(iso + 'Z').toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—';
+const localTime = (iso) => iso ? new Date(iso + 'Z').toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-';
 const fmtMin = (m) => `${Math.floor((m || 0) / 60)}h ${String((m || 0) % 60).padStart(2, '0')}m`;
 const fmtHMS = (sec) => `${Math.floor(sec / 3600)}:${String(Math.floor((sec % 3600) / 60)).padStart(2, '0')}:${String(sec % 60).padStart(2, '0')}`;
 const TIMEOFF_TYPES = { vacation: 'Vacation', sick: 'Sick', personal: 'Personal', unpaid: 'Unpaid', other: 'Other' };
@@ -172,12 +172,12 @@ function GeoChip({ p }) {
     </span>);
   if (p.geoStatus === 'out_of_fence') return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 700, color: '#b45309' }}
-      title="Recorded and flagged for review — this never blocks your punch.">
-      <AlertTriangle size={12} /> {p.distanceM}m from {p.workSiteName || 'nearest site'} — flagged
+      title="Recorded and flagged for review - this never blocks your punch.">
+      <AlertTriangle size={12} /> {p.distanceM}m from {p.workSiteName || 'nearest site'} - flagged
     </span>);
   if (p.geoStatus === 'low_accuracy') return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 700, color: 'var(--muted)' }}
-      title="This device gave only a rough Wi-Fi/IP location (no GPS) — too coarse to judge the geofence. Punch from a phone for a precise fix.">
+      title="This device gave only a rough Wi-Fi/IP location (no GPS) - too coarse to judge the geofence. Punch from a phone for a precise fix.">
       <MapPinOff size={12} /> approx. location (±{p.accuracyM >= 1000 ? `${(p.accuracyM / 1000).toFixed(1)}km` : `${p.accuracyM}m`})
     </span>);
   return (
@@ -193,7 +193,7 @@ export default function TimeClock() {
   const [msg, setMsg] = useState(null);        // {ok, text}
   const [missedOpen, setMissedOpen] = useState(false);
   const [openDays, setOpenDays] = useState({});   // expanded timesheet days
-  const [bodMode, setBodMode] = useState(null);   // 'bod' | 'eod' | null — day-message modal
+  const [bodMode, setBodMode] = useState(null);   // 'bod' | 'eod' | null - day-message modal
   // Disclosed-monitoring consent gate (first in-punch of the day). See doPunch/actualPunch.
   const [monGate, setMonGate] = useState(null);   // { text } | null
   const [monAgree, setMonAgree] = useState(false);
@@ -220,7 +220,7 @@ export default function TimeClock() {
   }, []);
   // Cross-device sync: punch state lives on the server, so a break/punch on ANY
   // of your devices must show up here without a manual refresh. Re-fetch on a
-  // short poll, and — for the common "I just switched to this device" case —
+  // short poll, and - for the common "I just switched to this device" case -
   // instantly when the tab regains focus/visibility. Same-device punches fire
   // nexus:timeclock-changed locally.
   useEffect(() => {
@@ -249,7 +249,7 @@ export default function TimeClock() {
     setToBusy(true);
     try {
       await api.timeOffCreate({ type: toForm.type, start_date: toForm.start, end_date: toForm.end, note: toForm.note });
-      toast(true, 'Time-off request sent — your manager gets a notification.');
+      toast(true, 'Time-off request sent - your manager gets a notification.');
       setToForm({ type: 'vacation', start: '', end: '', note: '' });
       api.timeOffMine().then(setTimeoff).catch(() => {});
     } catch (e) { toast(false, e?.message || 'Could not send the request.'); }
@@ -258,7 +258,7 @@ export default function TimeClock() {
 
   async function doPunch(kind) {
     if (busy) return;
-    // Login/break prompts come FIRST — the punch happens only after the message
+    // Login/break prompts come FIRST - the punch happens only after the message
     // is sent or explicitly acknowledged (see BodModal's ack-to-skip).
     // Every punch prompts for its message; the "already sent" checkbox lets a
     // repeat punch skip. (BOD gates punch-in, EOD gates checkout, break gates.)
@@ -313,14 +313,14 @@ export default function TimeClock() {
       });
       const p = r.punch;
       const where = p.geoStatus === 'in_fence' ? ` at ${p.workSiteName}`
-        : p.geoStatus === 'out_of_fence' ? ` — ${p.distanceM}m from ${p.workSiteName || 'the nearest site'}, flagged for review`
-        : p.geoStatus === 'low_accuracy' ? ' — location too approximate to judge (no GPS on this device)'
-        : pos ? '' : ' — location unavailable, recorded without it';
+        : p.geoStatus === 'out_of_fence' ? ` - ${p.distanceM}m from ${p.workSiteName || 'the nearest site'}, flagged for review`
+        : p.geoStatus === 'low_accuracy' ? ' - location too approximate to judge (no GPS on this device)'
+        : pos ? '' : ' - location unavailable, recorded without it';
       toast(true, `${KIND_META[kind].label} at ${localTime(p.at)}${where}.`);
       window.dispatchEvent(new CustomEvent('nexus:timeclock-changed')); // sync the global mini-timer
       load();
     } catch (e) {
-      // The backend can also gate the in-punch with a 409 — show the notice,
+      // The backend can also gate the in-punch with a 409 - show the notice,
       // then retry once after the employee acknowledges (openMonGate → confirm).
       const needsConsent = e?.detail?.code === 'monitoring_consent_required'
         || /monitoring_consent_required/i.test(e?.message || '');
@@ -341,17 +341,17 @@ export default function TimeClock() {
     if (!missed.at || !missed.note.trim()) { toast(false, 'Pick the time and add a reason.'); return; }
     try {
       const utc = new Date(missed.at).toISOString().slice(0, 19);
-      // Goes to your approver — nothing changes on the timesheet until they approve.
+      // Goes to your approver - nothing changes on the timesheet until they approve.
       await api.timePunchRequestCreate({ action: 'add', punch_kind: missed.kind, at: utc,
         tz_offset_min: new Date().getTimezoneOffset(), reason: missed.note.trim() });
-      toast(true, "Request sent to your approver — you'll be notified when it's reviewed.");
+      toast(true, "Request sent to your approver - you'll be notified when it's reviewed.");
       setMissedOpen(false); setMissed({ kind: 'out', at: '', note: '' });
       loadMyRequests();
     } catch (e) { toast(false, e?.message || 'Could not send the request.'); }
   }
 
   // Open the "Missed a punch?" form pre-filled to ADD the missing clock-out for a
-  // given segment — so the fix is one click from where the gap is shown, instead
+  // given segment - so the fix is one click from where the gap is shown, instead
   // of hunting for the form and re-entering the kind/day by hand.
   function openAddClockOut(seg) {
     // seg.in is a UTC timestamp (no Z); seed the day/time in LOCAL for the picker.
@@ -385,7 +385,7 @@ export default function TimeClock() {
   const dayKeys = Object.keys(days).sort().reverse();
 
   // Long-session guard (Jul 27): the current session's in-punch, so we can tell
-  // someone clocked in 12+ hours "still working, or forgot to punch out?" —
+  // someone clocked in 12+ hours "still working, or forgot to punch out?" -
   // last.at alone isn't the session start when the newest punch is a break.
   const [longAckAt, setLongAckAt] = useState(() => Number(localStorage.getItem('nexus:longShiftAck') || 0));
   let sessionInAt = null;
@@ -398,7 +398,7 @@ export default function TimeClock() {
   const sessionHours = sessionInAt ? (Date.now() - new Date(sessionInAt + 'Z').getTime()) / 3600000 : 0;
   const showLongBanner = clockedIn && sessionHours >= 12 && (Date.now() - longAckAt) > 4 * 3600000;
 
-  // Timesheet range filter — 7 days come with /status; longer ranges fetch on demand.
+  // Timesheet range filter - 7 days come with /status; longer ranges fetch on demand.
   const [tsRange, setTsRange] = useState(7);
   const [rangeDays, setRangeDays] = useState(null);
   useEffect(() => {
@@ -490,7 +490,7 @@ export default function TimeClock() {
         </div>
       </div>
 
-      {/* Tabs — one job per screen (the everything-in-one page read as clutter).
+      {/* Tabs - one job per screen (the everything-in-one page read as clutter).
           Desktop renders them centered in the top header; phones keep the
           in-page strip (ModuleTabs handles both). */}
       <ModuleTabs
@@ -515,7 +515,7 @@ export default function TimeClock() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 14, padding: '12px 16px', borderRadius: 12, background: 'rgba(180,83,9,0.09)', border: '1.5px solid rgba(180,83,9,0.4)' }}>
           <AlertTriangle size={17} style={{ color: '#b45309', flexShrink: 0 }} />
           <span style={{ fontSize: 13, fontWeight: 600, color: '#b45309', flex: 1, minWidth: 220 }}>
-            You've been clocked in for {Math.floor(sessionHours)} hours — still working, or did you forget to punch out?
+            You've been clocked in for {Math.floor(sessionHours)} hours - still working, or did you forget to punch out?
           </span>
           <button className="secondary-btn" style={{ fontSize: 12 }}
             onClick={() => { const t = Date.now(); localStorage.setItem('nexus:longShiftAck', String(t)); setLongAckAt(t); }}>
@@ -530,7 +530,7 @@ export default function TimeClock() {
               setMissedOpen(true);
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}>
-            I forgot — fix my punch-out
+            I forgot - fix my punch-out
           </button>
         </div>
       )}
@@ -574,7 +574,7 @@ export default function TimeClock() {
                 <Coffee size={14} />
                 {breakLeftMin >= 0
                   ? `${breakLeftMin} min left of your 1h daily break`
-                  : `Break over by ${-breakLeftMin} min — over your 1h daily allowance`}
+                  : `Break over by ${-breakLeftMin} min - over your 1h daily allowance`}
               </div>
             )}
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 3 }}>
@@ -587,7 +587,7 @@ export default function TimeClock() {
                       // sharing on a user gesture, so start it from within this click
                       // and WAIT: if the person dismisses the picker, block the punch.
                       // start() resolves true when a stream is live or capture isn't
-                      // required here — so a false means "required but declined".
+                      // required here - so a false means "required but declined".
                       if (kind === 'in' || kind === 'break_end') {
                         const ok = await (window.__nexusCapture?.start?.() ?? Promise.resolve(true));
                         if (!ok) {
@@ -630,7 +630,7 @@ export default function TimeClock() {
             </div>
             {todayData.flags.length > 0 && (
               <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, marginTop: 12, fontSize: 11, fontWeight: 700, color: '#b45309' }}>
-                <AlertTriangle size={11} /> {todayData.flags.length} item{todayData.flags.length === 1 ? '' : 's'} for review — see Time Sheet
+                <AlertTriangle size={11} /> {todayData.flags.length} item{todayData.flags.length === 1 ? '' : 's'} for review - see Time Sheet
               </div>
             )}
           </>
@@ -641,7 +641,7 @@ export default function TimeClock() {
         )}
       </div>
       {/* Jul 24: the standing location/monitoring notice paragraphs were removed by
-          management decision — capture is initiated by the employee's own share
+          management decision - capture is initiated by the employee's own share
           action (with the browser's persistent sharing indicator), and standing
           disclosure lives in the signed monitoring policy. The consent-gate modal
           below stays as dormant code (the server no longer requests it). */}
@@ -658,7 +658,7 @@ export default function TimeClock() {
           {clockPeriod ? (<>
             {(clockPeriod.totals?.workedMin || 0) > 0 ? <PeriodBars days={clockPeriod.days} /> : (
               <div style={{ height: 110, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12.5, color: 'var(--muted)', textAlign: 'center', padding: '0 12px' }}>
-                No hours yet this period — your days chart here as you punch in.
+                No hours yet this period - your days chart here as you punch in.
               </div>
             )}
             {(() => {
@@ -681,7 +681,7 @@ export default function TimeClock() {
           )}
         </div>
 
-        {/* This week — hours vs the 40h OT line, today's break allowance, est. pay
+        {/* This week - hours vs the 40h OT line, today's break allowance, est. pay
             and pending fix requests. Everything derives from data already loaded. */}
         <div style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, padding: '20px 22px', boxShadow: 'var(--wk-shadow)', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div style={HD}>This week</div>
@@ -740,7 +740,7 @@ export default function TimeClock() {
           {(() => {
             const upcoming = (timeoff || []).filter(r => r.status !== 'rejected' && r.status !== 'cancelled' && (r.endDate || '') >= todayKey).slice(0, 4);
             return upcoming.length === 0 ? (
-              <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '10px 0' }}>Nothing booked — your approved leave shows here.</div>
+              <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '10px 0' }}>Nothing booked - your approved leave shows here.</div>
             ) : upcoming.map(r => (
               <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 0', borderBottom: '1px solid var(--line)', fontSize: 12.5 }}>
                 <CalendarDays size={13} style={{ color: 'var(--wk-brand)', flexShrink: 0 }} />
@@ -756,7 +756,7 @@ export default function TimeClock() {
       </div>
       </>)}
 
-      {/* Timesheet — day list + week summary side panel */}
+      {/* Timesheet - day list + week summary side panel */}
       {tab === 'timesheet' && (<>
       {/* Pay-period header + navigation (California bi-weekly) */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
@@ -790,7 +790,7 @@ export default function TimeClock() {
             <button className="primary-btn" onClick={submitMissed} style={{ fontSize: 12.5 }}>Send request</button>
           </div>
           <p style={{ margin: '8px 0 0', fontSize: 11, color: 'var(--muted)' }}>
-            This goes to your approver — nothing changes on your timesheet until they approve it.
+            This goes to your approver - nothing changes on your timesheet until they approve it.
           </p>
         </div>
       )}
@@ -806,7 +806,7 @@ export default function TimeClock() {
             const when = r.action === 'add' && r.at ? ` at ${localTime(r.at)}` : '';
             return (
               /* Status is a PILL and free-text (your reason, the approver's note)
-                 is QUOTED with a label — bare dot-separated fragments read as
+                 is QUOTED with a label - bare dot-separated fragments read as
                  buttons/errors ("· Reject" looked like a dead action). */
               <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap', fontSize: 12.5, padding: '8px 12px', background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 10 }}>
                 <span style={{ fontWeight: 700, fontSize: 11, textTransform: 'capitalize', color: c, background: tint, padding: '2px 10px', borderRadius: 999, flexShrink: 0 }}>{r.status}</span>
@@ -819,7 +819,7 @@ export default function TimeClock() {
         </div>
       )}
 
-      {/* Summary — one composition bar (worked/idle/break) + payroll totals */}
+      {/* Summary - one composition bar (worked/idle/break) + payroll totals */}
       <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 16 }}>
         <div style={{ flex: '2 1 380px', background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, padding: '18px 20px', boxShadow: 'var(--wk-shadow)' }}>
           <div style={{ ...HD, marginBottom: 14 }}>How this period breaks down</div>
@@ -859,11 +859,11 @@ export default function TimeClock() {
               </div>
             )}
           </div>
-          {PT.missingPunches > 0 && <p style={{ margin: '10px 0 0', fontSize: 11, color: '#b45309', fontWeight: 600 }}>{PT.missingPunches} day{PT.missingPunches !== 1 ? 's' : ''} missing a clock-out — fix before payday.</p>}
+          {PT.missingPunches > 0 && <p style={{ margin: '10px 0 0', fontSize: 11, color: '#b45309', fontWeight: 600 }}>{PT.missingPunches} day{PT.missingPunches !== 1 ? 's' : ''} missing a clock-out - fix before payday.</p>}
         </div>
       </div>
 
-      {/* Pay-period days — a visual timeline per worked day (segments shown inline) */}
+      {/* Pay-period days - a visual timeline per worked day (segments shown inline) */}
       {payErr && !payData ? (
         <div style={{ ...CARD_S, padding: '30px 20px', textAlign: 'center' }}>
           <AlertTriangle size={20} style={{ color: '#b45309', marginBottom: 8 }} />
@@ -882,14 +882,14 @@ export default function TimeClock() {
             return payGrid.map(ds => {
               const d = payDayMap[ds];
               const segs = d?.segments || [];
-              // Off day — a quiet line so worked days stand out.
+              // Off day - a quiet line so worked days stand out.
               if (!d || segs.length === 0) return (
                 <div key={ds} style={{ display: 'flex', alignItems: 'center', padding: '6px 16px', fontSize: 12, color: 'var(--muted)' }}>
                   <span style={{ width: 100, fontWeight: 600 }}>{fmtDay(ds)}</span>
                   <span style={{ flex: 1 }} /><span style={{ opacity: 0.5 }}>off</span>
                 </div>
               );
-              // Worked day — timeline card.
+              // Worked day - timeline card.
               const missingOut = segs.some(s => (s.flags || []).includes('missing_out'));
               const firstIn = segs[0].in;
               const lastOut = missingOut ? '' : segs[segs.length - 1].out;
@@ -912,12 +912,12 @@ export default function TimeClock() {
                     </span>
                     {(() => {
                       // A single closed session of 12h+ is almost always a missed
-                      // punch-out — say so on the row, with the fix path.
+                      // punch-out - say so on the row, with the fix path.
                       const longest = Math.max(0, ...segs.filter(s => s.out).map(s => s.workedMin || 0));
                       return longest >= 720 ? (
-                        <span title="Use Remove on the session chip below, then Add clock-out with the real times — your approver confirms."
+                        <span title="Use Remove on the session chip below, then Add clock-out with the real times - your approver confirms."
                           style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 700, color: '#b45309', background: 'rgba(180,83,9,0.1)', padding: '2px 9px', borderRadius: 999 }}>
-                          <AlertTriangle size={11} /> {Math.round(longest / 60)}h in one session — missed punch-out?
+                          <AlertTriangle size={11} /> {Math.round(longest / 60)}h in one session - missed punch-out?
                         </span>
                       ) : null;
                     })()}
@@ -938,7 +938,7 @@ export default function TimeClock() {
                       );
                     })}
                   </div>
-                  {/* Session chips — every clock-in/out visible, with its action inline. */}
+                  {/* Session chips - every clock-in/out visible, with its action inline. */}
                   <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', alignItems: 'center' }}>
                     {segs.map((s, i) => {
                       const open = !s.out;
@@ -970,7 +970,7 @@ export default function TimeClock() {
         </div>
       )}
       <p style={{ margin: '12px 2px 0', fontSize: 11, color: 'var(--muted)' }}>
-        Each bar shows your work sessions through the day — a dashed block is a missing clock-out. Overtime is time over 40h in a week (1.5×). Use “Add clock-out” to fix a gap or “Remove” to drop a wrong punch — it goes to your approver, and nothing changes until they approve.
+        Each bar shows your work sessions through the day - a dashed block is a missing clock-out. Overtime is time over 40h in a week (1.5×). Use “Add clock-out” to fix a gap or “Remove” to drop a wrong punch - it goes to your approver, and nothing changes until they approve.
       </p>
       </>)}
 
@@ -1077,7 +1077,7 @@ export default function TimeClock() {
           toastOk={t => toast(true, t)} toastErr={t => toast(false, t)} />;
       })()}
 
-      {/* Disclosed-monitoring consent gate — real notice the employee reads and
+      {/* Disclosed-monitoring consent gate - real notice the employee reads and
           acknowledges before the first in-punch is recorded. */}
       {monGate && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1440, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
@@ -1091,7 +1091,7 @@ export default function TimeClock() {
               <button onClick={() => setMonGate(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
             </div>
             <div style={{ padding: '16px 22px', overflowY: 'auto', fontSize: 13, color: 'var(--ink)', lineHeight: 1.65, whiteSpace: 'pre-wrap' }}>
-              {monGate.text || 'This is a company-owned device. While you are clocked in, Greens Nexus records your worked time and may capture periodic screenshots of your work screen, the apps and windows you have open, and your overall activity level. This is used only to verify work time and activity — it never captures your keystrokes, and it stops the moment you clock out.'}
+              {monGate.text || 'This is a company-owned device. While you are clocked in, Greens Nexus records your worked time and may capture periodic screenshots of your work screen, the apps and windows you have open, and your overall activity level. This is used only to verify work time and activity - it never captures your keystrokes, and it stops the moment you clock out.'}
             </div>
             <div style={{ padding: '12px 22px', borderTop: '1px solid var(--line)' }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: 9, fontSize: 13, fontWeight: 600, cursor: 'pointer', marginBottom: 12 }}>

@@ -12,7 +12,7 @@ export function appendLog(store, entry) {
 
 /**
  * Diff a record's OLD values against a NEW patch, for fields declared in `fieldDefs`
- * (either PT-style `{l,key}` or flat `{k,label}` — pass whichever schema applies).
+ * (either PT-style `{l,key}` or flat `{k,label}` - pass whichever schema applies).
  * Returns [{field, from, to}] for only the fields that actually changed.
  */
 export function diffChanges(fieldDefs, oldRecord, patch) {

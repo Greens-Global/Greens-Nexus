@@ -14,7 +14,7 @@ import unittest
 
 from sqlalchemy import text
 
-# Must happen before `import database` — DATABASE_URL is read at module import
+# Must happen before `import database` - DATABASE_URL is read at module import
 # time to build the engine.
 _tmp_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
 _tmp_db.close()
@@ -27,7 +27,7 @@ import asana_sync
 
 
 class UnlinkDeletedTaskTests(unittest.TestCase):
-    """unlink_deleted_task with delete_sync OFF — the opt-out path, where an
+    """unlink_deleted_task with delete_sync OFF - the opt-out path, where an
     Asana deletion only severs the link and leaves the Nexus task in place.
     The delete_sync=ON behaviour lives in DeletePropagationTests."""
 
@@ -107,7 +107,7 @@ class InboundDedupeTests(unittest.TestCase):
 
     def setUp(self):
         self.db = database.SessionLocal()
-        # Duplicate links are by definition pre-index legacy data — dedupe_tasks
+        # Duplicate links are by definition pre-index legacy data - dedupe_tasks
         # creates ux_asana_task_link_gid once it has cleaned them up, so a test
         # that seeds duplicates has to start from before that point.
         self.db.execute(text("DROP INDEX IF EXISTS ux_asana_task_link_gid"))
@@ -141,7 +141,7 @@ class InboundDedupeTests(unittest.TestCase):
         self.assertEqual(self.db.query(models.AsanaTaskLink).filter_by(asana_gid="gid-dup").count(), 1)
 
     def test_adopts_an_existing_subtask_instead_of_duplicating_it(self):
-        # A subtask is stored with project_id="" — scoping adoption by the
+        # A subtask is stored with project_id="" - scoping adoption by the
         # project (as the old query did) never matched one.
         parent = self._titled("Parent", project_id="proj-1")
         existing = self._titled("Sync Field Test Subtask", project_id="", parent_task_id=parent.id)
@@ -169,7 +169,7 @@ class InboundDedupeTests(unittest.TestCase):
     def test_dedupe_keeps_the_filed_task_not_an_older_orphan(self):
         # An orphan (no project, no parent) is invisible in every view. Plain
         # oldest-wins handed it the win and deleted the correctly filed row a
-        # fresh import had just created — a re-imported project lost half its
+        # fresh import had just created - a re-imported project lost half its
         # tasks that way.
         orphan = self._titled("Task from Asana", project_id="", parent_task_id="",
                               created_at="2026-07-01T00:00:00+00:00")
@@ -262,7 +262,7 @@ class DeletePropagationTests(unittest.TestCase):
         moved = self._linked("Moved elsewhere", "gid-moved", project_id="proj-1")
         counts = {"deleted": 0}
         # Only gid-gone 404s. gid-moved wasn't in the walk either, but Asana
-        # still has it — removed from the board is not deleted.
+        # still has it - removed from the board is not deleted.
         original = asana_sync._asana_task_gone
         asana_sync._asana_task_gone = lambda cfg, gid: gid == "gid-gone"
         try:
@@ -290,7 +290,7 @@ class DeletePropagationTests(unittest.TestCase):
         cfg.delete_sync = False
         self.db.commit()
 
-        # Would raise on a real HTTP call — a False `done` proves it never got there.
+        # Would raise on a real HTTP call - a False `done` proves it never got there.
         done, _err = asana_sync.push_task_deleted(self.db, "gid-x")
         self.assertFalse(done)
 
@@ -386,7 +386,7 @@ class PeopleResolutionTests(unittest.TestCase):
 
     def tearDown(self):
         # Leaving employees behind would silently change how OTHER test classes
-        # resolve their fixture emails — the directory is global.
+        # resolve their fixture emails - the directory is global.
         self.db.query(models.NexusEmployee).delete()
         self.db.commit()
         asana_sync.refresh_directory_cache()
@@ -405,7 +405,7 @@ class PeopleResolutionTests(unittest.TestCase):
                          "neil@greensglobal.com")
 
     def test_an_outsider_keeps_their_own_address(self):
-        # Nobody in the directory — a real external collaborator must not be
+        # Nobody in the directory - a real external collaborator must not be
         # silently rewritten onto some unrelated employee.
         self.assertEqual(asana_sync._map_email("someone@partner.com", None, self.db),
                          "someone@partner.com")
@@ -461,7 +461,7 @@ class PeopleResolutionTests(unittest.TestCase):
 
 
 class _FakeAsana:
-    """Minimal stand-in for the Asana read API — enough for the inbound engine.
+    """Minimal stand-in for the Asana read API - enough for the inbound engine.
     Populated per-test via the class attributes."""
     tasks, subtasks, stories, attachments = {}, {}, {}, {}
 
@@ -541,7 +541,7 @@ class FullFidelityInboundTests(unittest.TestCase):
         for _ in range(3):
             asana_sync._apply_inbound(self.db, at, "proj-1", self.counts)
 
-        # Nothing changed in Asana, so nothing should be re-applied — otherwise
+        # Nothing changed in Asana, so nothing should be re-applied - otherwise
         # the 5-minute poll logs an activity per task per poll, forever.
         self.assertEqual(self.counts["updated"], 0)
 
@@ -575,7 +575,7 @@ class FullFidelityInboundTests(unittest.TestCase):
         self.assertEqual(self.counts["activities"], 1)
 
     def test_dependencies_resolve_regardless_of_walk_order(self):
-        # The blocker is visited AFTER the task it blocks — inline resolution
+        # The blocker is visited AFTER the task it blocks - inline resolution
         # can't see it, so only the deferred pass can wire this up.
         blocked = self._task("g1", "Blocked", dependencies=[{"gid": "g2"}])
         blocker = self._task("g2", "Blocker", dependents=[{"gid": "g1"}])
@@ -605,7 +605,7 @@ class FullFidelityInboundTests(unittest.TestCase):
 
 
 class PurgeProjectSyncTests(unittest.TestCase):
-    """purge_project_sync + sweep_orphans — the "delete it and import it again"
+    """purge_project_sync + sweep_orphans - the "delete it and import it again"
     path. The property that matters most is the one that isn't obvious: purging
     must leave Asana completely alone, because the whole point is to re-import
     from a project that has to survive."""
@@ -670,7 +670,7 @@ class PurgeProjectSyncTests(unittest.TestCase):
 
     def test_purge_never_queues_an_asana_deletion(self):
         """The safety property: delete_sync is ON here, and purging still must
-        not owe Asana a single deletion — the Asana project has to survive to be
+        not owe Asana a single deletion - the Asana project has to survive to be
         re-imported."""
         pid = self._project()
         self._task(pid, "g1")
@@ -695,7 +695,7 @@ class PurgeProjectSyncTests(unittest.TestCase):
 
     def test_purged_project_can_be_imported_again(self):
         """The regression this whole change exists for: after a purge, the same
-        Asana gid must create a NEW task in a NEW project — before, the surviving
+        Asana gid must create a NEW task in a NEW project - before, the surviving
         link made _apply_inbound update the old orphan and leave the new project
         empty."""
         pid = self._project()
@@ -757,7 +757,7 @@ class PurgeProjectSyncTests(unittest.TestCase):
 
 class SharedTeamTests(unittest.TestCase):
     """_ensure_team with a team shared across projects. One Asana team = ONE
-    Nexus team, however many projects it works on — the duplicate "Development"
+    Nexus team, however many projects it works on - the duplicate "Development"
     and "IT" cards came from creating a fresh row per project."""
 
     @classmethod
@@ -832,7 +832,7 @@ class ProjectAccessTests(unittest.TestCase):
     The shape here is the real one, captured live: `member` is a union tagged by
     resource_type, so a team shared into a project arrives alongside the users.
     A previous note in the module asserted no such route existed and shipped a
-    manual "name the team yourself" field instead — these tests pin the shape
+    manual "name the team yourself" field instead - these tests pin the shape
     that disproved it, so a refactor can't quietly fall back to
     /projects/{gid}/project_memberships, which returns users only."""
 
@@ -926,7 +926,7 @@ class ProjectAccessTests(unittest.TestCase):
 class RichDescriptionTests(unittest.TestCase):
     """Descriptions are HTML now (tasks/RichDescription.jsx). Asana carries them
     on html_notes, which only accepts a fixed tag subset inside <body> and
-    rejects the WHOLE task update when it disagrees — so the sanitizer's job is
+    rejects the WHOLE task update when it disagrees - so the sanitizer's job is
     to never emit anything outside that set."""
 
     def test_supported_formatting_survives_the_round_trip(self):
@@ -978,7 +978,7 @@ class RichDescriptionTests(unittest.TestCase):
 
     def test_plain_asana_notes_are_escaped_not_rendered_as_markup(self):
         """A task written in Asana's plain editor must not turn into live markup
-        in the Nexus editor — and must not lose its line breaks either."""
+        in the Nexus editor - and must not lose its line breaks either."""
         got = asana_sync._from_asana_html({"notes": "1 < 2 & 3\nsecond line"})
 
         self.assertIn("&lt;", got)
@@ -999,8 +999,8 @@ class MentionSyncTests(unittest.TestCase):
     """@mentions cross the boundary as REAL mentions, so the person is notified
     in whichever tool they're reading.
 
-    The address shapes differ on each side — an Asana guest account is
-    person@greensg.onmicrosoft.com while Nexus stores person@greensglobal.com —
+    The address shapes differ on each side - an Asana guest account is
+    person@greensg.onmicrosoft.com while Nexus stores person@greensglobal.com -
     so both directions have to resolve through the local part, the same rule
     _user_map / _map_email already use for assignees."""
 
@@ -1069,7 +1069,7 @@ class MentionSyncTests(unittest.TestCase):
         self.assertIn("mailto:sagar.shoundik@greensglobal.com", got)
         self.assertNotIn("onmicrosoft", got)
 
-    # Captured verbatim from a live story's html_text — the shape the code has
+    # Captured verbatim from a live story's html_text - the shape the code has
     # to survive, not the shape we assumed it would be.
     REAL_MENTION = ('<body><a href="https://app.asana.com/1/413144745704203/profile/1216124019080922" '
                     'data-asana-gid="111" data-asana-accessible="true" data-asana-type="user" '

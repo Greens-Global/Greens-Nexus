@@ -48,7 +48,7 @@ export default function App() {
 
   // `store` is the whole app's data: { properties, warranties, inspections, documents, ahj,
   // utilities, vendors, logs, vservice, odometer, vdocs, maintenance, _ts }. useNexusStore
-  // owns hydration (localStorage -> IndexedDB -> server reconcile) and background sync — see
+  // owns hydration (localStorage -> IndexedDB -> server reconcile) and background sync - see
   // lib/useNexusStore.js and lib/sync.js. This component only ever reads `store` and calls
   // `setStore(updater)`; it never touches localStorage/IndexedDB/the network directly.
   const [store, setStore, loading, serverOk] = useNexusStore();
@@ -88,7 +88,7 @@ export default function App() {
 
   const openAsset = (id, tab = 'property') => { setActiveId(id); setView(tab); };
 
-  /** All navigation goes through this — it's what enforces the unsaved-changes guard. */
+  /** All navigation goes through this - it's what enforces the unsaved-changes guard. */
   const navigate = (nextView) => {
     const go = () => {
       setView(nextView);
@@ -313,7 +313,7 @@ export default function App() {
       if (idx < 0) return s;
       const asset = props[idx];
       props[idx] = { ...asset, contacts: { ...(asset.contacts || {}), [normLabel(label)]: info } };
-      return appendLog({ ...s, properties: props }, makeLogEntry({ section: 'Property', property: asset.name, propertyId: activeId, action: 'edited', item: `Contact — ${label}`, changes: [] }));
+      return appendLog({ ...s, properties: props }, makeLogEntry({ section: 'Property', property: asset.name, propertyId: activeId, action: 'edited', item: `Contact - ${label}`, changes: [] }));
     });
   };
 
@@ -453,7 +453,7 @@ export default function App() {
     });
   };
 
-  /** Add/edit an ASSET itself (the guided Add-Asset modal's onSave — property/vehicle/equipment). */
+  /** Add/edit an ASSET itself (the guided Add-Asset modal's onSave - property/vehicle/equipment). */
   const saveAsset = (id, patch, reason, linkOptions) => {
     setStore((s) => {
       let props = [...s.properties];
@@ -551,10 +551,10 @@ export default function App() {
       if (entry.action === 'added' && !asset.deleted) {
         props.forEach((p, i) => { if (p.parentId === asset.id) props[i] = { ...p, parentId: '', siteName: '' }; });
         props[idx] = { ...asset, deleted: true, deletedAt: new Date().toISOString() };
-        logEntry = { section: 'Property', property: asset.name, propertyId: asset.id, action: 'removed', item: asset.name, changes: [], reason: 'Undo — reversed an "Added"' };
+        logEntry = { section: 'Property', property: asset.name, propertyId: asset.id, action: 'removed', item: asset.name, changes: [], reason: 'Undo - reversed an "Added"' };
       } else if (entry.action === 'removed' && asset.deleted) {
         props[idx] = { ...asset, deleted: false, deletedAt: '' };
-        logEntry = { section: 'Property', property: asset.name, propertyId: asset.id, action: 'edited', item: asset.name, changes: [{ field: 'Status', from: 'Deleted', to: 'Recovered' }], reason: 'Undo — reversed a "Removed"' };
+        logEntry = { section: 'Property', property: asset.name, propertyId: asset.id, action: 'edited', item: asset.name, changes: [{ field: 'Status', from: 'Deleted', to: 'Recovered' }], reason: 'Undo - reversed a "Removed"' };
       } else if (entry.action === 'edited') {
         const revert = {};
         const reverseChanges = [];
@@ -564,7 +564,7 @@ export default function App() {
         });
         if (!reverseChanges.length) return s;
         props[idx] = { ...asset, ...revert };
-        logEntry = { section: 'Property', property: props[idx].name, propertyId: asset.id, action: 'edited', item: props[idx].name, changes: reverseChanges, reason: 'Undo — restored previous value(s)' };
+        logEntry = { section: 'Property', property: props[idx].name, propertyId: asset.id, action: 'edited', item: props[idx].name, changes: reverseChanges, reason: 'Undo - restored previous value(s)' };
       } else return s;
 
       const logs = (s.logs || []).map((l) => l.id === entry.id ? { ...l, undone: true } : l);
@@ -631,7 +631,7 @@ export default function App() {
           <div style={{ minWidth: 0 }}>
             <h1 style={{ fontSize: '1.5rem', fontFamily: "'Plus Jakarta Sans', sans-serif", letterSpacing: '-0.01em', color: 'var(--text-primary)', margin: 0 }}>{active.name}</h1>
             <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: 3, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-              <span>{cityRegion(active) || '—'}</span>
+              <span>{cityRegion(active) || '-'}</span>
               {assetKind === 'property' && <CopyButton text={cityRegion(active)} />}
             </div>
             <HealthStrip p={active} store={store} logs={store.logs} />

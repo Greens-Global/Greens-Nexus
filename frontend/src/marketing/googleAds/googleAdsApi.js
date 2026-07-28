@@ -6,7 +6,7 @@
 //
 // When the real API is wired in, `fetchGoogleAdsReport()` below is the only
 // function that needs to change (swap the mock response for an actual
-// `customers.googleAds.search` call) — `adaptGoogleAdsReport` already knows
+// `customers.googleAds.search` call) - `adaptGoogleAdsReport` already knows
 // how to turn that exact JSON into the app's internal `DailyMetric[]`.
 
 export function adaptGoogleAdsReport(response) {

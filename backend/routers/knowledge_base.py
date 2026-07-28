@@ -1,4 +1,4 @@
-"""Knowledge Base module — DB-backed SOP / Manual / Guide library.
+"""Knowledge Base module - DB-backed SOP / Manual / Guide library.
 
 Lifecycle: draft -> in_review -> approved (or changes_requested back to owner);
 approved docs can be archived. Anyone signed in can author a draft and submit it;
@@ -7,7 +7,7 @@ JSON string on the model (see models.KbDocument) and (de)serialised here so the
 frontend always works with structured objects.
 
 The "Format with Claude" endpoint mirrors the existing server-side Anthropic call
-in routers/items.py — the API key lives server-side only. It always returns 200:
+in routers/items.py - the API key lives server-side only. It always returns 200:
 if the proxy/key/network is unavailable it falls back to a local heuristic
 formatter so the editor feature never hard-fails.
 """
@@ -36,10 +36,10 @@ DEPT_ABBR = {
 }
 
 _ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
-# Quality-sensitive formatting task — kept in one constant so it's trivially
+# Quality-sensitive formatting task - kept in one constant so it's trivially
 # swappable (e.g. to claude-haiku-4-5-20251001 to match items.py / cut cost).
 _AI_MODEL = "claude-opus-4-8"
-# Private bucket for SOP images — only the service-role backend writes objects and
+# Private bucket for SOP images - only the service-role backend writes objects and
 # mints short-lived signed URLs (the bucket is NOT public).
 _SUPABASE_URL         = os.getenv("SUPABASE_URL", "")
 _SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
@@ -60,8 +60,8 @@ def _new_id() -> str:
 
 def _kb_notify(db: Session, *, recipient: str, ntype: str, title: str, body: str, doc) -> None:
     """Server-side bell notification for a KB workflow event (employees can't POST
-    notifications client-side). Empty recipient is skipped so self-actions — a
-    manager reviewing their own SOP — don't ping the actor."""
+    notifications client-side). Empty recipient is skipped so self-actions - a
+    manager reviewing their own SOP - don't ping the actor."""
     email = (recipient or "").lower().strip()
     if not email:
         return
@@ -225,7 +225,7 @@ def list_documents(db: Session = Depends(get_db)):
 
 @router.get("/reviewers")
 def reviewers(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    """People who can approve KB documents (manager+) — for the submit-for-review picker."""
+    """People who can approve KB documents (manager+) - for the submit-for-review picker."""
     rows = db.query(models.NexusRole).filter(models.NexusRole.role.in_(["manager", "administrator", "owner"])).all()
     out = []
     for r in rows:
@@ -378,14 +378,14 @@ def archive_document(doc_id: str, user: dict = Depends(require_level(3)), db: Se
 
 @router.post("/documents/{doc_id}/unarchive")
 def unarchive_document(doc_id: str, user: dict = Depends(require_level(3)), db: Session = Depends(get_db)):
-    """Restore an archived doc back to its live (approved) state — archive was a
+    """Restore an archived doc back to its live (approved) state - archive was a
     one-way street, leaving no way to bring a doc back (Visesh)."""
     d = _get_or_404(doc_id, db)
     if d.status != "archived":
         raise HTTPException(status_code=400, detail="Only archived documents can be unarchived")
     d.status = "approved"
     d.updated_at = _now()
-    _push_history(d, {"version": d.version, "date": _today(), "author": user["email"], "notes": "Unarchived — restored to approved."})
+    _push_history(d, {"version": d.version, "date": _today(), "author": user["email"], "notes": "Unarchived - restored to approved."})
     db.commit()
     return _serialize(d)
 
@@ -414,7 +414,7 @@ def translate_document(doc_id: str, payload: TranslateIn, user: dict = Depends(g
     if not _ANTHROPIC_API_KEY:
         if (body.get("translations") or {}).get(lang):
             return _serialize(d)
-        raise HTTPException(status_code=400, detail="Translation needs the AI service — not available offline.")
+        raise HTTPException(status_code=400, detail="Translation needs the AI service - not available offline.")
     fields = {
         "title": d.title, "purpose": body.get("purpose", ""), "scopeText": body.get("scopeText", ""),
         "materials": body.get("materials", []),
@@ -454,7 +454,7 @@ def verify_document(doc_id: str, user: dict = Depends(require_level(3)), db: Ses
     d.verified_at = _today()
     d.verified_by = user.get("name") or user["email"]
     d.updated_at = _now()
-    _push_history(d, {"version": d.version, "date": _today(), "author": d.verified_by, "notes": "Verified — confirmed still accurate."})
+    _push_history(d, {"version": d.version, "date": _today(), "author": d.verified_by, "notes": "Verified - confirmed still accurate."})
     db.commit()
     db.refresh(d)
     return _serialize(d)
@@ -701,34 +701,34 @@ _STD_SCHEMA = (
     '"responsibilities":[{"role":string,"duty":string}],'
     '"definitions":[{"term":string,"def":string}],'
     '"procedure":[{"text":string,"detail":string,"image":string}],"safety":[string],"references":[string]}\n'
-    'Build each section by RESTRUCTURING the material — never transcribe it line by line:\n'
+    'Build each section by RESTRUCTURING the material - never transcribe it line by line:\n'
     '- IGNORE shallow or placeholder section labels in the source (e.g. a one-line "Purpose: <the title>" '
     'or "Definitions: Plex: a software"). The real, detailed content is often dumped under a single heading '
     '(commonly "Procedure"). Read the WHOLE source and rebuild every section from the substantive content.\n'
-    '- "purpose": 2-4 full sentences on what this SOP accomplishes and why — synthesize it; never just echo '
+    '- "purpose": 2-4 full sentences on what this SOP accomplishes and why - synthesize it; never just echo '
     'the title.\n'
     '- "scopeText": who/what it applies to and its boundaries.\n'
-    '- "procedure": ordered, logically GROUPED imperative steps — not a line-by-line dump. "text" is a '
+    '- "procedure": ordered, logically GROUPED imperative steps - not a line-by-line dump. "text" is a '
     'concise action ("Configure the Synology reverse proxy"); "detail" (may be several lines) holds that '
     "step's specifics: exact commands, hostnames/IPs/ports, config field values, sub-steps, and expected "
-    'results. Preserve ALL technical specifics faithfully — never drop or summarise away a command, IP, '
+    'results. Preserve ALL technical specifics faithfully - never drop or summarise away a command, IP, '
     'port, URL, or value. FORMAT "detail" as readable lines: put each sub-step or key/value on its OWN '
-    'line starting with "- " using real newline characters (\\n) — never run them together inline on one '
+    'line starting with "- " using real newline characters (\\n) - never run them together inline on one '
     'line. Fold troubleshooting and update/maintenance into their own clearly-titled steps '
     '(e.g. "Troubleshoot connection timeouts" with the diagnostic commands in detail).\n'
     '- IMAGES: the source may contain inline image placeholders like [[IMG1]], [[IMG2]]. Each marks where '
     'a screenshot belongs. Set the "image" field of the step that screenshot illustrates to the EXACT '
     'placeholder token (e.g. "[[IMG1]]"), and use "" when a step has no image. NEVER leave a placeholder '
-    'inside text/detail/purpose or any other field — move each one into the right step\'s image, or drop it. '
+    'inside text/detail/purpose or any other field - move each one into the right step\'s image, or drop it. '
     'DROP (do not attach anywhere) any placeholder that is clearly a company logo, letterhead, header/footer '
-    'banner, watermark, signature, or decoration rather than an instructional screenshot — in particular a '
+    'banner, watermark, signature, or decoration rather than an instructional screenshot - in particular a '
     'placeholder that appears at the very TOP of the source (before any real procedure content) or right next '
     'to the title/author/date is almost always a logo/letterhead: omit it entirely. Only attach images that '
     'actually illustrate a specific step (screenshots, diagrams, photos of the work).\n'
     '- "safety": every warning, "do not"/"never", and compliance rule. "references": referenced docs, links '
     'or standards.\n'
     '- "materials"/"responsibilities"/"definitions": real tools, real role→duty, real term→meaning. '
-    'Do NOT put document metadata (author, version, date) anywhere — that is header data, not body content.\n'
+    'Do NOT put document metadata (author, version, date) anywhere - that is header data, not body content.\n'
     '- Do not invent specifics; leave an array empty only if the source genuinely lacks it.'
 )
 
@@ -751,7 +751,7 @@ def _normalize_sop(o: dict) -> dict:
 
 
 def _heuristic_format(text: str, title: str) -> dict:
-    """Offline fallback when the AI proxy is unavailable — best-effort structuring."""
+    """Offline fallback when the AI proxy is unavailable - best-effort structuring."""
     out = _normalize_sop({})
     out["title"] = title
     steps, refs, safety, materials = [], [], [], []
@@ -806,7 +806,7 @@ def _doc_context(d: models.KbDocument) -> str:
     except (ValueError, TypeError):
         b = {}
     steps = "; ".join(s.get("text", "") for s in (b.get("procedure") or []) if isinstance(s, dict))
-    return f"SOP {d.doc_code} — {d.title}\nPurpose: {b.get('purpose','')}\nScope: {b.get('scopeText','')}\nSteps: {steps}"
+    return f"SOP {d.doc_code} - {d.title}\nPurpose: {b.get('purpose','')}\nScope: {b.get('scopeText','')}\nSteps: {steps}"
 
 
 def _offline_answer(q: str, top: list[models.KbDocument]) -> str:
@@ -817,7 +817,7 @@ def _offline_answer(q: str, top: list[models.KbDocument]) -> str:
         b = json.loads(d.body or "{}")
     except (ValueError, TypeError):
         b = {}
-    return f"Based on {d.doc_code} — {d.title}: {b.get('purpose','')}".strip()
+    return f"Based on {d.doc_code} - {d.title}: {b.get('purpose','')}".strip()
 
 
 @router.post("/ask")
@@ -862,7 +862,7 @@ def ai_format(payload: AiFormatIn, user: dict = Depends(get_current_user)):
     prompt = (
         "You are a technical-documentation specialist for Greens Global, a self-storage and "
         "commercial real estate operator. Convert the source material into a standardized, "
-        "well-structured SOP — REORGANISE and synthesise the content into the right sections; "
+        "well-structured SOP - REORGANISE and synthesise the content into the right sections; "
         "do not transcribe it line by line.\n\n"
         f"{_STD_SCHEMA}\n\nDepartments: {depts}\nWorking title: {payload.title or '(none)'}\n\n"
         f'SOURCE MATERIAL:\n"""\n{payload.content}\n"""'
@@ -887,7 +887,7 @@ def ai_format(payload: AiFormatIn, user: dict = Depends(get_current_user)):
         text = "".join(blk.get("text", "") for blk in data.get("content", []) if blk.get("type") == "text")
         text = text.replace("```json", "").replace("```", "").strip()
         return {"source": "ai", "sop": _normalize_sop(json.loads(text))}
-    except Exception as e:  # network, key, model, or parse failure — degrade gracefully
+    except Exception as e:  # network, key, model, or parse failure - degrade gracefully
         print(f"[kb ai-format] falling back to heuristic: {e}")
         return {"source": "heuristic", "sop": _heuristic_format(payload.content, payload.title)}
 
@@ -900,12 +900,12 @@ def ai_revise(payload: AiReviseIn, user: dict = Depends(get_current_user)):
     if not instruction:
         raise HTTPException(status_code=400, detail="Describe the change you want Claude to make")
     if not _ANTHROPIC_API_KEY:
-        # No key locally — return the document unchanged so the caller can degrade gracefully.
+        # No key locally - return the document unchanged so the caller can degrade gracefully.
         return {"source": "offline", "sop": current}
     depts = ", ".join(payload.departments) or "Company-wide"
     prompt = (
         "You are editing an existing Greens Global SOP. Apply the requested change and return the FULL "
-        "revised SOP — keep everything that should stay the same and only change what the request implies.\n\n"
+        "revised SOP - keep everything that should stay the same and only change what the request implies.\n\n"
         f"{_STD_SCHEMA}\n\nWorking title: {payload.title or '(none)'}\nDepartments: {depts}\n\n"
         f"CURRENT SOP (JSON):\n{json.dumps(current)}\n\nREQUESTED CHANGE:\n{instruction}"
     )
@@ -938,7 +938,7 @@ class MediaSignIn(BaseModel):
 @router.post("/media/upload")
 def upload_media(payload: MediaUploadIn, user: dict = Depends(get_current_user)):
     """Store a KB image in the PRIVATE kb-media bucket via the service role and
-    return its storage path. Views go through /media/sign — never a public URL."""
+    return its storage path. Views go through /media/sign - never a public URL."""
     if not (_SUPABASE_URL and _SUPABASE_SERVICE_KEY):
         raise HTTPException(status_code=503, detail="Storage is not configured")
     raw = payload.data or ""
@@ -1003,7 +1003,7 @@ _COURSE_SCHEMA = (
     '"lessons":[{"title":string,"body":string}],'
     '"quiz":{"passPct":number,"questions":[{"q":string,"options":[string,string,string,string],"answer":number,"explanation":string}]}}\n'
     '- "overview" is 3-6 short "what you will learn" objectives.\n'
-    '- Break the material into 4-8 focused lessons (be thorough — these are compliance-critical); '
+    '- Break the material into 4-8 focused lessons (be thorough - these are compliance-critical); '
     '"body" is clear teaching text using blank lines between paragraphs.\n'
     '- Write an 8-12 question multiple-choice quiz that checks real understanding. Each question has '
     'EXACTLY 4 options; "answer" is the 0-based index of the correct option; "explanation" explains why the '
@@ -1051,7 +1051,7 @@ def _normalize_course(o: dict) -> dict:
 
 
 def _heuristic_course(text: str, title: str) -> dict:
-    """Offline fallback — split the source into reading lessons by blank lines."""
+    """Offline fallback - split the source into reading lessons by blank lines."""
     raw = (text or "").replace("\r\n", "\n")
     blocks, cur = [], []
     for line in raw.split("\n"):
@@ -1365,7 +1365,7 @@ def submit_quiz(cid: str, payload: QuizSubmitIn, user: dict = Depends(get_curren
         p.lessons_done = json.dumps([l["_id"] for l in _jload(c.lessons, [])])
         expired_now, _ = _recert(c, _progress_dict(p))  # was the prior certification due for renewal?
         if not p.completed_at or expired_now:
-            p.completed_at = _today()  # first pass, or a renewal — refresh the certification date
+            p.completed_at = _today()  # first pass, or a renewal - refresh the certification date
             newly_completed = True
     # back-end record of the attempt for manager reports + remediation
     who = user.get("name") or user["email"]
@@ -1404,7 +1404,7 @@ def _name_from_email(email: str) -> str:
 
 
 def _recert(c: models.KbCourse, prog: dict) -> tuple:
-    """(expired, renew_by) — a passed course needs renewal once recert_months elapse."""
+    """(expired, renew_by) - a passed course needs renewal once recert_months elapse."""
     rm = getattr(c, "recert_months", 0) or 0
     if rm and prog.get("completed_at"):
         renew_by = _add_months(prog["completed_at"], rm)
@@ -1499,7 +1499,7 @@ def remove_assignment(aid: str, user: dict = Depends(require_level(3)), db: Sess
 
 @router.get("/my-assignments")
 def my_assignments(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Courses assigned to the current user — the 'required training' list."""
+    """Courses assigned to the current user - the 'required training' list."""
     rows = db.query(models.KbCourseAssignment).filter(models.KbCourseAssignment.user_email == user["email"]).all()
     out = []
     for a in rows:

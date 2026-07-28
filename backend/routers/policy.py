@@ -1,7 +1,7 @@
 """Company-policy & monitoring acknowledgment shown at sign-in.
 
 A standing, portal-wide gate (distinct from the per-day clock-in MonitoringConsent):
-the first time a person signs in — and again whenever POLICY_VERSION changes —
+the first time a person signs in - and again whenever POLICY_VERSION changes -
 they must accept the company policies + employee-monitoring disclosure before the
 app loads. The acceptance is recorded (who/when/version/ip/ua) so it's provable.
 
@@ -21,7 +21,7 @@ from models import PolicyAcknowledgment
 router = APIRouter(prefix="/policy", tags=["policy"],
                    dependencies=[Depends(get_current_user)])
 
-# Bump this string whenever the acknowledged policy wording changes — it re-prompts
+# Bump this string whenever the acknowledged policy wording changes - it re-prompts
 # everyone. Keep it in lockstep with POLICY_VERSION in frontend/src/components/PolicyGate.jsx.
 POLICY_VERSION = "2026-07-21"
 
@@ -60,7 +60,7 @@ def policy_accept(request: Request, user: dict = Depends(get_current_user),
 
 @router.get("/acknowledgments")
 def my_acknowledgments(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    """The caller's own acceptance history — lets them keep a copy of what they signed."""
+    """The caller's own acceptance history - lets them keep a copy of what they signed."""
     rows = (db.query(PolicyAcknowledgment)
             .filter(PolicyAcknowledgment.email == user["email"].lower())
             .order_by(PolicyAcknowledgment.accepted_at.desc()).all())

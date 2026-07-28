@@ -1,10 +1,10 @@
-"""Testing module (QA) — interactive test runs, bug reports, AI conversion,
+"""Testing module (QA) - interactive test runs, bug reports, AI conversion,
 assignments. DEV-ONLY: every endpoint 404s unless NEXUS_QA_MODULE=true is set
-in the environment (set on the Azure dev app only — dev merges to main, so the
+in the environment (set on the Azure dev app only - dev merges to main, so the
 gate must be config, not code).
 
 Seeded from qa_seed.json (the Jul-2026 module-audit workbook) on first read.
-AI bug→test-case conversion uses claude-haiku-4-5 — one small call per report
+AI bug→test-case conversion uses claude-haiku-4-5 - one small call per report
 (~$0.001–0.005), mirrors items._ai_match_types. Assignment notifications reuse
 the Graph sendMail app permission (notifications.py) + a targeted bell row; the
 Teams DM is posted client-side by the assigner via their delegated token.
@@ -34,7 +34,7 @@ _ENABLED = os.getenv("NEXUS_QA_MODULE", "").lower() in ("1", "true", "yes")
 _SEED_PATH = Path(__file__).resolve().parent.parent / "qa_seed.json"
 _AI_MODEL = "claude-haiku-4-5-20251001"   # cheap: one small call per conversion
 
-# Testers need a 'testing' module grant (or admin) — same grant-driven pattern
+# Testers need a 'testing' module grant (or admin) - same grant-driven pattern
 # as every other restricted screen. Editors approve AI drafts / manage cases.
 require_qa_read  = require_module_grant("testing", "viewer")
 require_qa_write = require_module_grant("testing", "editor")
@@ -49,7 +49,7 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-# ── enabled probe (any authed user — the sidebar asks this once) ──────────────
+# ── enabled probe (any authed user - the sidebar asks this once) ──────────────
 
 @router.get("/enabled")
 def qa_enabled(user: dict = Depends(get_current_user)):
@@ -160,7 +160,7 @@ class FlowIn(BaseModel):
 
 @router.post("/cases/{case_id}/flow")
 def save_flow(case_id: str, body: FlowIn, user: dict = Depends(require_qa_read), db: Session = Depends(get_db)):
-    """Any tester can attach/replace the recorded flow on a case (viewer level —
+    """Any tester can attach/replace the recorded flow on a case (viewer level -
     recording is part of running tests, not curating the library)."""
     _gate()
     row = db.query(QaTestCase).filter(QaTestCase.id == case_id).first()
@@ -207,7 +207,7 @@ def generate_e2e(case_id: str, user: dict = Depends(require_qa_write), db: Sessi
         "   import { test, expect } from '@playwright/test';\n"
         f"   import {{ {_E2E_HELPERS} }} from '../helpers.mjs';\n"
         f"2. The test title MUST be exactly: [{case.id}] {case.title}\n"
-        "3. Interact ONLY through the helpers — never page.locator/page.click directly:\n"
+        "3. Interact ONLY through the helpers - never page.locator/page.click directly:\n"
         "   await openApp(page)                        // load the app, wait for the sidebar\n"
         "   await go(page, 'testing'|'inventory'|...)  // open a module by its url slug\n"
         "   await clickByText(page, 'Button label')    // click a button/link/tab by visible text\n"
@@ -219,7 +219,7 @@ def generate_e2e(case_id: str, user: dict = Depends(require_qa_write), db: Sessi
         f"MODULE: {case.module}\nPRECONDITION: {case.precondition}\n"
         f"MANUAL STEPS:\n" + "\n".join(f"{i+1}. {s}" for i, s in enumerate(case.steps or [])) + "\n"
         f"EXPECTED: {case.expected}\n"
-        + (("RECORDED USER FLOW (real labels from a human run — prefer these):\n" + "\n".join(flow_lines) + "\n") if flow_lines else "")
+        + (("RECORDED USER FLOW (real labels from a human run - prefer these):\n" + "\n".join(flow_lines) + "\n") if flow_lines else "")
     )
     try:
         with httpx.Client(timeout=45) as client:
@@ -236,7 +236,7 @@ def generate_e2e(case_id: str, user: dict = Depends(require_qa_write), db: Sessi
     except Exception as e:  # noqa: BLE001
         raise HTTPException(502, f"AI generation failed: {str(e)[:200]}")
     if "import { test, expect }" not in spec or f"[{case.id}]" not in spec:
-        raise HTTPException(502, "AI returned an unusable spec — try again")
+        raise HTTPException(502, "AI returned an unusable spec - try again")
     case.e2e_spec = spec[:20000]
     case.updated_at = _now()
     db.commit()
@@ -265,7 +265,7 @@ class CiResultsIn(BaseModel):
 @router.post("/ci-results")
 def ci_results(body: CiResultsIn, x_qa_ci_token: Optional[str] = Header(default=None), db: Session = Depends(get_db)):
     _ci_auth(x_qa_ci_token)
-    name = (body.run_name or "").strip() or f"Automated — {_now()[:10]}"
+    name = (body.run_name or "").strip() or f"Automated - {_now()[:10]}"
     run = db.query(QaRun).filter(QaRun.name == name).first()
     if not run:
         run = QaRun(id=str(uuid.uuid4()), name=name, status="open",
@@ -378,7 +378,7 @@ def upsert_result(run_id: str, body: ResultIn, user: dict = Depends(require_qa_r
     return {"ok": True}
 
 
-# ── activity log — who ran what, who assigned what ───────────────────────────
+# ── activity log - who ran what, who assigned what ───────────────────────────
 
 @router.get("/activity")
 def activity(user: dict = Depends(require_qa_read), db: Session = Depends(get_db)):
@@ -439,7 +439,7 @@ def create_bug(body: BugIn, user: dict = Depends(require_qa_read), db: Session =
                       screenshots=body.screenshots or [], status="new",
                       created_by=user["email"], created_at=_now())
     db.add(row); db.commit(); db.refresh(row)
-    # Auto-convert to a drafted test case right away (best-effort — the manual
+    # Auto-convert to a drafted test case right away (best-effort - the manual
     # "Convert with AI" button stays as the retry path if this fails/isn't
     # configured). Drafts still need an editor's approval to enter the library.
     if os.getenv("ANTHROPIC_API_KEY", ""):
@@ -465,7 +465,7 @@ _MODULES = ["People", "My HR", "Item Management", "Asset Management",
 
 def _ai_convert_bug(bug: QaBugReport, db: Session, by: str):
     """Core conversion: one Haiku call → drafted QaTestCase. Returns (case, err);
-    never raises — callers decide whether a failure is fatal (manual button) or
+    never raises - callers decide whether a failure is fatal (manual button) or
     silent (auto-convert on submit)."""
     key = os.getenv("ANTHROPIC_API_KEY", "")
     if not key:
@@ -504,7 +504,7 @@ def _ai_convert_bug(bug: QaBugReport, db: Session, by: str):
     except Exception as e:  # noqa: BLE001
         return None, f"AI conversion failed: {str(e)[:200]}"
     if not draft or not draft.get("title") or not isinstance(draft.get("steps"), list):
-        return None, "AI returned an unusable draft — try again"
+        return None, "AI returned an unusable draft - try again"
 
     now = _now()
     case = QaTestCase(
@@ -577,18 +577,18 @@ def create_assignment(body: AssignIn, user: dict = Depends(require_qa_write), db
     db.add(row)
 
     n = len(body.case_ids)
-    due_txt = f" — due {row.due_date}" if row.due_date else ""
+    due_txt = f" - due {row.due_date}" if row.due_date else ""
     title = f"{n} test case{'s' if n != 1 else ''} assigned to you"
     body_txt = (f"You've been assigned {n} test case{'s' if n != 1 else ''} in run "
                 f"“{run.name}”{due_txt}. Open Testing → Run tests to complete them."
                 + (f" Note: {row.note}" if row.note else ""))
-    # Targeted bell (server-side only — employees can't POST notifications).
+    # Targeted bell (server-side only - employees can't POST notifications).
     db.add(NexusNotification(id=str(uuid.uuid4()), type="qa_assignment", recipient=email,
                              title=title, body=body_txt, ref_id=row.id,
                              created_at=_now()))
     db.commit()
 
-    # Email — best-effort, never fails the assignment (same stance as HR's Entra sync).
+    # Email - best-effort, never fails the assignment (same stance as HR's Entra sync).
     email_sent, email_error = False, ""
     from_email = os.getenv("NEXUS_FROM_EMAIL", "")
     try:
@@ -623,7 +623,7 @@ def create_assignment(body: AssignIn, user: dict = Depends(require_qa_write), db
             "caseIds": row.case_ids, "dueDate": row.due_date, "note": row.note,
             "assignedBy": row.assigned_by, "createdAt": row.created_at,
             "emailSent": email_sent, "emailError": email_error,
-            "teamsSummary": f"\U0001F9EA {title} — run “{run.name}”{due_txt}. "
+            "teamsSummary": f"\U0001F9EA {title} - run “{run.name}”{due_txt}. "
                             f"Open Nexus → Testing → Run tests."}
 
 
@@ -765,8 +765,8 @@ def _build_workbook(db: Session, run) -> bytes:
     # ── Summary sheet ─────────────────────────────────────────────────────────
     ws = wb.active
     ws.title = "Summary"
-    ws["A1"] = "Nexus — Testing export"; ws["A1"].font = title_font
-    ws["A2"] = f"Run: {run.name if run else '(no run selected — statuses show Not run)'}"
+    ws["A1"] = "Nexus - Testing export"; ws["A1"].font = title_font
+    ws["A2"] = f"Run: {run.name if run else '(no run selected - statuses show Not run)'}"
     ws["A3"] = f"Exported: {_now()[:19].replace('T', ' ')} UTC"
     ws["A2"].font = ws["A3"].font = Font(color="475467")
     sum_head = ["Module", "Total", "Pass", "Fail", "Blocked", "Skipped", "Not run", "% done"]
@@ -911,12 +911,12 @@ async def import_xlsx(file: UploadFile = File(...), run_id: str = Query(default=
     try:
         wb = load_workbook(BytesIO(raw), read_only=True, data_only=True)
     except Exception:
-        raise HTTPException(400, "Could not read that file — export a fresh template and edit it.")
+        raise HTTPException(400, "Could not read that file - export a fresh template and edit it.")
 
     # target run: the one passed (update in place) or a fresh "Imported" run
     run = db.query(QaRun).filter(QaRun.id == run_id).first() if run_id else None
     if not run:
-        run = QaRun(id=str(uuid.uuid4()), name=f"Imported — {_now()[:10]}", status="open",
+        run = QaRun(id=str(uuid.uuid4()), name=f"Imported - {_now()[:10]}", status="open",
                     created_by=user["email"], created_at=_now())
         db.add(run); db.flush()
 

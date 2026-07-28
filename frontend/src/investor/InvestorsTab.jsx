@@ -92,7 +92,7 @@ export default function InvestorsTab() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap', marginBottom: 18 }}>
         <div>
           <h3 style={{ fontSize: 16, fontWeight: 700, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>Investors</h3>
-          <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '3px 0 0' }}>Investors — contact, accreditation, KYC, and total capital committed</p>
+          <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '3px 0 0' }}>Investors - contact, accreditation, KYC, and total capital committed</p>
         </div>
         <button className="primary-btn" onClick={openAdd} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
           <Plus size={14} /> Add Investor
@@ -100,7 +100,7 @@ export default function InvestorsTab() {
       </div>
 
       {loading ? <LoadingState /> : error ? <ErrorState message={error} onRetry={reload} /> : rows.length === 0 ? (
-        <EmptyState icon={Users} title="No Investors Yet" sub="Add your investors here — commitments and capital accounts link back to them." />
+        <EmptyState icon={Users} title="No Investors Yet" sub="Add your investors here - commitments and capital accounts link back to them." />
       ) : (
         <div style={{ overflowX: 'auto' }}>
           <table className="req-table stack-table">
@@ -127,14 +127,14 @@ export default function InvestorsTab() {
                   </td>
                   <td data-th="Type" style={{ color: 'var(--muted)' }}>{statusLabel(inv.entityType)}</td>
                   <td data-th="Contact">
-                    <div style={{ fontSize: 12.5 }}>{inv.email || '—'}</div>
+                    <div style={{ fontSize: 12.5 }}>{inv.email || '-'}</div>
                     {inv.phone && <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{inv.phone}</div>}
                   </td>
                   <td data-th="Accredited"><StatusText status={inv.accreditedStatus} /></td>
                   <td data-th="KYC"><StatusText status={inv.kycStatus} /></td>
                   <td data-th="Committed" style={{ textAlign: 'right', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(inv.totalCommitted)}</td>
                   <td data-th="Deals" style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{inv.fundCount ?? 0}</td>
-                  <td data-th="Owner" style={{ color: 'var(--muted)' }}>{inv.relationshipOwnerEmail ? nameOf(inv.relationshipOwnerEmail) : '—'}</td>
+                  <td data-th="Owner" style={{ color: 'var(--muted)' }}>{inv.relationshipOwnerEmail ? nameOf(inv.relationshipOwnerEmail) : '-'}</td>
                 </tr>
               ))}
             </tbody>

@@ -167,7 +167,7 @@ export function RequisitionProvider({ children }) {
         }
       })
       .catch(() => {
-        // API unreachable — fall back to localStorage so app still works
+        // API unreachable - fall back to localStorage so app still works
         try { setRequisitions(JSON.parse(localStorage.getItem('gn_reqs')) || []); } catch { setRequisitions([]); }
         try { setHwAssets(JSON.parse(localStorage.getItem('gn_hw_assets')) || INIT_HW_ASSETS); } catch { setHwAssets(INIT_HW_ASSETS); }
       });
@@ -177,7 +177,7 @@ export function RequisitionProvider({ children }) {
   // Realtime WITHOUT exposing the table: every requisition action writes a
   // notification, and a DB trigger pings the content-free notification_events
   // table. We refetch through the authenticated API on each ping (debounced),
-  // so approve/reject/order/fulfill land in the log within a second — same
+  // so approve/reject/order/fulfill land in the log within a second - same
   // mechanism as the bell. The 30s poll stays as the fallback.
 
   useEffect(() => {
@@ -242,7 +242,7 @@ export function RequisitionProvider({ children }) {
       .catch(err => { setRequisitions(prev => prev.filter(r => r.id !== id)); throw err; });
   };
 
-  // allocator = { email, name } — who the manager picked to purchase & fulfill
+  // allocator = { email, name } - who the manager picked to purchase & fulfill
   const approveRequisition = (id, managerName, allocator = null) => {
     setRequisitions(prev => prev.map(r => r.id !== id ? r : {
       ...r, status: 'manager_approved', managerName,

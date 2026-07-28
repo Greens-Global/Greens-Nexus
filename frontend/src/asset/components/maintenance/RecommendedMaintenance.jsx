@@ -1,7 +1,7 @@
 /**
  * Read-only reference list of a vehicle/equipment asset's researched factory maintenance
  * schedule (asset.maintenanceSchedule = { items: [{ item, interval, note }], source, researchedOn }).
- * This is informational only — it does not create or link to actual service records.
+ * This is informational only - it does not create or link to actual service records.
  */
 export function RecommendedMaintenance({ p: asset }) {
   const schedule = asset.maintenanceSchedule;
@@ -37,7 +37,7 @@ export function RecommendedMaintenance({ p: asset }) {
 
       {(schedule.source || schedule.researchedOn) && (
         <div style={{ padding: '8px 16px', borderTop: '1px solid var(--border-color)', backgroundColor: 'var(--bg-secondary)', fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-          {schedule.source || '—'}
+          {schedule.source || '-'}
           {schedule.researchedOn ? ` · researched ${schedule.researchedOn}` : ''}
         </div>
       )}

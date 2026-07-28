@@ -1,17 +1,17 @@
-"""Ticket Notification workflow (Jul 2026) — Outlook email side-effects for
+"""Ticket Notification workflow (Jul 2026) - Outlook email side-effects for
 ticket lifecycle events, plus the background retry and auto-close loops.
 
 Kept out of routers/tickets.py so that file doesn't balloon further:
 tickets.py calls `notify_ticket_event(...)` via FastAPI `BackgroundTasks`
-after each ticket mutation has already committed — email delivery runs after
+after each ticket mutation has already committed - email delivery runs after
 the HTTP response, and a failure here can never surface as a failed ticket
 operation (every entry point below is wrapped so nothing escapes to the
 caller). See graph_mail.py for the actual Graph API call and
 ticket_mail_templates.py for the HTML.
 
-Settings live in NexusSetting (key="ticket_notify_config", JSON value) —
+Settings live in NexusSetting (key="ticket_notify_config", JSON value) -
 the same "small admin config" pattern timeclock.py uses for auto-lunch rules.
-Delivery state lives in TicketEmailLog (models.py) — one row per
+Delivery state lives in TicketEmailLog (models.py) - one row per
 (ticket, event, recipient) attempt; idempotency_key prevents ever sending the
 same event to the same person twice, including across a mid-send restart.
 """
@@ -30,7 +30,7 @@ import ticket_mail_templates as tmpl
 from routers.task_util import log_activity
 
 from app_url import app_url
-_APP_URL = app_url()   # NEXUS_APP_URL override, else derived per environment — see app_url.py
+_APP_URL = app_url()   # NEXUS_APP_URL override, else derived per environment - see app_url.py
 _SETTINGS_KEY = "ticket_notify_config"
 
 _DEFAULT_SETTINGS = {
@@ -105,7 +105,7 @@ def _name_of(db: Session, email: str) -> str:
 def _is_sendable(db: Session, email: str) -> bool:
     """False for blank/malformed addresses and known inactive/offboarded
     employees. An email with no NexusEmployee record at all is allowed
-    through (unknown, not "known inactive") — most people who can raise or
+    through (unknown, not "known inactive") - most people who can raise or
     own a ticket already have a role/employee row, but this must not become
     a silent block for the ones who don't."""
     email = (email or "").strip().lower()
@@ -132,7 +132,7 @@ def _is_punched_in(db: Session, email: str) -> bool:
 def _dept_recipients(db: Session, hr_department_id: str) -> list[str]:
     """Who to notify to triage/assign a ticket for this department. The lead
     is the primary owner; the backup is ALSO notified whenever the lead isn't
-    currently punched in — a ticket must never sit waiting on someone who
+    currently punched in - a ticket must never sit waiting on someone who
     isn't at their desk to see it, or the SLA clock runs out unnoticed.
     Returns [] if neither lead nor backup is usable (caller falls back to
     the Ticket Administrator)."""
@@ -152,7 +152,7 @@ def _dept_recipients(db: Session, hr_department_id: str) -> list[str]:
 
 def _recipients_for(db: Session, t: models.TaskTicket, event_type: str, cfg: dict) -> list[tuple[str, str]]:
     """Returns deduped [(email, role)] for an event. `role` labels the log/audit
-    entry (requester|dept_head|assignee|ticket_admin) — it does not change what
+    entry (requester|dept_head|assignee|ticket_admin) - it does not change what
     the recipient receives (that's decided per-recipient when building the
     email body, e.g. the assignee's copy has an extra "action required" line)."""
     out: dict[str, str] = {}   # email -> role (first role wins if somehow doubled up)
@@ -173,11 +173,11 @@ def _recipients_for(db: Session, t: models.TaskTicket, event_type: str, cfg: dic
             dept_heads = [admin]
         log_activity(db, type="notify_gap", actor_email="system", entity_kind="ticket",
                      entity_id=t.id, entity_code=t.code, entity_title=t.subject,
-                     detail=f"Department has no lead/backup configured — routed to {'Ticket Administrator' if admin else 'nobody (Ticket Administrator not configured either)'}")
+                     detail=f"Department has no lead/backup configured - routed to {'Ticket Administrator' if admin else 'nobody (Ticket Administrator not configured either)'}")
 
     def add_dept_heads():
         # Both lead and backup only when the lead isn't currently punched
-        # in — otherwise just the lead — so a ticket never sits waiting on
+        # in - otherwise just the lead - so a ticket never sits waiting on
         # someone who isn't at their desk (missing this risks the SLA).
         for email in dept_heads:
             add(email, "dept_head")
@@ -185,7 +185,7 @@ def _recipients_for(db: Session, t: models.TaskTicket, event_type: str, cfg: dic
     if event_type in ("created",):
         add(requester, "requester")
         # Approval gate: a ticket awaiting approval must not reach the department
-        # lead yet — their "needs assignment" copy is queued by decide_approval
+        # lead yet - their "needs assignment" copy is queued by decide_approval
         # once the approver approves (mirrors the in-app bell gate in tickets.py).
         if (t.approval_status or "none") != "pending":
             add_dept_heads()
@@ -204,7 +204,7 @@ def _recipients_for(db: Session, t: models.TaskTicket, event_type: str, cfg: dic
         add(assignee, "assignee")
         add(requester, "requester")
     elif event_type == "approval_required":
-        # Only the approver — this is their personal action item.
+        # Only the approver - this is their personal action item.
         add((t.approver_email or "").strip().lower(), "approver")
 
     return list(out.items())
@@ -254,7 +254,7 @@ def _send_one(db: Session, *, t: models.TaskTicket, event_type: str, event_versi
     except graph_mail.GraphMailError as e:
         row.status = "failed"
         row.error = str(e)[:1000]
-        detail = f"{event_type.title()} email to {recipient} ({role}) failed — will retry: {row.error[:200]}"
+        detail = f"{event_type.title()} email to {recipient} ({role}) failed - will retry: {row.error[:200]}"
     row.updated_at = datetime.now(timezone.utc).isoformat()
     db.commit()
     log_activity(db, type="notify_sent" if row.status == "sent" else "notify_failed",
@@ -265,12 +265,12 @@ def _send_one(db: Session, *, t: models.TaskTicket, event_type: str, event_versi
 
 def _comment_thread(db: Session, ticket_id: str, limit: int = 3) -> list[dict]:
     """Last `limit` PUBLIC comments on a ticket, newest first, with the author's
-    profile photo from Nexus People (nexus_employees.photo_url — the avatars
+    profile photo from Nexus People (nexus_employees.photo_url - the avatars
     bucket is public, so the URLs embed directly in email). Internal agent notes
     are always excluded: update emails go to the requester."""
     rows = (db.query(models.TaskComment)
             .filter(models.TaskComment.task_id == ticket_id,
-                    models.TaskComment.internal == False)  # noqa: E712 — SQLA expression
+                    models.TaskComment.internal == False)  # noqa: E712 - SQLA expression
             .order_by(models.TaskComment.created_at.desc()).limit(limit).all())
     emails = list({(r.author_email or "").lower() for r in rows if r.author_email})
     photos: dict[str, str] = {}
@@ -335,13 +335,13 @@ def _duration(start_iso: str, end_iso: str) -> str:
     return f"{hours / 24:.1f} days"
 
 
-# ── Main entry point — called from routers/tickets.py via BackgroundTasks ──
+# ── Main entry point - called from routers/tickets.py via BackgroundTasks ──
 
 def notify_ticket_event(ticket_id: str, event_type: str, actor_email: str, **kw) -> None:
     """event_type ∈ created|assigned|updated|resolved|reopened|approval_required.
     kw: prev_status, update_kind, latest_comment, reopen_reason (all optional,
-    only relevant to specific event types — see ticket_mail_templates.py).
-    Never raises — this runs in a background task after the ticket mutation's
+    only relevant to specific event types - see ticket_mail_templates.py).
+    Never raises - this runs in a background task after the ticket mutation's
     response has already been sent; a notification failure must never surface
     as a failed ticket operation."""
     db = SessionLocal()
@@ -412,7 +412,7 @@ def notify_ticket_event(ticket_id: str, event_type: str, actor_email: str, **kw)
 
 
 # ── Background loops (main.py starts these the same way it starts
-#    reminders.reminders_loop — a bare asyncio loop; no task-queue library
+#    reminders.reminders_loop - a bare asyncio loop; no task-queue library
 #    exists in this codebase to hook into instead) ───────────────────────────
 
 def _retry_failed_once(db: Session) -> None:
@@ -427,7 +427,7 @@ def _retry_failed_once(db: Session) -> None:
             except (ValueError, AttributeError):
                 started = cutoff
             if (cutoff - started).total_seconds() < _STALE_PENDING_SEC:
-                continue   # a send may genuinely be in flight right now — leave it
+                continue   # a send may genuinely be in flight right now - leave it
         t = db.query(models.TaskTicket).filter(models.TaskTicket.id == row.ticket_id).first()
         if not t:
             row.status = "failed"
@@ -457,7 +457,7 @@ def _retry_failed_once(db: Session) -> None:
             row.error = ""
             log_activity(db, type="notify_sent", actor_email="system", entity_kind="ticket",
                          entity_id=t.id, entity_code=t.code, entity_title=t.subject,
-                         detail=f"Retry succeeded — {row.event_type} email sent to {row.recipient}")
+                         detail=f"Retry succeeded - {row.event_type} email sent to {row.recipient}")
         except graph_mail.GraphMailError as e:
             row.status = "failed" if row.attempts < MAX_ATTEMPTS else "failed"
             row.error = str(e)[:1000]
@@ -508,7 +508,7 @@ def _auto_close_once(db: Session) -> None:
 
 async def ticket_notify_loop() -> None:
     """Started once from main.py's lifespan, same convention as
-    reminders.reminders_loop — retries failed/stuck sends and auto-closes
+    reminders.reminders_loop - retries failed/stuck sends and auto-closes
     long-resolved tickets on a fixed interval."""
     await asyncio.sleep(60)   # let startup finish before the first scan
     while True:
@@ -517,7 +517,7 @@ async def ticket_notify_loop() -> None:
             _retry_failed_once(db)
             _auto_close_once(db)
         except Exception:
-            pass   # a scan failure must not kill the loop — next tick tries again
+            pass   # a scan failure must not kill the loop - next tick tries again
         finally:
             db.close()
         await asyncio.sleep(_RETRY_LOOP_SEC)

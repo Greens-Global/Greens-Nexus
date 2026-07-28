@@ -23,7 +23,7 @@ export const NAV = [
   { view: "manager-dashboard", code: "MGR", label: "Manager Dashboard",  icon: UserCheck,    minRole: 'supervisor' },
   { divider: true },
   // Tasks + Knowledge Base are baseline: employees work their own tasks and the
-  // KB is the LMS — assigned courses/SOPs must be reachable by everyone.
+  // KB is the LMS - assigned courses/SOPs must be reachable by everyone.
   // Manage/author actions inside stay role-gated (KB admin ops are level 3+).
   { view: "tasks", code: "TSK",             label: "Tasks",               icon: CheckSquare },
   { view: "sop", code: "KB", label: "Knowledge Base", icon: BookOpen },
@@ -164,7 +164,7 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
     // module to module. Once inside, the module renders its own horizontal
     // tab strip for sub-navigation. Clicking lands on the module's default
     // sub (App.jsx getDefaultSub). Items with a `.sub` array fall through
-    // here too — the data is still used by the mobile menu.
+    // here too - the data is still used by the mobile menu.
     return (
       <li
         key={item.view}
@@ -195,7 +195,7 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
           }
         </button>
 
-        {/* ── Header — desk mark + wordmark ── */}
+        {/* ── Header - desk mark + wordmark ── */}
         <div className="sidebar-header">
           <div className="dk-mark" aria-hidden="true">N</div>
           {!collapsed && (
@@ -214,7 +214,7 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
                 Group grants them. IT Admin / Global Admin (administrator+) still
                 see everything so they can manage access. (Jun 17) */}
             {(() => {
-              // Desk rail group labels — purely presentational; one per divider
+              // Desk rail group labels - purely presentational; one per divider
               // slot, mirroring the NAV grouping (my desk / work / modules / system).
               const KICKERS = ['My desk', 'Work', 'Modules', 'System'];
               let group = 0;

@@ -184,7 +184,7 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
         <button className="mobile-toggle" onClick={onMobileToggle} aria-label="Toggle Sidebar">
           <Menu style={{ width: 18, height: 18 }} />
         </button>
-        {/* Phone-only back button — the breadcrumb (with its back arrow) is
+        {/* Phone-only back button - the breadcrumb (with its back arrow) is
             hidden on mobile, leaving no way to step back to the parent screen
             (Jun 16). Mirrors the desktop breadcrumb-back: same onBack/canGoBack. */}
         {canGoBack && (
@@ -193,13 +193,13 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
             <ArrowLeft style={{ width: 18, height: 18 }} />
           </button>
         )}
-        {/* Phone search lives LEFT of the centered wordmark — a 4th icon on
+        {/* Phone search lives LEFT of the centered wordmark - a 4th icon on
             the right collided with NEXUS (Visesh screenshot, Jun 12) */}
         <button className="icon-btn header-search-left" aria-label="Search"
           onClick={() => window.dispatchEvent(new CustomEvent('nexus:search-open'))}>
           <Search style={{ width: 16, height: 16 }} />
         </button>
-        {/* Phone-only centered wordmark (desktop hides it) — tap = home */}
+        {/* Phone-only centered wordmark (desktop hides it) - tap = home */}
         <button className="header-brand" onClick={() => onNavigate('dashboard')} aria-label="Go to Dashboard">NEXUS</button>
         <div className="breadcrumb">
           {canGoBack && (
@@ -329,7 +329,7 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
               <button className="hud-item" onClick={onThemeToggle}>
                 {theme === "dark" ? <Sun size={14} /> : <Moon size={14} />} {theme === "dark" ? "Light mode" : "Dark mode"}
               </button>
-              {/* Work OS visual theme — cobalt (default) or warm sand */}
+              {/* Work OS visual theme - cobalt (default) or warm sand */}
               <div style={{ padding: '6px 12px 2px', fontSize: 10, fontWeight: 700, letterSpacing: '.06em', color: 'var(--muted)', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 5 }}>
                 <Palette size={11} /> Theme
               </div>
@@ -348,7 +348,7 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
 
               {/* Act As (Jul 2026): visible to Manager/IT Admin/Global Admin (or an
                   'act-as' Access Group grant). Exit is always shown while a session
-                  is active — myRole may have dropped below manager because it's
+                  is active - myRole may have dropped below manager because it's
                   now reporting the impersonated employee's own role. */}
               {(canActAs || actingAs) && (
                 <>
@@ -408,7 +408,7 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
     </header>
 
     {/* Persistent, hard-to-miss reminder that this is impersonation, not the
-        real signed-in identity — sits under the header on every screen for
+        real signed-in identity - sits under the header on every screen for
         the whole session, not just the profile menu (Jul 2026). */}
     {actingAs && (
       <div style={{
@@ -418,7 +418,7 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
         fontFamily: 'Inter, sans-serif', fontSize: 12.5, color: 'var(--ink)', flexWrap: 'wrap', textAlign: 'center',
       }}>
         <UserCog size={13} style={{ color: 'hsl(var(--color-orange))', flexShrink: 0 }} />
-        <span>You're acting as <strong>{actingAs.targetName}</strong> ({actingAs.targetEmail}) — actions you take are attributed to them.</span>
+        <span>You're acting as <strong>{actingAs.targetName}</strong> ({actingAs.targetEmail}) - actions you take are attributed to them.</span>
         <button onClick={handleExitActAs} disabled={actAsStopping}
           style={{
             background: 'hsl(var(--color-orange))', color: '#fff', border: 'none', borderRadius: 6,

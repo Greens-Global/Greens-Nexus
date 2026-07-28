@@ -1,11 +1,11 @@
-// Ticket Module — types, per-type intake fields, status/SLA policy and the small
+// Ticket Module - types, per-type intake fields, status/SLA policy and the small
 // pure helpers built on them. No JSX and no component imports: this is the
 // module's configuration layer, imported by every other ticket file.
 import { Ticket, Bug, AlertOctagon, Wrench, HelpCircle, ClipboardList, Lightbulb, RefreshCw, KeyRound, ShieldAlert, Timer } from 'lucide-react';
 import { fmtDate as fmtDateRaw } from '../tasks/lib';
 import { NX } from '../tasks/theme';
 
-export const fmtDate = (iso) => (iso ? fmtDateRaw(iso) : '—');
+export const fmtDate = (iso) => (iso ? fmtDateRaw(iso) : '-');
 export const today = () => new Date().toISOString().slice(0, 10);
 
 // ── Ticket issue types ───────────────────────────────────────────────────────
@@ -20,7 +20,7 @@ export const TICKET_TYPE_META = {
   access_request:  { label: 'Access Request',  icon: KeyRound,      color: NX.teal },
   request:         { label: 'Request',         icon: Ticket,        color: NX.blue },
 };
-// Selectable types at intake. `task` and `request` are deliberately absent —
+// Selectable types at intake. `task` and `request` are deliberately absent -
 // they still appear in TICKET_TYPE_META/TYPE_FIELDS so existing tickets of those
 // types keep rendering, but neither can be raised any more. `task` asked the
 // requester for assignee/project/sprint/estimate, which duplicated the Task
@@ -28,12 +28,12 @@ export const TICKET_TYPE_META = {
 // department lead assigns them). Escalate a ticket into a task instead.
 export const TICKET_TYPE_ORDER = ['bug', 'incident', 'service_request', 'feature_request', 'question', 'change_request', 'access_request'];
 
-// Screen recording is for showing a reproducible problem (bugs, incidents) —
+// Screen recording is for showing a reproducible problem (bugs, incidents) -
 // feature and service requests are asks, not something to demonstrate on
 // screen, so the Record option is hidden for them (Upload still works).
 export const NO_RECORDING_TYPES = ['feature_request', 'service_request'];
 
-// Per-type intake fields — the extra questions each ticket type asks, on top of
+// Per-type intake fields - the extra questions each ticket type asks, on top of
 // the common ones: Company, Department and Type (wizard step 1), then Priority,
 // Title and Description (step 2). Don't re-ask any of those here.
 // Values are stored on the ticket's `typeFields` JSON, keyed by `key`.
@@ -55,7 +55,7 @@ export const TYPE_FIELDS = {
     { key: 'affectedService', label: 'Affected Service', type: 'text', req: true },
     { key: 'occurredAt', label: 'Date & Time Occurred', type: 'datetime', req: true },
     // Impact = how wide the blast radius is. Urgency deliberately lives on the
-    // common Priority field (which also derives the SLA date) — asking both here
+    // common Priority field (which also derives the SLA date) - asking both here
     // gave three overlapping severity controls on mismatched scales.
     { key: 'impact', label: 'Impact', type: 'radio', options: ['One User', 'Multiple Users', 'Department', 'Entire Organization'], req: true },
     { key: 'affectedUsers', label: 'Affected Users', type: 'multiperson' },
@@ -63,7 +63,7 @@ export const TYPE_FIELDS = {
     { key: 'workaroundDetail', label: 'Workaround (if yes)', type: 'textarea', full: true },
   ],
   service_request: [
-    // Service Category removed — the department chosen in step 1 already says
+    // Service Category removed - the department chosen in step 1 already says
     // which function this goes to (IT / Facilities / …); asking again duplicated it.
     { key: 'requestedService', label: 'Requested Service', type: 'text', req: true, placeholder: 'e.g. CCTV Installation' },
     { key: 'requestedFor', label: 'Requested For', type: 'radio', options: ['Myself', 'Another User'], req: true },
@@ -93,7 +93,7 @@ export const TYPE_FIELDS = {
       items: ['Requirement Reviewed', 'Development', 'Code Review', 'Testing', 'Deployment'] },
   ],
   // Title and Description already capture the topic and the question itself, and
-  // Priority covers urgency — a question only needs to say what it is about.
+  // Priority covers urgency - a question only needs to say what it is about.
   question: [
     { key: 'module', label: 'Application / Module', type: 'text' },
   ],
@@ -127,7 +127,7 @@ export const TYPE_FIELDS = {
 // multi-value (multiselect / checklist). Drives both required-field validation
 // and which values get persisted.
 // multiperson values are an array of emails, but tickets created while the field
-// was a free-text box hold a comma-separated string — read both.
+// was a free-text box hold a comma-separated string - read both.
 export function toEmailList(v) {
   if (Array.isArray(v)) return v;
   if (typeof v === 'string' && v.trim()) return v.split(',').map((s) => s.trim()).filter(Boolean);
@@ -166,7 +166,7 @@ export const TICKET_STATUS_META = {
 export const TICKET_STATUS_ORDER = ['new', 'open', 'in_progress', 'on_hold', 'resolved', 'closed', 'reopened'];
 export const CLOSED_STATES = ['resolved', 'closed'];
 
-// ── SLA policy — default resolution targets (hours) per priority. Used to
+// ── SLA policy - default resolution targets (hours) per priority. Used to
 // auto-set a ticket's SLA due date on creation, and to flag breaches/at-risk. ──
 export const SLA_TARGET_HOURS = { urgent: 4, high: 24, medium: 72, low: 120 };
 export const slaDueFromPriority = (priority) => new Date(Date.now() + (SLA_TARGET_HOURS[priority] ?? 72) * 3600 * 1000).toISOString().slice(0, 10);
@@ -188,7 +188,7 @@ export const SLA_META = {
 // Service/change/access requests name an approver at intake. Until they decide,
 // the ticket is parked: the department lead isn't notified and it stays out of
 // the triage queue. Keep this map in step with APPROVER_FIELD_BY_TYPE in
-// backend/routers/tickets.py — the backend derives the approver, never the client.
+// backend/routers/tickets.py - the backend derives the approver, never the client.
 export const APPROVER_FIELD_BY_TYPE = {
   service_request: 'approver',
   change_request: 'approver',
@@ -201,7 +201,7 @@ export const APPROVAL_META = {
   rejected: { label: 'Rejected',          color: NX.red,   tint: 'rgba(220,38,38,0.15)' },
 };
 
-// Shared form styles — used by the create wizard, the drawer and the atoms.
+// Shared form styles - used by the create wizard, the drawer and the atoms.
 export const label = { fontSize: 12, fontWeight: 600, color: NX.dim, marginBottom: 5, display: 'block' };
 export const field = { marginBottom: 14 };
 

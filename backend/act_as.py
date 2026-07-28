@@ -1,10 +1,10 @@
 """
-Act As (Jul 2026) — lets a Manager/IT Admin/Global Admin temporarily operate
+Act As (Jul 2026) - lets a Manager/IT Admin/Global Admin temporarily operate
 Nexus as another, always lower-role, employee: same screens, same data, same
-permissions — approvals/submissions/uploads made while acting are attributed
+permissions - approvals/submissions/uploads made while acting are attributed
 to the employee, exactly as if they'd done it themselves.
 
-Real identity is always the verified Entra ID token — auth.py never changes
+Real identity is always the verified Entra ID token - auth.py never changes
 that. Act As is a pure OVERLAY on top of it: once a session is active,
 get_current_user returns the TARGET's {email, role, level} to every router,
 so all existing permission checks, notification targeting, and ownership
@@ -79,7 +79,7 @@ def invalidate_session_cache(session_id: str) -> None:
 def resolve_target(session_id: str, real_email: str, db: Session) -> Optional[dict]:
     """Return the impersonated identity dict for an active, unexpired session
     bound to `real_email`, or None. Cached briefly so an impersonating admin's
-    every request doesn't hit the DB — a stale cache means /act-as/stop can
+    every request doesn't hit the DB - a stale cache means /act-as/stop can
     take up to _SESSION_CACHE_TTL to fully apply, the same trade-off auth.py's
     role cache already makes for role changes. Cache key includes real_email
     (not just session_id): a session only ever proves ownership together with
@@ -115,7 +115,7 @@ class StopIn(BaseModel):
 
 @router.get("/eligible-targets")
 def eligible_targets(user: dict = Depends(_act_as_gate), db: Session = Depends(get_db)):
-    """People this caller is allowed to act as — anyone whose role is strictly
+    """People this caller is allowed to act as - anyone whose role is strictly
     below the caller's own (a Manager cannot act as another Manager or an
     admin; a Global Admin can act as anyone else). Same underlying data as
     /roles/directory, filtered to valid targets so the picker can't offer an
@@ -168,7 +168,7 @@ def start_session(body: StartIn, request: Request,
 
 @router.post("/stop")
 def stop_session(body: StopIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Ends a session. Callable while still 'in' it — the frontend keeps the
+    """Ends a session. Callable while still 'in' it - the frontend keeps the
     X-Act-As-Session header attached until Exit is clicked, so `user` here is
     the TARGET's overlaid identity; real_email on the row (not user['email'])
     is who must match to end it."""

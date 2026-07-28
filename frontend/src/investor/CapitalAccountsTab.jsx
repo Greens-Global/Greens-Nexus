@@ -4,7 +4,7 @@ import { api } from '../api';
 import { formatCurrency, formatDate, formatMultiple, formatPercent } from './lib/format';
 import { EmptyState, ErrorState, LoadingState, Modal, useIrLoad } from './lib/ui';
 
-// The investor capital-account report — every deal x investor position, with
+// The investor capital-account report - every deal x investor position, with
 // the full dated cash-flow ledger behind each row. This is the statement an
 // investor would actually receive, so the layout stays clean enough to print.
 
@@ -27,7 +27,7 @@ function signedAmount(v) {
   return `${n < 0 ? '−' : '+'}${formatCurrency(Math.abs(n))}`;
 }
 
-// Standalone printable statement in a popup — keeps the app's modal DOM out of
+// Standalone printable statement in a popup - keeps the app's modal DOM out of
 // the print flow entirely.
 function printStatement(det) {
   const w = window.open('', '_blank', 'width=820,height=940');
@@ -44,7 +44,7 @@ function printStatement(det) {
     </tr>`;
   }).join('');
   const cell = (label, value) => `<div class="cell"><div class="cl">${esc(label)}</div><div class="cv">${esc(value)}</div></div>`;
-  w.document.write(`<!doctype html><html><head><title>Capital Account Statement — ${esc(det.investorName)}</title><style>
+  w.document.write(`<!doctype html><html><head><title>Capital Account Statement - ${esc(det.investorName)}</title><style>
     body { font-family: Inter, -apple-system, 'Segoe UI', sans-serif; color: #0f172a; margin: 40px; }
     .eyebrow { font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: #64748b; font-weight: 700; }
     h1 { font-size: 22px; margin: 6px 0 2px; letter-spacing: -.02em; }
@@ -70,7 +70,7 @@ function printStatement(det) {
       ${cell('Distributed', formatCurrency(det.distributed))}
       ${cell('DPI', formatMultiple(det.dpi))}
       ${cell('TVPI', formatMultiple(det.tvpi))}
-      ${cell('Net IRR', det.irrPct === null || det.irrPct === undefined ? '—' : formatPercent(det.irrPct))}
+      ${cell('Net IRR', det.irrPct === null || det.irrPct === undefined ? '-' : formatPercent(det.irrPct))}
     </div>
     <h2>Cash-Flow Ledger</h2>
     <table>
@@ -141,7 +141,7 @@ export default function CapitalAccountsTab() {
 
   const fmtCell = (key, v) => {
     if (key === 'dpi' || key === 'tvpi') return formatMultiple(v);
-    if (key === 'irrPct') return v === null || v === undefined ? '—' : formatPercent(v);
+    if (key === 'irrPct') return v === null || v === undefined ? '-' : formatPercent(v);
     return formatCurrency(v);
   };
 
@@ -153,7 +153,7 @@ export default function CapitalAccountsTab() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap', marginBottom: 18 }}>
         <div>
           <h3 style={{ fontSize: 16, fontWeight: 700, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>Capital Accounts</h3>
-          <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '3px 0 0' }}>Every investor position — click a row for the full dated statement</p>
+          <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '3px 0 0' }}>Every investor position - click a row for the full dated statement</p>
         </div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
           <select className="form-select" style={{ width: 200 }} value={fundFilter} onChange={e => setFundFilter(e.target.value)}>
@@ -207,8 +207,8 @@ export default function CapitalAccountsTab() {
                   <td key={k} style={{ textAlign: 'right', fontWeight: 700, fontVariantNumeric: 'tabular-nums', paddingTop: 10 }}>{formatCurrency(totals[k])}</td>
                 ))}
                 <td style={{ textAlign: 'right', fontWeight: 700, fontVariantNumeric: 'tabular-nums', paddingTop: 10 }}>{formatMultiple(totals.dpi)}</td>
-                <td style={{ textAlign: 'right', color: 'var(--muted)', paddingTop: 10 }}>—</td>
-                <td style={{ textAlign: 'right', color: 'var(--muted)', paddingTop: 10 }}>—</td>
+                <td style={{ textAlign: 'right', color: 'var(--muted)', paddingTop: 10 }}>-</td>
+                <td style={{ textAlign: 'right', color: 'var(--muted)', paddingTop: 10 }}>-</td>
               </tr>
             </tfoot>
           </table>
@@ -223,7 +223,7 @@ export default function CapitalAccountsTab() {
             <div style={{ padding: '20px 24px 24px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
                 <div>
-                  <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--muted)' }}>Greens Global — Investor Statement</div>
+                  <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--muted)' }}>Greens Global - Investor Statement</div>
                   <div style={{ fontSize: 19, fontWeight: 700, letterSpacing: '-0.02em', color: 'var(--ink)', marginTop: 4 }}>{det.investorName}</div>
                   <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 2 }}>{det.fundName} · As of {formatDate(det.asOf)}</div>
                 </div>
@@ -241,7 +241,7 @@ export default function CapitalAccountsTab() {
                   ['Distributed', formatCurrency(det.distributed)],
                   ['DPI', formatMultiple(det.dpi)],
                   ['TVPI', formatMultiple(det.tvpi)],
-                  ['Net IRR', det.irrPct === null || det.irrPct === undefined ? '—' : formatPercent(det.irrPct)],
+                  ['Net IRR', det.irrPct === null || det.irrPct === undefined ? '-' : formatPercent(det.irrPct)],
                 ].map(([label, value]) => (
                   <div key={label}>
                     <div style={{ fontSize: 9.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.06em', color: 'var(--muted)' }}>{label}</div>
@@ -291,7 +291,7 @@ export default function CapitalAccountsTab() {
                 </div>
               )}
               <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 14 }}>
-                Amounts shown from the investor's perspective — capital calls negative, distributions positive.
+                Amounts shown from the investor's perspective - capital calls negative, distributions positive.
               </div>
             </div>
           )}

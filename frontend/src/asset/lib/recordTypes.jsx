@@ -6,7 +6,7 @@
 //   - the summary strip shown above the list (e.g. "Records / Last Service / Total Spend")
 //
 // All of these collections are flat arrays in the data store, each record carrying a
-// `propertyId` foreign key that points at ANY asset's id — property, vehicle, or equipment.
+// `propertyId` foreign key that points at ANY asset's id - property, vehicle, or equipment.
 // (The `propertyId` name is a holdover from the module's property-first origin.)
 
 import { formatDate, formatMoney, formatNumber, daysUntil } from './format.js';
@@ -19,17 +19,17 @@ const totalSpend = (rows) => rows.reduce((sum, r) => {
 }, 0);
 
 const statusChip = (status) => {
-  if (!status) return '—';
+  if (!status) return '-';
   const tone = status === 'Completed' ? 'green' : status === 'Scheduled' ? 'blue' : status === 'In Progress' ? 'gold' : status === 'Needs Attention' ? 'red' : 'blue';
   return <StatusBadge tone={tone}>{status}</StatusBadge>;
 };
 
 export const RECORD_TYPES = {
-  // Property maintenance log — one-line "Quick add a maintenance note" bar feeds this directly.
+  // Property maintenance log - one-line "Quick add a maintenance note" bar feeds this directly.
   maintenance: {
     title: 'Maintenance Record',
     plural: 'Maintenance',
-    empty: 'No maintenance records yet — log repairs, inspections and preventive work, or upload an invoice or report.',
+    empty: 'No maintenance records yet - log repairs, inspections and preventive work, or upload an invoice or report.',
     fields: [
       { k: 'date', label: 'Service Date', type: 'date', req: true },
       { k: 'system', label: 'System / Area', type: 'select', req: true, options: ['HVAC', 'Roofing', 'Plumbing', 'Electrical', 'Elevator', 'Fire / Life Safety', 'Landscaping / Grounds', 'Pest Control', 'Painting', 'Parking / Pavement', 'Structural', 'Appliance', 'Security / Access', 'General Repair', 'Preventive Maintenance', 'Inspection', 'Other'] },
@@ -42,31 +42,31 @@ export const RECORD_TYPES = {
       { k: 'notes', label: 'Notes', type: 'textarea', full: true },
     ],
     // Quick-add config (single-input fast entry bar): the field it fills, extra defaults, placeholder + button text.
-    quickAdd: { k: 'description', extra: { status: 'Completed' }, placeholder: 'Quick add a maintenance note — e.g. Replaced HVAC filter', button: 'Add Note' },
+    quickAdd: { k: 'description', extra: { status: 'Completed' }, placeholder: 'Quick add a maintenance note - e.g. Replaced HVAC filter', button: 'Add Note' },
     cols: [
-      { label: 'Date', mono: (r) => r.date ? formatDate(r.date) : '—' },
-      { label: 'Work', main: (r) => r.system || r.description || '—', sub: (r) => r.system ? (r.description || r.vendor) : r.vendor },
-      { label: 'Vendor', plain: (r) => r.vendor || '—' },
-      { label: 'Cost', plain: (r) => r.cost || '—' },
+      { label: 'Date', mono: (r) => r.date ? formatDate(r.date) : '-' },
+      { label: 'Work', main: (r) => r.system || r.description || '-', sub: (r) => r.system ? (r.description || r.vendor) : r.vendor },
+      { label: 'Vendor', plain: (r) => r.vendor || '-' },
+      { label: 'Cost', plain: (r) => r.cost || '-' },
       { label: 'Status', chip: (r) => statusChip(r.status) },
-      { label: 'Next Due', mono: (r) => r.nextDue ? formatDate(r.nextDue) : '—' },
-      { label: 'Doc', plain: (r) => r.docFileName || (r.docFile ? 'Attached' : '—') },
+      { label: 'Next Due', mono: (r) => r.nextDue ? formatDate(r.nextDue) : '-' },
+      { label: 'Doc', plain: (r) => r.docFileName || (r.docFile ? 'Attached' : '-') },
     ],
     sort: byDateDesc,
     summary: (rows) => {
       const dates = rows.map((r) => r.date).filter(Boolean).sort();
       const last = dates[dates.length - 1];
       const total = totalSpend(rows);
-      return [['Records', String(rows.length)], ['Last Service', last ? formatDate(last) : '—'], ['Total Spend', total > 0 ? formatMoney(total) : '—']];
+      return [['Records', String(rows.length)], ['Last Service', last ? formatDate(last) : '-'], ['Total Spend', total > 0 ? formatMoney(total) : '-']];
     },
   },
 
-  // Vehicle/equipment service log — same "quick add" pattern, plus a "Recommended Maintenance"
+  // Vehicle/equipment service log - same "quick add" pattern, plus a "Recommended Maintenance"
   // sub-tab (see RecommendedMaintenance.jsx) showing the researched factory schedule.
   vservice: {
     title: 'Service Record',
     plural: 'Service & Maintenance',
-    empty: "No service records yet — log maintenance as it's performed, or upload an invoice.",
+    empty: "No service records yet - log maintenance as it's performed, or upload an invoice.",
     fields: [
       { k: 'date', label: 'Service Date', type: 'date', req: true },
       { k: 'type', label: 'Service Type', type: 'select', req: true, options: ['Oil Change', 'Tire Rotation', 'Brakes', 'Battery', 'Fluids', 'Inspection', 'Scheduled Maintenance', 'Repair', 'Recall', 'Other'] },
@@ -77,25 +77,25 @@ export const RECORD_TYPES = {
       { k: 'docFile', label: 'Invoice / Receipt (Upload)', type: 'file', nameKey: 'docFileName', full: true },
       { k: 'notes', label: 'Notes', type: 'textarea', full: true },
     ],
-    quickAdd: { k: 'type', extra: {}, placeholder: 'Quick add a service — e.g. Oil change, brake job', button: 'Add Service' },
+    quickAdd: { k: 'type', extra: {}, placeholder: 'Quick add a service - e.g. Oil change, brake job', button: 'Add Service' },
     cols: [
-      { label: 'Date', mono: (r) => r.date ? formatDate(r.date) : '—' },
-      { label: 'Service', main: (r) => r.type || '—', sub: (r) => {
+      { label: 'Date', mono: (r) => r.date ? formatDate(r.date) : '-' },
+      { label: 'Service', main: (r) => r.type || '-', sub: (r) => {
           const notes = (r.notes || '').trim();
           const truncated = notes.length > 100 ? notes.slice(0, 100) + '…' : notes;
-          return [r.vendor, truncated].filter(Boolean).join(' — ');
+          return [r.vendor, truncated].filter(Boolean).join(' - ');
         } },
-      { label: 'Odometer', plain: (r) => r.mileage ? formatNumber(r.mileage) + ' mi' : '—' },
-      { label: 'Cost', plain: (r) => r.cost || '—' },
-      { label: 'Next Due', mono: (r) => r.nextDue ? formatDate(r.nextDue) : '—' },
-      { label: 'Doc', plain: (r) => r.docFileName || (r.docFile ? 'Attached' : '—') },
+      { label: 'Odometer', plain: (r) => r.mileage ? formatNumber(r.mileage) + ' mi' : '-' },
+      { label: 'Cost', plain: (r) => r.cost || '-' },
+      { label: 'Next Due', mono: (r) => r.nextDue ? formatDate(r.nextDue) : '-' },
+      { label: 'Doc', plain: (r) => r.docFileName || (r.docFile ? 'Attached' : '-') },
     ],
     sort: byDateDesc,
     summary: (rows) => {
       const dates = rows.map((r) => r.date).filter(Boolean).sort();
       const last = dates[dates.length - 1];
       const total = totalSpend(rows);
-      return [['Records', String(rows.length)], ['Last Service', last ? formatDate(last) : '—'], ['Total Spend', total > 0 ? formatMoney(total) : '—']];
+      return [['Records', String(rows.length)], ['Last Service', last ? formatDate(last) : '-'], ['Total Spend', total > 0 ? formatMoney(total) : '-']];
     },
   },
 
@@ -109,9 +109,9 @@ export const RECORD_TYPES = {
       { k: 'notes', label: 'Notes', type: 'textarea', full: true },
     ],
     cols: [
-      { label: 'Date', mono: (r) => r.date ? formatDate(r.date) : '—' },
-      { label: 'Odometer', main: (r) => r.mileage ? formatNumber(r.mileage) + ' mi' : '—' },
-      { label: 'Notes', plain: (r) => r.notes || '—' },
+      { label: 'Date', mono: (r) => r.date ? formatDate(r.date) : '-' },
+      { label: 'Odometer', main: (r) => r.mileage ? formatNumber(r.mileage) + ' mi' : '-' },
+      { label: 'Notes', plain: (r) => r.notes || '-' },
     ],
     sort: byDateDesc,
     summary: (rows) => {
@@ -119,14 +119,14 @@ export const RECORD_TYPES = {
       const last = dates[dates.length - 1];
       const days = last ? Math.floor((Date.now() - new Date(last).getTime()) / 864e5) : null;
       const status = days == null ? 'No reading on file' : days > 365 ? `Overdue (${days}d)` : `Current (${days}d ago)`;
-      return [['Readings', String(rows.length)], ['Last Reading', last ? formatDate(last) : '—'], ['Annual Status', status]];
+      return [['Readings', String(rows.length)], ['Last Reading', last ? formatDate(last) : '-'], ['Annual Status', status]];
     },
   },
 
   vdocs: {
     title: 'Document',
     plural: 'Documents',
-    empty: 'No documents yet — upload the registration, title, bill of sale, insurance, loan, and warranty documents.',
+    empty: 'No documents yet - upload the registration, title, bill of sale, insurance, loan, and warranty documents.',
     fields: [
       { k: 'category', label: 'Document Type', type: 'select', options: ['Registration', 'Title', 'Bill of Sale / Purchase', 'Insurance Card', 'Loan / Financing', 'Warranty', 'Inspection / Emissions', 'Service Record', 'Other'] },
       { k: 'egnyteDest', label: 'Egnyte Destination', type: 'select', options: ['Registration & Title', 'Insurance', 'Purchase / Financing', 'Service & Maintenance', 'Warranty', 'Other'] },
@@ -138,9 +138,9 @@ export const RECORD_TYPES = {
     ],
     cols: [
       { label: 'Type', main: (r) => r.category || 'Document', sub: (r) => r.title },
-      { label: 'Date', mono: (r) => r.dateOf ? formatDate(r.dateOf) : '—' },
-      { label: 'Egnyte', plain: (r) => r.egnyteDest || '—' },
-      { label: 'File', plain: (r) => r.docFileName || (r.docFile ? 'Attached' : r.location || '—') },
+      { label: 'Date', mono: (r) => r.dateOf ? formatDate(r.dateOf) : '-' },
+      { label: 'Egnyte', plain: (r) => r.egnyteDest || '-' },
+      { label: 'File', plain: (r) => r.docFileName || (r.docFile ? 'Attached' : r.location || '-') },
     ],
     sort: (a, b) => String(b.dateOf || '').localeCompare(String(a.dateOf || '')),
   },
@@ -164,7 +164,7 @@ export const RECORD_TYPES = {
       { k: 'coverage', label: 'Coverage Summary', type: 'textarea', full: true, req: true },
       { k: 'notes', label: 'Notes', type: 'textarea', full: true },
     ],
-    // termMonths is auto-derived from startDate/expiration on save — see ../lib/warrantyTerm.js
+    // termMonths is auto-derived from startDate/expiration on save - see ../lib/warrantyTerm.js
     cols: [
       { label: 'Scope', main: (r) => r.scope, sub: (r) => r.kind },
       { label: 'Party', main: (r) => r.party, sub: (r) => [r.contactName, r.phone].filter(Boolean).join(' · ') },
@@ -182,7 +182,7 @@ export const RECORD_TYPES = {
   inspections: {
     title: 'Inspection',
     plural: 'Inspections',
-    empty: 'No inspections scheduled. Add annual and periodic inspections — fire, elevator, backflow, roof PM, stormwater.',
+    empty: 'No inspections scheduled. Add annual and periodic inspections - fire, elevator, backflow, roof PM, stormwater.',
     fields: [
       { k: 'type', label: 'Inspection Type', req: true, full: true },
       { k: 'frequency', label: 'Frequency', type: 'select', options: ['Monthly', 'Quarterly', 'Semi-annual', 'Annual', 'Every 3 years', 'Every 5 years', 'One-time'] },
@@ -196,7 +196,7 @@ export const RECORD_TYPES = {
     ],
     cols: [
       { label: 'Inspection', main: (r) => r.type, sub: (r) => r.frequency + (r.ahjRequired === 'Yes' ? ' · AHJ required' : '') },
-      { label: 'Vendor', main: (r) => r.vendor || '—', sub: (r) => r.vendorPhone || '' },
+      { label: 'Vendor', main: (r) => r.vendor || '-', sub: (r) => r.vendorPhone || '' },
       { label: 'Last', mono: (r) => formatDate(r.lastCompleted) },
       { label: 'Next Due', mono: (r) => formatDate(r.nextDue) },
       { label: 'Status', chip: (r) => dueDateStatus(daysUntil(r.nextDue)) },
@@ -214,7 +214,7 @@ export const RECORD_TYPES = {
     plural: 'Plans & Documents',
     empty: 'No documents indexed. Register as-builts, CO, permits, surveys, and O&M manuals with their Egnyte locations.',
     fields: [
-      { k: 'category', label: 'Category', type: 'select', options: ['As-Built — Civil', 'As-Built — Architectural', 'As-Built — Structural', 'As-Built — MEP', 'Certificate of Occupancy', 'Permit', 'Survey', 'Geotech', 'O&M Manual', 'Warranty Document', 'Other'] },
+      { k: 'category', label: 'Category', type: 'select', options: ['As-Built - Civil', 'As-Built - Architectural', 'As-Built - Structural', 'As-Built - MEP', 'Certificate of Occupancy', 'Permit', 'Survey', 'Geotech', 'O&M Manual', 'Warranty Document', 'Other'] },
       { k: 'egnyteDest', label: 'Egnyte Destination', type: 'select', options: ['Financial', 'Legal & Title', 'Insurance', 'Permits & Approvals', 'Plans & Drawings', 'Photos', 'Service & Maintenance', 'Closeout / O&M', 'Other'] },
       { k: 'title', label: 'Title', req: true },
       { k: 'dateOf', label: 'Document Date', type: 'date' },
@@ -226,7 +226,7 @@ export const RECORD_TYPES = {
     cols: [
       { label: 'Document', main: (r) => r.title, sub: (r) => r.category + (r.version ? ' · ' + r.version : '') },
       { label: 'Date', mono: (r) => formatDate(r.dateOf) },
-      { label: 'Location', mono: (r) => r.location || '—' },
+      { label: 'Location', mono: (r) => r.location || '-' },
     ],
     sort: (a, b) => (a.category || '') < (b.category || '') ? -1 : 1,
   },
@@ -249,8 +249,8 @@ export const RECORD_TYPES = {
     ],
     cols: [
       { label: 'Authority', main: (r) => r.authority, sub: (r) => r.jurisdiction },
-      { label: 'Contact', main: (r) => r.contactName || '—', sub: (r) => [r.phone, r.email].filter(Boolean).join(' · ') },
-      { label: 'Account / Permit', mono: (r) => r.accountOrPermit || '—' },
+      { label: 'Contact', main: (r) => r.contactName || '-', sub: (r) => [r.phone, r.email].filter(Boolean).join(' · ') },
+      { label: 'Account / Permit', mono: (r) => r.accountOrPermit || '-' },
       { label: 'Renewal', chip: (r) => r.renewalDate ? renewalCellFromDate(r.renewalDate) : <StatusBadge tone="mut">N/A</StatusBadge> },
     ],
     sort: (a, b) => (a.authority || '') < (b.authority || '') ? -1 : 1,
@@ -266,7 +266,7 @@ export const RECORD_TYPES = {
       { k: 'accountNumber', label: 'Account Number', req: true },
       { k: 'meterNumber', label: 'Meter' },
       { k: 'serviceAddress', label: 'Service Address', full: true },
-      { k: 'autopay', label: 'Autopay', type: 'select', options: ['Yes — Ramp card', 'Yes — ACH', 'No'] },
+      { k: 'autopay', label: 'Autopay', type: 'select', options: ['Yes - Ramp card', 'Yes - ACH', 'No'] },
       { k: 'avgMonthly', label: 'Avg Monthly ($)', type: 'number' },
       { k: 'contactPhone', label: 'Provider Phone' },
       { k: 'portal', label: 'Portal URL' },
@@ -274,9 +274,9 @@ export const RECORD_TYPES = {
     ],
     cols: [
       { label: 'Service', main: (r) => r.service, sub: (r) => r.provider },
-      { label: 'Account #', mono: (r) => r.accountNumber || '—' },
-      { label: 'Meter', mono: (r) => r.meterNumber || '—' },
-      { label: 'Autopay', plain: (r) => r.autopay || '—' },
+      { label: 'Account #', mono: (r) => r.accountNumber || '-' },
+      { label: 'Meter', mono: (r) => r.meterNumber || '-' },
+      { label: 'Autopay', plain: (r) => r.autopay || '-' },
       { label: 'Avg / mo', mono: (r) => formatMoney(r.avgMonthly) },
     ],
     sort: (a, b) => (a.service || '') < (b.service || '') ? -1 : 1,
@@ -300,7 +300,7 @@ export const RECORD_TYPES = {
     ],
     cols: [
       { label: 'Vendor', main: (r) => r.company, sub: (r) => r.category },
-      { label: 'Contact', main: (r) => r.contactName || '—', sub: (r) => [r.phone, r.email].filter(Boolean).join(' · ') },
+      { label: 'Contact', main: (r) => r.contactName || '-', sub: (r) => [r.phone, r.email].filter(Boolean).join(' · ') },
       { label: 'Contract', mono: (r) => formatDate(r.contractStart) + ' → ' + formatDate(r.contractEnd) },
       { label: 'COI', chip: (r) => r.coiExpiration ? renewalCellFromDate(r.coiExpiration) : <StatusBadge tone="red">Missing</StatusBadge> },
       { label: '$ / mo', mono: (r) => formatMoney(r.monthlyCost) },

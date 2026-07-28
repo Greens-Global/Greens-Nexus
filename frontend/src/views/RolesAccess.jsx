@@ -9,7 +9,7 @@ import { useNameResolver } from '../lib/useNameResolver';
 import { capabilityText } from '../lib/moduleCapabilities';
 import GuidedTour from '../components/GuidedTour';
 
-// ── Roles & Access — people-first restructure (Jul 27) ───────────────────────
+// ── Roles & Access - people-first restructure (Jul 27) ───────────────────────
 // One rule: a person's access = their ONE job role (baseline) + extra groups
 // (additive). The screen leads with People (search a person, see and change
 // their access, every line says where it came from), Job roles render as
@@ -19,7 +19,7 @@ const LEVEL_ORDER = ['viewer', 'editor', 'full', 'owner'];
 const GRANTABLE = MODULES.filter(m => !['admin', 'roles-access', 'hr_comp'].includes(m.id));
 const TIERS = Object.keys(ROLES);
 
-// Audit-tab module families — collapse 21 columns into 6 readable ones.
+// Audit-tab module families - collapse 21 columns into 6 readable ones.
 const FAMILIES = [
   { id: 'everyday', label: 'Everyday',      modules: ['dashboard', 'timeclock', 'myhr', 'tasks'] },
   { id: 'company',  label: 'Company',       modules: ['sop', 'hr', 'documents', 'external-links', 'support'] },
@@ -33,7 +33,7 @@ const moduleLabel = id => MODULES.find(m => m.id === id)?.label || id;
 
 // ── shared bits (also reused by the People card Access section) ───────────────
 export function LevelPill({ level, title }) {
-  if (!level) return <span style={{ color: 'var(--muted)', opacity: 0.4 }}>—</span>;
+  if (!level) return <span style={{ color: 'var(--muted)', opacity: 0.4 }}>-</span>;
   const label = MODULE_LEVELS[level]?.label || level;
   const base = { display: 'inline-flex', alignItems: 'center', padding: '3px 10px', borderRadius: 999, fontSize: 11.5, fontWeight: 700, fontFamily: 'Inter,sans-serif', whiteSpace: 'nowrap' };
   const styles = {
@@ -45,7 +45,7 @@ export function LevelPill({ level, title }) {
   return <span style={styles[level] || styles.viewer} title={title || MODULE_LEVELS[level]?.description || ''}>{label}</span>;
 }
 
-// A level pill that also names the module it's for — so a row of grants reads
+// A level pill that also names the module it's for - so a row of grants reads
 // "People · Viewer  Assets · Full" instead of a context-less "Viewer Full".
 export function ModuleLevelPill({ moduleId, level }) {
   const mod = MODULES.find(m => m.id === moduleId);
@@ -67,7 +67,7 @@ export function TierBadge({ tier }) {
   );
 }
 
-// "Owns: Accounting · Edits: Documents, Tasks · Views: Dashboard +2" — the
+// "Owns: Accounting · Edits: Documents, Tasks · Views: Dashboard +2" - the
 // plain-English one-liner that replaces a row of 20 pills on role cards.
 const LEVEL_VERB = { owner: 'Owns', full: 'Runs', editor: 'Edits', viewer: 'Views' };
 function bundleSummary(allowed) {
@@ -119,7 +119,7 @@ export default function RolesAccess({ embedded = false }) {
     .filter(p => p.email)
     .sort((a, b) => a.name.localeCompare(b.name)), [dir]);
 
-  // email → { role, groups } from the membership lists we already have — lets
+  // email → { role, groups } from the membership lists we already have - lets
   // person cards show chips without one API call per person.
   const membership = useMemo(() => {
     const m = {};
@@ -142,7 +142,7 @@ export default function RolesAccess({ embedded = false }) {
 
   async function onDelete(r) {
     try { await api.deleteJobRole(r.id); toastOk(`Deleted “${r.name}”.`); if (selId === r.id) setSelId(null); loadRoles(); }
-    catch (e) { toastErr(e?.message || 'Could not delete — reassign its people first.'); }
+    catch (e) { toastErr(e?.message || 'Could not delete - reassign its people first.'); }
   }
   async function removeMember(email) {
     if (!selected) return;
@@ -157,25 +157,25 @@ export default function RolesAccess({ embedded = false }) {
   const openDuplicate = r => setEditing({ ...r, id: undefined, member_count: 0, members: [],
     name: /\d+$/.test(r.name) ? r.name.replace(/(\d+)$/, m => String(+m + 1)) : `${r.name} 2` });
 
-  // Simulate — the guided walkthrough. Clicks are shielded while it runs, so it
+  // Simulate - the guided walkthrough. Clicks are shielded while it runs, so it
   // can point at the real buttons without any risk of changing live access.
   const tourSteps = [
     { target: 'tabs', title: 'One rule runs this whole screen',
       body: 'A person’s access = their job role + any extra groups. Nothing else. People is where you work day to day; Job roles and Groups are the building blocks; Audit is the all-at-once view.' },
     { target: 'people-search', before: () => setSub('people'), title: 'Start with a person',
-      body: 'Type any name. You’ll see who they are, their job role, their extra groups, and every screen they can touch — with the reason next to each line.' },
+      body: 'Type any name. You’ll see who they are, their job role, their extra groups, and every screen they can touch - with the reason next to each line.' },
     { target: 'person-panel', before: () => { setSub('people'); if (!person && people[0]) setPerson(people[0].email); }, title: 'Change access right here',
-      body: 'Switch their job role (baseline follows automatically), or add / remove extra groups. You never edit a person’s permissions directly — everything comes from a role or a group, so it’s always explainable.' },
+      body: 'Switch their job role (baseline follows automatically), or add / remove extra groups. You never edit a person’s permissions directly - everything comes from a role or a group, so it’s always explainable.' },
     { target: 'role-cards', before: () => setSub('jobroles'), title: 'Job roles, in plain English',
       body: 'Each card is one job: “Runs: Accounting · Edits: Documents · Views: …”. Click a card for the full bundle and the people who hold it. Editing a role updates everyone in it at once.' },
     { target: 'duplicate', before: () => { setSub('jobroles'); if (!selId && (jobRoles || [])[0]) setSelId(jobRoles[0].id); }, title: 'Same job, more power? Duplicate.',
       body: 'For a supervisor version of an existing role: Duplicate, rename it, raise the tier and levels, save. The original role and its people are untouched.' },
     { target: 'role-approver', before: () => { setSub('jobroles'); if (!selId && (jobRoles || [])[0]) setSelId(jobRoles[0].id); }, title: 'One approver for the whole role',
-      body: 'Pick who approves this role’s timesheets. Save as default — every NEW person mapped to the role reports to them automatically. “Apply to all members” backfills everyone already in the role in one click (ten people, two clicks). Individual People cards can still override.' },
+      body: 'Pick who approves this role’s timesheets. Save as default - every NEW person mapped to the role reports to them automatically. “Apply to all members” backfills everyone already in the role in one click (ten people, two clicks). Individual People cards can still override.' },
     { target: 'new-group', before: () => setSub('groups'), title: 'Groups add extras on top',
-      body: 'Same job but extra duties? Don’t touch the role — add the person to a group. Groups only ever ADD access, and removing one never affects the job-role baseline.' },
-    { target: 'audit-matrix', before: () => setSub('audit'), title: 'The audit view — everything at once',
-      body: 'Columns are grouped into six families — click a family name to expand its screens. Each row is a role; the band underneath is the extra groups. This is the screen for access reviews.' },
+      body: 'Same job but extra duties? Don’t touch the role - add the person to a group. Groups only ever ADD access, and removing one never affects the job-role baseline.' },
+    { target: 'audit-matrix', before: () => setSub('audit'), title: 'The audit view - everything at once',
+      body: 'Columns are grouped into six families - click a family name to expand its screens. Each row is a role; the band underneath is the extra groups. This is the screen for access reviews.' },
     { target: 'tabs', title: 'That’s the whole system',
       body: 'Hire → assign role. Promotion → switch role (Duplicate if it doesn’t exist yet). Extra duties → group. Question about anyone → type their name in People.' },
   ];
@@ -201,7 +201,7 @@ export default function RolesAccess({ embedded = false }) {
           </button>
         ))}
         <span style={{ flex: 1 }} />
-        <button onClick={() => setTour(true)} title="A guided walkthrough of how to give out access — nothing is changed while it runs."
+        <button onClick={() => setTour(true)} title="A guided walkthrough of how to give out access - nothing is changed while it runs."
           style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'none', border: '1px solid var(--line)', borderRadius: 999, padding: '6px 14px', margin: '4px 4px 8px 0', fontFamily: 'Inter,sans-serif', fontWeight: 700, fontSize: 12.5, cursor: 'pointer', color: 'var(--ink)', whiteSpace: 'nowrap' }}>
           <PlayCircle size={15} /> Simulate
         </button>
@@ -270,7 +270,7 @@ export default function RolesAccess({ embedded = false }) {
                       </div>
                     );
                   })}
-                  {(selected.allowed_modules || []).length === 0 && <div style={{ color: 'var(--muted)', fontSize: 13, marginTop: 16 }}>No modules granted yet — press Edit to build the bundle.</div>}
+                  {(selected.allowed_modules || []).length === 0 && <div style={{ color: 'var(--muted)', fontSize: 13, marginTop: 16 }}>No modules granted yet - press Edit to build the bundle.</div>}
                   <div style={sectLabel}>Timesheet approver (default manager)</div>
                   <ApproverPicker role={selected} people={people} nameOf={nameOf}
                     onSaved={loadRoles} toastOk={toastOk} toastErr={toastErr} />
@@ -357,7 +357,7 @@ export default function RolesAccess({ embedded = false }) {
   );
 }
 
-// ── PEOPLE tab — search a person, see and change their access ────────────────
+// ── PEOPLE tab - search a person, see and change their access ────────────────
 function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, nameOf, onChanged, toastOk, toastErr }) {
   const [q, setQ] = useState('');
   const [eff, setEff] = useState(null);
@@ -439,7 +439,7 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
             </div>
             <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)' }}>Pick a person</div>
             <div style={{ fontSize: 12.5, color: 'var(--muted)', maxWidth: '32ch', margin: '4px auto 0', lineHeight: 1.5 }}>
-              See exactly what they can do — and change their role or groups right here.
+              See exactly what they can do - and change their role or groups right here.
             </div>
           </div>
         ) : busy || !eff ? <Spinner /> : eff.error ? (
@@ -451,7 +451,7 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
               <TierBadge tier={eff.tier} />
             </div>
 
-            <div style={sectLabel}>Job role — the baseline</div>
+            <div style={sectLabel}>Job role - the baseline</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
               {eff.job_role
                 ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 13px', borderRadius: 999, background: 'var(--ink)', color: 'var(--card)', fontSize: 12.5, fontWeight: 700 }}><Shield size={13} /> {eff.job_role.name}</span>
@@ -462,7 +462,7 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
               </select>
             </div>
 
-            <div style={sectLabel}>Extra groups — added on top</div>
+            <div style={sectLabel}>Extra groups - added on top</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               {(eff.extra_groups || []).map(g => (
                 <span key={g.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 6px 4px 12px', borderRadius: 999, border: '1px dashed var(--line-strong,var(--line))', fontSize: 12, fontWeight: 600 }}>
@@ -484,7 +484,7 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
 
             <div style={sectLabel}>What they can do</div>
             {(eff.modules || []).length === 0
-              ? <div style={{ fontSize: 13, color: 'var(--muted)' }}>Nothing yet — assign a job role to give them their baseline.</div>
+              ? <div style={{ fontSize: 13, color: 'var(--muted)' }}>Nothing yet - assign a job role to give them their baseline.</div>
               : eff.modules.map(m => (
                 <div key={m.module} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--line)' }}>
                   <span style={{ fontWeight: 600, fontSize: 13, minWidth: 150 }}>{moduleLabel(m.module)}</span>
@@ -492,7 +492,7 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
                   <span style={{ flex: 1 }} />
                   {/* Provenance reuses the dashed "+ group" language from the chips
                       above, so baseline (quiet, from the role) vs extra (dashed
-                      add-on) reads at a glance — the whole point of this screen. */}
+                      add-on) reads at a glance - the whole point of this screen. */}
                   {m.manual
                     ? <span title={`Extra access from the “${m.source}” group`}
                         style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11.5, fontWeight: 600, color: 'var(--ink)', border: '1px dashed var(--line-strong,var(--line))', borderRadius: 999, padding: '2px 9px', whiteSpace: 'nowrap' }}>+ {m.source}</span>
@@ -506,7 +506,7 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
   );
 }
 
-// ── AUDIT tab — the matrix, tamed with module families ───────────────────────
+// ── AUDIT tab - the matrix, tamed with module families ───────────────────────
 function AuditMatrix({ jobRoles, groups }) {
   const [open, setOpen] = useState(() => new Set());       // expanded family ids
   const [hoverCol, setHoverCol] = useState(null);          // family id or module id
@@ -514,7 +514,7 @@ function AuditMatrix({ jobRoles, groups }) {
   const toggle = id => setOpen(s => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
 
   if (!jobRoles || !groups) return <Spinner />;
-  if (jobRoles.length === 0) return <Empty text="No job roles yet — create one in the Job roles tab." />;
+  if (jobRoles.length === 0) return <Empty text="No job roles yet - create one in the Job roles tab." />;
 
   // For a row's grants, the strongest level within a family (dot = mixed levels).
   const familyCell = (byId, fam) => {
@@ -543,7 +543,7 @@ function AuditMatrix({ jobRoles, groups }) {
           const c = familyCell(byId, fam);
           return (
             <td key={fam.id} style={{ ...tdCell, ...colHl(fam.id) }} onMouseEnter={() => setHoverCol(fam.id)} onMouseLeave={() => setHoverCol(null)}
-              title={c.level ? `${fam.label}: strongest is ${MODULE_LEVELS[c.level]?.label}${c.mixed ? ' (mixed — expand to see each screen)' : ''}` : `${fam.label}: no access`}>
+              title={c.level ? `${fam.label}: strongest is ${MODULE_LEVELS[c.level]?.label}${c.mixed ? ' (mixed - expand to see each screen)' : ''}` : `${fam.label}: no access`}>
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
                 <LevelPill level={c.level} />
                 {c.mixed && c.level && <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--muted)' }} />}
@@ -621,10 +621,10 @@ function AuditMatrix({ jobRoles, groups }) {
   );
 }
 
-// ── role approver — the "ten people, two clicks" control ─────────────────────
+// ── role approver - the "ten people, two clicks" control ─────────────────────
 // Default manager on the role: new members with no manager inherit it; "Apply to
 // all" backfills current members. Per-person Manager (People card) stays the
-// source of truth — this is a bulk tool, not a second truth.
+// source of truth - this is a bulk tool, not a second truth.
 function ApproverPicker({ role, people, nameOf, onSaved, toastOk, toastErr }) {
   const [val, setVal] = useState(role.default_manager_email || '');
   const [busy, setBusy] = useState('');
@@ -634,7 +634,7 @@ function ApproverPicker({ role, people, nameOf, onSaved, toastOk, toastErr }) {
     setVal(v); setBusy('save');
     try {
       await api.updateJobRole(role.id, { default_manager_email: v });
-      toastOk(v ? `Default approver saved — new people mapped to “${role.name}” will report to ${nameOf(v)}.` : 'Default approver cleared.');
+      toastOk(v ? `Default approver saved - new people mapped to “${role.name}” will report to ${nameOf(v)}.` : 'Default approver cleared.');
       onSaved();
     } catch (e) { toastErr(e?.message || 'Could not save the approver.'); }
     setBusy('');
@@ -776,7 +776,7 @@ function GroupEditor({ group, onClose, onSaved, onErr }) {
     <Modal onClose={onClose} title={group ? 'Edit group' : 'New group'} wide>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <label style={fieldLabel}>Name
-          <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Accounting — Viewer" style={input} /></label>
+          <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Accounting - Viewer" style={input} /></label>
         <div>
           <div style={{ ...sectLabel, marginTop: 4 }}>Modules this group grants</div>
           <div style={{ border: '1px solid var(--line)', borderRadius: 10, maxHeight: 300, overflow: 'auto' }}>
@@ -813,7 +813,7 @@ function AssignModal({ role, onClose, onAssigned, onErr }) {
   const [dir, setDir] = useState(null);
   const [q, setQ] = useState('');
   const [busy, setBusy] = useState('');
-  // Everyone already on this role, plus anyone added during this sitting — so the
+  // Everyone already on this role, plus anyone added during this sitting - so the
   // dialog stays open and you can add several people in a row without reopening.
   const [added, setAdded] = useState(() => new Set((role.members || []).map(e => (e || '').toLowerCase())));
   useEffect(() => { api.getPeopleDirectory().then(setDir).catch(() => setDir([])); }, []);
@@ -832,7 +832,7 @@ function AssignModal({ role, onClose, onAssigned, onErr }) {
 
   return (
     <Modal onClose={onClose} title={`Assign to “${role.name}”`}>
-      <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 12 }}>Sets this as their primary job role and their {ROLES[role.tier]?.label} tier. Extra groups they hold are kept. Pick as many people as you like — this stays open until you close it.</div>
+      <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 12 }}>Sets this as their primary job role and their {ROLES[role.tier]?.label} tier. Extra groups they hold are kept. Pick as many people as you like - this stays open until you close it.</div>
       <div style={{ position: 'relative', marginBottom: 10 }}>
         <Search size={15} style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
         <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Search people…" style={{ ...input, paddingLeft: 34 }} />

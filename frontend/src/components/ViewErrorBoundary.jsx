@@ -2,7 +2,7 @@ import { Component } from 'react';
 
 // Every view is a lazy() chunk with a content hash in its filename. Each merge
 // to dev redeploys and deletes the old chunks, so a tab left open for hours
-// 404s when it navigates to a view it hasn't loaded yet — the import rejects
+// 404s when it navigates to a view it hasn't loaded yet - the import rejects
 // and, without a boundary, React unmounts the whole app to a white screen.
 // A reload picks up the fresh index.html + chunk names and fixes everything.
 
@@ -10,7 +10,7 @@ const RELOAD_KEY = 'nexus:chunk-reload-at';
 
 function isStaleChunkError(error) {
   const msg = String(error?.message || error || '');
-  // Browsers/bundlers phrase a 404'd chunk many ways — a JS module import
+  // Browsers/bundlers phrase a 404'd chunk many ways - a JS module import
   // ("failed to fetch dynamically imported module"), a CSS preload ("unable to
   // preload CSS"), or a generic ChunkLoadError. Missing a variant shows the
   // scary generic card instead of the quiet auto-reload.
@@ -18,7 +18,7 @@ function isStaleChunkError(error) {
     || error?.name === 'ChunkLoadError';
 }
 
-// At most one automatic reload per minute — if the chunk is still missing
+// At most one automatic reload per minute - if the chunk is still missing
 // after a fresh load, something else is wrong and we show the card instead
 // of reload-looping.
 function reloadForFreshBuild() {
@@ -64,7 +64,7 @@ export default class ViewErrorBoundary extends Component {
           </div>
           <div style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.55, marginBottom: 18 }}>
             {stale
-              ? 'A new version was deployed while this tab was open. Reload to pick it up — nothing is lost.'
+              ? 'A new version was deployed while this tab was open. Reload to pick it up - nothing is lost.'
               : 'Something went wrong loading this section. Reloading usually fixes it.'}
           </div>
           <button

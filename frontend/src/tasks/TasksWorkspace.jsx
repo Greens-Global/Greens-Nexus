@@ -1,4 +1,4 @@
-// Task Module — the Tasks workspace: toolbar (search / group / view-kind) + the
+// Task Module - the Tasks workspace: toolbar (search / group / view-kind) + the
 // List and Board views + bulk action bar. Owns the shared view state, mirroring
 // the export's viewContext. Calendar/Timeline/Dashboard live in ./views/extras.
 import { useMemo, useState } from 'react';
@@ -37,7 +37,7 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
   const [hiddenCols, setHiddenCols] = useHiddenCols();
   const { can } = useRole();
   // Workload visibility:
-  //  • Never on the project task view (lockedProjectId set) — removed per request.
+  //  • Never on the project task view (lockedProjectId set) - removed per request.
   //  • Elsewhere (e.g. the Manage → Task List embed): management/oversight view,
   //    shown only to manage access (manager+), matching the ChangelogView convention.
   const canManage = !!can?.('manager');
@@ -62,7 +62,7 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
     projectIds: lockedProjectId ? [lockedProjectId] : filters.projectIds,
     assigneeIds: mine && myEmail ? [myEmail] : filters.assigneeIds,
   };
-  // Fields in play here — drives the Group/Sort/Filter menus below as well as
+  // Fields in play here - drives the Group/Sort/Filter menus below as well as
   // the columns, so all four offer exactly the same set.
   const activeFields = useMemo(
     () => fieldsForProject(store.customFields || [], lockedProjectId),
@@ -90,7 +90,7 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
   });
   const ctx = { nameOf, projectName, teamName, customFields: activeFields };
   const lockedProject = lockedProjectId ? projectById(lockedProjectId) : null;
-  // Only select fields can group or sort meaningfully — a free-text field would
+  // Only select fields can group or sort meaningfully - a free-text field would
   // make one group per distinct string.
   const groupableFields = activeFields.filter((f) => f.type === 'select');
   const groupOptions = [
@@ -103,7 +103,7 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
 
   return (
     <div style={{ fontFamily: FONT, color: NX.ink, display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%', background: NX.canvas }}>
-      {/* Row 1 — back to Projects + project name/team, New task on the right */}
+      {/* Row 1 - back to Projects + project name/team, New task on the right */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 20px 12px', flexWrap: 'wrap', background: NX.surface }}>
         {onBack && (
           <button onClick={onBack} title="Back" aria-label="Back" style={{ ...btn('ghost'), padding: 6, marginLeft: -6, color: NX.dim }}><ArrowLeft size={18} /></button>
@@ -125,7 +125,7 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
         )}
       </div>
 
-      {/* Row 2 — view tabs + search & filters (desktop). Mobile: replaced by the floating MobileTaskBar. */}
+      {/* Row 2 - view tabs + search & filters (desktop). Mobile: replaced by the floating MobileTaskBar. */}
       {!isMobile && (
       <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 12, padding: '0 20px 12px', borderBottom: `1px solid ${NX.border}`, background: NX.surface, overflowX: 'visible' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 2, background: NX.border2, borderRadius: 9, padding: 2, flexShrink: 0, maxWidth: '100%', overflowX: 'visible' }}>
@@ -149,7 +149,7 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
             customFields={activeFields} sortFieldOptions={sortFieldOptions}
             groupOptions={(view === 'list' || view === 'board') ? groupOptions : null}
           />
-          {/* Column controls belong to the List view only — they'd have nothing
+          {/* Column controls belong to the List view only - they'd have nothing
               to act on in Board/Calendar/Timeline. */}
           {view === 'list' && (
             <ListColumnControls
@@ -211,9 +211,9 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
             <option value="" disabled>Priority…</option>
             {['urgent', 'high', 'medium', 'low'].map((p) => <option key={p} value={p} style={{ color: NX.ink }}>{p[0].toUpperCase() + p.slice(1)}</option>)}
           </select>
-          <select onChange={(e) => { if (e.target.value) { bulkUpdate([...selected], { assigneeId: e.target.value === '—' ? '' : e.target.value }); clearSel(); } }} defaultValue="" style={selStyle}>
+          <select onChange={(e) => { if (e.target.value) { bulkUpdate([...selected], { assigneeId: e.target.value === '-' ? '' : e.target.value }); clearSel(); } }} defaultValue="" style={selStyle}>
             <option value="" disabled>Assign…</option>
-            <option value="—" style={{ color: NX.ink }}>Unassigned</option>
+            <option value="-" style={{ color: NX.ink }}>Unassigned</option>
             {people.map((p) => <option key={p.email} value={p.email} style={{ color: NX.ink }}>{p.name}</option>)}
           </select>
           <button onClick={duplicate} title="Duplicate the selected tasks" style={{ ...btn('ghost'), color: '#fff' }}><Copy size={14} />Duplicate</button>
@@ -277,7 +277,7 @@ function TaskRow({ t, store, selected, toggleSel, onOpen }) {
       {t.assigneeId ? <Avatar email={t.assigneeId} name={nameOf(t.assigneeId)} size={24} /> : <span style={{ width: 24 }} />}
       <PriorityChip priority={t.priority} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <span style={{ fontSize: 12, color: overdue ? NX.red : NX.dim, fontWeight: overdue ? 600 : 400, minWidth: 74, textAlign: 'right' }}>{t.dueOn || '—'}</span>
+        <span style={{ fontSize: 12, color: overdue ? NX.red : NX.dim, fontWeight: overdue ? 600 : 400, minWidth: 74, textAlign: 'right' }}>{t.dueOn || '-'}</span>
         <StatusChip status={t.status} />
       </div>
     </div>

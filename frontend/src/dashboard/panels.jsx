@@ -27,9 +27,9 @@ const Card = ({ title, sub, action, children }) => (
   </div>
 );
 
-const fmtDate = (iso) => iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
+const fmtDate = (iso) => iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-';
 
-// ── Pending approvals (REAL — ported from ManagerDashboard "Pending Actions") ──
+// ── Pending approvals (REAL - ported from ManagerDashboard "Pending Actions") ──
 export function ApprovalsPanel() {
   const { accounts } = useMsal();
   const myName = accounts[0]?.name ?? 'Manager';
@@ -124,7 +124,7 @@ export function ApprovalsPanel() {
               </div>
               {expandedReq === req.id && (
                 <div style={{ borderTop: '1px solid var(--line)', padding: '9px 13px', background: 'var(--mist)', fontSize: '0.83rem', color: 'var(--muted)' }}>
-                  <strong>Reason:</strong> {req.reason || '—'}
+                  <strong>Reason:</strong> {req.reason || '-'}
                 </div>
               )}
               {rejectingId === req.id && (
@@ -226,7 +226,7 @@ export function ApprovalsPanel() {
   );
 }
 
-// ── Who has what (REAL — ported from ManagerDashboard) ────────────────────────
+// ── Who has what (REAL - ported from ManagerDashboard) ────────────────────────
 export function WhoHasWhatPanel() {
   const { accounts } = useMsal();
   const myEmail = (accounts[0]?.username ?? '').toLowerCase();
@@ -273,7 +273,7 @@ export function WhoHasWhatPanel() {
       const isOverdue = linkedReq?.expectedReturnDate && linkedReq.expectedReturnDate < todayStr;
       return {
         key: a.id, employee: a.assignedTo, item: a.name, dept: a.dept, type: 'Permanent',
-        since: a.lastUpdated, dueDate: linkedReq?.expectedReturnDate ?? '—', isOverdue: !!isOverdue, reqId: a.id,
+        since: a.lastUpdated, dueDate: linkedReq?.expectedReturnDate ?? '-', isOverdue: !!isOverdue, reqId: a.id,
       };
     });
 
@@ -296,13 +296,13 @@ export function WhoHasWhatPanel() {
     }).catch(err => {
       const msg = /409|stock/i.test(err?.message || '')
         ? `Not enough ${row.item} in stock to allocate right now.`
-        : `Couldn't allocate ${row.item} — please try again.`;
+        : `Couldn't allocate ${row.item} - please try again.`;
       setAllocErrors(p => ({ ...p, [row.key]: msg }));
     }).finally(() => setAllocating(p => ({ ...p, [row.key]: false })));
   }
 
   return (
-    <Card title={`Who has what${overdueCount ? ` — ⚠ ${overdueCount} overdue` : ''}`}
+    <Card title={`Who has what${overdueCount ? ` - ⚠ ${overdueCount} overdue` : ''}`}
       sub="Everything currently checked out, permanent and temporary"
       action={
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
@@ -317,7 +317,7 @@ export function WhoHasWhatPanel() {
       {pendingAlloc.length > 0 && (
         <div style={{ marginBottom: 14, border: '1px solid hsla(var(--color-blue),0.25)', borderRadius: 10, background: 'hsla(var(--color-blue),0.03)', padding: 10 }}>
           <div style={{ fontSize: 11.5, fontWeight: 700, color: 'hsl(var(--color-blue))', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 8 }}>
-            Pending allocation — {pendingAlloc.length}
+            Pending allocation - {pendingAlloc.length}
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {pendingAlloc.map(row => (
@@ -325,7 +325,7 @@ export function WhoHasWhatPanel() {
                 style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', cursor: 'pointer', border: '1px solid var(--line)', borderRadius: 8, padding: '9px 11px', background: 'var(--card)' }}>
                 <div style={{ flex: 1, minWidth: 150 }}>
                   <strong style={{ fontSize: 13 }}>{row.employee}</strong>
-                  <span style={{ fontSize: 12.5, color: 'var(--muted)' }}> — {row.item}</span>
+                  <span style={{ fontSize: 12.5, color: 'var(--muted)' }}> - {row.item}</span>
                   <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
                     {row.assignedTo ? <>Assigned to {row.assignedToEmail === myEmail ? 'you' : row.assignedTo}</> : 'Unassigned'}
                     {row.approvedAt && <> · approved {new Date(row.approvedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</>}
@@ -364,12 +364,12 @@ export function WhoHasWhatPanel() {
               style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', cursor: 'pointer', border: `1px solid ${row.isOverdue ? 'hsla(var(--color-red),0.35)' : 'var(--line)'}`, borderRadius: 8, padding: '9px 11px', background: row.isOverdue ? 'hsla(var(--color-red),0.03)' : 'var(--paper)' }}>
               <div style={{ flex: 1, minWidth: 160 }}>
                 <strong style={{ fontSize: 13 }}>{row.employee}</strong>
-                <span style={{ fontSize: 12.5, color: 'var(--muted)' }}> — {row.item}</span>
+                <span style={{ fontSize: 12.5, color: 'var(--muted)' }}> - {row.item}</span>
                 {row.raisedBy && row.raisedBy !== row.employee && (
                   <span style={{ fontSize: 11, color: 'var(--muted)' }}> (via {row.raisedBy})</span>
                 )}
                 <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>
-                  {row.dept} · since {row.since ? new Date(row.since).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—'} ·{' '}
+                  {row.dept} · since {row.since ? new Date(row.since).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '-'} ·{' '}
                   <span style={{ fontWeight: row.isOverdue ? 700 : 500, color: row.isOverdue ? 'hsl(var(--color-red))' : 'var(--muted)' }}>
                     {row.isOverdue && '⚠ '}due {row.dueDate}
                   </span>
@@ -400,11 +400,11 @@ export function WhoHasWhatPanel() {
   );
 }
 
-// ── Team time (REAL — TimeAdmin, scoped server-side to direct reports) ────────
+// ── Team time (REAL - TimeAdmin, scoped server-side to direct reports) ────────
 export function TeamTimePanel() {
   const [tmsg, setTmsg] = useState(null);
   return (
-    <Card title="Team Time" sub="Your direct reports' punches, approvals and time off — HR sees the whole company under HR → Time">
+    <Card title="Team Time" sub="Your direct reports' punches, approvals and time off - HR sees the whole company under HR → Time">
       {tmsg && (
         <div style={{ padding: '9px 14px', borderRadius: 10, marginBottom: 12, fontSize: 12.5, fontWeight: 600,
           background: tmsg.ok ? 'hsla(var(--color-green),0.1)' : 'rgba(220,38,38,0.08)',
@@ -431,7 +431,7 @@ const TREND = [
 ];
 const TASKS = [
   { title: 'Approve Lakeline repaving change order', dept: 'Construction',     due: 'Today',    prio: 'high' },
-  { title: 'Q2 occupancy report — Asset Management', dept: 'Asset Management', due: 'Today',    prio: 'high' },
+  { title: 'Q2 occupancy report - Asset Management', dept: 'Asset Management', due: 'Today',    prio: 'high' },
   { title: 'Reply to Downtown 4-star review',        dept: 'Operations',       due: 'Tomorrow', prio: 'med' },
   { title: 'Renew Evergreen Electrical COI',         dept: 'Accounting',       due: 'May 30',   prio: 'high' },
   { title: 'Onboard new Summit site manager',        dept: 'HR',               due: 'Jun 2',    prio: 'med' },

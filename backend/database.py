@@ -10,7 +10,7 @@ DATABASE_URL = os.environ.get(
 if DATABASE_URL.startswith("sqlite"):
     engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 else:
-    # psycopg2-binary bundles its own libpq — no system dependencies needed on
+    # psycopg2-binary bundles its own libpq - no system dependencies needed on
     # Azure App Service. sslmode=require encrypts without verifying the cert chain;
     # Supabase's intermediate CA isn't in Azure's trust store so verify-full fails.
     url = DATABASE_URL
@@ -24,7 +24,7 @@ else:
         # Connection budget: Supabase max_connections=60, ~10 reserved for
         # superuser/internal → ~50 usable, shared by BOTH deployment slots while
         # a deploy overlaps. The old 3+5 per worker × 8 workers = 64 potential
-        # OVERSHOT that ceiling — bursts (one page load fans out 10-15 calls)
+        # OVERSHOT that ceiling - bursts (one page load fans out 10-15 calls)
         # intermittently hit "too many clients" → instant OperationalError →
         # random 500s on any endpoint (Jul 24 diagnosis). 2+3 × 8 workers = 40
         # caps prod safely under the limit; short bursts beyond it queue for up

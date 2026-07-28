@@ -1,14 +1,14 @@
-// Field schema for the "Development Timeline" tab — a fixed set of columns (unlike Permits,
+// Field schema for the "Development Timeline" tab - a fixed set of columns (unlike Permits,
 // which derives its columns dynamically from whatever keys exist on the rows; see
 // SimpleRecordTable.jsx / permitColumns()).
 //
-// Shape: [key, label, options?] — matches the tuple format SimpleRecordTable and
+// Shape: [key, label, options?] - matches the tuple format SimpleRecordTable and
 // SimpleRowModal both expect for their `cols`/`fields` props.
 //
 // NOTE for App.jsx integration: App.jsx currently defines its OWN local TIMELINE_FIELDS (a
 // simplified 4-column phase/status/statusDate/notes version) instead of importing this one. This
 // file's TIMELINE_FIELDS is the ground-truth schema extracted from the original app (8 columns:
-// phase, permit, agency, whenRequired, submittals, reviewTime, notes, status) — App.jsx's local
+// phase, permit, agency, whenRequired, submittals, reviewTime, notes, status) - App.jsx's local
 // copy should be replaced with an import from here to match original behavior.
 
 export const TIMELINE_STATUS_OPTIONS = ['Complete', 'Pending', 'In Progress', 'N/A'];

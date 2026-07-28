@@ -69,8 +69,8 @@ export default function GoogleAdsHeader({
           {(isOver || isWarning) && (
             <p style={{ fontSize: 12.5, fontWeight: 500, color: isOver ? C.red600 : C.amber600 }}>
               {isOver
-                ? `Monthly budget used up — ${formatCurrency(monthSpend)} of ${formatCurrency(monthlyBudget)} spent (${pct.toFixed(0)}%).`
-                : `Nearing monthly budget — ${formatCurrency(monthSpend)} of ${formatCurrency(monthlyBudget)} used (${pct.toFixed(0)}%).`}
+                ? `Monthly budget used up - ${formatCurrency(monthSpend)} of ${formatCurrency(monthlyBudget)} spent (${pct.toFixed(0)}%).`
+                : `Nearing monthly budget - ${formatCurrency(monthSpend)} of ${formatCurrency(monthlyBudget)} used (${pct.toFixed(0)}%).`}
             </p>
           )}
         </div>

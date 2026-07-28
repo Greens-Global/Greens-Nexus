@@ -30,7 +30,7 @@ def _seed_if_empty(db: Session):
 def _parse_modules(raw: str) -> list[dict]:
     """Decode 'inventory:full,it' → [{"id": "inventory", "level": "full"}, {"id": "it", "level": "viewer"}].
     A bare module id with no ':level' suffix (old data, or a malformed grant)
-    defaults to "viewer" — matching the original visibility-only behaviour."""
+    defaults to "viewer" - matching the original visibility-only behaviour."""
     out = []
     for part in (raw or "").split(","):
         part = part.strip()
@@ -83,7 +83,7 @@ def _modules_csv(modules: "list[ModuleGrant]") -> str:
 # ── Schemas ──────────────────────────────────────────────────────────────────
 
 class ModuleGrant(BaseModel):
-    """One screen + the permission level the group grants for it — mirrors a
+    """One screen + the permission level the group grants for it - mirrors a
     folder-permission row (Viewer/Editor/Full/Owner), so visibility and
     capability are decided together as a single, explicit, auditable choice."""
     id: str
@@ -119,7 +119,7 @@ def list_groups(user: dict = Depends(get_current_user), db: Session = Depends(ge
         _seed_if_empty(db)
         groups = db.query(NexusGroup).order_by(NexusGroup.created_at).all()
     else:
-        # All other users only receive the groups they belong to — enough for the
+        # All other users only receive the groups they belong to - enough for the
         # frontend to compute myGrantedModules without exposing org-wide group data
         member_ids = [r.group_id for r in db.query(NexusGroupMember.group_id).filter(
             NexusGroupMember.email == user["email"]
@@ -127,7 +127,7 @@ def list_groups(user: dict = Depends(get_current_user), db: Session = Depends(ge
         groups = db.query(NexusGroup).filter(NexusGroup.id.in_(member_ids)).order_by(NexusGroup.created_at).all() if member_ids else []
     result = [_serialize(g, db) for g in groups]
     if user["level"] < 4:
-        # Non-admins must not see other members' emails — they only need to
+        # Non-admins must not see other members' emails - they only need to
         # know they're in the group (for myGrantedModules computation).
         for g in result:
             g["members"] = [user["email"]] if user["email"] in g["members"] else []
@@ -234,7 +234,7 @@ def remove_member(group_id: str, email: str, user: dict = Depends(require_admini
 @router.post("/{group_id}/assign-role")
 def assign_group_role(group_id: str, body: GroupRoleAssignment, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """Bulk-assign a role to every member of the group, enforcing the same
-    delegation rules as the single-user PUT /roles/{email} (roles.py:99-114) —
+    delegation rules as the single-user PUT /roles/{email} (roles.py:99-114) -
     requesters can only grant roles strictly below their own level (unless
     owner) and cannot touch existing admins."""
     group = db.query(NexusGroup).filter(NexusGroup.id == group_id).first()

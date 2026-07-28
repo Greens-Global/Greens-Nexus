@@ -4,10 +4,10 @@ import { api } from '../api';
 
 // ── Shared Egnyte file picker modal (Documents module) ───────────────────────
 // Used from both DocumentsBrowser.jsx's CreateDocModal and DocumentBuilder.jsx's
-// Import popover — folder-at-a-time browse, pick a supported file, and it's
+// Import popover - folder-at-a-time browse, pick a supported file, and it's
 // handed back as a real File (same shape a local <input type=file> pick gives),
 // so callers feed it into the exact same importDocumentFile() pipeline either
-// way. Read-only — never writes to Egnyte (that's esign.py's separate,
+// way. Read-only - never writes to Egnyte (that's esign.py's separate,
 // already-existing _egnyte_push() archival feature).
 const overlayStyle = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 };
 const cardStyle = { background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 480, maxHeight: '80vh', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' };
@@ -24,7 +24,7 @@ export default function EgnyteBrowser({ onPick, onClose }) {
     setError('');
     api.egnyteBrowse(p).then(d => { setData(d); setPath(p); })
       .catch(e => setError(e.status === 503
-        ? "Egnyte isn't connected yet — ask an admin to configure it."
+        ? "Egnyte isn't connected yet - ask an admin to configure it."
         : (e.message || 'Could not browse Egnyte')))
       .finally(() => setLoading(false));
   };

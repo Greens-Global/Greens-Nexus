@@ -18,12 +18,12 @@ import PullToRefresh from "./components/PullToRefresh";
 import ViewErrorBoundary from "./components/ViewErrorBoundary";
 import { onBackendHealth, isBackendDown, startKeepWarm } from "./api";
 
-// Always loaded — critical path
+// Always loaded - critical path
 import LoginPage from "./views/LoginPage";
 import PolicyGate from "./components/PolicyGate";
 import Dashboard from "./views/Dashboard";
 
-// Lazy-loaded — only fetched when the user navigates there
+// Lazy-loaded - only fetched when the user navigates there
 const InventoryManagement = lazy(() => import("./views/InventoryManagement"));
 const Tasks               = lazy(() => import("./views/Tasks"));
 const Purchase            = lazy(() => import("./views/Purchase"));
@@ -56,7 +56,7 @@ const VIEW_LABELS = Object.fromEntries(MODULES.map(m => [m.id, m.label]));
 const viewLabel = (view) => VIEW_LABELS[view]
   || (view || '').split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 
-// Minimum role required to access each restricted view — mirrors the minRole
+// Minimum role required to access each restricted view - mirrors the minRole
 // values in Sidebar's NAV array. Keep both in sync when adding new views.
 // Views absent from this map are accessible to everyone (dashboard, inventory, support).
 const VIEW_MIN_ROLES = {
@@ -79,7 +79,7 @@ const VIEW_MIN_ROLES = {
   'credvault':          'supervisor',
 };
 
-// E2E mode (Playwright CI only — VITE_E2E is never set on real builds) and the
+// E2E mode (Playwright CI only - VITE_E2E is never set on real builds) and the
 // local dev-login bypass (VITE_DEV_SKIP_AUTH, see msalInstance.js) both skip the
 // MSAL login gates entirely: AuthenticatedTemplate/UnauthenticatedTemplate gate
 // on MSAL's own `inProgress` interaction state from handleRedirectPromise(),
@@ -102,7 +102,7 @@ function RoleGate({ children }) {
   return children;
 }
 
-// Enforces access at render time — sits inside RoleProvider so it can call
+// Enforces access at render time - sits inside RoleProvider so it can call
 // useRole(). Even if navigate() is called externally (nexus:navigate event,
 // notification links, dev tools), the actual view content is never shown
 // without the correct role or a group grant.
@@ -194,10 +194,10 @@ const DEFAULT_SUBS = {
 const getDefaultSub = view => DEFAULT_SUBS[view] ?? null;
 
 export default function App() {
-  // Public e-sign page (/sign/{token}) renders OUTSIDE the MSAL gate — external
+  // Public e-sign page (/sign/{token}) renders OUTSIDE the MSAL gate - external
   // signers have no login; the URL token is the credential. Routing lives in this
   // thin shell so the hook-bearing app body (MainApp) always calls its hooks
-  // unconditionally — the sign page mounts a different tree entirely.
+  // unconditionally - the sign page mounts a different tree entirely.
   if (parsePath().view === 'sign') {
     const token = window.location.pathname.split('/').filter(Boolean)[1] || '';
     return (
@@ -206,7 +206,7 @@ export default function App() {
       </Suspense>
     );
   }
-  // Public certificate verification (/verify/{token}) — same reasoning as
+  // Public certificate verification (/verify/{token}) - same reasoning as
   // /sign/{token} above: outside the MSAL gate, since anyone scanning a QR
   // code off a printed/emailed document has no Nexus login.
   if (parsePath().view === 'verify') {
@@ -217,7 +217,7 @@ export default function App() {
       </Suspense>
     );
   }
-  // Dev-only login preview (/__login) — with VITE_DEV_SKIP_AUTH the MSAL gates
+  // Dev-only login preview (/__login) - with VITE_DEV_SKIP_AUTH the MSAL gates
   // never show LoginPage, so this is the only way to see it locally. Stripped
   // from production builds by the DEV guard.
   if (import.meta.env.DEV && window.location.pathname === '/__login') {
@@ -245,10 +245,10 @@ function MainApp() {
   const [backendDown,      setBackendDown]      = useState(false);
   const sidebarRef = useRef(null);
   // Remount ticket for the active view. A module opened while the backend was
-  // down/restarting fetches nothing and settles into a false "no data yet — add
+  // down/restarting fetches nothing and settles into a false "no data yet - add
   // one" empty state, and nothing ever refetches. Track whether the CURRENT
   // screen was mounted during an outage; when the backend recovers, bump this
-  // key to remount it so it loads for real — no user troubleshooting.
+  // key to remount it so it loads for real - no user troubleshooting.
   const [viewEpoch,        setViewEpoch]        = useState(0);
   const viewMountedDuringOutage = useRef(false);
   useEffect(() => { viewMountedDuringOutage.current = isBackendDown(); }, [activeView, activeSub]);
@@ -257,7 +257,7 @@ function MainApp() {
     setBackendDown(down);
     // Only remount screens that were OPENED during the outage (they loaded
     // nothing and show a false-empty state). A screen that was healthy when the
-    // outage began keeps its loaded data and any in-progress user input —
+    // outage began keeps its loaded data and any in-progress user input -
     // remounting it would throw that work away.
     if (!down && viewMountedDuringOutage.current) {
       viewMountedDuringOutage.current = false;
@@ -268,17 +268,17 @@ function MainApp() {
   // cold start on every open.
   useEffect(() => { startKeepWarm(); }, []);
 
-  // Collapse sidebar when clicking outside it — lets clicks pass through to content.
+  // Collapse sidebar when clicking outside it - lets clicks pass through to content.
   // Must listen on 'click', NOT 'mousedown': collapsing on mousedown reflows the
   // page mid-press, the target moves before mouseup, and the browser never fires
-  // the click on it — users had to click everything twice while the nav was open.
+  // the click on it - users had to click everything twice while the nav was open.
   // With 'click' the target's own handler runs first (bubbles to document last),
   // then the sidebar collapses: one click does both.
   useEffect(() => {
     if (sidebarCollapsed) return;
     const handleClickOutside = (e) => {
       // Expanding re-renders the sidebar and can replace the clicked node
-      // (chevron icon swap) before this handler runs — a detached target fails
+      // (chevron icon swap) before this handler runs - a detached target fails
       // contains() and instantly re-collapsed the nav. Ignore detached nodes.
       if (!document.documentElement.contains(e.target)) return;
       if (sidebarRef.current && !sidebarRef.current.contains(e.target)) {
@@ -374,7 +374,7 @@ function MainApp() {
             boxShadow: '0 2px 8px rgba(0,0,0,.25)',
           }}>
             <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#fca5a5', display: 'inline-block', animation: 'pulse 1.4s ease-in-out infinite' }} />
-            Service is reconnecting — data may be delayed. Retrying automatically…
+            Service is reconnecting - data may be delayed. Retrying automatically…
           </div>
         )}
         <div className="app-container" style={backendDown ? { paddingTop: 34 } : undefined}>
@@ -388,14 +388,14 @@ function MainApp() {
             collapsed={sidebarCollapsed}
             onToggleCollapse={() => setSidebarCollapsed(c => !c)}
           />
-          {/* App-style mobile chrome — phones only (CSS-gated ≤900px):
+          {/* App-style mobile chrome - phones only (CSS-gated ≤900px):
               bottom tab bar + adidas-style full-screen menu */}
           <MobileNav activeView={activeView} activeSub={activeSub} onNavigate={navigate} />
           <MobileMenu open={mobileMenuOpen} onClose={() => setMobileMenuOpen(false)}
             onNavigate={navigate} activeView={activeView}
             theme={theme} onThemeToggle={() => setTheme(t => t === "dark" ? "light" : "dark")} />
           {/* HeaderTabsProvider: modules publish their tab strip into the header
-              center via <ModuleTabs> (Work OS shell — Stella-style layout) */}
+              center via <ModuleTabs> (Work OS shell - Stella-style layout) */}
           <HeaderTabsProvider>
           <main className={`main-content${sidebarCollapsed ? " main-collapsed" : ""}`}>
             <TopHeader
@@ -412,7 +412,7 @@ function MainApp() {
               onOpenAdmin={tab => { setAdminPanelTab(tab); setAdminPanelOpen(true); }}
             />
             {/* viewport-desk: the Work OS canvas (soft gray --wk-bg) for the
-                dashboard surfaces — see the Work OS section in style.css */}
+                dashboard surfaces - see the Work OS section in style.css */}
             <div className={activeView === 'tasks' ? 'viewport viewport-flush'
               : (activeView === 'dashboard' || activeView === 'manager-dashboard') ? 'viewport viewport-desk'
               : 'viewport'}>

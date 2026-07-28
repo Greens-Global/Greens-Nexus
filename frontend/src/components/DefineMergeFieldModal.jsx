@@ -8,7 +8,7 @@ const cardStyle = { background: 'var(--card)', borderRadius: 16, width: '100%', 
 const label = { fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 5 };
 const field = { marginBottom: 14 };
 
-// Template Builder (Phase 13) — "select text → Convert to Merge Field" opens
+// Template Builder (Phase 13) - "select text → Convert to Merge Field" opens
 // this modal (new field, existingDef=null) or double-clicking an existing
 // chip reopens it pre-filled (existingDef set) to edit type/required/default/
 // validation without moving the chip. Saving here writes ONE field_defs
@@ -67,7 +67,7 @@ export default function DefineMergeFieldModal({ initialLabel = '', existingDef =
               onChange={(e) => onLabelChange(e.target.value)} placeholder="e.g. Contractor Name" />
           </div>
           <div style={field}>
-            <label style={label}>Merge Token — {'{{' + (token || '…') + '}}'}</label>
+            <label style={label}>Merge Token - {'{{' + (token || '…') + '}}'}</label>
             {isEdit ? (
               <input className="form-input" style={{ width: '100%', opacity: 0.65 }} value={token} disabled />
             ) : (
@@ -76,7 +76,7 @@ export default function DefineMergeFieldModal({ initialLabel = '', existingDef =
             )}
             {!isEdit && !tokenValid && <p style={{ fontSize: 11, color: 'hsl(var(--color-red))', margin: '4px 0 0' }}>Lowercase letters, numbers, underscores only.</p>}
             {!isEdit && tokenTaken && <p style={{ fontSize: 11, color: 'hsl(var(--color-red))', margin: '4px 0 0' }}>Another field already uses this token.</p>}
-            {isEdit && <p style={{ fontSize: 11, color: 'var(--muted)', margin: '4px 0 0' }}>The token can't change once the field is in use — it would break every chip already placed.</p>}
+            {isEdit && <p style={{ fontSize: 11, color: 'var(--muted)', margin: '4px 0 0' }}>The token can't change once the field is in use - it would break every chip already placed.</p>}
           </div>
           <div style={field}>
             <label style={label}>Field Type</label>

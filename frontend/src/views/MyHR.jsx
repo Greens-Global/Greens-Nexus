@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { api } from '../api';
 
-// My HR — employee self-service. Shows ONLY the signed-in person's own record:
+// My HR - employee self-service. Shows ONLY the signed-in person's own record:
 // profile (with self-service contact edits), hours graph, equipment, sealed
 // e-sign documents, paystubs, leave, and an "Ask HR" request channel.
 // The HR module remains the HR team's admin console; this screen is baseline.
@@ -28,11 +28,11 @@ const ASK_TYPES = [
   ['question', 'Question for HR'], ['other', 'Something else'],
 ];
 
-const fmtD = (iso) => iso ? new Date(iso + (iso.length === 10 ? 'T00:00:00' : '')).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
+const fmtD = (iso) => iso ? new Date(iso + (iso.length === 10 ? 'T00:00:00' : '')).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '-';
 const hm = (min) => `${Math.floor((min || 0) / 60)}h ${String((min || 0) % 60).padStart(2, '0')}m`;
-const fmtT = (v) => !v ? '—' : (String(v).includes('T') ? new Date(v).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : v);
+const fmtT = (v) => !v ? '-' : (String(v).includes('T') ? new Date(v).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : v);
 
-// Hours range filter — start/end in local time, ISO date keys.
+// Hours range filter - start/end in local time, ISO date keys.
 const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const HOUR_RANGES = [
   ['week',     'This week'],
@@ -62,7 +62,7 @@ function Row({ Icon, label, value }) {
   );
 }
 
-// Stat tile — the shared dk-stat anatomy (tinted icon chip, big tabular
+// Stat tile - the shared dk-stat anatomy (tinted icon chip, big tabular
 // numeral) so My HR reads like Home/People. `hero` = the one solid brand tile.
 function Stat({ label, value, hint, color, Icon, hero }) {
   return (
@@ -78,7 +78,7 @@ function Stat({ label, value, hint, color, Icon, hero }) {
 }
 
 // Approved leave this year as a small kit donut (2px gaps, center total) with
-// a per-type legend — real request data only; hidden when there's none.
+// a per-type legend - real request data only; hidden when there's none.
 const LEAVE_COLORS = { vacation: '#2b45e1', sick: '#dc7a18', personal: '#248f4b', unpaid: '#8a31c9', other: '#b8860b' };
 function LeaveDonut({ leave }) {
   const yr = String(new Date().getFullYear());
@@ -281,7 +281,7 @@ export default function MyHR() {
       setAskForm({ type: 'document', message: '' });
       setAskFile(null);
       if (askFileRef.current) askFileRef.current.value = '';
-      flash('Sent to HR — you’ll hear back here');
+      flash('Sent to HR - you’ll hear back here');
     } catch (e) { flash(e?.message || 'Could not send', false); }
     finally { setAskBusy(false); }
   };
@@ -299,7 +299,7 @@ export default function MyHR() {
       return s + (isNaN(a) || isNaN(b) ? 0 : Math.round((b - a) / 86400000) + 1);
     }, 0);
   const tenure = (() => {
-    if (!profile?.startDate) return '—';
+    if (!profile?.startDate) return '-';
     const days = Math.max(0, Math.round((Date.now() - new Date(profile.startDate + 'T00:00:00')) / 86400000));
     if (days < 31) return `${days}d`;
     if (days < 365) return `${Math.floor(days / 30.44)}mo`;
@@ -330,7 +330,7 @@ export default function MyHR() {
           </span>
           <div className="view-title-group">
             <h2>My HR</h2>
-            <p>Your profile, hours, documents and leave — only you see this</p>
+            <p>Your profile, hours, documents and leave - only you see this</p>
           </div>
         </div>
       </div>
@@ -396,7 +396,7 @@ export default function MyHR() {
                     <Row Icon={Phone} label="Phone" value={profile.phone} />
                     <Row Icon={Heart} label="Emergency" value={em.name ? [em.name, em.relationship && `(${em.relationship})`, em.phone].filter(Boolean).join(' · ') : ''} />
                     {!profile.personalEmail && !profile.phone && !em.name && (
-                      <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '10px 0' }}>Nothing here yet — add your contact details so HR can reach you.</div>
+                      <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '10px 0' }}>Nothing here yet - add your contact details so HR can reach you.</div>
                     )}
                   </div>
                 ) : (
@@ -424,7 +424,7 @@ export default function MyHR() {
                       </button>
                     </div>
                     <p style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 10 }}>
-                      Name, job, department or bank changes go through HR — use "Ask HR" for those.
+                      Name, job, department or bank changes go through HR - use "Ask HR" for those.
                     </p>
                   </div>
                 )}
@@ -485,7 +485,7 @@ export default function MyHR() {
                   <>
                     {workedTotal === 0 ? (
                       <div style={{ height: 110, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12.5, color: 'var(--muted)', textAlign: 'center', padding: '0 16px' }}>
-                        No hours in this range yet — punch in from Time Clock and they chart here.
+                        No hours in this range yet - punch in from Time Clock and they chart here.
                       </div>
                     ) : (
                       <HoursChart days={sheet.days} start={rStart} end={rEnd} />
@@ -539,7 +539,7 @@ export default function MyHR() {
                       style={{ fontSize: 12, padding: '5px 10px', height: 'auto', width: 130 }} />
                   ) : <Banknote size={15} style={{ color: 'var(--muted)' }} />)}
                 {stubs.length === 0 ? (
-                  <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '14px 0', textAlign: 'center' }}>No paystubs yet — they'll appear here when HR uploads them.</div>
+                  <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '14px 0', textAlign: 'center' }}>No paystubs yet - they'll appear here when HR uploads them.</div>
                 ) : stubs.filter(s => !stubQuery || (s.name || '').toLowerCase().includes(stubQuery.toLowerCase())).map(s => (
                   <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', borderBottom: '1px solid var(--line)' }}>
                     <Banknote size={15} style={{ color: 'hsl(var(--color-green))', flexShrink: 0 }} />
@@ -623,9 +623,9 @@ export default function MyHR() {
                 </select>
                 <label style={lbl}>Details</label>
                 <textarea className="form-input" rows={3} style={{ ...input, resize: 'vertical' }} value={askForm.message}
-                  placeholder='e.g. "My visa was renewed — please update my right-to-work document."'
+                  placeholder='e.g. "My visa was renewed - please update my right-to-work document."'
                   onChange={e => setAskForm(f => ({ ...f, message: e.target.value }))} />
-                {/* Optional attachment — the new/updated document itself */}
+                {/* Optional attachment - the new/updated document itself */}
                 <input ref={askFileRef} type="file" style={{ display: 'none' }}
                   onChange={e => setAskFile(e.target.files?.[0] || null)} />
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>

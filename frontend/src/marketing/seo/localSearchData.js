@@ -18,7 +18,7 @@ function seedFromString(s) {
 }
 
 // The two "map pack" queries every Google Business Profile competes on
-// locally — distinct from the head/long-tail terms in the main keyword
+// locally - distinct from the head/long-tail terms in the main keyword
 // database, which are organic-only.
 const LOCAL_QUERIES = [
   { keyword: 'storage units near me', baseVolume: 1_800 },

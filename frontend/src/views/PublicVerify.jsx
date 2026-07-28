@@ -2,12 +2,12 @@ import { useState, useEffect } from 'react';
 import { ShieldCheck, ShieldAlert, ShieldQuestion, Loader2, AlertTriangle } from 'lucide-react';
 import { API_BASE } from '../api';
 
-// ── Public certificate verification page — /verify/{token} ──────────────────
-// Renders OUTSIDE the MSAL gate (same reasoning as PublicSign.jsx — auditors,
+// ── Public certificate verification page - /verify/{token} ──────────────────
+// Renders OUTSIDE the MSAL gate (same reasoning as PublicSign.jsx - auditors,
 // opposing counsel, or the other party may scan this from a printed/emailed
 // copy with no Nexus login at all). Talks to /esign/public/verify/* with a
-// plain fetch, never MSAL. Deliberately shows a REDACTED summary — signer
-// names and dates, document-integrity + audit-chain validity — never emails,
+// plain fetch, never MSAL. Deliberately shows a REDACTED summary - signer
+// names and dates, document-integrity + audit-chain validity - never emails,
 // IP addresses, user-agents, or the raw event log (those stay behind the
 // internal, authenticated Certificate of Completion).
 
@@ -51,7 +51,7 @@ export default function PublicVerify({ token }) {
     vfetch(token)
       .then(setData)
       .catch(e => setError(/not found/i.test(e.message)
-        ? 'No verification record found for this link — it may be invalid, or the document may not be completed yet.'
+        ? 'No verification record found for this link - it may be invalid, or the document may not be completed yet.'
         : e.message));
   }, [token]);
 
@@ -69,7 +69,7 @@ export default function PublicVerify({ token }) {
           {children}
         </div>
         <p style={{ textAlign: 'center', fontSize: 11, color: 'var(--muted, #9ca3af)', marginTop: 16 }}>
-          This page shows a redacted summary only — signer emails, IP addresses, and the full
+          This page shows a redacted summary only - signer emails, IP addresses, and the full
           audit log are not exposed publicly and remain available to authorized staff internally.
         </p>
       </div>
@@ -103,7 +103,7 @@ export default function PublicVerify({ token }) {
         <Badge ok={data.auditChain?.chainAvailable ? data.auditChain.valid : null}
           title="Audit trail" unknownLabel="Not available for this envelope"
           detail={data.auditChain?.chainAvailable
-            ? `${data.auditChain.eventCount} recorded actions, cryptographically chained — each commits to every action before it.`
+            ? `${data.auditChain.eventCount} recorded actions, cryptographically chained - each commits to every action before it.`
             : 'This envelope was completed before the audit hash-chain feature existed.'} />
       </div>
 
@@ -111,7 +111,7 @@ export default function PublicVerify({ token }) {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {(data.signers || []).map((s, i) => (
           <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13.5, padding: '8px 0', borderBottom: i < data.signers.length - 1 ? '1px solid var(--line, #e5e7eb)' : 'none' }}>
-            <span style={{ fontWeight: 600, color: 'var(--ink, #111827)' }}>{s.name || '—'}</span>
+            <span style={{ fontWeight: 600, color: 'var(--ink, #111827)' }}>{s.name || '-'}</span>
             <span style={{ color: 'var(--muted, #6b7280)' }}>
               {s.signedAt ? `Signed ${s.signedAt.slice(0, 19).replace('T', '  ')} UTC` : 'Not yet signed'}
             </span>

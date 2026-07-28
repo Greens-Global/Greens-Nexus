@@ -65,7 +65,7 @@ export default function Purchase({ activeSub = null }) {
   const [submitError,  setSubmitError]  = useState('');   // P0-6: shown when the submit actually fails
   const [submitting,   setSubmitting]   = useState(false);
   const [directory,    setDirectory]    = useState([]);   // company people picker for on-behalf
-  const [approvers,    setApprovers]    = useState([]);   // manager list — only the picked one is notified
+  const [approvers,    setApprovers]    = useState([]);   // manager list - only the picked one is notified
   const [approverEmail, setApproverEmail] = useState('');
 
   useEffect(() => {
@@ -81,14 +81,14 @@ export default function Purchase({ activeSub = null }) {
   const resolvedItem  = isOther ? customItem.trim() : item;
   const employeeName  = forSelf ? myName : behalfName.trim();
   // Match against the directory so the requisition lands in THEIR log
-  // (employee_email), not the submitter's. The datalist inserts "Name — email",
-  // so resolve on that first — this disambiguates duplicate display names by
+  // (employee_email), not the submitter's. The datalist inserts "Name - email",
+  // so resolve on that first - this disambiguates duplicate display names by
   // email (P4). Fall back to a plain name only when it's uniquely a single
   // person, so a typed-but-not-picked unique name still works.
   const behalfQuery   = behalfName.trim().toLowerCase();
   const behalfByName  = directory.filter(d => (d.name || '').toLowerCase() === behalfQuery);
   const behalfMatch   = !forSelf && behalfQuery
-    ? (directory.find(d => `${d.name} — ${d.email}`.toLowerCase() === behalfQuery)
+    ? (directory.find(d => `${d.name} - ${d.email}`.toLowerCase() === behalfQuery)
        || (behalfByName.length === 1 ? behalfByName[0] : null))
     : null;
   const approver      = approvers.find(a => a.email === approverEmail) || null;
@@ -99,12 +99,12 @@ export default function Purchase({ activeSub = null }) {
     if (!canSubmit || submitting) return;
     // Reference link travels inside the reason so no backend change is needed
     const fullReason = refLink.trim() ? `${reason.trim()}\nReference: ${refLink.trim()}` : reason.trim();
-    // Notification is created by the BACKEND (targeted at the picked manager) —
+    // Notification is created by the BACKEND (targeted at the picked manager) -
     // employees can't write to the notifications API, so a client-side
     // addNotification here silently 403'd and nobody ever got notified.
     setSubmitting(true); setSubmitError('');
     try {
-      // P0-6: await the real result. submitRequisition now rejects on failure —
+      // P0-6: await the real result. submitRequisition now rejects on failure -
       // only flash success + clear the form + jump to the log once the backend has
       // actually accepted it. On failure the form (and the typed reason) is kept.
       await submitRequisition({
@@ -125,14 +125,14 @@ export default function Purchase({ activeSub = null }) {
     }
   };
 
-  const fmtDate = (iso) => iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
+  const fmtDate = (iso) => iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '-';
 
   return (
     <div className="purchase-view">
       <div className="view-header">
         <div className="view-title-group">
           <h2>Purchase Requisition</h2>
-          <p>Ask for anything the company needs to buy — equipment, materials, software, or something new</p>
+          <p>Ask for anything the company needs to buy - equipment, materials, software, or something new</p>
         </div>
         {tab === 'log' && requisitions.length > 0 && (
           <button className="secondary-btn" onClick={exportToCsv} style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
@@ -160,7 +160,7 @@ export default function Purchase({ activeSub = null }) {
 
       {flash && (
         <div style={{ background: 'hsla(142,60%,45%,0.12)', border: '1px solid hsla(142,60%,45%,0.35)', borderRadius: 10, padding: '12px 16px', marginBottom: 18, fontSize: '0.88rem', color: 'hsl(142,60%,38%)', fontWeight: 600 }}>
-          ✓ Requisition submitted — it is now pending manager approval.
+          ✓ Requisition submitted - it is now pending manager approval.
         </div>
       )}
 
@@ -179,7 +179,7 @@ export default function Purchase({ activeSub = null }) {
                   background: forSelf ? 'hsla(var(--color-green),0.08)' : 'var(--card)',
                   color: forSelf ? 'hsl(var(--color-green))' : 'var(--muted)',
                   fontWeight:700, fontSize:13, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
-                <User size={14} /> Myself{myName ? ` — ${myName}` : ''}
+                <User size={14} /> Myself{myName ? ` - ${myName}` : ''}
               </button>
               <button type="button" onClick={() => setForSelf(false)}
                 style={{ display:'inline-flex', alignItems:'center', gap:7, padding:'8px 16px', borderRadius:10,
@@ -198,7 +198,7 @@ export default function Purchase({ activeSub = null }) {
                 <datalist id="behalf-people">
                   {/* Value carries the email so duplicate names resolve to the
                       right account when picked (P4). */}
-                  {directory.map(d => <option key={d.email} value={`${d.name} — ${d.email}`} />)}
+                  {directory.map(d => <option key={d.email} value={`${d.name} - ${d.email}`} />)}
                 </datalist>
                 {behalfName.trim() && !behalfMatch && (
                   <p style={{ fontSize:11.5, color:'hsl(var(--color-orange))', margin:'6px 0 0' }}>
@@ -225,7 +225,7 @@ export default function Purchase({ activeSub = null }) {
               </select>
               {isOther && (
                 <input className="form-input" style={{ width:'100%', marginTop:8 }} autoFocus
-                  placeholder="Describe the item — e.g. Dell UltraSharp 32&quot; monitor"
+                  placeholder="Describe the item - e.g. Dell UltraSharp 32&quot; monitor"
                   value={customItem} onChange={e => setCustomItem(e.target.value)} />
               )}
             </div>
@@ -246,17 +246,17 @@ export default function Purchase({ activeSub = null }) {
           <div style={{ marginBottom:20 }}>
             <label style={FL}>REASON / JUSTIFICATION <span style={{ color:'hsl(var(--color-red))' }}>*</span></label>
             <textarea className="form-input" rows={4} required
-              placeholder="Give the approver enough detail to say yes — what is it for, why now, any specs that matter…"
+              placeholder="Give the approver enough detail to say yes - what is it for, why now, any specs that matter…"
               value={reason} onChange={e => setReason(e.target.value)}
               style={{ width:'100%', resize:'vertical', lineHeight:1.5 }} />
           </div>
 
-          {/* Who should approve — only the picked manager is notified */}
+          {/* Who should approve - only the picked manager is notified */}
           <div style={{ marginBottom:20 }}>
             <label style={FL}>WHO SHOULD APPROVE THIS? <span style={{ color:'hsl(var(--color-red))' }}>*</span></label>
             <select className="form-select" style={{ width:'100%', maxWidth:380 }} required
               value={approverEmail} onChange={e => setApproverEmail(e.target.value)}>
-              <option value="">— select a manager —</option>
+              <option value="">- select a manager -</option>
               {approvers.map(a => <option key={a.email} value={a.email}>{a.name}</option>)}
             </select>
             <p style={{ fontSize:11.5, color:'var(--muted)', margin:'6px 0 0' }}>
@@ -266,7 +266,7 @@ export default function Purchase({ activeSub = null }) {
 
           {/* Reference link */}
           <div style={{ marginBottom:24 }}>
-            <label style={FL}><Link2 size={11} style={{ display:'inline', verticalAlign:'-1px', marginRight:4 }} />REFERENCE LINK <span style={{ fontSize:11, fontWeight:400 }}>(optional — product page, quote, or spec sheet)</span></label>
+            <label style={FL}><Link2 size={11} style={{ display:'inline', verticalAlign:'-1px', marginRight:4 }} />REFERENCE LINK <span style={{ fontSize:11, fontWeight:400 }}>(optional - product page, quote, or spec sheet)</span></label>
             <input type="url" className="form-input" style={{ width:'100%' }}
               placeholder="https://…" value={refLink} onChange={e => setRefLink(e.target.value)} />
           </div>
@@ -302,7 +302,7 @@ export default function Purchase({ activeSub = null }) {
                   <tr>
                     <td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '36px 0', fontSize: '0.9rem' }}>
                       <Package size={26} style={{ opacity:.25, display:'block', margin:'0 auto 8px' }} />
-                      No requisitions yet — submit one from the New request tab.
+                      No requisitions yet - submit one from the New request tab.
                     </td>
                   </tr>
                 )}
@@ -340,7 +340,7 @@ export default function Purchase({ activeSub = null }) {
                       )}
                       {req.status === 'fulfilled' && (
                         <span style={{ color: 'hsl(var(--color-green))' }} title={req.fulfillmentNote || ''}>
-                          ✓ Ready — see {req.allocatorName || 'your fulfiller'}
+                          ✓ Ready - see {req.allocatorName || 'your fulfiller'}
                         </span>
                       )}
                       {req.status === 'pending_manager' && (

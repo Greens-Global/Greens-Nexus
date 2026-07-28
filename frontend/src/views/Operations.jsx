@@ -66,7 +66,7 @@ export default function Operations({ activeSub, onSubChange }) {
 
   return (
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
-      {/* Tab navigation — desktop renders it centered in the top header;
+      {/* Tab navigation - desktop renders it centered in the top header;
           phones keep the in-page strip (ModuleTabs handles both) */}
       <ModuleTabs
         tabs={[

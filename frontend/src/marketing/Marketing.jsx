@@ -18,7 +18,7 @@ import { buildAccountWideInsightInput } from './insights/buildAccountWideInsight
 // through the URL (react-router useSearchParams); inside Nexus this module is
 // one view among many, so that state lives in React state here instead. Budget
 // and goal targets are lifted to this shell (not owned by the pages) so the
-// alerts bell — shown on every tab — reflects edits immediately.
+// alerts bell - shown on every tab - reflects edits immediately.
 export default function Marketing() {
   const [tab, setTab] = useState('google-ads');   // google-ads | reputation | insights | seo | listings | leads
   const [range, setRange] = useState(thisMonth());

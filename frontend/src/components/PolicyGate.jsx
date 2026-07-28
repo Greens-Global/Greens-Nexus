@@ -3,8 +3,8 @@ import { ShieldCheck, Loader2, Check } from 'lucide-react';
 import { api } from '../api';
 
 // ── Sign-in company-policy & monitoring acknowledgment ────────────────────────
-// Standing, portal-wide gate: the first time a person signs in — and again when
-// POLICY_VERSION changes — they must accept before the app loads. Acceptance is
+// Standing, portal-wide gate: the first time a person signs in - and again when
+// POLICY_VERSION changes - they must accept before the app loads. Acceptance is
 // recorded server-side (who/when/version/ip/ua). Distinct from the per-day
 // clock-in monitoring notice.
 //
@@ -16,7 +16,7 @@ import { api } from '../api';
 const POLICY_VERSION = '2026-07-21';
 const _E2E = import.meta.env.VITE_E2E === 'true';
 
-// ⚠️ PLACEHOLDER WORDING — replace the sections below with the company's
+// ⚠️ PLACEHOLDER WORDING - replace the sections below with the company's
 // finalized policy / T&C text (HR + legal). The mechanism (versioning, recording,
 // re-prompt on change, downloadable copy) is what's built here; the exact legal
 // language is yours to set.

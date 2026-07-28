@@ -3,7 +3,7 @@ import TiptapImage from '@tiptap/extension-image';
 
 // ── Document Builder custom nodes (Phase 2) ──────────────────────────────────
 // Merge-field vocabulary mirrors ESign.jsx's TemplateEditorModal (MERGE_TOKENS/
-// FRIENDLY_MERGE) so the two editors feel like the same product — duplicated
+// FRIENDLY_MERGE) so the two editors feel like the same product - duplicated
 // here (short const lists) rather than imported, to avoid reaching into
 // another module's file for it.
 export const MERGE_TOKENS = ['first_name', 'last_name', 'full_name', 'email', 'job_title',
@@ -18,7 +18,7 @@ export const FRIENDLY_MERGE = {
   signatory: 'Company signatory', manager: 'Manager', today: "Today's date",
 };
 
-// Inline, non-editable "{{token}}" chip — reuses the existing .tpl-chip CSS
+// Inline, non-editable "{{token}}" chip - reuses the existing .tpl-chip CSS
 // class (style.css) so it renders identically to E-Sign's merge chips.
 export const MergeField = Node.create({
   name: 'mergeField',
@@ -43,7 +43,7 @@ export const MergeField = Node.create({
   },
 });
 
-// Block, non-editable divider — visual-only for now; Phase 4's PDF export
+// Block, non-editable divider - visual-only for now; Phase 4's PDF export
 // will honor it as an actual page boundary.
 export const PageBreak = Node.create({
   name: 'pageBreak',
@@ -59,7 +59,7 @@ export const PageBreak = Node.create({
   },
 });
 
-// Sensible fixed insert sizes per shape type (Phase 8) — no post-insert
+// Sensible fixed insert sizes per shape type (Phase 8) - no post-insert
 // resize, matching the project's existing "images aren't resizable either"
 // stance rather than building a drag-resize interaction.
 export const SHAPE_DEFAULTS = {
@@ -71,17 +71,17 @@ export const SHAPE_DEFAULTS = {
 };
 
 // ProseMirror's renderSpec creates DOM via plain document.createElement() by
-// default — an <svg> made that way is an inert HTMLUnknownElement, not a real
+// default - an <svg> made that way is an inert HTMLUnknownElement, not a real
 // SVGElement, so it (and its children) never render (0 height, silently
 // invisible). Prefixing a DOMOutputSpec tag with "<namespace-uri> tagname"
 // makes renderSpec use createElementNS instead, and that namespace cascades
 // to every nested child automatically. Used by DocShape's renderHTML (kept
-// for clipboard/getHTML serialization only — the NodeView below governs live
+// for clipboard/getHTML serialization only - the NodeView below governs live
 // rendering and builds real SVG via createElementNS directly).
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
 // Pure shape-geometry builder shared by renderHTML's DOMOutputSpec (static
-// serialization) and the NodeView's imperative DOM build (live editing) — one
+// serialization) and the NodeView's imperative DOM build (live editing) - one
 // source of truth for what each shape type looks like. Returns a flat list of
 // [tag, attrs] pairs (no nesting needed, every shape is flat SVG primitives).
 function shapeSvgSpec(shapeType, w, h, fillColor, strokeColor) {
@@ -117,7 +117,7 @@ function buildSvgElement(shapeType, w, h, fillColor, strokeColor) {
 }
 
 // Word-style text-wrap modes shared by DocShape and DocTextbox (Phase 9).
-// "Through" and "Top and Bottom" are deliberately not implemented — Through
+// "Through" and "Top and Bottom" are deliberately not implemented - Through
 // would need arbitrary contour paths we don't have (folds into Tight's
 // bounding-box approximation), Top and Bottom forces its own line without
 // side-wrap (folds into Inline's existing behavior).
@@ -130,7 +130,7 @@ export const WRAP_MODES = [
 ];
 
 // Applies the live CSS for a node's current wrapMode/x/y. Inline (default)
-// is normal block flow — no positioning, not draggable. Square/Tight float
+// is normal block flow - no positioning, not draggable. Square/Tight float
 // left with a position:relative offset (so a drag can still nudge them
 // without breaking float-based wrapping). Behind/Front are position:absolute,
 // anchored to .doc-page (which gets position:relative in style.css) via x/y.
@@ -221,7 +221,7 @@ function createDragHandle({ view, getPos, getAttrs }) {
   return handle;
 }
 
-// Bottom-right resize grip — same pointer-drag → live style → commit-on-
+// Bottom-right resize grip - same pointer-drag → live style → commit-on-
 // release shape as createDragHandle, adjusting width/height instead of x/y.
 // Unlike the drag handle, this works in EVERY wrap mode (including inline),
 // since resizing an inline shape/textbox/image doesn't require it to be
@@ -275,14 +275,14 @@ function createResizeHandle({ view, getPos, getAttrs, minW = 24, minH = 24 }) {
   return handle;
 }
 
-// Block, non-editable shape. Rendered live via a NodeView (Phase 9 — plain
+// Block, non-editable shape. Rendered live via a NodeView (Phase 9 - plain
 // JS/DOM, no React NodeView) so it can support pointer-drag repositioning;
 // renderHTML/parseHTML are kept only for clipboard copy/paste and getHTML()
 // serialization, not for live editing. Arrow is a line + a small triangle
 // polygon "head" (not an SVG <marker>) so multiple arrows never fight over a
 // shared marker id. Backend export (doc_export.py) draws the same shapeType
 // as real reportlab vector graphics for PDF, and rasterizes via Pillow for
-// DOCX (python-docx has no vector-drawing API) — see that file for the split;
+// DOCX (python-docx has no vector-drawing API) - see that file for the split;
 // export renders shapes/textboxes in document order, not at their floating
 // x/y (documented scope trim, Phase 9).
 export const DocShape = Node.create({
@@ -372,7 +372,7 @@ export const DocShape = Node.create({
           render(updatedNode.attrs);
           return true;
         },
-        // Only swallow events that originate on the drag/resize handles —
+        // Only swallow events that originate on the drag/resize handles -
         // everything else (plain clicks) must fall through to ProseMirror's
         // normal node-selection/deletion handling, or selecting/deleting the
         // shape via the keyboard/toolbar would silently stop working.
@@ -384,7 +384,7 @@ export const DocShape = Node.create({
   },
 });
 
-// Floating text box (Phase 9) — real nested editable rich text (content:
+// Floating text box (Phase 9) - real nested editable rich text (content:
 // 'paragraph+'), not a static leaf, so bold/italic/color/etc. all work
 // inside it via the same schema as the body editor, with no separate editor
 // instance. Uses the same drag/wrap mechanics as DocShape via a real
@@ -483,7 +483,7 @@ export const DocTextbox = Node.create({
 });
 
 // Word-parity image: resize (drag handle), reposition + text wrap (same
-// mechanics as DocShape/DocTextbox — square/tight/behind/front/inline), and
+// mechanics as DocShape/DocTextbox - square/tight/behind/front/inline), and
 // a real `alt` attribute exposed in the UI (stock @tiptap/extension-image
 // already has the `alt`/`title` attrs, just no way to set them after
 // insert). Extends Image rather than replacing it, so the inherited

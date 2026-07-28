@@ -16,7 +16,7 @@ async function fetchUsers(instance, account, attempt = 1) {
   try {
     tokenRes = await instance.acquireTokenSilent(req);
   } catch (err) {
-    // Consent not yet granted — trigger interactive popup
+    // Consent not yet granted - trigger interactive popup
     if (err instanceof InteractionRequiredAuthError) {
       tokenRes = await instance.acquireTokenPopup(req);
     } else {
@@ -30,7 +30,7 @@ async function fetchUsers(instance, account, attempt = 1) {
       headers: { Authorization: `Bearer ${tokenRes.accessToken}` },
     });
   } catch (err) {
-    // "Failed to fetch" — transient network blip, not a permission issue.
+    // "Failed to fetch" - transient network blip, not a permission issue.
     // Retry with backoff before giving up, same as api.js does for our backend.
     if (attempt < 3) {
       await new Promise(r => setTimeout(r, 500 * attempt));

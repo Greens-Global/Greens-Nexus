@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-// ── DayTimeline — a day's punches as a readable work/break bar ────────────────
+// ── DayTimeline - a day's punches as a readable work/break bar ────────────────
 // Auto-zooms to the punched window (not 0–24h), draws hour ticks underneath,
 // and every segment is interactive: hover or click for exact times + duration.
 // Brand cobalt = working (matches every other worked-time bar in the Work OS
@@ -52,10 +52,10 @@ export function TimelineLegend() {
 }
 
 export default function DayTimeline({ punches, height = 24, ticks = true, date = '' }) {
-  const [tip, setTip] = useState(null);   // { x (0-100), text } — hover or pinned by click
+  const [tip, setTip] = useState(null);   // { x (0-100), text } - hover or pinned by click
   const [pinned, setPinned] = useState(false);
   // Open segments run to "now" ONLY on today. On a past day a dangling punch-in
-  // (missing punch-out) is capped at that day's end and labelled as such —
+  // (missing punch-out) is capped at that day's end and labelled as such -
   // otherwise Tuesday's forgotten punch-out reads as "running · 11h" on Wednesday.
   const off = new Date().getTimezoneOffset() * 60000;
   const todayKey = new Date(Date.now() - off).toISOString().slice(0, 10);
@@ -72,7 +72,7 @@ export default function DayTimeline({ punches, height = 24, ticks = true, date =
   const pct = (t) => ((t - min) / span) * 100;
   const live = segs.some(s => s.open);
 
-  // Hour ticks — at most ~7 labels regardless of span.
+  // Hour ticks - at most ~7 labels regardless of span.
   const hours = Math.round(span / HOUR);
   const step = Math.max(1, Math.ceil(hours / 6));
   const tickList = [];

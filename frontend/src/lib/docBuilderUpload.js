@@ -1,7 +1,7 @@
 import { supabase } from './supabase';
 
 // Same client-side upload pattern as InventoryManagement.jsx's uploadToSupabase
-// (public bucket, cacheControl: '31536000', returns a public URL) — duplicated
+// (public bucket, cacheControl: '31536000', returns a public URL) - duplicated
 // locally rather than imported since that file isn't ours to touch (see
 // CLAUDE.md file ownership) and it doesn't export the helper.
 export async function uploadToSupabase(file, bucket, path) {
@@ -15,7 +15,7 @@ export async function uploadToSupabase(file, bucket, path) {
   return { url: urlData.publicUrl, error: null };
 }
 
-// Same shape as InventoryManagement.jsx's imageFromPaste — pulls the first
+// Same shape as InventoryManagement.jsx's imageFromPaste - pulls the first
 // image out of a clipboard paste event, giving nameless blobs a filename
 // (Supabase needs a path).
 export function imageFromPaste(e) {

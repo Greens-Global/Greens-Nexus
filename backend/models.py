@@ -3,7 +3,7 @@ from database import Base
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Task Module (ported from the standalone task-module export — Jul 2026)
+# Task Module (ported from the standalone task-module export - Jul 2026)
 # The old flat demo `tasks` table (title/assignee/project/hours/dept/synced) was
 # replaced by the rich runtime schema below. All identity is email-keyed (joins
 # to nexus_employees), timestamps are ISO strings, arrays/maps are jsonb. Real
@@ -282,7 +282,7 @@ class NexusNotification(Base):
 
 
 class InventoryRequest(Base):
-    # LEGACY (P2-1, Jul 2026): the old inventory stack is retired — its router
+    # LEGACY (P2-1, Jul 2026): the old inventory stack is retired - its router
     # (routers/inventory_requests.py) and mock seed were removed. No live code
     # path writes this table anymore; the class is kept only so create_all keeps
     # the table and historical rows / audit history (resource_type ==
@@ -319,7 +319,7 @@ class InventoryItem(Base):
     the table and any historical rows survive. Retire after data migration.
 
     Master stock record for a requestable inventory item.
-    available_qty is the live source of truth — decremented atomically when a
+    available_qty is the live source of truth - decremented atomically when a
     request is allocated, incremented when it's returned in good condition
     (or total_qty is reduced instead, when the returned unit is damaged/retired)."""
     __tablename__ = "inventory_items"
@@ -354,19 +354,19 @@ class Item(Base):
     assigned_to_email = Column(String, default="")   # current permanent assignee
     assigned_to_name  = Column(String, default="")
     assigned_at       = Column(String, default="")
-    picture_required  = Column(Boolean, default=True)  # False = photos optional in every flow (e.g. keys) — Neil, Jun 2026
+    picture_required  = Column(Boolean, default=True)  # False = photos optional in every flow (e.g. keys) - Neil, Jun 2026
     asset_value       = Column(Float, default=0.0)     # USD value: accountability + per-person holdings total
     op_status         = Column(String, default="")     # operational status (Neil): deployed|in_storage|in_repair|needs_replacement|retired|lost; '' = unset. SEPARATE from lifecycle `status`
-    op_status_person_email = Column(String, default="") # person an op_status is declared against (lost/retired) — they get the notification + show on "Who has it"
+    op_status_person_email = Column(String, default="") # person an op_status is declared against (lost/retired) - they get the notification + show on "Who has it"
     op_status_person_name  = Column(String, default="")
     # DEPRECATED (P2-6, Jul 2026): only ever written as "" now; ItemDetailsPanel
-    # reads item.location instead. Retire (drop column) next release — needs
+    # reads item.location instead. Retire (drop column) next release - needs
     # prod coordination, so the column stays for this release.
     assigned_to_location = Column(String, default="")  # legacy: permanent-to-a-PLACE marker; no longer populated
-    custom_fields     = Column(JSON, default=dict)     # {field_key: value} for admin-defined custom fields — see ItemCustomField
-    deleted_at        = Column(String, default="")     # ISO ts; non-empty = soft-deleted (excluded from normal lists, restorable — Ankush)
+    custom_fields     = Column(JSON, default=dict)     # {field_key: value} for admin-defined custom fields - see ItemCustomField
+    deleted_at        = Column(String, default="")     # ISO ts; non-empty = soft-deleted (excluded from normal lists, restorable - Ankush)
     deleted_by        = Column(String, default="")     # email of whoever deleted it
-    deleted_location  = Column(String, default="")     # item's location captured at deletion — Ankush's "Deleted In"
+    deleted_location  = Column(String, default="")     # item's location captured at deletion - Ankush's "Deleted In"
 
 
 class ItemCheckout(Base):
@@ -406,12 +406,12 @@ class ItemCheckout(Base):
     extension_days           = Column(Integer, default=0)   # extra days requested by employee
     extension_reason         = Column(String, default="")
     extension_status         = Column(String, default="")   # '' | 'pending' (cleared on resolve)
-    approver_email           = Column(String, default="")   # manager picked at checkout — only they get the approval notification
+    approver_email           = Column(String, default="")   # manager picked at checkout - only they get the approval notification
     approver_name            = Column(String, default="")
 
 
 class ItemCartEntry(Base):
-    """Persisted cart entry — one row per (user, item). Survives logout and device switches."""
+    """Persisted cart entry - one row per (user, item). Survives logout and device switches."""
     __tablename__ = "item_cart"
     id         = Column(String, primary_key=True)   # uuid
     user_email = Column(String, nullable=False)
@@ -463,7 +463,7 @@ class NexusGroup(Base):
     id              = Column(String, primary_key=True)
     name            = Column(String, nullable=False)
     department      = Column(String, default="")
-    allowed_modules = Column(String, default="")   # comma-separated "moduleId:level" pairs, e.g. "it:viewer,inventory:full" — level ∈ viewer/editor/full/owner (see auth.MODULE_LEVELS)
+    allowed_modules = Column(String, default="")   # comma-separated "moduleId:level" pairs, e.g. "it:viewer,inventory:full" - level ∈ viewer/editor/full/owner (see auth.MODULE_LEVELS)
     created_by      = Column(String, default="")
     created_at      = Column(String, default="")
     # Roles & Access redesign (Jul 2026): a "Job Role" is an Access Group flagged
@@ -472,14 +472,14 @@ class NexusGroup(Base):
     # module access still flows through normal group membership (auth._module_level),
     # so resolution is unchanged. Plain groups (is_job_role=0) are the additive layer.
     is_job_role     = Column(Integer, default=0)
-    tier            = Column(String, default="")   # employee/supervisor/manager/administrator/owner — job roles only
+    tier            = Column(String, default="")   # employee/supervisor/manager/administrator/owner - job roles only
     description     = Column(String, default="")
     # Members of a group flagged monitoring_exempt=1 are excused from screen-share
     # monitoring: no capture is offered and clock-in is not gated on sharing a
     # screen (used for leadership). A person is exempt if ANY of their groups sets it.
     monitoring_exempt = Column(Integer, default=0)
     # Job roles only: the role's default manager/timesheet approver. Assigning the
-    # role to someone with NO manager set copies this onto their People card —
+    # role to someone with NO manager set copies this onto their People card -
     # per-person Manager stays the source of truth and can always be overridden.
     default_manager_email = Column(String, default="")
 
@@ -493,13 +493,13 @@ class NexusGroupMember(Base):
 
 
 class NexusAccessScope(Base):
-    """Row-level access scope — narrows WHICH records a person can see within a
+    """Row-level access scope - narrows WHICH records a person can see within a
     module they already have (module:level) access to. Used mainly to sandbox
     external users: a client scoped to one property sees only that property.
     Semantics (see auth.scoped_ids): a person with ANY scope row for a module is
     restricted to those scope_ids; a person with none is unrestricted UNLESS they
     are identity_type='external', who then see nothing (fail-closed least
-    privilege). New table — create_all builds it, no migration line needed."""
+    privilege). New table - create_all builds it, no migration line needed."""
     __tablename__ = "nexus_access_scopes"
     id         = Column(String, primary_key=True)   # uuid
     email      = Column(String, nullable=False, index=True)   # the person the scope applies to
@@ -538,7 +538,7 @@ class AuditLog(Base):
 
 class NexusEmployee(Base):
     """HR employee master record (Phase 1 of the HR module). The single source
-    of truth a person's working life hangs off — candidates, provisioning,
+    of truth a person's working life hangs off - candidates, provisioning,
     leave and the org chart all reference this row in later phases."""
     __tablename__ = "nexus_employees"
     id              = Column(String, primary_key=True)         # uuid
@@ -556,13 +556,13 @@ class NexusEmployee(Base):
     photo_url       = Column(String, default="")
     status          = Column(String, default="active")         # onboarding | active | inactive | offboarded
     location        = Column(String, default="")
-    company         = Column(String, default="")               # HrEntity.id — which legal entity employs this worker
-    contractor      = Column(JSON, default=dict)               # contractor-only fields (scope/SOW/dates/rate/client) — HR Section A
-    personal        = Column(JSON, default=dict)               # emergency contact, addresses, DOB, masked IDs — HR Section B
-    compensation    = Column(JSON, default=dict)               # base/basis/frequency/currency + history — RESTRICTED (hr_comp grant)
-    bank            = Column(JSON, default=list)               # list of bank accounts — RESTRICTED (hr_comp grant)
-    compliance      = Column(JSON, default=dict)               # right-to-work / visa / verification — HR Section B
-    status_log      = Column(JSON, default=list)               # [{from,to,reason,effectiveDate,by,at}] — HR Section B6
+    company         = Column(String, default="")               # HrEntity.id - which legal entity employs this worker
+    contractor      = Column(JSON, default=dict)               # contractor-only fields (scope/SOW/dates/rate/client) - HR Section A
+    personal        = Column(JSON, default=dict)               # emergency contact, addresses, DOB, masked IDs - HR Section B
+    compensation    = Column(JSON, default=dict)               # base/basis/frequency/currency + history - RESTRICTED (hr_comp grant)
+    bank            = Column(JSON, default=list)               # list of bank accounts - RESTRICTED (hr_comp grant)
+    compliance      = Column(JSON, default=dict)               # right-to-work / visa / verification - HR Section B
+    status_log      = Column(JSON, default=list)               # [{from,to,reason,effectiveDate,by,at}] - HR Section B6
     notes           = Column(String, default="")
     m365_id         = Column(String, default="")               # account pointers for provisioning (Phase 4)
     asana_id        = Column(String, default="")
@@ -571,7 +571,7 @@ class NexusEmployee(Base):
     updated_at      = Column(String, default="")
     division        = Column(String, default="")               # functional division head-tag; org chart inherits down the tree (Phase 5)
     identity_type   = Column(String, default="internal")        # internal (MS365 staff) | guest (Entra B2B partner) | external (non-MS365, HR-record only)
-    display_name    = Column(String, default="")               # Entra/Teams displayName verbatim — first+last drops middle names ("Sagar Kumar Shoundik" -> "Sagar Shoundik"), so people read as a different person than Teams shows. Refreshed by sync-m365; falls back to first+last when empty.
+    display_name    = Column(String, default="")               # Entra/Teams displayName verbatim - first+last drops middle names ("Sagar Kumar Shoundik" -> "Sagar Shoundik"), so people read as a different person than Teams shows. Refreshed by sync-m365; falls back to first+last when empty.
 
 
 class HrCandidate(Base):
@@ -638,7 +638,7 @@ class HrLeaveBalance(Base):
 
 
 class HrDocument(Base):
-    """Per-employee documents (HR Phase 3) — stored in the PRIVATE hr-docs
+    """Per-employee documents (HR Phase 3) - stored in the PRIVATE hr-docs
     bucket; clients only ever see short-lived signed URLs minted server-side."""
     __tablename__ = "hr_documents"
     id           = Column(String, primary_key=True)
@@ -694,7 +694,7 @@ class ItemType(Base):
     """Manager-curated list of item types (Neil: managers can extend the types, but
     a CSV import can't invent one). create_all builds the table; it's seeded from the
     legacy hardcoded list on first use. Deleting a type leaves existing items' type
-    strings untouched — they just stop being pickable, like a removed custom field."""
+    strings untouched - they just stop being pickable, like a removed custom field."""
     __tablename__ = "item_types"
     name       = Column(String, primary_key=True)   # the display value, e.g. "IP Camera"
     sort_order = Column(Integer, default=0)
@@ -707,7 +707,7 @@ class KbDocument(Base):
     (purpose, scope, procedure steps, etc.) is stored as a JSON string in `body`
     so the template can evolve without a migration per field. Lifecycle:
     draft -> in_review -> approved (or changes_requested back to the owner);
-    approved docs can later be archived. New table — create_all builds it, no
+    approved docs can later be archived. New table - create_all builds it, no
     migration line needed."""
     __tablename__ = "kb_documents"
     id               = Column(String, primary_key=True)        # uuid
@@ -782,7 +782,7 @@ class KbCourse(Base):
     course_code = Column(String, default="")          # LRN-001 …
     title       = Column(String, nullable=False)
     description = Column(String, default="")
-    overview    = Column(String, default="")           # "what you'll learn" — JSON list of objective strings
+    overview    = Column(String, default="")           # "what you'll learn" - JSON list of objective strings
     recert_months = Column(Integer, default=0)         # 0 = no recertification; else retake every N months
     departments = Column(String, default="")
     status      = Column(String, default="draft")     # draft | published
@@ -818,7 +818,7 @@ class KbPin(Base):
 
 
 class KbCourseAssignment(Base):
-    """A course assigned to a specific person, optionally with a due date —
+    """A course assigned to a specific person, optionally with a due date -
     the basis for "required training" and completion tracking."""
     __tablename__ = "kb_course_assignments"
     id          = Column(String, primary_key=True)   # uuid
@@ -831,7 +831,7 @@ class KbCourseAssignment(Base):
 
 
 class KbQuizAttempt(Base):
-    """A learner's quiz attempt on a course — the back-end record of how they
+    """A learner's quiz attempt on a course - the back-end record of how they
     did and which questions they missed (for manager reports + remediation)."""
     __tablename__ = "kb_quiz_attempts"
     id          = Column(String, primary_key=True)   # uuid
@@ -862,14 +862,14 @@ class PageHelp(Base):
 
 
 # ---------------------------------------------------------------------------
-# Asset Management (property portfolio) — Ankush's module.
+# Asset Management (property portfolio) - Ankush's module.
 # The UI data is semi-structured: each property has a wide set of header fields
 # PLUS free-form snapshot / timeline / permit "sheets", and a handful of flat
 # child collections (warranties, inspections, documents, utilities, AHJ,
 # vendors) keyed by property. Rather than 50+ columns and 6 near-identical
 # tables, the full objects live in JSON `payload` columns with a few fields
 # promoted for listing/queries. The module loads/saves the whole workspace as
-# one blob — see routers/property_assets.py. create_all builds these on startup.
+# one blob - see routers/property_assets.py. create_all builds these on startup.
 # ---------------------------------------------------------------------------
 class PropertyAsset(Base):
     """One real-estate property / parcel in the Asset Management portfolio."""
@@ -885,7 +885,7 @@ class PropertyAsset(Base):
 
 
 class PropertyRecord(Base):
-    """A child row under a property — generic across the flat collections so the
+    """A child row under a property - generic across the flat collections so the
     {collection: rows[]} workspace round-trips losslessly. `collection` is one of
     warranties | inspections | documents | utilities | ahj | vendors."""
     __tablename__ = "property_records"
@@ -922,18 +922,18 @@ class HrEntity(Base):
     created_by         = Column(String, default="")
     created_at         = Column(String, default="")
     updated_at         = Column(String, default="")
-    # Email domains owned by this company (comma-separated, no @) — the M365 sync
+    # Email domains owned by this company (comma-separated, no @) - the M365 sync
     # imports accounts on these domains and auto-tags them to this company.
     domains            = Column(String, default="")
-    # Who runs this company operationally (a Nexus person's work email) — the
+    # Who runs this company operationally (a Nexus person's work email) - the
     # escalation target when a worker has no reports-to. Distinct from signatory.
     manager_email      = Column(String, default="")
 
 
 class NexusSetting(Base):
     """Tiny app-wide key-value store. First use: the HR group manager (the person
-    overseeing ALL companies — escalation above each company's manager). New
-    table — create_all builds it, no migration line needed."""
+    overseeing ALL companies - escalation above each company's manager). New
+    table - create_all builds it, no migration line needed."""
     __tablename__ = "nexus_settings"
     key        = Column(String, primary_key=True)
     value      = Column(String, default="")
@@ -943,13 +943,13 @@ class NexusSetting(Base):
 
 class HrDepartment(Base):
     """A department, scoped to one company (HrEntity). Departments are NOT a
-    Nexus-wide hardcoded list — each company owns its own editable set (an IT-dev
+    Nexus-wide hardcoded list - each company owns its own editable set (an IT-dev
     company has QA, a construction company has Estimating). Greens Global is seeded
     from the legacy hardcoded list on first read; every other company starts empty.
     Employees pick a department from their company's list. Deleting one leaves
     existing employees' department strings untouched (like a removed item type).
     `parent_id` is unused today but present so departments can become a hierarchy
-    later without a migration — the enterprise norm. New table — create_all builds
+    later without a migration - the enterprise norm. New table - create_all builds
     it, no migration line needed."""
     __tablename__ = "hr_departments"
     id         = Column(String, primary_key=True)   # uuid
@@ -967,7 +967,7 @@ class HrDepartment(Base):
 
 
 class HrWorkSite(Base):
-    """A physical work site (HR Section A) — used later for geofenced time-clock
+    """A physical work site (HR Section A) - used later for geofenced time-clock
     validation. lat/long + radius define the geofence."""
     __tablename__ = "hr_work_sites"
     id            = Column(String, primary_key=True)   # uuid
@@ -997,7 +997,7 @@ class HrMailboxExport(Base):
     updated_at    = Column(String, default="")
 
 
-# ── E-Sign (HR Section C) — native signatures with legal-grade audit trail ────
+# ── E-Sign (HR Section C) - native signatures with legal-grade audit trail ────
 # Templates are authored with {{merge}} tokens and [[fieldtype:role]] slots;
 # requests freeze a resolved snapshot at send time so later profile edits never
 # change what someone signed. Final PDFs live in the private hr-docs bucket with
@@ -1010,8 +1010,8 @@ class HrSignTemplate(Base):
     kind        = Column(String, default="custom")   # offer|nda|direct_deposit|handbook_ack|w9|contractor_agreement|sow|custom
     entity_id   = Column(String, default="")         # HrEntity.id ('' = any company)
     body        = Column(JSON, default=list)         # list of paragraph strings with {{merge}} + [[sign:role]] tokens
-    roles       = Column(JSON, default=list)         # [{key,label,order}] — signing order
-    attachments = Column(JSON, default=list)         # [{name, path, pages, fields:[{id,role,type,page,x,y,w,h}]}] — PDFs signed as one packet
+    roles       = Column(JSON, default=list)         # [{key,label,order}] - signing order
+    attachments = Column(JSON, default=list)         # [{name, path, pages, fields:[{id,role,type,page,x,y,w,h}]}] - PDFs signed as one packet
     status      = Column(String, default="active")   # active|archived
     created_by  = Column(String, default="")
     created_at  = Column(String, default="")
@@ -1044,7 +1044,7 @@ class HrSignRequest(Base):
     final_sha256     = Column(String, default="")         # tamper-evidence hash of final bytes
     routing          = Column(String, default="sequential")  # sequential (ordered) | parallel (everyone at once)
     egnyte_folder    = Column(String, default="")         # frozen from the template at send; sealed PDF is copied here
-    verify_token     = Column(String, default="")         # public, unauthenticated /verify/{token} credential — set at completion
+    verify_token     = Column(String, default="")         # public, unauthenticated /verify/{token} credential - set at completion
 
 
 class HrSignParty(Base):
@@ -1057,7 +1057,7 @@ class HrSignParty(Base):
     kind                 = Column(String, default="internal") # internal|external
     ordinal              = Column(Integer, default=1)         # signing order (matches request.current_order)
     status               = Column(String, default="waiting")  # waiting|notified|viewed|signed|declined
-    token                = Column(String, default="")         # secrets.token_urlsafe(32) — the public-link credential
+    token                = Column(String, default="")         # secrets.token_urlsafe(32) - the public-link credential
     token_expires_at     = Column(String, default="")
     signature_kind       = Column(String, default="")         # drawn|typed
     signature_data       = Column(String, default="")         # PNG data-URL (drawn) or the typed name
@@ -1074,7 +1074,7 @@ class HrSignParty(Base):
 
 
 class HrSignEvent(Base):
-    """Immutable audit trail — one row per action on an envelope."""
+    """Immutable audit trail - one row per action on an envelope."""
     __tablename__ = "hr_sign_events"
     id          = Column(String, primary_key=True)   # uuid
     request_id  = Column(String, nullable=False)
@@ -1085,20 +1085,20 @@ class HrSignEvent(Base):
     user_agent  = Column(String, default="")
     at          = Column(String, default="")
     seq         = Column(Integer, default=0)          # tamper-evident hash chain (added later): 1,2,3... per request_id
-    event_hash  = Column(String, default="")          # sha256(prev_hash|request_id|type|detail|ip|user_agent|at|seq) — 0/'' on pre-upgrade rows
+    event_hash  = Column(String, default="")          # sha256(prev_hash|request_id|type|detail|ip|user_agent|at|seq) - 0/'' on pre-upgrade rows
 
 
-# ── Documents (DMS) — Phase 1 ──────────────────────────────────────────────────
+# ── Documents (DMS) - Phase 1 ──────────────────────────────────────────────────
 # Sits next to (not inside) the e-sign envelope tables above: a Document only
 # becomes an HrSignRequest at the moment the user sends it for signature (export
-# to PDF, hand to the existing esign.py PDF-send path). New tables — create_all
-# builds them, no migration line needed. New tables — create_all builds them.
+# to PDF, hand to the existing esign.py PDF-send path). New tables - create_all
+# builds them, no migration line needed. New tables - create_all builds them.
 class DocFolder(Base):
     __tablename__ = "doc_folders"
     id          = Column(String, primary_key=True)   # uuid
     name        = Column(String, nullable=False)
     key         = Column(String, default="")         # hr|finance|legal|sales|operations|personal|archived|'' (custom)
-    is_system   = Column(Boolean, default=False)      # seeded folder — not user-deletable
+    is_system   = Column(Boolean, default=False)      # seeded folder - not user-deletable
     owner_email = Column(String, default="")         # set for the per-user Personal folder
     created_by  = Column(String, default="")
     created_at  = Column(String, default="")
@@ -1126,11 +1126,11 @@ class DocTemplate(Base):
     content             = Column(JSON, default=dict)          # rich-doc content (Document Builder, Phase 2+)
     requires_letterhead = Column(Boolean, default=False)
     letterhead_id       = Column(String, default="")
-    merge_overrides     = Column(JSON, default=dict)          # default {{token}} values + custom variables (Phase 12) — seeded onto any Document created from this template
-    # Template Builder (Phase 13): list[FieldDef] — the single source of truth
+    merge_overrides     = Column(JSON, default=dict)          # default {{token}} values + custom variables (Phase 12) - seeded onto any Document created from this template
+    # Template Builder (Phase 13): list[FieldDef] - the single source of truth
     # for a merge field's type/required/default/validation, keyed by `token`
     # (which matches the mergeField TipTap node's own `token` attr). The node
-    # itself never carries type/validation — that would mean rewriting every
+    # itself never carries type/validation - that would mean rewriting every
     # chip instance in the doc body whenever a field's type changes.
     # FieldDef shape: {token, label, type, required, default, options,
     # validation: {maxLength, regex, min, max, minDate, maxDate}}.
@@ -1154,7 +1154,7 @@ class Document(Base):
     status           = Column(String, default="draft")     # draft|final|archived
     employee_id      = Column(String, default="")          # merge-field subject (Phase 4), NexusEmployee.id
     entity_id        = Column(String, default="")          # merge-field company (Phase 4), HrEntity.id
-    merge_overrides  = Column(JSON, default=dict)           # manual {{token}} values + custom variables (Phase 11) — wins over employee/entity resolution
+    merge_overrides  = Column(JSON, default=dict)           # manual {{token}} values + custom variables (Phase 11) - wins over employee/entity resolution
     owner_email      = Column(String, default="")
     tags             = Column(JSON, default=list)
     current_version  = Column(Integer, default=1)
@@ -1167,7 +1167,7 @@ class Document(Base):
 
 
 class DocumentVersion(Base):
-    """One row per saved edit — recorded from Phase 1 on so version history is
+    """One row per saved edit - recorded from Phase 1 on so version history is
     real data before the browsing UI (later phase) exists."""
     __tablename__ = "doc_versions"
     id          = Column(String, primary_key=True)   # uuid
@@ -1180,7 +1180,7 @@ class DocumentVersion(Base):
 
 
 class DocTemplateVersion(Base):
-    """Same shape as DocumentVersion (Phase 7 gap closure) — templates only got
+    """Same shape as DocumentVersion (Phase 7 gap closure) - templates only got
     a bare version counter in Phase 3; this gives them real browsable history."""
     __tablename__ = "doc_template_versions"
     id          = Column(String, primary_key=True)   # uuid
@@ -1196,7 +1196,7 @@ class DocTemplateVersion(Base):
 # Punch-event model: every clock action is one immutable row; shifts/totals are
 # derived. Geofencing is a SOFT gate (research-verified SwipeClock behavior):
 # out-of-fence punches are recorded and flagged, never blocked. Corrections
-# never overwrite silently — original_at freezes the first value, voided rows
+# never overwrite silently - original_at freezes the first value, voided rows
 # stay in the table (wage-and-hour record retention).
 
 class TimePunch(Base):
@@ -1204,7 +1204,7 @@ class TimePunch(Base):
     id             = Column(String, primary_key=True)   # uuid
     employee_email = Column(String, nullable=False, index=True)
     kind           = Column(String, nullable=False)     # in|out|break_start|break_end
-    at             = Column(String, nullable=False)     # UTC ISO — effective time (adjustments edit this)
+    at             = Column(String, nullable=False)     # UTC ISO - effective time (adjustments edit this)
     original_at    = Column(String, default="")         # frozen first value once adjusted
     local_date     = Column(String, default="")         # YYYY-MM-DD in the puncher's timezone (grouping key)
     tz_offset_min  = Column(Integer, default=0)         # JS getTimezoneOffset() at punch
@@ -1229,7 +1229,7 @@ class TimePunch(Base):
 
 
 class TimeScreenshot(Base):
-    """Work-session screen captures (consent-based getDisplayMedia — the browser
+    """Work-session screen captures (consent-based getDisplayMedia - the browser
     shows a persistent sharing indicator the whole time; nothing is covert).
     One row per captured frame, image in the private hr-docs bucket."""
     __tablename__ = "time_screenshots"
@@ -1286,7 +1286,7 @@ class TimeBod(Base):
 class AgentDevice(Base):
     """A desktop-agent enrollment. Silent (no-login) model: an admin mints a
     token tied to an employee, the install command drops it on the machine, and
-    the agent authenticates with it (X-Agent-Token) — no Microsoft sign-in. Each
+    the agent authenticates with it (X-Agent-Token) - no Microsoft sign-in. Each
     row is one enrolled computer, self-describing on first check-in."""
     __tablename__ = "agent_devices"
     id             = Column(String, primary_key=True)   # uuid
@@ -1321,7 +1321,7 @@ class Shift(Base):
 
 
 class ScheduledShift(Base):
-    """One shift placed on a specific employee for a specific calendar date —
+    """One shift placed on a specific employee for a specific calendar date -
     the cells of the weekly schedule grid. Links a preset for code/colour but
     keeps its own times/label so a placement can be tweaked without editing the
     preset."""
@@ -1340,7 +1340,7 @@ class ScheduledShift(Base):
 
 
 class ShiftGroup(Base):
-    """A reusable set of employees — used to bulk-assign shifts AND to bind the
+    """A reusable set of employees - used to bulk-assign shifts AND to bind the
     Teams group chat that this group's BOD/EOD/Break messages route to."""
     __tablename__ = "shift_groups"
     id              = Column(String, primary_key=True)   # uuid
@@ -1370,14 +1370,14 @@ class ShiftAssignment(Base):
 
 class PayrollRate(Base):
     """Manager-set hourly pay rate used by the payroll timecard. One current rate
-    per employee (history is not kept here — corrections just overwrite)."""
+    per employee (history is not kept here - corrections just overwrite)."""
     __tablename__ = "payroll_rates"
     employee_email = Column(String, primary_key=True)
     hourly_rate    = Column(Float, default=0)
     # Which overtime law applies to THIS employee. 'ca' = California daily
     # (>8h→1.5×, >12h→2×) + 7th-consecutive-day + weekly >40h; 'federal' = FLSA
     # weekly >40h only (out-of-state US); 'none' = no US overtime premium
-    # (non-US — their local law is handled outside Nexus). Defaults to 'ca' since
+    # (non-US - their local law is handled outside Nexus). Defaults to 'ca' since
     # the workforce is California; set explicitly for out-of-state / overseas.
     overtime_rule  = Column(String, default="ca")
     updated_by     = Column(String, default="")
@@ -1388,7 +1388,7 @@ class AgentActivity(Base):
     """One foreground-usage sample from the desktop agent: seconds spent in an app
     (and, for browsers, the active domain) with the window title and an activity %
     (share of that window where the user wasn't idle). Powers the Insights
-    dashboard — Top Apps, Top Websites, active-vs-idle, and the activity log."""
+    dashboard - Top Apps, Top Websites, active-vs-idle, and the activity log."""
     __tablename__ = "agent_activity"
     id             = Column(String, primary_key=True)   # uuid
     employee_email = Column(String, nullable=False, index=True)
@@ -1512,7 +1512,7 @@ class HrSelfRequest(Base):
 # Periodic location pings across a shift for on-site crews. A browser can't do
 # this (geolocation dies when the phone locks), so the client is a native
 # Capacitor app that reuses the silent-agent token model (agent_devices +
-# X-Agent-Token) for enrollment — no Microsoft login on the phone.
+# X-Agent-Token) for enrollment - no Microsoft login on the phone.
 
 class TrackConsent(Base):
     """Standing, revocable consent to be location-tracked while clocked in.
@@ -1553,8 +1553,8 @@ class TrackPing(Base):
     id             = Column(String, primary_key=True)   # uuid
     session_id     = Column(String, index=True, default="")
     employee_email = Column(String, nullable=False, index=True)
-    at             = Column(String, nullable=False)     # UTC ISO — device capture time (not receive time)
-    received_at    = Column(String, default="")         # UTC ISO — when the server stored it
+    at             = Column(String, nullable=False)     # UTC ISO - device capture time (not receive time)
+    received_at    = Column(String, default="")         # UTC ISO - when the server stored it
     local_date     = Column(String, default="", index=True)
     lat            = Column(String, default="")
     lng            = Column(String, default="")
@@ -1568,7 +1568,7 @@ class TrackPing(Base):
 
 
 class MonitoringPolicy(Base):
-    """Admin-set, server-side policy the desktop agent fetches each heartbeat —
+    """Admin-set, server-side policy the desktop agent fetches each heartbeat -
     replaces the agent's hardcoded interval/toggles so capture cadence and what's
     collected are controlled centrally and auditable. Single row (id='default').
     DISCLOSED monitoring: capture only runs while clocked in and after the
@@ -1580,14 +1580,14 @@ class MonitoringPolicy(Base):
     randomize        = Column(Integer, default=1)   # jitter the interval so a shot can't be timed/gamed
     track_screens    = Column(Integer, default=1)   # screenshots
     track_windows    = Column(Integer, default=1)   # active foreground window title
-    track_input      = Column(Integer, default=1)   # aggregate active/idle % — NEVER keystroke content
+    track_input      = Column(Integer, default=1)   # aggregate active/idle % - NEVER keystroke content
     updated_by       = Column(String, default="")
     updated_at       = Column(String, default="")
 
 
 class PunchRequest(Base):
-    """An employee's request to FIX their timesheet — add a missed punch or remove
-    a wrong one — that an approver (HR/manager) must approve or reject before it
+    """An employee's request to FIX their timesheet - add a missed punch or remove
+    a wrong one - that an approver (HR/manager) must approve or reject before it
     takes effect. Unlike a self-service backfill (which lands immediately, flagged),
     this is gated: nothing changes on the timesheet until approved."""
     __tablename__ = "punch_requests"
@@ -1641,7 +1641,7 @@ class PolicyAcknowledgment(Base):
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# Task Module — supporting tables (ported from task-module export, Jul 2026)
+# Task Module - supporting tables (ported from task-module export, Jul 2026)
 # All email-keyed; ISO-string timestamps; jsonb for arrays/maps. See Task above.
 # ═════════════════════════════════════════════════════════════════════════════
 class TaskProject(Base):
@@ -1653,11 +1653,11 @@ class TaskProject(Base):
     color         = Column(String, default="")
     owner_email   = Column(String, default="", index=True)
     portfolio_id  = Column(String, default="", index=True)
-    # Real People-module department (HrDepartment.id — no DB FK; same
+    # Real People-module department (HrDepartment.id - no DB FK; same
     # hr_department_id naming TaskTicket already uses for this exact concept,
     # kept distinct from a task-scoped "department_id" on purpose). Auto-
     # resolved from the creating user's own employee record at creation time
-    # (see create_project) rather than manually picked — hr_department_name is
+    # (see create_project) rather than manually picked - hr_department_name is
     # a display snapshot taken at that same moment.
     hr_department_id   = Column(String, default="", index=True)
     hr_department_name = Column(String, default="")
@@ -1673,7 +1673,7 @@ class TaskProject(Base):
     archived      = Column(Boolean, default=False)
     member_emails = Column(JSON, default=list)
     # Per-person role for the Share panel (owner|editor|commenter|viewer),
-    # keyed by lowercase email — {email: role}. Additive to member_emails,
+    # keyed by lowercase email - {email: role}. Additive to member_emails,
     # which stays the flat "has access at all" list every other visibility
     # check (task_util.visible_project_ids) already relies on; a role here
     # implies that email also belongs in member_emails (see update_project).
@@ -1700,13 +1700,13 @@ class TaskPortfolio(Base):
 
 
 class TaskTeam(Base):
-    """A named group (e.g. "IT Team", "QA Team") — not a cross-project
+    """A named group (e.g. "IT Team", "QA Team") - not a cross-project
     department. A team can exist standalone (no projects) or be assigned to any
     number of projects, from its own modal or a project's Teams picker.
 
     `project_ids` is the source of truth. It replaced the single `project_id`,
     which forced one Nexus team row per project and so minted a duplicate card
-    every time one real team (IT, Development) worked on a second project —
+    every time one real team (IT, Development) worked on a second project -
     Asana teams are shared across projects routinely, and the sync had to create
     a fresh team each time rather than steal one another project depended on.
     `project_id` is kept as a WRITE-ONLY legacy mirror (first element) so an old
@@ -1721,7 +1721,7 @@ class TaskTeam(Base):
     icon          = Column(String, default="")           # key from the department icon registry
     member_emails = Column(JSON, default=list)
     # Project-access role this team's roster is granted on its project (Share
-    # panel) — owner|editor|commenter|viewer. Distinct from the team's own
+    # panel) - owner|editor|commenter|viewer. Distinct from the team's own
     # purpose (assignment grouping); default "editor" preserves the pre-Share-
     # panel behavior where any team member could act on the project's tasks.
     access_role   = Column(String, default="editor")
@@ -1796,7 +1796,7 @@ class TaskSavedView(Base):
     filters     = Column(JSON, default=dict)
     sort        = Column(JSON, default=dict)
     group       = Column(String, default="none")
-    scope       = Column(String, default="task")         # task|ticket — which module the view belongs to
+    scope       = Column(String, default="task")         # task|ticket - which module the view belongs to
     created_at  = Column(String, default="")
 
 
@@ -1836,7 +1836,7 @@ class TaskCustomField(Base):
     id          = Column(String, primary_key=True)
     name        = Column(String, nullable=False)
     description = Column(String, default="")
-    # text|number|date|checkbox|select — the five kinds a value is actually
+    # text|number|date|checkbox|select - the five kinds a value is actually
     # STORED as. The "+ Column" menu's fifteen visual types all map onto these
     # (see views/richlist.jsx TYPE_GROUPS).
     type        = Column(String, default="text")
@@ -1848,7 +1848,7 @@ class TaskCustomField(Base):
     # field became a column on every board in the workspace.
     project_ids = Column(JSON, default=list)
     # Must have a value before a task can be created (checked on the create form,
-    # not on the API — inbound Asana tasks legitimately arrive without it).
+    # not on the API - inbound Asana tasks legitimately arrive without it).
     required    = Column(Boolean, default=False)
 
 
@@ -1896,16 +1896,16 @@ class TaskTicket(Base):
     requester_email= Column(String, default="", index=True)
     assignee_email = Column(String, default="", index=True)
     department_id  = Column(String, default="", index=True)   # task department ("Team")
-    company_id     = Column(String, default="", index=True)   # HrEntity.id — company from the People module
-    hr_department_id = Column(String, default="", index=True) # HrDepartment.id — department from the People module
+    company_id     = Column(String, default="", index=True)   # HrEntity.id - company from the People module
+    hr_department_id = Column(String, default="", index=True) # HrDepartment.id - department from the People module
     linked_task_id = Column(String, default="")
     tags           = Column(JSON, default=list)
     images         = Column(JSON, default=list)   # screenshot data URLs / storage links
     watcher_emails = Column(JSON, default=list)   # people notified on ticket changes
     resolution     = Column(String, default="")   # fixed|wont_fix|duplicate|cannot_reproduce|done
-    custom_field_values = Column(JSON, default=dict)  # {customFieldId: value} — reuses the task custom-field defs
-    type_fields    = Column(JSON, default=dict)   # {fieldKey: value} — per-type intake fields (bug/incident/… specific)
-    links          = Column(JSON, default=list)   # [{ticketId, type}] — relates|duplicate|blocks|blocked_by
+    custom_field_values = Column(JSON, default=dict)  # {customFieldId: value} - reuses the task custom-field defs
+    type_fields    = Column(JSON, default=dict)   # {fieldKey: value} - per-type intake fields (bug/incident/… specific)
+    links          = Column(JSON, default=list)   # [{ticketId, type}] - relates|duplicate|blocks|blocked_by
     task_ids       = Column(JSON, default=list)   # tasks spawned from / linked to this ticket (one ticket → many tasks)
     component      = Column(String, default="")   # category/component name (see TaskTicketComponent)
     csat_rating    = Column(Integer, default=0)   # 1-5 satisfaction rating; 0 = not rated
@@ -1926,10 +1926,10 @@ class TaskTicket(Base):
 
 class TicketEmailLog(Base):
     """One attempted Outlook notification for a ticket event (Ticket
-    Notification Workflow, Jul 2026). One row per (ticket, event, recipient) —
+    Notification Workflow, Jul 2026). One row per (ticket, event, recipient) -
     the durable record a background retry loop scans, and what an admin's
     delivery-log view reads. `idempotency_key` is
-    f"{ticket_id}:{event_type}:{event_version}:{recipient}" — checked before
+    f"{ticket_id}:{event_type}:{event_version}:{recipient}" - checked before
     sending so the same event never emails the same person twice, including
     across a mid-send server restart (see ticket_notify.py)."""
     __tablename__ = "ticket_email_log"
@@ -1963,7 +1963,7 @@ class TaskTicketComponent(Base):
 
 class TaskEmailLog(Base):
     """One attempted Outlook notification for a Task-module event (Task
-    Notification Workflow, Jul 2026 — same design as TicketEmailLog above,
+    Notification Workflow, Jul 2026 - same design as TicketEmailLog above,
     just task-scoped). One row per (task, event, recipient); idempotency_key
     prevents ever emailing the same event to the same person twice, including
     a due-date reminder re-firing on a later pull of the same calendar day."""
@@ -1989,7 +1989,7 @@ class TaskEmailLog(Base):
 
 class TaskChangelogEntry(Base):
     """A changelog / "What's New" entry. Kept schema-loose (full object in
-    `payload`) — mirrors the property_records pattern — until the changelog UI
+    `payload`) - mirrors the property_records pattern - until the changelog UI
     is ported and its shape stabilises."""
     __tablename__ = "task_changelog_entries"
     id         = Column(String, primary_key=True)
@@ -2010,7 +2010,7 @@ class TaskChangelogComment(Base):
 class TaskEvent(Base):
     """Realtime ping table. The only task_* table that is anon-readable (SELECT):
     the frontend subscribes to it via the Supabase anon key to know when to
-    refetch — the real tables are never anon-exposed. Rows carry no sensitive
+    refetch - the real tables are never anon-exposed. Rows carry no sensitive
     payload, just enough to scope a refetch (mirrors inventory_events)."""
     __tablename__ = "task_events"
     id             = Column(BigInteger, primary_key=True, autoincrement=True)
@@ -2020,7 +2020,7 @@ class TaskEvent(Base):
     created_at     = Column(String, default="")          # set server-side (timestamptz in DB)
 
 
-# ── Asana two-way sync (new tables — create_all builds them, no migration) ────
+# ── Asana two-way sync (new tables - create_all builds them, no migration) ────
 class AsanaSyncConfig(Base):
     """Single-row config for the Nexus <-> Asana sync (id fixed to 'singleton')."""
     __tablename__ = "asana_sync_config"
@@ -2038,7 +2038,7 @@ class AsanaSyncConfig(Base):
     # Propagate deletions both ways: a task deleted in Asana is deleted in Nexus
     # on the next pull/webhook, and deleting a Nexus task deletes its Asana
     # counterpart. Separate from `enabled` because it's the one irreversible
-    # part of the sync — everything else this module does is additive.
+    # part of the sync - everything else this module does is additive.
     delete_sync         = Column(Boolean, default=True)
 
 
@@ -2058,7 +2058,7 @@ class AsanaProjectMap(Base):
 
 class AsanaTaskLink(Base):
     """Links a Nexus task to its Asana counterpart. `last_hash` is a digest of the
-    synced fields at the last sync — comparing against it prevents echo loops
+    synced fields at the last sync - comparing against it prevents echo loops
     (a change that originated from a sync won't be pushed back)."""
     __tablename__ = "asana_task_links"
     id             = Column(String, primary_key=True)
@@ -2067,7 +2067,7 @@ class AsanaTaskLink(Base):
     last_hash      = Column(String, default="")
     last_synced_at = Column(String, default="")
     # Digest of the fields Asana can only take through a separate additive
-    # action rather than a task PUT — tags, followers, dependencies, section,
+    # action rather than a task PUT - tags, followers, dependencies, section,
     # attachments. They can't live in `last_hash` because that one is compared
     # against a digest computed from Asana's own payload for loop prevention,
     # and these have no comparable inbound form (dependencies are gids on one
@@ -2078,10 +2078,10 @@ class AsanaTaskLink(Base):
     # Digest of the ASANA-side values at the last inbound apply. `last_hash`
     # can't do this job: it holds the NEXUS-side digest (what outbound compares
     # against), and the two are legitimately unequal whenever the Asana project
-    # lacks the "Task Progress"/"Priority" custom fields — Nexus knows a status
+    # lacks the "Task Progress"/"Priority" custom fields - Nexus knows a status
     # and priority that Asana simply cannot express. Comparing an inbound digest
     # against it therefore never matched, so every pull re-applied every task,
-    # bumped modified_at and logged another "Updated from Asana" — 288 phantom
+    # bumped modified_at and logged another "Updated from Asana" - 288 phantom
     # activity entries per task per day at the 5-minute poll.
     last_inbound_hash = Column(String, default="")
 
@@ -2098,7 +2098,7 @@ class AsanaCommentLink(Base):
 
 class AsanaAttachmentLink(Base):
     """Links a synced attachment to its Asana attachment gid, so re-pulls don't
-    re-download/duplicate it (inbound-only — Nexus attachments aren't pushed
+    re-download/duplicate it (inbound-only - Nexus attachments aren't pushed
     back out to Asana)."""
     __tablename__ = "asana_attachment_links"
     id                  = Column(String, primary_key=True)
@@ -2110,8 +2110,8 @@ class AsanaAttachmentLink(Base):
 class AsanaActivityLink(Base):
     """Links a Nexus activity entry to the Asana story it came from. Asana's
     /stories feed carries both comments (handled by AsanaCommentLink) and
-    SYSTEM stories — "changed the due date", "added to project", "marked
-    complete" — which are the Asana equivalent of Nexus's activity log. This
+    SYSTEM stories - "changed the due date", "added to project", "marked
+    complete" - which are the Asana equivalent of Nexus's activity log. This
     keys them by story gid so re-pulls don't replay the same history."""
     __tablename__ = "asana_activity_links"
     id                = Column(String, primary_key=True)
@@ -2125,13 +2125,13 @@ class AsanaPendingDelete(Base):
     """A Nexus task deletion still owed to Asana.
 
     Every other outbound change can be re-derived from the Nexus rows on the
-    next push sweep — a deletion cannot: the task and its AsanaTaskLink are
+    next push sweep - a deletion cannot: the task and its AsanaTaskLink are
     gone, so nothing is left to notice the Asana counterpart is orphaned. The
     fire-and-forget push is also the one outbound call with no safety net (it
     is skipped entirely outside the sync worker, and a failed HTTP call or a
     process restart loses it silently). Recording the gid in the SAME
     transaction as the delete makes the intent durable, so it can be drained
-    later — by the sweep on dev/prod, or by "Push all" on a laptop."""
+    later - by the sweep on dev/prod, or by "Push all" on a laptop."""
     __tablename__ = "asana_pending_deletes"
     id           = Column(String, primary_key=True)
     asana_gid    = Column(String, default="", index=True)
@@ -2157,9 +2157,9 @@ class AsanaWebhook(Base):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Testing module (QA) — dev-only in the UI (env-gated router), but the tables
+# Testing module (QA) - dev-only in the UI (env-gated router), but the tables
 # exist everywhere create_all runs. Seeded from qa_seed.json (the Jul-2026 module
-# audit workbook) on first read — same seed-if-empty pattern as item_types.
+# audit workbook) on first read - same seed-if-empty pattern as item_types.
 # ─────────────────────────────────────────────────────────────────────────────
 class QaTestCase(Base):
     """One test case in the library. `steps` is a JSON list of plain-English
@@ -2195,7 +2195,7 @@ class QaRun(Base):
 
 
 class QaResult(Base):
-    """One tester's verdict on one case within one run — upserted as they work.
+    """One tester's verdict on one case within one run - upserted as they work.
     step_state: [{done: bool, shot: url}] parallel to the case's steps (per-step
     evidence). evidence: {shot: overall screenshot, recording: webm url}."""
     __tablename__ = "qa_results"
@@ -2243,10 +2243,10 @@ class QaAssignment(Base):
     note           = Column(String, default="")
     assigned_by    = Column(String, default="")
     created_at     = Column(String, default="")
-# Credential Vault (ported from the standalone credential-vault-dev app — Jul 2026)
+# Credential Vault (ported from the standalone credential-vault-dev app - Jul 2026)
 # Company + personal password vault. Secrets are Fernet-encrypted at rest
 # (NEXUS_VAULT_KEY env var; see routers/credvault.py) and are NEVER returned by
-# list endpoints — only by explicit per-item reveal endpoints, every one of
+# list endpoints - only by explicit per-item reveal endpoints, every one of
 # which writes a vault_access_logs row (who revealed what, when). Access is
 # gated by the "credvault" module grant. Personal credentials are strictly
 # owner-scoped: no admin bypass.
@@ -2259,8 +2259,8 @@ class VaultCredential(Base):
     type               = Column(String, default="Password")   # Password|API key|Access key|Certificate
     username           = Column(String, default="")
     url                = Column(String, default="")
-    secret_enc         = Column(String, default="")           # Fernet ciphertext — never in list responses
-    secret_hash        = Column(String, default="")           # sha256 — reuse detection without decrypting
+    secret_enc         = Column(String, default="")           # Fernet ciphertext - never in list responses
+    secret_hash        = Column(String, default="")           # sha256 - reuse detection without decrypting
     tier               = Column(String, default="Standard")   # Standard|High|Critical
     owner_email        = Column(String, default="", index=True)
     backup_owner_email = Column(String, default="")
@@ -2268,8 +2268,8 @@ class VaultCredential(Base):
     breached           = Column(Boolean, default=False)
     rotation_max       = Column(Integer, default=90)          # days between required rotations
     custom_expiry      = Column(Boolean, default=False)
-    rotated_at         = Column(String, default="")           # ISO — last password change
-    expires_at         = Column(String, default="")           # ISO date — hard expiry (API keys), optional
+    rotated_at         = Column(String, default="")           # ISO - last password change
+    expires_at         = Column(String, default="")           # ISO date - hard expiry (API keys), optional
     deleted_at         = Column(String, default="")           # soft delete → Trash tab
     deleted_by         = Column(String, default="")
     created_at         = Column(String, default="")
@@ -2277,7 +2277,7 @@ class VaultCredential(Base):
 
 
 class VaultPersonalCredential(Base):
-    """Private per-user credential — bound to the signed-in MS account email.
+    """Private per-user credential - bound to the signed-in MS account email.
     Owner-only at the API: not readable by admins or anyone else."""
     __tablename__ = "vault_personal_credentials"
     id          = Column(String, primary_key=True)
@@ -2311,7 +2311,7 @@ class VaultShareRequest(Base):
 
 class VaultAccessGrant(Base):
     """Time-boxed shared access to one credential. The secret itself is never
-    copied here — reveal goes back through the credential + this grant check."""
+    copied here - reveal goes back through the credential + this grant check."""
     __tablename__ = "vault_access_grants"
     id         = Column(String, primary_key=True)
     cred_id    = Column(String, default="", index=True)
@@ -2322,7 +2322,7 @@ class VaultAccessGrant(Base):
 
 
 class VaultAccessLog(Base):
-    """Vault audit trail — every reveal/copy/create/edit/remove/share/deny."""
+    """Vault audit trail - every reveal/copy/create/edit/remove/share/deny."""
     __tablename__ = "vault_access_logs"
     id          = Column(String, primary_key=True)
     actor_email = Column(String, default="", index=True)
@@ -2347,7 +2347,7 @@ class StepUpSession(Base):
     __tablename__ = "stepup_sessions"
     id          = Column(String, primary_key=True)            # uuid
     email       = Column(String, default="", index=True)
-    method      = Column(String, default="")                  # authenticator|sms|mfa|dev — from the token's amr, best-effort
+    method      = Column(String, default="")                  # authenticator|sms|mfa|dev - from the token's amr, best-effort
     acr         = Column(String, default="")                  # the authentication-context value satisfied (e.g. c1)
     granted_at  = Column(String, default="")
     expires_at  = Column(String, default="", index=True)
@@ -2356,14 +2356,14 @@ class StepUpSession(Base):
 
 
 class ActAsSession(Base):
-    """A live 'Act As' impersonation (Jul 2026) — a Manager/IT Admin/Global Admin
+    """A live 'Act As' impersonation (Jul 2026) - a Manager/IT Admin/Global Admin
     working as another, always lower-role, employee so they see and can do
     exactly what that employee can. auth.get_current_user layers the TARGET's
     identity on top of the real, Entra-verified caller for every downstream
-    permission check, notification, and ownership field — see act_as.py for the
+    permission check, notification, and ownership field - see act_as.py for the
     full contract. audit.py independently decodes the raw bearer token, so the
     real actor is never lost from the audit trail even while this overlay is
-    active. New table — create_all builds it, no migration line needed."""
+    active. New table - create_all builds it, no migration line needed."""
     __tablename__ = "act_as_sessions"
     id           = Column(String, primary_key=True)            # uuid
     real_email   = Column(String, nullable=False, index=True)  # who is actually signed in
@@ -2381,7 +2381,7 @@ class ActAsSession(Base):
 # small member roster, commitments, capital calls, distributions, computed
 # capital accounts, a document data room, and an investor-updates feed. Rows
 # relate by string ids only (no ORM relationships), matching the rest of this
-# file. "Fund" below is the internal/DB name for a deal — kept for schema
+# file. "Fund" below is the internal/DB name for a deal - kept for schema
 # stability; UI copy calls it "Deal".
 
 class IrFund(Base):
@@ -2390,9 +2390,9 @@ class IrFund(Base):
     name                  = Column(String, nullable=False)
     entity_name           = Column(String, default="")   # the single-purpose LLC's legal name
     strategy              = Column(String, default="")
-    property_name         = Column(String, default="")   # free text — deliberately NOT a FK into the separate Asset Management module
+    property_name         = Column(String, default="")   # free text - deliberately NOT a FK into the separate Asset Management module
     # Optional soft link to Asset Management's PropertyAsset.id (Ankush's
-    # module — property_assets.py/PropertyAsset.jsx) for a "view this
+    # module - property_assets.py/PropertyAsset.jsx) for a "view this
     # property's operational record" cross-reference. Deliberately just an id
     # string, not a FK: the two modules stay independent, and a stale/deleted
     # property id just makes the link disappear rather than erroring anything.
@@ -2534,7 +2534,7 @@ class IrUpdate(Base):
 class PropertyWorkspaceMeta(Base):
     """Single-row (id=1) metadata for the Asset Management workspace blob: a
     SERVER-stamped epoch-ms timestamp of the last accepted PUT. Clients compare
-    this against the last _ts they know to decide when to pull — server-stamped
+    this against the last _ts they know to decide when to pull - server-stamped
     so client clock skew can never make a newer workspace look older."""
     __tablename__ = "property_workspace_meta"
     id         = Column(Integer, primary_key=True)   # always 1

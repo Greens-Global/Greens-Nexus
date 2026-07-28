@@ -6,9 +6,9 @@
 //   - `parcelOrder` (number) controls display order within the group; treated as the
 //     member's array index when null/undefined (new/never-reordered members).
 //   - `primary` (boolean) marks a parcel as primary. Multiple members CAN be primary at
-//     once — see ParcelManager.jsx for why that's intentional, not a bug.
+//     once - see ParcelManager.jsx for why that's intentional, not a bug.
 //
-// The anchor is just "whichever member currently has no parentId" — it is NOT a
+// The anchor is just "whichever member currently has no parentId" - it is NOT a
 // permanently-designated parent. Unlinking the anchor promotes the remaining member with
 // the lowest parcelOrder to be the new anchor (see the caller-side unlinkParcel logic
 // this module supports). Treat `groupAnchorOf`'s result as a transient lookup, not identity.
@@ -18,7 +18,7 @@ import { normLabel, toNumber } from './format.js';
 /**
  * Mutable singleton the currently-mounted ParcelManager registers a "reveal" callback into,
  * so a "Link this asset to a parcel or group" button elsewhere in the detail view (for a
- * standalone, ungrouped asset — where ParcelManager renders nothing by default) can force
+ * standalone, ungrouped asset - where ParcelManager renders nothing by default) can force
  * the collapsed panel open. Same pattern as editGuard.js. Call `parcelReveal.show?.()` from
  * that button; ParcelManager overwrites `.show` on every render while mounted.
  */
@@ -62,10 +62,10 @@ export function parcelLot(p) {
 
 /**
  * A single parcel's acreage, parsed from its "Lot Size" snapshot field. Converts sqft to
- * acres when the value looks like square feet — the explicit `acreageUnit` field (set via the
+ * acres when the value looks like square feet - the explicit `acreageUnit` field (set via the
  * Lot Size SF/Acres dropdown) wins when present; older records with no unit picked yet fall
  * back to sniffing "sf"/"sq"/"ft" out of the raw snapshot text. 0 if unparseable/unset.
- * Note: this is per-parcel, not a group sum — callers sum across `groupMembersOf(...)`
+ * Note: this is per-parcel, not a group sum - callers sum across `groupMembersOf(...)`
  * themselves when they need a group total (see AssemblageParcels / ParcelManager).
  */
 export function parcelAcres(p) {

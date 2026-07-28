@@ -3,7 +3,7 @@ import { GripVertical, X, Settings2 } from 'lucide-react';
 
 // A dependency-free drag + resize widget grid. 12 columns; each widget carries
 // { i, x, y, w, h }. In edit mode you drag by the header grip and resize from the
-// SE corner — both snap to the grid. Below MOBILE_BP the grid stacks to a single
+// SE corner - both snap to the grid. Below MOBILE_BP the grid stacks to a single
 // column (read-only order), so it's usable on phones.
 
 export const COLS = 12;

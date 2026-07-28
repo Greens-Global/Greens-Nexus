@@ -5,7 +5,7 @@ import CustomDashboard from '../dashboard/CustomDashboard';
 
 // The dashboard IS the customizable widget grid now. The old "Portfolio at a
 // glance" overview lives on as widgets: Occupancy trend, Facilities and Tasks
-// overview are in the Add-widget gallery (Portfolio section) — see
+// overview are in the Add-widget gallery (Portfolio section) - see
 // dashboard/panels.jsx.
 export default function Dashboard() {
   const { accounts } = useMsal();

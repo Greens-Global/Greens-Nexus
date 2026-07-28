@@ -1,7 +1,7 @@
-"""Investor Relations (Jul 2026) — GP-side capital-management platform for
+"""Investor Relations (Jul 2026) - GP-side capital-management platform for
 single-purpose-LLC deals and small syndications (not blind-pool PE funds).
 
-A deal directory (one deal per property/project, called "Fund" internally —
+A deal directory (one deal per property/project, called "Fund" internally -
 see models.py), an investor/member directory, capital commitments, capital
 calls, distributions, computed capital-account statements (DPI/TVPI/XIRR), a
 document data room, and an investor-updates feed.
@@ -10,13 +10,13 @@ Two surfaces live here. Everything up to the "Investor portal" section is
 GP-side admin, gated at supervisor+/manager+/administrator. That section adds a
 separate, deliberately narrow read-only surface (/portal/*) for external
 investors logging in as Entra B2B guests, scoped server-side to the one deal
-they were granted — a portal grant never satisfies the admin gates. Nothing
+they were granted - a portal grant never satisfies the admin gates. Nothing
 here fans notifications out to investors; the GP communicates via the updates
 feed and the data room.
 
 Scope notes (deliberate):
 - Distributions are allocated pro-rata by commitment amount. preferred_return_pct
-  and gp_promote_pct on the deal are INFORMATIONAL — there is no tiered waterfall
+  and gp_promote_pct on the deal are INFORMATIONAL - there is no tiered waterfall
   engine in v1. The GP models the split when creating the distribution.
 - There is no interim NAV mark: a deal's unrealized value is simply called
   capital not yet distributed back (at cost), zero once exited. Single-purpose
@@ -58,8 +58,8 @@ router = APIRouter(prefix="/investor-relations", tags=["Investor Relations"])
 _LEVELS = {"employee": 1, "supervisor": 2, "manager": 3, "administrator": 4, "owner": 5}
 
 # Supervisors+ can view; managers (or an "investor-relations" editor grant) can
-# edit; administrators (or a "full" grant) can delete/seed — mirrors items.py.
-# These are the GP-admin gates ONLY — an investor-portal grant (below) never
+# edit; administrators (or a "full" grant) can delete/seed - mirrors items.py.
+# These are the GP-admin gates ONLY - an investor-portal grant (below) never
 # satisfies them, so a portal account can never reach the admin endpoints that
 # list every investor/deal. See "Investor portal" section further down for the
 # separate, deliberately narrower gate those endpoints use instead.
@@ -68,7 +68,7 @@ require_ir_edit  = require_level_or_module(_LEVELS["manager"], "investor-relatio
 require_ir_admin = require_level_or_module(_LEVELS["administrator"], "investor-relations", "full")
 
 # Name of the pre-seeded Access Group (routers/groups.py STARTER_GROUPS) that
-# grant_portal_access wires investors into — reused rather than duplicated so
+# grant_portal_access wires investors into - reused rather than duplicated so
 # an admin can see/manage every portal investor in one place (Access Manager).
 _PORTAL_GROUP_NAME = "Investor"
 
@@ -90,7 +90,7 @@ _COUNTED_COMMITMENTS = ("pending", "active")
 
 _SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 
-# Valid document URL prefix — only allow URLs pointing to our own Supabase
+# Valid document URL prefix - only allow URLs pointing to our own Supabase
 # storage so external links cannot masquerade as signed docs (same guard as
 # items.py's _validate_photo_url).
 _STORAGE_PREFIX = f"{_SUPABASE_URL}/storage/v1/object/public/" if _SUPABASE_URL else None
@@ -138,7 +138,7 @@ def _fmt_money(x: float) -> str:
 def _notify(db: Session, *, type: str, recipient: str, title: str, body: str,
             ref_id: str = "") -> None:
     """Server-side notification row (employees get 403 on the notifications POST
-    API, so this is the ONLY reliable channel). No commit here — the calling
+    API, so this is the ONLY reliable channel). No commit here - the calling
     endpoint commits once at the end. One notification per issue action; never
     fanned out per investor (there is no investor-facing login yet)."""
     row = NexusNotification(
@@ -158,7 +158,7 @@ def _notify(db: Session, *, type: str, recipient: str, title: str, body: str,
     db.add(row)
 
 
-# ── Name lookup maps (batch — never N+1 in a list serializer) ────────────────
+# ── Name lookup maps (batch - never N+1 in a list serializer) ────────────────
 
 def _fund_names(db: Session, fund_ids) -> dict:
     ids = {f for f in fund_ids if f}
@@ -230,13 +230,13 @@ def _serialize_investor(v: IrInvestor, *, committed=0.0, fund_count=0, portal_fu
         "totalCommitted":         round(committed, 2),
         "fundCount":              fund_count,
         # Deal ids this investor has been granted login/portal access to (see
-        # the "Investor portal" section) — [] means no portal access at all.
+        # the "Investor portal" section) - [] means no portal access at all.
         "portalFundIds":          sorted(portal_fund_ids or []),
     }
 
 
 def _portal_fund_ids_by_email(db: Session, emails) -> dict:
-    """Batch lookup — {lowercased email: {fund_id, ...}} — of every deal each
+    """Batch lookup - {lowercased email: {fund_id, ...}} - of every deal each
     email has been granted portal access to. Never N+1 per investor row."""
     emails = {e.lower() for e in emails if e}
     if not emails:
@@ -370,7 +370,7 @@ def _serialize_update(u: IrUpdate, fund_names: dict) -> dict:
     }
 
 
-# ── Aggregate rollups (grouped SQL — never per-row loops) ─────────────────────
+# ── Aggregate rollups (grouped SQL - never per-row loops) ─────────────────────
 
 def _fund_rollups(db: Session, fund_id: Optional[str] = None):
     """Three grouped queries → ({fund_id: (committed, investor_count)},
@@ -456,7 +456,7 @@ def _pro_rata(total_amount: float, commitments: list) -> list:
     rounded to cents, with the LAST allocation absorbing rounding drift so the
     parts sum EXACTLY to total_amount. Returns [(commitment, amount), ...].
     Returns [] when there is nothing to pro-rate over (no commitments, or all
-    commitment amounts are zero) — a zero-allocation call/distribution is a
+    commitment amounts are zero) - a zero-allocation call/distribution is a
     valid state; the GP can re-total a draft later to regenerate."""
     commitments = list(commitments)
     base = sum(float(c.commitment_amount or 0) for c in commitments)
@@ -475,7 +475,7 @@ def _pro_rata(total_amount: float, commitments: list) -> list:
 def _active_commitments(db: Session, fund_id: str) -> list:
     """Active commitments for a fund in a DETERMINISTIC order, so regenerating a
     draft's allocations reproduces the same split (the last row absorbs the
-    rounding drift — its identity must be stable)."""
+    rounding drift - its identity must be stable)."""
     return (db.query(IrCommitment)
             .filter(IrCommitment.fund_id == fund_id, IrCommitment.status == "active")
             .order_by(IrCommitment.created_at, IrCommitment.id).all())
@@ -484,7 +484,7 @@ def _active_commitments(db: Session, fund_id: str) -> list:
 def _generate_call_allocations(db: Session, call: IrCapitalCall, commitments: list) -> int:
     """One pending allocation per active commitment, pro-rata by commitment
     amount. If the fund has no active commitments yet, the call simply gets zero
-    allocations (valid — the GP can add commitments and re-total the draft to
+    allocations (valid - the GP can add commitments and re-total the draft to
     regenerate; there is deliberately no separate regenerate endpoint in v1)."""
     n = 0
     for c, amt in _pro_rata(call.total_amount, commitments):
@@ -537,7 +537,7 @@ def _xirr(cashflows: list) -> Optional[float]:
         if abs(new_rate - rate) < 1e-6:
             return new_rate
         rate = max(new_rate, -0.999)
-    # Newton didn't converge — fall back to bisection over a wide range
+    # Newton didn't converge - fall back to bisection over a wide range
     lo, hi = -0.9, 10.0
     f_lo, f_hi = npv(lo), npv(hi)
     if f_lo * f_hi > 0:
@@ -626,8 +626,8 @@ def get_dashboard(user: dict = Depends(require_ir_view), db: Session = Depends(g
             deals_by_status[f.status or "raising"] += 1
 
     # Average IRR / MOIC across every (fund, investor) position with capital in
-    # the ground — same math the capital-accounts screen shows. Only exited
-    # positions have a real (non-None) TVPI/IRR (see _capital_account) — this
+    # the ground - same math the capital-accounts screen shows. Only exited
+    # positions have a real (non-None) TVPI/IRR (see _capital_account) - this
     # naturally averages realized performance only, not still-active deals.
     pairs = db.query(IrCommitment.fund_id, IrCommitment.investor_id).distinct().all()
     irrs, moics = [], []
@@ -844,7 +844,7 @@ def delete_fund(fund_id: str, user: dict = Depends(require_ir_admin), db: Sessio
     if not f:
         raise HTTPException(404, "Deal not found")
     if db.query(IrCommitment).filter(IrCommitment.fund_id == fund_id).count():
-        raise HTTPException(409, "Cannot delete a deal that has commitments — remove them first")
+        raise HTTPException(409, "Cannot delete a deal that has commitments - remove them first")
     db.delete(f)
     db.commit()
     return {"ok": True}
@@ -970,7 +970,7 @@ def delete_investor(investor_id: str, user: dict = Depends(require_ir_admin),
     if not v:
         raise HTTPException(404, "Investor not found")
     if db.query(IrCommitment).filter(IrCommitment.investor_id == investor_id).count():
-        raise HTTPException(409, "Cannot delete an investor with commitments — remove them first")
+        raise HTTPException(409, "Cannot delete an investor with commitments - remove them first")
     db.delete(v)
     db.commit()
     return {"ok": True}
@@ -1086,7 +1086,7 @@ def delete_commitment(commitment_id: str, user: dict = Depends(require_ir_admin)
     if paid_calls or paid_dists:
         raise HTTPException(409, "Cannot delete a commitment with paid capital-call or "
                                  "distribution allocations against it")
-    # Unpaid allocations referencing it are left in place — an issued call's
+    # Unpaid allocations referencing it are left in place - an issued call's
     # allocations must keep summing to its total; a DRAFT call can simply be
     # re-totaled (PATCH totalAmount) to regenerate without this commitment.
     db.delete(c)
@@ -1172,7 +1172,7 @@ def update_capital_call(call_id: str, body: CapitalCallUpdate,
 
     if body.totalAmount is not None and float(body.totalAmount) != float(call.total_amount or 0):
         # Re-totaling deletes and regenerates the pro-rata allocations, so it is
-        # only allowed while the call is still a draft — an issued call's
+        # only allowed while the call is still a draft - an issued call's
         # allocation amounts are the notice the investors were sent.
         if call.status != "draft":
             raise HTTPException(400, "totalAmount can only be changed while the call is a draft")
@@ -1196,7 +1196,7 @@ def update_capital_call(call_id: str, body: CapitalCallUpdate,
             fund = db.query(IrFund).filter(IrFund.id == call.fund_id).first()
             if fund and fund.fund_manager_email:
                 _notify(db, type="ir_capital_call_issued", recipient=fund.fund_manager_email,
-                        title=f"Capital Call Issued — {fund.name}",
+                        title=f"Capital Call Issued - {fund.name}",
                         body=(f"Capital Call #{call.call_number}"
                               f"{' (' + call.title + ')' if call.title else ''} for "
                               f"{_fmt_money(call.total_amount)} has been issued"
@@ -1246,13 +1246,13 @@ def update_call_allocation(allocation_id: str, body: CallAllocationUpdate,
         if status == "paid":
             if body.paidAmount is None:
                 a.paid_amount = float(a.amount or 0)   # default: paid in full
-            # A paid allocation needs a date for the IRR cash-flow — default to
+            # A paid allocation needs a date for the IRR cash-flow - default to
             # today rather than silently dropping it from the XIRR series.
             if not a.paid_date:
                 a.paid_date = _today()
         else:
             # Un-paying (or waiving) clears the payment record unless this PATCH
-            # explicitly set it — the rollups filter on status, but stale
+            # explicitly set it - the rollups filter on status, but stale
             # paid fields would mislead anyone reading the row.
             if body.paidAmount is None:
                 a.paid_amount = 0
@@ -1374,7 +1374,7 @@ def update_distribution(distribution_id: str, body: DistributionUpdate,
             if fund and fund.fund_manager_email:
                 verb = "Issued" if new_status == "issued" else "Paid"
                 _notify(db, type=f"ir_distribution_{new_status}", recipient=fund.fund_manager_email,
-                        title=f"Distribution {verb} — {fund.name}",
+                        title=f"Distribution {verb} - {fund.name}",
                         body=(f"Distribution #{dist.distribution_number}"
                               f"{' (' + dist.title + ')' if dist.title else ''} for "
                               f"{_fmt_money(dist.total_amount)} is now {new_status}"
@@ -1488,7 +1488,7 @@ def get_capital_account(investor_id: str, fund_id: str,
     if acct is None:
         raise HTTPException(404, "This investor has no commitment in this fund")
 
-    # Cash-flow statement lines — the SAME paid allocations the IRR used.
+    # Cash-flow statement lines - the SAME paid allocations the IRR used.
     call_allocs = db.query(IrCapitalCallAllocation).filter(
         IrCapitalCallAllocation.fund_id == fund.id,
         IrCapitalCallAllocation.investor_id == investor_id,
@@ -1562,7 +1562,7 @@ def create_document(body: DocumentIn, user: dict = Depends(require_ir_edit),
         raise HTTPException(400, "Title cannot be empty")
     category = (body.category or "other").strip()
     _require_enum(category, _DOC_CATEGORIES, "category")
-    # Empty fileUrl is allowed (placeholder rows — the frontend renders a
+    # Empty fileUrl is allowed (placeholder rows - the frontend renders a
     # "no file attached" state); a non-empty one must be our Supabase storage.
     _validate_doc_url(body.fileUrl, "fileUrl")
     fund_id = (body.fundId or "").strip()
@@ -1735,7 +1735,7 @@ def grant_portal_access(body: PortalAccessIn, user: dict = Depends(require_ir_ed
         raise HTTPException(400, "This investor needs an email on file before granting portal access")
     if not db.query(IrCommitment).filter(IrCommitment.investor_id == investor.id,
                                          IrCommitment.fund_id == fund.id).first():
-        raise HTTPException(400, "This investor has no commitment in this deal yet — add one first")
+        raise HTTPException(400, "This investor has no commitment in this deal yet - add one first")
 
     now = _now_iso()
     employee = db.query(NexusEmployee).filter(func.lower(NexusEmployee.work_email) == email).first()
@@ -1753,7 +1753,7 @@ def grant_portal_access(body: PortalAccessIn, user: dict = Depends(require_ir_ed
         needs_invite_reminder = True
     elif (employee.identity_type or "internal") == "internal":
         raise HTTPException(409, f"{email} already belongs to an internal Nexus employee "
-                                 f"record — grant portal access to a different email, or "
+                                 f"record - grant portal access to a different email, or "
                                  f"ask IT to review that account first")
     elif (employee.identity_type or "internal") == "external":
         # 'external' = HR-record-only, no login capability -- portal access
@@ -1781,7 +1781,7 @@ def grant_portal_access(body: PortalAccessIn, user: dict = Depends(require_ir_ed
         "identityType": employee.identity_type,
         "nextStep": (
             f"{email} now has a guest HR record and access to this deal, but still needs an "
-            f"actual Entra ID guest invite before they can sign in — send one from Entra "
+            f"actual Entra ID guest invite before they can sign in - send one from Entra "
             f"Admin Center -> External Identities -> Invite (see docs/External-Users-Phase4.md). "
             f"This app cannot send that invite automatically."
         ) if needs_invite_reminder else None,
@@ -2037,7 +2037,7 @@ def seed_demo_data(user: dict = Depends(require_ir_admin), db: Session = Depends
         investors.append(v)
 
     # Commitments ----------------------------------------------------------------
-    # NOTE: autoflush=False — these rows aren't visible to queries yet, so the
+    # NOTE: autoflush=False - these rows aren't visible to queries yet, so the
     # call/distribution builders below work off these Python lists, never a query.
     def _mk_commitment(fund, investor, amount, days_back, status="active"):
         c = IrCommitment(
@@ -2060,7 +2060,7 @@ def seed_demo_data(user: dict = Depends(require_ir_admin), db: Session = Depends
                    (2, 1200000, 495), (0, 900000, 480), (6, 400000, 470),
                    (7, 2000000, 450), (3, 500000, 430)]
     ocean_commitments = [_mk_commitment(fund_ocean, investors[i], amt, back)
-                         for i, amt, back in ocean_specs]  # 12.0M — fully committed
+                         for i, amt, back in ocean_specs]  # 12.0M - fully committed
 
     sunbelt_commitments = [
         _mk_commitment(fund_sunbelt, investors[1], 2000000, 45),
@@ -2094,23 +2094,23 @@ def seed_demo_data(user: dict = Depends(require_ir_admin), db: Session = Depends
             a.paid_date = d(days_back)
             a.paid_amount = a.amount
 
-    # Fund III — 50% called at acquisition, 25% renovation draw, 15% in flight.
+    # Fund III - 50% called at acquisition, 25% renovation draw, 15% in flight.
     active_mf3 = [c for c in mf3_commitments if c.status == "active"]
-    _, a1 = _mk_call(fund_mf3, 1, "Initial Capital Call — Acquisition",
+    _, a1 = _mk_call(fund_mf3, 1, "Initial Capital Call - Acquisition",
                      "Close on Cypress Grove Apartments.", 3825000, 390, 360, "closed", active_mf3)
     _pay(a1, 365)
     _, a2 = _mk_call(fund_mf3, 2, "Renovation Draw",
                      "Phase I interior renovations (96 units).", 1912500, 200, 170, "closed", active_mf3)
     _pay(a2, 175)
-    _, a3 = _mk_call(fund_mf3, 3, "Capital Call #3 — Phase II Renovations",
+    _, a3 = _mk_call(fund_mf3, 3, "Capital Call #3 - Phase II Renovations",
                      "Phase II interiors plus amenity package.", 1147500, 40, 10, "issued", active_mf3)
     _pay(a3[:5], 12)                      # most already funded
     a3[5].status = a3[6].status = "pending"
     a3[7].status = "overdue"              # due date (10 days ago) has passed
 
-    # Oceanview — fully called across two closed calls.
+    # Oceanview - fully called across two closed calls.
     active_ocean = [c for c in ocean_commitments if c.status == "active"]
-    _, b1 = _mk_call(fund_ocean, 1, "Initial Capital Call — Closing",
+    _, b1 = _mk_call(fund_ocean, 1, "Initial Capital Call - Closing",
                      "Acquisition closing and reserves.", 7200000, 520, 490, "closed", active_ocean)
     _pay(b1, 495)
     _, b2 = _mk_call(fund_ocean, 2, "Final Capital Call",
@@ -2140,29 +2140,29 @@ def seed_demo_data(user: dict = Depends(require_ir_admin), db: Session = Depends
              300000, 30, "paid", active_mf3, pay_back=30)
     _mk_dist(fund_ocean, 1, "2025 Annual Preferred Return", "preferred_return",
              960000, 220, "paid", active_ocean, pay_back=220)
-    _mk_dist(fund_ocean, 2, "Refinance Proceeds — Return of Capital", "return_of_capital",
+    _mk_dist(fund_ocean, 2, "Refinance Proceeds - Return of Capital", "return_of_capital",
              2400000, 90, "paid", active_ocean, pay_back=90)
     dists_created = 3
 
-    # Documents (file_url deliberately empty — no real files in demo data; the
+    # Documents (file_url deliberately empty - no real files in demo data; the
     # frontend renders a "no file attached" state) -------------------------------
     docs = [
         IrDocument(id=_id(), fund_id=fund_mf3.id, investor_id="", category="ppm",
-                   title="Private Placement Memorandum — Greens Multifamily Growth Fund III",
+                   title="Private Placement Memorandum - Greens Multifamily Growth Fund III",
                    file_url="", file_name="", uploaded_by=me, created_at=ts(415)),
         IrDocument(id=_id(), fund_id=fund_ocean.id, investor_id=investors[1].id,
                    category="subscription_agreement",
-                   title="Subscription Agreement — Meridian Capital Holdings LLC",
+                   title="Subscription Agreement - Meridian Capital Holdings LLC",
                    file_url="", file_name="", uploaded_by=me, created_at=ts(538)),
         IrDocument(id=_id(), fund_id=fund_ocean.id, investor_id=investors[2].id,
                    category="k1",
-                   title="2025 Schedule K-1 — The Harold Weintraub Revocable Trust",
+                   title="2025 Schedule K-1 - The Harold Weintraub Revocable Trust",
                    file_url="", file_name="", uploaded_by=me, created_at=ts(130)),
         IrDocument(id=_id(), fund_id=fund_mf3.id, investor_id="", category="quarterly_report",
-                   title="Q2 2026 Quarterly Report — Cypress Grove",
+                   title="Q2 2026 Quarterly Report - Cypress Grove",
                    file_url="", file_name="", uploaded_by=me, created_at=ts(18)),
         IrDocument(id=_id(), fund_id=fund_sunbelt.id, investor_id="", category="ppm",
-                   title="Private Placement Memorandum — Sunbelt Industrial Income Fund",
+                   title="Private Placement Memorandum - Sunbelt Industrial Income Fund",
                    file_url="", file_name="", uploaded_by=me, created_at=ts(55)),
     ]
     for doc in docs:
@@ -2173,10 +2173,10 @@ def seed_demo_data(user: dict = Depends(require_ir_admin), db: Session = Depends
         IrUpdate(id=_id(), fund_id="", title="Welcome to the Greens Investor Relations Portal",
                  body="All fund reporting, capital-call notices, and distribution statements now live here.",
                  pinned=True, created_by=me, created_at=ts(90)),
-        IrUpdate(id=_id(), fund_id=fund_mf3.id, title="Cypress Grove Renovation — Phase I Complete",
+        IrUpdate(id=_id(), fund_id=fund_mf3.id, title="Cypress Grove Renovation - Phase I Complete",
                  body="96 units renovated; achieved rents are running 9% ahead of underwriting.",
                  pinned=False, created_by=me, created_at=ts(45)),
-        IrUpdate(id=_id(), fund_id=fund_ocean.id, title="Refinance Closed — $2.4M Return of Capital Distributed",
+        IrUpdate(id=_id(), fund_id=fund_ocean.id, title="Refinance Closed - $2.4M Return of Capital Distributed",
                  body="The Oceanview Terrace refinance closed at a 5.9% fixed rate; 20% of capital returned.",
                  pinned=False, created_by=me, created_at=ts(85)),
         IrUpdate(id=_id(), fund_id=fund_sunbelt.id, title="Sunbelt Industrial Income Fund Now Open to New Investors",

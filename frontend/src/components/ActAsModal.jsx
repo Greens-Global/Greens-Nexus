@@ -3,7 +3,7 @@ import { Search, X, UserCog } from "lucide-react";
 import { api } from "../api";
 
 // Picker for starting an Act As session (Jul 2026). The eligible list is
-// already filtered server-side to roles strictly below the caller's own —
+// already filtered server-side to roles strictly below the caller's own -
 // nothing here needs to re-derive that rule, just search/select/start.
 export default function ActAsModal({ onClose, onStart }) {
   const [people, setPeople]   = useState([]);
@@ -60,7 +60,7 @@ export default function ActAsModal({ onClose, onStart }) {
               style={{ width: '100%', padding: '8px 10px 8px 30px', borderRadius: 8, border: '1px solid var(--line)', fontFamily: 'Inter, sans-serif', fontSize: 13, background: 'var(--bg)', color: 'var(--ink)', boxSizing: 'border-box' }} />
           </div>
           <div style={{ fontSize: 11, color: 'var(--muted)', margin: '8px 2px 4px', lineHeight: 1.4 }}>
-            You'll see and act in Nexus exactly as they can, until you exit — every action while acting is still recorded under your name too.
+            You'll see and act in Nexus exactly as they can, until you exit - every action while acting is still recorded under your name too.
           </div>
         </div>
 
@@ -70,7 +70,7 @@ export default function ActAsModal({ onClose, onStart }) {
           {loading && <div style={{ padding: 16, fontSize: 12.5, color: 'var(--muted)', textAlign: 'center' }}>Loading…</div>}
           {!loading && filtered.length === 0 && (
             <div style={{ padding: 16, fontSize: 12.5, color: 'var(--muted)', textAlign: 'center' }}>
-              {people.length === 0 ? "No one is eligible — Act As only works on roles strictly below your own." : "No matches."}
+              {people.length === 0 ? "No one is eligible - Act As only works on roles strictly below your own." : "No matches."}
             </div>
           )}
           {filtered.map(p => (

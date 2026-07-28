@@ -35,7 +35,7 @@ function toPayload(f) {
     fundManagerEmail: f.fundManagerEmail || null,
     description: f.description.trim() || null,
     thesis: f.thesis.trim() || null,
-    // '' (not null) so clearing the link actually clears it on PATCH — the
+    // '' (not null) so clearing the link actually clears it on PATCH - the
     // backend treats null as "leave unchanged" and '' as "no linked property".
     propertyAssetId: f.propertyAssetId || '',
   };
@@ -43,14 +43,14 @@ function toPayload(f) {
 
 // Cross-view jump to Asset Management (standard nexus:navigate pattern). No
 // deep-link-to-a-property support exists over there yet, so this lands on the
-// general screen — don't fake a query param the target won't read.
+// general screen - don't fake a query param the target won't read.
 function goToAssetMgmt(e) {
   e.stopPropagation();
   window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'property-asset' } }));
 }
 
 // Grant/revoke read-only investor-portal access for this deal, one investor at
-// a time. Lives in the EDIT modal only — a brand-new deal has no commitments,
+// a time. Lives in the EDIT modal only - a brand-new deal has no commitments,
 // and the backend refuses grants without a real commitment behind them.
 function DealPortalAccess({ fundId }) {
   const { data, loading, error, reload } = useIrLoad(
@@ -87,14 +87,14 @@ function DealPortalAccess({ fundId }) {
         await api.revokeIrPortalAccess(row.investorId, fundId);
       } else {
         const res = await api.grantIrPortalAccess(row.investorId, fundId);
-        // nextStep = the manual Entra guest-invite reminder — only present when
+        // nextStep = the manual Entra guest-invite reminder - only present when
         // a new guest record was just created; the GP still has to act on it.
         if (res?.nextStep) setNote(res.nextStep);
       }
       await reload();
     } catch (e) {
       // 400 (no email / no commitment) and 409 (internal-employee email clash)
-      // messages are actionable — surface them as-is, formErr-style.
+      // messages are actionable - surface them as-is, formErr-style.
       setErr(e?.message || (row.granted ? 'Revoke failed.' : 'Grant failed.'));
     } finally {
       setBusyId('');
@@ -105,7 +105,7 @@ function DealPortalAccess({ fundId }) {
     <div className="form-group-full" style={{ borderTop: '1px solid var(--line)', paddingTop: 16, marginTop: 4 }}>
       <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.06em', color: 'var(--ink)' }}>Investors in This Deal</div>
       <div style={{ fontSize: 12, color: 'var(--muted)', margin: '3px 0 10px' }}>
-        Portal access gives an investor a read-only view of this deal only — their capital account, cash flows, documents, and updates.
+        Portal access gives an investor a read-only view of this deal only - their capital account, cash flows, documents, and updates.
       </div>
       {note && (
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 9, border: '1px solid hsla(var(--color-blue), 0.4)', borderRadius: 10, padding: '9px 12px', marginBottom: 10 }}>
@@ -119,7 +119,7 @@ function DealPortalAccess({ fundId }) {
       )}
       {loading ? <LoadingState label="Loading investors…" /> : error ? <ErrorState message={error} onRetry={reload} /> : rows.length === 0 ? (
         <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>
-          No investors have a commitment in this deal yet — add commitments first, then grant portal access here.
+          No investors have a commitment in this deal yet - add commitments first, then grant portal access here.
         </div>
       ) : (
         <div>
@@ -155,7 +155,7 @@ export default function FundsTab() {
   // Optional Deal ↔ Property link (read-only reference into Asset Management,
   // not duplication). The workspace endpoint is grant-gated (property-asset
   // viewer), so a 403 for GPs without Asset Management access just leaves this
-  // null and hides the picker — it must never error the Deal form.
+  // null and hides the picker - it must never error the Deal form.
   const [assetProps, setAssetProps] = useState(null);
   useEffect(() => {
     api.getPropertyWorkspace()
@@ -232,7 +232,7 @@ export default function FundsTab() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap', marginBottom: 18 }}>
         <div>
           <h3 style={{ fontSize: 16, fontWeight: 700, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>Deals</h3>
-          <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '3px 0 0' }}>Every deal — raise progress, terms, and lifecycle status</p>
+          <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '3px 0 0' }}>Every deal - raise progress, terms, and lifecycle status</p>
         </div>
         <button className="primary-btn" onClick={openAdd} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
           <Plus size={14} /> Add Deal
@@ -251,7 +251,7 @@ export default function FundsTab() {
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--ink)', letterSpacing: '-0.01em' }}>{f.name}</div>
                   <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
-                    {[f.strategy, f.propertyName].filter(Boolean).join(' · ') || f.entityName || '—'}
+                    {[f.strategy, f.propertyName].filter(Boolean).join(' · ') || f.entityName || '-'}
                   </div>
                 </div>
                 <StatusText status={f.status} />
@@ -358,7 +358,7 @@ export default function FundsTab() {
               <FG label="Deal Manager" full>
                 <PeopleSelect value={modal.form.fundManagerEmail} onChange={v => setF({ fundManagerEmail: v })} people={people} placeholder="Select a deal manager…" />
               </FG>
-              {/* Picker only when the workspace loaded (grant-gated — hidden on 403);
+              {/* Picker only when the workspace loaded (grant-gated - hidden on 403);
                   an already-linked deal still shows the jump link either way. */}
               {(Array.isArray(assetProps) || modal.form.propertyAssetId) && (
                 <FG label="Linked Property (Asset Management)" full>
@@ -388,7 +388,7 @@ export default function FundsTab() {
                   onChange={e => setF({ description: e.target.value })} style={{ minHeight: 64, resize: 'vertical' }} />
               </FG>
               <FG label="Investment Thesis" full>
-                <textarea className="form-input" value={modal.form.thesis} placeholder="Why this deal — market, business plan, exit…"
+                <textarea className="form-input" value={modal.form.thesis} placeholder="Why this deal - market, business plan, exit…"
                   onChange={e => setF({ thesis: e.target.value })} style={{ minHeight: 64, resize: 'vertical' }} />
               </FG>
               {modal.id && <DealPortalAccess fundId={modal.id} />}

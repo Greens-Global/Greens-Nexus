@@ -15,7 +15,7 @@ function daysLabel(csv) {
   const set = new Set((csv || '').split(',').filter(Boolean));
   const on = DAYS.filter(([n]) => set.has(n)).map(([, l]) => l);
   if (on.length === 5 && !set.has('6') && !set.has('7')) return 'Mon–Fri';
-  return on.join(', ') || '—';
+  return on.join(', ') || '-';
 }
 
 export default function ShiftsPanel({ people = [], toastOk, toastErr }) {
@@ -50,7 +50,7 @@ export default function ShiftsPanel({ people = [], toastOk, toastErr }) {
     const p = people.find(e => (e.workEmail || e.work_email || e.email) === email);
     return p ? (p.name || `${p.firstName || p.first_name || ''} ${p.lastName || p.last_name || ''}`.trim() || email) : email;
   };
-  const shiftName = (id) => (shifts || []).find(s => s.id === id)?.name || '—';
+  const shiftName = (id) => (shifts || []).find(s => s.id === id)?.name || '-';
 
   async function saveShift() {
     if (!form.name.trim()) { toastErr('Name the shift.'); return; }
@@ -165,12 +165,12 @@ export default function ShiftsPanel({ people = [], toastOk, toastErr }) {
         <div style={{ fontSize: 12.5, fontWeight: 800, marginBottom: 10 }}>Assign a Shift to a Group</div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
           <select className="form-input" value={assignShift} onChange={e => setAssignShift(e.target.value)} style={{ fontSize: 12.5, minWidth: 160 }}>
-            <option value="">— shift —</option>
+            <option value="">- shift -</option>
             {(shifts || []).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
           <span style={{ fontSize: 12, color: 'var(--muted)' }}>to</span>
           <select className="form-input" value={assignGroup} onChange={e => setAssignGroup(e.target.value)} style={{ fontSize: 12.5, minWidth: 160 }}>
-            <option value="">— group —</option>
+            <option value="">- group -</option>
             {(groups || []).map(g => <option key={g.id} value={g.id}>{g.name} ({g.members.length})</option>)}
           </select>
           <button className="primary-btn" onClick={doAssign} disabled={busy} style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
@@ -270,7 +270,7 @@ export default function ShiftsPanel({ people = [], toastOk, toastErr }) {
               ) : (
                 <select className="form-input" value="" style={{ fontSize: 12.5, width: '100%' }}
                   onChange={e => { const c = chatList.find(x => x.id === e.target.value); if (c) setGroupForm({ ...groupForm, teamsChatId: c.id, teamsChatName: c.name }); }}>
-                  <option value="">— pick a group chat —</option>
+                  <option value="">- pick a group chat -</option>
                   {chatList.map(c => <option key={c.id} value={c.id}>{c.name}{c.chatType === 'oneOnOne' ? ' (direct)' : ''}</option>)}
                 </select>
               )}

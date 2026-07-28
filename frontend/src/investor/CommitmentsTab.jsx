@@ -114,7 +114,7 @@ export default function CommitmentsTab() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap', marginBottom: 18 }}>
         <div>
           <h3 style={{ fontSize: 16, fontWeight: 700, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>Commitments</h3>
-          <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '3px 0 0' }}>Signed subscriptions — who committed how much, to which deal</p>
+          <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '3px 0 0' }}>Signed subscriptions - who committed how much, to which deal</p>
         </div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
           <select className="form-select" style={{ width: 200 }} value={fundFilter} onChange={e => setFundFilter(e.target.value)}>
@@ -157,7 +157,7 @@ export default function CommitmentsTab() {
                   <td style={{ fontWeight: 600, cursor: 'pointer' }} onClick={() => openEdit(c)}>{c.investorName}</td>
                   <td data-th="Deal" style={{ cursor: 'pointer' }} onClick={() => openEdit(c)}>{c.fundName}</td>
                   <td data-th="Commitment" style={{ textAlign: 'right', fontWeight: 600, fontVariantNumeric: 'tabular-nums', cursor: 'pointer' }} onClick={() => openEdit(c)}>{formatCurrency(c.commitmentAmount)}</td>
-                  <td data-th="Units" style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', cursor: 'pointer' }} onClick={() => openEdit(c)}>{c.units ?? '—'}</td>
+                  <td data-th="Units" style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', cursor: 'pointer' }} onClick={() => openEdit(c)}>{c.units ?? '-'}</td>
                   <td data-th="Subscribed" style={{ cursor: 'pointer' }} onClick={() => openEdit(c)}>{formatDate(c.subscriptionDate)}</td>
                   <td data-th="Status" style={{ cursor: 'pointer' }} onClick={() => openEdit(c)}><StatusText status={c.status} /></td>
                   <td data-th="Doc">
@@ -183,7 +183,7 @@ export default function CommitmentsTab() {
       )}
 
       {modal && (
-        <Modal title={modal.id ? `Edit Commitment — ${modal.investorName}` : 'Add Commitment'} onClose={() => setModal(null)}>
+        <Modal title={modal.id ? `Edit Commitment - ${modal.investorName}` : 'Add Commitment'} onClose={() => setModal(null)}>
           <form onSubmit={save}>
             <div className="form-grid">
               <FG label="Investor" full>

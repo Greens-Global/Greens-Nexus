@@ -1,14 +1,14 @@
-// Direct OOXML -> TipTap JSON converter (Phase 16 — "robust import").
+// Direct OOXML -> TipTap JSON converter (Phase 16 - "robust import").
 //
 // Why this exists instead of just using mammoth: mammoth's convertToHtml()
 // deliberately discards DIRECT (manually-applied, not named-style) run
-// formatting — font family, font size, text color, highlight, and paragraph
+// formatting - font family, font size, text color, highlight, and paragraph
 // alignment all vanish by design (mammoth's own docs: it only preserves
 // content it can map to *semantic* HTML via named Word styles). Most
 // everyday Word documents use direct formatting, not named character
 // styles, so that's the actual cause of "the font/size changed on import".
 // Mammoth's own internal document model DOES parse this info from the XML
-// (see its Run.font/fontSize) — it just never surfaces it in the HTML
+// (see its Run.font/fontSize) - it just never surfaces it in the HTML
 // writer, and there's no supported public option to make it do so.
 //
 // This module reads the raw docx (a zip of OOXML parts) directly with
@@ -17,11 +17,11 @@
 // all come straight from the source XML instead of round-tripping through
 // an intermediate format that throws them away.
 //
-// Explicit, permanent limits (not "not implemented yet" — this editor's
+// Explicit, permanent limits (not "not implemented yet" - this editor's
 // schema has no equivalent for these, so no importer could preserve them
 // without a from-scratch editor rewrite): footnotes/endnotes, per-section
 // multiple headers/footers (this editor has exactly one of each), tracked
-// changes/comments (insertions are kept, deletions are dropped — i.e.
+// changes/comments (insertions are kept, deletions are dropped - i.e.
 // imported "as if accepted"), multi-level numbering formats beyond
 // bullet/decimal (roman/alpha numerals import as a plain decimal ordered
 // list), floating shapes/WordArt/embedded objects, drop caps, kerning, and
@@ -90,7 +90,7 @@ function resolvedRunProps(styleId, styles, seen = new Set()) {
 
 // Word's built-in "List Bullet"/"List Number" styles (and many custom list
 // styles) carry their <w:numPr> on the STYLE's own paragraph properties, not
-// on the paragraph itself — a paragraph using style="ListBullet" has no
+// on the paragraph itself - a paragraph using style="ListBullet" has no
 // numPr in its own w:pPr at all. Falls back through w:basedOn same as
 // outlineLevel/resolvedRunProps, so a custom style derived from one of these
 // is still recognized as a list paragraph.
@@ -157,7 +157,7 @@ function marksFor(props) {
   if (props.fontSize) textStyleAttrs.fontSize = props.fontSize;
   if (props.color) textStyleAttrs.color = props.color;
   if (Object.keys(textStyleAttrs).length) marks.push({ type: 'textStyle', attrs: textStyleAttrs });
-  // Highlight has no dedicated mark in this schema — approximated as a
+  // Highlight has no dedicated mark in this schema - approximated as a
   // background-color via the same textStyle span so it isn't silently
   // dropped (renders visibly, even if not a distinct "highlight" concept
   // in the editor's UI).
@@ -295,7 +295,7 @@ async function paragraphToNode(pEl, ctx) {
 }
 
 // Groups a flat sequence of {node, listInfo} into real nested
-// bulletList/orderedList>listItem structures — consecutive list paragraphs
+// bulletList/orderedList>listItem structures - consecutive list paragraphs
 // at ilvl 0 become one list; a jump to a deeper ilvl nests a new list inside
 // the previous item (approximating Word's Tab-to-indent multilevel lists).
 function groupLists(items) {
@@ -326,7 +326,7 @@ function groupLists(items) {
       stack.push({ ilvl, listNode, type });
       top = stack[stack.length - 1];
     } else if (top.type !== type) {
-      // type changed at the same level — close and reopen
+      // type changed at the same level - close and reopen
       stack.pop();
       const listNode = { type: type === 'bullet' ? 'bulletList' : 'orderedList', content: [] };
       if (stack.length) {

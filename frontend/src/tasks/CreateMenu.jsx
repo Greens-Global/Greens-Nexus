@@ -1,4 +1,4 @@
-// Task Module — "+ Create" quick-create menu in the primary bar, beside Manage.
+// Task Module - "+ Create" quick-create menu in the primary bar, beside Manage.
 // Ported from the export's NexusCreateMenu (Task / Ticket / Project / Portfolio),
 // styled with Nexus's shared .primary-btn class to match the SOP module's
 // "+ New SOP" reference button.
@@ -21,7 +21,7 @@ const ITEMS = [
 
 // `fab` renders the mobile floating action button instead of the "+ Create"
 // dropdown. Either way, tapping it opens the same Task / Ticket / Project /
-// Portfolio quick-create menu — the FAB just anchors it above the button.
+// Portfolio quick-create menu - the FAB just anchors it above the button.
 export default function CreateMenu({ onNavigate, fab = false, taskDefaults = {} }) {
   const { createTeam, projects } = useTasks();
   const [open, setOpen] = useState(false);
@@ -107,7 +107,7 @@ export default function CreateMenu({ onNavigate, fab = false, taskDefaults = {} 
       )}
 
       {/* Reached from the floating + on the Teams page (the Create dropdown
-          doesn't list departments — those are otherwise a Manage-only action). */}
+          doesn't list departments - those are otherwise a Manage-only action). */}
       {show === 'department' && (
         <Modal title="Create a Team" onClose={() => setShow(null)} footer={
           <>

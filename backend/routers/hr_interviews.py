@@ -36,7 +36,7 @@ from routers.hr import (require_hr_read, require_hr_write, _graph_token, _GRAPH,
 def _advance_to_interview(db: Session, cand: HrCandidate, by: str, note: str):
     """Pipeline follows the interview lifecycle. Early-stage candidates get
     pulled into Interview; and EVERY milestone (scheduled/started/completed/
-    scored) lands in the stage history — so the timeline reads the full story,
+    scored) lands in the stage history - so the timeline reads the full story,
     not just 'scheduled' forever."""
     if not cand:
         return
@@ -149,7 +149,7 @@ def delete_template(tid: str, user: dict = Depends(require_hr_write), db: Sessio
 def _graph_create_meeting(organizer: str, subject: str, body_text: str,
                           attendee_email: str, attendee_name: str,
                           start_iso: str, minutes: int) -> dict:
-    """Create a calendar event with a Teams link — Outlook emails the invite to
+    """Create a calendar event with a Teams link - Outlook emails the invite to
     the attendee automatically. Returns {eventId, joinUrl} or raises with a
     human explanation."""
     token = _graph_token()
@@ -167,7 +167,7 @@ def _graph_create_meeting(organizer: str, subject: str, body_text: str,
                        "onlineMeetingProvider": "teamsForBusiness",
                    }, timeout=30)
     if r.status_code == 403:
-        raise HTTPException(502, "Microsoft Graph denied creating the meeting — grant the app "
+        raise HTTPException(502, "Microsoft Graph denied creating the meeting - grant the app "
                                  "'Calendars.ReadWrite' (application) in Entra and consent, then retry.")
     if not r.is_success:
         raise HTTPException(502, f"Could not create the Teams meeting: {r.text[:200]}")
@@ -190,12 +190,12 @@ def schedule_interview(cid: str, body: ScheduleIn, user: dict = Depends(require_
     if not cand:
         raise HTTPException(404, "Candidate not found")
     if cand.stage in ("hired", "rejected"):
-        raise HTTPException(400, f"{cand.first_name} is already {cand.stage} — no interviews to schedule")
+        raise HTTPException(400, f"{cand.first_name} is already {cand.stage} - no interviews to schedule")
     if not cand.email:
-        raise HTTPException(400, "Candidate has no email — add one first")
+        raise HTTPException(400, "Candidate has no email - add one first")
     tpl = db.query(HrInterviewTemplate).filter(HrInterviewTemplate.id == body.template_id).first()
     cand_name = f"{cand.first_name} {cand.last_name}".strip()
-    subject = (body.subject or "").strip() or f"Interview — {cand_name} ({cand.role_title or 'Greens Global'})"
+    subject = (body.subject or "").strip() or f"Interview - {cand_name} ({cand.role_title or 'Greens Global'})"
 
     iv = HrInterview(id=str(uuid.uuid4()), candidate_id=cid,
                      template_id=tpl.id if tpl else "", template_name=tpl.name if tpl else "",
@@ -210,7 +210,7 @@ def schedule_interview(cid: str, body: ScheduleIn, user: dict = Depends(require_
         meeting = _graph_create_meeting(
             user["email"], subject,
             f"Hi {cand.first_name},\n\nLooking forward to speaking with you. Join with the Teams "
-            f"link in this invite.\n\n— {user['email']}",
+            f"link in this invite.\n\n- {user['email']}",
             cand.email, cand_name, body.at.replace("Z", "+00:00"), iv.duration_min)
         iv.event_id = meeting["eventId"]
         iv.join_url = meeting["joinUrl"]
@@ -219,7 +219,7 @@ def schedule_interview(cid: str, body: ScheduleIn, user: dict = Depends(require_
 
     cand.interview_at = body.at
     cand.updated_at = _now()
-    _advance_to_interview(db, cand, user["email"], "Interview scheduled — Teams invite sent")
+    _advance_to_interview(db, cand, user["email"], "Interview scheduled - Teams invite sent")
     db.add(iv)
     db.commit()
     out = _ser_iv(iv, cand)
@@ -273,11 +273,11 @@ def pull_transcript(iid: str, user: dict = Depends(require_hr_write), db: Sessio
     if not iv:
         raise HTTPException(404, "Interview not found")
     if not iv.join_url:
-        raise HTTPException(400, "No Teams meeting on this interview — paste the transcript instead")
+        raise HTTPException(400, "No Teams meeting on this interview - paste the transcript instead")
     token = _graph_token()
     h = {"Authorization": f"Bearer {token}"}
     org = iv.organizer_email
-    # /onlineMeetings rejects UPNs ("userId is not a GUID") — resolve the
+    # /onlineMeetings rejects UPNs ("userId is not a GUID") - resolve the
     # organizer's directory object id first.
     u = httpx.get(f"{_GRAPH}/users/{org}", params={"$select": "id"}, headers=h, timeout=20)
     if not u.is_success:
@@ -288,10 +288,10 @@ def pull_transcript(iid: str, user: dict = Depends(require_hr_write), db: Sessio
         rr = httpx.get(f"{_GRAPH}/users/{oid}/onlineMeetings",
                        params={"$filter": f"JoinWebUrl eq '{join_url}'"}, headers=h, timeout=30)
         if rr.status_code == 403:
-            raise HTTPException(502, "Graph denied reading the meeting — this needs "
+            raise HTTPException(502, "Graph denied reading the meeting - this needs "
                                      "'OnlineMeetings.Read.All' + 'OnlineMeetingTranscript.Read.All' AND a Teams "
                                      "application access policy for the organizer (New-CsApplicationAccessPolicy / "
-                                     "Grant-CsApplicationAccessPolicy — takes ~30 min to apply). Until then, turn on "
+                                     "Grant-CsApplicationAccessPolicy - takes ~30 min to apply). Until then, turn on "
                                      "transcription in Teams and use Paste transcript.")
         if not rr.is_success:
             raise HTTPException(502, f"Meeting lookup failed ({rr.status_code}): {rr.text[:200]}")
@@ -300,7 +300,7 @@ def pull_transcript(iid: str, user: dict = Depends(require_hr_write), db: Sessio
     meetings = _find(iv.join_url)
     if not meetings and iv.event_id:
         # The joinUrl stored at scheduling time can drift from Graph's canonical
-        # one (encoding/context) — re-read it from the calendar event and retry.
+        # one (encoding/context) - re-read it from the calendar event and retry.
         ev = httpx.get(f"{_GRAPH}/users/{org}/events/{iv.event_id}",
                        params={"$select": "onlineMeeting"}, headers=h, timeout=30)
         if ev.is_success:
@@ -312,11 +312,11 @@ def pull_transcript(iid: str, user: dict = Depends(require_hr_write), db: Sessio
     if not meetings:
         raise HTTPException(404, "Could not find the Teams meeting under the organizer's account. "
                                  "If you granted the permissions/access policy recently, wait up to 30 minutes "
-                                 "and retry — or use Paste transcript.")
+                                 "and retry - or use Paste transcript.")
     mid = meetings[0]["id"]
     r = httpx.get(f"{_GRAPH}/users/{oid}/onlineMeetings/{mid}/transcripts", headers=h, timeout=30)
     if not r.is_success or not r.json().get("value"):
-        raise HTTPException(404, "No transcript yet — make sure transcription was started in the meeting "
+        raise HTTPException(404, "No transcript yet - make sure transcription was started in the meeting "
                                  "and the call has ended (Teams takes a few minutes to publish it).")
     tid = r.json()["value"][-1]["id"]
     r = httpx.get(f"{_GRAPH}/users/{oid}/onlineMeetings/{mid}/transcripts/{tid}/content",
@@ -337,7 +337,7 @@ def autofill(iid: str, user: dict = Depends(require_hr_write), db: Session = Dep
     if not iv:
         raise HTTPException(404, "Interview not found")
     if not iv.transcript:
-        raise HTTPException(400, "No transcript yet — pull it from Teams or paste it first")
+        raise HTTPException(400, "No transcript yet - pull it from Teams or paste it first")
     if not iv.answers:
         raise HTTPException(400, "This interview has no questionnaire attached")
     qs = [{"qid": a["qid"], "q": a["q"]} for a in iv.answers]
@@ -362,13 +362,13 @@ def calibrate(iid: str, user: dict = Depends(require_hr_write), db: Session = De
         raise HTTPException(404, "Interview not found")
     answered = [a for a in (iv.answers or []) if (a.get("answer") or "").strip()]
     if not answered:
-        raise HTTPException(400, "No answers to score — auto-fill from the transcript or type them in")
+        raise HTTPException(400, "No answers to score - auto-fill from the transcript or type them in")
     cand = db.query(HrCandidate).filter(HrCandidate.id == iv.candidate_id).first()
     text = _claude(
         f"You are a hiring panel calibrator for the role \"{iv.template_name or (cand.role_title if cand else '')}\". "
         "Score each interview answer 0-10 (10 = outstanding, specific, credible; 0 = no/irrelevant answer) "
-        "with a one-sentence rationale. Be a tough, fair grader — a typical decent answer is 5-6. Then give "
-        "an overall 0-100 score (not just the average — weigh substance) and a 2-3 sentence verdict.\n\n"
+        "with a one-sentence rationale. Be a tough, fair grader - a typical decent answer is 5-6. Then give "
+        "an overall 0-100 score (not just the average - weigh substance) and a 2-3 sentence verdict.\n\n"
         f"ANSWERS (JSON): {json.dumps([{'qid': a['qid'], 'q': a['q'], 'answer': a['answer']} for a in answered])}\n\n"
         "Reply with ONLY JSON: {\"scores\": [{\"qid\", \"score\", \"rationale\"}], \"total\": 0-100, \"summary\": \"...\"}", 3500)
     data = _json_block(text)
@@ -379,7 +379,7 @@ def calibrate(iid: str, user: dict = Depends(require_hr_write), db: Session = De
     iv.summary = str(data.get("summary", ""))[:2000]
     iv.status = "scored"
     iv.updated_at = _now()
-    _advance_to_interview(db, cand, user["email"], f"Interview scored — {round(iv.total_score)}/100")
+    _advance_to_interview(db, cand, user["email"], f"Interview scored - {round(iv.total_score)}/100")
     db.commit()
     return _ser_iv(iv, cand)
 
@@ -395,7 +395,7 @@ def leaderboard(template_id: str = "", user: dict = Depends(require_hr_read), db
     out = []
     for i in rows:
         cand = db.query(HrCandidate).filter(HrCandidate.id == i.candidate_id).first()
-        # Rejected candidates are out of the running — no place on the board.
+        # Rejected candidates are out of the running - no place on the board.
         if not cand or cand.stage == "rejected":
             continue
         d = _ser_iv(i, cand)
@@ -434,7 +434,7 @@ def recommend_hire(body: RecommendIn, user: dict = Depends(require_hr_read), db:
     role = ivs[0].template_name or "the role"
     text = _claude(
         f"You are the final hiring panel for \"{role}\". Below are the calibrated interviews. "
-        "Compare candidates on SUBSTANCE — depth of understanding, credibility, specificity, risk — "
+        "Compare candidates on SUBSTANCE - depth of understanding, credibility, specificity, risk - "
         "not just the numeric totals (a 9 with shallow answers can lose to an 8 with real depth). "
         "Recommend exactly one hire (or 'none' if nobody clears the bar), name a runner-up if close, "
         "and be direct about each person's strengths and concerns.\n\n"
@@ -459,14 +459,14 @@ def invite_final_round(iid: str, body: FinalRoundIn, user: dict = Depends(requir
         raise HTTPException(404, "Interview/candidate not found (or candidate has no email)")
     cand_name = f"{cand.first_name} {cand.last_name}".strip()
     meeting = _graph_create_meeting(
-        user["email"], f"Final round — offer discussion with {cand_name}",
-        f"Hi {cand.first_name},\n\nGreat news — we'd like to move you to the final round. "
+        user["email"], f"Final round - offer discussion with {cand_name}",
+        f"Hi {cand.first_name},\n\nGreat news - we'd like to move you to the final round. "
         "Join with the Teams link in this invite.\n", cand.email, cand_name,
         body.at.replace("Z", "+00:00"), max(15, min(240, body.duration_min)))
     if cand.stage in ("applied", "screening", "interview"):
         cand.stage = "offer"
     cand.updated_at = _now()
-    _hr_notify(db, iv.created_by, f"Final round booked — {cand_name}",
+    _hr_notify(db, iv.created_by, f"Final round booked - {cand_name}",
                f"{cand_name} (scored {round(iv.total_score)}) is invited to the offer discussion.",
                ref_id=cand.id, action={"view": "hr", "sub": "hr-hiring"})
     db.commit()

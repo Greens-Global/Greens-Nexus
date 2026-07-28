@@ -10,7 +10,7 @@ const NotificationCtx = createContext(null);
 let counter = 1;
 const genId = () => `N${Date.now()}-${counter++}`;
 
-const FALLBACK_POLL_OK  = 30_000; // 30s when everything's fine — realtime handles the rest
+const FALLBACK_POLL_OK  = 30_000; // 30s when everything's fine - realtime handles the rest
 const FALLBACK_POLL_ERR = 60_000; // 60s backoff when backend is struggling
 
 function rowToNotif(r) {
@@ -24,7 +24,7 @@ function rowToNotif(r) {
     itemName:    r.item_name,
     requestedBy: cleanName(r.requested_by),
     // Stored as a JSON string server-side; every consumer (bell, toasts,
-    // dashboard widget) expects the parsed object — parse once here.
+    // dashboard widget) expects the parsed object - parse once here.
     action: (() => {
       if (!r.action) return null;
       if (typeof r.action === 'object') return r.action;
@@ -42,7 +42,7 @@ export function NotificationProvider({ children }) {
 
   const [notifications, setNotifications] = useState([]);
   const [overdueAlerts, setOverdueAlerts] = useState([]);
-  // Set when a toast/popup for an actionable notification is clicked — tells
+  // Set when a toast/popup for an actionable notification is clicked - tells
   // the bell panel to open itself straight into that item's approval workflow
   // (allocator picker / reject reason) instead of just opening the list.
   const [pendingApprovalId, setPendingApprovalId] = useState(null);
@@ -69,7 +69,7 @@ export function NotificationProvider({ children }) {
     // Initial load
     fetchNotifications();
 
-    // Adaptive fallback poll — backs off when backend errors accumulate
+    // Adaptive fallback poll - backs off when backend errors accumulate
     function scheduleNotifPoll() {
       clearTimeout(pollRef.current);
       const delay = errCountRef.current > 0 ? FALLBACK_POLL_ERR : FALLBACK_POLL_OK;
@@ -81,7 +81,7 @@ export function NotificationProvider({ children }) {
 
     if (supabase) {
       // Realtime via notification_events PINGS, not the notifications table.
-      // nexus_notifications must never be anon-readable — its rows carry every
+      // nexus_notifications must never be anon-readable - its rows carry every
       // user's approval/rejection texts and emails, and the anon key ships in
       // the public JS bundle. A DB trigger writes a zero-content ping row on
       // every notification insert/update; we refetch through the authenticated
@@ -92,7 +92,7 @@ export function NotificationProvider({ children }) {
           'postgres_changes',
           { event: 'INSERT', schema: 'public', table: 'notification_events' },
           () => {
-            // Trailing debounce — a batch of writes fires one fetch, not N
+            // Trailing debounce - a batch of writes fires one fetch, not N
             clearTimeout(pingRef.current);
             pingRef.current = setTimeout(fetchNotifications, 350);
           }
@@ -109,7 +109,7 @@ export function NotificationProvider({ children }) {
     };
   }, [myEmail, fetchNotifications]);
 
-  // ── Add notification — writes to backend (realtime pushes it back) ────────
+  // ── Add notification - writes to backend (realtime pushes it back) ────────
   const addNotification = useCallback((n) => {
     const id = n.id ?? genId();
     const notif = {
@@ -131,7 +131,7 @@ export function NotificationProvider({ children }) {
       if (prev.some(x => x.id === id)) return prev;
       return [notif, ...prev.slice(0, 49)];
     });
-    // Persist to backend — realtime subscription on other devices picks it up instantly
+    // Persist to backend - realtime subscription on other devices picks it up instantly
     api.pushNotification({
       id,
       type:         notif.type,

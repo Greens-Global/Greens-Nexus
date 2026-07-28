@@ -1,10 +1,10 @@
-// "Documentation & Changelog" — a company-wide feed of release notes, reached from
+// "Documentation & Changelog" - a company-wide feed of release notes, reached from
 // the top-right profile dropdown (NOT the Tasks module). Standalone: it manages its
 // own state via api.js + useRole/useNameResolver, so it needs no TasksProvider.
 // Renders as a full-screen overlay.
 //
 // This is a 1:1 port of the standalone export's changelog feature (src/nexus/changelog/*):
-//   • three public tabs — What's New, Timeline, Version History (+ an admin-only Manage tab)
+//   • three public tabs - What's New, Timeline, Version History (+ an admin-only Manage tab)
 //   • a rich detail card with five sub-tabs (Overview / Technical Details / Media / Related Links / Comments)
 //   • a status workflow (Pending Review → Released / Scheduled / Draft)
 //   • an author form with before/after screenshots, reviewer, work-item/PR refs and related links
@@ -162,7 +162,7 @@ export default function Changelog({ onClose }) {
   const handleAdd = async (payload) => {
     const status = isAdmin ? (payload.status || 'Released') : 'Pending Review';
     await createEntry({ ...payload, status, origin: payload.origin || 'manual' }).catch(() => {});
-    flash(isAdmin ? 'Update published.' : 'Submitted for review — an admin will publish it once approved.');
+    flash(isAdmin ? 'Update published.' : 'Submitted for review - an admin will publish it once approved.');
   };
   const handleEditSave = async (payload) => {
     await updateEntry(editing.id, payload).catch(() => {});
@@ -175,7 +175,7 @@ export default function Changelog({ onClose }) {
     try {
       const r = await api.generateTaskChangelog();
       await reload();
-      if (r?.created) flash(`Drafted ${r.created} update${r.created === 1 ? '' : 's'} from recent commits — review below.`);
+      if (r?.created) flash(`Drafted ${r.created} update${r.created === 1 ? '' : 's'} from recent commits - review below.`);
       else flash(r?.message || 'No new commits to summarise.');
     } catch (e) {
       flash(e?.message?.includes('not configured') ? 'AI is not configured on the server.' : 'Could not generate from git.');
@@ -268,7 +268,7 @@ export default function Changelog({ onClose }) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// What's New tab — latest single published entry + activity summary
+// What's New tab - latest single published entry + activity summary
 // ═══════════════════════════════════════════════════════════════════════════
 function WhatsNewTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onEdit }) {
   const latest = entries[0];
@@ -435,7 +435,7 @@ function EntryCard({ entry, nameOf, onViewDetails }) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Timeline tab — searchable/filterable, grouped by day, master + detail
+// Timeline tab - searchable/filterable, grouped by day, master + detail
 // ═══════════════════════════════════════════════════════════════════════════
 const ALL = 'all';
 function TimelineTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onEdit }) {
@@ -590,13 +590,13 @@ function TimelineRow({ entry, selected, onClick }) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Version History tab — grouped by version, expandable
+// Version History tab - grouped by version, expandable
 // ═══════════════════════════════════════════════════════════════════════════
 function VersionHistoryTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onEdit }) {
   const groups = useMemo(() => {
     const byVersion = new Map();
     for (const e of entries) {
-      const v = e.version || '—';
+      const v = e.version || '-';
       if (!byVersion.has(v)) byVersion.set(v, { version: v, releasedAt: releasedKey(e), entries: [] });
       byVersion.get(v).entries.push(e);
     }
@@ -681,7 +681,7 @@ function VersionHistoryTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onE
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Manage tab (admin) — pending-review queue + all updates
+// Manage tab (admin) - pending-review queue + all updates
 // ═══════════════════════════════════════════════════════════════════════════
 function ManageTab({ entries, nameOf, myEmail, onSetStatus, onEdit, onAdd, onGenerate, onDelete }) {
   const [reviewing, setReviewing] = useState(null);
@@ -777,7 +777,7 @@ function ManageTab({ entries, nameOf, myEmail, onSetStatus, onEdit, onAdd, onGen
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Detail card — five sub-tabs (Overview / Technical Details / Media / Links / Comments)
+// Detail card - five sub-tabs (Overview / Technical Details / Media / Links / Comments)
 // ═══════════════════════════════════════════════════════════════════════════
 const DETAIL_TABS = ['Overview', 'Technical Details', 'Media', 'Related Links', 'Comments'];
 
@@ -945,10 +945,10 @@ function DetailCard({ entry, nameOf, myEmail, isAdmin, onClose, expanded, onTogg
 
         {tab === 'Technical Details' && (
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-            {[['Category', entry.type], ['Version', entry.version], ['Environment', entry.environment], ['Released', formatDateTime(releasedKey(entry))], ['Work Item', entry.ticketRef || '—'], ['Pull Request', entry.prRef || '—']].map(([k, v]) => (
+            {[['Category', entry.type], ['Version', entry.version], ['Environment', entry.environment], ['Released', formatDateTime(releasedKey(entry))], ['Work Item', entry.ticketRef || '-'], ['Pull Request', entry.prRef || '-']].map(([k, v]) => (
               <div key={k}>
                 <div style={{ fontSize: 11, fontWeight: 600, color: NX.faint }}>{k}</div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: NX.ink }}>{v || '—'}</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: NX.ink }}>{v || '-'}</div>
               </div>
             ))}
           </div>
@@ -1146,7 +1146,7 @@ function AddUpdateModal({ entry, submitLabel, myEmail, onClose, onSave }) {
       <Field label="Title">
         <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Fixed leave balance calculation" style={inputStyle} />
       </Field>
-      <Field label="Description" hint="Write it in plain English — this is what everyone will read.">
+      <Field label="Description" hint="Write it in plain English - this is what everyone will read.">
         <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={4} placeholder="What changed, and why it matters to the people using it." style={{ ...inputStyle, resize: 'vertical' }} />
       </Field>
 

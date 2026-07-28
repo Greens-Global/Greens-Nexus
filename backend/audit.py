@@ -1,5 +1,5 @@
 """
-Audit middleware — logs every state-changing request (non-GET) to audit_logs.
+Audit middleware - logs every state-changing request (non-GET) to audit_logs.
 Generates a descriptive action string that includes the resource ID from the URL
 so logs read as "Approved requisition REQ-ABC" rather than just "Approved requisition".
 """
@@ -48,7 +48,7 @@ def _describe(method: str, path: str) -> tuple[str, str]:
             if method == "POST":   return "Checked out item", ""
             if method == "PATCH":  return f"Updated checkout {checkout_id}".strip(), checkout_id
         if rid == "import":        return "Imported items (CSV)", ""
-        # Bulk + sub-action POSTs were ALL mislabeled "Added item" — name them.
+        # Bulk + sub-action POSTs were ALL mislabeled "Added item" - name them.
         if rid == "bulk-update":   return "Edited multiple items", ""
         if rid == "bulk-delete":   return "Deleted multiple items", ""
         if rid == "bulk-restore":  return "Restored multiple items", ""
@@ -68,7 +68,7 @@ def _describe(method: str, path: str) -> tuple[str, str]:
     # ── Inventory requests ────────────────────────────────────────────────────
     if resource == "inventory-requests":
         if rid == "items":
-            # /inventory-requests/items[/{item_id}[/import]] — catalogue management,
+            # /inventory-requests/items[/{item_id}[/import]] - catalogue management,
             # distinct from the request-lifecycle paths below (rid would otherwise
             # be mistaken for the resource id, e.g. "Updated inventory request items")
             item_id = sub if sub and sub != "import" else ""
@@ -255,11 +255,11 @@ def _extract_email(request: Request) -> str:
 
 def _acting_as_target(request: Request, real_email: str, db) -> str:
     """If this request was made during an active Act As session, return who
-    was being impersonated — so a mutation shows up as e.g.
+    was being impersonated - so a mutation shows up as e.g.
     "pranshu@x.com approved requisition REQ-12" with details.acting_as =
     "jane@x.com", never just silently as jane. real_email always comes from
     the raw bearer token (see _extract_email), independent of the identity
-    get_current_user hands the route — so this is never lost even though the
+    get_current_user hands the route - so this is never lost even though the
     overlay changes what the route itself sees."""
     session_id = request.headers.get("x-act-as-session", "")
     if not session_id:
@@ -281,7 +281,7 @@ _BODY_FIELDS_BY_RESOURCE = {
         "default_owner", "ownership_type", "status", "serial_number", "op_status",
         "op_status_person_name", "item_name", "reason", "days",
         "requested_by", "condition_note", "return_photo_name",
-        "asset_value",  # checkout/add value — "who took out how much worth"
+        "asset_value",  # checkout/add value - "who took out how much worth"
         "photo_url",     # so adding/changing an item photo shows in the audit log
     ),
     "inventory-requests": (
@@ -310,7 +310,7 @@ async def _read_body_fields(request: Request, resource: str) -> dict:
         body = json.loads(raw)
         if not isinstance(body, dict):
             return {}
-        # Bulk edits nest the changed columns under "fields" — surface those too,
+        # Bulk edits nest the changed columns under "fields" - surface those too,
         # and note how many items the batch touched.
         src = {**body, **(body["fields"] if isinstance(body.get("fields"), dict) else {})}
         out = {k: src[k] for k in fields if k in src and src[k] not in (None, "")}
@@ -327,7 +327,7 @@ class AuditMiddleware(BaseHTTPMiddleware):
         method   = request.method
         resource = path.split("/")[1] if len(path.split("/")) > 1 else ""
 
-        # Body must be read before call_next consumes the stream — Starlette
+        # Body must be read before call_next consumes the stream - Starlette
         # caches it internally so the downstream route still sees it intact.
         body_fields = {}
         if method not in ("GET", "HEAD", "OPTIONS"):
@@ -339,12 +339,12 @@ class AuditMiddleware(BaseHTTPMiddleware):
             return response
 
         # The audit-undo endpoint writes its own canonical entries (the reverse
-        # change + marking the original undone) — let it, don't double-log the
+        # change + marking the original undone) - let it, don't double-log the
         # POST here (the generic describer would mislabel it "Added item").
         if path == "/items/audit-undo":
             return response
 
-        # Resolve IP once — used for both security logs and normal audit rows.
+        # Resolve IP once - used for both security logs and normal audit rows.
         forwarded = request.headers.get("x-forwarded-for", "")
         if forwarded:
             hops = [h.strip() for h in forwarded.split(",") if h.strip()]
@@ -386,7 +386,7 @@ class AuditMiddleware(BaseHTTPMiddleware):
 
         try:
             action, resource_id = _describe(method, path)
-            # Create endpoints have no id in the URL — they stamp the new id on the
+            # Create endpoints have no id in the URL - they stamp the new id on the
             # response (X-Created-Id) so the row records WHICH record was added.
             if not resource_id:
                 resource_id = response.headers.get("x-created-id", "")

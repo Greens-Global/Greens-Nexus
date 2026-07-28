@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 # Must run before any router import: routers/tasks.py (imported below) pulls in
 # auth.py, whose SKIP_AUTH is read once at module-import time via os.getenv().
 # unifi_client.py also calls load_dotenv(), but only as a side effect of
-# routers/unifi being imported later in the line below — by then auth.py has
+# routers/unifi being imported later in the line below - by then auth.py has
 # already locked in SKIP_AUTH=False, so NEXUS_SKIP_AUTH in backend/.env was
 # silently ignored and every request 401'd even with the dev bypass configured.
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
@@ -16,13 +16,13 @@ import models
 from database import engine, DATABASE_URL
 from routers import timeclock
 from routers import tasks, purchases, reviews, marketing, sop, assets, accounting, operations, unifi, dashboard, requisitions, roles, notifications, audit, groups, items as items_router, hr, knowledge_base, help as help_router, property_assets, esign, dashboards as dashboards_router, myhr, hr_interviews
-# NOTE: `inventory_requests` router retired Jul 2026 (P2-1) — legacy inventory stack removed.
+# NOTE: `inventory_requests` router retired Jul 2026 (P2-1) - legacy inventory stack removed.
 from routers import task_projects, task_config  # Task Module (Jul 2026)
-from routers import tickets as tickets_router    # Ticket Module — split out of task_config (Jul 2026)
-from routers import asana_webhook  # Asana two-way sync — public webhook receiver
+from routers import tickets as tickets_router    # Ticket Module - split out of task_config (Jul 2026)
+from routers import asana_webhook  # Asana two-way sync - public webhook receiver
 from routers import jobroles  # Roles & Access redesign (Jul 2026)
 from routers import access_scopes  # row-level scopes for external users (Jul 2026)
-from routers import qa  # Testing module — dev-only via NEXUS_QA_MODULE env (Jul 2026)
+from routers import qa  # Testing module - dev-only via NEXUS_QA_MODULE env (Jul 2026)
 from routers import credvault  # Credential Vault (Jul 2026)
 from routers import policy  # Sign-in company-policy & monitoring acknowledgment (Jul 2026)
 from routers import documents as documents_router  # Documents DMS Phase 1 (Jul 2026)
@@ -35,7 +35,7 @@ from audit import AuditMiddleware
 def _run_migrations():
     """Add columns that were introduced after the initial table creation."""
     if DATABASE_URL.startswith("sqlite"):
-        # create_all builds NEW tables but never alters existing ones — columns
+        # create_all builds NEW tables but never alters existing ones - columns
         # added to models after a local DB was created must be patched in here
         # (a model column missing from the DB breaks every SELECT with a 500).
         # SQLite has no IF NOT EXISTS for columns; duplicates just error and
@@ -164,12 +164,12 @@ def _run_migrations():
             "ALTER TABLE nexus_groups ADD COLUMN default_manager_email VARCHAR DEFAULT ''",
             # Timecard two-step sign-off: manager approve vs HR finalize (locks)
             "ALTER TABLE time_approvals ADD COLUMN kind VARCHAR DEFAULT 'manager'",
-            # Company email domains — drive M365 import + auto company tagging
+            # Company email domains - drive M365 import + auto company tagging
             "ALTER TABLE hr_entities ADD COLUMN domains VARCHAR DEFAULT ''",
             # Company manager (operational head; escalation target)
             "ALTER TABLE hr_entities ADD COLUMN manager_email VARCHAR DEFAULT ''",
             # ── Item Module QA (P2-5, Jul 2026): SQLite was missing columns the
-            # Postgres list already carried — a pre-existing local DB 500s on
+            # Postgres list already carried - a pre-existing local DB 500s on
             # every items/checkouts SELECT without them. (SQLite ALTER has no
             # IF NOT EXISTS; a duplicate just errors and is swallowed below.)
             "ALTER TABLE items ADD COLUMN serial_number VARCHAR DEFAULT ''",
@@ -188,14 +188,14 @@ def _run_migrations():
             "ALTER TABLE item_checkouts ADD COLUMN approver_email VARCHAR DEFAULT ''",
             "ALTER TABLE item_checkouts ADD COLUMN approver_name VARCHAR DEFAULT ''",
             "ALTER TABLE nexus_notifications ADD COLUMN read_by VARCHAR DEFAULT ''",
-            # serial is the identity + import upsert key — enforce uniqueness
+            # serial is the identity + import upsert key - enforce uniqueness
             # (blanks excluded so legacy/not-yet-serialised rows are fine; also
             # stops a local import silently creating duplicate serials).
             "CREATE UNIQUE INDEX IF NOT EXISTS ix_items_serial_unique ON items (serial_number) WHERE serial_number <> ''",
             # ── Item Module hot-path indexes (P2-4) + live-row concurrency guards
             # (P1-1). SQLite supports partial (WHERE) indexes; a partial-unique
             # that can't build over pre-existing duplicate live rows errors here
-            # and is swallowed by the per-statement try/except below — never aborts
+            # and is swallowed by the per-statement try/except below - never aborts
             # startup. Statuses match the transient/permanent lifecycles.
             "CREATE INDEX IF NOT EXISTS ix_checkout_item_status ON item_checkouts (item_id, status)",
             "CREATE INDEX IF NOT EXISTS ix_checkout_order ON item_checkouts (order_id)",
@@ -210,7 +210,7 @@ def _run_migrations():
             # a project) instead of a flat cross-project list; a project's org
             # classifier is now the real People-module department (Jul 2026).
             # task_teams is a NEW table name, so create_all (which runs before this
-            # function) already creates it empty before we get here — a plain
+            # function) already creates it empty before we get here - a plain
             # RENAME would then fail every time (target already exists) and
             # silently strand the real rows in task_departments forever. Copy
             # instead: INSERT OR IGNORE no-ops on rerun (id is the PK), and the
@@ -224,7 +224,7 @@ def _run_migrations():
             "ALTER TABLE task_projects ADD COLUMN hr_department_id VARCHAR DEFAULT ''",
             "ALTER TABLE task_projects ADD COLUMN hr_department_name VARCHAR DEFAULT ''",
             # Project visibility (Jul 2026): mirrors Task.access_level. Existing
-            # projects backfill to 'org' (everyone already saw everything) —
+            # projects backfill to 'org' (everyone already saw everything) -
             # only newly-created projects default to 'restricted' (create_project).
             "ALTER TABLE task_projects ADD COLUMN access_level VARCHAR DEFAULT 'org'",
             # Ticket triage routing: who assigns a department's incoming tickets
@@ -245,7 +245,7 @@ def _run_migrations():
             # Documents (DMS) Phase 13 (Template Builder): merge-field type/required/default/validation metadata
             "ALTER TABLE doc_templates ADD COLUMN field_defs JSON DEFAULT '[]'",
             # ── HR Section A/B (nexus_employees): SQLite was missing columns the
-            # Postgres list already carried — a pre-existing local DB 500s on
+            # Postgres list already carried - a pre-existing local DB 500s on
             # every nexus_employees SELECT without them (same class of bug as
             # the Item Module fix above).
             "ALTER TABLE nexus_employees ADD COLUMN company VARCHAR DEFAULT ''",
@@ -263,7 +263,7 @@ def _run_migrations():
             "ALTER TABLE task_projects ADD COLUMN member_roles JSON DEFAULT '{}'",
             "ALTER TABLE task_teams ADD COLUMN access_role VARCHAR DEFAULT 'editor'",
             # A team may now belong to MANY projects (one IT team shared across
-            # projects, as Asana does it) — project_ids replaces project_id,
+            # projects, as Asana does it) - project_ids replaces project_id,
             # which is kept only as a write-only legacy mirror. Backfill folds
             # every existing single assignment into the new list.
             "ALTER TABLE task_teams ADD COLUMN project_ids JSON DEFAULT '[]'",
@@ -279,7 +279,7 @@ def _run_migrations():
             # Manual override for ad-hoc-shared Asana teams the API can't reveal.
             "ALTER TABLE asana_project_map ADD COLUMN extra_team_names JSON DEFAULT '[]'",
             # One Nexus task per Asana task. On a database that already carries
-            # duplicate links this can't build and is swallowed below — run
+            # duplicate links this can't build and is swallowed below - run
             # Manage → Asana Sync → "Merge duplicates" (asana_sync.dedupe_tasks),
             # which creates the same index once the duplicates are gone.
             "CREATE UNIQUE INDEX IF NOT EXISTS ux_asana_task_link_gid ON asana_task_links (asana_gid) WHERE asana_gid <> ''",
@@ -331,7 +331,7 @@ def _run_migrations():
         "ALTER TABLE nexus_roles ADD COLUMN IF NOT EXISTS display_name VARCHAR DEFAULT ''",
         # inventory_items: physical site/storage location (e.g. "GSVC", "GSE")
         "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS location VARCHAR DEFAULT ''",
-        # item_checkouts: handover/receipt photo flow (added to model but migration was missed — broke prod SELECTs)
+        # item_checkouts: handover/receipt photo flow (added to model but migration was missed - broke prod SELECTs)
         "ALTER TABLE item_checkouts ADD COLUMN IF NOT EXISTS order_id VARCHAR DEFAULT ''",
         "ALTER TABLE item_checkouts ADD COLUMN IF NOT EXISTS handover_photo_by VARCHAR DEFAULT ''",
         "ALTER TABLE item_checkouts ADD COLUMN IF NOT EXISTS handover_batch BOOLEAN DEFAULT FALSE",
@@ -349,18 +349,18 @@ def _run_migrations():
         "ALTER TABLE items ADD COLUMN IF NOT EXISTS assigned_to_email VARCHAR DEFAULT ''",
         "ALTER TABLE items ADD COLUMN IF NOT EXISTS assigned_to_name VARCHAR DEFAULT ''",
         "ALTER TABLE items ADD COLUMN IF NOT EXISTS assigned_at VARCHAR DEFAULT ''",
-        # Fleet department retired — vehicles belong to Construction (Neil, Jun 2026)
+        # Fleet department retired - vehicles belong to Construction (Neil, Jun 2026)
         "UPDATE items SET department = 'Construction' WHERE department = 'Fleet'",
         # items: per-item photo policy + dollar value (Neil, Jun 2026 review)
         "ALTER TABLE items ADD COLUMN IF NOT EXISTS picture_required BOOLEAN DEFAULT TRUE",
         "ALTER TABLE items ADD COLUMN IF NOT EXISTS asset_value DOUBLE PRECISION DEFAULT 0",
-        # items: static per-unit serial — the import upsert key (replaces name matching, Jun 2026)
+        # items: static per-unit serial - the import upsert key (replaces name matching, Jun 2026)
         "ALTER TABLE items ADD COLUMN IF NOT EXISTS serial_number VARCHAR DEFAULT ''",
-        # serial is the identity now — enforce uniqueness (blanks excluded so legacy
+        # serial is the identity now - enforce uniqueness (blanks excluded so legacy
         # rows + not-yet-serialised items are fine; catches concurrent double-assign)
         "CREATE UNIQUE INDEX IF NOT EXISTS ix_items_serial_unique ON items (serial_number) WHERE serial_number <> ''",
         # Permanent items were auto-stamped permanently_assigned at creation even
-        # with nobody attached — unstamp the ones that never got a real assignee
+        # with nobody attached - unstamp the ones that never got a real assignee
         "UPDATE items SET status = 'available' WHERE ownership_type = 'permanent' AND COALESCE(assigned_to_email, '') = '' AND status = 'permanently_assigned'",
         # requisitions: purchase fulfillment flow (allocator + ordered/fulfilled)
         "ALTER TABLE requisitions ADD COLUMN IF NOT EXISTS allocator_email VARCHAR DEFAULT ''",
@@ -371,9 +371,9 @@ def _run_migrations():
         "ALTER TABLE requisitions ADD COLUMN IF NOT EXISTS fulfilled_item_id VARCHAR DEFAULT ''",
         "ALTER TABLE requisitions ADD COLUMN IF NOT EXISTS submitted_by_email VARCHAR DEFAULT ''",
         "ALTER TABLE requisitions ADD COLUMN IF NOT EXISTS submitted_by_name VARCHAR DEFAULT ''",
-        # items: operational status column (Neil — deployed/in repair/needs replacement; SEPARATE from lifecycle status)
+        # items: operational status column (Neil - deployed/in repair/needs replacement; SEPARATE from lifecycle status)
         "ALTER TABLE items ADD COLUMN IF NOT EXISTS op_status VARCHAR DEFAULT ''",
-        # items: permanent assignment to a PLACE not a person — excluded from "Who has it" (Ankush)
+        # items: permanent assignment to a PLACE not a person - excluded from "Who has it" (Ankush)
         "ALTER TABLE items ADD COLUMN IF NOT EXISTS assigned_to_location VARCHAR DEFAULT ''",
         # items: admin-defined custom fields, values keyed by field_key (Ankush's Details panel)
         "ALTER TABLE items ADD COLUMN IF NOT EXISTS custom_fields JSONB DEFAULT '{}'::jsonb",
@@ -381,7 +381,7 @@ def _run_migrations():
         "ALTER TABLE items ADD COLUMN IF NOT EXISTS deleted_at VARCHAR DEFAULT ''",
         "ALTER TABLE items ADD COLUMN IF NOT EXISTS deleted_by VARCHAR DEFAULT ''",
         "ALTER TABLE items ADD COLUMN IF NOT EXISTS deleted_location VARCHAR DEFAULT ''",
-        # items: person an op_status (lost/retired) is declared against — they get the notification + show on "Who has it"
+        # items: person an op_status (lost/retired) is declared against - they get the notification + show on "Who has it"
         "ALTER TABLE items ADD COLUMN IF NOT EXISTS op_status_person_email VARCHAR DEFAULT ''",
         "ALTER TABLE items ADD COLUMN IF NOT EXISTS op_status_person_name VARCHAR DEFAULT ''",
         # knowledge_base: require sign-off flag + analytics/freshness/retention
@@ -397,9 +397,9 @@ def _run_migrations():
         "ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS undone_by VARCHAR DEFAULT ''",
         # HR Section A: which legal entity employs each worker
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS company VARCHAR DEFAULT ''",
-        # HR Section A: contractor worker type — scope/SOW/dates/rate/billing client
+        # HR Section A: contractor worker type - scope/SOW/dates/rate/billing client
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS contractor JSONB DEFAULT '{}'::jsonb",
-        # HR Section B: profile depth — personal/compliance open; compensation+bank RESTRICTED (hr_comp grant)
+        # HR Section B: profile depth - personal/compliance open; compensation+bank RESTRICTED (hr_comp grant)
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS personal JSONB DEFAULT '{}'::jsonb",
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS compensation JSONB DEFAULT '{}'::jsonb",
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS bank JSONB DEFAULT '[]'::jsonb",
@@ -516,14 +516,14 @@ def _run_migrations():
         "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS monitoring_exempt INTEGER DEFAULT 0",
         "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS default_manager_email VARCHAR DEFAULT ''",
         "ALTER TABLE time_approvals ADD COLUMN IF NOT EXISTS kind VARCHAR DEFAULT 'manager'",
-        # Company email domains — drive M365 import + auto company tagging
+        # Company email domains - drive M365 import + auto company tagging
         "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS domains VARCHAR DEFAULT ''",
         # Company manager (operational head; escalation target)
         "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS manager_email VARCHAR DEFAULT ''",
         # ── Item Module hot-path indexes (P2-4) + live-row concurrency guards
         # (P1-1). Postgres supports partial (WHERE) indexes; a partial-unique
         # that can't build over pre-existing duplicate live rows raises here and
-        # is caught + logged by the per-statement try/except below — it never
+        # is caught + logged by the per-statement try/except below - it never
         # aborts the migration run. Statuses match the transient/permanent
         # lifecycles (item_checkouts / item_assignments).
         "CREATE INDEX IF NOT EXISTS ix_checkout_item_status ON item_checkouts (item_id, status)",
@@ -539,7 +539,7 @@ def _run_migrations():
         # a project) instead of a flat cross-project list; a project's org
         # classifier is now the real People-module department (Jul 2026).
         # task_teams is a NEW table name, so create_all (which runs before this
-        # function) already creates it empty before we get here — a plain
+        # function) already creates it empty before we get here - a plain
         # RENAME would then fail every time (target already exists) and
         # silently strand the real rows in task_departments forever. Copy
         # instead: ON CONFLICT DO NOTHING no-ops on rerun (id is the PK), and
@@ -554,7 +554,7 @@ def _run_migrations():
         "ALTER TABLE task_projects ADD COLUMN IF NOT EXISTS hr_department_id VARCHAR DEFAULT ''",
         "ALTER TABLE task_projects ADD COLUMN IF NOT EXISTS hr_department_name VARCHAR DEFAULT ''",
         # Project visibility (Jul 2026): mirrors Task.access_level. Existing
-        # projects backfill to 'org' (everyone already saw everything) — only
+        # projects backfill to 'org' (everyone already saw everything) - only
         # newly-created projects default to 'restricted' (create_project).
         "ALTER TABLE task_projects ADD COLUMN IF NOT EXISTS access_level VARCHAR DEFAULT 'org'",
         # Documents (DMS) Phase 4: merge-field subject/company for export
@@ -568,7 +568,7 @@ def _run_migrations():
         "ALTER TABLE task_projects ADD COLUMN IF NOT EXISTS member_roles JSONB DEFAULT '{}'::jsonb",
         "ALTER TABLE task_teams ADD COLUMN IF NOT EXISTS access_role VARCHAR DEFAULT 'editor'",
         # A team may now belong to MANY projects (one IT team shared across
-        # projects, as Asana does it) — project_ids replaces project_id, which is
+        # projects, as Asana does it) - project_ids replaces project_id, which is
         # kept only as a write-only legacy mirror. Backfill folds every existing
         # single assignment into the new list.
         "ALTER TABLE task_teams ADD COLUMN IF NOT EXISTS project_ids JSONB DEFAULT '[]'::jsonb",
@@ -583,7 +583,7 @@ def _run_migrations():
         # Manual override for ad-hoc-shared Asana teams the API can't reveal.
         "ALTER TABLE asana_project_map ADD COLUMN IF NOT EXISTS extra_team_names JSONB DEFAULT '[]'::jsonb",
         # One Nexus task per Asana task. On a database that already carries
-        # duplicate links this can't build and is caught below — run
+        # duplicate links this can't build and is caught below - run
         # Manage → Asana Sync → "Merge duplicates" (asana_sync.dedupe_tasks),
         # which creates the same index once the duplicates are gone.
         "CREATE UNIQUE INDEX IF NOT EXISTS ux_asana_task_link_gid ON asana_task_links (asana_gid) WHERE asana_gid <> ''",
@@ -597,7 +597,7 @@ def _run_migrations():
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
-    # have) puts the WHOLE Postgres transaction in the aborted state — every
+    # have) puts the WHOLE Postgres transaction in the aborted state - every
     # later statement then "skips" and the final commit persists nothing, which
     # is how prod silently missed new columns (Jul 24: time_punches.category
     # broke every timeclock SELECT with a 500).
@@ -620,7 +620,7 @@ def _run_migrations():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Refuse to start if NEXUS_SKIP_AUTH is set while running on Azure App
-    # Service — the env var is for local development only and must never reach
+    # Service - the env var is for local development only and must never reach
     # a deployed instance (dev or prod).
     import sys as _sys
     if os.getenv("NEXUS_SKIP_AUTH", "").lower() in ("1", "true", "yes"):
@@ -658,7 +658,7 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"[startup] DB pool warm-up skipped: {e}")
     # Daily HR reminders (doc/visa expiry, contract ends, new starters,
-    # interviews, expiring e-sign) — dedupes per day, safe across restarts.
+    # interviews, expiring e-sign) - dedupes per day, safe across restarts.
     try:
         import asyncio as _asyncio
         from reminders import reminders_loop
@@ -673,7 +673,7 @@ async def lifespan(app: FastAPI):
         print(f"[startup] asana auto-pull {'scheduled' if is_sync_worker() else 'skipped (not the sync worker)'}")
     except Exception as e:
         print(f"[startup] asana auto-pull skipped: {e}")
-    # Ticket Notification workflow — retries failed/stuck Outlook emails and
+    # Ticket Notification workflow - retries failed/stuck Outlook emails and
     # auto-closes long-resolved tickets. Same bare-asyncio-loop pattern as the
     # HR reminders job above.
     try:
@@ -683,7 +683,7 @@ async def lifespan(app: FastAPI):
         print("[startup] ticket notification retry/auto-close loop scheduled")
     except Exception as e:
         print(f"[startup] ticket notification loop skipped: {e}")
-    # Task Notification workflow — retries failed/stuck Outlook emails and
+    # Task Notification workflow - retries failed/stuck Outlook emails and
     # scans for due-date reminders. Same bare-asyncio-loop pattern as the
     # Ticket Notification workflow above.
     try:
@@ -693,7 +693,7 @@ async def lifespan(app: FastAPI):
         print("[startup] task notification retry/due-reminder loop scheduled")
     except Exception as e:
         print(f"[startup] task notification loop skipped: {e}")
-    # Time Clock long-session watch — nudges anyone clocked in 12+ hours
+    # Time Clock long-session watch - nudges anyone clocked in 12+ hours
     # ("still working, or forgot to punch out?"). Same bare-asyncio-loop
     # pattern as the jobs above.
     try:
@@ -709,7 +709,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Greens Nexus API", lifespan=lifespan)
 
 # Gzip every response over ~1 KB. The item list is ~300 KB of JSON that compresses
-# to ~10% — the single biggest win for the slow Item Management load over the wire.
+# to ~10% - the single biggest win for the slow Item Management load over the wire.
 app.add_middleware(GZipMiddleware, minimum_size=1024)
 # AuditMiddleware must be added before CORSMiddleware so it wraps the full request
 app.add_middleware(AuditMiddleware)
@@ -732,7 +732,7 @@ app.add_middleware(
 @app.exception_handler(Exception)
 async def _unhandled_exception_handler(request, exc):
     """Catch-all for unhandled exceptions. Starlette runs this in the OUTERMOST
-    middleware layer — outside CORSMiddleware — so without the manual CORS
+    middleware layer - outside CORSMiddleware - so without the manual CORS
     headers below, browsers can't read the 500 at all and report every crashed
     endpoint as a CORS failure ("No 'Access-Control-Allow-Origin' header"),
     which is exactly how the Jul 24 missing-column incident presented. With
@@ -757,7 +757,7 @@ def root():
 
 @app.get("/health")
 def health():
-    """No-auth liveness probe — used by frontend to detect outages without burning a token."""
+    """No-auth liveness probe - used by frontend to detect outages without burning a token."""
     return {"status": "ok"}
 
 

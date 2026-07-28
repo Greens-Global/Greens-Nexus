@@ -1,6 +1,6 @@
 import { RESERVED_TYPES, placeholderLabel } from '../lib/mergeFieldTypes';
 
-// Template Builder (Phase 13) — one control per merge-field type, shared by
+// Template Builder (Phase 13) - one control per merge-field type, shared by
 // DefineMergeFieldModal (editing a field's Default Value) and
 // DocumentsBrowser's Generate-Document fill form (entering a real value).
 // `def` is a field_defs entry: {token, label, type, required, options, validation}.
@@ -11,8 +11,8 @@ export default function TypedFieldInput({ def, value, onChange, error }) {
     return (
       <div style={{ fontSize: 11.5, color: 'var(--muted)', fontStyle: 'italic', padding: '7px 0' }}>
         {def.type === 'signature' || def.type === 'initials'
-          ? `Placed when sent for signature — shown as "${placeholderLabel(def)}" until then.`
-          : `Not attached here yet — shown as "${placeholderLabel(def)}" in the generated document.`}
+          ? `Placed when sent for signature - shown as "${placeholderLabel(def)}" until then.`
+          : `Not attached here yet - shown as "${placeholderLabel(def)}" in the generated document.`}
       </div>
     );
   }
@@ -42,7 +42,7 @@ export default function TypedFieldInput({ def, value, onChange, error }) {
     case 'dropdown':
       return (
         <select className="form-input" style={inputStyle} value={value ?? ''} onChange={(e) => onChange(e.target.value)}>
-          <option value="">— Select —</option>
+          <option value="">- Select -</option>
           {(def.options || []).map((o) => <option key={o} value={o}>{o}</option>)}
         </select>
       );

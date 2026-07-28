@@ -1,8 +1,8 @@
-// Task Module — design token bridge (ported from the export's index.css nx-* theme).
+// Task Module - design token bridge (ported from the export's index.css nx-* theme).
 // Nexus uses inline styles, so we expose the palette as a JS object + style helpers.
 // STRUCTURAL tokens (surfaces/text/borders) point at theme-aware CSS variables
 // (defined in style.css :root / [data-theme="dark"]) so the whole module adapts to
-// dark mode. ACCENT colours stay literal hex — they read on both themes and are
+// dark mode. ACCENT colours stay literal hex - they read on both themes and are
 // alpha-composited in a few places (e.g. `${NX.blue}1a`), which requires a real hex.
 
 export const NX = {
@@ -31,7 +31,7 @@ export const FONT = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Rob
 // chips look native over both the light card and the dark card. Colours stay hex
 // so they can also be used as SVG fills/strokes (custom-chart donut/line).
 // Palette tuned to monday.com's board colors (Jul 25): working-orange /
-// done-green / stuck-red family — brighter, reads well as SOLID cell fills.
+// done-green / stuck-red family - brighter, reads well as SOLID cell fills.
 export const STATUS_META = {
   not_started: { label: 'Not Started', color: '#c4c4c4', tint: 'rgba(196,196,196,0.25)' },
   recurring:   { label: 'Recurring',   color: '#0d9488', tint: 'rgba(13,148,136,0.15)' },

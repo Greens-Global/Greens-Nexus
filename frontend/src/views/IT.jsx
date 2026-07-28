@@ -6,7 +6,7 @@ import ModuleTabs from "../components/ModuleTabs";
 
 const BASE = `${import.meta.env.VITE_API_BASE ?? "http://localhost:8000"}/unifi`;
 
-// Asset Management tab removed Jun 12 (Visesh) — the legacy hardware_assets
+// Asset Management tab removed Jun 12 (Visesh) - the legacy hardware_assets
 // flow is superseded by the Items module; equipment lives on the items table.
 const TABS = [
   { key: 'network',     label: 'Network Dashboard',  Icon: Wifi },
@@ -34,9 +34,9 @@ const TODAY_DATE = new Date('2026-05-28'); // SSL/domain expiry countdowns
 
 const INIT_SITES = [
   { id: 1, name: 'Greens Global',        url: 'https://greensglobal.com',       platform: 'WordPress',  hosting: 'WP Engine',    domainExpiry: '2027-01-14', sslExpiry: '2026-08-01', status: 'Live',           analytics: '4,280 visits/mo' },
-  { id: 2, name: 'Greens Nexus App',     url: 'https://vlow2k.github.io/Greens-Nexus', platform: 'React/Vite', hosting: 'GitHub Pages', domainExpiry: '—',         sslExpiry: 'Auto',       status: 'Live',           analytics: 'Internal' },
+  { id: 2, name: 'Greens Nexus App',     url: 'https://vlow2k.github.io/Greens-Nexus', platform: 'React/Vite', hosting: 'GitHub Pages', domainExpiry: '-',         sslExpiry: 'Auto',       status: 'Live',           analytics: 'Internal' },
   { id: 3, name: 'Greens Global Ads LP', url: 'https://greensglobal.com/promo', platform: 'WordPress',  hosting: 'WP Engine',    domainExpiry: '2027-01-14', sslExpiry: '2026-08-01', status: 'Live',           analytics: '1,050 visits/mo' },
-  { id: 4, name: 'Investor Portal',      url: 'https://investors.greensglobal.com', platform: 'Custom',  hosting: 'AWS',          domainExpiry: '2027-01-14', sslExpiry: '2026-11-20', status: 'In Development', analytics: '—' },
+  { id: 4, name: 'Investor Portal',      url: 'https://investors.greensglobal.com', platform: 'Custom',  hosting: 'AWS',          domainExpiry: '2027-01-14', sslExpiry: '2026-11-20', status: 'In Development', analytics: '-' },
   { id: 5, name: 'OPS Field App',        url: 'https://ops.greensglobal.com',   platform: 'React',      hosting: 'Render',       domainExpiry: '2027-01-14', sslExpiry: 'Auto',       status: 'Staging',        analytics: 'Internal' },
 ];
 
@@ -46,7 +46,7 @@ function ITWebsites() {
   const [form, setForm] = useState({ name: '', url: '', platform: '', hosting: '', domainExpiry: '', sslExpiry: '', status: 'Live', analytics: '' });
 
   const sslDaysLeft = (val) => {
-    if (val === 'Auto' || val === '—') return null;
+    if (val === 'Auto' || val === '-') return null;
     return Math.ceil((new Date(val) - TODAY_DATE) / (1000 * 3600 * 24));
   };
 
@@ -120,7 +120,7 @@ function ITWebsites() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingTop: 10, borderTop: '1px solid var(--border-color)' }}>
                 {sslWarn && <AlertCircle size={13} style={{ color: 'hsl(var(--color-orange))' }} />}
                 <span style={{ fontSize: '0.78rem', color: sslWarn ? 'hsl(var(--color-orange))' : 'var(--text-secondary)', fontWeight: sslWarn ? 600 : 400 }}>
-                  SSL: {site.sslExpiry === 'Auto' ? 'Auto-renew' : site.sslExpiry === '—' ? 'N/A' : sslDays !== null && sslDays < 0 ? 'EXPIRED' : `${sslDays}d remaining`}
+                  SSL: {site.sslExpiry === 'Auto' ? 'Auto-renew' : site.sslExpiry === '-' ? 'N/A' : sslDays !== null && sslDays < 0 ? 'EXPIRED' : `${sslDays}d remaining`}
                 </span>
               </div>
             </div>
@@ -214,8 +214,8 @@ function NetworkDashboard() {
       return r.json();
     } catch (e) {
       clearTimeout(timer);
-      if (e.name === 'AbortError') throw new Error('Request timed out — backend may be waking up. Try refreshing in a few seconds.', { cause: e });
-      // "Failed to fetch" — fetch() couldn't even complete (dropped connection,
+      if (e.name === 'AbortError') throw new Error('Request timed out - backend may be waking up. Try refreshing in a few seconds.', { cause: e });
+      // "Failed to fetch" - fetch() couldn't even complete (dropped connection,
       // brief network blip). Usually transient, so retry with backoff rather
       // than showing the user a cryptic browser-level error.
       if (e instanceof TypeError && attempt < 3) {
@@ -277,7 +277,7 @@ function NetworkDashboard() {
   }
 
   async function exportCSV() {
-    // A plain <a href> can't carry the Authorization header — the backend
+    // A plain <a href> can't carry the Authorization header - the backend
     // rejected it with 401. Fetch with the token, download the blob instead.
     if (!currentSite) return;
     try {
@@ -322,7 +322,7 @@ function NetworkDashboard() {
             </h2>
             <p>
               {view === "overview"
-                ? "UniFi site overview — devices, clients, and alerts"
+                ? "UniFi site overview - devices, clients, and alerts"
                 : `${detail?.isp_name || ""}${detail?.location?.text ? ` · ${detail.location.text}` : ""}`}
             </p>
           </div>
@@ -434,7 +434,7 @@ function NetworkDashboard() {
           )}
           {sites.length === 0 && !loading && !error && (
             <div style={{ textAlign: "center", padding: 60, color: "var(--text-secondary)", border: "1px dashed var(--border-color)", borderRadius: 12 }}>
-              No sites found — check that the backend is running and the UniFi API key is configured.
+              No sites found - check that the backend is running and the UniFi API key is configured.
             </div>
           )}
           {sites.length > 0 && (
@@ -613,7 +613,7 @@ function NetworkDashboard() {
                 </div>
               )}
 
-              {/* Internet issues 5min — only shown when at least one connected WAN is unhealthy */}
+              {/* Internet issues 5min - only shown when at least one connected WAN is unhealthy */}
               {(detail.internet_issues_5min || []).filter(p => p.wan_downtime || p.packet_loss || p.not_reported).length > 0 &&
                Object.entries(detail.wans || {}).some(([key, wan]) => {
                  const port = (detail.wan_ports || []).find(p => p.type === key);
@@ -621,7 +621,7 @@ function NetworkDashboard() {
                }) && (
                 <div style={{ marginBottom: 20, background: "var(--bg-card)", border: "1px solid hsla(0,80%,50%,0.25)", borderRadius: 10, padding: "14px 18px" }}>
                   <div style={{ fontSize: "0.75rem", letterSpacing: "0.1em", textTransform: "uppercase", color: "hsl(var(--color-red))", fontWeight: 600, marginBottom: 10 }}>
-                    Internet Issues — Last 5 Minutes
+                    Internet Issues - Last 5 Minutes
                   </div>
                   <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                     {detail.internet_issues_5min.filter(p => p.wan_downtime || p.packet_loss || p.not_reported).map((p, i) => (
@@ -659,7 +659,7 @@ function NetworkDashboard() {
                         : detail.devices.map((d, i) => (
                           <tr key={i}>
                             <td>
-                              <div style={{ fontWeight: 600 }}>{d.name || "—"}</div>
+                              <div style={{ fontWeight: 600 }}>{d.name || "-"}</div>
                               {d.isConsole && (
                                 <a href={`https://unifi.ui.com/consoles/${detail.hostId}/network/default/dashboard`}
                                    target="_blank" rel="noopener noreferrer"
@@ -668,10 +668,10 @@ function NetworkDashboard() {
                                 </a>
                               )}
                             </td>
-                            <td data-th="Model"><span className="status-badge" style={{ background: "var(--border-color)", color: "var(--text-secondary)", fontSize: "0.7rem" }}>{d.model || "—"}</span></td>
-                            <td data-th="Product line" style={{ fontSize: "0.8rem", color: "var(--text-secondary)", textTransform: "capitalize" }}>{d.productLine || "—"}</td>
-                            <td data-th="IP" style={{ fontFamily: "monospace", fontSize: "0.85rem", color: "var(--text-secondary)" }}>{d.ip || "—"}</td>
-                            <td data-th="MAC" style={{ fontFamily: "monospace", fontSize: "0.8rem", color: "var(--text-muted)" }}>{d.mac || "—"}</td>
+                            <td data-th="Model"><span className="status-badge" style={{ background: "var(--border-color)", color: "var(--text-secondary)", fontSize: "0.7rem" }}>{d.model || "-"}</span></td>
+                            <td data-th="Product line" style={{ fontSize: "0.8rem", color: "var(--text-secondary)", textTransform: "capitalize" }}>{d.productLine || "-"}</td>
+                            <td data-th="IP" style={{ fontFamily: "monospace", fontSize: "0.85rem", color: "var(--text-secondary)" }}>{d.ip || "-"}</td>
+                            <td data-th="MAC" style={{ fontFamily: "monospace", fontSize: "0.8rem", color: "var(--text-muted)" }}>{d.mac || "-"}</td>
                             <td data-th="Firmware">
                               {!d.firmwareStatus || d.firmwareStatus === "upToDate"
                                 ? <span className="status-badge status-approved">Up to date</span>
@@ -682,7 +682,7 @@ function NetworkDashboard() {
                                   : <span className="status-badge" style={{ background: "var(--border-color)", color: "var(--text-secondary)" }}>{d.firmwareStatus}</span>
                               }
                             </td>
-                            <td data-th="Status"><span className={`status-badge ${d.status === "online" ? "status-approved" : "status-rejected"}`}>{d.status || "—"}</span></td>
+                            <td data-th="Status"><span className={`status-badge ${d.status === "online" ? "status-approved" : "status-rejected"}`}>{d.status || "-"}</span></td>
                           </tr>
                         ))}
                     </tbody>

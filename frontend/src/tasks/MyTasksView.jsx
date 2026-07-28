@@ -1,4 +1,4 @@
-// Task Module — My Tasks page (ported 1:1 from the export's MyTasksPage).
+// Task Module - My Tasks page (ported 1:1 from the export's MyTasksPage).
 // A dedicated personal view: avatar + "My tasks" header, List/Board/Calendar/
 // Dashboard/Files tabs, and a List grouped into the four due-date buckets with
 // inline "Add task" rows, a "Task visibility" column, and "Add section".
@@ -50,7 +50,7 @@ function CollaboratorPicker({ value = [], people, onChange, anchor }) {
       <button onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }} style={{ ...btn('ghost'), padding: '2px 6px' }}>
         {value.length ? (
           <div style={{ display: 'flex' }}>{value.slice(0, 3).map((em, i) => <span key={em} style={{ marginLeft: i ? -6 : 0 }}><Avatar email={em} size={20} /></span>)}</div>
-        ) : <span style={{ color: NX.faint }}>{anchor || '—'}</span>}
+        ) : <span style={{ color: NX.faint }}>{anchor || '-'}</span>}
       </button>
       {open && (
         <div onClick={(e) => e.stopPropagation()} style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, width: 208, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', zIndex: 50, maxHeight: 240, overflowY: 'auto', padding: 4 }}>
@@ -76,7 +76,7 @@ function VisibilityChip({ shared }) {
 
 function TaskRow({ t, people, projects, store, onOpen }) {
   const shared = (t.followerIds?.length > 0) || !!t.projectId;
-  // Due date reads as a tinted pill (kit grammar), not bare colored text —
+  // Due date reads as a tinted pill (kit grammar), not bare colored text -
   // red tint overdue, amber tint today, quiet gray otherwise.
   const today = new Date().toISOString().slice(0, 10);
   const dueBg = !t.dueOn || t.completed ? 'transparent'
@@ -112,7 +112,7 @@ function AddTaskRow({ people, projects, onAdd, defaults = {} }) {
   const [projectId, setProjectId] = useState(defaults.projectId || '');
   const reset = () => { setTitle(''); setDueOn(defaults.dueOn || ''); setFollowerIds([]); setProjectId(defaults.projectId || ''); setEditing(false); };
   // A task added under a group inherits that group's context (bucket due date,
-  // project, status, priority) — the row's own edits win over the defaults.
+  // project, status, priority) - the row's own edits win over the defaults.
   const commit = () => {
     if (!title.trim()) return;
     onAdd({
@@ -166,7 +166,7 @@ export default function MyTasksView() {
   // Mobile → lightweight quick-add sheet; desktop → the full form. Same context defaults either way.
   const openCreate = (defs) => (isMobile ? setQuickCreate(defs) : setCreating(defs));
 
-  // People directory for collaborator pickers (excludes me — I'm the assignee).
+  // People directory for collaborator pickers (excludes me - I'm the assignee).
   const people = useMemo(() => {
     const seen = new Map();
     for (const t of tasks) for (const em of (t.followerIds || [])) if (em && !seen.has(em)) seen.set(em, { email: em, name: nameOf(em) });
@@ -190,11 +190,11 @@ export default function MyTasksView() {
 
   return (
     <div style={{ fontFamily: FONT, color: NX.ink, display: 'flex', flexDirection: 'column', height: '100%', background: NX.canvas }}>
-      {/* Header — white band over the gray canvas (same anatomy as the project
+      {/* Header - white band over the gray canvas (same anatomy as the project
           workspace; the agreed world is cards on canvas, never a white page). */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: isMobile ? '12px 12px 8px' : '18px 24px 12px', flexWrap: 'wrap', background: NX.surface }}>
         {!isMobile && <Avatar email={myEmail} name={nameOf(myEmail)} size={32} />}
-        {/* No chevron: the title never opened a menu — a decorative dropdown
+        {/* No chevron: the title never opened a menu - a decorative dropdown
             affordance is a lie (owner flag, Jul 28) */}
         <div style={{ fontSize: isMobile ? 19 : 22, fontWeight: 700 }}>My Tasks</div>
         {!isMobile && <button style={{ ...btn('primary'), marginLeft: 'auto' }} onClick={() => openCreate({ assigneeId: myEmail })}><Plus size={15} /> New Task</button>}
@@ -203,7 +203,7 @@ export default function MyTasksView() {
       {/* Desktop: view tabs + toolbar. Mobile: replaced by the floating MobileTaskBar. */}
       {!isMobile && (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, borderBottom: `1px solid ${NX.border}`, padding: '0 24px', flexWrap: 'wrap', background: NX.surface }}>
-        {/* Segmented view switcher — same control as the project workspace's
+        {/* Segmented view switcher - same control as the project workspace's
             (consistency overwrite, Jul 28: no more underline tabs here) */}
         <div className="scroll-tabs" style={{ display: 'flex', alignItems: 'center', gap: 2, background: NX.border2, borderRadius: 9, padding: 2, margin: '8px 0', overflowX: 'auto', flexShrink: 0 }}>
           {VIEW_TABS.map((tb) => (
@@ -230,7 +230,7 @@ export default function MyTasksView() {
         {view === 'list' ? (
           <div className={isMobile ? 'nx-edge-card' : undefined} style={{ border: `1px solid ${NX.border}`, borderRadius: 12, overflow: 'hidden', background: NX.surface }}>
             {/* Fixed-width columns (Due date/Collaborators/Projects/Visibility) don't
-                shrink below their content size — scroll horizontally on narrow
+                shrink below their content size - scroll horizontally on narrow
                 viewports instead of getting clipped by the card's rounded corners. */}
             <div style={{ overflowX: 'auto' }}>
               <div style={{ minWidth: 700 }}>
@@ -241,7 +241,7 @@ export default function MyTasksView() {
                   const gc = g.color || colorForKey(g.key);
                   return (
                     /* Group header = a tinted full-width band (kit grammar) so
-                       groups read at a glance against white task rows — the
+                       groups read at a glance against white task rows - the
                        color rides a quiet dot, never rails or colored text. */
                     <div key={g.key}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 16px', background: NX.surface2, borderBottom: `1px solid ${NX.border2}`, fontSize: 13.5, fontWeight: 700, color: NX.ink }}>

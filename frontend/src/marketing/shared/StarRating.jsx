@@ -11,7 +11,7 @@ export default function StarRating({ value, size = 11, max = 5 }) {
         const fill = Math.max(0, Math.min(1, value - i))
         return (
           // lineHeight:0 + both stars absolutely pinned to top/left keeps the
-          // amber fill layer exactly over the grey base — an inline fill star
+          // amber fill layer exactly over the grey base - an inline fill star
           // would sit a few px lower on the text baseline and look misaligned.
           <span key={i} style={{ position: 'relative', display: 'inline-block', width: size, height: size, lineHeight: 0 }}>
             <Star size={size} color={C.gray200} style={{ position: 'absolute', top: 0, left: 0, display: 'block' }} />

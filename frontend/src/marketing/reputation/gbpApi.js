@@ -1,9 +1,9 @@
 // Mirrors the real Google Business Profile Performance API
-// (businessprofileperformance.googleapis.com/v1) — specifically
+// (businessprofileperformance.googleapis.com/v1) - specifically
 // locations.fetchMultiDailyMetricsTimeSeries for views/clicks/calls and
 // locations.searchkeywords.impressions.monthly.list for discovery queries.
 // When the real API is wired in, only the fetch*Report() functions in
-// profileData.ts need to change — these adapters already know how to read
+// profileData.ts need to change - these adapters already know how to read
 // that exact JSON.
 
 function gbpDateToIso(d) {

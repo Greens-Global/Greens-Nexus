@@ -107,7 +107,7 @@ export default function CapitalCallsTab() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap', marginBottom: 18 }}>
         <div>
           <h3 style={{ fontSize: 16, fontWeight: 700, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>Capital Calls</h3>
-          <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '3px 0 0' }}>Draft, issue, and collect — expand a call to work its investor allocations</p>
+          <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '3px 0 0' }}>Draft, issue, and collect - expand a call to work its investor allocations</p>
         </div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
           <select className="form-select" style={{ width: 200 }} value={fundFilter} onChange={e => setFundFilter(e.target.value)}>
@@ -178,7 +178,7 @@ export default function CapitalCallsTab() {
                     {actionErr && <ErrorState message={actionErr} />}
 
                     {allocs.loading ? <LoadingState label="Loading allocations…" /> : allocs.error ? <ErrorState message={allocs.error} onRetry={() => loadAllocs(call.id)} /> : allocs.rows.length === 0 ? (
-                      <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '8px 0' }}>No allocations yet — they generate when the call is issued.</div>
+                      <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '8px 0' }}>No allocations yet - they generate when the call is issued.</div>
                     ) : (
                       <div style={{ overflowX: 'auto' }}>
                         <table className="req-table">
@@ -198,7 +198,7 @@ export default function CapitalCallsTab() {
                                 <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(a.amount)}</td>
                                 <td><StatusText status={a.status} /></td>
                                 <td style={{ fontSize: 12, color: 'var(--muted)', fontVariantNumeric: 'tabular-nums' }}>
-                                  {a.status === 'paid' ? `${formatCurrency(a.paidAmount ?? a.amount)} on ${formatDate(a.paidDate)}` : '—'}
+                                  {a.status === 'paid' ? `${formatCurrency(a.paidAmount ?? a.amount)} on ${formatDate(a.paidDate)}` : '-'}
                                 </td>
                                 <td style={{ textAlign: 'right' }}>
                                   {(a.status === 'pending' || a.status === 'overdue') && payEdit?.allocId !== a.id && (
@@ -264,11 +264,11 @@ export default function CapitalCallsTab() {
                 </select>
               </FG>
               <FG label="Title" full>
-                <input className="form-input" required value={modal.title} placeholder="e.g. Call 2 — Renovation Draw"
+                <input className="form-input" required value={modal.title} placeholder="e.g. Call 2 - Renovation Draw"
                   onChange={e => setModal(m => ({ ...m, title: e.target.value }))} />
               </FG>
               <FG label="Purpose" full>
-                <textarea className="form-input" value={modal.purpose} placeholder="What this capital funds — shown on the notice…"
+                <textarea className="form-input" value={modal.purpose} placeholder="What this capital funds - shown on the notice…"
                   onChange={e => setModal(m => ({ ...m, purpose: e.target.value }))} style={{ minHeight: 64, resize: 'vertical' }} />
               </FG>
               <FG label="Total Amount ($)">

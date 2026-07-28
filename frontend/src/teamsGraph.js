@@ -15,7 +15,7 @@ function withTimeout(promise, ms) {
   return Promise.race([promise, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))]);
 }
 
-// Silent only, fails fast — never hangs the UI. null if a login popup is needed.
+// Silent only, fails fast - never hangs the UI. null if a login popup is needed.
 export async function graphTokenSilent() {
   const account = msalInstance.getAllAccounts()[0];
   if (!account) return null;
@@ -25,7 +25,7 @@ export async function graphTokenSilent() {
   } catch { return null; }
 }
 
-// Interactive — only ever from a user click (popups need a gesture).
+// Interactive - only ever from a user click (popups need a gesture).
 export async function graphTokenInteractive() {
   const account = msalInstance.getAllAccounts()[0];
   return (await msalInstance.acquireTokenPopup({ scopes: CHAT_SCOPES, account })).accessToken;

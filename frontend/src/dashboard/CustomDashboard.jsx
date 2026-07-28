@@ -59,9 +59,9 @@ export default function CustomDashboard({ target }) {
   const canRename      = isOwnPersonal || (d.activeView?.scope === 'department' && d.canPublish);
 
   // Render each widget as a real component (<Comp/>), never a direct function
-  // call — widgets use hooks, and calling them inline would register those hooks
+  // call - widgets use hooks, and calling them inline would register those hooks
   // under this component, crashing when widgets are added/removed.
-  // "Clear all": mark everything read, then delete the read ones — the two
+  // "Clear all": mark everything read, then delete the read ones - the two
   // functional state updates queue in order so this clears the whole list.
   const clearAllNotifs = () => { markAllRead(); clearRead(); };
 
@@ -69,7 +69,7 @@ export default function CustomDashboard({ target }) {
     const def = WIDGETS[it.type];
     if (!def) return <div style={{ padding: 16, fontSize: 12, color: 'var(--muted)' }}>Unknown widget</div>;
     // Role-gated widget in a layout the user inherited (e.g. a dept template):
-    // show an inert card instead of the real panel — and never delete it from
+    // show an inert card instead of the real panel - and never delete it from
     // their saved layout.
     if (def.minRole && !can(def.minRole)) {
       return (
@@ -113,8 +113,8 @@ export default function CustomDashboard({ target }) {
     onSubmit: wrap(name => d.renameView(d.activeId, name), 'Renamed'),
   });
   const createNew = () => openName({
-    title: 'Create a new view', label: 'Starts from the default layout — customize it after', initial: '', cta: 'Create view',
-    onSubmit: wrap(name => d.createNewView(name), 'View created — customize away'),
+    title: 'Create a new view', label: 'Starts from the default layout - customize it after', initial: '', cta: 'Create view',
+    onSubmit: wrap(name => d.createNewView(name), 'View created - customize away'),
   });
   const publish = () => openName({
     title: 'Publish to your department', label: 'Everyone in your department gets this view', initial: `${d.department || 'Department'} view`, cta: 'Publish',
@@ -131,7 +131,7 @@ export default function CustomDashboard({ target }) {
   }, 'View deleted');
 
   // Guard against silently losing unsaved layout changes.
-  const confirmDiscard = () => !d.dirty || window.confirm('You have unsaved layout changes — discard them?');
+  const confirmDiscard = () => !d.dirty || window.confirm('You have unsaved layout changes - discard them?');
   const guardedSwitch = (id) => { if (confirmDiscard()) d.switchView(id); };
   const guardedNew = () => { if (confirmDiscard()) createNew(); };
   const guardedDone = () => { if (confirmDiscard()) { d.setEditing(false); d.reload(); } };
@@ -139,7 +139,7 @@ export default function CustomDashboard({ target }) {
   const btn = { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, fontFamily: 'var(--wk-font)', cursor: 'pointer' };
 
   // Delete: your own personal views always; a department view only if you're a
-  // manager AND you're the one who published it — members can never delete a
+  // manager AND you're the one who published it - members can never delete a
   // view that was pushed to them.
   const canDelete = isOwnPersonal ||
     (d.activeView?.scope === 'department' && d.canPublish &&
@@ -218,8 +218,8 @@ export default function CustomDashboard({ target }) {
               <button className="secondary-btn" style={btn} onClick={() => d.setEditing(true)}><SlidersHorizontal size={14} /> Customize</button>
             )}
             {/* The single home for view-level actions (rename, default, publish,
-                delete). Lives outside edit mode too — renaming a view shouldn't
-                require entering Customize — and stays available while editing so
+                delete). Lives outside edit mode too - renaming a view shouldn't
+                require entering Customize - and stays available while editing so
                 you can fork the on-screen layout with "Save as new view". */}
             <div style={{ position: 'relative' }}>
               <button className="secondary-btn" style={{ ...btn, padding: '6px 9px' }} onClick={() => setMenu(m => !m)} title="View options"><MoreHorizontal size={15} /></button>
@@ -265,7 +265,7 @@ export default function CustomDashboard({ target }) {
       {d.loading ? (
         <div style={{ padding: '60px 0', textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>Loading your dashboard…</div>
       ) : (target === 'dashboard' && !d.editing && !d.activeId) ? (
-        /* The Operations Desk home — the designed default. Saved views and
+        /* The Operations Desk home - the designed default. Saved views and
            Customize keep the widget grid untouched below. */
         <DeskHome kpis={d.kpis} notifications={notifications} markRead={markRead} />
       ) : (

@@ -1,4 +1,4 @@
-// Task Module — shared UI atoms (inline-styled to match the export's light theme).
+// Task Module - shared UI atoms (inline-styled to match the export's light theme).
 import { useEffect, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Check, ChevronDown, ChevronLeft, ChevronRight, Plus } from 'lucide-react';
@@ -63,7 +63,7 @@ export function PriorityChip({ priority }) {
 }
 
 // Single floating "+" action, styled like the create segment of MobileTaskBar
-// (bottom-center pill), for mobile pages that only need one action — no
+// (bottom-center pill), for mobile pages that only need one action - no
 // filter/view segments. Replaces an inline header "+" so it stays reachable
 // one-thumb while scrolled, matching the Task pages' mobile pattern.
 export function MobileFab({ onClick, title = 'Create' }) {
@@ -117,7 +117,7 @@ export function Modal({ title, onClose, children, footer, width = 560 }) {
   );
 }
 
-// Closes a dropdown on an outside click (or Escape) instead of onMouseLeave —
+// Closes a dropdown on an outside click (or Escape) instead of onMouseLeave -
 // a panel sits below its trigger with a small gap, so moving the cursor from
 // the trigger toward the panel crosses that gap and would close it before it
 // can be clicked. Accepts one ref or an array of refs (trigger + portaled panel).
@@ -151,7 +151,7 @@ export function useIsMobile(query = '(max-width: 640px)') {
 //
 // A bare <input type="date"> renders in the browser/OS locale (dd-mm-yyyy here),
 // and no CSS or attribute can change that. So the value is displayed as our own
-// formatted text and the native input is kept, invisible, on top of it — clicks
+// formatted text and the native input is kept, invisible, on top of it - clicks
 // still open the OS calendar (showPicker), keyboard and mobile pickers still
 // work, and we don't reimplement a calendar.
 // ── Nexus calendar picker (replaces the native OS date popup) ────────────────
@@ -163,7 +163,7 @@ const isoToDate = (s) => { const [y, m, d] = String(s).split('-').map(Number); r
 const sameYMD = (a, b) => !!a && !!b && a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 
 // Popover calendar rendered to a portal, fixed-positioned near the trigger and
-// flipped up when there isn't room below — so it works inside modals/sheets too.
+// flipped up when there isn't room below - so it works inside modals/sheets too.
 function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef }) {
   const selected = value ? isoToDate(value) : null;
   const today = new Date();
@@ -231,7 +231,7 @@ function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef }) {
   );
 }
 
-export function DateField({ value, onChange, placeholder = '—', color, style, title, disabled }) {
+export function DateField({ value, onChange, placeholder = '-', color, style, title, disabled }) {
   const [open, setOpen] = useState(false);
   const [rect, setRect] = useState(null);
   const btnRef = useRef(null);
@@ -279,7 +279,7 @@ function emailToName(email) {
   return local.split(/[._-]+/).filter(Boolean).map((w) => w[0].toUpperCase() + w.slice(1)).join(' ') || email;
 }
 
-// Mirrors task_util.PROJECT_ROLE_RANK — a role only ever implies everything
+// Mirrors task_util.PROJECT_ROLE_RANK - a role only ever implies everything
 // ranked below it. Labels/descriptions match Asana's own Share dialog exactly
 // (per the reference screenshots) so this reads as a direct parity build.
 export const PROJECT_ROLES = {
@@ -290,7 +290,7 @@ export const PROJECT_ROLES = {
 };
 const PROJECT_ROLE_ORDER = ['owner', 'editor', 'commenter', 'viewer'];
 
-// Rendered to a portal, fixed-positioned against the trigger's own rect —
+// Rendered to a portal, fixed-positioned against the trigger's own rect -
 // same technique as CalendarPopover above. The plain-nested-dropdown version
 // got clipped by the Share modal's "Who has access" list, which needs its own
 // overflow-y:auto scrollbar; a position:absolute child can never escape that.
@@ -324,7 +324,7 @@ function RolePickerPanel({ anchorRect, value, onChange, onClose }) {
   );
 }
 
-// Per-person/per-team role dropdown for the Share panel — same shape as
+// Per-person/per-team role dropdown for the Share panel - same shape as
 // Asana's (label + one-line description, checkmark on the current value).
 function RolePicker({ value, onChange, disabled }) {
   const [open, setOpen] = useState(false);
@@ -352,7 +352,7 @@ function RolePicker({ value, onChange, disabled }) {
   );
 }
 
-// Full "Share" dialog — Asana parity: invite by email with a role, an
+// Full "Share" dialog - Asana parity: invite by email with a role, an
 // Searchable team picker for the Share panel. PersonSelect is people-shaped
 // (email is its key, it renders an Avatar) and is used in eight other places, so
 // teams get their own small control rather than a risky generalization.
@@ -396,7 +396,7 @@ function TeamPicker({ teams, value, onChange, placeholder = 'Add a team…' }) {
 // org-wide/private toggle, and a "Who has access" list (owner fixed, each
 // individual member and each project-scoped Team with its own role dropdown
 // + remove). Roles are ENFORCED server-side (task_util.require_project_role),
-// not cosmetic — a non-owner's edits here will 403; PermissionError below
+// not cosmetic - a non-owner's edits here will 403; PermissionError below
 // surfaces that inline instead of failing silently.
 function ShareProjectModal({ project, teams, people, onClose }) {
   const { updateProject, updateTeam } = useTasks();
@@ -486,7 +486,7 @@ function ShareProjectModal({ project, teams, people, onClose }) {
         <button type="button" disabled={busy || !inviteEmail} onClick={invite} style={btn('primary')}>Invite</button>
       </div>
 
-      {/* Teams get access as a unit — everyone on the team inherits it, which is
+      {/* Teams get access as a unit - everyone on the team inherits it, which is
           how a whole department is granted a project in one step instead of
           inviting each person. */}
       <div style={{ fontSize: 13, fontWeight: 700, color: NX.ink, marginBottom: 8 }}>Add a team</div>
@@ -503,8 +503,8 @@ function ShareProjectModal({ project, teams, people, onClose }) {
       <select value={project.accessLevel || 'org'} disabled={busy}
         onChange={(e) => run(() => updateProject(project.id, { access_level: e.target.value }))}
         style={{ ...inputStyle, width: '100%', marginBottom: 16 }}>
-        <option value="restricted">Private — only people/teams listed below</option>
-        <option value="org">Org-wide — everyone at Nexus can see this project</option>
+        <option value="restricted">Private - only people/teams listed below</option>
+        <option value="org">Org-wide - everyone at Nexus can see this project</option>
       </select>
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
@@ -558,11 +558,11 @@ function ShareProjectModal({ project, teams, people, onClose }) {
   );
 }
 
-// "Who has access" — the avatar-stack trigger in the project header, mirroring
+// "Who has access" - the avatar-stack trigger in the project header, mirroring
 // Asana's Share button/dialog. Sourced from the same three grants
 // task_util.visible_project_ids() actually reads (owner, TaskProject.member_
 // emails, TaskTeam rosters), so the stack is never wrong about who can see the
-// project — clicking it opens the full editable Share panel (ShareProjectModal).
+// project - clicking it opens the full editable Share panel (ShareProjectModal).
 export function ProjectAccessButton({ project, teams, people }) {
   const [shareOpen, setShareOpen] = useState(false);
   if (!project) return null;
@@ -577,7 +577,7 @@ export function ProjectAccessButton({ project, teams, people }) {
   const overflow = allEmails.length - stackShown.length;
   return (
     <>
-      <button type="button" onClick={() => setShareOpen(true)} title="Share — manage who has access"
+      <button type="button" onClick={() => setShareOpen(true)} title="Share - manage who has access"
         style={{ display: 'flex', alignItems: 'center', background: 'none', border: `1px solid ${NX.border}`, borderRadius: 20, padding: '3px 8px 3px 3px', cursor: 'pointer', fontFamily: FONT }}>
         <span style={{ display: 'flex' }}>
           {stackShown.map((em, i) => (
@@ -608,7 +608,7 @@ export function PersonSelect({ value, onChange, people, placeholder = 'Unassigne
   const sel = people.find((p) => p.email === value);
   // A value can be set to someone not in the loaded directory (e.g. the current
   // user before the People directory has loaded / when it's empty). Still show
-  // them — derive a display name from the email — rather than the placeholder.
+  // them - derive a display name from the email - rather than the placeholder.
   const chosen = sel || (value ? { email: value, name: emailToName(value) } : null);
   const filtered = q ? people.filter((p) => (p.name + p.email).toLowerCase().includes(q.toLowerCase())) : people;
   return (
@@ -638,7 +638,7 @@ export function PersonSelect({ value, onChange, people, placeholder = 'Unassigne
   );
 }
 
-// Multi-select sibling of PersonSelect — same directory, search and avatars, but
+// Multi-select sibling of PersonSelect - same directory, search and avatars, but
 // picks stay selected and the menu stays open so several people can be added in
 // one go. `value` is an array of emails; onChange receives a new array.
 export function PersonMultiSelect({ value, onChange, people, placeholder = 'Select people' }) {
@@ -657,7 +657,7 @@ export function PersonMultiSelect({ value, onChange, people, placeholder = 'Sele
   return (
     <div ref={ref} style={{ position: 'relative' }}>
       <button type="button" onClick={() => setOpen((o) => !o)} style={{ ...btn('outline'), width: '100%', justifyContent: 'space-between', height: 'auto', minHeight: 36, padding: '5px 10px' }}>
-        {/* Chips scroll past ~3 rows rather than growing the field without bound —
+        {/* Chips scroll past ~3 rows rather than growing the field without bound -
             in a narrow grid column each chip takes its own row. */}
         <span className="nx-scroll" style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap', maxHeight: 96, overflowY: 'auto' }}>
           {emails.length === 0 && <span style={{ color: NX.faint }}>{placeholder}</span>}
@@ -667,7 +667,7 @@ export function PersonMultiSelect({ value, onChange, people, placeholder = 'Sele
               <span key={em} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: NX.surface2, border: `1px solid ${NX.border}`, borderRadius: 20, padding: '2px 7px 2px 2px', fontSize: 12, color: NX.ink }}>
                 <Avatar email={p.email} name={p.name} size={18} />
                 {p.name}
-                {/* A span, not a button — this sits inside the dropdown trigger button. */}
+                {/* A span, not a button - this sits inside the dropdown trigger button. */}
                 <span role="button" tabIndex={0} title={`Remove ${p.name}`}
                   onClick={(e) => { e.stopPropagation(); toggle(em); }}
                   onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); e.preventDefault(); toggle(em); } }}

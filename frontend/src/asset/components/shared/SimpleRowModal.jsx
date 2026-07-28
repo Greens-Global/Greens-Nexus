@@ -2,7 +2,7 @@
 // directly on the asset (not in the shared store) and use a loose [key, label, options?] tuple
 // schema instead of a RECORD_TYPES config: Permits (dynamic columns, see permitColumns() in
 // ../../lib/timelineFields.js) and the Development Timeline (fixed columns, see
-// TIMELINE_FIELDS in the same file — status excluded, since status changes go through
+// TIMELINE_FIELDS in the same file - status excluded, since status changes go through
 // ../asset/TimelineStatusModal.jsx instead).
 //
 // Simpler than the generic RecordModal (used for RECORD_TYPES collections): no per-field type
@@ -18,8 +18,8 @@ function isLongTextField(key) {
 }
 
 /**
- * @param title     e.g. "Permit row" or "Timeline row" — used for the "Add "/"Edit " modal heading
- * @param fields    [key, label, options?][] — the row's editable columns
+ * @param title     e.g. "Permit row" or "Timeline row" - used for the "Add "/"Edit " modal heading
+ * @param fields    [key, label, options?][] - the row's editable columns
  * @param row       existing row object when editing, null/undefined when adding
  * @param onSave    (values) => void
  * @param onDelete  () => void, or falsy/omitted to hide the Delete action (e.g. when adding)

@@ -1,4 +1,4 @@
-// Task Module — Calendar (month/week with event categories + Show filter) and
+// Task Module - Calendar (month/week with event categories + Show filter) and
 // Dashboard (KPIs, status/dept/assignee bars, completion donut, time tracking,
 // custom charts). Ported 1:1 from the export's NexusCalendarView / NexusDashboard.
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -28,7 +28,7 @@ const US_HOLIDAYS = (y) => ({
   [`${y}-12-31`]: "New Year's Eve",
 });
 
-// Fixed national holidays only — festivals on the lunar calendar (Diwali, Holi,
+// Fixed national holidays only - festivals on the lunar calendar (Diwali, Holi,
 // Eid, etc.) move every year and would need a real almanac to place correctly,
 // so they're left off rather than shown on the wrong date.
 const IN_HOLIDAYS = (y) => ({
@@ -106,7 +106,7 @@ export function CalendarView({ tasks, onOpen, onCreate }) {
     ? (() => { const s = days[0], e = days[6]; return s.getMonth() === e.getMonth() ? `${MONTHS_SHORT[s.getMonth()]} ${s.getDate()} – ${e.getDate()}, ${e.getFullYear()}` : `${MONTHS_SHORT[s.getMonth()]} ${s.getDate()} – ${MONTHS_SHORT[e.getMonth()]} ${e.getDate()}, ${e.getFullYear()}`; })()
     : `${MONTHS[cursor.getMonth()]} ${cursor.getFullYear()}`;
 
-  // Standard segmented-control option (white active pill on a gray track) —
+  // Standard segmented-control option (white active pill on a gray track) -
   // matches every other mode switch in the module.
   const seg = (active) => ({ borderRadius: 7, padding: '5px 12px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', border: `1px solid ${active ? NX.border : 'transparent'}`, background: active ? NX.surface : 'transparent', color: active ? NX.ink : NX.dim, boxShadow: active ? '0 1px 2px rgba(0,0,0,0.08)' : 'none' });
 
@@ -134,7 +134,7 @@ export function CalendarView({ tasks, onOpen, onCreate }) {
                     </button>
                   );
                 })}
-                {/* Holiday region lives WITH the holiday toggle it modifies —
+                {/* Holiday region lives WITH the holiday toggle it modifies -
                     not as a separate toolbar cluster (owner call, Jul 28) */}
                 {show.holiday && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 12px 6px 38px' }}>
@@ -152,7 +152,7 @@ export function CalendarView({ tasks, onOpen, onCreate }) {
           </div>
         </div>
       </div>
-      {/* Weekday header — tinted band, sentence case (kit calendar grammar) */}
+      {/* Weekday header - tinted band, sentence case (kit calendar grammar) */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', borderBottom: `1px solid ${NX.border}`, background: NX.surface2 }}>
         {WEEKDAYS.map((d) => <div key={d} style={{ padding: '9px 10px', fontSize: 12.5, fontWeight: 600, color: NX.dim }}>{d}</div>)}
       </div>
@@ -208,7 +208,7 @@ export function DashboardView({ tasks, stats: pre, store, scopeKey = 'workspace'
   const totalAct = tasks.reduce((n, t) => n + (t.actualHours ?? 0), 0);
   const variance = totalAct - totalEst;
 
-  // Completions over the trailing 14 days — feeds the trend area chart.
+  // Completions over the trailing 14 days - feeds the trend area chart.
   const trend = useMemo(() => {
     const out = [];
     for (let i = 13; i >= 0; i--) {
@@ -240,14 +240,14 @@ export function DashboardView({ tasks, stats: pre, store, scopeKey = 'workspace'
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(320px, 100%), 1fr))', gap: 16 }}>
-        <Card title="Completions — last 14 days"><TrendArea buckets={trend} color={NX.green} ariaLabel="Tasks completed per day, last 14 days" /></Card>
+        <Card title="Completions - last 14 days"><TrendArea buckets={trend} color={NX.green} ariaLabel="Tasks completed per day, last 14 days" /></Card>
         <Card title="Tasks by status"><LightBar data={byStatus} /></Card>
         <Card title="Completion"><Donut total={stats.total} segments={[{ label: 'Completed', value: stats.completed, color: NX.green }, { label: 'Remaining', value: stats.total - stats.completed, color: '#d5d9e2' }]} /></Card>
         <Card title="Tasks by team"><LightBar data={byTeam} /></Card>
         <Card title="Tasks by assignee"><LightBar data={byAssignee} /></Card>
       </div>
 
-      <Card title="Time tracking — estimate vs actual">
+      <Card title="Time tracking - estimate vs actual">
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
           <div><div style={{ fontSize: 12.5, color: NX.dim }}>Estimated</div><div style={{ fontSize: 28, fontWeight: 700, color: NX.ink, fontVariantNumeric: 'tabular-nums' }}>{totalEst}h</div></div>
           <div><div style={{ fontSize: 12.5, color: NX.dim }}>Actual</div><div style={{ fontSize: 28, fontWeight: 700, color: NX.ink, fontVariantNumeric: 'tabular-nums' }}>{totalAct}h</div></div>

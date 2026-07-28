@@ -14,7 +14,7 @@ import { replayFlow } from '../lib/flowReplayer';
 import { graphToken, graphJSON, postChatMessage, GRAPH } from '../teamsGraph';
 import { msalInstance } from '../msalInstance';
 
-// ── Testing module — interactive QA runs over the audit test cases, bug
+// ── Testing module - interactive QA runs over the audit test cases, bug
 // reports with recorded steps + AI conversion, assignments with due dates.
 // Dev-only: the backend 404s everything unless NEXUS_QA_MODULE is set.
 
@@ -54,7 +54,7 @@ function BugVideo({ src, style }) {
     let fixed = false;
     const settle = () => {
       v.removeEventListener('timeupdate', settle);
-      // small offset, not 0 — the very first captured frame is often blank
+      // small offset, not 0 - the very first captured frame is often blank
       v.currentTime = 0.1;
     };
     const compute = () => {
@@ -62,7 +62,7 @@ function BugVideo({ src, style }) {
       if (v.duration === Infinity || Number.isNaN(v.duration)) {
         fixed = true;
         v.addEventListener('timeupdate', settle);
-        try { v.currentTime = 1e101; } catch { /* clamped — timeupdate still fires */ }
+        try { v.currentTime = 1e101; } catch { /* clamped - timeupdate still fires */ }
       } else if (v.duration > 0) {
         fixed = true;
         v.currentTime = 0.1;   // finite duration: just paint a real frame
@@ -141,7 +141,7 @@ function Modal({ title, wide, onClose, children }) {
   );
 }
 
-// ── Case runner — the interactive checklist with per-step evidence ────────────
+// ── Case runner - the interactive checklist with per-step evidence ────────────
 function CaseRunner({ caseObj, runId, existing, onSaved, onFileBug, onClose, toastOk, toastErr }) {
   const steps = caseObj.steps || [];
   const [stepState, setStepState] = useState(() => steps.map((_, i) => existing?.stepState?.[i] || { done: false, shot: '' }));
@@ -182,7 +182,7 @@ function CaseRunner({ caseObj, runId, existing, onSaved, onFileBug, onClose, toa
       onSaved();
       if (result === 'fail' && onFileBug) {
         onFileBug({
-          description: `Test case failed: "${caseObj.title}" (${caseObj.module})` + (notes ? ` — ${notes}` : '') + ` — failed at step ${failedStep + 1}: "${steps[failedStep] || ''}"`,
+          description: `Test case failed: "${caseObj.title}" (${caseObj.module})` + (notes ? ` - ${notes}` : '') + ` - failed at step ${failedStep + 1}: "${steps[failedStep] || ''}"`,
           module_hint: caseObj.module, case_id: caseObj.id, run_id: runId, failed_step: failedStep,
           screenshots: [overallShot, ...stepState.map(s => s.shot)].filter(Boolean),
         });
@@ -206,7 +206,7 @@ function CaseRunner({ caseObj, runId, existing, onSaved, onFileBug, onClose, toa
             <b>Before you start:</b> {caseObj.precondition}
           </div>
         )}
-        <div style={FL}>Steps — tick as you go · click a row, then paste (Ctrl+V) or attach to add a screenshot to that step</div>
+        <div style={FL}>Steps - tick as you go · click a row, then paste (Ctrl+V) or attach to add a screenshot to that step</div>
         <div style={{ border: '1px solid var(--line)', borderRadius: 12, overflow: 'hidden', marginBottom: 14 }}>
           {steps.map((s, i) => (
             <div key={i} onClick={() => setActiveStep(i)}
@@ -258,7 +258,7 @@ function CaseRunner({ caseObj, runId, existing, onSaved, onFileBug, onClose, toa
           onChange={e => { const f = e.target.files?.[0]; if (f) attachTo(f, pendingStep.current); e.target.value = ''; }} />
 
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', alignItems: 'center', flexWrap: 'wrap' }}>
-          <button className="secondary-btn" disabled={busy} title="Record yourself doing this test once — replay it next time"
+          <button className="secondary-btn" disabled={busy} title="Record yourself doing this test once - replay it next time"
             onClick={() => {
               onClose();
               startFlowRecording(events => {
@@ -284,7 +284,7 @@ function CaseRunner({ caseObj, runId, existing, onSaved, onFileBug, onClose, toa
           <button className="secondary-btn" disabled={busy} onClick={() => save('skipped')}>Skip</button>
           <button className="secondary-btn" disabled={busy} onClick={() => save('blocked')} style={{ color: 'hsl(var(--color-orange))' }}>Blocked</button>
           <button className="secondary-btn" disabled={busy} onClick={() => save('fail')} style={{ color: 'hsl(var(--color-red))', fontWeight: 700 }}>
-            <XCircle size={14} style={{ verticalAlign: -2, marginRight: 5 }} />Fail — file a bug
+            <XCircle size={14} style={{ verticalAlign: -2, marginRight: 5 }} />Fail - file a bug
           </button>
           <button className="primary-btn" disabled={busy} onClick={() => save('pass')} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} Pass
@@ -295,7 +295,7 @@ function CaseRunner({ caseObj, runId, existing, onSaved, onFileBug, onClose, toa
   );
 }
 
-// ── Assign modal — cases → person + due date; fires email + bell + Teams DM ──
+// ── Assign modal - cases → person + due date; fires email + bell + Teams DM ──
 function AssignModal({ runId, cases, resultsByCase, onClose, onDone, toastOk, toastErr }) {
   const [people, setPeople] = useState([]);
   const [email, setEmail] = useState('');
@@ -315,7 +315,7 @@ function AssignModal({ runId, cases, resultsByCase, onClose, onDone, toastOk, to
       // Find an existing 1:1 chat with the assignee…
       const data = await graphJSON(`${GRAPH}/me/chats?$filter=chatType eq 'oneOnOne'&$expand=members&$top=50`, tok);
       let chatId = (data?.value || []).find(c => (c.members || []).some(m => (m.email || '').toLowerCase() === assigneeEmail))?.id;
-      // …or create one (needs the Chat.Create scope — ask interactively once).
+      // …or create one (needs the Chat.Create scope - ask interactively once).
       if (!chatId) {
         const account = msalInstance.getAllAccounts()[0];
         const tok2 = (await msalInstance.acquireTokenPopup({ scopes: ['Chat.Create', 'ChatMessage.Send'], account }).catch(() => null))?.accessToken;
@@ -346,7 +346,7 @@ function AssignModal({ runId, cases, resultsByCase, onClose, onDone, toastOk, to
     try {
       const res = await api.qaAssign({ run_id: runId, assignee_email: email, case_ids: pool.map(c => c.id), due_date: due, note });
       const teamsOk = await sendTeamsDM(email, res.teamsSummary || '');
-      toastOk(`Assigned ${pool.length} case${pool.length !== 1 ? 's' : ''} — bell ✓ · email ${res.emailSent ? '✓' : '✗'} · Teams ${teamsOk ? '✓' : '✗'}`);
+      toastOk(`Assigned ${pool.length} case${pool.length !== 1 ? 's' : ''} - bell ✓ · email ${res.emailSent ? '✓' : '✗'} · Teams ${teamsOk ? '✓' : '✗'}`);
       onDone();
     } catch (e) { toastErr(e?.message || 'Could not assign.'); setBusy(false); }
   }
@@ -357,7 +357,7 @@ function AssignModal({ runId, cases, resultsByCase, onClose, onDone, toastOk, to
         <div>
           <label style={FL}>Assign to</label>
           <select value={email} onChange={e => setEmail(e.target.value)} style={inputStyle}>
-            <option value="">— pick a person —</option>
+            <option value="">- pick a person -</option>
             {people.map(p => <option key={p.email} value={p.email}>{p.name}</option>)}
           </select>
         </div>
@@ -436,7 +436,7 @@ function CaseEditor({ caseObj, onClose, onSaved, toastErr, runId, runName }) {
         </div>
         <div><label style={FL}>Title</label><input value={f.title} onChange={e => set('title', e.target.value)} style={inputStyle} autoFocus={!editing} /></div>
         <div><label style={FL}>Before you start</label><input value={f.precondition} onChange={e => set('precondition', e.target.value)} style={inputStyle} /></div>
-        <div><label style={FL}>Steps — one per line</label>
+        <div><label style={FL}>Steps - one per line</label>
           <textarea value={f.stepsText} onChange={e => set('stepsText', e.target.value)} rows={7} style={{ ...inputStyle, resize: 'vertical', lineHeight: 1.6 }} /></div>
         <div><label style={FL}>What you should see</label>
           <textarea value={f.expected} onChange={e => set('expected', e.target.value)} rows={2} style={{ ...inputStyle, resize: 'vertical' }} /></div>
@@ -474,7 +474,7 @@ function ReportBug({ prefill, onPrefillUsed, canEdit, toastOk, toastErr, onOpenD
   const [desc, setDesc] = useState('');
   const [moduleHint, setModuleHint] = useState('');
   // Steps recorded via the floating card land here when the card's Stop button
-  // navigates back to this tab (sessionStorage handoff — this view was
+  // navigates back to this tab (sessionStorage handoff - this view was
   // unmounted while the tester roamed the app reproducing the bug).
   const [stepsLog, setStepsLog] = useState(() => {
     try {
@@ -525,11 +525,11 @@ function ReportBug({ prefill, onPrefillUsed, canEdit, toastOk, toastErr, onOpenD
     if (blob) {
       setScreenBusy(true);
       uploadEvidence(new File([blob], 'bug-recording.webm', { type: 'video/webm' }), 'rec')
-        .then(u => { setRecordingUrl(u); toastOk(transcript ? 'Recording + narration attached — review and send.' : 'Screen recording attached.'); })
+        .then(u => { setRecordingUrl(u); toastOk(transcript ? 'Recording + narration attached - review and send.' : 'Screen recording attached.'); })
         .catch(() => toastErr('Could not upload the recording.'))
         .finally(() => setScreenBusy(false));
     } else if (stepsLog.length || transcript) {
-      toastOk(`${stepsLog.length} steps recorded${transcript ? ' + narration transcribed' : ''} — review and send.`);
+      toastOk(`${stepsLog.length} steps recorded${transcript ? ' + narration transcribed' : ''} - review and send.`);
     }
   }, []);   // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -544,8 +544,8 @@ function ReportBug({ prefill, onPrefillUsed, canEdit, toastOk, toastErr, onOpenD
     } catch { /* ignore */ }
     startBugRecording({ video: mode !== 'steps', voice: mode === 'video-voice' });
     toastOk(mode === 'steps'
-      ? 'Recording steps — reproduce the bug anywhere, then hit Stop on the card.'
-      : 'Recording — reproduce the bug, narrate what\'s wrong, then hit Stop on the card.');
+      ? 'Recording steps - reproduce the bug anywhere, then hit Stop on the card.'
+      : 'Recording - reproduce the bug, narrate what\'s wrong, then hit Stop on the card.');
   }
 
   async function addShots(files) {
@@ -566,8 +566,8 @@ function ReportBug({ prefill, onPrefillUsed, canEdit, toastOk, toastErr, onOpenD
       const created = await api.qaCreateBug({ description: fullDesc, module_hint: moduleHint, steps_log: log, recording_url: recordingUrl, screenshots: shots, ...(linked || {}) });
       setDesc(''); setModuleHint(''); setStepsLog([]); setShots([]); setRecordingUrl(''); setNarration(''); setLinked(null);
       toastOk(created?.status === 'converted'
-        ? 'Bug report sent — the AI drafted a test case, review it in the Library.'
-        : 'Bug report sent — thank you!');
+        ? 'Bug report sent - the AI drafted a test case, review it in the Library.'
+        : 'Bug report sent - thank you!');
       load();
     } catch (e) { toastErr(e?.message || 'Could not send the report.'); }
     setBusy(false);
@@ -577,7 +577,7 @@ function ReportBug({ prefill, onPrefillUsed, canEdit, toastOk, toastErr, onOpenD
     setConvertBusy(bug.id);
     try {
       const draft = await api.qaConvertBug(bug.id);
-      toastOk('AI drafted a test case — review and approve it.');
+      toastOk('AI drafted a test case - review and approve it.');
       load();
       onOpenDraft?.(draft);
     } catch (e) { toastErr(e?.message || 'AI conversion failed.'); }
@@ -591,7 +591,7 @@ function ReportBug({ prefill, onPrefillUsed, canEdit, toastOk, toastErr, onOpenD
         <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 14px' }}>
           Describe it in your own words. Record your steps while you reproduce it, paste screenshots (Ctrl+V), and the AI turns it into a proper test case.
         </p>
-        {linked?.case_id && <div style={{ fontSize: 12, color: 'hsl(var(--color-red))', fontWeight: 600, marginBottom: 10 }}>Linked to the failing test case — evidence carried over.</div>}
+        {linked?.case_id && <div style={{ fontSize: 12, color: 'hsl(var(--color-red))', fontWeight: 600, marginBottom: 10 }}>Linked to the failing test case - evidence carried over.</div>}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 220px', gap: 12, marginBottom: 12 }}>
           <textarea value={desc} onChange={e => setDesc(e.target.value)} rows={3} placeholder="What happened, and what did you expect instead?" style={{ ...inputStyle, resize: 'vertical' }} />
           <div>
@@ -601,7 +601,7 @@ function ReportBug({ prefill, onPrefillUsed, canEdit, toastOk, toastErr, onOpenD
             </select>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               <div style={{ position: 'relative' }}>
-                <button className="secondary-btn" title={desc.trim() ? 'Reproduce the bug anywhere — steps, screen and voice are captured together; one Stop attaches them all here' : 'Describe the bug first, then record'}
+                <button className="secondary-btn" title={desc.trim() ? 'Reproduce the bug anywhere - steps, screen and voice are captured together; one Stop attaches them all here' : 'Describe the bug first, then record'}
                   onClick={() => setRecMenu(m => !m)} disabled={!desc.trim() || screenBusy}
                   style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6, opacity: desc.trim() ? 1 : 0.5 }}>
                   {screenBusy ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <CircleDot size={13} />} Record
@@ -610,7 +610,7 @@ function ReportBug({ prefill, onPrefillUsed, canEdit, toastOk, toastErr, onOpenD
                 {recMenu && <div onClick={() => setRecMenu(false)} style={{ position: 'fixed', inset: 0, zIndex: 15 }} />}
                 {recMenu && (
                   <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 6, zIndex: 20, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: '0 10px 30px rgba(0,0,0,.18)', padding: 6, width: 236 }}>
-                    <RecOption Icon={Video} title="Video + Voice + Steps" sub="Screen recording, narrate the bug aloud — it transcribes into its own box" onClick={() => beginRecording('video-voice')} />
+                    <RecOption Icon={Video} title="Video + Voice + Steps" sub="Screen recording, narrate the bug aloud - it transcribes into its own box" onClick={() => beginRecording('video-voice')} />
                     <RecOption Icon={Video} title="Video + Steps" sub="Screen recording, no microphone" onClick={() => beginRecording('video')} />
                     <RecOption Icon={ListChecks} title="Steps Only" sub="Just log what you click, no recording" onClick={() => beginRecording('steps')} />
                   </div>
@@ -721,15 +721,15 @@ function ReportBug({ prefill, onPrefillUsed, canEdit, toastOk, toastErr, onOpenD
                         {convertBusy === b.id ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <Sparkles size={12} />} Convert with AI
                       </button>
                     )}
-                    <button className="secondary-btn" onClick={() => api.qaUpdateBug(b.id, { status: 'fixed' }).then(load)} title="Mark this bug fixed — it stays until a tester verifies it"
+                    <button className="secondary-btn" onClick={() => api.qaUpdateBug(b.id, { status: 'fixed' }).then(load)} title="Mark this bug fixed - it stays until a tester verifies it"
                       style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap' }}><Check size={12} /> Mark Fixed</button>
-                    <button onClick={() => api.qaUpdateBug(b.id, { status: 'dismissed' }).then(load)} title="Dismiss — not a bug / won't fix" aria-label="Dismiss report"
+                    <button onClick={() => api.qaUpdateBug(b.id, { status: 'dismissed' }).then(load)} title="Dismiss - not a bug / won't fix" aria-label="Dismiss report"
                       style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 4 }}><X size={14} /></button>
                   </>
                 )}
                 {canEdit && b.status === 'fixed' && (
                   <>
-                    <button className="primary-btn" onClick={() => api.qaUpdateBug(b.id, { status: 'verified' }).then(load)} title="Confirm the fix works — closes the bug"
+                    <button className="primary-btn" onClick={() => api.qaUpdateBug(b.id, { status: 'verified' }).then(load)} title="Confirm the fix works - closes the bug"
                       style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap' }}><CheckCircle size={12} /> Verify</button>
                     <button className="secondary-btn" onClick={() => api.qaUpdateBug(b.id, { status: 'new' }).then(load)} title="Reopen"
                       style={{ fontSize: 12, whiteSpace: 'nowrap' }}>Reopen</button>
@@ -754,7 +754,7 @@ export default function Testing() {
   const { canAccessModule } = useRole();
   const nameOf = useNameResolver();
   const [enabled, setEnabled] = useState(null);
-  // Stopping a bug-steps recording navigates here — open straight onto Report a
+  // Stopping a bug-steps recording navigates here - open straight onto Report a
   // bug so the recorded steps (waiting in sessionStorage) are front and centre.
   const [tab, setTab] = useState(() => (sessionStorage.getItem('qa-bug-steps') ? 'bugs' : 'run'));
   const [cases, setCases] = useState(null);
@@ -772,7 +772,7 @@ export default function Testing() {
   const [bugPrefill, setBugPrefill] = useState(null);
   const [newRunOpen, setNewRunOpen] = useState(false);
   const [newRunName, setNewRunName] = useState('');
-  const [ioBusy, setIoBusy] = useState('');   // 'export' | 'import' — Excel round-trip
+  const [ioBusy, setIoBusy] = useState('');   // 'export' | 'import' - Excel round-trip
   const importRef = useRef(null);
   const [toast, setToast] = useState(null);
   const toastOk = m => { setToast({ m, kind: 'ok' }); setTimeout(() => setToast(null), 4000); };
@@ -783,10 +783,10 @@ export default function Testing() {
 
   useEffect(() => { api.qaEnabled().then(r => setEnabled(!!r?.enabled)).catch(() => setEnabled(false)); }, []);
   // Returning from a flow recording (which navigates across modules) lands back
-  // here — confirm the save that happened while this view was unmounted.
+  // here - confirm the save that happened while this view was unmounted.
   useEffect(() => {
     const t = sessionStorage.getItem('qa-flow-saved');
-    if (t) { sessionStorage.removeItem('qa-flow-saved'); toastOk(`Flow recorded and saved to “${t}” — use Replay flow next time.`); }
+    if (t) { sessionStorage.removeItem('qa-flow-saved'); toastOk(`Flow recorded and saved to “${t}” - use Replay flow next time.`); }
   }, []);   // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!enabled) return;
@@ -810,7 +810,7 @@ export default function Testing() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a'); a.href = url; a.download = filename;
       document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
-      toastOk('Exported — screenshots are embedded in the file.');
+      toastOk('Exported - screenshots are embedded in the file.');
     } catch (e) { toastErr(e?.message || 'Export failed.'); }
     setIoBusy('');
   };
@@ -823,8 +823,8 @@ export default function Testing() {
       api.qaRuns().then(setRuns).catch(() => {});
       setRunId(r.runId);
       api.qaRunResults(r.runId).then(setResults).catch(() => {});
-      toastOk(`Imported into “${r.runName}” — ${r.casesCreated} new, ${r.casesUpdated} updated, ${r.resultsWritten} statuses.`);
-    } catch (e) { toastErr(e?.message || 'Import failed — export a fresh template and edit that.'); }
+      toastOk(`Imported into “${r.runName}” - ${r.casesCreated} new, ${r.casesUpdated} updated, ${r.resultsWritten} statuses.`);
+    } catch (e) { toastErr(e?.message || 'Import failed - export a fresh template and edit that.'); }
     setIoBusy('');
   };
 
@@ -889,22 +889,22 @@ export default function Testing() {
           <>
             <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 16 }}>
               <select value={runId} onChange={e => setRunId(e.target.value)} style={{ ...inputStyle, width: 260 }}>
-                {runs.length === 0 && <option value="">— create a run to start —</option>}
+                {runs.length === 0 && <option value="">- create a run to start -</option>}
                 {runs.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
               </select>
               <button className="secondary-btn" onClick={() => setNewRunOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={14} /> New Run</button>
               {canEdit && runId && (
-                <button className="secondary-btn" onClick={deleteRun} title="Delete this run and its recorded results — the test cases are kept"
+                <button className="secondary-btn" onClick={deleteRun} title="Delete this run and its recorded results - the test cases are kept"
                   style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--danger, #dc2626)' }}>
                   <Trash2 size={14} /> Delete Run
                 </button>
               )}
-              <button className="secondary-btn" onClick={doExport} disabled={!!ioBusy} title="Download an Excel of every case + this run's status + screenshots — and the import template"
+              <button className="secondary-btn" onClick={doExport} disabled={!!ioBusy} title="Download an Excel of every case + this run's status + screenshots - and the import template"
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                 {ioBusy === 'export' ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Download size={14} />} Export Excel
               </button>
               {canEdit && (
-                <button className="secondary-btn" onClick={() => importRef.current?.click()} disabled={!!ioBusy} title="Import an edited template — updates cases + statuses"
+                <button className="secondary-btn" onClick={() => importRef.current?.click()} disabled={!!ioBusy} title="Import an edited template - updates cases + statuses"
                   style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                   {ioBusy === 'import' ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Upload size={14} />} Import
                 </button>
@@ -955,7 +955,7 @@ export default function Testing() {
                 </div>
               );
             })}
-            {!runId && <div style={{ color: 'var(--muted)', fontSize: 13.5, textAlign: 'center', padding: 30 }}>Create a run to start testing — e.g. “Jul 15 regression”.</div>}
+            {!runId && <div style={{ color: 'var(--muted)', fontSize: 13.5, textAlign: 'center', padding: 30 }}>Create a run to start testing - e.g. “Jul 15 regression”.</div>}
           </>
         )
       )}
@@ -989,15 +989,15 @@ export default function Testing() {
                     <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{c.module} · {c.feature} · {(c.steps || []).length} steps</div>
                   </div>
                   {c.status === 'draft' && <span style={{ fontSize: 10.5, fontWeight: 800, color: 'hsl(var(--color-orange))', background: 'hsla(var(--color-orange),0.12)', padding: '2px 8px', borderRadius: 20 }}>AI DRAFT</span>}
-                  {(c.flow || []).length > 0 && <span title="Has a recorded flow — replayable" style={{ fontSize: 10.5, fontWeight: 800, color: 'hsl(var(--color-blue))', background: 'hsla(var(--color-blue),0.10)', padding: '2px 8px', borderRadius: 20 }}>FLOW</span>}
-                  {c.e2eSpec && <span title="Has a Playwright test — runs automatically in CI" style={{ fontSize: 10.5, fontWeight: 800, color: 'hsl(var(--color-green))', background: 'hsla(var(--color-green),0.10)', padding: '2px 8px', borderRadius: 20, display: 'inline-flex', alignItems: 'center', gap: 3 }}><Bot size={10} /> E2E</span>}
+                  {(c.flow || []).length > 0 && <span title="Has a recorded flow - replayable" style={{ fontSize: 10.5, fontWeight: 800, color: 'hsl(var(--color-blue))', background: 'hsla(var(--color-blue),0.10)', padding: '2px 8px', borderRadius: 20 }}>FLOW</span>}
+                  {c.e2eSpec && <span title="Has a Playwright test - runs automatically in CI" style={{ fontSize: 10.5, fontWeight: 800, color: 'hsl(var(--color-green))', background: 'hsla(var(--color-green),0.10)', padding: '2px 8px', borderRadius: 20, display: 'inline-flex', alignItems: 'center', gap: 3 }}><Bot size={10} /> E2E</span>}
                   {c.source === 'ai' && c.status !== 'draft' && <Sparkles size={13} style={{ color: 'var(--muted)' }} title="Converted from a bug report" />}
                   {canEdit && (
                     <>
-                      <button className="secondary-btn" title={c.e2eSpec ? 'Regenerate the Playwright test (AI)' : 'Generate a Playwright test (AI) — runs automatically in CI'}
+                      <button className="secondary-btn" title={c.e2eSpec ? 'Regenerate the Playwright test (AI)' : 'Generate a Playwright test (AI) - runs automatically in CI'}
                         disabled={genBusy === c.id}
                         onClick={() => { setGenBusy(c.id); api.qaGenerateE2e(c.id)
-                          .then(() => { toastOk('Playwright test generated — CI will run it on its next pass.'); api.qaCases().then(setCases); })
+                          .then(() => { toastOk('Playwright test generated - CI will run it on its next pass.'); api.qaCases().then(setCases); })
                           .catch(e => toastErr(e?.message || 'Generation failed.'))
                           .finally(() => setGenBusy('')); }}
                         style={{ padding: '5px 9px' }}>

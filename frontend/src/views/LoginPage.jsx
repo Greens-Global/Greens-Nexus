@@ -1,11 +1,11 @@
 /*
 THESIS: signing in feels like opening a premium work OS (canon, owner-pinned:
-monday.com-grade) — clean, white, confident, zero clutter.
-OWN-WORLD: Work OS (DESIGN.md) — white ground with faint brand-tinted washes,
+monday.com-grade) - clean, white, confident, zero clutter.
+OWN-WORLD: Work OS (DESIGN.md) - white ground with faint brand-tinted washes,
 Figtree type, brand #2b45e1 mark, one Microsoft action.
 STORY: an employee lands, instantly trusts it ("this is a real product"),
 presses the single button, and is at work.
-FIRST VIEWPORT: brand mark top-left, centered column — mark, "Welcome to
+FIRST VIEWPORT: brand mark top-left, centered column - mark, "Welcome to
 Nexus", one-line promise, Microsoft button, SSO note. Nothing else.
 FORM: category standard played straight at full fidelity (user's canon call,
 Jul 28); craft bar monday.com's login.
@@ -38,7 +38,7 @@ export default function LoginPage() {
         <div className="nxl-badge" style={{ "--i": 0 }} aria-hidden="true">N</div>
         <h1 className="nxl-title" style={{ "--i": 1 }}>Welcome to Nexus</h1>
         <p className="nxl-sub" style={{ "--i": 2 }}>
-          One place to run every operation — tasks, items, people, time, and more.
+          One place to run every operation - tasks, items, people, time, and more.
         </p>
 
         <button className="nxl-cta" style={{ "--i": 3 }} onClick={() => instance.loginRedirect(loginRequest)}>

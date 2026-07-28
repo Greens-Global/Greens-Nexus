@@ -1,4 +1,4 @@
-// Task completion celebration — the Asana-style flying unicorn the prototype
+// Task completion celebration - the Asana-style flying unicorn the prototype
 // had, rebuilt. Fired from TasksContext.toggleComplete so EVERY complete
 // circle in the module (Home, My Tasks, list, board, drawer) gets it without
 // per-view wiring. Pure DOM + Web Animations API; nothing React needs to know.
@@ -6,7 +6,7 @@
 // The click coordinates come from a passive capture-phase listener (the click
 // always lands before toggleComplete runs), so the unicorn takes off from the
 // circle the person actually pressed, and the row it sits in gets a green
-// sweep — rows opt in via a data-task-row attribute.
+// sweep - rows opt in via a data-task-row attribute.
 
 let last = { x: null, y: null, target: null };
 if (typeof window !== 'undefined') {

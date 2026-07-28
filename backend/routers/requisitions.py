@@ -48,22 +48,22 @@ def _check_transition(req, target: str):
 # ── Schemas ──────────────────────────────────────────────────────────────────
 
 class RequisitionCreate(BaseModel):
-    # NOTE: `id` and `status` are deliberately NOT accepted from the client — the
+    # NOTE: `id` and `status` are deliberately NOT accepted from the client - the
     # server generates the id and always starts the row at "pending_manager" so an
     # employee can't POST a pre-approved/fulfilled requisition and skip approval.
     employee_name: str
-    employee_email: str = ""    # beneficiary — on-behalf requests tag THEIR email so it lands in their log
+    employee_email: str = ""    # beneficiary - on-behalf requests tag THEIR email so it lands in their log
     employee_dept: str
     item: str
     quantity: int = 1
     reason: str = ""
     supervisor_name: str = ""
-    approver_email: str = ""    # manager picked by the requester — only they get the notification
+    approver_email: str = ""    # manager picked by the requester - only they get the notification
 
 
 class RequisitionApprove(BaseModel):
     manager_name: str
-    # Who will purchase & fulfill this — picked by the manager at approval
+    # Who will purchase & fulfill this - picked by the manager at approval
     # (mirrors the checkout allocator flow). Optional for backward compat.
     allocator_email: str = ""
     allocator_name:  str = ""
@@ -76,7 +76,7 @@ class RequisitionReject(BaseModel):
 
 class RequisitionOrder(BaseModel):
     by_name: str
-    note: str = ""           # vendor / expected arrival — shown to the requester
+    note: str = ""           # vendor / expected arrival - shown to the requester
 
 
 class RequisitionFulfill(BaseModel):
@@ -167,10 +167,10 @@ def create_requisition(
     db:   Session = Depends(get_db),
 ):
     payload = data.model_dump(exclude={"approver_email"})
-    # id + status are server-owned (client can't supply them) — generate a unique id
+    # id + status are server-owned (client can't supply them) - generate a unique id
     # (same shape as items.py) and pin the starting status to "pending_manager".
     server_id = f"REQ-{uuid.uuid4().hex[:8].upper()}-{uuid.uuid4().hex[:8].upper()}"
-    # Verified submitter from the token — never trusted from the body.
+    # Verified submitter from the token - never trusted from the body.
     submitter_email = (user["email"] or "").lower().strip()
     submitter_name  = _email_to_name(user["email"])
     # Beneficiary tagging: an on-behalf request lands in the BENEFICIARY's log,
@@ -184,7 +184,7 @@ def create_requisition(
     )
     db.add(req)
 
-    # Notification is created HERE, server-side — employees can't write to the
+    # Notification is created HERE, server-side - employees can't write to the
     # notifications API (level gate), so the old frontend addNotification call
     # silently 403'd and managers never heard about employee requisitions.
     # The verified submitter is persisted (submitted_by_*) AND named in the body
@@ -263,7 +263,7 @@ def approve_requisition(req_id: str, body: RequisitionApprove, user: dict = Depe
                  + (f"\n{req.allocator_name} will purchase it for you." if req.allocator_name else ""),
             ref_id=req_id, item_name=req.item, requested_by=req.employee_name,
         )
-    # Targeted work item for the allocator — their bell deep-links to the
+    # Targeted work item for the allocator - their bell deep-links to the
     # To Fulfill queue in Purchase Requests.
     if req.allocator_email:
         _req_notify(db,
@@ -479,7 +479,7 @@ def export_requisitions_excel(user: dict = Depends(require_manager), db: Session
         from openpyxl import Workbook
         from openpyxl.styles import Font, PatternFill, Alignment
     except ImportError:
-        raise HTTPException(500, "openpyxl not installed — run: pip install openpyxl")
+        raise HTTPException(500, "openpyxl not installed - run: pip install openpyxl")
 
     reqs = db.query(models.Requisition).all()
     wb = Workbook()

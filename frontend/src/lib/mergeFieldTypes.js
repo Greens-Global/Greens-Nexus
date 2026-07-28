@@ -1,7 +1,7 @@
-// Template Builder (Phase 13) — merge-field type registry, shared by the
+// Template Builder (Phase 13) - merge-field type registry, shared by the
 // "Define Merge Field" authoring modal and the "Generate Document" fill form.
 // Mirrors backend/routers/documents.py's _FIELD_TYPES/_RESERVED_FIELD_TYPES
-// (not imported — different languages) so both sides agree on what a type
+// (not imported - different languages) so both sides agree on what a type
 // means without a network round trip to find out.
 
 export const FIELD_TYPES = [
@@ -29,7 +29,7 @@ export const FIELD_TYPE_LABEL = Object.fromEntries(FIELD_TYPES.map((t) => [t.val
 export const RESERVED_TYPES = ['signature', 'initials', 'image', 'file'];
 export const OPTION_TYPES = ['dropdown', 'radio'];
 
-// Which validation keys apply to which type — drives which validation
+// Which validation keys apply to which type - drives which validation
 // sub-fields the Define Merge Field modal shows.
 export const VALIDATION_KEYS = {
   text: ['maxLength', 'regex'],
@@ -53,7 +53,7 @@ export function isEmptyValue(type, value) {
 }
 
 // The string that ends up in mergeOverrides/fillValues for a given type +
-// raw fill-form value — currency/checkbox need formatting, everything else
+// raw fill-form value - currency/checkbox need formatting, everything else
 // is already a plain string the backend's string-only resolver can use as-is.
 export function formatFieldValue(def, raw) {
   if (def.type === 'currency') {
@@ -66,7 +66,7 @@ export function formatFieldValue(def, raw) {
 }
 
 // Client-side mirror of the backend's required-field guard, plus the
-// character-limit/regex/min-max/date-range validation rules — used by both
+// character-limit/regex/min-max/date-range validation rules - used by both
 // the Define Merge Field modal (validating a Default Value) and the Generate
 // Document fill form.
 export function validateFieldValue(def, raw) {
@@ -78,7 +78,7 @@ export function validateFieldValue(def, raw) {
     if (v.maxLength && String(raw).length > Number(v.maxLength)) return `Max ${v.maxLength} characters`;
     if (v.regex) {
       try { if (!new RegExp(v.regex).test(String(raw))) return 'Does not match the required format'; }
-      catch { /* invalid regex saved on the def — don't block the user for that */ }
+      catch { /* invalid regex saved on the def - don't block the user for that */ }
     }
   }
   if (def.type === 'number' || def.type === 'currency') {
@@ -95,7 +95,7 @@ export function validateFieldValue(def, raw) {
 }
 
 // What a reserved (or unfilled image/file) merge field renders as in the
-// live editor's default-value preview — the actual export placeholder is
+// live editor's default-value preview - the actual export placeholder is
 // rendered server-side (documents.py _export_prep), this is just for the
 // authoring/fill UI to show the same idea.
 export function placeholderLabel(def) {

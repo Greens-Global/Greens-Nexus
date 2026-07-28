@@ -4,11 +4,11 @@ import { api } from '../api';
 import { editGuard } from '../asset/lib/editGuard.js';
 import BodModal from './BodModal';
 
-// ── Global mini-timer — lives on EVERY screen while clocked in ────────────────
+// ── Global mini-timer - lives on EVERY screen while clocked in ────────────────
 // A floating pill with a live HH:MM:SS stopwatch, a quick punch-out, and the
 // work-session screen capture engine. Capture is consent-per-shift: the user
 // explicitly picks their screen in the browser dialog (Chrome then shows a
-// persistent "sharing" indicator — nothing is covert, matching monitoring-law
+// persistent "sharing" indicator - nothing is covert, matching monitoring-law
 // transparency norms). While sharing, one frame is uploaded per interval with an
 // idle-seconds reading; it all stops at punch-out or tab close.
 //
@@ -60,7 +60,7 @@ export default function TimeclockWidget() {
     // Wall-clock scheduler: a frequent tick that fires a shot only once the full
     // interval has actually elapsed. Browsers throttle/freeze background-tab
     // timers, so a plain 5-min setInterval silently stops firing once the tab is
-    // hidden — this catches up as soon as any tick lands or the tab refocuses.
+    // hidden - this catches up as soon as any tick lands or the tab refocuses.
     const due = setInterval(maybeShot, 20000);
     // On refocus: re-sync the punch state (a break on another device) AND catch
     // up a due screenshot.
@@ -105,7 +105,7 @@ export default function TimeclockWidget() {
   onBreakRef.current = onBreak;
   clockedInRef.current = clockedIn;
   canCaptureRef.current = canCapture;
-  // Next gap until a shot is due — jittered ±25% when the policy randomizes.
+  // Next gap until a shot is due - jittered ±25% when the policy randomizes.
   const nextGap = () => randomizeRef.current
     ? Math.round(gapRef.current * (0.75 + Math.random() * 0.5))
     : gapRef.current;
@@ -121,7 +121,7 @@ export default function TimeclockWidget() {
   }
 
   // Capture tears down on the clocked-in → clocked-out TRANSITION (a real
-  // punch-out), not on the static !clockedIn condition — otherwise the stream we
+  // punch-out), not on the static !clockedIn condition - otherwise the stream we
   // pre-acquire on the punch-in click (while last.kind is still 'out') would be
   // killed before the punch lands. Policy turning off also stops it immediately.
   const wasClockedIn = useRef(false);
@@ -132,7 +132,7 @@ export default function TimeclockWidget() {
   useEffect(() => { if (!canCapture && capturing) stopCapture(); }, [canCapture, capturing]);
 
   // Expose the engine globally so the punch-in button (in the Time Clock view)
-  // can start capture from within its own click — the browser only grants screen
+  // can start capture from within its own click - the browser only grants screen
   // sharing on a user gesture, so an effect/state-change can't start it silently.
   startRef.current = startCapture;
   useEffect(() => {
@@ -213,9 +213,9 @@ export default function TimeclockWidget() {
   }
 
   async function startCapture() {
-    if (!canCaptureRef.current) return;   // monitoring policy off — nothing to do
+    if (!canCaptureRef.current) return;   // monitoring policy off - nothing to do
     // Managed-device path: getAllScreensMedia() grabs EVERY monitor at once with
-    // NO picker — but only when the Nexus origin is allowlisted by the managed-
+    // NO picker - but only when the Nexus origin is allowlisted by the managed-
     // Chrome policy MultiScreenCaptureAllowedForUrls. On any device without that
     // policy the API is absent (or throws), so we fall through to the standard
     // one-screen picker below. This is what makes capture fully automatic on
@@ -230,7 +230,7 @@ export default function TimeclockWidget() {
           takeShot();
           return;
         }
-      } catch { /* not policy-allowlisted here — use the picker */ }
+      } catch { /* not policy-allowlisted here - use the picker */ }
     }
     try {
       const stream = await navigator.mediaDevices.getDisplayMedia({
@@ -239,7 +239,7 @@ export default function TimeclockWidget() {
       addStream(stream);
       setCapturing(streamsRef.current.length);
       takeShot(); // first frame right away; the wall-clock ticker handles the rest
-    } catch { /* user dismissed the picker — stays off */ }
+    } catch { /* user dismissed the picker - stays off */ }
   }
 
   async function quickPunchOut() {
@@ -279,7 +279,7 @@ export default function TimeclockWidget() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 11, minWidth: 232,
           background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, padding: '14px 16px',
           boxShadow: '0 24px 70px rgba(17,24,39,0.30)' }}>
-          {/* Timer row — click opens the Time Clock page (matches the hero's anatomy). */}
+          {/* Timer row - click opens the Time Clock page (matches the hero's anatomy). */}
           <button onClick={() => { window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'timeclock' } })); setExpanded(false); }}
             title="Open Time Clock"
             style={{ display: 'inline-flex', alignItems: 'center', gap: 9, background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontFamily: 'var(--wk-font)' }}>
@@ -297,8 +297,8 @@ export default function TimeclockWidget() {
           {canCapture && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <button onClick={capturing ? stopCapture : startCapture}
-                title={paused ? 'Screen capture is paused for your break — no frames are saved until you end the break. Click to stop capture entirely.'
-                  : capturing ? `Screen capture is on (${capturing} screen${capturing === 1 ? '' : 's'}) — a frame of each is saved every ${intervalMin} minute${intervalMin === 1 ? '' : 's'}${randomizeRef.current ? ' (timing varies)' : ''}. Click to stop.`
+                title={paused ? 'Screen capture is paused for your break - no frames are saved until you end the break. Click to stop capture entirely.'
+                  : capturing ? `Screen capture is on (${capturing} screen${capturing === 1 ? '' : 's'}) - a frame of each is saved every ${intervalMin} minute${intervalMin === 1 ? '' : 's'}${randomizeRef.current ? ' (timing varies)' : ''}. Click to stop.`
                   : 'Start work-session screen capture (you pick the screen; your browser shows a sharing indicator the whole time)'}
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 11px', borderRadius: 999, cursor: 'pointer',
                   border: `1px solid ${capturing ? 'transparent' : 'var(--wk-line2)'}`,
@@ -325,10 +325,10 @@ export default function TimeclockWidget() {
         </div>
       )}
 
-      {/* Collapsed capsule — small on purpose so it never buries page-level bars
+      {/* Collapsed capsule - small on purpose so it never buries page-level bars
           (e.g. the asset "Save before you leave" bar). Click to expand upward. */}
       <button onClick={() => setExpanded(v => !v)}
-        title={expanded ? 'Collapse' : 'Time clock — click for controls'}
+        title={expanded ? 'Collapse' : 'Time clock - click for controls'}
         style={{ display: 'inline-flex', alignItems: 'center', gap: 7, background: 'var(--card)', border: '1px solid var(--wk-line2)',
           borderRadius: 999, padding: '7px 11px 7px 13px', boxShadow: '0 6px 22px rgba(17,24,39,0.16)', cursor: 'pointer', fontFamily: 'var(--wk-font)' }}>
         <span style={{ width: 9, height: 9, borderRadius: '50%', background: onBreak ? '#b45309' : 'var(--wk-brand)',

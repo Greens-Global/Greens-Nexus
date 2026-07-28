@@ -122,7 +122,7 @@ export default function SetBudgetModal({
           <div style={{ fontWeight: 600, color: C.gray900 }}>{formatCurrency(googleSubtotal)}</div>
         </div>
         <p style={{ fontSize: 11, color: C.gray400, marginTop: -8 }}>
-          Budgets are always stored monthly — switching the period just rescales what you see and enter.
+          Budgets are always stored monthly - switching the period just rescales what you see and enter.
         </p>
 
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, paddingTop: 4 }}>

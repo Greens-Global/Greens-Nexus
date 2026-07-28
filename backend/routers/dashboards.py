@@ -148,7 +148,7 @@ def delete_view(view_id: str, user: dict = Depends(get_current_user), db: Sessio
 def _guard_write(v: models.DashboardView, user: dict):
     if v.scope == "department":
         # Only the manager who published a department view (or an admin) may
-        # edit/delete it — members and other managers cannot.
+        # edit/delete it - members and other managers cannot.
         if user["level"] < 3:
             raise HTTPException(403, "Only managers can edit department views")
         if v.created_by != user["email"] and user["level"] < 4:

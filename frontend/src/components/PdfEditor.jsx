@@ -9,7 +9,7 @@ import {
 import { docxToPdf, isDocx } from '../lib/docx2pdf';
 
 // ── In-browser PDF editor ──────────────────────────────────────────────────────
-// Renders pages with pdfjs (same worker pattern as PdfDoc in ESign.jsx — bytes
+// Renders pages with pdfjs (same worker pattern as PdfDoc in ESign.jsx - bytes
 // in, never blob: fetches) and bakes every edit into brand-new PDF bytes with
 // pdf-lib on save. Overlay coordinates are TOP-LEFT normalized (0..1), the same
 // convention as the E-Sign field placer; bake converts to pdf-lib's
@@ -23,18 +23,18 @@ const RENDER_SCALE = 1.6;
 const SEL = '#3b82f6'; // selection chrome color
 
 const TOOL_DEFS = [
-  ['select',    MousePointer2, 'Select — drag to move, corner to resize, Delete to remove'],
-  ['edittext',  TextCursorInput, 'Edit text — click a line to rewrite it; click an edited block to change it again, drag to move it'],
-  ['text',      Type,          'Text — click the page to add a text box'],
-  ['pen',       PenTool,       'Pen — draw freehand'],
-  ['highlight', Highlighter,   'Highlighter — thick translucent stroke'],
+  ['select',    MousePointer2, 'Select - drag to move, corner to resize, Delete to remove'],
+  ['edittext',  TextCursorInput, 'Edit text - click a line to rewrite it; click an edited block to change it again, drag to move it'],
+  ['text',      Type,          'Text - click the page to add a text box'],
+  ['pen',       PenTool,       'Pen - draw freehand'],
+  ['highlight', Highlighter,   'Highlighter - thick translucent stroke'],
   ['rect',      Square,        'Rectangle'],
   ['ellipse',   Circle,        'Ellipse'],
   ['line',      Minus,         'Line'],
   ['arrow',     MoveUpRight,   'Arrow'],
-  ['image',     ImageIcon,     'Image — insert a PNG or JPG, or press Ctrl+V to paste a screenshot'],
-  ['whiteout',  Eraser,        'Whiteout — cover content with white'],
-  ['redact',    EyeOff,        'Redact — cover content with black (a visual cover, not true removal)'],
+  ['image',     ImageIcon,     'Image - insert a PNG or JPG, or press Ctrl+V to paste a screenshot'],
+  ['whiteout',  Eraser,        'Whiteout - cover content with white'],
+  ['redact',    EyeOff,        'Redact - cover content with black (a visual cover, not true removal)'],
 ];
 const SWATCHES = ['#111827', '#dc2626', '#2563eb', '#16a34a', '#f59e0b', '#ffffff'];
 const FONT_SIZES = [8, 9, 10, 11, 12, 14, 16, 18, 24, 32, 48];
@@ -45,11 +45,11 @@ const hexRgb = (hex) => {
   const n = parseInt((hex || '#111827').slice(1), 16);
   return { r: ((n >> 16) & 255) / 255, g: ((n >> 8) & 255) / 255, b: (n & 255) / 255 };
 };
-// pdf-lib standard fonts are WinAnsi-only — swap smart punctuation, drop the rest.
+// pdf-lib standard fonts are WinAnsi-only - swap smart punctuation, drop the rest.
 /* eslint-disable no-irregular-whitespace, no-control-regex -- winAnsi deliberately normalizes a literal NBSP and matches the full Latin-1 byte range */
 const winAnsi = (s) => String(s)
   .replace(/[‘’‚]/g, "'").replace(/[“”„]/g, '"')
-  .replace(/[–—]/g, '-').replace(/…/g, '...').replace(/ /g, ' ')
+  .replace(/[–-]/g, '-').replace(/…/g, '...').replace(/ /g, ' ')
   .replace(/[^\x00-\xFF]/g, '?');
 /* eslint-enable no-irregular-whitespace, no-control-regex */
 
@@ -73,7 +73,7 @@ const lineBox = (pg, L) => {
   return { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(a.x - b.x), h: Math.abs(a.y - b.y) };
 };
 
-// Text-element font styling — mirrored between preview (CSS) and bake (pdf-lib
+// Text-element font styling - mirrored between preview (CSS) and bake (pdf-lib
 // standard fonts), so what you type is what the saved PDF shows.
 const famOf = (el) => el.mono ? '"Courier New",Courier,monospace'
   : el.serif ? '"Times New Roman",Times,serif' : 'Helvetica,Arial,sans-serif';
@@ -187,7 +187,7 @@ function layoutLines(el) {
 
 // Rotating a page re-maps its overlay elements so they stay glued to the same
 // spot on the (now rotated) content. dir 1 = 90° clockwise, -1 = counter.
-// Text and images additionally accumulate `rot` — their CONTENT must rotate
+// Text and images additionally accumulate `rot` - their CONTENT must rotate
 // with the page (a box swap alone would leave text running across its own
 // white cover and squeeze bitmaps into a swapped box).
 const rotN = (r) => ((r || 0) % 360 + 360) % 360;
@@ -299,7 +299,7 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
         const pdfjs = await import('pdfjs-dist');
         pdfjs.GlobalWorkerOptions.workerSrc = (await import('pdfjs-dist/build/pdf.worker.min.mjs?url')).default;
         pdfjsRef.current = pdfjs;
-        // pdfjs transfers the buffer to its worker (detaching it) — hand it a
+        // pdfjs transfers the buffer to its worker (detaching it) - hand it a
         // copy so the original bytes stay intact for the pdf-lib bake.
         const doc = await pdfjs.getDocument({ data: bytes.slice() }).promise;
         if (!live) return;
@@ -370,7 +370,7 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
   }, [tool, pages]);
 
   // ── History ─────────────────────────────────────────────────────────────────
-  // No side effects inside state updaters — StrictMode double-invokes them,
+  // No side effects inside state updaters - StrictMode double-invokes them,
   // which was duplicating stack entries in dev. Read via refs, set plainly.
   const undo = useCallback(() => {
     const { u } = stacksRef.current;
@@ -442,7 +442,7 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
     if (d?.moved) pushSnapshot(d.snap);
     else if (d?.editOnTap) { // Edit-text mode: a tap (no drag) opens the text
       const el = stateRef.current.elements.find(x => x.id === d.id);
-      // freshEdit = block created on this very pointerdown — keep the
+      // freshEdit = block created on this very pointerdown - keep the
       // pre-creation editSnapRef so an untouched commit still cleans it up.
       if (el && d.freshEdit) { setEditingId(el.id); setSelectedId(el.id); }
       else if (el) editTapRef.current?.(el);
@@ -453,7 +453,7 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
   const startDrag = (e, el, mode) => {
     // Element BODY drags only in select/Edit-text mode (drawing tools own the
     // page there); the selection handles (endpoints, resize, block width) work
-    // in ANY mode — they sit above the page and stop propagation.
+    // in ANY mode - they sit above the page and stop propagation.
     if (mode === 'move' && tool !== 'select' && tool !== 'edittext') return;
     e.stopPropagation(); e.preventDefault();
     if (editingId) commitTextEdit();
@@ -474,11 +474,11 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
   function pageDown(e, pg, d) {
     if (e.button !== 0 && e.pointerType === 'mouse') return;
     // The browser applies mousedown's DEFAULT focus action after handlers run:
-    // the svg isn't focusable, so it would move focus to <body> — instantly
+    // the svg isn't focusable, so it would move focus to <body> - instantly
     // blurring the textarea we're about to mount (blur → commit → the new
     // element evaporates before pointerup). Suppress it; clicks that should
     // commit an open edit are handled explicitly below (the textarea's own
-    // pointerdown never reaches here — it stops propagation).
+    // pointerdown never reaches here - it stops propagation).
     e.preventDefault();
     if (editingId) commitTextEdit();
     const p = norm(e);
@@ -589,7 +589,7 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
       return;
     }
     if (!String(el.text || '').trim()) {
-      if (el.bg) { // emptied an edited line — keep the white cover: the line is deleted
+      if (el.bg) { // emptied an edited line - keep the white cover: the line is deleted
         if (snap && (!prev || prev.text !== el.text)) pushSnapshot(snap);
         return;
       }
@@ -673,7 +673,7 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
       }
       pushSnapshot(takeSnap());
       setPages(ps => [...ps, ...add]);
-    } catch { toastErr('Could not read that PDF — is it a valid, unencrypted file?'); }
+    } catch { toastErr('Could not read that PDF - is it a valid, unencrypted file?'); }
   }
 
   // Ctrl+V a screenshot → same path as choosing a file with the Image tool.
@@ -799,7 +799,7 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
             const pts = el.points.map(p => mapPt(p.x * Wd, p.y * Hd));
             const opacity = el.type === 'highlight' ? 0.4 : 1;
             if (pts.length > 1) {
-              // ONE stroked path, like the preview — per-segment drawLine stacks
+              // ONE stroked path, like the preview - per-segment drawLine stacks
               // translucent ink at every joint (visible highlighter blobs).
               // drawSvgPath's y grows downward from its origin, so negate y.
               const dPath = pts.map((p, i) => `${i ? 'L' : 'M'}${p.x.toFixed(2)} ${(-p.y).toFixed(2)}`).join(' ');
@@ -829,7 +829,7 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
               imgCache.set(el.dataUrl, emb);
             }
             // Spin the bitmap with the page: content dims (swapped for 90/270)
-            // rotated about the footprint centre — mirrors the SVG preview.
+            // rotated about the footprint centre - mirrors the SVG preview.
             const er = rotN(el.rot);
             const bw = el.w * Wd, bh = el.h * Hd, cx = el.x * Wd + bw / 2, cy = el.y * Hd + bh / 2;
             const iw = er % 180 ? bh : bw, ih = er % 180 ? bw : bh;
@@ -845,7 +845,7 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
 
   async function save() {
     if (busy || loading) return;
-    if (!pages.length) { toastErr('Nothing to save — the document has no pages.'); return; }
+    if (!pages.length) { toastErr('Nothing to save - the document has no pages.'); return; }
     if (editingId) commitTextEdit();
     setBusy(true);
     try {
@@ -907,7 +907,7 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
     }
     if (el.type === 'text') {
       if (el.id === editingId) {
-        // the textarea takes over while typing — keep only the white cover
+        // the textarea takes over while typing - keep only the white cover
         return el.bg ? <rect key={el.id} x={el.bg.x * W} y={el.bg.y * H} width={el.bg.w * W} height={el.bg.h * H} fill="#fff" pointerEvents="none" /> : null;
       }
       const fs = el.fontSize, lines = layoutLines(el), bb = bboxOf(el, W, H);
@@ -931,7 +931,7 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
   function renderSelection(el, W, H) {
     const bb = bboxOf(el, W, H);
     const boxTypes = ['rect', 'ellipse', 'image', 'whiteout', 'redact'];
-    // Rotated text draws its glyphs spun about the anchor — spin the chrome too
+    // Rotated text draws its glyphs spun about the anchor - spin the chrome too
     const er = el.type === 'text' ? rotN(el.rot) : 0;
     return (
       <g key="sel" transform={er ? `rotate(${er} ${el.x * W} ${el.y * H})` : undefined}>
@@ -1000,7 +1000,7 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1380, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 14, animation: 'fadeIn 0.12s ease' }}>
       <div style={{ background: 'var(--bg, #f3f4f6)', borderRadius: 16, width: '100%', maxWidth: 1400, height: 'min(94dvh, 960px)', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: 'var(--shadow-lg)', animation: 'pdfEditorIn 0.2s cubic-bezier(.16,1,.3,1)', fontFamily: 'Inter,sans-serif' }}>
 
-        {/* Header row — file + history + zoom + actions */}
+        {/* Header row - file + history + zoom + actions */}
         <div style={{ padding: '9px 16px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, background: 'var(--card)', flexShrink: 0, flexWrap: 'wrap' }}>
           <FileText size={16} style={{ color: 'var(--pine)', flexShrink: 0 }} />
           <div style={{ flex: '0 1 auto', minWidth: 0 }}>
@@ -1138,7 +1138,7 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
                         <g style={{ pointerEvents: (tool === 'select' || tool === 'edittext') ? 'auto' : 'none' }}>
                           {pageEls.map(el => renderEl(el, d.w, d.h))}
                         </g>
-                        {/* Selection chrome is ALWAYS interactive — with a draw
+                        {/* Selection chrome is ALWAYS interactive - with a draw
                             tool active it would otherwise render but swallow no
                             clicks (dead × button, dead endpoint handles). */}
                         {selectedEl && selectedEl.pageId === pg.id && !editingEl && (
@@ -1192,7 +1192,7 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
           <div style={{ flex: 1 }} />
           <span style={{ fontSize: 10.5, color: 'var(--muted)', flexShrink: 0 }}>Ctrl+V pastes a screenshot</span>
           <span style={{ width: 1, height: 12, background: 'var(--line)', flexShrink: 0 }} />
-          <span style={{ fontSize: 10.5, color: 'var(--muted)' }}>Saving bakes every edit into a new PDF — signature fields are placed afterwards.</span>
+          <span style={{ fontSize: 10.5, color: 'var(--muted)' }}>Saving bakes every edit into a new PDF - signature fields are placed afterwards.</span>
         </div>
       </div>
 

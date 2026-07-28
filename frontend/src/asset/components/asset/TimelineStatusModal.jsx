@@ -1,12 +1,12 @@
 // "Update status" dialog for a single Development Timeline row. Kept separate from the row's
 // main edit form (SimpleRowModal, ../shared/SimpleRowModal.jsx) because a status change requires
-// a reason + effective date — status is NOT one of the plain editable fields in that form (it's
+// a reason + effective date - status is NOT one of the plain editable fields in that form (it's
 // filtered out there).
 //
 // Called from the asset page's "Development Timeline" tab via the Status column's chip button
 // (see SimpleRecordTable's onStatusClick, ../shared/SimpleRecordTable.jsx).
 //
-// IMPORTANT for integration: onSave is called with THREE args — (status, date, reason) — since
+// IMPORTANT for integration: onSave is called with THREE args - (status, date, reason) - since
 // the original app requires a reason for every timeline status change (recorded in the activity
 // log). Any caller must persist all three, not just status/date.
 

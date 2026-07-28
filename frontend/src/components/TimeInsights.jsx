@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { Monitor, Globe, Activity, Clock, Zap, Loader2, TrendingUp, ChevronDown, Coffee, Users, Trophy, SlidersHorizontal, X } from 'lucide-react';
 import { api } from '../api';
 
-// ── Time Insights — workforce activity analytics ──────────────────────────────
+// ── Time Insights - workforce activity analytics ──────────────────────────────
 // Powered by the desktop agent's foreground-app + URL + activity samples
 // (api.timeInsights). Designed to read at a glance: a productivity ring, an
 // hourly activity strip, top apps/sites rated productive/neutral/unproductive, a
@@ -47,7 +47,7 @@ const hueOf = (s) => { let h = 0; for (const ch of (s || '')) h = (h * 31 + ch.c
 const localTime = (iso) => { try { return new Date(iso + (iso.endsWith('Z') ? '' : 'Z')).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); } catch { return iso; } };
 
 const CARD = { background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, padding: '18px 20px', boxShadow: 'var(--wk-shadow)' };
-// Card-header title (Work OS grammar — sentence case, no uppercase tracking).
+// Card-header title (Work OS grammar - sentence case, no uppercase tracking).
 const H = { fontSize: 13.5, fontWeight: 600, color: 'var(--ink)', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 7 };
 
 // ── Productivity ring ─────────────────────────────────────────────────────────
@@ -102,7 +102,7 @@ function HourStrip({ hourly }) {
           const th = Math.max(h.totalSec ? 3 : 1, (h.totalSec / max) * 92);
           const aPct = h.totalSec ? (h.activeSec / h.totalSec) * 100 : 0;
           return (
-            <div key={h.hour} title={`${label(h.hour)} — active ${fmtDur(h.activeSec)} of ${fmtDur(h.totalSec)}`}
+            <div key={h.hour} title={`${label(h.hour)} - active ${fmtDur(h.activeSec)} of ${fmtDur(h.totalSec)}`}
               style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', minWidth: 0, height: '100%' }}>
               <div className="ti-rise" style={{ height: th, borderRadius: '4px 4px 2px 2px', overflow: 'hidden', display: 'flex', flexDirection: 'column-reverse', background: 'var(--mist)' }}>
                 <div style={{ height: `${aPct}%`, background: 'var(--wk-brand)' }} />
@@ -174,7 +174,7 @@ function RatingsModal({ seed, onClose, onChanged }) {
 
   async function setRate(item, rating) {
     setRatings(m => ({ ...m, [item.key]: rating }));
-    try { await api.timeSetRating({ key: item.key, kind: item.kind, label: item.label, rating }); onChanged?.(); } catch { /* optimistic — the rating already shows locally */ }
+    try { await api.timeSetRating({ key: item.key, kind: item.kind, label: item.label, rating }); onChanged?.(); } catch { /* optimistic - the rating already shows locally */ }
   }
 
   const apps = items.filter(i => i.kind === 'app');
@@ -218,7 +218,7 @@ function RatingsModal({ seed, onClose, onChanged }) {
         <div style={{ padding: '16px 22px', overflowY: 'auto' }}>
           {loading ? <div style={{ padding: 24, textAlign: 'center' }}><Loader2 size={18} style={{ animation: 'spin 0.8s linear infinite', color: 'var(--muted)' }} /></div>
             : (apps.length + sites.length === 0)
-              ? <div style={{ fontSize: 12.5, color: 'var(--muted)', textAlign: 'center', padding: 20 }}>No apps or websites tracked yet — they'll appear here once activity comes in.</div>
+              ? <div style={{ fontSize: 12.5, color: 'var(--muted)', textAlign: 'center', padding: 20 }}>No apps or websites tracked yet - they'll appear here once activity comes in.</div>
               : <><Group title="Applications" icon={Monitor} list={apps} /><Group title="Websites" icon={Globe} list={sites} /></>}
         </div>
       </div>
@@ -295,7 +295,7 @@ export default function TimeInsights({ start, end, people = [] }) {
     <div style={{ fontFamily: 'var(--wk-font)' }}>
       {selector}
 
-      {/* Hero — productivity ring + summary stats */}
+      {/* Hero - productivity ring + summary stats */}
       <div className="ti-fade" style={{ ...CARD, display: 'flex', gap: 26, alignItems: 'center', flexWrap: 'wrap', marginBottom: 14 }}>
         <Ring pct={data.prodPct} color="hsl(var(--color-green))" />
         <div style={{ flex: 1, display: 'flex', gap: 22, flexWrap: 'wrap', minWidth: 260 }}>
@@ -376,7 +376,7 @@ export default function TimeInsights({ start, end, people = [] }) {
         </div>
       )}
 
-      {/* Activity log — a chronological timeline of foreground app/window, each
+      {/* Activity log - a chronological timeline of foreground app/window, each
           tagged productive/neutral/unproductive, with its duration. */}
       <div className="ti-fade" style={CARD}>
         <div style={{ ...H, marginBottom: 6 }}><Activity size={13} /> Activity log</div>

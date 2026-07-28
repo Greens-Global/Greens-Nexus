@@ -7,9 +7,9 @@ import { useMsal }           from '@azure/msal-react';
 import { useRole }           from '../contexts/RoleContext';
 import { api }               from '../api';
 
-// Resolved dynamically from MSAL account — see myName below
+// Resolved dynamically from MSAL account - see myName below
 
-// Bodies may carry **bold** markers (names, item lists, totals) — render them
+// Bodies may carry **bold** markers (names, item lists, totals) - render them
 // as <strong> while everything else stays plain text. No other markup.
 export function renderNotifBody(text) {
   if (!text || !text.includes('**')) return text;
@@ -91,14 +91,14 @@ function groupByRequest(list) {
   });
 }
 
-// Where each notification type lives in the app — clicking a bell card (or a
+// Where each notification type lives in the app - clicking a bell card (or a
 // toast) marks it read and takes you there. Exported so NotificationToasts can
 // reuse the same map: server notifications write action="" and would otherwise
 // navigate nowhere.
 export function destinationFor(n) {
   switch (n.type) {
     case 'allocate_request':
-      // The assigned allocator's handover queue — supervisors land on their
+      // The assigned allocator's handover queue - supervisors land on their
       // "To Hand Over" tab, managers on the Checkouts queue (both via 'handover').
       return ['inventory', 'handover'];
     case 'checkout_pending':
@@ -115,11 +115,11 @@ export function destinationFor(n) {
       return ['inventory', 'myitems'];
     case 'perm_assign':
       // Permanent assignments live under My Items → Permanent, not Active
-      // Checkouts — MyCheckoutsPanel switches its own tab on this sub.
+      // Checkouts - MyCheckoutsPanel switches its own tab on this sub.
       return ['inventory', 'permanent'];
     case 'perm_update':
       // Assignment updates (accepted / return confirmed) belong with the
-      // assignment itself under My Items → Permanent — without this case these
+      // assignment itself under My Items → Permanent - without this case these
       // cards navigated nowhere.
       return ['inventory', 'permanent'];
     case 'perm_return':
@@ -157,11 +157,11 @@ export default function NotificationBell({ onNavigate }) {
   const [pickedAllocator,setPickedAllocator]= useState('');
   const [approvingBusy,  setApprovingBusy]  = useState(false);
   const [allocators,     setAllocators]     = useState([]);
-  // Tracks "Needs Action" cards that just got approved/rejected — they show a
+  // Tracks "Needs Action" cards that just got approved/rejected - they show a
   // brief confirmation (checkmark + message) then collapse out of the list,
   // instead of vanishing instantly. { [notifId]: { kind, collapsing } }
   const [resolvedIds,    setResolvedIds]    = useState({});
-  // Per-notification approve/reject failure messages — surfaced inline so a
+  // Per-notification approve/reject failure messages - surfaced inline so a
   // failed action doesn't just silently snap back to the idle form with no
   // explanation (e.g. someone else already resolved the request first).
   const [actionError,    setActionError]    = useState({});
@@ -169,7 +169,7 @@ export default function NotificationBell({ onNavigate }) {
   const resolveTimers = useRef({});
 
   // Slide-over drawer (matches Access Manager / My Requests): close on ESC,
-  // lock page scroll while open — backdrop click closes it too.
+  // lock page scroll while open - backdrop click closes it too.
   useEffect(() => {
     if (!open) return;
     const handler = e => { if (e.key === 'Escape') setOpen(false); };
@@ -182,7 +182,7 @@ export default function NotificationBell({ onNavigate }) {
     return () => { document.body.style.overflow = ''; };
   }, [open]);
 
-  // Who an approval can be handed off to — needed here too since approving an
+  // Who an approval can be handed off to - needed here too since approving an
   // inventory request now requires picking an allocator up front (the backend
   // rejects approvals with no assigned_allocator_email).
   useEffect(() => {
@@ -196,12 +196,12 @@ export default function NotificationBell({ onNavigate }) {
     Object.values(resolveTimers.current).forEach(clearTimeout);
   }, []);
 
-  // Auto-action checkout_pending notifications that are no longer relevant —
+  // Auto-action checkout_pending notifications that are no longer relevant -
   // i.e. the checkout was handled directly in the Checkouts tab (not via the bell),
   // so there are no more pending checkouts for that order/id.
   useEffect(() => {
     if (!can('manager')) return;
-    // Never judge from an empty/loading checkout list — on first load invRequests
+    // Never judge from an empty/loading checkout list - on first load invRequests
     // is [] and every pending notification would be wrongly cleared for good.
     if (invRequestsLoading || !invRequests.length) return;
     notifications.forEach(n => {
@@ -209,7 +209,7 @@ export default function NotificationBell({ onNavigate }) {
       const refId = n.refId ?? '';
       if (!refId) return;
       // Grace period: a fresh notification can arrive (realtime) before the
-      // checkout poll knows about the new order — judging against that stale
+      // checkout poll knows about the new order - judging against that stale
       // list wrongly cleared brand-new requests. Give the data 90s to catch up.
       const ageMs = Date.now() - new Date(n.timestamp).getTime();
       if (!Number.isFinite(ageMs) || ageMs < 90_000) return;
@@ -224,24 +224,24 @@ export default function NotificationBell({ onNavigate }) {
     setOpen(o => !o);
   }
 
-  // Translates a thrown API error into something a manager can act on —
+  // Translates a thrown API error into something a manager can act on -
   // e.g. "already resolved" beats a bare "API error 409" or a silent failure.
   function friendlyActionError(err) {
-    if (err?.status === 409) return 'This request was already resolved (likely by someone else) — refresh to see its current status.';
+    if (err?.status === 409) return 'This request was already resolved (likely by someone else) - refresh to see its current status.';
     if (err?.status === 403) return "You don't have permission to do that.";
-    // FastAPI 422 sends detail as an array of {loc,msg,type} objects — join the
+    // FastAPI 422 sends detail as an array of {loc,msg,type} objects - join the
     // messages so we never render a bare "[object Object]".
     if (Array.isArray(err?.detail)) {
       const msg = err.detail.map(d => (typeof d === 'string' ? d : d?.msg)).filter(Boolean).join('; ');
       if (msg) return msg;
     }
-    // Any other 4xx (400/409/etc.) with a plain-string backend detail — surface it.
+    // Any other 4xx (400/409/etc.) with a plain-string backend detail - surface it.
     if (typeof err?.detail === 'string' && err.detail) return err.detail;
-    return "Couldn't go through — please try again.";
+    return "Couldn't go through - please try again.";
   }
 
   // Replaces an instant markActioned+dismiss with a brief "Approved ✓ /
-  // Rejected" confirmation on the card, then a smooth collapse-and-slide-out —
+  // Rejected" confirmation on the card, then a smooth collapse-and-slide-out -
   // gives the manager visual confirmation their action landed before it clears.
   function resolveAndDismiss(n, kind) {
     setResolvedIds(prev => ({ ...prev, [n.id]: { kind, collapsing: false } }));
@@ -272,7 +272,7 @@ export default function NotificationBell({ onNavigate }) {
     const itemName    = n.itemName    ?? 'the item';
     const requestedBy = n.requestedBy ?? '';
 
-    // New Items checkout pending — needs allocator picker before approving
+    // New Items checkout pending - needs allocator picker before approving
     if (n.type === 'checkout_pending' || n.type === 'inv_request') {
       if (action === 'approve') {
         setApprovingId(n.id);
@@ -285,7 +285,7 @@ export default function NotificationBell({ onNavigate }) {
         clearActionError(n.id);
       }
     } else if (n.type === 'req_pending') {
-      // Purchase requisition — manager picks who purchases & fulfills it
+      // Purchase requisition - manager picks who purchases & fulfills it
       // (same allocator picker as checkouts; backend notifies everyone)
       if (action === 'approve') {
         setApprovingId(n.id);
@@ -294,7 +294,7 @@ export default function NotificationBell({ onNavigate }) {
         clearActionError(n.id);
       } else { setRejectingId(n.id); }
     } else if (n.type === 'extension_pending') {
-      // Item extension request — no allocator needed; resolve straight away.
+      // Item extension request - no allocator needed; resolve straight away.
       // Backend adds the days, notifies the employee and actions this notification.
       if (action === 'approve') {
         clearActionError(n.id);
@@ -321,7 +321,7 @@ export default function NotificationBell({ onNavigate }) {
     const refId = n.refId ?? '';
 
     // Purchase requisition: approve + assign the fulfiller in one shot.
-    // approveRequisition rejects on failure — await so we only clear on success.
+    // approveRequisition rejects on failure - await so we only clear on success.
     if (n.type === 'req_pending') {
       setApprovingBusy(true);
       clearActionError(n.id);
@@ -339,7 +339,7 @@ export default function NotificationBell({ onNavigate }) {
       return;
     }
 
-    // Legacy inv_request notifications are wired to the retired inventory stack —
+    // Legacy inv_request notifications are wired to the retired inventory stack -
     // approveRequest (= updateItemCheckout) would 404 on that id. Degrade
     // gracefully rather than faking an "Approved ✓" the backend never recorded.
     if (n.type === 'inv_request') {
@@ -352,7 +352,7 @@ export default function NotificationBell({ onNavigate }) {
     let targets = invRequests.filter(c => c.status === 'pending' && (c.orderId === refId || c.id === refId));
 
     // P1-9: the realtime notification can arrive before the checkout poll knows
-    // about the new order — don't conclude "already processed" from a stale list.
+    // about the new order - don't conclude "already processed" from a stale list.
     // Refresh once and re-check (mirrors the auto-action effect's grace period).
     if (!targets.length) {
       try {
@@ -361,7 +361,7 @@ export default function NotificationBell({ onNavigate }) {
       } catch { /* keep empty targets; fall through to the not-found message */ }
       refreshInvRequests && refreshInvRequests();
       if (!targets.length) {
-        setActionError(prev => ({ ...prev, [n.id]: 'Request not found — it may have already been processed. Refresh to see the latest state.' }));
+        setActionError(prev => ({ ...prev, [n.id]: 'Request not found - it may have already been processed. Refresh to see the latest state.' }));
         return;
       }
     }
@@ -397,22 +397,22 @@ export default function NotificationBell({ onNavigate }) {
     const reason = rejectReason.trim();
     clearActionError(n.id);
 
-    // Await every path and only mark actioned / dismiss on success — these APIs
+    // Await every path and only mark actioned / dismiss on success - these APIs
     // and context fns now reject on failure, and the old code always showed
-    // "Rejected — clearing…" even when nothing landed.
+    // "Rejected - clearing…" even when nothing landed.
     try {
       if (n.type === 'extension_pending') {
         await api.resolveItemExtension(refId, { action: 'reject', note: reason });
         refreshInvRequests && refreshInvRequests();
       } else if (n.type === 'checkout_pending') {
         // For cart orders, ref_id = order_id; find all pending checkouts under it.
-        // Only PATCH real checkout ids — the old fallback of PATCHing the order id
+        // Only PATCH real checkout ids - the old fallback of PATCHing the order id
         // as a checkout id was a guaranteed 404 that still faked "Rejected ✓".
         const targets = invRequests.filter(c =>
           c.status === 'pending' && (c.orderId === refId || c.id === refId)
         );
         if (!targets.length) {
-          setActionError(prev => ({ ...prev, [n.id]: 'Request not found — it may have already been processed. Refresh to see the latest state.' }));
+          setActionError(prev => ({ ...prev, [n.id]: 'Request not found - it may have already been processed. Refresh to see the latest state.' }));
           return;
         }
         // Sequential so the backend batches the order's rejection notifications into one.
@@ -427,7 +427,7 @@ export default function NotificationBell({ onNavigate }) {
           return;
         }
       } else if (n.type === 'inv_request') {
-        // Legacy inventory-request stack is retired — there's no checkout id to
+        // Legacy inventory-request stack is retired - there's no checkout id to
         // reject here (rejectRequest = updateItemCheckout → 404), so don't fake
         // success; leave the card actionable with a clear explanation.
         setActionError(prev => ({ ...prev, [n.id]: 'This request type is no longer actionable here.' }));
@@ -447,7 +447,7 @@ export default function NotificationBell({ onNavigate }) {
     setRejectReason('');
   }
 
-  // Lets the assigned allocator hand the item over directly from the bell —
+  // Lets the assigned allocator hand the item over directly from the bell -
   // no need to navigate to Inventory Management first.
   function handleInlineAllocate(n) {
     const refId = n.refId ?? '';
@@ -472,7 +472,7 @@ export default function NotificationBell({ onNavigate }) {
   function handleUpdateClick(n) {
     markRead(n.id);
     let dest = destinationFor(n);
-    // "Request returned" opens the Completed filter — unless the order is only
+    // "Request returned" opens the Completed filter - unless the order is only
     // PARTIALLY back, in which case it still lives under Active.
     if (n.type === 'item_returned') {
       const related = (invRequests || []).filter(c => c.orderId === n.refId || c.id === n.refId);
@@ -491,12 +491,12 @@ export default function NotificationBell({ onNavigate }) {
   // Needs Action: only visible to managers+
   // checkout_pending = new Items module; inv_request/req_pending = older systems
   const ACTIONABLE_TYPES = new Set(['inv_request', 'req_pending', 'checkout_pending', 'extension_pending']);
-  // Broadcast (no recipient) or addressed to me — checkout requests are now
+  // Broadcast (no recipient) or addressed to me - checkout requests are now
   // targeted at the manager the employee picked at checkout.
   const actionableRaw = can('manager') ? notifications.filter(n =>
     ACTIONABLE_TYPES.has(n.type) && (!n.recipient || n.recipient === myEmail) && !n.actioned
   ) : [];
-  // Deduplicate by refId — parallel cart submissions can create N notifications for one order
+  // Deduplicate by refId - parallel cart submissions can create N notifications for one order
   const seenRefs = new Set();
   const actionable = actionableRaw.filter(n => {
     const key = n.refId || n.id;
@@ -505,7 +505,7 @@ export default function NotificationBell({ onNavigate }) {
     return true;
   });
 
-  // A toast click set this to a notification id — open the panel on that card
+  // A toast click set this to a notification id - open the panel on that card
   // with the full set of choices (Review / Approve All / Reject All) visible.
   // It used to jump straight into the allocator picker, which hid the other
   // two options and read as "the buttons are gone".
@@ -520,7 +520,7 @@ export default function NotificationBell({ onNavigate }) {
   }, [pendingApprovalId]);
 
   // Updates: everything that isn't an actionable type, scoped to me or broadcast.
-  // item_returned with no recipient is manager-only — skip for employees to avoid
+  // item_returned with no recipient is manager-only - skip for employees to avoid
   // broadcasting someone else's return into every user's bell.
   const updates = notifications.filter(n =>
     !ACTIONABLE_TYPES.has(n.type) &&
@@ -569,7 +569,7 @@ export default function NotificationBell({ onNavigate }) {
         transition: 'opacity 0.25s ease',
       }} />
 
-      {/* Drawer — mirrors My Requests / Access Manager so the panel slides in from the side */}
+      {/* Drawer - mirrors My Requests / Access Manager so the panel slides in from the side */}
       <div className="notif-drawer" style={{
         position: 'fixed', top: 0, right: 0, height: '100vh',
         width: 'min(560px, 94vw)',
@@ -630,7 +630,7 @@ export default function NotificationBell({ onNavigate }) {
           {actionable.length > 0 && (
             <>
               <div style={{ padding: '16px 24px 8px', fontSize: 11.5, fontWeight: 700, letterSpacing: '.07em', color: 'var(--muted)', textTransform: 'uppercase' }}>
-                Needs Action — {actionable.length}
+                Needs Action - {actionable.length}
               </div>
               {actionable.map(n => {
                 const meta = TYPE_META[n.type];
@@ -660,7 +660,7 @@ export default function NotificationBell({ onNavigate }) {
                             : <XCircle size={19} color={`hsl(${resolvedColor})`} />}
                         </div>
                         <span style={{ fontSize: 14.5, fontWeight: 700, color: `hsl(${resolvedColor})`, animation: 'fadeInUp 0.22s cubic-bezier(.16,1,.3,1) both' }}>
-                          {resolution.kind === 'approved' ? 'Approved — clearing…' : 'Rejected — clearing…'}
+                          {resolution.kind === 'approved' ? 'Approved - clearing…' : 'Rejected - clearing…'}
                         </span>
                       </div>
                     ) : (
@@ -786,15 +786,15 @@ export default function NotificationBell({ onNavigate }) {
             </>
           )}
 
-          {/* Updates — lifecycle notifications for the same request are grouped into one evolving card */}
+          {/* Updates - lifecycle notifications for the same request are grouped into one evolving card */}
           {updates.length > 0 && (
             <>
               <div style={{ padding: '16px 24px 8px', fontSize: 11.5, fontWeight: 700, letterSpacing: '.07em', color: 'var(--muted)', textTransform: 'uppercase' }}>
-                Updates — {updates.length}
+                Updates - {updates.length}
               </div>
               {groupByRequest(updates).map(({ key, primary: n, trail }) => {
                 const meta = TYPE_META[n.type] ?? TYPE_META['approved'];
-                // Manager alerts must not read like routine lifecycle updates —
+                // Manager alerts must not read like routine lifecycle updates -
                 // orange card + ALERT chip, subject bold, body in full ink
                 const isAlert = n.type === 'custom_alert';
                 return (

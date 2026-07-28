@@ -1,4 +1,4 @@
-"""Merge-field ({{token}}) resolution — Documents module (Phase 4).
+"""Merge-field ({{token}}) resolution - Documents module (Phase 4).
 
 Deliberately a DUPLICATE of routers/esign.py's _merge_data(), not an import
 from it and not a refactor of esign.py to call this module. esign.py's
@@ -21,7 +21,7 @@ from models import NexusEmployee, HrCandidate, HrEntity
 def resolve_merge_data(db: Session, employee_id: str = "", candidate_id: str = "",
                         entity_id: str = "", overrides: dict = None) -> dict:
     """Merge dict for {{token}} resolution. Subject person + company + overrides
-    (overrides win — e.g. salary is typed in by the caller, never read from a
+    (overrides win - e.g. salary is typed in by the caller, never read from a
     compensation column)."""
     data = {"today": datetime.now(timezone.utc).strftime("%B %d, %Y")}
     if employee_id:

@@ -63,7 +63,7 @@ export function PortfolioMap({ assets, openProperty }) {
       try {
         map.fitBounds(use, { padding: [40, 40], maxZoom: 13 });
       } catch {
-        // bounds can be degenerate (e.g. a single point) — fitBounds is best-effort
+        // bounds can be degenerate (e.g. a single point) - fitBounds is best-effort
       }
     };
 
@@ -99,7 +99,7 @@ export function PortfolioMap({ assets, openProperty }) {
 
     // Second pass, async: work through the geocode queue one address at a time. geocode()
     // itself is globally rate-limited (see lib/geo.js), so this just needs to wait for each
-    // lookup to resolve before starting the next — no additional delay needed here.
+    // lookup to resolve before starting the next - no additional delay needed here.
     const processQueue = (i) => {
       if (cancelled || i >= geocodeQueue.length) {
         fitToBounds();
@@ -131,7 +131,7 @@ export function PortfolioMap({ assets, openProperty }) {
   const statusLine =
     status.phase === 'err' ? (
       <span style={{ color: 'hsl(var(--color-red))', fontWeight: 600 }}>
-        Map couldn't load — check your internet connection.
+        Map couldn't load - check your internet connection.
       </span>
     ) : (
       <span>

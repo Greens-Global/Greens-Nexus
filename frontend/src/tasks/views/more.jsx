@@ -1,4 +1,4 @@
-// Task Module — additional view kinds: Timeline (gantt), Files (attachment
+// Task Module - additional view kinds: Timeline (gantt), Files (attachment
 // gallery), Workload (per-assignee load). Ported from the export's
 // NexusTimelineView / NexusFilesView / NexusWorkloadView to the Nexus idiom.
 import { useEffect, useMemo, useState } from 'react';

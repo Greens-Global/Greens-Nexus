@@ -1,4 +1,4 @@
-"""Documents (DMS) — Phase 1: folders, drafts, and a document library that sits
+"""Documents (DMS) - Phase 1: folders, drafts, and a document library that sits
 next to (not inside) the e-sign envelope pipeline in esign.py.
 
 Design notes:
@@ -6,11 +6,11 @@ Design notes:
   signature (future phase: export to PDF, hand to esign.py's existing PDF-send
   path). This file never touches HrSignRequest/HrSignParty/HrSignEvent.
 - System folders (HR, Finance, Legal, Sales, Operations, Personal, Archived) are
-  lazily seeded on first `GET /documents/folders` per install — no lifespan hook
+  lazily seeded on first `GET /documents/folders` per install - no lifespan hook
   needed, mirrors the "Add starter templates" idiom in esign.py but automatic
   since every user needs folders to exist, not just the first person to click a
   button. Personal is per-user (owner_email-scoped); the rest are shared.
-- No rich content editor yet (Document Builder lands Phase 2) — `content` is
+- No rich content editor yet (Document Builder lands Phase 2) - `content` is
   just opaque JSON round-tripped as-is; a save always appends a DocumentVersion
   row so version history is real data before any UI reads it.
 - Visibility: documents in shared system folders are readable by any
@@ -52,10 +52,10 @@ _SYSTEM_FOLDERS = [
 
 _TEMPLATE_CATEGORIES = ("letterhead", "hr", "legal", "finance", "operations", "sales", "engineering", "general")
 
-# Template Builder (Phase 13) — merge-field type registry. "Reserved" types
+# Template Builder (Phase 13) - merge-field type registry. "Reserved" types
 # never get a value out of the Generate-Document fill form (signature/initials
 # are placed later by the separate E-Sign field-placement step; image/file
-# upload-at-fill-time is a documented fast-follow) — see _reserved_placeholder.
+# upload-at-fill-time is a documented fast-follow) - see _reserved_placeholder.
 _FIELD_TYPES = ("text", "multiline", "number", "currency", "date", "time",
                 "dropdown", "radio", "checkbox", "signature", "initials", "image", "file")
 _RESERVED_FIELD_TYPES = ("signature", "initials", "image", "file")
@@ -105,7 +105,7 @@ def _ser_document(d: Document, sign_status: str = "") -> dict:
 
 def _sign_statuses(db: Session, docs: list) -> dict:
     """Read-only batch lookup of HrSignRequest.status for whichever documents
-    have a sign_request_id — no polling/webhook sync needed, always accurate
+    have a sign_request_id - no polling/webhook sync needed, always accurate
     at read time. Never touches HrSignRequest beyond this SELECT."""
     ids = [d.sign_request_id for d in docs if d.sign_request_id]
     if not ids:
@@ -139,7 +139,7 @@ class DocumentIn(BaseModel):
     templateId: Optional[str] = ""
     content: Optional[dict] = None
     tags: Optional[List[str]] = None
-    fillValues: Optional[dict] = None   # Template Builder (Phase 13) — Generate Document fill-form values, keyed by token
+    fillValues: Optional[dict] = None   # Template Builder (Phase 13) - Generate Document fill-form values, keyed by token
 
 
 class DocumentUpdate(BaseModel):
@@ -207,7 +207,7 @@ def create_document(body: DocumentIn, user: dict = Depends(get_current_user), db
     letterhead_id = ""
     merge_overrides = {}
     # Starting from a template clones its content (and, if the template
-    # requires one, its letterhead — falling back to the org default) rather
+    # requires one, its letterhead - falling back to the org default) rather
     # than just recording template_id as a label. It also seeds the template's
     # default merge-field values/custom variables (Phase 12) onto the new
     # document, so common defaults only need to be entered once, on the
@@ -223,7 +223,7 @@ def create_document(body: DocumentIn, user: dict = Depends(get_current_user), db
                     default_lh = db.query(DocLetterhead).filter(DocLetterhead.is_default == True).first()  # noqa: E712
                     letterhead_id = default_lh.id if default_lh else ""
             merge_overrides = dict(tpl.merge_overrides or {})
-            # Template Builder (Phase 13) — Generate Document: fill-form values
+            # Template Builder (Phase 13) - Generate Document: fill-form values
             # win over the template's own defaults (same "last writer wins"
             # convention resolve_merge_data already uses for its overrides).
             if body.fillValues:
@@ -232,7 +232,7 @@ def create_document(body: DocumentIn, user: dict = Depends(get_current_user), db
             # Required-field guard: the fill-form blocks this client-side, but a
             # direct API call must not be able to create a blank required field
             # silently. Reserved types (signature/initials/image/file) are
-            # legitimately empty at generation time — see _FIELD_TYPES.
+            # legitimately empty at generation time - see _FIELD_TYPES.
             missing = [
                 fd.get("label") or fd.get("token") for fd in (tpl.field_defs or [])
                 if fd.get("required") and fd.get("type") not in _RESERVED_FIELD_TYPES
@@ -384,10 +384,10 @@ def _ul(*items) -> dict:
     return {"type": "bulletList", "content": list(items)}
 
 
-# Real starter content for the common HR letters (Phase 12) — real, editable
+# Real starter content for the common HR letters (Phase 12) - real, editable
 # body content (headings/paragraphs/merge-field chips/bullet lists), not the
 # blank single-paragraph shell the original 8 category starters use. Built as
-# plain TipTap JSON dicts directly (no HTML/generateJSON — that's a frontend
+# plain TipTap JSON dicts directly (no HTML/generateJSON - that's a frontend
 # @tiptap/core helper, not available server-side); the frontend's schema
 # normalizes any attrs left implicit, same as any hand-crafted TipTap doc.
 def _offer_letter_content() -> dict:
@@ -512,7 +512,7 @@ def seed_starter_templates(user: dict = Depends(get_current_user), db: Session =
     now = _now_iso()
     default_lh = db.query(DocLetterhead).filter(DocLetterhead.is_default == True).first()  # noqa: E712
     if not default_lh:
-        default_lh = DocLetterhead(id=str(uuid.uuid4()), name="Greens Global — Standard",
+        default_lh = DocLetterhead(id=str(uuid.uuid4()), name="Greens Global - Standard",
                                     logo_path="", header_json={}, footer_json={},
                                     address="123 Placeholder Ave, Suite 100, Anytown, ST 00000",
                                     is_default=True, created_by=user["email"], created_at=now)
@@ -613,10 +613,10 @@ def get_template_version(tid: str, vid: str, user: dict = Depends(get_current_us
 def delete_template(tid: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     row = _get_template_owned_or_admin(db, tid, user)
     # A template can be deleted out from under documents already generated
-    # from it (Document.template_id is a plain string, no FK constraint) —
+    # from it (Document.template_id is a plain string, no FK constraint) -
     # block it instead of silently orphaning those documents.
     if db.query(Document).filter(Document.template_id == tid).first():
-        raise HTTPException(409, "Cannot delete a template that has generated documents — archive it instead")
+        raise HTTPException(409, "Cannot delete a template that has generated documents - archive it instead")
     db.delete(row); db.commit()
     return {"ok": True}
 
@@ -701,10 +701,10 @@ def delete_letterhead(lid: str, user: dict = Depends(get_current_user), db: Sess
 
 @router.get("/search")
 def search_documents(q: str = "", user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Unified cross-module search (Phase 6) — documents + templates always,
+    """Unified cross-module search (Phase 6) - documents + templates always,
     e-sign envelopes only if the caller actually has HR read access (esign.py's
     own listing endpoints are gated behind require_hr_read; this must not leak
-    envelope data around that gate). Read-only everywhere — never writes to
+    envelope data around that gate). Read-only everywhere - never writes to
     hr_sign_* tables, matches the precedent set by Phase 5's signStatus join."""
     q = q.strip()
     if len(q) < 2:
@@ -712,7 +712,7 @@ def search_documents(q: str = "", user: dict = Depends(get_current_user), db: Se
     like = f"%{q}%"
     results = []
 
-    # Tags are a JSON column — casting to text and ILIKE-ing the serialized
+    # Tags are a JSON column - casting to text and ILIKE-ing the serialized
     # form (e.g. '["hr", "urgent"]') matches tag content without needing a
     # JSON-specific operator, and works identically on SQLite and Postgres.
     doc_query = db.query(Document).filter(
@@ -737,7 +737,7 @@ def search_documents(q: str = "", user: dict = Depends(get_current_user), db: Se
             results.append({"type": "esign", "id": r.id, "title": r.title,
                             "subtitle": f"sent by {r.created_by}" if r.created_by else "", "updatedAt": r.created_at})
     except HTTPException:
-        pass  # no HR/e-sign access — omit those results, don't fail the whole search
+        pass  # no HR/e-sign access - omit those results, don't fail the whole search
 
     results.sort(key=lambda r: r.get("updatedAt") or "", reverse=True)
     return results
@@ -762,7 +762,7 @@ def get_document(did: str, user: dict = Depends(get_current_user), db: Session =
 
 
 def _clean_field_defs(defs: list) -> list:
-    """Template Builder (Phase 13) — validate/normalize field_defs before
+    """Template Builder (Phase 13) - validate/normalize field_defs before
     persisting: dedupe by token (last one wins), enforce the token shape
     _clean_merge_overrides already requires for the values themselves, drop
     entries with an unknown type, strip unknown keys, coerce `required` to
@@ -795,7 +795,7 @@ def _clean_field_defs(defs: list) -> list:
 
 def _clean_merge_overrides(overrides: dict) -> dict:
     """Same key-shape rule resolve_merge_data() already enforces at resolve
-    time (services/merge_fields.py) — filtered again here defensively so a
+    time (services/merge_fields.py) - filtered again here defensively so a
     malformed key never gets stored in the first place, not just silently
     ignored later. Shared by Document and DocTemplate updates (Phase 11/12)."""
     return {
@@ -845,7 +845,7 @@ def update_document(did: str, body: DocumentUpdate, user: dict = Depends(get_cur
 def delete_document(did: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     row = _get_owned_or_admin(db, did, user)
     if row.status != "draft":
-        raise HTTPException(400, "Only drafts can be permanently deleted — archive it instead")
+        raise HTTPException(400, "Only drafts can be permanently deleted - archive it instead")
     db.query(DocumentVersion).filter(DocumentVersion.document_id == did).delete()
     db.delete(row); db.commit()
     return {"ok": True}
@@ -901,7 +901,7 @@ def list_versions(did: str, user: dict = Depends(get_current_user), db: Session 
 
 @router.get("/{did}/versions/{vid}")
 def get_version(did: str, vid: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Full content snapshot for one version — kept out of the list endpoint
+    """Full content snapshot for one version - kept out of the list endpoint
     above so browsing history stays cheap; only fetched when a user opens it."""
     v = db.query(DocumentVersion).filter(DocumentVersion.id == vid, DocumentVersion.document_id == did).first()
     if not v:
@@ -911,7 +911,7 @@ def get_version(did: str, vid: str, user: dict = Depends(get_current_user), db: 
 
 
 def _content_disposition(title: str, ext: str) -> str:
-    """HTTP header values must be Latin-1 — a title with a smart/typographic
+    """HTTP header values must be Latin-1 - a title with a smart/typographic
     character (en dash, curly quotes, ...) crashed export entirely (a real
     bug: Starlette raises UnicodeEncodeError while sending the response,
     which surfaces to the browser as a bare "Failed to fetch", not a JSON
@@ -925,7 +925,7 @@ def _content_disposition(title: str, ext: str) -> str:
 
 def _export_prep(db: Session, did: str, user: dict):
     """Shared setup for both export endpoints: load the document (same
-    visibility as GET /{did} — no ownership check, matches read access),
+    visibility as GET /{did} - no ownership check, matches read access),
     resolve its merge data, walk header/body/footer to blocks, and fetch its
     letterhead (if any) serialized for the renderers."""
     row = db.query(Document).filter(Document.id == did).first()
@@ -933,7 +933,7 @@ def _export_prep(db: Session, did: str, user: dict):
         raise HTTPException(404, "Document not found")
     merge = resolve_merge_data(db, employee_id=row.employee_id, entity_id=row.entity_id,
                                overrides=row.merge_overrides or {})
-    # Template Builder (Phase 13) — a signature/initials/image/file field is
+    # Template Builder (Phase 13) - a signature/initials/image/file field is
     # never filled through the Generate-Document form (reserved for E-Sign /
     # a fast-follow upload path); render its label as a visible placeholder
     # instead of a raw "{{token}}" or a silent blank so whoever reviews the
@@ -950,7 +950,7 @@ def _export_prep(db: Session, did: str, user: dict):
     header_blocks = tiptap_to_blocks(content.get("header"), merge)
     body_blocks = tiptap_to_blocks(content.get("body"), merge)
     footer_blocks = tiptap_to_blocks(content.get("footer"), merge)
-    # Page Setup (Phase 14) — a sibling of body/header/footer in the same
+    # Page Setup (Phase 14) - a sibling of body/header/footer in the same
     # content JSON, no schema change needed. Missing/unknown values fall back
     # to US Letter (_resolve_page_setup's own default).
     page_setup = content.get("pageSetup") if isinstance(content.get("pageSetup"), dict) else {}
@@ -979,10 +979,10 @@ def export_document_docx(did: str, user: dict = Depends(get_current_user), db: S
 
 
 # ── Import from Egnyte ────────────────────────────────────────────────────────
-# Browse + fetch only (never writes) — the write side is esign.py's separate,
+# Browse + fetch only (never writes) - the write side is esign.py's separate,
 # already-existing _egnyte_push() (sealed-document archival), untouched here.
 # Reads the same EGNYTE_DOMAIN/EGNYTE_TOKEN env vars that feature uses; not
-# imported from esign.py (which doesn't export them as reusable constants) —
+# imported from esign.py (which doesn't export them as reusable constants) -
 # two os.getenv calls duplicated locally is simpler and lower-risk than adding
 # a new shared export to that compliance-flagged file for this.
 _EGNYTE_IMPORT_EXTS = (".docx", ".doc", ".pdf", ".txt")
@@ -996,7 +996,7 @@ def _egnyte_auth():
     """Returns (base_url, headers). EGNYTE_DOMAIN normally holds a bare domain
     (e.g. cloud.greensglobal.com or greensglobal, which gets .egnyte.com
     appended) and always resolves to https://. An explicit http://... or
-    https://... prefix is honored as-is instead — this only matters for
+    https://... prefix is honored as-is instead - this only matters for
     pointing at a local mock server during testing (see the test setup notes);
     no real Egnyte deployment would ever set EGNYTE_DOMAIN that way, so this
     is a no-op everywhere else."""
@@ -1014,7 +1014,7 @@ def _egnyte_auth():
 @router.get("/egnyte/browse")
 def egnyte_browse(path: str = "", user: dict = Depends(get_current_user)):
     if not _egnyte_configured():
-        raise HTTPException(503, "Egnyte not configured — set EGNYTE_DOMAIN and EGNYTE_TOKEN")
+        raise HTTPException(503, "Egnyte not configured - set EGNYTE_DOMAIN and EGNYTE_TOKEN")
     base_url, headers = _egnyte_auth()
     target = "/" + (path or "").strip().lstrip("/")
     resp = httpx.get(f"{base_url}/pubapi/v1/fs{target}", headers=headers, timeout=20)
@@ -1033,7 +1033,7 @@ def egnyte_browse(path: str = "", user: dict = Depends(get_current_user)):
 @router.get("/egnyte/file")
 def egnyte_file(path: str, user: dict = Depends(get_current_user)):
     if not _egnyte_configured():
-        raise HTTPException(503, "Egnyte not configured — set EGNYTE_DOMAIN and EGNYTE_TOKEN")
+        raise HTTPException(503, "Egnyte not configured - set EGNYTE_DOMAIN and EGNYTE_TOKEN")
     if not path.lower().endswith(_EGNYTE_IMPORT_EXTS):
         raise HTTPException(400, "Unsupported file type")
     base_url, headers = _egnyte_auth()

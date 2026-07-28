@@ -1,8 +1,8 @@
-"""My HR — employee self-service (baseline: every signed-in employee).
+"""My HR - employee self-service (baseline: every signed-in employee).
 
 Shows ONLY the caller's own record. The HR module stays the admin console for
 the HR team; this router is the scoped-to-self counterpart:
-  - my profile (safe fields — never compensation/bank/notes/status_log)
+  - my profile (safe fields - never compensation/bank/notes/status_log)
   - self-service edits to contact + emergency-contact fields
   - my signed documents (sealed e-sign PDFs where I was a party)
 Leave (time off) reuses the existing /timeclock/timeoff endpoints.
@@ -36,7 +36,7 @@ def _me(db: Session, email: str) -> NexusEmployee:
     row = (db.query(NexusEmployee)
            .filter(func.lower(NexusEmployee.work_email) == email.lower()).first())
     if not row:
-        raise HTTPException(404, "No HR record is linked to your account yet — ask HR to add you.")
+        raise HTTPException(404, "No HR record is linked to your account yet - ask HR to add you.")
     return row
 
 
@@ -97,7 +97,7 @@ def save_profile(body: ProfileIn, user: dict = Depends(get_current_user), db: Se
     return _profile_dict(e, db)
 
 
-# ── My documents — sealed e-sign PDFs where I was a party ─────────────────────
+# ── My documents - sealed e-sign PDFs where I was a party ─────────────────────
 
 @router.get("/documents")
 def my_documents(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -116,11 +116,11 @@ def my_documents(user: dict = Depends(get_current_user), db: Session = Depends(g
     return sorted(out, key=lambda x: x["completedAt"] or "", reverse=True)
 
 
-# ── Directory card (hover profiles) — safe subset, any signed-in user ────────
+# ── Directory card (hover profiles) - safe subset, any signed-in user ────────
 
 def _person_name(e) -> str:
     """How a person is named across the app. Prefers the Entra/Teams
-    displayName, which is what colleagues recognize — first+last silently drops
+    displayName, which is what colleagues recognize - first+last silently drops
     middle names, so "Sagar Kumar Shoundik" in Teams read as "Sagar Shoundik"
     here. Empty until an M365 sync has run, hence the fallback."""
     return (e.display_name or "").strip() or f"{e.first_name} {e.last_name}".strip() or e.work_email
@@ -128,7 +128,7 @@ def _person_name(e) -> str:
 
 @router.get("/directory")
 def people_directory(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    """The curated Nexus People list (nexus_employees) as a name+email picker —
+    """The curated Nexus People list (nexus_employees) as a name+email picker -
     NOT the ~150-account M365 GAL. Any signed-in user can call it (same shape as
     /roles/directory), so modules like Item Management can assign to real Nexus
     people. Only people with a work email are included (assignment/notification
@@ -144,7 +144,7 @@ def people_directory(user: dict = Depends(get_current_user), db: Session = Depen
 @router.get("/person")
 def person_card(q: str = "", user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """Outlook-style contact card by name or email: name, title, department,
-    photo — never personal/comp data. Powers hover cards on notifications etc."""
+    photo - never personal/comp data. Powers hover cards on notifications etc."""
     q = (q or "").strip().lower()
     if len(q) < 2:
         raise HTTPException(400, "q too short")
@@ -166,7 +166,7 @@ def person_card(q: str = "", user: dict = Depends(get_current_user), db: Session
             "location": match.location, "status": match.status}
 
 
-# ── My equipment — items assigned / checked out to me ────────────────────────
+# ── My equipment - items assigned / checked out to me ────────────────────────
 
 @router.get("/assets")
 def my_assets(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -194,7 +194,7 @@ def my_assets(user: dict = Depends(get_current_user), db: Session = Depends(get_
     }
 
 
-# ── Ask HR — employee requests (document updates, profile changes, questions) ─
+# ── Ask HR - employee requests (document updates, profile changes, questions) ─
 
 _REQ_TYPES = ("document", "profile", "question", "other")
 _REQ_LABEL = {"document": "Document update", "profile": "Profile change",
@@ -202,7 +202,7 @@ _REQ_LABEL = {"document": "Document update", "profile": "Profile change",
 
 
 def _hr_team_emails(db: Session) -> list:
-    """Everyone in an Access Group that grants the hr module — the audience for
+    """Everyone in an Access Group that grants the hr module - the audience for
     'Ask HR' notifications. Falls back to empty (request still lands in the HR
     module's Requests panel)."""
     out = set()
@@ -231,7 +231,7 @@ class AskHrIn(BaseModel):
 @router.post("/requests/attachment")
 async def upload_request_attachment(file: UploadFile = File(...),
                                     user: dict = Depends(get_current_user)):
-    """Stage the document an employee wants HR to file — uploaded to the private
+    """Stage the document an employee wants HR to file - uploaded to the private
     hr-docs bucket, referenced by the request created right after."""
     data = await file.read()
     if len(data) > 15 * 1024 * 1024:
@@ -269,7 +269,7 @@ def create_request(body: AskHrIn, user: dict = Depends(get_current_user), db: Se
     for email in _hr_team_emails(db):
         db.add(NexusNotification(
             id=str(uuid.uuid4()), type="hr_request", recipient=email,
-            title=f"{_REQ_LABEL[body.type]} — {name}",
+            title=f"{_REQ_LABEL[body.type]} - {name}",
             body=msg[:300], ref_id=row.id, requested_by=name,
             action="", actioned=False, read_by="", created_at=_now()))
     db.commit()
@@ -284,7 +284,7 @@ def my_requests(user: dict = Depends(get_current_user), db: Session = Depends(ge
     return [_ser_req(r) for r in rows]
 
 
-# ── My paystubs — comp documents HR uploaded for me (kind="paystub") ─────────
+# ── My paystubs - comp documents HR uploaded for me (kind="paystub") ─────────
 
 @router.get("/paystubs")
 def my_paystubs(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -313,7 +313,7 @@ def download_my_paystub(did: str, user: dict = Depends(get_current_user), db: Se
 @router.get("/documents/{rid}/download")
 def download_my_document(rid: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """Party-scoped download: you get the sealed PDF only for envelopes you were
-    part of — no hr grant needed (it's your own document)."""
+    part of - no hr grant needed (it's your own document)."""
     email = user["email"].lower()
     party = (db.query(HrSignParty)
              .filter(HrSignParty.request_id == rid, HrSignParty.email == email).first())

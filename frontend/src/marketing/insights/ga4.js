@@ -1,10 +1,10 @@
 // Mirrors the real Google Analytics Data API (GA4) `runReport` response
 // shape (properties.runReport). When the real API is wired in, only the
 // `fetchXReport()` functions in data.ts need to change (swap the mock
-// response for an actual `analyticsdata.googleapis.com` call) — the parse*
+// response for an actual `analyticsdata.googleapis.com` call) - the parse*
 // functions below already know how to read that exact JSON.
 
-// GA4's default channel grouping — matches the real dimension values Google
+// GA4's default channel grouping - matches the real dimension values Google
 // Analytics buckets traffic into (sessionDefaultChannelGrouping).
 export const CHANNELS = ['Google Ads', 'Direct', 'Organic Search', 'Referral', 'Social Media']
 
@@ -21,12 +21,12 @@ function isoFromGa4Date(d) {
 // proportional to `weights`, guaranteeing the cells sum back to exactly
 // `total` every call. `carry` is a per-cell fractional balance the caller
 // keeps and passes back in on every subsequent call (typically once per
-// day) — a cell that loses today's rounding keeps its owed fraction, which
+// day) - a cell that loses today's rounding keeps its owed fraction, which
 // accumulates until it's large enough to win a unit. Plain largest-remainder
 // re-decided from scratch each day would systematically starve a small-share
 // cell forever if its per-day expected value never happens to out-rank the
 // others (which is exactly what happens to a channel like Social Media at
-// ~4% share split across only 30 days) — carrying the remainder forward
+// ~4% share split across only 30 days) - carrying the remainder forward
 // guarantees every cell eventually gets its proportional share.
 function allocateWithCarry(total, weights, carry) {
   const roundedTotal = Math.round(total)
