@@ -17,6 +17,7 @@ import GlobalSearch from "./components/GlobalSearch";
 import PullToRefresh from "./components/PullToRefresh";
 import ViewErrorBoundary from "./components/ViewErrorBoundary";
 import { onBackendHealth, isBackendDown, startKeepWarm } from "./api";
+import { applyBrandAccent } from "./lib/brandAccent";
 
 // Always loaded - critical path
 import LoginPage from "./views/LoginPage";
@@ -233,13 +234,20 @@ function MainApp() {
   const [sidebarOpen,      setSidebarOpen]      = useState(false);
   const [mobileMenuOpen,   setMobileMenuOpen]   = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem("gg-sidebar-collapsed") === "true");
-  const [navHistory,       setNavHistory]       = useState([]);
-  // Refs mirror the live view/sub so navigate() records the REAL current screen
-  // in history even when called from the once-registered nexus:navigate listener
-  // (whose closure would otherwise be stale, sending every back to Dashboard).
-  const activeViewRef = useRef(activeView);
-  const activeSubRef  = useRef(activeSub);
-  useEffect(() => { activeViewRef.current = activeView; activeSubRef.current = activeSub; }, [activeView, activeSub]);
+  // "Back" used to keep its own in-memory stack, separate from the real
+  // browser history that the address-bar effect below already maintains via
+  // pushState/popstate. The two diverged the moment anything touched real
+  // browser history in between (the browser's own Back/Forward, a swipe-back
+  // gesture, alt+Left) - the in-app arrow would then jump to a stale entry
+  // from its own stack instead of wherever the user actually just came from.
+  // Now there is exactly one source of truth: browser history itself. Each
+  // pushState call stamps its entry with { depth, fromLabel } (see below), so
+  // canGoBack/prevLabel always reflect the CURRENT history entry, kept in
+  // sync identically whether the move came from this app's arrow or the
+  // browser's own back/forward.
+  const [canGoBack, setCanGoBack] = useState(false);
+  const [prevLabel, setPrevLabel] = useState(null);
+  const prevLocRef = useRef({ view: activeView, sub: activeSub });
   const [adminPanelOpen,   setAdminPanelOpen]   = useState(false);
   const [adminPanelTab,    setAdminPanelTab]    = useState('audit');
   const [backendDown,      setBackendDown]      = useState(false);
@@ -297,19 +305,17 @@ function MainApp() {
     localStorage.setItem("gg-theme", theme);
   }, [theme]);
 
+  // Global Admin-configurable accent (AdminPanel -> Branding). Applied once on
+  // load; LoginPage applies it independently for the pre-login screen.
+  useEffect(() => { applyBrandAccent(); }, []);
+
   useEffect(() => {
     localStorage.setItem("gg-sidebar-collapsed", sidebarCollapsed);
   }, [sidebarCollapsed]);
 
   function navigate(view, sub = null) {
-    const nextSub = sub ?? getDefaultSub(view);
-    const curView = activeViewRef.current, curSub = activeSubRef.current;
-    // Don't record a history step for a no-op navigation to the same screen.
-    if (view !== curView || nextSub !== curSub) {
-      setNavHistory(prev => [...prev.slice(-19), { view: curView, sub: curSub }]);
-    }
     setActiveView(view);
-    setActiveSub(nextSub);
+    setActiveSub(sub ?? getDefaultSub(view));
     setSidebarOpen(false);
   }
 
@@ -319,23 +325,29 @@ function MainApp() {
     return () => window.removeEventListener('nexus:navigate', handler);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // "Back" now means literally one step back in real browser history - the
+  // same single mechanism the browser's own Back button and popstate use, so
+  // the two can never disagree about where "back" actually goes.
   function goBack() {
-    if (!navHistory.length) return;
-    const prev = navHistory[navHistory.length - 1];
-    setNavHistory(h => h.slice(0, -1));
-    setActiveView(prev.view);
-    setActiveSub(prev.sub);
+    window.history.back();
   }
 
   // Browser back/forward → state (flag stops the mirror-effect below from
-  // pushing a duplicate history entry for the same move)
+  // pushing a duplicate history entry for the same move). Each entry's state
+  // carries what a NEXT "back" from here should show ({ depth, fromLabel }),
+  // stamped when the entry was created (see the push effect) - so canGoBack/
+  // prevLabel read straight off the CURRENT entry and are correct however the
+  // user got here (this app's arrow, the browser's own back/forward, a swipe
+  // gesture, alt+Left).
   const fromPopstate = useRef(false);
   useEffect(() => {
-    const onPop = () => {
+    const onPop = (e) => {
       const { view, sub } = parsePath();
       fromPopstate.current = true;
       setActiveView(view);
       setActiveSub(sub ?? getDefaultSub(view));
+      setCanGoBack((e.state?.depth || 0) > 0);
+      setPrevLabel(e.state?.fromLabel || null);
     };
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
@@ -343,12 +355,19 @@ function MainApp() {
 
   // State → address bar
   useEffect(() => {
-    if (fromPopstate.current) { fromPopstate.current = false; return; }
+    if (fromPopstate.current) { fromPopstate.current = false; prevLocRef.current = { view: activeView, sub: activeSub }; return; }
     const seg = VIEW_TO_PATH[activeView] || activeView;
     const path = activeView === 'dashboard' && !activeSub
       ? '/'
       : `/${seg}${activeSub ? `/${activeSub}` : ''}`;
-    if (window.location.pathname !== path) window.history.pushState(null, '', path);
+    if (window.location.pathname !== path) {
+      const depth = (window.history.state?.depth || 0) + 1;
+      const fromLabel = viewLabel(prevLocRef.current.view);
+      window.history.pushState({ depth, fromLabel }, '', path);
+      setCanGoBack(true);
+      setPrevLabel(fromLabel);
+    }
+    prevLocRef.current = { view: activeView, sub: activeSub };
   }, [activeView, activeSub]);
 
   return (
@@ -405,10 +424,10 @@ function MainApp() {
               theme={theme}
               onThemeToggle={() => setTheme(t => t === "dark" ? "light" : "dark")}
               onMobileToggle={() => setMobileMenuOpen(true)}
-              canGoBack={navHistory.length > 0}
+              canGoBack={canGoBack}
               onBack={goBack}
               onNavigate={navigate}
-              prevLabel={navHistory.length > 0 ? viewLabel(navHistory[navHistory.length - 1].view) : null}
+              prevLabel={prevLabel}
               onOpenAdmin={tab => { setAdminPanelTab(tab); setAdminPanelOpen(true); }}
             />
             {/* viewport-desk: the Work OS canvas (soft gray --wk-bg) for the
