@@ -629,9 +629,11 @@ export default function TimeClock() {
               ))}
             </div>
             {todayData.flags.length > 0 && (
-              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, marginTop: 12, fontSize: 11, fontWeight: 700, color: '#b45309' }}>
+              <button onClick={() => setTab('timesheet')}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, marginTop: 12, fontSize: 11, fontWeight: 700,
+                  color: '#b45309', background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'var(--wk-font)' }}>
                 <AlertTriangle size={11} /> {todayData.flags.length} item{todayData.flags.length === 1 ? '' : 's'} for review - see Time Sheet
-              </div>
+              </button>
             )}
           </>
         ) : (
@@ -672,7 +674,7 @@ export default function TimeClock() {
               );
             })()}
             <button className="secondary-btn" style={{ fontSize: 11, padding: '4px 11px', marginTop: 12, alignSelf: 'flex-start' }} onClick={() => setTab('timesheet')}>
-              Open Timesheet
+              Open Time Sheet
             </button>
           </>) : (
             <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10, height: 110, color: 'var(--muted)' }}>
