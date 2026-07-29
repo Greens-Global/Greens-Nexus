@@ -29,6 +29,7 @@ from routers import documents as documents_router  # Documents DMS Phase 1 (Jul 
 from routers import investor_relations  # Investor Relations platform (Jul 2026)
 from routers import stepup  # Step-up MFA for sensitive data (vault/payroll/HR) (Jul 2026)
 import act_as  # Act As: Manager/IT Admin/Global Admin can impersonate a lower-role employee (Jul 2026)
+from routers import branding  # Branding settings: login-screen accent color (Jul 2026)
 from audit import AuditMiddleware
 
 
@@ -826,4 +827,5 @@ app.include_router(policy.router)         # Sign-in company-policy & monitoring 
 app.include_router(investor_relations.router)  # Investor Relations: funds/investors/commitments/calls/distributions
 app.include_router(stepup.router)         # Step-up MFA for sensitive data (vault reveals / payroll / confidential HR)
 app.include_router(act_as.router)         # Act As: impersonate a lower-role employee's account
+app.include_router(branding.router)       # Branding settings: login-screen accent color
 
