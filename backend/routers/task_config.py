@@ -11,6 +11,7 @@ import os
 import json
 import subprocess
 import threading
+import time
 from datetime import datetime, timezone
 import httpx
 import models
@@ -213,7 +214,7 @@ def _import_asana_projects(db, cfg, asana, gids, user, email_map=None, on_progre
             # took, which reads as a stalled run.
             if on_progress:
                 try:
-                    on_progress(i, len(gids), pname)
+                    on_progress(i, len(gids), pname, None)
                 except Exception:
                     pass
             if not existing_project:
@@ -248,7 +249,7 @@ def _import_asana_projects(db, cfg, asana, gids, user, email_map=None, on_progre
         # project still advances instead of looking stuck on it.
         if on_progress:
             try:
-                on_progress(i + 1, len(gids), pname)
+                on_progress(i + 1, len(gids), pname, gid)
             except Exception:
                 pass
 
@@ -634,12 +635,18 @@ def set_asana_project_map(body: AsanaProjectMapBody, db: Session = Depends(get_d
     return {"count": db.query(models.AsanaProjectMap).count()}
 
 
-# A job whose worker was recycled mid-run never reaches "done". Without an
-# expiry it would block every later run, so a heartbeat this old counts as dead.
-# Six missed beats: long enough that a busy worker is never called dead, short
-# enough that a deploy does not lock Import out for ten minutes afterwards.
+# A job whose worker was recycled mid-run never reaches "done", so a heartbeat
+# this old counts as dead.
+#
+# Twenty missed beats, not six. The two errors are not symmetrical: declaring a
+# LIVE import dead is the damaging one - the UI says it stopped while it is
+# still writing, and a second run can start beside it - whereas being slow to
+# notice a genuinely dead one now costs nothing, because Cancel retires a stuck
+# row on the spot. A tight window plus a beat that can be delayed by connection
+# pressure (5 connections per gunicorn worker) is what made a healthy run on dev
+# report "Interrupted" while it was still importing.
 _IMPORT_HEARTBEAT_SECONDS = 30
-_IMPORT_JOB_STALE_SECONDS = _IMPORT_HEARTBEAT_SECONDS * 6
+_IMPORT_JOB_STALE_SECONDS = _IMPORT_HEARTBEAT_SECONDS * 20
 
 
 def import_job_to_dict(j: models.AsanaImportJob) -> dict:
@@ -648,6 +655,34 @@ def import_job_to_dict(j: models.AsanaImportJob) -> dict:
             "total": j.total or 0, "done": j.done or 0, "current": j.current or "",
             "result": j.result if isinstance(j.result, dict) else {},
             "error": j.error or "", "cancelling": bool(j.cancel_requested)}
+
+
+def _recent(iso: str, hours: int) -> bool:
+    """True when `iso` is within the last `hours`. Unparseable or missing counts
+    as NOT recent - the conservative answer everywhere this is used."""
+    if not iso:
+        return False
+    try:
+        when = datetime.fromisoformat(iso)
+    except ValueError:
+        return False
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - when).total_seconds() < hours * 3600
+
+
+def _stalled_message(j) -> str:
+    """Why a run was retired, without claiming to know the cause.
+
+    The old wording asserted "the server restarted", which is only one of the
+    possibilities (a recycled worker, a killed container - or the heartbeat
+    simply not landing). Reporting how far it got is the part that actually
+    helps: stopping at 2 of 109 and stopping at 95 of 109 are different
+    problems."""
+    where = f" after {j.done or 0} of {j.total or 0} project(s)" if j.total else ""
+    last = f", last: {j.current}" if j.current else ""
+    return (f"Import stopped responding{where}{last}. Everything imported so far was kept - "
+            "run Import again to continue.")
 
 
 def _job_is_alive(j: models.AsanaImportJob) -> bool:
@@ -667,21 +702,34 @@ def _beat_while_running(job_id: str, stop: threading.Event):
 
     Beating only when a project finishes was wrong: one big project can take
     longer than the staleness window on its own, so a perfectly healthy run got
-    declared dead mid-import - and, worse, a second run could then start beside
-    it. The heartbeat answers "is the worker still there", which is a different
-    question from "has it made progress"."""
+    declared dead mid-import. The heartbeat answers "is the worker still there",
+    which is a different question from "has it made progress".
+
+    Deliberately a one-statement UPDATE on its own connection rather than an ORM
+    session: each gunicorn worker gets only 5 Postgres connections (pool_size 2
+    + overflow 3) and the import thread holds one for its whole run, so the
+    lightest possible touch is what keeps this from competing with real
+    requests. A failed beat is RETRIED rather than skipped - silently missing a
+    few in a row is exactly what makes a live import look dead."""
+    from sqlalchemy import text
+    from database import engine
+
     while not stop.wait(_IMPORT_HEARTBEAT_SECONDS):
-        db = SessionLocal()
-        try:
-            job = db.get(models.AsanaImportJob, job_id)
-            if not job or job.status != "running":
-                return
-            job.heartbeat_at = now_iso()
-            db.commit()
-        except Exception:
-            db.rollback()
-        finally:
-            db.close()
+        for attempt in range(3):
+            try:
+                with engine.begin() as conn:
+                    res = conn.execute(
+                        text("UPDATE asana_import_jobs SET heartbeat_at = :ts "
+                             "WHERE id = :id AND status = 'running'"),
+                        {"ts": now_iso(), "id": job_id})
+                if res.rowcount == 0:      # finished, cancelled, or gone
+                    return
+                break
+            except Exception as e:
+                if attempt == 2:
+                    print(f"[asana] import heartbeat failed 3x: {e}")
+                else:
+                    time.sleep(2)
 
 
 def _run_import_all(job_id: str, token: str, workspace_gid: str, user: dict):
@@ -712,18 +760,34 @@ def _run_import_all(job_id: str, token: str, workspace_gid: str, user: dict):
             db.commit()
             return
 
+        # Resume: skip what a previous attempt already finished. The full list
+        # is still fetched, because a project added in Asana since then should
+        # come in too - only the completed ones are dropped.
+        already = set(job.done_gids or [])
+        remaining = [g for g in gids if g not in already]
         job.total = len(gids)
+        job.done = len(gids) - len(remaining)
         job.heartbeat_at = now_iso()
         db.commit()
-        if not gids:
+        if not remaining:
             job.status, job.finished_at = "done", now_iso()
-            job.result = {"projects": 0, "tasks": 0,
-                          "errors": ["No projects found in the workspace."]}
+            job.result = {"projects": len(already), "tasks": 0,
+                          "errors": [] if already else ["No projects found in the workspace."]}
             db.commit()
             return
 
-        def progress(done, total, name):
-            job.done, job.total, job.current = done, total, name
+        offset = len(already)
+
+        def progress(done, total, name, finished_gid=None):
+            # `done`/`total` are indexes into the REMAINING list, so shift them
+            # back onto the whole run - a resumed job must not restart its bar
+            # at zero.
+            job.done, job.total, job.current = offset + done, offset + total, name
+            if finished_gid:
+                # Recorded per project, committed with the same transaction, so
+                # whatever killed the run cannot lose the fact that this project
+                # was completed.
+                job.done_gids = list(job.done_gids or []) + [finished_gid]
             job.heartbeat_at = now_iso()
             db.commit()
 
@@ -737,8 +801,9 @@ def _run_import_all(job_id: str, token: str, workspace_gid: str, user: dict):
         # The stored token, wrapped the same way Import wraps a pasted one, so
         # this can never delete anything in Nexus whatever delete_sync is set to.
         token_cfg = asana_sync.TokenConfig(token, workspace_gid or "")
-        counts = _import_asana_projects(db, token_cfg, asana, gids, user,
+        counts = _import_asana_projects(db, token_cfg, asana, remaining, user,
                                         on_progress=progress, should_stop=cancelled)
+        counts["projects"] = counts.get("projects", 0) + len(already)
         counts["mapped"] = db.query(models.AsanaProjectMap).count()
         job.result = counts
         job.status = "cancelled" if counts.get("cancelled") else "done"
@@ -787,17 +852,101 @@ def asana_sync_import_all(user: dict = Depends(get_current_user), db: Session = 
         # second one over the same projects.
         return import_job_to_dict(running)
     if running:
-        running.status, running.error = "error", "Interrupted - the server restarted mid-import."
+        running.status, running.error = "stalled", _stalled_message(running)
         running.finished_at = now_iso()
         db.commit()
 
+    # Carry the finished projects over from a run that stopped part way, so
+    # clicking Import again continues rather than re-walking everything - which
+    # is what the stopped-run message tells the operator it will do. Only from a
+    # RECENT unfinished run: after a day the workspace has moved on and a full
+    # pass is the safer default, and a run that finished normally never carries
+    # over, so a deliberate re-import still tops up every project.
+    carry = []
+    last = (db.query(models.AsanaImportJob)
+              .filter(models.AsanaImportJob.status.in_(("stalled", "error", "cancelled")))
+              .order_by(models.AsanaImportJob.started_at.desc()).first())
+    if last and last.done_gids and _recent(last.finished_at, hours=24):
+        carry = list(last.done_gids)
+
     job = models.AsanaImportJob(id=gen_id(), status="running", started_by=user.get("email", ""),
-                                started_at=now_iso(), heartbeat_at=now_iso(), result={})
+                                started_at=now_iso(), heartbeat_at=now_iso(), result={},
+                                done_gids=carry)
     db.add(job)
     db.commit()
     threading.Thread(target=_run_import_all, daemon=True,
                      args=(job.id, token, cfg.workspace_gid or "", dict(user))).start()
     return import_job_to_dict(job)
+
+
+# A run that keeps dying takes the workspace no further, so it stops being
+# retried rather than restarting on every deploy forever.
+_IMPORT_MAX_ATTEMPTS = 5
+
+
+def resume_stalled_import():
+    """Pick up an import whose worker went away, and finish the rest.
+
+    Called at startup on the sync worker. Without it an interrupted run stays
+    stopped until somebody notices and clicks Import again - and until then the
+    projects it never reached are not even MAPPED, so the pull ignores them and
+    the gap does not quietly heal.
+
+    A deploy is the common cause on dev: the API restarts on every merge, which
+    is precisely when a long import is most likely to be in flight."""
+    db = SessionLocal()
+    try:
+        # "stalled" as well as "running": by the time the app restarts, a status
+        # poll has usually already retired the dead run - looking only for
+        # "running" would find nothing and resume would never fire in the very
+        # case it exists for. "error" is excluded on purpose: that is a real
+        # failure (bad token, Asana refusing) and retrying it on every boot
+        # would just fail on every boot.
+        job = (db.query(models.AsanaImportJob)
+                 .filter(models.AsanaImportJob.status.in_(("running", "stalled")))
+                 .order_by(models.AsanaImportJob.started_at.desc()).first())
+        if not job:
+            return ""
+        if job.status == "running" and _job_is_alive(job):
+            # Another worker in this instance is still on it. Only a heartbeat
+            # that has gone quiet means the run actually needs rescuing.
+            return ""
+        if job.cancel_requested:
+            job.status, job.finished_at = "cancelled", now_iso()
+            db.commit()
+            return "cancelled"
+        if (job.attempts or 1) >= _IMPORT_MAX_ATTEMPTS:
+            job.status, job.finished_at = "error", now_iso()
+            job.error = (f"Import stopped after {_IMPORT_MAX_ATTEMPTS} attempts at "
+                         f"{job.done or 0} of {job.total or 0} project(s). "
+                         "Run Import again to retry.")
+            db.commit()
+            return "gave up"
+
+        import asana_sync
+        cfg = asana_sync.get_config(db)
+        token = (cfg.setup_token or "").strip() or cfg.token
+        if not token:
+            job.status, job.error = "error", "Import could not resume: no Asana token."
+            job.finished_at = now_iso()
+            db.commit()
+            return "no token"
+
+        job.attempts = (job.attempts or 1) + 1
+        job.status = "running"
+        job.error = ""
+        job.finished_at = ""
+        job.heartbeat_at = now_iso()      # claim it before the thread starts
+        db.commit()
+        threading.Thread(target=_run_import_all, daemon=True,
+                         args=(job.id, token, cfg.workspace_gid or "",
+                               {"email": job.started_by or ""})).start()
+        return f"resumed at {job.done or 0}/{job.total or 0} (attempt {job.attempts})"
+    except Exception as e:
+        db.rollback()
+        return f"failed: {e}"
+    finally:
+        db.close()
 
 
 @router.post("/asana-sync/import-all/cancel", dependencies=[Depends(require_manager)])
@@ -832,8 +981,8 @@ def asana_sync_import_all_status(db: Session = Depends(get_db)):
     if not job:
         return {"status": "idle"}
     if job.status == "running" and not _job_is_alive(job):
-        job.status = "error"
-        job.error = "Interrupted - the server restarted mid-import."
+        job.status = "stalled"
+        job.error = _stalled_message(job)
         job.finished_at = now_iso()
         db.commit()
     return import_job_to_dict(job)
@@ -854,7 +1003,10 @@ def asana_sync_pull(db: Session = Depends(get_db)):
     import asana_sync
     from asana_import import ImportError_
     try:
-        return asana_sync.pull(db)
+        # Manual Pull is a reconcile: the operator clicked it because they want
+        # everything checked now, including deletions an incremental poll cannot
+        # see. The scheduled poll stays incremental.
+        return asana_sync.pull(db, force_full=True)
     except (ImportError_, ValueError, UnicodeError) as e:
         raise HTTPException(400, f"Asana pull failed - check the token. ({e})")
 

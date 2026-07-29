@@ -333,6 +333,12 @@ function AsanaSyncPanel({ store }) {
   const importDone = useCallback((job) => {
     const res = job.result || {};
     if (job.status === 'error') { setErr(job.error || 'Import failed.'); return; }
+    // Stalled: the worker went away mid-run. Not a failure to act on - it picks
+    // up where it stopped when the API next starts, and Import resumes it too.
+    if (job.status === 'stalled') {
+      setErr(`${job.error || 'Import stopped responding.'} It will resume automatically.`);
+      return;
+    }
     // A cancelled run keeps everything it already imported - saying so matters,
     // or it reads as if the work was thrown away.
     setMsg((job.status === 'cancelled' ? 'Import stopped. Kept what it had already imported: ' : '')

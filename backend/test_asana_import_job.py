@@ -100,8 +100,8 @@ class ImportJobStateTests(unittest.TestCase):
 
         out = task_config.asana_sync_import_all_status(db=self.db)
 
-        self.assertEqual(out["status"], "error")
-        self.assertIn("Interrupted", out["error"])
+        self.assertEqual(out["status"], "stalled")
+        self.assertIn("stopped responding", out["error"])
         self.assertEqual(
             self.db.query(models.AsanaImportJob).filter_by(status="running").count(), 0)
 
@@ -131,7 +131,7 @@ class ImportJobStateTests(unittest.TestCase):
 
         self.assertNotEqual(out["id"], dead.id)
         self.assertEqual(out["status"], "running")
-        self.assertEqual(self.db.get(models.AsanaImportJob, dead.id).status, "error")
+        self.assertEqual(self.db.get(models.AsanaImportJob, dead.id).status, "stalled")
         self.assertEqual(len(self.started), 1)   # the worker was actually dispatched
 
 
@@ -198,7 +198,7 @@ class CancelTests(unittest.TestCase):
             counts = task_config._import_asana_projects(
                 self.db, object(), ProgressReportingTests._FakeAsana(), ["gid-1", "gid-2"],
                 {"email": "s@x.com"},
-                on_progress=lambda d, t, n: seen.append(n),
+                on_progress=lambda d, t, n, g=None: seen.append(n),
                 # Stop before the second project.
                 should_stop=lambda: len(seen) >= 2)
         finally:
@@ -245,6 +245,52 @@ class HeartbeatTests(unittest.TestCase):
         self.db.refresh(job)
         self.assertTrue(task_config._job_is_alive(job))   # would have been declared dead before
         self.assertFalse(t.is_alive())                    # and it stops when asked
+
+    def test_a_beat_survives_a_transient_failure(self):
+        """A skipped beat is what made a live import look dead on dev: the
+        worker pool was busy, the beat could not get a connection, and after a
+        few silent misses the status endpoint retired a job that was still
+        importing. It retries instead of giving up on that cycle."""
+        job = models.AsanaImportJob(id=gen_id(), status="running", started_at=now_iso(),
+                                    heartbeat_at=_ago(300), total=5, done=0)
+        self.db.add(job)
+        self.db.commit()
+
+        import database
+        real_begin, calls = database.engine.begin, {"n": 0}
+
+        def flaky():
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise RuntimeError("QueuePool limit reached")
+            return real_begin()
+
+        stop = threading.Event()
+        database.engine.begin = flaky
+        try:
+            t = threading.Thread(target=task_config._beat_while_running, args=(job.id, stop), daemon=True)
+            t.start()
+            time.sleep(2.6)          # first beat fails, retry (2s backoff) succeeds
+            stop.set()
+            t.join(timeout=3)
+        finally:
+            database.engine.begin = real_begin
+
+        self.db.refresh(job)
+        self.assertGreater(calls["n"], 1)                  # it retried
+        self.assertTrue(task_config._job_is_alive(job))    # and the job stayed alive
+
+    def test_the_stalled_message_says_how_far_it_got(self):
+        """Rather than asserting a cause we cannot know."""
+        job = models.AsanaImportJob(id=gen_id(), status="running", started_at=now_iso(),
+                                    heartbeat_at=_ago(99999), total=109, done=12, current="GS Mammoth")
+
+        msg = task_config._stalled_message(job)
+
+        self.assertIn("12 of 109", msg)
+        self.assertIn("GS Mammoth", msg)
+        self.assertNotIn("restarted", msg)       # no invented cause
+        self.assertIn("kept", msg)               # says the work survives
 
     def test_it_stops_once_the_job_is_no_longer_running(self):
         """So a finished job leaves no thread beating against the DB forever."""
@@ -303,7 +349,7 @@ class ProgressReportingTests(unittest.TestCase):
 
         task_config._import_asana_projects(
             self.db, object(), self._FakeAsana(), ["gid-1", "gid-2"],
-            {"email": "s@x.com"}, on_progress=lambda d, t, n: seen.append((d, t, n)))
+            {"email": "s@x.com"}, on_progress=lambda d, t, n, g=None: seen.append((d, t, n)))
 
         # done=0 while Alpha is in flight, done=1 once it is finished, and so on.
         self.assertEqual(seen, [(0, 2, "Alpha"), (1, 2, "Alpha"),
@@ -318,13 +364,13 @@ class ProgressReportingTests(unittest.TestCase):
 
         counts = task_config._import_asana_projects(
             self.db, object(), self._FakeAsana(), ["gid-1"],
-            {"email": "s@x.com"}, on_progress=lambda d, t, n: seen.append((d, t, n)))
+            {"email": "s@x.com"}, on_progress=lambda d, t, n, g=None: seen.append((d, t, n)))
 
         self.assertEqual(seen[-1], (1, 1, "Alpha"))
         self.assertEqual(len(counts["errors"]), 1)
 
     def test_a_broken_progress_callback_cannot_kill_the_import(self):
-        def bad(*a):
+        def bad(*a, **kw):
             raise RuntimeError("UI blew up")
 
         counts = task_config._import_asana_projects(
@@ -332,6 +378,170 @@ class ProgressReportingTests(unittest.TestCase):
             {"email": "s@x.com"}, on_progress=bad)
 
         self.assertEqual(counts["errors"], [])
+
+
+class ResumeTests(unittest.TestCase):
+    """A stopped run continues from where it got to, rather than re-walking a
+    hundred projects to reach the handful it never reached.
+
+    This matters more than it looks: the import is the only thing that MAPS a
+    project, and the pull only touches mapped projects - so projects an
+    interrupted run never reached stay invisible until someone finishes it."""
+
+    @classmethod
+    def setUpClass(cls):
+        models.Base.metadata.create_all(bind=database.engine)
+
+    def setUp(self):
+        self.db = database.SessionLocal()
+        self.db.query(models.AsanaImportJob).delete()
+        self.db.query(models.AsanaSyncConfig).delete()
+        self.db.add(models.AsanaSyncConfig(id="singleton", enabled=True, token="tok"))
+        self.db.commit()
+        self.started = []
+        self._real = task_config._run_import_all
+        task_config._run_import_all = lambda *a, **kw: self.started.append(a)
+
+    def tearDown(self):
+        task_config._run_import_all = self._real
+        self.db.close()
+
+    def _stopped(self, done_gids, finished_at=None, status="error", **kw):
+        j = models.AsanaImportJob(id=gen_id(), status=status, started_at=_ago(600),
+                                  heartbeat_at=_ago(600), finished_at=finished_at or now_iso(),
+                                  total=5, done=len(done_gids), done_gids=done_gids, **kw)
+        self.db.add(j)
+        self.db.commit()
+        return j
+
+    def test_a_new_import_carries_over_finished_projects(self):
+        self._stopped(["g1", "g2"])
+
+        out = task_config.asana_sync_import_all({"email": "s@x.com"}, self.db)
+
+        self.assertEqual(self.db.get(models.AsanaImportJob, out["id"]).done_gids, ["g1", "g2"])
+
+    def test_an_old_stopped_run_does_not_carry_over(self):
+        """After a day the workspace has moved on; a full pass is safer."""
+        self._stopped(["g1"], finished_at=_ago(60 * 60 * 30))
+
+        out = task_config.asana_sync_import_all({"email": "s@x.com"}, self.db)
+
+        self.assertEqual(self.db.get(models.AsanaImportJob, out["id"]).done_gids, [])
+
+    def test_a_completed_run_does_not_carry_over(self):
+        """Re-importing after a clean run must top up every project again."""
+        self._stopped(["g1", "g2"], status="done")
+
+        out = task_config.asana_sync_import_all({"email": "s@x.com"}, self.db)
+
+        self.assertEqual(self.db.get(models.AsanaImportJob, out["id"]).done_gids, [])
+
+
+class AutoResumeTests(unittest.TestCase):
+    """Startup rescue: a deploy restarts the API, which is exactly when a long
+    import is most likely to be in flight."""
+
+    @classmethod
+    def setUpClass(cls):
+        models.Base.metadata.create_all(bind=database.engine)
+
+    def setUp(self):
+        self.db = database.SessionLocal()
+        self.db.query(models.AsanaImportJob).delete()
+        self.db.query(models.AsanaSyncConfig).delete()
+        self.db.add(models.AsanaSyncConfig(id="singleton", enabled=True, token="tok"))
+        self.db.commit()
+        self.started = []
+        self._real = task_config._run_import_all
+        task_config._run_import_all = lambda *a, **kw: self.started.append(a)
+
+    def tearDown(self):
+        task_config._run_import_all = self._real
+        self.db.close()
+
+    def _running(self, **kw):
+        kw.setdefault("heartbeat_at", _ago(task_config._IMPORT_JOB_STALE_SECONDS + 60))
+        kw.setdefault("status", "running")
+        j = models.AsanaImportJob(id=gen_id(), started_at=_ago(9000),
+                                  started_by="s@x.com", total=109, done=12, **kw)
+        self.db.add(j)
+        self.db.commit()
+        return j
+
+    def test_a_stalled_run_is_picked_up(self):
+        job = self._running(done_gids=["g1", "g2"])
+
+        outcome = task_config.resume_stalled_import()
+
+        self.assertIn("resumed", outcome)
+        self.assertEqual(len(self.started), 1)
+        self.assertEqual(self.db.get(models.AsanaImportJob, job.id).attempts, 2)
+
+    def test_a_live_run_is_left_alone(self):
+        """Another worker in this instance is still on it - starting a second
+        would put two imports on the same projects."""
+        self._running(heartbeat_at=now_iso())
+
+        self.assertEqual(task_config.resume_stalled_import(), "")
+        self.assertEqual(self.started, [])
+
+    def test_a_cancelled_run_is_not_resurrected(self):
+        """Someone asked it to stop; a restart must not override that."""
+        job = self._running(cancel_requested=True)
+
+        outcome = task_config.resume_stalled_import()
+
+        self.assertEqual(outcome, "cancelled")
+        self.assertEqual(self.started, [])
+        self.assertEqual(self.db.get(models.AsanaImportJob, job.id).status, "cancelled")
+
+    def test_it_gives_up_after_repeated_attempts(self):
+        """A project that reliably kills its worker would otherwise restart the
+        same import on every deploy forever."""
+        job = self._running(attempts=task_config._IMPORT_MAX_ATTEMPTS)
+
+        outcome = task_config.resume_stalled_import()
+
+        self.assertEqual(outcome, "gave up")
+        self.assertEqual(self.started, [])
+        self.assertEqual(self.db.get(models.AsanaImportJob, job.id).status, "error")
+
+
+    def test_a_run_already_retired_by_a_status_poll_still_resumes(self):
+        """The real sequence: the worker dies, someone opens the page, the poll
+        marks it stalled - and only later does the app restart. Looking only for
+        "running" would find nothing and never resume."""
+        job = self._running(status="stalled", finished_at=now_iso(), done_gids=["g1"])
+
+        outcome = task_config.resume_stalled_import()
+
+        self.assertIn("resumed", outcome)
+        self.assertEqual(len(self.started), 1)
+        row = self.db.get(models.AsanaImportJob, job.id)
+        self.assertEqual(row.status, "running")   # back in flight
+        self.assertEqual(row.finished_at, "")
+
+    def test_a_genuine_failure_is_not_retried(self):
+        """A bad token fails identically on every boot; retrying it forever just
+        buries the real message."""
+        self._running(status="error", error="Asana request failed - check the token.",
+                      finished_at=now_iso())
+
+        self.assertEqual(task_config.resume_stalled_import(), "")
+        self.assertEqual(self.started, [])
+
+    def test_nothing_to_resume_is_a_noop(self):
+        self.assertEqual(task_config.resume_stalled_import(), "")
+
+    def test_it_needs_a_token(self):
+        self.db.query(models.AsanaSyncConfig).delete()
+        self.db.add(models.AsanaSyncConfig(id="singleton", enabled=True, token=""))
+        self.db.commit()
+        self._running()
+
+        self.assertEqual(task_config.resume_stalled_import(), "no token")
+        self.assertEqual(self.started, [])
 
 
 if __name__ == "__main__":

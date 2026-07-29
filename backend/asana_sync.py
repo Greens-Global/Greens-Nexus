@@ -37,6 +37,7 @@ import re
 import threading
 import time
 import urllib.request
+from datetime import datetime, timedelta, timezone
 from html import escape, unescape
 
 from sqlalchemy import text
@@ -2291,12 +2292,52 @@ def _reap_deleted(db, cfg, nexus_project_id, seen, counts):
         db.flush()
 
 
-def pull(db):
+# How often a project gets a FULL listing instead of an incremental one. Only a
+# full run can see deletions (a deleted task just stops being returned, which
+# reads identically to "not modified") or catch a subtask edited on its own,
+# which does not always bump its parent's modified_at.
+_FULL_SWEEP_MIN = 30
+# Rewind on the modified_since cursor. Covers clock skew between us and Asana
+# and any edit landing while a pull is mid-flight; re-applying a task we already
+# have is free (the digests short-circuit it), missing one is not.
+_PULL_OVERLAP_SEC = 120
+
+
+def _pull_window(pm, now):
+    """(modified_since | "", is_full) for one mapped project.
+
+    Full when we have never pulled it, when the last full listing has aged out,
+    or when the cursor is unreadable - anything uncertain resolves to the safe,
+    complete option."""
+    if not pm.last_pull_at or not pm.last_full_pull_at:
+        return "", True
+    try:
+        last_full = datetime.fromisoformat(pm.last_full_pull_at)
+        cursor = datetime.fromisoformat(pm.last_pull_at)
+    except ValueError:
+        return "", True
+    if last_full.tzinfo is None:
+        last_full = last_full.replace(tzinfo=timezone.utc)
+    if cursor.tzinfo is None:
+        cursor = cursor.replace(tzinfo=timezone.utc)
+    if (now - last_full).total_seconds() >= _FULL_SWEEP_MIN * 60:
+        return "", True
+    return (cursor - timedelta(seconds=_PULL_OVERLAP_SEC)).isoformat(), False
+
+
+def pull(db, force_full=False):
     """Poll every mapped Asana project and apply changes into Nexus: tasks
     (subtasks included), comments, attachments, dependencies, status/priority
-    custom fields, and project access. Relies on the digest / comment- and
-    attachment-link tables to skip unchanged ones (no premium modified_since
-    filter yet)."""
+    custom fields, and project access.
+
+    Incremental by default: each project carries a modified_since cursor, so a
+    routine poll asks Asana only for what changed rather than re-listing every
+    task every couple of minutes. A full listing still runs per project every
+    _FULL_SWEEP_MIN, because an incremental fetch cannot see a deletion and
+    only a complete list may be reaped against.
+
+    `force_full` is for the manual Pull button, where the operator is asking for
+    a reconcile and expects deletions and drift to be picked up now."""
     cfg = get_config(db)
     if not cfg.enabled or not cfg.token:
         raise ImportError_("Sync is not enabled or has no token.")
@@ -2312,16 +2353,30 @@ def pull(db):
             if not pm.asana_project_gid:
                 continue
             team_report = []
+            started = datetime.now(timezone.utc)
+            since, is_full = ("", True) if force_full else _pull_window(pm, started)
             # Raises on an Asana failure, which aborts the whole pull - so
             # _reap_deleted below only ever runs against a task list we know
             # came back complete. A half-fetched project must never be read as
             # "everything missing was deleted".
-            rows = asana.get(f"/projects/{pm.asana_project_gid}/tasks", opt_fields=_TASK_OPT_FIELDS)
+            if is_full:
+                rows = asana.get(f"/projects/{pm.asana_project_gid}/tasks", opt_fields=_TASK_OPT_FIELDS)
+            else:
+                rows = asana.get("/tasks", project=pm.asana_project_gid, modified_since=since,
+                                 opt_fields=_TASK_OPT_FIELDS)
+                counts["scanned"] = counts.get("scanned", 0) + len(rows)
             for at in rows:
                 _pull_task_tree(db, asana, at, pm.nexus_project_id, "", counts, seen, None, deferred)
-            _reap_deleted(db, cfg, pm.nexus_project_id, seen, counts)
-            _sync_project_access(db, asana, cfg, pm.asana_project_gid, pm.nexus_project_id,
-                                 pm.extra_team_names, report=team_report)
+            # Reaping needs the COMPLETE list: on an incremental run `seen` holds
+            # only what changed, so everything else would look deleted.
+            if is_full:
+                _reap_deleted(db, cfg, pm.nexus_project_id, seen, counts)
+                _sync_project_access(db, asana, cfg, pm.asana_project_gid, pm.nexus_project_id,
+                                     pm.extra_team_names, report=team_report)
+                pm.last_full_pull_at = started.isoformat()
+            # Stamped from when the fetch STARTED, not when it finished - an edit
+            # made mid-pull must fall inside the next window, not be skipped.
+            pm.last_pull_at = started.isoformat()
             if team_report:
                 proj_row = db.query(models.TaskProject).filter(
                     models.TaskProject.id == pm.nexus_project_id).first()
