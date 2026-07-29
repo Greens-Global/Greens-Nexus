@@ -2054,6 +2054,16 @@ class AsanaProjectMap(Base):
     # saved values are still resolved by name. See asana_sync._sync_project_access.
     extra_team_names  = Column(JSON, default=list)
     created_at        = Column(String, default="")
+    # Incremental-pull watermarks. `last_pull_at` is the modified_since cursor:
+    # the next pull asks Asana only for tasks touched after it, instead of
+    # re-downloading the whole project every couple of minutes.
+    #
+    # `last_full_pull_at` exists because an incremental fetch CANNOT see a
+    # deletion - a task removed in Asana simply stops being returned, which is
+    # indistinguishable from "not modified". So a full listing still runs
+    # periodically, and only a full run is allowed to reap.
+    last_pull_at      = Column(String, default="")
+    last_full_pull_at = Column(String, default="")
 
 
 class AsanaTaskLink(Base):
@@ -2574,3 +2584,10 @@ class AsanaImportJob(Base):
     # project half-imported. The loop checks this between projects and stops
     # cleanly. Import is additive, so a partial run is safe to resume.
     cancel_requested = Column(Boolean, default=False)
+    # Resume state. `done_gids` are the Asana projects this run has finished, so
+    # a restart skips straight to the remainder instead of re-walking all 109
+    # from the top. `attempts` counts how many times the run has been picked up
+    # again, and stops a project that reliably kills its worker from restarting
+    # the same import forever.
+    done_gids    = Column(JSON, default=list)
+    attempts     = Column(Integer, default=1)

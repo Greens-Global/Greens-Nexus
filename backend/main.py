@@ -259,6 +259,10 @@ def _run_migrations():
             "ALTER TABLE nexus_employees ADD COLUMN identity_type VARCHAR DEFAULT 'internal'",
             "ALTER TABLE nexus_employees ADD COLUMN display_name VARCHAR DEFAULT ''",
             "ALTER TABLE asana_import_jobs ADD COLUMN cancel_requested BOOLEAN DEFAULT 0",
+            "ALTER TABLE asana_project_map ADD COLUMN last_pull_at VARCHAR DEFAULT ''",
+            "ALTER TABLE asana_project_map ADD COLUMN last_full_pull_at VARCHAR DEFAULT ''",
+            "ALTER TABLE asana_import_jobs ADD COLUMN done_gids JSON DEFAULT '[]'",
+            "ALTER TABLE asana_import_jobs ADD COLUMN attempts INTEGER DEFAULT 1",
             "ALTER TABLE ir_funds ADD COLUMN property_asset_id VARCHAR DEFAULT ''",
             # Share panel (Jul 2026): per-person/per-team project access role.
             "ALTER TABLE task_projects ADD COLUMN member_roles JSON DEFAULT '{}'",
@@ -413,6 +417,10 @@ def _run_migrations():
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS identity_type VARCHAR DEFAULT 'internal'",
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS display_name VARCHAR DEFAULT ''",
         "ALTER TABLE asana_import_jobs ADD COLUMN IF NOT EXISTS cancel_requested BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE asana_project_map ADD COLUMN IF NOT EXISTS last_pull_at VARCHAR DEFAULT ''",
+        "ALTER TABLE asana_project_map ADD COLUMN IF NOT EXISTS last_full_pull_at VARCHAR DEFAULT ''",
+        "ALTER TABLE asana_import_jobs ADD COLUMN IF NOT EXISTS done_gids JSONB DEFAULT '[]'::jsonb",
+        "ALTER TABLE asana_import_jobs ADD COLUMN IF NOT EXISTS attempts INTEGER DEFAULT 1",
         # Investor Relations: optional soft link to an Asset Management PropertyAsset.id
         "ALTER TABLE ir_funds ADD COLUMN IF NOT EXISTS property_asset_id VARCHAR DEFAULT ''",
         # HR mailbox export: progress total (table itself is created by create_all)
@@ -675,6 +683,18 @@ async def lifespan(app: FastAPI):
         print(f"[startup] asana auto-pull {'scheduled' if is_sync_worker() else 'skipped (not the sync worker)'}")
     except Exception as e:
         print(f"[startup] asana auto-pull skipped: {e}")
+    # An import interrupted by the last restart resumes from where it stopped.
+    # Gated on the sync worker for the same reason the poll is: otherwise every
+    # developer's laptop would pick up the shared job on startup.
+    try:
+        from asana_sync import is_sync_worker
+        if is_sync_worker():
+            from routers.task_config import resume_stalled_import
+            outcome = resume_stalled_import()
+            if outcome:
+                print(f"[startup] asana import {outcome}")
+    except Exception as e:
+        print(f"[startup] asana import resume skipped: {e}")
     # Ticket Notification workflow - retries failed/stuck Outlook emails and
     # auto-closes long-resolved tickets. Same bare-asyncio-loop pattern as the
     # HR reminders job above.
