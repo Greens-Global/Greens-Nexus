@@ -15,6 +15,7 @@ import TimeclockWidget from "./components/TimeclockWidget";
 import { StepUpOverlay } from "./stepup/StepUp";
 import GlobalSearch from "./components/GlobalSearch";
 import PullToRefresh from "./components/PullToRefresh";
+import UpdateBanner from "./components/UpdateBanner";
 import ViewErrorBoundary from "./components/ViewErrorBoundary";
 import { onBackendHealth, isBackendDown, startKeepWarm } from "./api";
 import { applyBrandAccent } from "./lib/brandAccent";
@@ -488,6 +489,9 @@ function MainApp() {
       <UnauthedGate>
         <LoginPage />
       </UnauthedGate>
+      {/* Outside both gates on purpose: a tab running superseded code should be
+          told so whether or not it is signed in. */}
+      <UpdateBanner />
     </>
   );
 }

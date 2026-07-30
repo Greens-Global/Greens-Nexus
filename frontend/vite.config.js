@@ -12,8 +12,69 @@ import react from '@vitejs/plugin-react'
 // bump again - but if it ever does, increment nx2 -> nx3.
 const CACHE_NS = 'nx2';
 
+// Build identity. Every deploy path supplies a commit sha somewhere:
+//   - the wrangler workflows pass VITE_BUILD_ID explicitly,
+//   - Cloudflare Pages' own Git builds (how dev deploys) set CF_PAGES_COMMIT_SHA,
+//   - a laptop gets 'dev'.
+// Two consumers depend on this being real rather than the literal 'dev' it used
+// to always be: the update prompt (useBuildVersion) compares it against
+// /version.json to tell a user their tab is running superseded code, and the
+// post-deploy gate waits for this exact id before asserting the site is healthy
+// (without it the gate cannot tell "new build is fine" from "old build still
+// being served").
+const BUILD_ID = process.env.VITE_BUILD_ID
+  || process.env.CF_PAGES_COMMIT_SHA
+  || 'dev';
+
+// Emitted as a real file rather than only baked into the bundle, so it can be
+// fetched (no-store) by a running tab and by CI without parsing the bundle.
+const versionManifest = () => ({
+  name: 'nexus-version-manifest',
+  generateBundle() {
+    this.emitFile({
+      type: 'asset',
+      fileName: 'version.json',
+      source: JSON.stringify({ buildId: BUILD_ID }) + '\n',
+    });
+  },
+});
+
+// The PDF engine under public/pdf-editor-app is vendored with FIXED filenames
+// (app.js, adobe-ui.js, style.css, libs/*) - no content hashes - and Cloudflare
+// Pages serves everything static with `max-age=31536000, must-revalidate`.
+// must-revalidate does not bite until the year is up, so a browser that loaded
+// app.js once kept it for a YEAR: the theme-sync fix was live at the edge and
+// invisible to anyone who had already opened the editor. Exactly the failure
+// that bricked vendor chunks in July, in a corner Vite does not hash for us.
+//
+// So stamp ?v=<BUILD_ID> onto the engine's own local sub-resources at build
+// time. Every deploy changes the id, hence the URLs, so updates always land -
+// and because PdfEditorModule loads index.html with the same ?v=, the HTML that
+// carries these URLs is itself never stale. Only local paths are touched;
+// absolute/CDN ones are left alone.
+const stampPdfEngine = () => ({
+  name: 'nexus-stamp-pdf-engine',
+  writeBundle: {
+    sequential: true,
+    order: 'post',
+    async handler(options) {
+      const { readFile, writeFile } = await import('node:fs/promises');
+      const { join } = await import('node:path');
+      const file = join(options.dir || 'dist', 'pdf-editor-app', 'index.html');
+      let html;
+      try { html = await readFile(file, 'utf8'); } catch { return; }  // engine absent
+      const stamped = html.replace(
+        /((?:src|href)=")(?!https?:|\/\/|data:)([^"?#]+\.(?:js|css))"/g,
+        `$1$2?v=${BUILD_ID}"`,
+      );
+      await writeFile(file, stamped);
+    },
+  },
+});
+
 export default defineConfig({
-  plugins: [react()],
+  define: { 'import.meta.env.VITE_BUILD_ID': JSON.stringify(BUILD_ID) },
+  plugins: [react(), versionManifest(), stampPdfEngine()],
   base: '/',
   build: {
     rollupOptions: {

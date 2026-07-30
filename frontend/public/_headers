@@ -21,7 +21,22 @@
 # watchdog covers that case, and a Cloudflare cache rule should pin the HTML too.)
 /index.html
   Cache-Control: no-cache
+# Build identity, polled by a running tab to notice it is on superseded code and
+# by the post-deploy gate to wait for the build it just shipped. Must never be
+# cached or both of those silently compare against a stale value.
+/version.json
+  Cache-Control: no-store
+  Content-Type: application/json
 /assets-404.html
   Cache-Control: no-cache
 /assets/*
   Cache-Control: public, max-age=31536000, immutable
+
+# The vendored PDF engine has FIXED filenames (no content hash), so it must not
+# inherit Pages' default year-long max-age - that is what made a shipped fix
+# invisible to anyone who had already opened the editor. vite.config.js stamps
+# ?v=<build id> onto these URLs so each deploy busts them; no-cache is the
+# belt-and-braces for anything the stamp misses (revalidation is a cheap 304,
+# which matters for the 11 MB OCR training data).
+/pdf-editor-app/*
+  Cache-Control: no-cache
