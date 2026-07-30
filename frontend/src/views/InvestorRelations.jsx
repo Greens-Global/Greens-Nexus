@@ -44,7 +44,7 @@ export default function InvestorRelations({ activeSub, onSubChange }) {
           <h2>Investor Relations</h2>
           <p>{isStaff
             ? 'Raise, call, distribute, and report - the GP-side capital platform'
-            : 'Your investments with Greens Global - statements, documents, and updates'}</p>
+            : 'Your investments - statements, documents, and updates'}</p>
         </div>
       </div>
 

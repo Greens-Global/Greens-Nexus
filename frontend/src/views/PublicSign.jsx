@@ -69,7 +69,7 @@ export default function PublicSign({ token }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18 }}>
           <div style={{ width: 36, height: 36, borderRadius: 10, background: '#14532d', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 15 }}>G</div>
           <div>
-            <div style={{ fontWeight: 800, fontSize: 15, color: 'var(--ink, #111827)' }}>Greens Global</div>
+            <div style={{ fontWeight: 800, fontSize: 15, color: 'var(--ink, #111827)' }}>Nexus</div>
             <div style={{ fontSize: 11.5, color: 'var(--muted, #6b7280)' }}>Secure e-signature</div>
           </div>
         </div>
@@ -77,7 +77,7 @@ export default function PublicSign({ token }) {
           {children}
         </div>
         <p style={{ textAlign: 'center', fontSize: 11, color: 'var(--muted, #9ca3af)', marginTop: 16 }}>
-          Powered by Greens Nexus E-Sign · Your signature is captured with a tamper-evident audit trail.
+          Powered by Nexus E-Sign · Your signature is captured with a tamper-evident audit trail.
         </p>
       </div>
     </div>

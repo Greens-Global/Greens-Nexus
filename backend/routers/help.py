@@ -64,7 +64,7 @@ PAGE_NOTES = {
 def _fallback(label: str) -> str:
     return (
         f"## {label}\n\n"
-        f"Help for **{label}** is being prepared. This page is part of the Greens Nexus staff portal - "
+        f"Help for **{label}** is being prepared. This page is part of the Nexus staff portal - "
         "use the tabs and buttons on the page to navigate, and the search/filter controls to find what "
         "you need. A manager can regenerate this guide from the help panel."
     )
@@ -76,7 +76,7 @@ def _generate(page_key: str, label: str) -> tuple[str, str]:
         return _fallback(label), "fallback"
     note = PAGE_NOTES.get(page_key) or PAGE_NOTES.get(page_key.split(":")[0]) or ""
     prompt = (
-        "You write short, friendly in-app help for pages of Greens Global's internal staff portal "
+        "You write short, friendly in-app help for pages of the Nexus internal staff portal "
         '("Nexus"), used by non-technical employees at a self-storage and commercial real-estate '
         "operator.\n\n"
         f"PAGE: {label}\n"

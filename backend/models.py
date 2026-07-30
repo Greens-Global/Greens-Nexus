@@ -2054,6 +2054,16 @@ class AsanaProjectMap(Base):
     # saved values are still resolved by name. See asana_sync._sync_project_access.
     extra_team_names  = Column(JSON, default=list)
     created_at        = Column(String, default="")
+    # Incremental-pull watermarks. `last_pull_at` is the modified_since cursor:
+    # the next pull asks Asana only for tasks touched after it, instead of
+    # re-downloading the whole project every couple of minutes.
+    #
+    # `last_full_pull_at` exists because an incremental fetch CANNOT see a
+    # deletion - a task removed in Asana simply stops being returned, which is
+    # indistinguishable from "not modified". So a full listing still runs
+    # periodically, and only a full run is allowed to reap.
+    last_pull_at      = Column(String, default="")
+    last_full_pull_at = Column(String, default="")
 
 
 class AsanaTaskLink(Base):
@@ -2082,7 +2092,7 @@ class AsanaTaskLink(Base):
     # and priority that Asana simply cannot express. Comparing an inbound digest
     # against it therefore never matched, so every pull re-applied every task,
     # bumped modified_at and logged another "Updated from Asana" - 288 phantom
-    # activity entries per task per day at the 5-minute poll.
+    # activity entries per task per day at the inbound poll.
     last_inbound_hash = Column(String, default="")
 
 
@@ -2541,3 +2551,43 @@ class PropertyWorkspaceMeta(Base):
     ts         = Column(BigInteger, default=0)       # epoch ms of last accepted workspace PUT
     updated_by = Column(String, default="")
     updated_at = Column(String, default="")
+
+
+class AsanaImportJob(Base):
+    """One run of "Import All Projects", tracked in the DB rather than in memory.
+
+    The import walks every project the token can see and takes far longer than
+    Azure's ~230s request ceiling, which killed the old synchronous endpoint
+    mid-run: the gateway returned a bodyless 499 and, having no CORS headers,
+    the browser reported it as a CORS failure instead of a timeout.
+
+    State lives here, not in the worker's memory, because dev runs 8 gunicorn
+    processes - the request that starts a job and the requests that poll it are
+    usually served by DIFFERENT workers, so anything in-process would be
+    invisible to the polling. `heartbeat_at` is what lets a job whose worker was
+    recycled mid-run be recognized as dead instead of blocking the next one
+    forever."""
+    __tablename__ = "asana_import_jobs"
+    id           = Column(String, primary_key=True)
+    status       = Column(String, default="running")   # running | done | error
+    started_by   = Column(String, default="")
+    started_at   = Column(String, default="")
+    heartbeat_at = Column(String, default="")          # bumped after every project
+    finished_at  = Column(String, default="")
+    total        = Column(Integer, default=0)          # projects to do
+    done         = Column(Integer, default=0)          # projects finished
+    current      = Column(String, default="")          # project being imported now
+    result       = Column(JSON, default=dict)          # the counts dict the UI already renders
+    error        = Column(String, default="")
+    # Cancel is a REQUEST, not an act: the worker is mid-project on another
+    # thread (another process, on dev) and killing it there would leave that
+    # project half-imported. The loop checks this between projects and stops
+    # cleanly. Import is additive, so a partial run is safe to resume.
+    cancel_requested = Column(Boolean, default=False)
+    # Resume state. `done_gids` are the Asana projects this run has finished, so
+    # a restart skips straight to the remainder instead of re-walking all 109
+    # from the top. `attempts` counts how many times the run has been picked up
+    # again, and stops a project that reliably kills its worker from restarting
+    # the same import forever.
+    done_gids    = Column(JSON, default=list)
+    attempts     = Column(Integer, default=1)

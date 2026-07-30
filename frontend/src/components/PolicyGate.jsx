@@ -22,7 +22,7 @@ const _E2E = import.meta.env.VITE_E2E === 'true';
 // language is yours to set.
 const POLICY_SECTIONS = [
   { h: 'Acceptable use',
-    p: 'Nexus and the devices you use to access it are company property, provided for work. Use them in line with Greens Global’s policies. Do not share your access or use the portal for anything unlawful.' },
+    p: 'Nexus and the devices you use to access it are company property, provided for work. Use them in line with your organization’s policies. Do not share your access or use the portal for anything unlawful.' },
   { h: 'Employee monitoring (please read)',
     p: 'On company-managed devices, while you are clocked in, Nexus may capture periodic screenshots of your work screen(s), record which applications and window titles are active, and measure your overall activity level. This is to verify worked time and support performance review. It does NOT capture your keystrokes, and it stops when you clock out. Capture never runs on a personal device unless you explicitly share your screen.' },
   { h: 'How the data is used',

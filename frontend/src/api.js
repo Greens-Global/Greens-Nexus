@@ -343,7 +343,12 @@ export const api = {
   asanaSyncPushAll: () => req("/asana-sync/push-all", { method: "POST", timeoutMs: 600000 }),
   asanaSyncDedupe: (apply) => req(`/asana-sync/dedupe?apply=${apply ? "true" : "false"}`, { method: "POST", timeoutMs: 600000 }),
   // Walks every project in the workspace - same 10-min ceiling as Pull/Push all.
-  asanaSyncImportAll: () => req("/asana-sync/import-all", { method: "POST", timeoutMs: 600000 }),
+  // Starts a background job and returns it right away; a whole workspace takes
+  // minutes and Azure kills any request at ~230s. Poll asanaSyncImportAllStatus.
+  asanaSyncImportAll: () => req("/asana-sync/import-all", { method: "POST" }),
+  asanaSyncImportAllStatus: () => req("/asana-sync/import-all/status"),
+  // Asks the run to stop at the next project boundary; it does not kill it.
+  asanaSyncImportAllCancel: () => req("/asana-sync/import-all/cancel", { method: "POST" }),
   asanaSyncPurgeOrphans: (apply) => req(`/asana-sync/purge-orphans?apply=${apply ? "true" : "false"}`, { method: "POST", timeoutMs: 600000 }),
   getAsanaSyncProjects: () => req("/asana-sync/asana-projects", { timeoutMs: 60000 }),
   getAsanaWebhooks: () => req("/asana-sync/webhooks"),
@@ -926,10 +931,40 @@ export const api = {
   // ── Documents (DMS) - Import from Egnyte ──
   egnyteBrowse:    (path = '') => req(`/documents/egnyte/browse?path=${encodeURIComponent(path)}`),
   egnyteFetchFile: (path)      => reqBlob(`/documents/egnyte/file?path=${encodeURIComponent(path)}`),
+
+  // ── Egnyte module (browse/upload at the right folder level) ──
+  // These hit /egnyte/*, the module router. The two above hit /documents/egnyte/*
+  // and are the DMS IMPORTER's own view (extension-filtered to what it can
+  // convert) - both go through the same backend client, so do not "unify" them
+  // by pointing one at the other.
+  egnyteStatus:      ()                   => req('/egnyte/status'),
+  egnyteFolder:      (path = '')          => req(`/egnyte/folder?path=${encodeURIComponent(path)}`),
+  egnyteFile:        (path)               => reqBlob(`/egnyte/file?path=${encodeURIComponent(path)}`),
+  // Same bytes, but asking to VIEW rather than download, so the response carries
+  // the file's real content type and the blob can be rendered. The server grants
+  // that only for its own allowlist (PDF/image/text) - see routers/egnyte.py.
+  egnyteFilePreview: (path)               => reqBlob(`/egnyte/file?path=${encodeURIComponent(path)}&inline=true`),
+  egnyteSearch:      (q, folder = '')     => req(`/egnyte/search?q=${encodeURIComponent(q)}&folder=${encodeURIComponent(folder)}`),
+  egnyteCreateFolder:(path)               => req('/egnyte/folder', { method: 'POST', body: JSON.stringify({ path }) }),
+  egnyteProperty:    (site)               => req(`/egnyte/property/${encodeURIComponent(site)}`),
+  // multipart: let the browser set the boundary, never set Content-Type by hand
+  egnyteUpload:      (folder, file) => {
+    const fd = new FormData();
+    fd.append('folder', folder);
+    fd.append('file', file);
+    return req('/egnyte/upload', { method: 'POST', body: fd });
+  },
   // ── Step-up MFA (fresh verification before sensitive data) ──
   stepupConfig:  ()      => req('/stepup/config'),
   stepupStatus:  ()      => req('/stepup/status'),
   stepupVerify:  (token) => req('/stepup/verify', { method: 'POST', body: JSON.stringify({ token: token || '' }) }),
+
+  // ── Branding (login-screen accent color, Global Admin-configurable) ──
+  // GET is unauthenticated on the backend (the login screen itself needs it
+  // pre-login) - req() still works fine here since it just sends no auth
+  // header when there's no signed-in account yet.
+  getBrandingConfig:    ()        => req('/branding/config'),
+  updateBrandingConfig: (accent)  => req('/branding/config', { method: 'PUT', body: JSON.stringify({ accent }) }),
 
   // ── Investor Relations (GP capital management: funds, LPs, calls, distributions) ──
   // List endpoints drop empty/undefined params so filters never send "undefined".

@@ -14,7 +14,7 @@ export default function Placeholder({ viewName, onBack }) {
       <div>
         <h2 style={{ fontSize: "2rem", marginBottom: 8 }}>{title} Sub-Application</h2>
         <p style={{ color: "var(--text-secondary)", maxWidth: 500, margin: "0 auto" }}>
-          This micro-application is registered in the Greens Nexus Master Portal. The sub-application sandbox container is loaded and ready for integration.
+          This micro-application is registered in the Nexus Master Portal. The sub-application sandbox container is loaded and ready for integration.
         </p>
       </div>
       <div style={{ backgroundColor: "var(--bg-secondary)", border: "1px solid var(--border-color)", borderRadius: 8, padding: "16px 24px", fontFamily: "monospace", fontSize: "0.85rem", color: "var(--text-secondary)", textAlign: "left", width: "100%" }}>

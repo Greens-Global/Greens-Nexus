@@ -243,7 +243,7 @@ def _alert_html(subject: str, message: str) -> str:
     </tr>
     <tr>
       <td style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:14px 28px;font-size:11.5px;color:#6b7280;line-height:1.5">
-        Sent via Greens Nexus. This is an automated alert - replies to this mailbox are not monitored.
+        Sent via Nexus. This is an automated alert - replies to this mailbox are not monitored.
       </td>
     </tr>
   </table>

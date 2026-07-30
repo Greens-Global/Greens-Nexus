@@ -1137,3 +1137,76 @@ class MentionSyncTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class IncrementalPullWindowTests(unittest.TestCase):
+    """Which projects get a cheap incremental fetch and which get a full listing.
+
+    The stakes are lopsided: an unnecessary full listing costs a few API calls,
+    while an incremental run wrongly treated as complete would let _reap_deleted
+    delete every task that simply wasn't modified. So every uncertain case has
+    to resolve to 'full'."""
+
+    def _map(self, last_pull_at="", last_full_pull_at=""):
+        return models.AsanaProjectMap(id=gen_id(), nexus_project_id="p1",
+                                      asana_project_gid="g1", last_pull_at=last_pull_at,
+                                      last_full_pull_at=last_full_pull_at)
+
+    @staticmethod
+    def _ago(seconds):
+        from datetime import datetime, timedelta, timezone
+        return (datetime.now(timezone.utc) - timedelta(seconds=seconds)).isoformat()
+
+    @staticmethod
+    def _now():
+        from datetime import datetime, timezone
+        return datetime.now(timezone.utc)
+
+    def test_a_project_never_pulled_gets_a_full_listing(self):
+        since, is_full = asana_sync._pull_window(self._map(), self._now())
+
+        self.assertTrue(is_full)
+        self.assertEqual(since, "")
+
+    def test_a_recently_swept_project_goes_incremental(self):
+        pm = self._map(last_pull_at=self._ago(120), last_full_pull_at=self._ago(300))
+
+        since, is_full = asana_sync._pull_window(pm, self._now())
+
+        self.assertFalse(is_full)
+        self.assertTrue(since)
+
+    def test_the_cursor_is_rewound_so_a_mid_pull_edit_is_not_missed(self):
+        """Re-applying a task we already have is free - the digests skip it -
+        but an edit that lands between fetch and stamp would be lost forever."""
+        from datetime import datetime
+        pm = self._map(last_pull_at=self._ago(120), last_full_pull_at=self._ago(300))
+
+        since, _ = asana_sync._pull_window(pm, self._now())
+
+        cursor = datetime.fromisoformat(pm.last_pull_at)
+        self.assertLess(datetime.fromisoformat(since), cursor)
+
+    def test_a_stale_full_sweep_forces_a_full_listing_again(self):
+        """Deletions are invisible to an incremental fetch, so the complete
+        listing has to come back around."""
+        pm = self._map(last_pull_at=self._ago(60),
+                       last_full_pull_at=self._ago(asana_sync._FULL_SWEEP_MIN * 60 + 60))
+
+        _, is_full = asana_sync._pull_window(pm, self._now())
+
+        self.assertTrue(is_full)
+
+    def test_an_unreadable_cursor_falls_back_to_full(self):
+        pm = self._map(last_pull_at="not-a-date", last_full_pull_at="also-not")
+
+        since, is_full = asana_sync._pull_window(pm, self._now())
+
+        self.assertTrue(is_full)
+        self.assertEqual(since, "")
+
+    def test_a_cursor_without_a_full_sweep_recorded_falls_back_to_full(self):
+        """Rows written before these columns existed have one but not the other."""
+        _, is_full = asana_sync._pull_window(self._map(last_pull_at=self._ago(60)), self._now())
+
+        self.assertTrue(is_full)

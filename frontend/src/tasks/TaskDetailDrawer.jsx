@@ -400,7 +400,7 @@ function ShareModal({ task, people, nameOf, patch, onClose }) {
   const [copied, setCopied] = useState(false);
   const copy = () => { navigator.clipboard?.writeText(`${window.location.origin}${window.location.pathname}?task=${task.id}`); setCopied(true); setTimeout(() => setCopied(false), 1500); };
   const OPTS = [
-    { key: 'org', icon: Globe, label: 'Greens Global', desc: 'Any organization member can find and access this task.' },
+    { key: 'org', icon: Globe, label: 'Everyone in your organization', desc: 'Any organization member can find and access this task.' },
     { key: 'restricted', icon: Lock, label: 'Members of this task and connected projects', desc: 'Only invited members and members of connected projects can access.' },
   ];
   return createPortal(

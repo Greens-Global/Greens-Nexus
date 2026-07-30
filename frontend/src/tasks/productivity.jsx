@@ -9,7 +9,7 @@ import { SlidersHorizontal, ArrowUpDown, Bookmark, LayoutTemplate, Inbox, Plus, 
 import { BottomSheet } from './MobileTaskBar';
 import { useTasks } from './TasksContext';
 import { Modal, PersonSelect, usePeople, useIsMobile, DateField } from './components';
-import { NX, FONT, btn, input as inputStyle, STATUS_META, STATUS_ORDER, PRIORITY_META, PRIORITY_ORDER } from './theme';
+import { NX, FONT, btn, CONTROL_H, CONTROL_FS, CONTROL_ICON, input as inputStyle, STATUS_META, STATUS_ORDER, PRIORITY_META, PRIORITY_ORDER } from './theme';
 import { emailToName } from '../lib/utils';
 
 const SORT_OPTIONS = [
@@ -52,8 +52,8 @@ function Popover({ label, icon: Icon, active, width = 240, children, sheet = fal
   return (
     <div ref={ref} style={{ position: sheet ? 'static' : 'relative' }}>
       {/* Icon-only on phones - four labelled buttons don't fit one row (except in the sheet). */}
-      <button ref={triggerRef} onClick={() => setOpen((o) => !o)} title={label} style={{ ...btn('outline'), padding: isMobile && !sheet ? 7 : undefined, width: sheet ? '100%' : undefined, justifyContent: sheet ? 'flex-start' : undefined, color: active ? NX.blue : NX.ink, borderColor: active || open ? NX.blue : NX.border }}>
-        <Icon size={15} />{showLabel && label}
+      <button ref={triggerRef} onClick={() => setOpen((o) => !o)} title={label} style={{ ...btn('outline'), padding: isMobile && !sheet ? 7 : '0 9px', height: sheet ? undefined : CONTROL_H, fontSize: sheet ? undefined : CONTROL_FS, gap: 5, width: sheet ? '100%' : undefined, justifyContent: sheet ? 'flex-start' : undefined, color: active ? NX.blue : NX.ink, borderColor: active || open ? NX.blue : NX.border }}>
+        <Icon size={sheet ? 15 : CONTROL_ICON} />{showLabel && label}
       </button>
       {open && (
         <div style={menuStyle}>
@@ -155,7 +155,7 @@ function FiltersBody({ filters, setFilters, people, projects, lockedProjectId, h
           </div>
         </div>
       )}
-      <p style={{ margin: 0, fontSize: 11, color: NX.faint }}>Applies to List, Board and Dashboard together in this view - switching tabs keeps these filters, it doesn't reset them.</p>
+      <p style={{ margin: 0, fontSize: 11, color: NX.faint }}>Applies to this tab. Switching to Board, Calendar or any other tab clears these filters.</p>
       {filterFields.map((f) => (
         <div key={f.id}>
           <div style={groupHead}>{f.name}</div>
@@ -294,10 +294,10 @@ export function ProductivityBar({ filters, setFilters, sort, setSort, lockedProj
       </Popover>
 
       {templates.length > 0 && (
-        <button onClick={() => setTemplatesOpen(true)} title="Templates" style={{ ...btn('outline'), padding: isMobile && !sheet ? 7 : undefined, width: sheet ? '100%' : undefined, justifyContent: sheet ? 'flex-start' : undefined }}><LayoutTemplate size={15} />{(!isMobile || sheet) && 'Templates'}</button>
+        <button onClick={() => setTemplatesOpen(true)} title="Templates" style={{ ...btn('outline'), padding: isMobile && !sheet ? 7 : '0 9px', height: sheet ? undefined : CONTROL_H, fontSize: sheet ? undefined : CONTROL_FS, gap: 5, width: sheet ? '100%' : undefined, justifyContent: sheet ? 'flex-start' : undefined }}><LayoutTemplate size={CONTROL_ICON} />{(!isMobile || sheet) && 'Templates'}</button>
       )}
       {intakeForms.length > 0 && (
-        <button onClick={() => setIntakeOpen(true)} title="Intake" style={{ ...btn('outline'), padding: isMobile && !sheet ? 7 : undefined, width: sheet ? '100%' : undefined, justifyContent: sheet ? 'flex-start' : undefined }}><Inbox size={15} />{(!isMobile || sheet) && 'Intake'}</button>
+        <button onClick={() => setIntakeOpen(true)} title="Intake" style={{ ...btn('outline'), padding: isMobile && !sheet ? 7 : '0 9px', height: sheet ? undefined : CONTROL_H, fontSize: sheet ? undefined : CONTROL_FS, gap: 5, width: sheet ? '100%' : undefined, justifyContent: sheet ? 'flex-start' : undefined }}><Inbox size={CONTROL_ICON} />{(!isMobile || sheet) && 'Intake'}</button>
       )}
 
       {templatesOpen && <TemplatesModal templates={templates} createTask={createTask} onOpenTask={onOpenTask} onClose={() => setTemplatesOpen(false)} />}

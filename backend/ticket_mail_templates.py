@@ -54,7 +54,6 @@ def ticket_email_html(*, ticket_code: str, ticket_subject: str, status: str, hea
         f"<img src='{escape(logo_url)}' alt='Company logo' height='28' style='display:block' />"
         if logo_url else
         "<span style='color:#ffffff;font-size:16px;font-weight:700;letter-spacing:4px'>NEXUS</span>"
-        "<span style='color:#9fd6b8;font-size:11px;letter-spacing:1.5px;float:right;line-height:28px'>GREENS GLOBAL</span>"
     )
     secondary_html = ""
     if secondary_ctas:
@@ -164,7 +163,7 @@ def _ticket_url(base_url: str, ticket_id: str) -> str:
 
 # ── Per-event builders - each returns (subject, html) ────────────────────────
 
-COMPANY_NAME = "Greens Global"
+COMPANY_NAME = "Nexus"
 
 
 def _ticket_subject(t: dict) -> str:

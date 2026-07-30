@@ -41,6 +41,31 @@ jobs:
           }
           probe "frontend nexus.greensglobal.com" "https://nexus.greensglobal.com/"
           [ -n "$API_BASE" ] && probe "backend API /health" "${API_BASE%/}/health"
+
+          # HTTP 200 is NOT evidence the app works. The SPA fallback returns 200
+          # for everything, so every white-screen outage this month probed green
+          # while users saw nothing. The actual failure is a hashed chunk that
+          # answers with the fallback HTML (or 404s) - the module loader rejects
+          # it and the app never boots. So follow the entry chunk index.html
+          # points at and assert it is really JavaScript. No browser needed,
+          # which matters on a 10-minute cron.
+          shell_html=$(curl -s --max-time 25 "https://nexus.greensglobal.com/")
+          entry=$(printf '%s' "$shell_html" | grep -oE '/assets/index-[^"]+\.js' | head -1)
+          if [ -z "$entry" ]; then
+            echo "FAIL app shell (no entry chunk referenced by index.html)"
+            failures="$failures\n- app shell — index.html references no /assets/index-*.js entry chunk"
+          else
+            ctype=$(curl -s -o /dev/null --max-time 25 -w '%{content_type}' "https://nexus.greensglobal.com$entry")
+            ecode=$(curl -s -o /dev/null --max-time 25 -w '%{http_code}' "https://nexus.greensglobal.com$entry")
+            case "$ecode:$ctype" in
+              200:*javascript*|200:*ecmascript*)
+                echo "OK   entry chunk $entry ($ctype)" ;;
+              *)
+                echo "FAIL entry chunk $entry (HTTP $ecode, $ctype)"
+                failures="$failures\n- entry chunk — $entry served HTTP $ecode as '$ctype' (expected JavaScript; an HTML body here is the white-screen failure)" ;;
+            esac
+          fi
+
           if [ -n "$failures" ]; then
             printf 'FAILURES<<EOF\n%b\nEOF\n' "$failures" >> "$GITHUB_ENV"
           fi

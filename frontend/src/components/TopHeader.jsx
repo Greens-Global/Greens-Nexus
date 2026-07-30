@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useMemo, lazy, Suspense } from "react";
-import { Menu, Moon, Sun, Search, LogOut, Settings, User, ArrowLeft, Shield, Activity, Check, ChevronDown, LayoutDashboard, Maximize2, Minimize2, Palette, ZoomIn, ZoomOut, Camera, Clock, Sparkles, X, UserCog, DoorOpen } from "lucide-react";
+import { Menu, Moon, Sun, Search, LogOut, Settings, User, ArrowLeft, Shield, Activity, Check, ChevronDown, LayoutDashboard, Palette, Camera, Clock, Sparkles, X, UserCog, DoorOpen } from "lucide-react";
 import ScreenshotsAdmin from "./ScreenshotsAdmin";
 const Changelog = lazy(() => import("../tasks/ChangelogView"));
 import NotificationBell from "./NotificationBell";
@@ -52,30 +52,26 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
     localStorage.setItem('wk-theme', wkTheme);
   }, [wkTheme]);
 
-  // Page zoom for readability (Neil: "zoom option for old folks"). Persisted so
-  // it survives reloads. Applied to the document root; 80–150% in 10% steps.
-  // ZOOM_BASE bakes a 10% enlargement into what the control calls "100%", so
-  // the comfortable size is the default rather than something each person has
-  // to discover and dial in (Visesh: UI runs small for elderly/bespectacled).
-  const ZOOM_BASE = 1.1;
-  const [zoom, setZoom] = useState(() => Number(localStorage.getItem('gg-zoom')) || 100);
+  // Page zoom and fullscreen controls were REMOVED from the header (Visesh,
+  // Jul 30). The zoom applied a CSS `zoom` to <html>, and its default was 110%
+  // (a ZOOM_BASE of 1.1 baked into what the control called "100%"), which cost
+  // two real things:
+  //   - every window laid out ~10% narrower than its pixel size, so a 1366px
+  //     laptop behaved like ~1242px and every breakpoint fired early.
+  //   - it leaked into the PDF Editor's iframe, where WebKit disagrees with
+  //     itself: window.innerWidth reported the zoomed layout viewport (1140)
+  //     while `margin: auto` resolved against the unzoomed box (1254), putting
+  //     the landing grid 57px right of centre in Safari and dead-centre in
+  //     Chromium.
+  // Browser-native zoom (cmd/ctrl +/-) covers the readability need without
+  // either problem, and does not distort layout measurements.
+  // Any `zoom` left on <html> by the old control is cleared once on mount so a
+  // persisted 120% does not survive this change.
   useEffect(() => {
-    document.documentElement.style.zoom = `${Math.round(zoom * ZOOM_BASE)}%`;
-    localStorage.setItem('gg-zoom', String(zoom));
-  }, [zoom]);
-  const clampZoom = z => Math.max(80, Math.min(150, z));
-
-  // Fullscreen toggle for the whole app.
-  const [isFull, setIsFull] = useState(false);
-  useEffect(() => {
-    const h = () => setIsFull(!!document.fullscreenElement);
-    document.addEventListener('fullscreenchange', h);
-    return () => document.removeEventListener('fullscreenchange', h);
+    document.documentElement.style.removeProperty('zoom');
+    try { localStorage.removeItem('gg-zoom'); } catch { /* private mode */ }
   }, []);
-  function toggleFullscreen() {
-    if (document.fullscreenElement) document.exitFullscreen?.();
-    else document.documentElement.requestFullscreen?.();
-  }
+
 
   // Restricted view IDs that need at minimum supervisor role
   const RESTRICTED_MIN_SUPERVISOR = new Set([
@@ -257,21 +253,6 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
             )}
           </div>
         )}
-        <div className="header-desktop-tools">
-          <button className="icon-btn" onClick={() => setZoom(z => clampZoom(z - 10))} aria-label="Zoom out" title="Zoom out" disabled={zoom <= 80}>
-            <ZoomOut style={{ width: 16, height: 16 }} />
-          </button>
-          <button className="header-zoom-label" onClick={() => setZoom(100)} title="Reset zoom to 100%"
-            style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
-            {zoom}%
-          </button>
-          <button className="icon-btn" onClick={() => setZoom(z => clampZoom(z + 10))} aria-label="Zoom in" title="Zoom in" disabled={zoom >= 150}>
-            <ZoomIn style={{ width: 16, height: 16 }} />
-          </button>
-          <button className="icon-btn" onClick={toggleFullscreen} aria-label="Toggle fullscreen" title={isFull ? 'Exit fullscreen' : 'Fullscreen'}>
-            {isFull ? <Minimize2 style={{ width: 16, height: 16 }} /> : <Maximize2 style={{ width: 16, height: 16 }} />}
-          </button>
-        </div>
         <NotificationBell onNavigate={onNavigate} />
 
         {/* User profile pill */}

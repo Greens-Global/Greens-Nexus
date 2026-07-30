@@ -135,7 +135,7 @@ them silently off the sync worker.
 
 **Automatic on the deployed API, manual on a laptop** — `is_sync_worker()`
 (`WEBSITE_SITE_NAME`, or `NEXUS_ASANA_SYNC_WORKER=true` to opt in deliberately)
-gates the 5-min pull, the 15-min push sweep, and every fire-and-forget push.
+gates the 2-min pull, the 10-min push sweep, and every fire-and-forget push.
 Manual Pull / Push all / Import work everywhere. Without this gate every
 developer's local backend would push local edits into the real workspace.
 

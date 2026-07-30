@@ -1,0 +1,113 @@
+# Keeps every hashed asset ever shipped, forever.
+#
+# Cloudflare Pages serves exactly ONE deployment and deletes the previous
+# chunks, so a tab open across a deploy references files that no longer exist.
+# functions/assets/[[path]].js falls back to an R2 bucket for anything the
+# current deployment lacks; this workflow is what fills that bucket.
+#
+# Content-hashed filenames are immutable by construction, so accumulating them is
+# safe - a name always means the same bytes. Prune with an R2 lifecycle rule
+# (Cloudflare dashboard > R2 > bucket > Settings) rather than here; 90 days is
+# far longer than any tab stays open.
+#
+# WHY IT REBUILDS instead of reusing the Pages build: Pages' Git integration
+# builds dev itself and we cannot reach into its output. A rebuild of the same
+# commit is byte-identical, so it produces the SAME hashed filenames - provided
+# the build id matches, since vite.config.js bakes BUILD_ID into the bundle and
+# it therefore affects the hash. Pages uses CF_PAGES_COMMIT_SHA (full sha) and we
+# pass VITE_BUILD_ID=github.sha (also full), so they agree. Do not shorten either.
+#
+# Inert until set up: without R2_BUCKET + credentials this no-ops with a warning
+# instead of failing anyone's merge.
+name: Archive assets to R2
+
+on:
+  push:
+    branches: ["dev", "main"]
+    paths:
+      - "frontend/**"
+      - ".github/workflows/archive-assets.yml"
+  workflow_dispatch:
+
+concurrency:
+  # Uploads are idempotent (same name = same bytes), but no point racing.
+  group: archive-assets-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  archive:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Check R2 configuration
+        id: cfg
+        working-directory: .
+        env:
+          TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          BUCKET: ${{ vars.R2_ASSET_BUCKET }}
+        run: |
+          if [ -z "$TOKEN" ] || [ -z "$ACCOUNT" ] || [ -z "$BUCKET" ]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::R2 asset archive not configured (needs secrets CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID and variable R2_ASSET_BUCKET) — skipping."
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.cfg.outputs.ready == 'true'
+      - uses: actions/setup-node@v4
+        if: steps.cfg.outputs.ready == 'true'
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+        if: steps.cfg.outputs.ready == 'true'
+
+      - name: Build (same build id as Pages, so hashes match)
+        if: steps.cfg.outputs.ready == 'true'
+        env:
+          VITE_BUILD_ID: ${{ github.sha }}
+          VITE_API_BASE: ${{ secrets.VITE_API_BASE }}
+          VITE_REDIRECT_URI: ${{ vars.VITE_REDIRECT_URI }}
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+        run: npm run build
+
+      - name: Upload dist/assets to R2
+        if: steps.cfg.outputs.ready == 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          BUCKET: ${{ vars.R2_ASSET_BUCKET }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          count=0
+          for f in dist/assets/*; do
+            [ -f "$f" ] || continue
+            key="assets/$(basename "$f")"
+            case "$f" in
+              *.js)   ct="application/javascript" ;;
+              *.css)  ct="text/css" ;;
+              *.svg)  ct="image/svg+xml" ;;
+              *.json) ct="application/json" ;;
+              *.woff2) ct="font/woff2" ;;
+              *.woff) ct="font/woff" ;;
+              *.map)  ct="application/json" ;;
+              *)      ct="application/octet-stream" ;;
+            esac
+            # The content-type MUST be stored: the Function replays it via
+            # writeHttpMetadata, and a module served as text/plain is rejected by
+            # the browser exactly like the HTML poison we are guarding against.
+            npx wrangler@3 r2 object put "$BUCKET/$key" \
+              --file "$f" --content-type "$ct" \
+              --cache-control "public, max-age=31536000, immutable" \
+              --remote >/dev/null
+            count=$((count + 1))
+          done
+          echo "archived $count asset(s) to $BUCKET"

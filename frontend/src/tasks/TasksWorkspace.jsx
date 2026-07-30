@@ -6,7 +6,7 @@ import { List, Columns3, Calendar as CalIcon, GanttChart, LayoutDashboard, Paper
 import { useTasks } from './TasksContext';
 import { useRole } from '../contexts/RoleContext';
 import { EMPTY_FILTER, matchesFilter, topLevel, sortTasks, groupTasks, taskStats, taskIdFromUrl, fieldsForProject, cfKey } from './lib';
-import { NX, FONT, btn, input as inputStyle, STATUS_ORDER, STATUS_META, chip } from './theme';
+import { NX, FONT, btn, CONTROL_H, CONTROL_FS, CONTROL_ICON, input as inputStyle, STATUS_ORDER, STATUS_META, chip } from './theme';
 import { Avatar, StatusChip, PriorityChip, EmptyState, usePeople, useIsMobile, ProjectAccessButton } from './components';
 import CreateTaskModal from './CreateTaskModal';
 import QuickCreateTask from './QuickCreateTask';
@@ -77,8 +77,15 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
     if (v.filters) setFilters({ ...EMPTY_FILTER, ...v.filters });
     if (v.sort) setSort(v.sort);
     if (v.group) setGroup(v.group);
+    // setView, not switchView: a saved view carries its own filters and must
+    // not have them wiped by the tab change it asks for.
     if (v.view) setView(v.view);
   };
+
+  // Switching tabs starts clean. A filter set in List used to follow you into
+  // Board, where the panel is out of sight, so the missing rows read as lost
+  // data rather than a filter still doing its job.
+  const switchView = (next) => { setView(next); setFilters(EMPTY_FILTER); };
   const stats = useMemo(() => taskStats(visible), [visible]);
 
   const toggleSel = (id) => setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
@@ -130,7 +137,7 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
       <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 12, padding: '0 20px 12px', borderBottom: `1px solid ${NX.border}`, background: NX.surface, overflowX: 'visible' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 2, background: NX.border2, borderRadius: 9, padding: 2, flexShrink: 0, maxWidth: '100%', overflowX: 'visible' }}>
           {viewKinds.map((v) => (
-            <button key={v.key} onClick={() => setView(v.key)} title={v.label} style={{
+            <button key={v.key} onClick={() => switchView(v.key)} title={v.label} style={{
               ...btn('ghost'), padding: '6px 10px', borderRadius: 7, whiteSpace: 'nowrap',
               background: view === v.key ? NX.surface : 'transparent', color: view === v.key ? NX.ink : NX.dim,
               boxShadow: view === v.key ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
@@ -138,9 +145,9 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
           ))}
         </div>
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-          <div style={{ position: 'relative', width: 220 }}>
-            <Search size={15} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: NX.faint }} />
-            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search tasks…" style={{ ...inputStyle, paddingLeft: 32 }} />
+          <div style={{ position: 'relative', width: 143 }}>
+            <Search size={CONTROL_ICON} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: NX.faint }} />
+            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search tasks…" style={{ ...inputStyle, paddingLeft: 28, height: CONTROL_H, fontSize: CONTROL_FS, padding: '0 10px 0 28px' }} />
           </div>
           <ProductivityBar
             filters={filters} setFilters={setFilters} sort={sort} setSort={setSort}
@@ -225,7 +232,7 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
 
       {isMobile && (
         <MobileTaskBar
-          views={viewKinds} view={view} setView={setView}
+          views={viewKinds} view={view} setView={switchView}
           onCreate={() => openCreate({ projectId: lockedProjectId || '' })}
           filterSheet={(onClose) => (
             <MobileFilters

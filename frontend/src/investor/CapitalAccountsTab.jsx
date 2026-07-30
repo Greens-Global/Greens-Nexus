@@ -60,7 +60,7 @@ function printStatement(det) {
     .t { color: #64748b; }
     .foot { margin-top: 32px; font-size: 10px; color: #94a3b8; }
   </style></head><body>
-    <div class="eyebrow">Greens Global &mdash; Capital Account Statement</div>
+    <div class="eyebrow">Capital Account Statement</div>
     <h1>${esc(det.investorName)}</h1>
     <div class="sub">${esc(det.fundName)} &middot; As of ${esc(formatDate(det.asOf))}</div>
     <div class="grid">
@@ -77,7 +77,7 @@ function printStatement(det) {
       <thead><tr><th>Date</th><th>Activity</th><th>Type</th><th class="r">Amount</th><th class="r">Net Cash Flow</th></tr></thead>
       <tbody>${rows || '<tr><td colspan="5">No cash flows recorded.</td></tr>'}</tbody>
     </table>
-    <div class="foot">Generated ${esc(formatDate(new Date().toISOString()))} &middot; Greens Nexus &middot; Amounts shown from the investor's perspective: capital calls negative, distributions positive.</div>
+    <div class="foot">Generated ${esc(formatDate(new Date().toISOString()))} &middot; Nexus &middot; Amounts shown from the investor's perspective: capital calls negative, distributions positive.</div>
   </body></html>`);
   w.document.close();
   w.focus();
@@ -223,7 +223,7 @@ export default function CapitalAccountsTab() {
             <div style={{ padding: '20px 24px 24px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
                 <div>
-                  <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--muted)' }}>Greens Global - Investor Statement</div>
+                  <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--muted)' }}>Investor Statement</div>
                   <div style={{ fontSize: 19, fontWeight: 700, letterSpacing: '-0.02em', color: 'var(--ink)', marginTop: 4 }}>{det.investorName}</div>
                   <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 2 }}>{det.fundName} · As of {formatDate(det.asOf)}</div>
                 </div>

@@ -517,7 +517,7 @@ export function OccupancyPanel() {
 
 export function FacilitiesPanel() {
   return (
-    <Card title="Facilities" sub="Live occupancy across the Greens Storage portfolio">
+    <Card title="Facilities" sub="Live occupancy across the storage portfolio">
       <div className="facilities-grid">
         {FACILITIES.map(f => (
           <div key={f.id} className="facility-card">

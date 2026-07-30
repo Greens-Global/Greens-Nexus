@@ -1,5 +1,5 @@
 """
-Greens Nexus - Stress Test
+Nexus - Stress Test
 Usage:
     python stress_test.py --token "eyJ0..." --url "https://greens-nexus-api-dev-..."
     python stress_test.py --token "eyJ0..."          # uses default dev URL
@@ -192,7 +192,7 @@ async def run(base_url: str, token: str, n_users: int, duration: int):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Greens Nexus stress test")
+    parser = argparse.ArgumentParser(description="Nexus stress test")
     parser.add_argument("--token",    required=True, help="Azure AD JWT token (Bearer value)")
     parser.add_argument("--url",      default=DEFAULT_URL, help="API base URL")
     parser.add_argument("--users",    type=int, default=50,  help="Concurrent virtual users (default 50)")
