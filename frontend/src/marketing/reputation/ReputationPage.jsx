@@ -1,10 +1,11 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import ReputationHeader from './ReputationHeader'
 import StatCards from './StatCards'
 import ReviewsFeedCard from './ReviewsFeedCard'
 import SentimentDonut from './SentimentDonut'
 import RatingTrendCard from './RatingTrendCard'
 import StatDetailModal from './StatDetailModal'
+import WordCloudCard from './WordCloudCard'
 import { allReviews, FACILITIES } from './data'
 import { generateAiReply, replyVariationCount } from './aiReplyEngine'
 import {
@@ -13,7 +14,9 @@ import {
   computePeriodStats,
   computeSentimentBreakdown,
   computeSourceSummary,
+  computeWordFrequency,
   filterByRange,
+  filterReviews,
   hoursSince,
   propertyBreakdownInRange,
 } from './aggregate'
@@ -39,6 +42,24 @@ export default function ReputationPage({ range, onRangeChange, property, onPrope
   const [reviews, setReviews] = useState(allReviews)
   const [selectedStat, setSelectedStat] = useState(null)
   const [compareSelection, setCompareSelection] = useState(null)
+  const [reviewStatusFilter, setReviewStatusFilter] = useState('Pending')
+  const [reviewPlatformFilter, setReviewPlatformFilter] = useState('All')
+  const [reviewRatingFilter, setReviewRatingFilter] = useState('All')
+  const [reviewQuery, setReviewQuery] = useState('')
+  const feedRef = useRef(null)
+
+  // Clicking a cloud word only means something if the matching review is
+  // actually visible afterward - forcing the status filter to "All" (the feed
+  // defaults to "Pending Replies" only) and scrolling the feed into view is
+  // what makes this feel like "take me to that comment" instead of quietly
+  // filtering a list the user has to go find on their own.
+  function selectCloudWord(word) {
+    setReviewQuery(word || '')
+    if (word) {
+      setReviewStatusFilter('All')
+      feedRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+  }
 
   const comparisonRows = useMemo(() => propertyBreakdownInRange(allReviews, range), [range])
 
@@ -76,6 +97,16 @@ export default function ReputationPage({ range, onRangeChange, property, onPrope
   const lifetimePrevious = useMemo(() => computeLifetimeStats(asOf(scopedReviews, prevMonthRange.end)), [scopedReviews, prevMonthRange.end])
 
   const sentiment = useMemo(() => computeSentimentBreakdown(reviewsAsOfEnd), [reviewsAsOfEnd])
+
+  const feedFilteredReviews = useMemo(
+    () => filterReviews(reviewsInRange, { status: reviewStatusFilter, platform: reviewPlatformFilter, rating: reviewRatingFilter, query: reviewQuery }),
+    [reviewsInRange, reviewStatusFilter, reviewPlatformFilter, reviewRatingFilter, reviewQuery],
+  )
+  // Deliberately built from the whole date+property range, not the feed's
+  // active filters - a cloud that shrinks every time you filter the feed (and
+  // that includes the just-clicked word in its own query) collapses on
+  // itself. One stable overview; clicking a word only drills into the feed.
+  const wordFrequency = useMemo(() => computeWordFrequency(reviewsInRange), [reviewsInRange])
   const sourceSummary = useMemo(
     () => computeSourceSummary(asOf(scopedReviews, range.end), asOf(scopedReviews, prevMonthRange.end)),
     [scopedReviews, range.end, prevMonthRange.end],
@@ -171,11 +202,27 @@ export default function ReputationPage({ range, onRangeChange, property, onPrope
             />
           </div>
 
-          <ReviewsFeedCard
-            reviews={reviewsInRange}
-            onApprove={handleApprove}
-            onRegenerate={handleRegenerate}
+          <WordCloudCard
+            words={wordFrequency}
+            activeWord={reviewQuery || null}
+            onSelectWord={selectCloudWord}
           />
+
+          <div ref={feedRef}>
+            <ReviewsFeedCard
+              reviews={reviewsInRange}
+              onApprove={handleApprove}
+              onRegenerate={handleRegenerate}
+              statusFilter={reviewStatusFilter}
+              onStatusFilterChange={setReviewStatusFilter}
+              platformFilter={reviewPlatformFilter}
+              onPlatformFilterChange={setReviewPlatformFilter}
+              ratingFilter={reviewRatingFilter}
+              onRatingFilterChange={setReviewRatingFilter}
+              query={reviewQuery}
+              onQueryChange={setReviewQuery}
+            />
+          </div>
         </div>
 
         <div style={{ gridColumn: 'span 2', display: 'grid', gridTemplateColumns: 'repeat(1,minmax(0,1fr))', gap: 16, alignContent: 'start' }}>
