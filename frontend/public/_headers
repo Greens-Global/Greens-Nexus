@@ -32,11 +32,15 @@
 /assets/*
   Cache-Control: public, max-age=31536000, immutable
 
-# The vendored PDF engine has FIXED filenames (no content hash), so it must not
-# inherit Pages' default year-long max-age - that is what made a shipped fix
-# invisible to anyone who had already opened the editor. vite.config.js stamps
-# ?v=<build id> onto these URLs so each deploy busts them; no-cache is the
-# belt-and-braces for anything the stamp misses (revalidation is a cheap 304,
-# which matters for the 11 MB OCR training data).
+# VERIFIED NOT EFFECTIVE on Pages (Jul 30) - kept only to document intent.
+# Sub-resources under this glob still come back `max-age=31536000`; only the
+# directory's own index.html picks up no-cache, and that comes from Pages' HTML
+# handling rather than this rule. Do not rely on it, and do not "fix" the PDF
+# engine's caching by editing this block.
+#
+# What actually protects every unhashed public/ file (the PDF engine AND
+# guard.js) is the ?v=<build id> stamp applied to every emitted HTML by
+# stampUnhashedAssets in vite.config.js - a new URL per deploy, independent of
+# cache headers.
 /pdf-editor-app/*
   Cache-Control: no-cache

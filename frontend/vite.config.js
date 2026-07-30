@@ -39,42 +39,60 @@ const versionManifest = () => ({
   },
 });
 
-// The PDF engine under public/pdf-editor-app is vendored with FIXED filenames
-// (app.js, adobe-ui.js, style.css, libs/*) - no content hashes - and Cloudflare
-// Pages serves everything static with `max-age=31536000, must-revalidate`.
-// must-revalidate does not bite until the year is up, so a browser that loaded
-// app.js once kept it for a YEAR: the theme-sync fix was live at the edge and
-// invisible to anyone who had already opened the editor. Exactly the failure
-// that bricked vendor chunks in July, in a corner Vite does not hash for us.
+// Vite content-hashes everything it bundles into /assets, and _headers marks
+// those immutable - correct, and self-correcting on every deploy. Anything under
+// public/ is copied VERBATIM: fixed filename, no hash. Cloudflare Pages serves
+// those with `max-age=31536000, must-revalidate`, and must-revalidate does not
+// bite until the year is up, so one visit pins that file in a browser for a YEAR.
 //
-// So stamp ?v=<BUILD_ID> onto the engine's own local sub-resources at build
-// time. Every deploy changes the id, hence the URLs, so updates always land -
-// and because PdfEditorModule loads index.html with the same ?v=, the HTML that
-// carries these URLs is itself never stale. Only local paths are touched;
-// absolute/CDN ones are left alone.
-const stampPdfEngine = () => ({
-  name: 'nexus-stamp-pdf-engine',
+// That has now bitten twice:
+//   - the PDF engine (app.js/adobe-ui.js/style.css): the theme-sync fix was live
+//     at the edge and unreachable for exactly the people who had opened the
+//     editor before.
+//   - public/guard.js, the BOOT WATCHDOG itself, referenced unhashed from
+//     index.html. Every improvement to it was invisible to anyone who had ever
+//     loaded Nexus - including the fix that stops the white screen. A watchdog
+//     you cannot update is the worst thing in the list to get wrong.
+//
+// A _headers rule does not solve it: `/pdf-editor-app/*  Cache-Control: no-cache`
+// was verified NOT to apply to sub-resources on Pages (only the directory's
+// index.html picks up no-cache, from Pages' own HTML handling). So make it
+// structural instead of header-dependent - stamp ?v=<BUILD_ID> onto every local
+// unhashed script/stylesheet in every emitted HTML file. New id each deploy means
+// new URLs, so an update can never be shadowed by a cached copy, whatever the
+// cache headers say or whatever host this ends up on.
+//
+// /assets/* is skipped: already content-hashed, so a query would be redundant.
+// Absolute and data: URLs are left alone.
+const stampUnhashedAssets = () => ({
+  name: 'nexus-stamp-unhashed-assets',
   writeBundle: {
     sequential: true,
     order: 'post',
     async handler(options) {
-      const { readFile, writeFile } = await import('node:fs/promises');
+      const { readFile, writeFile, readdir } = await import('node:fs/promises');
       const { join } = await import('node:path');
-      const file = join(options.dir || 'dist', 'pdf-editor-app', 'index.html');
-      let html;
-      try { html = await readFile(file, 'utf8'); } catch { return; }  // engine absent
-      const stamped = html.replace(
-        /((?:src|href)=")(?!https?:|\/\/|data:)([^"?#]+\.(?:js|css))"/g,
-        `$1$2?v=${BUILD_ID}"`,
-      );
-      await writeFile(file, stamped);
+      const dir = options.dir || 'dist';
+      let entries = [];
+      try {
+        entries = (await readdir(dir, { recursive: true })).filter(f => f.endsWith('.html'));
+      } catch { return; }
+      for (const rel of entries) {
+        const file = join(dir, rel);
+        const html = await readFile(file, 'utf8');
+        const stamped = html.replace(
+          /((?:src|href)=")(?!https?:|\/\/|data:|\/assets\/)([^"?#]+\.(?:js|css))"/g,
+          `$1$2?v=${BUILD_ID}"`,
+        );
+        if (stamped !== html) await writeFile(file, stamped);
+      }
     },
   },
 });
 
 export default defineConfig({
   define: { 'import.meta.env.VITE_BUILD_ID': JSON.stringify(BUILD_ID) },
-  plugins: [react(), versionManifest(), stampPdfEngine()],
+  plugins: [react(), versionManifest(), stampUnhashedAssets()],
   base: '/',
   build: {
     rollupOptions: {
