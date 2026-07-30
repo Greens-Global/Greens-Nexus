@@ -157,7 +157,12 @@ def _run_migrations():
             "ALTER TABLE task_saved_views ADD COLUMN scope VARCHAR DEFAULT 'task'",
             "ALTER TABLE task_tickets ADD COLUMN company_id VARCHAR DEFAULT ''",
             "ALTER TABLE task_tickets ADD COLUMN hr_department_id VARCHAR DEFAULT ''",
-            "ALTER TABLE task_projects ADD COLUMN department_ids JSON DEFAULT '[]'",
+            # task_projects.department_ids: the ADD used to live here, with its DROP
+            # further down (the task_teams rename). Postgres never reuses a dropped
+            # column's slot, so replaying ADD+DROP on every startup x8 workers burned
+            # one 1600-limit attribute slot per cycle until dev's task_projects hit
+            # the cap (1580 dropped slots, Jul 31). Never re-add an ADD for a column
+            # a later line drops - the DROP alone is safe (no-op when absent).
             # Roles & Access redesign: job-role templates live on nexus_groups
             "ALTER TABLE nexus_groups ADD COLUMN is_job_role INTEGER DEFAULT 0",
             "ALTER TABLE nexus_groups ADD COLUMN tier VARCHAR DEFAULT ''",
@@ -520,7 +525,8 @@ def _run_migrations():
         "ALTER TABLE task_saved_views ADD COLUMN IF NOT EXISTS scope TEXT DEFAULT 'task'",
         "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS company_id TEXT DEFAULT ''",
         "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS hr_department_id TEXT DEFAULT ''",
-        "ALTER TABLE task_projects ADD COLUMN IF NOT EXISTS department_ids JSONB DEFAULT '[]'::jsonb",
+        # task_projects.department_ids ADD removed (see the SQLite list note): the
+        # ADD+DROP replay each startup ate task_projects' 1600 attribute slots.
         # Roles & Access redesign: job-role templates live on nexus_groups
         "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS is_job_role INTEGER DEFAULT 0",
         "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS tier VARCHAR DEFAULT ''",
