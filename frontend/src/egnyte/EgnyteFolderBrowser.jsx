@@ -8,9 +8,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ChevronRight, FolderPlus, HardDrive, RefreshCw, Search, X } from 'lucide-react';
 import { api } from '../api';
 import {
-  crumbsFor, downloadEgnyteFile, egnyteErrorMessage, isNotConnected, normPath,
+  canPreview, crumbsFor, downloadEgnyteFile, egnyteErrorMessage, isNotConnected,
+  isShortcut, normPath,
 } from './lib';
 import EgnyteListing from './EgnyteList';
+import EgnytePreview from './EgnytePreview';
 import EgnyteUpload from './EgnyteUpload';
 import {
   BODY, CARD, ELLIPSIS, Loading, NotConnected, Notice, OpenInEgnyte, ProblemNote, Spinner,
@@ -29,6 +31,9 @@ export default function EgnyteFolderBrowser({
   const [notConnected, setNotConnected] = useState(false);
   const [downloading, setDownloading] = useState('');
   const [rowError, setRowError] = useState('');
+  // The file open in the Nexus viewer, or null. Held here rather than in the
+  // listing so a search result and a folder row open the same viewer.
+  const [preview, setPreview] = useState(null);
 
   // Folder web URLs only ever arrive on the PARENT's listing, so remember them
   // as the user descends. That makes "Open in Egnyte" work for the folder you
@@ -87,6 +92,13 @@ export default function EgnyteFolderBrowser({
     } finally {
       setDownloading('');
     }
+  };
+
+  // Search results are files too: view the ones Nexus can render, download the
+  // rest. Without this a hit found by search was a download-only dead end.
+  const openResult = (r) => {
+    if (canPreview(r) && !isShortcut(r.name)) setPreview(r);
+    else download(r);
   };
 
   const runSearch = (e) => {
@@ -218,8 +230,8 @@ export default function EgnyteFolderBrowser({
               <div key={r.path} className="egnyte-row" style={{ display: 'flex', alignItems: 'flex-start', gap: 4, minWidth: 0, padding: '4px 0' }}>
                 <button
                   type="button"
-                  onClick={() => download(r)}
-                  title={`Download ${r.name}`}
+                  onClick={() => openResult(r)}
+                  title={canPreview(r) && !isShortcut(r.name) ? `View ${r.name}` : `Download ${r.name}`}
                   style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2, background: 'none', border: 'none', textAlign: 'left', cursor: 'pointer', padding: '6px 8px', fontFamily: 'inherit', color: 'var(--wk-ink)' }}
                 >
                   <span style={{ fontSize: 13.5, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
@@ -247,6 +259,7 @@ export default function EgnyteFolderBrowser({
             files={data?.files || []}
             onOpenFolder={openFolder}
             onDownload={download}
+            onPreview={setPreview}
             downloadingPath={downloading}
             emptyLabel="This folder is empty."
             emptyHint={canWrite ? 'Drop a file above to add the first one.' : undefined}
@@ -257,6 +270,8 @@ export default function EgnyteFolderBrowser({
       <div style={{ ...BODY, fontSize: 11.5, color: 'var(--wk-faint)' }}>
         Files stay in Egnyte. Nexus reads and writes them in place, so there is never a second copy to keep in sync.
       </div>
+
+      {preview && <EgnytePreview file={preview} onClose={() => setPreview(null)} />}
     </div>
   );
 }

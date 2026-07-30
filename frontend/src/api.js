@@ -940,6 +940,10 @@ export const api = {
   egnyteStatus:      ()                   => req('/egnyte/status'),
   egnyteFolder:      (path = '')          => req(`/egnyte/folder?path=${encodeURIComponent(path)}`),
   egnyteFile:        (path)               => reqBlob(`/egnyte/file?path=${encodeURIComponent(path)}`),
+  // Same bytes, but asking to VIEW rather than download, so the response carries
+  // the file's real content type and the blob can be rendered. The server grants
+  // that only for its own allowlist (PDF/image/text) - see routers/egnyte.py.
+  egnyteFilePreview: (path)               => reqBlob(`/egnyte/file?path=${encodeURIComponent(path)}&inline=true`),
   egnyteSearch:      (q, folder = '')     => req(`/egnyte/search?q=${encodeURIComponent(q)}&folder=${encodeURIComponent(folder)}`),
   egnyteCreateFolder:(path)               => req('/egnyte/folder', { method: 'POST', body: JSON.stringify({ path }) }),
   egnyteProperty:    (site)               => req(`/egnyte/property/${encodeURIComponent(site)}`),

@@ -206,48 +206,138 @@ def web_url(path: str) -> str:
 
 # ── folder resolution ────────────────────────────────────────────────────────
 # The owner's phrase "at the right folder level" is a naming contract, not a
-# guess. Properties live under a per-site folder and plans under a fixed
-# subfolder; both are overridable by env so a re-org does not need a deploy.
+# guess. Resolution LISTS and MATCHES rather than building a path from a prefix,
+# because the real folder names are not uniform. Roots and subfolders are
+# overridable by env so a re-org does not need a deploy.
+
+# Priority order. Per Visesh (Jul 30): a property resolves to its ENTITY folder
+# under /Shared/#Entities - that is where the documents people actually want
+# live (Financials, Insurance, Lease, Legal, Operations, Properties, Sale).
+# /Shared/--Asset Management stays as a fallback and is NOT dead weight: sites
+# like Temecula exist only there, with the per-system folders (HVAC, Electrical,
+# Plumbing, ...) under "Property Plans and Maps". Dropping it would have traded
+# one wrong folder for eight missing ones.
+_DEFAULT_ROOTS = ("/Shared/#Entities", "/Shared/--Asset Management")
+
+# Checked in order against a resolved property folder's ACTUAL children; the
+# first that exists wins. Two entries because the two roots differ: entity
+# folders keep property documents under "Properties", asset-management folders
+# under "Property Plans and Maps".
+_DEFAULT_PLANS_SUBFOLDERS = ("Property Plans and Maps", "Properties")
+
+# Stripped before comparing a folder name to a site name, so one rule covers
+# every naming style instead of one special case per style.
+_LEGAL_SUFFIXES = (", llc", " llc", ", inc", " inc", ", l.p.", ", lp", " lp",
+                   ", pvt. ltd", ", pvt ltd", " pvt ltd")
+_SITE_PREFIXES = ("greens ", "gs ")
+
+
+def property_roots() -> list[str]:
+    """Roots to search, highest priority first. EGNYTE_PROPERTIES_ROOTS takes a
+    comma-separated list; the older singular EGNYTE_PROPERTIES_ROOT still works
+    and pins resolution to exactly one root."""
+    raw = (os.getenv("EGNYTE_PROPERTIES_ROOTS", "").strip()
+           or os.getenv("EGNYTE_PROPERTIES_ROOT", "").strip())
+    if raw:
+        return [norm(p) for p in raw.split(",") if p.strip()]
+    return [norm(p) for p in _DEFAULT_ROOTS]
+
+
+def plans_subfolders() -> list[str]:
+    raw = os.getenv("EGNYTE_PLANS_SUBFOLDER", "").strip()
+    if raw:
+        return [s.strip() for s in raw.split(",") if s.strip()]
+    return list(_DEFAULT_PLANS_SUBFOLDERS)
+
+
+def _site_key(name: str) -> str:
+    """Reduce a folder name to the bare site it refers to.
+
+    Verified against the live tenant (Jul 30). Folder names carry a company
+    prefix, a legal suffix, or both, and the two roots disagree about which:
+        "Greens Escondido, LLC"  -> escondido      (#Entities)
+        "GS Temecula"            -> temecula       (--Asset Management)
+        "Greens Valley Center, LLC" -> valley center
+    Comparing on this key is what lets "Escondido" find its folder under either
+    convention. It also keeps neighbours distinct: "Valley Center Inv 1, LLC"
+    reduces to "valley center inv 1", so an exact-key match on "valley center"
+    still prefers the entity folder over the investment vehicle."""
+    n = (name or "").strip().lower()
+    for suf in _LEGAL_SUFFIXES:
+        if n.endswith(suf):
+            n = n[: -len(suf)]
+            break
+    for pre in _SITE_PREFIXES:
+        if n.startswith(pre):
+            n = n[len(pre):]
+            break
+    return n.strip(" ,.-")
+
+
+def create_root() -> str:
+    """Where a NEW property folder gets made - deliberately NOT the root we read
+    from first. /Shared/#Entities is a legal-entity register: creating a company
+    in it from a property screen would be a finance and legal act wearing the
+    costume of a documents one, and a mis-named entity there is not something
+    Nexus should be able to do. New properties get a working folder under asset
+    management, which is what that root is for."""
+    explicit = os.getenv("EGNYTE_CREATE_ROOT", "").strip()
+    return norm(explicit) if explicit else property_roots()[-1]
+
 
 def folder_for_property(site: str) -> str:
-    """Best-guess path for a site. Prefer resolve_property_folder() - real folder
-    names are NOT uniform (see below)."""
-    root = os.getenv("EGNYTE_PROPERTIES_ROOT", "/Shared/--Asset Management").strip()
-    return norm(f"{root}/{site}")
+    """PROPOSED path for a site that has no folder yet. Only for the create-it
+    flow; use resolve_property_folder() to find something that already exists."""
+    return norm(f"{create_root()}/{site}")
 
 
 def resolve_property_folder(site: str) -> str | None:
-    """Find a property's real folder by listing the root and matching.
+    """Find a property's real folder by listing each root and matching.
 
-    Verified against the live tenant (Jul 30): the 16 folders under
-    /Shared/--Asset Management use THREE different naming styles -
-      * "GS <site>"            e.g. GS Temecula, GS Valley Center
-      * a street address       e.g. 918 S. El Camino Real, 34751 Doheny Place
-      * a project name         e.g. Greens Heritage (Menifee)
-    Half of them do not follow "GS <site>" at all, so constructing the path from
-    a prefix would silently 404 for eight properties. Match instead of guess.
+    Matching is exact-name, then site-key, then substring - all within one root
+    before moving to the next, so the higher-priority root wins even on a weaker
+    match. Substring is last because it is the loose one ("918 el camino").
 
-    Returns None when nothing matches - the caller reports `missing` and offers
-    to create, which is the correct behaviour for a genuinely new property.
+    Returns None when nothing matches anywhere - the caller reports `missing`
+    and offers to create, which is correct for a genuinely new property.
     """
-    root = os.getenv("EGNYTE_PROPERTIES_ROOT", "/Shared/--Asset Management").strip()
     want = (site or "").strip().lower()
     if not want:
         return None
-    names = [f["name"] for f in list_folder(root)["folders"]]
-    for candidate in (
-        lambda n: n.lower() == want,                 # exact folder name
-        lambda n: n.lower() == f"gs {want}",         # the GS <site> convention
-        lambda n: want in n.lower(),                 # partial, e.g. "918 el camino"
-    ):
-        for n in names:
-            if candidate(n):
-                return norm(f"{root}/{n}")
+    for root in property_roots():
+        try:
+            names = [f["name"] for f in list_folder(root)["folders"]]
+        except EgnyteError:
+            continue        # a missing/forbidden root must not hide the others
+        for matches in (
+            lambda n: n.lower() == want,
+            lambda n: _site_key(n) == want,
+            lambda n: want in n.lower(),
+        ):
+            for n in names:
+                if matches(n):
+                    return norm(f"{root}/{n}")
     return None
 
 
-def plans_folder(site_folder: str) -> str:
-    """Plans live in a fixed subfolder of the property folder - verified present
-    in the live tenant. Takes a RESOLVED folder path, not a site name."""
-    sub = os.getenv("EGNYTE_PLANS_SUBFOLDER", "Property Plans and Maps").strip()
-    return norm(f"{site_folder}/{sub}")
+def plans_folder(site_folder: str, child_names: list[str] | None = None) -> str:
+    """The documents subfolder inside a resolved property folder.
+
+    Pass the folder's actual child names and the first candidate that EXISTS
+    wins - the two roots use different names for the same idea, and picking from
+    reality avoids pointing the UI at a folder that was never there.
+
+    When the folder exists but uses neither name, this returns the property
+    folder ITSELF rather than an invented subfolder: showing what is really
+    there beats an empty state for a path that never existed. Only with no
+    children at all (the property is not in Egnyte yet) does it fall back to the
+    first candidate, as the path the create-it flow would make."""
+    subs = plans_subfolders()
+    if child_names is not None:
+        by_lower = {n.lower(): n for n in child_names}
+        for cand in subs:
+            hit = by_lower.get(cand.lower())
+            if hit:
+                return norm(f"{site_folder}/{hit}")
+        return norm(site_folder)
+    return norm(f"{site_folder}/{subs[0]}")

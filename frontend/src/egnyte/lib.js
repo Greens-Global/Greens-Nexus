@@ -121,6 +121,42 @@ export function filesFromPaste(e) {
   return out;
 }
 
+// ── preview ──────────────────────────────────────────────────────────────────
+
+// MIRRORS the server allowlist in routers/egnyte.py - it decides which viewer to
+// offer, the server decides what it will actually serve inline. Keep the two in
+// step, and note the client copy is a convenience, never the security boundary:
+// a file the server will not serve inline simply falls back to downloading.
+//
+// HTML and SVG are absent deliberately. Previews render through a blob: URL,
+// which inherits the APP's origin, so either one would run as first-party
+// script - stored XSS by way of an Egnyte upload.
+const PREVIEW_BY_EXT = {
+  pdf: 'pdf',
+  png: 'image', jpg: 'image', jpeg: 'image', gif: 'image', webp: 'image',
+  txt: 'text', log: 'text', csv: 'text', md: 'text', markdown: 'text',
+};
+
+// Text is read into memory to render, so cap it. Past this a file is a download,
+// not something anyone is reading in a modal.
+export const MAX_TEXT_PREVIEW_BYTES = 400 * 1024;
+
+export function previewKindFor(name = '') {
+  const ext = name.includes('.') ? name.split('.').pop().toLowerCase() : '';
+  return PREVIEW_BY_EXT[ext] || null;
+}
+
+export const canPreview = (file) => !!previewKindFor(file?.name);
+
+// Egnyte shortcuts are pointers, not documents - previewing one shows bytes that
+// mean nothing. They open in Egnyte instead.
+export const isShortcut = (name = '') => name.toLowerCase().endsWith('.egnyte_d');
+
+export async function fetchEgnytePreview(path) {
+  const { blob } = await api.egnyteFilePreview(path);
+  return blob;
+}
+
 // ── download ─────────────────────────────────────────────────────────────────
 
 // Pull the bytes through the API (the browser cannot call Egnyte directly - the

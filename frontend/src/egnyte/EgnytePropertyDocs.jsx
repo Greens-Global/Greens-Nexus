@@ -20,6 +20,7 @@ import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { downloadEgnyteFile, egnyteErrorMessage, isNotConnected } from './lib';
 import EgnyteListing from './EgnyteList';
+import EgnytePreview from './EgnytePreview';
 import EgnyteUpload from './EgnyteUpload';
 import {
   BODY, CARD, ELLIPSIS, HEADING, Loading, NotConnected, Notice, OpenInEgnyte, ProblemNote,
@@ -42,6 +43,7 @@ export default function EgnytePropertyDocs({ site, canWrite: canWriteProp, title
   const [creating, setCreating] = useState(false);
   const [downloading, setDownloading] = useState('');
   const [rowError, setRowError] = useState('');
+  const [preview, setPreview] = useState(null);
 
   const load = useCallback(() => {
     if (!site) { setData(null); setLoading(false); return; }
@@ -123,8 +125,8 @@ export default function EgnytePropertyDocs({ site, canWrite: canWriteProp, title
           <div style={{ ...HEADING, fontSize: 14, marginBottom: 6 }}>No Egnyte Folder Yet</div>
           <div style={{ ...BODY, maxWidth: 400, margin: '0 auto' }}>
             This property has no folder in Egnyte so far, which is normal for a new one.
-            Creating it sets up the plans folder at the standard location, and uploads from
-            here will land in it.
+            Creating it sets up a documents folder under asset management, at the path
+            below, and uploads from here will land in it.
           </div>
           <div style={{ ...BODY, fontSize: 11.5, marginTop: 8, color: 'var(--wk-faint)', wordBreak: 'break-word' }}>
             {data.plansFolder}
@@ -152,14 +154,17 @@ export default function EgnytePropertyDocs({ site, canWrite: canWriteProp, title
                 else if (url) window.open(url, '_blank', 'noopener');
               }}
               onDownload={download}
+              onPreview={setPreview}
               downloadingPath={downloading}
-              emptyLabel="No plans in Egnyte for this property yet."
+              emptyLabel="No documents in Egnyte for this property yet."
               emptyHint={canWrite ? 'Drop a file above to add the first one.' : undefined}
             />
           </div>
-          <OpenInEgnyte url={data?.plansWebUrl} label="Open Plans Folder in Egnyte" />
+          <OpenInEgnyte url={data?.plansWebUrl} label="Open Documents Folder in Egnyte" />
         </>
       )}
+
+      {preview && <EgnytePreview file={preview} onClose={() => setPreview(null)} />}
     </div>
   );
 }

@@ -2,12 +2,19 @@
 //
 // One listing component shared by the browser and the property panel, so a file
 // row looks and behaves the same wherever Egnyte content shows up. Clicking a
-// folder descends; clicking a file pulls the bytes down through the API. Every
-// row also carries its Egnyte deep link, because Egnyte stays the place where
+// folder descends; clicking a file OPENS it in the Nexus viewer when the type
+// allows, and downloads it otherwise. Download stays available on every row as
+// its own button, so the row click can be the safe, reversible action. Every row
+// also carries its Egnyte deep link, because Egnyte stays the place where
 // permissions, versions and sharing are managed.
-import { ChevronRight, Download, FileText, Folder } from 'lucide-react';
-import { formatBytes, formatWhen } from './lib';
+import { ChevronRight, Download, Eye, FileText, Folder } from 'lucide-react';
+import { canPreview, formatBytes, formatWhen, isShortcut } from './lib';
 import { BODY, ELLIPSIS, EmptyFolder, OpenInEgnyte, Spinner } from './ui';
+
+const ICON_BTN = {
+  background: 'none', border: 'none', cursor: 'pointer', padding: 5,
+  display: 'inline-flex', alignItems: 'center', color: 'var(--wk-faint)', flexShrink: 0,
+};
 
 const ROW = {
   display: 'flex', alignItems: 'center', gap: 10, width: '100%',
@@ -29,6 +36,7 @@ export default function EgnyteListing({
   files = [],
   onOpenFolder,
   onDownload,
+  onPreview,
   downloadingPath = '',
   emptyLabel = 'This folder is empty.',
   emptyHint,
@@ -50,9 +58,18 @@ export default function EgnyteListing({
 
       {files.map(f => {
         const busy = downloadingPath === f.path;
+        // Viewable in Nexus? Shortcuts are excluded even though ".egnyte_d" looks
+        // like a file - they point at another item rather than holding content,
+        // so previewing one would show meaningless bytes.
+        const viewable = !!onPreview && canPreview(f) && !isShortcut(f.name);
         return (
           <div key={`f:${f.path}`} className="egnyte-row" style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
-            <button type="button" style={ROW} onClick={() => !busy && onDownload?.(f)} title={`Download ${f.name}`}>
+            <button
+              type="button"
+              style={ROW}
+              onClick={() => { if (busy) return; if (viewable) onPreview(f); else onDownload?.(f); }}
+              title={viewable ? `View ${f.name}` : `Download ${f.name}`}
+            >
               {busy
                 ? <Spinner size={16} />
                 : <FileText size={16} style={{ color: 'var(--wk-faint)', flexShrink: 0 }} />}
@@ -60,7 +77,16 @@ export default function EgnyteListing({
                 <span style={{ fontSize: 13.5, ...ELLIPSIS }}>{f.name}</span>
                 <Meta file={f} />
               </span>
-              <Download size={14} style={{ color: 'var(--wk-faint)', flexShrink: 0 }} />
+              {viewable && <Eye size={14} style={{ color: 'var(--wk-faint)', flexShrink: 0 }} />}
+            </button>
+            <button
+              type="button"
+              style={ICON_BTN}
+              title={`Download ${f.name}`}
+              aria-label={`Download ${f.name}`}
+              onClick={e => { e.stopPropagation(); if (!busy) onDownload?.(f); }}
+            >
+              <Download size={14} />
             </button>
             <OpenInEgnyte url={f.webUrl} iconOnly />
           </div>
