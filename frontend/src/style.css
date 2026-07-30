@@ -3386,20 +3386,28 @@ button, [role="button"], select { touch-action: manipulation; }
 }
 
 /* ── PDF Editor module: full-bleed workspace below the header ────────────── */
+/* NO negative margins. This used to sit inside a padded .viewport and cancel that
+   padding with `margin: -32px -36px` plus one -18px override. But .viewport has
+   FIVE different paddings across breakpoints (32/36, 24/22, 18, 12, 10/8), so the
+   cancellation only ever matched two of them and the editor was off-center at
+   every other width. App.jsx now renders this view with `viewport-flush`
+   (padding: 0), the same idiom the Tasks workspace uses, so there is no padding
+   to fight and it lines up at every size. */
 .pdf-editor-module {
-  /* Landing screen: the Nexus top header (56px) is still shown, so fill the
-     remaining viewport below it. Cancel .viewport padding to sit edge-to-edge. */
-  margin: -32px -36px;
-  /* dvh, not vh: on iOS Safari 100vh exceeds the visible viewport (the dynamic
-     toolbar is excluded), which pushed the editor's own status bar off-screen. */
-  height: calc(100dvh - 56px);
+  width: 100%;
+  /* viewport-flush is already `height: calc(100vh - 56px)`; filling it means the
+     module never has to know the header's height itself. */
+  height: 100%;
+  min-height: 0;      /* so it can shrink inside the flex column instead of overflowing */
   overflow: hidden;
   /* Behind the iframe while it loads - follow the Nexus theme rather than
      hardcoding the engine's dark canvas, which flashed dark in light mode. */
   background: var(--wk-bg);
 }
 [data-theme="dark"] .pdf-editor-module { background: #1e1e2e; }
-/* A document is open → App.jsx hides the top header → fill the whole viewport. */
+/* A document is open → App.jsx hides the top header → take the whole viewport.
+   dvh, not vh: on iOS Safari 100vh exceeds the visible viewport (the dynamic
+   toolbar is excluded), which pushed the editor's own status bar off-screen. */
 .pdf-editor-module.has-doc {
   height: 100dvh;
 }
@@ -3408,7 +3416,4 @@ button, [role="button"], select { touch-action: manipulation; }
   height: 100%;
   border: none;
   display: block;
-}
-@media (max-width: 1100px) {
-  .pdf-editor-module { margin: -18px; } /* mobile .viewport padding is 18px */
 }

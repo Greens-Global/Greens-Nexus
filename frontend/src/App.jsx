@@ -452,7 +452,11 @@ function MainApp() {
             )}
             {/* viewport-desk: the Work OS canvas (soft gray --wk-bg) for the
                 dashboard surfaces - see the Work OS section in style.css */}
-            <div className={activeView === 'tasks' ? 'viewport viewport-flush'
+            {/* pdf-editor is flush for the same reason tasks is: it owns its
+                whole canvas. It used to cancel .viewport's padding with negative
+                margins, which only matched ONE of the five breakpoint paddings
+                and so sat off-center at most widths. */}
+            <div className={(activeView === 'tasks' || activeView === 'pdf-editor') ? 'viewport viewport-flush'
               : (activeView === 'dashboard' || activeView === 'manager-dashboard') ? 'viewport viewport-desk'
               : 'viewport'}>
               <ViewErrorBoundary resetKey={`${activeView}/${activeSub}/${viewEpoch}`}>
