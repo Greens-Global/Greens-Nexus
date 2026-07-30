@@ -931,6 +931,25 @@ export const api = {
   // ── Documents (DMS) - Import from Egnyte ──
   egnyteBrowse:    (path = '') => req(`/documents/egnyte/browse?path=${encodeURIComponent(path)}`),
   egnyteFetchFile: (path)      => reqBlob(`/documents/egnyte/file?path=${encodeURIComponent(path)}`),
+
+  // ── Egnyte module (browse/upload at the right folder level) ──
+  // These hit /egnyte/*, the module router. The two above hit /documents/egnyte/*
+  // and are the DMS IMPORTER's own view (extension-filtered to what it can
+  // convert) - both go through the same backend client, so do not "unify" them
+  // by pointing one at the other.
+  egnyteStatus:      ()                   => req('/egnyte/status'),
+  egnyteFolder:      (path = '')          => req(`/egnyte/folder?path=${encodeURIComponent(path)}`),
+  egnyteFile:        (path)               => reqBlob(`/egnyte/file?path=${encodeURIComponent(path)}`),
+  egnyteSearch:      (q, folder = '')     => req(`/egnyte/search?q=${encodeURIComponent(q)}&folder=${encodeURIComponent(folder)}`),
+  egnyteCreateFolder:(path)               => req('/egnyte/folder', { method: 'POST', body: JSON.stringify({ path }) }),
+  egnyteProperty:    (site)               => req(`/egnyte/property/${encodeURIComponent(site)}`),
+  // multipart: let the browser set the boundary, never set Content-Type by hand
+  egnyteUpload:      (folder, file) => {
+    const fd = new FormData();
+    fd.append('folder', folder);
+    fd.append('file', file);
+    return req('/egnyte/upload', { method: 'POST', body: fd });
+  },
   // ── Step-up MFA (fresh verification before sensitive data) ──
   stepupConfig:  ()      => req('/stepup/config'),
   stepupStatus:  ()      => req('/stepup/status'),
