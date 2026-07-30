@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import os
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
@@ -74,6 +75,18 @@ def norm(path: str) -> str:
     return p
 
 
+def _url_path(path: str) -> str:
+    """Percent-encode a normalised path for use in a URL.
+
+    REQUIRED, not cosmetic: folder names here contain '#' (#Entities, #Reports,
+    #Unsorted, #Needs Classification, #Inactive). Concatenating those into a URL
+    string makes httpx read the '#' as a FRAGMENT delimiter and silently drop the
+    rest - so /Shared/#Entities was requested as /Shared and Egnyte cheerfully
+    returned the parent, which looked like "the folder won't open". safe="/"
+    keeps separators intact while encoding '#', '?', spaces and the rest."""
+    return quote(norm(path), safe="/")
+
+
 def _raise(resp: httpx.Response, what: str) -> None:
     if resp.is_success:
         return
@@ -89,7 +102,7 @@ def list_folder(path: str = "") -> dict[str, Any]:
     """Folder listing. Returns folders + files with the fields the UI needs."""
     base, headers = _auth()
     target = norm(path)
-    resp = httpx.get(f"{base}{_FS}{target}", headers=headers, timeout=TIMEOUT_META)
+    resp = httpx.get(f"{base}{_FS}{_url_path(target)}", headers=headers, timeout=TIMEOUT_META)
     _raise(resp, "Could not browse Egnyte")
     data = resp.json()
     return {
@@ -117,7 +130,7 @@ def read_file(path: str) -> bytes:
     policy (the DMS importer only accepts docx/pdf/txt; a property Documents tab
     must show and download whatever is actually in the folder)."""
     base, headers = _auth()
-    resp = httpx.get(f"{base}{_FS_CONTENT}{norm(path)}", headers=headers, timeout=TIMEOUT_BYTES)
+    resp = httpx.get(f"{base}{_FS_CONTENT}{_url_path(path)}", headers=headers, timeout=TIMEOUT_BYTES)
     _raise(resp, "Could not fetch file from Egnyte")
     return resp.content
 
@@ -155,7 +168,7 @@ def upload_file(path: str, content: bytes) -> dict[str, Any]:
     base, headers = _auth()
     target = norm(path)
     resp = httpx.post(
-        f"{base}{_FS_CONTENT}{target}",
+        f"{base}{_FS_CONTENT}{_url_path(target)}",
         headers={**headers, "Content-Type": "application/octet-stream"},
         content=content,
         timeout=TIMEOUT_BYTES,
@@ -173,7 +186,7 @@ def create_folder(path: str) -> dict[str, Any]:
     is success for our purposes - the caller wanted it to exist."""
     base, headers = _auth()
     target = norm(path)
-    resp = httpx.post(f"{base}{_FS}{target}", headers=headers,
+    resp = httpx.post(f"{base}{_FS}{_url_path(target)}", headers=headers,
                       json={"action": "add_folder"}, timeout=TIMEOUT_META)
     if resp.status_code in (403, 405, 409):
         return {"path": target, "created": False, "existed": True}
