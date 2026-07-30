@@ -104,7 +104,7 @@ jobs:
             # The content-type MUST be stored: the Function replays it via
             # writeHttpMetadata, and a module served as text/plain is rejected by
             # the browser exactly like the HTML poison we are guarding against.
-            npx wrangler@3 r2 object put "$BUCKET/$key" \
+            npx wrangler@4 r2 object put "$BUCKET/$key" \
               --file "$f" --content-type "$ct" \
               --cache-control "public, max-age=31536000, immutable" \
               --remote >/dev/null
