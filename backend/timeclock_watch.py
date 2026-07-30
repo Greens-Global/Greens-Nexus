@@ -84,7 +84,7 @@ def _email(db, email: str, hours: int):
             f"{LONG_SESSION_HOURS} hours are flagged on the timesheet until corrected.</p>"
         )
         graph_mail.send_mail(from_email=from_email, to=[email], cc=None,
-                             subject=f"Greens Nexus - Time clock - Clocked in {hours}+ hours",
+                             subject=f"Nexus - Time clock - Clocked in {hours}+ hours",
                              html=html)
     except Exception:
         pass

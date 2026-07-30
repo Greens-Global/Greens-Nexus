@@ -1093,7 +1093,7 @@ export default function TimeClock() {
               <button onClick={() => setMonGate(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
             </div>
             <div style={{ padding: '16px 22px', overflowY: 'auto', fontSize: 13, color: 'var(--ink)', lineHeight: 1.65, whiteSpace: 'pre-wrap' }}>
-              {monGate.text || 'This is a company-owned device. While you are clocked in, Greens Nexus records your worked time and may capture periodic screenshots of your work screen, the apps and windows you have open, and your overall activity level. This is used only to verify work time and activity - it never captures your keystrokes, and it stops the moment you clock out.'}
+              {monGate.text || 'This is a company-owned device. While you are clocked in, Nexus records your worked time and may capture periodic screenshots of your work screen, the apps and windows you have open, and your overall activity level. This is used only to verify work time and activity - it never captures your keystrokes, and it stops the moment you clock out.'}
             </div>
             <div style={{ padding: '12px 22px', borderTop: '1px solid var(--line)' }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: 9, fontSize: 13, fontWeight: 600, cursor: 'pointer', marginBottom: 12 }}>

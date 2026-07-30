@@ -61,7 +61,7 @@ export default function PublicVerify({ token }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18 }}>
           <div style={{ width: 36, height: 36, borderRadius: 10, background: '#14532d', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 15 }}>G</div>
           <div>
-            <div style={{ fontWeight: 800, fontSize: 15, color: 'var(--ink, #111827)' }}>Greens Global</div>
+            <div style={{ fontWeight: 800, fontSize: 15, color: 'var(--ink, #111827)' }}>Nexus</div>
             <div style={{ fontSize: 11.5, color: 'var(--muted, #6b7280)' }}>Certificate verification</div>
           </div>
         </div>

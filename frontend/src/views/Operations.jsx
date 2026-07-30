@@ -234,7 +234,7 @@ export default function Operations({ activeSub, onSubChange }) {
           <div className="view-header" style={{ marginBottom: 24 }}>
             <div className="view-title-group">
               <h2>Cubby Secure Cloud Vault</h2>
-              <p>Greens Nexus internal operations blueprint repository & subcontractor plans room</p>
+              <p>Nexus internal operations blueprint repository & subcontractor plans room</p>
             </div>
             <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
               <button className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>

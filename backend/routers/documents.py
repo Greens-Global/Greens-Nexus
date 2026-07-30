@@ -512,7 +512,7 @@ def seed_starter_templates(user: dict = Depends(get_current_user), db: Session =
     now = _now_iso()
     default_lh = db.query(DocLetterhead).filter(DocLetterhead.is_default == True).first()  # noqa: E712
     if not default_lh:
-        default_lh = DocLetterhead(id=str(uuid.uuid4()), name="Greens Global - Standard",
+        default_lh = DocLetterhead(id=str(uuid.uuid4()), name="Standard",
                                     logo_path="", header_json={}, footer_json={},
                                     address="123 Placeholder Ave, Suite 100, Anytown, ST 00000",
                                     is_default=True, created_by=user["email"], created_at=now)

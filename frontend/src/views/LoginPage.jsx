@@ -62,7 +62,7 @@ export default function LoginPage() {
           <span className="nxl-mark nxl-mark--inverse">N</span>
           <span className="nxl-hero-name">Nexus</span>
         </div>
-        <h2 className="nxl-hero-title" style={{ "--i": 1 }}>Everything Greens runs on.</h2>
+        <h2 className="nxl-hero-title" style={{ "--i": 1 }}>Everything your company runs on.</h2>
         <p className="nxl-hero-sub" style={{ "--i": 2 }}>
           Tasks, time, people, items and documents - one workspace for the whole company.
         </p>
@@ -85,7 +85,7 @@ export default function LoginPage() {
           <div className="nxl-badge" style={{ "--i": 0 }} aria-hidden="true">N</div>
           <h1 className="nxl-title" style={{ "--i": 1 }}>Welcome to Nexus</h1>
           <p className="nxl-sub" style={{ "--i": 2 }}>
-            Sign in with your Greens Global account to continue.
+            Sign in with your work account to continue.
           </p>
 
           <button className="nxl-cta" style={{ "--i": 3 }} onClick={() => instance.loginRedirect(loginRequest)}>

@@ -46,7 +46,6 @@ def task_email_html(*, task_code: str, task_title: str, status: str, heading: st
         f"<img src='{escape(logo_url)}' alt='Company logo' height='28' style='display:block' />"
         if logo_url else
         "<span style='color:#ffffff;font-size:16px;font-weight:700;letter-spacing:4px'>NEXUS</span>"
-        "<span style='color:#9fd6b8;font-size:11px;letter-spacing:1.5px;float:right;line-height:28px'>GREENS GLOBAL</span>"
     )
     secondary_html = ""
     if secondary_ctas:
@@ -113,10 +112,11 @@ def _common_rows(t: dict) -> list[tuple[str, str]]:
 
 # ── Per-event builders - each returns (subject, html) ────────────────────────
 
-# The portal is Greens Global's. Kept here rather than imported from the ticket
-# templates: the two modules format their subjects differently on purpose, and
-# sharing a symbol would invite someone to "align" them again.
-COMPANY_NAME = "Greens Global"
+# The product name, per the WHITE-LABEL constraint. Kept here rather than
+# imported from the ticket templates: the two modules format their subjects
+# differently on purpose, and sharing a symbol would invite someone to
+# "align" them again.
+COMPANY_NAME = "Nexus"
 
 
 def _task_subject(t: dict, state: str) -> str:

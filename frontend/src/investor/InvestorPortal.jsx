@@ -128,7 +128,7 @@ function PortalDealDetail({ fundId, onBack }) {
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
         <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--muted)' }}>Greens Global - Investor Statement</div>
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--muted)' }}>Investor Statement</div>
           <div style={{ fontSize: 19, fontWeight: 700, letterSpacing: '-0.02em', color: 'var(--ink)', marginTop: 4 }}>{deal.fundName}</div>
           <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 2 }}>
             {[deal.entityName, deal.strategy, deal.propertyName].filter(Boolean).join(' · ') || 'Deal overview'} · As of {formatDate(deal.asOf)}
@@ -323,7 +323,7 @@ export default function InvestorPortal() {
     // Calm empty state, not an error: covers revoked access and data hiccups.
     return (
       <EmptyState icon={Briefcase} title="No Deals Available"
-        sub="You don't have access to any deals yet. If you're expecting to see an investment here, contact your Greens Global representative." />
+        sub="You don't have access to any deals yet. If you're expecting to see an investment here, contact your account representative." />
     );
   }
 
@@ -331,7 +331,7 @@ export default function InvestorPortal() {
     <div>
       <div style={{ marginBottom: 18 }}>
         <h3 style={{ fontSize: 16, fontWeight: 700, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>My Deals</h3>
-        <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '3px 0 0' }}>Your investments with Greens Global - select a deal for the full statement</p>
+        <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '3px 0 0' }}>Your investments - select a deal for the full statement</p>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(330px, 1fr))', gap: 16 }}>
         {list.map(d => <DealCard key={d.fundId} deal={d} onOpen={() => setSelectedId(d.fundId)} />)}

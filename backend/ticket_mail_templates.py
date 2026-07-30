@@ -163,7 +163,7 @@ def _ticket_url(base_url: str, ticket_id: str) -> str:
 
 # ── Per-event builders - each returns (subject, html) ────────────────────────
 
-COMPANY_NAME = "Greens Global"
+COMPANY_NAME = "Nexus"
 
 
 def _ticket_subject(t: dict) -> str:

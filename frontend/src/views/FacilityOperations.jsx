@@ -125,7 +125,7 @@ function Reputation() {
       <div className="view-header">
         <div className="view-title-group">
           <h2>Reputation Management</h2>
-          <p>Reviews across Greens Storage facilities</p>
+          <p>Reviews across storage facilities</p>
         </div>
       </div>
       <div className="kpi-grid">
@@ -164,7 +164,7 @@ function Reputation() {
             <p style={{ fontSize: 13.5, lineHeight: 1.55, color: "var(--ink)" }}>{r.text}</p>
             <div style={{ marginTop: 12 }}>
               {r.replied
-                ? <span style={{ color: "var(--ok-fg)", fontSize: 12, fontWeight: 600 }}>✓ Replied as Greens Storage</span>
+                ? <span style={{ color: "var(--ok-fg)", fontSize: 12, fontWeight: 600 }}>✓ Replied</span>
                 : <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
                     <input className="form-input" style={{ flex: 1 }} placeholder="Write a reply…" value={replyText[i] || ""} onChange={e => setReplyText(p => ({ ...p, [i]: e.target.value }))} />
                     <button className="primary-btn" onClick={() => submitReply(i)}>Reply</button>

@@ -200,7 +200,7 @@ def generate_e2e(case_id: str, user: dict = Depends(require_qa_write), db: Sessi
         flow_lines.append(f"- [{a.get('view','')}] {a.get('role','clicked')} \"{a.get('label','')}\""
                           + (f" (placeholder: {h.get('placeholder')})" if h.get("placeholder") else ""))
     prompt = (
-        "Write ONE Playwright test for an internal React app (Greens Nexus). Output ONLY JavaScript "
+        "Write ONE Playwright test for an internal React app (Nexus). Output ONLY JavaScript "
         "(an ES module .spec.mjs), no markdown fences, no prose.\n\n"
         "HARD RULES:\n"
         "1. Start with exactly these two imports:\n"
@@ -478,7 +478,7 @@ def _ai_convert_bug(bug: QaBugReport, db: Session, by: str):
         log_lines.append(f"- [{view}] {ev.get('role','click')} → \"{label}\"")
     prompt = (
         "You turn a QA bug report into ONE reproducible manual test case for an internal web app "
-        "(Greens Nexus). Write for a layman: short, concrete, click-by-click steps.\n\n"
+        "(Nexus). Write for a layman: short, concrete, click-by-click steps.\n\n"
         f"MODULES (pick the best fit): {json.dumps(_MODULES)}\n\n"
         f"BUG DESCRIPTION (from the tester):\n{bug.description}\n\n"
         + (f"RECORDED CLICK LOG (what they actually did, in order):\n" + "\n".join(log_lines) + "\n\n" if log_lines else "")

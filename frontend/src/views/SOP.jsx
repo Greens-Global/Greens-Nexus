@@ -1439,7 +1439,7 @@ export default function SOP({ activeSub, onSubChange }) {
         </div>
         {helpModal()}
         <h2 style={{ marginBottom: 4, fontSize: '1.7rem' }}>{isNew ? 'New' : 'Edit'} {draft.doc_type}</h2>
-        <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: 22 }}>Fill in the sections below, or paste raw notes and let Claude format it into the Greens Global standard.</p>
+        <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: 22 }}>Fill in the sections below, or paste raw notes and let Claude format it into the the company standard.</p>
         {errBanner}
 
         {draft._importSource && (
@@ -2501,7 +2501,7 @@ export default function SOP({ activeSub, onSubChange }) {
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: 34, fontSize: '0.8rem', color: '#475569' }}>
                       <div style={{ textAlign: 'left' }}><div style={{ borderTop: '1px solid #94a3b8', paddingTop: 5, minWidth: 150 }}>Date</div><div style={{ fontWeight: 600 }}>{fmtDate(prog.completed_at || new Date().toISOString().slice(0, 10))}</div></div>
                       <div style={{ width: 60, height: 60, borderRadius: '50%', border: '2px solid hsl(145,40%,30%)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'hsl(145,40%,30%)' }}><GraduationCap size={28} /></div>
-                      <div style={{ textAlign: 'right' }}><div style={{ borderTop: '1px solid #94a3b8', paddingTop: 5, minWidth: 150 }}>Greens Global Learning</div></div>
+                      <div style={{ textAlign: 'right' }}><div style={{ borderTop: '1px solid #94a3b8', paddingTop: 5, minWidth: 150 }}>Nexus Learning</div></div>
                     </div>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, padding: '6px 18px 16px' }}>

@@ -425,7 +425,7 @@ def translate_document(doc_id: str, payload: TranslateIn, user: dict = Depends(g
     prompt = (
         f"Translate the VALUES of this SOP JSON into {_LANG_NAME[lang]}. Return ONLY a JSON object with the exact "
         "same keys and structure, values translated naturally for a workplace audience. Keep product names and "
-        f"proper nouns (Greens Global, Greens Storage, Nexus, Ramp) as-is.\n\n{json.dumps(fields)}"
+        f"proper nouns (Nexus, Ramp) as-is.\n\n{json.dumps(fields)}"
     )
     try:
         with httpx.Client(timeout=110) as client:
@@ -831,7 +831,7 @@ def ask(payload: AskIn, user: dict = Depends(get_current_user), db: Session = De
         return {"answer": _offline_answer(q, top), "sources": sources, "grounded": bool(top)}
     context = "\n\n".join(_doc_context(d) for d in top) or "(no matching SOPs found)"
     prompt = (
-        "You are the Greens Global knowledge assistant. Answer the employee's question using ONLY the SOP "
+        "You are the Nexus knowledge assistant. Answer the employee's question using ONLY the SOP "
         "context below. Be concise. Cite the SOP IDs you used in parentheses. If the answer is not in the "
         f"context, say you couldn't find it in the SOPs.\n\nQUESTION: {q}\n\nCONTEXT:\n{context}"
     )
@@ -860,7 +860,7 @@ def ai_format(payload: AiFormatIn, user: dict = Depends(get_current_user)):
         return {"source": "heuristic", "sop": _heuristic_format(payload.content, payload.title)}
     depts = ", ".join(payload.departments) or "Company-wide"
     prompt = (
-        "You are a technical-documentation specialist for Greens Global, a self-storage and "
+        "You are a technical-documentation specialist for a self-storage and "
         "commercial real estate operator. Convert the source material into a standardized, "
         "well-structured SOP - REORGANISE and synthesise the content into the right sections; "
         "do not transcribe it line by line.\n\n"
@@ -904,7 +904,7 @@ def ai_revise(payload: AiReviseIn, user: dict = Depends(get_current_user)):
         return {"source": "offline", "sop": current}
     depts = ", ".join(payload.departments) or "Company-wide"
     prompt = (
-        "You are editing an existing Greens Global SOP. Apply the requested change and return the FULL "
+        "You are editing an existing company SOP. Apply the requested change and return the FULL "
         "revised SOP - keep everything that should stay the same and only change what the request implies.\n\n"
         f"{_STD_SCHEMA}\n\nWorking title: {payload.title or '(none)'}\nDepartments: {depts}\n\n"
         f"CURRENT SOP (JSON):\n{json.dumps(current)}\n\nREQUESTED CHANGE:\n{instruction}"
@@ -1087,7 +1087,7 @@ def ai_course(payload: AiFormatIn, user: dict = Depends(require_level(3))):
         return {"source": "heuristic", "course": _heuristic_course(payload.content, payload.title)}
     depts = ", ".join(payload.departments) or "Company-wide"
     prompt = (
-        "You are an instructional designer for Greens Global, a self-storage and commercial real estate "
+        "You are an instructional designer for a self-storage and commercial real estate "
         "operator. Turn the source material into a training course with lessons and a knowledge-check quiz. "
         "These are compliance-critical courses, so be accurate and thorough.\n\n"
         f"{_COURSE_SCHEMA}\n\nAudience departments: {depts}\nWorking title: {payload.title or '(none)'}\n\n"

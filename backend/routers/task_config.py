@@ -1401,7 +1401,7 @@ def _cluster_commits(commits: list[dict]) -> list[dict]:
         lines.append(line)
     commit_block = "\n".join(lines)
     prompt = (
-        "You turn a list of git commits from Greens Global's internal staff portal "
+        "You turn a list of git commits from the Nexus internal staff portal "
         "(\"Nexus\") into a short changelog for NON-TECHNICAL business users.\n\n"
         "Group related commits into a small number of user-facing updates (usually 1-6). "
         "SKIP commits that are pure chores, refactors, tests, docs, build/CI, dependency "

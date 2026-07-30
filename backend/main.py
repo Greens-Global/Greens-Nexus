@@ -729,7 +729,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Greens Nexus API", lifespan=lifespan)
+app = FastAPI(title="Nexus API", lifespan=lifespan)
 
 # Gzip every response over ~1 KB. The item list is ~300 KB of JSON that compresses
 # to ~10% - the single biggest win for the slow Item Management load over the wire.

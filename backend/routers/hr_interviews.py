@@ -195,7 +195,7 @@ def schedule_interview(cid: str, body: ScheduleIn, user: dict = Depends(require_
         raise HTTPException(400, "Candidate has no email - add one first")
     tpl = db.query(HrInterviewTemplate).filter(HrInterviewTemplate.id == body.template_id).first()
     cand_name = f"{cand.first_name} {cand.last_name}".strip()
-    subject = (body.subject or "").strip() or f"Interview - {cand_name} ({cand.role_title or 'Greens Global'})"
+    subject = (body.subject or "").strip() or f"Interview - {cand_name} ({cand.role_title or 'Nexus'})"
 
     iv = HrInterview(id=str(uuid.uuid4()), candidate_id=cid,
                      template_id=tpl.id if tpl else "", template_name=tpl.name if tpl else "",
