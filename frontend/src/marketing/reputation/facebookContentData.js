@@ -49,7 +49,7 @@ const POST_TEMPLATES = [
 ]
 
 function buildPostsForFacility(facility, rng) {
-  const city = facility
+  const city = facility.replace('Greens ', '')
   const count = 2 + Math.floor(rng() * 2)
   const posts = []
   for (let i = 0; i < count; i++) {

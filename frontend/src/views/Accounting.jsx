@@ -18,9 +18,9 @@ const INIT_BUDGETS = [
 ];
 
 const AMA_ENTITIES = [
-  { id: 1, entity: 'Nexus LLC', status: 'Active', feeRate: 3.5, billedYTD: 142000, nextBilling: '2026-06-01' },
+  { id: 1, entity: 'Greens Nexus LLC', status: 'Active', feeRate: 3.5, billedYTD: 142000, nextBilling: '2026-06-01' },
   { id: 2, entity: 'GN Construction Co', status: 'Active', feeRate: 4.0, billedYTD: 98000, nextBilling: '2026-06-01' },
-  { id: 3, entity: 'Real Estate Dev Ltd', status: 'Pending Review', feeRate: 3.0, billedYTD: 0, nextBilling: 'TBD' },
+  { id: 3, entity: 'Greens Real Estate Dev Ltd', status: 'Pending Review', feeRate: 3.0, billedYTD: 0, nextBilling: 'TBD' },
   { id: 4, entity: 'Global Property Management Inc', status: 'Active', feeRate: 2.5, billedYTD: 45000, nextBilling: '2026-06-15' },
 ];
 

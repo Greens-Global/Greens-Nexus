@@ -65,7 +65,7 @@ const KEYWORD_SEED = [
     cpc: 3.75,
     intent: 'Navigational',
     region: SAN_DIEGO,
-    facility: 'Valley Center',
+    facility: 'Greens Valley Center',
   },
   {
     keyword: 'self storage escondido',
@@ -74,7 +74,7 @@ const KEYWORD_SEED = [
     cpc: 4.2,
     intent: 'Navigational',
     region: SAN_DIEGO,
-    facility: 'Escondido',
+    facility: 'Greens Escondido',
   },
   {
     keyword: 'storage units temecula',
@@ -83,7 +83,7 @@ const KEYWORD_SEED = [
     cpc: 4.35,
     intent: 'Navigational',
     region: SAN_DIEGO,
-    facility: 'Temecula',
+    facility: 'Greens Temecula',
   },
 
   // Sacramento / Bay Area - region-level head terms + facility-specific long-tail (Fairfield, Georgetown).
@@ -97,7 +97,7 @@ const KEYWORD_SEED = [
     cpc: 4.1,
     intent: 'Navigational',
     region: SACRAMENTO_BAY,
-    facility: 'Fairfield',
+    facility: 'Greens Fairfield',
   },
   {
     keyword: 'storage units georgetown',
@@ -106,7 +106,7 @@ const KEYWORD_SEED = [
     cpc: 3.9,
     intent: 'Navigational',
     region: SACRAMENTO_BAY,
-    facility: 'Georgetown',
+    facility: 'Greens Georgetown',
   },
 ]
 
@@ -143,7 +143,7 @@ export function buildSerpResults(keyword) {
     if (i === ownPosition - 1) {
       rows.push({
         domain: OWN_DOMAIN,
-        title: `Acme Storage - ${keyword.keyword}`,
+        title: `Greens Storage - ${keyword.keyword}`,
         domainRating: 38,
         backlinks: Math.round(180 + rng() * 220),
         estTraffic: Math.round(keyword.volume * 0.12 * (1 - (ownPosition - 1) * 0.07)),
@@ -168,20 +168,20 @@ export function buildSerpResults(keyword) {
 const MONTH_CHECKPOINTS = ['2025-01-31', '2025-02-28', '2025-03-31', '2025-04-30', '2025-05-31', '2025-06-30']
 
 const TRACKED_SEED = [
-  { keyword: 'storage units near me', facility: 'Valley Center', priority: 'High', startPosition: 9, drift: -3 },
-  { keyword: 'self storage', facility: 'Valley Center', priority: 'High', startPosition: 14, drift: -2 },
-  { keyword: 'storage units sacramento', facility: 'Valley Center', priority: 'High', startPosition: 6, drift: -4 },
-  { keyword: 'storage facility near me', facility: 'Escondido', priority: 'High', startPosition: 8, drift: -2 },
-  { keyword: 'self storage escondido', facility: 'Escondido', priority: 'Medium', startPosition: 5, drift: -3 },
-  { keyword: 'climate controlled storage', facility: 'Escondido', priority: 'Medium', startPosition: 11, drift: 1 },
-  { keyword: 'storage units temecula', facility: 'Temecula', priority: 'Medium', startPosition: 4, drift: -2 },
-  { keyword: 'rv storage near me', facility: 'Temecula', priority: 'Medium', startPosition: 10, drift: -1 },
-  { keyword: 'storage units fairfield ca', facility: 'Fairfield', priority: 'Medium', startPosition: 6, drift: -3 },
-  { keyword: 'boat storage near me', facility: 'Fairfield', priority: 'Low', startPosition: 12, drift: 2 },
-  { keyword: 'storage units georgetown', facility: 'Georgetown', priority: 'Low', startPosition: 7, drift: -2 },
-  { keyword: 'best storage units near me', facility: 'Georgetown', priority: 'Low', startPosition: 15, drift: 3 },
-  { keyword: 'cheap storage units', facility: 'Valley Center', priority: 'Medium', startPosition: 13, drift: -1 },
-  { keyword: 'business storage units', facility: 'Escondido', priority: 'Low', startPosition: 16, drift: 0 },
+  { keyword: 'storage units near me', facility: 'Greens Valley Center', priority: 'High', startPosition: 9, drift: -3 },
+  { keyword: 'self storage', facility: 'Greens Valley Center', priority: 'High', startPosition: 14, drift: -2 },
+  { keyword: 'storage units sacramento', facility: 'Greens Valley Center', priority: 'High', startPosition: 6, drift: -4 },
+  { keyword: 'storage facility near me', facility: 'Greens Escondido', priority: 'High', startPosition: 8, drift: -2 },
+  { keyword: 'self storage escondido', facility: 'Greens Escondido', priority: 'Medium', startPosition: 5, drift: -3 },
+  { keyword: 'climate controlled storage', facility: 'Greens Escondido', priority: 'Medium', startPosition: 11, drift: 1 },
+  { keyword: 'storage units temecula', facility: 'Greens Temecula', priority: 'Medium', startPosition: 4, drift: -2 },
+  { keyword: 'rv storage near me', facility: 'Greens Temecula', priority: 'Medium', startPosition: 10, drift: -1 },
+  { keyword: 'storage units fairfield ca', facility: 'Greens Fairfield', priority: 'Medium', startPosition: 6, drift: -3 },
+  { keyword: 'boat storage near me', facility: 'Greens Fairfield', priority: 'Low', startPosition: 12, drift: 2 },
+  { keyword: 'storage units georgetown', facility: 'Greens Georgetown', priority: 'Low', startPosition: 7, drift: -2 },
+  { keyword: 'best storage units near me', facility: 'Greens Georgetown', priority: 'Low', startPosition: 15, drift: 3 },
+  { keyword: 'cheap storage units', facility: 'Greens Valley Center', priority: 'Medium', startPosition: 13, drift: -1 },
+  { keyword: 'business storage units', facility: 'Greens Escondido', priority: 'Low', startPosition: 16, drift: 0 },
 ]
 
 function findKeyword(name) {

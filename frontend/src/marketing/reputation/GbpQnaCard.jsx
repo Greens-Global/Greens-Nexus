@@ -31,7 +31,7 @@ function AnswerRow({ q, showFacility, onAnswer }) {
       {q.answer ? (
         <div style={{ borderRadius: 6, background: C.gray50, padding: '8px 10px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
-            <span style={{ fontSize: 11.5, fontWeight: 500, color: C.gray700 }}>Acme Storage</span>
+            <span style={{ fontSize: 11.5, fontWeight: 500, color: C.gray700 }}>Greens Storage</span>
             <span style={{ fontSize: 10.5, color: C.gray400 }}>{q.answeredDate && formatDateLabel(q.answeredDate)}</span>
           </div>
           <p style={{ fontSize: 12, color: C.gray600 }}>{q.answer}</p>
