@@ -14,14 +14,38 @@
 // Full-bleed: the editor is an application, not a page — it cancels the
 // viewport padding and fills everything below the top header exactly.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+
+const nexusTheme = () =>
+  document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
 
 // Cache-bust the iframe once per app load (not per render): the build id in
 // production, or a fixed 'dev' tag locally so editor updates show on refresh.
-const EDITOR_SRC = `/pdf-editor-app/index.html?v=${import.meta.env.VITE_BUILD_ID || 'dev'}`;
+// The theme rides along in the URL so the engine's FIRST paint already matches
+// Nexus - computed once at module scope, which is fine because later changes go
+// over postMessage (see below); putting live theme in src would remount the
+// iframe and discard the open document.
+const EDITOR_SRC = `/pdf-editor-app/index.html?v=${import.meta.env.VITE_BUILD_ID || 'dev'}`
+  + `&theme=${nexusTheme()}`;
 
 export default function PdfEditorModule() {
   const [hasDoc, setHasDoc] = useState(false);
+  const frameRef = useRef(null);
+
+  // Keep the engine's theme locked to Nexus's (owner request Jul 30: consistent
+  // theme across every module). App.jsx writes data-theme onto <html>, so watch
+  // that attribute rather than plumbing the theme state down through props.
+  useEffect(() => {
+    const push = () => {
+      const w = frameRef.current?.contentWindow;
+      if (!w) return;
+      try { w.postMessage({ type: 'nexus:theme', theme: nexusTheme() }, window.location.origin); } catch { /* frame not ready */ }
+    };
+    push();
+    const obs = new MutationObserver(push);
+    obs.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+    return () => obs.disconnect();
+  }, []);
   // The editor (in the iframe) posts its document state so the shell can hide
   // the Nexus top bar while editing but keep it on the landing screen. Re-emit
   // as a window event App.jsx listens to (to toggle the header). Reset to
@@ -46,9 +70,18 @@ export default function PdfEditorModule() {
   return (
     <div className={`pdf-editor-module${hasDoc ? ' has-doc' : ''}`}>
       <iframe
+        ref={frameRef}
         src={EDITOR_SRC}
         title="Nexus PDF Editor"
         allow="clipboard-write"
+        onLoad={() => {
+          // Re-assert on load: the mount-time push can land before the engine
+          // has attached its listener.
+          try {
+            frameRef.current?.contentWindow?.postMessage(
+              { type: 'nexus:theme', theme: nexusTheme() }, window.location.origin);
+          } catch { /* ignore */ }
+        }}
       />
     </div>
   );

@@ -295,6 +295,28 @@
         const apply = (theme) => {
             document.documentElement.setAttribute('data-theme', theme);
         };
+
+        // Embedded in Nexus: the HOST owns the theme, so every module matches
+        // (owner request Jul 30 - theme consistency across modules). The initial
+        // value arrives as a ?theme= param so the very first paint is already
+        // correct (no flash of the wrong theme); later changes arrive by
+        // postMessage, because changing the iframe src would reload the engine
+        // and throw away whatever document the user has open.
+        if (window.parent !== window) {
+            let initial = null;
+            try { initial = new URLSearchParams(location.search).get('theme'); } catch (_) {}
+            apply(initial === 'light' ? 'light' : 'dark');
+            window.addEventListener('message', (e) => {
+                if (e.origin !== window.location.origin) return;
+                const d = e.data;
+                if (d && d.type === 'nexus:theme' && (d.theme === 'light' || d.theme === 'dark')) apply(d.theme);
+            });
+            // The host's theme switch is the only control while embedded - a
+            // second toggle in here would just drift out of sync with the shell.
+            if (btn) btn.style.display = 'none';
+            return;
+        }
+
         // Follow the SYSTEM theme unless the user explicitly chose one here.
         const mq = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)');
         let saved = null;

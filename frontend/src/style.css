@@ -3390,13 +3390,18 @@ button, [role="button"], select { touch-action: manipulation; }
   /* Landing screen: the Nexus top header (56px) is still shown, so fill the
      remaining viewport below it. Cancel .viewport padding to sit edge-to-edge. */
   margin: -32px -36px;
-  height: calc(100vh - 56px);
+  /* dvh, not vh: on iOS Safari 100vh exceeds the visible viewport (the dynamic
+     toolbar is excluded), which pushed the editor's own status bar off-screen. */
+  height: calc(100dvh - 56px);
   overflow: hidden;
-  background: #1e1e2e;
+  /* Behind the iframe while it loads - follow the Nexus theme rather than
+     hardcoding the engine's dark canvas, which flashed dark in light mode. */
+  background: var(--wk-bg);
 }
+[data-theme="dark"] .pdf-editor-module { background: #1e1e2e; }
 /* A document is open → App.jsx hides the top header → fill the whole viewport. */
 .pdf-editor-module.has-doc {
-  height: 100vh;
+  height: 100dvh;
 }
 .pdf-editor-module iframe {
   width: 100%;

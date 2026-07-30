@@ -55,7 +55,10 @@ const CredentialVault     = lazy(() => import("./views/CredentialVault"));
 const VIEW_LABELS = Object.fromEntries(MODULES.map(m => [m.id, m.label]));
 // Views that aren't registered MODULES (e.g. "purchase") fall back to a
 // title-cased version of their id so breadcrumbs never show raw lowercase ids.
-const viewLabel = (view) => VIEW_LABELS[view]
+// Acronyms the title-caser would mangle ("pdf-editor" -> "Pdf Editor"). These
+// views live in Sidebar's NAV but not in MODULES, so they hit the fallback.
+const LABEL_OVERRIDES = { 'pdf-editor': 'PDF Editor' };
+const viewLabel = (view) => VIEW_LABELS[view] || LABEL_OVERRIDES[view]
   || (view || '').split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 
 // Minimum role required to access each restricted view - mirrors the minRole
