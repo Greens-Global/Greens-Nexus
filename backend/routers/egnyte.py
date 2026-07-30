@@ -138,13 +138,25 @@ def property_documents(site: str, user: dict = Depends(get_current_user)):
     """Everything a property card needs in ONE call: the resolved folder paths
     plus the plans listing.
 
-    `missing: true` (rather than a 404) when the site has no Egnyte folder yet -
-    that is the normal state for a new property and the UI should offer to create
-    it, not show an error.
+    Resolution LISTS and MATCHES rather than constructing a path from a prefix.
+    Verified against the live tenant: the folders under /Shared/--Asset Management
+    use three naming styles (GS <site>, a street address, a project name), and
+    half do not follow "GS <site>" - constructing would 404 for eight properties.
+
+    `missing: true` (rather than a 404) when nothing matches - that is the normal
+    state for a new property and the UI should offer to create it.
     """
     _guard()
-    folder = svc.folder_for_property(site)
-    plans = svc.plans_folder(site)
+    try:
+        folder = svc.resolve_property_folder(site)
+    except svc.EgnyteError as exc:
+        raise HTTPException(exc.status, str(exc))
+    if not folder:
+        return {"site": site, "folder": None, "plansFolder": None, "webUrl": None,
+                "plansWebUrl": None, "missing": True, "plans": {"folders": [], "files": []},
+                "systems": []}
+
+    plans = svc.plans_folder(folder)
     payload = {
         "site": site,
         "folder": folder,
@@ -153,7 +165,21 @@ def property_documents(site: str, user: dict = Depends(get_current_user)):
         "plansWebUrl": svc.web_url(plans),
         "missing": False,
         "plans": {"folders": [], "files": []},
+        "systems": [],
     }
+
+    # The per-system subfolders (HVAC, Electrical, Plumbing, ...) ARE the tabs
+    # Neil described - they come from Egnyte rather than a hardcoded list, so a
+    # folder added there appears in Nexus without a deploy.
+    try:
+        top = svc.list_folder(folder)
+        payload["systems"] = [
+            {"name": f["name"], "path": f["path"], "webUrl": svc.web_url(f["path"])}
+            for f in top["folders"]
+        ]
+    except svc.EgnyteError:
+        pass
+
     try:
         listing = svc.list_folder(plans)
         for f in listing["files"]:
@@ -162,8 +188,6 @@ def property_documents(site: str, user: dict = Depends(get_current_user)):
             d["webUrl"] = svc.web_url(d["path"])
         payload["plans"] = listing
     except svc.EgnyteError as exc:
-        if exc.status == 404:
-            payload["missing"] = True
-        else:
+        if exc.status != 404:
             raise HTTPException(exc.status, str(exc))
     return payload

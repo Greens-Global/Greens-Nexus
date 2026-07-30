@@ -197,12 +197,44 @@ def web_url(path: str) -> str:
 # subfolder; both are overridable by env so a re-org does not need a deploy.
 
 def folder_for_property(site: str) -> str:
-    """`GS <site>` under the configured properties root."""
-    root = os.getenv("EGNYTE_PROPERTIES_ROOT", "/Shared/Properties").strip()
-    prefix = os.getenv("EGNYTE_SITE_PREFIX", "GS ").strip() + " " if os.getenv("EGNYTE_SITE_PREFIX") else "GS "
-    return norm(f"{root}/{prefix.strip()} {site}".replace("  ", " "))
+    """Best-guess path for a site. Prefer resolve_property_folder() - real folder
+    names are NOT uniform (see below)."""
+    root = os.getenv("EGNYTE_PROPERTIES_ROOT", "/Shared/--Asset Management").strip()
+    return norm(f"{root}/{site}")
 
 
-def plans_folder(site: str) -> str:
+def resolve_property_folder(site: str) -> str | None:
+    """Find a property's real folder by listing the root and matching.
+
+    Verified against the live tenant (Jul 30): the 16 folders under
+    /Shared/--Asset Management use THREE different naming styles -
+      * "GS <site>"            e.g. GS Temecula, GS Valley Center
+      * a street address       e.g. 918 S. El Camino Real, 34751 Doheny Place
+      * a project name         e.g. Greens Heritage (Menifee)
+    Half of them do not follow "GS <site>" at all, so constructing the path from
+    a prefix would silently 404 for eight properties. Match instead of guess.
+
+    Returns None when nothing matches - the caller reports `missing` and offers
+    to create, which is the correct behaviour for a genuinely new property.
+    """
+    root = os.getenv("EGNYTE_PROPERTIES_ROOT", "/Shared/--Asset Management").strip()
+    want = (site or "").strip().lower()
+    if not want:
+        return None
+    names = [f["name"] for f in list_folder(root)["folders"]]
+    for candidate in (
+        lambda n: n.lower() == want,                 # exact folder name
+        lambda n: n.lower() == f"gs {want}",         # the GS <site> convention
+        lambda n: want in n.lower(),                 # partial, e.g. "918 el camino"
+    ):
+        for n in names:
+            if candidate(n):
+                return norm(f"{root}/{n}")
+    return None
+
+
+def plans_folder(site_folder: str) -> str:
+    """Plans live in a fixed subfolder of the property folder - verified present
+    in the live tenant. Takes a RESOLVED folder path, not a site name."""
     sub = os.getenv("EGNYTE_PLANS_SUBFOLDER", "Property Plans and Maps").strip()
-    return norm(f"{folder_for_property(site)}/{sub}")
+    return norm(f"{site_folder}/{sub}")
