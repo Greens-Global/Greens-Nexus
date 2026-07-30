@@ -1689,6 +1689,23 @@ html { overflow-x: hidden; }
     cursor: pointer;
   }
   .header-right { margin-left: auto; }
+
+  /* The centered search bar has no business on a phone - .header-search-left
+     replaces it (see TopHeader). But .header-center was still being LAID OUT:
+     measured 91px of overlap with the absolutely-centered NEXUS wordmark at
+     390, 768 AND 900px, with its .search-bar child pushed clean off-screen
+     (x=416 inside a 390px viewport). That is the jumble of a rounded search box
+     with NEXUS printed over it.
+     Scoped with :not(.has-tabs) so a module that puts its tab strip in the
+     header (ModuleTabs) keeps it - only the search placement is dropped. */
+  .header-center:not(.has-tabs) { display: none; }
+}
+
+/* Below ~420px the left icons (menu + back + search) grow close enough to the
+   centered wordmark that its padding and letter-spacing clip them - measured 4px
+   of overlap at 390px. Tighten the wordmark rather than dropping an icon. */
+@media (max-width: 420px) {
+  .header-brand { letter-spacing: 0.14em; font-size: 13px; padding: 8px 4px; }
 }
 
 /* Full-screen menu */
@@ -3393,6 +3410,52 @@ button, [role="button"], select { touch-action: manipulation; }
    every other width. App.jsx now renders this view with `viewport-flush`
    (padding: 0), the same idiom the Tasks workspace uses, so there is no padding
    to fight and it lines up at every size. */
+/* In-content module header + rule, matching how every other module introduces
+   itself (.dk-head). Column flex so the iframe takes whatever height is left
+   rather than the header pushing it off the bottom. */
+.pdf-editor-module { display: flex; flex-direction: column; }
+.pdf-editor-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex: 0 0 auto;
+  padding: 22px 32px 16px;
+  border-bottom: 1px solid var(--wk-line2);
+  background: var(--wk-card);
+}
+.pdf-editor-head h1 {
+  margin: 0;
+  font-family: var(--wk-font);
+  font-size: 21px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--wk-ink);
+}
+.pdf-editor-head p {
+  margin: 2px 0 0;
+  font-family: var(--wk-font);
+  font-size: 13.5px;
+  color: var(--wk-dim);
+  line-height: 1.5;
+}
+.pdf-editor-head-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  border-radius: 9px;
+  /* equipment/tools read purple-brand in the icon-chip system (DESIGN.md) */
+  background: var(--wk-brand-tint);
+  color: var(--wk-brand);
+}
+@media (max-width: 640px) {
+  .pdf-editor-head { padding: 14px 16px 12px; gap: 11px; }
+  .pdf-editor-head h1 { font-size: 18px; }
+  .pdf-editor-head p { font-size: 12.5px; }
+}
+
 .pdf-editor-module {
   width: 100%;
   /* viewport-flush is already `height: calc(100vh - 56px)`; filling it means the
