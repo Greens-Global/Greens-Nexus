@@ -17,9 +17,9 @@ const FACILITIES = [
 ];
 
 const REVIEWS = [
-  { author: "Marcus T.",  facility: "Harbor View Storage",  rating: 5, src: "Google", text: "Greens Storage did an outstanding job - spotless units and the climate control is the real deal.", replied: true  },
+  { author: "Marcus T.",  facility: "Harbor View Storage",  rating: 5, src: "Google", text: "Acme Storage did an outstanding job - spotless units and the climate control is the real deal.", replied: true  },
   { author: "Dana R.",    facility: "Downtown Self Storage", rating: 4, src: "Google", text: "Easy move-in, friendly staff. Gate hours could be a little longer.", replied: false },
-  { author: "Priya S.",   facility: "Lakeline Storage",     rating: 5, src: "Meta",   text: "The craftsmanship of these facilities is a step above. Greens Storage project management is stellar.", replied: false },
+  { author: "Priya S.",   facility: "Lakeline Storage",     rating: 5, src: "Meta",   text: "The craftsmanship of these facilities is a step above. Their project management is stellar.", replied: false },
   { author: "Will C.",    facility: "Summit Storage",       rating: 3, src: "Google", text: "Decent price but the access road needs repaving.", replied: false },
 ];
 

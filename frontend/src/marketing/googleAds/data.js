@@ -102,32 +102,32 @@ function fetchGoogleAdsReport() {
 export const dailyMetrics = adaptGoogleAdsReport(fetchGoogleAdsReport())
 
 export const initialCampaigns = [
-  { id: 'c1', name: 'Storage - Branded', platform: 'Google Search', facility: 'Greens Valley Center', spend: 3240.28, clicks: 1812, conversions: 102, impressions: 42_020, status: 'Active' },
-  { id: 'c2', name: 'Storage - Near me/locale', platform: 'Google Search', facility: 'Greens Escondido', spend: 3015.55, clicks: 1245, conversions: 86, impressions: 32_940, status: 'Active' },
-  { id: 'c3', name: 'Storage - Competitors', platform: 'Google Search', facility: 'Greens Valley Center', spend: 2101.44, clicks: 945, conversions: 68, impressions: 26_180, status: 'Active' },
-  { id: 'c4', name: 'Storage - Discount 50% Off', platform: 'Google Display', facility: 'Greens Temecula', spend: 1613.2, clicks: 922, conversions: 58, impressions: 28_720, status: 'Active' },
-  { id: 'c5', name: 'Storage - Local', platform: 'Google Local', facility: 'Greens Fairfield', spend: 790.28, clicks: 637, conversions: 59, impressions: 22_040, status: 'Active' },
-  { id: 'c6', name: 'Storage - Valley Center Brand', platform: 'Google Search', facility: 'Greens Valley Center', spend: 612.4, clicks: 410, conversions: 31, impressions: 15_320, status: 'Active' },
-  { id: 'c7', name: 'Storage - Escondido Local', platform: 'Google Local', facility: 'Greens Escondido', spend: 540.1, clicks: 355, conversions: 24, impressions: 12_890, status: 'Active' },
-  { id: 'c8', name: 'Storage - Temecula Local', platform: 'Google Local', facility: 'Greens Temecula', spend: 498.75, clicks: 322, conversions: 21, impressions: 11_760, status: 'Active' },
-  { id: 'c9', name: 'Storage - Fairfield Local', platform: 'Google Local', facility: 'Greens Fairfield', spend: 431.9, clicks: 288, conversions: 19, impressions: 10_540, status: 'Active' },
-  { id: 'c10', name: 'Storage - Georgetown Local', platform: 'Google Local', facility: 'Greens Georgetown', spend: 372.6, clicks: 241, conversions: 15, impressions: 9_180, status: 'Active' },
-  { id: 'c11', name: 'Storage - Climate Controlled', platform: 'Google Display', facility: 'Greens Valley Center', spend: 705.3, clicks: 398, conversions: 26, impressions: 19_450, status: 'Active' },
-  { id: 'c12', name: 'Storage - Moving Supplies', platform: 'YouTube Ads', facility: 'Greens Escondido', spend: 358.2, clicks: 512, conversions: 12, impressions: 34_600, status: 'Active' },
-  { id: 'c13', name: 'Storage - Holiday Promo', platform: 'Google Display', facility: 'Greens Valley Center', spend: 289.4, clicks: 176, conversions: 9, impressions: 8_920, status: 'Paused' },
-  { id: 'c14', name: 'Storage - Student Special', platform: 'Google Search', facility: 'Greens Escondido', spend: 214.6, clicks: 143, conversions: 8, impressions: 6_310, status: 'Paused' },
-  { id: 'c15', name: 'Storage - Business Units', platform: 'Google Search', facility: 'Greens Temecula', spend: 176.85, clicks: 98, conversions: 6, impressions: 5_120, status: 'Paused' },
-  { id: 'c16', name: 'Storage - RV & Boat', platform: 'Google Display', facility: 'Greens Fairfield', spend: 152.3, clicks: 87, conversions: 4, impressions: 4_640, status: 'Paused' },
-  { id: 'c17', name: 'Storage - Spring Sale 2025', platform: 'Google Search', facility: 'Greens Valley Center', spend: 620.75, clicks: 340, conversions: 22, impressions: 13_280, status: 'Completed' },
-  { id: 'c18', name: 'Storage - New Year Promo', platform: 'Google Search', facility: 'Greens Georgetown', spend: 480.15, clicks: 265, conversions: 17, impressions: 10_960, status: 'Completed' },
+  { id: 'c1', name: 'Storage - Branded', platform: 'Google Search', facility: 'Valley Center', spend: 3240.28, clicks: 1812, conversions: 102, impressions: 42_020, status: 'Active' },
+  { id: 'c2', name: 'Storage - Near me/locale', platform: 'Google Search', facility: 'Escondido', spend: 3015.55, clicks: 1245, conversions: 86, impressions: 32_940, status: 'Active' },
+  { id: 'c3', name: 'Storage - Competitors', platform: 'Google Search', facility: 'Valley Center', spend: 2101.44, clicks: 945, conversions: 68, impressions: 26_180, status: 'Active' },
+  { id: 'c4', name: 'Storage - Discount 50% Off', platform: 'Google Display', facility: 'Temecula', spend: 1613.2, clicks: 922, conversions: 58, impressions: 28_720, status: 'Active' },
+  { id: 'c5', name: 'Storage - Local', platform: 'Google Local', facility: 'Fairfield', spend: 790.28, clicks: 637, conversions: 59, impressions: 22_040, status: 'Active' },
+  { id: 'c6', name: 'Storage - Valley Center Brand', platform: 'Google Search', facility: 'Valley Center', spend: 612.4, clicks: 410, conversions: 31, impressions: 15_320, status: 'Active' },
+  { id: 'c7', name: 'Storage - Escondido Local', platform: 'Google Local', facility: 'Escondido', spend: 540.1, clicks: 355, conversions: 24, impressions: 12_890, status: 'Active' },
+  { id: 'c8', name: 'Storage - Temecula Local', platform: 'Google Local', facility: 'Temecula', spend: 498.75, clicks: 322, conversions: 21, impressions: 11_760, status: 'Active' },
+  { id: 'c9', name: 'Storage - Fairfield Local', platform: 'Google Local', facility: 'Fairfield', spend: 431.9, clicks: 288, conversions: 19, impressions: 10_540, status: 'Active' },
+  { id: 'c10', name: 'Storage - Georgetown Local', platform: 'Google Local', facility: 'Georgetown', spend: 372.6, clicks: 241, conversions: 15, impressions: 9_180, status: 'Active' },
+  { id: 'c11', name: 'Storage - Climate Controlled', platform: 'Google Display', facility: 'Valley Center', spend: 705.3, clicks: 398, conversions: 26, impressions: 19_450, status: 'Active' },
+  { id: 'c12', name: 'Storage - Moving Supplies', platform: 'YouTube Ads', facility: 'Escondido', spend: 358.2, clicks: 512, conversions: 12, impressions: 34_600, status: 'Active' },
+  { id: 'c13', name: 'Storage - Holiday Promo', platform: 'Google Display', facility: 'Valley Center', spend: 289.4, clicks: 176, conversions: 9, impressions: 8_920, status: 'Paused' },
+  { id: 'c14', name: 'Storage - Student Special', platform: 'Google Search', facility: 'Escondido', spend: 214.6, clicks: 143, conversions: 8, impressions: 6_310, status: 'Paused' },
+  { id: 'c15', name: 'Storage - Business Units', platform: 'Google Search', facility: 'Temecula', spend: 176.85, clicks: 98, conversions: 6, impressions: 5_120, status: 'Paused' },
+  { id: 'c16', name: 'Storage - RV & Boat', platform: 'Google Display', facility: 'Fairfield', spend: 152.3, clicks: 87, conversions: 4, impressions: 4_640, status: 'Paused' },
+  { id: 'c17', name: 'Storage - Spring Sale 2025', platform: 'Google Search', facility: 'Valley Center', spend: 620.75, clicks: 340, conversions: 22, impressions: 13_280, status: 'Completed' },
+  { id: 'c18', name: 'Storage - New Year Promo', platform: 'Google Search', facility: 'Georgetown', spend: 480.15, clicks: 265, conversions: 17, impressions: 10_960, status: 'Completed' },
 ]
 
 export const geoRows = [
-  { location: 'Greens Valley Center', impressions: 86_245, clicks: 1_342, conversions: 118, spend: 3239.1 },
-  { location: 'Greens Escondido', impressions: 54_231, clicks: 1_028, conversions: 91, spend: 2649.92 },
-  { location: 'Greens Temecula', impressions: 39_178, clicks: 768, conversions: 71, spend: 1924.81 },
-  { location: 'Greens Fairfield', impressions: 32_445, clicks: 642, conversions: 57, spend: 1631.91 },
-  { location: 'Greens Georgetown', impressions: 18_932, clicks: 356, conversions: 35, spend: 944.3 },
+  { location: 'Valley Center', impressions: 86_245, clicks: 1_342, conversions: 118, spend: 3239.1 },
+  { location: 'Escondido', impressions: 54_231, clicks: 1_028, conversions: 91, spend: 2649.92 },
+  { location: 'Temecula', impressions: 39_178, clicks: 768, conversions: 71, spend: 1924.81 },
+  { location: 'Fairfield', impressions: 32_445, clicks: 642, conversions: 57, spend: 1631.91 },
+  { location: 'Georgetown', impressions: 18_932, clicks: 356, conversions: 35, spend: 944.3 },
 ]
 
 export const keywordRows = [
@@ -158,9 +158,9 @@ export const deviceSplit = [
 // geoRows), rounded to clean numbers that still sum to the original $18,000
 // account-wide default.
 export const monthlyBudgetByPropertyDefault = {
-  'Greens Valley Center': 5_800,
-  'Greens Escondido': 4_500,
-  'Greens Temecula': 3_300,
-  'Greens Fairfield': 2_800,
-  'Greens Georgetown': 1_600,
+  'Valley Center': 5_800,
+  'Escondido': 4_500,
+  'Temecula': 3_300,
+  'Fairfield': 2_800,
+  'Georgetown': 1_600,
 }

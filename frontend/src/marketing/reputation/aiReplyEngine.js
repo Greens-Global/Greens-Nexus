@@ -3,7 +3,7 @@
 // before addressing substance. Never defensive. Always offer a concrete next
 // step for anything below a 5-star experience.
 export const COMPANY = {
-  name: 'Greens Storage',
+  name: 'Acme Storage',
   phone: '(916) 555-1234',
 }
 

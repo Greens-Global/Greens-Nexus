@@ -1972,8 +1972,8 @@ def seed_demo_data(user: dict = Depends(require_ir_admin), db: Session = Depends
 
     # Funds ------------------------------------------------------------------
     fund_mf3 = IrFund(
-        id=_id(), name="Greens Multifamily Growth Fund III",
-        entity_name="Greens MF Growth III, LLC", strategy="Value-Add Multifamily",
+        id=_id(), name="Multifamily Growth Fund III",
+        entity_name="MF Growth III, LLC", strategy="Value-Add Multifamily",
         property_name="Cypress Grove Apartments (312 units)", status="active",
         target_raise=25000000, minimum_investment=100000,
         preferred_return_pct=8.0, gp_promote_pct=20.0, target_irr_pct=16.0,
@@ -1995,7 +1995,7 @@ def seed_demo_data(user: dict = Depends(require_ir_admin), db: Session = Depends
         created_by=me, created_at=ts(540), updated_at=now_iso)
     fund_sunbelt = IrFund(
         id=_id(), name="Sunbelt Industrial Income Fund",
-        entity_name="Greens Sunbelt Industrial, LLC", strategy="Core-Plus Industrial",
+        entity_name="Sunbelt Industrial, LLC", strategy="Core-Plus Industrial",
         property_name="", status="raising",
         target_raise=15000000, minimum_investment=250000,
         preferred_return_pct=7.0, gp_promote_pct=20.0, target_irr_pct=14.0,
@@ -2148,7 +2148,7 @@ def seed_demo_data(user: dict = Depends(require_ir_admin), db: Session = Depends
     # frontend renders a "no file attached" state) -------------------------------
     docs = [
         IrDocument(id=_id(), fund_id=fund_mf3.id, investor_id="", category="ppm",
-                   title="Private Placement Memorandum - Greens Multifamily Growth Fund III",
+                   title="Private Placement Memorandum - Multifamily Growth Fund III",
                    file_url="", file_name="", uploaded_by=me, created_at=ts(415)),
         IrDocument(id=_id(), fund_id=fund_ocean.id, investor_id=investors[1].id,
                    category="subscription_agreement",
@@ -2170,7 +2170,7 @@ def seed_demo_data(user: dict = Depends(require_ir_admin), db: Session = Depends
 
     # Updates ---------------------------------------------------------------------
     updates = [
-        IrUpdate(id=_id(), fund_id="", title="Welcome to the Greens Investor Relations Portal",
+        IrUpdate(id=_id(), fund_id="", title="Welcome to the Investor Relations Portal",
                  body="All fund reporting, capital-call notices, and distribution statements now live here.",
                  pinned=True, created_by=me, created_at=ts(90)),
         IrUpdate(id=_id(), fund_id=fund_mf3.id, title="Cypress Grove Renovation - Phase I Complete",

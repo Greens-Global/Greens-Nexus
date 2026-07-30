@@ -32,7 +32,7 @@ const POST_TEMPLATES = [
 ]
 
 function buildPostsForFacility(facility, rng) {
-  const city = facility.replace('Greens ', '')
+  const city = facility
   const count = 2 + Math.floor(rng() * 2)
   const posts = []
   for (let i = 0; i < count; i++) {
@@ -63,7 +63,7 @@ const CATEGORIES = ['EXTERIOR', 'INTERIOR', 'TEAM']
 
 // Fairfield and Georgetown are our smallest, least-staffed properties - a
 // realistic candidate for a stale, unmaintained photo gallery.
-const STALE_FACILITIES = new Set(['Greens Fairfield', 'Greens Georgetown'])
+const STALE_FACILITIES = new Set(['Fairfield', 'Georgetown'])
 
 function buildPhotosForFacility(facility, rng) {
   const count = 8 + Math.floor(rng() * 5)
@@ -115,7 +115,7 @@ function buildQuestionsForFacility(facility, rng) {
       author: ASKERS[Math.floor(rng() * ASKERS.length)],
       createTime: `${askedDate}T15:00:00Z`,
       topAnswers: answered && template.answer
-        ? [{ text: template.answer, author: 'Greens Storage', createTime: `${addDays(askedDate, 1 + Math.floor(rng() * 2))}T10:00:00Z` }]
+        ? [{ text: template.answer, author: 'Acme Storage', createTime: `${addDays(askedDate, 1 + Math.floor(rng() * 2))}T10:00:00Z` }]
         : undefined,
       locationId: facility,
     })

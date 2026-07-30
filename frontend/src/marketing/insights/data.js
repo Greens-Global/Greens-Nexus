@@ -171,9 +171,9 @@ export const mobileTrafficShare = 0.68
 // facilities get a bigger share), summing to the previous account-wide
 // DEFAULT_LEAD_GOAL of 350.
 export const leadGoalByPropertyDefault = {
-  'Greens Valley Center': 110,
-  'Greens Escondido': 90,
-  'Greens Temecula': 65,
-  'Greens Fairfield': 55,
-  'Greens Georgetown': 30,
+  'Valley Center': 110,
+  'Escondido': 90,
+  'Temecula': 65,
+  'Fairfield': 55,
+  'Georgetown': 30,
 }

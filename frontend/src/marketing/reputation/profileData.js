@@ -46,11 +46,11 @@ function distribute(days, total, seed) {
 // lifetime review count, since a more-reviewed listing also gets more Maps
 // traffic in the real world).
 const FACILITY_PROMINENCE = {
-  'Greens Valley Center': 2800,
-  'Greens Escondido': 1800,
-  'Greens Temecula': 1500,
-  'Greens Fairfield': 1100,
-  'Greens Georgetown': 900,
+  'Valley Center': 2800,
+  'Escondido': 1800,
+  'Temecula': 1500,
+  'Fairfield': 1100,
+  'Georgetown': 900,
 }
 
 function buildMetricSeries(metric, monthlyBase, seed) {
@@ -91,11 +91,11 @@ function fetchGbpTimeSeriesReport(facility) {
 }
 
 const CITY_BY_FACILITY = {
-  'Greens Valley Center': 'valley center',
-  'Greens Escondido': 'escondido',
-  'Greens Temecula': 'temecula',
-  'Greens Fairfield': 'fairfield',
-  'Greens Georgetown': 'georgetown',
+  'Valley Center': 'valley center',
+  'Escondido': 'escondido',
+  'Temecula': 'temecula',
+  'Fairfield': 'fairfield',
+  'Georgetown': 'georgetown',
 }
 
 function fetchGbpSearchKeywordsReport(facility) {
