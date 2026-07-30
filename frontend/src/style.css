@@ -3480,3 +3480,10 @@ button, [role="button"], select { touch-action: manipulation; }
   border: none;
   display: block;
 }
+
+/* ── Egnyte module ───────────────────────────────────────────────────────────
+   Row hover only. Everything else in src/egnyte/ is inline-styled on the --wk-*
+   tokens like the rest of the Work OS surfaces; hover is the one thing inline
+   styles cannot express without re-rendering on every mouse move. */
+.egnyte-row { border-radius: 7px; }
+.egnyte-row:hover { background: var(--wk-hover); }

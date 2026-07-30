@@ -52,6 +52,7 @@ const TimeClock           = lazy(() => import("./views/TimeClock"));
 const MyHR                = lazy(() => import("./views/MyHR"));
 const Testing             = lazy(() => import("./views/Testing"));
 const CredentialVault     = lazy(() => import("./views/CredentialVault"));
+const Egnyte              = lazy(() => import("./views/Egnyte"));
 
 const VIEW_LABELS = Object.fromEntries(MODULES.map(m => [m.id, m.label]));
 // Views that aren't registered MODULES (e.g. "purchase") fall back to a
@@ -83,6 +84,11 @@ const VIEW_MIN_ROLES = {
   'admin':              'administrator',
   'testing':            'supervisor',   // dev-only module; grant-driven for testers below supervisor
   'credvault':          'supervisor',
+  // Egnyte reads are open to any signed-in user server-side, but the backend
+  // browses with ONE service token, so Nexus would show every folder that token
+  // can see regardless of the viewer's own Egnyte permissions. Gated at
+  // supervisor for that reason - see the note in src/egnyte/EgnyteApp.jsx.
+  'egnyte':             'supervisor',
 };
 
 // E2E mode (Playwright CI only - VITE_E2E is never set on real builds) and the
@@ -166,6 +172,7 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
     case "myhr":               return <MyHR />;
     case "testing":            return <Testing />;
     case "credvault":          return <CredentialVault />;
+    case "egnyte":             return <Egnyte activeSub={activeSub} onSubChange={onSubChange} />;
     default:                   return <Placeholder viewName={activeView} onBack={() => onNavigate("dashboard")} />;
   }
 }
@@ -197,6 +204,7 @@ const DEFAULT_SUBS = {
   "investor-relations": "investor-dashboard",
   marketing:         "marketing-ads",
   accounting:        "transactions",
+  egnyte:            "browse",
 };
 const getDefaultSub = view => DEFAULT_SUBS[view] ?? null;
 

@@ -34,6 +34,7 @@ export const MODULES = [
   { id: 'support',             label: 'Support' },
   { id: 'testing',             label: 'Testing' },
   { id: 'credvault',           label: 'Credential Vault' },
+  { id: 'egnyte',              label: 'Egnyte' },
 ];
 
 // Per-module permission levels an Access Group can grant - mirrors a

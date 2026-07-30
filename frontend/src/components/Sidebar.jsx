@@ -13,6 +13,7 @@ import {
   FlaskConical,
   KeyRound,
   Briefcase, FileSignature, ArrowDownToLine, ArrowUpFromLine,
+  HardDrive, FolderOpen,
 } from "lucide-react";
 
 // Exported: MobileMenu mirrors this exact order/grouping on phones
@@ -118,6 +119,16 @@ export const NAV = [
     view: "marketing", code: "MKT", label: "Marketing", icon: Megaphone, minRole: 'supervisor',
   },
   { view: "credvault", code: "VLT", label: "Credential Vault", icon: KeyRound, minRole: 'supervisor' },
+  // Egnyte stays the source of truth for files; this module browses, uploads and
+  // searches it in place. Sub list is for the mobile menu - the desktop rail is
+  // flat and the module renders its own tab strip.
+  {
+    view: "egnyte", code: "EGN", label: "Egnyte", icon: HardDrive, minRole: 'supervisor',
+    sub: [
+      { subview: "browse",   label: "Browse Files",       icon: FolderOpen },
+      { subview: "property", label: "Property Documents", icon: Home },
+    ],
+  },
   { view: "pdf-editor", code: "PDF", label: "PDF Editor", icon: FileText },
   { divider: true },
   { view: "support", code: "SUP",        label: "Support",        icon: HelpCircle },
