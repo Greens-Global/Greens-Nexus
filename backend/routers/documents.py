@@ -988,46 +988,30 @@ def export_document_docx(did: str, user: dict = Depends(get_current_user), db: S
 _EGNYTE_IMPORT_EXTS = (".docx", ".doc", ".pdf", ".txt")
 
 
+# Auth, path handling and the HTTP verbs now live in services/egnyte.py so the
+# Asset module's Documents tab and this importer share ONE implementation. Adding
+# a second client is the exact mistake CLAUDE.md records for Asana.
+from services import egnyte as egnyte_svc
+
+
 def _egnyte_configured() -> bool:
-    return bool(os.getenv("EGNYTE_DOMAIN", "").strip() and os.getenv("EGNYTE_TOKEN", "").strip())
-
-
-def _egnyte_auth():
-    """Returns (base_url, headers). EGNYTE_DOMAIN normally holds a bare domain
-    (e.g. cloud.greensglobal.com or greensglobal, which gets .egnyte.com
-    appended) and always resolves to https://. An explicit http://... or
-    https://... prefix is honored as-is instead - this only matters for
-    pointing at a local mock server during testing (see the test setup notes);
-    no real Egnyte deployment would ever set EGNYTE_DOMAIN that way, so this
-    is a no-op everywhere else."""
-    dom = os.getenv("EGNYTE_DOMAIN", "").strip().rstrip("/")
-    if dom.startswith("http://") or dom.startswith("https://"):
-        base_url = dom
-    else:
-        if "." not in dom:
-            dom = f"{dom}.egnyte.com"
-        base_url = f"https://{dom}"
-    tok = os.getenv("EGNYTE_TOKEN", "").strip()
-    return base_url, {"Authorization": f"Bearer {tok}"}
+    return egnyte_svc.configured()
 
 
 @router.get("/egnyte/browse")
 def egnyte_browse(path: str = "", user: dict = Depends(get_current_user)):
     if not _egnyte_configured():
         raise HTTPException(503, "Egnyte not configured - set EGNYTE_DOMAIN and EGNYTE_TOKEN")
-    base_url, headers = _egnyte_auth()
-    target = "/" + (path or "").strip().lstrip("/")
-    resp = httpx.get(f"{base_url}/pubapi/v1/fs{target}", headers=headers, timeout=20)
-    if not resp.is_success:
-        raise HTTPException(502, f"Could not browse Egnyte: {resp.text[:200]}")
-    data = resp.json()
-    folders = [{"name": f.get("name", ""), "path": f.get("path", "")} for f in (data.get("folders") or [])]
-    files = []
-    for f in (data.get("files") or []):
-        name = f.get("name", "")
-        supported = name.lower().endswith(_EGNYTE_IMPORT_EXTS)
-        files.append({"name": name, "path": f.get("path", ""), "size": f.get("size", 0), "supported": supported})
-    return {"path": data.get("path", target), "folders": folders, "files": files}
+    try:
+        data = egnyte_svc.list_folder(path)
+    except egnyte_svc.EgnyteError as exc:
+        raise HTTPException(exc.status, str(exc))
+    # `supported` is this importer's OWN policy (it can only convert these
+    # types), not a property of the folder - so it is applied here rather than in
+    # the shared client, which other callers need unfiltered.
+    for f in data["files"]:
+        f["supported"] = f["name"].lower().endswith(_EGNYTE_IMPORT_EXTS)
+    return data
 
 
 @router.get("/egnyte/file")
@@ -1036,11 +1020,10 @@ def egnyte_file(path: str, user: dict = Depends(get_current_user)):
         raise HTTPException(503, "Egnyte not configured - set EGNYTE_DOMAIN and EGNYTE_TOKEN")
     if not path.lower().endswith(_EGNYTE_IMPORT_EXTS):
         raise HTTPException(400, "Unsupported file type")
-    base_url, headers = _egnyte_auth()
-    target = "/" + path.strip().lstrip("/")
-    resp = httpx.get(f"{base_url}/pubapi/v1/fs-content{target}", headers=headers, timeout=60)
-    if not resp.is_success:
-        raise HTTPException(502, f"Could not fetch file from Egnyte: {resp.text[:200]}")
-    name = target.rsplit("/", 1)[-1] or "document"
-    return Response(content=resp.content, media_type="application/octet-stream",
+    try:
+        content = egnyte_svc.read_file(path)
+    except egnyte_svc.EgnyteError as exc:
+        raise HTTPException(exc.status, str(exc))
+    name = egnyte_svc.norm(path).rsplit("/", 1)[-1] or "document"
+    return Response(content=content, media_type="application/octet-stream",
                     headers={"Content-Disposition": _content_disposition(name.rsplit(".", 1)[0], name.rsplit(".", 1)[-1])})
