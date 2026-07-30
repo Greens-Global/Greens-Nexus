@@ -38,7 +38,12 @@ async function waitForBuild() {
       const r = await fetch(`${BASE}/version.json`, { cache: 'no-store' });
       if (r.ok) {
         seen = (await r.json()).buildId;
-        if (seen === WANT_ID) { ok('build is live', seen.slice(0, 12)); return true; }
+        // Prefix match so a short sha typed by hand still works; CI passes the
+        // full github.sha.
+        if (seen && (seen === WANT_ID || seen.startsWith(WANT_ID))) {
+          ok('build is live', seen.slice(0, 12));
+          return true;
+        }
       }
     } catch { /* mid-deploy */ }
     await sleep(10_000);
@@ -65,12 +70,26 @@ async function checkHtmlAndAssets() {
   // loader rejects it and the app is a white screen.
   const refs = [...new Set([...html.matchAll(/(?:src|href)="(\/assets\/[^"]+)"/g)].map(m => m[1]))];
   if (!refs.length) fail('index.html references hashed assets', 'found none - is this really the app shell?');
-  const bad = [];
-  for (const ref of refs) {
-    const r = await fetch(BASE + ref, { cache: 'no-store' });
-    const ct = r.headers.get('content-type') || '';
-    if (!r.ok || /text\/html/i.test(ct)) bad.push(`${ref} -> ${r.status} ${ct}`);
+
+  // Retry before condemning. A chunk can legitimately be mid-propagation for a
+  // few seconds right after a deploy - that transient is the very thing the boot
+  // guard exists to ride out, and failing the gate on it would make this job
+  // flaky, which gets gates ignored. A genuinely missing or poisoned asset stays
+  // broken, so only a persistent failure counts.
+  async function probeAsset(ref) {
+    let last = '';
+    for (let attempt = 0; attempt < 5; attempt++) {
+      if (attempt) await sleep(6000);
+      try {
+        const r = await fetch(BASE + ref, { cache: 'no-store' });
+        const ct = r.headers.get('content-type') || '';
+        if (r.ok && !/text\/html/i.test(ct)) return null;         // healthy
+        last = `${r.status} ${ct}`;
+      } catch (e) { last = String(e.message || e); }
+    }
+    return `${ref} -> ${last} (5 attempts over ~24s)`;
   }
+  const bad = (await Promise.all(refs.map(probeAsset))).filter(Boolean);
   bad.length ? fail('every hashed asset serves real JS/CSS', bad.join('; '))
              : ok('every hashed asset serves real JS/CSS', `${refs.length} checked`);
 
