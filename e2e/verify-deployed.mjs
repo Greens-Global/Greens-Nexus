@@ -76,10 +76,15 @@ async function checkHtmlAndAssets() {
   // guard exists to ride out, and failing the gate on it would make this job
   // flaky, which gets gates ignored. A genuinely missing or poisoned asset stays
   // broken, so only a persistent failure counts.
+  //
+  // The window is ~2 minutes, not seconds: a BRAND-NEW chunk requested through a
+  // still-stale edge node 404s until either propagation completes or the archive
+  // workflow (which runs in parallel and takes ~2.5 min) uploads it - the gate
+  // caught exactly this race on ceb7142 (Jul 31) while 10/11 checks passed.
   async function probeAsset(ref) {
     let last = '';
-    for (let attempt = 0; attempt < 5; attempt++) {
-      if (attempt) await sleep(6000);
+    for (let attempt = 0; attempt < 16; attempt++) {
+      if (attempt) await sleep(8000);
       try {
         const r = await fetch(BASE + ref, { cache: 'no-store' });
         const ct = r.headers.get('content-type') || '';
@@ -87,7 +92,7 @@ async function checkHtmlAndAssets() {
         last = `${r.status} ${ct}`;
       } catch (e) { last = String(e.message || e); }
     }
-    return `${ref} -> ${last} (5 attempts over ~24s)`;
+    return `${ref} -> ${last} (16 attempts over ~2m)`;
   }
   const bad = (await Promise.all(refs.map(probeAsset))).filter(Boolean);
   bad.length ? fail('every hashed asset serves real JS/CSS', bad.join('; '))
