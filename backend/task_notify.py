@@ -45,7 +45,7 @@ _DEFAULT_SETTINGS = {
     "overdueRepeatDays": 3,   # re-remind an overdue task every N days until done/reassigned; 0 = only once
     "enabledEvents": {
         "created": True, "assigned": True, "due_soon": True, "overdue": True,
-        "completed": True, "commented": True, "follower_added": True,
+        "completed": True, "commented": True, "mentioned": True, "follower_added": True,
         "modified": True, "deleted": True,
     },
 }
@@ -203,6 +203,7 @@ def _send_one(db: Session, *, task_id: str, task_code: str, event_type: str, ide
         db.add(row)
     row.status = "pending"
     row.subject = subject
+    row.html = html
     row.attempts = (row.attempts or 0) + 1
     row.updated_at = now
     db.commit()
@@ -298,8 +299,8 @@ def notify_task_event(task_id: str, event_type: str, actor_email: str, **kw) -> 
                 subject, html = tmpl.completed_email(t=ctx, base_url=_APP_URL, logo_url=logo_url)
             elif event_type == "mentioned":
                 subject, html = tmpl.mentioned_email(t=ctx, base_url=_APP_URL, logo_url=logo_url,
-                                                     comment_body=extra.get("comment_body", ""),
-                                                     actor_name=actor_name)
+                                                     comment_body=kw.get("comment_body", ""),
+                                                     actor_name=ctx["actorName"])
             elif event_type == "commented":
                 subject, html = tmpl.commented_email(t=ctx, base_url=_APP_URL, logo_url=logo_url,
                                                       comment_body=kw.get("comment_body", ""))
@@ -405,7 +406,14 @@ def _retry_failed_once(db: Session) -> None:
         db.commit()
         ctx = _task_context(db, t, row.recipient)
         try:
+            # Prefer the ORIGINAL rendered body over rebuilding one: a rebuild
+            # has no comment text to work from for commented/mentioned, and for
+            # every event type it re-renders against the task's CURRENT state,
+            # which can have drifted from what the event actually said between
+            # the failed attempt and this retry. Only a legacy row from before
+            # `html` existed falls back to a rebuild.
             subject, html = _rebuild_email(row.event_type, ctx, row.recipient_role, cfg)
+            html = row.html or html
             result = graph_mail.send_mail(from_email=from_email, to=[row.recipient], cc=cc,
                                            subject=row.subject or subject, html=html, reply_to=cfg.get("replyTo") or "")
             row.status = "sent"
@@ -427,6 +435,13 @@ def _retry_failed_once(db: Session) -> None:
 
 
 def _rebuild_email(event_type: str, ctx: dict, role: str, cfg: dict) -> tuple[str, str]:
+    """Fallback only for a row whose `html` predates that column (see
+    TaskEmailLog.html) - every current row carries its own original body and
+    never reaches this. Re-rendering against the task's CURRENT state means
+    this can drift from what the event actually said; for commented/mentioned
+    there is no comment text left to rebuild from at all, so those render
+    honestly empty (the templates already show "-" for a blank comment_body)
+    rather than the wrong "Task updated" body the generic fallback used to send."""
     logo_url = cfg.get("logoUrl") or ""
     if event_type == "created":
         return tmpl.created_email(t=ctx, base_url=_APP_URL, logo_url=logo_url, audience="assignee" if role == "assignee" else "other")
@@ -434,6 +449,11 @@ def _rebuild_email(event_type: str, ctx: dict, role: str, cfg: dict) -> tuple[st
         return tmpl.assigned_email(t=ctx, base_url=_APP_URL, logo_url=logo_url, audience="assignee" if role == "assignee" else "other")
     if event_type == "completed":
         return tmpl.completed_email(t=ctx, base_url=_APP_URL, logo_url=logo_url)
+    if event_type == "commented":
+        return tmpl.commented_email(t=ctx, base_url=_APP_URL, logo_url=logo_url, comment_body="")
+    if event_type == "mentioned":
+        return tmpl.mentioned_email(t=ctx, base_url=_APP_URL, logo_url=logo_url, comment_body="",
+                                    actor_name=ctx.get("actorName", ""))
     if event_type == "follower_added":
         return tmpl.follower_added_email(t=ctx, base_url=_APP_URL, logo_url=logo_url)
     if event_type in ("due_soon", "overdue"):
