@@ -284,6 +284,16 @@ def _run_migrations():
             # behavior, so existing fields keep showing everywhere.
             "ALTER TABLE task_custom_fields ADD COLUMN project_ids JSON DEFAULT '[]'",
             "ALTER TABLE task_custom_fields ADD COLUMN required BOOLEAN DEFAULT 0",
+            # Asana formula fields import but can never push back (the API
+            # rejects writes) - this marks them so the editors disable them.
+            "ALTER TABLE task_custom_fields ADD COLUMN read_only BOOLEAN DEFAULT 0",
+            # Asana-derived fields are identified by gid, not by name.
+            "ALTER TABLE task_custom_fields ADD COLUMN asana_gid VARCHAR DEFAULT ''",
+            "ALTER TABLE task_custom_statuses ADD COLUMN asana_option_gid VARCHAR DEFAULT ''",
+            # Custom statuses get the same per-project scoping custom fields
+            # already had. Empty = every project, so existing statuses are
+            # unchanged until someone narrows one.
+            "ALTER TABLE task_custom_statuses ADD COLUMN project_ids JSON DEFAULT '[]'",
             # Setup-only Asana PAT; blank falls back to the service token.
             "ALTER TABLE asana_sync_config ADD COLUMN setup_token VARCHAR DEFAULT ''",
             "UPDATE task_teams SET project_ids = json_array(project_id) "
@@ -297,6 +307,19 @@ def _run_migrations():
             "CREATE UNIQUE INDEX IF NOT EXISTS ux_asana_task_link_gid ON asana_task_links (asana_gid) WHERE asana_gid <> ''",
             # Two-way delete propagation (opt-out; see AsanaSyncConfig.delete_sync).
             "ALTER TABLE asana_sync_config ADD COLUMN delete_sync BOOLEAN DEFAULT 1",
+            # Two-Way Sync card's own sync/delete toggles, independent of the
+            # Setup card's enabled/delete_sync above - see AsanaSyncConfig and
+            # asana_sync.sync_is_on()/delete_sync_is_on().
+            "ALTER TABLE asana_sync_config ADD COLUMN manual_sync_enabled BOOLEAN DEFAULT 0",
+            "ALTER TABLE asana_sync_config ADD COLUMN manual_delete_sync BOOLEAN DEFAULT 0",
+            # The exact rendered body from the original send, reused verbatim on
+            # retry instead of re-rendering (which had no comment text to work
+            # from for commented/mentioned and could drift from task edits made
+            # between the failed attempt and the retry). See TaskEmailLog.html.
+            "ALTER TABLE task_email_log ADD COLUMN html VARCHAR DEFAULT ''",
+            # Set only for a file attached while composing a comment (blank =
+            # today's plain task-level attachment). See TaskAttachment.comment_id.
+            "ALTER TABLE task_attachments ADD COLUMN comment_id VARCHAR DEFAULT ''",
             # Push-only digest (tags/followers/dependencies/section/attachments)
             # so the reconcile sweep can skip an unchanged task outright.
             "ALTER TABLE asana_task_links ADD COLUMN last_push_hash VARCHAR DEFAULT ''",
@@ -594,6 +617,15 @@ def _run_migrations():
         # project_ids keeps a field global (the pre-scoping behavior).
         "ALTER TABLE task_custom_fields ADD COLUMN IF NOT EXISTS project_ids JSONB DEFAULT '[]'::jsonb",
         "ALTER TABLE task_custom_fields ADD COLUMN IF NOT EXISTS required BOOLEAN DEFAULT FALSE",
+        # Asana formula fields import but can never push back (the API rejects
+        # writes) - this marks them so the editors disable them.
+        "ALTER TABLE task_custom_fields ADD COLUMN IF NOT EXISTS read_only BOOLEAN DEFAULT FALSE",
+        # Asana-derived fields/statuses are identified by gid, not by name.
+        "ALTER TABLE task_custom_fields ADD COLUMN IF NOT EXISTS asana_gid VARCHAR DEFAULT ''",
+        "ALTER TABLE task_custom_statuses ADD COLUMN IF NOT EXISTS asana_option_gid VARCHAR DEFAULT ''",
+        # Custom statuses get the same per-project scoping custom fields already
+        # had. Empty = every project, so existing statuses are unchanged.
+        "ALTER TABLE task_custom_statuses ADD COLUMN IF NOT EXISTS project_ids JSONB DEFAULT '[]'::jsonb",
         # Setup-only Asana PAT; blank falls back to the service token.
         "ALTER TABLE asana_sync_config ADD COLUMN IF NOT EXISTS setup_token VARCHAR DEFAULT ''",
         "UPDATE task_teams SET project_ids = jsonb_build_array(project_id) "
@@ -607,6 +639,17 @@ def _run_migrations():
         "CREATE UNIQUE INDEX IF NOT EXISTS ux_asana_task_link_gid ON asana_task_links (asana_gid) WHERE asana_gid <> ''",
         # Two-way delete propagation (opt-out; see AsanaSyncConfig.delete_sync).
         "ALTER TABLE asana_sync_config ADD COLUMN IF NOT EXISTS delete_sync BOOLEAN DEFAULT TRUE",
+        # Two-Way Sync card's own sync/delete toggles, independent of the Setup
+        # card's enabled/delete_sync above - see AsanaSyncConfig and
+        # asana_sync.sync_is_on()/delete_sync_is_on().
+        "ALTER TABLE asana_sync_config ADD COLUMN IF NOT EXISTS manual_sync_enabled BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE asana_sync_config ADD COLUMN IF NOT EXISTS manual_delete_sync BOOLEAN DEFAULT FALSE",
+        # The exact rendered body from the original send, reused verbatim on
+        # retry instead of re-rendering. See TaskEmailLog.html.
+        "ALTER TABLE task_email_log ADD COLUMN IF NOT EXISTS html VARCHAR DEFAULT ''",
+        # Set only for a file attached while composing a comment. See
+        # TaskAttachment.comment_id.
+        "ALTER TABLE task_attachments ADD COLUMN IF NOT EXISTS comment_id VARCHAR DEFAULT ''",
         # Push-only digest (tags/followers/dependencies/section/attachments)
         # so the reconcile sweep can skip an unchanged task outright.
         "ALTER TABLE asana_task_links ADD COLUMN IF NOT EXISTS last_push_hash VARCHAR DEFAULT ''",
