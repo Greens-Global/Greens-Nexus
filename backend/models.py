@@ -1802,6 +1802,18 @@ class TaskActivity(Base):
     detail       = Column(String, default="")
 
 
+class TaskDeleteLog(Base):
+    """One row per deleted task/subtask - lets a delta fetch (GET /tasks/delta)
+    tell a client a task is GONE, not just absent from an incremental result
+    (silence is ambiguous: absent could mean "unchanged" or "deleted"). Mirrors
+    the Asana-sync tombstone pattern (AsanaPendingDelete / queue_task_delete in
+    asana_sync.py) for the identical reason."""
+    __tablename__ = "task_delete_log"
+    id         = Column(String, primary_key=True)
+    task_id    = Column(String, default="", index=True)
+    deleted_at = Column(String, default="", index=True)
+
+
 class TaskSavedView(Base):
     __tablename__ = "task_saved_views"
     id          = Column(String, primary_key=True)
@@ -2153,6 +2165,45 @@ class AsanaCommentLink(Base):
     nexus_comment_id = Column(String, default="", index=True)
     asana_story_gid  = Column(String, default="", index=True)
     created_at       = Column(String, default="")
+
+
+class AsanaUserToken(Base):
+    """One Nexus user's own Asana OAuth grant.
+
+    Asana attributes a story to whoever owns the token that posted it - there is
+    no impersonation parameter - so a comment can only appear under its real
+    author if Nexus holds that person's own token. Connected per user from
+    Account Settings; see asana_oauth.py.
+
+    Tokens are Fernet-encrypted at rest (secret_box, NEXUS_VAULT_KEY). The
+    access token is short-lived (~1h) and refreshed transparently before use;
+    the refresh token is the long-lived secret and is what a disconnect
+    destroys."""
+    __tablename__ = "asana_user_tokens"
+    id                = Column(String, primary_key=True)
+    email             = Column(String, default="", index=True, unique=True)  # Nexus user
+    access_token_enc  = Column(String, default="")
+    refresh_token_enc = Column(String, default="")
+    expires_at        = Column(String, default="")   # ISO; refreshed just before use
+    asana_user_gid    = Column(String, default="")
+    asana_name        = Column(String, default="")   # for the "Connected as ..." line
+    asana_email       = Column(String, default="")
+    created_at        = Column(String, default="")
+    updated_at        = Column(String, default="")
+
+
+class AsanaOAuthState(Base):
+    """One in-flight OAuth authorization, keyed by the opaque `state` value.
+
+    Two jobs: CSRF (Asana echoes it back, so a callback carrying a state we
+    never issued is rejected) and identity - the callback is a plain browser
+    redirect with no bearer token, so this row is the only thing tying the code
+    being exchanged to the Nexus user who started the flow. Consumed once and
+    deleted; anything older than the TTL is treated as expired."""
+    __tablename__ = "asana_oauth_states"
+    id         = Column(String, primary_key=True)   # the state value itself
+    email      = Column(String, default="")         # who started the flow
+    created_at = Column(String, default="")
 
 
 class AsanaAttachmentLink(Base):

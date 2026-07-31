@@ -414,6 +414,33 @@ def list_tasks(user: dict = Depends(get_current_user), db: Session = Depends(get
     return [task_to_dict(t) for t in rows if task_is_visible(t, user["email"], visible_projects)]
 
 
+@router.get("/delta")
+def list_tasks_delta(since: str = "", user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Incremental fetch for TasksContext's mount load + repeated refresh
+    (45s poll, realtime ping) - GET /tasks ships the full ~2,400-task
+    workspace every call even when nothing changed. `since=""` (the mount
+    case) naturally returns everything with no deletions, so this serves
+    both the initial and incremental load through one path.
+
+    `server_time` is captured BEFORE the query runs, not after - same
+    reasoning as asana_sync._pull_window's "stamped from when the fetch
+    STARTED": a task edited mid-query must fall in the NEXT delta window,
+    never be missed because it looked "already covered" by this one."""
+    server_time = now_iso()
+    q = db.query(models.Task)
+    if since:
+        q = q.filter(models.Task.modified_at > since)
+    rows = q.all()
+    if not is_manager(user):
+        visible_projects = visible_project_ids(db, user["email"])
+        rows = [t for t in rows if task_is_visible(t, user["email"], visible_projects)]
+    deleted = (db.query(models.TaskDeleteLog).filter(models.TaskDeleteLog.deleted_at > since).all()
+              if since else [])
+    return {"tasks": [task_to_dict(t) for t in rows],
+            "deletedIds": [d.task_id for d in deleted],
+            "serverTime": server_time}
+
+
 @router.post("", status_code=201)
 def create_task(body: TaskCreate, background_tasks: BackgroundTasks,
                 user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -620,6 +647,13 @@ def delete_task(task_id: str, background_tasks: BackgroundTasks,
     # delete subtasks
     subs = db.query(models.Task).filter(models.Task.parent_task_id == task_id).all()
     gone_ids = [task_id] + [sub.id for sub in subs]
+    # Tombstone every id being deleted, in this same transaction - a delta
+    # fetch (GET /tasks/delta) otherwise can't tell "deleted" apart from
+    # "unchanged, just not modified in this window". Same reasoning as the
+    # Asana pending-delete queue below.
+    deleted_stamp = now_iso()
+    for gid in gone_ids:
+        db.add(models.TaskDeleteLog(id=gen_id(), task_id=gid, deleted_at=deleted_stamp))
     # Asana counterparts of exactly the rows being deleted here, captured while
     # the links still exist - once they're gone nothing can re-derive them, so
     # unlike every other outbound change a lost deletion is lost for good.
@@ -714,6 +748,7 @@ def add_comment(task_id: str, body: CommentCreate, background_tasks: BackgroundT
                            body=body.body or "", created_at=now_iso(), edited_at="", pinned=False)
     db.add(c)
     t.comment_ids = list(t.comment_ids or []) + [cid]
+    t.modified_at = now_iso()   # so a delta fetch (GET /tasks/delta) picks this task up
     aid = log_activity(db, type="commented", actor_email=user["email"], entity_id=task_id,
                        entity_code=t.code, entity_title=t.title, detail="added a comment")
     t.activity_ids = list(t.activity_ids or []) + [aid]
@@ -757,6 +792,9 @@ def edit_comment(comment_id: str, upd: CommentUpdate, db: Session = Depends(get_
         c.edited_at = now_iso()
     if upd.pinned is not None:
         c.pinned = bool(upd.pinned)
+    t = db.query(models.Task).filter(models.Task.id == c.task_id).first()
+    if t:
+        t.modified_at = now_iso()   # so a delta fetch (GET /tasks/delta) picks this task up
     db.commit()
     db.refresh(c)
     fire_task_event(c.task_id, "comment")
@@ -771,6 +809,7 @@ def delete_comment(comment_id: str, db: Session = Depends(get_db)):
     t = db.query(models.Task).filter(models.Task.id == c.task_id).first()
     if t:
         t.comment_ids = [x for x in (t.comment_ids or []) if x != comment_id]
+        t.modified_at = now_iso()   # so a delta fetch (GET /tasks/delta) picks this task up
     db.delete(c)
     db.commit()
     fire_task_event(c.task_id, "comment")
@@ -806,6 +845,7 @@ def add_attachment(task_id: str, body: AttachmentCreate, user: dict = Depends(ge
                        entity_code=t.code, entity_title=t.title,
                        detail=f'attached "{a.name}"')
     t.activity_ids = list(t.activity_ids or []) + [act]
+    t.modified_at = now_iso()   # so a delta fetch (GET /tasks/delta) picks this task up
     db.commit()
     db.refresh(a)
     fire_task_event(task_id, "attachment")
@@ -825,6 +865,7 @@ def delete_attachment(attachment_id: str, user: dict = Depends(get_current_user)
                            entity_code=t.code, entity_title=t.title,
                            detail=f'removed attachment "{a.name}"')
         t.activity_ids = list(t.activity_ids or []) + [act]
+        t.modified_at = now_iso()   # so a delta fetch (GET /tasks/delta) picks this task up
     db.delete(a)
     db.commit()
     fire_task_event(a.task_id, "attachment")

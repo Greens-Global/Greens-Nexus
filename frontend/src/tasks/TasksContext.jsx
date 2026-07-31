@@ -82,10 +82,14 @@ export function TasksProvider({ children }) {
   const [changelog, setChangelog] = useState([]);
   const [loading, setLoading] = useState(true);
   const commentCache = useRef({});   // taskId -> comment[]
+  // Last server timestamp a task fetch is known-good as of - see refetchTasks.
+  // A ref, not state: read inside a stable useCallback, must not itself
+  // trigger a re-render when it changes.
+  const sinceRef = useRef('');
 
   const loadCore = useCallback(async () => {
     const [t, p, pf, d, tk, tc, sv, r, tpl, cf, cs, mr, intk, chl, tvw] = await Promise.all([
-      api.getTasks().catch(() => []),
+      api.getTasksDelta('').catch(() => ({ tasks: [], serverTime: '' })),
       api.getTaskProjects().catch(() => []),
       api.getTaskPortfolios().catch(() => []),
       api.getTaskTeams().catch(() => []),
@@ -101,7 +105,8 @@ export function TasksProvider({ children }) {
       api.getTaskChangelog().catch(() => []),
       api.getTicketViews().catch(() => []),
     ]);
-    setTasks(t || []); setProjects(p || []); setPortfolios(pf || []); setTeams(d || []);
+    setTasks(t?.tasks || []); sinceRef.current = t?.serverTime || '';
+    setProjects(p || []); setPortfolios(pf || []); setTeams(d || []);
     setTickets(tk || []); setTicketComponents(tc || []); setSavedViews(sv || []); setRules(r || []); setTemplates(tpl || []);
     setCustomFields(cf || []); setCustomStatuses(cs || []); setMemberRequests(mr || []);
     setIntakeForms(intk || []); setChangelog(chl || []); setTicketViews(tvw || []);
@@ -114,9 +119,21 @@ export function TasksProvider({ children }) {
 
   useEffect(() => { loadCore(); loadNotifications(); }, [loadCore, loadNotifications]);
 
-  // Realtime: refetch tasks (+notifications) on a task_events ping; 45s poll fallback.
+  // Realtime: refetch tasks (+notifications) on a task_events ping; 45s poll
+  // fallback. Incremental (GET /tasks/delta) rather than a full replace - the
+  // full workspace (~2,400 tasks) doesn't need to cross the wire again just
+  // because ONE task changed. sinceRef only advances on a successful response,
+  // so a failed poll leaves it untouched and the next attempt naturally
+  // re-covers the gap.
   const refetchTasks = useCallback(async () => {
-    setTasks(await api.getTasks().catch((e) => { throw e; }));
+    const { tasks: changed, deletedIds, serverTime } = await api.getTasksDelta(sinceRef.current);
+    setTasks((prev) => {
+      const byId = new Map(prev.map((x) => [x.id, x]));
+      for (const t of changed || []) byId.set(t.id, t);
+      for (const id of deletedIds || []) byId.delete(id);
+      return [...byId.values()];
+    });
+    sinceRef.current = serverTime;
   }, []);
   useEffect(() => {
     let timer = null;
