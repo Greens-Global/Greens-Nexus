@@ -17,7 +17,7 @@ warranty/inspection date columns for expiry notifications.
 import time
 import uuid
 from datetime import datetime, timezone, date
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -57,6 +57,10 @@ class Workspace(BaseModel):
     vdocs: List[Dict[str, Any]] = []
     maintenance: List[Dict[str, Any]] = []
     logs: List[Dict[str, Any]] = []
+    # Optimistic-concurrency marker: the server _ts this client's copy is based
+    # on. None = legacy client that predates the guard (accepted, so a deploy
+    # doesn't hard-break tabs that haven't reloaded yet).
+    baseTs: Optional[int] = None
 
 
 @router.get("/property-assets/workspace")
@@ -86,6 +90,17 @@ def put_workspace(ws: Workspace, db: Session = Depends(get_db), user=Depends(req
     request is simplest and matches the module's whole-blob save semantics."""
     now = _now()
     email = (user or {}).get("email", "")
+
+    # Refuse a STALE overwrite: this is a whole-blob replace, so a client whose
+    # copy predates the server's would silently erase everything saved since it
+    # last pulled (mid-edit sessions suppress pulls, so long sessions get very
+    # stale). 409 'stale' → the client pulls, merges by row id, and retries -
+    # nobody's work is dropped on either side.
+    cur_meta = db.get(PropertyWorkspaceMeta, 1)
+    server_ts = (cur_meta.ts if cur_meta else 0) or 0
+    if ws.baseTs is not None and server_ts and ws.baseTs < server_ts:
+        raise HTTPException(status_code=409,
+                            detail="stale: the portfolio changed since this tab last pulled - merge and retry")
 
     # Refuse a wipe: a client that booted during an outage starts from an EMPTY
     # store, and its first save would replace-all a populated portfolio with
