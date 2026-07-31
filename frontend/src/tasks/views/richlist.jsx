@@ -7,6 +7,8 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } fr
 import { createPortal } from 'react-dom';
 import {
   CheckCircle2, Circle, MessageSquare, Paperclip, Diamond, ChevronDown, Check, Minus, ListTree, Plus, Trash2, Folder,
+  // (MessageSquare/Paperclip now render as count badges next to the title,
+  // like the subtask badge below - not as ActionIcons buttons.)
   Hash, List, Calendar, CheckSquare, ListOrdered, CircleDot, BarChart3, TrendingUp, Star, CalendarPlus, CalendarClock, Timer, ArrowLeft, EyeOff,
   Lock, Users, ListChecks,
 } from 'lucide-react';
@@ -17,7 +19,7 @@ import { emailToName, rootZoom } from '../../lib/utils';
 
 const BASE_COLS = [
   { key: 'checkbox', label: '', width: 28 },
-  { key: 'actions', label: 'Actions', width: 118 },
+  { key: 'actions', label: 'Actions', width: 72 },
   { key: 'task', label: 'Task', width: 280, grow: true },
   { key: 'assignee', label: 'Person', width: 120 },
   { key: 'project', label: 'Project', width: 132 },
@@ -234,14 +236,9 @@ function AssigneeCell({ value, people, onSelect, compact }) {
   );
 }
 
-function ActionIcons({ t, store, onOpen }) {
-  const fileRef = useRef(null);
+function ActionIcons({ t, store }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 1, color: NX.faint }}>
-      <button title="Comments" onClick={(e) => { e.stopPropagation(); onOpen(t.id); }} style={{ ...btn('ghost'), padding: 5 }}><MessageSquare size={13} /></button>
-      <button title="Attach File" onClick={(e) => { e.stopPropagation(); fileRef.current?.click(); }} style={{ ...btn('ghost'), padding: 5 }}><Paperclip size={13} /></button>
-      <input ref={fileRef} type="file" multiple style={{ display: 'none' }} onChange={() => { /* attach wired in detail drawer */ }} />
-      <button title="Toggle Milestone" onClick={(e) => { e.stopPropagation(); store.updateTask(t.id, { isMilestone: !t.isMilestone }); }} style={{ ...btn('ghost'), padding: 5, color: t.isMilestone ? NX.purple : NX.faint }}><Diamond size={13} /></button>
       <button title="Complete" onClick={(e) => { e.stopPropagation(); store.toggleComplete(t); }} style={{ ...btn('ghost'), padding: 5, color: t.completed ? NX.green : NX.faint }}>{t.completed ? <CheckCircle2 size={13} /> : <Circle size={13} />}</button>
     </div>
   );
@@ -266,6 +263,8 @@ function TaskRow({ t, cols, customFields = [], template, store, people, selected
   const subIds = t.subtaskIds || [];
   const subs = subIds.map((id) => (store.taskById ? store.taskById[id] : null) || store.tasks?.find((x) => x.id === id)).filter(Boolean);
   const subsDone = subs.filter((s) => s.completed).length;
+  const commentCount = (t.commentIds || []).length;
+  const attachmentCount = (t.attachmentIds || []).length;
   return (
     <div onClick={() => onOpen(t.id)} data-task-row draggable
       onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; onDragStartRow?.(t.id); }}
@@ -281,7 +280,7 @@ function TaskRow({ t, cols, customFields = [], template, store, people, selected
           </button>
         </div>
         {/* actions */}
-        {show('actions') && <div style={cellPad}><ActionIcons t={t} store={store} onOpen={onOpen} /></div>}
+        {show('actions') && <div style={{ ...cellPad, justifyContent: 'center' }}><ActionIcons t={t} store={store} /></div>}
         {/* task */}
         <div style={{ ...cellPad, gap: 6 }}>
           {t.isMilestone && <Diamond size={12} style={{ color: NX.purple, flexShrink: 0 }} />}
@@ -289,9 +288,20 @@ function TaskRow({ t, cols, customFields = [], template, store, people, selected
           {subs.length > 0 && (
             <span title={`${subsDone}/${subs.length} subtasks done`} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: NX.faint, flexShrink: 0 }}>
               <ListTree size={12} />{subsDone}/{subs.length}
-              <span style={{ width: 34, height: 4, borderRadius: 2, background: NX.border2, overflow: 'hidden', display: 'inline-block' }}>
-                <span style={{ display: 'block', height: '100%', width: `${Math.round((subsDone / subs.length) * 100)}%`, background: '#00c875' }} />
-              </span>
+            </span>
+          )}
+          {/* Same badge language as subtasks above - icon + count, present only
+              when there's something to show. No longer buttons in ActionIcons:
+              those opened the drawer/file-picker regardless of whether the task
+              had anything to show, which is what a plain indicator here avoids. */}
+          {commentCount > 0 && (
+            <span title={`${commentCount} comment${commentCount === 1 ? '' : 's'}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, color: NX.faint, flexShrink: 0 }}>
+              <MessageSquare size={12} />{commentCount}
+            </span>
+          )}
+          {attachmentCount > 0 && (
+            <span title={`${attachmentCount} attachment${attachmentCount === 1 ? '' : 's'}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, color: NX.faint, flexShrink: 0 }}>
+              <Paperclip size={12} />{attachmentCount}
             </span>
           )}
         </div>
@@ -892,7 +902,7 @@ export default function RichListView({ visible, group, ctx, store, people, selec
         </button>
       </div>
       {cols.slice(1).map((c) => (
-        <div key={c.key} style={{ ...headCell, justifyContent: c.key === 'task' || c.key === 'actions' ? 'flex-start' : 'center' }}>
+        <div key={c.key} style={{ ...headCell, justifyContent: c.key === 'task' ? 'flex-start' : 'center' }}>
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.label}</span>
           <ColResizer onMouseDown={startResize(c.key, widths[c.key] ?? c.width)} />
         </div>
