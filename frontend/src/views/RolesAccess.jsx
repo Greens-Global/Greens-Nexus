@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Shield, Plus, X, Search, Loader2, Pencil, Trash2, UserPlus, Check, ChevronRight, ChevronDown,
   LayoutGrid, Copy, MonitorOff, PlayCircle, Users, User,
@@ -30,6 +30,13 @@ const FAMILIES = [
 ].map(f => ({ ...f, modules: f.modules.filter(id => GRANTABLE.some(m => m.id === id)) }));
 
 const moduleLabel = id => MODULES.find(m => m.id === id)?.label || id;
+
+// Tiny face for chips and rows - falls back to an initial when there's no photo.
+export function Avatar({ name, src, size = 20 }) {
+  return src
+    ? <img src={src} alt="" style={{ width: size, height: size, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
+    : <span aria-hidden style={{ width: size, height: size, borderRadius: '50%', background: 'var(--paper)', border: '1px solid var(--line)', display: 'grid', placeItems: 'center', fontSize: Math.round(size * 0.42), fontWeight: 700, color: 'var(--muted)', flexShrink: 0 }}>{(name || '?').trim()[0]?.toUpperCase() || '?'}</span>;
+}
 
 // ── shared bits (also reused by the People card Access section) ───────────────
 export function LevelPill({ level, title }) {
@@ -115,9 +122,16 @@ export default function RolesAccess({ embedded = false }) {
       email: (p.email || p.workEmail || '').toLowerCase(),
       name: p.display_name || p.name || p.fullName || p.email || p.workEmail || '',
       title: p.job_title || p.jobTitle || p.title || '',
+      company: p.company || '',
+      companyName: p.companyName || '',
+      dept: p.department || '',
+      photo: p.photoUrl || p.photo_url || '',
     }))
     .filter(p => p.email)
     .sort((a, b) => a.name.localeCompare(b.name)), [dir]);
+
+  // email → photo, for the member chips (role + group members arrive as emails).
+  const photoOf = useMemo(() => Object.fromEntries(people.map(p => [p.email, p.photo])), [people]);
 
   // email → { role, groups } from the membership lists we already have - lets
   // person cards show chips without one API call per person.
@@ -135,6 +149,13 @@ export default function RolesAccess({ embedded = false }) {
   }, [jobRoles, groups]);
 
   const selected = (jobRoles || []).find(r => r.id === selId) || null;
+
+  // Picking a role deep in a 30+ card list leaves the detail panel (and its
+  // Assign/Edit actions) off-screen above - bring it into view on selection.
+  const rolePanelRef = useRef(null);
+  useEffect(() => {
+    if (selId && rolePanelRef.current) rolePanelRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [selId]);
 
   if (!can('administrator')) {
     return <div style={{ padding: '60px 20px', textAlign: 'center', color: 'var(--muted)' }}>Roles & Access is available to administrators.</div>;
@@ -210,7 +231,7 @@ export default function RolesAccess({ embedded = false }) {
       {/* ── PEOPLE (default) ── */}
       {sub === 'people' && (
         <PeopleTab people={people} membership={membership} jobRoles={jobRoles} groups={groups}
-          person={person} setPerson={setPerson} nameOf={nameOf}
+          person={person} setPerson={setPerson} nameOf={nameOf} photoOf={photoOf}
           onChanged={() => { loadRoles(); loadGroups(); }} toastOk={toastOk} toastErr={toastErr} />
       )}
 
@@ -234,7 +255,7 @@ export default function RolesAccess({ embedded = false }) {
                 </button>
               ))}
             </div>
-            <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 20, alignSelf: 'start' }}>
+            <div ref={rolePanelRef} style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 20, alignSelf: 'start', scrollMarginTop: 12 }}>
               {!selected ? <div style={{ color: 'var(--muted)', padding: '40px 10px', textAlign: 'center', fontSize: 13.5 }}>Pick a job role to see its full bundle, or create a new one.</div> : (
                 <>
                   <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
@@ -278,7 +299,8 @@ export default function RolesAccess({ embedded = false }) {
                   {(selected.members || []).length > 0 && (
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
                       {selected.members.map(em => (
-                        <span key={em} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 6px 5px 12px', borderRadius: 20, background: 'var(--paper)', border: '1px solid var(--line)', fontSize: 12.5, fontWeight: 600 }}>
+                        <span key={em} style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '4px 6px 4px 5px', borderRadius: 20, background: 'var(--paper)', border: '1px solid var(--line)', fontSize: 12.5, fontWeight: 600 }}>
+                          <Avatar name={nameOf(em)} src={photoOf[em]} size={22} />
                           {nameOf(em)}
                           <button onClick={() => removeMember(em)} title="Remove from this role" aria-label={`Remove ${nameOf(em)}`}
                             style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'grid', placeItems: 'center', width: 18, height: 18, borderRadius: '50%', padding: 0 }}
@@ -323,7 +345,9 @@ export default function RolesAccess({ embedded = false }) {
                   {(g.members || []).length > 0 && (
                     <div style={{ marginTop: 9, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                       {(g.members || []).slice(0, 6).map(em => (
-                        <span key={em} style={{ padding: '3px 10px', borderRadius: 20, background: 'var(--paper)', border: '1px solid var(--line)', fontSize: 11.5, fontWeight: 600 }}>{nameOf(em)}</span>
+                        <span key={em} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 10px 3px 4px', borderRadius: 20, background: 'var(--paper)', border: '1px solid var(--line)', fontSize: 11.5, fontWeight: 600 }}>
+                          <Avatar name={nameOf(em)} src={photoOf[em]} size={18} />{nameOf(em)}
+                        </span>
                       ))}
                       {(g.members || []).length > 6 && <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>+{(g.members || []).length - 6} more</span>}
                     </div>
@@ -358,13 +382,57 @@ export default function RolesAccess({ embedded = false }) {
 }
 
 // ── PEOPLE tab - search a person, see and change their access ────────────────
-function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, nameOf, onChanged, toastOk, toastErr }) {
+function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, nameOf, photoOf = {}, onChanged, toastOk, toastErr }) {
   const [q, setQ] = useState('');
+  const [co, setCo] = useState('');       // company (entity id) filter
+  const [dept, setDept] = useState('');   // department (name) filter
   const [eff, setEff] = useState(null);
   const [busy, setBusy] = useState(false);
 
+  // Same courtesy as the role panel: picking a person deep in the list brings
+  // their panel (role picker, groups) into view instead of leaving it above.
+  const panelRef = useRef(null);
+  useEffect(() => {
+    if (person && panelRef.current) panelRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [person]);
+
+  // Companies present in the directory - the filter only offers real choices.
+  const companies = useMemo(() => {
+    const seen = new Map();
+    const uuidish = /^[0-9a-f]{8}-[0-9a-f]{4}-/i;
+    people.forEach(p => {
+      if (!p.company || seen.has(p.company)) return;
+      // An id whose entity no longer exists would render as a raw UUID - leave
+      // it out; those people stay reachable under "All companies". A plain
+      // legacy name in the company field still shows as itself.
+      const label = p.companyName || (uuidish.test(p.company) ? '' : p.company);
+      if (label) seen.set(p.company, label);
+    });
+    return [...seen.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
+  }, [people]);
+
+  // Departments cascade from the company: pick a company and only ITS
+  // departments appear (a company without Estimating never shows Estimating).
+  const deptOptions = useMemo(() => {
+    const seen = new Map();
+    people.forEach(p => {
+      if (!p.dept) return;
+      if (co && p.company !== co) return;
+      const k = p.dept.trim().toLowerCase();
+      if (k && !seen.has(k)) seen.set(k, p.dept.trim());
+    });
+    return [...seen.values()].sort((a, b) => a.localeCompare(b));
+  }, [people, co]);
+
+  // A department picked under one company may not exist under the next.
+  useEffect(() => {
+    if (dept && !deptOptions.some(d => d.toLowerCase() === dept.toLowerCase())) setDept('');
+  }, [deptOptions, dept]);
+
   const filtered = useMemo(() => people.filter(p =>
-    !q.trim() || p.name.toLowerCase().includes(q.toLowerCase()) || p.email.includes(q.toLowerCase())), [people, q]);
+    (!co || p.company === co)
+    && (!dept || p.dept.trim().toLowerCase() === dept.toLowerCase())
+    && (!q.trim() || p.name.toLowerCase().includes(q.toLowerCase()) || p.email.includes(q.toLowerCase()))), [people, q, co, dept]);
 
   useEffect(() => {
     if (!person) { setEff(null); return; }
@@ -405,6 +473,21 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
     <div className="ra-people" style={{ display: 'grid', gridTemplateColumns: '360px 1fr', gap: 18 }}>
       {/* left: search + people list */}
       <div style={{ alignSelf: 'start' }}>
+        {companies.length > 0 && (
+          <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+            <select value={co} onChange={e => setCo(e.target.value)} aria-label="Filter by company"
+              style={{ ...input, flex: 1, minWidth: 0, padding: '7px 9px', fontSize: 12.5 }}>
+              <option value="">All companies</option>
+              {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+            <select value={dept} onChange={e => setDept(e.target.value)} aria-label="Filter by department"
+              disabled={!deptOptions.length}
+              style={{ ...input, flex: 1, minWidth: 0, padding: '7px 9px', fontSize: 12.5, opacity: deptOptions.length ? 1 : 0.55 }}>
+              <option value="">{deptOptions.length ? 'All departments' : 'No departments'}</option>
+              {deptOptions.map(d => <option key={d} value={d}>{d}</option>)}
+            </select>
+          </div>
+        )}
         <div data-tour="people-search" style={{ position: 'relative', marginBottom: 12 }}>
           <Search size={15} style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
           <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search anyone…" style={{ ...input, paddingLeft: 34 }} />
@@ -416,6 +499,7 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
             return (
               <button key={p.email} onClick={() => setPerson(p.email)}
                 style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 11px', borderRadius: 10, border: 'none', width: '100%', textAlign: 'left', background: active ? 'color-mix(in srgb, var(--ink) 8%, transparent)' : 'none', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
+                <Avatar name={p.name} src={p.photo} size={28} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontWeight: 700, fontSize: 13 }}>{p.name}</div>
                   <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -431,7 +515,7 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
       </div>
 
       {/* right: person detail */}
-      <div data-tour="person-panel" style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 20, alignSelf: 'start', minHeight: 220 }}>
+      <div ref={panelRef} data-tour="person-panel" style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 20, alignSelf: 'start', minHeight: 220, scrollMarginTop: 12 }}>
         {!person ? (
           <div style={{ padding: '48px 16px', textAlign: 'center' }}>
             <div style={{ width: 44, height: 44, borderRadius: '50%', background: 'var(--paper)', border: '1px solid var(--line)', display: 'grid', placeItems: 'center', margin: '0 auto 12px' }}>
@@ -447,6 +531,7 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
         ) : (
           <>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <Avatar name={nameOf(eff.email)} src={photoOf[eff.email]} size={34} />
               <h3 style={{ fontSize: 17, fontWeight: 800, flex: 1, minWidth: 140 }}>{nameOf(eff.email)}</h3>
               <TierBadge tier={eff.tier} />
             </div>
