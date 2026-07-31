@@ -133,6 +133,50 @@ export default function RolesAccess({ embedded = false }) {
   // email → photo, for the member chips (role + group members arrive as emails).
   const photoOf = useMemo(() => Object.fromEntries(people.map(p => [p.email, p.photo])), [people]);
 
+  // ── Universal company/department filter (lives in the tab strip) ────────────
+  // One selector scopes the whole screen: the People list, role member chips
+  // and face stacks, and group chips all narrow to the chosen company/department.
+  const [co, setCo] = useState('');
+  const [dept, setDept] = useState('');
+  const companies = useMemo(() => {
+    const seen = new Map();
+    const uuidish = /^[0-9a-f]{8}-[0-9a-f]{4}-/i;
+    people.forEach(p => {
+      if (!p.company || seen.has(p.company)) return;
+      const label = p.companyName || (uuidish.test(p.company) ? '' : p.company);
+      if (label) seen.set(p.company, label);
+    });
+    return [...seen.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
+  }, [people]);
+  // Departments cascade from the company: a company without Estimating never
+  // offers Estimating. Options come from what is actually in use.
+  const deptOptions = useMemo(() => {
+    const seen = new Map();
+    people.forEach(p => {
+      if (!p.dept) return;
+      if (co && p.company !== co) return;
+      const k = p.dept.trim().toLowerCase();
+      if (k && !seen.has(k)) seen.set(k, p.dept.trim());
+    });
+    return [...seen.values()].sort((a, b) => a.localeCompare(b));
+  }, [people, co]);
+  useEffect(() => {
+    if (dept && !deptOptions.some(d => d.toLowerCase() === dept.toLowerCase())) setDept('');
+  }, [deptOptions, dept]);
+
+  const emailMeta = useMemo(() => Object.fromEntries(people.map(p => [p.email, p])), [people]);
+  const filterOn = !!(co || dept);
+  const inFilter = em => {
+    if (!filterOn) return true;
+    const p = emailMeta[(em || '').toLowerCase()];
+    if (!p) return false;
+    if (co && p.company !== co) return false;
+    if (dept && p.dept.trim().toLowerCase() !== dept.toLowerCase()) return false;
+    return true;
+  };
+  const scopedPeople = useMemo(() => filterOn ? people.filter(p => inFilter(p.email)) : people,
+    [people, co, dept]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // email → { role, groups } from the membership lists we already have - lets
   // person cards show chips without one API call per person.
   const membership = useMemo(() => {
@@ -222,6 +266,22 @@ export default function RolesAccess({ embedded = false }) {
           </button>
         ))}
         <span style={{ flex: 1 }} />
+        {companies.length > 0 && (
+          <>
+            <select value={co} onChange={e => setCo(e.target.value)} aria-label="Filter every tab by company"
+              title="Scopes every tab to this company's people"
+              style={{ ...input, width: 'auto', maxWidth: 170, padding: '6px 9px', fontSize: 12.5, margin: '4px 0 8px' }}>
+              <option value="">All companies</option>
+              {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+            <select value={dept} onChange={e => setDept(e.target.value)} aria-label="Filter every tab by department"
+              title="Scopes every tab to this department's people" disabled={!deptOptions.length}
+              style={{ ...input, width: 'auto', maxWidth: 160, padding: '6px 9px', fontSize: 12.5, margin: '4px 0 8px', opacity: deptOptions.length ? 1 : 0.55 }}>
+              <option value="">{deptOptions.length ? 'All departments' : 'No departments'}</option>
+              {deptOptions.map(d => <option key={d} value={d}>{d}</option>)}
+            </select>
+          </>
+        )}
         <button onClick={() => setTour(true)} title="A guided walkthrough of how to give out access - nothing is changed while it runs."
           style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'none', border: '1px solid var(--line)', borderRadius: 999, padding: '6px 14px', margin: '4px 4px 8px 0', fontFamily: 'Inter,sans-serif', fontWeight: 700, fontSize: 12.5, cursor: 'pointer', color: 'var(--ink)', whiteSpace: 'nowrap' }}>
           <PlayCircle size={15} /> Simulate
@@ -230,7 +290,7 @@ export default function RolesAccess({ embedded = false }) {
 
       {/* ── PEOPLE (default) ── */}
       {sub === 'people' && (
-        <PeopleTab people={people} membership={membership} jobRoles={jobRoles} groups={groups}
+        <PeopleTab people={scopedPeople} membership={membership} jobRoles={jobRoles} groups={groups}
           person={person} setPerson={setPerson} nameOf={nameOf} photoOf={photoOf}
           onChanged={() => { loadRoles(); loadGroups(); }} toastOk={toastOk} toastErr={toastErr} />
       )}
@@ -249,21 +309,27 @@ export default function RolesAccess({ embedded = false }) {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
                     <span style={{ fontWeight: 800, fontSize: 14, flex: 1 }}>{r.name}</span>
                     <TierBadge tier={r.tier} />
-                    {(r.members || []).length ? (
-                      <span title={`${r.member_count} ${r.member_count === 1 ? 'person' : 'people'}: ${(r.members || []).map(nameOf).join(', ')}`}
-                        style={{ display: 'inline-flex', alignItems: 'center', flexShrink: 0 }}>
-                        {(r.members || []).slice(0, 5).map((em, i) => (
-                          <span key={em} style={{ marginLeft: i ? -7 : 0, display: 'inline-flex', borderRadius: '50%', border: '2px solid var(--card)' }}>
-                            <Avatar name={nameOf(em)} src={photoOf[em]} size={20} />
-                          </span>
-                        ))}
-                        {(r.members || []).length > 5 && <span style={{ marginLeft: 4, fontSize: 10.5, fontWeight: 700, color: 'var(--muted)' }}>+{(r.members || []).length - 5}</span>}
-                      </span>
-                    ) : (
-                      <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>0 people</span>
-                    )}
                   </div>
-                  <div style={{ marginTop: 7, fontSize: 12, lineHeight: 1.5, color: 'var(--muted)' }}>{bundleSummary(r.allowed_modules)}</div>
+                  {/* Neil (Aug 1): no bundle summary on the card - the people ARE
+                      the summary. Faces only; the full bundle is one click away. */}
+                  <div style={{ marginTop: 8, minHeight: 24, display: 'flex', alignItems: 'center' }}>
+                    {(() => {
+                      const mem = (r.members || []).filter(inFilter);
+                      return mem.length ? (
+                        <span title={`${mem.length} ${mem.length === 1 ? 'person' : 'people'}${filterOn ? ` in this filter (${r.member_count} total)` : ''}: ${mem.map(nameOf).join(', ')}`}
+                          style={{ display: 'inline-flex', alignItems: 'center' }}>
+                          {mem.slice(0, 8).map((em, i) => (
+                            <span key={em} style={{ marginLeft: i ? -7 : 0, display: 'inline-flex', borderRadius: '50%', border: '2px solid var(--card)' }}>
+                              <Avatar name={nameOf(em)} src={photoOf[em]} size={24} />
+                            </span>
+                          ))}
+                          {mem.length > 8 && <span style={{ marginLeft: 5, fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>+{mem.length - 8}</span>}
+                        </span>
+                      ) : (
+                        <span style={{ fontSize: 11.5, color: 'var(--muted)', fontWeight: 600 }}>{filterOn && r.member_count ? 'None in this filter' : 'Nobody yet'}</span>
+                      );
+                    })()}
+                  </div>
                 </button>
               ))}
             </div>
@@ -307,10 +373,12 @@ export default function RolesAccess({ embedded = false }) {
                   <div style={sectLabel}>Timesheet approver (default manager)</div>
                   <ApproverPicker role={selected} people={people} nameOf={nameOf}
                     onSaved={loadRoles} toastOk={toastOk} toastErr={toastErr} />
-                  <div style={sectLabel}>People with this role · {selected.member_count}</div>
-                  {(selected.members || []).length > 0 && (
+                  <div style={sectLabel}>People with this role · {filterOn
+                    ? `${(selected.members || []).filter(inFilter).length} of ${selected.member_count}`
+                    : selected.member_count}</div>
+                  {(selected.members || []).filter(inFilter).length > 0 && (
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
-                      {selected.members.map(em => (
+                      {selected.members.filter(inFilter).map(em => (
                         <span key={em} style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '4px 6px 4px 5px', borderRadius: 20, background: 'var(--paper)', border: '1px solid var(--line)', fontSize: 12.5, fontWeight: 600 }}>
                           <Avatar name={nameOf(em)} src={photoOf[em]} size={22} />
                           {nameOf(em)}
@@ -354,14 +422,14 @@ export default function RolesAccess({ embedded = false }) {
                     <button className="secondary-btn" style={{ padding: '5px 9px' }} onClick={() => onDeleteGroup(g)} title="Delete group"><Trash2 size={13} /></button>
                   </div>
                   <div style={{ marginTop: 7, fontSize: 12, lineHeight: 1.5, color: 'var(--muted)' }}>{bundleSummary(g.allowed_modules)}</div>
-                  {(g.members || []).length > 0 && (
+                  {(g.members || []).filter(inFilter).length > 0 && (
                     <div style={{ marginTop: 9, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                      {(g.members || []).slice(0, 6).map(em => (
+                      {(g.members || []).filter(inFilter).slice(0, 6).map(em => (
                         <span key={em} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 10px 3px 4px', borderRadius: 20, background: 'var(--paper)', border: '1px solid var(--line)', fontSize: 11.5, fontWeight: 600 }}>
                           <Avatar name={nameOf(em)} src={photoOf[em]} size={18} />{nameOf(em)}
                         </span>
                       ))}
-                      {(g.members || []).length > 6 && <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>+{(g.members || []).length - 6} more</span>}
+                      {(g.members || []).filter(inFilter).length > 6 && <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>+{(g.members || []).filter(inFilter).length - 6} more</span>}
                     </div>
                   )}
                 </div>
@@ -378,9 +446,21 @@ export default function RolesAccess({ embedded = false }) {
       )}
 
       {editing !== undefined && <RoleEditor role={editing} onClose={() => setEditing(undefined)}
-        onSaved={r => { setEditing(undefined); toastOk(`Saved “${r.name}”.`); setSelId(r.id); loadRoles(); }} onErr={toastErr} />}
+        onSaved={r => {
+          setEditing(undefined); toastOk(`Saved “${r.name}”.`); setSelId(r.id);
+          // Merge the server's response into local state IMMEDIATELY. The refetch
+          // takes seconds on a slow link; reopening the editor before it landed
+          // showed pre-save data (and re-saving that stale modal wrote the old
+          // values back) - which read as "my changes are gone".
+          setJobRoles(prev => { const arr = prev || []; return arr.some(x => x.id === r.id) ? arr.map(x => x.id === r.id ? r : x) : [...arr, r]; });
+          loadRoles();
+        }} onErr={toastErr} />}
       {editGroup !== undefined && <GroupEditor group={editGroup} onClose={() => setEditGroup(undefined)}
-        onSaved={g => { setEditGroup(undefined); toastOk(`Saved “${g.name}”.`); loadGroups(); }} onErr={toastErr} />}
+        onSaved={g => {
+          setEditGroup(undefined); toastOk(`Saved “${g.name}”.`);
+          setGroups(prev => { const arr = prev || []; return arr.some(x => x.id === g.id) ? arr.map(x => x.id === g.id ? g : x) : [...arr, g]; });
+          loadGroups();
+        }} onErr={toastErr} />}
       {assignFor && <AssignModal role={assignFor} onClose={() => setAssignFor(null)}
         onAssigned={n => { toastOk(`Assigned ${n} to “${assignFor.name}”.`); loadRoles(); }} onErr={toastErr} />}
       {tour && <GuidedTour steps={tourSteps} onClose={() => setTour(false)} />}
@@ -408,43 +488,10 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
     if (person && panelRef.current) panelRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, [person]);
 
-  // Companies present in the directory - the filter only offers real choices.
-  const companies = useMemo(() => {
-    const seen = new Map();
-    const uuidish = /^[0-9a-f]{8}-[0-9a-f]{4}-/i;
-    people.forEach(p => {
-      if (!p.company || seen.has(p.company)) return;
-      // An id whose entity no longer exists would render as a raw UUID - leave
-      // it out; those people stay reachable under "All companies". A plain
-      // legacy name in the company field still shows as itself.
-      const label = p.companyName || (uuidish.test(p.company) ? '' : p.company);
-      if (label) seen.set(p.company, label);
-    });
-    return [...seen.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
-  }, [people]);
-
-  // Departments cascade from the company: pick a company and only ITS
-  // departments appear (a company without Estimating never shows Estimating).
-  const deptOptions = useMemo(() => {
-    const seen = new Map();
-    people.forEach(p => {
-      if (!p.dept) return;
-      if (co && p.company !== co) return;
-      const k = p.dept.trim().toLowerCase();
-      if (k && !seen.has(k)) seen.set(k, p.dept.trim());
-    });
-    return [...seen.values()].sort((a, b) => a.localeCompare(b));
-  }, [people, co]);
-
-  // A department picked under one company may not exist under the next.
-  useEffect(() => {
-    if (dept && !deptOptions.some(d => d.toLowerCase() === dept.toLowerCase())) setDept('');
-  }, [deptOptions, dept]);
-
+  // Company/department scoping happens upstream (the universal selector in the
+  // tab strip hands this tab already-scoped people); only search lives here.
   const filtered = useMemo(() => people.filter(p =>
-    (!co || p.company === co)
-    && (!dept || p.dept.trim().toLowerCase() === dept.toLowerCase())
-    && (!q.trim() || p.name.toLowerCase().includes(q.toLowerCase()) || p.email.includes(q.toLowerCase()))), [people, q, co, dept]);
+    !q.trim() || p.name.toLowerCase().includes(q.toLowerCase()) || p.email.includes(q.toLowerCase())), [people, q]);
 
   useEffect(() => {
     if (!person) { setEff(null); return; }
@@ -485,21 +532,6 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
     <div className="ra-people" style={{ display: 'grid', gridTemplateColumns: '360px 1fr', gap: 18 }}>
       {/* left: search + people list */}
       <div style={{ alignSelf: 'start' }}>
-        {companies.length > 0 && (
-          <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-            <select value={co} onChange={e => setCo(e.target.value)} aria-label="Filter by company"
-              style={{ ...input, flex: 1, minWidth: 0, padding: '7px 9px', fontSize: 12.5 }}>
-              <option value="">All companies</option>
-              {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-            <select value={dept} onChange={e => setDept(e.target.value)} aria-label="Filter by department"
-              disabled={!deptOptions.length}
-              style={{ ...input, flex: 1, minWidth: 0, padding: '7px 9px', fontSize: 12.5, opacity: deptOptions.length ? 1 : 0.55 }}>
-              <option value="">{deptOptions.length ? 'All departments' : 'No departments'}</option>
-              {deptOptions.map(d => <option key={d} value={d}>{d}</option>)}
-            </select>
-          </div>
-        )}
         <div data-tour="people-search" style={{ position: 'relative', marginBottom: 12 }}>
           <Search size={15} style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
           <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search anyone…" style={{ ...input, paddingLeft: 34 }} />
@@ -769,6 +801,69 @@ function ApproverPicker({ role, people, nameOf, onSaved, toastOk, toastErr }) {
   );
 }
 
+// ── bundle editor (shared by RoleEditor + GroupEditor) ───────────────────────
+// One-click granting: each row is four level pills - clicking a pill grants the
+// screen at that level (no separate checkbox step), clicking the active pill
+// removes it. Bulk actions cover "everything except two screens" in four
+// clicks: Check All -> set all checked to Full -> click off the two.
+function BundleEditor({ bundle, setBundle }) {
+  const [bulk, setBulk] = useState('');
+  const grant = (id, level) => setBundle(b => {
+    const n = { ...b };
+    if (n[id] === level) delete n[id]; else n[id] = level;
+    return n;
+  });
+  const checkedCount = Object.keys(bundle).length;
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', margin: '0 0 8px' }}>
+        <button type="button" className="secondary-btn" style={{ padding: '5px 10px', fontSize: 12 }}
+          onClick={() => setBundle(b => Object.fromEntries(GRANTABLE.map(m => [m.id, b[m.id] || 'viewer'])))}>Check All</button>
+        <button type="button" className="secondary-btn" style={{ padding: '5px 10px', fontSize: 12 }}
+          onClick={() => setBundle({})}>Clear All</button>
+        <span style={{ flex: 1 }} />
+        <select value={bulk} onChange={e => { const l = e.target.value; setBulk(''); if (l) setBundle(b => Object.fromEntries(Object.keys(b).map(id => [id, l]))); }}
+          disabled={!checkedCount} aria-label="Set every checked screen to one level"
+          style={{ ...input, width: 'auto', padding: '5px 8px', fontSize: 12, opacity: checkedCount ? 1 : 0.5 }}>
+          <option value="">Set all checked to…</option>
+          {LEVEL_ORDER.map(l => <option key={l} value={l}>{MODULE_LEVELS[l].label}</option>)}
+        </select>
+      </div>
+      <div style={{ border: '1px solid var(--line)', borderRadius: 10, maxHeight: 300, overflow: 'auto' }}>
+        {GRANTABLE.map(m => {
+          const on = bundle[m.id];
+          return (
+            <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderBottom: '1px solid var(--line)' }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: on ? 700 : 500, color: on ? 'var(--ink)' : 'var(--muted)' }}>{m.label}</div>
+                {on && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2, lineHeight: 1.35 }}>{capabilityText(m.id, on, m.label)}</div>}
+              </div>
+              <div style={{ display: 'inline-flex', gap: 4, flexShrink: 0 }} role="group" aria-label={`${m.label} level`}>
+                {LEVEL_ORDER.map(l => {
+                  const active = on === l;
+                  return (
+                    <button key={l} type="button" onClick={() => grant(m.id, l)}
+                      title={active ? `Click to remove ${m.label}` : capabilityText(m.id, l, m.label)}
+                      style={{ padding: '4px 10px', borderRadius: 999, fontSize: 11.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter,sans-serif',
+                        border: `1.5px solid ${active ? 'var(--ink)' : 'var(--line)'}`,
+                        background: active ? 'var(--ink)' : 'transparent',
+                        color: active ? 'var(--card)' : 'var(--muted)' }}>
+                      {MODULE_LEVELS[l].label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 7 }}>
+        One click grants a screen at that level; click the active level again to remove it. {checkedCount} of {GRANTABLE.length} screens granted.
+      </div>
+    </div>
+  );
+}
+
 // ── editor modal ─────────────────────────────────────────────────────────────
 function RoleEditor({ role, onClose, onSaved, onErr }) {
   const [name, setName] = useState(role?.name || '');
@@ -777,9 +872,6 @@ function RoleEditor({ role, onClose, onSaved, onErr }) {
   const [bundle, setBundle] = useState(() => Object.fromEntries((role?.allowed_modules || []).map(g => [g.id, g.level])));
   const [monExempt, setMonExempt] = useState(!!role?.monitoring_exempt);
   const [busy, setBusy] = useState(false);
-
-  const toggle = id => setBundle(b => { const n = { ...b }; if (n[id]) delete n[id]; else n[id] = 'viewer'; return n; });
-  const setLvl = (id, level) => setBundle(b => ({ ...b, [id]: level }));
 
   async function save() {
     if (!name.trim()) return onErr('Name is required.');
@@ -807,25 +899,7 @@ function RoleEditor({ role, onClose, onSaved, onErr }) {
           <textarea value={desc} onChange={e => setDesc(e.target.value)} rows={2} placeholder="Plain-language: what this role does" style={{ ...input, resize: 'vertical' }} /></label>
         <div>
           <div style={{ ...sectLabel, marginTop: 4 }}>Module bundle</div>
-          <div style={{ border: '1px solid var(--line)', borderRadius: 10, maxHeight: 300, overflow: 'auto' }}>
-            {GRANTABLE.map(m => {
-              const on = bundle[m.id];
-              return (
-                <div key={m.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '9px 12px', borderBottom: '1px solid var(--line)' }}>
-                  <button onClick={() => toggle(m.id)} style={{ width: 20, height: 20, borderRadius: 6, border: `1.5px solid ${on ? 'var(--ink)' : 'var(--line-strong,rgba(0,0,0,0.2))'}`, background: on ? 'var(--ink)' : 'transparent', color: 'var(--card)', cursor: 'pointer', display: 'grid', placeItems: 'center', flexShrink: 0, marginTop: 1 }}>{on && <Check size={13} />}</button>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: on ? 600 : 500, color: on ? 'var(--ink)' : 'var(--muted)' }}>{m.label}</div>
-                    {on && <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 3, lineHeight: 1.4 }}>{capabilityText(m.id, bundle[m.id], m.label)}</div>}
-                  </div>
-                  {on && (
-                    <select value={bundle[m.id]} onChange={e => setLvl(m.id, e.target.value)} title={capabilityText(m.id, bundle[m.id], m.label)} style={{ ...input, padding: '5px 8px', fontSize: 12, width: 'auto', flexShrink: 0 }}>
-                      {LEVEL_ORDER.map(l => <option key={l} value={l}>{MODULE_LEVELS[l].label}</option>)}
-                    </select>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+          <BundleEditor bundle={bundle} setBundle={setBundle} />
         </div>
         <div style={{ ...sectLabel, marginTop: 4 }}>Time-clock monitoring</div>
         <button type="button" onClick={() => setMonExempt(v => !v)}
@@ -856,8 +930,6 @@ function GroupEditor({ group, onClose, onSaved, onErr }) {
   const [name, setName] = useState(group?.name || '');
   const [bundle, setBundle] = useState(() => Object.fromEntries((group?.allowed_modules || []).map(g => [g.id, g.level])));
   const [busy, setBusy] = useState(false);
-  const toggle = id => setBundle(b => { const n = { ...b }; if (n[id]) delete n[id]; else n[id] = 'viewer'; return n; });
-  const setLvl = (id, level) => setBundle(b => ({ ...b, [id]: level }));
 
   async function save() {
     if (!name.trim()) return onErr('Name is required.');
@@ -876,25 +948,7 @@ function GroupEditor({ group, onClose, onSaved, onErr }) {
           <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Accounting - Viewer" style={input} /></label>
         <div>
           <div style={{ ...sectLabel, marginTop: 4 }}>Modules this group grants</div>
-          <div style={{ border: '1px solid var(--line)', borderRadius: 10, maxHeight: 300, overflow: 'auto' }}>
-            {GRANTABLE.map(m => {
-              const on = bundle[m.id];
-              return (
-                <div key={m.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '9px 12px', borderBottom: '1px solid var(--line)' }}>
-                  <button onClick={() => toggle(m.id)} style={{ width: 20, height: 20, borderRadius: 6, border: `1.5px solid ${on ? 'var(--ink)' : 'var(--line-strong,rgba(0,0,0,0.2))'}`, background: on ? 'var(--ink)' : 'transparent', color: 'var(--card)', cursor: 'pointer', display: 'grid', placeItems: 'center', flexShrink: 0, marginTop: 1 }}>{on && <Check size={13} />}</button>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: on ? 600 : 500, color: on ? 'var(--ink)' : 'var(--muted)' }}>{m.label}</div>
-                    {on && <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 3, lineHeight: 1.4 }}>{capabilityText(m.id, bundle[m.id], m.label)}</div>}
-                  </div>
-                  {on && (
-                    <select value={bundle[m.id]} onChange={e => setLvl(m.id, e.target.value)} title={capabilityText(m.id, bundle[m.id], m.label)} style={{ ...input, padding: '5px 8px', fontSize: 12, width: 'auto', flexShrink: 0 }}>
-                      {LEVEL_ORDER.map(l => <option key={l} value={l}>{MODULE_LEVELS[l].label}</option>)}
-                    </select>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+          <BundleEditor bundle={bundle} setBundle={setBundle} />
         </div>
       </div>
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 18 }}>
