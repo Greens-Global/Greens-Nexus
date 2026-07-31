@@ -59,6 +59,11 @@ jobs:
       - run: npm run build
         if: steps.creds.outputs.ready == 'true'
         env:
+          # Without this the build id falls back to the literal 'dev' (wrangler
+          # direct-upload has no CF_PAGES_COMMIT_SHA): verify-deploy can never
+          # match the sha, the update prompt never fires, and ?v=dev makes
+          # guard.js un-updatable again. Found live on release #56 (Jul 31).
+          VITE_BUILD_ID: ${{ github.sha }}
           VITE_API_BASE: ${{ secrets.VITE_API_BASE }}
           VITE_REDIRECT_URI: ${{ vars.VITE_REDIRECT_URI }}
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}

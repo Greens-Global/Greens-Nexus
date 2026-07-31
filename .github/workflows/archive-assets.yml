@@ -70,12 +70,21 @@ jobs:
 
       - name: Build (same build id as Pages, so hashes match)
         if: steps.cfg.outputs.ready == 'true'
+        # The VITE_* values are baked into the bundle, so they affect the content
+        # hashes: they must match the CF Pages project's variables BYTE-FOR-BYTE
+        # or every chunk that imports api/supabase gets archived under a name the
+        # deployed site never references (found live Jul 31: all view chunks
+        # mismatched while env-independent vendor chunks matched). The repo-level
+        # secrets feed deploy-cloudflare.yml's PROD build, so dev pins its own
+        # values here instead. None of these are secret - all four ship in the
+        # bundle to every browser (the anon key is public by design; RLS is the
+        # boundary). If a value changes in the Pages project, change it here too.
         env:
           VITE_BUILD_ID: ${{ github.sha }}
-          VITE_API_BASE: ${{ secrets.VITE_API_BASE }}
-          VITE_REDIRECT_URI: ${{ vars.VITE_REDIRECT_URI }}
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_API_BASE: ${{ github.ref_name == 'dev' && 'https://greens-nexus-api-dev-a6fad4brawevg8de.westus2-01.azurewebsites.net' || secrets.VITE_API_BASE }}
+          VITE_REDIRECT_URI: ${{ github.ref_name == 'dev' && 'https://dev.nexus.greensglobal.com' || vars.VITE_REDIRECT_URI }}
+          VITE_SUPABASE_URL: ${{ github.ref_name == 'dev' && 'https://xemoocdvqzhfbwjxcjdx.supabase.co' || secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ github.ref_name == 'dev' && 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhlbW9vY2R2cXpoZmJ3anhjamR4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAzMDkxNDEsImV4cCI6MjA5NTg4NTE0MX0.DjSAmTAobHsm-e_xcr99YkNWB-mYAOPC2-UQm1XMxoE' || secrets.VITE_SUPABASE_ANON_KEY }}
         run: npm run build
 
       - name: Upload dist/assets to R2
@@ -108,6 +117,10 @@ jobs:
               --file "$f" --content-type "$ct" \
               --cache-control "public, max-age=31536000, immutable" \
               --remote >/dev/null
+            # Log the key: the whole point is that these names match what Pages
+            # built, and a silent upload leaves no way to audit that after the
+            # fact (hash parity depends on the build env matching Pages' vars).
+            echo "  $key"
             count=$((count + 1))
           done
           echo "archived $count asset(s) to $BUCKET"
