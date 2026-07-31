@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Shield, Plus, X, Search, Loader2, Pencil, Trash2, UserPlus, Check, ChevronRight, ChevronDown,
   LayoutGrid, Copy, MonitorOff, PlayCircle, Users, User,
@@ -150,6 +150,13 @@ export default function RolesAccess({ embedded = false }) {
 
   const selected = (jobRoles || []).find(r => r.id === selId) || null;
 
+  // Picking a role deep in a 30+ card list leaves the detail panel (and its
+  // Assign/Edit actions) off-screen above - bring it into view on selection.
+  const rolePanelRef = useRef(null);
+  useEffect(() => {
+    if (selId && rolePanelRef.current) rolePanelRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [selId]);
+
   if (!can('administrator')) {
     return <div style={{ padding: '60px 20px', textAlign: 'center', color: 'var(--muted)' }}>Roles & Access is available to administrators.</div>;
   }
@@ -248,7 +255,7 @@ export default function RolesAccess({ embedded = false }) {
                 </button>
               ))}
             </div>
-            <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 20, alignSelf: 'start' }}>
+            <div ref={rolePanelRef} style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 20, alignSelf: 'start', scrollMarginTop: 12 }}>
               {!selected ? <div style={{ color: 'var(--muted)', padding: '40px 10px', textAlign: 'center', fontSize: 13.5 }}>Pick a job role to see its full bundle, or create a new one.</div> : (
                 <>
                   <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
@@ -382,6 +389,13 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
   const [eff, setEff] = useState(null);
   const [busy, setBusy] = useState(false);
 
+  // Same courtesy as the role panel: picking a person deep in the list brings
+  // their panel (role picker, groups) into view instead of leaving it above.
+  const panelRef = useRef(null);
+  useEffect(() => {
+    if (person && panelRef.current) panelRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [person]);
+
   // Companies present in the directory - the filter only offers real choices.
   const companies = useMemo(() => {
     const seen = new Map();
@@ -501,7 +515,7 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
       </div>
 
       {/* right: person detail */}
-      <div data-tour="person-panel" style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 20, alignSelf: 'start', minHeight: 220 }}>
+      <div ref={panelRef} data-tour="person-panel" style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 20, alignSelf: 'start', minHeight: 220, scrollMarginTop: 12 }}>
         {!person ? (
           <div style={{ padding: '48px 16px', textAlign: 'center' }}>
             <div style={{ width: 44, height: 44, borderRadius: '50%', background: 'var(--paper)', border: '1px solid var(--line)', display: 'grid', placeItems: 'center', margin: '0 auto 12px' }}>
