@@ -385,7 +385,15 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
   // Companies present in the directory - the filter only offers real choices.
   const companies = useMemo(() => {
     const seen = new Map();
-    people.forEach(p => { if (p.company && !seen.has(p.company)) seen.set(p.company, p.companyName || p.company); });
+    const uuidish = /^[0-9a-f]{8}-[0-9a-f]{4}-/i;
+    people.forEach(p => {
+      if (!p.company || seen.has(p.company)) return;
+      // An id whose entity no longer exists would render as a raw UUID - leave
+      // it out; those people stay reachable under "All companies". A plain
+      // legacy name in the company field still shows as itself.
+      const label = p.companyName || (uuidish.test(p.company) ? '' : p.company);
+      if (label) seen.set(p.company, label);
+    });
     return [...seen.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
   }, [people]);
 
