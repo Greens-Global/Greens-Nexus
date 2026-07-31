@@ -46,6 +46,10 @@ from database import SessionLocal
 import models
 from routers.task_util import now_iso, gen_id, log_activity
 from asana_import import Asana, _request, ImportError_
+# Per-user Asana grants, so a pushed comment is attributed to its real author.
+# Safe at module level: asana_oauth imports asana_sync lazily (inside
+# redirect_uri) precisely to keep this from becoming a cycle.
+import asana_oauth
 
 _ASANA_BASE = "https://app.asana.com/api/1.0"
 
@@ -1954,10 +1958,18 @@ def _pull_stories(db, asana, asana_gid, nexus_task_id, counts):
             # `text` the flattened fallback, which is escaped so a comment containing < or
             # & can't render as markup in the Nexus editor.
             rich = _mentions_from_asana(_from_asana_html({"html_notes": s.get("html_text") or ""}), get_config(db), db)
-            body = (f'<p><em>[Asana · {escape(author_name)}]</em></p>{rich}' if rich
-                    else f'<p><em>[Asana · {escape(author_name)}]</em></p>'
-                         + "".join(f"<p>{escape(line)}</p>" for line in text.split("\n") if line.strip()))
-            db.add(models.TaskComment(id=cid, task_id=nexus_task_id, author_email="asana-sync",
+            plain = "".join(f"<p>{escape(line)}</p>" for line in text.split("\n") if line.strip())
+            # Attribute the comment to the real person. author_email is already
+            # resolved through the directory above and was already used for
+            # activity rows - comments just hardcoded "asana-sync", which is why
+            # they showed up authored by a placeholder. The "[Asana - Name]"
+            # stamp is only needed when the author CAN'T be resolved (an Asana
+            # account with no Nexus counterpart, or no email on the story); with
+            # a real author_email the name would be shown twice.
+            stamp = "" if author_email else f'<p><em>[Asana · {escape(author_name)}]</em></p>'
+            body = f"{stamp}{rich or plain}"
+            db.add(models.TaskComment(id=cid, task_id=nexus_task_id,
+                                      author_email=author_email or "asana-sync",
                                       body=body, created_at=at_ts,
                                       edited_at="", pinned=False))
             t = db.query(models.Task).filter(models.Task.id == nexus_task_id).first()
@@ -2849,8 +2861,17 @@ def sweep_orphans(db, apply=False):
 
 # ── OUTBOUND: Nexus comment -> Asana story ───────────────────────────────────
 def push_comment(db, comment):
-    """Post a Nexus comment to its linked Asana task as a story. Asana stories are
-    authored by the token's user, so the Nexus author is prefixed into the text."""
+    """Post a Nexus comment to its linked Asana task as a story.
+
+    Asana attributes a story to whoever owns the token that posted it, and has
+    no impersonation parameter - so the comment goes out under the AUTHOR's own
+    Asana grant when they've connected one (Account Settings -> Asana account,
+    see asana_oauth), and under the shared service token otherwise.
+
+    The body is now sent verbatim. It used to carry a "[Nexus - <email>] "
+    prefix stamped into the text, which was the only way to record authorship
+    while everything posted as the service account; with a real per-user grant
+    that stamp is both redundant and visible clutter in Asana."""
     cfg = get_config(db)
     if not sync_is_on(cfg) or not cfg.token:
         return
@@ -2860,27 +2881,41 @@ def push_comment(db, comment):
     if not link or not link.asana_gid:
         return
     author = comment.author_email or ""
+    # asana-sync is the stamp on comments that came FROM Asana; there's no
+    # person behind it to attribute to.
+    user_token = asana_oauth.token_for(db, author) if author and author != "asana-sync" else None
+    token = user_token or cfg.token
     # Comment bodies are HTML now. Asana stories accept html_text with the same tag
     # subset html_notes takes, so one sanitizer serves both and a formatted comment
     # arrives formatted instead of showing its markup.
     body_html = _to_asana_html(comment.body or "", cfg)
-    prefix = f"[Nexus · {author}] " if author and author != "asana-sync" else ""
     if body_html:
-        inner = body_html[len("<body>"):-len("</body>")]
-        payload = {"html_text": f"<body>{escape(prefix)}{inner}</body>"}
+        payload = {"html_text": body_html}
     else:
-        payload = {"text": prefix + _html_to_text(comment.body or "")}
+        payload = {"text": _html_to_text(comment.body or "")}
+
+    def _post(tok, data):
+        return _asana_post(tok, f"/tasks/{link.asana_gid}/stories", {"data": data})
+
     try:
-        st = _asana_post(cfg.token, f"/tasks/{link.asana_gid}/stories", {"data": payload})
+        st = _post(token, payload)
     except ImportError_ as e:
+        msg = str(e)
+        # A user's own grant can be revoked, or simply not have access to this
+        # project. Falling back keeps the comment from being lost - it just
+        # posts as the service account, exactly as it did before this feature.
+        if user_token and ("401" in msg or "403" in msg or "404" in msg):
+            print(f"[asana] {author}'s Asana grant was rejected ({msg[:120]}); posting as the service account")
+            user_token, token = None, cfg.token
+            st = _post(token, payload)
         # Same degrade-rather-than-lose rule as _task_write: Asana validates
         # html_text strictly and rejects the whole story, which would drop the
         # comment entirely rather than merely losing its bold.
-        if "html_text" not in str(e) or "html_text" not in payload:
+        elif "html_text" in msg and "html_text" in payload:
+            print(f"[asana] html_text rejected for a comment; retrying as plain text ({e})")
+            st = _post(token, {"text": _html_to_text(comment.body or "")})
+        else:
             raise
-        print(f"[asana] html_text rejected for a comment; retrying as plain text ({e})")
-        st = _asana_post(cfg.token, f"/tasks/{link.asana_gid}/stories",
-                         {"data": {"text": prefix + _html_to_text(comment.body or "")}})
     db.add(models.AsanaCommentLink(id=gen_id(), nexus_comment_id=comment.id,
                                    asana_story_gid=(st or {}).get("gid") or "", created_at=now_iso()))
     db.commit()

@@ -20,6 +20,7 @@ from routers import tasks, purchases, reviews, marketing, sop, assets, accountin
 from routers import task_projects, task_config  # Task Module (Jul 2026)
 from routers import tickets as tickets_router    # Ticket Module - split out of task_config (Jul 2026)
 from routers import asana_webhook  # Asana two-way sync - public webhook receiver
+from routers import asana_oauth as asana_oauth_router  # Per-user Asana connection (Account Settings)
 from routers import jobroles  # Roles & Access redesign (Jul 2026)
 from routers import access_scopes  # row-level scopes for external users (Jul 2026)
 from routers import qa  # Testing module - dev-only via NEXUS_QA_MODULE env (Jul 2026)
@@ -873,6 +874,8 @@ app.include_router(task_config.router)    # Task Module: views/rules/templates/n
 app.include_router(tickets_router.router) # Ticket Module: tickets, conversation, components, links, escalation
 app.include_router(credvault.router)      # Credential Vault: encrypted company/personal secrets ("credvault" grant)
 app.include_router(asana_webhook.router)  # Asana two-way sync: public webhook receiver (verified by HMAC)
+app.include_router(asana_oauth_router.router)         # Per-user Asana connection (signed-in user, own grant only)
+app.include_router(asana_oauth_router.public_router)  # OAuth callback - Asana redirects a browser here, no bearer token
 app.include_router(policy.router)         # Sign-in company-policy & monitoring acknowledgment
 app.include_router(investor_relations.router)  # Investor Relations: funds/investors/commitments/calls/distributions
 app.include_router(stepup.router)         # Step-up MFA for sensitive data (vault reveals / payroll / confidential HR)

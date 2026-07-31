@@ -6,6 +6,7 @@ import NotificationBell from "./NotificationBell";
 import PageHelp from "./PageHelp";
 import { useHeaderTabs } from "./ModuleTabs";
 import ActAsModal from "./ActAsModal";
+import AccountSettingsModal from "./AccountSettingsModal";
 import { useMsal }        from "@azure/msal-react";
 import { useRole, ROLES, MODULES } from "../contexts/RoleContext";
 
@@ -21,6 +22,22 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
   // specific other employees without a backend change.
   const canActAs = (can?.('manager') ?? false) || !!myGrantedModules?.has?.('act-as');
   const [actAsModalOpen, setActAsModalOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  // Coming back from Asana's consent screen: the OAuth callback redirects here
+  // with ?asana=connected|denied|error so the outcome isn't lost across the
+  // full page navigation. Reopen Account Settings on it, then strip the params
+  // so a refresh doesn't replay the message.
+  const [asanaResult, setAsanaResult] = useState({ result: "", reason: "" });
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search);
+    const result = p.get("asana");
+    if (!result) return;
+    setAsanaResult({ result, reason: p.get("reason") || "" });
+    setSettingsOpen(true);
+    p.delete("asana"); p.delete("reason");
+    const qs = p.toString();
+    window.history.replaceState({}, "", window.location.pathname + (qs ? `?${qs}` : "") + window.location.hash);
+  }, []);
   const [actAsStopping,  setActAsStopping]  = useState(false);
   async function handleExitActAs() {
     setActAsStopping(true);
@@ -307,7 +324,7 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
               <button className="hud-item">
                 <User size={14} /> My Profile
               </button>
-              <button className="hud-item">
+              <button className="hud-item" onClick={() => { setOpen(false); setSettingsOpen(true); }}>
                 <Settings size={14} /> Account Settings
               </button>
               <button className="hud-item" onClick={() => { setOpen(false); setChangelogOpen(true); }}>
@@ -422,6 +439,14 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
       <ActAsModal
         onClose={() => setActAsModalOpen(false)}
         onStart={startActAs}
+      />
+    )}
+
+    {settingsOpen && (
+      <AccountSettingsModal
+        onClose={() => { setSettingsOpen(false); setAsanaResult({ result: "", reason: "" }); }}
+        initialResult={asanaResult.result}
+        initialReason={asanaResult.reason}
       />
     )}
     </>
