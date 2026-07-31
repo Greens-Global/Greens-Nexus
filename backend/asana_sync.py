@@ -245,6 +245,28 @@ def get_config(db):
     return cfg
 
 
+def sync_is_on(cfg) -> bool:
+    """True if EITHER the Setup card's blanket toggle (`enabled`) or the
+    Two-Way Sync card's own toggle (`manual_sync_enabled`) is on. The two are
+    independent knobs (Manage → Asana Sync) gating the SAME pull/push/webhook
+    machinery against the SAME AsanaProjectMap table - there's no per-project
+    origin tracking, so either toggle being on is enough to sync whatever is
+    currently mapped. Every cfg.enabled read in this module goes through this
+    function instead, so a project mapped via "Import All Projects" and one
+    mapped by hand both sync as long as at least one toggle is on.
+
+    getattr with a default: TokenConfig (the Import stub) and any test fixture
+    that predates these columns has no `manual_sync_enabled` attribute, and
+    should behave exactly as it did before this existed (Import never reaches
+    this function anyway, but the stub's shape shouldn't matter if it did)."""
+    return bool(cfg.enabled or getattr(cfg, "manual_sync_enabled", False))
+
+
+def delete_sync_is_on(cfg) -> bool:
+    """Same OR-of-two-toggles as sync_is_on(), for deletion propagation."""
+    return bool(cfg.delete_sync or getattr(cfg, "manual_delete_sync", False))
+
+
 def _link_by_nexus(db, task_id):
     return db.query(models.AsanaTaskLink).filter(models.AsanaTaskLink.nexus_task_id == task_id).first()
 
@@ -274,7 +296,16 @@ def _nexus_project_for(db, asana_project_gid):
 def _fields_digest(values):
     """Stable text for a {fieldId: value} map. Sorted, so dict ordering can never
     make an unchanged task look changed and trigger a pointless push."""
-    return ",".join(f"{k}={v}" for k, v in sorted((values or {}).items()) if v not in ("", None))
+    def _one(v):
+        # multiselect/people hold lists. Sorted here too: the two sides order
+        # them differently (Asana by its own option order, Nexus by the field's),
+        # and without this an untouched task digests differently on every pull
+        # and ping-pongs between the two systems forever.
+        if isinstance(v, (list, tuple)):
+            return "|".join(sorted(str(x) for x in v))
+        return str(v)
+    return ",".join(f"{k}={_one(v)}" for k, v in sorted((values or {}).items())
+                    if v not in ("", None) and v != [])
 
 
 def _digest(title, description, due_on, completed, assignee="", progress="", priority="",
@@ -356,6 +387,8 @@ def _custom_field_settings(cfg, project_gid):
         proj = Asana(cfg.token).get(f"/projects/{project_gid}", opt_fields=
                                     "custom_field_settings.custom_field.name,"
                                     "custom_field_settings.custom_field.gid,"
+                                    "custom_field_settings.custom_field.resource_subtype,"
+                                    "custom_field_settings.custom_field.is_formula_field,"
                                     "custom_field_settings.custom_field.enum_options.name,"
                                     "custom_field_settings.custom_field.enum_options.gid")
         result = (proj or {}).get("custom_field_settings") or []
@@ -402,17 +435,40 @@ def _priority_field(cfg, project_gid):
 # and priority, and storing them twice would make the two fight over edits.
 _RESERVED_ASANA_FIELDS = {"task progress", "priority"}
 
-# Asana resource_subtype -> the Nexus storage kind. multi_enum and people have
-# no Nexus equivalent yet and are skipped rather than flattened into text,
-# which would round-trip as garbage.
-_ASANA_TYPE_TO_NEXUS = {"enum": "select", "text": "text", "number": "number", "date": "date"}
+# Asana resource_subtype -> the Nexus storage kind. Every subtype Asana has is
+# carried: the two list-shaped ones get list-shaped Nexus types (see
+# TaskCustomField.type) rather than being flattened to text, which is what made
+# them unpushable before. `formula` is computed by Asana and rejects writes, so
+# it lands as read-only text - the one type that cannot be two-way.
+_ASANA_TYPE_TO_NEXUS = {"enum": "select", "multi_enum": "multiselect", "text": "text",
+                        "number": "number", "date": "date", "people": "people",
+                        "formula": "text"}
 
 
-def _asana_field_value(cf):
+def _asana_field_kind(cf):
+    """The Nexus storage kind for one Asana field definition, or None if Asana
+    has given us a subtype we have no shape for at all."""
+    if cf.get("is_formula_field"):
+        return "text"   # regardless of what the formula resolves to
+    return _ASANA_TYPE_TO_NEXUS.get((cf.get("resource_subtype") or "").lower())
+
+
+def _asana_field_value(cf, db=None, email_map=None):
     """The value carried by one Asana custom_fields entry, as Nexus stores it."""
+    if cf.get("is_formula_field"):
+        return (cf.get("display_value") or "").strip()
     kind = (cf.get("resource_subtype") or "").lower()
     if kind == "enum":
         return ((cf.get("enum_value") or {}).get("name") or "").strip()
+    if kind == "multi_enum":
+        return [(o.get("name") or "").strip() for o in (cf.get("multi_enum_values") or [])
+                if (o.get("name") or "").strip()]
+    if kind == "people":
+        # Through _map_email, same as assignee/followers - so a person stored in
+        # Asana under a guest relay address lands as their real Nexus identity
+        # and the avatar resolves.
+        return [e for e in (_map_email(u.get("email"), email_map, db)
+                            for u in (cf.get("people_value") or []) if u.get("email")) if e]
     if kind == "text":
         return (cf.get("text_value") or "").strip()
     if kind == "number":
@@ -421,35 +477,82 @@ def _asana_field_value(cf):
     if kind == "date":
         d = (cf.get("date_value") or {}).get("date") or ""
         return d[:10]
+    if kind == "formula":
+        return (cf.get("display_value") or "").strip()
     return None
 
 
-def _ensure_nexus_field(db, name, kind, options, nexus_project_id):
-    """Find-or-create the Nexus field definition for an Asana field of this name.
+def _sync_nexus_field(db, cf, nexus_project_id, value_options=None):
+    """Find-or-create the Nexus column mirroring one Asana custom field, scoped
+    to this project.
 
-    Adopting by name means a field an admin already created in Manage is reused
-    rather than shadowed by a duplicate. A field created here is SCOPED to the
-    project it arrived from - without that, importing a project with fifteen
-    Asana fields would put fifteen columns on every board in the workspace."""
+    Identity is the Asana gid, never the name. Matching by name merged two
+    unrelated same-named fields from different projects into one column shared
+    by both (and merged their options), and lost the field entirely when someone
+    renamed it in Asana. Scope is maintained from Asana's own project settings -
+    the field is added to THIS project's scope and no other, which is what keeps
+    a column added to one board off every other board.
+
+    Returns None for a subtype we have no shape for, so the caller skips it."""
     from routers.task_config import normalize_field_options
-    key = name.strip().lower()
-    f = next((x for x in db.query(models.TaskCustomField).all()
-              if (x.name or "").strip().lower() == key), None)
+    gid = (cf.get("gid") or "").strip()
+    name = (cf.get("name") or "").strip()
+    kind = _asana_field_kind(cf)
+    if not name or not kind or name.lower() in _RESERVED_ASANA_FIELDS:
+        return None
+    read_only = bool(cf.get("is_formula_field")) or (cf.get("resource_subtype") or "").lower() == "formula"
+    options = [(o.get("name") or "").strip() for o in (cf.get("enum_options") or [])
+               if (o.get("name") or "").strip()]
+    # A TASK payload carries no enum_options - only the project-settings call
+    # does - so a field first seen on a task seeds its options from the value
+    # itself and gets the full list from the next seed_project_fields. Without
+    # this the value matches no option and coerce_custom_field_values drops it,
+    # which is exactly how enum columns ended up importing empty.
+    if not options and value_options:
+        options = [str(v).strip() for v in value_options if str(v or "").strip()]
+
+    f = None
+    if gid:
+        f = db.query(models.TaskCustomField).filter(models.TaskCustomField.asana_gid == gid).first()
     if f is None:
-        f = models.TaskCustomField(id=gen_id(), name=name.strip(), type=kind,
-                                   options=normalize_field_options(options or []),
+        # Adopt an existing field by name when it is one this project can
+        # already see: a field a previous build created before gids were stored,
+        # or one an admin made by hand to line up with Asana. A field scoped to
+        # OTHER projects is deliberately not adopted - merging those was what
+        # put one project's column on another project's board.
+        f = next((x for x in db.query(models.TaskCustomField).all()
+                  if (x.name or "").strip().lower() == name.lower()
+                  and not (x.asana_gid or "")
+                  and (not [p for p in (x.project_ids or []) if p]
+                       or nexus_project_id in (x.project_ids or []))), None)
+    if f is None:
+        f = models.TaskCustomField(id=gen_id(), name=name, type=kind, asana_gid=gid,
+                                   options=normalize_field_options(options),
                                    project_ids=[nexus_project_id] if nexus_project_id else [],
-                                   required=False)
+                                   required=False, read_only=read_only)
         db.add(f)
         db.flush()   # autoflush=False - must be visible to the rest of this pull
         return f
-    # Existing field: widen its scope to this project, and absorb any option
-    # Asana has that we don't (someone added a stage there since the last pull).
+
+    f.asana_gid = gid or f.asana_gid
+    f.name = name              # Asana is the source of truth for the label
+    f.read_only = read_only
+    if f.type != kind:
+        # A field whose Asana subtype changed (enum -> multi_enum is the common
+        # one). Retype it; coerce_custom_field_values reshapes the stored values
+        # on the next write, and anything that can't reshape is dropped there
+        # rather than stored wrong.
+        f.type = kind
     if nexus_project_id:
         scope = [p for p in (f.project_ids or []) if p]
+        # An empty scope means "every project" - narrowing that here would hide
+        # a deliberately global field, so only ever extend a scope that exists.
         if scope and nexus_project_id not in scope:
             f.project_ids = scope + [nexus_project_id]
-    if kind == "select" and options:
+    if options:
+        # Additive: Asana's current options win, but an option only Nexus has
+        # (added by hand, or retired in Asana while tasks still carry it) stays,
+        # otherwise those tasks' values would fail to coerce and blank out.
         have = {o["label"].strip().lower() for o in normalize_field_options(f.options or [])}
         extra = [o for o in options if o.strip().lower() not in have]
         if extra:
@@ -457,28 +560,40 @@ def _ensure_nexus_field(db, name, kind, options, nexus_project_id):
     return f
 
 
-def _inbound_custom_fields(db, at, nexus_project_id):
+def seed_project_fields(db, cfg, project_gid, nexus_project_id):
+    """Mirror EVERY custom field on an Asana project into Nexus before its tasks
+    are applied, scoped to this project.
+
+    Driven by the project's field settings rather than by the values that happen
+    to appear on tasks, which is what makes new Asana columns show up on their
+    own: a field nobody has filled in yet still becomes a Nexus column, and an
+    enum arrives with its COMPLETE option list instead of just the one option
+    the first task happened to carry. That partial option list was why values
+    silently vanished - coerce_custom_field_values drops a value matching no
+    option, so every enum whose real options hadn't been seen yet blanked out."""
+    if not project_gid or not nexus_project_id:
+        return 0
+    n = 0
+    for cfs in _custom_field_settings(cfg, project_gid):
+        if _sync_nexus_field(db, cfs.get("custom_field") or {}, nexus_project_id) is not None:
+            n += 1
+    return n
+
+
+def _inbound_custom_fields(db, at, nexus_project_id, email_map=None):
     """Asana task -> {nexusFieldId: value} for Task.custom_field_values."""
     from routers.task_config import coerce_custom_field_values
     raw = {}
     for cf in at.get("custom_fields") or []:
-        name = (cf.get("name") or "").strip()
-        if not name or name.lower() in _RESERVED_ASANA_FIELDS:
+        value = _asana_field_value(cf, db, email_map)
+        # The definition is created even when the value is empty - a column that
+        # exists in Asana is a column in Nexus, whether or not this particular
+        # task fills it in. That is what makes a new Asana column appear on its
+        # own rather than only once someone happens to set a value.
+        opts = value if isinstance(value, list) else ([value] if value else [])
+        f = _sync_nexus_field(db, cf, nexus_project_id, value_options=opts)
+        if f is None or value in ("", None) or value == []:
             continue
-        kind = _ASANA_TYPE_TO_NEXUS.get((cf.get("resource_subtype") or "").lower())
-        if not kind:
-            continue
-        value = _asana_field_value(cf)
-        if value in ("", None):
-            continue
-        options = [(o.get("name") or "").strip() for o in (cf.get("enum_options") or [])] \
-            if kind == "select" else []
-        # Asana only returns enum_options on the project-settings call, not on the
-        # task payload, so seed the option list from the value itself; the rest
-        # arrive as tasks carrying them are pulled.
-        if kind == "select" and not options:
-            options = [value]
-        f = _ensure_nexus_field(db, name, kind, options, nexus_project_id)
         raw[f.id] = value
     # Same coercion the API applies, so a value that arrived from Asana is
     # stored identically to one typed in Nexus - otherwise the two sides would
@@ -498,28 +613,56 @@ def _outbound_custom_fields(db, cfg, task, project_gid):
         return {}
     from routers.task_config import normalize_field_options
     defs = {f.id: f for f in db.query(models.TaskCustomField).all()}
-    settings = {}
+    # Keyed by gid, with the name as a fallback for a Nexus-only field an admin
+    # created to line up with an Asana one by hand (no gid on the Nexus row).
+    by_gid, by_name = {}, {}
     for cfs in _custom_field_settings(cfg, project_gid):
         cf = cfs.get("custom_field") or {}
         nm = (cf.get("name") or "").strip().lower()
-        if nm and nm not in _RESERVED_ASANA_FIELDS:
-            settings[nm] = cf
+        if nm in _RESERVED_ASANA_FIELDS:
+            continue
+        if cf.get("gid"):
+            by_gid[cf["gid"]] = cf
+        if nm:
+            by_name[nm] = cf
+
+    def _option_gid(cf, f, option_id):
+        label = next((o["label"] for o in normalize_field_options(f.options or [])
+                      if o["id"] == option_id), str(option_id))
+        return next((o.get("gid") for o in (cf.get("enum_options") or [])
+                     if (o.get("name") or "").strip().lower() == label.strip().lower()), None)
+
     out = {}
     for fid, value in values.items():
         f = defs.get(fid)
-        if f is None or value in ("", None):
+        if f is None or value in ("", None) or value == []:
             continue
-        cf = settings.get((f.name or "").strip().lower())
+        if f.read_only:
+            continue   # Asana computes this one and rejects any write to it
+        cf = by_gid.get(f.asana_gid or "") or by_name.get((f.name or "").strip().lower())
         if not cf or not cf.get("gid"):
             continue   # Asana has no such field on this project - skip, don't create
         kind = (f.type or "text").lower()
         if kind == "select":
-            label = next((o["label"] for o in normalize_field_options(f.options or [])
-                          if o["id"] == value), str(value))
-            gid = next((o.get("gid") for o in (cf.get("enum_options") or [])
-                        if (o.get("name") or "").strip().lower() == label.strip().lower()), None)
+            gid = _option_gid(cf, f, value)
             if gid:
                 out[cf["gid"]] = gid
+        elif kind == "multiselect":
+            gids = [g for g in (_option_gid(cf, f, v) for v in (value or [])) if g]
+            # Sent even when empty: that is how a multi_enum is CLEARED in Asana,
+            # and the values dict only reaches here with a non-empty list anyway.
+            out[cf["gid"]] = gids
+        elif kind == "people":
+            users = _user_map(cfg)
+            gids = []
+            for em in (value or []):
+                e = str(em).strip().lower()
+                # Same two-step as the assignee push: the Asana account address,
+                # else the bare local part for a guest-relay mailbox.
+                gid = users.get(e) or users.get(e.split("@", 1)[0])
+                if gid and gid not in gids:
+                    gids.append(gid)
+            out[cf["gid"]] = gids
         elif kind == "number":
             out[cf["gid"]] = value
         elif kind == "date":
@@ -672,7 +815,7 @@ def push_task(db, task):
     - see _ancestor_project_gid). Returns the gid or None. Skips when disabled,
     unmapped, or unchanged since the last sync."""
     cfg = get_config(db)
-    if not cfg.enabled or not cfg.token:
+    if not sync_is_on(cfg) or not cfg.token:
         return None
     parent_link = None
     if task.parent_task_id:
@@ -815,7 +958,7 @@ def on_task_changed(task_id):
         db = SessionLocal()
         try:
             cfg = get_config(db)
-            if not cfg.enabled:
+            if not sync_is_on(cfg):
                 return
             t = db.query(models.Task).filter(models.Task.id == task_id).first()
             if t:
@@ -839,7 +982,7 @@ def push_task_deleted(db, asana_gid):
     which includes a 404, since a task someone already deleted by hand is the
     outcome we wanted and must not be retried forever."""
     cfg = get_config(db)
-    if not (cfg.enabled and cfg.token and cfg.delete_sync and asana_gid):
+    if not (sync_is_on(cfg) and cfg.token and delete_sync_is_on(cfg) and asana_gid):
         return False, "sync disabled"
     try:
         _request("DELETE", f"{_ASANA_BASE}/tasks/{asana_gid}", _headers(cfg.token))
@@ -877,9 +1020,9 @@ def drain_pending_deletes(db):
     rows = db.query(models.AsanaPendingDelete).all()
     if not rows:
         return {"deleted": 0, "pending": 0}
-    if not (cfg.enabled and cfg.token):
+    if not (sync_is_on(cfg) and cfg.token):
         return {"deleted": 0, "pending": len(rows)}
-    if not cfg.delete_sync:
+    if not delete_sync_is_on(cfg):
         # Deletion propagation is switched off - drop the queue rather than
         # hold tombstones that would fire if someone flips the toggle later.
         for r in rows:
@@ -912,7 +1055,7 @@ def on_task_deleted(asana_gids=None):
     def _run():
         db = SessionLocal()
         try:
-            if get_config(db).enabled:
+            if sync_is_on(get_config(db)):
                 drain_pending_deletes(db)
         except Exception:
             pass
@@ -947,7 +1090,7 @@ def push_all(db):
     while sync was off - a comment just sits unsynced (no AsanaCommentLink)
     until the next push_all catches it up."""
     cfg = get_config(db)
-    if not cfg.enabled or not cfg.token:
+    if not sync_is_on(cfg) or not cfg.token:
         raise ImportError_("Sync is not enabled or has no token.")
     mapped = {pm.nexus_project_id for pm in db.query(models.AsanaProjectMap).all()}
     n = 0
@@ -979,11 +1122,71 @@ def push_all(db):
 
 
 # ── INBOUND: Asana -> Nexus (poll) ───────────────────────────────────────────
-# Reverse of _BUILTIN_STATUS_LABELS for the unambiguous built-in states only -
-# "Waiting"/"Deferred" (or any other custom option) have no fixed Nexus
-# equivalent, so an unrecognized value just leaves Nexus's status untouched
-# rather than guessing.
+# Reverse of _BUILTIN_STATUS_LABELS for the unambiguous built-in states only.
+# Every OTHER option on Asana's "Task Progress" field ("Waiting", "Deferred",
+# anything a project invents) becomes a TaskCustomStatus scoped to the projects
+# that use it - see seed_project_statuses. These used to be dropped, which left
+# the task sitting in whatever status Nexus already had.
 _PROGRESS_LABEL_TO_STATUS = {"not started": "not_started", "in progress": "in_progress", "done": "completed"}
+
+# Colors for auto-created statuses, by position - the board needs a usable chip
+# and Asana's enum option colors don't come back on this call.
+_STATUS_PALETTE = ["#6366f1", "#0891b2", "#d97706", "#7c3aed", "#db2777", "#059669", "#475569"]
+
+
+def seed_project_statuses(db, cfg, project_gid, nexus_project_id):
+    """Mirror Asana's "Task Progress" options that have no built-in Nexus
+    equivalent into TaskCustomStatus rows scoped to this project.
+
+    Same principle as seed_project_fields: driven by the project's field
+    settings, so a stage added in Asana becomes a Nexus board column on its own,
+    on that project only. Identity is the enum option gid, so renaming a stage
+    in Asana renames the Nexus status instead of orphaning it and creating a
+    second one."""
+    if not project_gid or not nexus_project_id:
+        return 0
+    field = _find_enum_field(cfg, project_gid, "Task Progress")
+    if not field:
+        return 0
+    n = 0
+    existing = {s.asana_option_gid: s for s in db.query(models.TaskCustomStatus)
+                .filter(models.TaskCustomStatus.asana_option_gid != "").all()}
+    position = db.query(models.TaskCustomStatus).count()
+    for label_lower, option_gid in (field.get("options") or {}).items():
+        if not option_gid or label_lower in _PROGRESS_LABEL_TO_STATUS:
+            continue   # a built-in state - Task.status already carries it
+        s = existing.get(option_gid)
+        if s is None:
+            s = models.TaskCustomStatus(
+                id=gen_id(), label=label_lower.title(), color=_STATUS_PALETTE[position % len(_STATUS_PALETTE)],
+                position=position, project_ids=[nexus_project_id], asana_option_gid=option_gid)
+            db.add(s)
+            db.flush()   # autoflush=False - must be visible to the rest of this pull
+            position += 1
+            n += 1
+            continue
+        scope = [p for p in (s.project_ids or []) if p]
+        if scope and nexus_project_id not in scope:
+            s.project_ids = scope + [nexus_project_id]
+    return n
+
+
+def _status_for_progress(db, progress_label, nexus_project_id):
+    """The Nexus status id for one Asana "Task Progress" label: a built-in where
+    one exists, else the custom status seeded for it. None means Asana told us
+    nothing usable, and the caller leaves Nexus's status alone."""
+    label = (progress_label or "").strip().lower()
+    if not label:
+        return None
+    if label in _PROGRESS_LABEL_TO_STATUS:
+        return _PROGRESS_LABEL_TO_STATUS[label]
+    for s in db.query(models.TaskCustomStatus).all():
+        if (s.label or "").strip().lower() != label:
+            continue
+        scope = [p for p in (s.project_ids or []) if p]
+        if not scope or not nexus_project_id or nexus_project_id in scope:
+            return s.id
+    return None
 
 
 def _progress_from_custom_fields(at):
@@ -1288,7 +1491,7 @@ def _apply_inbound(db, at, nexus_project_id, counts, parent_task_id="", email_ma
     gid = at["gid"]
     assignee = _map_email((at.get("assignee") or {}).get("email"), email_map, db)
     progress_label = _progress_from_custom_fields(at)
-    mapped_status = _PROGRESS_LABEL_TO_STATUS.get(progress_label)
+    mapped_status = _status_for_progress(db, progress_label, nexus_project_id)
     priority_label = _priority_from_custom_fields(at)
     mapped_priority = _PRIORITY_LABEL_TO_VALUE.get(priority_label)
     tag_names = [(tg.get("name") or "").strip() for tg in (at.get("tags") or []) if (tg.get("name") or "").strip()]
@@ -1298,7 +1501,7 @@ def _apply_inbound(db, at, nexus_project_id, counts, parent_task_id="", email_ma
     section_name = _asana_section_name(at)
     link = _link_by_asana(db, gid)
     inbound_html = _mentions_from_asana(_from_asana_html(at), get_config(db), db)
-    inbound_fields = _inbound_custom_fields(db, at, nexus_project_id)
+    inbound_fields = _inbound_custom_fields(db, at, nexus_project_id, email_map)
     inbound_digest = _digest(at.get("name"), inbound_html, at.get("due_on"), bool(at.get("completed")),
                              assignee, progress_label, priority_label,
                              at.get("start_on"), tag_names, is_milestone, section_name,
@@ -1486,7 +1689,7 @@ def unlink_deleted_task(db, gid):
     if not link:
         return False
     t = db.query(models.Task).filter(models.Task.id == link.nexus_task_id).first()
-    if t and get_config(db).delete_sync:
+    if t and delete_sync_is_on(get_config(db)):
         delete_nexus_task(db, t)          # takes the link with it
         db.commit()
         return True
@@ -1794,7 +1997,7 @@ def _pull_stories(db, asana, asana_gid, nexus_task_id, counts):
 _ATTACHMENT_MAX_BYTES = int(5 * 1024 * 1024)
 
 
-def _pull_attachments(db, asana, asana_gid, nexus_task_id, counts):
+def _pull_attachments(db, asana, asana_gid, nexus_task_id, counts, email_map=None):
     """Bring Asana attachments into the Nexus task, deduped by attachment gid
     (AsanaAttachmentLink) - inbound only, Nexus attachments aren't pushed back
     to Asana (would need fetching a possibly-private Supabase URL and
@@ -1802,7 +2005,7 @@ def _pull_attachments(db, asana, asana_gid, nexus_task_id, counts):
     counts.setdefault("attachments", 0)
     try:
         rows = asana.get(f"/tasks/{asana_gid}/attachments",
-                         opt_fields="name,download_url,permanent_url,view_url,size,host")
+                         opt_fields="name,download_url,permanent_url,view_url,size,host,created_by.email")
     except Exception:
         return
     for a in rows:
@@ -1810,6 +2013,11 @@ def _pull_attachments(db, asana, asana_gid, nexus_task_id, counts):
         if not agid or db.query(models.AsanaAttachmentLink).filter(
                 models.AsanaAttachmentLink.asana_attachment_gid == agid).first():
             continue
+        # Same resolution as assignee/followers (_map_email) - falls back to the
+        # Asana address as-is if it maps to no Nexus employee (nameOf still
+        # prettifies that into something readable), and only to the literal
+        # "asana-sync" placeholder if Asana gave no creator at all.
+        uploader = _map_email((a.get("created_by") or {}).get("email"), email_map, db) or "asana-sync"
         name = a.get("name") or "attachment"
         size = a.get("size") or 0
         kind = "image" if (mimetypes.guess_type(name)[0] or "").startswith("image/") else "doc"
@@ -1834,7 +2042,7 @@ def _pull_attachments(db, asana, asana_gid, nexus_task_id, counts):
         aid = gen_id()
         db.add(models.TaskAttachment(id=aid, task_id=nexus_task_id, name=name,
                                      size=f"{max(1, round(size / 1024))} KB", kind=kind, url=url,
-                                     added_at=now_iso(), added_by="asana-sync"))
+                                     added_at=now_iso(), added_by=uploader))
         t = db.query(models.Task).filter(models.Task.id == nexus_task_id).first()
         if t:
             t.attachment_ids = list(t.attachment_ids or []) + [aid]
@@ -2131,7 +2339,10 @@ def _sync_project_access(db, asana, cfg, project_gid, nexus_project_id, extra_te
 # webhook, one-shot Import) - a field added here reaches all three at once,
 # which is the only way "no detail gets missed" stays true as this grows.
 _TASK_OPT_FIELDS = ("name,notes,html_notes,start_on,due_on,completed,assignee.email,modified_at,"
-                   "custom_fields.name,custom_fields.resource_subtype,custom_fields.enum_value.name,"
+                   "custom_fields.gid,custom_fields.name,custom_fields.resource_subtype,"
+                   "custom_fields.is_formula_field,custom_fields.display_value,"
+                   "custom_fields.enum_value.name,custom_fields.multi_enum_values.name,"
+                   "custom_fields.people_value.email,"
                    "custom_fields.text_value,custom_fields.number_value,custom_fields.date_value,"
                    "dependencies,dependents,tags.name,resource_subtype,followers.email,"
                    "memberships.section.name,num_subtasks")
@@ -2213,7 +2424,7 @@ def _pull_task_tree(db, asana, at, nexus_project_id, parent_task_id, counts, see
     if not nexus_task_id:
         return
     _pull_stories(db, asana, gid, nexus_task_id, counts)
-    _pull_attachments(db, asana, gid, nexus_task_id, counts)
+    _pull_attachments(db, asana, gid, nexus_task_id, counts, email_map)
     _sync_task_dependencies(db, at, nexus_task_id)
     if deferred is not None:
         # Re-resolved at the end of the run by resolve_dependencies, when every
@@ -2271,7 +2482,7 @@ def _reap_deleted(db, cfg, nexus_project_id, seen, counts):
     _asana_task_gone then has to confirm it with Asana before anything is
     removed. Candidates are normally zero, so this costs no API calls at all in
     the steady state."""
-    if not cfg.delete_sync or not nexus_project_id:
+    if not delete_sync_is_on(cfg) or not nexus_project_id:
         return
     scope = _project_task_ids(db, nexus_project_id)
     if not scope:
@@ -2339,10 +2550,9 @@ def pull(db, force_full=False):
     `force_full` is for the manual Pull button, where the operator is asking for
     a reconcile and expects deletions and drift to be picked up now."""
     cfg = get_config(db)
-    if not cfg.enabled or not cfg.token:
+    if not sync_is_on(cfg) or not cfg.token:
         raise ImportError_("Sync is not enabled or has no token.")
     with _PULL_LOCK:
-        _acquire_pull_lock(db)
         refresh_directory_cache()   # people added since the last run resolve too
         asana = Asana(cfg.token)
         counts = {"created": 0, "updated": 0, "comments": 0, "activities": 0,
@@ -2352,8 +2562,26 @@ def pull(db, force_full=False):
         for pm in db.query(models.AsanaProjectMap).all():
             if not pm.asana_project_gid:
                 continue
+            # Re-acquired every iteration, not once for the whole run: the lock
+            # is transaction-scoped (pg_advisory_xact_lock) and this loop now
+            # commits per project below, same granularity _import_asana_projects
+            # already uses (routers/task_config.py) and for the same reason -
+            # holding one open transaction (and one pooled DB connection) for
+            # every mapped project's worth of Asana HTTP calls starved the
+            # connection pool for the whole run's duration, taking unrelated
+            # requests down with it. Committing per project frees the
+            # connection during the network waits instead of pinning it.
+            _acquire_pull_lock(db)
             team_report = []
             started = datetime.now(timezone.utc)
+            # Columns and stages first: a field/status added in Asana becomes a
+            # Nexus one BEFORE any task referencing it is applied, so the value
+            # lands on the first pull instead of being dropped for want of a
+            # definition and only appearing a run later.
+            counts["fields"] = counts.get("fields", 0) + seed_project_fields(
+                db, cfg, pm.asana_project_gid, pm.nexus_project_id)
+            counts["statuses"] = counts.get("statuses", 0) + seed_project_statuses(
+                db, cfg, pm.asana_project_gid, pm.nexus_project_id)
             since, is_full = ("", True) if force_full else _pull_window(pm, started)
             # Raises on an Asana failure, which aborts the whole pull - so
             # _reap_deleted below only ever runs against a task list we know
@@ -2382,6 +2610,17 @@ def pull(db, force_full=False):
                     models.TaskProject.id == pm.nexus_project_id).first()
                 pname = proj_row.name if proj_row else pm.nexus_project_id
                 counts["teams"] += [f"{pname} - {line}" for line in team_report]
+            # Checkpoint: everything through this project is durable, and the
+            # lock releases here until the next iteration re-acquires it. A
+            # process killed partway through a run (or Azure's own request
+            # kill) now loses only whatever hadn't finished, not the whole run.
+            db.commit()
+        # resolve_dependencies only READS existing AsanaTaskLink rows and
+        # writes blocked_by_ids/blocking_ids onto Task rows that already exist
+        # (see its own docstring) - it never creates a link, so it isn't part
+        # of the race the lock exists to prevent. Re-acquired anyway, cheaply,
+        # to keep the whole run nominally serialized end to end.
+        _acquire_pull_lock(db)
         resolve_dependencies(db, deferred)   # every link exists by now
         cfg.last_pull_at = now_iso()
         db.commit()
@@ -2400,6 +2639,8 @@ class TokenConfig:
         self.workspace_gid = workspace_gid or ""
         self.enabled = True
         self.delete_sync = False
+        self.manual_sync_enabled = False
+        self.manual_delete_sync = False
         self.default_project_gid = ""
 
 
@@ -2429,6 +2670,12 @@ def import_project(db, cfg, nexus_project_id, asana_project_gid, counts=None,
     deferred = deferred if deferred is not None else []
     refresh_directory_cache()   # people added since the last run resolve too
     asana = Asana(cfg.token)
+    # Same order as Pull: every column and stage this project has exists in Nexus
+    # before the first task that references one is applied.
+    counts["fields"] = counts.get("fields", 0) + seed_project_fields(
+        db, cfg, asana_project_gid, nexus_project_id)
+    counts["statuses"] = counts.get("statuses", 0) + seed_project_statuses(
+        db, cfg, asana_project_gid, nexus_project_id)
     for at in asana.get(f"/projects/{asana_project_gid}/tasks", opt_fields=_TASK_OPT_FIELDS):
         _pull_task_tree(db, asana, at, nexus_project_id, "", counts, seen, email_map, deferred)
     # An import has no saved extra_team_names yet (the mapping row is created
@@ -2605,7 +2852,7 @@ def push_comment(db, comment):
     """Post a Nexus comment to its linked Asana task as a story. Asana stories are
     authored by the token's user, so the Nexus author is prefixed into the text."""
     cfg = get_config(db)
-    if not cfg.enabled or not cfg.token:
+    if not sync_is_on(cfg) or not cfg.token:
         return
     if db.query(models.AsanaCommentLink).filter(models.AsanaCommentLink.nexus_comment_id == comment.id).first():
         return   # already synced (came from Asana)
@@ -2647,7 +2894,7 @@ def on_comment_added(comment_id):
         db = SessionLocal()
         try:
             cfg = get_config(db)
-            if not cfg.enabled:
+            if not sync_is_on(cfg):
                 return
             c = db.query(models.TaskComment).filter(models.TaskComment.id == comment_id).first()
             if c:
@@ -2697,7 +2944,7 @@ def start_auto_pull():
                     db = SessionLocal()
                     try:
                         cfg = get_config(db)
-                        if cfg.enabled and cfg.token:
+                        if sync_is_on(cfg) and cfg.token:
                             work(db)
                     finally:
                         db.close()
@@ -2716,7 +2963,7 @@ def trigger_pull_async():
             db = SessionLocal()
             try:
                 cfg = get_config(db)
-                if cfg.enabled and cfg.token:
+                if sync_is_on(cfg) and cfg.token:
                     pull(db)
             finally:
                 db.close()
@@ -2754,7 +3001,7 @@ def register_webhooks(db, target_base=""):
     receiver path /asana-sync/webhook is appended. Defaults to this deployment's
     own public host, so registering from dev/prod needs no URL at all."""
     cfg = get_config(db)
-    if not cfg.enabled or not cfg.token:
+    if not sync_is_on(cfg) or not cfg.token:
         raise ImportError_("Sync is not enabled or has no token.")
     base = (target_base or "").strip() or public_base()
     if not base:

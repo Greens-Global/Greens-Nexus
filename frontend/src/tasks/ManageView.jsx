@@ -2,7 +2,7 @@
 // strip (Automation rules · Custom fields · Custom statuses · Templates · Intake
 // forms · Activity log · Reporting), ported from the export's manage/ + reporting/
 // screens onto the Nexus inline-style idiom + FastAPI-backed store.
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Zap, Plus, Trash2, Pencil, ListChecks, FileText, Inbox, Activity as ActivityIcon,
   BarChart3, Download, X, CheckCircle2, Flag, ArrowRightLeft, User, Calendar, MessageSquare,
@@ -255,6 +255,12 @@ function AsanaSyncPanel({ store }) {
   const [orphans, setOrphans] = useState(null); // stranded-row dry run, same shape
   const [teamReport, setTeamReport] = useState([]); // per-team access outcomes from the last pull
   const [importJob, setImportJob] = useState(null); // live "Import All Projects" run, polled
+  // True once this page has actually SEEN the job as "running" - gates whether
+  // watchImport's mount-time check is allowed to call importDone. Without this,
+  // opening the page re-displayed whatever import last happened (even days
+  // ago, even cancelled) as if it had just finished, because the status
+  // endpoint always returns the latest-ever job with no "already shown" flag.
+  const hasWatchedRunning = useRef(false);
   const [setupToken, setSetupToken] = useState('');   // Setup card's own PAT (write-only)
 
   const load = () => {
@@ -273,6 +279,55 @@ function AsanaSyncPanel({ store }) {
   const loadAsanaProjects = async () => {
     setErr(''); setBusy('loadproj');
     try { setAsanaProjects(await api.getAsanaSyncProjects()); }
+    catch (e) { setErr(e.message || String(e)); } finally { setBusy(''); }
+  };
+
+  // Fills only the BLANK rows below - never overwrites an entry the operator
+  // already typed or picked, and never creates a Nexus project (that stays
+  // exclusive to Import from Asana / Import All Projects). Nothing is saved
+  // until Save mapping is clicked, so a bad match costs nothing to undo.
+  //
+  // Two ways a row can match:
+  //  1. Name, case/whitespace-insensitive - the common case.
+  //  2. GID: if the Nexus project's own name literally contains an Asana
+  //     project's gid (someone pasted "Foo (1216...)" as the name, or the
+  //     project was named after its gid directly), that's matched too.
+  // Always fetches a FRESH Asana project list rather than reusing whatever was
+  // last loaded - a project created or renamed in Asana since the last "Load
+  // Asana projects" click must not silently fail to match just because the
+  // cached list predates it.
+  const normName = (s) => (s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  const autoMapProjects = async () => {
+    setErr(''); setBusy('automap');
+    try {
+      const list = await api.getAsanaSyncProjects();
+      setAsanaProjects(list);
+      const byName = new Map(list.map((p) => [normName(p.name), p.gid]));
+      const claimed = new Set(Object.values(map).filter(Boolean));
+      let matched = 0;
+      setMap((m) => {
+        const next = { ...m };
+        for (const p of projects) {
+          if (next[p.id]) continue;
+          const name = p.name || '';
+          const gid = byName.get(normName(name))
+            || list.find((ap) => name.includes(ap.gid))?.gid;
+          if (gid && !claimed.has(gid)) { next[p.id] = gid; claimed.add(gid); matched++; }
+        }
+        return next;
+      });
+      setMsg(`Matched ${matched} project(s) by name or GID - review below, then Save mapping.`);
+    } catch (e) { setErr(e.message || String(e)); } finally { setBusy(''); }
+  };
+
+  // Saves an empty mapping - the same PUT the form already sends when every
+  // row is blank, just as a one-click shortcut for starting a curated mapping
+  // from scratch. Does not touch tasks; only stops pull/push from following
+  // these projects until they're remapped.
+  const clearMap = async () => {
+    if (!confirm('Remove every project mapping? This only stops pull/push from touching these projects - no tasks are deleted.')) return;
+    setErr(''); setBusy('clearmap');
+    try { await api.setAsanaProjectMap({ maps: [] }); setMap({}); setMsg('Mapping cleared.'); load(); }
     catch (e) { setErr(e.message || String(e)); } finally { setBusy(''); }
   };
 
@@ -353,9 +408,13 @@ function AsanaSyncPanel({ store }) {
     const job = await api.asanaSyncImportAllStatus().catch(() => null);
     if (!job || job.status === 'idle') { setImportJob(null); return false; }
     setImportJob(job);
-    if (job.status === 'running') return true;
+    if (job.status === 'running') { hasWatchedRunning.current = true; return true; }
     setImportJob(null);
-    importDone(job);
+    // Only report a result for a run this page actually watched happen - a job
+    // that was ALREADY finished/cancelled/stalled the first time we checked is
+    // history from a previous visit (possibly someone else's, possibly days
+    // old), not news, and must not be replayed as if it just completed.
+    if (hasWatchedRunning.current) { importDone(job); hasWatchedRunning.current = false; }
     await store.refresh?.();
     load();
     return false;
@@ -558,18 +617,18 @@ function AsanaSyncPanel({ store }) {
         {err && <div style={{ marginTop: 10, fontSize: 13, color: NX.red }}>{err}</div>}
       </div>
 
-      <SectionHead title="Two-way Sync" hint="Keep tasks in mapped Nexus projects in sync with Asana (title, description, due date, done)." />
+      <SectionHead title="Two-way Sync" hint="Keep tasks in mapped Nexus projects in sync with Asana (title, description, due date, done). This toggle is separate from the Setup card's Sync toggle above - either one being on is enough to sync the projects mapped below." />
       <div style={{ ...card, padding: 16, maxWidth: 640 }}>
         <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, fontSize: 13 }}>
-          <input type="checkbox" checked={!!cfg.enabled} onChange={(e) => saveConfig({ enabled: e.target.checked })} />
+          <input type="checkbox" checked={!!cfg.manualSyncEnabled} onChange={(e) => saveConfig({ manual_sync_enabled: e.target.checked })} />
           <span style={{ fontWeight: 700, color: NX.ink }}>Sync enabled</span>
-          <span style={{ color: NX.faint }}>{cfg.enabled ? 'new tasks in mapped projects push to Asana automatically' : 'off'}</span>
+          <span style={{ color: NX.faint }}>{cfg.manualSyncEnabled ? 'new tasks in mapped projects push to Asana automatically' : 'off'}</span>
         </label>
         <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, fontSize: 13 }}>
-          <input type="checkbox" checked={!!cfg.deleteSync} onChange={(e) => saveConfig({ delete_sync: e.target.checked })} />
+          <input type="checkbox" checked={!!cfg.manualDeleteSync} onChange={(e) => saveConfig({ manual_delete_sync: e.target.checked })} />
           <span style={{ fontWeight: 700, color: NX.ink }}>Sync deletions</span>
           <span style={{ color: NX.faint }}>
-            {cfg.deleteSync
+            {cfg.manualDeleteSync
               ? 'deleting a task on either side deletes it on the other'
               : 'off - a deleted task is only unlinked, never removed'}
           </span>
@@ -591,9 +650,14 @@ function AsanaSyncPanel({ store }) {
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
           <label style={{ ...fieldLabel, marginBottom: 0 }}>Project mapping (Nexus → Asana)</label>
-          <button onClick={loadAsanaProjects} disabled={!cfg.hasToken || busy === 'loadproj'} title={cfg.hasToken ? '' : 'Save a token first'} style={{ ...btn('ghost'), padding: '3px 8px', fontSize: 12, marginLeft: 'auto', color: NX.blue }}>
-            {busy === 'loadproj' ? 'Loading…' : (asanaProjects ? 'Reload Asana projects' : 'Load Asana projects')}
-          </button>
+          <div style={{ display: 'flex', gap: 8, marginLeft: 'auto' }}>
+            <button onClick={autoMapProjects} disabled={!cfg.hasToken || !!busy} title={cfg.hasToken ? 'Fill blank rows by matching project names' : 'Save a token first'} style={{ ...btn('ghost'), padding: '3px 8px', fontSize: 12, color: NX.blue }}>
+              {busy === 'automap' ? 'Matching…' : 'Map Auto'}
+            </button>
+            <button onClick={loadAsanaProjects} disabled={!cfg.hasToken || !!busy} title={cfg.hasToken ? '' : 'Save a token first'} style={{ ...btn('ghost'), padding: '3px 8px', fontSize: 12, color: NX.blue }}>
+              {busy === 'loadproj' ? 'Loading…' : (asanaProjects ? 'Reload Asana projects' : 'Load Asana projects')}
+            </button>
+          </div>
         </div>
         <div style={{ maxHeight: 220, overflowY: 'auto', border: `1px solid ${NX.border}`, borderRadius: 8, marginBottom: 10 }}>
           {projects.length === 0 && <div style={{ padding: 10, fontSize: 12.5, color: NX.faint }}>No Nexus projects yet.</div>}
@@ -620,6 +684,7 @@ function AsanaSyncPanel({ store }) {
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
           <button onClick={saveMap} disabled={busy === 'map'} style={btn('outline')}>{busy === 'map' ? 'Saving…' : 'Save mapping'}</button>
+          <button onClick={clearMap} disabled={!!busy} style={{ ...btn('ghost'), color: NX.red }}>{busy === 'clearmap' ? 'Clearing…' : 'Clear Mapping'}</button>
           <button onClick={() => run('push')} disabled={!!busy} style={btn('outline')}><ArrowRightLeft size={14} />{busy === 'push' ? 'Pushing…' : 'Push all → Asana'}</button>
           <button onClick={() => run('pull')} disabled={!!busy} style={btn('primary')}><Download size={14} />{busy === 'pull' ? 'Pulling…' : 'Pull ← Asana'}</button>
           {cfg.lastPullAt && <span style={{ fontSize: 11.5, color: NX.faint }}>last pull {fmtDateTime(cfg.lastPullAt)}</span>}
@@ -945,8 +1010,12 @@ const FIELD_TYPES = [
   { value: 'number', label: 'Number' },
   { value: 'date', label: 'Date' },
   { value: 'select', label: 'Select' },
+  { value: 'multiselect', label: 'Multi-Select' },
+  { value: 'people', label: 'People' },
   { value: 'checkbox', label: 'Checkbox' },
 ];
+// The two kinds whose value is chosen from a fixed option list.
+const OPTION_TYPES = ['select', 'multiselect'];
 
 function FieldsTab({ store }) {
   const { customFields, createCustomField, deleteCustomField, projects = [] } = store;
@@ -968,7 +1037,7 @@ function FieldsTab({ store }) {
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 13.5, fontWeight: 700 }}>{f.name}</div>
             {f.description && <div style={{ fontSize: 12, color: NX.dim, marginTop: 1 }}>{f.description}</div>}
-            {f.type === 'select' && !!(f.options || []).length && (
+            {OPTION_TYPES.includes(f.type) && !!(f.options || []).length && (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 3 }}>
                 {(f.options || []).map((o) => {
                   const opt = typeof o === 'string' ? { id: o, label: o, color: NX.dim } : o;
@@ -983,6 +1052,7 @@ function FieldsTab({ store }) {
             </div>
           </div>
           {f.required && <span style={chip(NX.red, 'rgba(220,38,38,0.12)')}>Required</span>}
+          {f.readOnly && <span title="Calculated in Asana - imported but never pushed back" style={chip(NX.dim, NX.border2)}>Read-only</span>}
           <span style={chip(NX.dim, NX.border2)}>{FIELD_TYPES.find((t) => t.value === f.type)?.label || f.type}</span>
           <IconButton icon={Trash2} title="Delete Field" danger onClick={() => { if (confirm(`Delete field "${f.name}"?`)) deleteCustomField(f.id); }} />
         </RowCard>
@@ -1009,7 +1079,7 @@ function FieldModal({ projects = [], onClose, onSave }) {
   const toggleProject = (id) => setProjectIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
   const save = () => {
     if (!name.trim()) return;
-    const opts = type === 'select'
+    const opts = OPTION_TYPES.includes(type)
       ? options.filter((o) => o.label.trim()).map((o) => ({ id: o.label.trim(), label: o.label.trim(), color: o.color }))
       : [];
     onSave({ name: name.trim(), description: description.trim(), type, options: opts,
@@ -1030,7 +1100,7 @@ function FieldModal({ projects = [], onClose, onSave }) {
           {FIELD_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
         </select>
       </Field>
-      {type === 'select' && (
+      {OPTION_TYPES.includes(type) && (
         <div>
           <label style={fieldLabel}>Options</label>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -1084,14 +1154,16 @@ function FieldModal({ projects = [], onClose, onSave }) {
 
 // ── 3. Custom statuses ────────────────────────────────────────────────────────
 function StatusesTab({ store }) {
-  const { customStatuses, createCustomStatus, deleteCustomStatus } = store;
+  const { customStatuses, createCustomStatus, updateCustomStatus, deleteCustomStatus, projects = [] } = store;
   const [adding, setAdding] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const projectName = (id) => projects.find((p) => p.id === id)?.name || '';
 
   return (
     <div>
       <SectionHead
         title="Custom Statuses"
-        hint="Additional workflow statuses beyond the four built-in ones."
+        hint="Additional workflow statuses beyond the four built-in ones. Scope a status to specific projects so it is not a board column in every one."
         action={<button style={btn('primary')} onClick={() => setAdding(true)}><Plus size={15} />New Status</button>}
       />
       {customStatuses.length === 0 ? (
@@ -1099,29 +1171,41 @@ function StatusesTab({ store }) {
       ) : customStatuses.map((s) => (
         <RowCard key={s.id}>
           <span style={{ width: 14, height: 14, borderRadius: '50%', background: s.color || NX.dim, flexShrink: 0, marginLeft: 6 }} />
-          <div style={{ flex: 1, fontSize: 13.5, fontWeight: 700 }}>{s.label}</div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 13.5, fontWeight: 700 }}>{s.label}</div>
+            <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 3 }}>
+              {(s.projectIds || []).length
+                ? (s.projectIds || []).map(projectName).filter(Boolean).join(', ')
+                : 'Every project'}
+            </div>
+          </div>
+          <IconButton icon={Pencil} title="Edit Status" onClick={() => setEditing(s)} />
           <IconButton icon={Trash2} title="Delete Status" danger onClick={() => { if (confirm(`Delete status "${s.label}"?`)) deleteCustomStatus(s.id); }} />
         </RowCard>
       ))}
-      {adding && <StatusModal onClose={() => setAdding(false)} onSave={async (d) => { await createCustomStatus(d); setAdding(false); }} />}
+      {adding && <StatusModal projects={projects} onClose={() => setAdding(false)} onSave={async (d) => { await createCustomStatus(d); setAdding(false); }} />}
+      {editing && <StatusModal projects={projects} status={editing} onClose={() => setEditing(null)}
+        onSave={async (d) => { await updateCustomStatus(editing.id, d); setEditing(null); }} />}
     </div>
   );
 }
 
-function StatusModal({ onClose, onSave }) {
-  const [label, setLabel] = useState('');
-  const [color, setColor] = useState(SWATCHES[0]);
-  const save = () => { if (label.trim()) onSave({ label: label.trim(), color }); };
+function StatusModal({ projects = [], status = null, onClose, onSave }) {
+  const [label, setLabel] = useState(status?.label || '');
+  const [color, setColor] = useState(status?.color || SWATCHES[0]);
+  const [projectIds, setProjectIds] = useState(status?.projectIds || []);
+  const toggleProject = (id) => setProjectIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
+  const save = () => { if (label.trim()) onSave({ label: label.trim(), color, project_ids: projectIds }); };
 
   return (
-    <Modal title="New Status" width={440} onClose={onClose} footer={
+    <Modal title={status ? 'Edit Status' : 'New Status'} width={440} onClose={onClose} footer={
       <>
         <button style={btn('ghost')} onClick={onClose}>Cancel</button>
-        <button style={btn('primary')} onClick={save}>Add Status</button>
+        <button style={btn('primary')} onClick={save}>{status ? 'Save Status' : 'Add Status'}</button>
       </>
     }>
       <Field label="Label"><input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. Blocked" style={inputStyle} /></Field>
-      <label style={fieldLabel}>Colour</label>
+      <label style={fieldLabel}>Color</label>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         {SWATCHES.map((c) => (
           <button key={c} type="button" onClick={() => setColor(c)} title={c} style={{
@@ -1129,6 +1213,24 @@ function StatusModal({ onClose, onSave }) {
             border: color === c ? `3px solid ${NX.ink}` : `2px solid ${NX.border}`,
           }} />
         ))}
+      </div>
+      <div style={{ marginTop: 14 }}>
+        <label style={fieldLabel}>Projects</label>
+        <div style={{ fontSize: 12, color: NX.dim, marginBottom: 6 }}>
+          Leave all unchecked to show this status on every board.
+        </div>
+        {projects.length === 0 ? (
+          <div style={{ fontSize: 12.5, color: NX.faint }}>No projects yet.</div>
+        ) : (
+          <div style={{ maxHeight: 150, overflowY: 'auto', border: `1px solid ${NX.border}`, borderRadius: 10 }}>
+            {projects.filter((p) => !p.archived).map((p) => (
+              <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', fontSize: 13, cursor: 'pointer', borderBottom: `1px solid ${NX.border2}` }}>
+                <input type="checkbox" checked={projectIds.includes(p.id)} onChange={() => toggleProject(p.id)} style={{ cursor: 'pointer' }} />
+                <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+              </label>
+            ))}
+          </div>
+        )}
       </div>
     </Modal>
   );

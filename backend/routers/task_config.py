@@ -425,6 +425,33 @@ def normalize_field_options(options, ) -> list:
     return out
 
 
+def _as_list(raw) -> list:
+    """The list-typed kinds (multiselect, people) accept a bare scalar too - a
+    field converted from select/text still holds one, and the Asana importer
+    seeds a single value the same way."""
+    if isinstance(raw, (list, tuple, set)):
+        return list(raw)
+    return [raw] if raw not in ("", None) else []
+
+
+def _select_option_id(f: models.TaskCustomField, raw) -> str:
+    """One select/multiselect value as its option id, or "" if it matches no
+    option. Accepts either the id or the label - the task editors have
+    historically sent plain labels, and Asana always sends the label."""
+    allowed = {o["id"]: o for o in normalize_field_options(f.options or [])}
+    by_label = {o["label"]: o["id"] for o in allowed.values()}
+    key = str(raw)
+    if key in allowed:
+        return key
+    if key in by_label:
+        return by_label[key]
+    # Case-insensitive last resort: Asana's option names and a hand-typed Nexus
+    # option routinely differ only by case, and dropping the value over that
+    # left the cell blank with no indication anything had arrived.
+    lower = {lbl.strip().lower(): oid for lbl, oid in by_label.items()}
+    return lower.get(key.strip().lower(), "")
+
+
 def coerce_custom_field_values(db: Session, values) -> dict:
     """Store custom-field values in the shape their field declares.
 
@@ -455,12 +482,24 @@ def coerce_custom_field_values(db: Session, values) -> dict:
             elif kind == "date":
                 out[fid] = str(raw)[:10]
             elif kind == "select":
-                allowed = {o["id"]: o for o in normalize_field_options(f.options or [])}
-                by_label = {o["label"]: o["id"] for o in allowed.values()}
-                key = str(raw)
-                # Accept either the option id or its label - the task editors
-                # have historically sent plain labels.
-                out[fid] = key if key in allowed else by_label.get(key, "")
+                out[fid] = _select_option_id(f, raw)
+                if not out[fid]:
+                    out.pop(fid)
+            elif kind == "multiselect":
+                # A list of option ids. Order is normalized to the field's own
+                # option order so two equal sets can never digest differently
+                # and make an unchanged task look changed on every Asana pull.
+                order = [o["id"] for o in normalize_field_options(f.options or [])]
+                ids = {oid for oid in (_select_option_id(f, v) for v in _as_list(raw)) if oid}
+                out[fid] = [oid for oid in order if oid in ids]
+                if not out[fid]:
+                    out.pop(fid)
+            elif kind == "people":
+                # A list of Nexus work emails, lowercased and deduped. Sorted for
+                # the same digest-stability reason as multiselect above.
+                emails = sorted({str(v).strip().lower() for v in _as_list(raw)
+                                 if str(v or "").strip() and "@" in str(v)})
+                out[fid] = emails
                 if not out[fid]:
                     out.pop(fid)
             else:
@@ -481,7 +520,7 @@ def custom_field_to_dict(f: models.TaskCustomField) -> dict:
     return {"id": f.id, "name": f.name, "description": _nz(f.description), "type": f.type or "text",
             "options": normalize_field_options(f.options if isinstance(f.options, list) else []),
             "projectIds": [p for p in (f.project_ids or []) if p],
-            "required": bool(f.required)}
+            "required": bool(f.required), "readOnly": bool(f.read_only)}
 
 
 class CustomFieldBody(BaseModel):
@@ -492,6 +531,7 @@ class CustomFieldBody(BaseModel):
     options: Optional[list] = None
     project_ids: Optional[list] = None
     required: Optional[bool] = None
+    read_only: Optional[bool] = None
 
 
 @router.get("/task-custom-fields")
@@ -505,7 +545,7 @@ def create_custom_field(body: CustomFieldBody, db: Session = Depends(get_db)):
                                type=body.type or "text",
                                options=normalize_field_options(body.options or []),
                                project_ids=[p for p in (body.project_ids or []) if p],
-                               required=bool(body.required))
+                               required=bool(body.required), read_only=bool(body.read_only))
     db.add(f)
     db.commit()
     db.refresh(f)
@@ -544,6 +584,10 @@ class AsanaSyncConfigBody(BaseModel):
     default_project_gid: Optional[str] = None
     delete_sync: Optional[bool] = None
     setup_token: Optional[str] = None
+    # Two-Way Sync card's own toggles, independent of enabled/delete_sync above
+    # (the Setup card's) - see AsanaSyncConfig and asana_sync.sync_is_on().
+    manual_sync_enabled: Optional[bool] = None
+    manual_delete_sync: Optional[bool] = None
 
 
 class AsanaProjectMapBody(BaseModel):
@@ -554,7 +598,9 @@ def _sync_config_dict(cfg) -> dict:
     return {"enabled": bool(cfg.enabled), "workspaceGid": _nz(cfg.workspace_gid),
             "defaultProjectGid": _nz(cfg.default_project_gid), "hasToken": bool(cfg.token),
             "lastPullAt": _nz(cfg.last_pull_at), "deleteSync": bool(cfg.delete_sync),
-            "hasSetupToken": bool(cfg.setup_token)}
+            "hasSetupToken": bool(cfg.setup_token),
+            "manualSyncEnabled": bool(cfg.manual_sync_enabled),
+            "manualDeleteSync": bool(cfg.manual_delete_sync)}
 
 
 @router.get("/asana-sync/config", dependencies=[Depends(require_manager)])
@@ -594,6 +640,10 @@ def set_asana_sync_config(body: AsanaSyncConfigBody, db: Session = Depends(get_d
         cfg.default_project_gid = body.default_project_gid
     if body.delete_sync is not None:
         cfg.delete_sync = body.delete_sync
+    if body.manual_sync_enabled is not None:
+        cfg.manual_sync_enabled = body.manual_sync_enabled
+    if body.manual_delete_sync is not None:
+        cfg.manual_delete_sync = body.manual_delete_sync
     from routers.task_util import now_iso
     cfg.updated_at = now_iso()
     db.commit()

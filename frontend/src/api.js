@@ -301,6 +301,7 @@ export const api = {
   deleteTaskSection: (id) => req(`/tasks/meta/sections/${id}`, { method: "DELETE" }),
   getTaskCustomStatuses: () => req("/tasks/meta/custom-statuses"),
   createTaskCustomStatus: (data) => req("/tasks/meta/custom-statuses", { method: "POST", body: JSON.stringify(data) }),
+  updateTaskCustomStatus: (id, data) => req(`/tasks/meta/custom-statuses/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
   deleteTaskCustomStatus: (id) => req(`/tasks/meta/custom-statuses/${id}`, { method: "DELETE" }),
   // Projects / portfolios / departments / member requests
   getTaskProjects: () => req("/task-projects"),
