@@ -1733,6 +1733,7 @@ def add_department(entity_id: str, body: DepartmentIn, user: dict = Depends(requ
 
 
 class DepartmentUpdate(BaseModel):
+    name:         Optional[str] = None
     lead_email:   Optional[str] = None
     backup_email: Optional[str] = None
 
@@ -1740,11 +1741,30 @@ class DepartmentUpdate(BaseModel):
 @router.patch("/entities/{entity_id}/departments/{dept_id}")
 def update_department(entity_id: str, dept_id: str, body: DepartmentUpdate,
                       user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
-    """Set the triage lead / backup for a department. Tickets raised against it are
-    left unassigned and these two are notified to assign an employee."""
+    """Rename a department and/or set its triage lead / backup. Tickets raised
+    against it are left unassigned and these two are notified to assign an
+    employee."""
     row = db.query(HrDepartment).filter(HrDepartment.id == dept_id, HrDepartment.company_id == entity_id).first()
     if not row:
         raise HTTPException(404, "Department not found")
+    if body.name is not None:
+        new_name = (body.name or "").strip()
+        if not new_name:
+            raise HTTPException(400, "Department name cannot be empty")
+        if len(new_name) > 40:
+            raise HTTPException(400, "Department name is too long (40 characters max)")
+        siblings = db.query(HrDepartment).filter(HrDepartment.company_id == entity_id,
+                                                 HrDepartment.id != dept_id).all()
+        if any(_dept_key(s.name) == _dept_key(new_name) for s in siblings):
+            raise HTTPException(409, f"“{new_name}” already exists for this company")
+        if new_name != row.name:
+            # Employees carry the department as a NAME string, not an id - follow
+            # the rename so nobody is left in a no-longer-pickable department.
+            old_key = _dept_key(row.name)
+            for e in db.query(NexusEmployee).filter(NexusEmployee.company == entity_id).all():
+                if _dept_key(e.department or "") == old_key:
+                    e.department = new_name
+            row.name = new_name
     if body.lead_email is not None:
         row.lead_email = (body.lead_email or "").strip().lower()
     if body.backup_email is not None:

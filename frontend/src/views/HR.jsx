@@ -2684,6 +2684,8 @@ function CompanyDepartments({ entity, employees = [], toastOk, toastErr }) {
   const [depts, setDepts] = useState(null);
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
+  const [editId, setEditId] = useState(null);   // department being renamed
+  const [editName, setEditName] = useState('');
   const load = () => api.getCompanyDepartments(entity.id).then(setDepts).catch(() => setDepts([]));
   useEffect(() => { setDepts(null); load(); }, [entity.id]);
   // Anyone with a work email can lead triage - not restricted to this company, since
@@ -2699,6 +2701,16 @@ function CompanyDepartments({ entity, employees = [], toastOk, toastErr }) {
   async function remove(d) {
     try { const list = await api.deleteCompanyDepartment(entity.id, d.id); setDepts(list); }
     catch (e) { toastErr(e?.message || 'Could not remove department.'); }
+  }
+  async function rename(d) {
+    const n = editName.trim();
+    setEditId(null);
+    if (!n || n === d.name) return;
+    try {
+      const list = await api.updateCompanyDepartment(entity.id, d.id, { name: n });
+      setDepts(list);
+      toastOk?.(`Renamed “${d.name}” to “${n}” - people already in it follow the new name.`);
+    } catch (e) { toastErr(e?.message || 'Could not rename department.'); }
   }
   async function setOwner(d, field, email) {
     try {
@@ -2728,7 +2740,23 @@ function CompanyDepartments({ entity, employees = [], toastOk, toastErr }) {
             </div>
             {depts.map(d => (
               <div key={d.id} style={{ display: 'grid', gridTemplateColumns: '1.2fr 1.4fr 1.4fr 32px', gap: 10, padding: '8px 12px', alignItems: 'center', borderBottom: '1px solid var(--line)' }}>
-                <span style={{ fontSize: 13, fontWeight: 600 }}>{d.name}</span>
+                {editId === d.id ? (
+                  <input className="form-input" autoFocus value={editName} maxLength={40}
+                    onChange={e => setEditName(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') rename(d); if (e.key === 'Escape') setEditId(null); }}
+                    onBlur={() => rename(d)}
+                    style={{ fontSize: 13, padding: '4px 8px' }} />
+                ) : (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                    <span style={{ fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.name}</span>
+                    <button onClick={() => { setEditId(d.id); setEditName(d.name); }} title={`Rename ${d.name}`} aria-label={`Rename ${d.name}`}
+                      style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'grid', placeItems: 'center', width: 22, height: 22, borderRadius: '50%', padding: 0, flexShrink: 0 }}
+                      onMouseOver={e => { e.currentTarget.style.background = 'var(--paper)'; e.currentTarget.style.color = 'var(--ink)'; }}
+                      onMouseOut={e => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = 'var(--muted)'; }}>
+                      <Pencil size={12} />
+                    </button>
+                  </span>
+                )}
                 {['lead_email', 'backup_email'].map(fieldKey => {
                   const current = fieldKey === 'lead_email' ? (d.leadEmail || '') : (d.backupEmail || '');
                   const unset = fieldKey === 'lead_email' && !current;
