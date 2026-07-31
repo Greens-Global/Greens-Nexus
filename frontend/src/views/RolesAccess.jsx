@@ -309,24 +309,27 @@ export default function RolesAccess({ embedded = false }) {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
                     <span style={{ fontWeight: 800, fontSize: 14, flex: 1 }}>{r.name}</span>
                     <TierBadge tier={r.tier} />
+                  </div>
+                  {/* Neil (Aug 1): no bundle summary on the card - the people ARE
+                      the summary. Faces only; the full bundle is one click away. */}
+                  <div style={{ marginTop: 8, minHeight: 24, display: 'flex', alignItems: 'center' }}>
                     {(() => {
                       const mem = (r.members || []).filter(inFilter);
                       return mem.length ? (
                         <span title={`${mem.length} ${mem.length === 1 ? 'person' : 'people'}${filterOn ? ` in this filter (${r.member_count} total)` : ''}: ${mem.map(nameOf).join(', ')}`}
-                          style={{ display: 'inline-flex', alignItems: 'center', flexShrink: 0 }}>
-                          {mem.slice(0, 5).map((em, i) => (
+                          style={{ display: 'inline-flex', alignItems: 'center' }}>
+                          {mem.slice(0, 8).map((em, i) => (
                             <span key={em} style={{ marginLeft: i ? -7 : 0, display: 'inline-flex', borderRadius: '50%', border: '2px solid var(--card)' }}>
-                              <Avatar name={nameOf(em)} src={photoOf[em]} size={20} />
+                              <Avatar name={nameOf(em)} src={photoOf[em]} size={24} />
                             </span>
                           ))}
-                          {mem.length > 5 && <span style={{ marginLeft: 4, fontSize: 10.5, fontWeight: 700, color: 'var(--muted)' }}>+{mem.length - 5}</span>}
+                          {mem.length > 8 && <span style={{ marginLeft: 5, fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>+{mem.length - 8}</span>}
                         </span>
                       ) : (
-                        <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>{filterOn && r.member_count ? 'none here' : '0 people'}</span>
+                        <span style={{ fontSize: 11.5, color: 'var(--muted)', fontWeight: 600 }}>{filterOn && r.member_count ? 'None in this filter' : 'Nobody yet'}</span>
                       );
                     })()}
                   </div>
-                  <div style={{ marginTop: 7, fontSize: 12, lineHeight: 1.5, color: 'var(--muted)' }}>{bundleSummary(r.allowed_modules)}</div>
                 </button>
               ))}
             </div>
