@@ -17,3 +17,6 @@ createRoot(document.getElementById('root')).render(
     </MsalProvider>
   </StrictMode>,
 )
+
+// Deploy trigger (Jul 31, 2026): first hash rotation after the R2 asset archive went live,
+// so stale-tab chunk requests fall back to the archive. Safe to remove.
