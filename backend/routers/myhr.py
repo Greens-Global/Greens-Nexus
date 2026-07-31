@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from auth import get_current_user
-from models import (NexusEmployee, HrSignRequest, HrSignParty, HrDocument,
+from models import (NexusEmployee, HrEntity, HrSignRequest, HrSignParty, HrDocument,
                     HrSelfRequest, ItemAssignment, ItemCheckout,
                     NexusGroup, NexusGroupMember, NexusNotification)
 from routers.hr import _SUPABASE_URL, _storage_headers, _DOC_BUCKET
@@ -137,7 +137,12 @@ def people_directory(user: dict = Depends(get_current_user), db: Session = Depen
               .filter(NexusEmployee.status != "offboarded")
               .filter(NexusEmployee.work_email != "")
               .order_by(NexusEmployee.first_name, NexusEmployee.last_name).all())
-    return [{"email": e.work_email, "name": _person_name(e), "photoUrl": e.photo_url or ""}
+    # company is the ENTITY ID on the employee row; resolve the display name once
+    # so pickers can offer company/department filters without an HR-gated call.
+    ent_names = {en.id: en.name for en in db.query(HrEntity).all()}
+    return [{"email": e.work_email, "name": _person_name(e), "photoUrl": e.photo_url or "",
+             "company": e.company or "", "companyName": ent_names.get(e.company or "", ""),
+             "department": e.department or ""}
             for e in rows]
 
 
