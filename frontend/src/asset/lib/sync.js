@@ -72,11 +72,41 @@ export function serverPut(json) {
   try { ws = JSON.parse(json); } catch { return Promise.resolve({ status: 200, ts: 0 }); }
   return api.savePropertyWorkspace(ws)
     .then((r) => ({ status: 200, ts: (r && r._ts) || 0 }))
-    // 409 = the server refused this write outright (e.g. empty-over-populated
-    // guard) - a definitive rejection, not a transient failure: surface it as
-    // 409 so the queue drops the write and the next pull re-syncs, instead of
-    // retrying a write that can never be accepted.
-    .catch((e) => ({ status: e && e.status === 409 ? 409 : 0, ts: 0 }));
+    // 409 = the server refused this write outright. Two flavors:
+    //   - 'stale' (someone else saved since we last pulled): recoverable - the
+    //     flush path pulls, merges by id and retries, so neither side's work is
+    //     dropped.
+    //   - anything else (e.g. the empty-over-populated wipe guard): definitive -
+    //     the queue drops the write and the next pull re-syncs.
+    .catch((e) => ({
+      status: e && e.status === 409 ? 409 : 0,
+      ts: 0,
+      stale: !!(e && e.status === 409 && /stale/i.test(String(e.message || ''))),
+    }));
+}
+
+/**
+ * Merge a fresher SERVER workspace with this tab's LOCAL one after a stale-write
+ * rejection. Union of rows by id per collection: rows only the server has (a
+ * colleague's work since we pulled) survive; rows we both have take the LOCAL
+ * version (this tab's active edit is the most intentional copy). Known
+ * trade-off: a row deleted here while a colleague was editing elsewhere comes
+ * back - resurrection is recoverable, silent loss is not.
+ */
+const WS_KEYS = ['properties', 'warranties', 'inspections', 'documents', 'ahj', 'utilities',
+  'vendors', 'vservice', 'odometer', 'vdocs', 'maintenance', 'logs'];
+export function mergeWorkspaces(server, local) {
+  if (!local) return server;
+  const out = {};
+  for (const k of WS_KEYS) {
+    const s = Array.isArray(server && server[k]) ? server[k] : [];
+    const l = Array.isArray(local && local[k]) ? local[k] : [];
+    const byId = new Map();
+    for (const row of s) if (row && row.id != null) byId.set(row.id, row);
+    for (const row of l) if (row && row.id != null) byId.set(row.id, row);
+    out[k] = [...byId.values()];
+  }
+  return out;
 }
 
 /**
@@ -120,12 +150,19 @@ let retryCount = 0;
 /** Bookkeeping mirrors of the last state we know the server has, used by the pull loop to decide whether a server poll found something newer. */
 let lastTs = 0;
 let lastLogCount = 0;
+/** The SERVER _ts this tab's copy derives from - sent with every PUT so the
+ * server can reject a stale whole-blob overwrite instead of losing colleagues'
+ * work. Advances on hydrate, every adopted pull, and every accepted PUT. */
+let baseTs = 0;
+/** The apply-server-state callback from wireBackgroundSync, kept module-level so
+ * the stale-merge path can hand the merged workspace back to the app. */
+let applyServer = null;
 
 export function markHydrated() { hydrated = true; }
 export function isHydrated() { return hydrated; }
 export function getLastTs() { return lastTs; }
 export function getLastLogCount() { return lastLogCount; }
-export function setLastKnown(ts, logCount) { lastTs = ts; lastLogCount = logCount; }
+export function setLastKnown(ts, logCount) { lastTs = ts; lastLogCount = logCount; baseTs = ts; }
 export function hasPending() { return !!pending; }
 export function getRetryCount() { return retryCount; }
 
@@ -139,7 +176,7 @@ export function queueWrite(stateObj, debounceMs = 1200) {
   const ts = Date.now();
   let json;
   try {
-    json = JSON.stringify({ ...stateObj, _ts: ts });
+    json = JSON.stringify({ ...stateObj, _ts: ts, baseTs });
   } catch (e) {
     return; // circular/unserializable state - nothing we can do, drop silently like the original
   }
@@ -171,13 +208,45 @@ export function flush() {
     pushTimer = null;
   }
   const inFlight = pending;
-  serverPut(inFlight).then(({ status, ts }) => {
-    if (status === 200 || status === 409) {
+  serverPut(inFlight).then(({ status, ts, stale }) => {
+    if (status === 200) {
       if (pending === inFlight) pending = null;
       retryCount = 0;
       // Adopt the server's stamp for the write we just landed (even if it's
       // "behind" our client clock - server time is the only one pulls compare).
-      if (status === 200 && ts) lastTs = ts;
+      if (ts) { lastTs = ts; baseTs = ts; }
+    } else if (status === 409 && stale) {
+      // Someone else saved since this tab last pulled. Pull their copy, merge
+      // it with ours (union by id, this tab wins rows it touched) and retry -
+      // the old behavior silently replaced their work with our stale blob.
+      serverGet().then((server) => {
+        if (!server) {
+          retryCount = Math.min((retryCount || 0) + 1, 6);
+          pushTimer = setTimeout(flush, Math.min(1500 * Math.pow(2, retryCount - 1), 30000));
+          return;
+        }
+        let local = null;
+        try { local = JSON.parse(inFlight); } catch { /* keep null */ }
+        const merged = mergeWorkspaces(server, local);
+        baseTs = server._ts || 0;
+        lastLogCount = (merged.logs && merged.logs.length) || 0;
+        const ts2 = Date.now();
+        lastTs = ts2;
+        const json = JSON.stringify({ ...merged, _ts: ts2, baseTs });
+        // Don't clobber a NEWER local write queued while our PUT was in flight -
+        // it will hit the same stale gate and merge on its own turn.
+        if (pending === inFlight) pending = json;
+        // Hand the merged truth back to the app so colleagues' rows appear
+        // in this tab too, not only on the server.
+        if (applyServer) { try { applyServer({ ...merged, _ts: server._ts || 0 }); } catch { /* view update is best-effort */ } }
+        retryCount = 0;
+        pushTimer = setTimeout(flush, 400);
+      });
+    } else if (status === 409) {
+      // Definitive rejection (e.g. the empty-over-populated wipe guard): drop
+      // the write; the next pull re-syncs this tab.
+      if (pending === inFlight) pending = null;
+      retryCount = 0;
     } else {
       retryCount = Math.min((retryCount || 0) + 1, 6);
       pushTimer = setTimeout(flush, Math.min(1500 * Math.pow(2, retryCount - 1), 30000));
@@ -221,6 +290,7 @@ export function flushBeacon() {
  */
 export function wireBackgroundSync(onServerNewer, pollMs = 7000) {
   let stopped = false;
+  applyServer = onServerNewer;
 
   const pull = () => {
     if (pushTimer || pending) return; // a write is queued/going out; don't race it with an incoming pull
@@ -235,6 +305,7 @@ export function wireBackgroundSync(onServerNewer, pollMs = 7000) {
       if (ts > lastTs || logs > lastLogCount) {
         lastLogCount = logs;
         lastTs = Math.max(ts, lastTs);
+        baseTs = Math.max(ts, baseTs);   // our copy now derives from this server state
         onServerNewer(serverState);
       }
     });
@@ -262,6 +333,7 @@ export function wireBackgroundSync(onServerNewer, pollMs = 7000) {
 
   return () => {
     stopped = true;
+    applyServer = null;
     clearInterval(intervalId);
     if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVisibilityChange);
     if (typeof window !== 'undefined') {
