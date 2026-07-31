@@ -21,7 +21,7 @@ const TIERS = Object.keys(ROLES);
 
 // Audit-tab module families - collapse 21 columns into 6 readable ones.
 const FAMILIES = [
-  { id: 'everyday', label: 'Everyday',      modules: ['dashboard', 'timeclock', 'myhr', 'tasks'] },
+  { id: 'everyday', label: 'Everyday',      modules: ['dashboard', 'timeclock', 'myhr', 'tasks', 'tickets'] },
   { id: 'company',  label: 'Company',       modules: ['sop', 'hr', 'documents', 'external-links', 'support'] },
   { id: 'money',    label: 'Money',         modules: ['accounting', 'investor-relations'] },
   { id: 'field',    label: 'Field & assets', modules: ['inventory', 'property-asset', 'ops', 'operations'] },

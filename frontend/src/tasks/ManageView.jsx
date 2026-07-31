@@ -18,7 +18,6 @@ import { Avatar, EmptyState, Modal } from './components';
 import { taskStats, topLevel, fmtDateTime, teamProjectIds } from './lib';
 import TasksWorkspace from './TasksWorkspace';
 import { TeamModal, deptIcon } from './TeamsView';
-import TicketNotifySettings from '../tickets/TicketNotifySettings';
 import TaskNotifySettings from './TaskNotifySettings';
 
 // ── Small shared bits ─────────────────────────────────────────────────────────
@@ -69,7 +68,6 @@ const SUBTABS = [
   { key: 'statuses', label: 'Custom Statuses', icon: Palette },
   { key: 'templates', label: 'Templates', icon: FileText },
   { key: 'intake', label: 'Intake Forms', icon: Inbox },
-  { key: 'ticketNotify', label: 'Ticket Notifications', icon: Mail },
   { key: 'taskNotify', label: 'Task Notifications', icon: Mail },
   { key: 'activity', label: 'Activity Log', icon: ActivityIcon },
   { key: 'reporting', label: 'Reporting', icon: BarChart3 },
@@ -113,7 +111,6 @@ export default function ManageView() {
             {tab === 'statuses' && <StatusesTab store={store} />}
             {tab === 'templates' && <TemplatesTab store={store} />}
             {tab === 'intake' && <IntakeTab store={store} />}
-            {tab === 'ticketNotify' && <TicketNotifySettings />}
             {tab === 'taskNotify' && <TaskNotifySettings />}
             {tab === 'activity' && <ActivityTab store={store} />}
             {tab === 'reporting' && <ReportingTab store={store} />}

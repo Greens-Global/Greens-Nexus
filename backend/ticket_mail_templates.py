@@ -154,11 +154,13 @@ def _conversation_html(thread: list[dict]) -> str:
 
 
 def _ticket_url(base_url: str, ticket_id: str) -> str:
-    # Matches App.jsx's parsePath() - /<view-path>/<sub>, e.g. /tasks/tickets -
-    # plus a ?ticket= query param that TicketsView.jsx reads once on mount to
-    # auto-open that ticket (then strips it from the URL).
+    # Tickets is its own top-level module (Jul 2026) - /tickets, not the old
+    # /tasks/tickets sub-path. App.jsx's parsePath() still redirects old links
+    # there for emails already sent. Plus a ?ticket= query param that
+    # TicketsView.jsx reads once on mount to auto-open that ticket (then
+    # strips it from the URL).
     base = (base_url or "").rstrip("/")
-    return f"{base}/tasks/tickets?ticket={ticket_id}" if base else "#"
+    return f"{base}/tickets?ticket={ticket_id}" if base else "#"
 
 
 # ── Per-event builders - each returns (subject, html) ────────────────────────
