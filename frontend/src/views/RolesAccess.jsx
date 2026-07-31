@@ -133,6 +133,50 @@ export default function RolesAccess({ embedded = false }) {
   // email → photo, for the member chips (role + group members arrive as emails).
   const photoOf = useMemo(() => Object.fromEntries(people.map(p => [p.email, p.photo])), [people]);
 
+  // ── Universal company/department filter (lives in the tab strip) ────────────
+  // One selector scopes the whole screen: the People list, role member chips
+  // and face stacks, and group chips all narrow to the chosen company/department.
+  const [co, setCo] = useState('');
+  const [dept, setDept] = useState('');
+  const companies = useMemo(() => {
+    const seen = new Map();
+    const uuidish = /^[0-9a-f]{8}-[0-9a-f]{4}-/i;
+    people.forEach(p => {
+      if (!p.company || seen.has(p.company)) return;
+      const label = p.companyName || (uuidish.test(p.company) ? '' : p.company);
+      if (label) seen.set(p.company, label);
+    });
+    return [...seen.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
+  }, [people]);
+  // Departments cascade from the company: a company without Estimating never
+  // offers Estimating. Options come from what is actually in use.
+  const deptOptions = useMemo(() => {
+    const seen = new Map();
+    people.forEach(p => {
+      if (!p.dept) return;
+      if (co && p.company !== co) return;
+      const k = p.dept.trim().toLowerCase();
+      if (k && !seen.has(k)) seen.set(k, p.dept.trim());
+    });
+    return [...seen.values()].sort((a, b) => a.localeCompare(b));
+  }, [people, co]);
+  useEffect(() => {
+    if (dept && !deptOptions.some(d => d.toLowerCase() === dept.toLowerCase())) setDept('');
+  }, [deptOptions, dept]);
+
+  const emailMeta = useMemo(() => Object.fromEntries(people.map(p => [p.email, p])), [people]);
+  const filterOn = !!(co || dept);
+  const inFilter = em => {
+    if (!filterOn) return true;
+    const p = emailMeta[(em || '').toLowerCase()];
+    if (!p) return false;
+    if (co && p.company !== co) return false;
+    if (dept && p.dept.trim().toLowerCase() !== dept.toLowerCase()) return false;
+    return true;
+  };
+  const scopedPeople = useMemo(() => filterOn ? people.filter(p => inFilter(p.email)) : people,
+    [people, co, dept]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // email → { role, groups } from the membership lists we already have - lets
   // person cards show chips without one API call per person.
   const membership = useMemo(() => {
@@ -222,6 +266,22 @@ export default function RolesAccess({ embedded = false }) {
           </button>
         ))}
         <span style={{ flex: 1 }} />
+        {companies.length > 0 && (
+          <>
+            <select value={co} onChange={e => setCo(e.target.value)} aria-label="Filter every tab by company"
+              title="Scopes every tab to this company's people"
+              style={{ ...input, width: 'auto', maxWidth: 170, padding: '6px 9px', fontSize: 12.5, margin: '4px 0 8px' }}>
+              <option value="">All companies</option>
+              {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+            <select value={dept} onChange={e => setDept(e.target.value)} aria-label="Filter every tab by department"
+              title="Scopes every tab to this department's people" disabled={!deptOptions.length}
+              style={{ ...input, width: 'auto', maxWidth: 160, padding: '6px 9px', fontSize: 12.5, margin: '4px 0 8px', opacity: deptOptions.length ? 1 : 0.55 }}>
+              <option value="">{deptOptions.length ? 'All departments' : 'No departments'}</option>
+              {deptOptions.map(d => <option key={d} value={d}>{d}</option>)}
+            </select>
+          </>
+        )}
         <button onClick={() => setTour(true)} title="A guided walkthrough of how to give out access - nothing is changed while it runs."
           style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'none', border: '1px solid var(--line)', borderRadius: 999, padding: '6px 14px', margin: '4px 4px 8px 0', fontFamily: 'Inter,sans-serif', fontWeight: 700, fontSize: 12.5, cursor: 'pointer', color: 'var(--ink)', whiteSpace: 'nowrap' }}>
           <PlayCircle size={15} /> Simulate
@@ -230,7 +290,7 @@ export default function RolesAccess({ embedded = false }) {
 
       {/* ── PEOPLE (default) ── */}
       {sub === 'people' && (
-        <PeopleTab people={people} membership={membership} jobRoles={jobRoles} groups={groups}
+        <PeopleTab people={scopedPeople} membership={membership} jobRoles={jobRoles} groups={groups}
           person={person} setPerson={setPerson} nameOf={nameOf} photoOf={photoOf}
           onChanged={() => { loadRoles(); loadGroups(); }} toastOk={toastOk} toastErr={toastErr} />
       )}
@@ -249,19 +309,22 @@ export default function RolesAccess({ embedded = false }) {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
                     <span style={{ fontWeight: 800, fontSize: 14, flex: 1 }}>{r.name}</span>
                     <TierBadge tier={r.tier} />
-                    {(r.members || []).length ? (
-                      <span title={`${r.member_count} ${r.member_count === 1 ? 'person' : 'people'}: ${(r.members || []).map(nameOf).join(', ')}`}
-                        style={{ display: 'inline-flex', alignItems: 'center', flexShrink: 0 }}>
-                        {(r.members || []).slice(0, 5).map((em, i) => (
-                          <span key={em} style={{ marginLeft: i ? -7 : 0, display: 'inline-flex', borderRadius: '50%', border: '2px solid var(--card)' }}>
-                            <Avatar name={nameOf(em)} src={photoOf[em]} size={20} />
-                          </span>
-                        ))}
-                        {(r.members || []).length > 5 && <span style={{ marginLeft: 4, fontSize: 10.5, fontWeight: 700, color: 'var(--muted)' }}>+{(r.members || []).length - 5}</span>}
-                      </span>
-                    ) : (
-                      <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>0 people</span>
-                    )}
+                    {(() => {
+                      const mem = (r.members || []).filter(inFilter);
+                      return mem.length ? (
+                        <span title={`${mem.length} ${mem.length === 1 ? 'person' : 'people'}${filterOn ? ` in this filter (${r.member_count} total)` : ''}: ${mem.map(nameOf).join(', ')}`}
+                          style={{ display: 'inline-flex', alignItems: 'center', flexShrink: 0 }}>
+                          {mem.slice(0, 5).map((em, i) => (
+                            <span key={em} style={{ marginLeft: i ? -7 : 0, display: 'inline-flex', borderRadius: '50%', border: '2px solid var(--card)' }}>
+                              <Avatar name={nameOf(em)} src={photoOf[em]} size={20} />
+                            </span>
+                          ))}
+                          {mem.length > 5 && <span style={{ marginLeft: 4, fontSize: 10.5, fontWeight: 700, color: 'var(--muted)' }}>+{mem.length - 5}</span>}
+                        </span>
+                      ) : (
+                        <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>{filterOn && r.member_count ? 'none here' : '0 people'}</span>
+                      );
+                    })()}
                   </div>
                   <div style={{ marginTop: 7, fontSize: 12, lineHeight: 1.5, color: 'var(--muted)' }}>{bundleSummary(r.allowed_modules)}</div>
                 </button>
@@ -307,10 +370,12 @@ export default function RolesAccess({ embedded = false }) {
                   <div style={sectLabel}>Timesheet approver (default manager)</div>
                   <ApproverPicker role={selected} people={people} nameOf={nameOf}
                     onSaved={loadRoles} toastOk={toastOk} toastErr={toastErr} />
-                  <div style={sectLabel}>People with this role · {selected.member_count}</div>
-                  {(selected.members || []).length > 0 && (
+                  <div style={sectLabel}>People with this role · {filterOn
+                    ? `${(selected.members || []).filter(inFilter).length} of ${selected.member_count}`
+                    : selected.member_count}</div>
+                  {(selected.members || []).filter(inFilter).length > 0 && (
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
-                      {selected.members.map(em => (
+                      {selected.members.filter(inFilter).map(em => (
                         <span key={em} style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '4px 6px 4px 5px', borderRadius: 20, background: 'var(--paper)', border: '1px solid var(--line)', fontSize: 12.5, fontWeight: 600 }}>
                           <Avatar name={nameOf(em)} src={photoOf[em]} size={22} />
                           {nameOf(em)}
@@ -354,14 +419,14 @@ export default function RolesAccess({ embedded = false }) {
                     <button className="secondary-btn" style={{ padding: '5px 9px' }} onClick={() => onDeleteGroup(g)} title="Delete group"><Trash2 size={13} /></button>
                   </div>
                   <div style={{ marginTop: 7, fontSize: 12, lineHeight: 1.5, color: 'var(--muted)' }}>{bundleSummary(g.allowed_modules)}</div>
-                  {(g.members || []).length > 0 && (
+                  {(g.members || []).filter(inFilter).length > 0 && (
                     <div style={{ marginTop: 9, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                      {(g.members || []).slice(0, 6).map(em => (
+                      {(g.members || []).filter(inFilter).slice(0, 6).map(em => (
                         <span key={em} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 10px 3px 4px', borderRadius: 20, background: 'var(--paper)', border: '1px solid var(--line)', fontSize: 11.5, fontWeight: 600 }}>
                           <Avatar name={nameOf(em)} src={photoOf[em]} size={18} />{nameOf(em)}
                         </span>
                       ))}
-                      {(g.members || []).length > 6 && <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>+{(g.members || []).length - 6} more</span>}
+                      {(g.members || []).filter(inFilter).length > 6 && <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>+{(g.members || []).filter(inFilter).length - 6} more</span>}
                     </div>
                   )}
                 </div>
@@ -408,43 +473,10 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
     if (person && panelRef.current) panelRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, [person]);
 
-  // Companies present in the directory - the filter only offers real choices.
-  const companies = useMemo(() => {
-    const seen = new Map();
-    const uuidish = /^[0-9a-f]{8}-[0-9a-f]{4}-/i;
-    people.forEach(p => {
-      if (!p.company || seen.has(p.company)) return;
-      // An id whose entity no longer exists would render as a raw UUID - leave
-      // it out; those people stay reachable under "All companies". A plain
-      // legacy name in the company field still shows as itself.
-      const label = p.companyName || (uuidish.test(p.company) ? '' : p.company);
-      if (label) seen.set(p.company, label);
-    });
-    return [...seen.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
-  }, [people]);
-
-  // Departments cascade from the company: pick a company and only ITS
-  // departments appear (a company without Estimating never shows Estimating).
-  const deptOptions = useMemo(() => {
-    const seen = new Map();
-    people.forEach(p => {
-      if (!p.dept) return;
-      if (co && p.company !== co) return;
-      const k = p.dept.trim().toLowerCase();
-      if (k && !seen.has(k)) seen.set(k, p.dept.trim());
-    });
-    return [...seen.values()].sort((a, b) => a.localeCompare(b));
-  }, [people, co]);
-
-  // A department picked under one company may not exist under the next.
-  useEffect(() => {
-    if (dept && !deptOptions.some(d => d.toLowerCase() === dept.toLowerCase())) setDept('');
-  }, [deptOptions, dept]);
-
+  // Company/department scoping happens upstream (the universal selector in the
+  // tab strip hands this tab already-scoped people); only search lives here.
   const filtered = useMemo(() => people.filter(p =>
-    (!co || p.company === co)
-    && (!dept || p.dept.trim().toLowerCase() === dept.toLowerCase())
-    && (!q.trim() || p.name.toLowerCase().includes(q.toLowerCase()) || p.email.includes(q.toLowerCase()))), [people, q, co, dept]);
+    !q.trim() || p.name.toLowerCase().includes(q.toLowerCase()) || p.email.includes(q.toLowerCase())), [people, q]);
 
   useEffect(() => {
     if (!person) { setEff(null); return; }
@@ -485,21 +517,6 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
     <div className="ra-people" style={{ display: 'grid', gridTemplateColumns: '360px 1fr', gap: 18 }}>
       {/* left: search + people list */}
       <div style={{ alignSelf: 'start' }}>
-        {companies.length > 0 && (
-          <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-            <select value={co} onChange={e => setCo(e.target.value)} aria-label="Filter by company"
-              style={{ ...input, flex: 1, minWidth: 0, padding: '7px 9px', fontSize: 12.5 }}>
-              <option value="">All companies</option>
-              {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-            <select value={dept} onChange={e => setDept(e.target.value)} aria-label="Filter by department"
-              disabled={!deptOptions.length}
-              style={{ ...input, flex: 1, minWidth: 0, padding: '7px 9px', fontSize: 12.5, opacity: deptOptions.length ? 1 : 0.55 }}>
-              <option value="">{deptOptions.length ? 'All departments' : 'No departments'}</option>
-              {deptOptions.map(d => <option key={d} value={d}>{d}</option>)}
-            </select>
-          </div>
-        )}
         <div data-tour="people-search" style={{ position: 'relative', marginBottom: 12 }}>
           <Search size={15} style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
           <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search anyone…" style={{ ...input, paddingLeft: 34 }} />
