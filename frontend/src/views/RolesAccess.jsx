@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Shield, Plus, X, Search, Loader2, Pencil, Trash2, UserPlus, Check, ChevronRight, ChevronDown,
-  LayoutGrid, Copy, MonitorOff, PlayCircle, Users, User,
+  LayoutGrid, Copy, MonitorOff, PlayCircle, Users, User, TrendingUp,
 } from 'lucide-react';
 import { api } from '../api';
 import { useRole, MODULES, MODULE_LEVELS, ROLES } from '../contexts/RoleContext';
@@ -445,7 +445,7 @@ export default function RolesAccess({ embedded = false }) {
         <AuditMatrix jobRoles={jobRoles} groups={groups} />
       )}
 
-      {editing !== undefined && <RoleEditor role={editing} onClose={() => setEditing(undefined)}
+      {editing !== undefined && <RoleEditor role={editing} jobRoles={jobRoles} onClose={() => setEditing(undefined)}
         onSaved={r => {
           setEditing(undefined); toastOk(`Saved “${r.name}”.`); setSelId(r.id);
           // Merge the server's response into local state IMMEDIATELY. The refetch
@@ -455,7 +455,7 @@ export default function RolesAccess({ embedded = false }) {
           setJobRoles(prev => { const arr = prev || []; return arr.some(x => x.id === r.id) ? arr.map(x => x.id === r.id ? r : x) : [...arr, r]; });
           loadRoles();
         }} onErr={toastErr} />}
-      {editGroup !== undefined && <GroupEditor group={editGroup} onClose={() => setEditGroup(undefined)}
+      {editGroup !== undefined && <GroupEditor group={editGroup} jobRoles={jobRoles} onClose={() => setEditGroup(undefined)}
         onSaved={g => {
           setEditGroup(undefined); toastOk(`Saved “${g.name}”.`);
           setGroups(prev => { const arr = prev || []; return arr.some(x => x.id === g.id) ? arr.map(x => x.id === g.id ? g : x) : [...arr, g]; });
@@ -480,6 +480,8 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
   const [dept, setDept] = useState('');   // department (name) filter
   const [eff, setEff] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [promoteOpen, setPromoteOpen] = useState(false);
+  useEffect(() => { setPromoteOpen(false); }, [person]);
 
   // Same courtesy as the role panel: picking a person deep in the list brings
   // their panel (role picker, groups) into view instead of leaving it above.
@@ -589,7 +591,18 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
                 <option value="">{eff.job_role ? 'Change role…' : 'Assign a role…'}</option>
                 {(jobRoles || []).filter(r => r.id !== eff.job_role?.id).map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
               </select>
+              <button className="secondary-btn" onClick={() => setPromoteOpen(true)} disabled={!(jobRoles || []).length}
+                title="Pick the new role and see exactly what changes before committing"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', fontSize: 12.5 }}>
+                <TrendingUp size={13} /> Promote…
+              </button>
             </div>
+            {promoteOpen && (
+              <PromoteModal person={person} eff={eff} nameOf={nameOf}
+                jobRoles={(jobRoles || []).filter(r => r.id !== eff.job_role?.id)}
+                onClose={() => setPromoteOpen(false)} onErr={toastErr}
+                onDone={r => { setPromoteOpen(false); toastOk(`${nameOf(person)} is now “${r.name}”.`); refresh(); }} />
+            )}
 
             <div style={sectLabel}>Extra groups - added on top</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -806,8 +819,9 @@ function ApproverPicker({ role, people, nameOf, onSaved, toastOk, toastErr }) {
 // screen at that level (no separate checkbox step), clicking the active pill
 // removes it. Bulk actions cover "everything except two screens" in four
 // clicks: Check All -> set all checked to Full -> click off the two.
-function BundleEditor({ bundle, setBundle }) {
+function BundleEditor({ bundle, setBundle, inheritSources = [] }) {
   const [bulk, setBulk] = useState('');
+  const [inheritFrom, setInheritFrom] = useState('');
   const grant = (id, level) => setBundle(b => {
     const n = { ...b };
     if (n[id] === level) delete n[id]; else n[id] = level;
@@ -821,6 +835,19 @@ function BundleEditor({ bundle, setBundle }) {
           onClick={() => setBundle(b => Object.fromEntries(GRANTABLE.map(m => [m.id, b[m.id] || 'viewer'])))}>Check All</button>
         <button type="button" className="secondary-btn" style={{ padding: '5px 10px', fontSize: 12 }}
           onClick={() => setBundle({})}>Clear All</button>
+        {inheritSources.length > 0 && (
+          <select value={inheritFrom} aria-label="Inherit this bundle from an existing role"
+            title="Start from another role's bundle, then tweak - replaces the current selection"
+            onChange={e => {
+              const src = inheritSources.find(r => r.id === e.target.value);
+              setInheritFrom('');
+              if (src) setBundle(Object.fromEntries((src.allowed_modules || []).map(g => [g.id, g.level])));
+            }}
+            style={{ ...input, width: 'auto', padding: '5px 8px', fontSize: 12 }}>
+            <option value="">Inherit from role…</option>
+            {inheritSources.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+          </select>
+        )}
         <span style={{ flex: 1 }} />
         <select value={bulk} onChange={e => { const l = e.target.value; setBulk(''); if (l) setBundle(b => Object.fromEntries(Object.keys(b).map(id => [id, l]))); }}
           disabled={!checkedCount} aria-label="Set every checked screen to one level"
@@ -833,7 +860,13 @@ function BundleEditor({ bundle, setBundle }) {
         {GRANTABLE.map(m => {
           const on = bundle[m.id];
           return (
-            <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderBottom: '1px solid var(--line)' }}>
+            <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderBottom: '1px solid var(--line)',
+              background: on ? 'color-mix(in srgb, var(--ink) 5%, transparent)' : 'transparent' }}>
+              <span aria-hidden style={{ width: 18, height: 18, borderRadius: 5, flexShrink: 0, display: 'grid', placeItems: 'center',
+                background: on ? 'var(--ink)' : 'transparent', color: 'var(--card)',
+                border: on ? 'none' : '1.5px solid var(--line-strong,var(--line))' }}>
+                {on && <Check size={12} />}
+              </span>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 13, fontWeight: on ? 700 : 500, color: on ? 'var(--ink)' : 'var(--muted)' }}>{m.label}</div>
                 {on && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2, lineHeight: 1.35 }}>{capabilityText(m.id, on, m.label)}</div>}
@@ -864,8 +897,93 @@ function BundleEditor({ bundle, setBundle }) {
   );
 }
 
+// ── promotion flow ───────────────────────────────────────────────────────────
+// Mechanically a promotion IS a role switch - this modal adds what the dropdown
+// can't: tier before/after and every screen gained, raised or lost, so whoever
+// promotes can see exactly what changes before committing. Title, tier and the
+// default approver all follow the new role via the existing assign endpoint.
+function PromoteModal({ person, eff, jobRoles, nameOf, onClose, onDone, onErr }) {
+  const [toId, setToId] = useState('');
+  const [busy, setBusy] = useState(false);
+  const cur = eff?.job_role || null;
+  const target = (jobRoles || []).find(r => r.id === toId) || null;
+  const diff = useMemo(() => {
+    if (!target) return null;
+    const a = Object.fromEntries((cur?.allowed_modules || []).map(g => [g.id, g.level]));
+    const b = Object.fromEntries((target.allowed_modules || []).map(g => [g.id, g.level]));
+    const rank = l => MODULE_LEVELS[l]?.rank || 0;
+    const gained = [], raised = [], lowered = [], lost = [];
+    Object.keys(b).forEach(id => {
+      if (!a[id]) gained.push({ id, to: b[id] });
+      else if (rank(b[id]) > rank(a[id])) raised.push({ id, from: a[id], to: b[id] });
+      else if (rank(b[id]) < rank(a[id])) lowered.push({ id, from: a[id], to: b[id] });
+    });
+    Object.keys(a).forEach(id => { if (!b[id]) lost.push({ id, from: a[id] }); });
+    return { gained, raised, lowered, lost };
+  }, [cur, target]);
+
+  async function promote() {
+    if (!target || busy) return;
+    setBusy(true);
+    try { await api.assignJobRole(target.id, person); onDone(target); }
+    catch (e) { onErr(e?.message || 'Could not change the role.'); setBusy(false); }
+  }
+
+  const chipRow = (label, items, render) => items.length > 0 && (
+    <div style={{ marginTop: 10 }}>
+      <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.07em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 6 }}>{label}</div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>{items.map(render)}</div>
+    </div>
+  );
+  const pill = (key, text, kind) => (
+    <span key={key} style={{ padding: '4px 11px', borderRadius: 999, fontSize: 12, fontWeight: 600,
+      background: kind === 'plus' ? 'var(--ink)' : 'var(--paper)',
+      color: kind === 'plus' ? 'var(--card)' : kind === 'minus' ? 'var(--muted)' : 'var(--ink)',
+      border: '1px solid var(--line)', textDecoration: kind === 'minus' ? 'line-through' : 'none' }}>{text}</span>
+  );
+
+  return (
+    <Modal onClose={onClose} title={`Promote ${nameOf(person)}`}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 13, fontWeight: 600 }}>{cur ? cur.name : 'No role yet'}</span>
+          {cur && <TierBadge tier={cur.tier} />}
+          <ChevronRight size={15} style={{ color: 'var(--muted)' }} />
+          <select value={toId} onChange={e => setToId(e.target.value)} autoFocus
+            style={{ ...input, width: 'auto', minWidth: 200, padding: '7px 10px', fontSize: 13 }}>
+            <option value="">Promote to…</option>
+            {(jobRoles || []).map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+          </select>
+          {target && <TierBadge tier={target.tier} />}
+        </div>
+        {target && diff && (
+          <div style={{ border: '1px solid var(--line)', borderRadius: 10, padding: '4px 14px 14px', maxHeight: 300, overflow: 'auto' }}>
+            {chipRow('Gains', diff.gained, x => pill(x.id, `${moduleLabel(x.id)} · ${MODULE_LEVELS[x.to]?.label}`, 'plus'))}
+            {chipRow('Level goes up', diff.raised, x => pill(x.id, `${moduleLabel(x.id)} · ${MODULE_LEVELS[x.from]?.label} → ${MODULE_LEVELS[x.to]?.label}`, 'plus'))}
+            {chipRow('Level goes down', diff.lowered, x => pill(x.id, `${moduleLabel(x.id)} · ${MODULE_LEVELS[x.from]?.label} → ${MODULE_LEVELS[x.to]?.label}`))}
+            {chipRow('Loses', diff.lost, x => pill(x.id, moduleLabel(x.id), 'minus'))}
+            {!diff.gained.length && !diff.raised.length && !diff.lowered.length && !diff.lost.length && (
+              <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 10 }}>Same screens and levels - only the title{cur && target.tier !== cur.tier ? ' and tier' : ''} change.</div>
+            )}
+          </div>
+        )}
+        <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.5 }}>
+          Their job title, seniority tier and baseline access follow the new role. Extra groups stay. If the new role has a default approver and they have no manager, they inherit it.
+        </div>
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 18 }}>
+        <button className="secondary-btn" onClick={onClose}>Cancel</button>
+        <button className="primary-btn" disabled={!target || busy} onClick={promote}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 7, opacity: (!target || busy) ? 0.6 : 1 }}>
+          {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <TrendingUp size={14} />} Promote
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
 // ── editor modal ─────────────────────────────────────────────────────────────
-function RoleEditor({ role, onClose, onSaved, onErr }) {
+function RoleEditor({ role, jobRoles = [], onClose, onSaved, onErr }) {
   const [name, setName] = useState(role?.name || '');
   const [tier, setTier] = useState(role?.tier || 'employee');
   const [desc, setDesc] = useState(role?.description || '');
@@ -899,7 +1017,7 @@ function RoleEditor({ role, onClose, onSaved, onErr }) {
           <textarea value={desc} onChange={e => setDesc(e.target.value)} rows={2} placeholder="Plain-language: what this role does" style={{ ...input, resize: 'vertical' }} /></label>
         <div>
           <div style={{ ...sectLabel, marginTop: 4 }}>Module bundle</div>
-          <BundleEditor bundle={bundle} setBundle={setBundle} />
+          <BundleEditor bundle={bundle} setBundle={setBundle} inheritSources={(jobRoles || []).filter(r => r.id !== role?.id)} />
         </div>
         <div style={{ ...sectLabel, marginTop: 4 }}>Time-clock monitoring</div>
         <button type="button" onClick={() => setMonExempt(v => !v)}
@@ -926,7 +1044,7 @@ function RoleEditor({ role, onClose, onSaved, onErr }) {
 }
 
 // ── group editor (additive groups: name + module bundle, no tier) ─────────────
-function GroupEditor({ group, onClose, onSaved, onErr }) {
+function GroupEditor({ group, jobRoles = [], onClose, onSaved, onErr }) {
   const [name, setName] = useState(group?.name || '');
   const [bundle, setBundle] = useState(() => Object.fromEntries((group?.allowed_modules || []).map(g => [g.id, g.level])));
   const [busy, setBusy] = useState(false);
@@ -948,7 +1066,7 @@ function GroupEditor({ group, onClose, onSaved, onErr }) {
           <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Accounting - Viewer" style={input} /></label>
         <div>
           <div style={{ ...sectLabel, marginTop: 4 }}>Modules this group grants</div>
-          <BundleEditor bundle={bundle} setBundle={setBundle} />
+          <BundleEditor bundle={bundle} setBundle={setBundle} inheritSources={jobRoles || []} />
         </div>
       </div>
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 18 }}>
