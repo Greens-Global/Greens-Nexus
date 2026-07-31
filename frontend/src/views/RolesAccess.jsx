@@ -443,9 +443,21 @@ export default function RolesAccess({ embedded = false }) {
       )}
 
       {editing !== undefined && <RoleEditor role={editing} onClose={() => setEditing(undefined)}
-        onSaved={r => { setEditing(undefined); toastOk(`Saved “${r.name}”.`); setSelId(r.id); loadRoles(); }} onErr={toastErr} />}
+        onSaved={r => {
+          setEditing(undefined); toastOk(`Saved “${r.name}”.`); setSelId(r.id);
+          // Merge the server's response into local state IMMEDIATELY. The refetch
+          // takes seconds on a slow link; reopening the editor before it landed
+          // showed pre-save data (and re-saving that stale modal wrote the old
+          // values back) - which read as "my changes are gone".
+          setJobRoles(prev => { const arr = prev || []; return arr.some(x => x.id === r.id) ? arr.map(x => x.id === r.id ? r : x) : [...arr, r]; });
+          loadRoles();
+        }} onErr={toastErr} />}
       {editGroup !== undefined && <GroupEditor group={editGroup} onClose={() => setEditGroup(undefined)}
-        onSaved={g => { setEditGroup(undefined); toastOk(`Saved “${g.name}”.`); loadGroups(); }} onErr={toastErr} />}
+        onSaved={g => {
+          setEditGroup(undefined); toastOk(`Saved “${g.name}”.`);
+          setGroups(prev => { const arr = prev || []; return arr.some(x => x.id === g.id) ? arr.map(x => x.id === g.id ? g : x) : [...arr, g]; });
+          loadGroups();
+        }} onErr={toastErr} />}
       {assignFor && <AssignModal role={assignFor} onClose={() => setAssignFor(null)}
         onAssigned={n => { toastOk(`Assigned ${n} to “${assignFor.name}”.`); loadRoles(); }} onErr={toastErr} />}
       {tour && <GuidedTour steps={tourSteps} onClose={() => setTour(false)} />}
