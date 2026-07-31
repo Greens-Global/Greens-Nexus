@@ -121,7 +121,7 @@ function iconFor(kind) {
   if (kind === 'doc') return <FileText size={18} style={{ color: NX.blue }} />;
   return <File size={18} style={{ color: NX.dim }} />;
 }
-export function FilesView({ tasks, onOpen }) {
+export function FilesView({ tasks, onOpen, nameOf }) {
   const [rows, setRows] = useState(null);
   const [query, setQuery] = useState('');
   useEffect(() => {
@@ -161,10 +161,10 @@ export function FilesView({ tasks, onOpen }) {
                   </div>
                   <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13, fontWeight: 600, color: NX.ink }} title={a.name}>{a.name}</div>
                   <div style={{ fontSize: 11, color: NX.faint }}>{a.size}{a.addedAt ? ` · ${fmtDate(a.addedAt)}` : ''}</div>
-                  <button onClick={() => onOpen(t.id)} style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2, border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 12, color: NX.dim, padding: 0 }}>
-                    <span style={{ background: NX.surface2, borderRadius: 4, padding: '1px 6px', fontSize: 10, fontWeight: 700 }}>{t.code}</span>
-                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title}</span>
+                  <button onClick={() => onOpen(t.id)} title={t.title} style={{ display: 'block', width: '100%', textAlign: 'left', marginTop: 2, border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 12, color: NX.blue, padding: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {t.title}
                   </button>
+                  {a.addedBy && <div style={{ fontSize: 11, color: NX.faint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nameOf?.(a.addedBy) || a.addedBy}</div>}
                 </div>
               ))}
             </div>

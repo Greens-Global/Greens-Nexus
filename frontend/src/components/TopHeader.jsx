@@ -67,11 +67,18 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
   // either problem, and does not distort layout measurements.
   // Any `zoom` left on <html> by the old control is cleared once on mount so a
   // persisted 120% does not survive this change.
+  //
+  // (This session had independently patched ZOOM_BASE/DEFAULT_ZOOM to fix the
+  // same 110%-isn't-really-100% problem, plus a matching set of popover-
+  // positioning fixes elsewhere that account for a non-1 <html> zoom - see
+  // rootZoom() in lib/utils.js. Superseded by this outright removal: since
+  // <html> zoom is now always 1, rootZoom() always returns 1 and those fixes
+  // reduce to their original behavior - inert, not wrong, left in place rather
+  // than ripped out mid-merge.)
   useEffect(() => {
     document.documentElement.style.removeProperty('zoom');
     try { localStorage.removeItem('gg-zoom'); } catch { /* private mode */ }
   }, []);
-
 
   // Restricted view IDs that need at minimum supervisor role
   const RESTRICTED_MIN_SUPERVISOR = new Set([

@@ -91,6 +91,7 @@ def attachment_to_dict(a: models.TaskAttachment) -> dict:
         "id": a.id, "taskId": a.task_id, "name": a.name, "size": a.size or "",
         "kind": a.kind or "other", "dataUrl": _nz(a.url), "url": _nz(a.url),
         "addedAt": a.added_at or "", "addedBy": _nz(a.added_by),
+        "commentId": _nz(a.comment_id),
     }
 
 
@@ -109,7 +110,8 @@ def section_to_dict(s: models.TaskSection) -> dict:
 
 
 def custom_status_to_dict(s: models.TaskCustomStatus) -> dict:
-    return {"id": s.id, "label": s.label, "color": s.color or "", "position": s.position or 0}
+    return {"id": s.id, "label": s.label, "color": s.color or "", "position": s.position or 0,
+            "projectIds": [p for p in (s.project_ids or []) if p]}
 
 
 # ── Task CRUD ────────────────────────────────────────────────────────────────
@@ -780,6 +782,7 @@ class AttachmentCreate(BaseModel):
     size: Optional[str] = ""
     kind: Optional[str] = "other"
     url: Optional[str] = ""
+    comment_id: Optional[str] = ""   # set only when attached while composing a comment
 
 
 @router.get("/{task_id}/attachments")
@@ -795,7 +798,8 @@ def add_attachment(task_id: str, body: AttachmentCreate, user: dict = Depends(ge
     aid = gen_id()
     a = models.TaskAttachment(id=aid, task_id=task_id, name=body.name, size=body.size or "",
                               kind=body.kind or "other", url=body.url or "",
-                              added_at=now_iso(), added_by=user["email"])
+                              added_at=now_iso(), added_by=user["email"],
+                              comment_id=body.comment_id or "")
     db.add(a)
     t.attachment_ids = list(t.attachment_ids or []) + [aid]
     act = log_activity(db, type="attached", actor_email=user["email"], entity_id=task_id,
@@ -887,21 +891,47 @@ def delete_section(section_id: str, db: Session = Depends(get_db)):
 
 class CustomStatusBody(BaseModel):
     id: Optional[str] = None
-    label: str
+    label: Optional[str] = None
     color: Optional[str] = ""
     position: Optional[int] = 0
+    project_ids: Optional[list] = None
 
 
 @router.get("/meta/custom-statuses")
-def list_custom_statuses(db: Session = Depends(get_db)):
-    return [custom_status_to_dict(s) for s in db.query(models.TaskCustomStatus).all()]
+def list_custom_statuses(project_id: str = "", db: Session = Depends(get_db)):
+    """`project_id` narrows to the statuses that project actually uses (its own
+    plus any global one). Omitted returns every status, which is what Manage
+    needs - the board passes it so a stage invented for one project stops
+    appearing as a column on every other."""
+    rows = db.query(models.TaskCustomStatus).all()
+    if project_id:
+        rows = [s for s in rows
+                if not [p for p in (s.project_ids or []) if p]
+                or project_id in (s.project_ids or [])]
+    return [custom_status_to_dict(s) for s in rows]
 
 
 @router.post("/meta/custom-statuses", status_code=201, dependencies=[Depends(require_manager)])
 def create_custom_status(body: CustomStatusBody, db: Session = Depends(get_db)):
-    s = models.TaskCustomStatus(id=body.id or gen_id(), label=body.label,
-                                color=body.color or "", position=body.position or 0)
+    s = models.TaskCustomStatus(id=body.id or gen_id(), label=body.label or "",
+                                color=body.color or "", position=body.position or 0,
+                                project_ids=[p for p in (body.project_ids or []) if p])
     db.add(s)
+    db.commit()
+    db.refresh(s)
+    return custom_status_to_dict(s)
+
+
+@router.patch("/meta/custom-statuses/{status_id}", dependencies=[Depends(require_manager)])
+def update_custom_status(status_id: str, body: CustomStatusBody, db: Session = Depends(get_db)):
+    s = db.query(models.TaskCustomStatus).filter(models.TaskCustomStatus.id == status_id).first()
+    if not s:
+        raise HTTPException(404, "Custom status not found")
+    data = body.model_dump(exclude_unset=True, exclude={"id"})
+    if "project_ids" in data:
+        data["project_ids"] = [p for p in (data["project_ids"] or []) if p]
+    for k, v in data.items():
+        setattr(s, k, v)
     db.commit()
     db.refresh(s)
     return custom_status_to_dict(s)

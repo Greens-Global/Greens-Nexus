@@ -122,8 +122,13 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
   // Only the fields that apply to the chosen project - a field scoped to
   // another project must not appear, let alone be required here.
   const activeFields = fieldsForProject(customFields, lockedProjectId || form.projectId);
+  // A read-only field is calculated in Asana and can never be filled in here,
+  // so requiring one would make the form unsubmittable. List-shaped values
+  // (multiselect/people) are empty as [], which is not '' - checking only for ''
+  // let a required one through empty.
+  const isBlank = (v) => v == null || v === '' || (Array.isArray(v) && v.length === 0);
   const missingFields = isEdit ? [] : activeFields.filter(
-    (f) => f.required && (form.customFieldValues[f.id] ?? '') === '');
+    (f) => f.required && !f.readOnly && isBlank(form.customFieldValues[f.id]));
   const canSubmit = missing.length === 0 && missingFields.length === 0 && !busy;
   const req = <span style={{ color: NX.red }}>*</span>;
   const missStyle = (key) => (missing.includes(key) ? { borderColor: NX.red } : null);

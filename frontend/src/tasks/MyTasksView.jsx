@@ -42,9 +42,13 @@ const dueColor = (iso, completed) => {
 
 function CollaboratorPicker({ value = [], people, onChange, anchor }) {
   const [open, setOpen] = useState(false);
+  const [q, setQ] = useState('');
   const ref = useRef(null);
   useClickOutside(ref, () => setOpen(false), open);
   const toggle = (email) => onChange(value.includes(email) ? value.filter((e) => e !== email) : [...value, email]);
+  const filtered = q.trim()
+    ? people.filter((u) => `${u.name} ${u.email}`.toLowerCase().includes(q.trim().toLowerCase()))
+    : people;
   return (
     <div ref={ref} style={{ position: 'relative' }}>
       <button onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }} style={{ ...btn('ghost'), padding: '2px 6px' }}>
@@ -53,13 +57,17 @@ function CollaboratorPicker({ value = [], people, onChange, anchor }) {
         ) : <span style={{ color: NX.faint }}>{anchor || '-'}</span>}
       </button>
       {open && (
-        <div onClick={(e) => e.stopPropagation()} style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, width: 208, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', zIndex: 50, maxHeight: 240, overflowY: 'auto', padding: 4 }}>
-          {people.map((u) => (
-            <label key={u.email} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', fontSize: 13, cursor: 'pointer' }}>
-              <input type="checkbox" checked={value.includes(u.email)} onChange={() => toggle(u.email)} /> {u.name}
-            </label>
-          ))}
-          {people.length === 0 && <div style={{ padding: 8, fontSize: 12, color: NX.faint }}>No people</div>}
+        <div onClick={(e) => e.stopPropagation()} style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, width: 208, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', zIndex: 50 }}>
+          <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people…"
+            style={{ width: '100%', boxSizing: 'border-box', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '6px 8px', fontSize: 13, outline: 'none', fontFamily: FONT, background: 'transparent', color: NX.ink }} />
+          <div style={{ maxHeight: 200, overflowY: 'auto', padding: 4 }}>
+            {filtered.map((u) => (
+              <label key={u.email} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', fontSize: 13, cursor: 'pointer' }}>
+                <input type="checkbox" checked={value.includes(u.email)} onChange={() => toggle(u.email)} /> {u.name}
+              </label>
+            ))}
+            {filtered.length === 0 && <div style={{ padding: 8, fontSize: 12, color: NX.faint }}>{people.length === 0 ? 'No people' : 'No match'}</div>}
+          </div>
         </div>
       )}
     </div>
@@ -273,7 +281,7 @@ export default function MyTasksView() {
         ) : view === 'calendar' ? (
           <CalendarView tasks={mine} onOpen={setOpenId} onCreate={(iso) => openCreate({ assigneeId: myEmail, dueOn: iso })} />
         ) : view === 'files' ? (
-          <FilesView tasks={allMine} onOpen={setOpenId} />
+          <FilesView tasks={allMine} onOpen={setOpenId} nameOf={nameOf} />
         ) : view === 'dashboard' ? (
           <DashboardView tasks={allMine} stats={{}} store={store} scopeKey="my-tasks" />
         ) : (

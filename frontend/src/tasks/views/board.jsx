@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { NX, FONT, btn, input as inputStyle, STATUS_META, STATUS_ORDER, PRIORITY_META } from '../theme';
 import { cfKey, cfFieldId, taskFieldValue, fieldsForProject } from '../lib';
+import { statusesForProject } from '../TasksContext';
 import { Avatar, PriorityChip, useClickOutside } from '../components';
 import { fmtDate } from '../lib';
 
@@ -61,8 +62,16 @@ export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId
     return next;
   });
 
-  const customStatusIds = useMemo(() => new Set(store.customStatuses.map((s) => s.id)), [store.customStatuses]);
-  const statuses = useMemo(() => [...STATUS_ORDER, ...store.customStatuses.map((s) => s.id)], [store.customStatuses]);
+  // Columns are the statuses THIS project uses (its own plus any global one) -
+  // an unscoped list put a status invented for one project on every board.
+  // statusMeta below still reads the full list, so a task carrying an
+  // out-of-scope status renders its real label instead of a raw id.
+  const projectStatuses = useMemo(
+    () => statusesForProject(store.customStatuses, lockedProjectId),
+    [store.customStatuses, lockedProjectId],
+  );
+  const customStatusIds = useMemo(() => new Set(projectStatuses.map((s) => s.id)), [projectStatuses]);
+  const statuses = useMemo(() => [...STATUS_ORDER, ...projectStatuses.map((s) => s.id)], [projectStatuses]);
   const statusMeta = (key) => STATUS_META[key]
     || (() => { const c = store.customStatuses.find((s) => s.id === key); return c ? { label: c.label, color: c.color, tint: `${c.color}1a` } : { label: key, color: NX.dim, tint: NX.border2 }; })();
 

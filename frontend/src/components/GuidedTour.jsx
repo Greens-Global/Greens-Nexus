@@ -1,5 +1,6 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import { X, ArrowLeft, ArrowRight, Check } from 'lucide-react';
+import { rootZoom } from '../lib/utils';
 
 // ── GuidedTour - spotlight walkthrough ("Simulate" mode) ─────────────────────
 // Highlights one element at a time (found via [data-tour="<target>"]), explains
@@ -27,8 +28,12 @@ export default function GuidedTour({ steps, onClose }) {
       return;
     }
     el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    // Normalize into the INNER coordinate space at measurement time, so the
+    // spotlight ring and popover below - both plain CSS lengths - line up with
+    // the element they're highlighting under <html>'s CSS zoom. See rootZoom.
+    const z = rootZoom();
     const r = el.getBoundingClientRect();
-    setRect({ top: r.top, left: r.left, width: r.width, height: r.height });
+    setRect({ top: r.top / z, left: r.left / z, width: r.width / z, height: r.height / z });
   }, [step]);
 
   useLayoutEffect(() => {
@@ -61,12 +66,15 @@ export default function GuidedTour({ steps, onClose }) {
   // popover position: below the spotlight when there's room, else above, else centered
   let pop;
   if (rect) {
+    // rect is already in the inner space, so the viewport bounds must be too.
+    const z = rootZoom();
+    const vw = window.innerWidth / z, vh = window.innerHeight / z;
     const below = rect.top + rect.height + 12;
-    const fitsBelow = below + 210 < window.innerHeight;
+    const fitsBelow = below + 210 < vh;
     pop = {
       position: 'fixed',
       top: fitsBelow ? below : Math.max(12, rect.top - 12 - 210),
-      left: Math.min(Math.max(12, rect.left), Math.max(12, window.innerWidth - 344)),
+      left: Math.min(Math.max(12, rect.left), Math.max(12, vw - 344)),
     };
   } else {
     pop = { position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)' };

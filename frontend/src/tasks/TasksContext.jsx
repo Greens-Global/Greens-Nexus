@@ -28,6 +28,15 @@ function buildStatusOrder(customStatuses) {
   const custom = [...(customStatuses || [])].sort((a, b) => (a.position || 0) - (b.position || 0));
   return [...STATUS_ORDER, ...custom.map((c) => c.id)];
 }
+// Statuses a project actually uses: its own plus any global one, same convention
+// as fieldsForProject. Only the ORDER is scoped, never statusMeta - a task
+// carries its status id wherever it's rendered (search results, My Tasks, a
+// portfolio rollup), and a meta lookup that missed would draw a raw uuid.
+export const statusesForProject = (customStatuses, projectId) =>
+  (customStatuses || []).filter((s) => {
+    const ids = (s.projectIds || []).filter(Boolean);
+    return ids.length === 0 || (projectId ? ids.includes(projectId) : false);
+  });
 
 // camelCase (frontend) → snake_case (API body). The backend serialises replies
 // back to camelCase, so we only map on the way out.
@@ -308,6 +317,7 @@ export function TasksProvider({ children }) {
     createCustomField: mk(api.createTaskCustomField, setCustomFields),
     deleteCustomField: mkDel(api.deleteTaskCustomField, setCustomFields),
     createCustomStatus: mk(api.createTaskCustomStatus, setCustomStatuses),
+    updateCustomStatus: mkUpd(api.updateTaskCustomStatus, setCustomStatuses),
     deleteCustomStatus: mkDel(api.deleteTaskCustomStatus, setCustomStatuses),
     raiseMemberRequest: mk(api.createTaskMemberRequest, setMemberRequests),
     decideMemberRequest: async (id, status) => {
@@ -338,11 +348,17 @@ export function TasksProvider({ children }) {
   // statuses change - the single source every status surface should read from.
   const statusMeta = useMemo(() => buildStatusMeta(customStatuses), [customStatuses]);
   const statusOrder = useMemo(() => buildStatusOrder(customStatuses), [customStatuses]);
+  // The board columns / grouping order for one project. Without this a status
+  // invented for one project became a column on every board in the workspace.
+  const statusOrderFor = useCallback(
+    (projectId) => buildStatusOrder(statusesForProject(customStatuses, projectId)),
+    [customStatuses],
+  );
 
   const value = {
     loading, myEmail, nameOf,
     tasks, projects, portfolios, teams, tickets, ticketComponents, savedViews, ticketViews, rules, templates,
-    customFields, customStatuses, statusMeta, statusOrder, notifications, memberRequests, intakeForms, changelog,
+    customFields, customStatuses, statusMeta, statusOrder, statusOrderFor, notifications, memberRequests, intakeForms, changelog,
     taskById, projectById, portfolioById, teamById, projectName, teamName,
     getComments, addComment, commentCache: commentCache.current,
     createTask, updateTask, deleteTask, bulkUpdate, toggleComplete, setStatus,
