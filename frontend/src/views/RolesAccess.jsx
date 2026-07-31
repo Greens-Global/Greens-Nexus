@@ -801,6 +801,69 @@ function ApproverPicker({ role, people, nameOf, onSaved, toastOk, toastErr }) {
   );
 }
 
+// ── bundle editor (shared by RoleEditor + GroupEditor) ───────────────────────
+// One-click granting: each row is four level pills - clicking a pill grants the
+// screen at that level (no separate checkbox step), clicking the active pill
+// removes it. Bulk actions cover "everything except two screens" in four
+// clicks: Check All -> set all checked to Full -> click off the two.
+function BundleEditor({ bundle, setBundle }) {
+  const [bulk, setBulk] = useState('');
+  const grant = (id, level) => setBundle(b => {
+    const n = { ...b };
+    if (n[id] === level) delete n[id]; else n[id] = level;
+    return n;
+  });
+  const checkedCount = Object.keys(bundle).length;
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', margin: '0 0 8px' }}>
+        <button type="button" className="secondary-btn" style={{ padding: '5px 10px', fontSize: 12 }}
+          onClick={() => setBundle(b => Object.fromEntries(GRANTABLE.map(m => [m.id, b[m.id] || 'viewer'])))}>Check All</button>
+        <button type="button" className="secondary-btn" style={{ padding: '5px 10px', fontSize: 12 }}
+          onClick={() => setBundle({})}>Clear All</button>
+        <span style={{ flex: 1 }} />
+        <select value={bulk} onChange={e => { const l = e.target.value; setBulk(''); if (l) setBundle(b => Object.fromEntries(Object.keys(b).map(id => [id, l]))); }}
+          disabled={!checkedCount} aria-label="Set every checked screen to one level"
+          style={{ ...input, width: 'auto', padding: '5px 8px', fontSize: 12, opacity: checkedCount ? 1 : 0.5 }}>
+          <option value="">Set all checked to…</option>
+          {LEVEL_ORDER.map(l => <option key={l} value={l}>{MODULE_LEVELS[l].label}</option>)}
+        </select>
+      </div>
+      <div style={{ border: '1px solid var(--line)', borderRadius: 10, maxHeight: 300, overflow: 'auto' }}>
+        {GRANTABLE.map(m => {
+          const on = bundle[m.id];
+          return (
+            <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderBottom: '1px solid var(--line)' }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: on ? 700 : 500, color: on ? 'var(--ink)' : 'var(--muted)' }}>{m.label}</div>
+                {on && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2, lineHeight: 1.35 }}>{capabilityText(m.id, on, m.label)}</div>}
+              </div>
+              <div style={{ display: 'inline-flex', gap: 4, flexShrink: 0 }} role="group" aria-label={`${m.label} level`}>
+                {LEVEL_ORDER.map(l => {
+                  const active = on === l;
+                  return (
+                    <button key={l} type="button" onClick={() => grant(m.id, l)}
+                      title={active ? `Click to remove ${m.label}` : capabilityText(m.id, l, m.label)}
+                      style={{ padding: '4px 10px', borderRadius: 999, fontSize: 11.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter,sans-serif',
+                        border: `1.5px solid ${active ? 'var(--ink)' : 'var(--line)'}`,
+                        background: active ? 'var(--ink)' : 'transparent',
+                        color: active ? 'var(--card)' : 'var(--muted)' }}>
+                      {MODULE_LEVELS[l].label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 7 }}>
+        One click grants a screen at that level; click the active level again to remove it. {checkedCount} of {GRANTABLE.length} screens granted.
+      </div>
+    </div>
+  );
+}
+
 // ── editor modal ─────────────────────────────────────────────────────────────
 function RoleEditor({ role, onClose, onSaved, onErr }) {
   const [name, setName] = useState(role?.name || '');
@@ -809,9 +872,6 @@ function RoleEditor({ role, onClose, onSaved, onErr }) {
   const [bundle, setBundle] = useState(() => Object.fromEntries((role?.allowed_modules || []).map(g => [g.id, g.level])));
   const [monExempt, setMonExempt] = useState(!!role?.monitoring_exempt);
   const [busy, setBusy] = useState(false);
-
-  const toggle = id => setBundle(b => { const n = { ...b }; if (n[id]) delete n[id]; else n[id] = 'viewer'; return n; });
-  const setLvl = (id, level) => setBundle(b => ({ ...b, [id]: level }));
 
   async function save() {
     if (!name.trim()) return onErr('Name is required.');
@@ -839,25 +899,7 @@ function RoleEditor({ role, onClose, onSaved, onErr }) {
           <textarea value={desc} onChange={e => setDesc(e.target.value)} rows={2} placeholder="Plain-language: what this role does" style={{ ...input, resize: 'vertical' }} /></label>
         <div>
           <div style={{ ...sectLabel, marginTop: 4 }}>Module bundle</div>
-          <div style={{ border: '1px solid var(--line)', borderRadius: 10, maxHeight: 300, overflow: 'auto' }}>
-            {GRANTABLE.map(m => {
-              const on = bundle[m.id];
-              return (
-                <div key={m.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '9px 12px', borderBottom: '1px solid var(--line)' }}>
-                  <button onClick={() => toggle(m.id)} style={{ width: 20, height: 20, borderRadius: 6, border: `1.5px solid ${on ? 'var(--ink)' : 'var(--line-strong,rgba(0,0,0,0.2))'}`, background: on ? 'var(--ink)' : 'transparent', color: 'var(--card)', cursor: 'pointer', display: 'grid', placeItems: 'center', flexShrink: 0, marginTop: 1 }}>{on && <Check size={13} />}</button>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: on ? 600 : 500, color: on ? 'var(--ink)' : 'var(--muted)' }}>{m.label}</div>
-                    {on && <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 3, lineHeight: 1.4 }}>{capabilityText(m.id, bundle[m.id], m.label)}</div>}
-                  </div>
-                  {on && (
-                    <select value={bundle[m.id]} onChange={e => setLvl(m.id, e.target.value)} title={capabilityText(m.id, bundle[m.id], m.label)} style={{ ...input, padding: '5px 8px', fontSize: 12, width: 'auto', flexShrink: 0 }}>
-                      {LEVEL_ORDER.map(l => <option key={l} value={l}>{MODULE_LEVELS[l].label}</option>)}
-                    </select>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+          <BundleEditor bundle={bundle} setBundle={setBundle} />
         </div>
         <div style={{ ...sectLabel, marginTop: 4 }}>Time-clock monitoring</div>
         <button type="button" onClick={() => setMonExempt(v => !v)}
@@ -888,8 +930,6 @@ function GroupEditor({ group, onClose, onSaved, onErr }) {
   const [name, setName] = useState(group?.name || '');
   const [bundle, setBundle] = useState(() => Object.fromEntries((group?.allowed_modules || []).map(g => [g.id, g.level])));
   const [busy, setBusy] = useState(false);
-  const toggle = id => setBundle(b => { const n = { ...b }; if (n[id]) delete n[id]; else n[id] = 'viewer'; return n; });
-  const setLvl = (id, level) => setBundle(b => ({ ...b, [id]: level }));
 
   async function save() {
     if (!name.trim()) return onErr('Name is required.');
@@ -908,25 +948,7 @@ function GroupEditor({ group, onClose, onSaved, onErr }) {
           <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Accounting - Viewer" style={input} /></label>
         <div>
           <div style={{ ...sectLabel, marginTop: 4 }}>Modules this group grants</div>
-          <div style={{ border: '1px solid var(--line)', borderRadius: 10, maxHeight: 300, overflow: 'auto' }}>
-            {GRANTABLE.map(m => {
-              const on = bundle[m.id];
-              return (
-                <div key={m.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '9px 12px', borderBottom: '1px solid var(--line)' }}>
-                  <button onClick={() => toggle(m.id)} style={{ width: 20, height: 20, borderRadius: 6, border: `1.5px solid ${on ? 'var(--ink)' : 'var(--line-strong,rgba(0,0,0,0.2))'}`, background: on ? 'var(--ink)' : 'transparent', color: 'var(--card)', cursor: 'pointer', display: 'grid', placeItems: 'center', flexShrink: 0, marginTop: 1 }}>{on && <Check size={13} />}</button>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: on ? 600 : 500, color: on ? 'var(--ink)' : 'var(--muted)' }}>{m.label}</div>
-                    {on && <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 3, lineHeight: 1.4 }}>{capabilityText(m.id, bundle[m.id], m.label)}</div>}
-                  </div>
-                  {on && (
-                    <select value={bundle[m.id]} onChange={e => setLvl(m.id, e.target.value)} title={capabilityText(m.id, bundle[m.id], m.label)} style={{ ...input, padding: '5px 8px', fontSize: 12, width: 'auto', flexShrink: 0 }}>
-                      {LEVEL_ORDER.map(l => <option key={l} value={l}>{MODULE_LEVELS[l].label}</option>)}
-                    </select>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+          <BundleEditor bundle={bundle} setBundle={setBundle} />
         </div>
       </div>
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 18 }}>
