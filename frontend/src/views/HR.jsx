@@ -4008,6 +4008,16 @@ export default function HR({ activeSub, onSubChange }) {
     return true;
   }), [employees, companyF, deptF, statusF, search]);
 
+  // Pagination over the FILTERED list, so search/filters always reach the whole
+  // directory - a match "on page 10" simply becomes page 1 of the results.
+  const PAGE_SIZE = 12;
+  const [page, setPage] = useState(1);
+  useEffect(() => { setPage(1); }, [search, companyF, deptF, statusF]);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const curPage = Math.min(page, totalPages);
+  const paged = useMemo(() => filtered.slice((curPage - 1) * PAGE_SIZE, curPage * PAGE_SIZE),
+    [filtered, curPage]);
+
   const selected = employees.find(e => e.id === selectedId) || null;
   const counts = useMemo(() => ({
     total: employees.length,
@@ -4116,10 +4126,9 @@ export default function HR({ activeSub, onSubChange }) {
           </div>
         )}
 
-        {selected ? (
-          /* Profile takes the full width (Stella keeps one focused surface).
-             The back control lives HERE, always visible - EmployeeDetail's own
-             back button is mobile-only, which left desktop with no way out. */
+        {selected && isMobile ? (
+          /* Phones keep the focused full-screen profile with an explicit way
+             back; desktop now shows the profile IN PLACE beside the list. */
           <>
           <button onClick={() => setSelectedId(null)} className="secondary-btn"
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 12 }}>
@@ -4172,7 +4181,8 @@ export default function HR({ activeSub, onSubChange }) {
               </div>
             ) : filtered.length === 0 ? (
               <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>No matches.</div>
-            ) : (
+            ) : isMobile ? (
+              <>
               <table className="ppl-table">
                 <thead>
                   <tr>
@@ -4184,7 +4194,7 @@ export default function HR({ activeSub, onSubChange }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map(e => {
+                  {paged.map(e => {
                     const sm = STATUS_META[e.status] || STATUS_META.active;
                     return (
                       <tr key={e.id} onClick={() => setSelectedId(e.id)}>
@@ -4210,6 +4220,66 @@ export default function HR({ activeSub, onSubChange }) {
                   })}
                 </tbody>
               </table>
+              {totalPages > 1 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 14px', borderTop: '1px solid var(--line)', fontSize: 12.5, color: 'var(--muted)' }}>
+                  <span>{(curPage - 1) * PAGE_SIZE + 1}-{Math.min(curPage * PAGE_SIZE, filtered.length)} of {filtered.length}</span>
+                  <span style={{ flex: 1 }} />
+                  <button className="secondary-btn" style={{ padding: '4px 10px', fontSize: 12 }} disabled={curPage <= 1} onClick={() => setPage(curPage - 1)}>Prev</button>
+                  <span style={{ fontWeight: 700 }}>Page {curPage} of {totalPages}</span>
+                  <button className="secondary-btn" style={{ padding: '4px 10px', fontSize: 12 }} disabled={curPage >= totalPages} onClick={() => setPage(curPage + 1)}>Next</button>
+                </div>
+              )}
+              </>
+            ) : (
+              /* Desktop master-detail: names on the left, the profile opens in
+                 place on the right - no back-navigation. The list paginates;
+                 search/filters run over the WHOLE directory before paging. */
+              <div style={{ display: 'grid', gridTemplateColumns: '330px 1fr', alignItems: 'stretch' }}>
+                <div style={{ borderRight: '1px solid var(--line)', display: 'flex', flexDirection: 'column', minHeight: 460 }}>
+                  <div style={{ flex: 1, overflowY: 'auto', maxHeight: '64vh' }}>
+                    {paged.map(e => {
+                      const sm = STATUS_META[e.status] || STATUS_META.active;
+                      const active = selectedId === e.id;
+                      return (
+                        <button key={e.id} onClick={() => setSelectedId(e.id)}
+                          style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left', padding: '9px 14px', border: 'none', borderBottom: '1px solid var(--line)', cursor: 'pointer', background: active ? 'var(--wk-brand-tint)' : 'none', fontFamily: 'inherit' }}>
+                          <Avatar e={e} />
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontWeight: 600, fontSize: 13.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fullName(e)}</div>
+                            <div className="ppl-cell-sub" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.jobTitle || e.workEmail || '-'}</div>
+                          </div>
+                          <span title={sm.label} style={{ width: 8, height: 8, borderRadius: '50%', background: sm.fg, flexShrink: 0 }} />
+                          <ChevronRight size={13} style={{ color: 'var(--wk-faint)', flexShrink: 0 }} />
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {totalPages > 1 && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 12px', borderTop: '1px solid var(--line)', fontSize: 12, color: 'var(--muted)' }}>
+                      <span>{(curPage - 1) * PAGE_SIZE + 1}-{Math.min(curPage * PAGE_SIZE, filtered.length)} of {filtered.length}</span>
+                      <span style={{ flex: 1 }} />
+                      <button className="secondary-btn" style={{ padding: '3px 9px', fontSize: 11.5 }} disabled={curPage <= 1} onClick={() => setPage(curPage - 1)}>Prev</button>
+                      <span style={{ fontWeight: 700 }}>{curPage}/{totalPages}</span>
+                      <button className="secondary-btn" style={{ padding: '3px 9px', fontSize: 11.5 }} disabled={curPage >= totalPages} onClick={() => setPage(curPage + 1)}>Next</button>
+                    </div>
+                  )}
+                </div>
+                <div style={{ padding: '16px 18px', minWidth: 0 }}>
+                  {selected ? (
+                    <EmployeeDetail e={selected} employees={employees} isMobile={isMobile}
+                      companyName={entityName(selected.company)} canSeeComp={canSeeComp} isAdmin={isAdmin}
+                      toastOk={toastOk} toastErr={toastErr} onEmployeeUpdated={onSaved}
+                      onEdit={emp => { setEditing(emp); setFormOpen(true); }}
+                      onBack={() => setSelectedId(null)} />
+                  ) : (
+                    <div style={{ padding: '64px 16px', textAlign: 'center', color: 'var(--muted)' }}>
+                      <Users size={30} style={{ opacity: .25, display: 'block', margin: '0 auto 10px' }} />
+                      <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)' }}>Pick a person</div>
+                      <div style={{ fontSize: 12.5, marginTop: 4 }}>Their full profile opens right here - no page hopping.</div>
+                    </div>
+                  )}
+                </div>
+              </div>
             )}
           </div>
         )}
