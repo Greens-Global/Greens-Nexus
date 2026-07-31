@@ -8,21 +8,24 @@ import Sidebar from "./components/Sidebar";
 import MobileNav from "./components/MobileNav";
 import MobileMenu from "./components/MobileMenu";
 import TopHeader from "./components/TopHeader";
+import { HeaderTabsProvider } from "./components/ModuleTabs";
 import AdminPanel from "./components/AdminPanel";
 import NotificationToasts from "./components/NotificationToasts";
 import TimeclockWidget from "./components/TimeclockWidget";
 import { StepUpOverlay } from "./stepup/StepUp";
 import GlobalSearch from "./components/GlobalSearch";
 import PullToRefresh from "./components/PullToRefresh";
+import UpdateBanner from "./components/UpdateBanner";
 import ViewErrorBoundary from "./components/ViewErrorBoundary";
 import { onBackendHealth, isBackendDown, startKeepWarm } from "./api";
+import { applyBrandAccent } from "./lib/brandAccent";
 
-// Always loaded — critical path
+// Always loaded - critical path
 import LoginPage from "./views/LoginPage";
 import PolicyGate from "./components/PolicyGate";
 import Dashboard from "./views/Dashboard";
 
-// Lazy-loaded — only fetched when the user navigates there
+// Lazy-loaded - only fetched when the user navigates there
 const InventoryManagement = lazy(() => import("./views/InventoryManagement"));
 const Tasks               = lazy(() => import("./views/Tasks"));
 const Purchase            = lazy(() => import("./views/Purchase"));
@@ -37,6 +40,7 @@ const HR                  = lazy(() => import("./views/HR"));
 const Documents           = lazy(() => import("./views/Documents"));
 const InvestorRelations   = lazy(() => import("./views/InvestorRelations"));
 const Marketing           = lazy(() => import("./views/Marketing"));
+const PdfEditorModule     = lazy(() => import("./views/PdfEditorModule"));
 const Admin               = lazy(() => import("./views/Admin"));
 const ExternalLinks       = lazy(() => import("./views/ExternalLinks"));
 const ManagerDashboard    = lazy(() => import("./views/ManagerDashboard"));
@@ -48,14 +52,18 @@ const TimeClock           = lazy(() => import("./views/TimeClock"));
 const MyHR                = lazy(() => import("./views/MyHR"));
 const Testing             = lazy(() => import("./views/Testing"));
 const CredentialVault     = lazy(() => import("./views/CredentialVault"));
+const Egnyte              = lazy(() => import("./views/Egnyte"));
 
 const VIEW_LABELS = Object.fromEntries(MODULES.map(m => [m.id, m.label]));
 // Views that aren't registered MODULES (e.g. "purchase") fall back to a
 // title-cased version of their id so breadcrumbs never show raw lowercase ids.
-const viewLabel = (view) => VIEW_LABELS[view]
+// Acronyms the title-caser would mangle ("pdf-editor" -> "Pdf Editor"). These
+// views live in Sidebar's NAV but not in MODULES, so they hit the fallback.
+const LABEL_OVERRIDES = { 'pdf-editor': 'PDF Editor' };
+const viewLabel = (view) => VIEW_LABELS[view] || LABEL_OVERRIDES[view]
   || (view || '').split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 
-// Minimum role required to access each restricted view — mirrors the minRole
+// Minimum role required to access each restricted view - mirrors the minRole
 // values in Sidebar's NAV array. Keep both in sync when adding new views.
 // Views absent from this map are accessible to everyone (dashboard, inventory, support).
 const VIEW_MIN_ROLES = {
@@ -76,9 +84,14 @@ const VIEW_MIN_ROLES = {
   'admin':              'administrator',
   'testing':            'supervisor',   // dev-only module; grant-driven for testers below supervisor
   'credvault':          'supervisor',
+  // Egnyte reads are open to any signed-in user server-side, but the backend
+  // browses with ONE service token, so Nexus would show every folder that token
+  // can see regardless of the viewer's own Egnyte permissions. Gated at
+  // supervisor for that reason - see the note in src/egnyte/EgnyteApp.jsx.
+  'egnyte':             'supervisor',
 };
 
-// E2E mode (Playwright CI only — VITE_E2E is never set on real builds) and the
+// E2E mode (Playwright CI only - VITE_E2E is never set on real builds) and the
 // local dev-login bypass (VITE_DEV_SKIP_AUTH, see msalInstance.js) both skip the
 // MSAL login gates entirely: AuthenticatedTemplate/UnauthenticatedTemplate gate
 // on MSAL's own `inProgress` interaction state from handleRedirectPromise(),
@@ -101,7 +114,7 @@ function RoleGate({ children }) {
   return children;
 }
 
-// Enforces access at render time — sits inside RoleProvider so it can call
+// Enforces access at render time - sits inside RoleProvider so it can call
 // useRole(). Even if navigate() is called externally (nexus:navigate event,
 // notification links, dev tools), the actual view content is never shown
 // without the correct role or a group grant.
@@ -150,6 +163,7 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
     case "hr":                 return <HR activeSub={activeSub} onSubChange={onSubChange} />;
     case "documents":          return <Documents activeSub={activeSub} onSubChange={onSubChange} />;
     case "marketing":          return <Marketing activeSub={activeSub} onSubChange={onSubChange} />;
+    case "pdf-editor":         return <PdfEditorModule />;
     case "inventory":          return <InventoryManagement activeSub={activeSub} onSubChange={onSubChange} onNavigate={onNavigate} />;
     case "admin":              return <Admin />;
     case "external-links":     return <ExternalLinks />;
@@ -158,6 +172,7 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
     case "myhr":               return <MyHR />;
     case "testing":            return <Testing />;
     case "credvault":          return <CredentialVault />;
+    case "egnyte":             return <Egnyte activeSub={activeSub} onSubChange={onSubChange} />;
     default:                   return <Placeholder viewName={activeView} onBack={() => onNavigate("dashboard")} />;
   }
 }
@@ -189,14 +204,15 @@ const DEFAULT_SUBS = {
   "investor-relations": "investor-dashboard",
   marketing:         "marketing-ads",
   accounting:        "transactions",
+  egnyte:            "browse",
 };
 const getDefaultSub = view => DEFAULT_SUBS[view] ?? null;
 
 export default function App() {
-  // Public e-sign page (/sign/{token}) renders OUTSIDE the MSAL gate — external
+  // Public e-sign page (/sign/{token}) renders OUTSIDE the MSAL gate - external
   // signers have no login; the URL token is the credential. Routing lives in this
   // thin shell so the hook-bearing app body (MainApp) always calls its hooks
-  // unconditionally — the sign page mounts a different tree entirely.
+  // unconditionally - the sign page mounts a different tree entirely.
   if (parsePath().view === 'sign') {
     const token = window.location.pathname.split('/').filter(Boolean)[1] || '';
     return (
@@ -205,7 +221,7 @@ export default function App() {
       </Suspense>
     );
   }
-  // Public certificate verification (/verify/{token}) — same reasoning as
+  // Public certificate verification (/verify/{token}) - same reasoning as
   // /sign/{token} above: outside the MSAL gate, since anyone scanning a QR
   // code off a printed/emailed document has no Nexus login.
   if (parsePath().view === 'verify') {
@@ -215,6 +231,12 @@ export default function App() {
         <PublicVerify token={token} />
       </Suspense>
     );
+  }
+  // Dev-only login preview (/__login) - with VITE_DEV_SKIP_AUTH the MSAL gates
+  // never show LoginPage, so this is the only way to see it locally. Stripped
+  // from production builds by the DEV guard.
+  if (import.meta.env.DEV && window.location.pathname === '/__login') {
+    return <LoginPage />;
   }
   return <MainApp />;
 }
@@ -226,22 +248,38 @@ function MainApp() {
   const [sidebarOpen,      setSidebarOpen]      = useState(false);
   const [mobileMenuOpen,   setMobileMenuOpen]   = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem("gg-sidebar-collapsed") === "true");
-  const [navHistory,       setNavHistory]       = useState([]);
-  // Refs mirror the live view/sub so navigate() records the REAL current screen
-  // in history even when called from the once-registered nexus:navigate listener
-  // (whose closure would otherwise be stale, sending every back to Dashboard).
-  const activeViewRef = useRef(activeView);
-  const activeSubRef  = useRef(activeSub);
-  useEffect(() => { activeViewRef.current = activeView; activeSubRef.current = activeSub; }, [activeView, activeSub]);
+  // "Back" used to keep its own in-memory stack, separate from the real
+  // browser history that the address-bar effect below already maintains via
+  // pushState/popstate. The two diverged the moment anything touched real
+  // browser history in between (the browser's own Back/Forward, a swipe-back
+  // gesture, alt+Left) - the in-app arrow would then jump to a stale entry
+  // from its own stack instead of wherever the user actually just came from.
+  // Now there is exactly one source of truth: browser history itself. Each
+  // pushState call stamps its entry with { depth, fromLabel } (see below), so
+  // canGoBack/prevLabel always reflect the CURRENT history entry, kept in
+  // sync identically whether the move came from this app's arrow or the
+  // browser's own back/forward.
+  const [canGoBack, setCanGoBack] = useState(false);
+  const [prevLabel, setPrevLabel] = useState(null);
+  const prevLocRef = useRef({ view: activeView, sub: activeSub });
   const [adminPanelOpen,   setAdminPanelOpen]   = useState(false);
   const [adminPanelTab,    setAdminPanelTab]    = useState('audit');
   const [backendDown,      setBackendDown]      = useState(false);
+  // PDF Editor tells us (via PdfEditorModule → window event) whether a document
+  // is open. We hide the top header only while editing a doc; the landing screen
+  // keeps the bar.
+  const [pdfHasDoc,        setPdfHasDoc]        = useState(false);
+  useEffect(() => {
+    const onDocState = (e) => setPdfHasDoc(!!(e.detail && e.detail.hasDoc));
+    window.addEventListener('nexus:pdf-doc-state', onDocState);
+    return () => window.removeEventListener('nexus:pdf-doc-state', onDocState);
+  }, []);
   const sidebarRef = useRef(null);
   // Remount ticket for the active view. A module opened while the backend was
-  // down/restarting fetches nothing and settles into a false "no data yet — add
+  // down/restarting fetches nothing and settles into a false "no data yet - add
   // one" empty state, and nothing ever refetches. Track whether the CURRENT
   // screen was mounted during an outage; when the backend recovers, bump this
-  // key to remount it so it loads for real — no user troubleshooting.
+  // key to remount it so it loads for real - no user troubleshooting.
   const [viewEpoch,        setViewEpoch]        = useState(0);
   const viewMountedDuringOutage = useRef(false);
   useEffect(() => { viewMountedDuringOutage.current = isBackendDown(); }, [activeView, activeSub]);
@@ -250,7 +288,7 @@ function MainApp() {
     setBackendDown(down);
     // Only remount screens that were OPENED during the outage (they loaded
     // nothing and show a false-empty state). A screen that was healthy when the
-    // outage began keeps its loaded data and any in-progress user input —
+    // outage began keeps its loaded data and any in-progress user input -
     // remounting it would throw that work away.
     if (!down && viewMountedDuringOutage.current) {
       viewMountedDuringOutage.current = false;
@@ -261,17 +299,17 @@ function MainApp() {
   // cold start on every open.
   useEffect(() => { startKeepWarm(); }, []);
 
-  // Collapse sidebar when clicking outside it — lets clicks pass through to content.
+  // Collapse sidebar when clicking outside it - lets clicks pass through to content.
   // Must listen on 'click', NOT 'mousedown': collapsing on mousedown reflows the
   // page mid-press, the target moves before mouseup, and the browser never fires
-  // the click on it — users had to click everything twice while the nav was open.
+  // the click on it - users had to click everything twice while the nav was open.
   // With 'click' the target's own handler runs first (bubbles to document last),
   // then the sidebar collapses: one click does both.
   useEffect(() => {
     if (sidebarCollapsed) return;
     const handleClickOutside = (e) => {
       // Expanding re-renders the sidebar and can replace the clicked node
-      // (chevron icon swap) before this handler runs — a detached target fails
+      // (chevron icon swap) before this handler runs - a detached target fails
       // contains() and instantly re-collapsed the nav. Ignore detached nodes.
       if (!document.documentElement.contains(e.target)) return;
       if (sidebarRef.current && !sidebarRef.current.contains(e.target)) {
@@ -290,19 +328,17 @@ function MainApp() {
     localStorage.setItem("gg-theme", theme);
   }, [theme]);
 
+  // Global Admin-configurable accent (AdminPanel -> Branding). Applied once on
+  // load; LoginPage applies it independently for the pre-login screen.
+  useEffect(() => { applyBrandAccent(); }, []);
+
   useEffect(() => {
     localStorage.setItem("gg-sidebar-collapsed", sidebarCollapsed);
   }, [sidebarCollapsed]);
 
   function navigate(view, sub = null) {
-    const nextSub = sub ?? getDefaultSub(view);
-    const curView = activeViewRef.current, curSub = activeSubRef.current;
-    // Don't record a history step for a no-op navigation to the same screen.
-    if (view !== curView || nextSub !== curSub) {
-      setNavHistory(prev => [...prev.slice(-19), { view: curView, sub: curSub }]);
-    }
     setActiveView(view);
-    setActiveSub(nextSub);
+    setActiveSub(sub ?? getDefaultSub(view));
     setSidebarOpen(false);
   }
 
@@ -312,23 +348,29 @@ function MainApp() {
     return () => window.removeEventListener('nexus:navigate', handler);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // "Back" now means literally one step back in real browser history - the
+  // same single mechanism the browser's own Back button and popstate use, so
+  // the two can never disagree about where "back" actually goes.
   function goBack() {
-    if (!navHistory.length) return;
-    const prev = navHistory[navHistory.length - 1];
-    setNavHistory(h => h.slice(0, -1));
-    setActiveView(prev.view);
-    setActiveSub(prev.sub);
+    window.history.back();
   }
 
   // Browser back/forward → state (flag stops the mirror-effect below from
-  // pushing a duplicate history entry for the same move)
+  // pushing a duplicate history entry for the same move). Each entry's state
+  // carries what a NEXT "back" from here should show ({ depth, fromLabel }),
+  // stamped when the entry was created (see the push effect) - so canGoBack/
+  // prevLabel read straight off the CURRENT entry and are correct however the
+  // user got here (this app's arrow, the browser's own back/forward, a swipe
+  // gesture, alt+Left).
   const fromPopstate = useRef(false);
   useEffect(() => {
-    const onPop = () => {
+    const onPop = (e) => {
       const { view, sub } = parsePath();
       fromPopstate.current = true;
       setActiveView(view);
       setActiveSub(sub ?? getDefaultSub(view));
+      setCanGoBack((e.state?.depth || 0) > 0);
+      setPrevLabel(e.state?.fromLabel || null);
     };
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
@@ -336,13 +378,21 @@ function MainApp() {
 
   // State → address bar
   useEffect(() => {
-    if (fromPopstate.current) { fromPopstate.current = false; return; }
+    if (fromPopstate.current) { fromPopstate.current = false; prevLocRef.current = { view: activeView, sub: activeSub }; return; }
     const seg = VIEW_TO_PATH[activeView] || activeView;
     const path = activeView === 'dashboard' && !activeSub
       ? '/'
       : `/${seg}${activeSub ? `/${activeSub}` : ''}`;
-    if (window.location.pathname !== path) window.history.pushState(null, '', path);
+    if (window.location.pathname !== path) {
+      const depth = (window.history.state?.depth || 0) + 1;
+      const fromLabel = viewLabel(prevLocRef.current.view);
+      window.history.pushState({ depth, fromLabel }, '', path);
+      setCanGoBack(true);
+      setPrevLabel(fromLabel);
+    }
+    prevLocRef.current = { view: activeView, sub: activeSub };
   }, [activeView, activeSub]);
+
 
   return (
     <>
@@ -367,7 +417,7 @@ function MainApp() {
             boxShadow: '0 2px 8px rgba(0,0,0,.25)',
           }}>
             <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#fca5a5', display: 'inline-block', animation: 'pulse 1.4s ease-in-out infinite' }} />
-            Service is reconnecting — data may be delayed. Retrying automatically…
+            Service is reconnecting - data may be delayed. Retrying automatically…
           </div>
         )}
         <div className="app-container" style={backendDown ? { paddingTop: 34 } : undefined}>
@@ -381,13 +431,19 @@ function MainApp() {
             collapsed={sidebarCollapsed}
             onToggleCollapse={() => setSidebarCollapsed(c => !c)}
           />
-          {/* App-style mobile chrome — phones only (CSS-gated ≤900px):
+          {/* App-style mobile chrome - phones only (CSS-gated ≤900px):
               bottom tab bar + adidas-style full-screen menu */}
           <MobileNav activeView={activeView} activeSub={activeSub} onNavigate={navigate} />
           <MobileMenu open={mobileMenuOpen} onClose={() => setMobileMenuOpen(false)}
             onNavigate={navigate} activeView={activeView}
             theme={theme} onThemeToggle={() => setTheme(t => t === "dark" ? "light" : "dark")} />
+          {/* HeaderTabsProvider: modules publish their tab strip into the header
+              center via <ModuleTabs> (Work OS shell - Stella-style layout) */}
+          <HeaderTabsProvider>
           <main className={`main-content${sidebarCollapsed ? " main-collapsed" : ""}`}>
+            {/* PDF Editor is a full-bleed workspace with its own toolbar — hide
+                the Nexus top header so it gets the whole viewport height. */}
+            {!(activeView === 'pdf-editor' && pdfHasDoc) && (
             <TopHeader
               title={viewLabel(activeView)}
               helpKey={activeSub ? `${activeView}:${activeSub}` : activeView}
@@ -395,13 +451,22 @@ function MainApp() {
               theme={theme}
               onThemeToggle={() => setTheme(t => t === "dark" ? "light" : "dark")}
               onMobileToggle={() => setMobileMenuOpen(true)}
-              canGoBack={navHistory.length > 0}
+              canGoBack={canGoBack}
               onBack={goBack}
               onNavigate={navigate}
-              prevLabel={navHistory.length > 0 ? viewLabel(navHistory[navHistory.length - 1].view) : null}
+              prevLabel={prevLabel}
               onOpenAdmin={tab => { setAdminPanelTab(tab); setAdminPanelOpen(true); }}
             />
-            <div className={activeView === 'tasks' ? 'viewport viewport-flush' : 'viewport'}>
+            )}
+            {/* viewport-desk: the Work OS canvas (soft gray --wk-bg) for the
+                dashboard surfaces - see the Work OS section in style.css */}
+            {/* pdf-editor is flush for the same reason tasks is: it owns its
+                whole canvas. It used to cancel .viewport's padding with negative
+                margins, which only matched ONE of the five breakpoint paddings
+                and so sat off-center at most widths. */}
+            <div className={(activeView === 'tasks' || activeView === 'pdf-editor') ? 'viewport viewport-flush'
+              : (activeView === 'dashboard' || activeView === 'manager-dashboard') ? 'viewport viewport-desk'
+              : 'viewport'}>
               <ViewErrorBoundary resetKey={`${activeView}/${activeSub}/${viewEpoch}`}>
               <Suspense fallback={
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh' }}>
@@ -419,6 +484,7 @@ function MainApp() {
               </ViewErrorBoundary>
             </div>
           </main>
+          </HeaderTabsProvider>
         </div>
         <AdminPanel
           open={adminPanelOpen}
@@ -435,6 +501,9 @@ function MainApp() {
       <UnauthedGate>
         <LoginPage />
       </UnauthedGate>
+      {/* Outside both gates on purpose: a tab running superseded code should be
+          told so whether or not it is signed in. */}
+      <UpdateBanner />
     </>
   );
 }

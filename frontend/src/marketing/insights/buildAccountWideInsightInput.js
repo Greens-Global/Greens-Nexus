@@ -12,7 +12,7 @@ import { computeLeadStats, daysInStage } from '../leads/aggregate'
 import { ALL_PROPERTIES } from '../shared/facilities'
 import { ANCHOR_DATE, monthCoverageFraction, thisMonth, lastMonth } from '../shared/utils'
 
-// A self-contained, account-wide "this month vs. last month" snapshot —
+// A self-contained, account-wide "this month vs. last month" snapshot -
 // mirrors shared/alerts.ts's pattern exactly (always the current calendar
 // month, always all properties) so the AI Analyst button in the tab bar can
 // show something meaningful from anywhere in the app, independent of

@@ -92,7 +92,7 @@ async function _run() {
     // Auto-wait: poll for the control for up to 5 s (screens load async).
     let el = null;
     for (let tries = 0; tries < 10 && !el; tries++) { el = _findEl(a); if (!el) await _sleep(500); }
-    if (!el) { _pause(`Couldn't find “${a.label}” — do that step manually, then Resume.`); s.i += 1; continue; }
+    if (!el) { _pause(`Couldn't find “${a.label}” - do that step manually, then Resume.`); s.i += 1; continue; }
     _highlight(el);
     await _sleep(650);
     if (a.role === 'typed into') { el.focus(); _pause(`Type into “${a.label}” yourself (values aren't recorded), then Resume.`); s.i += 1; continue; }
@@ -102,7 +102,7 @@ async function _run() {
     s.i += 1;
   }
   if (s && s === _state) {
-    _setStatus('Replay finished — mark the verdict on the case.');
+    _setStatus('Replay finished - mark the verdict on the case.');
     await _sleep(3500);
     stopReplay(true);
   }

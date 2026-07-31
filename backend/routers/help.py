@@ -29,7 +29,7 @@ def _now() -> str:
 # Lightweight, curated descriptions for the pages we know well, so Claude writes
 # accurate help instead of guessing. Anything not listed is generated from the
 # page label alone (still useful, more general). This is the "training" input
-# Neil described — extend it as modules mature.
+# Neil described - extend it as modules mature.
 PAGE_NOTES = {
     "inventory": (
         "Item Management: the catalogue of every physical company item (each unit is one row). "
@@ -50,7 +50,7 @@ PAGE_NOTES = {
         "and a timeline. Use the cards to open a property and its tabs."
     ),
     "dashboard": (
-        "Your home dashboard: a snapshot of what needs your attention across modules — notifications, "
+        "Your home dashboard: a snapshot of what needs your attention across modules - notifications, "
         "pending items, and quick links into each area."
     ),
     "inventory:audit": (
@@ -64,7 +64,7 @@ PAGE_NOTES = {
 def _fallback(label: str) -> str:
     return (
         f"## {label}\n\n"
-        f"Help for **{label}** is being prepared. This page is part of the Greens Nexus staff portal — "
+        f"Help for **{label}** is being prepared. This page is part of the Nexus staff portal - "
         "use the tabs and buttons on the page to navigate, and the search/filter controls to find what "
         "you need. A manager can regenerate this guide from the help panel."
     )
@@ -76,7 +76,7 @@ def _generate(page_key: str, label: str) -> tuple[str, str]:
         return _fallback(label), "fallback"
     note = PAGE_NOTES.get(page_key) or PAGE_NOTES.get(page_key.split(":")[0]) or ""
     prompt = (
-        "You write short, friendly in-app help for pages of Greens Global's internal staff portal "
+        "You write short, friendly in-app help for pages of the Nexus internal staff portal "
         '("Nexus"), used by non-technical employees at a self-storage and commercial real-estate '
         "operator.\n\n"
         f"PAGE: {label}\n"
@@ -86,7 +86,7 @@ def _generate(page_key: str, label: str) -> tuple[str, str]:
         "- Then a '### What you can do here' heading with 3-6 short bullet points of the key actions.\n"
         "- Optionally a final '**Tip:**' line.\n"
         "Keep it under ~180 words, plain language, no jargon. Address the reader as 'you'. "
-        "Do NOT invent specific buttons or features you are unsure about — stay general where unsure. "
+        "Do NOT invent specific buttons or features you are unsure about - stay general where unsure. "
         "Output ONLY the Markdown, with no preamble or code fences."
     )
     try:

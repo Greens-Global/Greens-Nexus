@@ -1,7 +1,7 @@
 // "Assembled Asset" summary table. Shown on the LEAD parcel of a group that has been marked
 // `assembled` (see ParcelManager's "Treat parcels as one assembled asset" checkbox). Lists
 // every parcel in the group with just the lightweight fields (APN, lot size, acquisition,
-// zoning) plus a Total row — the full project detail lives only on the lead.
+// zoning) plus a Total row - the full project detail lives only on the lead.
 //
 // Renders null if the group has fewer than 2 members (nothing to summarize).
 
@@ -129,10 +129,10 @@ export function AssemblageParcels({ lead, all, onOpen }) {
                       </span>
                     ) : null}
                   </td>
-                  <td style={cellStyle}>{parcelField(m, 'APN', 'apn') || '—'}</td>
-                  <td style={cellStyle}>{parcelLot(m) || '—'}</td>
-                  <td style={cellStyle}>{acquisitionPrice > 0 ? `$${formatNumber(acquisitionPrice)}` : '—'}</td>
-                  <td style={cellStyle}>{parcelField(m, 'Zoning', 'zoning') || '—'}</td>
+                  <td style={cellStyle}>{parcelField(m, 'APN', 'apn') || '-'}</td>
+                  <td style={cellStyle}>{parcelLot(m) || '-'}</td>
+                  <td style={cellStyle}>{acquisitionPrice > 0 ? `$${formatNumber(acquisitionPrice)}` : '-'}</td>
+                  <td style={cellStyle}>{parcelField(m, 'Zoning', 'zoning') || '-'}</td>
                 </tr>
               );
             })}
@@ -143,7 +143,7 @@ export function AssemblageParcels({ lead, all, onOpen }) {
                 ~{totalAcres.toFixed(2)} ac
               </td>
               <td style={{ padding: '9px 14px', fontWeight: 700, color: 'var(--text-primary)', whiteSpace: 'nowrap' }}>
-                {totalCost > 0 ? `$${formatNumber(totalCost)}` : '—'}
+                {totalCost > 0 ? `$${formatNumber(totalCost)}` : '-'}
               </td>
               <td style={{ padding: '9px 14px' }} />
             </tr>

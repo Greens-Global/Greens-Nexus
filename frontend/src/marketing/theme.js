@@ -1,8 +1,8 @@
-// Marketing module — design-token bridge (ported 1:1 from the standalone
+// Marketing module - design-token bridge (ported 1:1 from the standalone
 // "Marketing Module Nexus" export). The export was styled with TailwindCSS v4
 // utilities; Nexus uses inline styles, so we expose the exact Tailwind default
 // palette as a JS object and every ported component translates its classes to
-// inline styles against these hex values — keeping the look identical.
+// inline styles against these hex values - keeping the look identical.
 
 // Tailwind default palette (the shades the export actually uses).
 export const C = {
@@ -36,7 +36,7 @@ export function alpha(hex, a) {
 }
 
 // Reusable primitives matching the export's most common class clusters, so the
-// ported components stay terse. All optional — components may also inline directly.
+// ported components stay terse. All optional - components may also inline directly.
 export const card = {
   background: C.white,
   border: `1px solid ${C.gray200}`,

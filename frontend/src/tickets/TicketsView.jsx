@@ -1,8 +1,8 @@
-// Ticket Module — the support/IT request list.
+// Ticket Module - the support/IT request list.
 //
 // Split out of the task module (Jul 2026, "Option A"): the ticket files live
 // here, but ticket state is still held in TasksContext and the shared UI atoms
-// and theme still come from ../tasks — so the task module itself is untouched.
+// and theme still come from ../tasks - so the task module itself is untouched.
 // Ticket statuses get their own color map here (STATUS_META in tasks/theme.js
 // is for tasks, not tickets). Inline-styled to match the rest of the app.
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -34,7 +34,7 @@ const TICKET_VIEW_TABS = [
   { key: 'reports', label: 'Reports', icon: BarChart3 },
 ];
 
-// Desktop list-view column layout — the single source of truth for widths,
+// Desktop list-view column layout - the single source of truth for widths,
 // labels and sort keys, shared by the header (labels + drag handles + sort
 // arrows) and every row (fixed-width cells). `sort` pulls the comparable value
 // off a ticket; `ctx` ({ nameOf, companyName }) is threaded in from TicketsView
@@ -52,7 +52,7 @@ const TICKET_COLUMNS = [
 const TICKET_COL_WIDTHS_KEY = 'nx-ticket-col-widths';
 const defaultTicketColWidths = () => Object.fromEntries(TICKET_COLUMNS.map((c) => [c.key, c.defaultWidth]));
 
-// Export — same client-side CSV pattern as the task module's own report export
+// Export - same client-side CSV pattern as the task module's own report export
 // (tasks/ManageView.jsx downloadCSV): a BOM'd CSV blob opens cleanly in Excel,
 // no server round-trip or xlsx binary needed.
 function csvEscape(v) {
@@ -82,7 +82,7 @@ function downloadTicketsCsv(rows, nameOf, companyName, hrDeptName) {
 }
 
 // Every filter the desktop toolbar shows, stacked into the mobile bar's sheet.
-// Changes apply immediately — the sheet is a view onto the same state, so there
+// Changes apply immediately - the sheet is a view onto the same state, so there
 // is nothing to "save" and no way to lose a selection by dismissing it.
 function TicketMobileFilters({
   onClose, statusFilter, setStatusFilter, priorityFilter, setPriorityFilter,
@@ -92,7 +92,7 @@ function TicketMobileFilters({
   const row = { ...inputStyle, appearance: 'auto', cursor: 'pointer', width: '100%', fontSize: 15, padding: '10px 12px' };
   const wrap = { marginBottom: 14 };
   const lab = { ...label, fontSize: 12.5 };
-  // MobileTaskBar renders filterSheet(...) raw — the caller supplies the sheet
+  // MobileTaskBar renders filterSheet(...) raw - the caller supplies the sheet
   // chrome (same contract as the task module's MobileFilters).
   return (
     <BottomSheet title="Filter & Group" onClose={onClose}>
@@ -223,18 +223,34 @@ function TicketFilterMenu({
   );
 }
 
-function SavedViewsMenu({ views, onApply, onSave, onDelete }) {
+// One overflow menu for every occasional control - saved views, group-by,
+// export - so the toolbar stays search + Filters + More (owner call, Jul 28).
+function MoreMenu({ views, onApply, onSave, onDelete, onExport, groupBy, setGroupBy, showGroup }) {
   const [open, setOpen] = useState(false);
-  const btnStyle = { ...btn('outline'), padding: '7px 11px', fontSize: 13 };
-  const item = { display: 'flex', alignItems: 'center', gap: 6, width: '100%', padding: '8px 10px', fontSize: 13, border: 'none', background: 'transparent', cursor: 'pointer', fontFamily: FONT, color: NX.ink, textAlign: 'left' };
+  const item = { display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 12px', fontSize: 13, border: 'none', background: 'transparent', cursor: 'pointer', fontFamily: FONT, color: NX.ink, textAlign: 'left' };
+  const sectionLabel = { padding: '8px 12px 4px', fontSize: 12, fontWeight: 600, color: NX.dim };
   return (
     <div style={{ position: 'relative' }}>
-      <button onClick={() => setOpen((o) => !o)} style={btnStyle} title="Saved views"><Bookmark size={15} />Views{views.length ? ` · ${views.length}` : ''}</button>
+      <button onClick={() => setOpen((o) => !o)} style={{ ...btn('outline'), padding: '7px 11px', fontSize: 13 }} title="Views, grouping and export">
+        <Bookmark size={15} />More
+      </button>
       {open && (
         <>
           <div onClick={() => setOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 40 }} />
-          <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 4, zIndex: 41, minWidth: 220, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', overflow: 'hidden', fontFamily: FONT }}>
-            {views.length === 0 && <div style={{ padding: '10px 12px', fontSize: 12.5, color: NX.faint }}>No saved views yet.</div>}
+          <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 4, zIndex: 41, minWidth: 240, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', overflow: 'hidden', fontFamily: FONT }}>
+            {showGroup && (
+              <>
+                <div style={sectionLabel}>Group by</div>
+                <div style={{ padding: '0 12px 10px' }}>
+                  <select value={groupBy} onChange={(e) => setGroupBy(e.target.value)} style={{ ...inputStyle, cursor: 'pointer' }}>
+                    {['none', 'status', 'priority', 'type', 'assignee'].map((g) => <option key={g} value={g}>{g === 'none' ? 'None' : g[0].toUpperCase() + g.slice(1)}</option>)}
+                  </select>
+                </div>
+                <div style={{ borderTop: `1px solid ${NX.border2}` }} />
+              </>
+            )}
+            <div style={sectionLabel}>Saved views</div>
+            {views.length === 0 && <div style={{ padding: '0 12px 8px', fontSize: 12.5, color: NX.faint }}>No saved views yet.</div>}
             {views.map((v) => (
               <div key={v.id} style={{ display: 'flex', alignItems: 'center' }}>
                 <button onClick={() => { onApply(v); setOpen(false); }} style={{ ...item, flex: 1, minWidth: 0 }}>
@@ -243,8 +259,9 @@ function SavedViewsMenu({ views, onApply, onSave, onDelete }) {
                 <button onClick={() => onDelete(v.id)} title="Delete view" style={{ ...btn('ghost'), padding: 6, color: NX.faint }}><X size={13} /></button>
               </div>
             ))}
+            <button onClick={() => { onSave(); setOpen(false); }} style={{ ...item, color: NX.blue, fontWeight: 600 }}><Plus size={14} />Save current view…</button>
             <div style={{ borderTop: `1px solid ${NX.border2}` }}>
-              <button onClick={() => { onSave(); setOpen(false); }} style={{ ...item, color: NX.blue, fontWeight: 600 }}><Plus size={14} />Save current view…</button>
+              <button onClick={() => { onExport(); setOpen(false); }} style={item}><Download size={14} style={{ color: NX.faint }} />Export to CSV</button>
             </div>
           </div>
         </>
@@ -259,11 +276,11 @@ export default function TicketsView() {
   const people = usePeople();
   const isMobile = useIsMobile();
   // HR departments carry the triage lead/backup; used for the Triage scope and the
-  // department filter. Loaded here rather than in context — tickets are the only
+  // department filter. Loaded here rather than in context - tickets are the only
   // consumer today.
   const [hrDepts, setHrDepts] = useState([]);
   useEffect(() => { api.getTicketDepartments().then(setHrDepts).catch(() => setHrDepts([])); }, []);
-  // Companies — same lookup pattern as hrDepts, for the Company column/export.
+  // Companies - same lookup pattern as hrDepts, for the Company column/export.
   const [companies, setCompanies] = useState([]);
   useEffect(() => { api.getTicketCompanies().then(setCompanies).catch(() => setCompanies([])); }, []);
   const companyName = (id) => companies.find((c) => c.id === id)?.name || '';
@@ -276,14 +293,14 @@ export default function TicketsView() {
       || (d.backupEmail || '').toLowerCase() === me).map((d) => d.id));
   }, [hrDepts, myEmail]);
   const hrDeptName = (id) => hrDepts.find((d) => d.id === id)?.name || '';
-  // Badge on the Triage tab — counts the whole queue, not the filtered view, so it
+  // Badge on the Triage tab - counts the whole queue, not the filtered view, so it
   // doesn't shrink as you narrow other filters.
   const triageCount = useMemo(() => tickets.filter(
     (t) => !t.assigneeId && myDeptIds.has(t.hrDepartmentId || '')).length, [tickets, myDeptIds]);
-  // Requests parked on my approval — same reasoning: count the queue, not the view.
+  // Requests parked on my approval - same reasoning: count the queue, not the view.
   const approvalCount = useMemo(() => {
     const me = (myEmail || '').toLowerCase();
-    if (!me) return 0;   // same guard as myDeptIds — "" must not match "no approver"
+    if (!me) return 0;   // same guard as myDeptIds - "" must not match "no approver"
     return tickets.filter((t) => t.approvalStatus === 'pending'
       && (t.approverId || '').toLowerCase() === me).length;
   }, [tickets, myEmail]);
@@ -300,7 +317,7 @@ export default function TicketsView() {
   const [openId, setOpenId] = useState(null);
   const [selected, setSelected] = useState(() => new Set());
 
-  // Deep-link support — the Outlook notification emails link to
+  // Deep-link support - the Outlook notification emails link to
   // "?ticket=<id>" (see backend/ticket_mail_templates.py's _ticket_url). Open
   // that ticket once on mount, then strip the param so a later refresh
   // doesn't reopen it.
@@ -314,7 +331,7 @@ export default function TicketsView() {
     window.history.replaceState({}, '', window.location.pathname + (rest ? `?${rest}` : ''));
   }, []);
 
-  // Column widths (list view) — persisted so a resize survives a reload.
+  // Column widths (list view) - persisted so a resize survives a reload.
   const [colWidths, setColWidths] = useState(() => {
     try { return { ...defaultTicketColWidths(), ...JSON.parse(localStorage.getItem(TICKET_COL_WIDTHS_KEY) || '{}') }; }
     catch { return defaultTicketColWidths(); }
@@ -343,11 +360,11 @@ export default function TicketsView() {
     window.addEventListener('mouseup', onUp);
   };
 
-  // Column sort — click a header to sort by it, click again to flip direction.
+  // Column sort - click a header to sort by it, click again to flip direction.
   const [sort, setSort] = useState({ key: 'created', dir: 'desc' });
   const onSort = (key) => setSort((s) => (s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' }));
 
-  // Saved views — snapshot the current filter set + grouping + view kind.
+  // Saved views - snapshot the current filter set + grouping + view kind.
   const applyTicketView = (v) => {
     const f = v.filters || {};
     setScope(f.scope ?? 'all'); setStatusFilter(f.statusFilter ?? 'all'); setPriorityFilter(f.priorityFilter ?? 'all');
@@ -371,7 +388,7 @@ export default function TicketsView() {
     return tickets.filter((t) => {
       if (scope === 'mine' && (t.requesterId || '').toLowerCase() !== me) return false;
       if (scope === 'assigned' && (t.assigneeId || '').toLowerCase() !== me) return false;
-      // Triage queue: unassigned tickets for departments I lead or back up — the
+      // Triage queue: unassigned tickets for departments I lead or back up - the
       // work a department lead is notified about and expected to hand out.
       if (scope === 'triage' && ((t.assigneeId || '') || !myDeptIds.has(t.hrDepartmentId || ''))) return false;
       // Approval queue: requests parked on my decision.
@@ -390,7 +407,7 @@ export default function TicketsView() {
     });
   }, [tickets, scope, myEmail, search, statusFilter, priorityFilter, typeFilter, slaFilter, nameOf, myDeptIds, hrDeptFilter, approvalCount]);
 
-  // List-view sort — applied before grouping so it holds within each bucket too.
+  // List-view sort - applied before grouping so it holds within each bucket too.
   const sortedVisible = useMemo(() => {
     const col = TICKET_COLUMNS.find((c) => c.key === sort.key);
     if (!col) return visible;
@@ -418,11 +435,11 @@ export default function TicketsView() {
       : groupBy === 'type' ? (TICKET_TYPE_META[k]?.label || k)
       : groupBy === 'assignee' ? (k ? nameOf(k) || k : 'Unassigned')
       : '');
-    for (const t of sortedVisible) { const k = keyOf(t); if (!buckets.has(k)) buckets.set(k, { key: k || '—', label: labelOf(k), rows: [] }); buckets.get(k).rows.push(t); }
+    for (const t of sortedVisible) { const k = keyOf(t); if (!buckets.has(k)) buckets.set(k, { key: k || '-', label: labelOf(k), rows: [] }); buckets.get(k).rows.push(t); }
     return [...buckets.values()];
   }, [sortedVisible, groupBy, nameOf]);
 
-  // Compact controls for the floating bulk-action pill — smaller than the
+  // Compact controls for the floating bulk-action pill - smaller than the
   // standard form idiom so a handful of them fit in one tight row.
   const compactSelStyle = { ...inputStyle, width: 'auto', cursor: 'pointer', appearance: 'auto', color: NX.ink, fontSize: 12.5, padding: '5px 8px', borderRadius: 8 };
   const compactBtnStyle = { ...btn('ghost'), color: '#fff', background: 'rgba(255,255,255,0.14)', fontSize: 12.5, padding: '5px 9px', gap: 5 };
@@ -432,7 +449,7 @@ export default function TicketsView() {
   const toggleSel = (id) => setSelected((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const clearSel = () => setSelected(new Set());
   const selIds = [...selected].filter((id) => visible.some((t) => t.id === id));
-  // Select-all — scoped to the currently filtered/sorted queue, not the whole table.
+  // Select-all - scoped to the currently filtered/sorted queue, not the whole table.
   const allVisibleIds = visible.map((t) => t.id);
   const allSelected = allVisibleIds.length > 0 && allVisibleIds.every((id) => selected.has(id));
   const someSelected = !allSelected && allVisibleIds.some((id) => selected.has(id));
@@ -445,42 +462,56 @@ export default function TicketsView() {
 
   return (
     <div style={{ fontFamily: FONT, color: NX.ink, display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%', position: 'relative' }}>
-      {/* Header — two rows, matching the task module: title + primary action, then
+      {/* Header - two rows, matching the task module: title + primary action, then
           a bordered tab strip with the toolbar on its right. On phones the tabs,
           filters and New Ticket move into the floating MobileTaskBar. */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: isMobile ? '12px 12px 8px' : '18px 24px 12px', flexWrap: 'wrap' }}>
-        <div style={{ fontSize: isMobile ? 19 : 22, fontWeight: 700 }}>Tickets</div>
-        {/* Scope pills scroll rather than wrap — there can be five once
-            To Assign / To Approve appear. */}
-        <div className="scroll-tabs" style={{ display: 'flex', alignItems: 'center', gap: 2, background: NX.border2, borderRadius: 9, padding: 2, maxWidth: '100%', overflowX: 'auto' }}>
-          {[['all', 'All'], ['mine', isMobile ? 'Mine' : 'My Requests'], ['assigned', isMobile ? 'Assigned' : 'Assigned to Me'],
-            ...(myDeptIds.size > 0 ? [['triage', `To Assign${triageCount ? ` (${triageCount})` : ''}`]] : []),
-            ...(approvalCount > 0 ? [['approve', `To Approve (${approvalCount})`]] : [])].map(([k, lab]) => (
-            <button key={k} onClick={() => setScope(k)} style={{ ...toggleBtn(scope === k), whiteSpace: 'nowrap' }}>{lab}</button>
-          ))}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: isMobile ? '12px 12px 8px' : '18px 24px 12px', flexWrap: 'wrap', background: NX.surface }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+          <span style={{ fontSize: isMobile ? 19 : 22, fontWeight: 700 }}>Tickets</span>
+          <span style={{ padding: '2px 9px', borderRadius: 12, background: NX.border2, color: NX.dim, fontSize: 12, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{visible.length}</span>
         </div>
         {!isMobile && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginLeft: 'auto' }}>
-            <span style={{ fontSize: 12.5, color: NX.dim, fontWeight: 600 }}>{visible.length} ticket{visible.length === 1 ? '' : 's'}</span>
-            <button style={btn('outline')} onClick={() => downloadTicketsCsv(tickets, nameOf, companyName, hrDeptName)} title="Export every ticket to a CSV/Excel file">
-              <Download size={15} /> Export
-            </button>
             <button style={btn('primary')} onClick={() => setCreating(true)}><Plus size={15} /> New Ticket</button>
           </div>
         )}
       </div>
 
+      {/* Phones keep a scope strip under the title (the desktop scope pills
+          moved into the toolbar row, which doesn't render on mobile). */}
+      {isMobile && (
+        <div className="scroll-tabs" style={{ display: 'flex', alignItems: 'center', gap: 2, background: NX.border2, borderRadius: 9, padding: 2, margin: '0 12px 8px', overflowX: 'auto' }}>
+          {[['all', 'All'], ['mine', 'Mine'], ['assigned', 'Assigned'],
+            ...(myDeptIds.size > 0 ? [['triage', `To Assign${triageCount ? ` (${triageCount})` : ''}`]] : []),
+            ...(approvalCount > 0 ? [['approve', `To Approve (${approvalCount})`]] : [])].map(([k, lab]) => (
+            <button key={k} onClick={() => setScope(k)} style={{ ...toggleBtn(scope === k), whiteSpace: 'nowrap' }}>{lab}</button>
+          ))}
+        </div>
+      )}
+
       {!isMobile && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, borderBottom: `1px solid ${NX.border}`, padding: '0 24px', flexWrap: 'wrap' }}>
-          <div className="scroll-tabs" style={{ display: 'flex', alignItems: 'center', gap: 2, overflowX: 'auto' }}>
-            {TICKET_VIEW_TABS.map((tb) => (
-              <button key={tb.key} onClick={() => setView(tb.key)} style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '10px 12px', whiteSpace: 'nowrap',
-                border: 'none', background: 'transparent', cursor: 'pointer',
-                borderBottom: `2px solid ${view === tb.key ? NX.ink : 'transparent'}`, fontSize: 13, fontWeight: 600, fontFamily: FONT,
-                color: view === tb.key ? NX.ink : NX.dim,
-              }}><tb.icon size={15} /> {tb.label}</button>
-            ))}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, borderBottom: `1px solid ${NX.border}`, padding: '0 24px', flexWrap: 'wrap', background: NX.surface }}>
+          {/* Row 2 pairs the two mode controls: scope (WHICH tickets) first,
+              then view (HOW they're shown) - row 1 stays title + New Ticket,
+              matching My Tasks' header anatomy. */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+            <div className="scroll-tabs" style={{ display: 'flex', alignItems: 'center', gap: 2, background: NX.border2, borderRadius: 9, padding: 2, margin: '8px 0', overflowX: 'auto', flexShrink: 1, minWidth: 0 }}>
+              {[['all', 'All'], ['mine', 'My Requests'], ['assigned', 'Assigned to Me'],
+                ...(myDeptIds.size > 0 ? [['triage', `To Assign${triageCount ? ` (${triageCount})` : ''}`]] : []),
+                ...(approvalCount > 0 ? [['approve', `To Approve (${approvalCount})`]] : [])].map(([k, lab]) => (
+                <button key={k} onClick={() => setScope(k)} style={{ ...toggleBtn(scope === k), whiteSpace: 'nowrap' }}>{lab}</button>
+              ))}
+            </div>
+            <span style={{ width: 1, height: 20, background: NX.border, flexShrink: 0 }} />
+            <div className="scroll-tabs" style={{ display: 'flex', alignItems: 'center', gap: 2, background: NX.border2, borderRadius: 9, padding: 2, margin: '8px 0', overflowX: 'auto', flexShrink: 0 }}>
+              {TICKET_VIEW_TABS.map((tb) => (
+                <button key={tb.key} onClick={() => setView(tb.key)} title={tb.label} style={{
+                  ...btn('ghost'), padding: '6px 10px', borderRadius: 7, whiteSpace: 'nowrap',
+                  background: view === tb.key ? NX.surface : 'transparent', color: view === tb.key ? NX.ink : NX.dim,
+                  boxShadow: view === tb.key ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
+                }}><tb.icon size={15} /> {tb.label}</button>
+              ))}
+            </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', flexWrap: 'wrap' }}>
             <div style={{ position: 'relative', width: 210 }}>
@@ -494,15 +525,44 @@ export default function TicketsView() {
               slaFilter={slaFilter} setSlaFilter={setSlaFilter}
               hrDeptFilter={hrDeptFilter} setHrDeptFilter={setHrDeptFilter} hrDepts={hrDepts}
             />
-            <SavedViewsMenu views={ticketViews} onApply={applyTicketView} onSave={saveTicketView} onDelete={(id) => deleteTicketView(id).catch(() => {})} />
-            {view === 'list' && (
-              <select value={groupBy} onChange={(e) => setGroupBy(e.target.value)} style={{ ...inputStyle, width: 'auto', flexShrink: 0, cursor: 'pointer' }}>
-                {['none', 'status', 'priority', 'type', 'assignee'].map((g) => <option key={g} value={g}>Group: {g === 'none' ? 'None' : g[0].toUpperCase() + g.slice(1)}</option>)}
-              </select>
-            )}
+            <MoreMenu views={ticketViews} onApply={applyTicketView} onSave={saveTicketView} onDelete={(id) => deleteTicketView(id).catch(() => {})}
+              onExport={() => downloadTicketsCsv(tickets, nameOf, companyName, hrDeptName)}
+              groupBy={groupBy} setGroupBy={setGroupBy} showGroup={view === 'list'} />
           </div>
         </div>
       )}
+
+      {/* Status summary tiles (owner's chosen Order-list concept): colored
+          header band + count + caption. Every tile is a real filter action. */}
+      {!isMobile && view !== 'reports' && (() => {
+        const openCount = tickets.filter((t) => !CLOSED_STATES.includes(t.status)).length;
+        const breachedCount = tickets.filter((t) => slaState(t) === 'breached').length;
+        const resolvedCount = tickets.filter((t) => t.status === 'resolved').length;
+        const tile = (label, bandBg, bandFg, n, sub, onGo, active) => (
+          <button key={label} onClick={onGo}
+            style={{ textAlign: 'left', border: `1px solid ${active ? bandFg : NX.border}`, borderRadius: 14, overflow: 'hidden', background: NX.surface, cursor: 'pointer', fontFamily: FONT, padding: 0, boxShadow: active ? `0 0 0 1px ${bandFg}` : 'none', transition: 'transform .15s, box-shadow .15s' }}
+            onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 8px 20px rgba(0,0,0,.08)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = active ? `0 0 0 1px ${bandFg}` : 'none'; }}>
+            <span style={{ display: 'block', padding: '6px 14px', background: bandBg, color: bandFg, fontSize: 12.5, fontWeight: 700 }}>{label}</span>
+            <span style={{ display: 'flex', alignItems: 'baseline', gap: 8, padding: '10px 14px 12px' }}>
+              <span style={{ fontSize: 24, fontWeight: 800, color: NX.ink, fontVariantNumeric: 'tabular-nums' }}>{n}</span>
+              <span style={{ fontSize: 12, color: NX.faint }}>{sub}</span>
+            </span>
+          </button>
+        );
+        return (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14, padding: '14px 24px 0', background: NX.canvas }}>
+            {tile('Open', 'rgba(9,152,195,0.14)', '#0998c3', openCount, 'not yet resolved',
+              () => { setScope('all'); setStatusFilter('all'); setSlaFilter('all'); }, scope === 'all' && statusFilter === 'all' && slaFilter === 'all' && false)}
+            {myDeptIds.size > 0 && tile('To assign', 'rgba(217,119,6,0.15)', NX.amber, triageCount, 'waiting for triage',
+              () => setScope('triage'), scope === 'triage')}
+            {tile('SLA breached', 'rgba(220,38,38,0.12)', NX.red, breachedCount, 'past their target',
+              () => { setSlaFilter(slaFilter === 'breached' ? 'all' : 'breached'); }, slaFilter === 'breached')}
+            {tile('Resolved', 'rgba(22,163,74,0.14)', NX.green, resolvedCount, 'awaiting closure',
+              () => { setStatusFilter(statusFilter === 'resolved' ? 'all' : 'resolved'); }, statusFilter === 'resolved')}
+          </div>
+        );
+      })()}
 
       {/* Body. paddingBottom clears the floating mobile bar (matches My Tasks). */}
       <div className="nx-scroll nx-gutter" style={{ flex: 1, minHeight: 0, overflow: 'auto', background: NX.canvas, padding: view === 'board' ? 12 : 16, paddingBottom: isMobile ? 88 : undefined }}>
@@ -529,10 +589,10 @@ export default function TicketsView() {
             ))}
           </div>
         ) : (
-          // Desktop — copies the task module's RichListView structure exactly:
+          // Desktop - copies the task module's RichListView structure exactly:
           // one bordered/rounded shell, wrapped in .nx-list-scroll (the same class
           // Tasks uses) so a wide/resized table scrolls horizontally as a single
-          // block — header and rows are plain sibling content, not separately
+          // block - header and rows are plain sibling content, not separately
           // scrolled regions, so there's no way for them to drift out of sync.
           <div className="nx-list-scroll" style={{ border: `1px solid ${NX.border}`, borderRadius: 12, background: NX.surface }}>
             <div style={{ minWidth: 'fit-content' }}>
@@ -557,7 +617,7 @@ export default function TicketsView() {
       </div>
 
       {view === 'list' && selIds.length > 0 && (
-        // Floating pill, centered at the bottom of the panel — doesn't push the
+        // Floating pill, centered at the bottom of the panel - doesn't push the
         // list's layout (position:absolute against the panel's position:relative
         // above) and stays compact instead of stretching edge to edge.
         <div style={{
@@ -610,15 +670,15 @@ export default function TicketsView() {
   );
 }
 
-// Column header for the desktop list view — driven by TICKET_COLUMNS so widths,
+// Column header for the desktop list view - driven by TICKET_COLUMNS so widths,
 // labels and sort keys stay in one place. Each cell is click-to-sort and carries
 // a drag handle on its trailing edge to resize; widths live in TicketsView state
 // so TicketRow's cells stay in lockstep. Renders as a normal sibling of the row
-// groups inside the shared .nx-list-scroll shell — scrolls vertically and
+// groups inside the shared .nx-list-scroll shell - scrolls vertically and
 // horizontally with the rows, same as the task module's list header.
 function TicketListHeader({ colWidths, onResize, sort, onSort, allSelected, someSelected, onToggleSelectAll, hideRequester }) {
   // Checkbox "indeterminate" (some but not all selected) isn't settable via a
-  // JSX prop — it's a DOM-only flag, so it's applied imperatively via a ref.
+  // JSX prop - it's a DOM-only flag, so it's applied imperatively via a ref.
   const selectAllRef = useRef(null);
   useEffect(() => { if (selectAllRef.current) selectAllRef.current.indeterminate = !!someSelected; }, [someSelected]);
   return (
@@ -666,7 +726,7 @@ function TicketRow({ t, nameOf, hrDeptName, companyName, onOpen, checked, onTogg
 
   // Phones: two stacked lines instead of eight columns. Subject leads; the chips
   // and the assignee wrap underneath. Requester, the separate SLA date column and
-  // the bulk-select checkbox are dropped — all reachable by opening the ticket,
+  // the bulk-select checkbox are dropped - all reachable by opening the ticket,
   // and bulk edit is a desktop job.
   if (isMobile) {
     return (
@@ -682,7 +742,7 @@ function TicketRow({ t, nameOf, hrDeptName, companyName, onOpen, checked, onTogg
               {t.linkedTaskId && <Link2 size={13} style={{ color: NX.faint, marginLeft: 6, verticalAlign: 'middle' }} />}
             </div>
             <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 2 }}>
-              {t.code || '—'}{hrDept ? ` · ${hrDept}` : ''}
+              {t.code || '-'}{hrDept ? ` · ${hrDept}` : ''}
             </div>
           </div>
           {t.resolvedAt && <CheckCircle2 size={16} style={{ color: NX.green, flexShrink: 0 }} />}
@@ -712,7 +772,7 @@ function TicketRow({ t, nameOf, hrDeptName, companyName, onOpen, checked, onTogg
       onMouseLeave={(e) => { if (!checked) e.currentTarget.style.background = NX.surface; }}>
       {/* Fixed-size wrappers (not just a sized input/icon) so native form-control
           margins can't drift this cell's box out of step with the header's plain
-          spacer — that mismatch was throwing every column after it out of line. */}
+          spacer - that mismatch was throwing every column after it out of line. */}
       <div style={{ width: 15, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <input type="checkbox" checked={!!checked} onChange={onToggle} onClick={(e) => e.stopPropagation()}
           title="Select" style={{ cursor: 'pointer', width: 15, height: 15, margin: 0, accentColor: NX.blue }} />
@@ -726,15 +786,15 @@ function TicketRow({ t, nameOf, hrDeptName, companyName, onOpen, checked, onTogg
           {t.linkedTaskId && <Link2 size={13} style={{ color: NX.faint, marginLeft: 6, verticalAlign: 'middle' }} />}
         </div>
         <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 1 }}>
-          {t.code || '—'}{hrDept ? ` · ${hrDept}` : ''}
+          {t.code || '-'}{hrDept ? ` · ${hrDept}` : ''}
         </div>
       </div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', flex: `0 0 ${colWidths.company}px`, minWidth: 0 }} title={companyName(t.companyId) || ''}>
-        <span style={{ fontSize: 12.5, color: NX.dim, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{companyName(t.companyId) || '—'}</span>
+        <span style={{ fontSize: 12.5, color: NX.dim, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{companyName(t.companyId) || '-'}</span>
       </div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 6, flex: `0 0 ${colWidths.state}px`, minWidth: 0 }}>
         <TicketStatusChip status={t.status} />
-        {/* Only shows while pending — an approved request looks like any other. */}
+        {/* Only shows while pending - an approved request looks like any other. */}
         {t.approvalStatus === 'pending' && <ApprovalChip ticket={t} />}
       </div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 6, flex: `0 0 ${colWidths.priority}px`, minWidth: 0 }}>
@@ -743,12 +803,12 @@ function TicketRow({ t, nameOf, hrDeptName, companyName, onOpen, checked, onTogg
       </div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 5, flex: `0 0 ${colWidths.due}px`, minWidth: 0 }}>
         <Clock size={12} style={{ color: overdue ? NX.red : NX.faint, flexShrink: 0 }} />
-        <span style={{ fontSize: 12, color: overdue ? NX.red : NX.dim, fontWeight: overdue ? 700 : 400, textAlign: 'left' }}>{t.slaDueOn ? fmtDate(t.slaDueOn) : '—'}</span>
+        <span style={{ fontSize: 12, color: overdue ? NX.red : NX.dim, fontWeight: overdue ? 700 : 400, textAlign: 'left' }}>{t.slaDueOn ? fmtDate(t.slaDueOn) : '-'}</span>
       </div>
       {!hideRequester && (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 6, minWidth: 0, flex: `0 0 ${colWidths.requester}px` }} title={`Requester: ${nameOf(t.requesterId) || 'Unknown'}`}>
           {t.requesterId ? <Avatar email={t.requesterId} name={nameOf(t.requesterId)} size={22} /> : <span style={{ width: 22, flexShrink: 0 }} />}
-          <span style={{ fontSize: 12.5, color: NX.dim, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.requesterId ? nameOf(t.requesterId) : '—'}</span>
+          <span style={{ fontSize: 12.5, color: NX.dim, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.requesterId ? nameOf(t.requesterId) : '-'}</span>
         </div>
       )}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 6, minWidth: 0, flex: `0 0 ${colWidths.assignee}px` }} title={`Assignee: ${t.assigneeId ? nameOf(t.assigneeId) : 'Unassigned'}`}>
@@ -756,7 +816,7 @@ function TicketRow({ t, nameOf, hrDeptName, companyName, onOpen, checked, onTogg
         <span style={{ fontSize: 12.5, color: t.assigneeId ? NX.dim : NX.faint, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.assigneeId ? nameOf(t.assigneeId) : 'Unassigned'}</span>
       </div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', flex: `0 0 ${colWidths.created}px`, minWidth: 0 }} title={t.createdAt ? `Created ${fmtDate(t.createdAt)}` : ''}>
-        <span style={{ fontSize: 12, color: NX.dim, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.createdAt ? fmtDate(t.createdAt) : '—'}</span>
+        <span style={{ fontSize: 12, color: NX.dim, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.createdAt ? fmtDate(t.createdAt) : '-'}</span>
       </div>
       {t.resolvedAt
         ? <CheckCircle2 size={16} style={{ color: NX.green, flexShrink: 0 }} title={`Resolved ${fmtDate(t.resolvedAt)}`} />
@@ -766,10 +826,10 @@ function TicketRow({ t, nameOf, hrDeptName, companyName, onOpen, checked, onTogg
 }
 
 // Real Supabase Storage upload for ticket evidence (screenshots, documents,
-// screen recordings) — works for any file size, unlike the old inline-data-URL
+// screen recordings) - works for any file size, unlike the old inline-data-URL
 // scheme it replaced (which silently dropped anything over 2MB; recordings
-// always would have). Bucket must exist on the Supabase project — public,
-// same as Testing's qa-evidence — create `ticket-evidence` there.
+// always would have). Bucket must exist on the Supabase project - public,
+// same as Testing's qa-evidence - create `ticket-evidence` there.
 async function uploadTicketEvidence(file, prefix = 'file') {
   if (!supabase) throw new Error('Storage not configured');
   const ext = (file.name.split('.').pop() || 'dat').toLowerCase();
@@ -786,9 +846,9 @@ function attachmentKindOf(f) {
   return 'doc';
 }
 
-// Posts one file to a ticket — the ticket must already exist (attachments are
+// Posts one file to a ticket - the ticket must already exist (attachments are
 // keyed by ticket id). A failed storage upload still records the attachment
-// by name (returns false) so the attempt isn't silently lost — the caller
+// by name (returns false) so the attempt isn't silently lost - the caller
 // decides whether/how to surface that.
 async function uploadTicketFile(ticketId, f) {
   const size = `${Math.max(1, Math.round(f.size / 1024))} KB`;
@@ -800,7 +860,7 @@ async function uploadTicketFile(ticketId, f) {
   return ok;
 }
 
-// Shared Record + Upload control — a screen recording (optionally with mic
+// Shared Record + Upload control - a screen recording (optionally with mic
 // narration) or a plain file picker. `onFile(file)` gets a plain File each
 // time (recordings become File objects too); the caller decides whether to
 // queue it locally (pre-creation) or upload it immediately (post-creation).
@@ -815,12 +875,12 @@ function RecordUploadButtons({ onFile, disabled, showRecord = true }) {
       const started = await startScreenRecording({ voice }, (blob) => {
         setRecording(false);
         if (blob) onFile(new File([blob], `ticket-recording-${Date.now()}.webm`, { type: 'video/webm' }));
-        else alert('The recording came out empty — try again.');
+        else alert('The recording came out empty - try again.');
       });
       if (started) setRecording(true);
     } catch (e) {
       // NotAllowedError covers both "dismissed the picker" and "denied
-      // permission" in Chrome — quiet in both cases, same as Testing's
+      // permission" in Chrome - quiet in both cases, same as Testing's
       // startBugRecording. Anything else (unsupported browser, NotFoundError,
       // etc.) is worth telling the requester about.
       if (e?.name !== 'NotAllowedError' && e?.name !== 'AbortError') {
@@ -902,7 +962,7 @@ export function CreateTicketModal({ onClose }) {
     [form.companyId, allDepts]);
 
   // ── Step 1 validation ──
-  // Department is only demanded when the chosen company actually has departments —
+  // Department is only demanded when the chosen company actually has departments -
   // requiring a choice with nothing to choose from would be an inescapable form.
   const missingStep1 = useMemo(() => {
     const out = new Set();
@@ -913,7 +973,7 @@ export function CreateTicketModal({ onClose }) {
 
   // ── Step 2 validation ──
   // Recomputed each render, so red marks clear as soon as a field is filled. Only
-  // the CURRENT type's fields are checked — leftovers from a previously selected
+  // the CURRENT type's fields are checked - leftovers from a previously selected
   // type are never submitted.
   const missing = useMemo(() => {
     const out = new Set();
@@ -932,7 +992,7 @@ export function CreateTicketModal({ onClose }) {
 
   // ── Mobile capture shortcuts (mirrors CreateTaskModal) ──
   // Photo / attach / scan sit in the footer so they're one tap away on a phone.
-  // Files are held locally and uploaded once the ticket exists — the attachment
+  // Files are held locally and uploaded once the ticket exists - the attachment
   // API is keyed by ticket id, so there is nothing to attach to until then.
   const camRef = useRef(null);
   const libRef = useRef(null);
@@ -976,14 +1036,14 @@ export function CreateTicketModal({ onClose }) {
         typeFields,
       });
       // Attachments can only be posted once the ticket has an id. A storage
-      // failure here must not lose the ticket that was just created — the
+      // failure here must not lose the ticket that was just created - the
       // ticket still saves, and any failed file gets one combined warning
       // (not one alert per file) rather than being silently dropped.
       if (created?.id && attachments.length) {
         const results = await Promise.all(attachments.map((f) => uploadTicketFile(created.id, f)));
         const failed = attachments.filter((_, i) => !results[i]);
         if (failed.length) {
-          alert(`Ticket created, but ${failed.length} attachment${failed.length > 1 ? 's' : ''} couldn't be stored (${failed.map((f) => f.name).join(', ')}) — they won't be playable/downloadable.`);
+          alert(`Ticket created, but ${failed.length} attachment${failed.length > 1 ? 's' : ''} couldn't be stored (${failed.map((f) => f.name).join(', ')}) - they won't be playable/downloadable.`);
         }
       }
       onClose();
@@ -994,7 +1054,7 @@ export function CreateTicketModal({ onClose }) {
   const errStyle = (k, set_) => (showErrors && set_.has(k) ? { borderColor: NX.red } : null);
 
   // Phones get the Asana-style bottom sheet (same chrome as quick-create task);
-  // desktop keeps the centred modal. A plain function, not a component — defining
+  // desktop keeps the centred modal. A plain function, not a component - defining
   // a component inline would remount the whole form on every render and drop focus.
   // `extras` is the icon row, which sits on its own line above the actions.
   const shell = (title, { onBack, footer, extras, children }) => (isMobile ? (
@@ -1057,7 +1117,7 @@ export function CreateTicketModal({ onClose }) {
           {showErrors && missingStep1.has('hrDepartmentId') && <div style={requiredHint}>Required</div>}
           {form.companyId && deptOptions.length === 0 && (
             <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>
-              No departments set up for {companyName || 'this company'} — you can continue without one.
+              No departments set up for {companyName || 'this company'} - you can continue without one.
             </div>
           )}
         </div>
@@ -1077,7 +1137,7 @@ export function CreateTicketModal({ onClose }) {
   // ── Step 2: the ticket itself, shaped by the type chosen in step 1. ──
   return shell(isMobile ? 'New Ticket' : 'New Ticket · Step 2 of 2', {
     onBack: isMobile ? () => { setStep(1); setShowErrors(false); } : undefined,
-    // Phone only — same trio as Create a Task, so raising a ticket from a phone
+    // Phone only - same trio as Create a Task, so raising a ticket from a phone
     // can capture a photo of the problem without leaving the form.
     extras: (<>
       {isMobile && (
@@ -1091,7 +1151,7 @@ export function CreateTicketModal({ onClose }) {
           {ocrBusy && <span style={{ fontSize: 12, color: NX.faint }}>Scanning…</span>}
           {attachments.length > 0 && <span style={{ fontSize: 12, color: NX.faint, marginLeft: 2 }}>{attachments.length}</span>}
           {photoMenu && (
-            /* Opens upward — the footer is pinned to the bottom of the modal. */
+            /* Opens upward - the footer is pinned to the bottom of the modal. */
             <div style={{ position: 'absolute', bottom: '100%', left: 0, marginBottom: 6, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 10px 28px rgba(0,0,0,0.18)', zIndex: 10, padding: 4, minWidth: 180 }}>
               <button type="button" onClick={() => { setPhotoMenu(false); camRef.current?.click(); }} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8 }}><Camera size={16} /> Take photo</button>
               <button type="button" onClick={() => { setPhotoMenu(false); libRef.current?.click(); }} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8 }}><ImagePlus size={16} /> Choose from device</button>
@@ -1117,12 +1177,12 @@ export function CreateTicketModal({ onClose }) {
       </>
     ),
     children: (<>
-      {/* Recap of step 1 — the choices shaping this form stay visible and editable. */}
+      {/* Recap of step 1 - the choices shaping this form stay visible and editable. */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '8px 10px', marginBottom: 14, background: NX.surface2, border: `1px solid ${NX.border}`, borderRadius: 8 }}>
         <TicketTypeIcon type={form.type} size={14} />
         <span style={{ fontSize: 12.5, fontWeight: 700, color: NX.ink }}>{TICKET_TYPE_META[form.type].label}</span>
         <span style={{ fontSize: 12.5, color: NX.dim }}>
-          {companies.find((c) => c.id === form.companyId)?.name || '—'}
+          {companies.find((c) => c.id === form.companyId)?.name || '-'}
           {form.hrDepartmentId ? ` · ${deptOptions.find((d) => d.id === form.hrDepartmentId)?.name || ''}` : ''}
         </span>
         <button type="button" onClick={() => { setStep(1); setShowErrors(false); }}
@@ -1159,7 +1219,7 @@ export function CreateTicketModal({ onClose }) {
         )}
       </div>
 
-      {/* Type-specific details — the point of the ticket, so it's prominent. */}
+      {/* Type-specific details - the point of the ticket, so it's prominent. */}
       {typeFieldDefs.length > 0 && (
         <div style={{ border: `1px solid ${NX.border}`, borderRadius: 10, padding: 14, background: NX.surface2, marginTop: 2 }}>
           <div style={{ fontSize: 12.5, fontWeight: 700, color: NX.dim, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -1185,17 +1245,17 @@ export function CreateTicketModal({ onClose }) {
 // Plain-text rendering of a type-field or custom-field value, for actors who
 // can see it but (per the drawer's field gating below) can't edit it.
 function readOnlyFieldValue(f, value, nameOf) {
-  if (f.type === 'person') return value ? (nameOf(value) || value) : '—';
+  if (f.type === 'person') return value ? (nameOf(value) || value) : '-';
   if (f.type === 'multiperson') {
     const ids = toEmailList(value);
-    return ids.length ? ids.map((e) => nameOf(e) || e).join(', ') : '—';
+    return ids.length ? ids.map((e) => nameOf(e) || e).join(', ') : '-';
   }
   if (f.type === 'checklist') {
     const items = Array.isArray(value) ? value : [];
-    return items.length ? items.map((it) => `${it.done ? '✓' : '○'} ${it.label}`).join('  ·  ') : '—';
+    return items.length ? items.map((it) => `${it.done ? '✓' : '○'} ${it.label}`).join('  ·  ') : '-';
   }
-  if (Array.isArray(value)) return value.length ? value.join(', ') : '—';
-  if (value === '' || value == null) return '—';
+  if (Array.isArray(value)) return value.length ? value.join(', ') : '-';
+  if (value === '' || value == null) return '-';
   if (f.type === 'date') return fmtDate(value);
   return String(value);
 }
@@ -1223,11 +1283,11 @@ function TicketDrawer({ ticketId, onClose, myDeptIds }) {
   // Before a ticket is "in_progress" (with an assignee), the requester has
   // full edit access and anyone else can triage/self-assign it (working
   // fields only). Once it's in_progress and assigned, it becomes the
-  // assignee's to work — everyone else, including the requester, is locked
+  // assignee's to work - everyone else, including the requester, is locked
   // out until it moves to another status. Manager+/dept lead-backup are
   // unrestricted throughout. Mirrors _ticket_edit_scope in
   // backend/routers/tickets.py, which enforces the same split server-side (this
-  // is UI convenience, not the security boundary — that's the backend check).
+  // is UI convenience, not the security boundary - that's the backend check).
   const isRequester = (t.requesterId || '').toLowerCase() === (myEmail || '').toLowerCase();
   const isAssignee = (t.assigneeId || '').toLowerCase() === (myEmail || '').toLowerCase();
   const isDeptOwner = t.hrDepartmentId ? (myDeptIds || new Set()).has(t.hrDepartmentId) : false;
@@ -1235,20 +1295,20 @@ function TicketDrawer({ ticketId, onClose, myDeptIds }) {
   const locked = t.status === 'in_progress' && !!t.assigneeId;
   const fullAccess = privileged || (locked ? isAssignee : isRequester);
   // The always-open "working fields" (type/status/priority/assignee/department/
-  // resolution) — open to anyone pre-lock, restricted to the assignee once locked.
+  // resolution) - open to anyone pre-lock, restricted to the assignee once locked.
   const canWorking = privileged || (locked ? isAssignee : true);
   // Company is carved out of fullAccess: the assignee can work everything else
-  // about a locked ticket, but never reassign which company it belongs to —
+  // about a locked ticket, but never reassign which company it belongs to -
   // that stays with the requester (pre-lock) or a manager/dept lead. Mirrors
   // the company_id carve-out in _ticket_edit_scope.
   const canEditCompany = privileged || (!locked && isRequester);
-  // Delete stays with whoever raised it or owns the queue — never just the
+  // Delete stays with whoever raised it or owns the queue - never just the
   // assignee, and not affected by the in_progress lock. Mirrors delete_ticket.
   const canDelete = privileged || isRequester;
 
   const patch = (p) => updateTicket(t.id, p).catch((e) => alert(`Could not update ticket: ${e.message || e}`));
   const escalate = () => escalateTicket(t.id).catch((e) => alert(`Could not escalate: ${e.message || e}`));
-  // Same "ask a reason" pattern as the approval-reject flow — the Outlook
+  // Same "ask a reason" pattern as the approval-reject flow - the Outlook
   // reopened-ticket email includes it, so the assignee/dept lead knows why.
   const reopen = () => {
     const reason = window.prompt('Why are you reopening this ticket?');
@@ -1323,17 +1383,22 @@ function TicketDrawer({ ticketId, onClose, myDeptIds }) {
         {t.resolvedAt && <span style={{ fontSize: 12, color: NX.green, display: 'inline-flex', alignItems: 'center', gap: 4 }}><CheckCircle2 size={13} /> Resolved {fmtDate(t.resolvedAt)}{t.resolution ? ` · ${resolutionLabel(t.resolution)}` : ''}</span>}
       </div>
 
-      {/* Approval gate — the decision blocks triage, so it leads the drawer,
+      {/* Approval gate - the decision blocks triage, so it leads the drawer,
           always visible regardless of which tab is open. */}
       <ApprovalPanel ticket={t} myEmail={myEmail} nameOf={nameOf} onDecided={onDecided} />
 
-      {/* Overview · Conversation · Attachments · Activity — a real tab strip up
+      {/* Overview · Conversation · Attachments · Activity - a real tab strip up
           top so Conversation/Attachments/Activity are one click away instead of
           buried under the whole field list (people kept missing them). */}
       <div style={{ borderTop: `1px solid ${NX.border}`, marginTop: 12, paddingTop: 12 }}>
-        <div style={{ display: 'flex', gap: 4, marginBottom: 14, flexWrap: 'wrap' }}>
+        {/* Segmented control - same mode-switch grammar as the rest of the module */}
+        <div style={{ display: 'inline-flex', gap: 2, marginBottom: 16, background: NX.border2, borderRadius: 9, padding: 2, flexWrap: 'wrap' }}>
           {[['overview', 'Overview', ClipboardList], ['conversation', 'Conversation', MessageSquare], ['attachments', 'Attachments', Paperclip], ['activity', 'Activity', History]].map(([k, lab, Icon]) => (
-            <button key={k} onClick={() => setTab(k)} style={{ ...btn('ghost'), gap: 6, fontSize: 13, fontWeight: 600, padding: '6px 10px', borderRadius: 0, color: tab === k ? NX.blue : NX.dim, borderBottom: `2px solid ${tab === k ? NX.blue : 'transparent'}` }}><Icon size={14} />{lab}</button>
+            <button key={k} onClick={() => setTab(k)} style={{
+              ...btn('ghost'), gap: 6, fontSize: 12.5, fontWeight: 600, padding: '6px 10px', borderRadius: 7,
+              background: tab === k ? NX.surface : 'transparent', color: tab === k ? NX.ink : NX.dim,
+              boxShadow: tab === k ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
+            }}><Icon size={14} />{lab}</button>
           ))}
         </div>
 
@@ -1361,7 +1426,7 @@ function TicketDrawer({ ticketId, onClose, myDeptIds }) {
         <div style={field}>
           <label style={label}>Requester</label>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 34 }}>
-            {t.requesterId ? <><Avatar email={t.requesterId} name={nameOf(t.requesterId)} size={22} /><span style={{ fontSize: 13, color: NX.ink }}>{nameOf(t.requesterId)}</span></> : <span style={{ fontSize: 13, color: NX.faint }}>—</span>}
+            {t.requesterId ? <><Avatar email={t.requesterId} name={nameOf(t.requesterId)} size={22} /><span style={{ fontSize: 13, color: NX.ink }}>{nameOf(t.requesterId)}</span></> : <span style={{ fontSize: 13, color: NX.faint }}>-</span>}
           </div>
         </div>
         <div style={field}>
@@ -1377,7 +1442,7 @@ function TicketDrawer({ ticketId, onClose, myDeptIds }) {
             </select>
           ) : (
             <div style={{ fontSize: 13, color: NX.ink, minHeight: 34, display: 'flex', alignItems: 'center' }}>
-              {companies.find((c) => c.id === t.companyId)?.name || '—'}
+              {companies.find((c) => c.id === t.companyId)?.name || '-'}
             </div>
           )}
         </div>
@@ -1395,7 +1460,7 @@ function TicketDrawer({ ticketId, onClose, myDeptIds }) {
               style={{ ...inputStyle, ...(overdue ? { fontWeight: 700 } : {}) }} />
           ) : (
             <div style={{ fontSize: 13, color: overdue ? NX.red : NX.ink, fontWeight: overdue ? 700 : 400, minHeight: 34, display: 'flex', alignItems: 'center' }}>
-              {t.slaDueOn ? fmtDate(t.slaDueOn) : '—'}
+              {t.slaDueOn ? fmtDate(t.slaDueOn) : '-'}
             </div>
           )}
         </div>
@@ -1403,7 +1468,7 @@ function TicketDrawer({ ticketId, onClose, myDeptIds }) {
           <div style={field}>
             <label style={label}>Resolution</label>
             <select value={t.resolution || ''} onChange={(e) => patch({ resolution: e.target.value })} style={sel} disabled={!canWorking}>
-              <option value="">— pick —</option>
+              <option value="">- pick -</option>
               {TICKET_RESOLUTION.map((r) => <option key={r.key} value={r.key}>{r.label}</option>)}
             </select>
           </div>
@@ -1460,7 +1525,7 @@ function TicketDrawer({ ticketId, onClose, myDeptIds }) {
 // A small status chip, shown wherever a ticket is listed.
 function ApprovalChip({ ticket }) {
   const meta = APPROVAL_META[ticket.approvalStatus];
-  if (!meta) return null;   // "none" — this ticket never needed approval
+  if (!meta) return null;   // "none" - this ticket never needed approval
   return <span style={chip(meta.color, meta.tint)}>{meta.label}</span>;
 }
 
@@ -1623,7 +1688,7 @@ function TicketLinks({ ticket, tickets, onAdd, onRemove, readOnly }) {
   );
 }
 
-// ── CSAT — a 1-5 satisfaction rating shown once a ticket is resolved/closed ────
+// ── CSAT - a 1-5 satisfaction rating shown once a ticket is resolved/closed ────
 function CsatWidget({ ticket, canRate, onRate, onComment }) {
   const [hover, setHover] = useState(0);
   const rating = ticket.csatRating || 0;
@@ -1648,7 +1713,7 @@ function CsatWidget({ ticket, canRate, onRate, onComment }) {
   );
 }
 
-// ── Reports — open-by-status/type/assignee, avg resolution, SLA compliance ─────
+// ── Reports - open-by-status/type/assignee, avg resolution, SLA compliance ─────
 function TicketReports({ tickets, nameOf, hrDeptName }) {
   const stats = useMemo(() => {
     const open = tickets.filter((t) => !CLOSED_STATES.includes(t.status));
@@ -1661,13 +1726,13 @@ function TicketReports({ tickets, nameOf, hrDeptName }) {
     for (const t of open) { const k = t.assigneeId || ''; acc.set(k, (acc.get(k) || 0) + 1); }
     const byAssignee = [...acc.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8)
       .map(([k, n], i) => ({ label: k ? (nameOf(k) || k) : 'Unassigned', value: n, color: PAL[i % 8] }));
-    // Where tickets come from. HR Department is the routing dimension — it decides
-    // which lead triages the ticket — so it's the cut worth showing.
+    // Where tickets come from. HR Department is the routing dimension - it decides
+    // which lead triages the ticket - so it's the cut worth showing.
     const deptAcc = new Map();
     for (const t of tickets) { const k = t.hrDepartmentId || ''; deptAcc.set(k, (deptAcc.get(k) || 0) + 1); }
     const byDepartment = [...deptAcc.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8)
       .map(([k, n], i) => ({ label: k ? (hrDeptName(k) || k) : 'No department', value: n, color: PAL[i % 8] }));
-    // recurrence signal — cluster by normalised subject; 2+ = a repeat worth investigating
+    // recurrence signal - cluster by normalised subject; 2+ = a repeat worth investigating
     const norm = (s) => (s || '').toLowerCase().replace(/[0-9]+/g, '').replace(/[^a-z ]+/g, ' ').replace(/\s+/g, ' ').trim();
     const recAcc = new Map();
     for (const t of tickets) { const k = norm(t.subject); if (!k) continue; if (!recAcc.has(k)) recAcc.set(k, { label: t.subject, count: 0 }); recAcc.get(k).count += 1; }
@@ -1704,9 +1769,9 @@ function TicketReports({ tickets, nameOf, hrDeptName }) {
         <Stat label="Open" value={stats.open} color={NX.blue} />
         <Stat label="SLA breached" value={stats.breaching} color={stats.breaching ? NX.red : NX.ink} />
         <Stat label="Due soon" value={stats.atRisk} color={stats.atRisk ? NX.amber : NX.ink} />
-        <Stat label="Avg Resolution" value={stats.avgDays == null ? '—' : `${stats.avgDays.toFixed(1)}d`} />
-        <Stat label="SLA Compliance" value={stats.compliance == null ? '—' : `${stats.compliance}%`} color={stats.compliance != null && stats.compliance < 80 ? NX.red : NX.green} />
-        <Stat label="Avg CSAT" value={stats.avgCsat == null ? '—' : `${stats.avgCsat.toFixed(1)}★`} color={stats.avgCsat != null && stats.avgCsat >= 4 ? NX.green : NX.ink} />
+        <Stat label="Avg Resolution" value={stats.avgDays == null ? '-' : `${stats.avgDays.toFixed(1)}d`} />
+        <Stat label="SLA Compliance" value={stats.compliance == null ? '-' : `${stats.compliance}%`} color={stats.compliance != null && stats.compliance < 80 ? NX.red : NX.green} />
+        <Stat label="Avg CSAT" value={stats.avgCsat == null ? '-' : `${stats.avgCsat.toFixed(1)}★`} color={stats.avgCsat != null && stats.avgCsat >= 4 ? NX.green : NX.ink} />
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14 }}>
         <Card title="By status"><Donut segments={stats.byStatus} total={stats.byStatus.reduce((s, d) => s + d.value, 0)} /></Card>
@@ -1716,7 +1781,7 @@ function TicketReports({ tickets, nameOf, hrDeptName }) {
         <Card title="Open by assignee"><LightBar data={stats.byAssignee} /></Card>
         <Card title="Recurring issues (repeat signal)">
           {stats.recurring.length === 0
-            ? <div style={{ padding: '20px 0', textAlign: 'center', fontSize: 12, color: NX.faint }}>No repeats yet — every subject is unique.</div>
+            ? <div style={{ padding: '20px 0', textAlign: 'center', fontSize: 12, color: NX.faint }}>No repeats yet - every subject is unique.</div>
             : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {stats.recurring.map((g) => (
@@ -1783,7 +1848,7 @@ function TicketConversation({ ticketId, nameOf }) {
       </div>
       <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
         <textarea value={body} onChange={(e) => setBody(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) send(); }}
-          placeholder={internal ? 'Internal note — visible to agents, not the requester…  (⌘/Ctrl+Enter)' : 'Public reply…  (⌘/Ctrl+Enter to send)'} rows={2}
+          placeholder={internal ? 'Internal note - visible to agents, not the requester…  (⌘/Ctrl+Enter)' : 'Public reply…  (⌘/Ctrl+Enter to send)'} rows={2}
           style={{ ...inputStyle, resize: 'vertical', fontFamily: FONT, flex: 1, ...(internal ? { background: 'rgba(245,158,11,0.06)', borderColor: 'rgba(245,158,11,0.4)' } : {}) }} />
         <button onClick={send} disabled={!body.trim() || busy} style={{ ...btn('primary'), opacity: body.trim() && !busy ? 1 : 0.55, ...(internal ? { background: NX.amber } : {}) }}><Send size={14} /></button>
       </div>
@@ -1835,7 +1900,7 @@ function TicketAttachments({ ticketId, ticketType }) {
                 return (
                   <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8, border: `1px solid ${NX.border}`, borderRadius: 10, padding: '6px 10px', fontSize: 12 }}>
                     {a.url ? (
-                      // No `download` here — opening in a new tab lets the browser
+                      // No `download` here - opening in a new tab lets the browser
                       // play video/view images inline instead of forcing a save.
                       <a href={a.url} target="_blank" rel="noreferrer" title={`Open ${a.name}`}
                         style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, color: 'inherit', textDecoration: 'none' }}>
@@ -1843,7 +1908,7 @@ function TicketAttachments({ ticketId, ticketType }) {
                         <span style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name}</span>
                       </a>
                     ) : (
-                      <span title="This file failed to upload and isn't available — remove it and re-attach"
+                      <span title="This file failed to upload and isn't available - remove it and re-attach"
                         style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, color: NX.faint }}>
                         {thumb}
                         <span style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textDecoration: 'line-through' }}>{a.name}</span>
@@ -1881,7 +1946,7 @@ function TicketActivity({ ticketId, nameOf }) {
   );
 }
 
-// ── Kanban board — columns by status, drag a card to change its status ────────
+// ── Kanban board - columns by status, drag a card to change its status ────────
 function TicketBoard({ tickets, nameOf, onOpen, onMove }) {
   const [dragId, setDragId] = useState(null);
   const [over, setOver] = useState(null);
@@ -1918,7 +1983,7 @@ function TicketBoard({ tickets, nameOf, onOpen, onMove }) {
                 </div>
               </div>
             ))}
-            {col.length === 0 && <div style={{ fontSize: 11.5, color: NX.faint, textAlign: 'center', padding: '10px 0' }}>—</div>}
+            {col.length === 0 && <div style={{ fontSize: 11.5, color: NX.faint, textAlign: 'center', padding: '10px 0' }}>-</div>}
           </div>
         );
       })}

@@ -3,7 +3,7 @@ import { RefreshCw } from 'lucide-react';
 
 const ARM_AT = 70; // indicator travel (px) that arms the refresh
 
-// Phone-only pull-to-refresh. Reloads the page — the URL mirrors view/sub so
+// Phone-only pull-to-refresh. Reloads the page - the URL mirrors view/sub so
 // the user lands back on the same screen with completely fresh data. Ignores
 // gestures that start inside dialogs/drawers or while one is open, and never
 // preventDefaults (listeners are passive), so native scrolling is untouched.

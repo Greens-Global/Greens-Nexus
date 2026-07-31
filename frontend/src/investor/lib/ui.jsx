@@ -3,7 +3,7 @@ import { Loader, X } from 'lucide-react';
 import { statusColor, statusLabel } from './format';
 
 // ── Status as colored text + small solid dot ─────────────────────────────────
-// This is the ONLY status treatment in the module — tinted chip/pill badges
+// This is the ONLY status treatment in the module - tinted chip/pill badges
 // are banned app-wide (flat editorial style).
 export function StatusText({ status, label, size = 12.5 }) {
   const color = statusColor(status);
@@ -15,7 +15,7 @@ export function StatusText({ status, label, size = 12.5 }) {
   );
 }
 
-// Thin flat progress bar — a hairline track, never a pill badge.
+// Thin flat progress bar - a hairline track, never a pill badge.
 export function ThinBar({ value = 0, max = 0, color = 'hsl(var(--color-blue))', height = 4 }) {
   const pct = max > 0 ? Math.min(100, Math.max(0, (Number(value) / Number(max)) * 100)) : 0;
   return (
@@ -54,7 +54,7 @@ export function EmptyState({ icon: Icon, title, sub, children }) {
   );
 }
 
-// Standard modal chrome — children supply the form (form-grid / modal-footer).
+// Standard modal chrome - children supply the form (form-grid / modal-footer).
 export function Modal({ title, onClose, width, children }) {
   return (
     <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
@@ -80,13 +80,13 @@ export function FG({ label, full, children }) {
 }
 
 // People picker fed by the curated Nexus People directory
-// (api.getPeopleDirectory → /myhr/directory) — never M365/GAL lists.
+// (api.getPeopleDirectory → /myhr/directory) - never M365/GAL lists.
 export function PeopleSelect({ value, onChange, people, placeholder = 'Select a person…' }) {
   return (
     <select className="form-select" value={value || ''} onChange={e => onChange(e.target.value)}>
       <option value="">{placeholder}</option>
       {(people || []).map(p => (
-        <option key={p.email} value={p.email}>{p.name ? `${p.name} — ${p.email}` : p.email}</option>
+        <option key={p.email} value={p.email}>{p.name ? `${p.name} - ${p.email}` : p.email}</option>
       ))}
     </select>
   );

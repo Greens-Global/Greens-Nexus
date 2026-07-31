@@ -1,6 +1,6 @@
 // ── Generic screen recorder ───────────────────────────────────────────────────
 // A plain screen (+ optional mic) capture used outside the Testing module's
-// QA-specific step-log/live-transcription flow (see stepRecorder.js — that one
+// QA-specific step-log/live-transcription flow (see stepRecorder.js - that one
 // also hard-navigates back to /testing on stop, which makes it unsafe to reuse
 // from other modules). This one just returns a video Blob via callback and
 // never touches routing, so any module can drop it in.
@@ -49,12 +49,12 @@ export function isScreenRecording() { return _recording; }
 
 /**
  * Starts a screen recording (+ mic if voice=true). `onDone(blob|null)` fires
- * once — Stop, the browser's own "Stop sharing" chip, or Cancel all funnel
+ * once - Stop, the browser's own "Stop sharing" chip, or Cancel all funnel
  * into it (null on cancel/failure).
  *
  * Throws if the browser doesn't support screen capture at all, or if
  * getDisplayMedia rejects for a reason other than the user dismissing the
- * picker / denying permission (both surface as NotAllowedError — the caller
+ * picker / denying permission (both surface as NotAllowedError - the caller
  * is expected to stay quiet on that one, same as the picker-cancel handling
  * in stepRecorder.js's startBugRecording).
  */
@@ -70,7 +70,7 @@ export async function startScreenRecording({ voice = false } = {}, onDone) {
     try {
       _micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
       _micStream.getAudioTracks().forEach((t) => _screenStream.addTrack(t));
-    } catch { /* mic denied — video only */ }
+    } catch { /* mic denied - video only */ }
   }
   _mediaRec = new MediaRecorder(_screenStream, { mimeType: _pickMime() });
   _mediaRec.ondataavailable = (e) => e.data.size && _chunks.push(e.data);
@@ -91,7 +91,7 @@ export async function startScreenRecording({ voice = false } = {}, onDone) {
     _removePill(); _cleanupTracks();
     onDone?.(null);
   };
-  // Chrome's own "Stop sharing" chip ends the video track — treat as Stop so
+  // Chrome's own "Stop sharing" chip ends the video track - treat as Stop so
   // nothing is lost even if the tester uses the browser control instead of ours.
   _screenStream.getVideoTracks()[0].addEventListener('ended', finish);
   _mediaRec.start(1000);

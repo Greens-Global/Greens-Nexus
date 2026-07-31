@@ -36,13 +36,13 @@ const SHAPE_TYPES = [
 ];
 
 // ── Document Builder (Phase 2, generalized for Templates in Phase 3) ────────
-// Rich-text editor shared by Documents AND DocTemplates — both store the same
+// Rich-text editor shared by Documents AND DocTemplates - both store the same
 // content shape, so `kind` ('document'|'template') just swaps which API calls
 // load/save it and which field holds the display name (title vs name).
 // Opened in-place (same "replace the tab content" convention ESign.jsx uses
-// for SignModal/SendWizard — a plain early return, not a portal/overlay).
+// for SignModal/SendWizard - a plain early return, not a portal/overlay).
 // content shape: { body: <TipTap JSON>, header: <TipTap JSON|null>,
-// footer: <TipTap JSON|null> }. Phase 1 drafts have content: {} — treated as
+// footer: <TipTap JSON|null> }. Phase 1 drafts have content: {} - treated as
 // an empty body with no header/footer.
 
 const AUTOSAVE_MS = 1500;
@@ -112,13 +112,13 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   const [importPopoverOpen, setImportPopoverOpen] = useState(false);
   const [importing, setImporting] = useState(false);
   const [egnyteOpen, setEgnyteOpen] = useState(false);
-  // Template Builder (Phase 13) — field_defs is the single source of truth for
+  // Template Builder (Phase 13) - field_defs is the single source of truth for
   // a merge field's type/required/default/validation; only meaningful when
   // kind==='template' (Documents generated from one just carry resolved
   // values, not the field metadata itself).
   const [fieldDefs, setFieldDefs] = useState([]);
   const [mergeFieldModal, setMergeFieldModal] = useState(null); // null | { range?: {from,to}, existingDef?: object, initialLabel?: string }
-  // Page Setup (Phase 14) — content.pageSetup, a sibling of body/header/footer
+  // Page Setup (Phase 14) - content.pageSetup, a sibling of body/header/footer
   // in the same JSON blob (no schema change needed).
   const [pageSetup, setPageSetup] = useState(DEFAULT_PAGE_SETUP);
   const [pageSetupOpen, setPageSetupOpen] = useState(false);
@@ -134,7 +134,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   const hydratedRef = useRef(false);
   // Bumped on every selection change so the contextual Table/Shape/Textbox/
   // Image toolbars below (which read bodyEditor.isActive(...) at render
-  // time) actually re-render as the cursor moves — TipTap's own state
+  // time) actually re-render as the cursor moves - TipTap's own state
   // changes don't trigger a React re-render on their own.
   const [, setSelectionTick] = useState(0);
 
@@ -161,7 +161,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   });
 
   // Pushes a { body, header, footer } content object into the three editor
-  // instances — shared by the initial load below AND by History's "Restore"
+  // instances - shared by the initial load below AND by History's "Restore"
   // (Phase 6), so hydration only has one implementation.
   const applyContent = useCallback((content) => {
     const c = content && typeof content === 'object' ? content : {};
@@ -173,7 +173,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   }, [bodyEditor, headerEditor, footerEditor]);
 
   // Load the document once, then push its content into the (already-created,
-  // still-empty) editor instances — avoids recreating editors on every
+  // still-empty) editor instances - avoids recreating editors on every
   // re-render, which would drop cursor position/undo history.
   useEffect(() => {
     let cancelled = false;
@@ -213,7 +213,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   }), [bodyEditor, headerEditor, footerEditor, headerVisible, footerVisible, pageSetup]);
 
   // Page Setup panel changes save immediately (like the letterhead/employee
-  // pickers) rather than going through the debounced content autosave —
+  // pickers) rather than going through the debounced content autosave -
   // these are deliberate, infrequent choices, not typing.
   const updatePageSetup = (patch) => {
     const next = { ...pageSetup, ...patch };
@@ -271,7 +271,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   const close = () => {
     // While viewing the rendered Preview & Send screen, X should back out to
     // the editor (mirroring "Back to Edit"), not exit the document entirely
-    // — the two are easy to conflate since both sit in the same top-left
+    // - the two are easy to conflate since both sit in the same top-left
     // corner, but only edit mode's X should actually leave the document.
     if (kind === 'document' && preview) {
       setPreview(false);
@@ -310,7 +310,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   const activeEmployee = employees.find(e => e.id === employeeId);
 
   // Manual merge-field values + custom variables (Phase 11). mergeOverrides
-  // is a flat, document-scoped dict — persistent regardless of which
+  // is a flat, document-scoped dict - persistent regardless of which
   // Employee/Entity is currently selected (a manual value is a deliberate
   // correction/definition on this document, not tied to the subject). The
   // backend already resolves overrides as "wins over auto-resolved value"
@@ -345,7 +345,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
     call.then(downloadBlob).catch(e => toastErr?.(e.message || 'Export failed')).finally(() => setExporting(''));
   };
 
-  // In-app PDF Preview — renders the exported PDF in an iframe (browsers have
+  // In-app PDF Preview - renders the exported PDF in an iframe (browsers have
   // a native PDF viewer for that) rather than hand-rolling pdfjs-dist canvas
   // rendering like PdfEditor.jsx does for field placement, a different problem.
   const openPdfPreview = () => {
@@ -376,7 +376,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
     setLinkPopoverOpen(o => !o);
   };
 
-  // Default x/y (Phase 9, only meaningful for non-inline wrap modes) — the
+  // Default x/y (Phase 9, only meaningful for non-inline wrap modes) - the
   // cursor's current screen position converted to coordinates relative to
   // .doc-page's own box, so a freshly-inserted floating shape/textbox starts
   // roughly where the user was typing instead of always at (0,0).
@@ -398,7 +398,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
     const { width, height } = SHAPE_DEFAULTS[shapeType] || SHAPE_DEFAULTS.rectangle;
     const { x, y } = insertPageCoords();
     // scrollIntoView: shapes insert at the current cursor position, which can
-    // be well off-screen in a long document — without this the insert looks
+    // be well off-screen in a long document - without this the insert looks
     // like it silently failed even though it worked.
     bodyEditor?.chain().focus().insertContent({
       type: 'docShape',
@@ -419,7 +419,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
 
   // Phase 5 bridge: export to PDF, hand it to E-Sign's existing SendWizard via
   // the same window.__esignPrefill + nexus:navigate handoff HR->Hiring already
-  // uses — no new backend send path, no change to esign.py's compliance logic.
+  // uses - no new backend send path, no change to esign.py's compliance logic.
   const doSendForSignature = () => {
     if (doc?.signRequestId && !window.confirm('This document was already sent for signature. Start a new envelope anyway?')) return;
     setExporting('send');
@@ -430,7 +430,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
     }).catch(e => toastErr?.(e.message || 'Failed to prepare document for signature')).finally(() => setExporting(''));
   };
 
-  // Save as Template — copies this document's current content (its
+  // Save as Template - copies this document's current content (its
   // mergeField chips included: Document.content always keeps the raw
   // {{token}} nodes, resolved against employee/entity/overrides only at
   // export time, never baked into literal text) into a brand-new DocTemplate
@@ -451,7 +451,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
     getVersions(docId).then(setVersions).catch(() => setVersions([]));
   };
 
-  // Restore does NOT rewrite history in place — it PATCHes the old content
+  // Restore does NOT rewrite history in place - it PATCHes the old content
   // back on as a brand-new version, so the full audit trail stays intact.
   const restoreVersion = (v) => {
     setRestoringId(v.id);
@@ -470,7 +470,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
     e.target.value = '';
   };
 
-  // Template Builder (Phase 13) — "select text → Convert to Merge Field".
+  // Template Builder (Phase 13) - "select text → Convert to Merge Field".
   // Captures the selection's own range rather than trusting "current
   // selection" once the modal (and its own inputs) has stolen focus.
   const openConvertToMergeField = () => {
@@ -482,7 +482,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   };
 
   // Double-click an existing chip to edit its type/required/default/
-  // validation without moving it — chips render as plain HTML (not a TipTap
+  // validation without moving it - chips render as plain HTML (not a TipTap
   // NodeView), so this is a delegated DOM listener rather than a node-level
   // click handler.
   useEffect(() => {
@@ -534,7 +534,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   // toolbar/paste image inserts (Phase 2) rather than embedding data URIs, so
   // imported images end up as ordinary hosted images, not bloating the
   // document JSON. Unrecognized image bytes from a .docx (e.g. WMF/EMF)
-  // simply fail the upload's type check and are skipped — same "failed image
+  // simply fail the upload's type check and are skipped - same "failed image
   // doesn't crash the import" convention doc_export.py already follows.
   const uploadImportedImage = async (bytes, mime, n) => {
     const extGuess = (mime || '').split('/')[1]?.split('+')[0] || 'png';
@@ -553,11 +553,11 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
       const json = directJson || generateJSON(html || '<p></p>', BODY_EXTENSIONS);
       bodyEditor?.commands.setContent(json);
       // .docx imports carry the source file's own page size/orientation/
-      // margins (docxToTiptap.js) — apply them so the imported page setup
+      // margins (docxToTiptap.js) - apply them so the imported page setup
       // matches the original, not whatever this document had before.
       if (importedPageSetup) updatePageSetup(importedPageSetup);
       if (warnings?.length) toastErr?.(`Imported with notes: ${warnings.slice(0, 2).join(' ')}`);
-      else toastOk?.('Imported — review formatting before sending');
+      else toastOk?.('Imported - review formatting before sending');
       setImportPopoverOpen(false);
     } catch (e) {
       toastErr?.(e.message || 'Failed to import document');
@@ -784,7 +784,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
       </div>
 
       {kind === 'document' && preview ? (
-        // Real rendered preview (Phase 17) — shows the document exactly as it
+        // Real rendered preview (Phase 17) - shows the document exactly as it
         // will download: same backend PDF pipeline as Export PDF, so real
         // pagination and a real page break, not the editor's own WYSIWYG
         // canvas with editing merely disabled (which never looked like a
@@ -963,7 +963,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
         </div>
       )}
 
-      {/* Contextual toolbars — appear only while the cursor/selection is
+      {/* Contextual toolbars - appear only while the cursor/selection is
           inside the relevant node, mirroring Word's "click a table/picture/
           shape and its own ribbon shows up" behavior instead of cluttering
           the main toolbar with buttons that only apply some of the time. */}
@@ -1088,7 +1088,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
         )}
 
         {/* flex:1 so the body fills whatever space is left between header and
-            footer up to the page's minHeight — without this the footer
+            footer up to the page's minHeight - without this the footer
             followed the body directly in document flow and left a bare gap
             below it whenever the body was short. */}
         <div style={{ flex: 1 }}>

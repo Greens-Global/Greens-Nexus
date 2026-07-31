@@ -1,4 +1,4 @@
-// Task Module — My Tasks page (ported 1:1 from the export's MyTasksPage).
+// Task Module - My Tasks page (ported 1:1 from the export's MyTasksPage).
 // A dedicated personal view: avatar + "My tasks" header, List/Board/Calendar/
 // Dashboard/Files tabs, and a List grouped into the four due-date buckets with
 // inline "Add task" rows, a "Task visibility" column, and "Add section".
@@ -6,7 +6,7 @@ import { useMemo, useRef, useState } from 'react';
 import { ChevronDown, Lock, Globe, Plus, List as ListIcon, Columns3, Calendar as CalIcon, LayoutDashboard, Paperclip, Circle, CheckCircle2 } from 'lucide-react';
 import { useTasks } from './TasksContext';
 import { EMPTY_FILTER, matchesFilter, sortTasks, groupTasks, groupAddDefaults, taskIdFromUrl } from './lib';
-import { NX, FONT, btn, input as inputStyle, colorForKey } from './theme';
+import { NX, FONT, btn, CONTROL_H, CONTROL_FS, input as inputStyle, colorForKey } from './theme';
 import { Avatar, EmptyState, useClickOutside, useIsMobile, DateField } from './components';
 import { ProductivityBar, MobileFilters } from './productivity';
 import MobileTaskBar from './MobileTaskBar';
@@ -50,7 +50,7 @@ function CollaboratorPicker({ value = [], people, onChange, anchor }) {
       <button onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }} style={{ ...btn('ghost'), padding: '2px 6px' }}>
         {value.length ? (
           <div style={{ display: 'flex' }}>{value.slice(0, 3).map((em, i) => <span key={em} style={{ marginLeft: i ? -6 : 0 }}><Avatar email={em} size={20} /></span>)}</div>
-        ) : <span style={{ color: NX.faint }}>{anchor || '—'}</span>}
+        ) : <span style={{ color: NX.faint }}>{anchor || '-'}</span>}
       </button>
       {open && (
         <div onClick={(e) => e.stopPropagation()} style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, width: 208, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', zIndex: 50, maxHeight: 240, overflowY: 'auto', padding: 4 }}>
@@ -76,16 +76,23 @@ function VisibilityChip({ shared }) {
 
 function TaskRow({ t, people, projects, store, onOpen }) {
   const shared = (t.followerIds?.length > 0) || !!t.projectId;
+  // Due date reads as a tinted pill (kit grammar), not bare colored text -
+  // red tint overdue, amber tint today, quiet gray otherwise.
+  const today = new Date().toISOString().slice(0, 10);
+  const dueBg = !t.dueOn || t.completed ? 'transparent'
+    : t.dueOn < today ? 'rgba(220,38,38,0.10)'
+    : t.dueOn === today ? 'rgba(232,163,61,0.16)'
+    : NX.surface2;
   return (
-    <div onClick={() => onOpen(t.id)} className="stack-table-row" data-task-row style={{ display: 'grid', gridTemplateColumns: COLS, alignItems: 'center', gap: 8, padding: '8px 16px', borderBottom: `1px solid ${NX.border2}`, fontSize: 13, cursor: 'pointer' }}
+    <div onClick={() => onOpen(t.id)} className="stack-table-row" data-task-row style={{ display: 'grid', gridTemplateColumns: COLS, alignItems: 'center', gap: 8, padding: '10px 16px', borderBottom: `1px solid ${NX.border2}`, fontSize: 13.5, cursor: 'pointer' }}
       onMouseEnter={(e) => (e.currentTarget.style.background = NX.hover)} onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-        <button onClick={(e) => { e.stopPropagation(); store.toggleComplete(t); }} style={{ ...btn('ghost'), padding: 0, color: t.completed ? NX.green : NX.faint }}>{t.completed ? <CheckCircle2 size={16} /> : <Circle size={16} />}</button>
-        <span title={store.statusMeta?.[t.status]?.label || t.status} style={{ width: 8, height: 8, borderRadius: 2, background: store.statusMeta?.[t.status]?.color || NX.faint, flexShrink: 0 }} />
-        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: t.completed ? NX.faint : NX.ink, textDecoration: t.completed ? 'line-through' : 'none' }}>{t.title}</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
+        <button onClick={(e) => { e.stopPropagation(); store.toggleComplete(t); }} style={{ ...btn('ghost'), padding: 0, color: t.completed ? NX.green : NX.faint }}>{t.completed ? <CheckCircle2 size={17} /> : <Circle size={17} />}</button>
+        <span title={store.statusMeta?.[t.status]?.label || t.status} style={{ width: 9, height: 9, borderRadius: 3, background: store.statusMeta?.[t.status]?.color || NX.faint, flexShrink: 0 }} />
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500, color: t.completed ? NX.faint : NX.ink, textDecoration: t.completed ? 'line-through' : 'none' }}>{t.title}</span>
       </div>
       <DateField value={t.dueOn || ''} onChange={(v) => store.updateTask(t.id, { dueOn: v })} color={dueColor(t.dueOn, t.completed)}
-        title="Due Date" style={{ fontSize: 12, fontWeight: 500 }} />
+        title="Due Date" style={{ fontSize: 12, fontWeight: 600, padding: '3px 10px', borderRadius: 12, background: dueBg, width: 'fit-content' }} />
       <CollaboratorPicker value={t.followerIds || []} people={people} onChange={(v) => store.updateTask(t.id, { followerIds: v })} />
       <select value={t.projectId || ''} onClick={(e) => e.stopPropagation()} onChange={(e) => store.updateTask(t.id, { projectId: e.target.value || null })}
         style={{ border: '1px solid transparent', borderRadius: 6, padding: '2px 4px', fontSize: 13, color: NX.dim, background: 'transparent', fontFamily: FONT, width: 'fit-content', maxWidth: '100%', cursor: 'pointer' }}>
@@ -105,7 +112,7 @@ function AddTaskRow({ people, projects, onAdd, defaults = {} }) {
   const [projectId, setProjectId] = useState(defaults.projectId || '');
   const reset = () => { setTitle(''); setDueOn(defaults.dueOn || ''); setFollowerIds([]); setProjectId(defaults.projectId || ''); setEditing(false); };
   // A task added under a group inherits that group's context (bucket due date,
-  // project, status, priority) — the row's own edits win over the defaults.
+  // project, status, priority) - the row's own edits win over the defaults.
   const commit = () => {
     if (!title.trim()) return;
     onAdd({
@@ -159,7 +166,7 @@ export default function MyTasksView() {
   // Mobile → lightweight quick-add sheet; desktop → the full form. Same context defaults either way.
   const openCreate = (defs) => (isMobile ? setQuickCreate(defs) : setCreating(defs));
 
-  // People directory for collaborator pickers (excludes me — I'm the assignee).
+  // People directory for collaborator pickers (excludes me - I'm the assignee).
   const people = useMemo(() => {
     const seen = new Map();
     for (const t of tasks) for (const em of (t.followerIds || [])) if (em && !seen.has(em)) seen.set(em, { email: em, name: nameOf(em) });
@@ -168,9 +175,21 @@ export default function MyTasksView() {
   }, [tasks, projects, myEmail, nameOf]);
 
   const filter = { ...filters, assigneeIds: myEmail ? [myEmail] : [] };
+  // My Tasks is a to-do list, so finished work is hidden by default. Asking for
+  // it explicitly (Filters -> Completed) has to win over that default, or the
+  // filter matches nothing and reads as broken. `completed` and `status` are
+  // kept in sync server-side, so the status filter alone is enough to decide.
+  // Switching tabs starts clean. A filter set in List used to follow you into
+  // Board, where the panel is out of sight, so the missing rows read as lost
+  // data rather than a filter still doing its job. Saved Views set the view and
+  // its filters together and go through onApplyView, not this.
+  const switchView = (next) => { setView(next); setFilters(EMPTY_FILTER); };
+
+  const wantsCompleted = filters.statuses.includes('completed');
   const mine = useMemo(
-    () => sortTasks(tasks.filter((t) => !t.parentTaskId && !t.completed && matchesFilter(t, filter)), sort),
-    [tasks, filters, sort, myEmail],
+    () => sortTasks(tasks.filter((t) => !t.parentTaskId && (wantsCompleted || !t.completed)
+                                        && matchesFilter(t, filter)), sort),
+    [tasks, filters, sort, myEmail, wantsCompleted],
   );
   const allMine = useMemo(() => tasks.filter((t) => !t.parentTaskId && matchesFilter(t, filter)), [tasks, filters, myEmail]);
   const ctx = { nameOf, projectName: store.projectName, teamName: store.teamName };
@@ -182,33 +201,35 @@ export default function MyTasksView() {
 
 
   return (
-    <div style={{ fontFamily: FONT, color: NX.ink, display: 'flex', flexDirection: 'column', height: '100%', background: NX.surface }}>
-      {/* Header — on a phone the avatar goes (it duplicates the one in the app
-          chrome) and the title is singular, per the reference. */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: isMobile ? '12px 12px 8px' : '18px 24px 12px', flexWrap: 'wrap' }}>
+    <div style={{ fontFamily: FONT, color: NX.ink, display: 'flex', flexDirection: 'column', height: '100%', background: NX.canvas }}>
+      {/* Header - white band over the gray canvas (same anatomy as the project
+          workspace; the agreed world is cards on canvas, never a white page). */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: isMobile ? '12px 12px 8px' : '18px 24px 12px', flexWrap: 'wrap', background: NX.surface }}>
         {!isMobile && <Avatar email={myEmail} name={nameOf(myEmail)} size={32} />}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: isMobile ? 19 : 22, fontWeight: 700 }}>
-          My Tasks <ChevronDown size={18} style={{ color: NX.faint }} />
-        </div>
+        {/* No chevron: the title never opened a menu - a decorative dropdown
+            affordance is a lie (owner flag, Jul 28) */}
+        <div style={{ fontSize: isMobile ? 19 : 22, fontWeight: 700 }}>My Tasks</div>
         {!isMobile && <button style={{ ...btn('primary'), marginLeft: 'auto' }} onClick={() => openCreate({ assigneeId: myEmail })}><Plus size={15} /> New Task</button>}
       </div>
 
       {/* Desktop: view tabs + toolbar. Mobile: replaced by the floating MobileTaskBar. */}
       {!isMobile && (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, borderBottom: `1px solid ${NX.border}`, padding: '0 24px', flexWrap: 'wrap' }}>
-        <div className="scroll-tabs" style={{ display: 'flex', alignItems: 'center', gap: 2, overflowX: 'auto' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, borderBottom: `1px solid ${NX.border}`, padding: '0 24px', flexWrap: 'wrap', background: NX.surface }}>
+        {/* Segmented view switcher - same control as the project workspace's
+            (consistency overwrite, Jul 28: no more underline tabs here) */}
+        <div className="scroll-tabs" style={{ display: 'flex', alignItems: 'center', gap: 2, background: NX.border2, borderRadius: 9, padding: 2, margin: '8px 0', overflowX: 'auto', flexShrink: 0 }}>
           {VIEW_TABS.map((tb) => (
-            <button key={tb.key} onClick={() => setView(tb.key)} style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '10px 12px', whiteSpace: 'nowrap',
-              border: 'none', background: 'transparent', cursor: 'pointer',
-              borderBottom: `2px solid ${view === tb.key ? NX.ink : 'transparent'}`, fontSize: 13, fontWeight: 600, fontFamily: FONT, color: view === tb.key ? NX.ink : NX.dim,
+            <button key={tb.key} onClick={() => switchView(tb.key)} title={tb.label} style={{
+              ...btn('ghost'), padding: '6px 10px', borderRadius: 7, whiteSpace: 'nowrap',
+              background: view === tb.key ? NX.surface : 'transparent', color: view === tb.key ? NX.ink : NX.dim,
+              boxShadow: view === tb.key ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
             }}><tb.icon size={15} /> {tb.label}</button>
           ))}
         </div>
         {view === 'list' && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', overflowX: 'visible', flexWrap: 'wrap' }}>
             <ProductivityBar filters={filters} setFilters={setFilters} sort={sort} setSort={setSort} hideAssignee current={{ view, group }} onApplyView={(v) => { if (v.group) setGroup(v.group); }} onOpenTask={setOpenId} />
-            <select value={group} onChange={(e) => setGroup(e.target.value)} style={{ ...inputStyle, width: 'auto', flexShrink: 0, cursor: 'pointer' }}>
+            <select value={group} onChange={(e) => setGroup(e.target.value)} style={{ ...inputStyle, width: 'auto', flexShrink: 0, cursor: 'pointer', height: CONTROL_H, fontSize: CONTROL_FS, padding: '0 8px' }}>
               {['date', 'status', 'priority', 'project', 'assignee', 'none'].map((g) => <option key={g} value={g}>Group: {g === 'date' ? 'Due Date' : g === 'none' ? 'None' : g[0].toUpperCase() + g.slice(1)}</option>)}
             </select>
           </div>
@@ -221,19 +242,24 @@ export default function MyTasksView() {
         {view === 'list' ? (
           <div className={isMobile ? 'nx-edge-card' : undefined} style={{ border: `1px solid ${NX.border}`, borderRadius: 12, overflow: 'hidden', background: NX.surface }}>
             {/* Fixed-width columns (Due date/Collaborators/Projects/Visibility) don't
-                shrink below their content size — scroll horizontally on narrow
+                shrink below their content size - scroll horizontally on narrow
                 viewports instead of getting clipped by the card's rounded corners. */}
             <div style={{ overflowX: 'auto' }}>
               <div style={{ minWidth: 700 }}>
-                <div style={{ display: 'grid', gridTemplateColumns: COLS, gap: 8, padding: '8px 16px', borderBottom: `1px solid ${NX.border}`, background: NX.surface2, fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: NX.faint }}>
+                <div style={{ display: 'grid', gridTemplateColumns: COLS, gap: 8, padding: '8px 16px', borderBottom: `1px solid ${NX.border}`, background: NX.surface2, fontSize: 12.5, fontWeight: 600, color: NX.dim }}>
                   <div>Name</div><div>Due Date</div><div>Collaborators</div><div>Projects</div><div>Task Visibility</div>
                 </div>
                 {groups.map((g) => {
                   const gc = g.color || colorForKey(g.key);
                   return (
-                    <div key={g.key} style={{ borderLeft: `4px solid ${gc}` }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderBottom: `1px solid ${NX.border2}`, fontSize: 13, fontWeight: 700, color: gc }}>
-                        <ChevronDown size={14} /> {g.label} <span style={{ color: NX.faint, fontWeight: 600, fontSize: 12 }}>{g.tasks.length} item{g.tasks.length !== 1 ? 's' : ''}</span>
+                    /* Group header = a tinted full-width band (kit grammar) so
+                       groups read at a glance against white task rows - the
+                       color rides a quiet dot, never rails or colored text. */
+                    <div key={g.key}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 16px', background: NX.surface2, borderBottom: `1px solid ${NX.border2}`, fontSize: 13.5, fontWeight: 700, color: NX.ink }}>
+                        <ChevronDown size={14} style={{ color: NX.faint }} />
+                        <span style={{ width: 9, height: 9, borderRadius: 3, background: gc, flexShrink: 0 }} />
+                        {g.label} <span style={{ color: NX.faint, fontWeight: 600, fontSize: 12 }}>{g.tasks.length} item{g.tasks.length !== 1 ? 's' : ''}</span>
                       </div>
                       {g.tasks.map((t) => <TaskRow key={t.id} t={t} people={people} projects={projects} store={store} onOpen={setOpenId} />)}
                       <AddTaskRow key={`add-${group}-${g.key}`} people={people} projects={projects} onAdd={addTask} defaults={groupAddDefaults(group, g.key)} />
@@ -261,7 +287,7 @@ export default function MyTasksView() {
 
       {isMobile && (
         <MobileTaskBar
-          views={VIEW_TABS} view={view} setView={setView}
+          views={VIEW_TABS} view={view} setView={switchView}
           onCreate={() => openCreate({ assigneeId: myEmail })}
           filterSheet={(onClose) => (
             <MobileFilters

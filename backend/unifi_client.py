@@ -22,7 +22,7 @@ async def unifi_get(path: str):
     if r.status_code == 401:
         raise HTTPException(401, "Invalid UniFi API key")
     if r.status_code == 403:
-        raise HTTPException(403, "Forbidden — check UniFi API key permissions")
+        raise HTTPException(403, "Forbidden - check UniFi API key permissions")
     if not r.is_success:
         raise HTTPException(r.status_code, r.text)
     return r.json()

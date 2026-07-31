@@ -31,7 +31,7 @@ function daysInMonth(year, monthIndex) {
   return new Date(Date.UTC(year, monthIndex + 1, 0)).getUTCDate()
 }
 
-// Generates the account-wide daily totals only — these aren't the GA4
+// Generates the account-wide daily totals only - these aren't the GA4
 // response yet. Session/lead/move-in totals get sliced by channel and
 // property into a mock GA4 report below; NPS is a survey metric (e.g. from
 // a tool like Delighted), not something Google's API provides, so it stays
@@ -85,7 +85,7 @@ const baseDaily = [
   ...generateMonth(2025, 5, JUNE, 1200),
 ]
 
-// Channel mix — matches GA4's default channel grouping for this account.
+// Channel mix - matches GA4's default channel grouping for this account.
 const CHANNEL_SHARES = [
   { name: 'Google Ads', share: 169 / 356 },
   { name: 'Direct', share: 98 / 356 },
@@ -104,7 +104,7 @@ const PROPERTY_MOVE_IN_SHARES = FACILITIES.map((name, i) => ({ name, share: PROP
 
 // These two functions stand in for the real GA4 Data API calls
 // (properties.runReport). Swap their bodies for actual fetches and nothing
-// downstream needs to change — parseSessionsReport/parseEventsReport already
+// downstream needs to change - parseSessionsReport/parseEventsReport already
 // know how to read that exact response shape.
 function fetchSessionsReport() {
   return buildSessionsReport(

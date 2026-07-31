@@ -1,16 +1,16 @@
-"""Credential Vault — company + personal password vault (ported from the
+"""Credential Vault - company + personal password vault (ported from the
 standalone credential-vault-dev app, Jul 2026).
 
 Security model:
 - Whole router sits behind the "credvault" module grant (admins bypass).
 - Secrets are Fernet-encrypted at rest with NEXUS_VAULT_KEY (falls back to a
-  clearly-marked dev-only derived key when unset — set the env var on Azure).
+  clearly-marked dev-only derived key when unset - set the env var on Azure).
 - List endpoints NEVER return secrets; only the explicit per-item reveal
   endpoints do, and every reveal/copy is written to vault_access_logs.
 - Critical-tier credentials: non-admin reveal creates an approval request for
   Global Admins instead of returning the secret.
 - Company credentials are edited/deleted only by their owner or backup owner.
-- Personal credentials are strictly owner-scoped — no admin bypass.
+- Personal credentials are strictly owner-scoped - no admin bypass.
 - Secret values are never logged (only names/metadata reach logs/notifications).
 """
 import base64
@@ -45,12 +45,12 @@ if _VAULT_KEY:
     _fernet = Fernet(_VAULT_KEY.encode())
 else:
     # DEV-ONLY fallback so local SQLite dev works out of the box. On Azure, set
-    # NEXUS_VAULT_KEY (Fernet.generate_key()) — secrets encrypted with this
+    # NEXUS_VAULT_KEY (Fernet.generate_key()) - secrets encrypted with this
     # fallback are NOT protected by a real secret.
     _fernet = Fernet(base64.urlsafe_b64encode(
         hashlib.sha256(b"nexus-credvault-DEV-ONLY-key-set-NEXUS_VAULT_KEY").digest()
     ))
-    print("[credvault] WARNING: NEXUS_VAULT_KEY not set — using dev-only fallback key")
+    print("[credvault] WARNING: NEXUS_VAULT_KEY not set - using dev-only fallback key")
 
 
 def _enc(secret: str) -> str:
@@ -151,7 +151,7 @@ def _log(db: Session, user: dict, action: str, cred_name: str, dept: str = "",
 def _notify(db: Session, *, type: str, recipient: str, title: str, body: str,
             ref_id: str = "") -> None:
     """Server-side bell notification (mirrors items.py). Empty recipient
-    broadcasts to all managers — used for credential-change announcements."""
+    broadcasts to all managers - used for credential-change announcements."""
     db.add(models.NexusNotification(
         id=str(uuid.uuid4()),
         type=type,
@@ -218,7 +218,7 @@ class CredentialIn(BaseModel):
 
 @router.get("/credentials")
 def list_credentials(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    """All credentials, metadata only — secrets never leave the reveal endpoints.
+    """All credentials, metadata only - secrets never leave the reveal endpoints.
     Includes soft-deleted rows (the frontend splits them into the Trash tab)."""
     rows = db.query(models.VaultCredential).all()
     hash_counts: dict = {}
@@ -252,7 +252,7 @@ def create_credential(body: CredentialIn, user: dict = Depends(get_current_user)
         name=body.name.strip(),
         dept=body.dept.strip(),
         type=body.type if body.type in TYPES else "Password",
-        username=body.username.strip() or "—",
+        username=body.username.strip() or "-",
         url=body.url.strip(),
         secret_enc=_enc(body.secret),
         secret_hash=_hash(body.secret),
@@ -288,7 +288,7 @@ def update_credential(cred_id: str, body: CredentialIn,
         changed.append({"field": "Name", "from": c.name, "to": body.name})
         c.name = body.name
     if body.dept and body.dept != c.dept:
-        changed.append({"field": "Department", "from": c.dept or "—", "to": body.dept})
+        changed.append({"field": "Department", "from": c.dept or "-", "to": body.dept})
         c.dept = body.dept
     if body.type != c.type and body.type in TYPES:
         changed.append({"field": "Type", "from": c.type, "to": body.type})
@@ -298,7 +298,7 @@ def update_credential(cred_id: str, body: CredentialIn,
         c.username = body.username
     new_backup = (body.backupOwner or "").lower().strip()
     if new_backup != (c.backup_owner_email or ""):
-        changed.append({"field": "Backup owner", "from": c.backup_owner_email or "—", "to": new_backup or "—"})
+        changed.append({"field": "Backup owner", "from": c.backup_owner_email or "-", "to": new_backup or "-"})
         c.backup_owner_email = new_backup
     c.url = (body.url or "").strip()
     c.rotation_max = body.rotationMax or c.rotation_max or 90
@@ -352,7 +352,7 @@ def bulk_delete(body: BulkIds, user: dict = Depends(get_current_user), db: Sessi
             count += 1
     if count:
         label = f"{count} credential{'' if count == 1 else 's'}"
-        _log(db, user, "Removed", label, "—")
+        _log(db, user, "Removed", label, "-")
         _notify(db, type="vault_change", recipient="",
                 title="Credential Vault",
                 body=f"{label} removed by {_display_name(user['email'], db)}.")
@@ -408,7 +408,7 @@ def reveal_credential(cred_id: str, user: dict = Depends(get_current_user),
         db.add(req)
         _log(db, user, "Requested", c.name, c.dept, c.id)
         _notify(db, type="vault_access", recipient="",
-                title="Credential Vault — access request",
+                title="Credential Vault - access request",
                 body=f"{_display_name(user['email'], db)} requested access to {c.name} ({c.dept}).",
                 ref_id=c.id)
         db.commit()
@@ -445,7 +445,7 @@ def import_credentials(body: ImportIn, user: dict = Depends(get_current_user), d
             name=name,
             dept=(r.get("department") or "").strip(),
             type=r.get("type") if r.get("type") in TYPES else "Password",
-            username=(r.get("username") or "—").strip(),
+            username=(r.get("username") or "-").strip(),
             secret_enc=_enc(secret),
             secret_hash=_hash(secret),
             tier=r.get("tier") if r.get("tier") in TIERS else "Standard",
@@ -457,7 +457,7 @@ def import_credentials(body: ImportIn, user: dict = Depends(get_current_user), d
         ))
         created += 1
     if created:
-        _log(db, user, "Imported", f"{created} credentials", "—")
+        _log(db, user, "Imported", f"{created} credentials", "-")
         _notify(db, type="vault_change", recipient="",
                 title="Credential Vault",
                 body=f"{created} credentials were imported by {_display_name(user['email'], db)}.")
@@ -490,7 +490,7 @@ def share_credential(cred_id: str, body: ShareIn,
         ))
         _log(db, user, "Shared", c.name, c.dept, c.id)
         _notify(db, type="vault_access", recipient=recipient,
-                title="Credential Vault — access granted",
+                title="Credential Vault - access granted",
                 body=f"{_display_name(user['email'], db)} shared {c.name} with you for {body.durationLabel}. Open the Credential Vault to view it.",
                 ref_id=c.id)
         db.commit()
@@ -503,7 +503,7 @@ def share_credential(cred_id: str, body: ShareIn,
         status="pending", created_at=_now(),
     ))
     _notify(db, type="vault_access", recipient=(c.owner_email or "").lower(),
-            title="Credential Vault — share request",
+            title="Credential Vault - share request",
             body=f"{_display_name(user['email'], db)} wants to share {c.name} with {recipient} ({body.durationLabel}).",
             ref_id=c.id)
     db.commit()
@@ -525,7 +525,7 @@ def list_requests(user: dict = Depends(get_current_user), db: Session = Depends(
         c = creds.get(r.cred_id)
         out.append({
             "id": r.id, "credId": r.cred_id, "cred": c.name if c else "(deleted)",
-            "dept": c.dept if c else "—",
+            "dept": c.dept if c else "-",
             "requestedBy": _display_name(r.requested_by_email, db),
             "requestedByEmail": r.requested_by_email,
             "sharedToEmail": r.shared_to_email,
@@ -563,7 +563,7 @@ def approve_request(req_id: str, user: dict = Depends(get_current_user), db: Ses
     r.decided_by = user["email"]
     _log(db, user, "Shared", c.name, c.dept, c.id)
     _notify(db, type="vault_access", recipient=recipient,
-            title="Credential Vault — access approved",
+            title="Credential Vault - access approved",
             body=f"{_display_name(user['email'], db)} approved {r.duration_label or 'temporary'} access to {c.name}. Open the Credential Vault to view it.",
             ref_id=c.id)
     db.commit()
@@ -577,14 +577,14 @@ def deny_request(req_id: str, user: dict = Depends(get_current_user), db: Sessio
     r.status = "denied"
     r.decided_at = _now()
     r.decided_by = user["email"]
-    _log(db, user, "Denied", c.name if c else "(deleted)", c.dept if c else "—", r.cred_id)
+    _log(db, user, "Denied", c.name if c else "(deleted)", c.dept if c else "-", r.cred_id)
     db.commit()
     return {"ok": True}
 
 
 @router.get("/grants")
 def list_grants(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Active grants shared TO me — metadata only; reveal is a separate call."""
+    """Active grants shared TO me - metadata only; reveal is a separate call."""
     now = _now()
     rows = (db.query(models.VaultAccessGrant)
             .filter(models.VaultAccessGrant.granted_to == user["email"],
@@ -624,12 +624,12 @@ def list_logs(user: dict = Depends(get_current_user), db: Session = Depends(get_
     return [{
         "id": r.id, "actor": r.actor_name or r.actor_email, "actorEmail": r.actor_email,
         "action": r.action, "cred": r.cred_name, "credId": r.cred_id,
-        "dept": r.dept or "—", "loc": r.loc or "", "detail": r.detail,
+        "dept": r.dept or "-", "loc": r.loc or "", "detail": r.detail,
         "ts": _ms(r.created_at),
     } for r in rows]
 
 
-# ── Personal vault (strictly owner-scoped — no admin bypass) ─────────────────
+# ── Personal vault (strictly owner-scoped - no admin bypass) ─────────────────
 class PersonalIn(BaseModel):
     name: str = ""
     username: str = ""
@@ -645,7 +645,7 @@ def list_personal(user: dict = Depends(get_current_user), db: Session = Depends(
             .order_by(models.VaultPersonalCredential.created_at.desc())
             .all())
     return [{
-        "id": r.id, "name": r.name, "username": r.username or "—",
+        "id": r.id, "name": r.name, "username": r.username or "-",
         "type": r.type or "Password", "note": r.note or "",
         "strength": r.strength or "strong", "createdAt": _ms(r.created_at),
     } for r in rows]
@@ -659,7 +659,7 @@ def create_personal(body: PersonalIn, user: dict = Depends(get_current_user), db
         id=str(uuid.uuid4()),
         owner_email=user["email"],
         name=body.name.strip(),
-        username=body.username.strip() or "—",
+        username=body.username.strip() or "-",
         type=body.type if body.type in TYPES else "Password",
         note=body.note.strip(),
         secret_enc=_enc(body.secret),
@@ -687,7 +687,7 @@ def reveal_personal(pid: str, user: dict = Depends(get_current_user),
     row = db.get(models.VaultPersonalCredential, pid)
     if not row or row.owner_email != user["email"]:
         raise HTTPException(404, "Not found")
-    # Personal reveals were previously unaudited — record them like company reveals.
+    # Personal reveals were previously unaudited - record them like company reveals.
     _log(db, user, "Revealed", row.name, "Personal", pid)
     db.commit()
     return {"secret": _dec(row.secret_enc)}

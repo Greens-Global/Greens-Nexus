@@ -20,7 +20,7 @@ export const UNASSIGNED = 'Unassigned'
 export const ALL_SOURCES = 'All Sources'
 export const SOURCES = ['Google Ads', 'Direct', 'Organic Search', 'Referral', 'Social Media', 'Google Business Profile']
 // Google Business Profile leads come from someone taking an identifying
-// action on the listing (a call or a website click-through) — see
+// action on the listing (a call or a website click-through) - see
 // reputation/profileAggregate.ts for the anonymous view/impression side of
 // that same funnel, which never includes identity.
 const SOURCE_WEIGHTS = [0.42, 0.24, 0.14, 0.05, 0.03, 0.12]
@@ -66,7 +66,7 @@ const NOTE_TEMPLATES = {
 }
 
 // A Google Business Profile lead only exists because they took an
-// identifying action on the listing — distinct from the anonymous
+// identifying action on the listing - distinct from the anonymous
 // view/impression counts shown in Reputation's Business Profile Insights.
 const GBP_NEW_NOTES = [
   'Called our number listed on the Google Business Profile.',

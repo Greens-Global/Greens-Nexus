@@ -10,7 +10,7 @@ export function CopyButton({ text }) {
     try {
       navigator.clipboard && navigator.clipboard.writeText(text || '');
     } catch (err) {
-      // clipboard API unavailable/denied — ignore
+      // clipboard API unavailable/denied - ignore
     }
     setCopied(true);
     setTimeout(() => setCopied(false), 1300);

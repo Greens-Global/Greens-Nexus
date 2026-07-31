@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { LayoutDashboard, FolderSync, Folder, MapPin, Users, Calendar, Truck, Settings, Database, Server, ShieldCheck, FolderOpen, ChevronRight, ArrowLeft, Download, RefreshCw, Upload, X } from 'lucide-react';
+import ModuleTabs from '../components/ModuleTabs';
 
 const INIT_PROJECTS = [
   { id: 1, name: 'Downtown Commercial Complex', status: 'on-track', location: 'Main Street, Downtown', members: 24, dueDate: 'Aug 15, 2026', progress: 75 },
@@ -65,16 +66,14 @@ export default function Operations({ activeSub, onSubChange }) {
 
   return (
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
-      {/* Tab Navigation */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 24, borderBottom: '1px solid var(--border-color)', paddingBottom: 1 }}>
-        {[{ key: 'ops-dashboard', label: 'Project Dashboard', Icon: LayoutDashboard }, { key: 'ops-cubby', label: 'Cubby Integration', Icon: FolderSync }].map(({ key, label, Icon }) => (
-          <button key={key} onClick={() => onSubChange(key)}
-            style={{ background: 'none', border: 'none', padding: '10px 18px', fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 600, fontSize: '0.95rem', cursor: 'pointer', color: sub === key ? 'var(--text-primary)' : 'var(--text-secondary)', position: 'relative', transition: 'color 0.15s', display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Icon size={18} /> {label}
-            {sub === key && <span style={{ position: 'absolute', bottom: -1, left: 0, right: 0, height: 2.5, backgroundColor: 'var(--text-primary)', borderRadius: '4px 4px 0 0' }} />}
-          </button>
-        ))}
-      </div>
+      {/* Tab navigation - desktop renders it centered in the top header;
+          phones keep the in-page strip (ModuleTabs handles both) */}
+      <ModuleTabs
+        tabs={[
+          { key: 'ops-dashboard', label: 'Project Dashboard', Icon: LayoutDashboard },
+          { key: 'ops-cubby',     label: 'Cubby Integration', Icon: FolderSync },
+        ]}
+        active={sub} onChange={onSubChange} />
 
       {/* Project Dashboard */}
       {sub === 'ops-dashboard' && (
@@ -235,7 +234,7 @@ export default function Operations({ activeSub, onSubChange }) {
           <div className="view-header" style={{ marginBottom: 24 }}>
             <div className="view-title-group">
               <h2>Cubby Secure Cloud Vault</h2>
-              <p>Greens Nexus internal operations blueprint repository & subcontractor plans room</p>
+              <p>Nexus internal operations blueprint repository & subcontractor plans room</p>
             </div>
             <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
               <button className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>

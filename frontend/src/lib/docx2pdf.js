@@ -9,11 +9,11 @@
 const PAGE_W = 612, PAGE_H = 792, MARGIN = 56;
 const USABLE = PAGE_W - MARGIN * 2;
 
-// pdf-lib standard fonts are WinAnsi-only — swap smart punctuation, drop the rest.
+// pdf-lib standard fonts are WinAnsi-only - swap smart punctuation, drop the rest.
 /* eslint-disable no-irregular-whitespace, no-control-regex -- winAnsi deliberately normalizes a literal NBSP and matches the full Latin-1 byte range */
 const winAnsi = (s) => String(s)
   .replace(/[‘’‚]/g, "'").replace(/[“”„]/g, '"')
-  .replace(/[–—]/g, '-').replace(/…/g, '...').replace(/ /g, ' ')
+  .replace(/[–-]/g, '-').replace(/…/g, '...').replace(/ /g, ' ')
   .replace(/[^\x00-\xFF]/g, '?');
 /* eslint-enable no-irregular-whitespace, no-control-regex */
 
@@ -21,7 +21,7 @@ export const isDocx = (fl) => !!fl && (/\.docx$/i.test(fl.name || '')
   || fl.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
 
 // Inline nodes → styled runs [{text, bold, italic}]. Nested lists/tables are
-// NOT descended into — they become their own blocks (else their text would be
+// NOT descended into - they become their own blocks (else their text would be
 // concatenated into the parent item with no separators).
 function runsOf(node, bold = false, italic = false, out = []) {
   for (const ch of node.childNodes) {
@@ -76,7 +76,7 @@ function blocksOf(body) {
         const src = el.getAttribute('src');
         if (src && src.startsWith('data:')) push({ kind: 'img', src });
       } else {
-        walk(el); // div/section wrappers — descend
+        walk(el); // div/section wrappers - descend
       }
     }
   };
@@ -200,7 +200,7 @@ export async function docxToPdf(file) {
         const emb = /png/i.test(mime) ? await doc.embedPng(bytes) : await doc.embedJpg(bytes);
         let w = Math.min(USABLE, emb.width * 0.72);
         let h = w * (emb.height / emb.width);
-        if (h > PAGE_H - MARGIN * 2) { // scale-to-fit — never draw past the page edge
+        if (h > PAGE_H - MARGIN * 2) { // scale-to-fit - never draw past the page edge
           h = PAGE_H - MARGIN * 2;
           w = h * (emb.width / emb.height);
         }

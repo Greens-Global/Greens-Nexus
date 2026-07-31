@@ -32,7 +32,7 @@ function pad2(n) {
   return String(n).padStart(2, '0')
 }
 
-// U.S.-formatted numeric date, YYYY/MM/DD — the one date format used
+// U.S.-formatted numeric date, YYYY/MM/DD - the one date format used
 // everywhere across the Marketing module (filters, charts, tables, reviews,
 // reports, and exports) so a date reads the same no matter where it shows up.
 export function formatDateFromDate(d) {
@@ -74,7 +74,7 @@ export function formatRangeLabelShort(range) {
   return `${formatDateShort(range.start)} - ${formatDateShort(range.end)}`
 }
 
-// Compact MM/YYYY range for the "vs …" helper on KPI cards — the full
+// Compact MM/YYYY range for the "vs …" helper on KPI cards - the full
 // MM/DD/YYYY range is too wide for the narrow 7-column cards, so this drops the
 // day and keeps just month/year on the card's own full-width line.
 export function formatRangeLabelMonthYear(range) {

@@ -1,11 +1,11 @@
-// Task Module — Calendar (month/week with event categories + Show filter) and
+// Task Module - Calendar (month/week with event categories + Show filter) and
 // Dashboard (KPIs, status/dept/assignee bars, completion donut, time tracking,
 // custom charts). Ported 1:1 from the export's NexusCalendarView / NexusDashboard.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, Diamond, Sliders, Check, CalendarDays, Video, Rocket, PartyPopper, Plus } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Diamond, Sliders, Check, CalendarDays, Video, Rocket, PartyPopper, Plus, CheckCircle2, Clock, AlertTriangle, ListTodo } from 'lucide-react';
 import { NX, FONT, btn, STATUS_META, STATUS_ORDER } from '../theme';
 import { taskStats } from '../lib';
-import { Card, LightBar, Donut, CustomChartsPanel } from './charts';
+import { Card, LightBar, Donut, TrendArea, CustomChartsPanel } from './charts';
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -28,7 +28,7 @@ const US_HOLIDAYS = (y) => ({
   [`${y}-12-31`]: "New Year's Eve",
 });
 
-// Fixed national holidays only — festivals on the lunar calendar (Diwali, Holi,
+// Fixed national holidays only - festivals on the lunar calendar (Diwali, Holi,
 // Eid, etc.) move every year and would need a real almanac to place correctly,
 // so they're left off rather than shown on the wrong date.
 const IN_HOLIDAYS = (y) => ({
@@ -106,7 +106,9 @@ export function CalendarView({ tasks, onOpen, onCreate }) {
     ? (() => { const s = days[0], e = days[6]; return s.getMonth() === e.getMonth() ? `${MONTHS_SHORT[s.getMonth()]} ${s.getDate()} – ${e.getDate()}, ${e.getFullYear()}` : `${MONTHS_SHORT[s.getMonth()]} ${s.getDate()} – ${MONTHS_SHORT[e.getMonth()]} ${e.getDate()}, ${e.getFullYear()}`; })()
     : `${MONTHS[cursor.getMonth()]} ${cursor.getFullYear()}`;
 
-  const seg = (active) => ({ borderRadius: 7, padding: '4px 10px', fontSize: 12, fontWeight: 600, cursor: 'pointer', border: 'none', background: active ? NX.primary : 'transparent', color: active ? '#fff' : NX.dim });
+  // Standard segmented-control option (white active pill on a gray track) -
+  // matches every other mode switch in the module.
+  const seg = (active) => ({ borderRadius: 7, padding: '5px 12px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', border: `1px solid ${active ? NX.border : 'transparent'}`, background: active ? NX.surface : 'transparent', color: active ? NX.ink : NX.dim, boxShadow: active ? '0 1px 2px rgba(0,0,0,0.08)' : 'none' });
 
   return (
     <div style={{ margin: 16, borderRadius: 16, border: `1px solid ${NX.border}`, background: NX.surface, fontFamily: FONT }}>
@@ -120,8 +122,8 @@ export function CalendarView({ tasks, onOpen, onCreate }) {
           <div ref={showRef} style={{ position: 'relative' }}>
             <button onClick={() => setShowOpen((o) => !o)} style={{ ...btn('outline'), fontSize: 12 }}><Sliders size={13} />Show</button>
             {showOpen && (
-              <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 4, width: 208, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', zIndex: 40, padding: '4px 0' }}>
-                <div style={{ padding: '4px 12px', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', color: NX.faint }}>Show on calendar</div>
+              <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 4, width: 216, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', zIndex: 40, padding: '6px 0' }}>
+                <div style={{ padding: '4px 12px 6px', fontSize: 12.5, fontWeight: 600, color: NX.dim }}>Show on calendar</div>
                 {Object.keys(KIND_META).map((k) => {
                   const { label, color, Icon } = KIND_META[k]; const on = show[k];
                   return (
@@ -132,25 +134,27 @@ export function CalendarView({ tasks, onOpen, onCreate }) {
                     </button>
                   );
                 })}
+                {/* Holiday region lives WITH the holiday toggle it modifies -
+                    not as a separate toolbar cluster (owner call, Jul 28) */}
+                {show.holiday && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 12px 6px 38px' }}>
+                    {Object.entries(HOLIDAY_REGIONS).map(([key, r]) => (
+                      <button key={key} onClick={() => setRegion(key)} style={seg(region === key)}>{r.label}</button>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>
-          {show.holiday && (
-            <div title="Holiday calendar" style={{ display: 'flex', alignItems: 'center', borderRadius: 8, border: `1px solid ${NX.border}`, padding: 2 }}>
-              {Object.entries(HOLIDAY_REGIONS).map(([key, r]) => (
-                <button key={key} onClick={() => setRegion(key)} style={seg(region === key)}>{r.label}</button>
-              ))}
-            </div>
-          )}
-          <div style={{ display: 'flex', alignItems: 'center', borderRadius: 8, border: `1px solid ${NX.border}`, padding: 2 }}>
+          <div style={{ display: 'flex', alignItems: 'center', borderRadius: 9, background: NX.border2, padding: 2, gap: 2 }}>
             <button onClick={() => setWeekly(false)} style={seg(!weekly)}>Month</button>
             <button onClick={() => setWeekly(true)} style={seg(weekly)}>Week</button>
           </div>
         </div>
       </div>
-      {/* Weekday header */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', borderBottom: `1px solid ${NX.border}` }}>
-        {WEEKDAYS.map((d) => <div key={d} style={{ padding: '8px', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: NX.faint }}>{d}</div>)}
+      {/* Weekday header - tinted band, sentence case (kit calendar grammar) */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', borderBottom: `1px solid ${NX.border}`, background: NX.surface2 }}>
+        {WEEKDAYS.map((d) => <div key={d} style={{ padding: '9px 10px', fontSize: 12.5, fontWeight: 600, color: NX.dim }}>{d}</div>)}
       </div>
       {/* Day grid */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)' }}>
@@ -161,7 +165,7 @@ export function CalendarView({ tasks, onOpen, onCreate }) {
           const cap = weekly ? 8 : 3;
           return (
             <div key={iso} onMouseEnter={() => setHoverDay(iso)} onMouseLeave={() => setHoverDay((h) => (h === iso ? null : h))}
-              style={{ borderBottom: `1px solid ${NX.border}`, borderRight: `1px solid ${NX.border}`, padding: 6, minHeight: weekly ? 320 : 104, background: inMonth ? NX.surface : NX.surface2, opacity: inMonth ? 1 : 0.6 }}>
+              style={{ borderBottom: `1px solid ${NX.border2}`, borderRight: `1px solid ${NX.border2}`, padding: 6, minHeight: weekly ? 320 : 104, background: inMonth ? NX.surface : NX.surface2, opacity: inMonth ? 1 : 0.6 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <span style={{ display: 'inline-flex', width: 24, height: 24, alignItems: 'center', justifyContent: 'center', borderRadius: '50%', fontSize: 11, fontWeight: 600, background: iso === todayIso ? NX.primary : 'transparent', color: iso === todayIso ? '#fff' : NX.dim }}>{d.getDate()}</span>
                 {onCreate && inMonth && hoverDay === iso && (
@@ -204,34 +208,50 @@ export function DashboardView({ tasks, stats: pre, store, scopeKey = 'workspace'
   const totalAct = tasks.reduce((n, t) => n + (t.actualHours ?? 0), 0);
   const variance = totalAct - totalEst;
 
-  const kpi = (label, value, color) => (
-    <div style={{ borderRadius: 16, border: `1px solid ${NX.border}`, background: NX.surface, padding: 20 }}>
-      <div style={{ fontSize: 13, fontWeight: 600, color: NX.dim }}>{label}</div>
-      <div style={{ marginTop: 12, fontSize: 34, fontWeight: 700, lineHeight: 1, color }}>{value}</div>
+  // Completions over the trailing 14 days - feeds the trend area chart.
+  const trend = useMemo(() => {
+    const out = [];
+    for (let i = 13; i >= 0; i--) {
+      const d = new Date(); d.setDate(d.getDate() - i);
+      const iso = toISO(d);
+      out.push({ label: `${MONTHS_SHORT[d.getMonth()]} ${d.getDate()}`, n: tasks.filter((t) => t.completed && (t.completedAt || '').slice(0, 10) === iso).length });
+    }
+    return out;
+  }, [tasks]);
+
+  // Kit KPI tile: colored icon chip carries the meaning; the numeral stays ink.
+  const kpi = (label, value, color, Icon) => (
+    <div style={{ borderRadius: 16, border: `1px solid ${NX.border}`, background: NX.surface, padding: '16px 18px', display: 'flex', alignItems: 'center', gap: 14 }}>
+      <span style={{ width: 42, height: 42, borderRadius: 13, background: `${color}1a`, color, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Icon size={19} /></span>
+      <span style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+        <span style={{ fontSize: 13, fontWeight: 500, color: NX.dim }}>{label}</span>
+        <span style={{ fontSize: 26, fontWeight: 700, lineHeight: 1, color: NX.ink, fontVariantNumeric: 'tabular-nums' }}>{value}</span>
+      </span>
     </div>
   );
 
   return (
     <div style={{ padding: 16, fontFamily: FONT, display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 16 }}>
-        {kpi('Completed', stats.completed, NX.green)}
-        {kpi('In progress', stats.inProgress, NX.blue)}
-        {kpi('Overdue', stats.overdue, NX.red)}
-        {kpi('Total', stats.total, NX.ink)}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 16 }}>
+        {kpi('Completed', stats.completed, NX.green, CheckCircle2)}
+        {kpi('In progress', stats.inProgress, NX.blue, Clock)}
+        {kpi('Overdue', stats.overdue, NX.red, AlertTriangle)}
+        {kpi('Total', stats.total, NX.primary, ListTodo)}
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(320px, 100%), 1fr))', gap: 16 }}>
-        <Card title="Tasks by Status"><LightBar data={byStatus} /></Card>
-        <Card title="Completion Status"><Donut total={stats.total} segments={[{ label: 'Completed', value: stats.completed, color: NX.green }, { label: 'Incomplete', value: stats.total - stats.completed, color: NX.purple }]} /></Card>
-        <Card title="Tasks by Team"><LightBar data={byTeam} /></Card>
-        <Card title="Tasks by Assignee"><LightBar data={byAssignee} /></Card>
+        <Card title="Completions - last 14 days"><TrendArea buckets={trend} color={NX.green} ariaLabel="Tasks completed per day, last 14 days" /></Card>
+        <Card title="Tasks by status"><LightBar data={byStatus} /></Card>
+        <Card title="Completion"><Donut total={stats.total} segments={[{ label: 'Completed', value: stats.completed, color: NX.green }, { label: 'Remaining', value: stats.total - stats.completed, color: '#d5d9e2' }]} /></Card>
+        <Card title="Tasks by team"><LightBar data={byTeam} /></Card>
+        <Card title="Tasks by assignee"><LightBar data={byAssignee} /></Card>
       </div>
 
-      <Card title="Time Tracking — Estimate vs Actual">
+      <Card title="Time tracking - estimate vs actual">
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
-          <div><div style={{ fontSize: 12, color: NX.dim }}>Estimated</div><div style={{ fontSize: 28, fontWeight: 700, color: NX.ink }}>{totalEst}h</div></div>
-          <div><div style={{ fontSize: 12, color: NX.dim }}>Actual</div><div style={{ fontSize: 28, fontWeight: 700, color: NX.blue }}>{totalAct}h</div></div>
-          <div><div style={{ fontSize: 12, color: NX.dim }}>Variance</div><div style={{ fontSize: 28, fontWeight: 700, color: variance > 0 ? NX.red : NX.green }}>{variance >= 0 ? '+' : ''}{variance.toFixed(1)}h</div></div>
+          <div><div style={{ fontSize: 12.5, color: NX.dim }}>Estimated</div><div style={{ fontSize: 28, fontWeight: 700, color: NX.ink, fontVariantNumeric: 'tabular-nums' }}>{totalEst}h</div></div>
+          <div><div style={{ fontSize: 12.5, color: NX.dim }}>Actual</div><div style={{ fontSize: 28, fontWeight: 700, color: NX.ink, fontVariantNumeric: 'tabular-nums' }}>{totalAct}h</div></div>
+          <div><div style={{ fontSize: 12.5, color: NX.dim }}>Variance</div><div style={{ fontSize: 28, fontWeight: 700, color: variance > 0 ? NX.red : NX.green, fontVariantNumeric: 'tabular-nums' }}>{variance >= 0 ? '+' : ''}{variance.toFixed(1)}h</div></div>
         </div>
       </Card>
 

@@ -1,4 +1,4 @@
-// Asset export — CSV (flat "Section / Group / Field / Value" dump of everything related to an
+// Asset export - CSV (flat "Section / Group / Field / Value" dump of everything related to an
 // asset) and a print-ready PDF/HTML report (property-oriented one-pager: status & alerts, key
 // spec sheets, and tables for warranties/inspections/documents/AHJ/utilities/vendors).
 //
@@ -38,7 +38,7 @@ export function nexusCsvParse(text) {
     } else if (c === '\n') {
       row.push(cur); rows.push(row); row = []; cur = '';
     } else if (c === '\r') {
-      // ignore — paired \n (if any) handles the row break
+      // ignore - paired \n (if any) handles the row break
     } else {
       cur += c;
     }
@@ -113,11 +113,11 @@ export function exportAssetCsv(asset, store) {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
     if (typeof window !== 'undefined' && window.__pushToast) window.__pushToast('CSV exported', 'ok');
   } catch (e) {
-    // Swallow — e.g. Blob/URL unsupported in this environment.
+    // Swallow - e.g. Blob/URL unsupported in this environment.
   }
 }
 
-// Alias kept for callers that expect an "AsFile" name (e.g. App.jsx's ExportMenu wiring) —
+// Alias kept for callers that expect an "AsFile" name (e.g. App.jsx's ExportMenu wiring) -
 // identical behavior to exportAssetCsv, just a friendlier name at that call site.
 export const exportAssetCsvAsFile = exportAssetCsv;
 
@@ -131,12 +131,12 @@ function escHtml(v) {
 /** Escaped value, or an em dash for empty/nullish. */
 function escOrDash(v) {
   const s = (v ?? '') === '' ? '' : String(v);
-  return s ? escHtml(s) : '—';
+  return s ? escHtml(s) : '-';
 }
 
 /** Format + escape a date, or an em dash. */
 function escDate(v) {
-  return v ? escHtml(formatDate(v)) : '—';
+  return v ? escHtml(formatDate(v)) : '-';
 }
 
 /**
@@ -188,13 +188,13 @@ function formatCounty(v) {
   return /county$/i.test(s) ? s : s + ' County';
 }
 
-/** devStage free text -> coarse Active / Under Dev / — classification, for the report's status tile. */
+/** devStage free text -> coarse Active / Under Dev / - classification, for the report's status tile. */
 function devStageClass(devStage) {
   const s = (devStage || '').toLowerCase();
-  if (!s) return '—';
+  if (!s) return '-';
   if (/(built|in[\s-]?use|open|developed|stabili|operat|complete|occupied|finaled)/.test(s)) return 'Active';
   if (/(feasib|entitl|permit|construction|planning|grading|design)/.test(s)) return 'Under Dev';
-  return '—';
+  return '-';
 }
 
 /**
@@ -202,7 +202,7 @@ function devStageClass(devStage) {
  * key spec sheets, related-property rollup for assemblages, and tables for warranties,
  * inspections, documents, AHJ, utilities, vendors) and trigger the browser print dialog.
  *
- * Note: this report is real-estate-oriented (NRSF, unit mix, zoning, CO, property tax) — it does
+ * Note: this report is real-estate-oriented (NRSF, unit mix, zoning, CO, property tax) - it does
  * not currently branch for vehicle/equipment assets. The CSV export (exportAssetCsv) is the
  * universal one that covers every asset kind and every collection.
  */
@@ -227,23 +227,23 @@ export function exportAssetPdf(asset, store) {
   else if (insDays != null && insDays <= 90) alerts.push(['amber', `Insurance expires in ${insDays}d (${escHtml(asset.insCarrier || 'carrier')})`]);
   recordsOf('inspections').forEach((r) => {
     const d = daysUntil(r.nextDue);
-    if (d != null && d < 0) alerts.push(['red', `Inspection overdue ${Math.abs(d)}d — ${escHtml(r.type)}`]);
-    else if (d != null && d <= 30) alerts.push(['amber', `Inspection due in ${d}d — ${escHtml(r.type)}`]);
+    if (d != null && d < 0) alerts.push(['red', `Inspection overdue ${Math.abs(d)}d - ${escHtml(r.type)}`]);
+    else if (d != null && d <= 30) alerts.push(['amber', `Inspection due in ${d}d - ${escHtml(r.type)}`]);
   });
   recordsOf('warranties').forEach((r) => {
     const d = daysUntil(r.expiration);
-    if (d != null && d >= 0 && d <= 90) alerts.push(['amber', `Warranty expires in ${d}d — ${escHtml(r.scope)}`]);
+    if (d != null && d >= 0 && d <= 90) alerts.push(['amber', `Warranty expires in ${d}d - ${escHtml(r.scope)}`]);
   });
   recordsOf('vendors').forEach((r) => {
-    if (!r.coiExpiration) alerts.push(['amber', `Vendor COI missing — ${escHtml(r.company)}`]);
+    if (!r.coiExpiration) alerts.push(['amber', `Vendor COI missing - ${escHtml(r.company)}`]);
     else {
       const d = daysUntil(r.coiExpiration);
-      if (d != null && d < 0) alerts.push(['red', `Vendor COI lapsed ${Math.abs(d)}d — ${escHtml(r.company)}`]);
+      if (d != null && d < 0) alerts.push(['red', `Vendor COI lapsed ${Math.abs(d)}d - ${escHtml(r.company)}`]);
     }
   });
   const alertsHtml = alerts.length
     ? `<div class="alerts">${alerts.slice(0, 10).map(([tone, msg]) => `<div class="alert ${tone}">${msg}</div>`).join('')}</div>`
-    : `<div class="alerts"><div class="alert green">All current — no open compliance items.</div></div>`;
+    : `<div class="alerts"><div class="alert green">All current - no open compliance items.</div></div>`;
 
   // Small helpers for the report's key/value cards and data tables.
   const kvTable = (pairs) => `<table class="kv"><tbody>${pairs.map(([label, value, mono]) =>
@@ -255,7 +255,7 @@ export function exportAssetPdf(asset, store) {
 
   // Status chip for a table row: 'w' = warranty-style, 'i' = inspection-style, else renewal-style.
   const statusChip = (kind, days) => {
-    if (days == null) return `<span class="chip mut">—</span>`;
+    if (days == null) return `<span class="chip mut">-</span>`;
     if (kind === 'w') return days < 0 ? `<span class="chip mut">Expired</span>` : days <= 90 ? `<span class="chip amber">${days}d</span>` : `<span class="chip green">Active</span>`;
     if (kind === 'i') return days < 0 ? `<span class="chip red">Overdue ${Math.abs(days)}d</span>` : days <= 30 ? `<span class="chip amber">${days}d</span>` : `<span class="chip green">Current</span>`;
     return days < 0 ? `<span class="chip red">Lapsed</span>` : days <= 60 ? `<span class="chip amber">${days}d</span>` : `<span class="chip green">Current</span>`;
@@ -280,7 +280,7 @@ export function exportAssetPdf(asset, store) {
 
   const statusClass = devStageClass(asset.devStage);
 
-  const html = `<!doctype html><html><head><meta charset="utf-8"><title>${escHtml(asset.name)} — Asset Report</title><style>
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>${escHtml(asset.name)} - Asset Report</title><style>
 @page{size:A4;margin:14mm 13mm 16mm}
 *{box-sizing:border-box}body{font-family:'Inter',system-ui,Arial,sans-serif;color:#0f172a;margin:0;font-size:11.5px;line-height:1.45}
 .band{background:#0f172a;color:#fff;padding:16px 18px;border-radius:10px;display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:14px}
@@ -305,11 +305,11 @@ table.data td{padding:6px 8px;border-bottom:1px solid #f4f6f9;vertical-align:top
 .foot{margin-top:18px;padding-top:9px;border-top:1px solid #e5e7eb;font-size:9px;color:#94a3b8;display:flex;justify-content:space-between}
 section{break-inside:avoid}
 </style></head><body>
-<div class="band"><div><h1>${escHtml(asset.name)}</h1><div class="sub">${escHtml(formatAddress(asset))}${asset.county ? ` · ${escHtml(formatCounty(asset.county))}` : ''} · APN ${escHtml(asset.apn || '—')}</div></div>
+<div class="band"><div><h1>${escHtml(asset.name)}</h1><div class="sub">${escHtml(formatAddress(asset))}${asset.county ? ` · ${escHtml(formatCounty(asset.county))}` : ''} · APN ${escHtml(asset.apn || '-')}</div></div>
 <div class="r"><b>GREENS</b><br>Asset Report<br>${escHtml(new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }))}<br>by ${escHtml(currentUser())}</div></div>
 
 <div class="metrics">
-${metricTile(formatNumber(asset.nrsf), 'NRSF')}${metricTile(toNumber(asset.unitsTotal) ? formatNumber(asset.unitsTotal) : '—', 'Units')}${metricTile(acresOf(asset.acreage, asset.acreageUnit) ? acresOf(asset.acreage, asset.acreageUnit).toFixed(2) + ' ac' : '—', 'Acreage')}${metricTile(escOrDash(asset.yearBuilt), 'Year built')}${metricTile(groupMembers.length > 1 ? groupMembers.length : '—', 'Linked')}${metricTile(statusClass, 'Status')}
+${metricTile(formatNumber(asset.nrsf), 'NRSF')}${metricTile(toNumber(asset.unitsTotal) ? formatNumber(asset.unitsTotal) : '-', 'Units')}${metricTile(acresOf(asset.acreage, asset.acreageUnit) ? acresOf(asset.acreage, asset.acreageUnit).toFixed(2) + ' ac' : '-', 'Acreage')}${metricTile(escOrDash(asset.yearBuilt), 'Year built')}${metricTile(groupMembers.length > 1 ? groupMembers.length : '-', 'Linked')}${metricTile(statusClass, 'Status')}
 </div>
 
 <h2>Status &amp; alerts</h2>
@@ -321,10 +321,10 @@ ${card(3, 'Placed in service', kvTable([['Placed-in-service', formatDate(asset.p
 ${card(4, 'Unit mix', kvTable([['Non-climate', asset.unitsNonClimate ? formatNumber(asset.unitsNonClimate) : ''], ['Climate-controlled', asset.unitsClimate ? formatNumber(asset.unitsClimate) : ''], ['Vehicle', asset.unitsRV ? formatNumber(asset.unitsRV) : ''], ['Total units', asset.unitsTotal ? formatNumber(asset.unitsTotal) : '']]))}
 ${card(5, 'Insurance', kvTable([['Carrier', asset.insCarrier, false], ['Policy #', asset.insPolicy], ['Expiration', formatDate(asset.insExpiration)], ['Agent / broker', [asset.insAgent, asset.insPhone].filter(Boolean).join(' · '), false]]))}
 ${card(6, 'Property tax', kvTable([['Tax account', asset.taxId], ['Annual tax', asset.taxAnnual ? formatMoney(asset.taxAnnual) : ''], ['Due dates', asset.taxDue, false]]))}
-${groupMembers.length > 1 ? `<section class="card"><div class="card-h"><span>Related properties — ${escHtml(asset.siteName)}</span></div>
+${groupMembers.length > 1 ? `<section class="card"><div class="card-h"><span>Related properties - ${escHtml(asset.siteName)}</span></div>
 <table class="data"><thead><tr><th>Property</th><th>APN</th><th>NRSF</th><th>Units</th><th>Acres</th></tr></thead><tbody>
-${groupMembers.map((p) => `<tr><td>${escHtml(p.name)}${p.id === asset.id ? ' (this property)' : ''}</td><td class="mono">${escOrDash(p.apn)}</td><td class="mono">${formatNumber(p.nrsf)}</td><td class="mono">${toNumber(p.unitsTotal) ? formatNumber(p.unitsTotal) : '—'}</td><td class="mono">${acresOf(p.acreage, p.acreageUnit) ? acresOf(p.acreage, p.acreageUnit).toFixed(2) : '—'}</td></tr>`).join('')}
-<tr style="font-weight:700;background:#f8fafc"><td>Combined</td><td>—</td><td class="mono">${formatNumber(totals.nrsf)}</td><td class="mono">${formatNumber(totals.units)}</td><td class="mono">${totals.ac.toFixed(2)}</td></tr>
+${groupMembers.map((p) => `<tr><td>${escHtml(p.name)}${p.id === asset.id ? ' (this property)' : ''}</td><td class="mono">${escOrDash(p.apn)}</td><td class="mono">${formatNumber(p.nrsf)}</td><td class="mono">${toNumber(p.unitsTotal) ? formatNumber(p.unitsTotal) : '-'}</td><td class="mono">${acresOf(p.acreage, p.acreageUnit) ? acresOf(p.acreage, p.acreageUnit).toFixed(2) : '-'}</td></tr>`).join('')}
+<tr style="font-weight:700;background:#f8fafc"><td>Combined</td><td>-</td><td class="mono">${formatNumber(totals.nrsf)}</td><td class="mono">${formatNumber(totals.units)}</td><td class="mono">${totals.ac.toFixed(2)}</td></tr>
 </tbody></table></section>` : ''}
 
 ${(() => { const t = dataTable('warranties', [['scope', 'Scope'], ['party', 'Party / contractor'], ['kind', 'Type'], ['expiration', 'Expires', 'date']], 'expiration', 'w'); return t ? `<h2>Warranties</h2>${t}` : ''; })()}
@@ -334,7 +334,7 @@ ${(() => { const t = dataTable('ahj', [['authority', 'Authority'], ['jurisdictio
 ${(() => { const t = dataTable('utilities', [['service', 'Service'], ['provider', 'Provider'], ['accountNumber', 'Account #'], ['meterNumber', 'Meter'], ['avgMonthly', 'Avg / mo']]); return t ? `<h2>Utilities</h2>${t}` : ''; })()}
 ${(() => { const t = dataTable('vendors', [['company', 'Vendor'], ['category', 'Category'], ['contractEnd', 'Contract end', 'date'], ['coiExpiration', 'COI', 'date']], 'coiExpiration', 'r'); return t ? `<h2>Vendors</h2>${t}` : ''; })()}
 
-<div style="margin-top:16px;padding:10px 12px;border:1px solid #e5e7eb;border-radius:8px;background:#f8fafc;font-size:8.5px;line-height:1.55;color:#475569"><strong style="color:#0f172a">CONFIDENTIAL</strong> — This document and the information contained herein are the confidential and proprietary property of Greens Global, Inc.${asset.entity ? ' and ' + escHtml(asset.entity) : ''}, prepared solely for internal asset-management purposes and authorized recipients. Any review, reproduction, distribution, or disclosure without the prior written consent of Greens Global, Inc. is strictly prohibited.</div><div class="foot"><span>Confidential — Greens Global, Inc. · Asset Management</span><span>Generated ${escHtml(new Date().toLocaleString())} · ${escHtml(currentUser())}</span></div>
+<div style="margin-top:16px;padding:10px 12px;border:1px solid #e5e7eb;border-radius:8px;background:#f8fafc;font-size:8.5px;line-height:1.55;color:#475569"><strong style="color:#0f172a">CONFIDENTIAL</strong> - This document and the information contained herein are the confidential and proprietary property of the company${asset.entity ? ' and ' + escHtml(asset.entity) : ''}, prepared solely for internal asset-management purposes and authorized recipients. Any review, reproduction, distribution, or disclosure without prior written consent is strictly prohibited.</div><div class="foot"><span>Confidential · Asset Management</span><span>Generated ${escHtml(new Date().toLocaleString())} · ${escHtml(currentUser())}</span></div>
 <script>window.onload=function(){setTimeout(function(){window.print()},350)}<${'/'}script></body></html>`;
 
   const win = window.open('', '_blank');

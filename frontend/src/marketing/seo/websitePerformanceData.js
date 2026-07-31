@@ -1,4 +1,4 @@
-// Field-data snapshot (site-wide, all pages) — thresholds match Google's
+// Field-data snapshot (site-wide, all pages) - thresholds match Google's
 // published Core Web Vitals rating bands.
 export const coreWebVitals = [
   { key: 'lcp', label: 'Largest Contentful Paint', value: 2.8, unit: 's', rating: 'Needs Improvement' },

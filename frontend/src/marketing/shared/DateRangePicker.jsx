@@ -10,7 +10,7 @@ const presets = [
   { label: 'Last Month', get: () => lastMonth() },
 ]
 
-// The filter always displays and accepts dates as YYYY/MM/DD — native
+// The filter always displays and accepts dates as YYYY/MM/DD - native
 // `<input type="date">` renders in whatever format the browser/OS locale
 // dictates, which can't be forced to a specific format, so custom range
 // entry uses a plain text field instead.

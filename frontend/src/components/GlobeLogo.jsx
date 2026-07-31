@@ -23,10 +23,10 @@ function rotX(p, a) {
 }
 
 /**
- * size        — canvas px (default 220, use 38 for sidebar)
- * borderRadius — CSS value (default "50%", use "10px" for sidebar)
- * interactive  — whether mouse tilt is applied (default true)
- * nodeCount    — sphere point count (default 130, use 60 for mini)
+ * size        - canvas px (default 220, use 38 for sidebar)
+ * borderRadius - CSS value (default "50%", use "10px" for sidebar)
+ * interactive  - whether mouse tilt is applied (default true)
+ * nodeCount    - sphere point count (default 130, use 60 for mini)
  */
 export default function GlobeLogo({
   size         = 220,

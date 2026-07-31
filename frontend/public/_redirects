@@ -1,2 +1,11 @@
+# DO NOT try to 404 missing /assets/* here - we tried twice (Jul 28):
+#  * `/assets/* /404.html 404` with a root 404.html flips Pages out of
+#    automatic SPA mode, so every deep-route refresh 404s (live regression).
+#  * A 404-status rewrite line is simply IGNORED by Pages (_redirects supports
+#    3xx + 200 only), so the rule silently does nothing.
+# The deploy-race "HTML cached immutable under a chunk URL" hole is therefore
+# handled elsewhere: guard.js retries on the client, and the zone-level
+# Cache Deception Armor toggle (Cloudflare dashboard) protects the edge.
+
 # SPA fallback: every path serves the app shell; the client router takes over
 /* /index.html 200

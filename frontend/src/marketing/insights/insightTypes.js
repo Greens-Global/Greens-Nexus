@@ -1,3 +1,3 @@
-// Insight / InsightSeverity / InsightCategory are plain objects at runtime —
+// Insight / InsightSeverity / InsightCategory are plain objects at runtime -
 // no type exports needed.
 export {};

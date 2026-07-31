@@ -98,7 +98,7 @@ export default function LeadCard({ lead, onClick }) {
           }}
           title={lead.assignedTo}
         >
-          {lead.assignedTo === UNASSIGNED ? '—' : initials(lead.assignedTo)}
+          {lead.assignedTo === UNASSIGNED ? '-' : initials(lead.assignedTo)}
         </span>
       </div>
       <div style={{ fontSize: 11, color: C.gray500, marginBottom: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{lead.facility}</div>

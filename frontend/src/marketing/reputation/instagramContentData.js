@@ -23,7 +23,7 @@ function slug(facility) {
 }
 
 // Instagram has no "Business Profile Performance" API equivalent in this
-// mock universe (no view/click/call analytics) — only organic feed posts.
+// mock universe (no view/click/call analytics) - only organic feed posts.
 const POST_TEMPLATES = [
   {
     type: 'STANDARD',

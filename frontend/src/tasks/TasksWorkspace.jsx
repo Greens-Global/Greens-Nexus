@@ -1,12 +1,12 @@
-// Task Module — the Tasks workspace: toolbar (search / group / view-kind) + the
+// Task Module - the Tasks workspace: toolbar (search / group / view-kind) + the
 // List and Board views + bulk action bar. Owns the shared view state, mirroring
 // the export's viewContext. Calendar/Timeline/Dashboard live in ./views/extras.
 import { useMemo, useState } from 'react';
 import { List, Columns3, Calendar as CalIcon, GanttChart, LayoutDashboard, Paperclip, Gauge, Plus, Search, CheckCircle2, Circle, Trash2, X, FolderKanban, ArrowLeft, Copy } from 'lucide-react';
 import { useTasks } from './TasksContext';
 import { useRole } from '../contexts/RoleContext';
-import { EMPTY_FILTER, matchesFilter, topLevel, sortTasks, groupTasks, taskStats, taskIdFromUrl } from './lib';
-import { NX, FONT, btn, input as inputStyle, STATUS_ORDER, STATUS_META, chip } from './theme';
+import { EMPTY_FILTER, matchesFilter, topLevel, sortTasks, groupTasks, taskStats, taskIdFromUrl, fieldsForProject, cfKey } from './lib';
+import { NX, FONT, btn, CONTROL_H, CONTROL_FS, CONTROL_ICON, input as inputStyle, STATUS_ORDER, STATUS_META, chip } from './theme';
 import { Avatar, StatusChip, PriorityChip, EmptyState, usePeople, useIsMobile, ProjectAccessButton } from './components';
 import CreateTaskModal from './CreateTaskModal';
 import QuickCreateTask from './QuickCreateTask';
@@ -15,7 +15,7 @@ import TaskDetailDrawer from './TaskDetailDrawer';
 import { CalendarView, DashboardView } from './views/extras';
 import { TimelineView, FilesView, WorkloadView } from './views/more';
 import { ProductivityBar, MobileFilters } from './productivity';
-import RichListView from './views/richlist';
+import RichListView, { useHiddenCols, ListColumnControls } from './views/richlist';
 import BoardView from './views/board';
 
 const VIEW_KINDS = [
@@ -32,9 +32,12 @@ const GROUPS = ['status', 'priority', 'assignee', 'project', 'none'];
 export default function TasksWorkspace({ lockedProjectId = null, mine = false, title = 'Tasks', onBack }) {
   const store = useTasks();
   const { tasks, nameOf, projectName, teamName, projectById, toggleComplete, bulkUpdate, deleteTask, myEmail, teams } = store;
+  // Owned here so the Hide / + Column controls can live in the toolbar above
+  // while RichListView below renders according to them.
+  const [hiddenCols, setHiddenCols] = useHiddenCols();
   const { can } = useRole();
   // Workload visibility:
-  //  • Never on the project task view (lockedProjectId set) — removed per request.
+  //  • Never on the project task view (lockedProjectId set) - removed per request.
   //  • Elsewhere (e.g. the Manage → Task List embed): management/oversight view,
   //    shown only to manage access (manager+), matching the ChangelogView convention.
   const canManage = !!can?.('manager');
@@ -59,17 +62,30 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
     projectIds: lockedProjectId ? [lockedProjectId] : filters.projectIds,
     assigneeIds: mine && myEmail ? [myEmail] : filters.assigneeIds,
   };
+  // Fields in play here - drives the Group/Sort/Filter menus below as well as
+  // the columns, so all four offer exactly the same set.
+  const activeFields = useMemo(
+    () => fieldsForProject(store.customFields || [], lockedProjectId),
+    [store.customFields, lockedProjectId],
+  );
   const visible = useMemo(
-    () => sortTasks(topLevel(tasks).filter((t) => matchesFilter(t, filter)), sort),
-    [tasks, search, filters, sort, lockedProjectId, mine, myEmail],
+    () => sortTasks(topLevel(tasks).filter((t) => matchesFilter(t, filter)), sort, activeFields),
+    [tasks, search, filters, sort, lockedProjectId, mine, myEmail, activeFields],
   );
 
   const applyView = (v) => {
     if (v.filters) setFilters({ ...EMPTY_FILTER, ...v.filters });
     if (v.sort) setSort(v.sort);
     if (v.group) setGroup(v.group);
+    // setView, not switchView: a saved view carries its own filters and must
+    // not have them wiped by the tab change it asks for.
     if (v.view) setView(v.view);
   };
+
+  // Switching tabs starts clean. A filter set in List used to follow you into
+  // Board, where the panel is out of sight, so the missing rows read as lost
+  // data rather than a filter still doing its job.
+  const switchView = (next) => { setView(next); setFilters(EMPTY_FILTER); };
   const stats = useMemo(() => taskStats(visible), [visible]);
 
   const toggleSel = (id) => setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
@@ -79,15 +95,25 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
     const all = ids.length > 0 && ids.every((id) => s.has(id));
     return all ? new Set() : new Set(ids);
   });
-  const ctx = { nameOf, projectName, teamName };
+  const ctx = { nameOf, projectName, teamName, customFields: activeFields };
   const lockedProject = lockedProjectId ? projectById(lockedProjectId) : null;
+  // Only select fields can group or sort meaningfully - a free-text field would
+  // make one group per distinct string.
+  const groupableFields = activeFields.filter((f) => f.type === 'select');
+  const groupOptions = [
+    ...GROUPS.map((g) => ({ key: g, label: g === 'none' ? 'None' : g[0].toUpperCase() + g.slice(1) })),
+    ...groupableFields.map((f) => ({ key: cfKey(f.id), label: f.name })),
+  ];
+  const sortFieldOptions = activeFields
+    .filter((f) => ['select', 'number', 'date', 'text', 'checkbox'].includes(f.type))
+    .map((f) => ({ key: cfKey(f.id), label: f.name }));
 
   return (
     <div style={{ fontFamily: FONT, color: NX.ink, display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%', background: NX.canvas }}>
-      {/* Row 1 — back to Projects + project name/team, New task on the right */}
+      {/* Row 1 - back to Projects + project name/team, New task on the right */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 20px 12px', flexWrap: 'wrap', background: NX.surface }}>
         {onBack && (
-          <button onClick={onBack} title="Back to Projects" style={{ ...btn('ghost'), padding: 6, marginLeft: -6, color: NX.dim }}><ArrowLeft size={18} /></button>
+          <button onClick={onBack} title="Back" aria-label="Back" style={{ ...btn('ghost'), padding: 6, marginLeft: -6, color: NX.dim }}><ArrowLeft size={18} /></button>
         )}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 20, fontWeight: 700, minWidth: 0 }}>
           {lockedProject ? (
@@ -106,12 +132,12 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
         )}
       </div>
 
-      {/* Row 2 — view tabs + search & filters (desktop). Mobile: replaced by the floating MobileTaskBar. */}
+      {/* Row 2 - view tabs + search & filters (desktop). Mobile: replaced by the floating MobileTaskBar. */}
       {!isMobile && (
       <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 12, padding: '0 20px 12px', borderBottom: `1px solid ${NX.border}`, background: NX.surface, overflowX: 'visible' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 2, background: NX.border2, borderRadius: 9, padding: 2, flexShrink: 0, maxWidth: '100%', overflowX: 'visible' }}>
           {viewKinds.map((v) => (
-            <button key={v.key} onClick={() => setView(v.key)} title={v.label} style={{
+            <button key={v.key} onClick={() => switchView(v.key)} title={v.label} style={{
               ...btn('ghost'), padding: '6px 10px', borderRadius: 7, whiteSpace: 'nowrap',
               background: view === v.key ? NX.surface : 'transparent', color: view === v.key ? NX.ink : NX.dim,
               boxShadow: view === v.key ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
@@ -119,16 +145,26 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
           ))}
         </div>
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-          <div style={{ position: 'relative', width: 220 }}>
-            <Search size={15} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: NX.faint }} />
-            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search tasks…" style={{ ...inputStyle, paddingLeft: 32 }} />
+          <div style={{ position: 'relative', width: 143 }}>
+            <Search size={CONTROL_ICON} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: NX.faint }} />
+            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search tasks…" style={{ ...inputStyle, paddingLeft: 28, height: CONTROL_H, fontSize: CONTROL_FS, padding: '0 10px 0 28px' }} />
           </div>
           <ProductivityBar
             filters={filters} setFilters={setFilters} sort={sort} setSort={setSort}
             lockedProjectId={lockedProjectId} current={{ view, group }} onApplyView={applyView} onOpenTask={setOpenId}
             group={group} setGroup={setGroup}
-            groupOptions={(view === 'list' || view === 'board') ? GROUPS.map((g) => ({ key: g, label: g === 'none' ? 'None' : g[0].toUpperCase() + g.slice(1) })) : null}
+            customFields={activeFields} sortFieldOptions={sortFieldOptions}
+            groupOptions={(view === 'list' || view === 'board') ? groupOptions : null}
           />
+          {/* Column controls belong to the List view only - they'd have nothing
+              to act on in Board/Calendar/Timeline. */}
+          {view === 'list' && (
+            <ListColumnControls
+              hidden={hiddenCols} setHidden={setHiddenCols}
+              customFields={fieldsForProject(store.customFields || [], lockedProjectId)} createCustomField={store.createCustomField}
+              lockedProjectId={lockedProjectId}
+            />
+          )}
         </div>
       </div>
       )}
@@ -136,7 +172,7 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
       {/* Body */}
       <div className="nx-scroll" style={{ flex: 1, minHeight: 0, overflow: 'auto', background: NX.canvas, paddingBottom: isMobile ? 88 : undefined }}>
         {view === 'list' ? (
-          <RichListView visible={visible} group={group} ctx={ctx} store={store} people={people} selected={selected} toggleSel={toggleSel} onOpen={setOpenId} onSelectAll={selectAll} lockedProjectId={lockedProjectId} />
+          <RichListView visible={visible} group={group} ctx={ctx} store={store} people={people} selected={selected} toggleSel={toggleSel} onOpen={setOpenId} onSelectAll={selectAll} lockedProjectId={lockedProjectId} hidden={hiddenCols} setHidden={setHiddenCols} />
         ) : visible.length === 0 ? (
           <EmptyState icon={CheckCircle2} title="No Tasks Yet" hint="Create your first task to get going." />
         ) : view === 'board' ? (
@@ -182,9 +218,9 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
             <option value="" disabled>Priority…</option>
             {['urgent', 'high', 'medium', 'low'].map((p) => <option key={p} value={p} style={{ color: NX.ink }}>{p[0].toUpperCase() + p.slice(1)}</option>)}
           </select>
-          <select onChange={(e) => { if (e.target.value) { bulkUpdate([...selected], { assigneeId: e.target.value === '—' ? '' : e.target.value }); clearSel(); } }} defaultValue="" style={selStyle}>
+          <select onChange={(e) => { if (e.target.value) { bulkUpdate([...selected], { assigneeId: e.target.value === '-' ? '' : e.target.value }); clearSel(); } }} defaultValue="" style={selStyle}>
             <option value="" disabled>Assign…</option>
-            <option value="—" style={{ color: NX.ink }}>Unassigned</option>
+            <option value="-" style={{ color: NX.ink }}>Unassigned</option>
             {people.map((p) => <option key={p.email} value={p.email} style={{ color: NX.ink }}>{p.name}</option>)}
           </select>
           <button onClick={duplicate} title="Duplicate the selected tasks" style={{ ...btn('ghost'), color: '#fff' }}><Copy size={14} />Duplicate</button>
@@ -196,16 +232,24 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
 
       {isMobile && (
         <MobileTaskBar
-          views={viewKinds} view={view} setView={setView}
+          views={viewKinds} view={view} setView={switchView}
           onCreate={() => openCreate({ projectId: lockedProjectId || '' })}
           filterSheet={(onClose) => (
             <MobileFilters
               filters={filters} setFilters={setFilters} sort={sort} setSort={setSort}
               group={group} setGroup={setGroup}
-              groupOptions={(view === 'list' || view === 'board') ? GROUPS.map((g) => ({ key: g, label: g === 'none' ? 'None' : g[0].toUpperCase() + g.slice(1) })) : null}
+              customFields={activeFields} sortFieldOptions={sortFieldOptions}
+              groupOptions={(view === 'list' || view === 'board') ? groupOptions : null}
               current={{ view, group }} onApplyView={applyView}
               search={search} setSearch={setSearch}
               lockedProjectId={lockedProjectId}
+              columnControls={view === 'list' ? (
+                <ListColumnControls
+                  hidden={hiddenCols} setHidden={setHiddenCols}
+                  customFields={fieldsForProject(store.customFields || [], lockedProjectId)} createCustomField={store.createCustomField}
+                  lockedProjectId={lockedProjectId}
+                />
+              ) : null}
               onClose={onClose}
             />
           )}
@@ -240,7 +284,7 @@ function TaskRow({ t, store, selected, toggleSel, onOpen }) {
       {t.assigneeId ? <Avatar email={t.assigneeId} name={nameOf(t.assigneeId)} size={24} /> : <span style={{ width: 24 }} />}
       <PriorityChip priority={t.priority} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <span style={{ fontSize: 12, color: overdue ? NX.red : NX.dim, fontWeight: overdue ? 600 : 400, minWidth: 74, textAlign: 'right' }}>{t.dueOn || '—'}</span>
+        <span style={{ fontSize: 12, color: overdue ? NX.red : NX.dim, fontWeight: overdue ? 600 : 400, minWidth: 74, textAlign: 'right' }}>{t.dueOn || '-'}</span>
         <StatusChip status={t.status} />
       </div>
     </div>
@@ -253,7 +297,7 @@ function ListBody({ groups, store, selected, toggleSel, onOpen }) {
       {groups.map((g) => (
         <div key={g.key}>
           {g.label && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px 6px', fontSize: 12.5, fontWeight: 700, color: NX.dim, textTransform: 'uppercase', letterSpacing: 0.3 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px 6px', fontSize: 13, fontWeight: 700, color: NX.dim }}>
               {g.label} <span style={{ color: NX.faint, fontWeight: 600 }}>{g.tasks.length}</span>
             </div>
           )}

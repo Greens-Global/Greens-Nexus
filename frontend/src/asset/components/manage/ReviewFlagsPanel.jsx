@@ -65,7 +65,7 @@ function FlagRow({ flag, onOpen, onClearFlag, onPushFix }) {
 }
 
 /**
- * "Flagged for Review" tab — every field flagged across the whole portfolio, flattened into one
+ * "Flagged for Review" tab - every field flagged across the whole portfolio, flattened into one
  * list. Each asset carries its own `reviewFlags` array ({ g: group, f: field label, user, reason }
  * per flag); this panel joins each flag back to its field's CURRENT value (looked up by matching
  * normLabel(flag.f) against the asset's snapshot) so the row can show an editable, pre-filled
@@ -114,7 +114,7 @@ export function ReviewFlagsPanel({ props: assets, onClearFlag, onOpen, onPushFix
         </div>
       ) : (
         <div style={{ padding: '18px 16px', fontSize: '0.82rem', color: 'var(--text-secondary)', textAlign: 'center' }}>
-          No fields flagged for review. On any asset's overview, use the ⚐ beside a field to flag it and pick a reason — it will appear here, editable and ready to push a fix.
+          No fields flagged for review. On any asset's overview, use the ⚐ beside a field to flag it and pick a reason - it will appear here, editable and ready to push a fix.
         </div>
       )}
     </div>

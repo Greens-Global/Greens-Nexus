@@ -1,7 +1,7 @@
-// Parcel linking — the "Asset Group" panel shown on any property that either belongs to a
+// Parcel linking - the "Asset Group" panel shown on any property that either belongs to a
 // group already, or can be linked into one.
 //
-// GROUP-FIRST MODEL — READ THIS BEFORE TOUCHING THE LOGIC BELOW.
+// GROUP-FIRST MODEL - READ THIS BEFORE TOUCHING THE LOGIC BELOW.
 //
 // This is deliberately NOT a parent/child hierarchy with one fixed "parent" parcel and
 // subordinate "children". It is a flat group of equal members that happens to need ONE of
@@ -9,34 +9,34 @@
 // something has to hold the shared group-level fields (`siteName`, `assembled`). Concretely:
 //
 //   - `order` (the `parcelOrder` field): every member has a position. Reordering (the ▲/▼
-//     arrows) swaps two members' `parcelOrder` values — see `onMove` / moveParcelOrder in the
+//     arrows) swaps two members' `parcelOrder` values - see `onMove` / moveParcelOrder in the
 //     parent. Order is purely a display/navigation convenience (chip switcher, table rows);
 //     it does NOT imply ownership or precedence.
 //
 //   - `primary` (the ★ flag): a boolean per parcel. MULTIPLE members can be marked primary
-//     at the same time — togglePrimaryParcel (parent-side) simply flips the flag on the one
+//     at the same time - togglePrimaryParcel (parent-side) simply flips the flag on the one
 //     parcel you clicked and never touches anyone else's flag. This is intentional, not a
 //     bug: "primary" here is closer to "pin this one as important" than "the sole parent".
 //     Do not add auto-unset-others-when-one-is-set logic without confirming that's actually
-//     what's wanted — it would be a behavior change, not a bug fix.
+//     what's wanted - it would be a behavior change, not a bug fix.
 //
 //   - The "anchor" (see groupAnchorOf in lib/parcelGrouping.js) is just whichever member
-//     currently has no `parentId` — a transient bookkeeping role, not a designated "parent
+//     currently has no `parentId` - a transient bookkeeping role, not a designated "parent
 //     parcel". If the anchor is unlinked from the group, the parent-side unlinkParcel logic
 //     promotes whichever remaining member has the lowest `parcelOrder` to be the new anchor,
 //     and propagates the group's `siteName` onto it. Any member could end up as anchor over
 //     the group's lifetime.
 //
 //   - "Asset Group" renaming (the Group Name input below) writes `siteName` onto the anchor
-//     AND every other member whose `parentId` points at the anchor — i.e. it renames the
+//     AND every other member whose `parentId` points at the anchor - i.e. it renames the
 //     WHOLE group, not just the parcel you happen to be viewing. This is separate from each
 //     parcel's own `name`.
 //
 // The chip-style "Go to" <select> and the Parcels table below both let you switch which
-// group member you're viewing/editing — there is no single "detail" parcel you're locked
+// group member you're viewing/editing - there is no single "detail" parcel you're locked
 // into, unlike a strict parent/child model where only the parent shows full detail.
 // (Contrast with AssemblageParcels.jsx, which layers an OPTIONAL "one of these is the lead
-// for full project detail" convention on top of this group for assembled-asset display —
+// for full project detail" convention on top of this group for assembled-asset display -
 // that's a display choice per group via the `assembled` flag, not a change to this
 // underlying group-first data model.)
 
@@ -105,7 +105,7 @@ export function ParcelManager({
 
   // Exposed so a "Link this asset to a parcel or group" button elsewhere in the detail view
   // can force this panel open even when the asset isn't grouped yet (see parcelReveal in
-  // lib/parcelGrouping.js — same mutable-singleton pattern as editGuard.js).
+  // lib/parcelGrouping.js - same mutable-singleton pattern as editGuard.js).
   parcelReveal.show = () => setReveal(true);
 
   if (!grouped && !reveal) return null;
@@ -197,7 +197,7 @@ export function ParcelManager({
           <span style={{ flexShrink: 0, fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
             Go to
           </span>
-          {/* Dropdown switcher between group members — not a parent/child drill-down, every
+          {/* Dropdown switcher between group members - not a parent/child drill-down, every
               member (including the anchor) is just another option in this list. */}
           <select
             value={active.id}
@@ -288,7 +288,7 @@ export function ParcelManager({
                 </div>
                 <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 2, lineHeight: 1.45 }}>
                   Fill the project detail once on the lead parcel. Other parcels keep only their own APN,
-                  address, lot size, acquisition & zoning — no full detail needed on each.
+                  address, lot size, acquisition & zoning - no full detail needed on each.
                 </div>
               </div>
             </label>
@@ -314,7 +314,7 @@ export function ParcelManager({
                   onChange={(e) => setSelected(e.target.value)}
                   style={{ flex: '1 1 180px', minWidth: 0, padding: '8px 10px', fontSize: '0.85rem' }}
                 >
-                  <option value="">— Select a standalone property —</option>
+                  <option value="">- Select a standalone property -</option>
                   {linkable.map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.name}
@@ -372,7 +372,7 @@ export function ParcelManager({
               {'⧉ Duplicate this parcel'}
             </button>
             <span style={{ fontSize: '0.66rem', color: 'var(--text-muted)' }}>
-              Copies this parcel's details into a new linked parcel — records start empty, ready to edit.
+              Copies this parcel's details into a new linked parcel - records start empty, ready to edit.
             </span>
           </div>
 
@@ -387,7 +387,7 @@ export function ParcelManager({
                   color: 'var(--text-muted)',
                 }}
               >
-                Parcels ({members.length}) — drag order with arrows, {'★'} marks primary
+                Parcels ({members.length}) - drag order with arrows, {'★'} marks primary
               </span>
               {members.map((m, i) => {
                 const isCurrent = m.id === active.id;
@@ -470,15 +470,15 @@ export function ParcelManager({
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingLeft: 34, flexWrap: 'wrap' }}>
                       <span style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
-                        Lot: {parcelLot(m) || '—'}
+                        Lot: {parcelLot(m) || '-'}
                       </span>
                       <span style={{ flex: 1, minWidth: 8 }} />
                       {/* Set Primary: toggles ONLY this parcel's flag. Other members' `primary`
-                          flags are left untouched — see the group-first note at the top of this
+                          flags are left untouched - see the group-first note at the top of this
                           file. Multiple parcels showing a filled star at once is expected. */}
                       <button
                         onClick={() => onTogglePrimary(m.id)}
-                        title={m.primary ? 'Primary — tap to unset' : 'Mark as primary'}
+                        title={m.primary ? 'Primary - tap to unset' : 'Mark as primary'}
                         style={{
                           flexShrink: 0,
                           display: 'inline-flex',

@@ -7,7 +7,7 @@ import { uploadToSupabase, imageFromPaste } from '../lib/docBuilderUpload';
 
 // ── Document Templates & Letterheads (Phase 3) ───────────────────────────────
 // Category tabs + search over doc_templates, reusing DocumentBuilder (kind=
-// "template") for both editing and read-only Preview — same in-tab-replace
+// "template") for both editing and read-only Preview - same in-tab-replace
 // convention as My Documents / E-Sign (a plain early return, not a portal).
 const CATEGORIES = [
   ['letterhead', 'Letterhead'], ['hr', 'HR'], ['legal', 'Legal'], ['finance', 'Finance'],
@@ -115,8 +115,8 @@ function LetterheadForm({ letterhead, onSaved, toastErr }) {
       </div>
       <input className="form-input" placeholder="Letterhead name" value={name} onChange={e => setName(e.target.value)} />
       <textarea className="form-input" placeholder="Address" rows={2} value={address} onChange={e => setAddress(e.target.value)} />
-      <input className="form-input" placeholder="Header text (e.g. a tagline — optional)" value={headerText} onChange={e => setHeaderText(e.target.value)} />
-      <input className="form-input" placeholder="Footer text (e.g. registration/disclaimer — optional)" value={footerText} onChange={e => setFooterText(e.target.value)} />
+      <input className="form-input" placeholder="Header text (e.g. a tagline - optional)" value={headerText} onChange={e => setHeaderText(e.target.value)} />
+      <input className="form-input" placeholder="Footer text (e.g. registration/disclaimer - optional)" value={footerText} onChange={e => setFooterText(e.target.value)} />
       <button className="primary-btn" disabled={!name.trim() || busy} onClick={save} style={{ alignSelf: 'flex-start', opacity: (!name.trim() || busy) ? 0.6 : 1 }}>
         {busy ? 'Saving…' : isNew ? 'Add Letterhead' : 'Save'}
       </button>
@@ -304,7 +304,7 @@ export default function DocumentTemplates({ openCreateSignal, openTemplateSignal
                       if (!window.confirm(`Delete template "${t.name}"? This can't be undone.`)) return;
                       setBusyId(t.id);
                       api.deleteDocTemplate(t.id).then(() => { toastOk?.('Deleted'); load(); })
-                        .catch(e => toastErr?.(e.status === 409 ? 'This template has generated documents — archive it instead.' : (e.message || 'Failed to delete')))
+                        .catch(e => toastErr?.(e.status === 409 ? 'This template has generated documents - archive it instead.' : (e.message || 'Failed to delete')))
                         .finally(() => setBusyId(''));
                     }} style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: 7, cursor: 'pointer', display: 'flex', color: 'hsl(var(--color-red))' }}><Trash2 size={14} /></button>
                   </div>

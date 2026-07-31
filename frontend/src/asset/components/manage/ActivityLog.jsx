@@ -41,7 +41,7 @@ function timeLabel(ts) {
 }
 
 /** Up-to-2-letter initials for a user's avatar circle, from the first two "words" (splitting on
- *  whitespace/@/.) — e.g. "neil@greensglobal.com" -> "NG" isn't quite right, but matches source
+ *  whitespace/@/.) - e.g. "neil@greensglobal.com" -> "NG" isn't quite right, but matches source
  *  behavior: it splits on [\s@.] so "neil@greensglobal.com" -> "NEIL","GREENSGLOBAL","COM" -> "NG". */
 function initials(user) {
   return (user || '?').split(/[\s@.]+/).filter(Boolean).slice(0, 2).map((s) => s[0]).join('').toUpperCase() || '?';
@@ -63,14 +63,14 @@ function actionLabel(action) {
 }
 
 /** True if a string value "looks like" a formatted number/measurement (money, percent, sf/ac,
- *  units, etc) — used to render changed values in monospace instead of the default body font. */
+ *  units, etc) - used to render changed values in monospace instead of the default body font. */
 function looksNumeric(value) {
   const s = String(value ?? '').trim();
   return s !== '' && /\d/.test(s) && /^[\d.,$%\s/:'"x×-]+(?:sf|SF|ac|AC|units?)?$/i.test(s);
 }
 
 /**
- * Activity Log tab content — every add/edit/delete/link recorded across the portfolio (or
+ * Activity Log tab content - every add/edit/delete/link recorded across the portfolio (or
  * scoped to one asset), grouped by day, with date-range filtering, free-text search, per-entry
  * "Go to" / "Undo" actions, and an inline undo confirmation.
  *
@@ -162,7 +162,7 @@ export function ActivityLog({ logs, query, onOpenProperty, activeId, activeName,
       </div>
 
       {filtered.length === 0 ? (
-        <EmptyState>No activity yet — every add, edit, delete and link is recorded here with who, what and when.</EmptyState>
+        <EmptyState>No activity yet - every add, edit, delete and link is recorded here with who, what and when.</EmptyState>
       ) : (
         dayGroups.map((group) => (
           <div key={group.k} style={{ marginBottom: 14 }}>

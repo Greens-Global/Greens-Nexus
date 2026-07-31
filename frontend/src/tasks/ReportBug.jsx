@@ -1,4 +1,4 @@
-// Task Module — global "Report a Bug" entry point (ported from the export's
+// Task Module - global "Report a Bug" entry point (ported from the export's
 // ReportBugButton + ReportBugModal). A floating button within the Tasks module
 // that files a Bug ticket via the real ticket backend (createTicket).
 import { useRef, useState } from 'react';
@@ -9,17 +9,17 @@ import { filesFromPaste } from './lib';
 import { NX, FONT, input as inputStyle, btn, PRIORITY_ORDER } from './theme';
 
 // Screenshots ride along in the ticket's `images` list as data URLs. Keep them
-// small so a couple of shots don't bloat the row — matches the task-attachment
+// small so a couple of shots don't bloat the row - matches the task-attachment
 // inline cap used elsewhere in the module.
 const MAX_SHOT = 2 * 1024 * 1024; // 2 MB per screenshot
 const MAX_SHOTS = 4;
 
 const MODULES = ['Tasks', 'Dashboard', 'Time Clock', 'My HR', 'HR', 'Item Management', 'Asset Management', 'Knowledge Base', 'Accounting', 'Other'];
 const SEVERITIES = [
-  { value: 'low', label: "Low — cosmetic, doesn't block work" },
-  { value: 'medium', label: 'Medium — annoying, workaround exists' },
-  { value: 'high', label: 'High — blocks a task, no workaround' },
-  { value: 'urgent', label: 'Urgent — broken/unusable for everyone' },
+  { value: 'low', label: "Low - cosmetic, doesn't block work" },
+  { value: 'medium', label: 'Medium - annoying, workaround exists' },
+  { value: 'high', label: 'High - blocks a task, no workaround' },
+  { value: 'urgent', label: 'Urgent - broken/unusable for everyone' },
 ];
 const label = { fontSize: 12, fontWeight: 600, color: NX.dim, marginBottom: 5, display: 'block' };
 
@@ -38,7 +38,7 @@ function ReportBugModal({ onClose }) {
   const addShots = (files) => {
     for (const f of files) {
       if (!f.type.startsWith('image/')) continue;
-      if (f.size > MAX_SHOT) { alert(`"${f.name}" is over 2 MB — please attach a smaller screenshot.`); continue; }
+      if (f.size > MAX_SHOT) { alert(`"${f.name}" is over 2 MB - please attach a smaller screenshot.`); continue; }
       const r = new FileReader();
       r.onload = () => setShots((prev) => (prev.length >= MAX_SHOTS ? prev : [...prev, { name: f.name, url: String(r.result) }]));
       r.readAsDataURL(f);
@@ -57,7 +57,7 @@ function ReportBugModal({ onClose }) {
       priority: severity, requesterId: myEmail, status: 'open', tags: ['Bug', module],
       images: shots.map((s) => s.url),
     };
-    try { const t = await createTicket(body); alert(`Bug reported (${t.code || 'ticket'}) — thanks for flagging it.`); onClose(); }
+    try { const t = await createTicket(body); alert(`Bug reported (${t.code || 'ticket'}) - thanks for flagging it.`); onClose(); }
     catch (e) { setBusy(false); alert('Could not submit the bug report.'); }
   };
 
@@ -110,7 +110,7 @@ function ReportBugModal({ onClose }) {
               }}><ImagePlus size={18} /> Add</button>
             )}
           </div>
-          <p style={{ margin: '6px 0 0', fontSize: 11, color: NX.faint }}>Up to {MAX_SHOTS} images, 2 MB each — or press Ctrl+V to paste a screenshot.</p>
+          <p style={{ margin: '6px 0 0', fontSize: 11, color: NX.faint }}>Up to {MAX_SHOTS} images, 2 MB each - or press Ctrl+V to paste a screenshot.</p>
         </div>
       </div>
     </Modal>

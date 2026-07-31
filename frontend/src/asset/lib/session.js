@@ -4,7 +4,7 @@
  * This maps Nexus's role into the { can, level, role } shape every permission check in the asset
  * module already expects (canManage, private-asset visibility, etc.), and pushes the real
  * display name into format.currentUser() so the activity log attributes edits to the actual user
- * (a name, never a raw email — house rule).
+ * (a name, never a raw email - house rule).
  */
 import { useEffect } from 'react';
 import { useMsal } from '@azure/msal-react';

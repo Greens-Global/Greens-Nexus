@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Server, Star, Calendar } from "lucide-react";
+import ModuleTabs from "../components/ModuleTabs";
 
 const TABS = [
   { key: "fms",        label: "FMS Integration",         Icon: Server   },
@@ -16,7 +17,7 @@ const FACILITIES = [
 ];
 
 const REVIEWS = [
-  { author: "Marcus T.",  facility: "Harbor View Storage",  rating: 5, src: "Google", text: "Greens Storage did an outstanding job — spotless units and the climate control is the real deal.", replied: true  },
+  { author: "Marcus T.",  facility: "Harbor View Storage",  rating: 5, src: "Google", text: "Greens Storage did an outstanding job - spotless units and the climate control is the real deal.", replied: true  },
   { author: "Dana R.",    facility: "Downtown Self Storage", rating: 4, src: "Google", text: "Easy move-in, friendly staff. Gate hours could be a little longer.", replied: false },
   { author: "Priya S.",   facility: "Lakeline Storage",     rating: 5, src: "Meta",   text: "The craftsmanship of these facilities is a step above. Greens Storage project management is stellar.", replied: false },
   { author: "Will C.",    facility: "Summit Storage",       rating: 3, src: "Google", text: "Decent price but the access road needs repaving.", replied: false },
@@ -63,14 +64,14 @@ function FMS() {
 
       <div className="banner-warn">
         <Server size={16} />
-        <div>Currently connected to <strong>Hummingbird</strong>. Migration to <strong>Cubby</strong> is planned — this view switches over automatically once cutover completes.</div>
+        <div>Currently connected to <strong>Hummingbird</strong>. Migration to <strong>Cubby</strong> is planned - this view switches over automatically once cutover completes.</div>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 14 }}>
         {[
           { title: "Connection", rows: [["System","Hummingbird"],["Last sync","6 min ago"],["Interval","Every 15 min"],["Status","● Healthy"]] },
           { title: "Portfolio Totals", rows: [["Units", totalUnits.toLocaleString()],["Rented",totalRented.toLocaleString()],["Occupancy",avgOcc+"%"],["MRR","$"+(totalMrr/1000).toFixed(1)+"k"]] },
-          { title: "Sync Log", log: ["✓ Occupancy pulled — 5 facilities","✓ Tenant ledger reconciled","✓ 12 move-ins, 4 move-outs","✓ Rate changes applied"] },
+          { title: "Sync Log", log: ["✓ Occupancy pulled - 5 facilities","✓ Tenant ledger reconciled","✓ 12 move-ins, 4 move-outs","✓ Rate changes applied"] },
         ].map(c => (
           <div key={c.title} className="dash-card">
             <div className="dash-card-title" style={{ marginBottom: 12 }}>{c.title}</div>
@@ -124,7 +125,7 @@ function Reputation() {
       <div className="view-header">
         <div className="view-title-group">
           <h2>Reputation Management</h2>
-          <p>Reviews across Greens Storage facilities</p>
+          <p>Reviews across storage facilities</p>
         </div>
       </div>
       <div className="kpi-grid">
@@ -163,7 +164,7 @@ function Reputation() {
             <p style={{ fontSize: 13.5, lineHeight: 1.55, color: "var(--ink)" }}>{r.text}</p>
             <div style={{ marginTop: 12 }}>
               {r.replied
-                ? <span style={{ color: "var(--ok-fg)", fontSize: 12, fontWeight: 600 }}>✓ Replied as Greens Storage</span>
+                ? <span style={{ color: "var(--ok-fg)", fontSize: 12, fontWeight: 600 }}>✓ Replied</span>
                 : <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
                     <input className="form-input" style={{ flex: 1 }} placeholder="Write a reply…" value={replyText[i] || ""} onChange={e => setReplyText(p => ({ ...p, [i]: e.target.value }))} />
                     <button className="primary-btn" onClick={() => submitReply(i)}>Reply</button>
@@ -211,7 +212,7 @@ function SiteStaff() {
             <div className="task-row">
               <span className="prio-dot prio-high" />
               <div className="task-content">
-                <div className="task-title">Summit Storage — Sat AM</div>
+                <div className="task-title">Summit Storage - Sat AM</div>
                 <div className="task-dept">No coverage</div>
               </div>
               <span className="task-due today">Open</span>
@@ -219,7 +220,7 @@ function SiteStaff() {
             <div className="task-row">
               <span className="prio-dot prio-med" />
               <div className="task-content">
-                <div className="task-title">Riverside — Sun</div>
+                <div className="task-title">Riverside - Sun</div>
                 <div className="task-dept">Awaiting confirm</div>
               </div>
               <span className="task-due">Pending</span>
@@ -228,7 +229,7 @@ function SiteStaff() {
         </div>
       </div>
       <div className="dash-card">
-        <div className="dash-card-title" style={{ marginBottom: 14 }}>Week of May 25 — Harbor View Storage</div>
+        <div className="dash-card-title" style={{ marginBottom: 14 }}>Week of May 25 - Harbor View Storage</div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 8 }}>
           {days.map((d, i) => (
             <div key={d}>
@@ -247,15 +248,9 @@ export default function FacilityOperations({ activeSub = "fms", onSubChange }) {
   const sub = activeSub || "fms";
   return (
     <div style={{ animation: "fadeIn var(--transition-normal) ease-in-out" }}>
-      <div style={{ display: "flex", gap: 4, marginBottom: 24, borderBottom: "1px solid var(--line)", paddingBottom: 1 }}>
-        {TABS.map(({ key, label, Icon }) => (
-          <button key={key} onClick={() => onSubChange && onSubChange(key)}
-            style={{ background: "none", border: "none", padding: "10px 16px", fontFamily: "'Hanken Grotesk',sans-serif", fontWeight: 600, fontSize: ".9rem", cursor: "pointer", color: sub === key ? "var(--ink)" : "var(--muted)", position: "relative", transition: "color .15s", display: "flex", alignItems: "center", gap: 7 }}>
-            <Icon size={16} /> {label}
-            {sub === key && <span style={{ position: "absolute", bottom: -1, left: 0, right: 0, height: 2.5, backgroundColor: "var(--pine)", borderRadius: "4px 4px 0 0" }} />}
-          </button>
-        ))}
-      </div>
+      {/* Desktop: tabs render centered in the top header; phones keep the
+          in-page strip (ModuleTabs handles both) */}
+      <ModuleTabs tabs={TABS} active={sub} onChange={onSubChange} />
       {sub === "fms"        && <FMS />}
       {sub === "reputation" && <Reputation />}
       {sub === "site-staff" && <SiteStaff />}

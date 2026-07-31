@@ -1,4 +1,4 @@
-/* Credential Vault — scoped styles for the 1:1 port of credential-vault-dev.
+/* Credential Vault - scoped styles for the 1:1 port of credential-vault-dev.
    Neutral surfaces ride the Nexus theme vars (light/dark both work); accents
    are fixed Tailwind-palette colors so the module keeps its original look. */
 
@@ -159,5 +159,6 @@ select.cv-ipt { appearance: auto; }
 .cv-group .cv-group-hover { opacity: 0; transition: opacity .12s; }
 .cv-group:hover .cv-group-hover { opacity: 1; }
 
-/* highlighted row after log navigation */
-.cv-highlight { background: rgba(250,204,21,.14) !important; box-shadow: inset 4px 0 0 #facc15; }
+/* highlighted row after log navigation - amber wash + soft full ring (kit
+   grammar: no one-sided accent bars) */
+.cv-highlight { background: rgba(250,204,21,.14) !important; box-shadow: inset 0 0 0 1.5px rgba(202,138,4,.55); }

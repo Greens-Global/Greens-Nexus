@@ -53,7 +53,7 @@ export default function CompetitorsCard({ own, competitors }) {
           icon={Trophy}
           color={{ color: C.amber600, background: C.amber50 }}
           label="Your Avg. Position"
-          value={own.avgPosition > 0 ? `#${own.avgPosition.toFixed(1)}` : '—'}
+          value={own.avgPosition > 0 ? `#${own.avgPosition.toFixed(1)}` : '-'}
           caption={`${own.keywordsInTop10} keywords in top 10`}
         />
         <StatCard
@@ -93,7 +93,7 @@ export default function CompetitorsCard({ own, competitors }) {
                 </td>
                 <td style={{ padding: '10px', color: C.gray700, whiteSpace: 'nowrap' }}>{own.domainRating}</td>
                 <td style={{ padding: '10px', color: C.gray700, whiteSpace: 'nowrap' }}>{own.keywordsInTop10}</td>
-                <td style={{ padding: '10px', color: C.gray700, whiteSpace: 'nowrap' }}>{own.avgPosition > 0 ? `#${own.avgPosition.toFixed(1)}` : '—'}</td>
+                <td style={{ padding: '10px', color: C.gray700, whiteSpace: 'nowrap' }}>{own.avgPosition > 0 ? `#${own.avgPosition.toFixed(1)}` : '-'}</td>
                 <td style={{ padding: '10px', paddingRight: 0, color: C.gray700, whiteSpace: 'nowrap' }}>{formatNumber(own.estTraffic)}</td>
               </tr>
               {competitors.map((c, ri) => (

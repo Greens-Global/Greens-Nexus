@@ -3,8 +3,8 @@ import { ShieldCheck, Loader2, Check } from 'lucide-react';
 import { api } from '../api';
 
 // ── Sign-in company-policy & monitoring acknowledgment ────────────────────────
-// Standing, portal-wide gate: the first time a person signs in — and again when
-// POLICY_VERSION changes — they must accept before the app loads. Acceptance is
+// Standing, portal-wide gate: the first time a person signs in - and again when
+// POLICY_VERSION changes - they must accept before the app loads. Acceptance is
 // recorded server-side (who/when/version/ip/ua). Distinct from the per-day
 // clock-in monitoring notice.
 //
@@ -16,13 +16,13 @@ import { api } from '../api';
 const POLICY_VERSION = '2026-07-21';
 const _E2E = import.meta.env.VITE_E2E === 'true';
 
-// ⚠️ PLACEHOLDER WORDING — replace the sections below with the company's
+// ⚠️ PLACEHOLDER WORDING - replace the sections below with the company's
 // finalized policy / T&C text (HR + legal). The mechanism (versioning, recording,
 // re-prompt on change, downloadable copy) is what's built here; the exact legal
 // language is yours to set.
 const POLICY_SECTIONS = [
   { h: 'Acceptable use',
-    p: 'Nexus and the devices you use to access it are company property, provided for work. Use them in line with Greens Global’s policies. Do not share your access or use the portal for anything unlawful.' },
+    p: 'Nexus and the devices you use to access it are company property, provided for work. Use them in line with your organization’s policies. Do not share your access or use the portal for anything unlawful.' },
   { h: 'Employee monitoring (please read)',
     p: 'On company-managed devices, while you are clocked in, Nexus may capture periodic screenshots of your work screen(s), record which applications and window titles are active, and measure your overall activity level. This is to verify worked time and support performance review. It does NOT capture your keystrokes, and it stops when you clock out. Capture never runs on a personal device unless you explicitly share your screen.' },
   { h: 'How the data is used',

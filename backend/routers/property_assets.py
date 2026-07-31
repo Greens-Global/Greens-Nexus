@@ -1,4 +1,4 @@
-"""Asset Management (property portfolio) — Ankush's module.
+"""Asset Management (property portfolio) - Ankush's module.
 
 The frontend (frontend/src/views/AssetModule.jsx) treats its data as one
 workspace blob: { properties, warranties, inspections, documents, ahj,
@@ -7,7 +7,7 @@ this router moves it to a shared Supabase-backed store so every user sees the
 same portfolio.
 
 Storage is intentionally simple: the property objects and each child row are
-kept whole in JSON `payload` columns (the data is semi-structured — free-form
+kept whole in JSON `payload` columns (the data is semi-structured - free-form
 snapshot/timeline/permit sheets plus a wide, evolving set of header fields), so
 the workspace round-trips losslessly with no per-field schema churn. The
 dataset is tiny (~24 properties + a few hundred child rows), so a whole-blob
@@ -73,7 +73,7 @@ def get_workspace(db: Session = Depends(get_db), user=Depends(require_asset_read
         if r.collection in ws:
             ws[r.collection].append(r.payload or {})
     ws["logs"] = [l.payload or {} for l in db.query(PropertyActivityLog).all()]
-    # Server-stamped freshness marker — clients pull whenever this moves past the
+    # Server-stamped freshness marker - clients pull whenever this moves past the
     # last value they saw (value-only edits move it too, unlike the log count).
     meta = db.get(PropertyWorkspaceMeta, 1)
     ws["_ts"] = (meta.ts if meta else 0) or 0
@@ -166,7 +166,7 @@ def _parse_ymd(s):
 @router.post("/property-assets/reminders/scan")
 def scan_reminders(db: Session = Depends(get_db), user=Depends(require_asset_read)):
     """Scan the portfolio for upcoming/overdue dates and raise ONE deduped bell
-    notification per item (broadcast to managers — recipient=''). Idempotent: a
+    notification per item (broadcast to managers - recipient=''). Idempotent: a
     reminder is keyed by (type, ref_id) so re-running on every module open never
     duplicates. Called by the module on open (Nexus has no scheduler for this)."""
     today = date.today()

@@ -1,5 +1,5 @@
 /* eslint-disable react-hooks/refs -- renders a live auto-lock countdown from a last-activity ref (ticked by state); a safe intentional ref read the React-Compiler rule flags */
-/* Credential Vault — main module screen. 1:1 functional port of the standalone
+/* Credential Vault - main module screen. 1:1 functional port of the standalone
    credential-vault-dev app onto the Nexus backend: company vault (reveal/copy/
    share/approvals/trash/import), strictly-private personal vault, and a full
    activity log. Secrets only ever arrive via explicit reveal calls and are held
@@ -16,6 +16,7 @@ import { api } from "../api";
 import { ensureStepUp } from "../stepup/StepUp";
 import { useRole } from "../contexts/RoleContext";
 import { useNameResolver } from "../lib/useNameResolver";
+import ModuleTabs from "../components/ModuleTabs";
 import {
   DEFAULT_DEPTS, TYPES, SETTINGS, iconFor, tierStyle, actionStyle, agoLabel,
   Dot, Empty, Dropdown, Modal, StatPill, ViewBtn, Select, ResizeHandle,
@@ -112,7 +113,7 @@ export default function CredentialVaultApp() {
 
   useEffect(() => { setEditMode(false); setSelectedIds(new Set()); }, [tab]);
 
-  // Rotation-due reminders into the module bell — once per day
+  // Rotation-due reminders into the module bell - once per day
   useEffect(() => {
     if (!credentials.length || !myEmail) return;
     const today = new Date().toISOString().slice(0, 10);
@@ -125,7 +126,7 @@ export default function CredentialVaultApp() {
     if (!due.length) return;
     due.forEach((c) => {
       const remaining = (c.rotationMax || SETTINGS.rotationDays) - c.rotatedDays;
-      notify(`${c.name} (${c.dept}) — password rotation due in ${remaining} day${remaining === 1 ? "" : "s"}. Please rotate before it expires.`, "rotation");
+      notify(`${c.name} (${c.dept}) - password rotation due in ${remaining} day${remaining === 1 ? "" : "s"}. Please rotate before it expires.`, "rotation");
     });
     try { localStorage.setItem(key, "1"); } catch { /* private mode */ }
   }, [credentials, myEmail]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -221,7 +222,7 @@ export default function CredentialVaultApp() {
   }, [credentials, fDept, fType, atRiskOnly, riskFilter, query, sort, editMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const visibleLog = useMemo(() => log.filter((e) => {
-    if (e.dept === "—" && !isAdmin && e.actorEmail !== myEmail) return false;
+    if (e.dept === "-" && !isAdmin && e.actorEmail !== myEmail) return false;
     if (logFrom && e.ts) { const from = new Date(logFrom).setHours(0, 0, 0, 0); if (e.ts < from) return false; }
     if (logTo && e.ts) { const to = new Date(logTo).setHours(23, 59, 59, 999); if (e.ts > to) return false; }
     return true;
@@ -265,7 +266,7 @@ export default function CredentialVaultApp() {
     // Real, server-enforced step-up MFA before any secret is decrypted. One
     // verification unlocks a short window (covers a burst of reveals).
     const up = await ensureStepUp();
-    if (!up.ok) { if (!up.cancelled) flash("Identity check didn’t complete — nothing was revealed.", "info"); return; }
+    if (!up.ok) { if (!up.cancelled) flash("Identity check didn’t complete - nothing was revealed.", "info"); return; }
     try {
       const res = await api.cvReveal(c.id);
       if (res.approvalRequired) { flash("Access request sent to a Global Admin.", "info"); refresh().catch(() => {}); return; }
@@ -379,7 +380,7 @@ export default function CredentialVaultApp() {
   function unlockPersonalVault() {
     setPersonalVaultUnlocked(true);
     setVaultMode("personal");
-    flash(personalActivated ? "Personal Vault unlocked." : "Personal Vault activated. Encrypted and private — not accessible to anyone else.");
+    flash(personalActivated ? "Personal Vault unlocked." : "Personal Vault activated. Encrypted and private - not accessible to anyone else.");
   }
   function lockPersonalVault() {
     setPersonalVaultUnlocked(false);
@@ -519,18 +520,18 @@ export default function CredentialVaultApp() {
           onClick={() => { setTab("vault"); setAtRiskOnly((v) => !v); setRiskFilter(null); }} />
       </div>
 
-      {/* ── Tabs ── */}
-      <div className="scroll-tabs" style={{ marginTop: 20, display: "flex", alignItems: "center", gap: 4, borderBottom: "1px solid var(--border-color)", flexWrap: "wrap" }}>
-        <TabBtn active={tab === "vault"} onClick={() => setTab("vault")}>Vault</TabBtn>
-        {showApprovalsTab && (
-          <TabBtn active={tab === "approvals"} onClick={() => setTab("approvals")}>
-            Approvals {approvals.length > 0 && <span style={{ marginLeft: 2, display: "inline-flex", height: 18, minWidth: 18, alignItems: "center", justifyContent: "center", borderRadius: 999, background: "var(--cv-rose)", padding: "0 5px", fontSize: 11, fontWeight: 600, color: "#fff" }}>{approvals.length}</span>}
-          </TabBtn>
-        )}
-        <TabBtn active={tab === "log"} onClick={() => setTab("log")}>Activity Log</TabBtn>
-        <TabBtn active={tab === "trash"} onClick={() => setTab("trash")}>
-          Trash {trash.length > 0 && <span style={{ marginLeft: 2, display: "inline-flex", height: 18, minWidth: 18, alignItems: "center", justifyContent: "center", borderRadius: 999, background: "var(--text-muted)", padding: "0 5px", fontSize: 11, fontWeight: 600, color: "var(--bg-card)" }}>{trash.length}</span>}
-        </TabBtn>
+      {/* ── Tabs - desktop renders them centered in the top header; phones
+          keep the in-page strip (ModuleTabs handles both). The credential
+          search + bulk delete keep their own right-aligned row. ── */}
+      <ModuleTabs
+        tabs={[
+          { key: "vault", label: "Vault" },
+          ...(showApprovalsTab ? [{ key: "approvals", label: "Approvals", badge: approvals.length || null }] : []),
+          { key: "log", label: "Activity log" },
+          { key: "trash", label: "Trash", badge: trash.length || null },
+        ]}
+        active={tab} onChange={setTab} />
+      <div style={{ marginTop: 12, display: "flex", alignItems: "center", flexWrap: "wrap" }}>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8, paddingBottom: 4 }}>
           <div style={{ position: "relative" }}>
             <Search size={15} style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)", color: "var(--text-muted)" }} />
@@ -597,7 +598,7 @@ export default function CredentialVaultApp() {
           {editMode && (
             <div style={{ marginTop: 12, display: "flex", alignItems: "center", gap: 8, borderRadius: 12, background: "var(--cv-sky-bg)", border: "1px solid var(--cv-sky-line)", padding: "10px 16px", fontSize: 13.5, color: "var(--cv-sky)" }}>
               <Pencil size={15} style={{ flexShrink: 0 }} />
-              Showing only credentials you own — others are hidden while editing.
+              Showing only credentials you own - others are hidden while editing.
             </div>
           )}
 
@@ -607,7 +608,7 @@ export default function CredentialVaultApp() {
               <div style={{ padding: "10px 16px", borderBottom: "1px solid var(--cv-violet-line)", display: "flex", alignItems: "center", gap: 8 }}>
                 <Share2 size={15} style={{ color: "var(--cv-violet)" }} />
                 <span style={{ fontWeight: 600, fontSize: 13.5, color: "var(--cv-violet)" }}>Shared with Me</span>
-                <span style={{ marginLeft: 4, fontSize: 11.5, color: "var(--cv-violet)", opacity: .8 }}>— temporary access, auto-expires</span>
+                <span style={{ marginLeft: 4, fontSize: 11.5, color: "var(--cv-violet)", opacity: .8 }}>- temporary access, auto-expires</span>
               </div>
               <div className="cv-divide">
                 {myGrants.map((g) => {
@@ -708,7 +709,7 @@ export default function CredentialVaultApp() {
                         </div>
                         <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "0 16px", fontSize: 13.5, color: "var(--text-secondary)", minWidth: 0 }}>
                           <User size={13} style={{ color: "var(--text-muted)", flexShrink: 0 }} />
-                          <span className="cv-truncate">{c.owner ? nameOf(c.owner) : "—"}</span>
+                          <span className="cv-truncate">{c.owner ? nameOf(c.owner) : "-"}</span>
                           {c.owner && (
                             <a href={`https://teams.microsoft.com/l/chat/0/0?users=${c.owner}`} target="_blank" rel="noopener noreferrer" title={`Chat with ${nameOf(c.owner)} on Teams`} style={{ flexShrink: 0, marginLeft: 2, display: "flex" }}>
                               <TeamsIcon size={19} />
@@ -736,7 +737,7 @@ export default function CredentialVaultApp() {
                         <div style={{ minWidth: 0, flex: 1 }}>
                           <div className="cv-truncate" style={{ fontWeight: 600, fontSize: 13.5, display: "flex", alignItems: "center", gap: 6 }}><Dot color={healthDot(c)} title={healthFlags(c).join(", ") || "Healthy"} />{c.name}</div>
                           <div className="cv-truncate" style={{ fontSize: 11.5, color: "var(--text-muted)", display: "flex", alignItems: "center", gap: 4 }}>
-                            {c.dept} · {c.owner ? nameOf(c.owner) : "—"}
+                            {c.dept} · {c.owner ? nameOf(c.owner) : "-"}
                             {c.owner && <a href={`https://teams.microsoft.com/l/chat/0/0?users=${c.owner}`} target="_blank" rel="noopener noreferrer" title={`Chat with ${nameOf(c.owner)} on Teams`} style={{ display: "flex" }}><TeamsIcon size={15} /></a>}
                           </div>
                           {c.url && <a href={c.url} target="_blank" rel="noopener noreferrer" className="cv-link" style={{ display: "inline-flex", alignItems: "center", gap: 2, fontSize: 11.5, marginTop: 2 }}>Link<ExternalLink size={11} /></a>}
@@ -787,7 +788,7 @@ export default function CredentialVaultApp() {
               <div style={{ borderRadius: 16, border: "1px dashed var(--cv-indigo-line)", background: "var(--cv-indigo-bg)", padding: 40, textAlign: "center" }}>
                 <div style={{ height: 48, width: 48, borderRadius: 16, background: "var(--cv-indigo-bg)", border: "1px solid var(--cv-indigo-line)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 12px" }}><Lock size={22} style={{ color: "var(--cv-indigo)" }} /></div>
                 <div style={{ fontWeight: 600, fontSize: 14.5 }}>No Personal Credentials Yet</div>
-                <div style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 4 }}>Add passwords that are completely private — not visible to admins or your team.</div>
+                <div style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 4 }}>Add passwords that are completely private - not visible to admins or your team.</div>
                 <button onClick={() => setShowPersonalAdd(true)} className="cv-btn-dark cv-btn-indigo" style={{ marginTop: 16 }}><Plus size={15} /> Add Credential</button>
               </div>
             )}
@@ -966,7 +967,7 @@ export default function CredentialVaultApp() {
 
       {/* ── Modals ── */}
       {/* Secret reveals + personal-vault unlock now use real Entra step-up MFA
-          (ensureStepUp) at the action point — the old client-side re-auth modals
+          (ensureStepUp) at the action point - the old client-side re-auth modals
           were removed as they enforced nothing server-side. */}
       {confirmDel && <ConfirmModal cred={confirmDel} onClose={() => setConfirmDel(null)} onConfirm={() => deleteCredential(confirmDel)} />}
       {showAdd && <AddModal onClose={() => setShowAdd(false)} onSave={addCredential} depts={depts} userName={nameOf(myEmail)} userEmail={myEmail} people={people} />}

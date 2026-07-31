@@ -5,7 +5,7 @@ import { api } from '../api';
 // ── Documents Dashboard ───────────────────────────────────────────────────────
 // Landing screen for the Documents module: quick actions, recent documents, and
 // a pending-signatures summary pulled from the existing E-Sign inbox (api.mySignatures()
-// — no new backend surface needed for that half). "New Document"/"New Template"
+// - no new backend surface needed for that half). "New Document"/"New Template"
 // hand off to My Documents / Templates and ask them to pop their create dialog.
 const DOC_STATUS = {
   draft:    { label: 'Draft',    fg: 'hsl(var(--color-blue))',   bg: 'hsla(var(--color-blue),0.12)' },
@@ -66,7 +66,7 @@ export default function DocumentsDashboard({ onGoToBrowse, onGoToTemplates, onGo
           {!recent ? (
             <div style={{ padding: 20, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /></div>
           ) : recent.length === 0 ? (
-            <div style={{ padding: '20px 4px', color: 'var(--muted)', fontSize: 12.5 }}>No documents yet — create your first draft.</div>
+            <div style={{ padding: '20px 4px', color: 'var(--muted)', fontSize: 12.5 }}>No documents yet - create your first draft.</div>
           ) : recent.map(d => {
             const st = DOC_STATUS[d.status] || DOC_STATUS.draft;
             return (

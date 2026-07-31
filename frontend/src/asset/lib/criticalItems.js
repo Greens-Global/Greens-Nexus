@@ -1,6 +1,6 @@
 // Critical-dates scanner: walks every asset (property/vehicle/equipment) and every related
 // collection record (warranties, inspections, vendors, AHJ/permits, maintenance, service) and
-// flattens every date-bearing field found into one list, each entry annotated with `days` — the
+// flattens every date-bearing field found into one list, each entry annotated with `days` - the
 // signed day-count from today (negative = overdue, 0 = due today, positive = due in N days). This
 // powers the "Critical Items" alert widget (Tier-3 critical-date alert engine).
 
@@ -41,7 +41,7 @@ export const CRITICAL_ITEM_TAB = {
  * renewal tracking and returns a flat, day-sorted (soonest/most-overdue first) list.
  *
  * Only assets that still exist (not soft-deleted) are scanned; entries whose date is empty or
- * unparseable are silently skipped (daysUntil returns null for those, and `push` drops them) —
+ * unparseable are silently skipped (daysUntil returns null for those, and `push` drops them) -
  * so this list only ever contains dates that are actually on file.
  */
 export function collectCriticalDates(store) {
@@ -51,9 +51,9 @@ export function collectCriticalDates(store) {
 
   const out = [];
   const push = (id, cat, label, date, detail) => {
-    if (!byId[id]) return; // orphaned record (owning asset deleted/missing) — skip
+    if (!byId[id]) return; // orphaned record (owning asset deleted/missing) - skip
     const days = daysUntil(date);
-    if (days == null) return; // no date on file, or unparseable — nothing to alert on
+    if (days == null) return; // no date on file, or unparseable - nothing to alert on
     const asset = byId[id];
     out.push({
       id,
@@ -71,7 +71,7 @@ export function collectCriticalDates(store) {
     const snap = snapMap(p);
     const isProperty = inferAssetKind(p) === 'property';
 
-    // Insurance policy expiration applies to every asset kind — top-level field first
+    // Insurance policy expiration applies to every asset kind - top-level field first
     // (vehicles/equipment store it flat), falling back to the property snapshot's field.
     push(p.id, 'Insurance', 'Policy expiration', p.insExpiration || snap['policy expiration']);
 
@@ -85,7 +85,7 @@ export function collectCriticalDates(store) {
     }
   });
 
-  // Collection records — each carries a propertyId FK pointing at any asset.
+  // Collection records - each carries a propertyId FK pointing at any asset.
   (store.warranties || []).forEach((x) =>
     push(x.propertyId, 'Warranty', 'Warranty expiration', x.expiration, x.scope || x.party || x.kind)
   );

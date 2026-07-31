@@ -1,15 +1,31 @@
 import { useState, useRef, useEffect, useMemo, lazy, Suspense } from "react";
-import { Menu, Moon, Sun, Search, LogOut, Settings, User, ArrowLeft, Shield, Activity, ChevronDown, LayoutDashboard, Maximize2, Minimize2, ZoomIn, ZoomOut, Camera, Clock, Sparkles, X } from "lucide-react";
+import { Menu, Moon, Sun, Search, LogOut, Settings, User, ArrowLeft, Shield, Activity, Check, ChevronDown, LayoutDashboard, Palette, Camera, Clock, Sparkles, X, UserCog, DoorOpen } from "lucide-react";
 import ScreenshotsAdmin from "./ScreenshotsAdmin";
 const Changelog = lazy(() => import("../tasks/ChangelogView"));
 import NotificationBell from "./NotificationBell";
 import PageHelp from "./PageHelp";
+import { useHeaderTabs } from "./ModuleTabs";
+import ActAsModal from "./ActAsModal";
 import { useMsal }        from "@azure/msal-react";
 import { useRole, ROLES, MODULES } from "../contexts/RoleContext";
 
 export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle, canGoBack, onBack, onNavigate, prevLabel, onOpenAdmin, helpKey, helpLabel }) {
   const { instance, accounts } = useMsal();
-  const { myRole, can, myGrantedModules } = useRole();
+  const { myRole, can, myGrantedModules, actingAs, startActAs, stopActAs } = useRole();
+  // Module tab strip published by the active module (<ModuleTabs>). When
+  // present it takes the header center (Work OS shell) and the global search
+  // collapses to a magnifier icon on the right.
+  const headerTabs = useHeaderTabs();
+  // Manager/IT Admin/Global Admin get Act As by role today; an 'act-as' Access
+  // Group grant (added to MODULES later) will let a Global Admin extend it to
+  // specific other employees without a backend change.
+  const canActAs = (can?.('manager') ?? false) || !!myGrantedModules?.has?.('act-as');
+  const [actAsModalOpen, setActAsModalOpen] = useState(false);
+  const [actAsStopping,  setActAsStopping]  = useState(false);
+  async function handleExitActAs() {
+    setActAsStopping(true);
+    try { await stopActAs(); } finally { setActAsStopping(false); }
+  }
   const account  = accounts[0];
   const name     = account?.name ?? "User";
   const email    = account?.username ?? "";
@@ -25,26 +41,37 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
   const dropRef   = useRef(null);
   const searchRef = useRef(null);
 
-  // Page zoom for readability (Neil: "zoom option for old folks"). Persisted so
-  // it survives reloads. Applied to the document root; 80–150% in 10% steps.
-  const [zoom, setZoom] = useState(() => Number(localStorage.getItem('gg-zoom')) || 100);
+  // Visual theme for the Work OS surfaces (profile menu → Theme): 'cobalt'
+  // (default Stella blue) or 'warm' (Lisso sand). Applied as a data attribute
+  // on <html> that remaps the --wk-* tokens; persisted like zoom below.
+  // Orthogonal to the light/dark toggle.
+  const [wkTheme, setWkTheme] = useState(() => localStorage.getItem('wk-theme') || 'cobalt');
   useEffect(() => {
-    document.documentElement.style.zoom = `${zoom}%`;
-    localStorage.setItem('gg-zoom', String(zoom));
-  }, [zoom]);
-  const clampZoom = z => Math.max(80, Math.min(150, z));
+    if (wkTheme === 'warm') document.documentElement.dataset.wktheme = 'warm';
+    else delete document.documentElement.dataset.wktheme;
+    localStorage.setItem('wk-theme', wkTheme);
+  }, [wkTheme]);
 
-  // Fullscreen toggle for the whole app.
-  const [isFull, setIsFull] = useState(false);
+  // Page zoom and fullscreen controls were REMOVED from the header (Visesh,
+  // Jul 30). The zoom applied a CSS `zoom` to <html>, and its default was 110%
+  // (a ZOOM_BASE of 1.1 baked into what the control called "100%"), which cost
+  // two real things:
+  //   - every window laid out ~10% narrower than its pixel size, so a 1366px
+  //     laptop behaved like ~1242px and every breakpoint fired early.
+  //   - it leaked into the PDF Editor's iframe, where WebKit disagrees with
+  //     itself: window.innerWidth reported the zoomed layout viewport (1140)
+  //     while `margin: auto` resolved against the unzoomed box (1254), putting
+  //     the landing grid 57px right of centre in Safari and dead-centre in
+  //     Chromium.
+  // Browser-native zoom (cmd/ctrl +/-) covers the readability need without
+  // either problem, and does not distort layout measurements.
+  // Any `zoom` left on <html> by the old control is cleared once on mount so a
+  // persisted 120% does not survive this change.
   useEffect(() => {
-    const h = () => setIsFull(!!document.fullscreenElement);
-    document.addEventListener('fullscreenchange', h);
-    return () => document.removeEventListener('fullscreenchange', h);
+    document.documentElement.style.removeProperty('zoom');
+    try { localStorage.removeItem('gg-zoom'); } catch { /* private mode */ }
   }, []);
-  function toggleFullscreen() {
-    if (document.fullscreenElement) document.exitFullscreen?.();
-    else document.documentElement.requestFullscreen?.();
-  }
+
 
   // Restricted view IDs that need at minimum supervisor role
   const RESTRICTED_MIN_SUPERVISOR = new Set([
@@ -93,13 +120,67 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
     });
   }
 
+  // One search implementation, two placements: the full centered bar when no
+  // module tabs are published, or inside a right-side popover when they are.
+  const searchInput = (
+    <div className="search-bar">
+      <Search style={{ width: 14, height: 14, flexShrink: 0 }} />
+      <input
+        placeholder="Search Nexus…"
+        value={searchQuery}
+        onChange={e => { setSearchQuery(e.target.value); setSearchOpen(true); }}
+        onFocus={() => setSearchOpen(true)}
+        onKeyDown={handleSearchKey}
+        autoFocus={!!headerTabs}
+      />
+      {searchQuery && <button className="search-clear" onClick={() => { setSearchQuery(''); setSearchOpen(false); }} title="Clear search" aria-label="Clear search"><X size={13} /></button>}
+    </div>
+  );
+
+  const searchResultsDropdown = (
+    <>
+      {searchOpen && searchResults.length > 0 && (
+        <div style={{
+          position: 'absolute', top: 'calc(100% + 6px)', left: 0, right: 0,
+          background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10,
+          boxShadow: '0 8px 28px rgba(0,0,0,0.15)', zIndex: 500, overflow: 'hidden',
+        }}>
+          {searchResults.map((m, i) => (
+            <button key={m.id} onClick={() => goTo(m.id)}
+              style={{
+                width: '100%', display: 'flex', alignItems: 'center', gap: 10,
+                padding: '9px 14px', background: i === 0 ? 'var(--mist)' : 'transparent',
+                border: 'none', cursor: 'pointer', fontFamily: 'Inter,sans-serif',
+                fontSize: 13, color: 'var(--ink)', textAlign: 'left',
+                borderTop: i > 0 ? '1px solid var(--line)' : 'none',
+              }}>
+              <LayoutDashboard size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+              <span style={{ fontWeight: 500 }}>{m.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      {searchOpen && searchQuery.trim() && searchResults.length === 0 && (
+        <div style={{
+          position: 'absolute', top: 'calc(100% + 6px)', left: 0, right: 0,
+          background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10,
+          boxShadow: '0 8px 28px rgba(0,0,0,0.15)', zIndex: 500, padding: '12px 14px',
+          fontSize: 13, color: 'var(--muted)', textAlign: 'center',
+        }}>
+          No results for "{searchQuery}"
+        </div>
+      )}
+    </>
+  );
+
   return (
+    <>
     <header className="top-header">
       <div className="header-left">
         <button className="mobile-toggle" onClick={onMobileToggle} aria-label="Toggle Sidebar">
           <Menu style={{ width: 18, height: 18 }} />
         </button>
-        {/* Phone-only back button — the breadcrumb (with its back arrow) is
+        {/* Phone-only back button - the breadcrumb (with its back arrow) is
             hidden on mobile, leaving no way to step back to the parent screen
             (Jun 16). Mirrors the desktop breadcrumb-back: same onBack/canGoBack. */}
         {canGoBack && (
@@ -108,13 +189,13 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
             <ArrowLeft style={{ width: 18, height: 18 }} />
           </button>
         )}
-        {/* Phone search lives LEFT of the centered wordmark — a 4th icon on
+        {/* Phone search lives LEFT of the centered wordmark - a 4th icon on
             the right collided with NEXUS (Visesh screenshot, Jun 12) */}
         <button className="icon-btn header-search-left" aria-label="Search"
           onClick={() => window.dispatchEvent(new CustomEvent('nexus:search-open'))}>
           <Search style={{ width: 16, height: 16 }} />
         </button>
-        {/* Phone-only centered wordmark (desktop hides it) — tap = home */}
+        {/* Phone-only centered wordmark (desktop hides it) - tap = home */}
         <button className="header-brand" onClick={() => onNavigate('dashboard')} aria-label="Go to Dashboard">NEXUS</button>
         <div className="breadcrumb">
           {canGoBack && (
@@ -124,7 +205,7 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
           )}
           {canGoBack && prevLabel && (
             <>
-              <span className="breadcrumb-prev">{prevLabel}</span>
+              <button className="breadcrumb-prev" onClick={onBack} title={`Back to ${prevLabel}`}>{prevLabel}</button>
               <span style={{ color: "var(--muted)", opacity: 0.4, fontSize: 11, userSelect: "none" }}>/</span>
             </>
           )}
@@ -132,69 +213,46 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
         </div>
       </div>
 
-      <div className="header-center">
-        <div style={{ position: 'relative' }} ref={searchRef}>
-          <div className="search-bar">
-            <Search style={{ width: 14, height: 14, flexShrink: 0 }} />
-            <input
-              placeholder="Search Nexus…"
-              value={searchQuery}
-              onChange={e => { setSearchQuery(e.target.value); setSearchOpen(true); }}
-              onFocus={() => setSearchOpen(true)}
-              onKeyDown={handleSearchKey}
-            />
-            {searchQuery && <button className="search-clear" onClick={() => { setSearchQuery(''); setSearchOpen(false); }} title="Clear search" aria-label="Clear search"><X size={13} /></button>}
+      <div className={`header-center${headerTabs ? ' has-tabs' : ''}`}>
+        {headerTabs ? (
+          <nav className="hdr-tabs" aria-label="Module sections">
+            {headerTabs.tabs.map(({ key, label, Icon, badge }) => (
+              <button key={key}
+                className={`hdr-tab${headerTabs.active === key ? ' active' : ''}`}
+                aria-current={headerTabs.active === key ? 'page' : undefined}
+                onClick={() => headerTabs.onChange(key)}>
+                {Icon && <Icon size={16} strokeWidth={2} />}
+                <span>{label}</span>
+                {badge > 0 && <span className="hdr-tab-badge">{badge}</span>}
+              </button>
+            ))}
+          </nav>
+        ) : (
+          <div style={{ position: 'relative' }} ref={searchRef}>
+            {searchInput}
+            {searchResultsDropdown}
           </div>
-          {searchOpen && searchResults.length > 0 && (
-            <div style={{
-              position: 'absolute', top: 'calc(100% + 6px)', left: 0, right: 0,
-              background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10,
-              boxShadow: '0 8px 28px rgba(0,0,0,0.15)', zIndex: 500, overflow: 'hidden',
-            }}>
-              {searchResults.map((m, i) => (
-                <button key={m.id} onClick={() => goTo(m.id)}
-                  style={{
-                    width: '100%', display: 'flex', alignItems: 'center', gap: 10,
-                    padding: '9px 14px', background: i === 0 ? 'var(--mist)' : 'transparent',
-                    border: 'none', cursor: 'pointer', fontFamily: 'Inter,sans-serif',
-                    fontSize: 13, color: 'var(--ink)', textAlign: 'left',
-                    borderTop: i > 0 ? '1px solid var(--line)' : 'none',
-                  }}>
-                  <LayoutDashboard size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />
-                  <span style={{ fontWeight: 500 }}>{m.label}</span>
-                </button>
-              ))}
-            </div>
-          )}
-          {searchOpen && searchQuery.trim() && searchResults.length === 0 && (
-            <div style={{
-              position: 'absolute', top: 'calc(100% + 6px)', left: 0, right: 0,
-              background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10,
-              boxShadow: '0 8px 28px rgba(0,0,0,0.15)', zIndex: 500, padding: '12px 14px',
-              fontSize: 13, color: 'var(--muted)', textAlign: 'center',
-            }}>
-              No results for "{searchQuery}"
-            </div>
-          )}
-        </div>
+        )}
       </div>
 
       <div className="header-right">
-        <div className="header-desktop-tools">
-          <button className="icon-btn" onClick={() => setZoom(z => clampZoom(z - 10))} aria-label="Zoom out" title="Zoom out" disabled={zoom <= 80}>
-            <ZoomOut style={{ width: 16, height: 16 }} />
-          </button>
-          <button className="header-zoom-label" onClick={() => setZoom(100)} title="Reset zoom to 100%"
-            style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
-            {zoom}%
-          </button>
-          <button className="icon-btn" onClick={() => setZoom(z => clampZoom(z + 10))} aria-label="Zoom in" title="Zoom in" disabled={zoom >= 150}>
-            <ZoomIn style={{ width: 16, height: 16 }} />
-          </button>
-          <button className="icon-btn" onClick={toggleFullscreen} aria-label="Toggle fullscreen" title={isFull ? 'Exit fullscreen' : 'Fullscreen'}>
-            {isFull ? <Minimize2 style={{ width: 16, height: 16 }} /> : <Maximize2 style={{ width: 16, height: 16 }} />}
-          </button>
-        </div>
+        {/* Module tabs occupy the center → search lives here as an icon */}
+        {headerTabs && (
+          <div className="hdr-search-wrap" ref={searchRef}>
+            <button className="icon-btn" aria-label="Search Nexus" title="Search"
+              onClick={() => setSearchOpen(o => !o)}>
+              <Search style={{ width: 16, height: 16 }} />
+            </button>
+            {searchOpen && (
+              <div className="hdr-search-pop">
+                <div style={{ position: 'relative' }}>
+                  {searchInput}
+                  {searchResultsDropdown}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
         <NotificationBell onNavigate={onNavigate} />
 
         {/* User profile pill */}
@@ -203,7 +261,7 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
             <div className="header-avatar">{initials}</div>
             <div className="header-user-info">
               <span className="header-user-name">{name.split(" ")[0]}</span>
-              <span className="header-user-role">Greens Global</span>
+              <span className="header-user-role">{roleMeta.label}</span>
             </div>
             <ChevronDown size={13} style={{ color: 'var(--muted)', flexShrink: 0, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }} />
           </button>
@@ -252,7 +310,42 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
               <button className="hud-item" onClick={onThemeToggle}>
                 {theme === "dark" ? <Sun size={14} /> : <Moon size={14} />} {theme === "dark" ? "Light mode" : "Dark mode"}
               </button>
+              {/* Work OS visual theme - cobalt (default) or warm sand */}
+              <div style={{ padding: '6px 12px 2px', fontSize: 10, fontWeight: 700, letterSpacing: '.06em', color: 'var(--muted)', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 5 }}>
+                <Palette size={11} /> Theme
+              </div>
+              {[['cobalt', 'Cobalt'], ['warm', 'Warm sand']].map(([key, label]) => (
+                <button key={key} className="hud-item" onClick={() => setWkTheme(key)}>
+                  <span aria-hidden="true" style={{
+                    width: 13, height: 13, borderRadius: 4, flexShrink: 0,
+                    background: key === 'cobalt' ? '#2b45e1' : '#f5ead0',
+                    border: key === 'warm' ? '1px solid #ddd5c2' : '1px solid transparent',
+                  }} />
+                  {label}
+                  {wkTheme === key && <Check size={13} style={{ marginLeft: 'auto', color: 'var(--ink)' }} />}
+                </button>
+              ))}
               {helpKey && <PageHelp pageKey={helpKey} label={helpLabel} variant="row" onActivate={() => setOpen(false)} />}
+
+              {/* Act As (Jul 2026): visible to Manager/IT Admin/Global Admin (or an
+                  'act-as' Access Group grant). Exit is always shown while a session
+                  is active - myRole may have dropped below manager because it's
+                  now reporting the impersonated employee's own role. */}
+              {(canActAs || actingAs) && (
+                <>
+                  <div className="hud-divider" />
+                  {actingAs ? (
+                    <button className="hud-item" onClick={() => { setOpen(false); handleExitActAs(); }} disabled={actAsStopping}
+                      style={{ color: 'hsl(var(--color-red))' }}>
+                      <DoorOpen size={14} /> {actAsStopping ? 'Exiting…' : `Exit Act As (${actingAs.targetName})`}
+                    </button>
+                  ) : (
+                    <button className="hud-item" onClick={() => { setOpen(false); setActAsModalOpen(true); }}>
+                      <UserCog size={14} /> Act As
+                    </button>
+                  )}
+                </>
+              )}
 
               {isAdmin && (
                 <>
@@ -294,5 +387,36 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
         </Suspense>
       )}
     </header>
+
+    {/* Persistent, hard-to-miss reminder that this is impersonation, not the
+        real signed-in identity - sits under the header on every screen for
+        the whole session, not just the profile menu (Jul 2026). */}
+    {actingAs && (
+      <div style={{
+        position: 'sticky', top: 56, zIndex: 105, display: 'flex', alignItems: 'center',
+        justifyContent: 'center', gap: 10, padding: '7px 16px',
+        background: 'hsla(var(--color-orange), 0.16)', borderBottom: '1px solid hsla(var(--color-orange), 0.4)',
+        fontFamily: 'Inter, sans-serif', fontSize: 12.5, color: 'var(--ink)', flexWrap: 'wrap', textAlign: 'center',
+      }}>
+        <UserCog size={13} style={{ color: 'hsl(var(--color-orange))', flexShrink: 0 }} />
+        <span>You're acting as <strong>{actingAs.targetName}</strong> ({actingAs.targetEmail}) - actions you take are attributed to them.</span>
+        <button onClick={handleExitActAs} disabled={actAsStopping}
+          style={{
+            background: 'hsl(var(--color-orange))', color: '#fff', border: 'none', borderRadius: 6,
+            padding: '3px 10px', fontSize: 11.5, fontWeight: 700, cursor: actAsStopping ? 'default' : 'pointer',
+            fontFamily: 'inherit', flexShrink: 0,
+          }}>
+          {actAsStopping ? 'Exiting…' : 'Exit Act As'}
+        </button>
+      </div>
+    )}
+
+    {actAsModalOpen && (
+      <ActAsModal
+        onClose={() => setActAsModalOpen(false)}
+        onStart={startActAs}
+      />
+    )}
+    </>
   );
 }

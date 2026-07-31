@@ -4,7 +4,7 @@ import { supabase } from '../../lib/supabase';
 // K-1s, PPMs, notices). Paths namespace the content, e.g. commitments/<fundId>/…
 export const IR_BUCKET = 'ir-documents';
 
-// PDF / Word / Excel / images by default — callers can pass their own list.
+// PDF / Word / Excel / images by default - callers can pass their own list.
 export const DEFAULT_ALLOWED_TYPES = [
   'application/pdf',
   'application/msword',
@@ -24,7 +24,7 @@ export function safeFileName(name) {
 export async function uploadToSupabase(file, bucket, path, allowedTypes = DEFAULT_ALLOWED_TYPES) {
   if (!supabase) return { url: '', error: 'Supabase not configured' };
   if (allowedTypes && allowedTypes.length && !allowedTypes.includes(file.type)) {
-    return { url: '', error: 'File type not allowed — use PDF, Word, Excel, or an image' };
+    return { url: '', error: 'File type not allowed - use PDF, Word, Excel, or an image' };
   }
   if (file.size > MAX_BYTES) return { url: '', error: 'File must be under 25 MB' };
   // cacheControl 1 year: paths are unique and files never change, so browsers

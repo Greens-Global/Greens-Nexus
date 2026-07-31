@@ -6,12 +6,13 @@ import DocumentsDashboard from '../components/DocumentsDashboard';
 import DocumentsBrowser from '../components/DocumentsBrowser';
 import DocumentTemplates from '../components/DocumentTemplates';
 import DocumentsSearchBar from '../components/DocumentsSearchBar';
+import ModuleTabs from '../components/ModuleTabs';
 
 // ── Documents module ─────────────────────────────────────────────────────────
 // E-Sign was carved out of HR into its own top-level module (Jul 2026), then
 // grown into a full DMS: Dashboard + My Documents + Templates sit alongside
 // the untouched E-Sign tab (whose own separate "Templates" sub-tab is for
-// e-sign envelope templates — unrelated, unchanged). Backend /esign/* routes
+// e-sign envelope templates - unrelated, unchanged). Backend /esign/* routes
 // are unchanged; the DMS half talks to the new /documents/* router.
 //
 // Cross-module handoff: HR → Hiring "Send for signature" stashes an offer on
@@ -27,15 +28,15 @@ const TABS = [
 
 export default function Documents({ activeSub, onSubChange }) {
   // Deep-links: 'documents-esign' / 'documents-esign-requests' both live on the
-  // E-Sign tab — ESign reads the raw activeSub to pick its own sub-tab.
+  // E-Sign tab - ESign reads the raw activeSub to pick its own sub-tab.
   const navSub = String(activeSub || '').startsWith('documents-esign') ? 'documents-esign' : activeSub;
   const sub = TABS.some(t => t.key === navSub) ? navSub : 'documents-dashboard';
   // "New Document"/"New Template" from the Dashboard hand off to the relevant
-  // tab and ask it to pop its create dialog open — a bumped counter (not a
+  // tab and ask it to pop its create dialog open - a bumped counter (not a
   // bool) so a second click while already on that tab still re-triggers it.
   const [browseCreateSignal, setBrowseCreateSignal] = useState(0);
   const [templateCreateSignal, setTemplateCreateSignal] = useState(0);
-  // Search (Phase 6) hands off a specific id to open — {id, nonce} so picking
+  // Search (Phase 6) hands off a specific id to open - {id, nonce} so picking
   // the same result twice in a row still re-triggers (nonce always bumps).
   const [openDocSignal, setOpenDocSignal] = useState(null);
   const [openTemplateSignal, setOpenTemplateSignal] = useState(null);
@@ -55,7 +56,7 @@ export default function Documents({ activeSub, onSubChange }) {
   const toastOk  = msg => { setToast({ msg, kind: 'ok' }); setTimeout(() => setToast(null), 4000); };
 
   // Employees + entities feed the Send wizard's internal-signer picker. A
-  // documents-only grant (no HR access) may 403 these — degrade to external
+  // documents-only grant (no HR access) may 403 these - degrade to external
   // parties rather than break the module.
   useEffect(() => {
     api.getEmployees().then(setEmployees).catch(() => setEmployees([]));
@@ -80,7 +81,7 @@ export default function Documents({ activeSub, onSubChange }) {
       <div className="view-header" style={{ marginBottom: 18, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
         <div className="view-title-group">
           <h2>Documents</h2>
-          <p>Send, sign and track company documents — one place</p>
+          <p>Send, sign and track company documents - one place</p>
         </div>
         <DocumentsSearchBar
           onOpenDocument={(id) => { onSubChange?.('documents-browse'); setOpenDocSignal({ id, nonce: Date.now() }); }}
@@ -89,15 +90,9 @@ export default function Documents({ activeSub, onSubChange }) {
       </div>
 
       {/* Tabs */}
-      <div className="scroll-tabs" style={{ display: 'flex', gap: 8, marginBottom: 24, borderBottom: '1px solid var(--line)', paddingBottom: 1 }}>
-        {TABS.map(({ key, label, Icon }) => (
-          <button key={key} onClick={() => onSubChange ? onSubChange(key) : null}
-            style={{ background: 'none', border: 'none', padding: '10px 18px', fontFamily: 'Inter, sans-serif', fontWeight: 600, fontSize: 13.5, cursor: 'pointer', color: sub === key ? 'var(--ink)' : 'var(--muted)', position: 'relative', transition: 'color 0.15s', display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap', flexShrink: 0 }}>
-            <Icon size={17} /> {label}
-            {sub === key && <span style={{ position: 'absolute', bottom: -1, left: 0, right: 0, height: 2.5, backgroundColor: 'var(--ink)', borderRadius: '4px 4px 0 0' }} />}
-          </button>
-        ))}
-      </div>
+      {/* Desktop: tabs render centered in the top header; phones keep the
+          in-page strip (ModuleTabs handles both) */}
+      <ModuleTabs tabs={TABS} active={sub} onChange={onSubChange} />
 
       {sub === 'documents-dashboard' && (
         <DocumentsDashboard
@@ -121,7 +116,7 @@ export default function Documents({ activeSub, onSubChange }) {
           onPrefillConsumed={() => setEsignPrefill(null)} toastOk={toastOk} toastErr={toastErr}
           onSentRequest={(sent) => {
             // Phase 5 bridge: a send that originated from a Document Builder
-            // export carries sourceDocumentId on the prefill — link the new
+            // export carries sourceDocumentId on the prefill - link the new
             // envelope back onto the document once it's actually sent.
             const docId = esignPrefill?.sourceDocumentId;
             if (docId) api.updateDocument(docId, { signRequestId: sent.id, status: 'final' }).catch(toastErr);

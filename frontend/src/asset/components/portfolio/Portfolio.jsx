@@ -9,12 +9,12 @@ import { ListTable } from './ListTable.jsx';
 // NOTE: ListRow/ListGroupRow (from ./ListRow.jsx) are NOT used below. In the original app, List
 // view always renders ListTable (see the `viewMode === 'list'` branch), and the card-row variant
 // (ListRow/ListGroupRow) is only reachable from a code path that's unconditionally shadowed by
-// that same check — i.e. already-dead code in the shipped app, not something this port dropped.
+// that same check - i.e. already-dead code in the shipped app, not something this port dropped.
 // They're kept as importable components (faithfully ported, matching their original signatures)
 // in case a future redesign wants a card-style List view again, but nothing here renders them.
 // See ListRow.jsx's file comment for the same note from the other side.
 
-// Column headers, in the same order as ListTable's COLUMNS — duplicated here (rather than
+// Column headers, in the same order as ListTable's COLUMNS - duplicated here (rather than
 // imported) only for the "Sorted: <Column>" chip label; kept as its own small constant so
 // Portfolio.jsx doesn't need to reach into ListTable's internals for display text.
 const SORT_COLUMN_LABELS = ['Asset', 'Type', 'Location', 'Stage', 'Owner', 'Asset Manager', 'Size'];
@@ -33,7 +33,7 @@ const filterIconLabelStyle = {
 
 const selectStyle = { width: '140px', minWidth: 0, maxWidth: '160px', padding: '0 10px', fontSize: '0.8rem', height: 40, boxSizing: 'border-box' };
 
-// Both the "Clear Filters" button and the "Sorted: X" chip share this exact pill shape — this
+// Both the "Clear Filters" button and the "Sorted: X" chip share this exact pill shape - this
 // was a real fix (they used to render with different border-radius/background/font-size before
 // being unified). Keep them visually identical; only content/interactivity differs.
 const filterPillStyle = {
@@ -50,17 +50,17 @@ const VIEW_TABS = [
 
 /**
  * The Portfolio page: search, Category/Stage/Type/Region filters, a Tiles/List/Map view
- * toggle, and (in List view) column sorting — the main landing page for browsing every asset.
+ * toggle, and (in List view) column sorting - the main landing page for browsing every asset.
  *
  * `typeFilter`/`setTypeFilter` are lifted up to the caller rather than local state, so the Type
  * filter can be pre-set/read from outside this component (e.g. a "View all Self-Storage assets"
  * link elsewhere in the app); every other filter (category/stage/region/search) and the view
  * mode/sort are local to this component and reset on unmount.
  *
- * IMPORTANT — the per-option counts shown in each filter dropdown (e.g. "Commercial (23)") are
+ * IMPORTANT - the per-option counts shown in each filter dropdown (e.g. "Commercial (23)") are
  * always computed from the FULL unfiltered asset list, not from the results of the OTHER
  * currently-applied filters. So picking a Category doesn't shrink the counts shown in the Stage/
- * Type/Region dropdowns — every dropdown's counts are relative to the whole portfolio, not to
+ * Type/Region dropdowns - every dropdown's counts are relative to the whole portfolio, not to
  * "what's left after my other filters." This matches the original app's behavior; it reads as
  * intentional (lets you see full-portfolio breakdowns while narrowing your view) rather than a
  * bug, but flagging it here since it's easy to "fix" by accident while touching this code.
@@ -77,14 +77,14 @@ export function Portfolio({ props, openProperty, typeFilter, setTypeFilter, serv
   const all = props.slice();
   if (!all.length) {
     // Empty + never heard from the server this session = the load failed (outage,
-    // deploy restart, auth blip) — NOT an empty portfolio. Say so, keep retrying in
+    // deploy restart, auth blip) - NOT an empty portfolio. Say so, keep retrying in
     // the background (the sync poll already does), and offer a manual reload. Only
     // a server-confirmed empty portfolio gets the "add your first property" invite.
     if (!serverOk) {
       return (
         <EmptyState>
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
-            <span>Couldn't reach the server to load the portfolio — retrying automatically…</span>
+            <span>Couldn't reach the server to load the portfolio - retrying automatically…</span>
             <button className="secondary-btn" onClick={() => window.location.reload()} style={{ padding: '8px 18px' }}>
               Reload now
             </button>
@@ -114,7 +114,7 @@ export function Portfolio({ props, openProperty, typeFilter, setTypeFilter, serv
     );
   }
 
-  // Dropdown option counts are deliberately based on the FULL list (`all`), not `filtered` — see
+  // Dropdown option counts are deliberately based on the FULL list (`all`), not `filtered` - see
   // the function-level doc comment above.
   const categoryCount = (cat) => all.filter((a) => deriveCategory(a) === cat).length;
   const stageCount = (stage) => all.filter((a) => baseStage(a.devStage) === stage).length;
@@ -129,7 +129,7 @@ export function Portfolio({ props, openProperty, typeFilter, setTypeFilter, serv
 
   const isTopLevel = (a) => !a.parentId;
   const childrenOf = (id) => all.filter((a) => a.parentId === id);
-  // Only top-level (non-linked-child) assets are ever shown as their own row/tile/pin — linked
+  // Only top-level (non-linked-child) assets are ever shown as their own row/tile/pin - linked
   // secondaries are reachable through their lead's group card/row instead, never listed
   // separately. Re-sorted by assetRank since the filter above doesn't preserve any particular
   // order.

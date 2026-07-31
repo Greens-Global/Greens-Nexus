@@ -30,7 +30,7 @@ const SAN_DIEGO = 'San Diego Area'
 const SACRAMENTO_BAY = 'Sacramento / Bay Area'
 
 const KEYWORD_SEED = [
-  // Generic — not tied to any single region, so these stay visible under every region filter.
+  // Generic - not tied to any single region, so these stay visible under every region filter.
   { keyword: 'storage units near me', volume: 40_500, difficulty: 62, cpc: 4.85, intent: 'Transactional' },
   { keyword: 'self storage', volume: 33_100, difficulty: 68, cpc: 5.2, intent: 'Commercial' },
   { keyword: 'extra space storage', volume: 22_200, difficulty: 71, cpc: 4.1, intent: 'Navigational' },
@@ -54,7 +54,7 @@ const KEYWORD_SEED = [
   { keyword: 'wine storage units', volume: 1_300, difficulty: 31, cpc: 3.8, intent: 'Commercial' },
   { keyword: 'diy storage tips', volume: 1_000, difficulty: 15, cpc: 0.9, intent: 'Informational' },
 
-  // San Diego Area — region-level head terms + facility-specific long-tail (Valley Center, Escondido, Temecula).
+  // San Diego Area - region-level head terms + facility-specific long-tail (Valley Center, Escondido, Temecula).
   { keyword: 'storage units san diego', volume: 9_900, difficulty: 56, cpc: 4.6, intent: 'Transactional', region: SAN_DIEGO },
   { keyword: 'self storage san diego', volume: 6_600, difficulty: 60, cpc: 4.9, intent: 'Commercial', region: SAN_DIEGO },
   { keyword: 'boat storage near me', volume: 4_400, difficulty: 35, cpc: 4.6, intent: 'Transactional', region: SAN_DIEGO },
@@ -86,7 +86,7 @@ const KEYWORD_SEED = [
     facility: 'Greens Temecula',
   },
 
-  // Sacramento / Bay Area — region-level head terms + facility-specific long-tail (Fairfield, Georgetown).
+  // Sacramento / Bay Area - region-level head terms + facility-specific long-tail (Fairfield, Georgetown).
   { keyword: 'storage units sacramento', volume: 4_400, difficulty: 48, cpc: 4.55, intent: 'Commercial', region: SACRAMENTO_BAY },
   { keyword: 'public storage sacramento', volume: 3_600, difficulty: 55, cpc: 4.4, intent: 'Navigational', region: SACRAMENTO_BAY },
   { keyword: 'self storage sacramento', volume: 2_900, difficulty: 50, cpc: 4.3, intent: 'Commercial', region: SACRAMENTO_BAY },
@@ -143,7 +143,7 @@ export function buildSerpResults(keyword) {
     if (i === ownPosition - 1) {
       rows.push({
         domain: OWN_DOMAIN,
-        title: `Greens Storage — ${keyword.keyword}`,
+        title: `Greens Storage - ${keyword.keyword}`,
         domainRating: 38,
         backlinks: Math.round(180 + rng() * 220),
         estTraffic: Math.round(keyword.volume * 0.12 * (1 - (ownPosition - 1) * 0.07)),
@@ -155,7 +155,7 @@ export function buildSerpResults(keyword) {
       const posFactor = 1 - i * 0.09
       rows.push({
         domain: comp.domain,
-        title: `${comp.domain.split('.')[0][0].toUpperCase()}${comp.domain.split('.')[0].slice(1)} — ${keyword.keyword}`,
+        title: `${comp.domain.split('.')[0][0].toUpperCase()}${comp.domain.split('.')[0].slice(1)} - ${keyword.keyword}`,
         domainRating: comp.domainRating,
         backlinks: Math.round((comp.domainRating * 40 + rng() * 2000) * posFactor),
         estTraffic: Math.round(keyword.volume * 0.28 * posFactor * (0.8 + rng() * 0.4)),

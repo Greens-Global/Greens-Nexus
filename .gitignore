@@ -12,6 +12,10 @@ dist/
 venv/
 env/
 *.db
+# WAL sidecars: sqlite runs in WAL mode now (backend/database.py), so every
+# local db grows a -wal/-shm pair that *.db above does not match.
+*.db-wal
+*.db-shm
 *.sqlite3
 
 # Environment secrets
@@ -57,8 +61,3 @@ backend/asana_import_state.json
 # Local-only e-sign storage fallback (no Supabase credentials configured) —
 # never exists in any deployed environment, see routers/esign.py
 backend/Generated File/
-
-# Graphify (dev tooling) — generated graph artifacts; regenerate with `graphify update .`
-graphify-out/
-# graphify's installer writes machine-specific absolute paths into the hooks here
-.claude/settings.json

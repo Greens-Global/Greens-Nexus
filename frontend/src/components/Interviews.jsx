@@ -58,13 +58,13 @@ export function QuestionnairesModal({ onClose, toastOk, toastErr }) {
 
   return (
     <Overlay onClose={onClose}>
-      <Head title="Interview Questionnaires" sub="One per role — the questions you ask in the call; AI fills the answers from the transcript" onClose={onClose} />
+      <Head title="Interview Questionnaires" sub="One per role - the questions you ask in the call; AI fills the answers from the transcript" onClose={onClose} />
       <div style={{ overflowY: 'auto', padding: '14px 22px' }}>
         {editing ? (
           <div>
             <label style={lbl}>Role name</label>
             <input className="form-input" style={{ width: '100%' }} value={editing.name} onChange={e => setEditing(ed => ({ ...ed, name: e.target.value }))} placeholder='e.g. "Site Manager"' />
-            <label style={lbl}>Questions — one per line</label>
+            <label style={lbl}>Questions - one per line</label>
             <textarea className="form-input" rows={10} style={{ width: '100%', resize: 'vertical', fontSize: 13, lineHeight: 1.6 }}
               value={editing.text} onChange={e => setEditing(ed => ({ ...ed, text: e.target.value }))}
               placeholder={'Walk me through your last role.\nHow would you handle an overdue vendor?\n…'} />
@@ -76,7 +76,7 @@ export function QuestionnairesModal({ onClose, toastOk, toastErr }) {
         ) : (
           <>
             {tpls === null ? <Loader2 size={18} style={{ animation: 'spin 0.8s linear infinite', color: 'var(--muted)' }} />
-              : tpls.length === 0 ? <div style={{ fontSize: 13, color: 'var(--muted)', padding: '20px 0', textAlign: 'center' }}>No questionnaires yet — create one per role.</div>
+              : tpls.length === 0 ? <div style={{ fontSize: 13, color: 'var(--muted)', padding: '20px 0', textAlign: 'center' }}>No questionnaires yet - create one per role.</div>
               : tpls.map(t => (
                 <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', borderBottom: '1px solid var(--line)' }}>
                   <ClipboardList size={15} style={{ color: 'hsl(var(--color-purple))', flexShrink: 0 }} />
@@ -137,7 +137,7 @@ export function InterviewPanel({ candidate: c, onClose, toastOk, toastErr }) {
 
   return (
     <Overlay onClose={onClose} wide>
-      <Head title={`Interviews — ${c.firstName} ${c.lastName || ''}`} sub={c.roleTitle || c.department || ''} onClose={onClose} />
+      <Head title={`Interviews - ${c.firstName} ${c.lastName || ''}`} sub={c.roleTitle || c.department || ''} onClose={onClose} />
       <div style={{ overflowY: 'auto', padding: '14px 22px', flex: 1 }}>
 
         {/* Schedule a new round */}
@@ -190,7 +190,7 @@ export function InterviewPanel({ candidate: c, onClose, toastOk, toastErr }) {
               )}
               {sel.status === 'scheduled' && (
                 <button className="primary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }}
-                  onClick={run('live', async () => refreshSel(await api.ivPatch(sel.id, { status: 'live' })), 'Interview started — questionnaire is live')}>
+                  onClick={run('live', async () => refreshSel(await api.ivPatch(sel.id, { status: 'live' })), 'Interview started - questionnaire is live')}>
                   <Play size={13} /> Interview started
                 </button>
               )}
@@ -220,7 +220,7 @@ export function InterviewPanel({ candidate: c, onClose, toastOk, toastErr }) {
                   {busy === 'fill' ? <Loader2 size={13} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Sparkles size={13} />} AI Auto-fill Answers
                 </button>
                 <button className="primary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }} disabled={!!busy}
-                  onClick={run('cal', async () => refreshSel(await api.ivCalibrate(sel.id)), 'Scored — check the leaderboard')}>
+                  onClick={run('cal', async () => refreshSel(await api.ivCalibrate(sel.id)), 'Scored - check the leaderboard')}>
                   {busy === 'cal' ? <Loader2 size={13} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Trophy size={13} />} Calibrate Score
                 </button>
               </div>
@@ -246,7 +246,7 @@ export function InterviewPanel({ candidate: c, onClose, toastOk, toastErr }) {
                   )}
                 </div>
                 <textarea className="form-input" rows={2} style={{ width: '100%', marginTop: 6, fontSize: 12.5, resize: 'vertical' }}
-                  value={a.answer || ''} placeholder="Their answer — type it, or let AI fill it from the transcript"
+                  value={a.answer || ''} placeholder="Their answer - type it, or let AI fill it from the transcript"
                   onChange={e => setAnswer(a.qid, e.target.value)}
                   onBlur={() => api.ivPatch(sel.id, { answers: sel.answers }).catch(() => {})} />
                 {a.rationale && <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}><Sparkles size={10} style={{ verticalAlign: 'middle', marginRight: 4 }} />{a.rationale}</div>}
@@ -299,7 +299,7 @@ export function LeaderboardModal({ onClose, toastOk, toastErr }) {
 
   return (
     <Overlay onClose={onClose} wide>
-      <Head title="Interview Leaderboard" sub="Calibrated scores per role — invite the winner to the offer discussion" onClose={onClose} />
+      <Head title="Interview Leaderboard" sub="Calibrated scores per role - invite the winner to the offer discussion" onClose={onClose} />
       <div style={{ overflowY: 'auto', padding: '14px 22px' }}>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
           <select className="form-input" style={{ fontSize: 12.5 }} value={tid} onChange={e => setTid(e.target.value)}>
@@ -319,7 +319,7 @@ export function LeaderboardModal({ onClose, toastOk, toastErr }) {
           <div style={{ border: '1px solid hsla(var(--color-purple),0.3)', background: 'hsla(var(--color-purple),0.05)', borderRadius: 12, padding: '12px 14px', marginBottom: 14 }}>
             <div style={{ fontSize: 13.5, fontWeight: 800, marginBottom: 4 }}>
               <Sparkles size={13} style={{ verticalAlign: 'middle', marginRight: 6, color: 'hsl(var(--color-purple))' }} />
-              AI recommendation: <span style={{ color: 'hsl(var(--color-purple))' }}>{rec.pick || '—'}</span>
+              AI recommendation: <span style={{ color: 'hsl(var(--color-purple))' }}>{rec.pick || '-'}</span>
               {rec.runnerUp && <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}> · runner-up {rec.runnerUp}</span>}
             </div>
             <div style={{ fontSize: 12.5, color: 'var(--ink)', lineHeight: 1.55 }}>{rec.reasoning}</div>
@@ -337,7 +337,7 @@ export function LeaderboardModal({ onClose, toastOk, toastErr }) {
           </div>
         )}
         {rows === null ? <Loader2 size={18} style={{ animation: 'spin 0.8s linear infinite', color: 'var(--muted)' }} />
-          : rows.length === 0 ? <div style={{ fontSize: 13, color: 'var(--muted)', padding: '24px 0', textAlign: 'center' }}>No calibrated interviews yet — run "Calibrate score" after each interview.</div>
+          : rows.length === 0 ? <div style={{ fontSize: 13, color: 'var(--muted)', padding: '24px 0', textAlign: 'center' }}>No calibrated interviews yet - run "Calibrate score" after each interview.</div>
           : rows.map((iv, i) => (
             <div key={iv.id} style={{ borderBottom: '1px solid var(--line)', padding: '10px 0' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -347,7 +347,7 @@ export function LeaderboardModal({ onClose, toastOk, toastErr }) {
                 </span>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 13.5, fontWeight: 700 }}>
-                    {iv.candidateName || '—'}
+                    {iv.candidateName || '-'}
                     {iv.candidateStage === 'hired' && (
                       <span style={{ marginLeft: 7, fontSize: 10, fontWeight: 800, letterSpacing: '.04em', color: 'hsl(var(--color-green))', background: 'hsla(var(--color-green),0.12)', padding: '2px 8px', borderRadius: 10 }}>HIRED</span>
                     )}

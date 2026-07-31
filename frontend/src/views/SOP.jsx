@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useMsal } from '@azure/msal-react';
 import { useRole } from '../contexts/RoleContext';
 import { api } from '../api';
+import ModuleTabs from '../components/ModuleTabs';
 import {
   BookOpen, CheckSquare, Search, Clock, Sparkles,
   X, ArrowLeft, Plus, Trash2, Edit3, Send, Archive, ArchiveRestore, Loader, ChevronUp, ChevronDown,
@@ -41,17 +42,17 @@ function lcsDiff(a, b) {
 }
 function TextDiff({ oldS, newS }) {
   const o = oldS || '', nw = newS || '';
-  if (o === nw) return <div style={{ ..._diffBox, color: o ? 'var(--text-secondary)' : 'var(--text-muted)', fontStyle: o ? 'normal' : 'italic' }}>{o || '(empty — unchanged)'}</div>;
+  if (o === nw) return <div style={{ ..._diffBox, color: o ? 'var(--text-secondary)' : 'var(--text-muted)', fontStyle: o ? 'normal' : 'italic' }}>{o || '(empty - unchanged)'}</div>;
   return <div style={_diffBox}>{lcsDiff(o.split(/(\s+)/), nw.split(/(\s+)/)).map((p, k) => p.t === 'eq' ? <span key={k}>{p.v}</span> : p.t === 'add' ? <ins key={k} style={_add}>{p.v}</ins> : <del key={k} style={_del}>{p.v}</del>)}</div>;
 }
 function ListDiff({ oldArr, newArr, fmt }) {
   const f = fmt || (x => String(x));
   const a = (oldArr || []).map(f), b = (newArr || []).map(f);
-  if (JSON.stringify(a) === JSON.stringify(b)) return <div style={{ ..._diffBox, color: a.length ? 'var(--text-secondary)' : 'var(--text-muted)', fontStyle: a.length ? 'normal' : 'italic' }}>{a.length ? a.map((x, k) => <div key={k}>{x}</div>) : '(empty — unchanged)'}</div>;
+  if (JSON.stringify(a) === JSON.stringify(b)) return <div style={{ ..._diffBox, color: a.length ? 'var(--text-secondary)' : 'var(--text-muted)', fontStyle: a.length ? 'normal' : 'italic' }}>{a.length ? a.map((x, k) => <div key={k}>{x}</div>) : '(empty - unchanged)'}</div>;
   return <div style={_diffBox}>{lcsDiff(a, b).map((p, k) => <div key={k} style={{ padding: '2px 8px', borderRadius: 6, margin: '2px 0', ...(p.t === 'add' ? { background: 'hsla(145,63%,42%,0.14)', color: 'hsl(145,55%,26%)' } : p.t === 'del' ? { background: 'hsla(0,84%,60%,0.12)', color: 'hsl(0,65%,40%)', textDecoration: 'line-through' } : { color: 'var(--text-muted)' }) }}>{(p.t === 'add' ? '+ ' : p.t === 'del' ? '− ' : '  ') + p.v}</div>)}</div>;
 }
 
-// Greens Global's real departments (mirrors backend DEPT_ABBR).
+// Nexus's real departments (mirrors backend DEPT_ABBR).
 const DEPARTMENTS = [
   'Operations', 'Revenue Management', 'Real Estate Development', 'People (HR)',
   'Accounting', 'IT', 'Marketing', 'Administration',
@@ -73,7 +74,7 @@ const STATUS_META = {
 const TAB_LABELS = { index: 'Playbook', lms: 'Learn' };
 
 // In-app, page-by-page documentation. Each "?" button opens the page that
-// matches where the user is. KEEP THIS CURRENT as the module changes — it is
+// matches where the user is. KEEP THIS CURRENT as the module changes - it is
 // the single source for the Help drawer.
 const HELP_PAGES = [
   { key: 'playbook', label: 'Playbook', title: 'Browsing the Playbook',
@@ -81,7 +82,7 @@ const HELP_PAGES = [
     steps: [
       'Search: click the search box (or press “/”) and type a title, document ID, or words from the text. Use the Department, Type, and Status dropdowns to narrow the list.',
       'Ask AI: flip the toggle from Search to Ask AI, type a question in plain English, and press Ask. The answer comes only from approved SOPs and shows the sources it used.',
-      'Change the view: use List, Tiles, or Department (grouped) above the list — your choice is remembered next time.',
+      'Change the view: use List, Tiles, or Department (grouped) above the list - your choice is remembered next time.',
       'Pin favorites: click the ☆ star on any document to pin it; pinned items jump to the top of the right panel for quick access.',
       'The right panel: “For You” shows anything waiting on your sign-off, plus Pinned and Popular documents. Press the panel button (top-right of the list) to hide it and give the list full width.',
       'Open a document by clicking its row or tile.',
@@ -89,10 +90,10 @@ const HELP_PAGES = [
   { key: 'document', label: 'Reading a Document', title: 'Reading, sharing & signing a document',
     intro: 'The document view shows the full, approved procedure plus everything you can do with it.',
     steps: [
-      'Read top to bottom — purpose, scope, steps, safety, and references. Use the Language bar to switch to a translated version where available.',
+      'Read top to bottom - purpose, scope, steps, safety, and references. Use the Language bar to switch to a translated version where available.',
       'Pin it with the Pin button to keep it handy in your side panel.',
       'Share / export: the Share button offers your device’s share sheet, Copy link, Copy as text, Download (.md), and Print / Save as PDF.',
-      'If the document requires sign-off, read it and click Review & sign to e-sign — your acknowledgement is recorded against this version.',
+      'If the document requires sign-off, read it and click Review & sign to e-sign - your acknowledgement is recorded against this version.',
       'Revision history (right side) lists every version; “Compare versions” highlights exactly what changed.',
       'If you own the draft, Edit reopens it; managers see Review/Approve and Archive here.',
     ] },
@@ -101,44 +102,44 @@ const HELP_PAGES = [
     steps: [
       'Click New SOP. Give it a clear, searchable Document title.',
       'Fastest start: paste existing text or upload a file in the “Start from an existing document” panel and press Format with Claude. Review the before/after diff, then Keep changes or Revert.',
-      'Or fill the sections by hand — each card (Document Details, Overview, Procedure, Safety, …) has a short tip explaining what belongs there.',
-      'Editing an existing document? Use “Edit with Claude”: describe the change (e.g. “add a step about checking ID”) and Claude rewrites it — you review the diff before keeping it.',
+      'Or fill the sections by hand - each card (Document Details, Overview, Procedure, Safety, …) has a short tip explaining what belongs there.',
+      'Editing an existing document? Use “Edit with Claude”: describe the change (e.g. “add a step about checking ID”) and Claude rewrites it - you review the diff before keeping it.',
       'Choose a Reviewing manager under Document Details (required to submit). New documents start at version 1.0.',
-      'Use Preview to see the finished document, then Save draft, Save & submit for review, or — for managers — Save & publish.',
+      'Use Preview to see the finished document, then Save draft, Save & submit for review, or - for managers - Save & publish.',
     ] },
-  { key: 'tasks', label: 'Tasks', title: 'Tasks — what needs your action',
+  { key: 'tasks', label: 'Tasks', title: 'Tasks - what needs your action',
     intro: 'Everything waiting on you in one place.',
     steps: [
       'Needs Your Sign-off: policies you must read and e-sign. Click one to review and sign.',
-      'Returned to You: your drafts a manager sent back with changes — open, fix, and resubmit.',
+      'Returned to You: your drafts a manager sent back with changes - open, fix, and resubmit.',
       'Awaiting Your Review (managers): documents to approve or send back with a note.',
       'Employees also see their sign-off tasks in the Playbook “For You” panel; the Manage button shows a live count of open actions.',
     ] },
   { key: 'manage', label: 'Manage', title: 'The Manage hub (managers)',
     intro: 'Your control center for the whole Knowledge Base.',
     steps: [
-      'KPI tiles: Action Needed (opens Tasks), Needs Review (stale docs), Sign-offs, and Drafts — each jumps to the relevant area.',
+      'KPI tiles: Action Needed (opens Tasks), Needs Review (stale docs), Sign-offs, and Drafts - each jumps to the relevant area.',
       'Tools: Assignment Matrix (which departments each doc applies to), Sign-off Tracking (who has acknowledged each policy), Insights (usage & freshness), Training Courses, and New Manual.',
       'Activity Log: every change across the library; click an entry to open the document, or jump straight to the version diff when one exists.',
       'Use New SOP / New Course from here, or open Training Courses to author and assign training.',
     ] },
-  { key: 'learn', label: 'Taking Training', title: 'Learn — taking a course',
+  { key: 'learn', label: 'Taking Training', title: 'Learn - taking a course',
     intro: 'Your training. Assigned courses appear at the top as Required training with due dates.',
     steps: [
-      'Open a course to see “What You’ll Learn”, then work through each lesson — your progress saves as you go.',
+      'Open a course to see “What You’ll Learn”, then work through each lesson - your progress saves as you go.',
       'Finish with the quiz. You won’t see the pass mark; just answer your best.',
       'After submitting you get per-question feedback: the correct answer and a short explanation for anything you missed.',
-      'Pass and you get a printable Certificate of Completion (Print / Save PDF) — and your manager is notified automatically.',
+      'Pass and you get a printable Certificate of Completion (Print / Save PDF) - and your manager is notified automatically.',
       'Required training shows a due date and flags anything overdue, so nothing slips.',
     ] },
   { key: 'authoring', label: 'Building a Course', title: 'Building & assigning a course (managers)',
     intro: 'From Manage → Training Courses. Claude can generate a whole course from your material.',
     steps: [
-      'Click New Course, then paste or upload source material and press Generate course — Claude writes the objectives, lessons, and a quiz with explanations.',
-      'Edit anything: the “What You’ll Learn” objectives, lessons (readings or linked SOPs), and quiz questions — mark the correct option and add a “why” explanation shown to learners who miss it.',
+      'Click New Course, then paste or upload source material and press Generate course - Claude writes the objectives, lessons, and a quiz with explanations.',
+      'Edit anything: the “What You’ll Learn” objectives, lessons (readings or linked SOPs), and quiz questions - mark the correct option and add a “why” explanation shown to learners who miss it.',
       'Set the pass mark, Preview, then Save draft or Publish.',
-      'Assign: on any course, Assign opens a people picker and an optional due date — each assignee is notified and the course appears in their Required training.',
-      'Report: each course’s Report shows every attempt — who took it, scores, and exactly which questions were missed (with explanations) for follow-up.',
+      'Assign: on any course, Assign opens a people picker and an optional due date - each assignee is notified and the course appears in their Required training.',
+      'Report: each course’s Report shows every attempt - who took it, scores, and exactly which questions were missed (with explanations) for follow-up.',
     ] },
   { key: 'roles', label: 'Roles & Access', title: 'Who can do what',
     intro: 'Access follows your Nexus role.',
@@ -205,7 +206,7 @@ const blankDraft = (name, email) => ({
   owner_name: name, owner_email: email, _raw: '',
 });
 
-const fmtDate = (s) => (s ? new Date(s.length > 10 ? s : s + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—');
+const fmtDate = (s) => (s ? new Date(s.length > 10 ? s : s + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '-');
 
 // Extensions accepted by the document importers below.
 const IMPORT_ACCEPT = '.txt,.md,.markdown,.csv,.json,.html,.htm,.rtf,.log,.pdf,.doc,.docx';
@@ -247,7 +248,7 @@ function htmlToText(html) {
 }
 
 // Pull text (and, for Word docs, embedded images) out of an uploaded document.
-// Returns { text, images } — text has inline [[IMG#]] markers, images maps each
+// Returns { text, images } - text has inline [[IMG#]] markers, images maps each
 // marker to a resized data URL. Text and PDF return no images.
 async function extractDoc(file) {
   const name = (file.name || '').toLowerCase();
@@ -269,7 +270,7 @@ async function extractDoc(file) {
     return { text: htmlToText(result.value), images };
   }
   if (ext === '.doc') {
-    throw new Error('Old .doc files aren’t supported — open it in Word, “Save As” .docx, and upload that.');
+    throw new Error('Old .doc files aren’t supported - open it in Word, “Save As” .docx, and upload that.');
   }
   if (ext === '.pdf') {
     const pdfjs = await import('pdfjs-dist');
@@ -286,7 +287,7 @@ async function extractDoc(file) {
 }
 
 // Store a step image in the PRIVATE kb-media bucket (via the backend, service
-// role) and return its storage path — resolved to a signed URL on view. Falls
+// role) and return its storage path - resolved to a signed URL on view. Falls
 // back to the inline data URL if upload fails, so an import never breaks.
 async function uploadKbImage(dataUrl) {
   try {
@@ -296,14 +297,14 @@ async function uploadKbImage(dataUrl) {
   return dataUrl;
 }
 
-// Binary docs (Word/PDF) are larger than pasted text — allow more headroom.
+// Binary docs (Word/PDF) are larger than pasted text - allow more headroom.
 const _importLimit = name => (/\.(pdf|docx?)$/i.test(name) ? 15 : 2) * 1024 * 1024;
 
 // Friendly display name from a possible email ("visesh.lodha@x.com" → "Visesh Lodha")
 // so header cells show a clean name instead of a long, wrapping address.
 function prettyName(s) {
   const v = (s || '').trim();
-  if (!v) return '—';
+  if (!v) return '-';
   if (!v.includes('@')) return v;
   return v.split('@')[0].split(/[._-]+/).filter(Boolean)
     .map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ') || v;
@@ -380,7 +381,7 @@ export default function SOP({ activeSub, onSubChange }) {
   const [signoffs, setSignoffs] = useState([]);
   const [insights, setInsights] = useState(null);
   const [activity, setActivity] = useState(null); // manager activity log
-  const pendingDiff = useRef(null); // { version } — auto-open diff after a log bounceback
+  const pendingDiff = useRef(null); // { version } - auto-open diff after a log bounceback
   const [lightbox, setLightbox] = useState(null); // image src to zoom
 
   // comments + version history
@@ -451,7 +452,7 @@ export default function SOP({ activeSub, onSubChange }) {
   useEffect(() => {
     if (sub === 'manage' && isManager) { setActivity(null); api.getKbActivity().then(setActivity).catch(() => setActivity([])); }
   }, [sub, isManager, docs]);
-  // pins (favorites) + reviewer list — loaded once
+  // pins (favorites) + reviewer list - loaded once
   useEffect(() => { api.getKbPins().then(setPins).catch(() => {}); }, []);
   useEffect(() => { api.getKbReviewers().then(setReviewers).catch(() => {}); }, []);
   // remember the chosen library view between sessions
@@ -552,7 +553,7 @@ export default function SOP({ activeSub, onSubChange }) {
     if (search && !docSearchText(d).includes(search.toLowerCase().trim())) return false;
     return true;
   });
-  // Tasks tab sources — what's waiting on this person
+  // Tasks tab sources - what's waiting on this person
   const returnedToMe = docs.filter(d => d.status === 'changes_requested' && d.owner_email === myEmail);
   const awaitingReview = isManager ? docs.filter(d => d.status === 'in_review') : [];
   const pendingSignoffs = (signoffs || []).filter(s => !s.my_signed);
@@ -716,7 +717,7 @@ export default function SOP({ activeSub, onSubChange }) {
     setAiBusy(true); setErr('');
     try {
       const { sop, source } = await api.aiReviseKbDoc({ body: draft.body, title: draft.title, instruction, departments: draft.departments });
-      if (source === 'offline') { setErr('AI editing needs the Claude API key (unavailable in local dev) — edit the sections manually.'); setAiBusy(false); return; }
+      if (source === 'offline') { setErr('AI editing needs the Claude API key (unavailable in local dev) - edit the sections manually.'); setAiBusy(false); return; }
       const before = { title: draft.title, departments: [...draft.departments], body: JSON.parse(JSON.stringify(draft.body)) };
       const afterBody = {
         ...draft.body,
@@ -746,7 +747,7 @@ export default function SOP({ activeSub, onSubChange }) {
     if ((draft._reviewNote || '').trim()) parts.push(`Reviewer's change request:\n${draft._reviewNote.trim()}`);
     const cs = (comments || []).filter(c => (c.text || '').trim());
     if (cs.length) parts.push('Comments:\n' + cs.map(c => `- ${c.author_name || c.author_email}: ${c.text}`).join('\n'));
-    if (!parts.length) { setErr('No reviewer feedback found to address — edit the sections, or use Edit with Claude.'); return; }
+    if (!parts.length) { setErr('No reviewer feedback found to address - edit the sections, or use Edit with Claude.'); return; }
     await runAiRevise('A reviewer asked for changes on this SOP. Revise it to FULLY address the following feedback, keeping everything else intact:\n\n' + parts.join('\n\n'));
   };
   const revertAi = () => {
@@ -755,7 +756,7 @@ export default function SOP({ activeSub, onSubChange }) {
     setDraft(p => ({ ...p, title: b.title, departments: [...b.departments], body: JSON.parse(JSON.stringify(b.body)) }));
     setAiReview(null);
   };
-  // Render a draft/body the way it will look once published — used by the preview + AI review.
+  // Render a draft/body the way it will look once published - used by the preview + AI review.
   const renderSopPreview = (d) => {
     const b = d.body || {};
     const h = (t) => <h4 style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', fontWeight: 700, margin: '20px 0 7px' }}>{t}</h4>;
@@ -769,7 +770,7 @@ export default function SOP({ activeSub, onSubChange }) {
           <span>{d.doc_type}</span><span>·</span><span>v{d.version || '0.1'}</span>
           {(d.departments || []).length > 0 && <><span>·</span>{d.departments.map(x => <span key={x} style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 999, padding: '1px 8px' }}>{DEPT_ABBR[x] || x}</span>)}</>}
         </div>
-        {empty && <p style={{ fontSize: '0.88rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>Nothing to preview yet — fill in the sections below.</p>}
+        {empty && <p style={{ fontSize: '0.88rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>Nothing to preview yet - fill in the sections below.</p>}
         {b.purpose && <>{h('Purpose')}{para(b.purpose)}</>}
         {b.scopeText && <>{h('Scope')}{para(b.scopeText)}</>}
         {(b.materials || []).length > 0 && <>{h('Materials & Required Items')}{ul(b.materials)}</>}
@@ -785,7 +786,7 @@ export default function SOP({ activeSub, onSubChange }) {
   // read a document (text, Word, or PDF) into the editor's raw-notes box
   const importFile = async (file) => {
     if (!file) return;
-    if (file.size > _importLimit(file.name)) { setErr(`That file is too large — keep it under ${Math.round(_importLimit(file.name) / 1024 / 1024)} MB or paste the text instead.`); return; }
+    if (file.size > _importLimit(file.name)) { setErr(`That file is too large - keep it under ${Math.round(_importLimit(file.name) / 1024 / 1024)} MB or paste the text instead.`); return; }
     try {
       const { text, images } = await extractDoc(file);
       if (!text.trim()) { setErr('No readable text found in that file (a scanned/image-only PDF has no text). Paste the text instead.'); return; }
@@ -887,7 +888,7 @@ export default function SOP({ activeSub, onSubChange }) {
   // read a document (text, Word, or PDF) into the course source box
   const cdImportFile = async (file) => {
     if (!file) return;
-    if (file.size > _importLimit(file.name)) { setErr(`That file is too large — keep it under ${Math.round(_importLimit(file.name) / 1024 / 1024)} MB or paste the text instead.`); return; }
+    if (file.size > _importLimit(file.name)) { setErr(`That file is too large - keep it under ${Math.round(_importLimit(file.name) / 1024 / 1024)} MB or paste the text instead.`); return; }
     try {
       const { text } = await extractDoc(file);   // courses are text-only; images aren't used
       if (!text.trim()) { setErr('No readable text found in that file (a scanned/image-only PDF has no text). Paste the text instead.'); return; }
@@ -903,7 +904,7 @@ export default function SOP({ activeSub, onSubChange }) {
     setCourseAiBusy(true); setErr('');
     let course = null;
     try { ({ course } = await api.aiCourse({ content, title: courseDraft.title, departments: courseDraft.departments })); }
-    catch (e) { setErr(e.message || 'AI generation failed — you can still build the course by hand.'); }
+    catch (e) { setErr(e.message || 'AI generation failed - you can still build the course by hand.'); }
     if (course) {
       setCourseDraft(p => ({
         ...p,
@@ -1033,7 +1034,7 @@ export default function SOP({ activeSub, onSubChange }) {
       sec('Materials & Required Items', (b.materials || []).map(x => `- ${x}`));
       sec('Responsibilities', (b.responsibilities || []).map(r => `- ${r.role}: ${r.duty}`));
       sec('Definitions', (b.definitions || []).map(r => `- ${r.term}: ${r.def}`));
-      sec('Procedure', (b.procedure || []).map((s, i) => `${i + 1}. ${s.text}${s.detail ? ` — ${s.detail}` : ''}`));
+      sec('Procedure', (b.procedure || []).map((s, i) => `${i + 1}. ${s.text}${s.detail ? ` - ${s.detail}` : ''}`));
       sec('Safety & Compliance', (b.safety || []).map(x => `- ${x}`));
       sec('References', (b.references || []).map(x => `- ${x}`));
       return L.join('\n').trim();
@@ -1043,7 +1044,7 @@ export default function SOP({ activeSub, onSubChange }) {
       try { if (navigator.share) await navigator.share({ title: d.title, text: `${d.title} (${d.doc_code || d.doc_type})`, url: docUrl }); }
       catch { /* user cancelled */ }
     };
-    const copyToClipboard = async (txt) => { setShareOpen(false); try { await navigator.clipboard.writeText(txt); setErr(''); } catch { setErr('Copy failed — your browser blocked clipboard access.'); } };
+    const copyToClipboard = async (txt) => { setShareOpen(false); try { await navigator.clipboard.writeText(txt); setErr(''); } catch { setErr('Copy failed - your browser blocked clipboard access.'); } };
     const downloadDoc = () => {
       setShareOpen(false);
       try {
@@ -1124,7 +1125,7 @@ export default function SOP({ activeSub, onSubChange }) {
           <div id="kb-doc" style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 24, boxShadow: 'var(--shadow-sm)', minWidth: 0 }}>
             {/* header grid */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 1, backgroundColor: 'var(--border-color)', border: '1px solid var(--border-color)', borderRadius: 10, overflow: 'hidden', marginBottom: 22 }}>
-              {[['SOP ID', d.doc_code || '—'], ['Type', d.doc_type], ['Version', 'v' + d.version],
+              {[['SOP ID', d.doc_code || '-'], ['Type', d.doc_type], ['Version', 'v' + d.version],
                 ['Owner', prettyName(d.owner_name || d.owner_email), d.owner_email],
                 ['Reviewer', prettyName(d.reviewer_name || d.reviewer_email), d.reviewer_email],
                 ['Effective', fmtDate(d.effective_date)], ['Updated', fmtDate(d.updated_at)]].map(([k, v, tip]) => (
@@ -1299,7 +1300,7 @@ export default function SOP({ activeSub, onSubChange }) {
                   {field('Scope', <TextDiff oldS={ab.scopeText} newS={bb.scopeText} />)}
                   {field('Materials', <ListDiff oldArr={ab.materials} newArr={bb.materials} />)}
                   {field('Responsibilities', <ListDiff oldArr={ab.responsibilities} newArr={bb.responsibilities} fmt={r => `${r.role}: ${r.duty}`} />)}
-                  {field('Procedure', <ListDiff oldArr={ab.procedure} newArr={bb.procedure} fmt={s => s.text + (s.detail ? ` — ${s.detail}` : '') + (s.image ? ' [image]' : '')} />)}
+                  {field('Procedure', <ListDiff oldArr={ab.procedure} newArr={bb.procedure} fmt={s => s.text + (s.detail ? ` - ${s.detail}` : '') + (s.image ? ' [image]' : '')} />)}
                   {field('Safety', <ListDiff oldArr={ab.safety} newArr={bb.safety} />)}
                   {field('References', <ListDiff oldArr={ab.references} newArr={bb.references} />)}
                 </div>
@@ -1342,7 +1343,7 @@ export default function SOP({ activeSub, onSubChange }) {
     const isManual = draft.doc_type === 'Manual';
     const chapters = draft.body.chapters || [];
     const sopOpts = docs.filter(d => d.doc_type !== 'Manual' && d.id !== draft.id).sort((a, b) => (a.doc_code || '').localeCompare(b.doc_code || ''));
-    // editor layout primitives — roomy, card-grouped sections with generous spacing
+    // editor layout primitives - roomy, card-grouped sections with generous spacing
     const cardStyle = { background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 16, padding: '22px 24px', marginBottom: 18, boxShadow: 'var(--shadow-sm)' };
     const secLabel = { fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', fontWeight: 700, display: 'block', marginBottom: 12 };
     const fieldLabel = { fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-primary)', display: 'block', marginBottom: 2 };
@@ -1365,7 +1366,7 @@ export default function SOP({ activeSub, onSubChange }) {
     );
     const chapterBuilder = () => (
       <div className="ed-block" style={{ marginBottom: 16 }}>
-        <label style={{ fontSize: '0.85rem', fontWeight: 600, display: 'block', marginBottom: 8 }}>Chapters <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>— each section is inline text or a live link to an existing SOP</span></label>
+        <label style={{ fontSize: '0.85rem', fontWeight: 600, display: 'block', marginBottom: 8 }}>Chapters <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>- each section is inline text or a live link to an existing SOP</span></label>
         {chapters.map((c, ci) => (
           <div key={c._id} style={{ border: '1px solid var(--border-color)', borderRadius: 12, padding: 14, marginBottom: 12, background: 'var(--bg-card)' }}>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10 }}>
@@ -1388,7 +1389,7 @@ export default function SOP({ activeSub, onSubChange }) {
                     <button className="secondary-btn" onClick={() => delSection(c._id, s._id)} style={{ width: 36, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Trash2 size={15} /></button>
                   </div>
                   {s.kind === 'sop'
-                    ? <select className="form-select" value={s.docId || ''} onChange={e => { const o = sopOpts.find(x => x.id === e.target.value); updSection(c._id, s._id, { docId: e.target.value, title: s.title || (o ? o.title : '') }); }} style={{ width: '100%' }}><option value="">— select an SOP —</option>{sopOpts.map(o => <option key={o.id} value={o.id}>{o.doc_code || '—'} · {o.title}</option>)}</select>
+                    ? <select className="form-select" value={s.docId || ''} onChange={e => { const o = sopOpts.find(x => x.id === e.target.value); updSection(c._id, s._id, { docId: e.target.value, title: s.title || (o ? o.title : '') }); }} style={{ width: '100%' }}><option value="">- select an SOP -</option>{sopOpts.map(o => <option key={o.id} value={o.id}>{o.doc_code || '-'} · {o.title}</option>)}</select>
                     : <textarea className="form-input" value={s.body || ''} placeholder="Section text…" onChange={e => updSection(c._id, s._id, { body: e.target.value })} style={{ width: '100%', minHeight: 56, resize: 'vertical', fontSize: '0.85rem' }} />}
                 </div>
               ))}
@@ -1438,7 +1439,7 @@ export default function SOP({ activeSub, onSubChange }) {
         </div>
         {helpModal()}
         <h2 style={{ marginBottom: 4, fontSize: '1.7rem' }}>{isNew ? 'New' : 'Edit'} {draft.doc_type}</h2>
-        <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: 22 }}>Fill in the sections below, or paste raw notes and let Claude format it into the Greens Global standard.</p>
+        <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: 22 }}>Fill in the sections below, or paste raw notes and let Claude format it into the the company standard.</p>
         {errBanner}
 
         {draft._importSource && (
@@ -1455,7 +1456,7 @@ export default function SOP({ activeSub, onSubChange }) {
           <div style={{ border: '1px solid hsla(0,84%,60%,0.4)', background: 'hsla(0,84%,60%,0.06)', borderRadius: 12, padding: 14, marginBottom: 18 }}>
             <strong style={{ fontSize: '0.88rem', color: 'hsl(0,70%,45%)' }}>Reviewer requested changes</strong>
             {draft._reviewNote && <div style={{ fontSize: '0.82rem', color: 'var(--text-primary)', margin: '5px 0 10px', whiteSpace: 'pre-wrap' }}>{draft._reviewNote}</div>}
-            <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', margin: '6px 0 10px' }}>Let Claude apply this feedback (and any comments) for you — you'll review the before/after before keeping it.</div>
+            <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', margin: '6px 0 10px' }}>Let Claude apply this feedback (and any comments) for you - you'll review the before/after before keeping it.</div>
             <button className="primary-btn" disabled={aiBusy} onClick={addressFeedback} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'linear-gradient(135deg, hsl(258,82%,62%), hsl(288,70%,58%))', border: 'none', color: '#fff' }}>{aiBusy ? <Loader size={15} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Sparkles size={15} />} {aiBusy ? 'Working…' : 'Address feedback with Claude'}</button>
           </div>
         )}
@@ -1464,7 +1465,7 @@ export default function SOP({ activeSub, onSubChange }) {
           <div style={{ border: '1px solid hsla(266,70%,60%,0.4)', background: 'hsla(266,70%,60%,0.06)', borderRadius: 12, padding: 14, marginBottom: 18 }}>
             <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10 }}>
               <Sparkles size={17} style={{ color: 'hsl(266,72%,56%)', flex: '0 0 auto' }} />
-              <div style={{ flex: 1, minWidth: 0 }}><strong style={{ fontSize: '0.88rem' }}>Edit with Claude</strong><div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>Describe a change and Claude rewrites the document — you review the before/after before keeping it.</div></div>
+              <div style={{ flex: 1, minWidth: 0 }}><strong style={{ fontSize: '0.88rem' }}>Edit with Claude</strong><div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>Describe a change and Claude rewrites the document - you review the before/after before keeping it.</div></div>
             </div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <input className="form-input" value={aiInstruction} onChange={e => setAiInstruction(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') runAiRevise(); }} placeholder="e.g. Add a safety note about wet floors, or tighten the procedure to 6 steps" style={{ flex: '1 1 260px', minWidth: 0 }} />
@@ -1479,7 +1480,7 @@ export default function SOP({ activeSub, onSubChange }) {
             <div style={{ width: 34, height: 34, borderRadius: 9, backgroundColor: 'hsla(215,100%,50%,0.1)', color: 'hsl(var(--color-blue))', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}><Sparkles size={18} /></div>
             <div style={{ flex: 1, minWidth: 180 }}>
               <strong style={{ fontSize: '0.9rem', display: 'block' }}>Start from an existing document</strong>
-              <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Paste or upload an existing SOP (or rough notes) and Claude formats every section. Optional — you can also just fill it in below.</span>
+              <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Paste or upload an existing SOP (or rough notes) and Claude formats every section. Optional - you can also just fill it in below.</span>
             </div>
             <label className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 38, cursor: 'pointer', margin: 0, flex: '0 0 auto' }}>
               <Paperclip size={15} /> Upload file
@@ -1505,10 +1506,10 @@ export default function SOP({ activeSub, onSubChange }) {
             <div className="form-group"><label>Version</label><input className="form-input" value={draft.version} onChange={e => setDraft(p => ({ ...p, version: e.target.value }))} style={{ padding: '11px 14px' }} /></div>
             <div className="form-group"><label>Effective date</label><input type="date" className="form-input" value={draft.effective_date} onChange={e => setDraft(p => ({ ...p, effective_date: e.target.value }))} style={{ padding: '11px 14px' }} /></div>
             <div className="form-group" style={{ gridColumn: '1 / -1' }}>
-              <label>Reviewing manager <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>— the person who approves &amp; publishes this</span></label>
+              <label>Reviewing manager <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>- the person who approves &amp; publishes this</span></label>
               {reviewers.length > 0
                 ? <select className="form-select" value={draft.reviewer_email} onChange={e => { const r = reviewers.find(x => x.email === e.target.value); setDraft(p => ({ ...p, reviewer_email: e.target.value, reviewer_name: r ? r.name : '' })); }} style={{ padding: '11px 36px 11px 14px' }}>
-                    <option value="">— select a manager to review —</option>
+                    <option value="">- select a manager to review -</option>
                     {reviewers.map(r => <option key={r.email} value={r.email}>{r.name} · {r.email}</option>)}
                   </select>
                 : <input className="form-input" value={draft.reviewer_email} placeholder="manager@greensglobal.com" onChange={e => setDraft(p => ({ ...p, reviewer_email: e.target.value }))} style={{ padding: '11px 14px' }} />}
@@ -1518,7 +1519,7 @@ export default function SOP({ activeSub, onSubChange }) {
           </div>
           <div style={{ marginTop: 20 }}>
             <label style={fieldLabel}>Applies to departments</label>
-            {fieldTip('Tap the teams this document is for — it’ll show up in their Playbook.')}
+            {fieldTip('Tap the teams this document is for - it’ll show up in their Playbook.')}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
               {DEPARTMENTS.map(dep => {
                 const on = draft.departments.includes(dep);
@@ -1532,7 +1533,7 @@ export default function SOP({ activeSub, onSubChange }) {
           </label>
         </>))}
 
-        {section('Overview', 'Set the context before the steps — what this is for and who it covers.', (<>
+        {section('Overview', 'Set the context before the steps - what this is for and who it covers.', (<>
           <div style={{ marginBottom: 18 }}>
             <label style={fieldLabel}>Purpose</label>
             {fieldTip('In a sentence or two, why this document exists and what it should achieve.')}
@@ -1546,18 +1547,18 @@ export default function SOP({ activeSub, onSubChange }) {
         </>))}
 
         {isManual ? chapterBuilder() : (<>
-        {listEditor('materials', 'Materials & Required Items', 'e.g. Master key set', 'Anything someone needs on hand before they start — tools, access, forms, or equipment.')}
-        {pairEditor('responsibilities', 'Responsibilities', 'Who does what — list each role and what they’re accountable for in this process.', 'role', 'duty', 'Role', 'Responsibility')}
+        {listEditor('materials', 'Materials & Required Items', 'e.g. Master key set', 'Anything someone needs on hand before they start - tools, access, forms, or equipment.')}
+        {pairEditor('responsibilities', 'Responsibilities', 'Who does what - list each role and what they’re accountable for in this process.', 'role', 'duty', 'Role', 'Responsibility')}
         {pairEditor('definitions', 'Definitions', 'Spell out any terms, acronyms, or system names a new reader might not know.', 'term', 'def', 'Term', 'Definition')}
 
         {/* procedure */}
-        {section('Procedure', 'The heart of the document — the steps to follow, in order. Keep each step to one clear action; add a note or picture where it helps.', (<>
+        {section('Procedure', 'The heart of the document - the steps to follow, in order. Keep each step to one clear action; add a note or picture where it helps.', (<>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {draft.body.procedure.map((s, i) => (
               <div key={i} style={{ border: '1px solid var(--border-color)', borderRadius: 12, padding: 14, backgroundColor: 'var(--bg-secondary)' }}>
                 <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
                   <span style={{ width: 30, height: 30, borderRadius: 9, backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', color: 'hsl(var(--color-blue))', fontWeight: 700, fontSize: '0.85rem', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto', marginTop: 2 }}>{i + 1}</span>
-                  <textarea className="form-input" value={s.text} placeholder={`Step ${i + 1} — what to do…`} onChange={e => updItem('procedure', i, { ...s, text: e.target.value })} style={{ flex: 1, minHeight: 46, resize: 'vertical', fontSize: '0.92rem', lineHeight: 1.55, padding: '11px 14px' }} />
+                  <textarea className="form-input" value={s.text} placeholder={`Step ${i + 1} - what to do…`} onChange={e => updItem('procedure', i, { ...s, text: e.target.value })} style={{ flex: 1, minHeight: 46, resize: 'vertical', fontSize: '0.92rem', lineHeight: 1.55, padding: '11px 14px' }} />
                   <button className="secondary-btn" title="Attach picture" onClick={() => pickFiles(false, ([a]) => { if (a?.type === 'image') updItem('procedure', i, { ...s, image: a.data }); })} style={{ width: 42, height: 42, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}><ImageIcon size={16} /></button>
                   <button className="secondary-btn" onClick={() => delItem('procedure', i)} style={{ width: 42, height: 42, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}><Trash2 size={16} /></button>
                 </div>
@@ -1573,7 +1574,7 @@ export default function SOP({ activeSub, onSubChange }) {
         {listEditor('safety', 'Safety & Compliance', 'e.g. Never enter a unit alone if…', 'Risks to watch for and any rules, regulations, or policies that must be followed.')}
         {listEditor('references', 'References', 'e.g. OPS-021 Access Control', 'Related SOPs, policies, or documents someone may need alongside this one.')}
 
-        {section('Attachments & Diagrams', 'Supporting files — photos, diagrams, forms, or templates that go with this document.', (<>
+        {section('Attachments & Diagrams', 'Supporting files - photos, diagrams, forms, or templates that go with this document.', (<>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
             {(draft.body.attachments || []).map((a, i) => (
               <div key={i} style={{ position: 'relative', border: '1px solid var(--border-color)', borderRadius: 10, overflow: 'hidden', width: 122, background: 'var(--bg-card)' }}>
@@ -1610,7 +1611,7 @@ export default function SOP({ activeSub, onSubChange }) {
                   <Sparkles size={20} style={{ color: 'hsl(266,72%,56%)', flex: '0 0 auto' }} />
                   <div style={{ flex: 1, minWidth: 160 }}>
                     <h3 style={{ margin: 0 }}>Review AI Changes</h3>
-                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Green is added, red struck-through is removed. Already applied to your draft — revert if it's not right.</div>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Green is added, red struck-through is removed. Already applied to your draft - revert if it's not right.</div>
                   </div>
                   <div style={{ display: 'inline-flex', background: 'var(--bg-secondary)', borderRadius: 9, padding: 3, flex: '0 0 auto' }}>
                     {[['changes', 'What changed'], ['preview', 'Preview']].map(([k, l]) => (
@@ -1629,7 +1630,7 @@ export default function SOP({ activeSub, onSubChange }) {
                       {field('Materials', <ListDiff oldArr={ab.materials} newArr={bb.materials} />)}
                       {field('Responsibilities', <ListDiff oldArr={ab.responsibilities} newArr={bb.responsibilities} fmt={r => `${r.role}: ${r.duty}`} />)}
                       {field('Definitions', <ListDiff oldArr={ab.definitions} newArr={bb.definitions} fmt={r => `${r.term}: ${r.def}`} />)}
-                      {field('Procedure', <ListDiff oldArr={ab.procedure} newArr={bb.procedure} fmt={s => s.text + (s.detail ? ` — ${s.detail}` : '')} />)}
+                      {field('Procedure', <ListDiff oldArr={ab.procedure} newArr={bb.procedure} fmt={s => s.text + (s.detail ? ` - ${s.detail}` : '')} />)}
                       {field('Safety', <ListDiff oldArr={ab.safety} newArr={bb.safety} />)}
                       {field('References', <ListDiff oldArr={ab.references} newArr={bb.references} />)}
                     </div>
@@ -1734,7 +1735,7 @@ export default function SOP({ activeSub, onSubChange }) {
       <div key={d.id} role="button" tabIndex={0} onClick={onClick} onKeyDown={e => { if (e.key === 'Enter') onClick(); }} {...hover} style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', padding: '10px 12px', borderTop: i ? '1px solid var(--bg-secondary)' : 'none', cursor: 'pointer' }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: '0.83rem', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.title}</div>
-          <div style={{ fontSize: '0.71rem', color: 'var(--text-muted)' }}>{d.doc_code || '—'} · v{d.version}</div>
+          <div style={{ fontSize: '0.71rem', color: 'var(--text-muted)' }}>{d.doc_code || '-'} · v{d.version}</div>
         </div>
         {right}
       </div>
@@ -1790,7 +1791,7 @@ export default function SOP({ activeSub, onSubChange }) {
               <div key={d.id} role="button" tabIndex={0} onClick={() => openDetail(d)} onKeyDown={e => { if (e.key === 'Enter') openDetail(d); }} style={{ textAlign: 'left', cursor: 'pointer', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 14, padding: 16, boxShadow: 'var(--shadow-sm)', display: 'flex', flexDirection: 'column', gap: 10 }}>
                 <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
                   <div>
-                    <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontFamily: 'inherit' }}>{d.doc_code || '—'}</div>
+                    <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontFamily: 'inherit' }}>{d.doc_code || '-'}</div>
                     <div style={{ fontWeight: 600, fontSize: '0.95rem', lineHeight: 1.3, color: 'var(--text-primary)', marginTop: 2 }}>{d.title}</div>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 4, flex: '0 0 auto' }}>{pinStar(d.id, 15)}<Badge status={d.status} /></div>
@@ -1825,7 +1826,7 @@ export default function SOP({ activeSub, onSubChange }) {
               <button key={d.id} onClick={() => openDetail(d)} style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', textAlign: 'left', padding: '11px 15px', background: 'transparent', border: 'none', borderTop: '1px solid var(--bg-secondary)', cursor: 'pointer' }}>
                 <span style={{ flex: 1, minWidth: 0 }}>
                   <span style={{ display: 'block', fontWeight: 600, fontSize: '0.85rem', color: 'var(--text-primary)' }}>{d.title}</span>
-                  <span style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'inherit' }}>{d.doc_code || '—'} · {d.doc_type} · v{d.version} · {d.owner_name || ''}</span>
+                  <span style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'inherit' }}>{d.doc_code || '-'} · {d.doc_type} · v{d.version} · {d.owner_name || ''}</span>
                 </span>
                 <Badge status={d.status} />
               </button>
@@ -1847,10 +1848,10 @@ export default function SOP({ activeSub, onSubChange }) {
               Sources:
               {ask.sources.map(s => <button key={s.id} onClick={() => openSourceById(s.id)} style={{ fontSize: '0.72rem', background: 'var(--bg-secondary)', color: 'hsl(var(--color-blue))', border: '1px solid var(--border-color)', borderRadius: 999, padding: '3px 10px', cursor: 'pointer', fontWeight: 600 }}>{s.doc_code || s.title}</button>)}
             </div>
-          ) : <div style={{ marginTop: 12, fontSize: '0.75rem', color: 'hsl(32, 80%, 38%)' }}>No matching SOP found — worth adding one.</div>}
+          ) : <div style={{ marginTop: 12, fontSize: '0.75rem', color: 'hsl(32, 80%, 38%)' }}>No matching SOP found - worth adding one.</div>}
         </div>
       )}
-      {!ask.loading && ask.answer == null && <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Ask a question in the box above — answers are grounded only in your SOPs and cite their source.</div>}
+      {!ask.loading && ask.answer == null && <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Ask a question in the box above - answers are grounded only in your SOPs and cite their source.</div>}
     </div>
   );
 
@@ -1889,11 +1890,11 @@ export default function SOP({ activeSub, onSubChange }) {
               <tr key={d.id} onClick={() => openDetail(d)} style={{ cursor: 'pointer', borderBottom: '1px solid var(--border-color)' }}
                 onMouseEnter={e => e.currentTarget.style.backgroundColor = 'var(--bg-secondary)'} onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}>
                 <td style={{ padding: '4px 0 4px 8px', textAlign: 'center' }}>{pinStar(d.id, 15)}</td>
-                <td style={{ padding: '11px 14px' }}><div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.9rem' }}>{d.title}</div><div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'inherit' }}>{d.doc_code || '—'} · v{d.version}</div></td>
+                <td style={{ padding: '11px 14px' }}><div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.9rem' }}>{d.title}</div><div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'inherit' }}>{d.doc_code || '-'} · v{d.version}</div></td>
                 <td className="kb-c-type" style={{ padding: '11px 14px', fontSize: '0.82rem' }}>{d.doc_type}</td>
                 <td className="kb-c-dept" style={{ padding: '11px 14px', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>{(d.departments || []).length ? d.departments.join(', ') : 'Unassigned'}</td>
                 <td style={{ padding: '11px 14px' }}><Badge status={d.status} /></td>
-                <td className="kb-c-owner" style={{ padding: '11px 14px', fontSize: '0.82rem' }}>{d.owner_name || '—'}</td>
+                <td className="kb-c-owner" style={{ padding: '11px 14px', fontSize: '0.82rem' }}>{d.owner_name || '-'}</td>
                 <td className="kb-c-upd" style={{ padding: '11px 14px', fontSize: '0.78rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{fmtDate(d.updated_at)}</td>
               </tr>
             ))}</tbody>
@@ -1904,14 +1905,14 @@ export default function SOP({ activeSub, onSubChange }) {
 
   return (
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
-      <div style={{ display: 'flex', gap: 8, marginBottom: 24, borderBottom: '1px solid var(--line)', paddingBottom: 1 }}>
-        {Object.entries(TAB_LABELS).map(([key, label]) => (
-          <button key={key} onClick={() => switchTab(key)} style={{ background: 'none', border: 'none', padding: '10px 18px', fontFamily: 'Inter, sans-serif', fontWeight: 600, fontSize: 13.5, cursor: 'pointer', color: sub === key ? 'var(--ink)' : 'var(--muted)', position: 'relative', whiteSpace: 'nowrap', flexShrink: 0 }}>
-            {label}
-            {sub === key && <span style={{ position: 'absolute', bottom: -1, left: 0, right: 0, height: 2.5, backgroundColor: 'var(--ink)', borderRadius: '4px 4px 0 0' }} />}
-          </button>
-        ))}
-        <div style={{ marginLeft: 'auto', alignSelf: 'center', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+      {/* Tabs - desktop renders them centered in the top header; phones keep
+          the in-page strip (ModuleTabs handles both). Manage + Help keep
+          their own right-aligned row in the page. */}
+      <ModuleTabs
+        tabs={Object.entries(TAB_LABELS).map(([key, label]) => ({ key, label }))}
+        active={sub} onChange={switchTab} />
+      <div style={{ display: 'flex', marginBottom: 20 }}>
+        <div style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
           {isManager && (() => {
             const active = ['manage', 'matrix', 'insights', 'signoffs', 'tasks'].includes(sub);
             return (
@@ -1931,7 +1932,7 @@ export default function SOP({ activeSub, onSubChange }) {
       {sub === 'index' && (
         <>
           <div className="view-header" style={{ marginBottom: 20 }}>
-            <div className="view-title-group"><h2>Playbook</h2><p>Your SOPs, manuals, and guides — all in one place</p></div>
+            <div className="view-title-group"><h2>Playbook</h2><p>Your SOPs, manuals, and guides - all in one place</p></div>
             <button className="primary-btn" onClick={openCreate} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={16} /> New SOP</button>
           </div>
 
@@ -1970,8 +1971,8 @@ export default function SOP({ activeSub, onSubChange }) {
               {loading
                 ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-secondary)' }}><Loader size={20} style={{ animation: 'spin 0.7s linear infinite' }} /> Loading…</div>
                 : (() => {
-                    const empty = docs.length === 0 ? 'No documents yet — click “New SOP” to start your first draft.' : 'No documents match your filters.';
-                    // The list table doesn't fit a phone — fall back to cards there.
+                    const empty = docs.length === 0 ? 'No documents yet - click “New SOP” to start your first draft.' : 'No documents match your filters.';
+                    // The list table doesn't fit a phone - fall back to cards there.
                     if (isMobile || libView === 'cards') return cardGrid(filtered, empty);
                     if (libView === 'outline') return outlineView(filtered, empty);
                     return docTable(filtered, empty);
@@ -1986,7 +1987,7 @@ export default function SOP({ activeSub, onSubChange }) {
         </>
       )}
 
-      {/* Tasks — everything waiting on this person */}
+      {/* Tasks - everything waiting on this person */}
       {sub === 'tasks' && isManager && (() => {
         const hover = { onMouseEnter: ev => ev.currentTarget.style.background = 'var(--bg-secondary)', onMouseLeave: ev => ev.currentTarget.style.background = 'transparent' };
         const titleCell = (title, meta) => <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</div><div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{meta}</div></div>;
@@ -2005,17 +2006,17 @@ export default function SOP({ activeSub, onSubChange }) {
             {rows}
           </div>
         );
-        const signRows = pendingSignoffs.map(s => taskRow(s.id, () => openSourceById(s.id), s.title, `${s.doc_code || '—'} · v${s.version}`,
+        const signRows = pendingSignoffs.map(s => taskRow(s.id, () => openSourceById(s.id), s.title, `${s.doc_code || '-'} · v${s.version}`,
           <button className="primary-btn" onClick={e => { e.stopPropagation(); openSourceById(s.id); }} style={{ height: 32, fontSize: '0.8rem', flex: '0 0 auto' }}>Review &amp; sign</button>));
-        const returnedRows = returnedToMe.map(d => taskRow(d.id, () => openDetail(d), d.title, `${d.doc_code || '—'} · v${d.version}`,
+        const returnedRows = returnedToMe.map(d => taskRow(d.id, () => openDetail(d), d.title, `${d.doc_code || '-'} · v${d.version}`,
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flex: '0 0 auto' }}><span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'hsl(0,70%,45%)', background: 'hsla(0,84%,60%,0.12)', borderRadius: 999, padding: '3px 10px' }}>Changes requested</span><ChevronRight size={16} style={{ color: 'var(--text-muted)' }} /></span>));
-        const reviewRows = awaitingReview.map(d => taskRow(d.id, () => openDetail(d), d.title, `${d.doc_code || '—'} · v${d.version} · ${d.owner_name || ''}`,
+        const reviewRows = awaitingReview.map(d => taskRow(d.id, () => openDetail(d), d.title, `${d.doc_code || '-'} · v${d.version} · ${d.owner_name || ''}`,
           <button className="primary-btn" onClick={e => { e.stopPropagation(); openDetail(d); }} style={{ height: 32, fontSize: '0.8rem', flex: '0 0 auto', backgroundColor: 'hsl(var(--color-green))' }}>Review</button>));
         return (
           <>
             <button className="secondary-btn" onClick={() => switchTab('manage')} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 16, height: 34 }}><ArrowLeft size={15} /> Manage</button>
             <div className="view-header" style={{ marginBottom: 18 }}>
-              <div className="view-title-group"><h2>Tasks</h2><p>Everything that needs action — sign-offs, returned drafts, and reviews to approve.</p></div>
+              <div className="view-title-group"><h2>Tasks</h2><p>Everything that needs action - sign-offs, returned drafts, and reviews to approve.</p></div>
             </div>
             {loading
               ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-secondary)' }}><Loader size={20} style={{ animation: 'spin 0.7s linear infinite' }} /> Loading…</div>
@@ -2027,7 +2028,7 @@ export default function SOP({ activeSub, onSubChange }) {
                   </div>
                 : <>
                     {section(CheckSquare, 'Needs Your Sign-off', 'Read and e-sign these policies.', { bg: 'hsla(38,92%,50%,0.16)', fg: 'hsl(32,80%,38%)' }, signRows)}
-                    {section(Edit3, 'Returned to You', 'Changes were requested — update and resubmit.', { bg: 'hsla(0,84%,60%,0.12)', fg: 'hsl(0,70%,45%)' }, returnedRows)}
+                    {section(Edit3, 'Returned to You', 'Changes were requested - update and resubmit.', { bg: 'hsla(0,84%,60%,0.12)', fg: 'hsl(0,70%,45%)' }, returnedRows)}
                     {isManager && section(Send, 'Awaiting Your Review', 'Approve or send back with notes.', { bg: 'hsla(215,100%,50%,0.12)', fg: 'hsl(var(--color-blue))' }, reviewRows)}
                   </>}
           </>
@@ -2061,7 +2062,7 @@ export default function SOP({ activeSub, onSubChange }) {
         );
       })()}
 
-      {/* Manage hub (managers) — dashboard */}
+      {/* Manage hub (managers) - dashboard */}
       {sub === 'manage' && isManager && (() => {
         const staleCount = docs.filter(d => d.is_stale).length;
         const signoffCount = docs.filter(d => d.require_ack && d.status === 'approved').length;
@@ -2098,7 +2099,7 @@ export default function SOP({ activeSub, onSubChange }) {
             </div>
           </div>
 
-          {/* KPI row — what needs attention */}
+          {/* KPI row - what needs attention */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 16 }}>
             {actionTile('Action Needed', taskCount, 'Sign-offs, reviews & returns', Send, () => switchTab('tasks'), taskCount > 0)}
             {actionTile('Needs Review', staleCount, 'Past review date', Clock, () => switchTab('insights'), staleCount > 0)}
@@ -2106,7 +2107,7 @@ export default function SOP({ activeSub, onSubChange }) {
             {actionTile('Drafts', draftCount, 'Not yet submitted', Edit3, () => { setStatusFilter('draft'); switchTab('index'); }, false)}
           </div>
 
-          {/* Tools — prominent */}
+          {/* Tools - prominent */}
           <div style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 700, color: 'var(--text-muted)', margin: '4px 2px 12px' }}>Tools</div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(232px, 1fr))', gap: 14, marginBottom: 26 }}>
             {tools.map(([Icon, label, desc, onClick]) => (
@@ -2120,7 +2121,7 @@ export default function SOP({ activeSub, onSubChange }) {
             ))}
           </div>
 
-          {/* Recently Updated + Activity Log — secondary, compact */}
+          {/* Recently Updated + Activity Log - secondary, compact */}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'flex-start' }}>
             <div style={{ flex: '1 1 320px', minWidth: 0, ...panel }}>
               {panelHead('Recently Updated')}
@@ -2130,7 +2131,7 @@ export default function SOP({ activeSub, onSubChange }) {
                     <button key={d.id} onClick={() => openDetail(d)} {...hoverRow} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left', padding: '10px 14px', background: 'transparent', border: 'none', borderTop: i ? '1px solid var(--bg-secondary)' : 'none', cursor: 'pointer' }}>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: '0.84rem', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.title}</div>
-                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{d.doc_code || '—'} · v{d.version}</div>
+                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{d.doc_code || '-'} · v{d.version}</div>
                       </div>
                       <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', whiteSpace: 'nowrap', flex: '0 0 auto' }}>{fmtDate(d.updated_at)}</span>
                     </button>
@@ -2221,7 +2222,7 @@ export default function SOP({ activeSub, onSubChange }) {
         );
       })()}
 
-      {/* Learn (LMS) — list */}
+      {/* Learn (LMS) - list */}
       {sub === 'lms' && lmsMode === 'list' && (() => {
         const published = lmsCourses.filter(c => c.status === 'published');
         const statusChip = (s) => { const m = s === 'Completed' ? STATUS_META.approved : s === 'In progress' ? STATUS_META.in_review : STATUS_META.draft; return <span style={{ backgroundColor: m.bg, color: m.fg, fontSize: '0.72rem', fontWeight: 700, padding: '3px 10px', borderRadius: 999 }}>{s}</span>; };
@@ -2236,7 +2237,7 @@ export default function SOP({ activeSub, onSubChange }) {
               </div>
               <div style={{ border: '1px solid var(--border-color)', borderRadius: 12, overflow: 'hidden', background: 'var(--bg-card)' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}><tbody>
-                  {lmsCourses.length === 0 ? <tr><td style={{ padding: 16, color: 'var(--text-secondary)', fontSize: '0.85rem' }}>No courses yet — create one with “New Course”.</td></tr> : lmsCourses.map(c => (
+                  {lmsCourses.length === 0 ? <tr><td style={{ padding: 16, color: 'var(--text-secondary)', fontSize: '0.85rem' }}>No courses yet - create one with “New Course”.</td></tr> : lmsCourses.map(c => (
                     <tr key={c.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
                       <td style={{ padding: '11px 14px' }}><div style={{ fontWeight: 600, fontSize: '0.88rem' }}>{c.title}</div><div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'inherit' }}>{c.course_code} · {c.lesson_count} lessons</div></td>
                       <td style={{ padding: '11px 14px' }}><span style={{ fontSize: '0.7rem', fontWeight: 700, color: c.status === 'published' ? 'hsl(145,55%,30%)' : 'var(--text-secondary)', background: c.status === 'published' ? 'hsla(145,63%,42%,0.12)' : 'var(--bg-secondary)', borderRadius: 999, padding: '3px 10px' }}>{c.status}</span></td>
@@ -2346,7 +2347,7 @@ export default function SOP({ activeSub, onSubChange }) {
         return (
           <>
             <div className="view-header" style={{ marginBottom: 16 }}>
-              <div className="view-title-group"><h2>Learn</h2><p>Training built from your SOPs and guides — work through the lessons, pass the quiz, and your completion is recorded.</p></div>
+              <div className="view-title-group"><h2>Learn</h2><p>Training built from your SOPs and guides - work through the lessons, pass the quiz, and your completion is recorded.</p></div>
             </div>
             {myAssignments.filter(a => a.status !== 'Completed' || a.expired).length > 0 && (() => {
               const due = myAssignments.filter(a => a.status !== 'Completed' || a.expired);
@@ -2354,7 +2355,7 @@ export default function SOP({ activeSub, onSubChange }) {
                 <div style={{ background: 'var(--bg-card)', border: '1px solid hsla(38,92%,50%,0.45)', borderRadius: 14, boxShadow: 'var(--shadow-sm)', overflow: 'hidden', marginBottom: 22 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '12px 16px', borderBottom: '1px solid var(--border-color)', background: 'hsla(38,92%,50%,0.08)' }}>
                     <GraduationCap size={16} style={{ color: 'hsl(32,80%,38%)', flex: '0 0 auto' }} />
-                    <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: '0.92rem', fontWeight: 700 }}>Required training</div><div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Courses assigned to you — please complete these.</div></div>
+                    <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: '0.92rem', fontWeight: 700 }}>Required training</div><div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Courses assigned to you - please complete these.</div></div>
                     <span style={{ background: 'hsla(38,92%,50%,0.16)', color: 'hsl(32,80%,38%)', borderRadius: 999, padding: '2px 10px', fontSize: '0.78rem', fontWeight: 700 }}>{due.length}</span>
                   </div>
                   {due.map((a, i) => (
@@ -2390,7 +2391,7 @@ export default function SOP({ activeSub, onSubChange }) {
         );
       })()}
 
-      {/* Learn — course player */}
+      {/* Learn - course player */}
       {sub === 'lms' && lmsMode === 'player' && lmsCourse && (() => {
         const c = lmsCourse, lessons = c.lessons || [], quiz = c.quiz || {}, hasQuiz = (quiz.questions || []).length > 0, prog = c.progress || { lessons_done: [] };
         const pct = c.status_for_me === 'Completed' ? 100 : Math.min(100, Math.round(((prog.lessons_done?.length || 0) + (prog.passed ? 1 : 0)) / ((lessons.length + (hasQuiz ? 1 : 0)) || 1) * 100));
@@ -2435,7 +2436,7 @@ export default function SOP({ activeSub, onSubChange }) {
             <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 14, padding: '28px 22px' }}>
               <div style={{ textAlign: 'center' }}>
                 <div style={{ width: 54, height: 54, borderRadius: '50%', margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center', background: player.lastPassed ? 'hsla(145,63%,42%,0.14)' : 'hsla(0,84%,60%,0.12)', color: player.lastPassed ? 'hsl(145,55%,30%)' : 'hsl(0,70%,45%)' }}>{player.lastPassed ? <CheckSquare size={26} /> : <X size={26} />}</div>
-                <h2 style={{ fontSize: '1.2rem', margin: '14px 0 6px' }}>{player.lastPassed ? 'Course completed' : 'Not quite — review and try again'}</h2>
+                <h2 style={{ fontSize: '1.2rem', margin: '14px 0 6px' }}>{player.lastPassed ? 'Course completed' : 'Not quite - review and try again'}</h2>
                 <p style={{ color: 'var(--text-secondary)', margin: 0 }}>You scored <b>{player.lastScore}%</b>.</p>
                 <div style={{ marginTop: 16, display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
                   {player.lastPassed
@@ -2490,7 +2491,7 @@ export default function SOP({ activeSub, onSubChange }) {
               <div className="modal-overlay" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '3vh 2vw' }} onClick={e => { if (e.target === e.currentTarget) setCertOpen(false); }}>
                 <div style={{ background: 'var(--bg-card)', borderRadius: 16, width: '96vw', maxWidth: 720, boxShadow: '0 20px 60px rgba(0,0,0,0.3)', overflow: 'hidden' }}>
                   <div id="kb-cert" style={{ padding: 36, textAlign: 'center', border: '10px solid hsl(145,40%,30%)', margin: 14, borderRadius: 10, background: '#fff', color: '#1a2332' }}>
-                    <div style={{ fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.18em', fontWeight: 700, color: 'hsl(145,40%,30%)' }}>Greens Global</div>
+                    <div style={{ fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.18em', fontWeight: 700, color: 'hsl(145,40%,30%)' }}>Nexus</div>
                     <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: '1.9rem', fontWeight: 800, margin: '10px 0 4px' }}>Certificate of Completion</div>
                     <div style={{ fontSize: '0.9rem', color: '#64748b', marginBottom: 22 }}>This certifies that</div>
                     <div style={{ fontSize: '1.6rem', fontWeight: 700, fontFamily: "'Plus Jakarta Sans', sans-serif", borderBottom: '2px solid #e2e8f0', display: 'inline-block', padding: '0 24px 8px' }}>{myName}</div>
@@ -2500,7 +2501,7 @@ export default function SOP({ activeSub, onSubChange }) {
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: 34, fontSize: '0.8rem', color: '#475569' }}>
                       <div style={{ textAlign: 'left' }}><div style={{ borderTop: '1px solid #94a3b8', paddingTop: 5, minWidth: 150 }}>Date</div><div style={{ fontWeight: 600 }}>{fmtDate(prog.completed_at || new Date().toISOString().slice(0, 10))}</div></div>
                       <div style={{ width: 60, height: 60, borderRadius: '50%', border: '2px solid hsl(145,40%,30%)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'hsl(145,40%,30%)' }}><GraduationCap size={28} /></div>
-                      <div style={{ textAlign: 'right' }}><div style={{ borderTop: '1px solid #94a3b8', paddingTop: 5, minWidth: 150 }}>Greens Global Learning</div></div>
+                      <div style={{ textAlign: 'right' }}><div style={{ borderTop: '1px solid #94a3b8', paddingTop: 5, minWidth: 150 }}>Nexus Learning</div></div>
                     </div>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, padding: '6px 18px 16px' }}>
@@ -2514,7 +2515,7 @@ export default function SOP({ activeSub, onSubChange }) {
         );
       })()}
 
-      {/* Learn — course authoring */}
+      {/* Learn - course authoring */}
       {sub === 'lms' && lmsMode === 'editor' && courseDraft && (() => {
         const d = courseDraft;
         const sopOpts = docs.filter(x => x.doc_type !== 'Manual').sort((a, b) => (a.doc_code || '').localeCompare(b.doc_code || ''));
@@ -2534,7 +2535,7 @@ export default function SOP({ activeSub, onSubChange }) {
           <div style={{ width: '100%' }}>
             <button className="secondary-btn" onClick={() => { setCourseDraft(null); setLmsMode('list'); }} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 18, height: 34 }}><ArrowLeft size={15} /> {d.id ? 'Back' : 'Cancel'}</button>
             <h2 style={{ marginBottom: 4, fontSize: '1.7rem' }}>{d.id ? 'Edit Course' : 'New Course'}</h2>
-            <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: 22 }}>Generate a course from your material, or build it by hand — readings or linked SOPs plus a knowledge-check quiz.</p>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: 22 }}>Generate a course from your material, or build it by hand - readings or linked SOPs plus a knowledge-check quiz.</p>
             {errBanner}
 
             {!d._importSource && (
@@ -2543,7 +2544,7 @@ export default function SOP({ activeSub, onSubChange }) {
                   <div style={{ width: 34, height: 34, borderRadius: 9, backgroundColor: 'hsla(266,70%,60%,0.12)', color: 'hsl(266,72%,56%)', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}><Sparkles size={18} /></div>
                   <div style={{ flex: 1, minWidth: 180 }}>
                     <strong style={{ fontSize: '0.9rem', display: 'block' }}>Generate with Claude AI</strong>
-                    <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Paste or upload source material — a policy, manual, or transcript — and Claude writes the lessons and quiz.</span>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Paste or upload source material - a policy, manual, or transcript - and Claude writes the lessons and quiz.</span>
                   </div>
                   <label className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 38, cursor: 'pointer', margin: 0, flex: '0 0 auto' }}>
                     <Paperclip size={15} /> Upload file
@@ -2567,7 +2568,7 @@ export default function SOP({ activeSub, onSubChange }) {
 
             <div style={cardStyle}>
               <label style={fieldLabel}>Course title</label>
-              {fieldTip('A clear name learners will recognise — e.g. New Hire Orientation.')}
+              {fieldTip('A clear name learners will recognise - e.g. New Hire Orientation.')}
               <input className="form-input" value={d.title} placeholder="e.g. New Hire Orientation" onChange={e => cdSet({ title: e.target.value })} style={{ fontSize: '1.35rem', fontWeight: 600, padding: '14px 16px', height: 'auto', fontFamily: "'Plus Jakarta Sans', sans-serif" }} />
             </div>
 
@@ -2609,7 +2610,7 @@ export default function SOP({ activeSub, onSubChange }) {
               <button className="secondary-btn" onClick={cdAddObjective} style={{ marginTop: 12, height: 36, fontSize: '0.82rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={14} /> Add Objective</button>
             </>))}
 
-            {csection('Lessons', 'Break the material into focused lessons — plain readings or links to an existing SOP.', (<>
+            {csection('Lessons', 'Break the material into focused lessons - plain readings or links to an existing SOP.', (<>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 {d.lessons.map((l, i) => (
                   <div key={l._id} style={{ border: '1px solid var(--border-color)', borderRadius: 12, padding: 14, background: 'var(--bg-secondary)' }}>
@@ -2620,7 +2621,7 @@ export default function SOP({ activeSub, onSubChange }) {
                       <button className="secondary-btn" onClick={() => cdDelLesson(l._id)} style={{ width: 40, height: 38, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}><Trash2 size={15} /></button>
                     </div>
                     {l.type === 'sop'
-                      ? <select className="form-select" value={l.docId || ''} onChange={e => { const o = sopOpts.find(x => x.id === e.target.value); cdUpdLesson(l._id, { docId: e.target.value, title: l.title || (o ? o.title : '') }); }} style={{ width: '100%' }}><option value="">— select an SOP —</option>{sopOpts.map(o => <option key={o.id} value={o.id}>{o.doc_code} · {o.title}</option>)}</select>
+                      ? <select className="form-select" value={l.docId || ''} onChange={e => { const o = sopOpts.find(x => x.id === e.target.value); cdUpdLesson(l._id, { docId: e.target.value, title: l.title || (o ? o.title : '') }); }} style={{ width: '100%' }}><option value="">- select an SOP -</option>{sopOpts.map(o => <option key={o.id} value={o.id}>{o.doc_code} · {o.title}</option>)}</select>
                       : <textarea className="form-input" value={l.body} placeholder="Lesson text… (blank lines become paragraphs)" onChange={e => cdUpdLesson(l._id, { body: e.target.value })} style={{ width: '100%', minHeight: 90, resize: 'vertical', fontSize: '0.9rem', lineHeight: 1.6, padding: '11px 14px' }} />}
                   </div>
                 ))}
@@ -2646,7 +2647,7 @@ export default function SOP({ activeSub, onSubChange }) {
                       </label>
                     ))}
                     <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', margin: '4px 0 8px' }}>Select the radio next to the correct answer.</div>
-                    <textarea className="form-input" value={q.explanation || ''} placeholder="Why this answer is correct — shown to learners who get it wrong…" onChange={e => cdUpdQ(q._id, { explanation: e.target.value })} style={{ width: '100%', minHeight: 52, resize: 'vertical', fontSize: '0.85rem', lineHeight: 1.5, padding: '10px 12px' }} />
+                    <textarea className="form-input" value={q.explanation || ''} placeholder="Why this answer is correct - shown to learners who get it wrong…" onChange={e => cdUpdQ(q._id, { explanation: e.target.value })} style={{ width: '100%', minHeight: 52, resize: 'vertical', fontSize: '0.85rem', lineHeight: 1.5, padding: '10px 12px' }} />
                   </div>
                 ))}
                 {d.quiz.questions.length === 0 && <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0 }}>No questions yet.</p>}

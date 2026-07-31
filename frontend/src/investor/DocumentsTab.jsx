@@ -115,7 +115,7 @@ export default function DocumentsTab() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap', marginBottom: 18 }}>
         <div>
           <h3 style={{ fontSize: 16, fontWeight: 700, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>Documents</h3>
-          <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '3px 0 0' }}>Deal and investor paperwork — PPMs, K-1s, notices, and reports</p>
+          <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '3px 0 0' }}>Deal and investor paperwork - PPMs, K-1s, notices, and reports</p>
         </div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
           <select className="form-select" style={{ width: 180 }} value={fundFilter} onChange={e => setFundFilter(e.target.value)}>
@@ -173,7 +173,7 @@ export default function DocumentsTab() {
                     <td data-th="Scope" style={{ fontSize: 12.5, color: 'var(--muted)' }}>
                       {[doc.fundName, doc.investorName].filter(Boolean).join(' · ') || 'All Deals'}
                     </td>
-                    <td data-th="Uploaded By" style={{ fontSize: 12.5, color: 'var(--muted)' }}>{doc.uploadedBy ? nameOf(doc.uploadedBy) : '—'}</td>
+                    <td data-th="Uploaded By" style={{ fontSize: 12.5, color: 'var(--muted)' }}>{doc.uploadedBy ? nameOf(doc.uploadedBy) : '-'}</td>
                     <td data-th="Date" style={{ fontSize: 12.5, fontVariantNumeric: 'tabular-nums' }}>{formatDate(doc.createdAt)}</td>
                     <td style={{ textAlign: 'right' }}>
                       <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
@@ -218,13 +218,13 @@ export default function DocumentsTab() {
                       <Paperclip size={13} /> {modal.file.name}
                     </span>
                   ) : (
-                    <>Click to choose a file — or press Ctrl+V to paste a screenshot<br />
+                    <>Click to choose a file - or press Ctrl+V to paste a screenshot<br />
                       <span style={{ fontSize: 11 }}>PDF, Word, Excel, or image · up to 25 MB · optional</span></>
                   )}
                 </div>
               </div>
               <FG label="Title" full>
-                <input className="form-input" required value={modal.title} placeholder="e.g. 2026 K-1 — Patel Family Trust"
+                <input className="form-input" required value={modal.title} placeholder="e.g. 2026 K-1 - Patel Family Trust"
                   onChange={e => setModal(m => ({ ...m, title: e.target.value }))} />
               </FG>
               <FG label="Category">

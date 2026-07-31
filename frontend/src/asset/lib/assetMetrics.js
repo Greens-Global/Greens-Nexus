@@ -17,7 +17,7 @@ import { baseStage } from './stages.js';
 
 /**
  * Compute portfolio-wide summary stats from the full data store.
- * `store` shape: { properties, warranties, inspections, vendors, ahj, ... } — each a flat array.
+ * `store` shape: { properties, warranties, inspections, vendors, ahj, ... } - each a flat array.
  *
  * Returns:
  *   assets    - total property/asset count
@@ -56,7 +56,7 @@ export function portfolioStats(store) {
     exp: expiringSoon,
     nrsf: sumField('nrsf'),
     units: sumField('unitsTotal'),
-    // Not sumField('acreage') — a property entered in SF must convert to acres first, or its
+    // Not sumField('acreage') - a property entered in SF must convert to acres first, or its
     // raw square-footage number would blow up the portfolio total.
     acreage: store.properties.reduce((sum, p) => sum + acresOf(p.acreage, p.acreageUnit), 0),
   };
@@ -71,7 +71,7 @@ export function portfolioStats(store) {
  * into a single normalized-label -> value lookup map. This is how code reads an individual
  * snapshot field's value without caring which group it's displayed under (e.g. "Policy
  * Expiration" regardless of whether it's under Insurance or some renamed/reordered group).
- * Later duplicate labels win (object key overwrite) — snapshots are not expected to have
+ * Later duplicate labels win (object key overwrite) - snapshots are not expected to have
  * duplicate labels, but if they did, the last one in array order wins.
  */
 export function snapMap(property) {
@@ -85,7 +85,7 @@ export function snapMap(property) {
 }
 
 // ------------------------------------------------------------------------------------------
-// freshTs / freshMeta — "data freshness" (time since last edit)
+// freshTs / freshMeta - "data freshness" (time since last edit)
 // ------------------------------------------------------------------------------------------
 
 /**
@@ -114,7 +114,7 @@ export function freshMeta(ts) {
 }
 
 // ------------------------------------------------------------------------------------------
-// assetSignals — per-asset health signal chips
+// assetSignals - per-asset health signal chips
 // ------------------------------------------------------------------------------------------
 
 /**
@@ -122,13 +122,13 @@ export function freshMeta(ts) {
  * { l: label, v: display value, t: tone } where tone is one of 'ok' | 'warn' | 'bad' | 'info' | 'mut'.
  *
  * Vehicles/equipment get a DIFFERENT signal set than properties (Insurance/Registration/Service/
- * Odometer vs. Insurance/Inspections/Permits/Debt) — the two branches are NOT the same logic with
+ * Odometer vs. Insurance/Inspections/Permits/Debt) - the two branches are NOT the same logic with
  * different field names, they check different things entirely (e.g. vehicles have no concept of
  * "Permits" or "Debt/Loan maturity"; properties have no odometer).
  *
  * NOTE the threshold asymmetry: the vehicle/equipment branch flags insurance/registration as
  * "warn" inside 60 days of expiration, while the property branch uses a 90-day warn window for
- * insurance. This mirrors the original app exactly — it was not unified. Concretely: an asset
+ * insurance. This mirrors the original app exactly - it was not unified. Concretely: an asset
  * 75 days from insurance expiration shows "warn" (75d to renewal) if it's a property (75<=90),
  * but "ok" (Active) if it's a vehicle (75>60). Flagged here in case this divergence was
  * unintentional and worth unifying during handoff.
@@ -226,7 +226,7 @@ export function assetSignals(asset, store) {
   );
 
   const permits = asset.permits || [];
-  // "In process" detection is a loose regex over the whole permit record's JSON — catches any
+  // "In process" detection is a loose regex over the whole permit record's JSON - catches any
   // status-like field (whatever it's called) containing one of these words, rather than relying
   // on a single known status field name/shape.
   const inProcessCount = permits.filter((x) =>
@@ -254,23 +254,23 @@ export function assetSignals(asset, store) {
 }
 
 // ------------------------------------------------------------------------------------------
-// assetCompleteness — completeness % calculator for the Manage page
+// assetCompleteness - completeness % calculator for the Manage page
 // ------------------------------------------------------------------------------------------
 
 /**
- * Returns { pct, missing } — a completeness percentage (0-100, rounded) and the list of missing
+ * Returns { pct, missing } - a completeness percentage (0-100, rounded) and the list of missing
  * field labels, used by the Manage page to show data-quality progress per asset.
  *
  * Vehicles/equipment: checks every non-section-header field in that kind's flat ASSET_SCHEMAS
  * entry (VEHICLE_FIELDS/EQUIPMENT_FIELDS) for a non-empty top-level value, plus a synthetic
  * "Photos" check (images array non-empty or a single `image` set).
  *
- * Properties: checks a fixed curated list of the fields considered essential — NOT every PT
+ * Properties: checks a fixed curated list of the fields considered essential - NOT every PT
  * field (there are dozens; most are optional/situational). The essential list differs for
- * assembled/grouped parcels (`p.assembled && p.parentId` — a secondary parcel folded into an
+ * assembled/grouped parcels (`p.assembled && p.parentId` - a secondary parcel folded into an
  * assemblage) vs. standalone properties: an assembled parcel is checked for its own
  * address/city/state/zip/APN/lot-size/acquisition/zoning (things that are genuinely per-parcel),
- * while a standalone property is instead checked for entity/manager/insurance-carrier/map-link —
+ * while a standalone property is instead checked for entity/manager/insurance-carrier/map-link -
  * fields that make sense to require once per asset rather than once per parcel-in-a-group.
  */
 export function assetCompleteness(property) {
@@ -323,7 +323,7 @@ export function assetCompleteness(property) {
 }
 
 // ------------------------------------------------------------------------------------------
-// assetRank — default portfolio sort order
+// assetRank - default portfolio sort order
 // ------------------------------------------------------------------------------------------
 
 /**
@@ -339,12 +339,12 @@ export function assetCompleteness(property) {
  *
  * Note the check ORDER matters and is NOT purely "most specific wins": a private property in
  * California that also happens to read as self-storage would still land in bucket 5 (private),
- * NOT bucket 0 — `p.private` is checked before the storage/state logic. Similarly, an India
+ * NOT bucket 0 - `p.private` is checked before the storage/state logic. Similarly, an India
  * property is bucketed by country/address text match BEFORE the storage/CA/TX checks, so a
  * (hypothetical) self-storage facility in India sorts into bucket 4, not bucket 0/1. Vehicles/
  * equipment short-circuit to bucket 6 before any of this even runs. Within a bucket, ties are
  * broken by whatever secondary sort the caller applies (assetRank only assigns the bucket, it
- * does not sort within it — check the call site's sort comparator for tie-breaking behavior).
+ * does not sort within it - check the call site's sort comparator for tie-breaking behavior).
  */
 export function assetRank(property) {
   if (inferAssetKind(property) !== 'property') return 6;
@@ -363,7 +363,7 @@ export function assetRank(property) {
 }
 
 // ------------------------------------------------------------------------------------------
-// Manage page — Data Completeness tab filter helpers
+// Manage page - Data Completeness tab filter helpers
 // ------------------------------------------------------------------------------------------
 
 /** devStage's base value (see baseStage in ./stages.js) -> tone color for the stage badge/bar. */
@@ -389,7 +389,7 @@ function snapField(property, label) {
 }
 
 /**
- * "Asset Type" for the Manage page filter dropdown — a human-readable use classification
+ * "Asset Type" for the Manage page filter dropdown - a human-readable use classification
  * (Office / Medical, Retail, Self-Storage, Vehicle Storage, Mixed-Use, Residential, Land,
  * Other), inferred from `assetType` if set, else from the snapshot's Proposed Use / Current
  * Use free-text fields via keyword matching. Proposed Use wins over Current Use when both
@@ -415,7 +415,7 @@ export function assetTypeOf(property) {
   return classify(snapField(property, 'Proposed Use')) || classify(snapField(property, 'Current Use')) || '';
 }
 
-/** "Region" for the Manage page filter dropdown — the 2-letter state code (or full value if the
+/** "Region" for the Manage page filter dropdown - the 2-letter state code (or full value if the
  *  state field isn't a recognized 2-letter code), falling back to parsing a state code out of
  *  the free-text address ("..., CA 92024" style). */
 export function assetRegionOf(property) {
@@ -429,7 +429,7 @@ export function assetRegionOf(property) {
 export const ASSET_CATEGORIES = ['Commercial', 'Residential', 'Industrial', 'Vehicles', 'Heavy Equipment'];
 
 /**
- * "Category" for the Manage page filter dropdown — one of ASSET_CATEGORIES. Vehicles/equipment
+ * "Category" for the Manage page filter dropdown - one of ASSET_CATEGORIES. Vehicles/equipment
  * are classified straight from their kind; properties are classified by keyword-matching a blob
  * built from type/parcelRole/Proposed Use/Current Use/name. Residential only wins over Commercial
  * when residential-ish keywords match AND no commercial-ish keyword also matches (a property that
@@ -450,7 +450,7 @@ export function categoryOf(asset) {
 /**
  * "City, State" (or "City, State, India" for Indian properties) display string for an asset,
  * parsed out of the free-text address when the structured city/state fields are blank. Strips
- * "City/Town/County of" prefixes. This is best-effort text parsing, not a geocoder — it looks
+ * "City/Town/County of" prefixes. This is best-effort text parsing, not a geocoder - it looks
  * for a 2-letter state code or 5-digit zip token in the comma-split address parts to figure out
  * which segment is the city.
  */

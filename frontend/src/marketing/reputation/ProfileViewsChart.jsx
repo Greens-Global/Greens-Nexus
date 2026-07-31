@@ -44,7 +44,7 @@ export default function ProfileViewsChart({ rows, prevRows, platform = 'google' 
   const [menuOpen, setMenuOpen] = useState(false)
   const [compare, setCompare] = useState(true)
 
-  const title = platform === 'google' ? 'Profile Views — Maps vs. Search' : 'Page Views — Search vs. Direct'
+  const title = platform === 'google' ? 'Profile Views - Maps vs. Search' : 'Page Views - Search vs. Direct'
   const primaryLabel = platform === 'google' ? 'Maps Views' : 'Direct Views'
   const secondaryLabel = 'Search Views'
 

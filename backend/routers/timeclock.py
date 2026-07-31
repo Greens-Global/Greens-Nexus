@@ -1,9 +1,9 @@
-"""Time tracking — punch in/out with geofencing (SwipeClock replacement).
+"""Time tracking - punch in/out with geofencing (SwipeClock replacement).
 
 Design decisions are research-backed (Jul 2026 deep-research pass):
 - SOFT gate: out-of-fence punches are recorded and flagged for review, never
   blocked. Hard gates fight browser geolocation (desktops return coarse
-  Wi-Fi/IP fixes) — BuddyPunch only sustains blocking by requiring a native app.
+  Wi-Fi/IP fixes) - BuddyPunch only sustains blocking by requiring a native app.
 - Accuracy credit (verbatim SwipeClock behavior): a punch counts as in-fence
   when distance − reported_accuracy ≤ site radius, so GPS drift doesn't create
   false flags.
@@ -13,7 +13,7 @@ Design decisions are research-backed (Jul 2026 deep-research pass):
   gap (flagged source=self_manual), managers may add/adjust/void with a full
   audit trail (original_at frozen, voided rows retained).
 - NO rounding (exact minutes are always wage-and-hour-safe) and NO automatic
-  break deduction — breaks exist only as explicit punches. Compliance items
+  break deduction - breaks exist only as explicit punches. Compliance items
   (WA/OR break policy, retention windows) are open questions for counsel.
 """
 import csv
@@ -54,7 +54,7 @@ require_team_write = require_level_or_module(3, "hr", "editor")
 def _visible_emails(db: Session, user: dict):
     """Team-data scope. None = whole company (administrators, or anyone holding
     an HR-module grant). A plain level-3/4 manager sees only their DIRECT
-    reports (manager_email == them) plus themself — the Manager Dashboard view."""
+    reports (manager_email == them) plus themself - the Manager Dashboard view."""
     from auth import _module_level
     if user.get("level", 0) >= 4 or _module_level(user["email"], "hr", db) >= 1:
         return None
@@ -108,7 +108,7 @@ def _geofence(db: Session, lat, lng, accuracy_m: int) -> dict:
         if best is None or d < best[0]:
             best = (d, s)
     if best is None:
-        # No geofenced sites configured at all — location recorded, nothing to judge
+        # No geofenced sites configured at all - location recorded, nothing to judge
         return {"geo_status": "no_location", "work_site_id": "", "work_site_name": "", "distance_m": 0}
     d, site = best
     radius = max(25, int(site.radius_m or 150))
@@ -118,7 +118,7 @@ def _geofence(db: Session, lat, lng, accuracy_m: int) -> dict:
     # kilometres off with a huge reported accuracy. Crediting that in full
     # would let a coarse fix "pass" any fence, so the credit is capped at
     # 150 m, and past ±500 m the fix can't be judged at all → low_accuracy
-    # (recorded, neutral — phones give GPS fixes and judge normally).
+    # (recorded, neutral - phones give GPS fixes and judge normally).
     if acc > 500:
         return {**base, "geo_status": "low_accuracy"}
     effective = max(0.0, d - min(acc, 150))
@@ -131,7 +131,7 @@ def _allowed_kinds(last_kind: Optional[str]) -> list:
         return ["in"]
     if last_kind in ("in", "break_end"):
         return ["out", "break_start"]
-    return ["break_end", "out"]  # on break — punching out implicitly ends it
+    return ["break_end", "out"]  # on break - punching out implicitly ends it
 
 
 def _serialize(p: TimePunch) -> dict:
@@ -161,7 +161,7 @@ def _live_punches(db: Session, email: str, start: str = "", end: str = ""):
 def _day_summaries(punches: list) -> dict:
     """local_date -> {workedMin, breakMin, firstIn, lastOut, flags, punches}.
     Exact minutes, no rounding. Pairs across the FULL sequence (not per calendar
-    day) so an overnight shift — in one night, out the next morning — counts as one
+    day) so an overnight shift - in one night, out the next morning - counts as one
     segment on the day it STARTED. Unclosed pairs are flagged, never guessed."""
     by_day = {}
     for p in punches:
@@ -280,7 +280,7 @@ def my_status(tz_offset_min: int = 0, user: dict = Depends(get_current_user), db
         "monitoring": (lambda exempt: {
             **_policy_dict(pol),
             "exempt": exempt,
-            # Exempt people are not captured — force the capture flags off for them
+            # Exempt people are not captured - force the capture flags off for them
             # so the widget offers no screen-share and clock-in isn't gated on one.
             **({"trackScreens": False, "trackWindows": False, "trackInput": False} if exempt else {}),
             # Daily acknowledge gate removed Jul 24 (see punch endpoint note);
@@ -303,10 +303,10 @@ def punch(body: PunchIn, request: Request,
             .order_by(TimePunch.at.desc()).first())
     allowed = _allowed_kinds(last.kind if last else None)
     if body.kind not in allowed:
-        raise HTTPException(409, f"Can't punch '{body.kind}' right now — allowed: {', '.join(allowed)}")
+        raise HTTPException(409, f"Can't punch '{body.kind}' right now - allowed: {', '.join(allowed)}")
     now = _now_iso()
     # Jul 24: the daily acknowledge-at-clock-in gate was removed by management
-    # decision — screen capture is initiated by the employee's own share action
+    # decision - screen capture is initiated by the employee's own share action
     # (browser picker + persistent OS sharing indicator), and standing disclosure
     # lives in the signed monitoring policy, not a daily pop-up. The
     # /monitoring/consent endpoint and MonitoringConsent rows remain for the
@@ -315,7 +315,7 @@ def punch(body: PunchIn, request: Request,
     if last and last.kind == body.kind:
         prev = _parse_iso(last.at)
         if prev and (datetime.now(timezone.utc) - prev).total_seconds() < 60:
-            raise HTTPException(409, "Duplicate punch — you just did that.")
+            raise HTTPException(409, "Duplicate punch - you just did that.")
     geo = _geofence(db, body.lat, body.lng, body.accuracy_m or 0)
     if not (body.lat or "").strip():
         geo = {"geo_status": "no_location", "work_site_id": "", "work_site_name": "", "distance_m": 0}
@@ -335,7 +335,7 @@ def punch(body: PunchIn, request: Request,
         if emp and emp.manager_email:
             _hr_notify(db, emp.manager_email, "Out-of-fence punch",
                        f"{emp.first_name} {emp.last_name} punched in {geo['distance_m']}m from "
-                       f"{geo['work_site_name'] or 'the nearest site'} — flagged for review.",
+                       f"{geo['work_site_name'] or 'the nearest site'} - flagged for review.",
                        ref_id=row.id, action={"view": "hr", "sub": "hr-time"})
     # First punch-in → offer the Beginning-of-day message; punch-out → offer the
     # End-of-day message (each skipped automatically once recorded that day).
@@ -363,7 +363,7 @@ def punch(body: PunchIn, request: Request,
 
 class SelfPunchIn(BaseModel):
     kind: str
-    at: str                      # UTC ISO — the missed moment
+    at: str                      # UTC ISO - the missed moment
     tz_offset_min: Optional[int] = 0
     note: str                    # required: why the punch was missed
 
@@ -372,7 +372,7 @@ class SelfPunchIn(BaseModel):
 def self_manual_punch(body: SelfPunchIn, user: dict = Depends(get_current_user),
                       db: Session = Depends(get_db)):
     """Detect-surface-correct: an employee backfills a punch they missed. Always
-    flagged (source=self_manual) so managers review it — never silent."""
+    flagged (source=self_manual) so managers review it - never silent."""
     if body.kind not in KINDS:
         raise HTTPException(400, f"kind must be one of {KINDS}")
     t = _parse_iso(body.at)
@@ -381,7 +381,7 @@ def self_manual_punch(body: SelfPunchIn, user: dict = Depends(get_current_user),
     if t > datetime.now(timezone.utc):
         raise HTTPException(400, "A missed punch can't be in the future.")
     if t < datetime.now(timezone.utc) - timedelta(days=7):
-        raise HTTPException(400, "Older than 7 days — ask a manager to add it.")
+        raise HTTPException(400, "Older than 7 days - ask a manager to add it.")
     if not (body.note or "").strip():
         raise HTTPException(400, "Add a short note explaining the missed punch.")
     now = _now_iso()
@@ -439,7 +439,7 @@ def team_timesheet(start: str = "", end: str = "",
                  .filter(TimeApproval.period_start == start, TimeApproval.period_end == end,
                          TimeApproval.revoked == 0).all()}
     # … plus per-DAY approvals (period_start == period_end). An approval goes
-    # STALE the moment any punch on that day is added or adjusted after it —
+    # STALE the moment any punch on that day is added or adjusted after it -
     # a signed-off day must never silently change underneath the signature.
     day_apps = (db.query(TimeApproval)
                 .filter(TimeApproval.revoked == 0,
@@ -478,7 +478,7 @@ def team_timesheet(start: str = "", end: str = "",
 
 
 def _finalized_row(db: Session, email: str, d_start: str, d_end: str = ""):
-    """The non-revoked HR FINALIZATION covering [d_start, d_end or d_start] —
+    """The non-revoked HR FINALIZATION covering [d_start, d_end or d_start] -
     a finalized period is LOCKED: no punch edits, adds, voids, or re-approvals
     until HR unlocks it. Mirrors SwipeClock's '(finalized)' periods."""
     return (db.query(TimeApproval)
@@ -524,7 +524,7 @@ def approve_timecard(body: ApprovalIn, user: dict = Depends(require_team_write),
         out = {}
         for day in days:
             # Fetch through the NEXT day too, so an overnight shift's out-punch is
-            # available to pair with this day's in-punch — otherwise the locked-in
+            # available to pair with this day's in-punch - otherwise the locked-in
             # approved minutes would be short by the whole after-midnight portion.
             _nx = (date.fromisoformat(day) + timedelta(days=1)).isoformat()
             worked = _day_summaries(_live_punches(db, email, day, _nx)).get(day, {}).get("workedMin", 0)
@@ -624,7 +624,7 @@ class FinalizeIn(BaseModel):
 @router.post("/finalize")
 def finalize_timecard(body: FinalizeIn, user: dict = Depends(require_administrator),
                       db: Session = Depends(get_db)):
-    """HR's second-level sign-off (SwipeClock 'finalize'): locks the period —
+    """HR's second-level sign-off (SwipeClock 'finalize'): locks the period -
     punch edits/adds/approvals 403 until /unfinalize. Admin-only by design:
     managers approve, HR finalizes."""
     email = body.email.strip().lower()
@@ -744,7 +744,7 @@ def manager_add_punch(body: ManagerPunchIn, user: dict = Depends(require_team_wr
 def export_csv(start: str = "", end: str = "", mode: str = "summary",
                user: dict = Depends(require_team_read),
                _su: dict = Depends(require_stepup), db: Session = Depends(get_db)):
-    """Payroll export file (incl. $ pay columns) — requires a fresh step-up MFA
+    """Payroll export file (incl. $ pay columns) - requires a fresh step-up MFA
     (require_stepup). Summary Totals (one row per employee-day) or All Punch
     Details. Exact times, no rounding."""
     buf = io.StringIO()
@@ -820,7 +820,7 @@ def export_csv(start: str = "", end: str = "", mode: str = "summary",
 
 # ── Work-session screenshots (consent-based screen capture) ──────────────────
 # The browser can only capture after the user explicitly picks their screen in
-# the OS dialog, and it shows a persistent "sharing" indicator — transparency
+# the OS dialog, and it shows a persistent "sharing" indicator - transparency
 # is enforced by the platform, which is also what monitoring law expects.
 
 def _clocked_in(db: Session, email: str) -> bool:
@@ -841,7 +841,7 @@ _MONITORING_TEXT_VERSION = "2026-07-20"
 _MONITORING_NOTICE = (
     "While you are clocked in on this company device, Nexus records periodic "
     "screenshots, the title of your active window, and an overall activity level "
-    "(how much you're at the keyboard/mouse — never what you type). Capture runs "
+    "(how much you're at the keyboard/mouse - never what you type). Capture runs "
     "only during your shift and stops the moment you clock out. Clock in to start "
     "your shift and begin monitoring."
 )
@@ -868,7 +868,7 @@ def _policy_dict(p: MonitoringPolicy) -> dict:
 
 
 def _is_monitoring_exempt(db: Session, email: str) -> bool:
-    """True when the person belongs to any group flagged monitoring_exempt — used
+    """True when the person belongs to any group flagged monitoring_exempt - used
     for leadership, who clock in without sharing a screen and are not captured."""
     gids = [m.group_id for m in db.query(NexusGroupMember.group_id)
             .filter(NexusGroupMember.email == email).all()]
@@ -912,7 +912,7 @@ def upload_screenshot(request: Request, file: UploadFile = File(...),
                       user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     email = user["email"]
     if not _clocked_in(db, email):
-        raise HTTPException(409, "Not clocked in — capture stops with the shift.")
+        raise HTTPException(409, "Not clocked in - capture stops with the shift.")
     pol = _get_policy(db)
     if not (pol.enabled and pol.track_screens):
         raise HTTPException(409, "Screen capture is disabled by policy.")
@@ -949,7 +949,7 @@ def record_monitoring_consent(body: MonitoringConsentIn, request: Request,
 
 @router.get("/monitoring/policy")
 def get_monitoring_policy(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Effective policy — any authenticated user (incl. the interactive agent using
+    """Effective policy - any authenticated user (incl. the interactive agent using
     the employee's own token) may read it; it's cadence/toggles, not sensitive data."""
     return _policy_dict(_get_policy(db))
 
@@ -982,10 +982,10 @@ def set_monitoring_policy(body: MonitoringPolicyIn, user: dict = Depends(require
 @router.get("/monitoring/alerts")
 def monitoring_alerts(user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
     """Tamper/coverage alerts: employees who are CLOCKED IN while monitoring is on,
-    but whose agent has gone quiet — the honest, visible way to catch someone
+    but whose agent has gone quiet - the honest, visible way to catch someone
     killing/uninstalling the agent to dodge capture. Nothing is hidden; the gap is
     surfaced to their manager (team-scoped) as an attributable event. Computed from
-    existing heartbeat/punch/screenshot data — no new storage."""
+    existing heartbeat/punch/screenshot data - no new storage."""
     pol = _get_policy(db)
     if not pol.enabled:
         return {"enabled": False, "alerts": []}
@@ -1066,7 +1066,7 @@ def monitoring_alerts(user: dict = Depends(require_team_read), db: Session = Dep
 
 # ── Punch-fix requests (employee asks, approver approves/rejects) ─────────────
 # An employee can request to ADD a missed punch or REMOVE a wrong one. Nothing
-# changes on the timesheet until an approver (HR/manager) approves — then the
+# changes on the timesheet until an approver (HR/manager) approves - then the
 # punch is created/voided with a full audit trail. Both parties are notified.
 
 _PR_KINDS = ("in", "out", "break_start", "break_end")
@@ -1116,7 +1116,7 @@ def create_punch_request(body: PunchRequestIn, user: dict = Depends(get_current_
         if _ptz > _now_dt + timedelta(minutes=5):
             raise HTTPException(400, "You can't request a punch in the future.")
         if _ptz < _now_dt - timedelta(days=45):
-            raise HTTPException(400, "That date is too far back — ask HR to add it for you.")
+            raise HTTPException(400, "That date is too far back - ask HR to add it for you.")
         local_date = _local_date(at_utc, body.tz_offset_min or 0)
     else:  # remove
         target_id = (body.target_punch_id or "").strip()
@@ -1153,7 +1153,7 @@ def my_punch_requests(user: dict = Depends(get_current_user), db: Session = Depe
 @router.get("/punch-requests")
 def list_punch_requests(status: str = "pending", user: dict = Depends(require_team_read),
                         db: Session = Depends(get_db)):
-    """Approver review queue — team-scoped, so a manager sees only their reports'."""
+    """Approver review queue - team-scoped, so a manager sees only their reports'."""
     visible = _visible_emails(db, user)
     q = db.query(PunchRequest)
     if status:
@@ -1241,7 +1241,7 @@ def decide_punch_request(req_id: str, body: PunchRequestDecision,
 # The "Silent App User" model: an admin mints a device token bound to an
 # employee; the install command drops it on the machine; the agent authenticates
 # with X-Agent-Token instead of a Microsoft login. The token is scoped to ONLY
-# the agent endpoints below — it grants no access to the rest of the API.
+# the agent endpoints below - it grants no access to the rest of the API.
 
 def _hash_token(raw: str) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()
@@ -1267,7 +1267,7 @@ class EnrollIn(BaseModel):
 @router.post("/agent/enroll")
 def agent_enroll(body: EnrollIn, user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
     """Mint a fresh device token for an employee. The raw token is returned ONCE
-    (only its hash is stored) — the portal bakes it into the install command."""
+    (only its hash is stored) - the portal bakes it into the install command."""
     email = body.email.strip().lower()
     if "@" not in email:
         raise HTTPException(400, "A valid employee email is required")
@@ -1309,7 +1309,7 @@ def agent_revoke(device_id: str, user: dict = Depends(require_administrator), db
 
 # ── Desktop agent: heartbeat, screenshot, app/URL activity ───────────────────
 # The Nexus desktop agent authenticates with its device token (get_agent_device)
-# — no employee login. It FOLLOWS the punch clock: captures + tracks only while
+# - no employee login. It FOLLOWS the punch clock: captures + tracks only while
 # the person is clocked in and NOT on break (start on in, pause on break, resume
 # on break-end, stop on out). Every gate is enforced here, server-side.
 
@@ -1331,7 +1331,7 @@ class AgentCheckinIn(BaseModel):
 def agent_checkin(body: AgentCheckinIn, dev: AgentDevice = Depends(get_agent_device),
                   db: Session = Depends(get_db)):
     """Heartbeat. Records the machine and tells the agent whether to capture/track
-    right now — true only while clocked in, not on break, and policy-enabled."""
+    right now - true only while clocked in, not on break, and policy-enabled."""
     dev.last_seen_at = _now_iso()
     if body.device_name: dev.device_name = body.device_name[:120]
     if body.device_user: dev.device_user = body.device_user[:120]
@@ -1357,11 +1357,11 @@ def agent_screenshot(request: Request, file: UploadFile = File(...),
                      idle_sec: int = Form(0), active_view: str = Form(""),
                      tz_offset_min: int = Form(0),
                      dev: AgentDevice = Depends(get_agent_device), db: Session = Depends(get_db)):
-    """Screenshot from the desktop agent — identity from the token, re-gated here."""
+    """Screenshot from the desktop agent - identity from the token, re-gated here."""
     email = dev.employee_email
     clocked, on_break = _punch_state(db, email)
     if not clocked or on_break:
-        raise HTTPException(409, "Not on a live shift — capture paused.")
+        raise HTTPException(409, "Not on a live shift - capture paused.")
     pol = _get_policy(db)
     if not (pol.enabled and pol.track_screens):
         raise HTTPException(409, "Screen capture is disabled by policy.")
@@ -1418,7 +1418,7 @@ def insights(email: str = "", start: str = "", end: str = "", tz: int = 0,
              user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
     """Top apps, top websites, active-vs-idle, productivity split, an hourly
     activity strip and (team view) a per-member leaderboard over [start,end]. `tz`
-    is the client's getTimezoneOffset() minutes — used to bucket the hourly strip
+    is the client's getTimezoneOffset() minutes - used to bucket the hourly strip
     in the viewer's local time."""
     em = (email or "").strip().lower()
     scope = _visible_emails(db, user)
@@ -1517,7 +1517,7 @@ def set_rating(body: RatingIn, user: dict = Depends(require_team_write), db: Ses
 # ── Field-worker location tracking (native app, clocked-in only) ─────────────
 # Periodic location pings across a shift for on-site crews. The phone is a
 # native Capacitor app enrolled with the SAME X-Agent-Token model as the desktop
-# agent (get_agent_device) — no Microsoft login on the phone. Tracking runs ONLY
+# agent (get_agent_device) - no Microsoft login on the phone. Tracking runs ONLY
 # while clocked in AND only after a live consent row exists; both are enforced
 # here (server-side), not merely by the device choosing to stop.
 
@@ -1551,7 +1551,7 @@ def _new_session(db: Session, dev: AgentDevice) -> TrackSession:
 
 
 def close_track_session(db: Session, email: str, reason: str):
-    """Close any open tracking session for an employee — called on clock-out so
+    """Close any open tracking session for an employee - called on clock-out so
     the session (which IS the shift) never outlives the shift."""
     sess = _open_session(db, email)
     if sess:
@@ -1606,7 +1606,7 @@ def track_start(dev: AgentDevice = Depends(get_agent_device), db: Session = Depe
     if _live_consent(db, email) is None:
         raise HTTPException(403, "Location tracking needs your consent first.")
     if not _clocked_in(db, email):
-        raise HTTPException(409, "Not clocked in — tracking only runs during a shift.")
+        raise HTTPException(409, "Not clocked in - tracking only runs during a shift.")
     sess = _open_session(db, email) or _new_session(db, dev)
     db.commit()
     return {"sessionId": sess.id, "intervalSec": _TRACK_INTERVAL_SEC, "distanceM": _TRACK_DISTANCE_M}
@@ -1628,18 +1628,18 @@ class PingBatch(BaseModel):
 @router.post("/track/ping")
 def track_ping(body: PingBatch, dev: AgentDevice = Depends(get_agent_device),
                db: Session = Depends(get_db)):
-    """Batched location samples — the device's offline buffer flushes here, so a
+    """Batched location samples - the device's offline buffer flushes here, so a
     dead-zone stretch uploads on reconnect. Each ping keeps its DEVICE capture
     time, not receive time. Rejected unless clocked in AND consented."""
     email = dev.employee_email
     if _live_consent(db, email) is None:
         raise HTTPException(403, "No tracking consent on file.")
     if not _clocked_in(db, email):
-        # Clocked out while the device still held buffered pings — close the
+        # Clocked out while the device still held buffered pings - close the
         # session and drop them. Off-shift location is never stored.
         close_track_session(db, email, "clock_out")
         db.commit()
-        raise HTTPException(409, "Not clocked in — tracking stopped.")
+        raise HTTPException(409, "Not clocked in - tracking stopped.")
     sess = _open_session(db, email) or _new_session(db, dev)
     stored = 0
     for p in body.pings[:500]:
@@ -1677,7 +1677,7 @@ class TrackClockIn(BaseModel):
 @router.post("/track/clock")
 def track_clock(body: TrackClockIn, dev: AgentDevice = Depends(get_agent_device),
                 db: Session = Depends(get_db)):
-    """Clock in/out from the enrolled phone (token-authed, no Microsoft login —
+    """Clock in/out from the enrolled phone (token-authed, no Microsoft login -
     same self-punch model as the desktop agent's auto-clock). Punching in also
     opens a tracking session; punching out closes it. Feeds the SAME timesheets
     and approvals as web punches (source='mobile', adjustable)."""
@@ -1711,7 +1711,7 @@ def track_clock(body: TrackClockIn, dev: AgentDevice = Depends(get_agent_device)
 
 @router.get("/track/live")
 def track_live(user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
-    """Latest ping per currently-tracked team member — the live crew map. Scoped
+    """Latest ping per currently-tracked team member - the live crew map. Scoped
     to the viewer's team (whole company for HR/admins). Self-heals: a session
     whose last ping is older than the idle window is closed and dropped, so a
     phone that died (no clock-out) stops showing as live."""
@@ -1726,7 +1726,7 @@ def track_live(user: dict = Depends(require_team_read), db: Session = Depends(ge
     for s in q.all():
         # Latest POSITION is the newest device-capture time; LIVENESS is the last
         # time we heard from the device (received_at). They differ when a device
-        # flushes an offline buffer — old `at` values, fresh contact — so a worker
+        # flushes an offline buffer - old `at` values, fresh contact - so a worker
         # back from a dead zone must not be judged idle on a stale capture time.
         last = (db.query(TrackPing).filter(TrackPing.session_id == s.id)
                 .order_by(TrackPing.at.desc()).first())
@@ -1752,7 +1752,7 @@ def track_live(user: dict = Depends(require_team_read), db: Session = Depends(ge
 @router.get("/track/path")
 def track_path(email: str, date: str, user: dict = Depends(require_team_read),
                db: Session = Depends(get_db)):
-    """Ordered breadcrumb for one employee on one local date — the map replay."""
+    """Ordered breadcrumb for one employee on one local date - the map replay."""
     em = email.strip().lower()
     scope = _visible_emails(db, user)
     if scope is not None and em not in scope:
@@ -1889,7 +1889,7 @@ def set_group_members(group_id: str, body: GroupIn, user: dict = Depends(require
 
 @router.get("/my-chat")
 def my_group_chat(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    """The Teams group chat this employee's group is bound to — where their
+    """The Teams group chat this employee's group is bound to - where their
     BOD/EOD/Break messages should route. First group (with a binding) they belong
     to wins. Empty chatId means no binding → the client falls back to a picker."""
     email = user["email"].lower()
@@ -2067,12 +2067,12 @@ def _ot_split(day_minutes: list, rule: str) -> list:
     """Split each day's worked minutes into (regular, ot@1.5x, dt@2x) following
     the employee's overtime law. `day_minutes` is ONE workweek in order (index 0 =
     week start, 7 entries Sun→Sat), 0 for days not worked. Anti-pyramiding: every
-    minute is overtime under at most one basis — a minute counted as daily OT is
+    minute is overtime under at most one basis - a minute counted as daily OT is
     never also counted toward the weekly-40 threshold.
 
     - 'none'    : no US overtime premium (non-US employees; local law handled off-Nexus)
-    - 'federal' : FLSA weekly only — hours over 40 in the week at 1.5x (out-of-state US)
-    - 'ca'      : California — daily >8h@1.5x / >12h@2x, the 7th CONSECUTIVE worked day
+    - 'federal' : FLSA weekly only - hours over 40 in the week at 1.5x (out-of-state US)
+    - 'ca'      : California - daily >8h@1.5x / >12h@2x, the 7th CONSECUTIVE worked day
                   (first 8h@1.5x, beyond 8h@2x), plus weekly >40h of straight time @1.5x
     """
     if rule == "none":
@@ -2099,7 +2099,7 @@ def _ot_split(day_minutes: list, rule: str) -> list:
         if consec == 7:                                  # 7th consecutive worked day
             out.append((0, min(m, _DAY_OT_MIN), max(0, m - _DAY_OT_MIN)))
             continue
-        r = min(m, _DAY_OT_MIN)                           # first 8h — straight time
+        r = min(m, _DAY_OT_MIN)                           # first 8h - straight time
         o = max(0, min(m, _DAY_DT_MIN) - _DAY_OT_MIN)     # 8–12h @1.5x
         d = max(0, m - _DAY_DT_MIN)                       # >12h @2x
         if straight + r > _WEEK_OT_MIN:                   # weekly 40h: overflow straight → 1.5x
@@ -2110,7 +2110,7 @@ def _ot_split(day_minutes: list, rule: str) -> list:
 
 
 def _week_start_str(date_str: str) -> str:
-    # SUNDAY of the week — the overtime workweek must be anchored on the same
+    # SUNDAY of the week - the overtime workweek must be anchored on the same
     # weekday as the (Sunday→Saturday) pay period, or a Sunday that opens a pay
     # period gets a fresh 40h bucket and its overtime is underpaid as regular.
     d = datetime.strptime(date_str, "%Y-%m-%d")
@@ -2185,7 +2185,7 @@ def set_autolunch(body: AutoLunchIn, user: dict = Depends(require_administrator)
 # SwipeClock drops seconds from every punch and rounds to the nearest N minutes
 # (site 47239: N=5, verified via the time card's "Show Unrounded Times" overlay,
 # Jul 27 2026). Raw punch times stay on record; ROUNDED times drive the timecard
-# math — exactly SwipeClock's model, and required for the parallel-run numbers
+# math - exactly SwipeClock's model, and required for the parallel-run numbers
 # to match 1:1.
 _ROUNDING_KEY = "timeclock_rounding"
 _ROUNDING_DEFAULT = {"enabled": True, "nearestMin": 5}
@@ -2243,7 +2243,7 @@ def set_rounding(body: RoundingIn, user: dict = Depends(require_administrator),
 def team_exceptions(start: str = "", end: str = "",
                     user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
     """Per-employee missing-punch + exception counts over [start,end] for the
-    manager's visible team — powers the timecard's employee sidebar (M/E flags)."""
+    manager's visible team - powers the timecard's employee sidebar (M/E flags)."""
     rows = _team_rows(db, start, end, only_emails=_visible_emails(db, user))
     out = []
     for r in rows:
@@ -2262,12 +2262,12 @@ def team_exceptions(start: str = "", end: str = "",
 def _compute_timecard(db: Session, em: str, start: str, end: str) -> dict:
     """Per-day in/out segments, CA/federal overtime split, and wage totals off
     the HR-set hourly rate over [start, end]. Punch times are rounded per the
-    SwipeClock-parity rule (_rounding_cfg — nearest 5 min by default) before any
+    SwipeClock-parity rule (_rounding_cfg - nearest 5 min by default) before any
     math; raw times ride along per segment for the unrounded view. Also
     aggregates break minutes and (when web capture ran) idle minutes so the
     timesheet can show a worked/break/idle composition bar."""
     # Fetch one day PAST `end` so a shift that starts on the last day and clocks
-    # out after midnight still has its out-punch to pair with — otherwise that
+    # out after midnight still has its out-punch to pair with - otherwise that
     # whole overnight shift (in on `end`, out on `end`+1) would be dropped from
     # this period AND orphaned in the next, and the worker paid $0 for it. Days
     # after `end` are excluded from the emitted totals below.
@@ -2290,7 +2290,7 @@ def _compute_timecard(db: Session, em: str, start: str, end: str) -> dict:
     total_reg = total_ot = total_dt = total_break = missing_punches = 0
     edited_punches = sum(1 for p in punches if p.adjusted_by)
 
-    # Pair across the FULL ordered punch sequence — NOT bucketed per day — so a
+    # Pair across the FULL ordered punch sequence - NOT bucketed per day - so a
     # shift that spans midnight (in one night, out the next morning) stays a single
     # segment. Each finished segment is attributed to the day the shift STARTED
     # (the in-punch's local_date), which is where a night worker expects their
@@ -2343,7 +2343,7 @@ def _compute_timecard(db: Session, em: str, start: str, end: str) -> dict:
                     sflags.add("adjusted")
                 mins = int(round((t - open_in).total_seconds() / 60 - brk))
                 # Punch notes travel with the segment (SwipeClock shows them as a
-                # note line under the day) — auto-generated edit notes excluded.
+                # note line under the day) - auto-generated edit notes excluded.
                 _notes = " · ".join(n for n in (open_in_note, (p.note or "").strip())
                                     if n and n not in ("payroll edit",))
                 segs_by_day.setdefault(open_in_date, []).append(
@@ -2353,7 +2353,7 @@ def _compute_timecard(db: Session, em: str, start: str, end: str) -> dict:
                      "note": _notes,
                      "workSite": open_in_site or "", "workSiteId": open_in_site_id or "", "geo": open_in_geo or "", "category": open_in_cat or ""})
                 open_in = None
-            # else: orphan out with no open in — ignored (its in was outside the range)
+            # else: orphan out with no open in - ignored (its in was outside the range)
         elif p.kind == "break_start":
             if open_break is None and open_in is not None:
                 open_break = t
@@ -2437,7 +2437,7 @@ def _compute_timecard(db: Session, em: str, start: str, end: str) -> dict:
     idle_min = min(worked_min, idle_frames * interval_min)
     active_min = max(0, worked_min - idle_min)
 
-    # Job-costing subtotals — worked minutes + wage per category (SwipeClock cost
+    # Job-costing subtotals - worked minutes + wage per category (SwipeClock cost
     # accounting). Uncategorised segments group under "Uncategorised".
     cat_agg = {}
     for d in days_out:
@@ -2465,7 +2465,7 @@ def _compute_timecard(db: Session, em: str, start: str, end: str) -> dict:
 def payroll_timecard(email: str, start: str, end: str,
                      user: dict = Depends(require_team_read),
                      _su: dict = Depends(require_stepup), db: Session = Depends(get_db)):
-    """Manager timecard (incl. $ pay) for one employee — requires a fresh step-up
+    """Manager timecard (incl. $ pay) for one employee - requires a fresh step-up
     MFA (require_stepup). See _compute_timecard."""
     em = email.strip().lower()
     scope = _visible_emails(db, user)
@@ -2518,7 +2518,7 @@ def set_payroll_rate(body: RateIn, user: dict = Depends(require_team_write),
 
 
 # App/window-activity read endpoints (/my-activity, /activity-day, /activity)
-# removed with the desktop agent — the browser capture records screenshots and an
+# removed with the desktop agent - the browser capture records screenshots and an
 # idle signal, not per-app foreground logs. Idle now surfaces in the timesheet
 # composition bar via TimeScreenshot.idle_sec.
 
@@ -2555,7 +2555,7 @@ def _signed_urls(paths: list) -> dict:
 
 
 # Desktop-agent installer hosting (/agent/download-url, /agent/upload-url,
-# /agent/upload) removed — there is no desktop installer to host anymore.
+# /agent/upload) removed - there is no desktop installer to host anymore.
 
 
 @router.get("/screenshots")
@@ -2585,7 +2585,7 @@ def list_screenshots(date: str = "", email: str = "",
 @router.get("/team-screenshots")
 def team_screenshots(date: str = "", email: str = "",
                      user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
-    """Manager-scoped screenshot gallery — same shape as the admin /screenshots but
+    """Manager-scoped screenshot gallery - same shape as the admin /screenshots but
     limited to the caller's visible team (their reports), so a level-3 manager can
     review their own team without company-wide access."""
     visible = _visible_emails(db, user)   # None = whole company (admin/HR grant)
@@ -2648,7 +2648,7 @@ def record_bod(body: BodIn, user: dict = Depends(get_current_user), db: Session 
 
 @router.get("/bod/last")
 def last_bod(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    """The employee's previous BOD post — prefills the channel picker."""
+    """The employee's previous BOD post - prefills the channel picker."""
     row = (db.query(TimeBod).filter(TimeBod.employee_email == user["email"])
            .order_by(TimeBod.created_at.desc()).first())
     if not row:
@@ -2663,7 +2663,7 @@ def last_bod(user: dict = Depends(get_current_user), db: Session = Depends(get_d
 _BOD_DEFAULTS = {
     "bod": {"message": "Good morning! Starting my day.",
             "tasks": ""},
-    "eod": {"message": "Wrapping up for the day — here's what I worked on.",
+    "eod": {"message": "Wrapping up for the day - here's what I worked on.",
             "tasks": ""},
 }
 
@@ -2674,7 +2674,7 @@ def bod_template(kind: str = "bod", user: dict = Depends(get_current_user),
     """Pre-fill text for the BOD/EOD composer: the employee's most recent post
     of this kind (their evolving personal template), or a starter default."""
     k = kind if kind in ("bod", "eod") else "bod"
-    # Exclude the "already sent elsewhere" skip marker — it's a bookkeeping row,
+    # Exclude the "already sent elsewhere" skip marker - it's a bookkeeping row,
     # not something to pre-fill back into the composer.
     row = (db.query(TimeBod)
            .filter(TimeBod.employee_email == user["email"], TimeBod.kind == k,

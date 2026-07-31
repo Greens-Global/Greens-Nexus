@@ -3,7 +3,7 @@ import { Search, FileText, LayoutTemplate, PenTool, Loader2 } from 'lucide-react
 import { api } from '../api';
 
 // ── Cross-module search (Phase 6) ────────────────────────────────────────────
-// Mounted in Documents.jsx's header — visible across Dashboard/My Documents/
+// Mounted in Documents.jsx's header - visible across Dashboard/My Documents/
 // Templates/E-Sign. Debounced query against GET /documents/search, which
 // unifies Document + DocTemplate + (permission-gated) HrSignRequest matches.
 const TYPE_META = {

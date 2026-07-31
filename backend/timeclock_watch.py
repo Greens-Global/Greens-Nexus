@@ -1,8 +1,8 @@
-"""Long-session watch — nudges people who look like they forgot to punch out.
+"""Long-session watch - nudges people who look like they forgot to punch out.
 
 Every 30 minutes: find employees whose open session (last non-voided punch is
 in / break_start / break_end) started more than LONG_SESSION_HOURS ago and nudge
-them — a bell notification plus a best-effort email — repeating every
+them - a bell notification plus a best-effort email - repeating every
 RENOTIFY_HOURS while the session stays open. Dedupe is DB-backed (the bell row
 itself, keyed on the session's in-punch id), so restarts never double-send.
 
@@ -18,7 +18,7 @@ import graph_mail
 from database import SessionLocal
 from models import NexusEmployee, NexusNotification, TimePunch
 
-LONG_SESSION_HOURS = 12   # the cap agreed Jul 27 — nudge past this
+LONG_SESSION_HOURS = 12   # the cap agreed Jul 27 - nudge past this
 RENOTIFY_HOURS = 12       # re-nudge cadence while the session stays open
 CHECK_EVERY_SEC = 30 * 60
 NOTIF_TYPE = "timeclock_long_session"
@@ -41,7 +41,7 @@ def _parse(s: str):
 
 def _open_sessions(db):
     """[(email, in_punch)] for every employee whose newest punch isn't an out.
-    Scans a 14-day window — anything older is a data problem, not a live shift."""
+    Scans a 14-day window - anything older is a data problem, not a live shift."""
     floor = _iso(_now() - timedelta(days=14))
     rows = (db.query(TimePunch)
             .filter(TimePunch.voided == 0, TimePunch.at >= floor)
@@ -65,7 +65,7 @@ def _already_nudged(db, punch_id: str) -> bool:
 
 
 def _email(db, email: str, hours: int):
-    """Best-effort — a mail failure must never stop the bell notification."""
+    """Best-effort - a mail failure must never stop the bell notification."""
     try:
         from_email = (graph_mail.DEFAULT_FROM_EMAIL or "").strip()
         if not from_email:
@@ -75,16 +75,16 @@ def _email(db, email: str, hours: int):
         html = (
             f"<p>Hi {first},</p>"
             f"<p>Your Nexus time clock shows you've been <b>clocked in for {hours}+ hours</b>.</p>"
-            "<p><b>Still working?</b> No action needed — you'll get one reminder like this "
+            "<p><b>Still working?</b> No action needed - you'll get one reminder like this "
             f"every {RENOTIFY_HOURS} hours while the session stays open.</p>"
             "<p><b>Forgot to punch out?</b> Open Time Clock in Nexus and use "
-            "<b>\"I forgot — fix my punch-out\"</b> (or \"Add clock-out\" on the open session in "
+            "<b>\"I forgot - fix my punch-out\"</b> (or \"Add clock-out\" on the open session in "
             "your timesheet) to set the real end time. Your approver confirms the fix.</p>"
             "<p style=\"color:#6b7280;font-size:12px\">Sessions over "
             f"{LONG_SESSION_HOURS} hours are flagged on the timesheet until corrected.</p>"
         )
         graph_mail.send_mail(from_email=from_email, to=[email], cc=None,
-                             subject=f"Greens Nexus - Time clock - Clocked in {hours}+ hours",
+                             subject=f"Nexus - Time clock - Clocked in {hours}+ hours",
                              html=html)
     except Exception:
         pass
@@ -105,7 +105,7 @@ def _scan_once():
                 id=str(uuid.uuid4()), type=NOTIF_TYPE, recipient=email,
                 title=f"Still working? You've been clocked in {h} hours",
                 body=("If you're still on the clock, carry on. If you forgot to punch out, "
-                      "open Time Clock and use \"I forgot — fix my punch-out\" to set the real end time."),
+                      "open Time Clock and use \"I forgot - fix my punch-out\" to set the real end time."),
                 ref_id=start.id, action=json.dumps({"view": "timeclock"}),
                 created_at=_iso(_now())))
             db.commit()

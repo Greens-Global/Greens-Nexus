@@ -62,7 +62,7 @@
   --color-red:    350,65%,48%;
   --color-gold:   42,80%,42%;
 
-  /* Task Module palette — structural tokens (theme-aware). The module's NX
+  /* Task Module palette - structural tokens (theme-aware). The module's NX
      palette in theme.js points at these; accent colours (blue/green/…) stay
      literal since they're alpha-composited. */
   --nx-canvas:   #f4f5f7;
@@ -115,7 +115,7 @@
   --shadow-md: 0 2px 12px rgba(0,0,0,.6), 0 4px 24px rgba(0,0,0,.45);
   --shadow-lg: 0 8px 32px rgba(0,0,0,.7), 0 2px 10px rgba(0,0,0,.5);
 
-  /* Task Module palette — dark theme. Elevation order (darkest→lightest):
+  /* Task Module palette - dark theme. Elevation order (darkest→lightest):
      canvas < surface2 < surface, mirroring light where page < band < card. */
   --nx-canvas:   #0d1117;
   --nx-surface:  #171c29;
@@ -236,29 +236,30 @@ h1,h2,h3,h4,h5,h6,
   width: 38px;
   height: 38px;
   border-radius: 10px;
-  background: var(--pine);
+  background: var(--wk-brand);
   color: #fff;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-family: 'Inter', sans-serif;
+  font-family: var(--wk-font);
   font-weight: 700;
   font-size: 15px;
   flex-shrink: 0;
 }
 
 .company-info { display: flex; flex-direction: column; gap: 1px; }
-.company-name { font-family: 'Inter', sans-serif; font-weight: 700; font-size: 17px; letter-spacing: -.02em; line-height: 1; }
-.brand-sub { font-size: 10px; color: var(--muted); font-weight: 600; letter-spacing: .06em; text-transform: uppercase; margin-top: 2px; }
+.company-name { font-family: var(--wk-font); font-weight: 700; font-size: 17px; letter-spacing: -.02em; line-height: 1; }
+.brand-sub { font-size: 11px; color: var(--muted); font-weight: 500; margin-top: 2px; }
 
+/* Section kickers: quiet sentence-case labels (kit grammar - no uppercase tracking) */
 .nav-section-title {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: .08em;
-  text-transform: uppercase;
-  color: var(--muted);
-  padding: 14px 20px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--wk-faint);
+  padding: 16px 20px 5px;
+  font-family: var(--wk-font);
 }
+[data-theme="dark"] .nav-section-title { color: var(--muted); }
 
 .sidebar-nav { flex: 1; overflow-y: auto; padding: 4px 10px 8px; }
 .sidebar-nav::-webkit-scrollbar { width: 5px; }
@@ -384,7 +385,7 @@ h1,h2,h3,h4,h5,h6,
 
 /* â”€â”€ Top header â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .top-header {
-  height: 56px;
+  height: 64px; /* Jul 28 (Visesh): the whole bar ran small - scaled up with the tabs/icons below */
   border-bottom: 1px solid var(--header-border);
   background: var(--header-bg);
   backdrop-filter: blur(12px);
@@ -415,7 +416,7 @@ h1,h2,h3,h4,h5,h6,
   flex-shrink: 0;
 }
 
-.breadcrumb { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); font-weight: 600; }
+.breadcrumb { display: flex; align-items: center; gap: 6px; font-size: 14.5px; color: var(--muted); font-weight: 600; }
 .breadcrumb-icon    { color: var(--muted); }
 .breadcrumb-current { color: var(--ink); }
 .breadcrumb-prev    { color: var(--muted); font-weight: 500; }
@@ -451,7 +452,7 @@ h1,h2,h3,h4,h5,h6,
   transition: background var(--transition-fast);
 }
 .search-bar:focus-within { background: var(--search-bg-focus); }
-/* Active/filled state — a search box holding text reads like a hidden filter, so
+/* Active/filled state - a search box holding text reads like a hidden filter, so
    light it up (tinted bg + subtle accent ring) whenever the input isn't empty.
    Global: every .search-bar with a placeholder gets this for free. Pair with an
    X-clear button in the markup so it's obvious a filter is on and how to drop it. */
@@ -479,8 +480,8 @@ h1,h2,h3,h4,h5,h6,
 .header-right { display: flex; align-items: center; gap: 8px; }
 
 .icon-btn {
-  width: 34px;
-  height: 34px;
+  width: 40px;
+  height: 40px;
   border: none;
   background: rgba(0,0,0,0.04);
   border-radius: 9px;
@@ -519,23 +520,23 @@ h1,h2,h3,h4,h5,h6,
 .header-user-pill {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 9px;
   background: var(--search-bg);
   border: none;
   border-radius: 10px;
-  padding: 5px 10px 5px 5px;
+  padding: 5px 12px 5px 5px;
   cursor: pointer;
   transition: background var(--transition-fast);
 }
 .header-user-pill:hover { background: var(--search-bg-focus); }
 
 .header-avatar {
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   border-radius: 50%;
   background: var(--pine);
   color: #fff;
-  font-size: 11px;
+  font-size: 12.5px;
   font-weight: 700;
   display: flex;
   align-items: center;
@@ -543,9 +544,9 @@ h1,h2,h3,h4,h5,h6,
   flex-shrink: 0;
 }
 
-.header-user-info { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; }
-.header-user-name { font-size: 12px; font-weight: 600; color: var(--ink); line-height: 1; }
-.header-user-role { font-size: 10px; color: var(--muted); line-height: 1; }
+.header-user-info { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+.header-user-name { font-size: 13.5px; font-weight: 600; color: var(--ink); line-height: 1; }
+.header-user-role { font-size: 11px; color: var(--muted); line-height: 1; }
 
 .header-user-dropdown {
   position: absolute;
@@ -636,14 +637,14 @@ h1,h2,h3,h4,h5,h6,
 .viewport { padding: 32px 36px; overflow-y: auto; background: transparent; }
 
 /* Task module manages its own full-height flex layout + internal scrolling
-   (fixed header/tabs, scrolling body per sub-view) — the default .viewport
+   (fixed header/tabs, scrolling body per sub-view) - the default .viewport
    padding + content-based sizing left empty margins on every side and let
    the module's white chrome fall short of the viewport instead of filling
    it. Strip padding and give it a definite height (100vh minus the 56px
    .top-header) so height:100% cascades correctly through the module. */
 .viewport-flush { padding: 0; overflow: hidden; display: flex; flex-direction: column; height: calc(100vh - 56px); }
 /* Two classes (0,2,0) so this wins over every single-class `.viewport { padding: … }`
-   rule regardless of source order — there are seven of them across the responsive
+   rule regardless of source order - there are seven of them across the responsive
    blocks, and the flush variant (task/ticket module) must keep zero padding at all
    widths so its cards can run edge to edge on phones. */
 .viewport.viewport-flush { padding: 0; }
@@ -693,39 +694,78 @@ h1,h2,h3,h4,h5,h6,
 .form-group { display: flex; flex-direction: column; gap: 6px; }
 .form-group label { font-size: 12px; font-weight: 600; color: var(--muted); letter-spacing: .01em; text-transform: uppercase; }
 
+/* Work OS field system (Jul 28): white fields, hairline border, cobalt focus
+   ring, quiet placeholders. Selects - whether .form-select OR the far more
+   common `select.form-input` - lose the native arrow for the kit chevron. */
 .form-input, .form-select {
-  background: #f8fafc;
-  border: 1.5px solid rgba(0,0,0,0.08);
+  background: var(--card);
+  border: 1px solid var(--wk-line2);
   border-radius: 10px;
-  padding: 10px 14px;
-  font-family: 'Inter', sans-serif;
+  padding: 9px 13px;
+  font-family: var(--wk-font);
   font-size: 13.5px;
   color: var(--ink);
   outline: none;
-  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast), background var(--transition-fast);
   width: 100%;
 }
-.form-select {
+.form-input:hover:not(:focus), .form-select:hover:not(:focus) { border-color: var(--wk-faint); }
+.form-select, select.form-input {
   appearance: none;
   -webkit-appearance: none;
-  padding-right: 36px;
+  padding-right: 34px;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
-  background-position: right 12px center;
+  background-position: right 11px center;
   cursor: pointer;
 }
-[data-theme="dark"] .form-select {
+[data-theme="dark"] .form-select, [data-theme="dark"] select.form-input {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238b97b0' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
 }
 .form-input:focus, .form-select:focus {
-  border-color: var(--pine);
-  background: #fff;
-  box-shadow: 0 0 0 3px rgba(15,23,42,0.06);
+  border-color: var(--wk-brand);
+  background: var(--card);
+  box-shadow: 0 0 0 3px var(--wk-brand-tint);
 }
-.form-input::placeholder, .form-select::placeholder { color: #94a3b8; }
+.form-input::placeholder, .form-select::placeholder, textarea::placeholder { color: var(--wk-faint); }
 input[type="number"]::-webkit-inner-spin-button,
 input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 input[type="number"] { -moz-appearance: textfield; }
+/* Native widget accents (checkboxes, radios, date-picker highlights) in brand. */
+input[type="checkbox"], input[type="radio"], input[type="range"], progress { accent-color: var(--wk-brand); }
+::-webkit-calendar-picker-indicator { opacity: .55; cursor: pointer; }
+/* Chrome 135+ customizable <select>: the OPEN dropdown list becomes a kit
+   popover (white card, rounded, cobalt selection) instead of the OS-drawn menu.
+   Everything inside @supports so other browsers keep the classic native list. */
+@supports (appearance: base-select) {
+  select.form-input, .form-select { appearance: base-select; }
+  select.form-input::picker-icon, .form-select::picker-icon { display: none; }
+  select.form-input::picker(select), .form-select::picker(select) {
+    appearance: base-select;
+    background: var(--card);
+    border: 1px solid var(--wk-line2);
+    border-radius: 12px;
+    box-shadow: 0 18px 50px rgba(17,24,39,0.18);
+    padding: 5px;
+    margin-top: 4px;
+  }
+  select.form-input option, .form-select option {
+    padding: 8px 11px;
+    border-radius: 8px;
+    font-family: var(--wk-font);
+    font-size: 13.5px;
+    font-weight: 500;
+    color: var(--ink);
+    cursor: pointer;
+  }
+  select.form-input option:hover, .form-select option:hover { background: var(--wk-hover); }
+  select.form-input option:checked, .form-select option:checked {
+    background: var(--wk-brand-tint);
+    color: var(--wk-brand);
+    font-weight: 600;
+  }
+  select.form-input option::checkmark, .form-select option::checkmark { display: none; }
+}
 
 /* â”€â”€ Modal system â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .modal-overlay {
@@ -849,9 +889,14 @@ input[type="number"] { -moz-appearance: textfield; }
   margin-bottom: 20px;
   gap: 16px;
   flex-wrap: wrap;
+  /* Jul 28 (Visesh): every module separates its title band from its content
+     with the same hairline - the consistent "eye separation" across screens. */
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--wk-line);
 }
+[data-theme="dark"] .view-header { border-bottom-color: var(--line); }
 .view-title-group h2 {
-  font-family: 'Inter', sans-serif;
+  font-family: var(--wk-font);
   font-size: 20px;
   font-weight: 700;
   letter-spacing: -.03em;
@@ -897,18 +942,22 @@ input[type="number"] { -moz-appearance: textfield; }
   box-shadow: var(--shadow-md);
 }
 .kpi-label {
-  font-size: 11px;
-  color: var(--muted);
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: .04em;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--wk-font);
+  font-size: 12.5px;
+  color: var(--wk-dim);
+  font-weight: 500;
 }
+[data-theme="dark"] .kpi-label { color: var(--muted); }
 .kpi-value {
-  font-family: 'Inter', sans-serif;
+  font-family: var(--wk-font);
   font-weight: 700;
-  font-size: 28px;
+  font-size: 30px;
+  font-variant-numeric: tabular-nums;
   letter-spacing: -.02em;
-  margin: 6px 0 4px;
+  margin: 8px 0 2px;
   color: var(--ink);
 }
 .kpi-delta {
@@ -1205,7 +1254,7 @@ input[type="number"] { -moz-appearance: textfield; }
     transition: transform var(--transition-slow);
     z-index: 200;
   }
-  /* Shadow only while open — parked off-canvas it bleeds back into the
+  /* Shadow only while open - parked off-canvas it bleeds back into the
      viewport as a grey band along the screen edge */
   .sidebar.open { transform: translateX(0); box-shadow: 0 0 50px rgba(0,0,0,.3); }
   .main-content { margin-left: 0; }
@@ -1390,7 +1439,7 @@ input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
 
 /* Task list table (richlist.jsx): on mobile this scrolls itself horizontally,
    same as before. On desktop its own overflow-x is turned off so the wide
-   table overflows into the viewport-bounded `.nx-scroll` ancestor instead —
+   table overflows into the viewport-bounded `.nx-scroll` ancestor instead -
    that one has a fixed height, so its scrollbar sits at a constant spot
    instead of trailing the (possibly very tall) table's real bottom edge. */
 .nx-list-scroll { overflow-x: auto; }
@@ -1398,7 +1447,7 @@ input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
   .nx-list-scroll { overflow-x: visible; }
 }
 
-/* Task Module themed scrollbars — theme-aware (light/dark) via --nx-* tokens.
+/* Task Module themed scrollbars - theme-aware (light/dark) via --nx-* tokens.
    color-scheme (set on :root per theme) already darkens native/unstyled bars;
    these give the module's styled scroll areas a slimmer, on-brand thumb. */
 .nx-scroll { scrollbar-width: thin; scrollbar-color: var(--nx-faint) transparent; }
@@ -1410,42 +1459,34 @@ input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
 }
 .nx-scroll::-webkit-scrollbar-thumb:hover { background-color: var(--nx-dim); background-clip: padding-box; }
 
-/* â”€â”€ Gradient KPI cards (June 2026 design pass) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-   Soft per-color gradient tint on KPI cards with a colored left edge.
-   Uses ONLY the existing palette variables â€” no new colors. */
+/* ── Work OS KPI cards (Jul 28 - replaces the June gradient pass) ──────────
+   White card, soft border + shadow, sentence-case label with a small colored
+   meaning-dot (the card-* class), big tabular numeral. The old gradient wash
+   + 4px colored left edge read as dated; color now lives in one quiet dot. */
 .kpi-card {
-  border-radius: 14px;
-  border-left: 4px solid var(--line);
+  border-radius: var(--wk-r);
+  border: 1px solid var(--wk-line2) !important; /* beats the legacy card-* border-top rules */
+  background: var(--wk-card);
+  box-shadow: var(--wk-shadow);
 }
-.kpi-card.card-green {
-  border-left-color: hsl(var(--color-green));
-  background: linear-gradient(105deg, hsla(var(--color-green),0.14) 0%, hsla(var(--color-green),0.04) 50%, var(--card) 100%);
+[data-theme="dark"] .kpi-card {
+  background: var(--card);
+  border-color: var(--line) !important;
+  box-shadow: none;
 }
-.kpi-card.card-blue {
-  border-top: none !important;
-  border-left-color: hsl(var(--color-blue));
-  background: linear-gradient(105deg, hsla(var(--color-blue),0.14) 0%, hsla(var(--color-blue),0.04) 50%, var(--card) 100%);
+.kpi-label::before {
+  content: '';
+  width: 8px; height: 8px;
+  border-radius: 3px;
+  background: var(--wk-faint);
+  flex-shrink: 0;
 }
-.kpi-card.card-orange {
-  border-top: none !important;
-  border-left-color: hsl(var(--color-orange));
-  background: linear-gradient(105deg, hsla(var(--color-orange),0.16) 0%, hsla(var(--color-orange),0.05) 50%, var(--card) 100%);
-}
-.kpi-card.card-red {
-  border-top: none !important;
-  border-left-color: hsl(var(--color-red));
-  background: linear-gradient(105deg, hsla(var(--color-red),0.13) 0%, hsla(var(--color-red),0.04) 50%, var(--card) 100%);
-}
-.kpi-card.card-purple {
-  border-top: none !important;
-  border-left-color: hsl(var(--color-purple));
-  background: linear-gradient(105deg, hsla(var(--color-purple),0.13) 0%, hsla(var(--color-purple),0.04) 50%, var(--card) 100%);
-}
-.kpi-card.card-gold {
-  border-top: none !important;
-  border-left-color: hsl(var(--color-gold));
-  background: linear-gradient(105deg, hsla(var(--color-gold),0.15) 0%, hsla(var(--color-gold),0.05) 50%, var(--card) 100%);
-}
+.kpi-card.card-green  .kpi-label::before { background: hsl(var(--color-green)); }
+.kpi-card.card-blue   .kpi-label::before { background: hsl(var(--color-blue)); }
+.kpi-card.card-orange .kpi-label::before { background: hsl(var(--color-orange)); }
+.kpi-card.card-red    .kpi-label::before { background: hsl(var(--color-red)); }
+.kpi-card.card-purple .kpi-label::before { background: hsl(var(--color-purple)); }
+.kpi-card.card-gold   .kpi-label::before { background: hsl(var(--color-gold)); }
 
 /* Reserve the scrollbar gutter permanently so the page width is identical
    whether or not the content is tall enough to scroll - without this, the
@@ -1490,10 +1531,10 @@ mark.search-hit {
   .viewport { padding: 24px 22px; }
 }
 
-/* ── Task Module rich list — hover-reveal cell affordances ───────────────────
+/* ── Task Module rich list - hover-reveal cell affordances ───────────────────
    Hovering a row greys the whole row (set inline in JS); hovering a specific
    editable cell lifts it with a white surface + subtle blue ring and reveals
-   its picker affordance — pill dropdown chevrons, the native date-picker
+   its picker affordance - pill dropdown chevrons, the native date-picker
    calendar icon, and number-input spinners. Matches the standalone export's
    table. Kept as real CSS since inline styles can't express :hover on their own. */
 .rl-cell { border-radius: 6px; transition: background 0.1s, box-shadow 0.1s; }
@@ -1631,7 +1672,7 @@ html { overflow-x: hidden; }
 @media (max-width: 900px) {
   .top-header { justify-content: flex-start; }
   .breadcrumb { display: none; }
-  /* Centered wordmark is a real button — tapping it goes home */
+  /* Centered wordmark is a real button - tapping it goes home */
   .header-brand {
     display: block;
     position: absolute;
@@ -1648,6 +1689,23 @@ html { overflow-x: hidden; }
     cursor: pointer;
   }
   .header-right { margin-left: auto; }
+
+  /* The centered search bar has no business on a phone - .header-search-left
+     replaces it (see TopHeader). But .header-center was still being LAID OUT:
+     measured 91px of overlap with the absolutely-centered NEXUS wordmark at
+     390, 768 AND 900px, with its .search-bar child pushed clean off-screen
+     (x=416 inside a 390px viewport). That is the jumble of a rounded search box
+     with NEXUS printed over it.
+     Scoped with :not(.has-tabs) so a module that puts its tab strip in the
+     header (ModuleTabs) keeps it - only the search placement is dropped. */
+  .header-center:not(.has-tabs) { display: none; }
+}
+
+/* Below ~420px the left icons (menu + back + search) grow close enough to the
+   centered wordmark that its padding and letter-spacing clip them - measured 4px
+   of overlap at 390px. Tighten the wordmark rather than dropping an icon. */
+@media (max-width: 420px) {
+  .header-brand { letter-spacing: 0.14em; font-size: 13px; padding: 8px 4px; }
 }
 
 /* Full-screen menu */
@@ -1659,7 +1717,7 @@ html { overflow-x: hidden; }
   display: flex;
   flex-direction: column;
   overflow-y: auto;
-  /* adidas-style entrance: the whole panel slides in from the left —
+  /* adidas-style entrance: the whole panel slides in from the left -
      long enough to actually read as a slide, not a blink */
   animation: menuIn 0.45s cubic-bezier(.32,.72,0,1);
 }
@@ -1735,7 +1793,7 @@ html { overflow-x: hidden; }
 }
 
 /* ── Mobile v2 fixes (from phone screenshots) ───────────────────────────────
-   1) NOTHING may render wider than the screen — pages were panning/cutting
+   1) NOTHING may render wider than the screen - pages were panning/cutting
    2) Header: Menu button top-left (opens the full-screen menu), NEXUS
       wordmark centered via the absolute ::before; bottom bar = actions only
    3) Cart becomes a floating action button above the tab bar
@@ -1780,7 +1838,7 @@ html { overflow-x: hidden; }
    text never squeezes into vertical letters. */
 @media (max-width: 900px) {
   .mobile-nav { align-items: stretch; }
-  /* All actions share the bar's width — items shrink to fit instead of
+  /* All actions share the bar's width - items shrink to fit instead of
      overflowing past the right edge (Visesh: buttons were getting cut off).
      Labels ellipsize when a screen has many actions. */
   .mobile-nav-actions {
@@ -1833,7 +1891,7 @@ html { overflow-x: hidden; }
     flex-wrap: wrap;
   }
 
-  /* Order header: same treatment — the requester name/meta keeps the full row
+  /* Order header: same treatment - the requester name/meta keeps the full row
      and the bulk-action buttons (Reject All / Hand Over All) wrap onto their own
      row below instead of crushing the name into per-word wrapping (Jun 16). */
   .co-order-head > div:first-child { flex: 1 1 100% !important; }
@@ -1950,26 +2008,11 @@ html { overflow-x: hidden; }
   }
   [data-theme="dark"] { --line: rgba(255,255,255,0.07); }
 
-  /* KPI cards on phones: keep the gradient tint + colored left edge from the
-     June design pass (Visesh, Jun 12: gradients back on all KPI cards) —
-     only the sizing goes compact */
-  .kpi-card {
-    border: 1px solid var(--line) !important;
-    border-left: 3px solid var(--line) !important;
-    border-radius: 12px;
-    padding: 12px 14px;
-  }
-  .kpi-card.card-green  { border-left-color: hsl(var(--color-green)) !important; }
-  .kpi-card.card-blue   { border-left-color: hsl(var(--color-blue)) !important; }
-  .kpi-card.card-orange { border-left-color: hsl(var(--color-orange)) !important; }
-  .kpi-card.card-red    { border-left-color: hsl(var(--color-red)) !important; }
-  .kpi-card.card-purple { border-left-color: hsl(var(--color-purple)) !important; }
-  .kpi-card.card-gold   { border-left-color: hsl(var(--color-gold)) !important; }
+  /* KPI cards on phones: same Work OS card as desktop (Jul 28 redesign
+     replaced the June gradient/left-edge pass) - only the sizing compacts */
+  .kpi-card { padding: 12px 14px; }
   .kpi-value { font-size: 20px; margin: 4px 0 0; }
-  .kpi-label { font-size: 10px; }
-
-  /* Quiet secondary buttons - filled, borderless (matches the inputs) */
-  .secondary-btn { border-color: transparent; background: var(--mist); }
+  .kpi-label { font-size: 11px; }
 
   /* Hover-lift animations are desktop affordances */
   .kpi-card:hover, .facility-card:hover, .support-card:hover, .motion-card:hover {
@@ -1978,7 +2021,7 @@ html { overflow-x: hidden; }
   }
 }
 
-/* Phone: flat page background — the ambient 145° gradient reads as a darker
+/* Phone: flat page background - the ambient 145° gradient reads as a darker
    band down the right side of the screen (Neil, Jun 12: "harder to see").
    var(--paper) is what the sticky tab strips already use, so they blend in. */
 @media (max-width: 900px) {
@@ -2046,9 +2089,9 @@ html { overflow-x: hidden; }
 
 /* ── Phone: stacked-card tables (mobile-first pass, Jun 12) ─────────────────
    Tables tagged .stack-table re-flow into a card per row at ≤640px: the
-   header row disappears and each cell renders as a LABEL — VALUE line, the
+   header row disappears and each cell renders as a LABEL - VALUE line, the
    label coming from the cell's data-th attribute. Cells WITHOUT data-th act
-   as the card title (full width, bolder). Desktop rendering is untouched —
+   as the card title (full width, bolder). Desktop rendering is untouched -
    on wide screens .stack-table behaves exactly like .req-table. */
 @media (max-width: 640px) {
   table.stack-table { display: block; overflow-x: visible; }
@@ -2080,7 +2123,7 @@ html { overflow-x: hidden; }
 
 /* ── Touch & accessibility polish (app-wide) ────────────────────────────────
    Kill the gray tap flash, keep double-tap zoom off interactive elements,
-   and give keyboard users a consistent focus ring (mouse clicks unaffected —
+   and give keyboard users a consistent focus ring (mouse clicks unaffected -
    :focus-visible only fires for keyboard/AT focus). */
 button, [role="button"], a, input, select, textarea, label { -webkit-tap-highlight-color: transparent; }
 button, [role="button"], select { touch-action: manipulation; }
@@ -2137,11 +2180,11 @@ button, [role="button"], select { touch-action: manipulation; }
   .header-back-mobile  { display: flex; }
 }
 
-/* Fullscreen + zoom controls live in the desktop top nav only — phones already
+/* Fullscreen + zoom controls live in the desktop top nav only - phones already
    have native browser zoom/pinch, and a row of extra icons would crowd the
    compact mobile header (Neil, Jun 16). */
 .header-desktop-tools { display: inline-flex; align-items: center; gap: 4px; }
-.header-zoom-label { font-size: 11px; font-weight: 700; color: var(--muted); min-width: 34px; text-align: center; user-select: none; }
+.header-zoom-label { font-size: 12.5px; font-weight: 700; color: var(--muted); min-width: 40px; text-align: center; user-select: none; }
 @media (max-width: 900px) { .header-desktop-tools { display: none; } }
 
 /* ── Global search palette (Ctrl/Cmd+K) ─────────────────────────────────────── */
@@ -2255,11 +2298,11 @@ button, [role="button"], select { touch-action: manipulation; }
 .mobile-submenu-back { position: absolute; left: 10px; top: 12px; background: none; border: none; color: var(--ink); padding: 10px; cursor: pointer; }
 .mobile-submenu-title { font-weight: 800; font-size: 14px; letter-spacing: 0.08em; text-transform: uppercase; max-width: 65%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* ── HR org chart — top-down tree with connector lines (Busacta-style) ───────
+/* ── HR org chart - top-down tree with connector lines (Busacta-style) ───────
    Classic nested-list chart: each <li> draws its half-width top connector via
    ::before/::after, each child <ul> drops a vertical line from its parent. */
 .org-tree-wrap { overflow-x: auto; padding: 6px 8px 14px; -webkit-overflow-scrolling: touch; }
-/* width:max-content — the tree must be as wide as its widest rank, otherwise
+/* width:max-content - the tree must be as wide as its widest rank, otherwise
    the overflow clips straight through the last card (it sliced Sai's card in
    half and painted the clip edge as a phantom line). min-width keeps small
    trees centered in the wrap. */
@@ -2275,7 +2318,7 @@ button, [role="button"], select { touch-action: manipulation; }
 .org-tree li:first-child::before, .org-tree li:last-child::after { border-top: 0 none; }
 .org-tree li:last-child::before  { border-right: 2px solid var(--sage); border-radius: 0 8px 0 0; }
 .org-tree li:first-child::after  { border-radius: 8px 0 0 0; }
-/* Nested lists get their own 26px band for the parent drop-line — without it
+/* Nested lists get their own 26px band for the parent drop-line - without it
    the ::before painted upward INTO the parent card (lines crossed the cards) */
 .org-tree li > ul { padding-top: 26px; }
 .org-tree li > ul::before {
@@ -2292,7 +2335,7 @@ button, [role="button"], select { touch-action: manipulation; }
   padding: 10px 14px; box-shadow: var(--shadow-sm); white-space: nowrap;
 }
 
-/* ── Skeleton shimmer — loading placeholder for stats/text (HR KPI strip) ──── */
+/* ── Skeleton shimmer - loading placeholder for stats/text (HR KPI strip) ──── */
 @keyframes shimmer {
   0%   { background-position: 200% 0; }
   100% { background-position: -200% 0; }
@@ -2305,7 +2348,7 @@ button, [role="button"], select { touch-action: manipulation; }
   animation: shimmer 1.4s ease-in-out infinite;
 }
 
-/* ── E-Sign template editor — paper document (WYSIWYG block editing) ────────── */
+/* ── E-Sign template editor - paper document (WYSIWYG block editing) ────────── */
 .tpl-block { position: relative; }
 .tpl-block .tpl-ctl { opacity: 0; transition: opacity 0.13s ease; }
 .tpl-block:hover .tpl-ctl,
@@ -2359,8 +2402,8 @@ button, [role="button"], select { touch-action: manipulation; }
   cursor: default;
 }
 
-/* ── Documents — Document Builder (Phase 2) ──────────────────────────────────
-   Page-styled canvas (no existing precedent in the repo to reuse) — a white
+/* ── Documents - Document Builder (Phase 2) ──────────────────────────────────
+   Page-styled canvas (no existing precedent in the repo to reuse) - a white
    card sized like a printed page, typography matched to .tpl-para above for
    visual consistency with E-Sign's template editor. */
 .doc-toolbar {
@@ -2412,7 +2455,7 @@ button, [role="button"], select { touch-action: manipulation; }
 .doc-shape { display: inline-block; margin: 6px 0; vertical-align: middle; user-select: none; }
 .doc-shape svg { display: block; }
 
-/* Floating shapes/text boxes (Phase 9) — drag-to-reposition + Word-style
+/* Floating shapes/text boxes (Phase 9) - drag-to-reposition + Word-style
    text wrap. .doc-floatable is applied to both DocShape's and DocTextbox's
    NodeView root; wrap-mode positioning itself (float/absolute/x/y) is set
    inline per-node by applyWrapStyle() in docBuilderExtensions.js, since it's
@@ -2436,7 +2479,7 @@ button, [role="button"], select { touch-action: manipulation; }
 .doc-textbox-content .ProseMirror { outline: none; min-height: 100%; }
 .doc-textbox-content p { margin: 0 0 6px; }
 
-/* Resize grip (shapes/textboxes/images) — unlike the drag handle, resizing
+/* Resize grip (shapes/textboxes/images) - unlike the drag handle, resizing
    works in every wrap mode including inline, so this shows on hover
    regardless of .doc-draggable. */
 .doc-resize-handle {
@@ -2447,7 +2490,7 @@ button, [role="button"], select { touch-action: manipulation; }
 }
 .doc-floatable:hover .doc-resize-handle { display: block; }
 
-/* Word-parity resizable/wrappable image (Phase 15) — mirrors .doc-shape's
+/* Word-parity resizable/wrappable image (Phase 15) - mirrors .doc-shape's
    inline-block + floatable pattern so the same drag/resize handles work
    identically across shapes, text boxes, and images. */
 .doc-image-wrap { display: inline-block; vertical-align: middle; line-height: 0; }
@@ -2455,11 +2498,11 @@ button, [role="button"], select { touch-action: manipulation; }
 
 /* Print Preview (Phase 4): hide everything except the page canvas so the
    browser's native print/save-as-PDF dialog shows just the document.
-   !important is required here — the Knowledge Base module's own print rule
+   !important is required here - the Knowledge Base module's own print rule
    (above, "Print only the certificate or the open SOP") sets
    `body * { visibility: hidden !important; }` globally (not scoped to its
    own page), which silently wins over any non-!important rule regardless of
-   selector specificity or source order — that was blanking every printed
+   selector specificity or source order - that was blanking every printed
    Document/Template until these were bumped to match it. */
 @media print {
   body * { visibility: hidden !important; }
@@ -2468,18 +2511,18 @@ button, [role="button"], select { touch-action: manipulation; }
 }
 
 /* ============================================================
-   Task module — responsive chrome
+   Task module - responsive chrome
    The module is inline-styled (ported 1:1 from the export), so these rules
    need !important to win over the element's own style attribute. Breakpoints
    match the rest of the app: 1366 (laptop) / 900 (tablet) / 640 (phone).
    ============================================================ */
 
-/* Laptops and small notebooks — trim the chrome a little. */
+/* Laptops and small notebooks - trim the chrome a little. */
 @media (max-width: 1366px) {
   .nx-module-tab { padding: 11px 10px !important; }
 }
 
-/* Tablets / iPad — tighter tabs, less page gutter. */
+/* Tablets / iPad - tighter tabs, less page gutter. */
 @media (max-width: 900px) {
   .nx-ptab { padding: 10px 12px !important; font-size: 0.9rem !important; }
   .nx-primary-bar { padding: 0 12px !important; }
@@ -2488,7 +2531,7 @@ button, [role="button"], select { touch-action: manipulation; }
   .nx-page { padding: 16px !important; }
 }
 
-/* Phones — icon-only Create/Manage, compact navbar, full-bleed cards. */
+/* Phones - icon-only Create/Manage, compact navbar, full-bleed cards. */
 @media (max-width: 640px) {
   /* Create / Manage / Exit collapse to their icon. */
   .nx-tasks .nx-btn-label { display: none; }
@@ -2517,7 +2560,7 @@ button, [role="button"], select { touch-action: manipulation; }
   .nx-gutter { padding: 8px 0 !important; }
 
   /* A full-width card has nothing to round against, so square the corners and
-     drop the side borders — it reads as a native list rather than a card that
+     drop the side borders - it reads as a native list rather than a card that
      happens to be clipped by the viewport. Opt in with .nx-edge-card. */
   .nx-edge-card {
     border-radius: 0 !important;
@@ -2532,14 +2575,14 @@ button, [role="button"], select { touch-action: manipulation; }
   .nx-module-tab-icon { display: none !important; }
 }
 
-/* ---- Task module — small-screen corrections ------------------------------
+/* ---- Task module - small-screen corrections ------------------------------
    1. No `zoom` scaling. It was tried and reverted: zoom shrinks an element's
       used size, so the module and its fixed overlays no longer covered the
-      viewport — that was the white strip down the right/bottom edge.
+      viewport - that was the white strip down the right/bottom edge.
    2. The global `.scroll-tabs` rule turns every tab strip into a sticky bar
       (top: 56px) below 900px. Inside the task module that made the module tabs
       and view tabs float over the content beneath them, so it's turned off
-      here — the strips still scroll/swipe horizontally, they just don't stick. */
+      here - the strips still scroll/swipe horizontally, they just don't stick. */
 @media (max-width: 900px) {
   .nx-tasks .scroll-tabs,
   .nx-tasks-portal .scroll-tabs {
@@ -2549,7 +2592,7 @@ button, [role="button"], select { touch-action: manipulation; }
   }
 }
 
-/* ---- Task module — smaller type on phones ---------------------------------
+/* ---- Task module - smaller type on phones ---------------------------------
    Font sizes in this module are inline px literals, so CSS can only reach them
    with !important, and only where a selector can name the element. Controls
    (button/input/select/textarea/label) are nameable and carry most of the
@@ -2579,3 +2622,868 @@ button, [role="button"], select { touch-action: manipulation; }
     font-size: 16px !important;
   }
 }
+
+/* Task description editor (tasks/RichDescription.jsx). Scoped to .nx-rich so it
+   can't reach the Document Builder's own .doc-editor ProseMirror styles. */
+.nx-rich .ProseMirror { outline: none; font-size: 13.5px; line-height: 1.55; color: var(--ink, #111827); }
+.nx-rich .ProseMirror > *:first-child { margin-top: 0; }
+.nx-rich .ProseMirror > *:last-child { margin-bottom: 0; }
+.nx-rich .ProseMirror p { margin: 0 0 8px; }
+.nx-rich .ProseMirror ul, .nx-rich .ProseMirror ol { margin: 0 0 8px; padding-left: 22px; }
+.nx-rich .ProseMirror li { margin: 2px 0; }
+.nx-rich .ProseMirror li > p { margin: 0; }
+.nx-rich .ProseMirror a { color: #2563eb; text-decoration: underline; }
+.nx-rich .ProseMirror mark { background: #fde68a; border-radius: 2px; padding: 0 1px; }
+.nx-rich .ProseMirror code {
+  background: rgba(148,163,184,0.18); border-radius: 4px; padding: 1px 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.9em;
+}
+.nx-rich .ProseMirror pre {
+  background: #0f172a; color: #e2e8f0; border-radius: 8px; padding: 10px 12px; margin: 0 0 8px;
+  overflow-x: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px;
+}
+.nx-rich .ProseMirror pre code { background: none; color: inherit; padding: 0; font-size: inherit; }
+.nx-rich .ProseMirror blockquote { border-left: 3px solid var(--line, #e5e7eb); margin: 0 0 8px; padding-left: 10px; color: #6b7280; }
+.nx-rich .ProseMirror img { max-width: 100%; height: auto; border-radius: 8px; }
+.nx-rich .ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder); float: left; height: 0; pointer-events: none; color: #9ca3af;
+}
+/* Read-only rendering of a description (task detail, list previews). */
+.nx-rich-view { font-size: 13.5px; line-height: 1.55; }
+.nx-rich-view > *:first-child { margin-top: 0; }
+.nx-rich-view > *:last-child { margin-bottom: 0; }
+.nx-rich-view p { margin: 0 0 8px; }
+.nx-rich-view ul, .nx-rich-view ol { margin: 0 0 8px; padding-left: 22px; }
+.nx-rich-view a { color: #2563eb; text-decoration: underline; }
+.nx-rich-view mark { background: #fde68a; border-radius: 2px; padding: 0 1px; }
+.nx-rich-view img { max-width: 100%; height: auto; border-radius: 8px; }
+.nx-rich-view pre {
+  background: #0f172a; color: #e2e8f0; border-radius: 8px; padding: 10px 12px;
+  overflow-x: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px;
+}
+.nx-rich-view code {
+  background: rgba(148,163,184,0.18); border-radius: 4px; padding: 1px 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.9em;
+}
+/* @mentions are stored as mailto links (that is what carries the identity to
+   the backend and to Asana), but they should read as a PERSON, not an email
+   address - so they render as a chip here and in the editor, never underlined
+   blue like an ordinary link. */
+.nx-rich-view a[href^="mailto:"],
+.nx-rich .ProseMirror a[href^="mailto:"] {
+  color: #1d4ed8; background: rgba(37,99,235,0.10); text-decoration: none;
+  border-radius: 4px; padding: 0 3px; font-weight: 600; white-space: nowrap;
+}
+.nx-rich-view a[href^="mailto:"]:hover,
+.nx-rich .ProseMirror a[href^="mailto:"]:hover { background: rgba(37,99,235,0.18); }
+
+/* ==========================================================================
+   WORK OS - committed visual world (Jul 28, 2026; see DESIGN.md)
+   White, professional, enterprise-grade. Craft bar: monday.com.
+   White cards on a soft cool-gray canvas, one brand accent, colored icon
+   chips for meaning, friendly Figtree type. No dark chrome, no mono/terminal
+   styling, no heavy gradients.
+   ========================================================================== */
+
+:root {
+  --wk-bg:        #f6f7fb;
+  --wk-card:      #ffffff;
+  --wk-ink:       #323338;
+  --wk-dim:       #676879;
+  --wk-faint:     #9699a6;
+  --wk-line:      #d0d4e4;
+  --wk-line2:     #e6e9f2;
+  --wk-hover:     #f5f6f8;
+  /* Vibrant Stella cobalt (owner call, Jul 28) - replaces the softer #5b5fef */
+  --wk-brand:     #2b45e1;
+  --wk-brand-hov: #1f36c7;
+  --wk-brand-tint:#e8ecfd;
+  --wk-green:     #00a25b;
+  --wk-green-bg:  #e6f7ef;
+  --wk-orange:    #e8930c;
+  --wk-orange-bg: #fdf1de;
+  --wk-red:       #e2445c;
+  --wk-red-bg:    #fdecef;
+  --wk-blue:      #3d7ee8;
+  --wk-blue-bg:   #e8f1fd;
+  --wk-r:         8px;
+  --wk-shadow:    0 4px 12px rgba(29,33,57,.05);
+  --wk-shadow-hov:0 8px 20px rgba(29,33,57,.09);
+  --wk-font:      'Figtree', 'Inter', sans-serif;
+}
+
+/* ── Warm theme ("Sand" - Lisso-inspired, owner request Jul 28) ────────────
+   A second light world selectable from the profile menu: warm cream canvas,
+   soft sand borders, near-black primary (Lisso's black pills) with an amber
+   wash as the active/tint accent. Everything driven by the same --wk-* tokens,
+   so every Work OS surface (header tabs, KPI cards, buttons, home) retunes
+   itself. Dark mode is orthogonal and unchanged. */
+:root[data-wktheme="warm"] {
+  --wk-bg:        #f2ede3;
+  --wk-card:      #fffdf9;
+  --wk-ink:       #201e19;
+  --wk-dim:       #6f6a5f;
+  --wk-faint:     #a39d8f;
+  --wk-line:      #ddd5c2;
+  --wk-line2:     #ece6d8;
+  --wk-hover:     #f6f1e7;
+  --wk-brand:     #26241f;   /* Lisso's black pill */
+  --wk-brand-hov: #000000;
+  --wk-brand-tint:#f5ead0;   /* amber wash for active states */
+  --wk-shadow:    0 4px 12px rgba(64,55,30,.06);
+  --wk-shadow-hov:0 8px 20px rgba(64,55,30,.10);
+}
+
+/* Warm theme - floating card stack (Lisso concept, owner request Jul 28).
+   In the warm world the home attention queue sheds its container: each row
+   becomes its own floating card - soft layered shadow, a whisper of tilt
+   that straightens on hover, staggered rise-in, and the stack scrolls.
+   Cobalt keeps the contained list; all motion respects reduced-motion. */
+:root[data-wktheme="warm"] .dk-queue {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  max-height: 560px;
+  overflow-y: auto;
+  scrollbar-width: none;
+  padding: 4px 6px;
+}
+:root[data-wktheme="warm"] .dk-queue::-webkit-scrollbar { display: none; }
+:root[data-wktheme="warm"] .dk-queue .dk-queue-row {
+  background: var(--wk-card);
+  border: 1px solid var(--wk-line2);
+  border-radius: 14px;
+  box-shadow: 0 14px 30px rgba(64,55,30,.10), 0 2px 6px rgba(64,55,30,.05);
+  margin: 14px 4px;
+  padding: 16px 18px;
+  transform: rotate(var(--dk-tilt, 0deg));
+  transition: transform .28s cubic-bezier(.16,1,.3,1), box-shadow .28s;
+}
+:root[data-wktheme="warm"] .dk-queue .dk-queue-row:nth-child(odd)  { --dk-tilt: -1.1deg; }
+:root[data-wktheme="warm"] .dk-queue .dk-queue-row:nth-child(even) { --dk-tilt: 1.1deg; }
+:root[data-wktheme="warm"] .dk-queue .dk-queue-row:hover {
+  transform: rotate(0deg) translateY(-3px);
+  box-shadow: 0 20px 40px rgba(64,55,30,.14), 0 3px 8px rgba(64,55,30,.06);
+}
+@media (prefers-reduced-motion: no-preference) {
+  :root[data-wktheme="warm"] .dk-queue .dk-queue-row {
+    animation: dkRise .45s cubic-bezier(.16,1,.3,1) both;
+  }
+  :root[data-wktheme="warm"] .dk-queue .dk-queue-row:nth-child(2) { animation-delay: 50ms; }
+  :root[data-wktheme="warm"] .dk-queue .dk-queue-row:nth-child(3) { animation-delay: 100ms; }
+  :root[data-wktheme="warm"] .dk-queue .dk-queue-row:nth-child(4) { animation-delay: 150ms; }
+  :root[data-wktheme="warm"] .dk-queue .dk-queue-row:nth-child(5) { animation-delay: 200ms; }
+  :root[data-wktheme="warm"] .dk-queue .dk-queue-row:nth-child(n+6) { animation-delay: 250ms; }
+}
+@media (prefers-reduced-motion: reduce) {
+  :root[data-wktheme="warm"] .dk-queue .dk-queue-row { transform: none; }
+}
+
+/* ── Stella card anatomy + directory table (People redesign, Jul 28) ──────
+   Card = header row (small bordered icon chip + 13px/600 title + right meta)
+   over a hairline divider, then the body at its own rhythm. The directory is
+   a real table: gray header band, avatar + name + email rows, status pills. */
+.wkc {
+  background: var(--card);
+  border: 1px solid var(--wk-line2);
+  border-radius: 16px; /* owner's concept (Jul 28): rounded-2xl cards */
+  box-shadow: var(--wk-shadow);
+  font-family: var(--wk-font);
+  min-width: 0;
+  overflow: hidden;
+  /* Grid rows stretch every card to the tallest sibling - flex column so the
+     body can absorb the extra height instead of pinning content to the top */
+  display: flex;
+  flex-direction: column;
+}
+[data-theme="dark"] .wkc { border-color: var(--line); box-shadow: none; }
+.wkc-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--wk-line2);
+  flex-wrap: wrap;
+}
+[data-theme="dark"] .wkc-head { border-color: var(--line); }
+.wkc-chip {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  border: 1px solid var(--wk-line2);
+  background: var(--card);
+  color: var(--wk-brand);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+[data-theme="dark"] .wkc-chip { border-color: var(--line); background: var(--mist); }
+.wkc-title { font-size: 14.5px; font-weight: 600; color: var(--ink); }
+.wkc-meta { margin-left: auto; font-size: 12.5px; font-weight: 500; color: var(--wk-faint); }
+.wkc-body {
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
+  /* absorb stretched-card height and center the content instead of
+     top-pinning it (the "everything is raised up" bug) */
+  flex: 1;
+  justify-content: center;
+}
+
+.ppl-table { width: 100%; border-collapse: collapse; font-family: var(--wk-font); }
+.ppl-table th {
+  text-align: left;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--wk-dim);
+  background: var(--wk-hover);
+  padding: 11px 18px;
+  white-space: nowrap;
+}
+[data-theme="dark"] .ppl-table th { background: var(--mist); color: var(--muted); }
+.ppl-table td {
+  padding: 13px 18px;
+  border-top: 1px solid var(--wk-line2);
+  font-size: 14px;
+  color: var(--ink);
+  vertical-align: middle;
+}
+[data-theme="dark"] .ppl-table td { border-color: var(--line); }
+.ppl-table tbody tr { cursor: pointer; transition: background .12s; }
+.ppl-table tbody tr:hover td { background: var(--wk-hover); }
+[data-theme="dark"] .ppl-table tbody tr:hover td { background: var(--mist); }
+.ppl-cell-sub { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+
+/* My HR layout (Jul 28): profile rail + disciplined 2-col main grid - rows
+   stretch to equal heights so card edges actually align (the auto-fit column
+   stacks read as random). */
+.myhr-grid { display: grid; grid-template-columns: 360px minmax(0, 1fr); gap: 16px; align-items: start; }
+.myhr-main { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.myhr-span2 { grid-column: span 2; }
+@media (max-width: 1100px) { .myhr-grid { grid-template-columns: 1fr; } }
+@media (max-width: 760px) { .myhr-main { grid-template-columns: 1fr; } .myhr-span2 { grid-column: auto; } }
+
+/* Segmented control (Stella's Day/Week/Month): light gray track, active
+   option as a white pill with border + soft shadow */
+.wk-seg {
+  display: inline-flex;
+  gap: 2px;
+  background: var(--wk-hover);
+  border: 1px solid var(--wk-line2);
+  border-radius: 9px;
+  padding: 3px;
+}
+.wk-seg button {
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: 7px;
+  padding: 5px 13px;
+  font-family: var(--wk-font);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background .12s, color .12s;
+}
+.wk-seg button.on {
+  background: var(--card);
+  border-color: var(--wk-line);
+  color: var(--wk-brand);
+  box-shadow: 0 1px 3px rgba(29,33,57,.08);
+}
+[data-theme="dark"] .wk-seg { background: var(--mist); border-color: var(--line); }
+[data-theme="dark"] .wk-seg button.on { background: var(--card); border-color: var(--line); color: #b9bbff; }
+@media (max-width: 760px) {
+  .ppl-col-secondary { display: none; }
+}
+
+/* ── Shell polish: sidebar ──────────────────────────────────────────────── */
+.sidebar { font-family: var(--wk-font); }
+.sidebar-header { gap: 10px; padding: 18px 16px 14px; }
+.dk-mark {
+  width: 34px; height: 34px; border-radius: 8px;
+  background: var(--wk-brand); color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--wk-font); font-weight: 800; font-size: 17px;
+  flex-shrink: 0;
+}
+.sidebar .company-name {
+  font-family: var(--wk-font); font-weight: 800; font-size: 17px;
+  letter-spacing: -.01em; color: var(--ink); line-height: 1;
+}
+.sidebar .brand-sub {
+  font-family: var(--wk-font); font-size: 10px; font-weight: 600;
+  letter-spacing: .05em; color: var(--wk-faint); margin-top: 3px;
+  text-transform: uppercase;
+}
+.sidebar .nav-item {
+  border-radius: 6px;
+  font-family: var(--wk-font);
+  font-size: 13px; font-weight: 500;
+  color: var(--wk-dim);
+  padding: 7.5px 10px;
+}
+[data-theme="light"] .sidebar .nav-item, :root .sidebar .nav-item { color: var(--wk-dim); }
+.sidebar .nav-item:hover { background: var(--wk-hover); color: var(--wk-ink); }
+.sidebar .nav-item.active {
+  background: var(--wk-brand-tint);
+  color: var(--wk-brand);
+  font-weight: 600;
+}
+.sidebar .nav-item.active svg { color: var(--wk-brand); }
+.nav-code { display: none; }
+.nav-kicker {
+  font-family: var(--wk-font);
+  font-size: 10.5px; font-weight: 700;
+  letter-spacing: .06em; text-transform: uppercase;
+  color: var(--wk-faint);
+  padding: 12px 10px 4px;
+  list-style: none;
+  user-select: none;
+}
+.sidebar.collapsed .nav-kicker { display: none; }
+.sidebar .nav-divider { margin: 6px 6px 0; }
+.sidebar .sidebar-user .user-avatar {
+  background: var(--wk-brand); color: #fff; border-radius: 50%;
+  font-family: var(--wk-font); font-weight: 700; font-size: 12px;
+}
+.sidebar .sidebar-user-name { font-family: var(--wk-font); }
+.sidebar .sidebar-user-role { font-family: var(--wk-font); }
+
+/* Dark theme still works on the shell (legacy tokens drive it) - but the
+   brand accents above stay brand-colored in both. */
+[data-theme="dark"] .sidebar .nav-item { color: var(--nav-text); }
+[data-theme="dark"] .sidebar .nav-item:hover { background: var(--sidebar-hover-bg); color: var(--nav-text-hover); }
+[data-theme="dark"] .sidebar .nav-item.active { background: rgba(43,69,225,.22); color: #b9bbff; }
+[data-theme="dark"] .sidebar .nav-item.active svg { color: #b9bbff; }
+
+/* ── Shell polish: header ───────────────────────────────────────────────── */
+.top-header { font-family: var(--wk-font); }
+.top-header .breadcrumb { font-family: var(--wk-font); font-size: 14.5px; font-weight: 600; gap: 9px; }
+
+/* Breadcrumb on the kit (Jul 28): the back arrow is a real bordered chip that
+   lights up brand on hover; the previous crumb is a clickable step back. */
+.breadcrumb-back {
+  width: 30px; height: 30px;
+  border: 1px solid var(--wk-line2); border-radius: 8px;
+  background: var(--card); color: var(--muted);
+  opacity: 1;
+  transition: color .13s, border-color .13s, background .13s;
+}
+.breadcrumb-back:hover { color: var(--wk-brand); border-color: transparent; background: var(--wk-brand-tint); }
+[data-theme="dark"] .breadcrumb-back { border-color: var(--line); background: var(--mist); }
+.breadcrumb-prev {
+  background: none; border: none; padding: 0; cursor: pointer;
+  font: inherit; font-weight: 500; color: var(--wk-dim);
+  transition: color .13s;
+}
+.breadcrumb-prev:hover { color: var(--ink); }
+.breadcrumb-current { font-weight: 700; }
+
+/* Sidebar on the kit (Jul 28): Figtree, brand-tint active pill (no side bars) */
+.sidebar { font-family: var(--wk-font); }
+.nav-item { font-size: 13.5px; }
+.nav-item.active { background: var(--wk-brand-tint); color: var(--wk-brand); font-weight: 700; }
+.nav-item.active:not(.has-submenu) svg { color: var(--wk-brand); }
+[data-theme="dark"] .nav-item.active { background: rgba(43, 69, 225, .22); color: #b9bbff; }
+[data-theme="dark"] .nav-item.active:not(.has-submenu) svg { color: #b9bbff; }
+.top-header .search-bar { border-radius: 8px; }
+.top-header .icon-btn { border-radius: 8px; }
+.top-header .header-user-pill { border-radius: 8px; }
+.top-header .header-avatar { background: var(--wk-brand); }
+
+/* ── Work canvas: dashboard viewport ────────────────────────────────────── */
+.viewport-desk { background: var(--wk-bg); flex: 1; }
+[data-theme="dark"] .viewport-desk { background: var(--paper); }
+
+/* ── Header module tabs (Stella layout: breadcrumb left, tabs center) ───── */
+/* The active module publishes its tab strip into the header center via
+   <ModuleTabs>; .has-tabs frees the center from the search bar's 260px cap. */
+.header-center.has-tabs {
+  max-width: none;
+  min-width: 0;
+  display: flex;
+  justify-content: center;
+}
+.hdr-tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none; /* long strips (Accounting) scroll, no scrollbar */
+  font-family: var(--wk-font);
+}
+.hdr-tabs::-webkit-scrollbar { display: none; }
+.hdr-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 16px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: none;
+  cursor: pointer;
+  font-family: var(--wk-font);
+  font-size: 14.5px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--wk-dim);
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: background .15s, color .15s, border-color .15s;
+}
+.hdr-tab:hover { background: var(--wk-hover); color: var(--wk-ink); }
+.hdr-tab.active {
+  background: var(--wk-card);
+  border-color: var(--wk-line);
+  color: var(--wk-brand);
+  box-shadow: 0 1px 3px rgba(29,33,57,.08);
+}
+.hdr-tab svg { color: currentColor; flex-shrink: 0; }
+.hdr-tab-badge {
+  background: var(--wk-brand);
+  color: #fff;
+  border-radius: 20px;
+  font-size: 11.5px;
+  font-weight: 700;
+  padding: 2px 7px;
+  line-height: 1.2;
+}
+.hdr-tab:not(.active) .hdr-tab-badge { background: var(--wk-faint); }
+[data-theme="dark"] .hdr-tab { color: var(--muted); }
+[data-theme="dark"] .hdr-tab:hover { background: var(--mist); color: var(--ink); }
+[data-theme="dark"] .hdr-tab.active {
+  background: rgba(43,69,225,.18);
+  border-color: var(--line);
+  color: #b9bbff;
+  box-shadow: none;
+}
+
+/* ── Work OS buttons - app-wide restyle of the shared button classes ──────
+   Primary: brand-filled (was near-black --pine). Secondary: white with a real
+   border (was a gray tint pill). Both Figtree, radius 8, quiet 150ms hovers. */
+.primary-btn, .btn-primary {
+  background: var(--wk-brand);
+  color: #fff;
+  border-radius: 8px;
+  font-family: var(--wk-font);
+  transition: background .15s;
+}
+.primary-btn:hover, .btn-primary:hover { background: var(--wk-brand-hov); opacity: 1; }
+.secondary-btn, .btn-sm {
+  background: var(--wk-card);
+  border: 1px solid var(--wk-line);
+  color: var(--wk-ink);
+  border-radius: 8px;
+  font-family: var(--wk-font);
+  box-shadow: 0 1px 2px rgba(29,33,57,.04);
+  transition: background .15s, border-color .15s;
+}
+.secondary-btn:hover, .btn-sm:hover { background: var(--wk-hover); }
+[data-theme="dark"] .secondary-btn, [data-theme="dark"] .btn-sm {
+  background: var(--card);
+  border-color: var(--line);
+  color: var(--ink);
+  box-shadow: none;
+}
+[data-theme="dark"] .secondary-btn:hover, [data-theme="dark"] .btn-sm:hover { background: var(--mist); }
+
+/* KPI card hover - Work OS depth: 1px lift, deeper shadow (the legacy rule's
+   -5px jump reads as bouncy next to the quiet cards) */
+.kpi-card:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--wk-shadow-hov);
+}
+
+/* Search popover (module screens - the magnifier next to the bell) */
+.hdr-search-wrap { position: relative; }
+.hdr-search-pop {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 300px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 8px 28px rgba(0,0,0,.15);
+  padding: 8px;
+  z-index: 500;
+}
+@media (max-width: 900px) { .hdr-search-wrap { display: none; } }
+
+/* In-page fallback strip: phones only - the header center is hidden ≤900px,
+   so <ModuleTabs> renders the classic swipeable strip in the page body. */
+.module-tabs-inline { display: none; }
+@media (max-width: 900px) {
+  .module-tabs-inline {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 20px;
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 1px;
+  }
+  .module-tab-inline-btn {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    background: none;
+    border: none;
+    padding: 10px 14px;
+    font-family: var(--wk-font);
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--muted);
+    white-space: nowrap;
+    flex-shrink: 0;
+    cursor: pointer;
+    transition: color .15s;
+  }
+  .module-tab-inline-btn.active {
+    color: var(--ink);
+    box-shadow: inset 0 -2.5px 0 var(--wk-brand);
+  }
+}
+
+/* ── Home (dk- namespace = the designed home surface) ───────────────────── */
+@keyframes dkRise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+.dk-home {
+  font-family: var(--wk-font);
+  color: var(--wk-ink);
+  display: flex; flex-direction: column; gap: 18px;
+}
+.dk-home * { box-sizing: border-box; }
+.dk-rise { animation: dkRise .38s cubic-bezier(.16,1,.3,1) both; animation-delay: calc(var(--i, 0) * 45ms); }
+
+[data-theme="dark"] .dk-home { color: var(--ink); }
+
+.dk-card {
+  background: var(--wk-card);
+  border: 1px solid var(--wk-line2);
+  border-radius: var(--wk-r);
+  box-shadow: var(--wk-shadow);
+}
+[data-theme="dark"] .dk-card { background: var(--card); border-color: var(--line); box-shadow: none; }
+
+/* header row: greeting + session */
+.dk-head { display: flex; align-items: flex-start; gap: 18px; flex-wrap: wrap; padding: 4px 2px 0; }
+.dk-head-left { flex: 1; min-width: 240px; }
+.dk-head h1 {
+  font-family: var(--wk-font);
+  font-size: clamp(22px, 2.4vw, 28px); font-weight: 800;
+  letter-spacing: -.015em; line-height: 1.15;
+  margin: 0 0 4px; color: inherit;
+}
+.dk-head-sub { font-size: 13.5px; color: var(--wk-dim); line-height: 1.5; }
+.dk-head-sub b { color: var(--wk-brand); font-weight: 700; }
+[data-theme="dark"] .dk-head-sub { color: var(--muted); }
+[data-theme="dark"] .dk-head-sub b { color: #b9bbff; }
+
+.dk-head-right { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+.dk-zones { display: flex; align-items: center; gap: 12px; font-size: 12px; color: var(--wk-faint); }
+.dk-zones b { color: var(--wk-dim); font-weight: 600; font-variant-numeric: tabular-nums; }
+.dk-zones .dk-zone-sep { width: 1px; height: 12px; background: var(--wk-line); }
+[data-theme="dark"] .dk-zones { color: var(--text-muted); }
+[data-theme="dark"] .dk-zones b { color: var(--muted); }
+[data-theme="dark"] .dk-zones .dk-zone-sep { background: var(--line); }
+
+.dk-session-chip {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 7px 13px;
+  border: 1px solid var(--wk-line2); border-radius: 999px;
+  background: var(--wk-card);
+  font-family: var(--wk-font); font-size: 12.5px; font-weight: 600;
+  color: var(--wk-dim);
+  cursor: pointer; box-shadow: var(--wk-shadow);
+  transition: box-shadow .15s ease, border-color .15s ease, transform .15s ease;
+}
+.dk-session-chip:hover { border-color: var(--wk-line); box-shadow: var(--wk-shadow-hov); transform: translateY(-1px); }
+.dk-session-chip--on { color: var(--wk-green); border-color: rgba(0,162,91,.35); }
+.dk-session-chip b { font-variant-numeric: tabular-nums; font-weight: 700; }
+[data-theme="dark"] .dk-session-chip { background: var(--card); border-color: var(--line); color: var(--muted); box-shadow: none; }
+[data-theme="dark"] .dk-session-chip--on { color: #4ade80; }
+.dk-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.dk-dot--up { background: #00c875; }
+.dk-dot--off { background: var(--wk-faint); }
+
+/* stat cards */
+.dk-board { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+.dk-stat {
+  background: var(--wk-card);
+  border: 1px solid var(--wk-line2);
+  border-radius: var(--wk-r);
+  box-shadow: var(--wk-shadow);
+  padding: 16px 18px 15px;
+  cursor: pointer; text-align: left;
+  font-family: inherit; color: inherit;
+  display: flex; flex-direction: column; align-items: flex-start;
+  min-width: 0;
+  transition: box-shadow .15s ease, border-color .15s ease, transform .15s ease;
+}
+.dk-stat:hover { box-shadow: var(--wk-shadow-hov); border-color: var(--wk-line); transform: translateY(-1px); }
+.dk-stat:focus-visible, .dk-session-chip:focus-visible, .dk-key:focus-visible, .dk-queue-row:focus-visible, .dk-team-row:focus-visible {
+  outline: 2px solid var(--wk-brand); outline-offset: 2px;
+}
+[data-theme="dark"] .dk-stat { background: var(--card); border-color: var(--line); box-shadow: none; }
+.dk-stat-top { display: flex; align-items: center; justify-content: space-between; width: 100%; }
+.dk-chip {
+  width: 34px; height: 34px; border-radius: 8px;
+  display: inline-flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.dk-chip svg { width: 17px; height: 17px; }
+.dk-chip--blue   { background: var(--wk-blue-bg);   color: var(--wk-blue); }
+.dk-chip--orange { background: var(--wk-orange-bg); color: var(--wk-orange); }
+.dk-chip--brand  { background: var(--wk-brand-tint); color: var(--wk-brand); }
+.dk-chip--green  { background: var(--wk-green-bg);  color: var(--wk-green); }
+.dk-chip--red    { background: var(--wk-red-bg);    color: var(--wk-red); }
+.dk-chip--purple { background: hsla(var(--color-purple), .14); color: hsl(var(--color-purple)); }
+[data-theme="dark"] .dk-chip--blue   { background: rgba(61,126,232,.18); }
+[data-theme="dark"] .dk-chip--orange { background: rgba(232,147,12,.16); }
+[data-theme="dark"] .dk-chip--brand  { background: rgba(43,69,225,.2); color: #b9bbff; }
+[data-theme="dark"] .dk-chip--green  { background: rgba(0,200,117,.14); }
+[data-theme="dark"] .dk-chip--red    { background: rgba(226,68,92,.16); }
+[data-theme="dark"] .dk-chip--purple { background: hsla(var(--color-purple), .2); }
+.dk-stat-arrow { opacity: 0; transition: opacity .15s ease, transform .15s ease; transform: translateX(-3px); color: var(--wk-faint); }
+.dk-stat:hover .dk-stat-arrow { opacity: 1; transform: none; }
+.dk-stat-num {
+  display: block;
+  font-size: 30px; font-weight: 800; letter-spacing: -.02em; line-height: 1.1;
+  margin-top: 12px; font-variant-numeric: tabular-nums; color: inherit;
+}
+.dk-stat-label { display: block; font-size: 13px; font-weight: 600; color: var(--wk-ink); margin-top: 3px; }
+.dk-stat-sub { display: block; font-size: 12px; color: var(--wk-faint); margin-top: 1px; }
+[data-theme="dark"] .dk-stat-label { color: var(--ink); }
+[data-theme="dark"] .dk-stat-sub { color: var(--text-muted); }
+
+/* Hero stat - the first tile carries the page's focal color (owner's
+   Hello-Barbara concept: one solid brand tile, the rest quiet white). */
+.dk-stat--hero {
+  background: linear-gradient(135deg, #4256e8, var(--wk-brand));
+  border-color: transparent;
+  color: #fff;
+  box-shadow: 0 10px 26px rgba(43, 69, 225, .28);
+}
+.dk-stat--hero:hover { box-shadow: 0 14px 32px rgba(43, 69, 225, .38); border-color: transparent; transform: translateY(-1px); }
+.dk-stat--hero .dk-chip { background: rgba(255, 255, 255, .16); color: #fff; }
+.dk-stat--hero .dk-stat-label { color: #fff; }
+.dk-stat--hero .dk-stat-sub { color: rgba(255, 255, 255, .72); }
+.dk-stat--hero .dk-stat-arrow {
+  opacity: 1; transform: none; color: #fff;
+  background: rgba(255, 255, 255, .15); border-radius: 50%;
+  width: 26px; height: 26px; padding: 5px;
+}
+[data-theme="dark"] .dk-stat--hero { background: linear-gradient(135deg, #3a4cd9, #2436b8); }
+
+/* main: queue + rail */
+.dk-main { display: grid; grid-template-columns: 1fr 330px; gap: 18px; align-items: start; }
+.dk-queue { min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+.dk-pane-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--wk-line2);
+  font-family: var(--wk-font); font-size: 14.5px; font-weight: 700;
+  color: inherit;
+}
+[data-theme="dark"] .dk-pane-head { border-color: var(--line); }
+.dk-count {
+  font-size: 11.5px; font-weight: 700; color: var(--wk-brand);
+  background: var(--wk-brand-tint); border-radius: 999px; padding: 2px 9px;
+}
+[data-theme="dark"] .dk-count { background: rgba(43,69,225,.2); color: #b9bbff; }
+.dk-pane-head .dk-meta { margin-left: auto; font-size: 12px; font-weight: 500; color: var(--wk-faint); }
+
+.dk-queue-row {
+  display: flex; align-items: center; gap: 12px;
+  width: 100%; text-align: left;
+  padding: 12px 18px;
+  border: none; border-bottom: 1px solid var(--wk-line2);
+  background: transparent; cursor: pointer;
+  font-family: var(--wk-font); color: inherit;
+  transition: background .13s ease;
+}
+.dk-queue-row:last-child { border-bottom: none; }
+.dk-queue-row:hover { background: var(--wk-hover); }
+[data-theme="dark"] .dk-queue-row { border-color: var(--line); }
+[data-theme="dark"] .dk-queue-row:hover { background: var(--mist); }
+.dk-pill {
+  font-size: 11px; font-weight: 700; letter-spacing: .01em;
+  border-radius: 6px; padding: 4px 8px; flex-shrink: 0;
+  min-width: 44px; text-align: center;
+}
+.dk-pill--blue   { background: var(--wk-blue-bg);   color: var(--wk-blue); }
+.dk-pill--green  { background: var(--wk-green-bg);  color: var(--wk-green); }
+.dk-pill--orange { background: var(--wk-orange-bg); color: var(--wk-orange); }
+.dk-pill--red    { background: var(--wk-red-bg);    color: var(--wk-red); }
+[data-theme="dark"] .dk-pill--blue   { background: rgba(61,126,232,.18); }
+[data-theme="dark"] .dk-pill--green  { background: rgba(0,200,117,.14); color: #4ade80; }
+[data-theme="dark"] .dk-pill--orange { background: rgba(232,147,12,.16); }
+[data-theme="dark"] .dk-pill--red    { background: rgba(226,68,92,.16); }
+.dk-queue-body { flex: 1; min-width: 0; }
+.dk-queue-title { display: block; font-size: 13.5px; font-weight: 600; color: inherit; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dk-queue-sub { display: block; font-size: 12px; color: var(--wk-faint); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+[data-theme="dark"] .dk-queue-sub { color: var(--text-muted); }
+.dk-queue-time { font-size: 11.5px; color: var(--wk-faint); flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.dk-queue-row svg { color: var(--wk-faint); flex-shrink: 0; }
+.dk-queue-row:hover svg { color: var(--wk-dim); }
+
+.dk-clear {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 6px; padding: 46px 20px 50px; text-align: center;
+}
+.dk-clear-icon {
+  width: 44px; height: 44px; border-radius: 50%;
+  background: var(--wk-green-bg); color: var(--wk-green);
+  display: flex; align-items: center; justify-content: center;
+  margin-bottom: 6px;
+}
+[data-theme="dark"] .dk-clear-icon { background: rgba(0,200,117,.14); color: #4ade80; }
+.dk-clear h3 { font-size: 15px; font-weight: 700; margin: 0; color: inherit; }
+.dk-clear p { font-size: 12.5px; color: var(--wk-faint); max-width: 36ch; line-height: 1.5; margin: 0; }
+
+/* right rail */
+.dk-rail { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+.dk-team-row, .dk-key {
+  display: flex; align-items: center; gap: 11px;
+  width: 100%; text-align: left;
+  padding: 11px 16px;
+  border: none; border-bottom: 1px solid var(--wk-line2);
+  background: transparent; cursor: pointer; color: inherit;
+  font-family: var(--wk-font); font-size: 13px; font-weight: 500;
+  transition: background .13s ease;
+}
+.dk-team-row:last-child, .dk-key:last-child { border-bottom: none; }
+.dk-team-row:hover, .dk-key:hover { background: var(--wk-hover); }
+[data-theme="dark"] .dk-team-row, [data-theme="dark"] .dk-key { border-color: var(--line); }
+[data-theme="dark"] .dk-team-row:hover, [data-theme="dark"] .dk-key:hover { background: var(--mist); }
+.dk-team-row b {
+  margin-left: auto; font-size: 14px; font-weight: 700;
+  color: inherit; font-variant-numeric: tabular-nums;
+}
+.dk-team-row b.dk-hot { color: var(--wk-orange); }
+.dk-key .dk-chip { width: 30px; height: 30px; border-radius: 7px; }
+.dk-key .dk-chip svg { width: 15px; height: 15px; }
+.dk-key svg.dk-key-arrow { margin-left: auto; color: var(--wk-faint); }
+.dk-hint {
+  padding: 11px 16px;
+  font-size: 11.5px; color: var(--wk-faint);
+  border-top: 1px solid var(--wk-line2);
+}
+[data-theme="dark"] .dk-hint { border-color: var(--line); }
+.dk-hint kbd {
+  font-family: var(--wk-font); font-size: 10.5px; font-weight: 600;
+  border: 1px solid var(--wk-line); border-bottom-width: 2px; border-radius: 4px;
+  padding: 1px 5px; margin: 0 2px; color: var(--wk-dim); background: var(--wk-card);
+}
+[data-theme="dark"] .dk-hint kbd { background: var(--card); border-color: var(--line); color: var(--muted); }
+
+/* responsive */
+@media (max-width: 1180px) {
+  .dk-main { grid-template-columns: 1fr 300px; }
+}
+@media (max-width: 980px) {
+  .dk-board { grid-template-columns: repeat(2, 1fr); }
+  .dk-main { grid-template-columns: 1fr; }
+  .dk-head-right { align-items: flex-start; }
+}
+@media (max-width: 560px) {
+  .dk-board { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .dk-stat { padding: 13px 14px 12px; }
+  .dk-stat-num { font-size: 26px; }
+  .dk-home { gap: 14px; }
+  .dk-main { gap: 14px; }
+  .dk-rail { gap: 14px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dk-rise { animation: none; }
+}
+
+/* ── PDF Editor module: full-bleed workspace below the header ────────────── */
+/* NO negative margins. This used to sit inside a padded .viewport and cancel that
+   padding with `margin: -32px -36px` plus one -18px override. But .viewport has
+   FIVE different paddings across breakpoints (32/36, 24/22, 18, 12, 10/8), so the
+   cancellation only ever matched two of them and the editor was off-center at
+   every other width. App.jsx now renders this view with `viewport-flush`
+   (padding: 0), the same idiom the Tasks workspace uses, so there is no padding
+   to fight and it lines up at every size. */
+/* In-content module header + rule, matching how every other module introduces
+   itself (.dk-head). Column flex so the iframe takes whatever height is left
+   rather than the header pushing it off the bottom. */
+.pdf-editor-module { display: flex; flex-direction: column; }
+.pdf-editor-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex: 0 0 auto;
+  padding: 22px 32px 16px;
+  border-bottom: 1px solid var(--wk-line2);
+  background: var(--wk-card);
+}
+.pdf-editor-head h1 {
+  margin: 0;
+  font-family: var(--wk-font);
+  font-size: 21px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--wk-ink);
+}
+.pdf-editor-head p {
+  margin: 2px 0 0;
+  font-family: var(--wk-font);
+  font-size: 13.5px;
+  color: var(--wk-dim);
+  line-height: 1.5;
+}
+.pdf-editor-head-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  border-radius: 9px;
+  /* equipment/tools read purple-brand in the icon-chip system (DESIGN.md) */
+  background: var(--wk-brand-tint);
+  color: var(--wk-brand);
+}
+@media (max-width: 640px) {
+  .pdf-editor-head { padding: 14px 16px 12px; gap: 11px; }
+  .pdf-editor-head h1 { font-size: 18px; }
+  .pdf-editor-head p { font-size: 12.5px; }
+}
+
+.pdf-editor-module {
+  width: 100%;
+  /* viewport-flush is already `height: calc(100vh - 56px)`; filling it means the
+     module never has to know the header's height itself. */
+  height: 100%;
+  min-height: 0;      /* so it can shrink inside the flex column instead of overflowing */
+  overflow: hidden;
+  /* Behind the iframe while it loads - follow the Nexus theme rather than
+     hardcoding the engine's dark canvas, which flashed dark in light mode. */
+  background: var(--wk-bg);
+}
+[data-theme="dark"] .pdf-editor-module { background: #1e1e2e; }
+/* A document is open → App.jsx hides the top header → take the whole viewport.
+   dvh, not vh: on iOS Safari 100vh exceeds the visible viewport (the dynamic
+   toolbar is excluded), which pushed the editor's own status bar off-screen. */
+.pdf-editor-module.has-doc {
+  height: 100dvh;
+}
+.pdf-editor-module iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+  display: block;
+}
+
+/* ── Egnyte module ───────────────────────────────────────────────────────────
+   Row hover only. Everything else in src/egnyte/ is inline-styled on the --wk-*
+   tokens like the rest of the Work OS surfaces; hover is the one thing inline
+   styles cannot express without re-rendering on every mouse move. */
+.egnyte-row { border-radius: 7px; }
+.egnyte-row:hover { background: var(--wk-hover); }

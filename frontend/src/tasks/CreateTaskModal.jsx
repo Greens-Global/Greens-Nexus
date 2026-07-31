@@ -1,6 +1,6 @@
-// Task Module — create/edit-task modal (ported 1:1 from the export's
+// Task Module - create/edit-task modal (ported 1:1 from the export's
 // CreateTaskModal): Title, Description, Project, Assignee, Priority, Status,
-// Due date, Estimated hours, Recurrence, Labels, Subtasks, Attachments — wired
+// Due date, Estimated hours, Recurrence, Labels, Subtasks, Attachments - wired
 // to the TasksContext (subtasks + attachments created after the parent).
 import { useRef, useState } from 'react';
 import { Plus, X, Paperclip, ListChecks, CircleCheck, Save, Image as ImageIcon, ScanText, Camera, ImagePlus } from 'lucide-react';
@@ -9,7 +9,8 @@ import { useTasks } from './TasksContext';
 import { Modal, PersonSelect, usePeople, DateField, useIsMobile } from './components';
 import { ProjectCreateModal } from './ProjectsView';
 import { CustomFieldInput } from './TaskDetailDrawer';
-import { filesFromPaste } from './lib';
+import { filesFromPaste, teamInProject, fieldsForProject } from './lib';
+import RichDescription from './RichDescription';
 import { NX, FONT, input, btn, STATUS_META, PRIORITY_META, STATUS_ORDER, PRIORITY_ORDER } from './theme';
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -32,7 +33,15 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
     assigneeId: editing ? (editing.assigneeId ?? null) : (defaults.assigneeId ?? myEmail ?? null),
     ownerId: editing ? (editing.ownerId ?? null) : (defaults.ownerId ?? myEmail ?? null),
     priority: editing?.priority ?? defaults.priority ?? 'medium', status: editing?.status ?? defaults.status ?? 'not_started',
-    projectId: editing?.projectId ?? defaults.projectId ?? '', teamId: editing?.teamId ?? defaults.teamId ?? '',
+    projectId: editing?.projectId ?? defaults.projectId ?? '',
+    teamId: editing?.teamId ?? defaults.teamId
+      ?? (() => {
+        // Opened inside a project (or with one defaulted): inherit its team when
+        // that's unambiguous, so the common case needs no extra click.
+        const pid = defaults.projectId || lockedProjectId || '';
+        const own = pid ? (store.teams || []).filter((t) => teamInProject(t, pid)) : [];
+        return own.length === 1 ? own[0].id : '';
+      })(),
     dueOn: editing?.dueOn ?? defaults.dueOn ?? '',
     estimateHrs: editing?.estimateHours ? String(Math.floor(editing.estimateHours)) : '',
     estimateMin: editing?.estimateHours && editing.estimateHours % 1 ? String(Math.round((editing.estimateHours % 1) * 60)) : '',
@@ -55,7 +64,7 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
   const onFiles = (list) => { if (list) setAttachments((prev) => [...prev, ...Array.from(list)]); };
   const onPasteFiles = (e) => { const files = filesFromPaste(e); if (files.length) { e.preventDefault(); onFiles(files); } };
 
-  // Mobile capture shortcuts in the footer — photo / attach / scan, mirroring the
+  // Mobile capture shortcuts in the footer - photo / attach / scan, mirroring the
   // quick-create sheet so the same three actions are one tap away on a phone
   // instead of buried at the bottom of a long scrolling form.
   const isMobile = useIsMobile();
@@ -101,8 +110,26 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
     return send('');
   };
 
+  // Required on CREATE: Task Name, Assignee, Due Date, Project (a locked project
+  // already satisfies the last). Editing is NOT gated - the rule is about what a
+  // new task must carry, and gating Save would strand every older task.
+  const missing = isEdit ? [] : [
+    !form.title.trim() && 'title',
+    !form.assigneeId && 'assignee',
+    !form.dueOn && 'due',
+    !(lockedProjectId || form.projectId) && 'project',
+  ].filter(Boolean);
+  // Only the fields that apply to the chosen project - a field scoped to
+  // another project must not appear, let alone be required here.
+  const activeFields = fieldsForProject(customFields, lockedProjectId || form.projectId);
+  const missingFields = isEdit ? [] : activeFields.filter(
+    (f) => f.required && (form.customFieldValues[f.id] ?? '') === '');
+  const canSubmit = missing.length === 0 && missingFields.length === 0 && !busy;
+  const req = <span style={{ color: NX.red }}>*</span>;
+  const missStyle = (key) => (missing.includes(key) ? { borderColor: NX.red } : null);
+
   const submit = async () => {
-    if (!form.title.trim() || busy) return;
+    if (!canSubmit) return;
     setBusy(true);
     const core = {
       title: form.title.trim(), description: form.description, assigneeId: form.assigneeId || '', ownerId: form.ownerId || '',
@@ -131,7 +158,7 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
   return (
     <Modal title={isEdit ? 'Edit Task' : 'Create a Task'} width={640} onClose={() => onClose(false)} footer={
       <>
-        {/* Phone only — desktop already has the Attachments field in view without
+        {/* Phone only - desktop already has the Attachments field in view without
             scrolling, and a camera/scan shortcut is meaningless with a mouse. */}
         {isMobile && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 2, marginRight: 'auto', position: 'relative' }}>
@@ -146,7 +173,7 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
               <span style={{ fontSize: 12, color: NX.faint, marginLeft: 2 }}>{attachments.length}</span>
             )}
             {photoMenu && (
-              /* Opens upward — the footer is pinned to the bottom of the modal. */
+              /* Opens upward - the footer is pinned to the bottom of the modal. */
               <div style={{ position: 'absolute', bottom: '100%', left: 0, marginBottom: 6, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 10px 28px rgba(0,0,0,0.18)', zIndex: 10, padding: 4, minWidth: 180 }}>
                 <button type="button" onClick={() => { setPhotoMenu(false); camRef.current?.click(); }} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8 }}><Camera size={16} /> Take photo</button>
                 <button type="button" onClick={() => { setPhotoMenu(false); libRef.current?.click(); }} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8 }}><ImagePlus size={16} /> Choose from device</button>
@@ -159,7 +186,8 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
           </div>
         )}
         <button style={btn('ghost')} onClick={() => onClose(false)}>Cancel</button>
-        <button style={{ ...btn('primary'), opacity: busy || !form.title.trim() ? 0.6 : 1 }} onClick={submit} disabled={busy || !form.title.trim()}>
+        <button title={missing.length ? 'Fill in the required fields (marked *)' : undefined}
+          style={{ ...btn('primary'), opacity: !canSubmit ? 0.6 : 1 }} onClick={submit} disabled={!canSubmit}>
           {isEdit ? <><Save size={15} /> Save Changes</> : <><Plus size={15} /> Create Task</>}
         </button>
       </>
@@ -172,18 +200,30 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
         </div>
         <div style={field}>
           <label style={label}>Description</label>
-          <textarea value={form.description} onChange={(e) => set('description', e.target.value)} rows={3} placeholder="Add more detail…" style={{ ...input, resize: 'vertical', fontFamily: FONT }} />
+          {/* No onAttachFile: the task doesn't exist yet, so there's nothing to
+              attach a file TO. The "+" menu still offers inline images (embedded
+              as data URLs), and files can be attached from the task drawer once
+              it's created. */}
+          <RichDescription value={form.description} onChange={(html) => set('description', html)} />
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-          {/* Already scoped to a project (opened from inside one) — no need to
+          {/* Already scoped to a project (opened from inside one) - no need to
               show/change Project or Team here. */}
           {!lockedProjectId && (
             <>
               <div style={field}>
-                <label style={label}>Project</label>
-                <select value={form.projectId} onChange={(e) => { if (e.target.value === '__new') setCreatingProject(true); else setForm((f) => ({ ...f, projectId: e.target.value, teamId: '' })); }} style={sel}>
-                  <option value="">No project</option>
+                <label style={label}>Project {!isEdit && req}</label>
+                <select value={form.projectId} onChange={(e) => {
+                  if (e.target.value === '__new') { setCreatingProject(true); return; }
+                  // Pre-fill Team from the project when there's exactly one
+                  // associated team - with several there's no right answer, so
+                  // it stays blank and the picker below lists them.
+                  const pid = e.target.value;
+                  const own = teams.filter((t) => teamInProject(t, pid));
+                  setForm((f) => ({ ...f, projectId: pid, teamId: own.length === 1 ? own[0].id : '' }));
+                }} style={{ ...sel, ...missStyle('project') }}>
+                  <option value="">{isEdit ? 'No project' : 'Select a project…'}</option>
                   {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                   <option value="__new">＋ Create new project…</option>
                 </select>
@@ -192,18 +232,20 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
                 <label style={label}>Team</label>
                 <select value={form.teamId} onChange={(e) => set('teamId', e.target.value)} disabled={!form.projectId} style={{ ...sel, ...(!form.projectId ? { opacity: 0.6, cursor: 'not-allowed' } : {}) }}>
                   <option value="">{form.projectId ? 'No team' : 'Pick a project first'}</option>
-                  {teams.filter((t) => t.projectId === form.projectId).map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  {teams.filter((t) => teamInProject(t, form.projectId)).map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
                 </select>
               </div>
             </>
           )}
           <div style={field}>
-            <label style={label}>Assignee</label>
-            <PersonSelect value={form.assigneeId} onChange={(v) => set('assigneeId', v)} people={people} />
+            <label style={label}>Assignee {!isEdit && req}</label>
+            <div style={{ borderRadius: 8, ...missStyle('assignee'), ...(missing.includes('assignee') ? { border: `1px solid ${NX.red}` } : {}) }}>
+              <PersonSelect value={form.assigneeId} onChange={(v) => set('assigneeId', v)} people={people} />
+            </div>
           </div>
           <div style={field}>
-            <label style={label}>Due Date</label>
-            <DateField value={form.dueOn} onChange={(v) => set('dueOn', v || '')} placeholder="Pick a date" style={input} />
+            <label style={label}>Due Date {!isEdit && req}</label>
+            <DateField value={form.dueOn} onChange={(v) => set('dueOn', v || '')} placeholder="Pick a date" style={{ ...input, ...missStyle('due') }} />
           </div>
           <div style={field}>
             <label style={label}>Recurrence</label>
@@ -291,13 +333,15 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
           </div>
         </div>
 
-        {customFields.length > 0 && (
+        {activeFields.length > 0 && (
           <div style={field}>
             <label style={label}>Custom Fields</label>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {customFields.map((f) => (
+              {activeFields.map((f) => (
                 <div key={f.id} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span style={{ width: 120, flexShrink: 0, fontSize: 13, color: NX.dim }}>{f.name}</span>
+                  <span style={{ width: 120, flexShrink: 0, fontSize: 13, color: NX.dim }}>
+                    {f.name} {!isEdit && f.required && req}
+                  </span>
                   <CustomFieldInput field={f} value={form.customFieldValues[f.id]} onChange={(v) => set('customFieldValues', { ...form.customFieldValues, [f.id]: v })} />
                 </div>
               ))}
@@ -337,7 +381,7 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
         </div>
       </div>
 
-      {/* Inline "create a project" — the new project is auto-selected for this task. */}
+      {/* Inline "create a project" - the new project is auto-selected for this task. */}
       {creatingProject && <ProjectCreateModal onClose={() => setCreatingProject(false)} onCreated={(p) => set('projectId', p.id)} />}
     </Modal>
   );

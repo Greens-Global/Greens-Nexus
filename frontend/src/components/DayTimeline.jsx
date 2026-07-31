@@ -1,10 +1,11 @@
 import { useState } from 'react';
 
-// ── DayTimeline — a day's punches as a readable work/break bar ────────────────
+// ── DayTimeline - a day's punches as a readable work/break bar ────────────────
 // Auto-zooms to the punched window (not 0–24h), draws hour ticks underneath,
 // and every segment is interactive: hover or click for exact times + duration.
-// Green = working, amber = break, pulsing = still open. Shared by the employee
-// Timesheet and HR → Time.
+// Brand cobalt = working (matches every other worked-time bar in the Work OS
+// kit), amber = break, pulsing = still open. Shared by the employee Timesheet
+// and HR → Time.
 
 export function daySegments(punches) {
   const evs = (punches || []).filter(p => !p.voided)
@@ -43,18 +44,18 @@ export function TimelineLegend() {
   );
   return (
     <span style={{ display: 'inline-flex', gap: 14 }}>
-      {item('var(--pine)', 'Working')}
+      {item('var(--wk-brand)', 'Working')}
       {item('#f59e0b', 'Break')}
-      {item('var(--pine)', 'Still on the clock', true)}
+      {item('var(--wk-brand)', 'Still on the clock', true)}
     </span>
   );
 }
 
 export default function DayTimeline({ punches, height = 24, ticks = true, date = '' }) {
-  const [tip, setTip] = useState(null);   // { x (0-100), text } — hover or pinned by click
+  const [tip, setTip] = useState(null);   // { x (0-100), text } - hover or pinned by click
   const [pinned, setPinned] = useState(false);
   // Open segments run to "now" ONLY on today. On a past day a dangling punch-in
-  // (missing punch-out) is capped at that day's end and labelled as such —
+  // (missing punch-out) is capped at that day's end and labelled as such -
   // otherwise Tuesday's forgotten punch-out reads as "running · 11h" on Wednesday.
   const off = new Date().getTimezoneOffset() * 60000;
   const todayKey = new Date(Date.now() - off).toISOString().slice(0, 10);
@@ -71,7 +72,7 @@ export default function DayTimeline({ punches, height = 24, ticks = true, date =
   const pct = (t) => ((t - min) / span) * 100;
   const live = segs.some(s => s.open);
 
-  // Hour ticks — at most ~7 labels regardless of span.
+  // Hour ticks - at most ~7 labels regardless of span.
   const hours = Math.round(span / HOUR);
   const step = Math.max(1, Math.ceil(hours / 6));
   const tickList = [];
@@ -86,7 +87,7 @@ export default function DayTimeline({ punches, height = 24, ticks = true, date =
     position: 'absolute', left: `${pct(s.a)}%`, width: `${Math.max(0.7, pct(s.b) - pct(s.a))}%`,
     top: 3, bottom: 3, borderRadius: 6, cursor: 'pointer',
     background: s.dangling ? 'repeating-linear-gradient(45deg, #b45309 0 6px, rgba(180,83,9,0.35) 6px 12px)'
-      : isBreak ? '#f59e0b' : 'var(--pine)',
+      : isBreak ? '#f59e0b' : 'var(--wk-brand)',
     opacity: isBreak || s.dangling ? 1 : 0.92,
     animation: s.open && !s.dangling ? 'pulse 2s ease-in-out infinite' : 'none',
     transition: 'filter 0.1s',
@@ -123,8 +124,8 @@ export default function DayTimeline({ punches, height = 24, ticks = true, date =
               <div style={{ position: 'absolute', left: `${x}%`, top: -2, bottom: -2, width: 2, borderRadius: 1,
                 background: 'var(--ink)', opacity: 0.55, pointerEvents: 'none' }} />
               <span style={{ position: 'absolute', left: `${x}%`, bottom: '100%',
-                transform: `translate(${x > 88 ? '-100%' : '-50%'}, -1px)`, fontSize: 8.5, fontWeight: 800,
-                color: 'var(--muted)', letterSpacing: '.05em', pointerEvents: 'none' }}>NOW</span>
+                transform: `translate(${x > 88 ? '-100%' : '-50%'}, -1px)`, fontSize: 9, fontWeight: 700,
+                color: 'var(--muted)', pointerEvents: 'none' }}>Now</span>
             </>
           );
         })()}

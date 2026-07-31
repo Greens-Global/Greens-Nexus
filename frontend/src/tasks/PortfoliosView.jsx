@@ -1,4 +1,4 @@
-// Task Module — Portfolios. Grid of portfolio cards with a task rollup, plus a
+// Task Module - Portfolios. Grid of portfolio cards with a task rollup, plus a
 // per-portfolio detail view (member projects + add/remove/reorder). Ported from
 // the export's PortfoliosPage/PortfolioDetailPage into Nexus inline-style idiom.
 import { useMemo, useState } from 'react';
@@ -15,7 +15,7 @@ import { Avatar, EmptyState, Modal, usePeople, PersonSelect, useIsMobile, Mobile
 function ProgressBar({ pct, color, height = 8 }) {
   return (
     <div style={{ flex: 1, height, borderRadius: 999, background: NX.border2, overflow: 'hidden' }}>
-      <div style={{ height: '100%', width: `${pct}%`, borderRadius: 999, background: color, transition: 'width 0.2s' }} />
+      <div style={{ height: '100%', width: `${pct}%`, borderRadius: 999, background: color }} />
     </div>
   );
 }
@@ -33,7 +33,7 @@ export default function PortfoliosView({ onNavigate }) {
   const [expandedIds, setExpandedIds] = useState(() => new Set());
   const toggleExpanded = (id) => setExpandedIds((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
-  // Top-level, non-section tasks only — matches the workspace's rollup basis.
+  // Top-level, non-section tasks only - matches the workspace's rollup basis.
   const topTasks = useMemo(() => topLevel(tasks), [tasks]);
   const rollup = (projectIds = []) => taskStats(topTasks.filter((t) => t.projectId && projectIds.includes(t.projectId)));
 
@@ -58,7 +58,7 @@ export default function PortfoliosView({ onNavigate }) {
 
   return (
     <div style={{ fontFamily: FONT, color: NX.ink, height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-      {/* Header — title left, New Portfolio top-right, full-width search below */}
+      {/* Header - title left, New Portfolio top-right, full-width search below */}
       <div style={{ padding: isMobile ? '12px 12px 10px' : '20px 24px 16px', borderBottom: `1px solid ${NX.border}`, background: NX.surface }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
           <div>
@@ -67,7 +67,7 @@ export default function PortfoliosView({ onNavigate }) {
           </div>
           {!isMobile && <button style={{ ...btn('primary'), padding: '10px 18px', fontSize: 13.5, borderRadius: 10 }} onClick={() => setEditing({})}><Plus size={16} />New Portfolio</button>}
         </div>
-        {/* Search · Show archived — one line on mobile */}
+        {/* Search · Show archived - one line on mobile */}
         <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 14, marginTop: isMobile ? 10 : 16, flexWrap: isMobile ? 'nowrap' : 'wrap' }}>
           <div style={{ position: 'relative', flex: '1 1 260px', minWidth: 0, maxWidth: isMobile ? 'none' : 420 }}>
             <Search size={16} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: NX.faint }} />
@@ -81,7 +81,7 @@ export default function PortfoliosView({ onNavigate }) {
         </div>
       </div>
 
-      {/* Body — table with expandable rows (Portfolio | Tasks | Progress | Projects) */}
+      {/* Body - table with expandable rows (Portfolio | Tasks | Progress | Projects) */}
       <div className="nx-scroll nx-gutter" style={{ flex: 1, minHeight: 0, overflow: 'auto', background: NX.canvas, padding: 16 }}>
         {visible.length === 0 ? (
           <EmptyState icon={Briefcase} title="No Portfolios Yet" hint="Group projects into a portfolio to track their combined progress." />
@@ -89,7 +89,7 @@ export default function PortfoliosView({ onNavigate }) {
           <div style={{ border: `1px solid ${NX.border}`, borderRadius: 12, background: NX.surface, overflow: 'hidden' }}>
             <div className="nx-scroll" style={{ overflowX: 'auto' }}>
               <div style={{ minWidth: 900 }}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,2fr) 90px 200px minmax(0,2fr) 76px', alignItems: 'center', gap: 12, padding: '9px 16px', borderBottom: `1px solid ${NX.border}`, background: NX.surface2, fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.3, color: NX.faint }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,2fr) 90px 200px minmax(0,2fr) 76px', alignItems: 'center', gap: 12, padding: '9px 16px', borderBottom: `1px solid ${NX.border}`, background: NX.surface2, fontSize: 12.5, fontWeight: 600, color: NX.dim }}>
                   <span>Portfolio</span><span>Tasks</span><span>Progress</span><span>Projects</span><span />
                 </div>
                 {visible.map((pf) => {
@@ -245,7 +245,7 @@ function PortfolioModal({ portfolio, people, projects, onClose, onCreate, onUpda
         <div>
           <label style={label}>Projects</label>
           {projects.length === 0 ? (
-            <div style={{ fontSize: 12.5, color: NX.faint }}>No projects yet — create one first, then add it here.</div>
+            <div style={{ fontSize: 12.5, color: NX.faint }}>No projects yet - create one first, then add it here.</div>
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, maxHeight: 220, overflowY: 'auto', border: `1px solid ${NX.border2}`, borderRadius: 8, padding: 8 }}>
               {projects.map((p) => (

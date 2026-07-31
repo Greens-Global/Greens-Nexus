@@ -15,7 +15,7 @@ const TABS = [
 ]
 
 // Google's Business Profile is the only listing with all three surfaces in
-// this mock universe. Facebook/Instagram are organic content platforms only —
+// this mock universe. Facebook/Instagram are organic content platforms only -
 // no photo gallery or public Q&A management, just Posts.
 const TABS_BY_PLATFORM = {
   google: ['posts', 'photos', 'qna'],
@@ -71,7 +71,7 @@ export default function GbpContentSection({
     if (property === ALL_PROPERTIES) return null
     const days = daysSinceLastPhoto(allPhotos, property)
     if (days === null) return `No photos added yet for ${property}.`
-    if (days >= STALE_PHOTO_THRESHOLD_DAYS) return `Last photo added ${days} days ago — consider refreshing this gallery.`
+    if (days >= STALE_PHOTO_THRESHOLD_DAYS) return `Last photo added ${days} days ago - consider refreshing this gallery.`
     return null
   })()
 

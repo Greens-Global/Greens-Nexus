@@ -1,7 +1,7 @@
 import { useState, useEffect, lazy } from 'react';
 import { useMsal } from '@azure/msal-react';
 import {
-  ArrowRight, ListTodo, Package, ShieldCheck, Bell, Clock, StickyNote,
+  ArrowRight, ArrowUpRight, BookOpen, CheckSquare, ChevronRight, ListTodo, Package, ShieldCheck, Bell, Clock, StickyNote,
   BarChart3, Layers, Zap, Users, ClipboardCheck, CalendarClock, ExternalLink, Boxes, X,
   ClipboardList, HandCoins, TrendingUp, Building2, FolderKanban, CalendarDays, Timer,
   CheckCheck, Trash2,
@@ -30,17 +30,17 @@ const CA = (name, a = 0.12) => `hsla(var(--color-${name}),${a})`;
 
 // Every KPI the /dashboards/kpis endpoint can return, with how to present it.
 export const KPI_CATALOG = {
-  open_tasks:           { label: 'Open Tasks',              color: 'blue',   Icon: ListTodo,      hint: 'Across your team',     nav: { view: 'tasks' } },
-  my_open_tasks:        { label: 'My Open Tasks',           color: 'blue',   Icon: ListTodo,      hint: 'Assigned to you',      nav: { view: 'tasks' } },
-  pending_requisitions: { label: 'Requisitions to Approve', color: 'orange', Icon: ClipboardCheck, hint: 'Awaiting approval',   nav: { view: 'manager-dashboard' } },
-  pending_inventory:    { label: 'Inventory Requests',      color: 'orange', Icon: Package,       hint: 'Awaiting approval',    nav: { view: 'manager-dashboard' } },
-  open_purchases:       { label: 'Open Purchases',          color: 'purple', Icon: Package,       hint: 'In progress',          nav: { view: 'purchase' } },
-  my_checkouts:         { label: 'My Active Checkouts',     color: 'green',  Icon: Boxes,         hint: 'Currently with you',   nav: { view: 'inventory', sub: 'checkouts' } },
-  my_assignments:       { label: 'Items Assigned to Me',    color: 'green',  Icon: Package,       hint: 'Your equipment',       nav: { view: 'inventory' } },
-  unread_notifications: { label: 'Unread Notifications',    color: 'blue',   Icon: Bell,          hint: 'Tap to review' },
-  warranties_expiring:  { label: 'Warranties Expiring',     color: 'red',    Icon: ShieldCheck,   hint: 'Within 60 days',       nav: { view: 'property-asset' } },
-  clocked_in_now:       { label: 'Clocked In Now',          color: 'green',  Icon: Users,         hint: 'On the clock now',     nav: { view: 'manager-dashboard' } },
-  time_off_pending:     { label: 'Time Off to Review',      color: 'orange', Icon: CalendarClock, hint: 'Awaiting your review',  nav: { view: 'manager-dashboard' } },
+  open_tasks:           { label: 'Open tasks',              color: 'blue',   Icon: ListTodo,      hint: 'Across your team',     nav: { view: 'tasks' } },
+  my_open_tasks:        { label: 'My open tasks',           color: 'blue',   Icon: ListTodo,      hint: 'Assigned to you',      nav: { view: 'tasks' } },
+  pending_requisitions: { label: 'Requisitions to approve', color: 'orange', Icon: ClipboardCheck, hint: 'Awaiting approval',   nav: { view: 'manager-dashboard' } },
+  pending_inventory:    { label: 'Inventory requests',      color: 'orange', Icon: Package,       hint: 'Awaiting approval',    nav: { view: 'manager-dashboard' } },
+  open_purchases:       { label: 'Open purchases',          color: 'purple', Icon: Package,       hint: 'In progress',          nav: { view: 'purchase' } },
+  my_checkouts:         { label: 'My active checkouts',     color: 'green',  Icon: Boxes,         hint: 'Currently with you',   nav: { view: 'inventory', sub: 'checkouts' } },
+  my_assignments:       { label: 'Items assigned to me',    color: 'green',  Icon: Package,       hint: 'Your equipment',       nav: { view: 'inventory' } },
+  unread_notifications: { label: 'Unread notifications',    color: 'blue',   Icon: Bell,          hint: 'Tap to review' },
+  warranties_expiring:  { label: 'Warranties expiring',     color: 'red',    Icon: ShieldCheck,   hint: 'Within 60 days',       nav: { view: 'property-asset' } },
+  clocked_in_now:       { label: 'Clocked in now',          color: 'green',  Icon: Users,         hint: 'On the clock now',     nav: { view: 'manager-dashboard' } },
+  time_off_pending:     { label: 'Time off to review',      color: 'orange', Icon: CalendarClock, hint: 'Awaiting your review',  nav: { view: 'manager-dashboard' } },
 };
 
 // Curated shortcut destinations for the picker (module + optional sub-screen).
@@ -86,23 +86,22 @@ function DashCard({ title, sub, action, children, onClick, style }) {
   );
 }
 
+// Stat tile - the DeskHome dk-stat anatomy (tinted icon chip top-left, hover
+// arrow top-right, big tabular numeral) so Home and the custom grid read as
+// ONE design world. The old corner watercolor blob is gone on purpose.
 function StatCard({ label, value, color, Icon, nav, hint }) {
   const go = () => nav && navigate(nav.view, nav.sub);
   const I = Icon || BarChart3;
   return (
-    <div className="kpi-card kpi-hover" onClick={nav ? go : undefined}
-      style={{ height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', cursor: nav ? 'pointer' : 'default', position: 'relative', overflow: 'hidden' }}>
-      {/* soft corner accent for depth */}
-      <div style={{ position: 'absolute', top: -34, right: -34, width: 120, height: 120, borderRadius: '50%', background: CA(color, 0.09), pointerEvents: 'none' }} />
-      <div className="kpi-card-header" style={{ marginBottom: 0, position: 'relative' }}>
-        <span className="kpi-label">{label}</span>
-        <div className="kpi-icon-container" style={{ width: 38, height: 38, borderRadius: 11, background: CA(color, 0.15), color: C(color) }}><I size={18} /></div>
-      </div>
-      <div className="kpi-value" style={{ fontSize: 36, lineHeight: 1, margin: '16px 0 6px', position: 'relative' }}>{value}</div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 7, position: 'relative' }}>
-        {hint && <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 500 }}>{hint}</span>}
-        {nav && <span style={{ fontSize: 12, color: C(color), fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 3 }}>Open <ArrowRight size={12} /></span>}
-      </div>
+    <div className="dk-stat" onClick={nav ? go : undefined} role={nav ? 'button' : undefined}
+      style={{ height: '100%', boxSizing: 'border-box', cursor: nav ? 'pointer' : 'default', justifyContent: 'center' }}>
+      <span className="dk-stat-top">
+        <span className={`dk-chip dk-chip--${color}`}><I /></span>
+        {nav && <ArrowUpRight size={15} className="dk-stat-arrow" />}
+      </span>
+      <span className="dk-stat-num">{value}</span>
+      <span className="dk-stat-label">{label}</span>
+      {hint && <span className="dk-stat-sub">{hint}</span>}
     </div>
   );
 }
@@ -124,16 +123,16 @@ function KpiBarWidget({ config, kpis }) {
   const rows = metrics.map(m => ({ m, v: kpis?.[m] ?? 0, meta: KPI_CATALOG[m] || { label: m, color: 'blue' } }));
   const max = Math.max(1, ...rows.map(r => r.v));
   return (
-    <DashCard title="At a Glance">
+    <DashCard title="At a glance">
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12, height: '100%', justifyContent: 'center' }}>
         {rows.map(r => (
           <div key={r.m} onClick={() => r.meta.nav && navigate(r.meta.nav.view, r.meta.nav.sub)} style={{ cursor: r.meta.nav ? 'pointer' : 'default' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, marginBottom: 4 }}>
-              <span style={{ color: 'var(--muted)' }}>{r.meta.label}</span>
-              <strong>{r.v}</strong>
+              <span style={{ color: 'var(--muted)', fontWeight: 600 }}>{r.meta.label}</span>
+              <strong style={{ fontVariantNumeric: 'tabular-nums' }}>{r.v}</strong>
             </div>
-            <div style={{ height: 6, background: 'var(--mist)', borderRadius: 3, overflow: 'hidden' }}>
-              <div style={{ width: `${(r.v / max) * 100}%`, height: '100%', background: C(r.meta.color), borderRadius: 3, transition: 'width 0.4s' }} />
+            <div style={{ height: 7, background: 'var(--mist)', borderRadius: 99, overflow: 'hidden' }}>
+              <div style={{ width: `${(r.v / max) * 100}%`, height: '100%', background: C(r.meta.color), borderRadius: 99 }} />
             </div>
           </div>
         ))}
@@ -160,7 +159,7 @@ function ShortcutWidget({ config }) {
 function LinkRow({ t, onClick }) {
   return (
     <button onClick={onClick} className="dash-link-row"
-      style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '9px 8px', border: 'none', background: 'none', borderRadius: 8, cursor: 'pointer', textAlign: 'left', fontSize: 13.5, color: 'var(--ink)', fontFamily: 'Inter,sans-serif', width: '100%' }}
+      style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '9px 8px', border: 'none', background: 'none', borderRadius: 8, cursor: 'pointer', textAlign: 'left', fontSize: 13.5, color: 'var(--ink)', fontFamily: 'var(--wk-font)', width: '100%' }}
       onMouseEnter={e => e.currentTarget.style.background = 'var(--mist)'}
       onMouseLeave={e => e.currentTarget.style.background = 'none'}>
       <ArrowRight size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} /> {labelFor(t)}
@@ -171,7 +170,7 @@ function LinkRow({ t, onClick }) {
 function LinksWidget({ config }) {
   const items = config?.items?.length ? config.items : SHORTCUT_TARGETS.slice(0, 6);
   return (
-    <DashCard title={config?.title || 'Quick Links'}>
+    <DashCard title={config?.title || 'Quick links'}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
         {items.map((t, i) => <LinkRow key={i} t={t} onClick={() => navigate(t.view, t.sub)} />)}
       </div>
@@ -180,20 +179,20 @@ function LinksWidget({ config }) {
 }
 
 const ACTIONS = [
-  { label: 'Request an Item', view: 'inventory', sub: 'catalog', color: 'blue' },
-  { label: 'New Task',        view: 'tasks',                    color: 'green' },
-  { label: 'Time Clock',      view: 'timeclock',                color: 'orange' },
-  { label: 'Knowledge Base',  view: 'sop',                      color: 'purple' },
+  { label: 'Request an item', view: 'inventory', sub: 'catalog', color: 'orange', Icon: Package },
+  { label: 'New task',        view: 'tasks',                    color: 'blue',   Icon: CheckSquare },
+  { label: 'Time clock',      view: 'timeclock',                color: 'green',  Icon: Clock },
+  { label: 'Knowledge base',  view: 'sop',                      color: 'brand',  Icon: BookOpen },
 ];
 function QuickActionsWidget() {
+  // Same row anatomy as DeskHome's quick actions - icon chip, label, chevron.
   return (
-    <DashCard title="Quick Actions">
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, height: '100%' }}>
+    <DashCard title="Quick actions">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, height: '100%', justifyContent: 'center' }}>
         {ACTIONS.map(a => (
-          <button key={a.label} onClick={() => navigate(a.view, a.sub)}
-            style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', justifyContent: 'center', gap: 6, padding: 14, border: '1px solid var(--line)', borderRadius: 12, background: CA(a.color, 0.06), cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
-            <div style={{ width: 30, height: 30, borderRadius: 9, background: CA(a.color), color: C(a.color), display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Zap size={15} /></div>
-            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>{a.label}</span>
+          <button key={a.label} className="dk-key" onClick={() => navigate(a.view, a.sub)}>
+            <span className={`dk-chip dk-chip--${a.color}`}><a.Icon /></span> {a.label}
+            <ChevronRight size={14} className="dk-key-arrow" />
           </button>
         ))}
       </div>
@@ -201,7 +200,7 @@ function QuickActionsWidget() {
   );
 }
 
-// Rough importance ranking by notification type — mirrors the color coding
+// Rough importance ranking by notification type - mirrors the color coding
 // used elsewhere (red = needs attention now, orange = action needed, blue =
 // informational, green = resolved/FYI). Unknown types default to "informational"
 // rather than sinking to the bottom, since new types show up before this map does.
@@ -216,7 +215,7 @@ const NOTIF_IMPORTANCE = {
 const importanceOf = (n) => NOTIF_IMPORTANCE[n.type] ?? 1;
 
 function NotificationsWidget({ notifications, markRead, markAllRead, dismiss, clearAll }) {
-  // Unread first, then most-important type, then most recent — so the thing
+  // Unread first, then most-important type, then most recent - so the thing
   // that most needs your attention is always at the top of the list.
   const sorted = [...(notifications || [])].sort((a, b) => {
     if (!!a.read !== !!b.read) return a.read ? 1 : -1;
@@ -232,12 +231,12 @@ function NotificationsWidget({ notifications, markRead, markAllRead, dismiss, cl
         <span style={{ display: 'inline-flex', gap: 12 }}>
           {unread > 0 && markAllRead && (
             <button onClick={markAllRead} className="link-btn" style={{ marginTop: 0 }}>
-              <CheckCheck size={13} /> Mark All Read
+              <CheckCheck size={13} /> Mark all read
             </button>
           )}
           {clearAll && (
             <button onClick={clearAll} className="link-btn" style={{ marginTop: 0, color: 'hsl(var(--color-red))' }}>
-              <Trash2 size={13} /> Clear All
+              <Trash2 size={13} /> Clear all
             </button>
           )}
         </span>
@@ -281,7 +280,7 @@ function NotesWidget({ config, updateConfig }) {
     <DashCard title="Notes" action={<StickyNote size={15} style={{ color: C('orange') }} />}>
       <textarea value={text} onChange={e => setText(e.target.value)} onBlur={() => updateConfig({ text })}
         placeholder="Jot something down…"
-        style={{ width: '100%', height: '100%', minHeight: 60, resize: 'none', border: 'none', background: 'transparent', outline: 'none', fontFamily: 'Inter,sans-serif', fontSize: 13.5, color: 'var(--ink)', lineHeight: 1.6 }} />
+        style={{ width: '100%', height: '100%', minHeight: 60, resize: 'none', border: 'none', background: 'transparent', outline: 'none', fontFamily: 'var(--wk-font)', fontSize: 13.5, color: 'var(--ink)', lineHeight: 1.6 }} />
     </DashCard>
   );
 }
@@ -291,7 +290,7 @@ function ClockWidget() {
   const [now, setNow] = useState(new Date());
   useEffect(() => { const t = setInterval(() => setNow(new Date()), 1000 * 20); return () => clearInterval(t); }, []);
   const hh = now.getHours();
-  const greetWord = hh < 12 ? 'Good Morning' : hh < 17 ? 'Good Afternoon' : 'Good Evening';
+  const greetWord = hh < 12 ? 'Good morning' : hh < 17 ? 'Good afternoon' : 'Good evening';
   const displayName = accounts[0]?.name ?? accounts[0]?.username ?? '';
   const firstName = displayName.split(' ')[0];
   const greet = firstName ? `${greetWord}, ${firstName}` : greetWord;
@@ -303,39 +302,39 @@ function ClockWidget() {
         {now.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
       </div>
       <div style={{ fontSize: 13, color: 'var(--muted)' }}>{now.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}</div>
-      <div className="kpi-delta" style={{ color: C('blue'), fontWeight: 600, marginTop: 8 }}><Clock size={12} /> Open Time Clock <ArrowRight size={12} /></div>
+      <div className="kpi-delta" style={{ color: 'var(--wk-brand)', fontWeight: 600, marginTop: 8 }}><Clock size={12} /> Open time clock <ArrowRight size={12} /></div>
     </div>
   );
 }
 
 // ── Registry ──────────────────────────────────────────────────────────────────
 // target: undefined = both dashboards; minRole gates the gallery.
-// limits bound how far each widget can be resized — enforced during drag AND
+// limits bound how far each widget can be resized - enforced during drag AND
 // re-applied to saved layouts on load, so a stat tile can never balloon.
 const STAT_LIMITS = { minW: 2, minH: 2, maxW: 4, maxH: 3 };
 export const WIDGETS = {
-  kpi:           { title: 'KPI Stat',        cat: 'Metrics',   icon: BarChart3,    size: { w: 3, h: 2 }, limits: STAT_LIMITS, render: KpiWidget,          configurable: 'kpi' },
-  'kpi-bar':     { title: 'KPI Bar Chart',   cat: 'Metrics',   icon: BarChart3,    size: { w: 4, h: 3 }, limits: { minW: 3, minH: 3, maxW: 6, maxH: 5 }, render: KpiBarWidget },
-  shortcut:      { title: 'Shortcut Tile',   cat: 'Navigation', icon: Layers,      size: { w: 3, h: 2 }, limits: STAT_LIMITS, render: ShortcutWidget,     configurable: 'shortcut' },
-  links:         { title: 'Quick Links',     cat: 'Navigation', icon: ExternalLink, size: { w: 3, h: 4 }, limits: { minW: 2, minH: 3, maxW: 4, maxH: 6 }, render: LinksWidget },
-  'quick-actions': { title: 'Quick Actions', cat: 'Navigation', icon: Zap,         size: { w: 3, h: 3 }, limits: { minW: 3, minH: 2, maxW: 6, maxH: 4 }, render: QuickActionsWidget },
+  kpi:           { title: 'KPI stat',        cat: 'Metrics',   icon: BarChart3,    size: { w: 3, h: 2 }, limits: STAT_LIMITS, render: KpiWidget,          configurable: 'kpi' },
+  'kpi-bar':     { title: 'KPI bar chart',   cat: 'Metrics',   icon: BarChart3,    size: { w: 4, h: 3 }, limits: { minW: 3, minH: 3, maxW: 6, maxH: 5 }, render: KpiBarWidget },
+  shortcut:      { title: 'Shortcut tile',   cat: 'Navigation', icon: Layers,      size: { w: 3, h: 2 }, limits: STAT_LIMITS, render: ShortcutWidget,     configurable: 'shortcut' },
+  links:         { title: 'Quick links',     cat: 'Navigation', icon: ExternalLink, size: { w: 3, h: 4 }, limits: { minW: 2, minH: 3, maxW: 4, maxH: 6 }, render: LinksWidget },
+  'quick-actions': { title: 'Quick actions', cat: 'Navigation', icon: Zap,         size: { w: 3, h: 3 }, limits: { minW: 3, minH: 2, maxW: 6, maxH: 4 }, render: QuickActionsWidget },
   notifications: { title: 'Notifications',   cat: 'Live',      icon: Bell,         size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 6 }, render: NotificationsWidget },
-  clock:         { title: 'Clock & Greeting', cat: 'Utility',  icon: Clock,        size: { w: 3, h: 3 }, limits: { minW: 2, minH: 2, maxW: 4, maxH: 4 }, render: ClockWidget },
+  clock:         { title: 'Clock & greeting', cat: 'Utility',  icon: Clock,        size: { w: 3, h: 3 }, limits: { minW: 2, minH: 2, maxW: 4, maxH: 4 }, render: ClockWidget },
   notes:         { title: 'Notes',           cat: 'Utility',   icon: StickyNote,   size: { w: 3, h: 3 }, limits: { minW: 2, minH: 2, maxW: 6, maxH: 6 }, render: NotesWidget },
-  'team-attendance': { title: 'Team Clocked-In', cat: 'Team',  icon: Users,        size: { w: 3, h: 2 }, limits: STAT_LIMITS, render: (p) => <TeamStatWidget {...p} config={{ metric: 'clocked_in_now' }} />, minRole: 'supervisor' },
-  'team-approvals':  { title: 'Team Approvals',  cat: 'Team',  icon: ClipboardCheck, size: { w: 3, h: 2 }, limits: STAT_LIMITS, render: (p) => <TeamStatWidget {...p} config={{ metric: 'pending_requisitions' }} />, minRole: 'manager' },
-  'time-off':        { title: 'Time Off to Review', cat: 'Team', icon: CalendarClock, size: { w: 3, h: 2 }, limits: STAT_LIMITS, render: (p) => <TeamStatWidget {...p} config={{ metric: 'time_off_pending' }} />, minRole: 'manager' },
+  'team-attendance': { title: 'Team clocked-in', cat: 'Team',  icon: Users,        size: { w: 3, h: 2 }, limits: STAT_LIMITS, render: (p) => <TeamStatWidget {...p} config={{ metric: 'clocked_in_now' }} />, minRole: 'supervisor' },
+  'team-approvals':  { title: 'Team approvals',  cat: 'Team',  icon: ClipboardCheck, size: { w: 3, h: 2 }, limits: STAT_LIMITS, render: (p) => <TeamStatWidget {...p} config={{ metric: 'pending_requisitions' }} />, minRole: 'manager' },
+  'time-off':        { title: 'Time off to review', cat: 'Team', icon: CalendarClock, size: { w: 3, h: 2 }, limits: STAT_LIMITS, render: (p) => <TeamStatWidget {...p} config={{ metric: 'time_off_pending' }} />, minRole: 'manager' },
 
   // ── Panels ported from the old Overview / Team Analytics screens ──
-  approvals:       { title: 'Pending Approvals',  cat: 'Team',      icon: ClipboardList, size: { w: 8, h: 5 }, limits: { minW: 6, minH: 4, maxW: 12, maxH: 8 }, render: ApprovalsPanel,    minRole: 'manager' },
-  'who-has-what':  { title: 'Who Has What',       cat: 'Team',      icon: HandCoins,     size: { w: 8, h: 5 }, limits: { minW: 5, minH: 4, maxW: 12, maxH: 8 }, render: WhoHasWhatPanel,   minRole: 'supervisor' },
-  'team-time':     { title: 'Team Time',          cat: 'Team',      icon: Timer,         size: { w: 12, h: 6 }, limits: { minW: 8, minH: 5, maxW: 12, maxH: 8 }, render: TeamTimePanel,     minRole: 'manager' },
-  'team-workload': { title: 'Workload by Employee', cat: 'Team',    icon: Users,         size: { w: 6, h: 5 }, limits: { minW: 4, minH: 4, maxW: 8, maxH: 8 },  render: WorkloadPanel,     minRole: 'supervisor' },
-  'team-projects': { title: 'Project-wise Tasks', cat: 'Team',      icon: FolderKanban,  size: { w: 6, h: 4 }, limits: { minW: 4, minH: 3, maxW: 8, maxH: 7 },  render: ProjectsPanel,     minRole: 'supervisor' },
-  'team-calendar': { title: 'Team Calendar',      cat: 'Team',      icon: CalendarDays,  size: { w: 6, h: 3 }, limits: { minW: 4, minH: 3, maxW: 12, maxH: 5 }, render: TeamCalendarPanel, minRole: 'supervisor' },
-  occupancy:       { title: 'Occupancy Trend',    cat: 'Portfolio', icon: TrendingUp,    size: { w: 6, h: 4 }, limits: { minW: 4, minH: 3, maxW: 9, maxH: 6 },  render: OccupancyPanel },
+  approvals:       { title: 'Pending approvals',  cat: 'Team',      icon: ClipboardList, size: { w: 8, h: 5 }, limits: { minW: 6, minH: 4, maxW: 12, maxH: 8 }, render: ApprovalsPanel,    minRole: 'manager' },
+  'who-has-what':  { title: 'Who has what',       cat: 'Team',      icon: HandCoins,     size: { w: 8, h: 5 }, limits: { minW: 5, minH: 4, maxW: 12, maxH: 8 }, render: WhoHasWhatPanel,   minRole: 'supervisor' },
+  'team-time':     { title: 'Team time',          cat: 'Team',      icon: Timer,         size: { w: 12, h: 6 }, limits: { minW: 8, minH: 5, maxW: 12, maxH: 8 }, render: TeamTimePanel,     minRole: 'manager' },
+  'team-workload': { title: 'Workload by employee', cat: 'Team',    icon: Users,         size: { w: 6, h: 5 }, limits: { minW: 4, minH: 4, maxW: 8, maxH: 8 },  render: WorkloadPanel,     minRole: 'supervisor' },
+  'team-projects': { title: 'Project-wise tasks', cat: 'Team',      icon: FolderKanban,  size: { w: 6, h: 4 }, limits: { minW: 4, minH: 3, maxW: 8, maxH: 7 },  render: ProjectsPanel,     minRole: 'supervisor' },
+  'team-calendar': { title: 'Team calendar',      cat: 'Team',      icon: CalendarDays,  size: { w: 6, h: 3 }, limits: { minW: 4, minH: 3, maxW: 12, maxH: 5 }, render: TeamCalendarPanel, minRole: 'supervisor' },
+  occupancy:       { title: 'Occupancy trend',    cat: 'Portfolio', icon: TrendingUp,    size: { w: 6, h: 4 }, limits: { minW: 4, minH: 3, maxW: 9, maxH: 6 },  render: OccupancyPanel },
   facilities:      { title: 'Facilities',         cat: 'Portfolio', icon: Building2,     size: { w: 6, h: 4 }, limits: { minW: 4, minH: 3, maxW: 12, maxH: 7 }, render: FacilitiesPanel },
-  'tasks-list':    { title: 'Tasks Overview',     cat: 'Portfolio', icon: ListTodo,      size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 6, maxH: 6 },  render: TasksPanel },
+  'tasks-list':    { title: 'Tasks overview',     cat: 'Portfolio', icon: ListTodo,      size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 6, maxH: 6 },  render: TasksPanel },
 };
 
 // Clamp a layout item to its widget's limits (also keeps it inside the 12-col grid).

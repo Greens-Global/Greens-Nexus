@@ -15,7 +15,7 @@ function daysLabel(csv) {
   const set = new Set((csv || '').split(',').filter(Boolean));
   const on = DAYS.filter(([n]) => set.has(n)).map(([, l]) => l);
   if (on.length === 5 && !set.has('6') && !set.has('7')) return 'Mon–Fri';
-  return on.join(', ') || '—';
+  return on.join(', ') || '-';
 }
 
 export default function ShiftsPanel({ people = [], toastOk, toastErr }) {
@@ -50,7 +50,7 @@ export default function ShiftsPanel({ people = [], toastOk, toastErr }) {
     const p = people.find(e => (e.workEmail || e.work_email || e.email) === email);
     return p ? (p.name || `${p.firstName || p.first_name || ''} ${p.lastName || p.last_name || ''}`.trim() || email) : email;
   };
-  const shiftName = (id) => (shifts || []).find(s => s.id === id)?.name || '—';
+  const shiftName = (id) => (shifts || []).find(s => s.id === id)?.name || '-';
 
   async function saveShift() {
     if (!form.name.trim()) { toastErr('Name the shift.'); return; }
@@ -94,15 +94,15 @@ export default function ShiftsPanel({ people = [], toastOk, toastErr }) {
   }
 
   const emailOf = (p) => p.workEmail || p.work_email || p.email;
-  const chip = (active) => ({ padding: '4px 10px', borderRadius: 8, border: `1px solid ${active ? 'var(--pine)' : 'var(--line)'}`, background: active ? 'hsla(var(--color-green),0.08)' : 'var(--card)', color: active ? 'hsl(var(--color-green))' : 'var(--muted)', fontSize: 12, fontWeight: active ? 700 : 500, cursor: 'pointer', fontFamily: 'Inter,sans-serif' });
+  const chip = (active) => ({ padding: '4px 10px', borderRadius: 999, border: `1px solid ${active ? 'transparent' : 'var(--wk-line2)'}`, background: active ? 'var(--wk-brand-tint)' : 'var(--card)', color: active ? 'var(--wk-brand)' : 'var(--muted)', fontSize: 12, fontWeight: active ? 700 : 500, cursor: 'pointer', fontFamily: 'var(--wk-font)' });
 
   return (
     <div style={{ fontFamily: 'Inter,sans-serif', display: 'grid', gap: 20 }}>
       {/* Shifts */}
       <div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-          <Clock size={15} style={{ color: 'var(--pine)' }} />
-          <span style={{ fontSize: 13.5, fontWeight: 800 }}>Shifts</span>
+          <span className="wkc-chip"><Clock size={14} /></span>
+          <span style={{ fontSize: 13.5, fontWeight: 600 }}>Shifts</span>
           <div style={{ flex: 1 }} />
           <button className="secondary-btn" onClick={() => setForm({ ...BLANK })} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
             <Plus size={12} /> New shift
@@ -131,8 +131,8 @@ export default function ShiftsPanel({ people = [], toastOk, toastErr }) {
       {/* Groups */}
       <div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-          <Users size={15} style={{ color: 'var(--pine)' }} />
-          <span style={{ fontSize: 13.5, fontWeight: 800 }}>Groups</span>
+          <span className="wkc-chip"><Users size={14} /></span>
+          <span style={{ fontSize: 13.5, fontWeight: 600 }}>Groups</span>
           <div style={{ flex: 1 }} />
           <button className="secondary-btn" onClick={() => { setChatList(null); setGroupForm({ name: '', members: [], teamsChatId: '', teamsChatName: '' }); }} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
             <Plus size={12} /> New group
@@ -152,7 +152,7 @@ export default function ShiftsPanel({ people = [], toastOk, toastErr }) {
                 {g.members.length} member{g.members.length === 1 ? '' : 's'}
                 {g.members.length > 0 && ` · ${g.members.slice(0, 2).map(nameOf).join(', ')}${g.members.length > 2 ? '…' : ''}`}
               </div>
-              <div style={{ fontSize: 11.5, marginTop: 6, display: 'inline-flex', alignItems: 'center', gap: 5, color: g.chatId ? 'var(--pine)' : 'var(--muted)' }}>
+              <div style={{ fontSize: 11.5, marginTop: 6, display: 'inline-flex', alignItems: 'center', gap: 5, color: g.chatId ? 'var(--wk-brand)' : 'var(--muted)' }}>
                 <MessageSquare size={12} /> {g.chatId ? (g.chatName || 'Chat bound') : 'No chat bound'}
               </div>
             </div>
@@ -165,12 +165,12 @@ export default function ShiftsPanel({ people = [], toastOk, toastErr }) {
         <div style={{ fontSize: 12.5, fontWeight: 800, marginBottom: 10 }}>Assign a Shift to a Group</div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
           <select className="form-input" value={assignShift} onChange={e => setAssignShift(e.target.value)} style={{ fontSize: 12.5, minWidth: 160 }}>
-            <option value="">— shift —</option>
+            <option value="">- shift -</option>
             {(shifts || []).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
           <span style={{ fontSize: 12, color: 'var(--muted)' }}>to</span>
           <select className="form-input" value={assignGroup} onChange={e => setAssignGroup(e.target.value)} style={{ fontSize: 12.5, minWidth: 160 }}>
-            <option value="">— group —</option>
+            <option value="">- group -</option>
             {(groups || []).map(g => <option key={g.id} value={g.id}>{g.name} ({g.members.length})</option>)}
           </select>
           <button className="primary-btn" onClick={doAssign} disabled={busy} style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
@@ -270,7 +270,7 @@ export default function ShiftsPanel({ people = [], toastOk, toastErr }) {
               ) : (
                 <select className="form-input" value="" style={{ fontSize: 12.5, width: '100%' }}
                   onChange={e => { const c = chatList.find(x => x.id === e.target.value); if (c) setGroupForm({ ...groupForm, teamsChatId: c.id, teamsChatName: c.name }); }}>
-                  <option value="">— pick a group chat —</option>
+                  <option value="">- pick a group chat -</option>
                   {chatList.map(c => <option key={c.id} value={c.id}>{c.name}{c.chatType === 'oneOnOne' ? ' (direct)' : ''}</option>)}
                 </select>
               )}

@@ -15,12 +15,12 @@ const tagPill = (text, bg) => (
  * property. Also reused internally by ListGroupRow (below) to render each member of an expanded
  * group.
  *
- * NOT CURRENTLY WIRED UP: Portfolio.jsx's List view always renders ListTable.jsx instead — in
+ * NOT CURRENTLY WIRED UP: Portfolio.jsx's List view always renders ListTable.jsx instead - in
  * the original app this component (and ListGroupRow) were only reachable from a branch that's
  * unconditionally shadowed by the ListTable check, i.e. dead code already in the shipped app.
  * Ported faithfully anyway (exact original signature, including the `expanded`/`onToggle`/
  * `dropdownTrigger` props that only make sense if something re-wires this in as an alternate
- * card-style List view someday) since the task called out porting it — see Portfolio.jsx's note
+ * card-style List view someday) since the task called out porting it - see Portfolio.jsx's note
  * on the same finding.
  *
  * `secondaries` (only meaningful when this row is NOT itself inside an already-expanded group,
@@ -40,7 +40,7 @@ export function ListRow({ pr: asset, openProperty, secondaries = [], expanded, o
   const type = typeLabel(asset);
 
   // dropdownTrigger mode: clicking the row toggles the group's expand/collapse instead of
-  // navigating (used when this row is the group LEAD and secondaries exist — see
+  // navigating (used when this row is the group LEAD and secondaries exist - see
   // ListGroupRow). Otherwise a click always opens the asset's detail page.
   const activate = () => (dropdownTrigger ? onToggle && onToggle() : openProperty(asset.id));
 
@@ -91,7 +91,7 @@ export function ListRow({ pr: asset, openProperty, secondaries = [], expanded, o
         </div>
 
         <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {isNonProperty ? (asset.color || asset.devStage || 'Vehicle') : `${type ? `${type} · ` : ''}${cityRegion(asset) || '—'}`}
+          {isNonProperty ? (asset.color || asset.devStage || 'Vehicle') : `${type ? `${type} · ` : ''}${cityRegion(asset) || '-'}`}
         </div>
 
         <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '3px 16px', marginTop: 7 }}>

@@ -5,7 +5,7 @@ import { fileToDataUrl } from '../../lib/format.js';
 // Format free typing into mm/dd/yyyy as the user goes; validate the final shape.
 // A native <input type="date"> was rejected here: its displayed format follows the
 // browser LOCALE (e.g. en-IN shows dd-mm-yyyy), but the requirement is an explicit
-// mm/dd/yyyy field for everyone — so this is a masked text input, locale-independent.
+// mm/dd/yyyy field for everyone - so this is a masked text input, locale-independent.
 const fmtMdy = (raw) => {
   const d = String(raw).replace(/\D/g, '').slice(0, 8);   // digits only, MMDDYYYY
   if (d.length <= 2) return d;
@@ -15,11 +15,11 @@ const fmtMdy = (raw) => {
 const isValidMdy = (s) => /^(0[1-9]|1[0-2])\/(0[1-9]|[12]\d|3[01])\/\d{4}$/.test(String(s).trim());
 
 /**
- * Multi-date field (`type: 'dates'`) — one or more dates, each typed in explicit
+ * Multi-date field (`type: 'dates'`) - one or more dates, each typed in explicit
  * mm/dd/yyyy (auto-slashing as you go, validated on the spot). Stored as a
  * comma-separated string ("11/01/2025, 02/01/2026"), keeping existing values
  * readable. Property taxes fall due in installments, so a single input would drop
- * the second date — hence the add/remove rows.
+ * the second date - hence the add/remove rows.
  */
 export function MultiDateInput({ value, onChange, readOnly }) {
   const parse = (v) => {
@@ -109,7 +109,7 @@ export function FieldInput({ f, value, onChange }) {
         onChange(f.k, dataUrl);
         if (f.nameKey) onChange(f.nameKey, file.name);
       } catch {
-        // unreadable file — silently ignore, field stays unchanged
+        // unreadable file - silently ignore, field stays unchanged
       }
     };
     // Image on the clipboard → store it exactly like a chosen file; anything else

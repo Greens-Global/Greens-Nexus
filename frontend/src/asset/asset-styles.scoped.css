@@ -653,7 +653,7 @@
 .nexus-asset-root .gt-frow:hover .gt-flag{opacity:.5}
 .nexus-asset-root .gt-flag.on{opacity:1 !important}
 
-/* Portfolio tile affordance — cursor + hover lift. These lived in the old inline <style> block
+/* Portfolio tile affordance - cursor + hover lift. These lived in the old inline <style> block
    that was dropped when AssetModule.jsx became a thin wrapper; re-added scoped here. The card's
    box-shadow/border are set inline on the element, so the hover overrides use !important. */
 .nexus-asset-root .asset-card{cursor:pointer;transition:transform .18s cubic-bezier(.2,.7,.3,1),box-shadow .18s ease,border-color .18s ease}
@@ -661,7 +661,7 @@
 .nexus-asset-root .asset-card:active{transform:translateY(-1px) scale(.995)}
 .nexus-asset-root .asset-card:focus-visible{outline:2px solid var(--pine);outline-offset:2px}
 
-/* Portfolio tile grid — fixed 4-up on desktop (was auto-fill, which packed 6 on wide screens
+/* Portfolio tile grid - fixed 4-up on desktop (was auto-fill, which packed 6 on wide screens
    and squeezed the titles), stepping down responsively on smaller widths. */
 .nexus-asset-root .pt-portfolio-grid{grid-template-columns:repeat(4,minmax(0,1fr))}
 @media (max-width:1240px){.nexus-asset-root .pt-portfolio-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}

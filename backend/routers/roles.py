@@ -38,7 +38,7 @@ def _get_role(email: str, db: Session) -> str:
 class RoleAssignment(BaseModel):
     role:         str
     assigned_by:  str   # email of the person making the change
-    display_name: Optional[str] = ""  # from Microsoft Graph — lets us show names instead of emails elsewhere
+    display_name: Optional[str] = ""  # from Microsoft Graph - lets us show names instead of emails elsewhere
 
 class SyncRequest(BaseModel):
     emails: list[str]
@@ -66,7 +66,7 @@ def get_my_role(
     user: dict = Depends(get_current_user),
     db:   Session = Depends(get_db),
 ):
-    """Return the caller's role — identity is taken from the verified token, never from a param."""
+    """Return the caller's role - identity is taken from the verified token, never from a param."""
     _seed_if_empty(db)
     role = _get_role(user["email"], db)
     return {"email": user["email"], "role": role}
@@ -87,7 +87,7 @@ def get_directory(
     user: dict = Depends(get_current_user),
     db:   Session = Depends(get_db),
 ):
-    """People picker for on-behalf flows — names and emails only, no roles.
+    """People picker for on-behalf flows - names and emails only, no roles.
     Open to every authenticated user (it's the same data as the Outlook GAL)."""
     rows = db.query(NexusRole).order_by(NexusRole.email).all()
     return [
@@ -106,7 +106,7 @@ def assign_role(
     user:  dict = Depends(get_current_user),
     db:    Session = Depends(get_db),
 ):
-    """Assign a role. Requester identity comes from the verified token — not the request body."""
+    """Assign a role. Requester identity comes from the verified token - not the request body."""
     target_email = email.lower().strip()
     new_role     = body.role.lower().strip()
 
@@ -119,8 +119,8 @@ def assign_role(
     if requester_level < ROLE_LEVEL["administrator"]:
         raise HTTPException(status_code=403, detail="Need IT Admin or Global Admin role to manage roles")
 
-    # IT Admins can delegate access, but only "down" — strictly below their own
-    # level — and may not create, edit, or demote peer/other admins. Creating
+    # IT Admins can delegate access, but only "down" - strictly below their own
+    # level - and may not create, edit, or demote peer/other admins. Creating
     # or changing anyone at IT Admin level or above is reserved for Global Admin
     # (the one role that can do anything, including destructive system changes).
     if user["role"] != "owner":

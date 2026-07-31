@@ -1,4 +1,4 @@
-// Task Module — Board view (1:1 port of the export's NexusBoardView).
+// Task Module - Board view (1:1 port of the export's NexusBoardView).
 // Status columns (built-in + custom statuses) with drag-and-drop, per-column
 // WIP limits, collapsible columns, an "Add section" column that creates a
 // custom status, an inline comment composer on cards, and orthogonal swimlanes
@@ -9,6 +9,7 @@ import {
   MoreHorizontal, Gauge, Rows3, ChevronDown,
 } from 'lucide-react';
 import { NX, FONT, btn, input as inputStyle, STATUS_META, STATUS_ORDER, PRIORITY_META } from '../theme';
+import { cfKey, cfFieldId, taskFieldValue, fieldsForProject } from '../lib';
 import { Avatar, PriorityChip, useClickOutside } from '../components';
 import { fmtDate } from '../lib';
 
@@ -29,7 +30,7 @@ const dueColor = (iso, completed) => {
 const fmtDue = (iso) => fmtDate(iso);
 
 // defaultAssigneeId: who cards added from a column header belong to. My Tasks
-// passes the current user — a task created there with no assignee would drop
+// passes the current user - a task created there with no assignee would drop
 // straight out of the view.
 export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId, defaultAssigneeId = '' }) {
   const [dragId, setDragId] = useState(null);
@@ -39,6 +40,14 @@ export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId
   const [draft, setDraft] = useState('');
   const [collapsed, setCollapsed] = useState(() => new Set());
   const [swimlane, setSwimlane] = useState('none');
+  // Select-type custom fields become swimlane choices too. Memoized because `lanes`
+  // depends on it, and a fresh array every render would defeat that memo.
+  const boardFields = useMemo(
+    () => fieldsForProject(store.customFields || [], lockedProjectId)
+      .filter((f) => f.type === 'select' && (f.options || []).length),
+    [store.customFields, lockedProjectId],
+  );
+  const swimOptions = [...SWIMLANE_OPTIONS, ...boardFields.map((f) => ({ key: cfKey(f.id), label: f.name }))];
   const [addingSection, setAddingSection] = useState(false);
   const [sectionName, setSectionName] = useState('');
   const [swimOpen, setSwimOpen] = useState(false);
@@ -81,13 +90,24 @@ export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId
     }
   };
 
-  // Swimlane rows — derived from the visible tasks so no people directory needed.
+  // Swimlane rows - derived from the visible tasks so no people directory needed.
   const lanes = useMemo(() => {
     if (swimlane === 'none') return [{ key: 'all', label: '', match: () => true }];
     if (swimlane === 'priority') {
       return PRIORITY_LANE_ORDER
         .map((p) => ({ key: p, label: PRIORITY_META[p]?.label || p, match: (t) => t.priority === p }))
         .filter((l) => visible.some(l.match));
+    }
+    const cfId = cfFieldId(swimlane);
+    if (cfId) {
+      const field = boardFields.find((f) => f.id === cfId);
+      if (!field) return [{ key: 'all', label: '', match: () => true }];
+      const opts = (field.options || []).map((o) => (typeof o === 'string' ? { id: o, label: o } : o));
+      const out = opts.map((o) => ({ key: o.id, label: o.label, match: (t) => taskFieldValue(t, cfId) === o.id }));
+      if (visible.some((t) => !taskFieldValue(t, cfId))) {
+        out.push({ key: '__none', label: `No ${field.name}`, match: (t) => !taskFieldValue(t, cfId) });
+      }
+      return out.filter((l) => visible.some(l.match));
     }
     if (swimlane === 'assignee') {
       const seen = new Map();
@@ -102,7 +122,7 @@ export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId
     const out = [...seen.entries()].map(([id, label]) => ({ key: id, label, match: (t) => t.projectId === id }));
     if (visible.some((t) => !t.projectId)) out.push({ key: '__none', label: 'No project', match: (t) => !t.projectId });
     return out;
-  }, [swimlane, visible, ctx, store]);
+  }, [swimlane, visible, ctx, store, boardFields]);
 
   const drop = (status, lane) => {
     if (!dragId) { setDragOver(null); return; }
@@ -123,10 +143,19 @@ export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId
 
   const renderCard = (t) => {
     const dc = dueColor(t.dueOn, t.completed);
+    // Kit card signature: a colored project tag pill leads the card (hidden
+    // when the whole board is already locked to one project).
+    const proj = !lockedProjectId && t.projectId ? store.projects.find((p) => p.id === t.projectId) : null;
+    const projColor = proj?.color || NX.purple;
     return (
       <div key={t.id} draggable data-task-row onDragStart={() => setDragId(t.id)} onDragEnd={() => setDragId(null)} onClick={() => onOpen(t.id)}
-        style={{ background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 12, padding: 14, cursor: 'grab', boxShadow: '0 1px 2px rgba(0,0,0,0.04)', opacity: dragId === t.id ? 0.5 : 1 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        onMouseEnter={(e) => { e.currentTarget.style.boxShadow = '0 6px 16px rgba(0,0,0,0.09)'; }}
+        onMouseLeave={(e) => { e.currentTarget.style.boxShadow = '0 1px 2px rgba(0,0,0,0.04)'; }}
+        style={{ background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 12, padding: 14, cursor: 'grab', boxShadow: '0 1px 2px rgba(0,0,0,0.04)', opacity: dragId === t.id ? 0.5 : 1, transition: 'box-shadow .15s' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+          {proj && (
+            <span style={{ padding: '2px 8px', borderRadius: 5, fontSize: 10.5, fontWeight: 600, background: `${projColor}1a`, color: projColor, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 130 }}>{proj.name}</span>
+          )}
           <span style={{ fontSize: 10, fontWeight: 700, color: NX.faint, letterSpacing: 0.3 }}>{t.code}</span>
           {t.isMilestone && <Diamond size={11} style={{ color: NX.purple }} />}
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 2 }}>
@@ -198,7 +227,7 @@ export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId
           </button>
           {swimOpen && (
             <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, width: 176, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', zIndex: 40, padding: 4 }}>
-              {SWIMLANE_OPTIONS.map((o) => (
+              {swimOptions.map((o) => (
                 <button key={o.key} onClick={() => { setSwimlane(o.key); setSwimOpen(false); }} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', color: swimlane === o.key ? NX.blue : NX.ink, background: swimlane === o.key ? NX.hover : 'transparent' }}>{o.label}</button>
               ))}
             </div>
@@ -330,7 +359,7 @@ function WipMenu({ limit, onSet }) {
       <button onClick={() => { setVal(limit ?? ''); setOpen((o) => !o); }} title="Set WIP limit" style={{ ...btn('ghost'), padding: 4, color: limit != null ? NX.blue : NX.faint }}><Gauge size={14} /></button>
       {open && (
         <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 4, width: 176, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', zIndex: 40, padding: 10 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: NX.faint, marginBottom: 6 }}>WIP limit</div>
+          <div style={{ fontSize: 12, fontWeight: 600, color: NX.dim, marginBottom: 6 }}>WIP limit</div>
           <input type="number" min={0} autoFocus value={val} onChange={(e) => setVal(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') { onSet(val === '' ? null : Number(val) || null); setOpen(false); } }}
             placeholder="No limit" style={{ ...inputStyle, padding: '6px 8px', fontSize: 13 }} />

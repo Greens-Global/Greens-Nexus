@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { X, Camera, ChevronLeft, Loader2, MoonStar } from 'lucide-react';
 import { api } from '../api';
 
-// ── Admin → Screenshots — work-session capture gallery ───────────────────────
+// ── Admin → Screenshots - work-session capture gallery ───────────────────────
 // Pick a day → people with captures → their frames (signed URLs, 1h expiry).
 // Idle badge shows how long since the last keyboard/mouse input at capture.
 
@@ -38,7 +38,7 @@ export default function ScreenshotsAdmin({ onClose }) {
           )}
           <Camera size={16} style={{ color: 'var(--pine)' }} />
           <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>
-            Screenshots{who ? ` — ${who.name}` : ''}
+            Screenshots{who ? ` - ${who.name}` : ''}
           </h3>
           <input className="form-input" type="date" value={date} onChange={e => setDate(e.target.value)} style={{ fontSize: 12, width: 150 }} />
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>

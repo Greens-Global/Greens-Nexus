@@ -3,7 +3,7 @@ import { collectCriticalDates, CRITICAL_ITEM_TAB } from '../../lib/criticalItems
 import { formatDate } from '../../lib/format.js';
 
 // Overdue/Due-soon pill tone by signed day-count. Distinct from HealthStrip's ok/warn/bad/info
-// tone vocabulary — this component uses color names directly (red/orange/gold/green) since it
+// tone vocabulary - this component uses color names directly (red/orange/gold/green) since it
 // talks to CSS custom properties (--color-red etc.) rather than through a tone-name indirection.
 function toneOf(days) {
   if (days < 0) return 'red';
@@ -81,21 +81,21 @@ function WindowChip({ value, label, active, onSelect }) {
  *      to one asset and defaults the window to "All" (there's no need to hide far-out dates when
  *      you're already looking at this one asset's full compliance picture). Clicking a row calls
  *      `onTab(tab)` to switch to the relevant in-page tab (e.g. the Warranties tab), via
- *      CRITICAL_ITEM_TAB's category->tab mapping. Always rendered, even when nothing is due —
+ *      CRITICAL_ITEM_TAB's category->tab mapping. Always rendered, even when nothing is due -
  *      it's part of the page's fixed layout, and an all-green strip is itself useful context.
  *
  *   2. Portfolio-wide (asset list page): omit `only` (scans every asset in the store) and pass
  *      `hideIfEmpty`. Defaults the window to "Due <=90 days" (a portfolio banner should lead with
  *      what's actually urgent, not the entire multi-year backlog). Clicking a row calls
- *      `openProperty(id)` to navigate to that asset instead of switching a tab — there's no
+ *      `openProperty(id)` to navigate to that asset instead of switching a tab - there's no
  *      single page/tab context to switch within on the portfolio view. Positioned between the
  *      "Asset Management" header and the search/filter toolbar; `hideIfEmpty` makes the whole
  *      component render as `null` there so the banner only ever appears when something is
- *      genuinely due — an always-visible portfolio banner would just be permanent green noise
+ *      genuinely due - an always-visible portfolio banner would just be permanent green noise
  *      (unlike the per-asset case, where showing "all clear" for one specific asset is
  *      reassuring, not noise).
  *
- * `hideIfEmpty` is deliberately NOT the default and must be opted into per call site — do not
+ * `hideIfEmpty` is deliberately NOT the default and must be opted into per call site - do not
  * flip its default, or the per-asset usage will start disappearing on clean assets.
  */
 export function CriticalDates({ store, openProperty, only, onTab, hideIfEmpty }) {
@@ -254,7 +254,7 @@ export function CriticalDates({ store, openProperty, only, onTab, hideIfEmpty })
                       }}
                     >
                       {item.cat} · {item.label}
-                      {item.detail ? ' — ' + item.detail : ''}
+                      {item.detail ? ' - ' + item.detail : ''}
                     </div>
                   </div>
                   <span
@@ -282,7 +282,7 @@ export function CriticalDates({ store, openProperty, only, onTab, hideIfEmpty })
                 textAlign: 'center',
               }}
             >
-              All clear — nothing due in this window.
+              All clear - nothing due in this window.
             </div>
           )}
         </>

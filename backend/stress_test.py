@@ -1,5 +1,5 @@
 """
-Greens Nexus — Stress Test
+Nexus - Stress Test
 Usage:
     python stress_test.py --token "eyJ0..." --url "https://greens-nexus-api-dev-..."
     python stress_test.py --token "eyJ0..."          # uses default dev URL
@@ -27,7 +27,7 @@ except ImportError:
 
 DEFAULT_URL = "https://greens-nexus-api-dev-a6fad4brawevg8de.westus2-01.azurewebsites.net"
 
-# Endpoints to hit — realistic mix of what employees/managers do
+# Endpoints to hit - realistic mix of what employees/managers do
 ENDPOINTS = [
     ("GET",  "/roles/me",               "My role",              1.0),   # every user on load
     ("GET",  "/requisitions",           "List requisitions",    0.8),
@@ -98,7 +98,7 @@ async def virtual_user(base_url: str, token: str, user_id: int, duration: int):
 
 def print_results(n_users: int, duration: int, elapsed: float):
     print("\n" + "═" * 65)
-    print(f"  STRESS TEST RESULTS — {n_users} concurrent users × {duration}s")
+    print(f"  STRESS TEST RESULTS - {n_users} concurrent users × {duration}s")
     print("═" * 65)
     print(f"\n  Total requests : {total_req}")
     print(f"  Duration       : {elapsed:.1f}s")
@@ -115,7 +115,7 @@ def print_results(n_users: int, duration: int, elapsed: float):
         total_errors += errs
         all_times.extend(times)
         if not times:
-            print(f"  {label:<28} {'0':>5} {'—':>5} {'—':>8} {'—':>8} {'—':>8}")
+            print(f"  {label:<28} {'0':>5} {'-':>5} {'-':>8} {'-':>8} {'-':>8}")
             continue
         times_sorted = sorted(times)
         p50 = statistics.median(times_sorted)
@@ -143,13 +143,13 @@ def print_results(n_users: int, duration: int, elapsed: float):
         p95_all = sorted(all_times)[int(len(all_times) * 0.95)]
         error_rate = total_errors / max(total_req, 1) * 100
         if p95_all < 500 and error_rate < 1:
-            print(f"  ✅ PASS — P95 {p95_all:.0f}ms, error rate {error_rate:.1f}%")
+            print(f"  ✅ PASS - P95 {p95_all:.0f}ms, error rate {error_rate:.1f}%")
             print(f"     App handles {n_users} concurrent users comfortably.")
         elif p95_all < 1500 and error_rate < 5:
-            print(f"  ⚠️  BORDERLINE — P95 {p95_all:.0f}ms, error rate {error_rate:.1f}%")
+            print(f"  ⚠️  BORDERLINE - P95 {p95_all:.0f}ms, error rate {error_rate:.1f}%")
             print(f"     App survives {n_users} users but latency is elevated.")
         else:
-            print(f"  ❌ FAIL — P95 {p95_all:.0f}ms, error rate {error_rate:.1f}%")
+            print(f"  ❌ FAIL - P95 {p95_all:.0f}ms, error rate {error_rate:.1f}%")
             print(f"     App is struggling under {n_users} concurrent users.")
     print("═" * 65 + "\n")
 
@@ -192,7 +192,7 @@ async def run(base_url: str, token: str, n_users: int, duration: int):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Greens Nexus stress test")
+    parser = argparse.ArgumentParser(description="Nexus stress test")
     parser.add_argument("--token",    required=True, help="Azure AD JWT token (Bearer value)")
     parser.add_argument("--url",      default=DEFAULT_URL, help="API base URL")
     parser.add_argument("--users",    type=int, default=50,  help="Concurrent virtual users (default 50)")

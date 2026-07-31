@@ -1,7 +1,7 @@
-"""Ticket Module — router.
+"""Ticket Module - router.
 
 Split out of `task_config.py` (Jul 2026) so tickets own their own file. Routes,
-payloads and behaviour are unchanged — only the file they live in moved.
+payloads and behaviour are unchanged - only the file they live in moved.
 
 Covers: tickets CRUD, per-ticket conversation/attachments/activity, saved ticket
 views, components, ticket-to-ticket links, escalation, the company/department
@@ -9,7 +9,7 @@ lookups used at intake, and the department triage routing that notifies a
 department's lead when an unassigned ticket arrives.
 
 Ticket conversation/attachments/activity deliberately reuse the task comment and
-attachment tables, keyed by ticket id — same storage, separate router.
+attachment tables, keyed by ticket id - same storage, separate router.
 """
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
@@ -96,7 +96,7 @@ def ticket_to_dict(t: models.TaskTicket) -> dict:
 
 # Which intake field names the approver, per ticket type. A ticket of one of these
 # types whose approver field is filled must be approved before it reaches triage.
-# Mirrors TYPE_FIELDS in frontend/src/tickets/ticketMeta.js — keep the two in step.
+# Mirrors TYPE_FIELDS in frontend/src/tickets/ticketMeta.js - keep the two in step.
 APPROVER_FIELD_BY_TYPE = {
     "service_request": "approver",
     "change_request":  "approver",
@@ -107,7 +107,7 @@ APPROVER_FIELD_BY_TYPE = {
 def _notify_triage(db: Session, t: models.TaskTicket, actor: str) -> None:
     """Tell a department's lead (and backup) that an unassigned ticket is waiting
     to be handed to an employee. Called at creation for tickets needing no
-    approval, and after an approval is granted for those that do — without this an
+    approval, and after an approval is granted for those that do - without this an
     unassigned ticket notifies nobody who can act on it and simply sits."""
     if t.assignee_email or not t.hr_department_id:
         return
@@ -182,7 +182,7 @@ class TicketUpdate(BaseModel):
     csat_comment: Optional[str] = None
     sla_due_on: Optional[str] = None
     resolved_at: Optional[str] = None
-    # Not a ticket column — used only to build the "Reopened" notification's
+    # Not a ticket column - used only to build the "Reopened" notification's
     # "Reason" line and its activity-log entry, then discarded.
     reopen_reason: Optional[str] = None
 
@@ -235,7 +235,7 @@ def create_ticket(body: TicketBody, background_tasks: BackgroundTasks,
         component=body.component or "", csat_rating=0, csat_comment="",
         sla_due_on=body.sla_due_on or "", resolved_at="", created_at=now, modified_at=now,
     )
-    # Approval gate — derived from the intake fields, never trusted from the client,
+    # Approval gate - derived from the intake fields, never trusted from the client,
     # so a caller can't post approval_status="approved" to skip the gate.
     approver = _approver_for(t)
     t.approver_email = approver
@@ -248,7 +248,7 @@ def create_ticket(body: TicketBody, background_tasks: BackgroundTasks,
         task_notify(db, kind="ticket_assigned", for_email=t.assignee_email,
                     title="You were assigned a ticket", body=f"{t.code} · {t.subject}", nexus_action=tk_action)
     # Approval gate first: a ticket awaiting approval must NOT reach the department
-    # lead yet — triage is notified only once it's approved (see decide_approval).
+    # lead yet - triage is notified only once it's approved (see decide_approval).
     elif t.approval_status == "pending" and t.approver_email:
         if t.approver_email != user["email"].lower():
             task_notify(db, kind="ticket_needs_approval", for_email=t.approver_email,
@@ -256,7 +256,7 @@ def create_ticket(body: TicketBody, background_tasks: BackgroundTasks,
                         body=f"{t.code} · {t.subject}", nexus_action=tk_action)
     else:
         _notify_triage(db, t, user["email"].lower())
-    # Intake acknowledgment — let the requester know their request landed (e.g. when a
+    # Intake acknowledgment - let the requester know their request landed (e.g. when a
     # manager logs it on their behalf; if they raised it themselves they're the actor).
     if t.requester_email and t.requester_email != user["email"].lower():
         task_notify(db, kind="ticket_received", for_email=t.requester_email,
@@ -265,27 +265,27 @@ def create_ticket(body: TicketBody, background_tasks: BackgroundTasks,
     db.refresh(t)
     background_tasks.add_task(notify_ticket_event, t.id, "created", user["email"])
     # Approval-gated: the approver gets their own "waiting for your approval"
-    # email. (The dept head's copy of "created" is held back until approval —
-    # see _recipients_for in ticket_notify.py — mirroring the in-app gate above.)
+    # email. (The dept head's copy of "created" is held back until approval -
+    # see _recipients_for in ticket_notify.py - mirroring the in-app gate above.)
     if t.approval_status == "pending" and t.approver_email:
         background_tasks.add_task(notify_ticket_event, t.id, "approval_required", user["email"])
     return ticket_to_dict(t)
 
 
 # Fields left open to whoever is just working a ticket (the assignee, or
-# anyone else without ownership of it) — enough to triage, reassign and close
+# anyone else without ownership of it) - enough to triage, reassign and close
 # it out, not to rewrite what it is or who it's for. Everyone else (the
 # requester, the ticket's department lead/backup, or a manager+) gets the
-# full field set. Mirrors the drawer's field gating in TicketsView.jsx —
+# full field set. Mirrors the drawer's field gating in TicketsView.jsx -
 # keep the two in step.
 _WORKING_FIELDS = {"type", "status", "priority", "assignee_email", "hr_department_id", "resolution"}
 # Every field an unrestricted caller may touch, minus reopen_reason (not a
-# column — see TicketUpdate).
+# column - see TicketUpdate).
 _ALL_TICKET_FIELDS = set(TicketUpdate.model_fields.keys()) - {"reopen_reason"}
 
 
 def _ticket_privileged(db: Session, t: models.TaskTicket, user: dict) -> bool:
-    """Manager+ or the ticket's department lead/backup — full access regardless
+    """Manager+ or the ticket's department lead/backup - full access regardless
     of ticket state; they own the queue, not just this one ticket."""
     email = user["email"].lower()
     if user.get("level", 1) >= 3:                                    # manager+
@@ -302,9 +302,9 @@ def _ticket_edit_scope(db: Session, t: models.TaskTicket, user: dict) -> set | N
     send (empty set = no edits at all right now).
 
     Once a ticket is "in_progress" and assigned, it becomes the assignee's to
-    work: they get full access EXCEPT company_id — which stays with the
+    work: they get full access EXCEPT company_id - which stays with the
     requester (pre-lock) or a manager/dept lead, never the working assignee
-    (Jul 28 policy). Everyone else — including the requester — is locked out
+    (Jul 28 policy). Everyone else - including the requester - is locked out
     entirely once locked (Jul 27 policy). Before that point the requester has
     full access; anyone else gets the working-field subset (self-assign,
     triage). Manager+/dept lead-backup are unrestricted throughout, including
@@ -326,16 +326,16 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
     if not t:
         raise HTTPException(404, "Ticket not found")
     data = body.model_dump(exclude_unset=True)
-    reopen_reason = data.pop("reopen_reason", "") or ""   # not a column — see TicketUpdate
+    reopen_reason = data.pop("reopen_reason", "") or ""   # not a column - see TicketUpdate
     scope = _ticket_edit_scope(db, t, user)
     if scope is not None:
         blocked = sorted(set(data.keys()) - scope)
         if blocked:
             if not scope:
-                raise HTTPException(403, f"This ticket is in progress and assigned to {t.assignee_email or 'someone else'} — only they (or a manager/department lead) can edit it right now.")
+                raise HTTPException(403, f"This ticket is in progress and assigned to {t.assignee_email or 'someone else'} - only they (or a manager/department lead) can edit it right now.")
             if blocked == ["company_id"]:
                 raise HTTPException(403, "Only the requester (before the ticket is picked up) or a manager/department lead can change the company on a ticket.")
-            raise HTTPException(403, f"You can only update {', '.join(sorted(scope))} on a ticket you're not the requester/owner of — not: {', '.join(blocked)}")
+            raise HTTPException(403, f"You can only update {', '.join(sorted(scope))} on a ticket you're not the requester/owner of - not: {', '.join(blocked)}")
     prev_status, prev_assignee, prev_priority = t.status, (t.assignee_email or ""), t.priority
     prev_due = t.sla_due_on
     for k, v in data.items():
@@ -376,10 +376,10 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
     db.commit()
     db.refresh(t)
 
-    # ── Outlook notifications (best-effort, after commit — see ticket_notify.py) ──
+    # ── Outlook notifications (best-effort, after commit - see ticket_notify.py) ──
     actor = user["email"]
     if assignee_changed and t.assignee_email:
-        # Reassignment uses the "assigned" flow exclusively — spec lists reassignment
+        # Reassignment uses the "assigned" flow exclusively - spec lists reassignment
         # under both "assigned" (§2) and generic "update" (§3) triggers, but firing
         # both would double-email the same change; §2's is the richer one.
         background_tasks.add_task(notify_ticket_event, t.id, "assigned", actor)
@@ -404,7 +404,7 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
 @router.delete("/task-tickets/{ticket_id}", status_code=204)
 def delete_ticket(ticket_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     t = _ticket_or_404(db, ticket_id)
-    # Independent of the in_progress/assignee edit lock above — deleting stays
+    # Independent of the in_progress/assignee edit lock above - deleting stays
     # with whoever raised it or owns the queue, never just the assignee.
     is_requester = (t.requester_email or "").lower() == user["email"].lower()
     if not (_ticket_privileged(db, t, user) or is_requester):
@@ -468,7 +468,7 @@ def add_ticket_comment(ticket_id: str, body: TicketCommentBody, background_tasks
     log_activity(db, type="commented", actor_email=user["email"], entity_kind="ticket",
                  entity_id=t.id, entity_code=t.code, entity_title=t.subject,
                  detail="added an internal note" if internal else "commented")
-    # Internal notes stay with the agents — don't ping the requester.
+    # Internal notes stay with the agents - don't ping the requester.
     _notify_participants(db, t, user["email"], kind="ticket_comment",
                          title="Internal note on a ticket" if internal else "New comment on a ticket",
                          body=f"{t.code} · {t.subject}",
@@ -477,7 +477,7 @@ def add_ticket_comment(ticket_id: str, body: TicketCommentBody, background_tasks
     db.refresh(c)
     if not internal and get_notify_settings(db).get("commentsTrigger", True):
         background_tasks.add_task(notify_ticket_event, t.id, "updated", user["email"],
-                                   # Full comment text — the email renders it in its own
+                                   # Full comment text - the email renders it in its own
                                    # quote block, so no truncation (was capped at 280).
                                    update_kind="New comment added", latest_comment=body.body or "")
     return _tcomment(c)
@@ -526,7 +526,7 @@ def list_ticket_activity(ticket_id: str, db: Session = Depends(get_db)):
     return [{"id": a.id, "type": a.type or "", "actorId": _nz(a.actor_email), "at": a.at or "", "detail": a.detail or ""} for a in rows]
 
 
-# ── Org lookups for tickets — company + department from the People module.
+# ── Org lookups for tickets - company + department from the People module.
 #    Read-only id+name lists, available to any authenticated user (the /hr
 #    endpoints are permission-gated, which a plain ticket requester may lack). ──
 @router.get("/ticket-companies")
@@ -613,14 +613,14 @@ def decide_approval(ticket_id: str, body: ApprovalBody, background_tasks: Backgr
         log_activity(db, type="approved", actor_email=user["email"], entity_kind="ticket",
                      entity_id=t.id, entity_code=t.code, entity_title=t.subject,
                      detail="approved this request" + (f": {note}" if note else ""))
-        # Released — now it enters the normal triage queue.
+        # Released - now it enters the normal triage queue.
         _notify_triage(db, t, actor)
         if t.requester_email and t.requester_email != actor:
             task_notify(db, kind="ticket_approved", for_email=t.requester_email,
                         title="Your request was approved",
                         body=f"{t.code} · {t.subject}", nexus_action=tk_action)
     else:
-        # Rejected requests are closed — nothing downstream should act on them.
+        # Rejected requests are closed - nothing downstream should act on them.
         t.status = "closed"
         t.resolution = "wont_fix"
         t.resolved_at = now_iso()
@@ -630,7 +630,7 @@ def decide_approval(ticket_id: str, body: ApprovalBody, background_tasks: Backgr
         if t.requester_email and t.requester_email != actor:
             task_notify(db, kind="ticket_rejected", for_email=t.requester_email,
                         title="Your request was rejected",
-                        body=f"{t.code} · {t.subject} — {note}", nexus_action=tk_action)
+                        body=f"{t.code} · {t.subject} - {note}", nexus_action=tk_action)
     db.commit()
     db.refresh(t)
     # Approved → the dept head now gets the "needs assignment" email that was
@@ -677,7 +677,7 @@ def remove_ticket_link(ticket_id: str, target_id: str, db: Session = Depends(get
     return ticket_to_dict(t)
 
 
-# ── Escalate — bump priority one rung and alert assignee/watchers + managers ──
+# ── Escalate - bump priority one rung and alert assignee/watchers + managers ──
 _PRIORITY_LADDER = ["low", "medium", "high", "urgent"]
 
 

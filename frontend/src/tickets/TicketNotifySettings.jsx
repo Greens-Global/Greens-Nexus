@@ -1,6 +1,6 @@
-// Ticket Notification workflow — admin settings + delivery log (Jul 2026).
+// Ticket Notification workflow - admin settings + delivery log (Jul 2026).
 // Manager+ only (mirrors the backend's require_manager gate on these
-// endpoints — this UI hides the controls, the backend is the real boundary).
+// endpoints - this UI hides the controls, the backend is the real boundary).
 import { useEffect, useState } from 'react';
 import { Mail, RefreshCw, Save, AlertTriangle, CheckCircle2, Clock, RotateCcw } from 'lucide-react';
 import { api } from '../api';

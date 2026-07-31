@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { TrendingUp, TrendingDown, DollarSign, FileText, ArrowUpRight, ArrowDownRight, CreditCard, SlidersHorizontal, Download, Plus, X, UploadCloud, PiggyBank, Loader2, Check, Wallet, ClipboardList, Receipt, Plane, FileCheck, Landmark, BookOpen, Building2, Briefcase, RefreshCcw, LayoutGrid, Map, Layers, FileSignature, Users, Plug, Gift, Settings, Search, Columns3, CalendarDays, Ban, Lock } from 'lucide-react';
 import { api } from '../api';
+import ModuleTabs from '../components/ModuleTabs';
 
 const INIT_TRX = [
   { id: 'TRX-1234', title: 'Project Payment - Downtown Complex', date: 'May 20, 2026', cost: 125000 },
@@ -33,10 +34,10 @@ const VENDORS = [
 ];
 
 const AMA_FLAGGED = [
-  { id: "T-4821", date: "2026-05-22", vendor: "Home Depot #4412",  amount: 1284.55, coder: "R. Okafor", q: "Materials for Lakeline gate repair — which job?", days: 4,  status: "Open"      },
-  { id: "T-4806", date: "2026-05-20", vendor: "Shell Fleet",       amount: 96.20,   coder: "M. Lind",   q: "Fuel — Construction truck or Ops van?",          days: 6,  status: "In Review" },
+  { id: "T-4821", date: "2026-05-22", vendor: "Home Depot #4412",  amount: 1284.55, coder: "R. Okafor", q: "Materials for Lakeline gate repair - which job?", days: 4,  status: "Open"      },
+  { id: "T-4806", date: "2026-05-20", vendor: "Shell Fleet",       amount: 96.20,   coder: "M. Lind",   q: "Fuel - Construction truck or Ops van?",          days: 6,  status: "In Review" },
   { id: "T-4790", date: "2026-05-18", vendor: "Amazon Business",   amount: 442.10,  coder: "S. Patel",  q: "Office supplies vs. facility supplies split?",   days: 8,  status: "Open"      },
-  { id: "T-4775", date: "2026-05-15", vendor: "Grainger",          amount: 2110.00, coder: "R. Okafor", q: "HVAC parts — capitalize or expense?",            days: 11, status: "Open"      },
+  { id: "T-4775", date: "2026-05-15", vendor: "Grainger",          amount: 2110.00, coder: "R. Okafor", q: "HVAC parts - capitalize or expense?",            days: 11, status: "Open"      },
 ];
 
 const TABS = ['transactions', 'invoices', 'budgets', 'imports', 'ramp', 'vendors', 'ask-accountant', 'ama', 'mre', 'mri', 'reports'];
@@ -44,8 +45,8 @@ const TAB_LABELS = { transactions: 'Transactions', invoices: 'Invoices', budgets
 
 // Ramp's own left-nav sections. Funds/Cards/Requests/Budgets live together
 // under Ramp's "Manage spend" group, so that group becomes one entry in our
-// top-level sub-tab strip (rendered in-page rather than a sidebar — matches
-// the Marketing module's SEO sub-tabs pattern — since it's nested inside our
+// top-level sub-tab strip (rendered in-page rather than a sidebar - matches
+// the Marketing module's SEO sub-tabs pattern - since it's nested inside our
 // own Accounting sidebar entry); picking it reveals a segmented control for
 // the 4 grouped sections. Only "Cards" is wired to real data so far.
 const RAMP_SPEND_SECTIONS = [
@@ -78,7 +79,7 @@ const RAMP_TRAVEL_SECTIONS = [
   { key: 'trip-management', label: 'Trip management', Icon: Map },
 ];
 
-// Ramp's "Accounting" group (GL sync side of things) — Stack is Ramp's newer
+// Ramp's "Accounting" group (GL sync side of things) - Stack is Ramp's newer
 // rules-based coding feature, flagged "New" the same way Ramp does.
 const RAMP_ACCOUNTING_SECTIONS = [
   { key: 'card-transactions', label: 'Card transactions', Icon: CreditCard },
@@ -91,7 +92,7 @@ const RAMP_VENDOR_SECTIONS = [
   { key: 'contracts-renewals', label: 'Contracts & renewals', Icon: FileSignature },
 ];
 
-// Ramp's "Company" group — org-wide settings, not spend workflows.
+// Ramp's "Company" group - org-wide settings, not spend workflows.
 const RAMP_COMPANY_SECTIONS = [
   { key: 'people', label: 'People', Icon: Users },
   { key: 'statements-payments', label: 'Statements & payments', Icon: FileText },
@@ -103,9 +104,9 @@ const RAMP_COMPANY_SECTIONS = [
 const fmt = (n) => Math.abs(n).toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
 const fmtUsd = (n) => `${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD`;
 
-// Ramp's Funds column picker — order and default on/off state match Ramp's
+// Ramp's Funds column picker - order and default on/off state match Ramp's
 // own "manage columns" panel (Name is pinned, Submission/Expense approval
-// policy start hidden). Sample rows are fictional — deliberately NOT the
+// policy start hidden). Sample rows are fictional - deliberately NOT the
 // real names/amounts from a live Ramp screenshot, to avoid committing real
 // employee financial data into source control.
 const FUNDS_COLUMNS = [
@@ -131,14 +132,14 @@ const FUNDS_NUMERIC_COLUMNS = new Set(['amountIssued', 'amountUsed', 'utilizatio
 
 const FUNDS_DATA = {
   issued: [
-    { id: 1, name: 'T. Alvarez', owner: 'T. Alvarez', frequency: 'Monthly', issued: 600, used: 90, lastUsed: '2026-07-05', methods: ['Virtual card'], program: 'Field Supplies', department: 'Construction', location: 'Austin, TX', createdAt: '2025-11-02', lockReason: '—', submissionPolicy: 'Standard', expenseApprovalPolicy: 'Manager approval', startDate: '2025-11-02', autoLockDate: '—' },
-    { id: 2, name: 'J. Reyes', owner: 'J. Reyes', frequency: 'Monthly', issued: 750, used: 0, lastUsed: '2026-01-24', methods: ['Virtual card'], program: 'Field Supplies', department: 'Construction', location: 'Dallas, TX', createdAt: '2025-09-18', lockReason: '—', submissionPolicy: 'Standard', expenseApprovalPolicy: 'Manager approval', startDate: '2025-09-18', autoLockDate: '—' },
-    { id: 3, name: 'Facilities Expenses', owner: 'K. Whitfield', frequency: 'Monthly', issued: 2500, used: 0, lastUsed: '2026-05-30', methods: ['Virtual card'], program: 'Facilities Ops', department: 'Facilities', location: 'Denver, CO', createdAt: '2025-08-01', lockReason: '—', submissionPolicy: 'Standard', expenseApprovalPolicy: 'Director approval', startDate: '2025-08-01', autoLockDate: '—' },
-    { id: 4, name: 'D. Sato', owner: 'D. Sato', frequency: 'Monthly', issued: 220000, used: 6200, lastUsed: '2026-07-24', methods: ['Virtual card', 'Reimbursements'], program: 'Executive', department: 'Executive', location: 'Remote', createdAt: '2024-03-10', lockReason: '—', submissionPolicy: 'Executive', expenseApprovalPolicy: 'Board approval', startDate: '2024-03-10', autoLockDate: '—' },
-    { id: 5, name: 'N. Brantley', owner: 'N. Brantley', frequency: 'Monthly', issued: 240000, used: 0, lastUsed: '2025-06-24', methods: ['Virtual card', 'Reimbursements'], program: 'Real Estate Development', department: 'Real Estate Development', location: 'Austin, TX', createdAt: '2024-06-24', lockReason: '—', submissionPolicy: 'Standard', expenseApprovalPolicy: 'Director approval', startDate: '2024-06-24', autoLockDate: '—' },
-    { id: 6, name: 'N. Brantley', owner: 'N. Brantley', frequency: 'Monthly', issued: 95000, used: 19800, lastUsed: '2026-07-26', methods: ['Virtual card', 'Reimbursements'], program: 'Real Estate Development', department: 'Real Estate Development', location: 'Austin, TX', createdAt: '2025-07-26', lockReason: '—', submissionPolicy: 'Standard', expenseApprovalPolicy: 'Director approval', startDate: '2025-07-26', autoLockDate: '—' },
-    { id: 7, name: 'R. Okafor', owner: 'R. Okafor', frequency: 'Monthly', issued: 210000, used: 1350, lastUsed: '2026-07-26', methods: ['Virtual card', 'Reimbursements'], program: 'Operations (OPS)', department: 'Operations (OPS)', location: 'Dallas, TX', createdAt: '2024-07-26', lockReason: '—', submissionPolicy: 'Standard', expenseApprovalPolicy: 'Manager approval', startDate: '2024-07-26', autoLockDate: '—' },
-    { id: 8, name: 'M. Lind', owner: 'M. Lind', frequency: 'Monthly', issued: 15000, used: 0, lastUsed: '2026-01-29', methods: ['Virtual card', 'Reimbursements'], program: 'IT & Infrastructure Support', department: 'IT & Infrastructure', location: 'Remote', createdAt: '2025-01-29', lockReason: '—', submissionPolicy: 'Standard', expenseApprovalPolicy: 'Manager approval', startDate: '2025-01-29', autoLockDate: '—' },
+    { id: 1, name: 'T. Alvarez', owner: 'T. Alvarez', frequency: 'Monthly', issued: 600, used: 90, lastUsed: '2026-07-05', methods: ['Virtual card'], program: 'Field Supplies', department: 'Construction', location: 'Austin, TX', createdAt: '2025-11-02', lockReason: '-', submissionPolicy: 'Standard', expenseApprovalPolicy: 'Manager approval', startDate: '2025-11-02', autoLockDate: '-' },
+    { id: 2, name: 'J. Reyes', owner: 'J. Reyes', frequency: 'Monthly', issued: 750, used: 0, lastUsed: '2026-01-24', methods: ['Virtual card'], program: 'Field Supplies', department: 'Construction', location: 'Dallas, TX', createdAt: '2025-09-18', lockReason: '-', submissionPolicy: 'Standard', expenseApprovalPolicy: 'Manager approval', startDate: '2025-09-18', autoLockDate: '-' },
+    { id: 3, name: 'Facilities Expenses', owner: 'K. Whitfield', frequency: 'Monthly', issued: 2500, used: 0, lastUsed: '2026-05-30', methods: ['Virtual card'], program: 'Facilities Ops', department: 'Facilities', location: 'Denver, CO', createdAt: '2025-08-01', lockReason: '-', submissionPolicy: 'Standard', expenseApprovalPolicy: 'Director approval', startDate: '2025-08-01', autoLockDate: '-' },
+    { id: 4, name: 'D. Sato', owner: 'D. Sato', frequency: 'Monthly', issued: 220000, used: 6200, lastUsed: '2026-07-24', methods: ['Virtual card', 'Reimbursements'], program: 'Executive', department: 'Executive', location: 'Remote', createdAt: '2024-03-10', lockReason: '-', submissionPolicy: 'Executive', expenseApprovalPolicy: 'Board approval', startDate: '2024-03-10', autoLockDate: '-' },
+    { id: 5, name: 'N. Brantley', owner: 'N. Brantley', frequency: 'Monthly', issued: 240000, used: 0, lastUsed: '2025-06-24', methods: ['Virtual card', 'Reimbursements'], program: 'Real Estate Development', department: 'Real Estate Development', location: 'Austin, TX', createdAt: '2024-06-24', lockReason: '-', submissionPolicy: 'Standard', expenseApprovalPolicy: 'Director approval', startDate: '2024-06-24', autoLockDate: '-' },
+    { id: 6, name: 'N. Brantley', owner: 'N. Brantley', frequency: 'Monthly', issued: 95000, used: 19800, lastUsed: '2026-07-26', methods: ['Virtual card', 'Reimbursements'], program: 'Real Estate Development', department: 'Real Estate Development', location: 'Austin, TX', createdAt: '2025-07-26', lockReason: '-', submissionPolicy: 'Standard', expenseApprovalPolicy: 'Director approval', startDate: '2025-07-26', autoLockDate: '-' },
+    { id: 7, name: 'R. Okafor', owner: 'R. Okafor', frequency: 'Monthly', issued: 210000, used: 1350, lastUsed: '2026-07-26', methods: ['Virtual card', 'Reimbursements'], program: 'Operations (OPS)', department: 'Operations (OPS)', location: 'Dallas, TX', createdAt: '2024-07-26', lockReason: '-', submissionPolicy: 'Standard', expenseApprovalPolicy: 'Manager approval', startDate: '2024-07-26', autoLockDate: '-' },
+    { id: 8, name: 'M. Lind', owner: 'M. Lind', frequency: 'Monthly', issued: 15000, used: 0, lastUsed: '2026-01-29', methods: ['Virtual card', 'Reimbursements'], program: 'IT & Infrastructure Support', department: 'IT & Infrastructure', location: 'Remote', createdAt: '2025-01-29', lockReason: '-', submissionPolicy: 'Standard', expenseApprovalPolicy: 'Manager approval', startDate: '2025-01-29', autoLockDate: '-' },
   ],
   terminated: [
     { id: 101, name: 'A. Whitmore', owner: 'A. Whitmore', frequency: 'Monthly', issued: 1500, used: 0, lastUsed: '2026-04-10', methods: ['Virtual card'], program: 'Facilities Ops', department: 'Facilities', location: 'Denver, CO', createdAt: '2025-10-10', lockReason: 'Fund terminated', submissionPolicy: 'Standard', expenseApprovalPolicy: 'Manager approval', startDate: '2025-10-10', autoLockDate: '2026-04-10', terminated: true },
@@ -181,7 +182,7 @@ function fundsCell(row, key) {
     case 'amountIssued': return <div><div style={{ fontWeight: 700 }}>{fmtUsd(row.issued)}</div><div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>{row.frequency}</div></div>;
     case 'amountUsed': return <span style={{ fontWeight: 700 }}>{fmtUsd(row.used)}</span>;
     case 'utilization': return `${Math.round((row.used / row.issued) * 100)}%`;
-    case 'lastUsed': return row.lastUsed || '—';
+    case 'lastUsed': return row.lastUsed || '-';
     case 'paymentMethods': return row.methods.join(', ');
     case 'spendProgram': return row.program;
     case 'department': return row.department;
@@ -315,7 +316,7 @@ function RampSectionPlaceholder({ label, Icon }) {
         <Icon size={22} />
       </div>
       <h3 style={{ fontSize: '1.05rem', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{label}</h3>
-      <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', maxWidth: 360 }}>This Ramp {label.toLowerCase()} view isn't wired up yet — coming in a future update.</p>
+      <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', maxWidth: 360 }}>This Ramp {label.toLowerCase()} view isn't wired up yet - coming in a future update.</p>
     </div>
   );
 }
@@ -389,7 +390,7 @@ export default function Accounting({ activeSub, onSubChange }) {
         setRamp(prev => prev.map(t => t.id === id ? updated : t));
         setRampMemoDrafts(prev => { const next = { ...prev }; delete next[id]; return next; });
       })
-      .catch(() => setRampError('Could not save that memo — try again.'))
+      .catch(() => setRampError('Could not save that memo - try again.'))
       .finally(() => setRampSavingId(null));
   };
 
@@ -459,13 +460,9 @@ export default function Accounting({ activeSub, onSubChange }) {
       </div>
 
       {/* Scrollable Tab Pills */}
-      <div className="scroll-tabs" style={{ display: 'flex', gap: 8, marginBottom: 24, paddingBottom: 8, borderBottom: '1px solid var(--border-color)' }}>
-        {TABS.map(t => (
-          <button key={t} className={`tab-pill${sub === t ? ' active' : ''}`} style={{ whiteSpace: 'nowrap' }} onClick={() => onSubChange(t)}>
-            {TAB_LABELS[t]}
-          </button>
-        ))}
-      </div>
+      {/* Desktop: tabs render centered in the top header; phones keep the
+          in-page strip (ModuleTabs handles both) */}
+      <ModuleTabs tabs={TABS.map(t => ({ key: t, label: TAB_LABELS[t] }))} active={sub} onChange={onSubChange} />
 
       {/* Tab Content */}
       <div style={{ marginBottom: 24 }}>
@@ -612,7 +609,7 @@ export default function Accounting({ activeSub, onSubChange }) {
 
             {rampSection === 'manage-spend' ? (
               <>
-                {/* Funds / Cards / Requests / Budgets — Ramp's "Manage spend"
+                {/* Funds / Cards / Requests / Budgets - Ramp's "Manage spend"
                     group, as a segmented pill control under its own tab. */}
                 <RampSegmentedTabs sections={RAMP_SPEND_SECTIONS} active={rampSpendSection} onChange={setRampSpendSection} />
 
@@ -678,7 +675,7 @@ export default function Accounting({ activeSub, onSubChange }) {
               </>
             ) : rampSection === 'expenses' ? (
               <>
-                {/* Card transactions / Reimbursements — Ramp's "Expenses"
+                {/* Card transactions / Reimbursements - Ramp's "Expenses"
                     group, as a segmented pill control under its own tab. */}
                 <RampSegmentedTabs sections={RAMP_EXPENSE_SECTIONS} active={rampExpenseSection} onChange={setRampExpenseSection} />
                 <RampSectionPlaceholder
@@ -688,7 +685,7 @@ export default function Accounting({ activeSub, onSubChange }) {
               </>
             ) : rampSection === 'travel' ? (
               <>
-                {/* Overview / Trip management — Ramp's "Travel" group, as a
+                {/* Overview / Trip management - Ramp's "Travel" group, as a
                     segmented pill control under its own tab. */}
                 <RampSegmentedTabs sections={RAMP_TRAVEL_SECTIONS} active={rampTravelSection} onChange={setRampTravelSection} />
                 <RampSectionPlaceholder
@@ -698,7 +695,7 @@ export default function Accounting({ activeSub, onSubChange }) {
               </>
             ) : rampSection === 'accounting' ? (
               <>
-                {/* Card transactions / Stack — Ramp's "Accounting" group, as a
+                {/* Card transactions / Stack - Ramp's "Accounting" group, as a
                     segmented pill control under its own tab. */}
                 <RampSegmentedTabs sections={RAMP_ACCOUNTING_SECTIONS} active={rampAccountingSection} onChange={setRampAccountingSection} />
                 <RampSectionPlaceholder
@@ -708,7 +705,7 @@ export default function Accounting({ activeSub, onSubChange }) {
               </>
             ) : rampSection === 'vendors' ? (
               <>
-                {/* Overview / Contracts & renewals — Ramp's "Vendors" group,
+                {/* Overview / Contracts & renewals - Ramp's "Vendors" group,
                     as a segmented pill control under its own tab. */}
                 <RampSegmentedTabs sections={RAMP_VENDOR_SECTIONS} active={rampVendorSection} onChange={setRampVendorSection} />
                 <RampSectionPlaceholder
@@ -719,7 +716,7 @@ export default function Accounting({ activeSub, onSubChange }) {
             ) : rampSection === 'company' ? (
               <>
                 {/* People / Statements & payments / Integrations / Rewards /
-                    Settings — Ramp's "Company" group, as a segmented pill
+                    Settings - Ramp's "Company" group, as a segmented pill
                     control under its own tab. */}
                 <RampSegmentedTabs sections={RAMP_COMPANY_SECTIONS} active={rampCompanySection} onChange={setRampCompanySection} />
                 <RampSectionPlaceholder
@@ -763,7 +760,7 @@ export default function Accounting({ activeSub, onSubChange }) {
                         <td data-th="COI Expiry">
                           <span style={{ color: coiOk ? 'var(--text-primary)' : coiWarn ? 'hsl(var(--color-orange))' : 'hsl(var(--color-red))', fontWeight: coiOk ? 400 : 600, fontFamily: 'monospace', fontSize: '0.85rem' }}>{v.coi}{!coiOk && <span style={{ marginLeft: 4, fontSize: '0.7rem' }}>{daysLeft <= 0 ? '(expired)' : `(${daysLeft}d)`}</span>}</span>
                         </td>
-                        <td data-th="1099" style={{ textAlign: 'center' }}>{v.is1099 ? <span style={{ color: 'hsl(var(--color-green))', fontWeight: 700 }}>✓</span> : <span style={{ color: 'var(--text-muted)' }}>—</span>}</td>
+                        <td data-th="1099" style={{ textAlign: 'center' }}>{v.is1099 ? <span style={{ color: 'hsl(var(--color-green))', fontWeight: 700 }}>✓</span> : <span style={{ color: 'var(--text-muted)' }}>-</span>}</td>
                         <td data-th="GL Account" style={{ fontFamily: 'monospace', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{v.gl}</td>
                         <td data-th="Open POs" style={{ textAlign: 'center', fontWeight: 600 }}>{v.pos}</td>
                         <td data-th="Status"><span style={{ backgroundColor: v.active ? 'hsla(var(--color-green), 0.1)' : 'hsla(var(--color-red), 0.1)', color: v.active ? 'hsl(var(--color-green))' : 'hsl(var(--color-red))', fontSize: '0.75rem', padding: '2px 8px', borderRadius: 4, fontWeight: 600 }}>{v.active ? 'Active' : 'Inactive'}</span></td>
@@ -781,7 +778,7 @@ export default function Accounting({ activeSub, onSubChange }) {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
             <div style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 24, boxShadow: 'var(--shadow-sm)' }}>
               <h3 style={{ fontSize: '1.1rem', fontFamily: "'Plus Jakarta Sans', sans-serif", marginBottom: 4 }}>Ask My Accountant</h3>
-              <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: 20 }}>Transactions flagged for coding clarification — routed to your accountant for review</p>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: 20 }}>Transactions flagged for coding clarification - routed to your accountant for review</p>
               <div className="req-table-wrapper">
                 <table className="req-table stack-table">
                   <thead>

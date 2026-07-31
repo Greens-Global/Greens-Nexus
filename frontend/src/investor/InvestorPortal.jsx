@@ -4,15 +4,15 @@ import { api } from '../api';
 import { formatCurrency, formatDate, formatMultiple, formatPercent } from './lib/format';
 import { EmptyState, ErrorState, LoadingState, StatusText, ThinBar, useIrLoad } from './lib/ui';
 
-// The external investor portal — what a granted, non-staff investor sees when
+// The external investor portal - what a granted, non-staff investor sees when
 // they open Investor Relations (see the role branch in views/InvestorRelations.jsx).
 // Read-only by design: no tab strip, no create/edit/delete anywhere, and only
-// the caller's own deals — the /portal endpoints scope every row server-side
+// the caller's own deals - the /portal endpoints scope every row server-side
 // (ungranted deals 404), this file adds nothing on top. Deliberately no Asset
 // Management links here either: investors have no access to that module.
 
 // Category → label + accent color. Mirrors CATEGORY_META in DocumentsTab.jsx
-// (not exported there) — keep the two in sync.
+// (not exported there) - keep the two in sync.
 const CATEGORY_META = {
   subscription_agreement: { label: 'Subscription Agreement', color: 'hsl(var(--color-blue))' },
   k1:                     { label: 'K-1',                    color: 'hsl(var(--color-orange))' },
@@ -31,7 +31,7 @@ function fileIcon(name) {
   return File;
 }
 
-// +/− amounts, investor's perspective — same sign convention as the GP-side
+// +/− amounts, investor's perspective - same sign convention as the GP-side
 // capital-account statement (CapitalAccountsTab.jsx): calls −, distributions +.
 function signedAmount(v) {
   const n = Number(v) || 0;
@@ -53,7 +53,7 @@ function SectionTitle({ children }) {
   );
 }
 
-// Landing card — the visual language of the GP Deal cards (status dot, thin
+// Landing card - the visual language of the GP Deal cards (status dot, thin
 // bar, stat grid), minus everything GP-only (investor count, manager, edit).
 function DealCard({ deal: d, onOpen }) {
   return (
@@ -64,7 +64,7 @@ function DealCard({ deal: d, onOpen }) {
         <div style={{ minWidth: 0 }}>
           <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--ink)', letterSpacing: '-0.01em' }}>{d.fundName}</div>
           <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
-            {[d.strategy, d.propertyName].filter(Boolean).join(' · ') || d.entityName || '—'}
+            {[d.strategy, d.propertyName].filter(Boolean).join(' · ') || d.entityName || '-'}
           </div>
         </div>
         <StatusText status={d.status} />
@@ -82,7 +82,7 @@ function DealCard({ deal: d, onOpen }) {
         {stat('Distributed', formatCurrency(d.distributed))}
         {stat('Unfunded', formatCurrency(d.unfunded))}
         {stat('DPI', formatMultiple(d.dpi))}
-        {/* TVPI / IRR stay hidden until the deal has actually exited — no
+        {/* TVPI / IRR stay hidden until the deal has actually exited - no
             fabricated interim valuations, DPI is the "cash back so far" number. */}
         {isNum(d.tvpi) && stat('TVPI', formatMultiple(d.tvpi))}
         {isNum(d.irrPct) && stat('Net IRR', formatPercent(d.irrPct))}
@@ -92,7 +92,7 @@ function DealCard({ deal: d, onOpen }) {
 }
 
 // Full deal statement: terms, capital account, dated cash-flow ledger,
-// documents, and updates — mirrors the GP-side statement modal's layout.
+// documents, and updates - mirrors the GP-side statement modal's layout.
 function PortalDealDetail({ fundId, onBack }) {
   const { data: deal, loading, error, reload } = useIrLoad(() => api.getIrPortalDeal(fundId), [fundId]);
 
@@ -106,7 +106,7 @@ function PortalDealDetail({ fundId, onBack }) {
     const prev = flows.length ? flows[flows.length - 1].net : 0;
     flows.push({ ...cf, net: prev + (Number(cf.amount) || 0) });
   }
-  // Pinned first, then newest — same ordering the GP Updates tab uses.
+  // Pinned first, then newest - same ordering the GP Updates tab uses.
   const updates = [...(deal.updates || [])].sort((a, b) => {
     if (!!b.pinned !== !!a.pinned) return b.pinned ? 1 : -1;
     return String(b.createdAt || '').localeCompare(String(a.createdAt || ''));
@@ -128,7 +128,7 @@ function PortalDealDetail({ fundId, onBack }) {
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
         <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--muted)' }}>Greens Global — Investor Statement</div>
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--muted)' }}>Investor Statement</div>
           <div style={{ fontSize: 19, fontWeight: 700, letterSpacing: '-0.02em', color: 'var(--ink)', marginTop: 4 }}>{deal.fundName}</div>
           <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 2 }}>
             {[deal.entityName, deal.strategy, deal.propertyName].filter(Boolean).join(' · ') || 'Deal overview'} · As of {formatDate(deal.asOf)}
@@ -218,7 +218,7 @@ function PortalDealDetail({ fundId, onBack }) {
               </table>
             </div>
             <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 10 }}>
-              Amounts shown from your perspective — capital calls negative, distributions positive.
+              Amounts shown from your perspective - capital calls negative, distributions positive.
             </div>
           </>
         )}
@@ -311,7 +311,7 @@ export default function InvestorPortal() {
   if (error) return <ErrorState message={error} onRetry={reload} />;
 
   const list = deals || [];
-  // A single-deal investor lands straight on their statement — no pointless
+  // A single-deal investor lands straight on their statement - no pointless
   // one-item list, and no "Back to My Deals" affordance they'd wonder about.
   const activeId = selectedId ?? (list.length === 1 ? list[0].fundId : null);
 
@@ -323,7 +323,7 @@ export default function InvestorPortal() {
     // Calm empty state, not an error: covers revoked access and data hiccups.
     return (
       <EmptyState icon={Briefcase} title="No Deals Available"
-        sub="You don't have access to any deals yet. If you're expecting to see an investment here, contact your Greens Global representative." />
+        sub="You don't have access to any deals yet. If you're expecting to see an investment here, contact your account representative." />
     );
   }
 
@@ -331,7 +331,7 @@ export default function InvestorPortal() {
     <div>
       <div style={{ marginBottom: 18 }}>
         <h3 style={{ fontSize: 16, fontWeight: 700, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>My Deals</h3>
-        <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '3px 0 0' }}>Your investments with Greens Global — select a deal for the full statement</p>
+        <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '3px 0 0' }}>Your investments - select a deal for the full statement</p>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(330px, 1fr))', gap: 16 }}>
         {list.map(d => <DealCard key={d.fundId} deal={d} onOpen={() => setSelectedId(d.fundId)} />)}

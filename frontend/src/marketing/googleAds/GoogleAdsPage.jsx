@@ -127,7 +127,7 @@ export default function GoogleAdsPage({
   const prevTotals = useMemo(() => sumTotals(prevRows), [prevRows])
 
   // Monthly budget usage is always measured against the current calendar
-  // month to date, independent of whatever range the user has selected —
+  // month to date, independent of whatever range the user has selected -
   // same convention as the account-wide budget alert in shared/alerts.
   const monthlyBudget =
     property === ALL_PROPERTIES
@@ -267,7 +267,7 @@ export default function GoogleAdsPage({
 
       {compareSelection && (
         <PropertyComparisonModal
-          title={`Compare Properties — ${PLATFORM_LABEL}`}
+          title={`Compare Properties - ${PLATFORM_LABEL}`}
           rows={comparisonRowsWithBudget.filter((r) => compareSelection.includes(r.name))}
           columns={COMPARISON_COLUMNS}
           onClose={() => setCompareSelection(null)}

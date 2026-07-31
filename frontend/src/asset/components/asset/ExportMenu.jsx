@@ -1,4 +1,4 @@
-// Small "Export" dropdown shown in the asset-page header toolbar. Purely presentational — the
+// Small "Export" dropdown shown in the asset-page header toolbar. Purely presentational - the
 // actual CSV/PDF generation lives in ../../lib/csvExport.js; this component just renders the
 // button + menu and wires the two callbacks.
 //

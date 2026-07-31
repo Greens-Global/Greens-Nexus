@@ -6,7 +6,7 @@ import { parcelAcres } from '../../lib/parcelGrouping.js';
 import { toNumber } from '../../lib/format.js';
 
 // Shared pill style for the two badges that float over the photo (parcel-count / Private, and
-// the stage chip) — same shape, different content/positioning per-badge.
+// the stage chip) - same shape, different content/positioning per-badge.
 const photoPill = {
   display: 'inline-flex',
   alignItems: 'center',
@@ -26,16 +26,16 @@ const photoPill = {
  * effect (two faux card edges peeking out behind it) and a "N parcels" badge.
  *
  * Title sizing: the card title's font-size shrinks in steps as the name gets longer, so long
- * asset names don't wrap awkwardly in the fixed-height photo header — but even with the
+ * asset names don't wrap awkwardly in the fixed-height photo header - but even with the
  * shrinking steps, very long names can still overflow at the smallest step, so `textOverflow:
- * 'ellipsis'` is required here too (earlier versions clipped with no ellipsis at all — a real
+ * 'ellipsis'` is required here too (earlier versions clipped with no ellipsis at all - a real
  * user-reported bug, not decoration; keep both the shrink steps AND the ellipsis).
  */
 export function TileCard({ pr: property, openProperty, secondaries = [] }) {
   const isGroup = secondaries.length > 0;
 
   // Group members in parcelOrder (falling back to array position for members that have never
-  // been explicitly reordered) — see the group-first parcel-linking model in ParcelManager.jsx.
+  // been explicitly reordered) - see the group-first parcel-linking model in ParcelManager.jsx.
   const members = [property, ...secondaries]
     .map((m, i) => [m, m.parcelOrder == null ? i : m.parcelOrder])
     .sort((a, b) => a[1] - b[1])
@@ -70,13 +70,13 @@ export function TileCard({ pr: property, openProperty, secondaries = [] }) {
   const stats = tileStats(statSource);
   const title = isGroup && lead.siteName ? lead.siteName : lead.name;
   const isNonProperty = inferAssetKind(lead) !== 'property';
-  const subtitle = isNonProperty ? (String(lead.yearBuilt || '') || lead.devStage || '') : (cityRegion(lead) || '—');
+  const subtitle = isNonProperty ? (String(lead.yearBuilt || '') || lead.devStage || '') : (cityRegion(lead) || '-');
   const photo = (lead.images && lead.images[0]) || lead.image || '';
   const openLead = () => openProperty(lead.id);
 
   // Stat tiles: prefer up to 4 stats that actually have a value; if NONE do, fall back to
   // showing the first 3 regardless (so the grid isn't empty for a barely-filled-in asset).
-  let visibleStats = stats.filter((s) => s.v && s.v !== '—').slice(0, 4);
+  let visibleStats = stats.filter((s) => s.v && s.v !== '-').slice(0, 4);
   if (!visibleStats.length) visibleStats = stats.slice(0, 3);
 
   const titleFontSize =
@@ -89,8 +89,8 @@ export function TileCard({ pr: property, openProperty, secondaries = [] }) {
 
   // The char-count size above is a good first guess, but the title shares its row with the
   // status badge, so the real space available depends on card width AND badge width (a long
-  // "Stabilized — Renovation" pill leaves much less room than "Stabilized"). Rather than let it
-  // clip to "…", shrink the font until the title actually fits its box — Neil's "resize down a
+  // "Stabilized - Renovation" pill leaves much less room than "Stabilized"). Rather than let it
+  // clip to "…", shrink the font until the title actually fits its box - Neil's "resize down a
   // bit if needed". Re-fits whenever the card resizes (responsive column count).
   const titleRef = useRef(null);
   useLayoutEffect(() => {

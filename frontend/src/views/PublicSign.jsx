@@ -3,9 +3,9 @@ import { FileSignature, Loader2, CheckCircle, XCircle, AlertTriangle, Lock, Down
 import { API_BASE } from '../api';
 import { SigningDoc } from '../components/ESign';
 
-// ── Public signing page — /sign/{token} ───────────────────────────────────────
+// ── Public signing page - /sign/{token} ───────────────────────────────────────
 // Renders OUTSIDE the MSAL gate (external signers have no login); the URL token
-// is the credential. Talks to /esign/public/* with plain fetch — never MSAL.
+// is the credential. Talks to /esign/public/* with plain fetch - never MSAL.
 
 async function pfetch(path, opts = {}) {
   const { code, ...rest } = opts;   // access code travels as a header, never a query param (logs/history leak)
@@ -69,7 +69,7 @@ export default function PublicSign({ token }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18 }}>
           <div style={{ width: 36, height: 36, borderRadius: 10, background: '#14532d', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 15 }}>G</div>
           <div>
-            <div style={{ fontWeight: 800, fontSize: 15, color: 'var(--ink, #111827)' }}>Greens Global</div>
+            <div style={{ fontWeight: 800, fontSize: 15, color: 'var(--ink, #111827)' }}>Nexus</div>
             <div style={{ fontSize: 11.5, color: 'var(--muted, #6b7280)' }}>Secure e-signature</div>
           </div>
         </div>
@@ -77,7 +77,7 @@ export default function PublicSign({ token }) {
           {children}
         </div>
         <p style={{ textAlign: 'center', fontSize: 11, color: 'var(--muted, #9ca3af)', marginTop: 16 }}>
-          Powered by Greens Nexus E-Sign · Your signature is captured with a tamper-evident audit trail.
+          Powered by Nexus E-Sign · Your signature is captured with a tamper-evident audit trail.
         </p>
       </div>
     </div>
@@ -96,7 +96,7 @@ export default function PublicSign({ token }) {
         ? <XCircle size={38} style={{ color: 'hsl(350,65%,48%)', marginBottom: 12 }} />
         : <CheckCircle size={38} style={{ color: 'hsl(142,60%,35%)', marginBottom: 12 }} />}
       <h2 style={{ fontSize: 17, margin: '0 0 8px' }}>
-        {done === 'declined' ? 'Declined' : done === 'signed-final' ? 'All done — document complete!' : 'Signed!'}
+        {done === 'declined' ? 'Declined' : done === 'signed-final' ? 'All done - document complete!' : 'Signed!'}
       </h2>
       <p style={{ fontSize: 13.5, color: 'var(--muted, #6b7280)', margin: 0 }}>
         {done === 'declined'
@@ -119,18 +119,18 @@ export default function PublicSign({ token }) {
     </div>
   );
 
-  // Access-code gate — the sender shared a code with this signer out-of-band.
+  // Access-code gate - the sender shared a code with this signer out-of-band.
   if (payload.locked) return shell(
     <form onSubmit={e => { e.preventDefault(); if (codeInput.trim()) load(codeInput.trim()); }}
       style={{ textAlign: 'center', padding: '26px 10px' }}>
       <Lock size={32} style={{ color: '#14532d', marginBottom: 12 }} />
       <h2 style={{ fontSize: 17, margin: '0 0 8px' }}>{payload.title}</h2>
       <p style={{ fontSize: 13.5, color: 'var(--muted, #6b7280)', margin: '0 0 4px' }}>
-        This document is protected — enter the access code the sender shared with you.
+        This document is protected - enter the access code the sender shared with you.
       </p>
       {payload.wrongCode && (
         <p style={{ fontSize: 12.5, color: 'hsl(350,65%,48%)', margin: '6px 0 0', fontWeight: 600 }}>
-          That code wasn't right — try again.
+          That code wasn't right - try again.
         </p>
       )}
       <input autoFocus value={codeInput} onChange={e => setCodeInput(e.target.value)} placeholder="Access code"

@@ -135,7 +135,7 @@ them silently off the sync worker.
 
 **Automatic on the deployed API, manual on a laptop** — `is_sync_worker()`
 (`WEBSITE_SITE_NAME`, or `NEXUS_ASANA_SYNC_WORKER=true` to opt in deliberately)
-gates the 5-min pull, the 15-min push sweep, and every fire-and-forget push.
+gates the 2-min pull, the 10-min push sweep, and every fire-and-forget push.
 Manual Pull / Push all / Import work everywhere. Without this gate every
 developer's local backend would push local edits into the real workspace.
 
@@ -185,13 +185,9 @@ Old `hardware_assets` table (IT module) is legacy — planned to fold into
 - Use American English spelling everywhere — code, comments, UI copy, email/
   notification templates, docs (e.g. "color" not "colour", "behavior" not
   "behaviour", "organize" not "organise", "license" not "licence").
-
-## graphify
-
-This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
-
-Rules:
-- For codebase questions, first run `graphify query "<question>"` when graphify-out/graph.json exists. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
-- If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
-- Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
-- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
+- **UI text casing (Neil, Jul 28 — supersedes any earlier sentence-case note):
+  Titles, headings, tab labels, and buttons use Title Case** ("Punch In",
+  "Start Break", "Time Sheet", "Request Time Off"). Body copy, hints, empty
+  states, and descriptions stay sentence case.
+- Never use em dashes in user-facing copy — plain hyphens ("-"). Em dashes
+  read as AI-generated (Visesh, Jul 28).

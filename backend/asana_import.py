@@ -4,7 +4,7 @@ Asana → Nexus task importer (one-off migration tool).
 
 Reads projects / tasks / subtasks / comments / attachments from the Asana REST
 API and recreates them in the Nexus Task module *through the Nexus REST API* (so
-task codes, validation and notifications behave normally — no raw DB writes).
+task codes, validation and notifications behave normally - no raw DB writes).
 
   - Comments  : Asana "stories" of type comment → Nexus task comments, with the
                 original author (by email) and date preserved. Use
@@ -13,16 +13,16 @@ task codes, validation and notifications behave normally — no raw DB writes).
                 inlined (self-contained, no expiring links); larger/external
                 files keep a permanent link.
   - Teams     : each project's Asana team → a Nexus department ("Team" in the
-                UI), created once (matched by Asana team gid, not name — reruns
+                UI), created once (matched by Asana team gid, not name - reruns
                 reuse it) with its members carried over. Skip with --no-teams.
 
 ------------------------------------------------------------------------------
-QUICK START (local dev — the backend on :8000 runs with NEXUS_SKIP_AUTH, so no
+QUICK START (local dev - the backend on :8000 runs with NEXUS_SKIP_AUTH, so no
 Nexus token is needed):
 
     cd backend
     export ASANA_TOKEN='1/your-asana-personal-access-token'
-    # dry run first — see what WOULD be imported, write nothing:
+    # dry run first - see what WOULD be imported, write nothing:
     .venv/Scripts/python.exe asana_import.py --projects 12345 67890 --dry-run
     # then for real:
     .venv/Scripts/python.exe asana_import.py --projects 12345 67890
@@ -31,7 +31,7 @@ Nexus token is needed):
   https://app.asana.com/0/<PROJECT_GID>/list  → the middle number is the GID.
   Or pass --workspace <WORKSPACE_GID> to import EVERY project in a workspace.
 
-LATER (shared dev — needs a real bearer token for the deployed API):
+LATER (shared dev - needs a real bearer token for the deployed API):
 
     export NEXUS_TOKEN='<azure-id-token>'
     .venv/Scripts/python.exe asana_import.py --projects 12345 \
@@ -89,7 +89,7 @@ def _request(method, url, headers, body=None):
                 time.sleep(wait)
                 continue
             detail = e.read().decode(errors="ignore")[:300]
-            raise ImportError_(f"HTTP {e.code} {method} {url} — {detail}")
+            raise ImportError_(f"HTTP {e.code} {method} {url} - {detail}")
         except urllib.error.URLError as e:
             if attempt < 3:
                 time.sleep(2 * (attempt + 1))
@@ -102,7 +102,7 @@ class Asana:
         self.h = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
 
     def get(self, path, **params):
-        """GET with automatic pagination — returns the concatenated `data` list
+        """GET with automatic pagination - returns the concatenated `data` list
         (or the single object for detail endpoints)."""
         params.setdefault("limit", 100)
         out, offset = [], None
@@ -206,7 +206,7 @@ def import_project(asana, nexus, project_gid, state, email_map, args):
     pname = proj.get("name") or f"Asana {project_gid}"
     print(f"\n=== Project: {pname}  ({project_gid}) ===")
 
-    # 1) project (only look up its Asana team — an extra API call — if we're
+    # 1) project (only look up its Asana team - an extra API call - if we're
     # actually about to create it; already-imported projects keep whatever
     # team they were assigned on first import or by hand since).
     if project_gid in state["projects"]:
@@ -223,7 +223,7 @@ def import_project(asana, nexus, project_gid, state, email_map, args):
             state["projects"][project_gid] = nexus_pid
             save_state(state)
             print(f"  created project → {nexus_pid}")
-        # Team creation needs the Nexus project id (Teams are project-scoped) —
+        # Team creation needs the Nexus project id (Teams are project-scoped) -
         # only possible once the project above actually exists.
         if not args.no_teams and proj.get("team"):
             _ensure_department(asana, nexus, proj["team"], nexus_pid, state, email_map, args)
@@ -241,25 +241,41 @@ def import_project(asana, nexus, project_gid, state, email_map, args):
 
 def _ensure_department(asana, nexus, team, nexus_pid, state, email_map, args):
     """Map an Asana team (compact {gid, name} from the project's `team` field) to
-    a Nexus Team (TaskTeam) scoped to `nexus_pid`. TaskTeam became project-scoped
-    in the Jul 2026 redesign (one Team belongs to exactly one project), so the
-    same Asana team used across several Asana projects now needs one Nexus Team
-    row per project — state is keyed by (team_gid, nexus_pid), not just team_gid.
+    a Nexus Team (TaskTeam) covering `nexus_pid`.
+
+    ONE Nexus team per Asana team. State is keyed by team_gid alone: a TaskTeam
+    now holds a LIST of projects, so an Asana team used by several projects
+    extends the row it already has. It was briefly keyed by (team_gid, nexus_pid)
+    instead, back when a TaskTeam could only carry one project and the same real
+    team therefore needed a duplicate row per project.
+
     Pulls the team's members in too."""
     team_gid = team.get("gid")
     if not team_gid:
         return ""
-    key = f"{team_gid}:{nexus_pid}"
-    if key in state["teams"]:
-        return state["teams"][key]
+    # Older state files stored a bare team id per (gid, pid) key; normalize.
+    entry = state["teams"].get(team_gid)
+    if isinstance(entry, str):
+        entry = {"id": entry, "projects": []}
     name = team.get("name") or f"Asana Team {team_gid}"
+    if entry:
+        if nexus_pid and nexus_pid not in entry["projects"]:
+            entry["projects"] = entry["projects"] + [nexus_pid]
+            if not args.dry_run:
+                nexus.patch(f"/task-teams/{entry['id']}", {"project_ids": entry["projects"]})
+                state["teams"][team_gid] = entry
+                save_state(state)
+                print(f"  team → {name} now also covers this project")
+        return entry["id"]
     members = asana.get(f"/teams/{team_gid}/users", opt_fields="name,email")
     member_emails = sorted({resolve_member_email(m, email_map) for m in members} - {""})
     if args.dry_run:
         print(f"  [dry-run] would create team '{name}' ({len(member_emails)} members)")
         return f"DRY-{team_gid}"
-    dept = nexus.post("/task-teams", {"name": name, "project_id": nexus_pid, "member_emails": member_emails})
-    state["teams"][key] = dept["id"]
+    projects = [nexus_pid] if nexus_pid else []
+    dept = nexus.post("/task-teams", {"name": name, "project_ids": projects,
+                                      "member_emails": member_emails})
+    state["teams"][team_gid] = {"id": dept["id"], "projects": projects}
     save_state(state)
     print(f"  created team → {name} ({len(member_emails)} members)")
     return dept["id"]
@@ -333,7 +349,7 @@ def _import_attachments(asana, nexus, task_gid, nexus_task_id, state, args, coun
         host = a.get("host") or ""
         url = ""
         if host and host != "asana":
-            # external service (Drive/Dropbox/link) — keep the permanent link
+            # external service (Drive/Dropbox/link) - keep the permanent link
             url = a.get("permanent_url") or a.get("view_url") or a.get("download_url") or ""
         else:
             dl = a.get("download_url")
@@ -389,7 +405,7 @@ def _import_task(asana, nexus, t, nexus_pid, parent_id, state, email_map, args, 
             save_state(state)
         counts["subtasks" if parent_id else "created"] += 1
 
-    # Comments + attachments — per-item state makes this safe to re-run, so even a
+    # Comments + attachments - per-item state makes this safe to re-run, so even a
     # task that was created on a previous run gets its comments/attachments backfilled.
     if not str(nexus_id).startswith("DRY-") or args.dry_run:
         _import_comments(asana, nexus, gid, nexus_id, state, email_map, args, counts)
@@ -450,7 +466,7 @@ def main():
             import_project(asana, nexus, gid, state, email_map, args)
     except ImportError_ as e:
         sys.exit(f"\nImport failed: {e}")
-    print("\nAll done." + ("  (dry run — nothing written)" if args.dry_run else f"  State: {STATE_PATH}"))
+    print("\nAll done." + ("  (dry run - nothing written)" if args.dry_run else f"  State: {STATE_PATH}"))
 
 
 if __name__ == "__main__":

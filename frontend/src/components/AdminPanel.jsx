@@ -1,17 +1,18 @@
 import { useState, useEffect, useCallback, useRef, Fragment } from 'react';
 
 const FragmentRow = Fragment;   // expanded audit rows render as <tr> pairs
-import { X, Shield, Activity, Search, RefreshCw, ChevronDown, Users, Clock } from 'lucide-react';
+import { X, Shield, Activity, Search, RefreshCw, ChevronDown, Users, Clock, Palette, Check, Loader2 } from 'lucide-react';
 import { useRole } from '../contexts/RoleContext';
 import { api } from '../api';
 import { useNameResolver } from '../lib/useNameResolver';
 import Admin from '../views/Admin';
 import TimeTrackingAdmin from './TimeTrackingAdmin';
+import { applyBrandAccent } from '../lib/brandAccent';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function fmtTime(iso) {
-  if (!iso) return '—';
+  if (!iso) return '-';
   try {
     const d = new Date(iso + 'Z');
     return d.toLocaleString('en-GB', {
@@ -21,7 +22,7 @@ function fmtTime(iso) {
   } catch { return iso.slice(0, 16).replace('T', ' '); }
 }
 
-// Renders the JSON `details` payload as a compact, human-scannable line —
+// Renders the JSON `details` payload as a compact, human-scannable line -
 // e.g. `qty: 2 · reason: "Replacing cracked screen" · condition: damaged`.
 // Falls back silently to nothing for path/status-only entries (older rows,
 // or routes that don't carry a meaningful business payload).
@@ -48,7 +49,7 @@ function summarizeDetails(raw) {
 }
 
 // Older rows were logged as raw HTTP ("PUT /myhr") before the describer knew
-// those modules — translate them (and the security events) into plain English.
+// those modules - translate them (and the security events) into plain English.
 const _LEGACY_MAP = [
   [/PUT myhr profile/,            'Updated their own profile (My HR)'],
   [/POST myhr requests/,          'Sent a request to HR'],
@@ -81,7 +82,7 @@ const _LEGACY_MAP = [
 function humanizeAction(r) {
   const a = r.action || '';
   if (a === 'Authentication failed')
-    return { title: 'Failed sign-in', hint: 'A request arrived without a valid login — usually an expired session.', danger: true };
+    return { title: 'Failed sign-in', hint: 'A request arrived without a valid login - usually an expired session.', danger: true };
   if (a === 'Authorization denied')
     return { title: 'Access denied', hint: "Tried to open something their role doesn't allow.", danger: true };
   const m = a.match(/^(GET|POST|PUT|PATCH|DELETE)\s+\/?(.*)$/);
@@ -263,6 +264,16 @@ function AuditLogs() {
                         {r.user_role && (
                           <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 1 }}>{r.user_role}</div>
                         )}
+                        {/* Act As transparency: the row's actor is always the REAL
+                            person at the keyboard; this badge shows who they were
+                            operating as (details.acting_as, set server-side). */}
+                        {d.acting_as && (
+                          <div style={{ marginTop: 3 }}>
+                            <span title={d.acting_as} style={{ fontSize: 10.5, fontWeight: 700, color: '#b45309', background: 'rgba(180,83,9,0.1)', padding: '1px 8px', borderRadius: 999, display: 'inline-block', maxWidth: 170, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              acting as {nameOf(d.acting_as)}
+                            </span>
+                          </div>
+                        )}
                       </td>
                       <td data-th="What happened" style={{ padding: '10px 14px' }}>
                         <span style={{ fontWeight: 600, color: h.danger ? 'hsl(var(--color-red))' : actionColor(h.title), fontSize: 12.5 }}>
@@ -271,7 +282,7 @@ function AuditLogs() {
                         {h.hint && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2, fontWeight: 400 }}>{h.hint}</div>}
                       </td>
                       <td data-th="Details" style={{ padding: '10px 14px', color: 'var(--muted)', fontSize: 11.5, maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={biz}>
-                        {biz || '—'}
+                        {biz || '-'}
                       </td>
                       <td data-th="Result" style={{ padding: '10px 14px' }}>
                         <StatusChip status={d.status || (h.danger ? 401 : 0)} />
@@ -334,6 +345,69 @@ function AuditLogs() {
   );
 }
 
+// ── Branding tab ──────────────────────────────────────────────────────────────
+
+const ACCENT_OPTIONS = [
+  { value: 'green', label: 'Green', swatch: 'hsl(var(--color-green))' },
+  { value: 'blue',  label: 'Blue',  swatch: '#2b45e1' },
+];
+
+function BrandingSettings() {
+  const [accent, setAccent] = useState(null); // null = still loading
+  const [saving, setSaving] = useState(false);
+  const [error, setError]   = useState('');
+
+  useEffect(() => {
+    api.getBrandingConfig().then(cfg => setAccent(cfg.accent)).catch(() => setError('Failed to load branding settings'));
+  }, []);
+
+  async function choose(next) {
+    if (next === accent || saving) return;
+    setSaving(true);
+    setError('');
+    try {
+      await api.updateBrandingConfig(next);
+      setAccent(next);
+      await applyBrandAccent();   // reflect immediately in this session too
+    } catch {
+      setError("Couldn't save — check your permissions and try again.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div style={{ maxWidth: 480 }}>
+      <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--ink)', marginBottom: 4 }}>Accent Color</div>
+      <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 16px', lineHeight: 1.5 }}>
+        The brand color used across the app - Time Clock, badges, and the login screen. Changes apply immediately for everyone.
+      </p>
+      {error && <div style={{ fontSize: 12.5, color: 'hsl(var(--color-red))', marginBottom: 12 }}>{error}</div>}
+      {accent === null && !error ? (
+        <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Loading…</div>
+      ) : (
+        <div style={{ display: 'flex', gap: 12 }}>
+          {ACCENT_OPTIONS.map(o => (
+            <button key={o.value} onClick={() => choose(o.value)} disabled={saving}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', borderRadius: 10,
+                border: accent === o.value ? `2px solid ${o.swatch}` : '1px solid var(--line)',
+                background: 'var(--card)', cursor: saving ? 'default' : 'pointer',
+                fontFamily: 'Inter, sans-serif', fontSize: 13, fontWeight: 600, color: 'var(--ink)',
+              }}>
+              <span style={{ width: 18, height: 18, borderRadius: '50%', background: o.swatch, flexShrink: 0 }} />
+              {o.label}
+              {accent === o.value && (saving
+                ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} />
+                : <Check size={14} style={{ color: o.swatch }} />)}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── AdminPanel ────────────────────────────────────────────────────────────────
 
 export default function AdminPanel({ open, initialTab = 'audit', onClose }) {
@@ -359,11 +433,12 @@ export default function AdminPanel({ open, initialTab = 'audit', onClose }) {
 
   if (!can('administrator')) return null;
 
-  // Access Manager retired (Jul 2026) — roles/job-roles/groups moved to
+  // Access Manager retired (Jul 2026) - roles/job-roles/groups moved to
   // People → Roles & Access, and per-person access is set on the employee card.
   const tabs = [
     { id: 'audit',  icon: <Activity size={14} />, label: 'Audit Logs' },
     { id: 'timetracking', icon: <Clock size={14} />, label: 'Monitoring' },
+    { id: 'branding', icon: <Palette size={14} />, label: 'Branding' },
   ];
 
   return (
@@ -449,6 +524,7 @@ export default function AdminPanel({ open, initialTab = 'audit', onClose }) {
           )}
           {tab === 'audit'  && <AuditLogs />}
           {tab === 'timetracking' && <TimeTrackingAdmin />}
+          {tab === 'branding' && <BrandingSettings />}
         </div>
       </div>
     </>

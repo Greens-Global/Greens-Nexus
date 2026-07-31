@@ -7,7 +7,7 @@ const DEFAULT_WIDTHS = [300, 110, 110, 110, 140, 140, 100];
 const MIN_WIDTHS = [180, 80, 80, 80, 90, 90, 80];
 const COLW_STORAGE_KEY = 'nexus_list_colw_v1';
 
-// Category -> row icon-badge color. Distinct from (and simpler than) StatusBadge's tone system —
+// Category -> row icon-badge color. Distinct from (and simpler than) StatusBadge's tone system -
 // this colors the per-row leading icon by CATEGORY, not by stage.
 const CATEGORY_COLOR = { Commercial: 'blue', Residential: 'green', Industrial: 'orange', Vehicles: 'purple', 'Heavy Equipment': 'gold' };
 
@@ -21,7 +21,7 @@ function compareValues(a, b) {
 }
 
 // Per-column sort-key accessors, in COLUMNS order. "Size" sorts by the value of whichever stat
-// tileStats() puts first for that asset (its most prominent metric) — the same value shown in
+// tileStats() puts first for that asset (its most prominent metric) - the same value shown in
 // the Size column itself, so what you see is what you sort by.
 const COLUMN_ACCESSORS = [
   (p) => p.name || '',
@@ -30,7 +30,7 @@ const COLUMN_ACCESSORS = [
   (p) => p.devStage || 'Active',
   (p) => p.entity || '',
   (p) => p.manager || '',
-  (p) => { const stats = tileStats(p).filter((x) => x.v && x.v !== '—'); return stats[0] ? stats[0].v : ''; },
+  (p) => { const stats = tileStats(p).filter((x) => x.v && x.v !== '-'); return stats[0] ? stats[0].v : ''; },
 ];
 
 const thStyle = {
@@ -41,9 +41,9 @@ const thStyle = {
 };
 const tdStyle = { padding: '10px 16px', borderBottom: '1px solid var(--border-color)', verticalAlign: 'middle', overflow: 'hidden' };
 
-/** Plain-text cell: ellipsis-truncates, shows the full value on hover via `title`, "—" if empty. */
+/** Plain-text cell: ellipsis-truncates, shows the full value on hover via `title`, "-" if empty. */
 function Cell({ value, dataLabel }) {
-  const display = (value ?? '') === '' ? '—' : value;
+  const display = (value ?? '') === '' ? '-' : value;
   return (
     <span
       title={(value ?? '') === '' ? '' : String(value)}
@@ -55,7 +55,7 @@ function Cell({ value, dataLabel }) {
   );
 }
 
-/** Stage chip cell — same visual language as the tile/list-row stage chip. */
+/** Stage chip cell - same visual language as the tile/list-row stage chip. */
 function StageChip({ devStage }) {
   const stage = devStage || 'Active';
   const tone = stageTone(stage);
@@ -73,7 +73,7 @@ function StageChip({ devStage }) {
  * a linked group's lead can be expanded in place to reveal secondary/child rows indented
  * beneath it (`childrenOf(id)` supplies a row's children; expand state is local to this table).
  *
- * Mobile (<640px): collapses into stacked cards via the `.list-table` CSS class in styles.css —
+ * Mobile (<640px): collapses into stacked cards via the `.list-table` CSS class in styles.css -
  * see that file for the nth-child-based column show/hide rules. `data-label` is set on each cell
  * for documentation/accessibility even though the current CSS keys off column position rather
  * than the label.
@@ -95,12 +95,12 @@ export function ListTable({ rows, childrenOf, open, sortCol, setSortCol, sortDir
     try {
       localStorage.setItem(COLW_STORAGE_KEY, JSON.stringify(colWidths));
     } catch {
-      // storage full/unavailable — column widths just won't persist this session
+      // storage full/unavailable - column widths just won't persist this session
     }
   }, [colWidths]);
 
   // Column-resize drag state lives in a ref (not state) since it updates on every mousemove and
-  // doesn't need to trigger its own re-render — only setColWidths does. `moved` distinguishes a
+  // doesn't need to trigger its own re-render - only setColWidths does. `moved` distinguishes a
   // real drag from a click-without-movement, so onSortClick can ignore clicks that were actually
   // the tail end of a resize drag (see onSortClick below).
   const dragRef = useRef(null);
@@ -124,7 +124,7 @@ export function ListTable({ rows, childrenOf, open, sortCol, setSortCol, sortDir
       window.removeEventListener('mouseup', onUp);
       // Clear the drag ref on a delay so the click event that fires right after mouseup (from
       // the same gesture) still sees `moved` and can suppress the sort-toggle it would otherwise
-      // trigger — see onSortClick.
+      // trigger - see onSortClick.
       setTimeout(() => { dragRef.current = null; }, 0);
     };
     window.addEventListener('mousemove', onMove);
@@ -144,8 +144,8 @@ export function ListTable({ rows, childrenOf, open, sortCol, setSortCol, sortDir
   const categoryColor = (p) => CATEGORY_COLOR[deriveCategory(p)] || 'blue';
 
   const metric = (p) => {
-    const stats = tileStats(p).filter((x) => x.v && x.v !== '—');
-    return stats[0] ? stats[0].v + ' ' + stats[0].l : '—';
+    const stats = tileStats(p).filter((x) => x.v && x.v !== '-');
+    return stats[0] ? stats[0].v + ' ' + stats[0].l : '-';
   };
 
   const renderRow = (asset, { kids = [], isChild = false } = {}) => {
@@ -200,7 +200,7 @@ export function ListTable({ rows, childrenOf, open, sortCol, setSortCol, sortDir
                 )}
               </div>
               <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {isChild ? 'Linked property' : cityRegion(asset) || '—'}
+                {isChild ? 'Linked property' : cityRegion(asset) || '-'}
               </div>
             </div>
           </div>

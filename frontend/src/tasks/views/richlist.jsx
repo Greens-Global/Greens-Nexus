@@ -1,15 +1,15 @@
-// Task Module — rich project List view (ported 1:1 from the export's
+// Task Module - rich project List view (ported 1:1 from the export's
 // NexusTaskListView). Spreadsheet-style grid: Actions · Task · Assignee ·
 // Project · Due · Estimate · Actual · Priority · Status · Team · +Column,
 // with inline pill-menu editing, per-row action icons, select-all, collapsible
-// groups, and add/remove custom-field columns — all wired to the TasksContext.
+// groups, and add/remove custom-field columns - all wired to the TasksContext.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import {
   CheckCircle2, Circle, MessageSquare, Paperclip, Diamond, ChevronDown, Check, Minus, ListTree, Plus, Trash2, Folder,
   Hash, List, Calendar, CheckSquare, ListOrdered, CircleDot, BarChart3, TrendingUp, Star, CalendarPlus, CalendarClock, Timer, ArrowLeft, EyeOff,
 } from 'lucide-react';
-import { groupTasks, matchesFilter, sortTasks, topLevel, groupAddDefaults } from '../lib';
+import { groupTasks, matchesFilter, sortTasks, topLevel, groupAddDefaults, fieldsForProject, teamInProject } from '../lib';
 import { NX, FONT, btn, input as inputStyle, PRIORITY_META, PRIORITY_ORDER, STATUS_META, STATUS_ORDER, colorForKey } from '../theme';
 import { Avatar, useClickOutside, DateField } from '../components';
 import { emailToName } from '../../lib/utils';
@@ -32,10 +32,10 @@ const BASE_COLS = [
 const HIDEABLE = ['actions', 'assignee', 'project', 'due', 'estimate', 'actual', 'priority', 'status', 'team', 'timeline'];
 const HIDDEN_KEY = 'nexus.richlist.hiddenCols';
 
-// Type picker for "+ Column" — matches the export's AddColumnMenu grid exactly
+// Type picker for "+ Column" - matches the export's AddColumnMenu grid exactly
 // (grouped: Recommended / Basic / Planning-Status / Date). Nexus's backend only
 // persists 4 kinds of value (text, number, date, select) plus checkbox added
-// here — so every visual type below maps onto one of those five storage kinds;
+// here - so every visual type below maps onto one of those five storage kinds;
 // duplicates (e.g. "Dropdown list" appears twice) just map to the same one.
 const TYPE_GROUPS = [
   { label: 'Recommended', types: [
@@ -68,7 +68,7 @@ const FIELD_PALETTE = [NX.blue, NX.purple, NX.green, NX.teal, NX.amber, NX.red, 
 // Renders its children into document.body, fixed-positioned against
 // `anchorRef`'s current on-screen rect. The rich-list table scrolls both
 // axes and clips/relocates any position:absolute content that tries to
-// escape it (e.g. a dropdown near the table's right edge) — a portal sidesteps
+// escape it (e.g. a dropdown near the table's right edge) - a portal sidesteps
 // that entirely by positioning against real viewport coordinates instead of
 // an ancestor that might clip or scroll.
 function PortalDropdown({ anchorRef, panelRef, align = 'left', width, bare = false, children }) {
@@ -158,7 +158,7 @@ function AssigneeCell({ value, people, onSelect, compact }) {
   const filtered = q ? people.filter((p) => (p.name + p.email).toLowerCase().includes(q.toLowerCase())) : people;
   return (
     <div ref={ref} style={{ position: 'relative', ...(compact ? { width: '100%' } : {}) }}>
-      {/* The cell value itself is the dropdown trigger — clicking it opens the
+      {/* The cell value itself is the dropdown trigger - clicking it opens the
           people list directly (no nested picker button inside the popover).
           compact = monday-style Person cell: just the avatar, centered. */}
       <button title={name || 'Unassigned'} onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }} style={{ display: 'flex', alignItems: 'center', justifyContent: compact ? 'center' : 'flex-start', gap: 6, width: '100%', border: 'none', background: 'transparent', cursor: 'pointer', textAlign: 'left', padding: 0 }}>
@@ -245,7 +245,7 @@ function TaskRow({ t, cols, customFields = [], template, store, people, selected
             </span>
           )}
         </div>
-        {/* assignee — monday Person cell: avatar + follower stack */}
+        {/* assignee - monday Person cell: avatar + follower stack */}
         {show('assignee') && (
         <div className="rl-cell" style={editCell} onClick={(e) => e.stopPropagation()}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%' }}>
@@ -293,7 +293,7 @@ function TaskRow({ t, cols, customFields = [], template, store, people, selected
           <span style={{ color: NX.faint, fontSize: 12 }}>h</span>
         </div>
         )}
-        {/* priority — monday-style edge-to-edge colored cell */}
+        {/* priority - monday-style edge-to-edge colored cell */}
         {show('priority') && (
         <div style={flushCell} onClick={(e) => e.stopPropagation()}>
           <PillSelect solid center label={pm.label} color={pm.color} tint={pm.tint} currentKey={t.priority}
@@ -301,7 +301,7 @@ function TaskRow({ t, cols, customFields = [], template, store, people, selected
             onSelect={(k) => store.updateTask(t.id, { priority: k })} />
         </div>
         )}
-        {/* status — monday-style edge-to-edge colored cell */}
+        {/* status - monday-style edge-to-edge colored cell */}
         {show('status') && (
         <div style={flushCell} onClick={(e) => e.stopPropagation()}>
           <PillSelect solid center label={sm.label} color={sm.color} tint={sm.tint} currentKey={t.status}
@@ -309,18 +309,18 @@ function TaskRow({ t, cols, customFields = [], template, store, people, selected
             onSelect={(k) => store.setStatus(t.id, k)} />
         </div>
         )}
-        {/* team — scoped to this task's own project, since a team lives inside one project */}
+        {/* team - scoped to this task's own project, since a team lives inside one project */}
         {show('team') && (
         <div className="rl-cell" style={editCell} onClick={(e) => e.stopPropagation()}>
           <PillSelect center
-            label={team ? team.name : '—'} color={team ? team.color : NX.faint} tint={team ? `${team.color}1a` : 'transparent'}
+            label={team ? team.name : '-'} color={team ? team.color : NX.faint} tint={team ? `${team.color}1a` : 'transparent'}
             icon={team ? <span style={{ width: 8, height: 8, borderRadius: '50%', background: team.color, flexShrink: 0 }} /> : null}
             currentKey={t.teamId || ''}
-            options={[{ key: '', label: 'No team', color: NX.faint }, ...store.teams.filter((tm) => tm.projectId === t.projectId).map((tm) => ({ key: tm.id, label: tm.name, color: tm.color }))]}
+            options={[{ key: '', label: 'No team', color: NX.faint }, ...store.teams.filter((tm) => teamInProject(tm, t.projectId)).map((tm) => ({ key: tm.id, label: tm.name, color: tm.color }))]}
             onSelect={(k) => store.updateTask(t.id, { teamId: k || null })} />
         </div>
         )}
-        {/* timeline — monday date-range pill in the group's color */}
+        {/* timeline - monday date-range pill in the group's color */}
         {show('timeline') && (
         <div className="rl-cell" style={editCell} onClick={(e) => e.stopPropagation()}>
           <TimelineCell t={t} color={groupColor || NX.blue} onChange={(patch) => store.updateTask(t.id, patch)} />
@@ -339,7 +339,7 @@ function TaskRow({ t, cols, customFields = [], template, store, people, selected
   );
 }
 
-// Drag handle on a header cell's right edge — matches the export's ColResizer.
+// Drag handle on a header cell's right edge - matches the export's ColResizer.
 function ColResizer({ onMouseDown }) {
   const [hover, setHover] = useState(false);
   return (
@@ -354,7 +354,7 @@ function ColResizer({ onMouseDown }) {
   );
 }
 
-// "+ Column" — creates a new custom field. Two steps, matching the export's
+// "+ Column" - creates a new custom field. Two steps, matching the export's
 // AddColumnMenu: pick a type from the grouped grid, then name/configure it.
 // New fields show up as columns immediately since every configured custom
 // field is rendered as one (see RichListView below).
@@ -468,7 +468,7 @@ function FieldCell({ field, value, onChange }) {
     const opts = (field.options || []).map((label, i) => ({ key: label, label, color: FIELD_PALETTE[i % FIELD_PALETTE.length] }));
     const cur = opts.find((o) => o.key === value);
     return (
-      <PillSelect label={cur ? cur.label : '—'} color={cur ? cur.color : NX.faint} tint={cur ? `${cur.color}1a` : 'transparent'}
+      <PillSelect label={cur ? cur.label : '-'} color={cur ? cur.color : NX.faint} tint={cur ? `${cur.color}1a` : 'transparent'}
         currentKey={value || ''} options={[{ key: '', label: 'None', color: NX.faint }, ...opts]} onSelect={onChange} />
     );
   }
@@ -476,10 +476,10 @@ function FieldCell({ field, value, onChange }) {
     return <DateField value={value || ''} onChange={onChange} color={NX.dim} style={{ fontSize: 12, width: '100%' }} />;
   }
   if (field.type === 'number') {
-    return <input type="number" className="rl-num" value={value ?? ''} onChange={(e) => onChange(e.target.value === '' ? null : Number(e.target.value))} placeholder="—"
+    return <input type="number" className="rl-num" value={value ?? ''} onChange={(e) => onChange(e.target.value === '' ? null : Number(e.target.value))} placeholder="-"
       style={{ width: '100%', border: 'none', background: 'transparent', fontSize: 12.5, color: NX.dim, outline: 'none', fontFamily: FONT }} />;
   }
-  return <input type="text" value={value || ''} onChange={(e) => onChange(e.target.value)} placeholder="—"
+  return <input type="text" value={value || ''} onChange={(e) => onChange(e.target.value)} placeholder="-"
     style={{ width: '100%', border: 'none', background: 'transparent', fontSize: 12.5, color: NX.dim, outline: 'none', fontFamily: FONT }} />;
 }
 
@@ -500,7 +500,7 @@ function TimelineCell({ t, color, onChange }) {
         ...(label
           ? { padding: '3px 12px', borderRadius: 12, background: color, color: '#fff', fontSize: 11, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis' }
           : { padding: '3px 12px', borderRadius: 12, background: NX.border2, color: NX.faint, fontSize: 11, fontWeight: 600 }),
-      }}>{label || '—'}</button>
+      }}>{label || '-'}</button>
       {open && (
         <PortalDropdown anchorRef={ref} panelRef={panelRef} width={218}>
           <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -519,8 +519,8 @@ function TimelineCell({ t, color, onChange }) {
   );
 }
 
-// Eye menu — hide/show columns, persisted per person (monday's "Hide" toolbar).
-function HideColsMenu({ customFields, hidden, setHidden }) {
+// Eye menu - hide/show columns, persisted per person (monday's "Hide" toolbar).
+function HideColsMenu({ customFields, hidden, setHidden, lockedProjectId }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   const panelRef = useRef(null);
@@ -532,7 +532,10 @@ function HideColsMenu({ customFields, hidden, setHidden }) {
     setHidden(n);
   };
   const entries = [
-    ...BASE_COLS.filter((c) => HIDEABLE.includes(c.key)).map((c) => ({ key: c.key, label: c.label })),
+    // Project isn't offered inside a project - it isn't rendered there, so a
+    // toggle for it would be a switch that does nothing.
+    ...BASE_COLS.filter((c) => HIDEABLE.includes(c.key) && !(c.key === 'project' && lockedProjectId))
+      .map((c) => ({ key: c.key, label: c.label })),
     ...customFields.map((f) => ({ key: f.id, label: f.name })),
   ];
   return (
@@ -557,9 +560,16 @@ function HideColsMenu({ customFields, hidden, setHidden }) {
   );
 }
 
-// Inline "+ Add task" under each group section — the created task inherits the
+// Inline "+ Add task" under each group section - the created task inherits the
 // section's group context (status / priority / project / due-date bucket) plus
 // the workspace's locked project, matching Asana's add-from-a-section flow.
+// A project with exactly one team hands it to new tasks automatically; with
+// several there's no right answer, so the Team cell stays blank.
+const soleTeamId = (store, projectId) => {
+  const own = (store.teams || []).filter((t) => teamInProject(t, projectId));
+  return own.length === 1 ? own[0].id : '';
+};
+
 function AddTaskInline({ store, defaults, lockedProjectId }) {
   const [title, setTitle] = useState('');
   const add = () => {
@@ -567,7 +577,8 @@ function AddTaskInline({ store, defaults, lockedProjectId }) {
     store.createTask({
       title: t, type: 'task',
       status: defaults.status || 'not_started', priority: defaults.priority || 'medium',
-      projectId: defaults.projectId || lockedProjectId || '', teamId: defaults.teamId || '',
+      projectId: defaults.projectId || lockedProjectId || '',
+      teamId: defaults.teamId || soleTeamId(store, defaults.projectId || lockedProjectId || ''),
       dueOn: defaults.dueOn || '', assigneeId: defaults.assigneeId || '',
     }).catch(() => {});
     setTitle('');
@@ -581,22 +592,49 @@ function AddTaskInline({ store, defaults, lockedProjectId }) {
   );
 }
 
-export default function RichListView({ visible, group, ctx, store, people, selected, toggleSel, onOpen, onSelectAll, lockedProjectId = '' }) {
-  const [collapsed, setCollapsed] = useState(new Set());
-  const effGroup = group === 'none' ? 'status' : group;
-  // Hidden columns (eye menu), persisted per person.
+// Hidden columns (the Hide menu), persisted per person in localStorage. A hook so
+// the state can live in TasksWorkspace - the controls belong in the main toolbar
+// while the table that obeys them is down here.
+export function useHiddenCols() {
   const [hidden, setHidden] = useState(() => {
     try { return new Set(JSON.parse(localStorage.getItem(HIDDEN_KEY) || '[]')); } catch { return new Set(); }
   });
-  const cols = BASE_COLS.filter((c) => !hidden.has(c.key));
-  const allCustomFields = store.customFields || [];
-  const customFields = allCustomFields.filter((f) => !hidden.has(f.id));
+  return [hidden, setHidden];
+}
+
+// The Hide + "+ Column" pair, for the workspace toolbar. Rendered there rather
+// than above the table so they cost no vertical space at all - they used to sit
+// inside the column-header row, which repeated them once per group.
+export function ListColumnControls({ hidden, setHidden, customFields, createCustomField, lockedProjectId }) {
+  return (
+    <>
+      <HideColsMenu customFields={customFields} hidden={hidden} setHidden={setHidden} lockedProjectId={lockedProjectId} />
+      <AddFieldMenu createCustomField={createCustomField} />
+    </>
+  );
+}
+
+export default function RichListView({ visible, group, ctx, store, people, selected, toggleSel, onOpen, onSelectAll, lockedProjectId = '', hidden, setHidden }) {
+  const [collapsed, setCollapsed] = useState(new Set());
+  const effGroup = group === 'none' ? 'status' : group;
+  // Inside a project every row has the same project, so the column is noise. It has
+  // to go through the hidden SET: TaskRow gates cells on `hidden` while the header
+  // and grid template come from `cols`, so filtering one alone misaligns every row.
+  const hiddenEff = useMemo(
+    () => (lockedProjectId ? new Set([...hidden, 'project']) : hidden),
+    [hidden, lockedProjectId],
+  );
+  const cols = BASE_COLS.filter((c) => !hiddenEff.has(c.key));
+  // Only fields scoped to this project (plus global ones) become columns.
+  // Unscoped, one field defined anywhere was a column on every board.
+  const allCustomFields = fieldsForProject(store.customFields || [], lockedProjectId);
+  const customFields = allCustomFields.filter((f) => !hiddenEff.has(f.id));
   const [widths, setWidths] = useState(() => Object.fromEntries(BASE_COLS.map((c) => [c.key, c.width])));
   // Drag a row onto another group to move it there (status/priority/project/…).
   const [dragId, setDragId] = useState(null);
   const [dropKey, setDropKey] = useState(null);
   const dropPatch = (key) => {
-    if (effGroup === 'assignee') return { assigneeId: key === '—' ? '' : key };
+    if (effGroup === 'assignee') return { assigneeId: key === '-' ? '' : key };
     const d = groupAddDefaults(effGroup, key);
     return Object.keys(d).length ? d : null;
   };
@@ -613,10 +651,13 @@ export default function RichListView({ visible, group, ctx, store, people, selec
   const template = [
     ...cols.map((c) => `${widths[c.key] ?? c.width}px`),
     ...customFields.map((f) => `${widths[f.id] ?? 150}px`),
-    '110px',
+    // Trailing gutter - just the gap after the last column now that Hide / + Column
+    // moved to the toolbar. Header, rows and group footer each still render one empty
+    // cell here, so the column has to stay.
+    '12px',
   ].join(' ');
 
-  const groupCtx = { ...ctx, statusMeta: store.statusMeta, statusOrder: store.statusOrder };
+  const groupCtx = { ...ctx, statusMeta: store.statusMeta, statusOrder: store.statusOrder, customFields: allCustomFields };
   const groups = useMemo(() => groupTasks(visible, effGroup, groupCtx).filter((g) => g.tasks.length > 0), [visible, effGroup, ctx, store.statusMeta, store.statusOrder]);
   const visibleIds = groups.flatMap((g) => g.tasks.map((t) => t.id));
   const allSel = visibleIds.length > 0 && visibleIds.every((id) => selected.has(id));
@@ -624,13 +665,13 @@ export default function RichListView({ visible, group, ctx, store, people, selec
   const toggleGroup = (k) => setCollapsed((prev) => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n; });
 
   if (visible.length === 0 && store.loading) {
-    // Skeleton while the first fetch is in flight — never a bare "no tasks".
+    // Skeleton while the first fetch is in flight - never a bare "no tasks".
     return (
       <div style={{ margin: 16 }}>
         {[0, 1].map((b) => (
           <div key={b} style={{ marginTop: b ? 22 : 0 }}>
             <span className="skel" style={{ width: 160, height: 18, display: 'block', marginBottom: 10 }} />
-            <div style={{ border: `1px solid ${NX.border}`, borderLeft: `6px solid ${NX.border}`, borderRadius: 8, background: NX.surface, padding: '4px 0' }}>
+            <div style={{ border: `1px solid ${NX.border}`, borderRadius: 12, background: NX.surface, padding: '4px 0' }}>
               {[0, 1, 2, 3].map((r) => (
                 <div key={r} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '9px 16px' }}>
                   <span className="skel" style={{ width: 16, height: 16, borderRadius: 4 }} />
@@ -656,7 +697,7 @@ export default function RichListView({ visible, group, ctx, store, people, selec
     );
   }
 
-  // monday repeats the column header inside every group block — this renders one.
+  // monday repeats the column header inside every group block - this renders one.
   const headCell = { position: 'relative', display: 'flex', alignItems: 'center', minWidth: 0, minHeight: 34, padding: '2px 8px', borderRight: `1px solid ${NX.border2}`, boxSizing: 'border-box' };
   const groupHeader = (
     <div style={{ display: 'grid', gridTemplateColumns: template, alignItems: 'stretch', borderBottom: `1px solid ${NX.border2}`, background: NX.surface, fontSize: 13, fontWeight: 400, color: NX.dim }}>
@@ -677,10 +718,11 @@ export default function RichListView({ visible, group, ctx, store, people, selec
           <ColResizer onMouseDown={startResize(f.id, widths[f.id] ?? 150)} />
         </div>
       ))}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 2, padding: '2px 8px' }} onClick={(e) => e.stopPropagation()}>
-        <HideColsMenu customFields={allCustomFields} hidden={hidden} setHidden={setHidden} />
-        <AddFieldMenu createCustomField={store.createCustomField} />
-      </div>
+      {/* Trailing spacer. Hide / + Column used to live here - inside the header
+          row, and therefore repeated in every group block and sitting flush
+          against the last column's label. They're now one toolbar above the
+          table (see below). */}
+      <div />
     </div>
   );
 
@@ -712,22 +754,23 @@ export default function RichListView({ visible, group, ctx, store, people, selec
               onDragOver={(e) => { if (dragId && dropPatch(g.key)) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dropKey !== g.key) setDropKey(g.key); } }}
               onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setDropKey((k) => (k === g.key ? null : k)); }}
               onDrop={(e) => { e.preventDefault(); const patch = dropPatch(g.key); if (dragId && patch) store.updateTask(dragId, patch).catch(() => {}); setDragId(null); setDropKey(null); }}>
-              <button onClick={() => toggleGroup(g.key)} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '2px 2px 8px', border: 'none', background: 'transparent', cursor: 'pointer', textAlign: 'left', fontFamily: FONT }}>
-                <ChevronDown size={17} style={{ color: gc, transform: isCol ? 'rotate(-90deg)' : 'none', transition: 'transform 0.15s' }} />
-                <span style={{ fontSize: 17, fontWeight: 600, color: gc, letterSpacing: -0.2 }}>{g.label}</span>
+              <button onClick={() => toggleGroup(g.key)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '2px 2px 8px', border: 'none', background: 'transparent', cursor: 'pointer', textAlign: 'left', fontFamily: FONT }}>
+                <ChevronDown size={17} style={{ color: NX.faint, transform: isCol ? 'rotate(-90deg)' : 'none', transition: 'transform 0.15s' }} />
+                <span style={{ width: 10, height: 10, borderRadius: 3, background: gc, flexShrink: 0 }} />
+                <span style={{ fontSize: 16, fontWeight: 700, color: NX.ink, letterSpacing: -0.2 }}>{g.label}</span>
                 <span style={{ fontSize: 12.5, color: NX.faint, fontWeight: 500, marginLeft: 4 }}>{total} item{total !== 1 ? 's' : ''}</span>
                 {/* collapsed: the status mix stays visible on the header line */}
                 {isCol && total > 0 && <span style={{ display: 'inline-flex', width: 130, marginLeft: 10 }}>{statusBar(12)}</span>}
               </button>
               {!isCol && (
-                <div style={{ border: `1px solid ${isDropTarget ? gc : NX.border}`, borderLeft: `6px solid ${gc}`, borderRadius: 8, overflow: 'hidden', background: NX.surface, boxShadow: isDropTarget ? `0 0 0 2px ${gc}55` : 'none', transition: 'box-shadow 0.12s' }}>
+                <div style={{ border: `1px solid ${isDropTarget ? gc : NX.border}`, borderRadius: 12, overflow: 'hidden', background: NX.surface, boxShadow: isDropTarget ? `0 0 0 2px ${gc}55` : 'none', transition: 'box-shadow 0.12s' }}>
                   {groupHeader}
                   {g.tasks.map((t) => (
                     <TaskRow key={t.id} t={t} cols={cols} customFields={customFields} template={template} store={store} people={people} selected={selected.has(t.id)} toggleSel={toggleSel} onOpen={onOpen}
-                      hidden={hidden} groupColor={gc} onDragStartRow={setDragId} onDragEndRow={() => { setDragId(null); setDropKey(null); }} />
+                      hidden={hiddenEff} groupColor={gc} onDragStartRow={setDragId} onDragEndRow={() => { setDragId(null); setDropKey(null); }} />
                   ))}
                   <AddTaskInline store={store} lockedProjectId={lockedProjectId} defaults={groupAddDefaults(effGroup, g.key)} />
-                  {/* summary footer — mirrors monday's group tallies */}
+                  {/* summary footer - mirrors monday's group tallies */}
                   <div style={{ display: 'grid', gridTemplateColumns: template, alignItems: 'center', padding: '5px 0', fontSize: 12 }}>
                     {cols.map((c) => c.key === 'due' ? (
                       <div key={c.key} style={{ padding: '2px 8px', display: 'flex', justifyContent: 'center' }}>

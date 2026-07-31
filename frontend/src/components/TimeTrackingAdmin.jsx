@@ -4,16 +4,16 @@ import { api } from '../api';
 
 // ── Monitoring policy (admin) ─────────────────────────────────────────────────
 // Central control of what Nexus records while people are clocked in. Capture
-// runs in the browser (Chrome screen sharing) — there is no desktop agent — so
+// runs in the browser (Chrome screen sharing) - there is no desktop agent - so
 // this policy governs the in-app capture: whether it's on, how often it grabs a
 // frame, and what activity signals it keeps. Employees see this notice and
 // acknowledge it the first time they clock in each day.
 
 const MON_TOGGLES = [
-  ['enabled',      'Monitoring enabled',       'Master switch — turns disclosed monitoring on for everyone clocked in.'],
+  ['enabled',      'Monitoring enabled',       'Master switch - turns disclosed monitoring on for everyone clocked in.'],
   ['trackScreens', 'Capture screens',          'Periodic screenshots of the shared work screen while the person is clocked in.'],
-  ['trackWindows', 'Track apps and windows',   'Records which app or window is active — titles only, not their contents.'],
-  ['trackInput',   'Track activity level',     'Overall activity level — never keystrokes.'],
+  ['trackWindows', 'Track apps and windows',   'Records which app or window is active - titles only, not their contents.'],
+  ['trackInput',   'Track activity level',     'Overall activity level - never keystrokes.'],
   ['randomize',    'Randomize capture timing', 'Jitter each interval by ±25% so the exact capture moment can’t be predicted.'],
 ];
 
@@ -63,7 +63,7 @@ export default function TimeTrackingAdmin() {
           <span style={{ fontSize: 13.5, fontWeight: 800 }}>Monitoring Policy</span>
         </div>
         <p style={{ margin: '0 0 14px', fontSize: 12, color: 'var(--muted)', lineHeight: 1.55 }}>
-          Sets what Nexus records while people are clocked in. Capture runs in the browser (Chrome screen sharing) —
+          Sets what Nexus records while people are clocked in. Capture runs in the browser (Chrome screen sharing) -
           there’s no separate app to install. Employees see this notice and acknowledge it the first time they clock in
           each day. Changes take effect the next time someone starts a session.
         </p>

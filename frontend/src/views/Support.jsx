@@ -3,7 +3,7 @@ import { FileText, Monitor, Users, BookOpen, ArrowUpRight } from "lucide-react";
 const OPTIONS = [
   { icon: FileText, title: "Submit a Ticket",    desc: "Report an issue or request help from any department." },
   { icon: Monitor,  title: "IT Help Desk",       desc: "Hardware, access, software, and network support." },
-  { icon: Users,    title: "Contact Directory",  desc: "Find the right person across Greens Global." },
+  { icon: Users,    title: "Contact Directory",  desc: "Find the right person across your organization." },
   { icon: BookOpen, title: "FAQ & Guides",       desc: "Common how-tos and Nexus walkthroughs." },
 ];
 
@@ -18,7 +18,7 @@ export default function Support() {
       <div className="view-header">
         <div className="view-title-group">
           <h2>Support</h2>
-          <p>Get help across Nexus and Greens Global</p>
+          <p>Get help across Nexus</p>
         </div>
       </div>
 

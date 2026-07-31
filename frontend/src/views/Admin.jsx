@@ -196,7 +196,7 @@ function AddUserModal({ onClose, onAdd, saving }) {
           <button className="primary-btn"
             disabled={!valid || saving}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
-            onClick={() => onAdd({ name: name.trim(), email: email.trim().toLowerCase(), dept: dept.trim() || '—', title: title.trim() || '—', role })}>
+            onClick={() => onAdd({ name: name.trim(), email: email.trim().toLowerCase(), dept: dept.trim() || '-', title: title.trim() || '-', role })}>
             {saving ? 'Adding…' : <><UserPlus size={14} /> Add User</>}
           </button>
         </div>
@@ -213,7 +213,7 @@ function GroupModal({ group, allUsers, assignableRoles, ROLES, onClose, onSave, 
   const isEdit = !!group;
   const [name,         setName]         = useState(group?.name ?? '');
   const [department,   setDepartment]   = useState(group?.department ?? '');
-  // Map<moduleId, level> — each granted screen carries an explicit permission
+  // Map<moduleId, level> - each granted screen carries an explicit permission
   // level (Viewer/Editor/Full/Owner), decided together as one choice, mirroring
   // a folder-permission row rather than a bare on/off checkbox.
   const [modules,      setModules]      = useState(() => new Map((group?.allowed_modules ?? []).map(m => [m.id, m.level || 'viewer'])));
@@ -255,7 +255,7 @@ function GroupModal({ group, allUsers, assignableRoles, ROLES, onClose, onSave, 
     try {
       setBulkResult(await onAssignRole(group.id, bulkRole));
     } catch (err) {
-      setBulkResult({ error: err.message ?? 'Failed to assign role — please try again' });
+      setBulkResult({ error: err.message ?? 'Failed to assign role - please try again' });
     } finally {
       setBulkSaving(false);
     }
@@ -310,7 +310,7 @@ function GroupModal({ group, allUsers, assignableRoles, ROLES, onClose, onSave, 
             </div>
           )}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-            {memberDetails.length === 0 && <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>No members yet — search above to add people.</span>}
+            {memberDetails.length === 0 && <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>No members yet - search above to add people.</span>}
             {memberDetails.map(u => (
               <span key={u.email} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 6px 4px 12px', borderRadius: 20, background: 'var(--mist)', fontSize: 12.5 }}>
                 {u.name}
@@ -327,7 +327,7 @@ function GroupModal({ group, allUsers, assignableRoles, ROLES, onClose, onSave, 
         <div style={{ marginBottom: 20 }}>
           <label style={FIELD_LABEL}>SCREENS &amp; PERMISSION LEVELS</label>
           <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 10px' }}>
-            Granting a screen also sets what members can <em>do</em> there — visibility and capability are decided together, like a folder-permission entry. This is additive on top of whatever a member's individual role already grants, and can never take access away.
+            Granting a screen also sets what members can <em>do</em> there - visibility and capability are decided together, like a folder-permission entry. This is additive on top of whatever a member's individual role already grants, and can never take access away.
             {' '}<strong>Viewer</strong> {MODULE_LEVELS.viewer.description.toLowerCase()} · <strong>Editor</strong> {MODULE_LEVELS.editor.description.toLowerCase()} · <strong>Full</strong> {MODULE_LEVELS.full.description.toLowerCase()} · <strong>Owner</strong> {MODULE_LEVELS.owner.description.toLowerCase()}.
           </p>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 8, border: '1px solid var(--line)', borderRadius: 10, padding: 14 }}>
@@ -355,12 +355,12 @@ function GroupModal({ group, allUsers, assignableRoles, ROLES, onClose, onSave, 
           </div>
         </div>
 
-        {/* Bulk role assignment — only meaningful once the group exists */}
+        {/* Bulk role assignment - only meaningful once the group exists */}
         {isEdit && (
           <div style={{ marginBottom: 20, border: '1px solid var(--line)', borderRadius: 10, padding: 14 }}>
             <label style={FIELD_LABEL}>BULK ROLE ASSIGNMENT</label>
             <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 10px' }}>
-              Assign one role to every member of this group at once — the same delegation rules apply as assigning roles individually.
+              Assign one role to every member of this group at once - the same delegation rules apply as assigning roles individually.
             </p>
             <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
               <select className="form-input" style={{ minWidth: 160 }} value={bulkRole} onChange={e => setBulkRole(e.target.value)}>
@@ -383,7 +383,7 @@ function GroupModal({ group, allUsers, assignableRoles, ROLES, onClose, onSave, 
                     )}
                     {bulkResult.skipped?.length > 0 && (
                       <div style={{ color: 'var(--color-orange, #fb923c)', marginTop: 4 }}>
-                        Skipped {bulkResult.skipped.length}: {bulkResult.skipped.map(s => s.email).join(', ')} — {bulkResult.skipped[0].reason}
+                        Skipped {bulkResult.skipped.length}: {bulkResult.skipped.map(s => s.email).join(', ')} - {bulkResult.skipped[0].reason}
                       </div>
                     )}
                   </>
@@ -451,7 +451,7 @@ export default function Admin() {
   const myLevel  = ROLES[myRole]?.level ?? 1;
 
   // IT Admins may delegate access only "down" (strictly below their own level)
-  // and can't touch anyone who's already an admin — only Global Admin can
+  // and can't touch anyone who's already an admin - only Global Admin can
   // create, edit, or demote other admins. Mirrors the backend check in
   // routers/roles.py so the UI doesn't offer choices that'll just 403.
   function canEditRoleOf(targetRole) {
@@ -471,7 +471,7 @@ export default function Admin() {
       setSaved(p => ({ ...p, [email]: true }));
       setTimeout(() => setSaved(p => { const n = {...p}; delete n[email]; return n; }), 1800);
     } catch (err) {
-      setRoleError(err.message ?? 'Failed to update role — please try again');
+      setRoleError(err.message ?? 'Failed to update role - please try again');
       setTimeout(() => setRoleError(''), 4000);
     } finally {
       setSaving(p => { const n = {...p}; delete n[email]; return n; });
@@ -489,7 +489,7 @@ export default function Admin() {
       });
       setShowAddUser(false);
     } catch (err) {
-      setRoleError(err.message ?? 'Failed to add user — please try again');
+      setRoleError(err.message ?? 'Failed to add user - please try again');
       setTimeout(() => setRoleError(''), 4000);
     } finally {
       setAddingSaving(false);
@@ -514,7 +514,7 @@ export default function Admin() {
       setShowGroupModal(false);
       setEditingGroup(null);
     } catch (err) {
-      setGroupError(err.message ?? 'Failed to save group — please try again');
+      setGroupError(err.message ?? 'Failed to save group - please try again');
       setTimeout(() => setGroupError(''), 4000);
     } finally {
       setGroupSaving(false);
@@ -526,7 +526,7 @@ export default function Admin() {
     try {
       await deleteGroup(group.id);
     } catch (err) {
-      setGroupError(err.message ?? 'Failed to delete group — please try again');
+      setGroupError(err.message ?? 'Failed to delete group - please try again');
       setTimeout(() => setGroupError(''), 4000);
     }
   }
@@ -538,8 +538,8 @@ export default function Admin() {
       id:    u.id,
       name:  cleanName(u.displayName),
       email: (u.mail ?? u.userPrincipalName ?? '').toLowerCase(),
-      title: u.jobTitle   ?? '—',
-      dept:  u.department ?? '—',
+      title: u.jobTitle   ?? '-',
+      dept:  u.department ?? '-',
       role:  getRole(u.mail ?? u.userPrincipalName ?? ''),
     }));
     // Include manually added users not in Graph
@@ -671,11 +671,11 @@ export default function Admin() {
                 <div style={{ textAlign: 'center', padding: '56px 0', color: 'var(--muted)', fontSize: 14 }}>
                   <Users size={32} style={{ opacity: .2, display: 'block', margin: '0 auto 10px' }} />
                   {error
-                    ? 'Couldn\'t load users from Microsoft 365 — please refresh to try again.'
+                    ? 'Couldn\'t load users from Microsoft 365 - please refresh to try again.'
                     : users.length === 0 ? 'No users loaded from Microsoft 365 yet.' : 'No users match your filter.'}
                 </div>
               ) : isMobile ? (
-                /* Phone: cards + tap-to-edit role sheet — the table's role
+                /* Phone: cards + tap-to-edit role sheet - the table's role
                    dropdown column sat off-screen on mobile */
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   {displayUsers.map(u => {
@@ -701,7 +701,7 @@ export default function Admin() {
                       </button>
                     );
                   })}
-                  {/* Role sheet — global mobile CSS renders this as a bottom sheet */}
+                  {/* Role sheet - global mobile CSS renders this as a bottom sheet */}
                   {roleSheetUser && (
                     <div role="dialog" aria-modal="true"
                       style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
@@ -801,7 +801,7 @@ export default function Admin() {
             Define exactly what each role can see and do across every portal.
           </p>
 
-          {/* Role-matrix is a true grid (roles as columns) — cards don't fit,
+          {/* Role-matrix is a true grid (roles as columns) - cards don't fit,
               so it scrolls sideways on phones instead */}
           <div style={{ border: '1px solid var(--line)', borderRadius: 14, overflowX: 'auto', overflowY: 'hidden', WebkitOverflowScrolling: 'touch' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
@@ -869,7 +869,7 @@ export default function Admin() {
         <>
           <div style={{ display: 'flex', gap: 10, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap' }}>
             <p style={{ fontSize: 13, color: 'var(--muted)', margin: 0, maxWidth: 560 }}>
-              Organize people into teams, grant them extra screens to see, and manage their roles together. Group access is additive — it only ever adds to what someone's role already allows.
+              Organize people into teams, grant them extra screens to see, and manage their roles together. Group access is additive - it only ever adds to what someone's role already allows.
             </p>
             <button className="primary-btn" style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 7 }}
               onClick={() => { setEditingGroup(null); setShowGroupModal(true); }}>
@@ -886,7 +886,7 @@ export default function Admin() {
           {groups.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '56px 0', color: 'var(--muted)', fontSize: 14 }}>
               <Layers size={32} style={{ opacity: .2, display: 'block', margin: '0 auto 10px' }} />
-              No groups yet — create one to organize people and manage their access together.
+              No groups yet - create one to organize people and manage their access together.
             </div>
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 14 }}>

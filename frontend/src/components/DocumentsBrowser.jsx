@@ -12,14 +12,14 @@ import { validateFieldValue, formatFieldValue, RESERVED_TYPES } from '../lib/mer
 
 // ── My Documents (Phase 1 browse/organize, Phase 2 adds the editor) ─────────
 // Folder browse + search/status filter + draft/library list. "Edit" opens
-// DocumentBuilder in place — same "replace the tab content" convention
+// DocumentBuilder in place - same "replace the tab content" convention
 // ESign.jsx uses for SignModal/SendWizard (a plain early return, not a portal).
 const DOC_STATUS = {
   draft:    { label: 'Draft',    fg: 'hsl(var(--color-blue))',   bg: 'hsla(var(--color-blue),0.12)' },
   final:    { label: 'Final',    fg: 'hsl(var(--color-green))',  bg: 'hsla(var(--color-green),0.12)' },
   archived: { label: 'Archived', fg: 'var(--muted)',             bg: 'var(--mist)' },
 };
-// Mirrors ESign.jsx's REQ_STATUS color convention (Phase 5) — duplicated
+// Mirrors ESign.jsx's REQ_STATUS color convention (Phase 5) - duplicated
 // locally per the module's established pattern of not reaching into ESign.jsx.
 const SIGN_STATUS = {
   pending:   { label: 'Awaiting signatures', fg: 'hsl(var(--color-orange))', bg: 'hsla(var(--color-orange),0.12)' },
@@ -41,10 +41,10 @@ function CreateDocModal({ folders, onClose, onCreated, toastErr }) {
   const [busy, setBusy] = useState(false);
   const [egnyteOpen, setEgnyteOpen] = useState(false);
   const importInputRef = useRef(null);
-  // Template Builder (Phase 13) — "Select Template -> Fill Dynamic Fields ->
+  // Template Builder (Phase 13) - "Select Template -> Fill Dynamic Fields ->
   // Generate": once a template with field_defs is picked, fetch its fields
   // and render one typed control each, right in this same modal rather than
-  // a separate "Generate Document" screen — one flow, no duplicated
+  // a separate "Generate Document" screen - one flow, no duplicated
   // template-picker UI.
   const [fieldDefs, setFieldDefs] = useState([]);
   const [fillValues, setFillValues] = useState({});
@@ -89,7 +89,7 @@ function CreateDocModal({ folders, onClose, onCreated, toastErr }) {
   const create = async () => {
     if (!title.trim()) return;
     // Required-field guard mirrors the server's own check (documents.py
-    // create_document) — client-side so the user sees it inline instead of
+    // create_document) - client-side so the user sees it inline instead of
     // a rejected request, not a substitute for it.
     if (!importFile && fieldDefs.length) {
       const errs = {};
@@ -117,7 +117,7 @@ function CreateDocModal({ folders, onClose, onCreated, toastErr }) {
         });
         const json = directJson || generateJSON(html || '<p></p>', BODY_EXTENSIONS);
         // .docx imports carry the source file's own page size/orientation/
-        // margins (docxToTiptap.js) — applied to the new document instead of
+        // margins (docxToTiptap.js) - applied to the new document instead of
         // leaving it on the default Letter/Portrait/Normal.
         await api.updateDocument(created.id, { content: { body: json, header: null, footer: null, ...(importedPageSetup ? { pageSetup: importedPageSetup } : {}) } });
         if (warnings?.length) toastErr?.(`Imported with notes: ${warnings.slice(0, 2).join(' ')}`);
@@ -126,7 +126,7 @@ function CreateDocModal({ folders, onClose, onCreated, toastErr }) {
       onClose();
     } catch (e) {
       // If the draft row was already created but the import itself failed,
-      // don't leave an empty orphaned draft behind — clean it up so a failed
+      // don't leave an empty orphaned draft behind - clean it up so a failed
       // import doesn't clutter the document list.
       if (created && importFile) api.deleteDocument(created.id).catch(() => {});
       toastErr?.(e.message || 'Failed to create document');

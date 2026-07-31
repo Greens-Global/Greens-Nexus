@@ -13,7 +13,7 @@ from routers.stepup import require_stepup
 from models import NexusEmployee
 
 # HR data is the most sensitive in the app. Access is grant-driven (Jun 17): a
-# supervisor/manager role no longer auto-opens HR — they need an explicit "hr"
+# supervisor/manager role no longer auto-opens HR - they need an explicit "hr"
 # Access Group grant. Reads need viewer; writes editor; hard deletes owner-grant
 # (or Global Admin). IT Admin+ bypass reads/writes; deletes stay owner-only.
 require_hr_read   = require_module_grant("hr", "viewer")
@@ -84,7 +84,7 @@ def _validate(employment_type: Optional[str], status: Optional[str], identity_ty
 
 
 def _next_code(db: Session) -> str:
-    """GG-001, GG-002, … — next number after the highest existing code."""
+    """GG-001, GG-002, … - next number after the highest existing code."""
     best = 0
     for (code,) in db.query(NexusEmployee.employee_code).all():
         m = re.fullmatch(r"GG-(\d+)", code or "")
@@ -189,7 +189,7 @@ def update_employee(eid: str, body: EmployeeUpdate, user: dict = Depends(require
     db.commit()
     db.refresh(row)
     out = _serialize(row)
-    # Nexus is the source of truth for profile edits — mirror them onto the
+    # Nexus is the source of truth for profile edits - mirror them onto the
     # linked Entra account automatically (best-effort: a Graph hiccup must never
     # fail the save; the response says whether Entra took the change).
     if row.m365_id and (set(fields) & ENTRA_MAPPED_FIELDS):
@@ -222,7 +222,7 @@ _STAGES = ("applied", "screening", "interview", "offer", "hired", "rejected")
 
 def _hr_notify(db: Session, recipient: str, title: str, body: str, ref_id: str = "", requested_by: str = "",
                action: Optional[dict] = None) -> None:
-    """Server-side bell notification (items.py pattern). Empty recipient = noop —
+    """Server-side bell notification (items.py pattern). Empty recipient = noop -
     HR events must always target a person, never broadcast to all managers.
     `action` = {"view": ..., "sub": ...} makes the bell/toast click navigate there."""
     if not (recipient or "").strip():
@@ -350,7 +350,7 @@ def update_candidate(cid: str, body: CandidateUpdate, user: dict = Depends(requi
             created_employee = emp
 
         # One notification per stage move, to the candidate's owner (unless
-        # they made the move themselves) — mirrors the items.py convention
+        # they made the move themselves) - mirrors the items.py convention
         if row.created_by and row.created_by.lower() != user["email"].lower():
             cand_name = f"{row.first_name} {row.last_name}".strip()
             _hr_notify(db, row.created_by,
@@ -370,7 +370,7 @@ def update_candidate(cid: str, body: CandidateUpdate, user: dict = Depends(requi
                 pretty = datetime.fromisoformat(row.interview_at).strftime("%a, %b %d at %H:%M")
             except ValueError:
                 pretty = row.interview_at
-            _hr_notify(db, row.created_by, f"Interview scheduled — {cand_name}",
+            _hr_notify(db, row.created_by, f"Interview scheduled - {cand_name}",
                        f"{cand_name} ({row.role_title or 'candidate'}) is booked for {pretty}.",
                        ref_id=row.id, requested_by=user["email"],
                        action={"view": "hr", "sub": "hr-hiring"})
@@ -401,7 +401,7 @@ def delete_candidate(cid: str, user: dict = Depends(require_hr_delete), db: Sess
 @router.post("/candidates/{cid}/resume")
 async def upload_resume(cid: str, file: UploadFile = File(...),
                         user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
-    """Resume / any candidate doc — private hr-docs bucket, path on the record."""
+    """Resume / any candidate doc - private hr-docs bucket, path on the record."""
     row = db.query(HrCandidate).filter(HrCandidate.id == cid).first()
     if not row:
         raise HTTPException(404, "Candidate not found")
@@ -569,7 +569,7 @@ def decide_leave(lid: str, body: LeaveDecision, user: dict = Depends(require_hr_
     return _ser_leave(row)
 
 
-# ── Employee documents (Phase 3) — PRIVATE bucket, signed URLs only ──────────
+# ── Employee documents (Phase 3) - PRIVATE bucket, signed URLs only ──────────
 
 import os
 import secrets
@@ -585,7 +585,7 @@ _MAX_DOC_BYTES = 15 * 1024 * 1024
 
 def _storage_headers():
     if not (_SUPABASE_URL and _SUPABASE_SERVICE_KEY):
-        raise HTTPException(503, "Storage not configured — set SUPABASE_URL and SUPABASE_SERVICE_KEY")
+        raise HTTPException(503, "Storage not configured - set SUPABASE_URL and SUPABASE_SERVICE_KEY")
     return {"Authorization": f"Bearer {_SUPABASE_SERVICE_KEY}", "apikey": _SUPABASE_SERVICE_KEY}
 
 
@@ -606,7 +606,7 @@ def _has_comp(user: dict, db: Session) -> bool:
 def list_documents(eid: str, user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
     rows = (db.query(HrDocument).filter(HrDocument.employee_id == eid)
             .order_by(HrDocument.created_at.desc()).all())
-    # Paystubs are comp-restricted — hidden from plain hr viewers/editors.
+    # Paystubs are comp-restricted - hidden from plain hr viewers/editors.
     if not _has_comp(user, db):
         rows = [d for d in rows if d.kind != "paystub"]
     return [_ser_doc(d) for d in rows]
@@ -644,7 +644,7 @@ async def upload_document(eid: str, file: UploadFile = File(...), kind: str = Fo
 
 @router.get("/documents/{did}/url")
 def document_url(did: str, user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
-    """Mint a short-lived signed URL — the bucket itself is private."""
+    """Mint a short-lived signed URL - the bucket itself is private."""
     row = db.query(HrDocument).filter(HrDocument.id == did).first()
     if not row:
         raise HTTPException(404, "Document not found")
@@ -673,7 +673,7 @@ def delete_document(did: str, user: dict = Depends(require_hr_write), db: Sessio
     return {"ok": True}
 
 
-# ── Paystubs — HrDocument rows with kind="paystub", hr_comp-gated ────────────
+# ── Paystubs - HrDocument rows with kind="paystub", hr_comp-gated ────────────
 # Employees see/download their own via /myhr/paystubs (routers/myhr.py).
 
 @router.get("/employees/{eid}/paystubs")
@@ -705,7 +705,7 @@ async def upload_paystub(eid: str, file: UploadFile = File(...), period: str = F
     )
     if not resp.is_success:
         raise HTTPException(502, f"Storage upload failed: {resp.text[:200]}")
-    display = f"Paystub — {period.strip()}" if period.strip() else (file.filename or "Paystub")
+    display = f"Paystub - {period.strip()}" if period.strip() else (file.filename or "Paystub")
     row = HrDocument(id=str(uuid.uuid4()), employee_id=eid, kind="paystub",
                      file_name=display[:200], storage_path=path,
                      size_bytes=len(data), expires_on="",
@@ -715,7 +715,7 @@ async def upload_paystub(eid: str, file: UploadFile = File(...), period: str = F
     return _ser_doc(row)
 
 
-# ── Employee requests ("Ask HR" on My HR) — list + resolve ───────────────────
+# ── Employee requests ("Ask HR" on My HR) - list + resolve ───────────────────
 from models import HrSelfRequest
 
 
@@ -752,7 +752,7 @@ class AttachToEmployeeIn(BaseModel):
 def attach_request_to_employee(rid: str, body: AttachToEmployeeIn,
                                user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
     """One click: copy the employee's attached file into their official HR
-    document set (storage copy + HrDocument row) — nothing to re-upload."""
+    document set (storage copy + HrDocument row) - nothing to re-upload."""
     r = db.query(HrSelfRequest).filter(HrSelfRequest.id == rid).first()
     if not r or not r.attachment_path:
         raise HTTPException(404, "No attachment on this request")
@@ -812,7 +812,7 @@ _GRAPH = "https://graph.microsoft.com/v1.0"
 
 def _graph_token() -> str:
     if not all([_AZ_TENANT, _AZ_CLIENT, _AZ_SECRET]):
-        raise HTTPException(503, "Provisioning not configured — set AZURE_TENANT_ID/CLIENT_ID/CLIENT_SECRET")
+        raise HTTPException(503, "Provisioning not configured - set AZURE_TENANT_ID/CLIENT_ID/CLIENT_SECRET")
     resp = httpx.post(
         f"https://login.microsoftonline.com/{_AZ_TENANT}/oauth2/v2.0/token",
         data={"grant_type": "client_credentials", "client_id": _AZ_CLIENT,
@@ -894,7 +894,7 @@ def _graph_set_manager(token: str, emp) -> Optional[bool]:
         return False
 
 
-# Graph only returns internal SKU part numbers — map the ones in our tenant to
+# Graph only returns internal SKU part numbers - map the ones in our tenant to
 # the names the M365 admin center shows (Microsoft's product-identifier list)
 _SKU_NAMES = {
     "O365_BUSINESS_ESSENTIALS":   "Microsoft 365 Business Basic",
@@ -932,7 +932,7 @@ def list_skus(user: dict = Depends(require_hr_write)):
                     "displayName": _SKU_NAMES.get(part, part.replace("_", " ").title()),
                     "isDefault": part == _DEFAULT_SKU_PART,
                     "available": max(0, total - used), "total": total})
-    # Default first, then named products, then the rest — all alphabetical
+    # Default first, then named products, then the rest - all alphabetical
     out.sort(key=lambda s: (not s["isDefault"], s["skuPartNumber"] not in _SKU_NAMES, s["displayName"].lower()))
     return out
 
@@ -944,7 +944,7 @@ class ProvisionIn(BaseModel):
     work_email:      str
     license_sku_id:  Optional[str] = ""          # legacy single-select
     license_sku_ids: Optional[List[str]] = None  # multi-select (admin-center style)
-    usage_location:  Optional[str] = "US"        # ISO 3166 alpha-2 — license compliance keys off this
+    usage_location:  Optional[str] = "US"        # ISO 3166 alpha-2 - license compliance keys off this
 
 
 @router.post("/employees/{eid}/provision")
@@ -953,7 +953,7 @@ def provision_employee(eid: str, body: ProvisionIn, user: dict = Depends(require
     if not emp:
         raise HTTPException(404, "Employee not found")
     if emp.m365_id:
-        raise HTTPException(400, "Employee already has an M365 account — provisioning is one-time")
+        raise HTTPException(400, "Employee already has an M365 account - provisioning is one-time")
     upn = body.work_email.strip().lower()
     if not re.fullmatch(r"[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}", upn):
         raise HTTPException(400, "work_email must be a valid address in your tenant domain")
@@ -1006,7 +1006,7 @@ def provision_employee(eid: str, body: ProvisionIn, user: dict = Depends(require
         steps["m365_user"].detail = str(e)[:400]
         failed = True
 
-    # 2) Licenses — one assignLicense call for the whole set (a mailbox-bearing
+    # 2) Licenses - one assignLicense call for the whole set (a mailbox-bearing
     #    SKU like Business Basic is what creates the Outlook mailbox)
     sku_ids = [s for s in (body.license_sku_ids or []) if s] or ([body.license_sku_id] if body.license_sku_id else [])
     if user_id and sku_ids:
@@ -1017,7 +1017,7 @@ def provision_employee(eid: str, body: ProvisionIn, user: dict = Depends(require
                                     "removeLicenses": []}, timeout=30)
             if resp.is_success:
                 steps["m365_license"].status = "ok"
-                steps["m365_license"].detail = f"{len(sku_ids)} license{'s' if len(sku_ids) != 1 else ''} assigned — mailbox provisioning"
+                steps["m365_license"].detail = f"{len(sku_ids)} license{'s' if len(sku_ids) != 1 else ''} assigned - mailbox provisioning"
             else:
                 raise RuntimeError(resp.text[:300])
         except Exception as e:
@@ -1048,13 +1048,13 @@ def provision_employee(eid: str, body: ProvisionIn, user: dict = Depends(require
     else:
         steps["m365_manager"].status = "skipped"
 
-    # 4/5) Asana + Ignite — manual until tier/API access is confirmed
+    # 4/5) Asana + Ignite - manual until tier/API access is confirmed
     steps["asana"].status = "manual"
     steps["asana"].detail = "Invite to the Asana workspace by email"
     steps["ignite"].status = "manual"
     steps["ignite"].detail = "Create the Ignite account per role template"
 
-    # 6) Welcome notification to the personal email (no password in the mail —
+    # 6) Welcome notification to the personal email (no password in the mail -
     #    the temp password is returned ONCE to the HR user who clicked)
     if user_id and emp.personal_email and os.getenv("NEXUS_FROM_EMAIL"):
         try:
@@ -1107,7 +1107,7 @@ def push_to_entra(eid: str, user: dict = Depends(require_hr_write), db: Session 
         raise HTTPException(404, "Employee not found")
     if not emp.m365_id:
         raise HTTPException(400, "This person has no linked M365 account to push to.")
-    # A Graph/token failure must surface as a clean error, not an unhandled 500 —
+    # A Graph/token failure must surface as a clean error, not an unhandled 500 -
     # a raw 500 bypasses CORSMiddleware and the browser only sees "Failed to fetch".
     try:
         token = _graph_token()
@@ -1116,7 +1116,7 @@ def push_to_entra(eid: str, user: dict = Depends(require_hr_write), db: Session 
         raise
     except Exception as e:
         raise HTTPException(502, f"Couldn't update Entra: {str(e)[:200]}")
-    # Manager relationship is a separate Graph edge — best-effort, never blocks
+    # Manager relationship is a separate Graph edge - best-effort, never blocks
     # the attribute push.
     try:
         manager = _graph_set_manager(token, emp)
@@ -1125,7 +1125,7 @@ def push_to_entra(eid: str, user: dict = Depends(require_hr_write), db: Session 
     return {"written": written, "manager": manager}
 
 
-# ── Profile photos — public-read avatars bucket, WRITES ONLY via this endpoint
+# ── Profile photos - public-read avatars bucket, WRITES ONLY via this endpoint
 #    (no anon storage policies; the service key uploads on behalf of HR users)
 
 _AVATAR_BUCKET = "avatars"
@@ -1164,7 +1164,7 @@ async def upload_photo(eid: str, file: UploadFile = File(...),
 # The M365 directory import is scoped to the company's own domains only. Guests
 # (#EXT# accounts) and every other vanity/partner domain (e.g. Z#Incentives)
 # stay out of HR entirely. (Neil, Jun 27)
-# aaravconstruction.com added Jul 16 (Visesh) — their staff are part of Nexus.
+# aaravconstruction.com added Jul 16 (Visesh) - their staff are part of Nexus.
 _COMPANY_DOMAINS = ("greensglobal.com", "greensstorage.com", "aaravconstruction.com")
 
 
@@ -1280,8 +1280,8 @@ def _graph_directory(token: str) -> list:
 
 @router.post("/employees/sync-m365")
 def sync_m365(user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
-    """Pull the M365 directory into HR. Only the company's own domains come in —
-    _COMPANY_DOMAINS plus every domain tagged on a company in Company setup —
+    """Pull the M365 directory into HR. Only the company's own domains come in -
+    _COMPANY_DOMAINS plus every domain tagged on a company in Company setup -
     guests and other partner domains are skipped, and so are non-people: departed
     staff (#Inactive convention) and shared/site/room mailboxes. People not in HR
     yet are created (tagged to the company owning their email domain); existing
@@ -1292,7 +1292,7 @@ def sync_m365(user: dict = Depends(require_hr_write), db: Session = Depends(get_
     domain_map = _entity_domain_map(db)    # Company-setup domain tags
     extra_domains = tuple(domain_map)
     company = [g for g in _graph_directory(token) if _in_company_domain(_primary_addr(g), extra_domains)]
-    # Every company account we saw (people or not) — used to detect truly-deleted
+    # Every company account we saw (people or not) - used to detect truly-deleted
     # accounts. Real importable people are that set minus the non-people.
     seen_ids     = {(g.get("id") or "").lower() for g in company if g.get("id")}
     nonperson_ids = {(g.get("id") or "").lower() for g in company if _is_non_person(g)}
@@ -1304,7 +1304,7 @@ def sync_m365(user: dict = Depends(require_hr_write), db: Session = Depends(get_
     by_email = {e.work_email.lower(): e for e in existing if e.work_email}
 
     now = datetime.now(timezone.utc).isoformat()
-    # Compute the next code once and increment locally — _next_code re-reads the
+    # Compute the next code once and increment locally - _next_code re-reads the
     # DB and uncommitted rows aren't flushed, so calling it per-create repeats.
     next_num = int(_next_code(db).split("-")[1])
 
@@ -1323,6 +1323,12 @@ def sync_m365(user: dict = Depends(require_hr_write), db: Session = Depends(get_
                                   ("location", "officeLocation"), ("department", "department")):
                 if not getattr(emp, local) and (g.get(remote) or "").strip():
                     setattr(emp, local, g[remote].strip()); changed = True
+            # Entra owns this one, so it tracks rather than backfills: it is the
+            # name Teams/Outlook show, and a stale copy makes Nexus look like it
+            # means a different person.
+            entra_name = (g.get("displayName") or "").strip()
+            if entra_name and emp.display_name != entra_name:
+                emp.display_name = entra_name; changed = True
             if not emp.company and domain_map.get(addr.split("@")[-1]):
                 emp.company = domain_map[addr.split("@")[-1]]; changed = True
             if changed:
@@ -1333,6 +1339,7 @@ def sync_m365(user: dict = Depends(require_hr_write), db: Session = Depends(get_
                 id=str(uuid.uuid4()),
                 employee_code=f"GG-{next_num:03d}",
                 first_name=first, last_name=last,
+                display_name=(g.get("displayName") or "").strip(),
                 work_email=addr,
                 job_title=(g.get("jobTitle") or "").strip(),
                 department=(g.get("department") or "").strip(),
@@ -1389,7 +1396,7 @@ def sync_photos(user: dict = Depends(require_hr_write), db: Session = Depends(ge
             r = httpx.get(f"{_GRAPH}/users/{emp.m365_id}/photo/$value", headers=headers, timeout=30)
         except Exception:
             failed.append(name); continue
-        if r.status_code == 404:        # ImageNotFound — person has no Entra photo
+        if r.status_code == 404:        # ImageNotFound - person has no Entra photo
             no_photo += 1; continue
         if not r.is_success:
             failed.append(name); continue
@@ -1413,7 +1420,7 @@ def sync_photos(user: dict = Depends(require_hr_write), db: Session = Depends(ge
     return {"updated": updated, "noPhoto": no_photo, "failed": failed, "checked": len(emps)}
 
 
-# ── Welcome email — branded, warm, role-aware (not the old two-liner) ────────
+# ── Welcome email - branded, warm, role-aware (not the old two-liner) ────────
 
 def _welcome_html(emp: NexusEmployee, upn: str) -> str:
     from html import escape
@@ -1443,11 +1450,11 @@ def _welcome_html(emp: NexusEmployee, upn: str) -> str:
     <tr>
       <td style="padding:30px 36px 6px">
         <p style="margin:0 0 14px;font-size:14.5px;line-height:1.7;color:#1f2937">
-          On behalf of everyone at <strong>Greens Global</strong>, welcome to the team{f" as our new <strong>{escape(emp.job_title)}</strong>" if emp.job_title else ""}!
+          On behalf of the whole team, welcome aboard{f" as our new <strong>{escape(emp.job_title)}</strong>" if emp.job_title else ""}!
           We've been looking forward to this, and your tools are already set up and waiting for you.
         </p>
         <p style="margin:0 0 18px;font-size:14.5px;line-height:1.7;color:#1f2937">
-          Your company account gives you email, Teams, and the Greens&nbsp;Nexus portal, the home for
+          Your company account gives you email, Teams, and the Nexus portal, the home for
           everything from equipment requests to time off. Here's everything you need for day one:
         </p>
         <table width="100%" cellpadding="0" cellspacing="0" style="background:#f0f7f3;border:1px solid #cde9d9;border-radius:12px;border-collapse:separate;margin-bottom:20px">
@@ -1461,21 +1468,21 @@ def _welcome_html(emp: NexusEmployee, upn: str) -> str:
           <tr><td style="padding:6px 0;font-size:14px;line-height:1.65;color:#1f2937"><strong>1.</strong>&nbsp; Go to <a href="https://office.com" style="color:#15803d;font-weight:600">office.com</a> and sign in with <strong>{upn}</strong>.</td></tr>
           <tr><td style="padding:6px 0;font-size:14px;line-height:1.65;color:#1f2937"><strong>2.</strong>&nbsp; Use the temporary password HR shares with you directly. You'll be asked to set your own right away. (We never email passwords.)</td></tr>
           <tr><td style="padding:6px 0;font-size:14px;line-height:1.65;color:#1f2937"><strong>3.</strong>&nbsp; Open <strong>Outlook</strong> for email and <strong>Teams</strong> to say hi. Your team is expecting you.</td></tr>
-          <tr><td style="padding:6px 0;font-size:14px;line-height:1.65;color:#1f2937"><strong>4.</strong>&nbsp; Keep an eye on your inbox. Your manager will reach out with your first-week plan, and anything you need (laptop, tools, access) gets arranged through Greens&nbsp;Nexus.</td></tr>
+          <tr><td style="padding:6px 0;font-size:14px;line-height:1.65;color:#1f2937"><strong>4.</strong>&nbsp; Keep an eye on your inbox. Your manager will reach out with your first-week plan, and anything you need (laptop, tools, access) gets arranged through Nexus.</td></tr>
         </table>
         <p style="margin:18px 0 6px;font-size:14.5px;line-height:1.7;color:#1f2937">
           Questions before your first day? Just reply to HR or reach out to your manager. There's no such
           thing as a silly question in week one.
         </p>
         <p style="margin:14px 0 24px;font-size:14.5px;line-height:1.7;color:#1f2937">
-          We can't wait to see what you'll do here. Once again, <strong>welcome to Greens Global!</strong><br>
-          <span style="color:#6b7280">The Greens Global Team</span>
+          We can't wait to see what you'll do here. Once again, <strong>welcome aboard!</strong><br>
+          <span style="color:#6b7280">The People Team</span>
         </p>
       </td>
     </tr>
     <tr>
       <td style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:14px 36px;font-size:11.5px;color:#6b7280;line-height:1.5">
-        Sent via Greens Nexus. This mailbox isn't monitored. For help, contact HR or your manager directly.
+        Sent via Nexus. This mailbox isn't monitored. For help, contact HR or your manager directly.
       </td>
     </tr>
   </table>
@@ -1490,7 +1497,7 @@ def _send_welcome(emp: NexusEmployee, upn: str, token: str) -> tuple:
     resp = httpx.post(f"{_GRAPH}/users/{sender}/sendMail",
                       headers={"Authorization": f"Bearer {token}"}, json={
         "message": {
-            "subject": f"Welcome to Greens Global, {emp.first_name}!",
+            "subject": f"Welcome aboard, {emp.first_name}!",
             "body": {"contentType": "HTML", "content": _welcome_html(emp, upn)},
             "toRecipients": [{"emailAddress": {"address": emp.personal_email}}],
         }, "saveToSentItems": False}, timeout=20)
@@ -1503,7 +1510,7 @@ def resend_welcome(eid: str, user: dict = Depends(require_hr_write), db: Session
     if not emp:
         raise HTTPException(404, "Employee not found")
     if not emp.work_email:
-        raise HTTPException(400, "Employee has no work email yet — provision first")
+        raise HTTPException(400, "Employee has no work email yet - provision first")
     if not emp.personal_email:
         raise HTTPException(400, "Employee has no personal email on file")
     ok, detail = _send_welcome(emp, emp.work_email, _graph_token())
@@ -1513,7 +1520,7 @@ def resend_welcome(eid: str, user: dict = Depends(require_hr_write), db: Session
 
 
 # ---------------------------------------------------------------------------
-# HR Section A — Companies/Entities + Work Sites (structural foundation)
+# HR Section A - Companies/Entities + Work Sites (structural foundation)
 # ---------------------------------------------------------------------------
 from models import HrEntity, HrWorkSite, HrDepartment, NexusSetting
 
@@ -1610,7 +1617,7 @@ def delete_entity(entity_id: str, user: dict = Depends(require_hr_delete), db: S
     return {"ok": True}
 
 
-# ── Group manager — one person overseeing ALL companies (the escalation step
+# ── Group manager - one person overseeing ALL companies (the escalation step
 # above each company's manager). A singleton, stored in nexus_settings.
 
 _GROUP_MANAGER_KEY = "hr.group_manager_email"
@@ -1639,7 +1646,7 @@ def set_group_manager(body: GroupManagerIn, user: dict = Depends(require_hr_writ
     return {"email": row.value}
 
 
-# ── Departments — scoped to a company, NOT a Nexus-wide hardcoded list ──────────
+# ── Departments - scoped to a company, NOT a Nexus-wide hardcoded list ──────────
 # Companies are global (HrEntity); each one owns its own editable department set.
 # Greens Global is seeded from the legacy hardcoded list the first time its
 # departments are read; every other company starts empty. Whatever departments
@@ -1654,7 +1661,7 @@ def _dept_key(s: str) -> str:
 
 def _is_primary_greens(e: HrEntity) -> bool:
     # Tolerate legal suffixes/punctuation: "Greens Global, Inc." must still match
-    # (an exact-string check here once left the primary entity unseeded — the Add
+    # (an exact-string check here once left the primary entity unseeded - the Add
     # Employee department dropdown came up empty and blocked the whole form).
     key = re.sub(r"[^a-z ]", "", _dept_key(e.name)).strip()
     return key == "greens" or key.startswith("greens global")
@@ -1831,7 +1838,7 @@ def delete_work_site(site_id: str, user: dict = Depends(require_hr_delete), db: 
 
 
 # ---------------------------------------------------------------------------
-# HR Section B — Compensation + Bank (salary-restricted: hr_comp grant / owner)
+# HR Section B - Compensation + Bank (salary-restricted: hr_comp grant / owner)
 # ---------------------------------------------------------------------------
 class CompensationIn(BaseModel):
     compensation: Optional[dict] = None   # {base, payBasis, frequency, currency, effectiveDate, history[]}
@@ -1875,7 +1882,7 @@ def save_compensation(eid: str, body: CompensationIn, user: dict = Depends(requi
 
 
 # ---------------------------------------------------------------------------
-# HR Section B5 — Assets tab: LIVE read from Item Management (no duplication).
+# HR Section B5 - Assets tab: LIVE read from Item Management (no duplication).
 # HR-gated so an HR user without an inventory grant can still see what a person
 # holds. Source of truth stays in items.py; this only reads.
 # ---------------------------------------------------------------------------
@@ -1911,7 +1918,7 @@ def employee_assets(eid: str, user: dict = Depends(require_hr_read), db: Session
 
 
 # ---------------------------------------------------------------------------
-# HR Section B6 — inline status change with reason + effective date (audited)
+# HR Section B6 - inline status change with reason + effective date (audited)
 # ---------------------------------------------------------------------------
 class StatusChangeIn(BaseModel):
     status:        str
@@ -1921,7 +1928,8 @@ class StatusChangeIn(BaseModel):
     # Nexus records the intent; the mailbox-permission / shared-conversion steps
     # themselves are done in the Exchange admin center (Graph has no coverage).
     #   {mailboxAction: 'delegate'|'share'|'remove'|'',
-    #    delegateTo: ['a@x.com', …], exportRequested: bool, freeUpLicense: bool}
+    #    delegateTo: ['a@x.com', …], exportRequested: bool, freeUpLicense: bool,
+    #    handoverTo: 'b@x.com', handoverIncludeCompleted: bool}
     offboarding:   Optional[dict] = None
 
 
@@ -1957,7 +1965,7 @@ def _graph_remove_all_licenses(token: str, m365_id: str) -> str:
         removed = len(direct)
     if group:
         return (f"{removed} released" if removed else "0 released") + \
-               f" · {len(group)} assigned via a group — remove them from the licensing group in M365"
+               f" · {len(group)} assigned via a group - remove them from the licensing group in M365"
     return f"{removed} released" if removed else "none to release"
 
 
@@ -1973,16 +1981,22 @@ def change_status(eid: str, body: StatusChangeIn, user: dict = Depends(require_h
     log = list(row.status_log or [])
     entry = None
     # Normalise the offboarding block independently of the status change so the
-    # M365 actions can be (re-)run on someone already inactive/left — e.g. to
+    # M365 actions can be (re-)run on someone already inactive/left - e.g. to
     # free a license that didn't release the first time.
     off = body.offboarding or {}
     off_block = None
-    if off.get("mailboxAction") or off.get("delegateTo") or off.get("exportRequested") or off.get("freeUpLicense"):
+    if (off.get("mailboxAction") or off.get("delegateTo") or off.get("exportRequested")
+            or off.get("freeUpLicense") or off.get("handoverTo")):
         off_block = {
             "mailboxAction":   (off.get("mailboxAction") or "").strip(),
             "delegateTo":      [e.strip().lower() for e in (off.get("delegateTo") or []) if e and e.strip()],
             "exportRequested": bool(off.get("exportRequested")),
             "freeUpLicense":   bool(off.get("freeUpLicense")),
+            # Who inherits the person's task work, and whether their finished
+            # tasks come along. Recorded on the log entry as the audit trail for
+            # a bulk reassignment nobody gets a notification about.
+            "handoverTo":      (off.get("handoverTo") or "").strip().lower(),
+            "handoverIncludeCompleted": bool(off.get("handoverIncludeCompleted")),
             "done":            False,   # flips true once an admin completes the M365 steps
         }
     if did_change:
@@ -1996,11 +2010,22 @@ def change_status(eid: str, body: StatusChangeIn, user: dict = Depends(require_h
     # Offboarding (-> Left) force-returns everything the person still holds in Item
     # Management. Items owns the transition; we stamp the counts on the log entry.
     items_returned = None
+    handover = None
     if did_change and body.status == "offboarded" and row.work_email:
         from routers.items import force_return_person
         items_returned = force_return_person(db, row.work_email, user["email"])
         if entry is not None and (items_returned["checkouts"] or items_returned["assignments"]):
             entry["itemsReturned"] = items_returned
+        # Task work moves at the same moment equipment does, in this same
+        # session, so a half-completed offboarding can't leave tasks assigned to
+        # someone who no longer exists.
+        if off_block and off_block.get("handoverTo"):
+            from routers.task_projects import handover_person
+            handover = handover_person(db, row.work_email, off_block["handoverTo"],
+                                       include_completed=off_block["handoverIncludeCompleted"],
+                                       actor=user["email"])
+            if entry is not None and (handover["reassigned"] or handover["projectsTransferred"]):
+                entry["taskHandover"] = handover
     row.status = body.status
     row.status_log = log
     row.updated_at = now
@@ -2008,11 +2033,11 @@ def change_status(eid: str, body: StatusChangeIn, user: dict = Depends(require_h
     db.refresh(row)
 
     # Perform the M365 actions Graph *can* do. Mailbox delegation / shared-mailbox
-    # conversion are NOT here — Graph has no coverage (Exchange PowerShell only);
+    # conversion are NOT here - Graph has no coverage (Exchange PowerShell only);
     # the UI surfaces those as guided admin-center steps.
     m365 = None
     # Run the mailbox/license actions whenever an offboarding block is present
-    # and the person is inactive/left — not only on the transition — so an admin
+    # and the person is inactive/left - not only on the transition - so an admin
     # can re-open a Left employee and (re-)free their license.
     if row.m365_id and off_block and body.status in ("inactive", "offboarded"):
         m365 = {}
@@ -2032,20 +2057,20 @@ def change_status(eid: str, body: StatusChangeIn, user: dict = Depends(require_h
         except Exception as e:
             m365["error"] = str(getattr(e, "detail", e))[:200]
     elif not row.m365_id and off_block and body.status in ("inactive", "offboarded"):
-        m365 = {"error": "No linked M365 account — nothing to block or free."}
+        m365 = {"error": "No linked M365 account - nothing to block or free."}
     elif did_change and row.m365_id and body.status in ("active", "onboarding"):
-        # Coming back from inactive/left — restore sign-in (best-effort).
+        # Coming back from inactive/left - restore sign-in (best-effort).
         try:
             _graph_set_signin(_graph_token(), row.m365_id, True)
             m365 = {"signIn": "re-enabled"}
         except Exception:
             pass
 
-    return {**_serialize(row), "m365": m365, "items": items_returned}
+    return {**_serialize(row), "m365": m365, "items": items_returned, "handover": handover}
 
 
 # ---------------------------------------------------------------------------
-# Mailbox export — zip every message (.eml) from a person's Entra mailbox.
+# Mailbox export - zip every message (.eml) from a person's Entra mailbox.
 # Needs the tenant-wide Mail.Read application permission (admin consent); without
 # it Graph returns 401/403 and the job is marked with a clear message. Runs in a
 # background thread so a large mailbox doesn't block the request.
@@ -2106,7 +2131,7 @@ def _run_mailbox_export(job_id: str, m365_id: str) -> None:
             return
         job.status = "running"; job.updated_at = datetime.now(timezone.utc).isoformat(); db.commit()
         headers = {"Authorization": f"Bearer {_graph_token()}"}
-        # Total up front so the UI can show a real progress bar (best-effort — a
+        # Total up front so the UI can show a real progress bar (best-effort - a
         # 401/403 here means Mail.Read isn't consented; the message loop reports it).
         try:
             cr = httpx.get(f"{_GRAPH}/users/{m365_id}/messages/$count",
@@ -2124,7 +2149,7 @@ def _run_mailbox_export(job_id: str, m365_id: str) -> None:
             while url and count < _EXPORT_MSG_CAP:
                 r = httpx.get(url, headers=headers, timeout=60)
                 if r.status_code in (401, 403):
-                    raise RuntimeError("Graph denied mailbox read — grant the Mail.Read application permission and admin consent.")
+                    raise RuntimeError("Graph denied mailbox read - grant the Mail.Read application permission and admin consent.")
                 if not r.is_success:
                     raise RuntimeError(f"Graph error: {r.text[:200]}")
                 data = r.json()

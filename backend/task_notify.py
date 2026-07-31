@@ -1,11 +1,11 @@
-"""Task Notification workflow (Jul 2026) — Outlook email side-effects for
+"""Task Notification workflow (Jul 2026) - Outlook email side-effects for
 task lifecycle events, plus the background retry and due-date-reminder loops.
-Mirrors ticket_notify.py's design exactly (same author, same day) — see that
+Mirrors ticket_notify.py's design exactly (same author, same day) - see that
 file's docstring for the shared reasoning; only the recipient rules, event
 set, and templates differ.
 
 routers/tasks.py calls `notify_task_event(...)` via FastAPI BackgroundTasks
-after each task mutation has already committed — email delivery runs after
+after each task mutation has already committed - email delivery runs after
 the HTTP response, and a failure here can never surface as a failed task
 operation (every entry point below is wrapped so nothing escapes to the
 caller). See graph_mail.py for the actual Graph API call and
@@ -14,7 +14,7 @@ task_mail_templates.py for the HTML.
 Settings live in NexusSetting (key="task_notify_config"). Delivery state
 lives in TaskEmailLog (models.py).
 
-Event set (mirrors Asana's own email notification triggers — task assigned,
+Event set (mirrors Asana's own email notification triggers - task assigned,
 due date reminders, task completed, comments, collaborator updates, plus
 Nexus's own created/modified/deleted): created, assigned, due_soon, overdue,
 completed, commented, follower_added, modified, deleted.
@@ -33,7 +33,7 @@ import graph_mail
 import task_mail_templates as tmpl
 from routers.task_util import log_activity
 
-_APP_URL = os.getenv("NEXUS_APP_URL", "")   # e.g. https://nexus.greensglobal.com — no trailing slash
+_APP_URL = os.getenv("NEXUS_APP_URL", "")   # e.g. https://nexus.greensglobal.com - no trailing slash
 _SETTINGS_KEY = "task_notify_config"
 
 _DEFAULT_SETTINGS = {
@@ -109,7 +109,7 @@ def _is_sendable(db: Session, email: str) -> bool:
     email = (email or "").strip().lower()
     if not email or "@" not in email or " " in email:
         return False
-    if email == "asana-sync":   # synced tasks stamp this as created_by — never a real mailbox
+    if email == "asana-sync":   # synced tasks stamp this as created_by - never a real mailbox
         return False
     emp = db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email == email).first()
     return not (emp and emp.status in ("inactive", "offboarded"))
@@ -120,7 +120,7 @@ def _recipients_for(db: Session, t: models.Task, event_type: str, actor_email: s
     """Returns deduped [(email, role)] for an event, excluding the actor
     themselves (nobody needs an email for their own action) except where
     Asana's own behavior is explicitly to notify the actor too (none of the
-    events here do that — matches Asana, which never emails you about your
+    events here do that - matches Asana, which never emails you about your
     own action)."""
     out: dict[str, str] = {}
     actor = (actor_email or "").strip().lower()
@@ -151,6 +151,12 @@ def _recipients_for(db: Session, t: models.Task, event_type: str, actor_email: s
         add(assignee, "assignee")
         for f in followers:
             add(f, "follower")
+    elif event_type == "mentioned":
+        # ONLY the people named in the comment. Assignees and followers already
+        # got the "commented" mail for the same comment; adding them here would
+        # send two emails about one event.
+        for who in extra.get("mentioned", []) or []:
+            add(who, "mentioned")
     elif event_type == "follower_added":
         add(extra.get("new_follower", ""), "follower")
     elif event_type == "modified":
@@ -178,7 +184,7 @@ def _next_event_version(db: Session, task_id: str, event_type: str) -> int:
 def _send_one(db: Session, *, task_id: str, task_code: str, event_type: str, idem_suffix: str,
               recipient: str, role: str, subject: str, html: str, cfg: dict) -> None:
     """idem_suffix distinguishes repeat sends of the SAME event_type that
-    aren't a version bump — due-date reminders key on the calendar day
+    aren't a version bump - due-date reminders key on the calendar day
     (f"{date}") instead of an incrementing version, so a reminder that
     already went out today never resends today even across multiple pull/
     scan cycles, but does resend tomorrow."""
@@ -215,7 +221,7 @@ def _send_one(db: Session, *, task_id: str, task_code: str, event_type: str, ide
     except graph_mail.GraphMailError as e:
         row.status = "failed"
         row.error = str(e)[:1000]
-        detail = f"{event_type.title()} email to {recipient} ({role}) failed — will retry: {row.error[:200]}"
+        detail = f"{event_type.title()} email to {recipient} ({role}) failed - will retry: {row.error[:200]}"
     row.updated_at = datetime.now(timezone.utc).isoformat()
     db.commit()
     log_activity(db, type="notify_sent" if row.status == "sent" else "notify_failed",
@@ -250,13 +256,13 @@ def _fmt(iso: str) -> str:
         return iso[:10]
 
 
-# ── Main entry point — called from routers/tasks.py via BackgroundTasks ────
+# ── Main entry point - called from routers/tasks.py via BackgroundTasks ────
 
 def notify_task_event(task_id: str, event_type: str, actor_email: str, **kw) -> None:
     """event_type ∈ created|assigned|completed|commented|follower_added|
     modified|deleted (due_soon/overdue are fired by the scheduled scan below,
     not from here). kw: update_kind, comment_body, new_follower, snapshot
-    (only for "deleted" — the row is already gone by the time this runs, so
+    (only for "deleted" - the row is already gone by the time this runs, so
     the caller must pass {title, code, status, priority, assignee_email,
     follower_emails, created_by, project_id} captured before the delete).
     Never raises."""
@@ -290,6 +296,10 @@ def notify_task_event(task_id: str, event_type: str, actor_email: str, **kw) -> 
                                                      audience="assignee" if role == "assignee" else "other")
             elif event_type == "completed":
                 subject, html = tmpl.completed_email(t=ctx, base_url=_APP_URL, logo_url=logo_url)
+            elif event_type == "mentioned":
+                subject, html = tmpl.mentioned_email(t=ctx, base_url=_APP_URL, logo_url=logo_url,
+                                                     comment_body=extra.get("comment_body", ""),
+                                                     actor_name=actor_name)
             elif event_type == "commented":
                 subject, html = tmpl.commented_email(t=ctx, base_url=_APP_URL, logo_url=logo_url,
                                                       comment_body=kw.get("comment_body", ""))
@@ -317,7 +327,7 @@ def notify_task_event(task_id: str, event_type: str, actor_email: str, **kw) -> 
         db.close()
 
 
-# ── Due-date reminders (scheduled scan — no mutation triggers this) ────────
+# ── Due-date reminders (scheduled scan - no mutation triggers this) ────────
 
 def _due_reminders_once(db: Session) -> None:
     cfg = get_settings(db)
@@ -343,7 +353,7 @@ def _due_reminders_once(db: Session) -> None:
             if not cfg["enabledEvents"].get("overdue", True):
                 continue
             # Only re-remind every `overdue_repeat` days (0 = once, right when
-            # it first goes overdue) — otherwise every overdue task emails its
+            # it first goes overdue) - otherwise every overdue task emails its
             # assignee daily forever, which nobody wants.
             if overdue_repeat and abs(days_left) % overdue_repeat != 0:
                 continue
@@ -363,7 +373,7 @@ def _due_reminders_once(db: Session) -> None:
 
 
 # ── Background loops (same bare-asyncio-loop convention as ticket_notify.py /
-#    reminders.py — no task-queue library exists in this codebase) ─────────
+#    reminders.py - no task-queue library exists in this codebase) ─────────
 
 def _retry_failed_once(db: Session) -> None:
     cutoff = datetime.now(timezone.utc)
@@ -380,7 +390,7 @@ def _retry_failed_once(db: Session) -> None:
                 continue
         t = db.query(models.Task).filter(models.Task.id == row.task_id).first()
         if not t:
-            # Deleted-task emails legitimately have no row to re-render from —
+            # Deleted-task emails legitimately have no row to re-render from -
             # only fail these out permanently instead of retrying forever.
             row.status = "failed"
             row.error = "Task no longer exists (nothing left to retry from)"
@@ -405,7 +415,7 @@ def _retry_failed_once(db: Session) -> None:
             row.error = ""
             log_activity(db, type="notify_sent", actor_email="system", entity_kind="task",
                          entity_id=t.id, entity_code=t.code, entity_title=t.title,
-                         detail=f"Retry succeeded — {row.event_type} email sent to {row.recipient}")
+                         detail=f"Retry succeeded - {row.event_type} email sent to {row.recipient}")
         except graph_mail.GraphMailError as e:
             row.status = "failed"
             row.error = str(e)[:1000]

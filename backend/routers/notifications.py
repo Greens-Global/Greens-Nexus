@@ -49,7 +49,7 @@ def create_notification(n: NotificationIn, user: dict = Depends(get_current_user
         raise HTTPException(400, "Title too long (max 200 chars)")
     if len(n.body) > 1000:
         raise HTTPException(400, "Body too long (max 1000 chars)")
-    # Server-generate the id and INSERT (never merge/upsert on a client id) — a
+    # Server-generate the id and INSERT (never merge/upsert on a client id) - a
     # client-supplied id + merge let a supervisor overwrite any existing
     # notification's contents/recipient. Ignore n.id entirely.
     server_id = str(uuid.uuid4())
@@ -78,10 +78,10 @@ def get_notifications(user: dict = Depends(get_current_user), db: Session = Depe
     Returns notifications visible to the authenticated caller:
     - recipient IS NULL/empty  → broadcast to ALL MANAGERS ONLY (level >= 3).
       These carry who-requested-what, order totals and lost-item reports, so an
-      employee must NEVER receive them — actioning/deleting was already manager-
+      employee must NEVER receive them - actioning/deleting was already manager-
       gated, but the read filter previously leaked every broadcast row to anyone.
     - recipient == email       → personal notification for this user
-    Identity AND level come from the verified token — never from a query parameter.
+    Identity AND level come from the verified token - never from a query parameter.
     Filter is applied at the SQL level so the DB only sends relevant rows.
     """
     email = user["email"]
@@ -130,7 +130,7 @@ def mark_read(nid: str, user: dict = Depends(get_current_user), db: Session = De
         emails.append(user["email"])
         row.read_by = ",".join(emails)
         # Row can be deleted by a concurrent request (e.g. clearRead) between
-        # the SELECT above and this UPDATE — SQLAlchemy then raises
+        # the SELECT above and this UPDATE - SQLAlchemy then raises
         # StaleDataError ("0 rows matched"), which previously crashed the
         # whole request with a 502. The end state we want (read) is moot if
         # the notification is already gone, so treat that as success.
@@ -187,7 +187,7 @@ class AlertIn(BaseModel):
 def _alert_html(subject: str, message: str) -> str:
     """Branded alert email. Auto-populates from the alert content: plain lines
     become paragraphs, '•' lines (the overdue item lists the frontend builds)
-    render as rows in a highlighted box. Inline styles only — email clients
+    render as rows in a highlighted box. Inline styles only - email clients
     ignore stylesheets."""
     from html import escape
 
@@ -243,7 +243,7 @@ def _alert_html(subject: str, message: str) -> str:
     </tr>
     <tr>
       <td style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:14px 28px;font-size:11.5px;color:#6b7280;line-height:1.5">
-        Sent via Greens Nexus. This is an automated alert — replies to this mailbox are not monitored.
+        Sent via Nexus. This is an automated alert - replies to this mailbox are not monitored.
       </td>
     </tr>
   </table>
@@ -252,7 +252,7 @@ def _alert_html(subject: str, message: str) -> str:
 
 def _graph_token() -> str:
     if not all([_AZURE_TENANT_ID, _AZURE_CLIENT_ID, _AZURE_CLIENT_SECRET]):
-        raise HTTPException(503, "Email not configured — set AZURE_CLIENT_SECRET and NEXUS_FROM_EMAIL in env vars")
+        raise HTTPException(503, "Email not configured - set AZURE_CLIENT_SECRET and NEXUS_FROM_EMAIL in env vars")
     resp = httpx.post(
         f"https://login.microsoftonline.com/{_AZURE_TENANT_ID}/oauth2/v2.0/token",
         data={
@@ -285,7 +285,7 @@ def send_alert(body: AlertIn, user: dict = Depends(get_current_user), db: Sessio
     email_errors = []
     if not (_NEXUS_FROM_EMAIL and _AZURE_CLIENT_SECRET):
         # Without this the response claimed email_sent=true while never even
-        # attempting delivery — the UI showed success and nothing arrived.
+        # attempting delivery - the UI showed success and nothing arrived.
         email_errors.append(
             "Email not configured: set AZURE_CLIENT_SECRET and NEXUS_FROM_EMAIL "
             "env vars (and grant the Entra app the Mail.Send application permission)"
@@ -314,7 +314,7 @@ def send_alert(body: AlertIn, user: dict = Depends(get_current_user), db: Sessio
 
     # Always create Nexus bell notifications regardless of email outcome
     now = datetime.now(timezone.utc).isoformat()
-    # Auth tokens carry only the email — show a readable name, not the address
+    # Auth tokens carry only the email - show a readable name, not the address
     _local = user["email"].split("@", 1)[0]
     sender_name = " ".join(p.capitalize() for p in _local.replace("_", ".").split(".") if p) or user["email"]
     for recipient_email in body.to:
@@ -323,7 +323,7 @@ def send_alert(body: AlertIn, user: dict = Depends(get_current_user), db: Sessio
             type="custom_alert",
             recipient=recipient_email.lower(),
             title=body.subject,
-            body=f"{body.message}\n\n— {sender_name}",
+            body=f"{body.message}\n\n- {sender_name}",
             ref_id="",
             item_name="",
             requested_by=sender_name,

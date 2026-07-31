@@ -5,7 +5,7 @@ import { RecommendedMaintenance } from './RecommendedMaintenance.jsx';
 /**
  * Wraps CollectionTable for the `vservice` collection (vehicle/equipment service log) with two
  * sub-tabs: "Service Log" (the editable record list, default) and "Recommended Maintenance"
- * (a read-only reference schedule) — the latter tab only appears when the asset actually has a
+ * (a read-only reference schedule) - the latter tab only appears when the asset actually has a
  * researched maintenanceSchedule.
  */
 export function VserviceSection({ p: asset, rows, filters, setFilters, highlightItem, onAdd, onEdit, onQuickAdd }) {

@@ -28,7 +28,7 @@ function itemStatusLabel(item) {
 // ── Global search palette ─────────────────────────────────────────────────────
 // Ctrl/Cmd+K (or the header search button) from anywhere. Searches screens
 // (modules + their sub-tabs, role-gated exactly like the sidebar), inventory
-// items, checkouts, and purchase requisitions — all from data the app already
+// items, checkouts, and purchase requisitions - all from data the app already
 // holds in its contexts, so opening it costs no extra requests.
 export default function GlobalSearch({ onNavigate }) {
   const { can, myGrantedModules, myEmail } = useRole();
@@ -109,7 +109,7 @@ export default function GlobalSearch({ onNavigate }) {
     const isManager = can?.('manager');
     for (const i of items) {
       if (n >= 5) break;
-      // Employees only ever see catalog (temporary) items — permanently-assigned
+      // Employees only ever see catalog (temporary) items - permanently-assigned
       // equipment like assigned laptops must never surface in their search
       // (Pranshu, Jun 16). Managers+ can search everything.
       if (!isManager && i.ownershipType !== 'transient') continue;
@@ -147,7 +147,7 @@ export default function GlobalSearch({ onNavigate }) {
         n++;
         out.push({
           type: 'Purchase Requests', Icon: ShoppingCart,
-          title: `${r.item} — ${r.employeeName}`,
+          title: `${r.item} - ${r.employeeName}`,
           detail: [r.id, (r.status || '').replace(/_/g, ' ')].filter(Boolean).join(' · '),
           run: () => go('purchase', 'log'),
         });
@@ -191,7 +191,7 @@ export default function GlobalSearch({ onNavigate }) {
           />
           <kbd className="gs-kbd">esc</kbd>
           {/* Phones have no Esc key and the panel is full-screen (no backdrop
-              to tap) — without this button search was a one-way door */}
+              to tap) - without this button search was a one-way door */}
           <button onClick={close} aria-label="Close search"
             style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', display:'flex', padding:6, borderRadius:8, flexShrink:0 }}>
             <X size={18} />

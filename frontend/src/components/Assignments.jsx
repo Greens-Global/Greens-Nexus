@@ -1,6 +1,6 @@
 /* Permanent-assignment UI: employee panel (accept / return / report dead-lost),
    manager queue (accept returns, cancel/force-recover) and the assign/reassign
-   modal. All state lives in the DB via /items/assignments — components only
+   modal. All state lives in the DB via /items/assignments - components only
    mirror it and poll. */
 import { useState, useEffect, useRef } from 'react';
 import { Camera, CheckCircle, XCircle, RotateCcw, Loader2, AlertCircle, User, Package, ZoomIn, MapPin } from 'lucide-react';
@@ -37,7 +37,7 @@ function _asgFetch() {
   // P1-8: a modal's onDone→refresh() that lands during the 15s poll's in-flight
   // window used to be a silent no-op, so the poll's pre-mutation snapshot won.
   // Instead of dropping the request, remember it and run one follow-up fetch once
-  // the current one resolves — this catches the just-committed mutation without
+  // the current one resolves - this catches the just-committed mutation without
   // spinning a tight loop (the flag is cleared before the single re-fetch).
   if (_asgInFlight) { _asgRefetchQueued = true; return Promise.resolve(); }
   _asgInFlight = true;
@@ -119,7 +119,7 @@ function PhotoField({ file, setFile, required = true }) {
 
 function ModalShell({ title, sub, children, onClose, busy = false }) {
   // P4 modal guards: don't let ESC or a backdrop click tear the modal down while
-  // an accept/return/cancel is in flight — that would also lose the onDone refresh.
+  // an accept/return/cancel is in flight - that would also lose the onDone refresh.
   useEffect(() => { const h = e => { if (e.key === 'Escape' && !busy) onClose(); }; window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h); }, [onClose, busy]);
   return (
     <div role="dialog" aria-modal="true" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1250, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
@@ -139,7 +139,7 @@ export function AssignItemModal({ item, mode, userEmail = '', locations = [], on
   const [tab,  setTab]  = useState('person');   // 'person' | 'location'
   const [pick, setPick] = useState('');
   const [loc,  setLoc]  = useState(item.location || '');
-  const [skipAccept, setSkipAccept] = useState(false); // manager option — activate without the assignee accepting
+  const [skipAccept, setSkipAccept] = useState(false); // manager option - activate without the assignee accepting
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   useEffect(() => { api.getPeopleDirectory().then(setDirectory).catch(() => {}); }, []);
@@ -155,7 +155,7 @@ export function AssignItemModal({ item, mode, userEmail = '', locations = [], on
         : `This item is already assigned to ${item.assignedToName || chosen.name}.`)
     : '';
   const locChanged = loc.trim() !== (item.location || '').trim();
-  // Temporary items are checked out, never person-assigned — the backend rejects
+  // Temporary items are checked out, never person-assigned - the backend rejects
   // it (accepting would silently flip ownership to permanent). Steer to location.
   const transient = item.ownershipType !== 'permanent';
   useEffect(() => { if (transient) setTab('location'); }, [transient]);
@@ -164,9 +164,9 @@ export function AssignItemModal({ item, mode, userEmail = '', locations = [], on
     setBusy(true); setError('');
     (reassign ? api.reassignItem(item.id, { assignee_email: chosen.email, assignee_name: chosen.name })
               : api.assignItem(item.id, { assignee_email: chosen.email, assignee_name: chosen.name, skip_acceptance: skipAccept }))
-      .then(() => { toast(reassign ? `Return requested from ${item.assignedToName} — ${chosen.name} will be assigned next.`
-                          : skipAccept ? `${item.name} assigned to ${chosen.name} — active immediately, no acceptance needed.`
-                          : `${item.name} assigned to ${chosen.name} — awaiting their acceptance.`); onDone(); onClose(); })
+      .then(() => { toast(reassign ? `Return requested from ${item.assignedToName} - ${chosen.name} will be assigned next.`
+                          : skipAccept ? `${item.name} assigned to ${chosen.name} - active immediately, no acceptance needed.`
+                          : `${item.name} assigned to ${chosen.name} - awaiting their acceptance.`); onDone(); onClose(); })
       .catch(err => { setError(err?.message || 'Could not assign.'); setBusy(false); });
   }
   function submitLocation() {
@@ -179,7 +179,7 @@ export function AssignItemModal({ item, mode, userEmail = '', locations = [], on
   return (
     <ModalShell onClose={onClose} busy={busy}
       title={reassign ? `Reassign ${item.name}` : `Assign ${item.name}`}
-      sub="Assign it to a person (they accept with a photo) or set where it lives — a location and a person can both apply.">
+      sub="Assign it to a person (they accept with a photo) or set where it lives - a location and a person can both apply.">
       <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
         {[['person', 'To a person'], ['location', 'To a location']].map(([k, l]) => (
           <button key={k} type="button" onClick={() => { setTab(k); setError(''); }}
@@ -190,26 +190,26 @@ export function AssignItemModal({ item, mode, userEmail = '', locations = [], on
       {tab === 'person' ? (
         transient ? (
           <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '4px 0 0' }}>
-            This is a temporary item — people take it via checkout, not permanent assignment.
+            This is a temporary item - people take it via checkout, not permanent assignment.
             To give it to one person for good, change its ownership to Permanent first (Batch edit → Ownership).
           </p>
         ) : (
         <>
           <label style={FL}>ASSIGN TO <span style={{ color: 'hsl(var(--color-red))' }}>*</span></label>
-          {/* Show the email, not just the name — the directory has duplicate people
+          {/* Show the email, not just the name - the directory has duplicate people
               across domains (e.g. several "Neil"s), so the email is how you pick the
               account that person actually logs in with (Visesh). */}
           <select className="form-input" style={{ width: '100%' }} value={pick} onChange={e => setPick(e.target.value)}>
-            <option value="">— select a person —</option>
-            {directory.map(d => <option key={d.email} value={d.email}>{d.name ? `${d.name} — ${d.email}` : d.email}</option>)}
+            <option value="">- select a person -</option>
+            {directory.map(d => <option key={d.email} value={d.email}>{d.name ? `${d.name} - ${d.email}` : d.email}</option>)}
           </select>
-          {reassign && <p style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 8 }} title={item.assignedToEmail || ''}>Currently with {item.assignedToName || emailToName(item.assignedToEmail)} — they’ll be asked to return it with a photo, then the new person accepts.</p>}
+          {reassign && <p style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 8 }} title={item.assignedToEmail || ''}>Currently with {item.assignedToName || emailToName(item.assignedToEmail)} - they’ll be asked to return it with a photo, then the new person accepts.</p>}
           {!reassign && (
             <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginTop: 12, cursor: 'pointer', userSelect: 'none' }}>
               <input type="checkbox" checked={skipAccept} onChange={e => setSkipAccept(e.target.checked)}
                 style={{ cursor: 'pointer', accentColor: 'var(--pine)', marginTop: 2 }} />
               <span style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.45 }}>
-                <strong style={{ color: 'var(--ink)' }}>Skip acceptance</strong> — the assignment goes active
+                <strong style={{ color: 'var(--ink)' }}>Skip acceptance</strong> - the assignment goes active
                 right away. They're still notified, just not asked to accept.
               </span>
             </label>
@@ -220,7 +220,7 @@ export function AssignItemModal({ item, mode, userEmail = '', locations = [], on
         <>
           <label style={FL}>LOCATION</label>
           <input className="form-input" style={{ width: '100%' }} list="assign-loc-list" value={loc} autoFocus
-            onChange={e => setLoc(e.target.value)} placeholder="e.g. GG Corp, GSE — leave blank to clear" />
+            onChange={e => setLoc(e.target.value)} placeholder="e.g. GG Corp, GSE - leave blank to clear" />
           <datalist id="assign-loc-list">{locations.map(l => <option key={l} value={l} />)}</datalist>
           <p style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 8 }}>
             Sets where the item physically lives. {item.assignedToEmail ? `It stays assigned to ${item.assignedToName || 'its holder'}.` : 'It stays unassigned until you assign a person.'}
@@ -268,7 +268,7 @@ export function MyPermanentPanel({ assignments, userEmail, refresh, toast }) {
               <div>
                 <div style={{ fontWeight: 700, fontSize: 14 }}>{a.itemName}</div>
                 <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
-                  Assigned by {a.assignedBy || '—'}{a.acceptedAt ? ` · accepted ${new Date(a.acceptedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''}
+                  Assigned by {a.assignedBy || '-'}{a.acceptedAt ? ` · accepted ${new Date(a.acceptedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''}
                 </div>
               </div>
               <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
@@ -307,7 +307,7 @@ export function MyPermanentPanel({ assignments, userEmail, refresh, toast }) {
             {a.status === 'return_initiated' && (
               <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>
                 {a.returnReason === 'reassign' && !a.returnPhotoUrl
-                  ? <>This item is being reassigned to <strong title={a.nextAssigneeEmail || ''}>{a.nextAssigneeName || emailToName(a.nextAssigneeEmail)}</strong> — please return it: <button className="primary-btn" style={{ fontSize: 12, marginLeft: 8 }} onClick={() => setModal({ kind: 'return', a, reason: 'reassign' })}><Camera size={12} style={{ verticalAlign: '-2px', marginRight: 4 }} />Return With Photo</button></>
+                  ? <>This item is being reassigned to <strong title={a.nextAssigneeEmail || ''}>{a.nextAssigneeName || emailToName(a.nextAssigneeEmail)}</strong> - please return it: <button className="primary-btn" style={{ fontSize: 12, marginLeft: 8 }} onClick={() => setModal({ kind: 'return', a, reason: 'reassign' })}><Camera size={12} style={{ verticalAlign: '-2px', marginRight: 4 }} />Return With Photo</button></>
                   : 'Waiting for a supervisor to accept the return.'}
               </div>
             )}
@@ -365,11 +365,11 @@ function AcceptAssignmentModal({ a, onClose, onDone, toast }) {
   const [error, setError] = useState('');
   return (
     <ModalShell onClose={onClose} busy={busy} title={`Accept ${a.itemName}`}
-      sub="One click and it's yours. A photo is optional for permanent items — add one if you want a condition record.">
+      sub="One click and it's yours. A photo is optional for permanent items - add one if you want a condition record.">
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <PhotoField file={file} setFile={setFile} required={false} />
         <div>
-          <label style={FL}>CONDITION NOTES <span style={{ fontSize: 11, fontWeight: 400 }}>(optional — note any existing damage)</span></label>
+          <label style={FL}>CONDITION NOTES <span style={{ fontSize: 11, fontWeight: 400 }}>(optional - note any existing damage)</span></label>
           <textarea rows={2} className="form-input" style={{ width: '100%', resize: 'vertical', fontSize: 13 }} value={note} onChange={e => setNote(e.target.value)} placeholder="e.g. Small dent on the lid" />
         </div>
       </div>
@@ -394,9 +394,9 @@ function AcceptAssignmentModal({ a, onClose, onDone, toast }) {
 
 const RETURN_COPY = {
   normal:   { title: 'Return', sub: 'Returning this item (e.g. leaving the company or no longer need it). A supervisor will verify and accept it.' },
-  dead:     { title: 'Report Dead & Return', sub: 'The item no longer works. Photograph it as evidence — a supervisor will accept the return and decide its fate.' },
-  lost:     { title: 'Report Lost', sub: 'The item is lost or stolen. No photo needed — a supervisor will confirm the write-off.' },
-  reassign: { title: 'Return for Reassignment', sub: 'Photograph the item as you hand it back — the new assignee takes over once a supervisor accepts.' },
+  dead:     { title: 'Report Dead & Return', sub: 'The item no longer works. Photograph it as evidence - a supervisor will accept the return and decide its fate.' },
+  lost:     { title: 'Report Lost', sub: 'The item is lost or stolen. No photo needed - a supervisor will confirm the write-off.' },
+  reassign: { title: 'Return for Reassignment', sub: 'Photograph the item as you hand it back - the new assignee takes over once a supervisor accepts.' },
 };
 
 function AssignmentReturnModal({ a, reason, onClose, onDone, toast }) {
@@ -425,7 +425,7 @@ function AssignmentReturnModal({ a, reason, onClose, onDone, toast }) {
             try {
               const photo = needPhoto ? await uploadPhoto(file, `return-${a.id}`) : { url: '', name: '' };
               await api.initAssignmentReturn(a.id, { reason: reason === 'reassign' ? 'normal' : reason, photo_url: photo.url, photo_name: photo.name, note: note.trim() });
-              toast('Return submitted — a supervisor will verify and accept it.'); onDone();
+              toast('Return submitted - a supervisor will verify and accept it.'); onDone();
             } catch (e) { setError(e?.message || 'Could not submit return.'); setBusy(false); }
           }}>
           {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <RotateCcw size={14} />} Submit return
@@ -456,7 +456,7 @@ export function AssignmentsQueue({ assignments, userEmail = '', refresh, toast, 
     (a.nextAssigneeName || '').toLowerCase().includes(q) ||
     (a.nextAssigneeEmail || '').toLowerCase().includes(q);
   // History (closed/declined/cancelled) can be long. Filter by the search FIRST,
-  // then cap — otherwise searching someone whose return closed 51+ rows ago found
+  // then cap - otherwise searching someone whose return closed 51+ rows ago found
   // nothing because the slice ran before the filter (P4 history search). Declined
   // items live here too, so they stay discoverable in the manager queue.
   const base = chip === 'live' ? live
@@ -516,7 +516,7 @@ export function AssignmentsQueue({ assignments, userEmail = '', refresh, toast, 
                   </button>
                 )}
                 {/* If this item is assigned to ME, accept it right here (no need to
-                    go hunting in My Items) — same photo-accept flow. */}
+                    go hunting in My Items) - same photo-accept flow. */}
                 {a.status === 'pending_acceptance' && (a.assigneeEmail || '').toLowerCase() === (userEmail || '').toLowerCase() && (
                   <button className="primary-btn" style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }} onClick={() => setSelfAccept(a)}>
                     <Camera size={12} /> Accept &amp; upload photo
@@ -544,7 +544,7 @@ export function AssignmentsQueue({ assignments, userEmail = '', refresh, toast, 
         <ModalShell onClose={() => setCancelling(null)} busy={modalBusy}
           title={cancelling.status === 'pending_acceptance' ? 'Cancel this assignment?' : `Force-recover ${cancelling.itemName}?`}
           sub={cancelling.status === 'pending_acceptance'
-            ? `${cancelling.itemName} hasn't been accepted by ${cancelling.assigneeName || emailToName(cancelling.assigneeEmail)} yet — cancelling puts it back in stock.`
+            ? `${cancelling.itemName} hasn't been accepted by ${cancelling.assigneeName || emailToName(cancelling.assigneeEmail)} yet - cancelling puts it back in stock.`
             : `Take ${cancelling.itemName} back from ${cancelling.assigneeName || emailToName(cancelling.assigneeEmail)} without their confirmation. Use this when the holder can't complete the return themselves.`}>
           <CancelAssignmentBody a={cancelling} onClose={() => setCancelling(null)} onBusy={setModalBusy} onDone={() => { setModalBusy(false); refresh(); setCancelling(null); }} toast={toast} />
         </ModalShell>
@@ -567,7 +567,7 @@ function CancelAssignmentBody({ a, onClose, onDone, toast, onBusy }) {
   function go() {
     setBusy(true); onBusy?.(true);   // tell the shell we're mid-save so ESC/backdrop can't drop us (P4)
     api.cancelAssignment(a.id)
-      .then(() => { toast(recover ? `${a.itemName} recovered — back in stock.` : 'Assignment cancelled.'); onDone(); })
+      .then(() => { toast(recover ? `${a.itemName} recovered - back in stock.` : 'Assignment cancelled.'); onDone(); })
       .catch(e => { toast(e?.message || 'Failed.', 'error'); setBusy(false); onBusy?.(false); });
   }
   return (
@@ -588,14 +588,14 @@ function AcceptReturnBody({ a, onClose, onDone, toast, onBusy }) {
   const [busy, setBusy] = useState(false);
   // P1-6: this return may be promising the item to a next assignee (reassign
   // chain). If the manager picks anything other than "back to stock", that
-  // reassignment is dropped — warn up front so it isn't a silent surprise.
+  // reassignment is dropped - warn up front so it isn't a silent surprise.
   const nextName = a.returnReason === 'reassign' ? (a.nextAssigneeName || emailToName(a.nextAssigneeEmail)) : '';
   const promisedNext = !!(a.returnReason === 'reassign' && (a.nextAssigneeName || a.nextAssigneeEmail));
   return (
     <>
       <label style={FL}>DISPOSITION</label>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {[['stock', 'Back to stock — available for checkout/assignment'], ['retired', 'Retire — dead, lost or written off']].map(([v, l]) => (
+        {[['stock', 'Back to stock - available for checkout/assignment'], ['retired', 'Retire - dead, lost or written off']].map(([v, l]) => (
           <label key={v} style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, cursor: 'pointer', border: `1px solid ${dispo === v ? 'var(--pine)' : 'var(--line)'}`, borderRadius: 9, padding: '9px 12px' }}>
             <input type="radio" checked={dispo === v} onChange={() => setDispo(v)} style={{ accentColor: 'var(--pine)' }} />{l}
           </label>

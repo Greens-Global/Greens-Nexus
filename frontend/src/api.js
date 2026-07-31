@@ -32,18 +32,18 @@ async function getAuthHeader(forceRefresh = false) {
 
 // Azure App Service on the free/basic tier can take 5-15 seconds to cold-start.
 // Network errors (CORS preflight timeout) get 3 attempts with 800ms/1.6s backoff.
-// 5xx errors get 4 attempts with 1s/2s/4s exponential backoff — covers warm-up.
+// 5xx errors get 4 attempts with 1s/2s/4s exponential backoff - covers warm-up.
 const MAX_NET_ATTEMPTS = 3;
 const MAX_5XX_ATTEMPTS = 4;
 // Each individual fetch is capped at 18s. Without this, a hung backend means
 // the browser never resolves the request and the UI appears frozen indefinitely.
 // AI endpoints (Claude formats/generates an SOP or course) routinely run longer
-// than 18s — they pass a much higher timeout via options.timeoutMs so they don't
+// than 18s - they pass a much higher timeout via options.timeoutMs so they don't
 // abort with "signal is aborted without reason".
 const FETCH_TIMEOUT_MS = 18_000;
 const AI_TIMEOUT_MS = 120_000;
 
-// Global health state — broadcast to the rest of the app when the backend goes
+// Global health state - broadcast to the rest of the app when the backend goes
 // down or comes back so a single reconnecting banner can appear rather than
 // every module showing its own error independently.
 let _backendDown = false;
@@ -61,7 +61,7 @@ function _setBackendDown(down) {
     // Debounce the DOWN transition. Azure cold-starts (5–15s) make a request fail
     // and then recover seconds later; flashing an alarming red banner for a blip
     // that self-heals is worse than the blip. Only show "reconnecting" if we're
-    // STILL failing after a grace period — a success in the meantime cancels it.
+    // STILL failing after a grace period - a success in the meantime cancels it.
     if (_backendDown || _pendingDown) return;
     _pendingDown = setTimeout(() => { _pendingDown = null; _emitHealth(true); }, DOWN_GRACE_MS);
     return;
@@ -77,27 +77,46 @@ export function onBackendHealth(fn) {
 }
 export function isBackendDown() { return _backendDown; }
 
+// ── Act As (Jul 2026) ──────────────────────────────────────────────────────
+// While a session is active, every request (not just Act-As-specific ones)
+// carries X-Act-As-Session so the backend's get_current_user overlays the
+// impersonated employee's identity - the whole app then just works as that
+// employee for free (same role/permissions/data everywhere), no per-view
+// changes needed. Persisted in sessionStorage so a page refresh doesn't
+// silently drop back to the real account mid-session.
+const ACT_AS_KEY = 'nexus:act-as-session';
+let _actAsSessionId = sessionStorage.getItem(ACT_AS_KEY) || null;
+export function getActAsSessionId() { return _actAsSessionId; }
+export function setActAsSessionId(id) {
+  _actAsSessionId = id;
+  if (id) sessionStorage.setItem(ACT_AS_KEY, id);
+  else sessionStorage.removeItem(ACT_AS_KEY);
+}
+function _actAsHeader() {
+  return _actAsSessionId ? { 'X-Act-As-Session': _actAsSessionId } : {};
+}
+
 // ── Keep-warm ─────────────────────────────────────────────────────────────────
 // The dev/prod API is Azure App Service, which parks the process after a few
-// idle minutes and then cold-starts (5-15s) on the next request — so the FIRST
+// idle minutes and then cold-starts (5-15s) on the next request - so the FIRST
 // screen a user opens after any lull feels slow and "glitchy". A cheap /health
 // ping on boot and every few minutes (only while the tab is visible) keeps the
 // process warm through a working session, so navigations stay snappy. This is a
-// mitigation, not a substitute for enabling "Always On" on the App Service —
+// mitigation, not a substitute for enabling "Always On" on the App Service -
 // that eliminates cold starts entirely at the infra level.
 let _keepWarmTimer = null;
 function _pingHealth() {
-  // Bare fetch — no auth, no retry, never flips the reconnecting banner; a failed
+  // Bare fetch - no auth, no retry, never flips the reconnecting banner; a failed
   // warm-up ping should be invisible.
   fetch(`${BASE}/health`, { cache: 'no-store' }).catch(() => {});
 }
 export function startKeepWarm(everyMs = 4 * 60_000) {
-  if (_keepWarmTimer) return;               // idempotent — safe to call once on boot
+  if (_keepWarmTimer) return;               // idempotent - safe to call once on boot
   _pingHealth();                            // start waking the backend immediately
   _keepWarmTimer = setInterval(() => {
     if (document.visibilityState === 'visible') _pingHealth();
   }, everyMs);
-  // Returning to a tab that sat idle is exactly when the backend has gone cold —
+  // Returning to a tab that sat idle is exactly when the backend has gone cold -
   // ping right away so the next click doesn't eat the cold start.
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') _pingHealth();
@@ -124,7 +143,7 @@ function _detailToMessage(detail, status) {
 
 // Only idempotent methods (GET/HEAD) are safe to auto-retry on timeout/5xx.
 // A POST/PATCH/PUT/DELETE that committed server-side but exceeded the 18s abort
-// (Azure cold start) or 5xx'd after committing would otherwise be re-sent —
+// (Azure cold start) or 5xx'd after committing would otherwise be re-sent -
 // duplicate checkouts/assignments/notifications (P1-10). No method = GET.
 function _isRetryable(options) {
   const method = (options.method || 'GET').toUpperCase();
@@ -143,9 +162,10 @@ async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
         ...options,
         signal: controller.signal,
         headers: {
-          // FormData bodies set their own multipart boundary — forcing JSON breaks them
+          // FormData bodies set their own multipart boundary - forcing JSON breaks them
           ...(options.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
           ...authHeader,
+          ..._actAsHeader(),
           ...(options.headers ?? {}),
         },
       });
@@ -153,7 +173,7 @@ async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
       clearTimeout(tid);
     }
   } catch (err) {
-    // fetch() itself threw — offline, CORS preflight dropped, cold-start, or timeout.
+    // fetch() itself threw - offline, CORS preflight dropped, cold-start, or timeout.
     // Only retry idempotent requests: a mutation may have committed before the abort.
     if (attempt < MAX_NET_ATTEMPTS && _isRetryable(options)) {
       await new Promise(r => setTimeout(r, 800 * attempt));
@@ -167,9 +187,9 @@ async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
   if (res.status === 401 && !tokenRefreshed) {
     return req(path, options, attempt, true);
   }
-  // Exponential backoff for 5xx — 1s, 2s, 4s — total ~7s before giving up.
+  // Exponential backoff for 5xx - 1s, 2s, 4s - total ~7s before giving up.
   // Covers typical Azure cold-start without burning too many attempts on real errors.
-  // Mutations are never retried — a 5xx can arrive after the write committed.
+  // Mutations are never retried - a 5xx can arrive after the write committed.
   if (res.status >= 500 && attempt < MAX_5XX_ATTEMPTS && _isRetryable(options)) {
     await new Promise(r => setTimeout(r, Math.min(1000 * 2 ** (attempt - 1), 4000)));
     return req(path, options, attempt + 1, tokenRefreshed);
@@ -184,7 +204,7 @@ async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
     throw err;
   }
 
-  // Successful response — backend is up
+  // Successful response - backend is up
   _setBackendDown(false);
   if (res.status === 204) return null;
   return res.json();
@@ -192,7 +212,7 @@ async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
 
 // Short-lived GET cache + in-flight dedup for reference data that rarely changes
 // (allocators, approvers, people directory). Several tabs/modals each fetch these
-// on mount, firing the same request many times — slow and wasteful on throttled
+// on mount, firing the same request many times - slow and wasteful on throttled
 // connections. Sharing one promise for a TTL window collapses them into one call.
 const _getCache = new Map(); // path → { ts, promise }
 function cachedGet(path, ttlMs = 60_000) {
@@ -204,7 +224,7 @@ function cachedGet(path, ttlMs = 60_000) {
 }
 
 // Like req(), but for endpoints that return a file (Excel/PDF export) rather
-// than JSON — returns the blob plus the filename the server suggested via
+// than JSON - returns the blob plus the filename the server suggested via
 // Content-Disposition, so the caller can trigger a download.
 async function reqBlob(path, options = {}, attempt = 1, tokenRefreshed = false) {
   const authHeader = await getAuthHeader(tokenRefreshed);
@@ -217,13 +237,13 @@ async function reqBlob(path, options = {}, attempt = 1, tokenRefreshed = false) 
       res = await fetch(`${BASE}${path}`, {
         ...options,
         signal: controller.signal,
-        headers: { ...authHeader, ...(options.headers ?? {}) },
+        headers: { ...authHeader, ..._actAsHeader(), ...(options.headers ?? {}) },
       });
     } finally {
       clearTimeout(tid);
     }
   } catch (err) {
-    // Same idempotency rule as req() — don't re-send a mutation that may have run.
+    // Same idempotency rule as req() - don't re-send a mutation that may have run.
     if (attempt < MAX_NET_ATTEMPTS && _isRetryable(options)) {
       await new Promise(r => setTimeout(r, 800 * attempt));
       return reqBlob(path, options, attempt + 1, tokenRefreshed);
@@ -254,7 +274,7 @@ export const api = {
   // Dashboard
   getDashboardSummary: () => req("/dashboard/summary"),
 
-  // Tasks — core (bodies are snake_case; the TasksContext maps to/from camelCase)
+  // Tasks - core (bodies are snake_case; the TasksContext maps to/from camelCase)
   getTasks: () => req("/tasks"),
   createTask: (data) => req("/tasks", { method: "POST", body: JSON.stringify(data) }),
   updateTask: (id, data) => req(`/tasks/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
@@ -265,6 +285,9 @@ export const api = {
   addTaskComment: (id, data) => req(`/tasks/${id}/comments`, { method: "POST", body: JSON.stringify(data) }),
   editTaskComment: (cid, data) => req(`/tasks/comments/${cid}`, { method: "PATCH", body: JSON.stringify(data) }),
   deleteTaskComment: (cid) => req(`/tasks/comments/${cid}`, { method: "DELETE" }),
+  // Description editor's AI rephrase - returns a suggestion the user accepts or
+  // discards; it never writes to the task.
+  taskAiRephrase: (data) => req("/task-ai/rephrase", { method: "POST", body: JSON.stringify(data), timeoutMs: 120000 }),
   getTaskAttachments: (id) => req(`/tasks/${id}/attachments`),
   addTaskAttachment: (id, data) => req(`/tasks/${id}/attachments`, { method: "POST", body: JSON.stringify(data) }),
   deleteTaskAttachment: (aid) => req(`/tasks/attachments/${aid}`, { method: "DELETE" }),
@@ -283,7 +306,14 @@ export const api = {
   getTaskProjects: () => req("/task-projects"),
   createTaskProject: (data) => req("/task-projects", { method: "POST", body: JSON.stringify(data) }),
   updateTaskProject: (id, data) => req(`/task-projects/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
-  deleteTaskProject: (id) => req(`/task-projects/${id}`, { method: "DELETE" }),
+  // deleteInAsana: the operator's explicit answer to "also delete it in Asana?".
+  // Omitted (false) means Nexus-only - the Asana project survives so it can be
+  // imported again from scratch.
+  deleteTaskProject: (id, deleteInAsana = false) =>
+    req(`/task-projects/${id}${deleteInAsana ? "?delete_in_asana=true" : ""}`, { method: "DELETE" }),
+  getTaskProjectAsanaLink: (id) => req(`/task-projects/${id}/asana-link`),
+  // Fills team_id on tasks whose project has exactly one team. Dry run by default.
+  backfillTaskTeams: (apply) => req(`/task-projects/backfill-teams?apply=${apply ? 'true' : 'false'}`, { method: 'POST', timeoutMs: 120000 }),
   getTaskPortfolios: () => req("/task-portfolios"),
   createTaskPortfolio: (data) => req("/task-portfolios", { method: "POST", body: JSON.stringify(data) }),
   updateTaskPortfolio: (id, data) => req(`/task-portfolios/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
@@ -312,6 +342,14 @@ export const api = {
   asanaSyncPull: () => req("/asana-sync/pull", { method: "POST", timeoutMs: 600000 }),
   asanaSyncPushAll: () => req("/asana-sync/push-all", { method: "POST", timeoutMs: 600000 }),
   asanaSyncDedupe: (apply) => req(`/asana-sync/dedupe?apply=${apply ? "true" : "false"}`, { method: "POST", timeoutMs: 600000 }),
+  // Walks every project in the workspace - same 10-min ceiling as Pull/Push all.
+  // Starts a background job and returns it right away; a whole workspace takes
+  // minutes and Azure kills any request at ~230s. Poll asanaSyncImportAllStatus.
+  asanaSyncImportAll: () => req("/asana-sync/import-all", { method: "POST" }),
+  asanaSyncImportAllStatus: () => req("/asana-sync/import-all/status"),
+  // Asks the run to stop at the next project boundary; it does not kill it.
+  asanaSyncImportAllCancel: () => req("/asana-sync/import-all/cancel", { method: "POST" }),
+  asanaSyncPurgeOrphans: (apply) => req(`/asana-sync/purge-orphans?apply=${apply ? "true" : "false"}`, { method: "POST", timeoutMs: 600000 }),
   getAsanaSyncProjects: () => req("/asana-sync/asana-projects", { timeoutMs: 60000 }),
   getAsanaWebhooks: () => req("/asana-sync/webhooks"),
   registerAsanaWebhooks: (data) => req("/asana-sync/webhooks", { method: "POST", body: JSON.stringify(data), timeoutMs: 60000 }),
@@ -346,11 +384,11 @@ export const api = {
   removeTicketLink: (id, targetId) => req(`/task-tickets/${id}/links/${targetId}`, { method: "DELETE" }),
   escalateTicket: (id) => req(`/task-tickets/${id}/escalate`, { method: "POST" }),
   decideTicketApproval: (id, decision, note) => req(`/task-tickets/${id}/approval`, { method: "POST", body: JSON.stringify({ decision, note }) }),
-  // Ticket Outlook notification workflow — admin settings + delivery log (manager+)
+  // Ticket Outlook notification workflow - admin settings + delivery log (manager+)
   getTicketNotifySettings: () => req("/task-tickets/notify/settings"),
   updateTicketNotifySettings: (patch) => req("/task-tickets/notify/settings", { method: "PUT", body: JSON.stringify(patch) }),
   getTicketNotifyLog: (params = {}) => req(`/task-tickets/notify/log?${new URLSearchParams(params).toString()}`),
-  // Task Outlook notification workflow — admin settings + delivery log (manager+)
+  // Task Outlook notification workflow - admin settings + delivery log (manager+)
   getTaskNotifySettings: () => req("/tasks/notify/settings"),
   updateTaskNotifySettings: (patch) => req("/tasks/notify/settings", { method: "PUT", body: JSON.stringify(patch) }),
   getTaskNotifyLog: (params = {}) => req(`/tasks/notify/log?${new URLSearchParams(params).toString()}`),
@@ -388,7 +426,7 @@ export const api = {
   getSops: () => req("/sop-updates"),
   createSop: (data) => req("/sop-updates", { method: "POST", body: JSON.stringify(data) }),
 
-  // Knowledge Base — DB-backed SOP / Manual / Guide library
+  // Knowledge Base - DB-backed SOP / Manual / Guide library
   getKbDocs:     ()         => req("/knowledge-base/documents"),
   getKbDoc:      (id)       => req(`/knowledge-base/documents/${id}`),
   createKbDoc:   (data)     => req("/knowledge-base/documents", { method: "POST", body: JSON.stringify(data) }),
@@ -437,7 +475,7 @@ export const api = {
   getAssets: () => req("/assets"),
   createAsset: (data) => req("/assets", { method: "POST", body: JSON.stringify(data) }),
 
-  // Asset Management (property portfolio) — whole-workspace load/save.
+  // Asset Management (property portfolio) - whole-workspace load/save.
   getPropertyWorkspace:  ()   => req("/property-assets/workspace"),
   savePropertyWorkspace: (ws) => req("/property-assets/workspace", { method: "PUT", body: JSON.stringify(ws), timeoutMs: 60_000 }),
   scanPropertyReminders: ()   => req("/property-assets/reminders/scan", { method: "POST" }),
@@ -470,7 +508,7 @@ export const api = {
   removeGroupMember: (id, email)         => req(`/groups/${id}/members/${encodeURIComponent(email)}`, { method: 'DELETE' }),
   assignGroupRole:   (id, role, by)      => req(`/groups/${id}/assign-role`, { method: 'POST', body: JSON.stringify({ role, assigned_by: by }) }),
 
-  // Job Roles (Roles & Access redesign) — a job role is a group template with a tier
+  // Job Roles (Roles & Access redesign) - a job role is a group template with a tier
   getJobRoles:       ()                  => req('/jobroles'),
   createJobRole:     (body)              => req('/jobroles', { method: 'POST', body: JSON.stringify(body) }),
   updateJobRole:     (id, body)          => req(`/jobroles/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
@@ -484,7 +522,7 @@ export const api = {
   addAccessScope:    (email, body)       => req(`/access-scopes/${encodeURIComponent(email)}`, { method: 'POST', body: JSON.stringify(body) }),
   deleteAccessScope: (email, scopeId)    => req(`/access-scopes/${encodeURIComponent(email)}/${encodeURIComponent(scopeId)}`, { method: 'DELETE' }),
 
-  // Testing module (QA) — dev-only, endpoints 404 unless NEXUS_QA_MODULE is set
+  // Testing module (QA) - dev-only, endpoints 404 unless NEXUS_QA_MODULE is set
   qaEnabled:        ()            => cachedGet('/qa/enabled', 300_000),
   qaCases:          ()            => req('/qa/cases'),
   qaCreateCase:     (body)        => req('/qa/cases', { method: 'POST', body: JSON.stringify(body) }),
@@ -514,15 +552,15 @@ export const api = {
   deleteNotif:      (id)             => req(`/notifications/${id}`, { method: 'DELETE' }),
   sendAlert:        (data)           => req('/notifications/send-alert', { method: 'POST', body: JSON.stringify(data) }),
 
-  // Inventory Requests (legacy stack being retired — P2-1). The item/request CRUD
+  // Inventory Requests (legacy stack being retired - P2-1). The item/request CRUD
   // wrappers had no remaining callers and were removed; only the allocators list
   // survives (its backend endpoint is kept and it's still used by NotificationBell
   // + the dashboard panels).
-  // Legacy /inventory-requests router was retired — the equivalent Nexus-People
+  // Legacy /inventory-requests router was retired - the equivalent Nexus-People
   // allocator list now lives on the items router. Kept the name; repointed the URL.
   getInventoryAllocators:  ()          => req('/items/allocators'),
 
-  // Items — new individual-unit system
+  // Items - new individual-unit system
   getItems:            (params = {})  => req(`/items?${new URLSearchParams(params)}`),
   createItem:          (data)         => req('/items', { method: 'POST', body: JSON.stringify(data) }),
   importItems:         (items)        => req('/items/import', { method: 'POST', body: JSON.stringify({ items }) }),
@@ -530,7 +568,7 @@ export const api = {
   deleteItem:          (id)           => req(`/items/${id}`, { method: 'DELETE' }),
   bulkDeleteItems:     (ids)          => req('/items/bulk-delete', { method: 'POST', body: JSON.stringify({ ids }) }),
   bulkUpdateItems:     (ids, fields)  => req('/items/bulk-update', { method: 'POST', body: JSON.stringify({ ids, fields }) }),
-  // Soft-delete recycle bin (Ankush) — deleted items are restorable
+  // Soft-delete recycle bin (Ankush) - deleted items are restorable
   getDeletedItems:     ()             => req('/items/deleted'),
   restoreItem:         (id)           => req(`/items/${id}/restore`, { method: 'POST', body: JSON.stringify({}) }),
   bulkRestoreItems:    (ids)          => req('/items/bulk-restore', { method: 'POST', body: JSON.stringify({ ids }) }),
@@ -548,7 +586,12 @@ export const api = {
   getItemAllocators:   ()             => cachedGet('/items/allocators'),
   getItemApprovers:    ()             => cachedGet('/items/approvers'),
   getRolesDirectory:   ()             => cachedGet('/roles/directory'),
-  // Curated Nexus People (nexus_employees), not the ~150-account M365 GAL — for
+  // Act As - start/stop are excluded from cachedGet (they're mutations); the
+  // eligible-targets list is fine to cache briefly like other directories.
+  getActAsEligibleTargets: ()         => cachedGet('/act-as/eligible-targets', 30_000),
+  startActAs:          (target_email) => req('/act-as/start', { method: 'POST', body: JSON.stringify({ target_email }) }),
+  stopActAs:           (session_id)   => req('/act-as/stop',  { method: 'POST', body: JSON.stringify({ session_id }) }),
+  // Curated Nexus People (nexus_employees), not the ~150-account M365 GAL - for
   // assigning items to real Nexus people. Same {email,name} shape.
   getPeopleDirectory:  ()             => cachedGet('/myhr/directory'),
   autoFillItemPhotos:  (item_ids, replace = false) => req('/items/auto-photos', { method: 'POST', body: JSON.stringify({ item_ids, replace }) }),
@@ -617,13 +660,13 @@ export const api = {
   // LMS
   getLmsCourses: () => req("/lms-courses"),
 
-  // HR — employee master records
+  // HR - employee master records
   getEmployees:   ()         => req('/hr/employees'),
   createEmployee: (data)     => req('/hr/employees', { method: 'POST', body: JSON.stringify(data) }),
   updateEmployee: (id, data) => req(`/hr/employees/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteEmployee: (id)       => req(`/hr/employees/${id}`, { method: 'DELETE' }),
 
-  // HR — companies/entities & work sites (Section A foundation)
+  // HR - companies/entities & work sites (Section A foundation)
   getEntities:    ()         => req('/hr/entities'),
   createEntity:   (data)     => req('/hr/entities', { method: 'POST', body: JSON.stringify(data) }),
   updateEntity:   (id, data) => req(`/hr/entities/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
@@ -640,21 +683,21 @@ export const api = {
   updateWorkSite: (id, data) => req(`/hr/work-sites/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteWorkSite: (id)       => req(`/hr/work-sites/${id}`, { method: 'DELETE' }),
 
-  // HR — compensation + bank (restricted: hr_comp grant / owner)
+  // HR - compensation + bank (restricted: hr_comp grant / owner)
   getCompensation:  (id)       => req(`/hr/employees/${id}/compensation`),
   saveCompensation: (id, data) => req(`/hr/employees/${id}/compensation`, { method: 'PUT', body: JSON.stringify(data) }),
 
-  // HR — live assets (permanent assignments + active checkouts from Item Management)
+  // HR - live assets (permanent assignments + active checkouts from Item Management)
   getEmployeeAssets: (id)      => req(`/hr/employees/${id}/assets`),
   changeEmployeeStatus: (id, data) => req(`/hr/employees/${id}/status`, { method: 'POST', body: JSON.stringify(data) }),
 
-  // HR — mailbox export (zip of .eml via Graph; needs Mail.Read consent)
+  // HR - mailbox export (zip of .eml via Graph; needs Mail.Read consent)
   startMailboxExport: (id)      => req(`/hr/employees/${id}/mailbox-export`, { method: 'POST' }),
   getMailboxExport:   (id)      => req(`/hr/employees/${id}/mailbox-export`),
   getExportStatus:    (jobId)   => req(`/hr/mailbox-exports/${jobId}`),
   getExportUrl:       (jobId)   => req(`/hr/mailbox-exports/${jobId}/url`),
 
-  // HR — hiring pipeline
+  // HR - hiring pipeline
   getCandidates:       ()         => req('/hr/candidates'),
   getCandidateHistory: (id)       => req(`/hr/candidates/${id}/history`),
   createCandidate:     (data)     => req('/hr/candidates', { method: 'POST', body: JSON.stringify(data) }),
@@ -662,7 +705,7 @@ export const api = {
   candidateResumeUpload: (id, form) => req(`/hr/candidates/${id}/resume`, { method: 'POST', body: form }),
   candidateResumeUrl:  (id)       => req(`/hr/candidates/${id}/resume-url`),
 
-  // HR — AI-assisted interviews (Teams invite + questionnaire + scoring)
+  // HR - AI-assisted interviews (Teams invite + questionnaire + scoring)
   ivTemplates:       ()           => req('/hr/interview-templates'),
   ivTemplateCreate:  (data)       => req('/hr/interview-templates', { method: 'POST', body: JSON.stringify(data) }),
   ivTemplateUpdate:  (id, data)   => req(`/hr/interview-templates/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
@@ -677,14 +720,14 @@ export const api = {
   ivRecommend:       (tid)        => req('/hr/interviews/recommend', { method: 'POST', body: JSON.stringify({ template_id: tid || '' }) }),
   ivFinalRound:      (iid, data)  => req(`/hr/interviews/${iid}/final-round`, { method: 'POST', body: JSON.stringify(data) }),
 
-  // HR — documents (private bucket, signed URLs)
+  // HR - documents (private bucket, signed URLs)
   getEmployeeDocs:   (empId)        => req(`/hr/employees/${empId}/documents`),
   uploadEmployeeDoc: (empId, form)  => req(`/hr/employees/${empId}/documents`, { method: 'POST', body: form }),
   getDocUrl:         (docId)        => req(`/hr/documents/${docId}/url`),
   uploadEmployeePhoto: (empId, form) => req(`/hr/employees/${empId}/photo`, { method: 'POST', body: form }),
   deleteEmployeeDoc: (docId)        => req(`/hr/documents/${docId}`, { method: 'DELETE' }),
 
-  // HR — provisioning
+  // HR - provisioning
   getProvisionSkus:  ()             => req('/hr/provision/skus'),
   provisionEmployee: (empId, data)  => req(`/hr/employees/${empId}/provision`, { method: 'POST', body: JSON.stringify(data) }),
   getProvisionRuns:  (empId)        => req(`/hr/employees/${empId}/provision/runs`),
@@ -693,14 +736,14 @@ export const api = {
   pushToEntra:       (empId)        => req(`/hr/employees/${empId}/push-to-entra`, { method: 'POST' }),
   resendWelcome:     (empId)        => req(`/hr/employees/${empId}/welcome-email`, { method: 'POST' }),
 
-  // HR — leave tracker
+  // HR - leave tracker
   getLeave:         ()          => req('/hr/leave'),
   getLeaveBalances: (empId, yr) => req(`/hr/leave/balances/${empId}?year=${yr}`),
   setLeaveBalance:  (data)      => req('/hr/leave/balances', { method: 'PUT', body: JSON.stringify(data) }),
   createLeave:      (data)      => req('/hr/leave', { method: 'POST', body: JSON.stringify(data) }),
   decideLeave:      (id, data)  => req(`/hr/leave/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
 
-  // HR — e-sign (templates, envelopes, my-signatures inbox)
+  // HR - e-sign (templates, envelopes, my-signatures inbox)
   getSignTemplates:   ()          => req('/esign/templates'),
   createSignTemplate: (data)      => req('/esign/templates', { method: 'POST', body: JSON.stringify(data) }),
   updateSignTemplate: (id, data)  => req(`/esign/templates/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
@@ -769,7 +812,7 @@ export const api = {
   dashDeleteView: (id)         => req(`/dashboards/views/${id}`, { method: 'DELETE' }),
   dashKpis:       (scope = 'self') => req(`/dashboards/kpis?scope=${encodeURIComponent(scope)}`),
 
-  // ── My HR (employee self-service — own record only) ──
+  // ── My HR (employee self-service - own record only) ──
   myHrProfile:     ()      => req('/myhr/profile'),
   personCard:      (q)     => req(`/myhr/person?q=${encodeURIComponent(q)}`),
   myHrProfileSave: (body)  => req('/myhr/profile', { method: 'PUT', body: JSON.stringify(body) }),
@@ -787,7 +830,7 @@ export const api = {
   hrSelfRequestAttachToEmployee: (rid, kind) => req(`/hr/requests/${rid}/attach-to-employee`, { method: 'POST', body: JSON.stringify({ kind }) }),
   hrPaystubs:      (eid)   => req(`/hr/employees/${eid}/paystubs`),
   hrPaystubUpload: (eid, form) => req(`/hr/employees/${eid}/paystubs`, { method: 'POST', body: form }),
-  // Device enrollment — shared by field-phone tracking (EnrolPhone). Desktop
+  // Device enrollment - shared by field-phone tracking (EnrolPhone). Desktop
   // agent retired; capture now runs in the browser (Chrome screen sharing).
   timeAgentEnroll:   (data)      => req('/timeclock/agent/enroll', { method: 'POST', body: JSON.stringify(data) }),
   timeAgentDevices:  ()          => req('/timeclock/agent/devices'),
@@ -847,7 +890,7 @@ export const api = {
   cvPersonalDelete: (id)         => req(`/credvault/personal/${id}`, { method: 'DELETE' }),
   cvPersonalReveal: (id)         => req(`/credvault/personal/${id}/reveal`, { method: 'POST' }),
 
-  // ── Documents (DMS) — Phase 1: folders + drafts/library, next to E-Sign ──
+  // ── Documents (DMS) - Phase 1: folders + drafts/library, next to E-Sign ──
   getDocFolders:      ()             => req('/documents/folders'),
   createDocFolder:    (data)         => req('/documents/folders', { method: 'POST', body: JSON.stringify(data) }),
   getDocuments:       (params = {})  => req(`/documents?${new URLSearchParams(params)}`),
@@ -860,7 +903,7 @@ export const api = {
   deleteDocument:     (id)           => req(`/documents/${id}`, { method: 'DELETE' }),
   getDocumentVersions:(id)           => req(`/documents/${id}/versions`),
 
-  // ── Documents (DMS) — Phase 3: template library + org letterheads ──
+  // ── Documents (DMS) - Phase 3: template library + org letterheads ──
   getDocTemplates:      (params = {}) => req(`/documents/templates?${new URLSearchParams(params)}`),
   getDocTemplate:        (id)         => req(`/documents/templates/${id}`),
   createDocTemplate:     (data)       => req('/documents/templates', { method: 'POST', body: JSON.stringify(data) }),
@@ -873,25 +916,55 @@ export const api = {
   updateDocLetterhead:   (id, data)   => req(`/documents/letterheads/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteDocLetterhead:   (id)         => req(`/documents/letterheads/${id}`, { method: 'DELETE' }),
 
-  // ── Documents (DMS) — Phase 4: PDF/DOCX export with merge resolution ──
+  // ── Documents (DMS) - Phase 4: PDF/DOCX export with merge resolution ──
   exportDocumentPdf:  (id) => reqBlob(`/documents/${id}/export/pdf`),
   exportDocumentDocx: (id) => reqBlob(`/documents/${id}/export/docx`),
 
-  // ── Documents (DMS) — Phase 6: cross-module search + version content ──
+  // ── Documents (DMS) - Phase 6: cross-module search + version content ──
   searchDocuments:    (q)         => req(`/documents/search?q=${encodeURIComponent(q)}`),
   getDocumentVersion: (did, vid)  => req(`/documents/${did}/versions/${vid}`),
 
-  // ── Documents (DMS) — Phase 7: template version history ──
+  // ── Documents (DMS) - Phase 7: template version history ──
   getDocTemplateVersions: (id)        => req(`/documents/templates/${id}/versions`),
   getDocTemplateVersion:  (id, vid)   => req(`/documents/templates/${id}/versions/${vid}`),
 
-  // ── Documents (DMS) — Import from Egnyte ──
+  // ── Documents (DMS) - Import from Egnyte ──
   egnyteBrowse:    (path = '') => req(`/documents/egnyte/browse?path=${encodeURIComponent(path)}`),
   egnyteFetchFile: (path)      => reqBlob(`/documents/egnyte/file?path=${encodeURIComponent(path)}`),
+
+  // ── Egnyte module (browse/upload at the right folder level) ──
+  // These hit /egnyte/*, the module router. The two above hit /documents/egnyte/*
+  // and are the DMS IMPORTER's own view (extension-filtered to what it can
+  // convert) - both go through the same backend client, so do not "unify" them
+  // by pointing one at the other.
+  egnyteStatus:      ()                   => req('/egnyte/status'),
+  egnyteFolder:      (path = '')          => req(`/egnyte/folder?path=${encodeURIComponent(path)}`),
+  egnyteFile:        (path)               => reqBlob(`/egnyte/file?path=${encodeURIComponent(path)}`),
+  // Same bytes, but asking to VIEW rather than download, so the response carries
+  // the file's real content type and the blob can be rendered. The server grants
+  // that only for its own allowlist (PDF/image/text) - see routers/egnyte.py.
+  egnyteFilePreview: (path)               => reqBlob(`/egnyte/file?path=${encodeURIComponent(path)}&inline=true`),
+  egnyteSearch:      (q, folder = '')     => req(`/egnyte/search?q=${encodeURIComponent(q)}&folder=${encodeURIComponent(folder)}`),
+  egnyteCreateFolder:(path)               => req('/egnyte/folder', { method: 'POST', body: JSON.stringify({ path }) }),
+  egnyteProperty:    (site)               => req(`/egnyte/property/${encodeURIComponent(site)}`),
+  // multipart: let the browser set the boundary, never set Content-Type by hand
+  egnyteUpload:      (folder, file) => {
+    const fd = new FormData();
+    fd.append('folder', folder);
+    fd.append('file', file);
+    return req('/egnyte/upload', { method: 'POST', body: fd });
+  },
   // ── Step-up MFA (fresh verification before sensitive data) ──
   stepupConfig:  ()      => req('/stepup/config'),
   stepupStatus:  ()      => req('/stepup/status'),
   stepupVerify:  (token) => req('/stepup/verify', { method: 'POST', body: JSON.stringify({ token: token || '' }) }),
+
+  // ── Branding (login-screen accent color, Global Admin-configurable) ──
+  // GET is unauthenticated on the backend (the login screen itself needs it
+  // pre-login) - req() still works fine here since it just sends no auth
+  // header when there's no signed-in account yet.
+  getBrandingConfig:    ()        => req('/branding/config'),
+  updateBrandingConfig: (accent)  => req('/branding/config', { method: 'PUT', body: JSON.stringify({ accent }) }),
 
   // ── Investor Relations (GP capital management: funds, LPs, calls, distributions) ──
   // List endpoints drop empty/undefined params so filters never send "undefined".
@@ -928,7 +1001,7 @@ export const api = {
   updateIrUpdate:  (id, data)  => req(`/investor-relations/updates/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
   deleteIrUpdate:  (id)        => req(`/investor-relations/updates/${id}`, { method: "DELETE" }),
   seedIrDemoData:  ()          => req("/investor-relations/seed-demo-data", { method: "POST" }),
-  // Investor portal — GP-side grant/revoke of deal-scoped access, plus the
+  // Investor portal - GP-side grant/revoke of deal-scoped access, plus the
   // read-only endpoints a granted external investor calls (scoped server-side).
   grantIrPortalAccess:  (investorId, fundId) => req("/investor-relations/portal-access/grant", { method: "POST", body: JSON.stringify({ investorId, fundId }) }),
   revokeIrPortalAccess: (investorId, fundId) => req(`/investor-relations/portal-access/${investorId}/${fundId}`, { method: "DELETE" }),
@@ -936,6 +1009,6 @@ export const api = {
   getIrPortalDeal:      (fundId) => req(`/investor-relations/portal/deals/${fundId}`),
 };
 
-// Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch —
+// Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -
 // no MSAL involved, the token in the URL is the credential.
 export const API_BASE = BASE;

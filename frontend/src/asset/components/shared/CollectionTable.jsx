@@ -7,12 +7,12 @@ import { EmptyState } from './EmptyState.jsx';
 // Monospace font stack for numeric/date table cells and summary-strip values.
 const MONO_FONT = "ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace";
 
-// Small uppercase label style — shared by column headers and summary-strip labels.
+// Small uppercase label style - shared by column headers and summary-strip labels.
 const LABEL_STYLE = { fontSize: '0.64rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-secondary)' };
 
 // Quick-add config per collection: which field the single text input fills, extra defaults
 // merged into the new record, and the input's placeholder/button copy. Only collections with
-// an entry here render the quick-add bar (currently maintenance + vservice — see
+// an entry here render the quick-add bar (currently maintenance + vservice - see
 // RECORD_TYPES[coll].quickAdd in lib/recordTypes.js, which this is built from).
 const QUICK_ADD_CONFIG = Object.fromEntries(
   Object.entries(RECORD_TYPES)
@@ -21,13 +21,13 @@ const QUICK_ADD_CONFIG = Object.fromEntries(
 );
 
 /** Returns a plain-text representation of a cell for sorting/searching: prefer the "main"
- *  renderer, then "mono", then "plain" — chip-only columns (status badges) have nothing to sort by. */
+ *  renderer, then "mono", then "plain" - chip-only columns (status badges) have nothing to sort by. */
 function cellText(col, row) {
   const v = col.main ? col.main(row) : col.mono ? col.mono(row) : col.plain ? col.plain(row) : '';
   return v == null ? '' : String(v);
 }
 
-/** "docFileName" -> "Doc File Name" — used to humanize raw object keys into CSV/PDF export headers. */
+/** "docFileName" -> "Doc File Name" - used to humanize raw object keys into CSV/PDF export headers. */
 function humanizeKey(key) {
   return key.replace(/([A-Z])/g, ' $1').replace(/^./, (c) => c.toUpperCase());
 }
@@ -61,7 +61,7 @@ function exportCsv(rows, recordType, assetName) {
 function exportPdf(rows, recordType, assetName) {
   const keys = [...new Set(rows.flatMap((r) => Object.keys(r)))].filter((k) => !['id', 'propertyId', 'docFile'].includes(k));
   const headers = keys.map(humanizeKey);
-  const title = (assetName || 'Export') + ' — ' + recordType.plural;
+  const title = (assetName || 'Export') + ' - ' + recordType.plural;
   const bodyRows = rows.map((r) => '<tr>' + keys.map((k) => '<td>' + htmlEscape(r[k]) + '</td>').join('') + '</tr>').join('');
   const html = `<!doctype html><html><head><meta charset="utf-8"><title>${htmlEscape(title)}</title><style>body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;padding:28px;color:#111}h1{font-size:17px;margin:0 0 14px}table{border-collapse:collapse;width:100%;font-size:11.5px}th,td{border:1px solid #d1d5db;padding:6px 9px;text-align:left;vertical-align:top}th{background:#f3f4f6;font-weight:700}</style></head><body><h1>${htmlEscape(
     title
@@ -77,7 +77,7 @@ function exportPdf(rows, recordType, assetName) {
         win.focus();
         win.print();
       } catch {
-        // popup could have been closed already — nothing to do
+        // popup could have been closed already - nothing to do
       }
     }, 350);
   }
@@ -96,7 +96,7 @@ function rowIdentity(coll, row) {
  * or an empty state. The table collapses into stacked labeled cards below 640px via the
  * `.coll-table` CSS class (see styles.css) reading each `<td data-label="...">`.
  *
- * Props: coll (record-type key), rows, active (the asset these records belong to — used for
+ * Props: coll (record-type key), rows, active (the asset these records belong to - used for
  * export filenames), filters (map of coll -> free-text search string), onAdd, onEdit,
  * highlightItem (a row-identity string to scroll to + highlight), collapsible, onQuickAdd.
  */
@@ -344,7 +344,7 @@ export function CollectionTable({ coll, rows, active, filters, onAdd, onEdit, hi
                           <td key={col.label} data-label={col.label} style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-color)', verticalAlign: 'top' }}>
                             {col.main ? (
                               <>
-                                <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{col.main(row) || '—'}</div>
+                                <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{col.main(row) || '-'}</div>
                                 {col.sub && col.sub(row) ? <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', marginTop: 1 }}>{col.sub(row)}</div> : null}
                               </>
                             ) : col.mono ? (

@@ -20,7 +20,7 @@ function useInitialFormState(fields, row) {
  * configured field in a 2-column grid, validates `req` fields on save, and offers a Remove
  * action (with an optional required-reason step) when editing an existing row.
  *
- * `active` is the asset (property/vehicle/equipment) this record belongs to — only used for the
+ * `active` is the asset (property/vehicle/equipment) this record belongs to - only used for the
  * maintenance multi-tenant Unit/Suite injection below.
  */
 export function RecordModal({ coll, row, canDelete = true, requireReason = false, onSave, onDelete, onClose, active }) {
@@ -31,7 +31,7 @@ export function RecordModal({ coll, row, canDelete = true, requireReason = false
   // right after Date and System/Area (i.e. as fields[2]), so each maintenance entry can be
   // attributed to a specific unit or left as a shared "Common Area / Whole Property" item.
   // This is NOT stored in the record-type config itself because it's conditional on the
-  // specific property, not the collection in general — plain properties/vehicles/equipment
+  // specific property, not the collection in general - plain properties/vehicles/equipment
   // never see this field.
   const fields =
     coll === 'maintenance' && active && (active.tenantUnits || []).length

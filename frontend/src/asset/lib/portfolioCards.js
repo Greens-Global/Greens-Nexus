@@ -1,10 +1,10 @@
 // Formatting/derivation helpers for the Portfolio page (search, filters, tile/list cards).
 //
-// IMPORTANT — shared with the Manage page: categoryOf/assetTypeOf/assetRegionOf/cityRegion/
+// IMPORTANT - shared with the Manage page: categoryOf/assetTypeOf/assetRegionOf/cityRegion/
 // assetRank/searchHaystack/stageColor/ASSET_CATEGORIES below are RE-EXPORTED from
 // assetMetrics.js, not redefined here. Both this page and the Manage page's Data Completeness
 // filters derive from the exact same underlying minified functions (ft/P/vt/cityRegion/
-// assetRank/stHay/Ft in the original bundle) — assetMetrics.js ported them first, so this file
+// assetRank/stHay/Ft in the original bundle) - assetMetrics.js ported them first, so this file
 // imports rather than re-implements them to avoid two copies drifting apart. Only the
 // aliases differ (deriveCategory/deriveType/stateAbbrev/stateSearchHaystack/stageTone/
 // CATEGORIES below are just Portfolio-page-flavored names for the same functions).
@@ -84,16 +84,16 @@ const TYPE_FALLBACK_DESC = {
 };
 
 /**
- * The free-text "Type" label actually displayed on cards/rows (e.g. "Commercial — Self-Storage
+ * The free-text "Type" label actually displayed on cards/rows (e.g. "Commercial - Self-Storage
  * Facility"). Prefers, in order: the asset's explicit `type`, its Proposed Use snapshot value,
  * its Current Use snapshot value, a generic fallback description for its derived Type bucket
  * (see TYPE_FALLBACK_DESC), then `parcelRole`.
  *
- * BUG FIX — dash normalization: some records store this as "Category - Subtype" with a plain
- * hyphen, others with an em dash ("Category — Subtype"); visually/when sorting these read as
+ * BUG FIX - dash normalization: some records store this as "Category - Subtype" with a plain
+ * hyphen, others with an em dash ("Category - Subtype"); visually/when sorting these read as
  * different groups even though they mean the same thing. Normalize any leading
- * "<Category> <hyphen-or-en-dash>" prefix to "<Category> — " (em dash) so a plain hyphen and an
- * em dash always group and sort identically. Preserve this exactly — it's a real fix, not
+ * "<Category> <hyphen-or-en-dash>" prefix to "<Category> - " (em dash) so a plain hyphen and an
+ * em dash always group and sort identically. Preserve this exactly - it's a real fix, not
  * decoration.
  */
 export function typeLabel(asset) {
@@ -105,7 +105,7 @@ export function typeLabel(asset) {
     asset.parcelRole ||
     ''
   ).trim();
-  return raw.replace(/^(Commercial|Residential|Industrial|Vehicles|Heavy Equipment)\s*[-–]\s*/, '$1 — ');
+  return raw.replace(/^(Commercial|Residential|Industrial|Vehicles|Heavy Equipment)\s*[-–]\s*/, '$1 - ');
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -116,45 +116,45 @@ const stat = (v, l) => ({ v, l });
 
 /**
  * The (up to 4) value/label stat pairs shown in a tile card's bottom stat grid, chosen by the
- * asset's derived Type (see deriveType()) — different asset types care about different metrics
+ * asset's derived Type (see deriveType()) - different asset types care about different metrics
  * (a self-storage facility shows unit counts, a hotel shows stories/year built, a vehicle shows
  * make/model/trim/color, etc). Falls back to a generic Acres/NRSF/Stories/Built grid for
  * anything unmatched.
  */
 export function tileStats(asset) {
-  // Lot size shows in the unit it was ENTERED in — no silent SF→acres
+  // Lot size shows in the unit it was ENTERED in - no silent SF→acres
   // conversion on cards (Jul 24: "83,043 SF" was rendering as converted
   // acres). SF values get thousands separators + a "Lot SF" label; acres
   // (and legacy unit-less values) keep the 2dp + "Acres" treatment.
   // acresOf() remains for portfolio-wide totals, which do need one unit.
   const lotIsSF = /^sf$/i.test(String(asset.acreageUnit || '').trim());
   const lotNum = toNumber(asset.acreage);
-  const acres = lotNum ? (lotIsSF ? formatNumber(lotNum) : lotNum.toFixed(2)) : '—';
+  const acres = lotNum ? (lotIsSF ? formatNumber(lotNum) : lotNum.toFixed(2)) : '-';
   const lotLabel = lotIsSF ? 'Lot SF' : 'Acres';
   const nrsf = formatNumber(asset.nrsf);
-  const stories = asset.stories ? String(asset.stories) : '—';
-  const built = asset.yearBuilt ? String(asset.yearBuilt) : '—';
+  const stories = asset.stories ? String(asset.stories) : '-';
+  const built = asset.yearBuilt ? String(asset.yearBuilt) : '-';
   const storageUnits = toNumber(asset.unitsNonClimate) + toNumber(asset.unitsClimate);
-  const storageUnitsFmt = storageUnits ? formatNumber(storageUnits) : '—';
-  const vehicleSpaces = toNumber(asset.unitsRV) ? formatNumber(asset.unitsRV) : '—';
-  const totalUnits = toNumber(asset.unitsTotal) ? formatNumber(asset.unitsTotal) : '—';
+  const storageUnitsFmt = storageUnits ? formatNumber(storageUnits) : '-';
+  const vehicleSpaces = toNumber(asset.unitsRV) ? formatNumber(asset.unitsRV) : '-';
+  const totalUnits = toNumber(asset.unitsTotal) ? formatNumber(asset.unitsTotal) : '-';
   const haystack = `${asset.type || ''} ${asset.parcelRole || ''} ${typeLabel(asset)}`.toLowerCase();
   const type = deriveType(asset);
 
   if (type === 'Vehicle') {
     return [
-      stat(asset.make || asset.makeModel || '—', 'Make'),
-      stat(asset.model || '—', 'Model'),
-      stat(asset.trim || '—', 'Trim'),
-      stat(asset.color || '—', 'Color'),
+      stat(asset.make || asset.makeModel || '-', 'Make'),
+      stat(asset.model || '-', 'Model'),
+      stat(asset.trim || '-', 'Trim'),
+      stat(asset.color || '-', 'Color'),
     ];
   }
   if (type === 'Heavy Equipment') {
     return [
-      stat(asset.color || '—', 'Color'),
-      stat(asset.hours ? formatNumber(asset.hours) + ' hrs' : '—', 'Hours'),
-      stat([asset.make, asset.model, asset.trim].filter(Boolean).join(' ') || asset.makeModel || asset.parcelRole || '—', 'Make / Model'),
-      stat(asset.devStage || '—', 'Status'),
+      stat(asset.color || '-', 'Color'),
+      stat(asset.hours ? formatNumber(asset.hours) + ' hrs' : '-', 'Hours'),
+      stat([asset.make, asset.model, asset.trim].filter(Boolean).join(' ') || asset.makeModel || asset.parcelRole || '-', 'Make / Model'),
+      stat(asset.devStage || '-', 'Status'),
     ];
   }
   if (type === 'Self-Storage' || /self.?storage|mini.?storage/.test(haystack)) {
@@ -182,20 +182,20 @@ export function tileStats(asset) {
     return [stat(nrsf, 'SF'), stat(acres, lotLabel), stat(stories, 'Stories'), stat(built, 'Built')];
   }
   if (type === 'Mixed-Use') {
-    return [stat(nrsf, 'NRSF'), stat(totalUnits === '—' ? storageUnitsFmt : totalUnits, 'Units'), stat(acres, lotLabel), stat(stories, 'Stories')];
+    return [stat(nrsf, 'NRSF'), stat(totalUnits === '-' ? storageUnitsFmt : totalUnits, 'Units'), stat(acres, lotLabel), stat(stories, 'Stories')];
   }
   if (type === 'Land' || /vacant|land/.test(haystack)) {
-    return [stat(acres, lotLabel), stat(asset.zoning || '—', 'Zoning'), stat(asset.floodZone || '—', 'Flood')];
+    return [stat(acres, lotLabel), stat(asset.zoning || '-', 'Zoning'), stat(asset.floodZone || '-', 'Flood')];
   }
   return [stat(acres, lotLabel), stat(nrsf, 'NRSF'), stat(stories, 'Stories'), stat(built, 'Built')];
 }
 
 // ---------------------------------------------------------------------------------------------
-// Location formatters (Portfolio-specific — not shared with the Manage page)
+// Location formatters (Portfolio-specific - not shared with the Manage page)
 // ---------------------------------------------------------------------------------------------
 
 /**
- * Full mailing-address display formatter: "<street line>, <City>, <ST Zip>" — e.g.
+ * Full mailing-address display formatter: "<street line>, <City>, <ST Zip>" - e.g.
  * "123 Main St, Springfield, IL 62701". Used on the asset detail header, not on portfolio
  * cards/rows (those use the more compact cityRegion() re-exported above), but lives alongside
  * it since both parse the same free-text `address` field.
@@ -203,7 +203,7 @@ export function tileStats(asset) {
  * The street line is derived by taking the free-text `address`, splitting on commas, and
  * dropping any comma-separated segment that's redundant with the city/state/zip we already know
  * (a "County of X" segment, a bare "ST 12345" segment, or a segment that duplicates the known
- * city/state/zip) — what's left is assumed to be the street line. If the city appears verbatim
+ * city/state/zip) - what's left is assumed to be the street line. If the city appears verbatim
  * as one of the address segments, only the segments BEFORE it are considered (so a trailing
  * "City, ST Zip" tail baked into the address isn't misread as part of the street).
  */
@@ -214,7 +214,7 @@ export function streetCityStateZip(asset) {
   const cityLower = city.toLowerCase();
   const address = String(asset.address || '').trim();
 
-  // Zip/state aren't set directly on the record — try to pull both out of the free-text address.
+  // Zip/state aren't set directly on the record - try to pull both out of the free-text address.
   if (!zip) {
     const m = address.match(/\b([A-Za-z]{2})[\s,]+(\d{5})(?:-\d{4})?\b/);
     if (m) {
@@ -224,7 +224,7 @@ export function streetCityStateZip(asset) {
   }
 
   // True for an address segment that's redundant with info we already have (a county-of prefix,
-  // a bare county name, a bare "ST 12345" token, or a duplicate of the known state/zip/city) —
+  // a bare county name, a bare "ST 12345" token, or a duplicate of the known state/zip/city) -
   // these get filtered out of the street line rather than treated as part of the street address.
   const isRedundantSegment = (segment) => {
     const t = segment.toLowerCase();
@@ -258,7 +258,7 @@ export function streetCityStateZip(asset) {
   return full || streetLine;
 }
 
-/** County display name — appends " County" unless the value already ends with it. */
+/** County display name - appends " County" unless the value already ends with it. */
 export function countyLabel(county) {
   const t = String(county ?? '').trim();
   if (!t) return '';
@@ -300,7 +300,7 @@ export function tcLabel(str) {
       const [, core, trail] = m;
       const lower = core.toLowerCase();
       if (KEEP_LOWER.has(lower)) return lead + core + trail;
-      if (/[A-Z]/.test(core.slice(1))) return lead + core + trail; // already mixed-case (acronym) — leave as-is
+      if (/[A-Z]/.test(core.slice(1))) return lead + core + trail; // already mixed-case (acronym) - leave as-is
       if (i > 0 && MINOR_WORDS.has(lower)) return lead + lower + trail;
       return lead + core.charAt(0).toUpperCase() + core.slice(1) + trail;
     })
