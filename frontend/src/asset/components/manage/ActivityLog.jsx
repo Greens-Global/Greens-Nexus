@@ -109,9 +109,16 @@ export function ActivityLog({ logs, query, onOpenProperty, activeId, activeName,
     return JSON.stringify(entry).toLowerCase().includes(initialQuery.toLowerCase());
   });
 
-  // Bucket the filtered entries by day, preserving first-seen order of days as they appear.
+  // Render cap: an audit log grows without bound. Rendering every entry freezes
+  // the tab at scale. Cap the rows drawn (the header count stays full); the
+  // date filter lets users reach older entries.
+  const MAX_LOG_ROWS = 300;
+  const isLogCapped = filtered.length > MAX_LOG_ROWS;
+  const shownEntries = isLogCapped ? filtered.slice(0, MAX_LOG_ROWS) : filtered;
+
+  // Bucket the entries by day, preserving first-seen order of days as they appear.
   const dayGroups = [];
-  filtered.forEach((entry) => {
+  shownEntries.forEach((entry) => {
     const key = dateKey(entry.ts);
     let group = dayGroups.find((g) => g.k === key);
     if (!group) {
@@ -326,6 +333,11 @@ export function ActivityLog({ logs, query, onOpenProperty, activeId, activeName,
             </div>
           </div>
         ))
+      )}
+      {isLogCapped && (
+        <div style={{ ...LABEL_STYLE, padding: '10px 2px 2px', textAlign: 'center' }}>
+          Showing {MAX_LOG_ROWS} of {filtered.length} entries - narrow the date range to see others.
+        </div>
       )}
     </Card>
   );
