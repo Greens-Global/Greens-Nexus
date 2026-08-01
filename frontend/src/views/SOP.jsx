@@ -101,14 +101,13 @@ const HELP_PAGES = [
       'If you own the draft, Edit reopens it; managers see Review/Approve and Archive here.',
     ] },
   { key: 'create', label: 'Creating an SOP', title: 'Creating & Editing an SOP',
-    intro: 'Anyone can start a draft. It’s a guided form, and Claude can do most of the heavy lifting.',
+    intro: 'Anyone can start a draft. It’s a four-step wizard: Capture, Content, Settings, Publish - and Claude does the heavy lifting.',
     steps: [
-      'Click New SOP. Give it a clear, searchable Document title.',
-      'Fastest start: do the task once and capture it - paste screenshots of each step with Ctrl+V into the purple panel, jot rough notes between them (or upload an existing file), and press Format with Claude. Review the before/after diff, then Keep changes or Revert.',
-      'Or fill the sections by hand - each card (Document Details, Overview, Procedure, Safety, …) has a short tip explaining what belongs there.',
-      'Editing an existing document? Use “Edit with Claude”: describe the change (e.g. “add a step about checking ID”) and Claude rewrites it - you review the diff before keeping it.',
-      'Choose a Reviewing manager under Document Details (required to submit). New documents start at version 1.0.',
-      'Use Preview to see the finished document, then Save draft, Save & submit for review, or - for managers - Save & publish.',
+      'Capture: do the task once and show it - paste screenshots of each step with Ctrl+V, jot rough notes between them, or upload an existing file, then press Format with Claude. Review the before/after diff, then Keep changes or Revert. (Or skip with “Start With a Blank Document”.)',
+      'Content: the title and the substance - Overview, Procedure, Safety, and so on. Each card has a short tip explaining what belongs there.',
+      'Editing an existing document? You land straight on Content, where “Edit with Claude” applies any change you describe - you review the diff before keeping it.',
+      'Settings: type, version, departments, review cadence, and the Reviewing manager (required to submit).',
+      'Publish: a readiness checklist plus a full preview side by side, then Save Draft, Save & Submit for Review, or - for managers - Save & Publish.',
     ] },
   { key: 'tasks', label: 'Tasks', title: 'Tasks - what needs your action',
     intro: 'Everything waiting on you in one place.',
@@ -137,9 +136,9 @@ const HELP_PAGES = [
       'Required training shows a due date and flags anything overdue, so nothing slips.',
     ] },
   { key: 'authoring', label: 'Building a Course', title: 'Building & assigning a course (managers)',
-    intro: 'From Manage → Training Courses. Claude can generate a whole course from your material.',
+    intro: 'From Manage → Training Courses. A three-step wizard: Source, Build, Publish - Claude can generate the whole course from your material.',
     steps: [
-      'Click New Course, then paste or upload source material and press Generate course - Claude writes the objectives, lessons, and a quiz with explanations.',
+      'Source: paste or upload the material and press Generate Course - Claude writes the objectives, lessons, and a quiz with explanations. (Or skip with “Start With a Blank Course”.)',
       'Edit anything: the “What You’ll Learn” objectives, lessons (readings or linked SOPs), and quiz questions - mark the correct option and add a “why” explanation shown to learners who miss it.',
       'Set the pass mark, Preview, then Save draft or Publish.',
       'Assign: on any course, Assign opens a people picker and an optional due date - each assignee is notified and the course appears in their Required training.',
@@ -211,6 +210,27 @@ const blankDraft = (name, email) => ({
 });
 
 const fmtDate = (s) => (s ? new Date(s.length > 10 ? s : s + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '-');
+
+// Wizard step rail for the SOP / course creators - one focused screen at a
+// time instead of a wall of form cards. Completed steps are clickable.
+function Stepper({ steps, current, onGo }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 26px', maxWidth: 760, flexWrap: 'wrap', rowGap: 8 }}>
+      {steps.map((s, i) => {
+        const doneStep = i < current, on = i === current;
+        return (
+          <div key={s} style={{ display: 'flex', alignItems: 'center' }}>
+            {i > 0 && <div style={{ width: 34, height: 2, background: doneStep || on ? 'hsl(266,72%,56%)' : 'var(--border-color)', margin: '0 6px' }} />}
+            <button onClick={() => (doneStep ? onGo(i) : null)} style={{ display: 'inline-flex', alignItems: 'center', gap: 7, background: 'transparent', border: 'none', cursor: doneStep ? 'pointer' : 'default', padding: '4px 2px' }}>
+              <span style={{ width: 26, height: 26, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.74rem', fontWeight: 700, flex: '0 0 auto', background: on ? 'hsl(266,72%,56%)' : doneStep ? 'hsla(266,70%,60%,0.16)' : 'var(--bg-secondary)', color: on ? '#fff' : doneStep ? 'hsl(266,72%,56%)' : 'var(--text-muted)', border: doneStep ? '1px solid hsla(266,70%,60%,0.5)' : '1px solid transparent' }}>{doneStep ? '✓' : i + 1}</span>
+              <span style={{ fontSize: '0.82rem', fontWeight: on ? 700 : 500, color: on ? 'var(--text-primary)' : 'var(--text-muted)', whiteSpace: 'nowrap' }}>{s}</span>
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 // Trust-at-a-glance chip (Guru-style verification state). Rendered everywhere a
 // doc appears so stale content visibly decays instead of silently rotting.
@@ -374,6 +394,8 @@ export default function SOP({ activeSub, onSubChange }) {
   const [aiInstruction, setAiInstruction] = useState(''); // "Edit with Claude" prompt
   const [aiReview, setAiReview] = useState(null); // full-screen AI review: { open, before, after, source, tab }
   const [previewOpen, setPreviewOpen] = useState(false); // preview the current draft before publishing
+  const [edStep, setEdStep] = useState(0);  // SOP creation wizard step
+  const [cdStep, setCdStep] = useState(0);  // course creation wizard step
 
   const [search, setSearch] = useState('');
   const [deptFilter, setDeptFilter] = useState('all');
@@ -637,8 +659,8 @@ export default function SOP({ activeSub, onSubChange }) {
 
   // ── navigation ──
   const openDetail = (d) => { setSelected(d); setMode('detail'); };
-  const openCreate = () => { setDraft(blankDraft(myName, myEmail)); setMode('editor'); };
-  const openCreateManual = () => { setDraft({ ...blankDraft(myName, myEmail), doc_type: 'Manual' }); setMode('editor'); };
+  const openCreate = () => { setDraft(blankDraft(myName, myEmail)); setEdStep(0); setMode('editor'); };
+  const openCreateManual = () => { setDraft({ ...blankDraft(myName, myEmail), doc_type: 'Manual' }); setEdStep(0); setMode('editor'); };
   const openEdit = (d) => {
     setDraft({
       id: d.id, title: d.title, doc_type: d.doc_type, departments: [...(d.departments || [])],
@@ -648,13 +670,14 @@ export default function SOP({ activeSub, onSubChange }) {
       body: { ...blankBody(), ...(d.body || {}) }, owner_name: d.owner_name, owner_email: d.owner_email, _raw: '',
       _status: d.status, _reviewNote: d.review_note || '',
     });
+    setEdStep(0);
     setMode('editor');
   };
-  const backToList = () => { setMode('list'); setSelected(null); setDraft(null); };
+  const backToList = () => { setMode('list'); setSelected(null); setDraft(null); setEdStep(0); };
 
-  const switchTab = (key) => { backToList(); setLmsMode('list'); setLmsCourse(null); setPlayer(null); setCourseDraft(null); setCoursePreview(false); setCourseReport(null); setAssign(null); setLmsManage(false); onSubChange(key); };
+  const switchTab = (key) => { backToList(); setLmsMode('list'); setLmsCourse(null); setPlayer(null); setCourseDraft(null); setCoursePreview(false); setCourseReport(null); setAssign(null); setLmsManage(false); setCdStep(0); onSubChange(key); };
   const openCourseManager = () => { switchTab('lms'); setLmsManage(true); };
-  const openNewCourse = () => { switchTab('lms'); setLmsManage(true); setCourseDraft(blankCourse()); setLmsMode('editor'); };
+  const openNewCourse = () => { switchTab('lms'); setLmsManage(true); setCourseDraft(blankCourse()); setCdStep(0); setLmsMode('editor'); };
 
   // ── editor body helpers ──
   const setBody = (patch) => setDraft(p => ({ ...p, body: { ...p.body, ...patch } }));
@@ -782,6 +805,8 @@ export default function SOP({ activeSub, onSubChange }) {
       setDraft(p => ({ ...p, title: afterTitle, _importSource: raw ? content : p._importSource, body: afterBody }));
       setAiReview({ open: true, tab: 'changes', source: raw ? content : '',
         before, after: { title: afterTitle, departments: [...draft.departments], body: afterBody } });
+      // wizard: a fresh capture that formatted successfully moves on to Content
+      if (!draft.id && draft.doc_type !== 'Manual') setEdStep(p => (p === 0 ? 1 : p));
     } catch (e) { setErr(e.message || 'AI formatting failed'); }
     finally { setAiBusy(false); }
   };
@@ -971,7 +996,7 @@ export default function SOP({ activeSub, onSubChange }) {
     catch (e) { setErr(e.message || 'Failed to remove'); }
   };
   const openCourseEditor = async (id) => {
-    setCoursePreview(false);
+    setCoursePreview(false); setCdStep(0);
     if (!id) { setCourseDraft(blankCourse()); setLmsMode('editor'); return; }
     try { const c = await api.getKbCourse(id); setCourseDraft({ id: c.id, title: c.title, description: c.description, overview: c.overview || [], recert_months: c.recert_months || 0, departments: [...(c.departments || [])], est_minutes: c.est_minutes, lessons: c.lessons || [], quiz: c.quiz?.questions ? c.quiz : { passPct: 80, questions: [] } }); setLmsMode('editor'); }
     catch (e) { setErr(e.message || 'Failed to open course'); }
@@ -1016,6 +1041,8 @@ export default function SOP({ activeSub, onSubChange }) {
         lessons: (course.lessons || []).length ? course.lessons : p.lessons,
         quiz: course.quiz?.questions?.length ? course.quiz : p.quiz,
       }));
+      // wizard: a successful generation moves on to the Build step
+      if (!courseDraft.id) setCdStep(p => (p === 0 ? 1 : p));
     }
     setCourseAiBusy(false);
   };
@@ -1556,20 +1583,39 @@ export default function SOP({ activeSub, onSubChange }) {
         <button className="secondary-btn" onClick={() => addItem(field, { [k1]: '', [k2]: '' })} style={{ marginTop: 12, height: 36, fontSize: '0.82rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={14} /> Add</button>
       </>));
 
+    // wizard: new SOPs open on Capture; manuals and edits jump straight to Content
+    const steps = (isNew && !isManual) ? ['Capture', 'Content', 'Settings', 'Publish'] : ['Content', 'Settings', 'Publish'];
+    const stepIdx = Math.min(edStep, steps.length - 1);
+    const stepName = steps[stepIdx];
+    const nextStep = () => setEdStep(Math.min(stepIdx + 1, steps.length - 1));
+    const prevStep = () => setEdStep(Math.max(stepIdx - 1, 0));
+    const stepCount = (draft.body.procedure || []).length;
+    const checklist = [
+      [!!draft.title.trim(), 'Title', draft.title.trim() ? `"${draft.title.trim()}"` : 'Add a clear, searchable title (Content step)'],
+      [isManual ? (draft.body.chapters || []).length > 0 : stepCount > 0, isManual ? 'Chapters' : 'Procedure', isManual ? `${(draft.body.chapters || []).length} chapter(s)` : (stepCount ? `${stepCount} step${stepCount === 1 ? '' : 's'}` : 'No steps yet (Content step)')],
+      [draft.departments.length > 0, 'Departments', draft.departments.length ? draft.departments.map(x => DEPT_ABBR[x] || x).join(', ') : 'Not tagged yet (Settings step) - untagged docs are corporate-wide'],
+      [!!draft.reviewer_email.trim(), 'Reviewer', draft.reviewer_email ? (draft.reviewer_name || draft.reviewer_email) : 'Required to submit for review (Settings step)'],
+    ];
     return (
-      <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out', width: '100%' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 18 }}>
+      <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out', width: '100%', maxWidth: 980, margin: '0 auto' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
           <button className="secondary-btn" onClick={backToList} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 34 }}>
             <ArrowLeft size={15} /> {isNew ? 'Cancel' : 'Back'}
           </button>
           <span style={{ marginLeft: 'auto' }}>{helpBtn('create')}</span>
         </div>
         {helpModal()}
-        <h2 style={{ marginBottom: 4, fontSize: '1.7rem' }}>{isNew ? 'New' : 'Edit'} {draft.doc_type}</h2>
-        <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: 22 }}>Fill in the sections below, or paste raw notes and let Claude format it into the the company standard.</p>
+        <h2 style={{ margin: '0 0 4px', fontSize: '1.55rem', textAlign: 'center' }}>{isNew ? 'New' : 'Edit'} {draft.doc_type}</h2>
+        <p style={{ color: 'var(--text-secondary)', fontSize: '0.86rem', margin: '0 0 16px', textAlign: 'center' }}>
+          {stepName === 'Capture' ? 'Show Claude the task once - it writes the document.'
+            : stepName === 'Content' ? 'The substance: what to do and how.'
+            : stepName === 'Settings' ? 'Who it applies to and how it stays current.'
+            : 'Check everything over, then send it on its way.'}
+        </p>
+        <Stepper steps={steps} current={stepIdx} onGo={setEdStep} />
         {errBanner}
 
-        {draft._importSource && (
+        {stepName === 'Content' && draft._importSource && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', border: '1px solid hsla(266,70%,60%,0.4)', background: 'hsla(266,70%,60%,0.06)', borderRadius: 12, padding: '12px 16px', marginBottom: 18 }}>
             <Sparkles size={18} style={{ color: 'hsl(266,72%,56%)', flex: '0 0 auto' }} />
             <div style={{ flex: 1, minWidth: 180, fontSize: '0.84rem', color: 'var(--text-primary)' }}>Claude formatted this draft. Review what changed or preview it before you publish.</div>
@@ -1579,7 +1625,7 @@ export default function SOP({ activeSub, onSubChange }) {
           </div>
         )}
 
-        {!isManual && draft.id && draft._status === 'changes_requested' && (
+        {stepName === 'Content' && !isManual && draft.id && draft._status === 'changes_requested' && (
           <div style={{ border: '1px solid hsla(0,84%,60%,0.4)', background: 'hsla(0,84%,60%,0.06)', borderRadius: 12, padding: 14, marginBottom: 18 }}>
             <strong style={{ fontSize: '0.88rem', color: 'hsl(0,70%,45%)' }}>Reviewer requested changes</strong>
             {draft._reviewNote && <div style={{ fontSize: '0.82rem', color: 'var(--text-primary)', margin: '5px 0 10px', whiteSpace: 'pre-wrap' }}>{draft._reviewNote}</div>}
@@ -1588,7 +1634,7 @@ export default function SOP({ activeSub, onSubChange }) {
           </div>
         )}
 
-        {!isManual && draft.id && (
+        {stepName === 'Content' && !isManual && draft.id && (
           <div style={{ border: '1px solid hsla(266,70%,60%,0.4)', background: 'hsla(266,70%,60%,0.06)', borderRadius: 12, padding: 14, marginBottom: 18 }}>
             <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10 }}>
               <Sparkles size={17} style={{ color: 'hsl(266,72%,56%)', flex: '0 0 auto' }} />
@@ -1601,36 +1647,42 @@ export default function SOP({ activeSub, onSubChange }) {
           </div>
         )}
 
-        {!isManual && !draft._importSource && !draft.id && <>{/* Capture-first panel (new docs only) - the fastest path to a finished SOP */}
-        <div style={{ border: '1px solid hsla(266,70%,60%,0.4)', background: 'hsla(266,70%,60%,0.05)', borderRadius: 14, padding: 18, marginBottom: 18, boxShadow: 'var(--shadow-sm)' }}>
-          <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
-            <div style={{ width: 34, height: 34, borderRadius: 9, backgroundColor: 'hsla(266,70%,60%,0.14)', color: 'hsl(266,72%,56%)', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}><Sparkles size={18} /></div>
-            <div style={{ flex: 1, minWidth: 180 }}>
-              <strong style={{ fontSize: '0.92rem', display: 'block' }}>Fastest Way: Show It, Don't Write It</strong>
-              <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Do the task once with rough notes: paste screenshots of each step (Ctrl+V below), jot what happens, or upload an existing document - Claude turns it into a finished, standardized SOP.</span>
+        {stepName === 'Capture' && <>{/* Capture step - show the task once, Claude writes the SOP */}
+        <div style={{ maxWidth: 780, margin: '0 auto' }}>
+          <div style={{ border: '1px solid hsla(266,70%,60%,0.4)', background: 'hsla(266,70%,60%,0.05)', borderRadius: 16, padding: '24px 26px', marginBottom: 14, boxShadow: 'var(--shadow-sm)' }}>
+            <div style={{ textAlign: 'center', marginBottom: 16 }}>
+              <div style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: 'hsla(266,70%,60%,0.14)', color: 'hsl(266,72%,56%)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 10px' }}><Sparkles size={22} /></div>
+              <strong style={{ fontSize: '1.05rem', display: 'block' }}>Show It, Don't Write It</strong>
+              <span style={{ fontSize: '0.84rem', color: 'var(--text-secondary)' }}>Do the task once: paste a screenshot of each step (Ctrl+V), jot rough notes between them, or upload an existing document. Claude turns it into a finished, standardized {draft.doc_type} - you review every change before keeping it.</span>
             </div>
-            <label className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 38, cursor: 'pointer', margin: 0, flex: '0 0 auto' }}>
-              <Paperclip size={15} /> Upload File
-              <input type="file" accept={IMPORT_ACCEPT} onChange={e => { importFile(e.target.files[0]); e.target.value = ''; }} style={{ display: 'none' }} />
-            </label>
-            <button className="primary-btn" disabled={aiBusy} onClick={runAiFormat} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 38, flex: '0 0 auto', background: 'linear-gradient(135deg, hsl(258,82%,62%), hsl(288,70%,58%))', border: 'none', color: '#fff' }}>
-              {aiBusy ? <Loader size={15} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Sparkles size={15} />} {aiBusy ? 'Formatting…' : 'Format with Claude'}
-            </button>
+            <textarea className="form-input" autoFocus value={draft._raw} onPaste={pasteImport} placeholder={'Type rough step notes and press Ctrl+V to drop in screenshots as you go…\n\ne.g.\nOpen the gate panel and enter the master code\n[screenshot]\nCheck the log for the last entry…'} onChange={e => setDraft(p => ({ ...p, _raw: e.target.value }))} style={{ width: '100%', minHeight: 200, resize: 'vertical', fontSize: '0.92rem', lineHeight: 1.6 }} />
+            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 6 }}>Tip: paste screenshots in the order you do the steps, or press Ctrl+V anytime - Claude attaches each one to the right step.</div>
+            {Object.keys(draft._importThumbs || {}).length > 0 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
+                {Object.entries(draft._importThumbs).map(([marker, src]) => (
+                  <div key={marker} style={{ position: 'relative', border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden' }}>
+                    <img src={src} alt={marker} style={{ height: 58, display: 'block' }} />
+                    <span style={{ position: 'absolute', bottom: 2, left: 4, fontSize: '0.6rem', fontWeight: 700, color: '#fff', background: 'rgba(0,0,0,0.55)', borderRadius: 4, padding: '0 4px' }}>{marker.replace(/[[\]]/g, '')}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'center', marginTop: 16, flexWrap: 'wrap' }}>
+              <label className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 42, cursor: 'pointer', margin: 0 }}>
+                <Paperclip size={15} /> Upload File
+                <input type="file" accept={IMPORT_ACCEPT} onChange={e => { importFile(e.target.files[0]); e.target.value = ''; }} style={{ display: 'none' }} />
+              </label>
+              <button className="primary-btn" disabled={aiBusy} onClick={runAiFormat} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 42, padding: '0 22px', fontSize: '0.92rem', background: 'linear-gradient(135deg, hsl(258,82%,62%), hsl(288,70%,58%))', border: 'none', color: '#fff' }}>
+                {aiBusy ? <Loader size={15} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Sparkles size={15} />} {aiBusy ? 'Writing Your SOP…' : 'Format with Claude'}
+              </button>
+            </div>
           </div>
-          <textarea className="form-input" value={draft._raw} onPaste={pasteImport} placeholder={'Type rough step notes here and press Ctrl+V to drop in screenshots as you go…\n\ne.g.\nOpen the gate panel and enter the master code\n[screenshot]\nCheck the log for the last entry…'} onChange={e => setDraft(p => ({ ...p, _raw: e.target.value }))} style={{ width: '100%', minHeight: 110, resize: 'vertical' }} />
-          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 6 }}>Tip: paste screenshots in the order you do the steps, or press Ctrl+V anytime - each lands where your cursor left off and Claude attaches it to the right step.</div>
-          {Object.keys(draft._importThumbs || {}).length > 0 && (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
-              {Object.entries(draft._importThumbs).map(([marker, src]) => (
-                <div key={marker} style={{ position: 'relative', border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden' }}>
-                  <img src={src} alt={marker} style={{ height: 58, display: 'block' }} />
-                  <span style={{ position: 'absolute', bottom: 2, left: 4, fontSize: '0.6rem', fontWeight: 700, color: '#fff', background: 'rgba(0,0,0,0.55)', borderRadius: 4, padding: '0 4px' }}>{marker.replace(/[[\]]/g, '')}</span>
-                </div>
-              ))}
-            </div>
-          )}
+          <div style={{ textAlign: 'center', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+            Prefer to write it yourself? <button onClick={nextStep} style={{ background: 'none', border: 'none', color: 'hsl(var(--color-blue))', fontWeight: 600, cursor: 'pointer', fontSize: '0.82rem', padding: 0 }}>Start With a Blank Document</button>
+          </div>
         </div></>}
 
+        {stepName === 'Content' && <>
         {/* Prominent title field */}
         <div style={cardStyle}>
           <label style={fieldLabel}>Document title</label>
@@ -1638,6 +1690,9 @@ export default function SOP({ activeSub, onSubChange }) {
           <input className="form-input" value={draft.title} placeholder="e.g. Unit Move-In Procedure" onChange={e => setDraft(p => ({ ...p, title: e.target.value }))} style={{ fontSize: '1.35rem', fontWeight: 600, padding: '14px 16px', height: 'auto', fontFamily: "'Plus Jakarta Sans', sans-serif" }} />
         </div>
 
+        </>}
+
+        {stepName === 'Settings' && <>
         {section('Document Details', 'Who it applies to and how it’s kept current. The reviewing manager approves it before it goes live.', (<>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: 18 }}>
             <div className="form-group"><label>Type</label><select className="form-select" value={draft.doc_type} onChange={e => setDraft(p => ({ ...p, doc_type: e.target.value }))} style={{ padding: '11px 36px 11px 14px' }}>{DOC_TYPES.map(t => <option key={t}>{t}</option>)}</select></div>
@@ -1670,7 +1725,9 @@ export default function SOP({ activeSub, onSubChange }) {
             Require acknowledgement (e-signature sign-off) from staff once approved
           </label>
         </>))}
+        </>}
 
+        {stepName === 'Content' && <>
         {section('Overview', 'Set the context before the steps - what this is for and who it covers.', (<>
           <div style={{ marginBottom: 18 }}>
             <label style={fieldLabel}>Purpose</label>
@@ -1727,14 +1784,42 @@ export default function SOP({ activeSub, onSubChange }) {
           <button className="secondary-btn" onClick={() => pickFiles(true, assets => setBody({ attachments: [...(draft.body.attachments || []), ...assets] }))} style={{ marginTop: 12, height: 36, fontSize: '0.82rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={14} /> Add files / pictures</button>
         </>))}
         </>)}
+        </>}
 
-        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', flexWrap: 'wrap', paddingTop: 8, borderTop: '1px solid var(--border-color)', marginTop: 8 }}>
-          <button className="secondary-btn" onClick={backToList}>Cancel</button>
-          <button className="secondary-btn" onClick={() => setPreviewOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginRight: 'auto' }}><Eye size={14} /> Preview</button>
-          <button className="secondary-btn" disabled={busy} onClick={() => save(false)}>Save Draft</button>
-          <button className="secondary-btn" disabled={busy} onClick={() => save(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Send size={14} /> Save &amp; Submit for Review</button>
-          {isManager && <button className="primary-btn" disabled={busy} onClick={saveAndPublish} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><CheckSquare size={14} /> Save &amp; publish</button>}
-        </div>
+        {stepName === 'Publish' && (
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '280px minmax(0, 1fr)', gap: 16, alignItems: 'start' }}>
+            <div style={{ ...cardStyle, marginBottom: 0 }}>
+              <span style={secLabel}>Ready to Publish?</span>
+              {checklist.map(([ok, label, note]) => (
+                <div key={label} style={{ display: 'flex', gap: 9, alignItems: 'flex-start', marginBottom: 12 }}>
+                  <span style={{ width: 20, height: 20, borderRadius: '50%', flex: '0 0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.72rem', fontWeight: 700, background: ok ? 'hsla(145,63%,42%,0.14)' : 'hsla(38,92%,50%,0.14)', color: ok ? 'hsl(145,55%,32%)' : 'hsl(32,80%,38%)' }}>{ok ? <CheckSquare size={12} /> : '!'}</span>
+                  <span style={{ minWidth: 0 }}>
+                    <span style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-primary)' }}>{label}</span>
+                    <span style={{ display: 'block', fontSize: '0.74rem', color: 'var(--text-muted)', lineHeight: 1.45 }}>{note}</span>
+                  </span>
+                </div>
+              ))}
+              <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', borderTop: '1px solid var(--bg-secondary)', paddingTop: 10, lineHeight: 1.5 }}>
+                Save Draft keeps it private to you. Submit sends it to your reviewer.{isManager ? ' Publish makes it live immediately.' : ''}
+              </div>
+            </div>
+            <div style={{ ...cardStyle, marginBottom: 0, maxHeight: '64vh', overflow: 'auto' }}>{renderSopPreview(draft)}</div>
+          </div>
+        )}
+
+        {stepName !== 'Capture' && (
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', paddingTop: 14, borderTop: '1px solid var(--border-color)', marginTop: 16 }}>
+            {stepIdx > 0 && <button className="secondary-btn" onClick={prevStep} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><ArrowLeft size={14} /> Back</button>}
+            <span style={{ marginRight: 'auto' }} />
+            <button className="secondary-btn" disabled={busy} onClick={() => save(false)}>Save Draft</button>
+            {stepName !== 'Publish'
+              ? <button className="primary-btn" onClick={nextStep} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>Next: {steps[stepIdx + 1]} <ChevronRight size={15} /></button>
+              : <>
+                  <button className="secondary-btn" disabled={busy} onClick={() => save(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Send size={14} /> Save &amp; Submit for Review</button>
+                  {isManager && <button className="primary-btn" disabled={busy} onClick={saveAndPublish} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><CheckSquare size={14} /> Save &amp; Publish</button>}
+                </>}
+          </div>
+        )}
 
         {/* Full-screen AI changes review */}
         {aiReview?.open && (() => {
@@ -2726,33 +2811,57 @@ export default function SOP({ activeSub, onSubChange }) {
             {children}
           </div>
         );
+        // wizard: new courses open on Source; edits jump straight to Build
+        const csteps = d.id ? ['Build', 'Publish'] : ['Source', 'Build', 'Publish'];
+        const cIdx = Math.min(cdStep, csteps.length - 1);
+        const cstep = csteps[cIdx];
+        const cNext = () => setCdStep(Math.min(cIdx + 1, csteps.length - 1));
+        const cPrev = () => setCdStep(Math.max(cIdx - 1, 0));
+        const cChecklist = [
+          [!!d.title.trim(), 'Title', d.title.trim() || 'Add a course title (Build step)'],
+          [d.lessons.length > 0, 'Lessons', d.lessons.length ? `${d.lessons.length} lesson${d.lessons.length === 1 ? '' : 's'}` : 'No lessons yet (Build step)'],
+          [d.quiz.questions.length > 0, 'Quiz', d.quiz.questions.length ? `${d.quiz.questions.length} questions · pass mark ${d.quiz.passPct}%` : 'No quiz - learners complete by reading only'],
+          [d.departments.length > 0, 'Departments', d.departments.length ? d.departments.map(x => DEPT_ABBR[x] || x).join(', ') : 'Not tagged yet'],
+        ];
         return (
-          <div style={{ width: '100%' }}>
-            <button className="secondary-btn" onClick={() => { setCourseDraft(null); setLmsMode('list'); }} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 18, height: 34 }}><ArrowLeft size={15} /> {d.id ? 'Back' : 'Cancel'}</button>
-            <h2 style={{ marginBottom: 4, fontSize: '1.7rem' }}>{d.id ? 'Edit Course' : 'New Course'}</h2>
-            <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: 22 }}>Generate a course from your material, or build it by hand - readings or linked SOPs plus a knowledge-check quiz.</p>
+          <div style={{ width: '100%', maxWidth: 980, margin: '0 auto' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+              <button className="secondary-btn" onClick={() => { setCourseDraft(null); setLmsMode('list'); }} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 34 }}><ArrowLeft size={15} /> {d.id ? 'Back' : 'Cancel'}</button>
+            </div>
+            <h2 style={{ margin: '0 0 4px', fontSize: '1.55rem', textAlign: 'center' }}>{d.id ? 'Edit Course' : 'New Course'}</h2>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.86rem', margin: '0 0 16px', textAlign: 'center' }}>
+              {cstep === 'Source' ? 'Hand Claude the material - it writes the lessons and quiz.'
+                : cstep === 'Build' ? 'Shape the lessons, objectives, and quiz.'
+                : 'Describe it, check it over, and publish.'}
+            </p>
+            <Stepper steps={csteps} current={cIdx} onGo={setCdStep} />
             {errBanner}
 
-            {!d._importSource && (
-              <div style={{ border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-card)', borderRadius: 12, padding: 16, marginBottom: 18, boxShadow: 'var(--shadow-sm)' }}>
-                <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
-                  <div style={{ width: 34, height: 34, borderRadius: 9, backgroundColor: 'hsla(266,70%,60%,0.12)', color: 'hsl(266,72%,56%)', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}><Sparkles size={18} /></div>
-                  <div style={{ flex: 1, minWidth: 180 }}>
-                    <strong style={{ fontSize: '0.9rem', display: 'block' }}>Generate with Claude AI</strong>
-                    <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Paste or upload source material - a policy, manual, or transcript - and Claude writes the lessons and quiz.</span>
+            {cstep === 'Source' && (
+              <div style={{ maxWidth: 780, margin: '0 auto' }}>
+                <div style={{ border: '1px solid hsla(266,70%,60%,0.4)', background: 'hsla(266,70%,60%,0.05)', borderRadius: 16, padding: '24px 26px', marginBottom: 14, boxShadow: 'var(--shadow-sm)' }}>
+                  <div style={{ textAlign: 'center', marginBottom: 16 }}>
+                    <div style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: 'hsla(266,70%,60%,0.14)', color: 'hsl(266,72%,56%)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 10px' }}><GraduationCap size={22} /></div>
+                    <strong style={{ fontSize: '1.05rem', display: 'block' }}>Start With Your Material</strong>
+                    <span style={{ fontSize: '0.84rem', color: 'var(--text-secondary)' }}>Paste or upload a policy, manual, or transcript - Claude writes the objectives, lessons, and a quiz with explanations. You edit everything before it publishes.</span>
                   </div>
-                  <label className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 38, cursor: 'pointer', margin: 0, flex: '0 0 auto' }}>
-                    <Paperclip size={15} /> Upload file
-                    <input type="file" accept={IMPORT_ACCEPT} onChange={e => { cdImportFile(e.target.files[0]); e.target.value = ''; }} style={{ display: 'none' }} />
-                  </label>
-                  <button className="primary-btn" disabled={courseAiBusy} onClick={runCourseAi} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 38, flex: '0 0 auto', background: 'linear-gradient(135deg, hsl(258,82%,62%), hsl(288,70%,58%))', border: 'none', color: '#fff' }}>
-                    {courseAiBusy ? <Loader size={15} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Sparkles size={15} />} {courseAiBusy ? 'Generating…' : 'Generate course'}
-                  </button>
+                  <textarea className="form-input" autoFocus value={d._raw || ''} placeholder="Paste the source material here, or upload a file below…" onChange={e => cdSet({ _raw: e.target.value })} style={{ width: '100%', minHeight: 200, resize: 'vertical', fontSize: '0.9rem', lineHeight: 1.55 }} />
+                  <div style={{ display: 'flex', gap: 10, justifyContent: 'center', marginTop: 16, flexWrap: 'wrap' }}>
+                    <label className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 42, cursor: 'pointer', margin: 0 }}>
+                      <Paperclip size={15} /> Upload File
+                      <input type="file" accept={IMPORT_ACCEPT} onChange={e => { cdImportFile(e.target.files[0]); e.target.value = ''; }} style={{ display: 'none' }} />
+                    </label>
+                    <button className="primary-btn" disabled={courseAiBusy} onClick={runCourseAi} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 42, padding: '0 22px', fontSize: '0.92rem', background: 'linear-gradient(135deg, hsl(258,82%,62%), hsl(288,70%,58%))', border: 'none', color: '#fff' }}>
+                      {courseAiBusy ? <Loader size={15} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Sparkles size={15} />} {courseAiBusy ? 'Writing the Course…' : 'Generate Course'}
+                    </button>
+                  </div>
                 </div>
-                <textarea className="form-input" value={d._raw || ''} placeholder="Paste the source material here, or upload a file above…" onChange={e => cdSet({ _raw: e.target.value })} style={{ width: '100%', minHeight: 110, resize: 'vertical', fontSize: '0.88rem', lineHeight: 1.5 }} />
+                <div style={{ textAlign: 'center', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+                  Prefer to build it yourself? <button onClick={cNext} style={{ background: 'none', border: 'none', color: 'hsl(var(--color-blue))', fontWeight: 600, cursor: 'pointer', fontSize: '0.82rem', padding: 0 }}>Start With a Blank Course</button>
+                </div>
               </div>
             )}
-            {d._importSource && (
+            {cstep === 'Build' && d._importSource && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', border: '1px solid hsla(266,70%,60%,0.4)', background: 'hsla(266,70%,60%,0.06)', borderRadius: 12, padding: '12px 16px', marginBottom: 18 }}>
                 <Sparkles size={18} style={{ color: 'hsl(266,72%,56%)', flex: '0 0 auto' }} />
                 <div style={{ flex: 1, minWidth: 160, fontSize: '0.84rem', color: 'var(--text-primary)' }}>Claude generated this course from your source. Review and edit everything below.</div>
@@ -2761,12 +2870,16 @@ export default function SOP({ activeSub, onSubChange }) {
               </div>
             )}
 
+            {cstep === 'Build' && <>
             <div style={cardStyle}>
               <label style={fieldLabel}>Course title</label>
-              {fieldTip('A clear name learners will recognise - e.g. New Hire Orientation.')}
+              {fieldTip('A clear name learners will recognize - e.g. New Hire Orientation.')}
               <input className="form-input" value={d.title} placeholder="e.g. New Hire Orientation" onChange={e => cdSet({ title: e.target.value })} style={{ fontSize: '1.35rem', fontWeight: 600, padding: '14px 16px', height: 'auto', fontFamily: "'Plus Jakarta Sans', sans-serif" }} />
             </div>
 
+            </>}
+
+            {cstep === 'Publish' && <>
             {csection('Course Details', 'What it covers, how long it takes, and who it’s for.', (<>
               <div style={{ marginBottom: 18 }}>
                 <label style={fieldLabel}>Description</label>
@@ -2791,7 +2904,9 @@ export default function SOP({ activeSub, onSubChange }) {
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>{DEPARTMENTS.map(dep => { const on = d.departments.includes(dep); return <button key={dep} onClick={() => cdSet({ departments: on ? d.departments.filter(x => x !== dep) : [...d.departments, dep] })} style={{ fontSize: '0.82rem', padding: '8px 14px', borderRadius: 999, border: '1px solid', borderColor: on ? 'var(--text-primary)' : 'var(--border-color)', background: on ? 'var(--text-primary)' : 'var(--bg-card)', color: on ? 'var(--bg-card)' : 'var(--text-secondary)', cursor: 'pointer' }}>{dep}</button>; })}</div>
               </div>
             </>))}
+            </>}
 
+            {cstep === 'Build' && <>
             {csection('What You’ll Learn', 'A few objectives shown on the course intro so learners know what they’ll take away.', (<>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {(d.overview || []).map((obj, i) => (
@@ -2849,13 +2964,34 @@ export default function SOP({ activeSub, onSubChange }) {
               </div>
               <button className="secondary-btn" onClick={cdAddQ} style={{ height: 36, fontSize: '0.82rem', marginTop: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={14} /> Add Question</button>
             </>))}
+            </>}
 
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', flexWrap: 'wrap', paddingTop: 8, borderTop: '1px solid var(--border-color)', marginTop: 8 }}>
-              <button className="secondary-btn" onClick={() => { setCourseDraft(null); setLmsMode('list'); }}>Cancel</button>
-              <button className="secondary-btn" onClick={() => setCoursePreview(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginRight: 'auto' }}><Eye size={14} /> Preview</button>
-              <button className="secondary-btn" onClick={() => saveCourse(false)}>Save Draft</button>
-              <button className="primary-btn" onClick={() => saveCourse(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><CheckSquare size={14} /> Publish</button>
-            </div>
+            {cstep === 'Publish' && (
+              <div style={{ ...cardStyle }}>
+                <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', fontWeight: 700, marginBottom: 12 }}>Ready to Publish?</div>
+                {cChecklist.map(([ok, label, note]) => (
+                  <div key={label} style={{ display: 'flex', gap: 9, alignItems: 'flex-start', marginBottom: 12 }}>
+                    <span style={{ width: 20, height: 20, borderRadius: '50%', flex: '0 0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.72rem', fontWeight: 700, background: ok ? 'hsla(145,63%,42%,0.14)' : 'hsla(38,92%,50%,0.14)', color: ok ? 'hsl(145,55%,32%)' : 'hsl(32,80%,38%)' }}>{ok ? <CheckSquare size={12} /> : '!'}</span>
+                    <span style={{ minWidth: 0 }}>
+                      <span style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-primary)' }}>{label}</span>
+                      <span style={{ display: 'block', fontSize: '0.74rem', color: 'var(--text-muted)', lineHeight: 1.45 }}>{note}</span>
+                    </span>
+                  </div>
+                ))}
+                <button className="secondary-btn" onClick={() => setCoursePreview(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 34, fontSize: '0.82rem' }}><Eye size={14} /> Preview as a Learner</button>
+              </div>
+            )}
+
+            {cstep !== 'Source' && (
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', paddingTop: 14, borderTop: '1px solid var(--border-color)', marginTop: 16 }}>
+                {cIdx > 0 && <button className="secondary-btn" onClick={cPrev} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><ArrowLeft size={14} /> Back</button>}
+                <span style={{ marginRight: 'auto' }} />
+                <button className="secondary-btn" onClick={() => saveCourse(false)}>Save Draft</button>
+                {cstep !== 'Publish'
+                  ? <button className="primary-btn" onClick={cNext} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>Next: {csteps[cIdx + 1]} <ChevronRight size={15} /></button>
+                  : <button className="primary-btn" onClick={() => saveCourse(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><CheckSquare size={14} /> Publish</button>}
+              </div>
+            )}
 
             {coursePreview && (
               <div className="modal-overlay" style={{ display: 'flex', alignItems: 'stretch', justifyContent: 'center', padding: '2.5vh 2vw' }} onClick={e => { if (e.target === e.currentTarget) setCoursePreview(false); }}>
