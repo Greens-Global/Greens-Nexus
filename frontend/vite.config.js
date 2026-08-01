@@ -94,6 +94,20 @@ export default defineConfig({
   define: { 'import.meta.env.VITE_BUILD_ID': JSON.stringify(BUILD_ID) },
   plugins: [react(), versionManifest(), stampUnhashedAssets()],
   base: '/',
+  // Automatic JSX runtime for BOTH build and Vitest transforms (source files
+  // don't import React; without this, Vitest transforms them classic and every
+  // component render throws "React is not defined").
+  esbuild: { jsx: 'automatic', jsxImportSource: 'react' },
+  // Vitest: render-smoke tests run in jsdom. Catches runtime render crashes
+  // (e.g. undefined.length) that build + lint cannot - the exact class of bug
+  // that shipped the task-list crash on 2026-08-02.
+  test: {
+    environment: 'jsdom',
+    globals: true,
+    setupFiles: './vitest.setup.js',
+    css: false,
+    include: ['src/**/*.test.{js,jsx}'],
+  },
   build: {
     rollupOptions: {
       output: {
