@@ -76,6 +76,7 @@ def _run_migrations():
             "ALTER TABLE kb_documents ADD COLUMN retention_months INTEGER DEFAULT 84",
             "ALTER TABLE kb_courses ADD COLUMN overview VARCHAR DEFAULT ''",
             "ALTER TABLE kb_courses ADD COLUMN recert_months INTEGER DEFAULT 0",
+            "ALTER TABLE kb_documents ADD COLUMN stale_notified_at VARCHAR DEFAULT ''",
             # audit_logs: track when an entry was reverted via the Undo action
             "ALTER TABLE audit_logs ADD COLUMN undone_at VARCHAR DEFAULT ''",
             "ALTER TABLE audit_logs ADD COLUMN undone_by VARCHAR DEFAULT ''",
@@ -405,6 +406,7 @@ def _run_migrations():
         "ALTER TABLE kb_documents ADD COLUMN IF NOT EXISTS retention_months INTEGER DEFAULT 84",
         "ALTER TABLE kb_courses ADD COLUMN IF NOT EXISTS overview VARCHAR DEFAULT ''",
         "ALTER TABLE kb_courses ADD COLUMN IF NOT EXISTS recert_months INTEGER DEFAULT 0",
+        "ALTER TABLE kb_documents ADD COLUMN IF NOT EXISTS stale_notified_at VARCHAR DEFAULT ''",
         "ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS undone_at VARCHAR DEFAULT ''",
         "ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS undone_by VARCHAR DEFAULT ''",
         # HR Section A: which legal entity employs each worker

@@ -471,6 +471,10 @@ export const api = {
   getKbCourseAssignments: (id)     => req(`/knowledge-base/courses/${id}/assignments`),
   removeKbAssignment: (aid)        => req(`/knowledge-base/assignments/${aid}`, { method: "DELETE" }),
   getMyKbAssignments: ()           => req("/knowledge-base/my-assignments"),
+  startKbRun:       (docId)        => req(`/knowledge-base/documents/${docId}/runs`, { method: "POST" }),
+  updateKbRun:      (runId, data)  => req(`/knowledge-base/runs/${runId}`, { method: "PATCH", body: JSON.stringify(data) }),
+  getMyKbRuns:      ()             => req("/knowledge-base/my-runs"),
+  getKbRuns:        (limit = 60)   => req(`/knowledge-base/runs?limit=${limit}`),
 
   // Assets
   getAssets: () => req("/assets"),
