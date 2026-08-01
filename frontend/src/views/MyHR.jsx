@@ -5,6 +5,7 @@ import {
   Clock, Banknote, MessageSquarePlus, Package, ArrowRight, TrendingUp, Hourglass,
 } from 'lucide-react';
 import { api } from '../api';
+import { SkeletonBlocks } from '../components/AsyncState';
 
 // My HR - employee self-service. Shows ONLY the signed-in person's own record:
 // profile (with self-service contact edits), hours graph, equipment, sealed
@@ -344,7 +345,7 @@ export default function MyHR() {
       {profErr ? (
         <div className="dash-card" style={{ textAlign: 'center', color: 'var(--muted)', fontSize: 13.5, padding: 40 }}>{profErr}</div>
       ) : !profile ? (
-        <div style={{ padding: '50px 0', textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>Loading…</div>
+        <SkeletonBlocks count={3} height={110} />
       ) : (
         <>
           {/* ── Stat tiles ── */}
