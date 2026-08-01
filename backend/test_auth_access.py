@@ -37,6 +37,7 @@ KNOWN_PUBLIC = {
     "/branding/config",                    # login screen needs it pre-auth
     "/stepup/config",                      # same posture
     "/asana-sync/webhook",                 # X-Hook-Signature HMAC verified
+    "/asana-oauth/callback",               # OAuth redirect from Asana; CSRF-guarded by the state token (consume_state)
     "/qa/ci-results", "/qa/e2e-specs",     # X-QA-CI-Token header checked inline
     "/esign/local-file/{bucket}/{path:path}",  # local-dev only; 404s when storage configured
     "/esign/public/{token}",               # 43-char token is the credential
