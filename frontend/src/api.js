@@ -277,6 +277,10 @@ export const api = {
 
   // Tasks - core (bodies are snake_case; the TasksContext maps to/from camelCase)
   getTasks: () => req("/tasks"),
+  // Incremental fetch - {tasks, deletedIds, serverTime}. `since` blank returns
+  // everything (no deletions), so this serves both the mount load and every
+  // repeated refresh through one path. See TasksContext's sinceRef.
+  getTasksDelta: (since = '') => req(`/tasks/delta${since ? `?since=${encodeURIComponent(since)}` : ''}`),
   createTask: (data) => req("/tasks", { method: "POST", body: JSON.stringify(data) }),
   updateTask: (id, data) => req(`/tasks/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
   deleteTask: (id) => req(`/tasks/${id}`, { method: "DELETE" }),
@@ -302,6 +306,7 @@ export const api = {
   deleteTaskSection: (id) => req(`/tasks/meta/sections/${id}`, { method: "DELETE" }),
   getTaskCustomStatuses: () => req("/tasks/meta/custom-statuses"),
   createTaskCustomStatus: (data) => req("/tasks/meta/custom-statuses", { method: "POST", body: JSON.stringify(data) }),
+  updateTaskCustomStatus: (id, data) => req(`/tasks/meta/custom-statuses/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
   deleteTaskCustomStatus: (id) => req(`/tasks/meta/custom-statuses/${id}`, { method: "DELETE" }),
   // Projects / portfolios / departments / member requests
   getTaskProjects: () => req("/task-projects"),
@@ -354,6 +359,12 @@ export const api = {
   getAsanaSyncProjects: () => req("/asana-sync/asana-projects", { timeoutMs: 60000 }),
   getAsanaWebhooks: () => req("/asana-sync/webhooks"),
   registerAsanaWebhooks: (data) => req("/asana-sync/webhooks", { method: "POST", body: JSON.stringify(data), timeoutMs: 60000 }),
+  // ── Per-user Asana connection (Account Settings) ──
+  // Personal, not admin: each of these acts on the signed-in user's own grant.
+  // No endpoint here ever returns the token itself.
+  asanaOauthStatus:     () => req("/asana-oauth/status"),
+  asanaOauthStart:      () => req("/asana-oauth/start", { method: "POST" }),
+  asanaOauthDisconnect: () => req("/asana-oauth/me", { method: "DELETE" }),
   deleteAsanaWebhooks: () => req("/asana-sync/webhooks", { method: "DELETE", timeoutMs: 60000 }),
   getTaskAutomationRules: () => req("/task-automation-rules"),
   createTaskAutomationRule: (data) => req("/task-automation-rules", { method: "POST", body: JSON.stringify(data) }),

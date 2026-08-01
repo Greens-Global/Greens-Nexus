@@ -10,7 +10,7 @@ import { BottomSheet } from './MobileTaskBar';
 import { useTasks } from './TasksContext';
 import { Modal, PersonSelect, usePeople, useIsMobile, DateField } from './components';
 import { NX, FONT, btn, CONTROL_H, CONTROL_FS, CONTROL_ICON, input as inputStyle, STATUS_META, STATUS_ORDER, PRIORITY_META, PRIORITY_ORDER } from './theme';
-import { emailToName } from '../lib/utils';
+import { emailToName, rootZoom } from '../lib/utils';
 
 const SORT_OPTIONS = [
   { key: 'manual', label: 'Manual' }, { key: 'dueOn', label: 'Due Date' },
@@ -39,13 +39,16 @@ function Popover({ label, icon: Icon, active, width = 240, children, sheet = fal
   // clamped to the viewport and flipped above the trigger when space below is tight.
   const menuStyle = { width, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 12, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', zIndex: 4100, padding: 12, maxHeight: '70vh', overflowY: 'auto' };
   if (isMobile && open && triggerRef.current) {
+    // r / innerWidth are in the OUTER space, the widths and offsets written below
+    // are CSS lengths in the INNER one - see rootZoom.
+    const z = rootZoom();
     const r = triggerRef.current.getBoundingClientRect();
-    const w = Math.min(width, window.innerWidth - 16);
-    const left = Math.max(8, Math.min(r.left, window.innerWidth - w - 8));
-    const flipUp = window.innerHeight - r.bottom < 300;
+    const w = Math.min(width, (window.innerWidth - 16) / z);
+    const left = Math.max(8, Math.min(r.left, window.innerWidth - w * z - 8)) / z;
+    const flipUp = window.innerHeight - r.bottom < 300 * z;
     Object.assign(menuStyle, flipUp
-      ? { position: 'fixed', bottom: window.innerHeight - r.top + 6, left, width: w }
-      : { position: 'fixed', top: r.bottom + 6, left, width: w });
+      ? { position: 'fixed', bottom: (window.innerHeight - r.top + 6) / z, left, width: w }
+      : { position: 'fixed', top: (r.bottom + 6) / z, left, width: w });
   } else {
     Object.assign(menuStyle, { position: 'absolute', top: '100%', right: 0, marginTop: 6 });
   }
@@ -89,7 +92,10 @@ function FiltersBody({ filters, setFilters, people, projects, lockedProjectId, h
     + Object.values(filters.customFields || {}).reduce((n, v) => n + (v?.length || 0), 0);
   // Only select fields are filterable - a bounded option list is what makes a
   // checkbox list possible at all. Text and number fields would need operators.
-  const filterFields = (customFields || []).filter((f) => f.type === 'select' && (f.options || []).length);
+  // Multiselect filters the same way a select does - the value is a list, and
+  // matchesFilter treats a hit on any chosen option as a match.
+  const filterFields = (customFields || []).filter(
+    (f) => (f.type === 'select' || f.type === 'multiselect') && (f.options || []).length);
   const cfSelected = (fid) => (filters.customFields || {})[fid] || [];
   const toggleCf = (fid, optId) => {
     const cur = cfSelected(fid);
@@ -268,7 +274,7 @@ export function ProductivityBar({ filters, setFilters, sort, setSort, lockedProj
     <div style={{ display: 'flex', flexDirection: sheet ? 'column' : 'row', alignItems: sheet ? 'stretch' : 'center', gap: sheet ? 6 : (isMobile ? 6 : 8), flexWrap: (sheet || !isMobile) ? 'wrap' : 'nowrap', fontFamily: FONT }}>
       {/* Filters */}
       <Popover sheet={sheet} label={activeFilterCount ? `Filters · ${activeFilterCount}` : 'Filters'} icon={SlidersHorizontal} active={activeFilterCount > 0} width={260}>
-        {() => <FiltersBody filters={filters} setFilters={setFilters} people={people} projects={projects} lockedProjectId={lockedProjectId} hideAssignee={hideAssignee} statusOrder={store.statusOrder} statusMeta={store.statusMeta} customFields={customFields} />}
+        {() => <FiltersBody filters={filters} setFilters={setFilters} people={people} projects={projects} lockedProjectId={lockedProjectId} hideAssignee={hideAssignee} statusOrder={store.statusOrderFor ? store.statusOrderFor(lockedProjectId) : store.statusOrder} statusMeta={store.statusMeta} customFields={customFields} />}
       </Popover>
 
       {/* Date - separate from Filters, matching the export's dedicated Date button */}
@@ -362,7 +368,7 @@ export function MobileFilters({ filters, setFilters, sort, setSort, group, setGr
   const catLabel = { filters: 'Filters', date: 'Date', sort: 'Sort', group: 'Group', saved: 'Saved Views' }[cat];
   return (
     <BottomSheet title={catLabel} onClose={onClose} onBack={() => setCat(null)}>
-      {cat === 'filters' && <FiltersBody filters={filters} setFilters={setFilters} people={people} projects={projects} lockedProjectId={lockedProjectId} hideAssignee={hideAssignee} statusOrder={store.statusOrder} statusMeta={store.statusMeta} customFields={customFields} />}
+      {cat === 'filters' && <FiltersBody filters={filters} setFilters={setFilters} people={people} projects={projects} lockedProjectId={lockedProjectId} hideAssignee={hideAssignee} statusOrder={store.statusOrderFor ? store.statusOrderFor(lockedProjectId) : store.statusOrder} statusMeta={store.statusMeta} customFields={customFields} />}
       {cat === 'date' && <DateBody filters={filters} setFilters={setFilters} />}
       {cat === 'sort' && <SortBody sort={sort} setSort={setSort} close={() => {}} sortFieldOptions={sortFieldOptions} />}
       {cat === 'group' && <GroupBody group={group} setGroup={setGroup} groupOptions={groupOptions} close={() => {}} />}

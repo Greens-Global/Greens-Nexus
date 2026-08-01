@@ -5,7 +5,9 @@ import { X, Check, ChevronDown, ChevronLeft, ChevronRight, Plus } from 'lucide-r
 import { api } from '../api';
 import { NX, FONT, colorForKey, initialsOf, statusChip, priorityChip, btn, chip, STATUS_META, input as inputStyle } from './theme';
 import { fmtDate, teamInProject, teamProjectIds } from './lib';
+import { rootZoom } from '../lib/utils';
 import { useTasks } from './TasksContext';
+import PersonHover from '../components/PersonHoverCard';
 
 // People profile photos, fetched once per session and shared by every Avatar.
 // Module-scope cache + subscriber set so avatars that mounted before the
@@ -30,23 +32,28 @@ function usePhotoMap() {
   return _photoMap || {};
 }
 
-export function Avatar({ email, name, size = 26 }) {
+// `card={false}` opts a call site out of the hover card - for avatars that are
+// already inside an interactive row (menu items, pickers), where a second click
+// target and a floating card would fight the control they sit in.
+export function Avatar({ email, name, size = 26, card = true }) {
   const photos = usePhotoMap();
   const label = name || email || '';
   const photo = email ? photos[email.toLowerCase()] : '';
-  if (photo) {
-    return <img src={photo} alt={label} title={label} style={{
+  const img = photo ? (
+    <img src={photo} alt={label} title={card ? undefined : label} style={{
       width: size, height: size, borderRadius: '50%', flexShrink: 0, objectFit: 'cover', display: 'inline-block',
-    }} />;
-  }
-  return (
-    <div title={label} style={{
+    }} />
+  ) : (
+    <div title={card ? undefined : label} style={{
       width: size, height: size, borderRadius: '50%', flexShrink: 0,
       background: colorForKey(email || label), color: '#fff',
       display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
       fontSize: size * 0.4, fontWeight: 700,
     }}>{initialsOf(label)}</div>
   );
+  // The card carries the name itself, so the native title tooltip is dropped
+  // when it is on - two overlapping tooltips otherwise.
+  return <PersonHover email={email} name={label} disabled={!card}>{img}</PersonHover>;
 }
 
 export function StatusChip({ status }) {
@@ -185,9 +192,14 @@ function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef }) {
   const days = Array.from({ length: 42 }, (_, i) => { const d = new Date(first); d.setDate(1 - offset + i); return d; });
 
   const W = 300, H = 372;
-  const left = Math.max(8, Math.min(anchorRect.left, window.innerWidth - W - 8));
-  const flipUp = anchorRect.bottom + 6 + H > window.innerHeight && anchorRect.top > H;
-  const vpos = flipUp ? { bottom: window.innerHeight - anchorRect.top + 6 } : { top: anchorRect.bottom + 6 };
+  // anchorRect / innerWidth are in the OUTER space, W and H are CSS lengths in
+  // the INNER one - see rootZoom. Scale up to compare, divide the result back.
+  const z = rootZoom();
+  const left = Math.max(8, Math.min(anchorRect.left, window.innerWidth - W * z - 8)) / z;
+  const flipUp = anchorRect.bottom + 6 + H * z > window.innerHeight && anchorRect.top > H * z;
+  const vpos = flipUp
+    ? { bottom: (window.innerHeight - anchorRect.top + 6) / z }
+    : { top: (anchorRect.bottom + 6) / z };
   const navBtn = { ...btn('ghost'), padding: 5, color: NX.dim };
   const linkBtn = { background: 'transparent', border: 'none', cursor: 'pointer', color: NX.blue, fontWeight: 600, fontSize: 13, fontFamily: FONT, padding: '4px 6px' };
 
@@ -297,11 +309,14 @@ const PROJECT_ROLE_ORDER = ['owner', 'editor', 'commenter', 'viewer'];
 function RolePickerPanel({ anchorRect, value, onChange, onClose }) {
   const ref = useRef(null);
   useClickOutside(ref, onClose, true);
-  const W = 260;
-  const left = Math.max(8, Math.min(anchorRect.right - W, window.innerWidth - W - 8));
-  const H = 260;
-  const flipUp = anchorRect.bottom + 6 + H > window.innerHeight && anchorRect.top > H;
-  const vpos = flipUp ? { bottom: window.innerHeight - anchorRect.top + 6 } : { top: anchorRect.bottom + 6 };
+  const W = 260, H = 260;
+  // Same outer/inner split as CalendarPopover above - see rootZoom.
+  const z = rootZoom();
+  const left = Math.max(8, Math.min(anchorRect.right - W * z, window.innerWidth - W * z - 8)) / z;
+  const flipUp = anchorRect.bottom + 6 + H * z > window.innerHeight && anchorRect.top > H * z;
+  const vpos = flipUp
+    ? { bottom: (window.innerHeight - anchorRect.top + 6) / z }
+    : { top: (anchorRect.bottom + 6) / z };
   return createPortal(
     <div ref={ref} style={{
       position: 'fixed', left, width: W, ...vpos, background: NX.surface,
@@ -616,7 +631,7 @@ export function PersonSelect({ value, onChange, people, placeholder = 'Unassigne
       <button type="button" disabled={disabled} onClick={() => setOpen((o) => !o)}
         style={{ ...btn('outline'), width: '100%', justifyContent: 'space-between', opacity: disabled ? 0.6 : 1, cursor: disabled ? 'not-allowed' : 'pointer' }}>
         <span style={{ display: 'flex', alignItems: 'center', gap: 8, overflow: 'hidden' }}>
-          {chosen ? <Avatar email={chosen.email} name={chosen.name} size={20} /> : null}
+          {chosen ? <Avatar email={chosen.email} name={chosen.name} size={20} card={false} /> : null}
           <span style={{ color: chosen ? NX.ink : NX.faint, overflow: 'hidden', textOverflow: 'ellipsis' }}>{chosen ? chosen.name : placeholder}</span>
         </span>
         <ChevronDown size={15} style={{ color: NX.faint }} />
@@ -627,7 +642,7 @@ export function PersonSelect({ value, onChange, people, placeholder = 'Unassigne
           <div onClick={() => { onChange(null); setOpen(false); }} style={{ padding: '8px 12px', fontSize: 13, color: NX.dim, cursor: 'pointer' }}>Unassigned</div>
           {filtered.map((p) => (
             <div key={p.email} onClick={() => { onChange(p.email); setOpen(false); }} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer', color: NX.ink, background: p.email === value ? NX.hover : 'transparent' }}>
-              <Avatar email={p.email} name={p.name} size={22} />
+              <Avatar email={p.email} name={p.name} size={22} card={false} />
               <span style={{ flex: 1 }}>{p.name}</span>
               {p.email === value && <Check size={14} style={{ color: NX.blue }} />}
             </div>
@@ -665,7 +680,7 @@ export function PersonMultiSelect({ value, onChange, people, placeholder = 'Sele
             const p = personFor(em);
             return (
               <span key={em} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: NX.surface2, border: `1px solid ${NX.border}`, borderRadius: 20, padding: '2px 7px 2px 2px', fontSize: 12, color: NX.ink }}>
-                <Avatar email={p.email} name={p.name} size={18} />
+                <Avatar email={p.email} name={p.name} size={18} card={false} />
                 {p.name}
                 {/* A span, not a button - this sits inside the dropdown trigger button. */}
                 <span role="button" tabIndex={0} title={`Remove ${p.name}`}
@@ -687,7 +702,7 @@ export function PersonMultiSelect({ value, onChange, people, placeholder = 'Sele
             const on = emails.includes(p.email);
             return (
               <div key={p.email} onClick={() => toggle(p.email)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer', color: NX.ink, background: on ? NX.hover : 'transparent' }}>
-                <Avatar email={p.email} name={p.name} size={22} />
+                <Avatar email={p.email} name={p.name} size={22} card={false} />
                 <span style={{ flex: 1 }}>{p.name}</span>
                 {on && <Check size={14} style={{ color: NX.blue }} />}
               </div>
