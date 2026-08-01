@@ -581,10 +581,11 @@ export default function TicketsView() {
                     {g.label} <span style={{ color: NX.faint, fontWeight: 400 }}>{g.rows.length}</span>
                   </div>
                 )}
-                {g.rows.map((t) => (
+                {g.rows.slice(0, 200).map((t) => (
                   <TicketRow key={t.id} t={t} nameOf={nameOf} hrDeptName={hrDeptName} companyName={companyName} onOpen={() => setOpenId(t.id)}
                     checked={selected.has(t.id)} onToggle={() => toggleSel(t.id)} colWidths={colWidths} />
                 ))}
+                {g.rows.length > 200 && <div style={{ padding: '8px 16px', fontSize: 12, color: NX.faint }}>+ {g.rows.length - 200} more - filter to narrow down</div>}
               </div>
             ))}
           </div>
@@ -605,10 +606,11 @@ export default function TicketsView() {
                       {g.label} <span style={{ color: NX.faint, fontWeight: 400 }}>{g.rows.length}</span>
                     </div>
                   )}
-                  {g.rows.map((t) => (
+                  {g.rows.slice(0, 200).map((t) => (
                     <TicketRow key={t.id} t={t} nameOf={nameOf} hrDeptName={hrDeptName} companyName={companyName} onOpen={() => setOpenId(t.id)}
                       checked={selected.has(t.id)} onToggle={() => toggleSel(t.id)} colWidths={colWidths} hideRequester={scope === 'mine'} />
                   ))}
+                  {g.rows.length > 200 && <div style={{ padding: '8px 16px', fontSize: 12, color: NX.faint }}>+ {g.rows.length - 200} more - filter to narrow down</div>}
                 </div>
               ))}
             </div>
@@ -1966,7 +1968,7 @@ function TicketBoard({ tickets, nameOf, onOpen, onMove }) {
               <span style={{ fontSize: 12.5, fontWeight: 700, color: NX.ink }}>{m.label}</span>
               <span style={{ fontSize: 12, color: NX.faint, marginLeft: 'auto' }}>{col.length}</span>
             </div>
-            {col.map((t) => (
+            {col.slice(0, 100).map((t) => (
               <div key={t.id} draggable onDragStart={() => setDragId(t.id)} onDragEnd={() => setDragId(null)} onClick={() => onOpen(t.id)}
                 style={{ background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, padding: 10, cursor: 'grab', opacity: dragId === t.id ? 0.5 : 1, boxShadow: '0 1px 2px rgba(0,0,0,0.04)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -1983,6 +1985,7 @@ function TicketBoard({ tickets, nameOf, onOpen, onMove }) {
                 </div>
               </div>
             ))}
+            {col.length > 100 && <div style={{ fontSize: 11.5, color: NX.faint, textAlign: 'center', padding: '6px 0' }}>+ {col.length - 100} more - filter to narrow down</div>}
             {col.length === 0 && <div style={{ fontSize: 11.5, color: NX.faint, textAlign: 'center', padding: '10px 0' }}>-</div>}
           </div>
         );

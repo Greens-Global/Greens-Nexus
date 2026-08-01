@@ -25,8 +25,13 @@ const initialsOf = (label = '') => {
 
 // ── Timeline (gantt) ─────────────────────────────────────────────────────────
 const DAY_W = 26, ROW_H = 44, LABEL_W = 230;
+const MAX_TIMELINE_ROWS = 300;
 export function TimelineView({ tasks, onOpen, nameOf }) {
-  const rows = useMemo(() => tasks.filter((t) => t.startOn || t.dueOn), [tasks]);
+  const allDated = useMemo(() => tasks.filter((t) => t.startOn || t.dueOn), [tasks]);
+  // Render cap: each timeline row draws a label, grid line, bar and dependency
+  // arrows; thousands of rows freeze the tab. Cap the rows (the Gantt geometry,
+  // rowOf and gridH all derive from this, so capping here keeps them consistent).
+  const rows = allDated.length > MAX_TIMELINE_ROWS ? allDated.slice(0, MAX_TIMELINE_ROWS) : allDated;
   const { start, totalDays } = useMemo(() => {
     const dates = rows.flatMap((t) => [t.startOn, t.dueOn].filter(Boolean));
     const min = dates.length ? dates.reduce((a, b) => (a < b ? a : b)) : toISO(new Date());
@@ -52,6 +57,12 @@ export function TimelineView({ tasks, onOpen, nameOf }) {
   const gridW = totalDays * DAY_W, gridH = Math.max(rows.length * ROW_H, 120);
 
   return (
+    <>
+    {allDated.length > MAX_TIMELINE_ROWS && (
+      <div style={{ margin: '16px 16px 0', padding: '8px 12px', borderRadius: 8, background: NX.border2, color: NX.dim, fontSize: 12, fontFamily: FONT }}>
+        Showing {MAX_TIMELINE_ROWS} of {allDated.length} scheduled tasks - filter to narrow the timeline.
+      </div>
+    )}
     <div className="nx-scroll" style={{ margin: 16, overflow: 'auto', border: `1px solid ${NX.border}`, borderRadius: 14, background: NX.surface, fontFamily: FONT }}>
       <div style={{ width: LABEL_W + gridW }}>
         <div style={{ position: 'sticky', top: 0, zIndex: 10, display: 'flex', borderBottom: `1px solid ${NX.border}`, background: NX.surface }}>
@@ -112,6 +123,7 @@ export function TimelineView({ tasks, onOpen, nameOf }) {
         </div>
       </div>
     </div>
+    </>
   );
 }
 
