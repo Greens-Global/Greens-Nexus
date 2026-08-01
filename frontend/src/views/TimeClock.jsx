@@ -6,6 +6,7 @@ import {
   ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import { api } from '../api';
+import { SkeletonBlocks } from '../components/AsyncState';
 import DayTimeline from '../components/DayTimeline';
 import ModuleTabs from '../components/ModuleTabs';
 import BodModal from '../components/BodModal';
@@ -539,9 +540,7 @@ export default function TimeClock() {
       <div className="tc-grid" style={{ marginBottom: 18 }}>
       <div className="tc-span2" style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, padding: '20px 22px', boxShadow: 'var(--wk-shadow)', minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
         {!status ? (
-          <div style={{ textAlign: 'center', color: 'var(--muted)', padding: 20 }}>
-            <Loader2 size={22} style={{ animation: 'spin 1s linear infinite' }} />
-          </div>
+          <SkeletonBlocks count={2} height={20} />
         ) : (
           <div style={{ display: 'flex', alignItems: 'center', gap: 28, flexWrap: 'wrap' }}>
             {clockedIn && (

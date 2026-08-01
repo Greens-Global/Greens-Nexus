@@ -26,6 +26,7 @@ import {
 import {
   TypeFieldInput, TicketTypeIcon, SlaBadge, TicketStatusChip,
 } from './TicketAtoms';
+import { SkeletonBlocks } from '../components/AsyncState';
 
 // Views offered by the mobile bar's view sheet (desktop uses the inline switcher).
 const TICKET_VIEW_TABS = [
@@ -1821,7 +1822,7 @@ function TicketConversation({ ticketId, nameOf }) {
   return (
     <div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 12 }}>
-        {rows === null ? <div style={{ fontSize: 13, color: NX.faint, textAlign: 'center', padding: 16 }}>Loading…</div>
+        {rows === null ? <div style={{ padding: '6px 0' }}><SkeletonBlocks count={4} height={44} /></div>
           : rows.length === 0 ? <div style={{ fontSize: 13, color: NX.faint, textAlign: 'center', padding: 16 }}>No comments yet.</div>
             : rows.map((c) => (
               <div key={c.id} style={{ display: 'flex', gap: 8, ...(c.internal ? { background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.35)', borderRadius: 10, padding: 8 } : {}) }}>
@@ -1890,7 +1891,7 @@ function TicketAttachments({ ticketId, ticketType }) {
         {busy && <Loader2 size={14} style={{ animation: 'spin 1s linear infinite', color: NX.faint }} />}
         <span style={{ fontSize: 11, color: NX.faint }}>or press Ctrl+V to paste a screenshot</span>
       </div>
-      {rows === null ? <div style={{ fontSize: 13, color: NX.faint, textAlign: 'center', padding: 16 }}>Loading…</div>
+      {rows === null ? <div style={{ padding: '6px 0' }}><SkeletonBlocks count={4} height={44} /></div>
         : rows.length === 0 ? <div style={{ fontSize: 13, color: NX.faint, textAlign: 'center', padding: 16 }}>No attachments yet.</div>
           : (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
@@ -1932,7 +1933,7 @@ function TicketAttachments({ ticketId, ticketType }) {
 function TicketActivity({ ticketId, nameOf }) {
   const [rows, setRows] = useState(null);
   useEffect(() => { api.getTicketActivity(ticketId).then(setRows).catch(() => setRows([])); }, [ticketId]);
-  if (rows === null) return <div style={{ fontSize: 13, color: NX.faint, textAlign: 'center', padding: 16 }}>Loading…</div>;
+  if (rows === null) return <div style={{ padding: '6px 0' }}><SkeletonBlocks count={4} height={44} /></div>;
   if (rows.length === 0) return <div style={{ fontSize: 13, color: NX.faint, textAlign: 'center', padding: 16 }}>No activity yet.</div>;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
