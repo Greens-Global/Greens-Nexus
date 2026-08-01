@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { api } from '../api';
 import { usePeopleDirectory } from '../lib/queries';
+import { SkeletonBlocks } from '../components/AsyncState';
 import { ensureStepUp, isStepUpRequired, StepUpNeeded } from '../stepup/StepUp';
 import { useRole, MODULES, MODULE_LEVELS, ROLES } from '../contexts/RoleContext';
 import TimeAdmin from '../components/TimeAdmin';
@@ -406,7 +407,7 @@ function AssetsSection({ employee }) {
         </button>
       </div>
       {!data ? (
-        <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0' }}>Loading…</div>
+        <SkeletonBlocks count={4} height={40} />
       ) : total === 0 ? (
         <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0' }}>
           {employee.workEmail ? 'No assigned equipment or active checkouts.' : 'No work email yet - provision the account to link assets.'}
@@ -863,7 +864,7 @@ function PayTab({ employee, reloadToken, onEdit }) {
         <button className="secondary-btn" onClick={onEdit} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}><Pencil size={13} /> Edit</button>
       </div>
       {!data ? (
-        <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '10px 0' }}>Loading…</div>
+        <SkeletonBlocks count={4} height={44} />
       ) : (
         <>
           {sectionLabel('Base pay')}
