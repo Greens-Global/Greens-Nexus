@@ -23,7 +23,24 @@ function formatDate(iso) {
   return `${formatLocalDateUS(d)}, ${time}`
 }
 
-export default function ReviewCard({ review, onApprove, onRegenerate }) {
+// Highlights every occurrence of `term` in `text` - same substring match the
+// feed's own search filter uses (ReviewsFeedCard/filterReviews), so what's
+// highlighted is exactly what made this review match, whether `term` came
+// from typing in the search box or clicking a word in the cloud above.
+function highlightMatches(text, term) {
+  if (!term || !term.trim()) return text
+  const escaped = term.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const parts = text.split(new RegExp(`(${escaped})`, 'ig'))
+  return parts.map((part, i) =>
+    i % 2 === 1 ? (
+      <mark key={i} style={{ background: '#fde047', color: 'inherit', borderRadius: 2, padding: '0 1px' }}>{part}</mark>
+    ) : (
+      part
+    ),
+  )
+}
+
+export default function ReviewCard({ review, onApprove, onRegenerate, highlightWord }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(review.aiReply)
 
@@ -68,7 +85,7 @@ export default function ReviewCard({ review, onApprove, onRegenerate }) {
               {review.status}
             </span>
           </div>
-          <p style={{ fontSize: 13, color: C.gray600, marginBottom: 4 }}>{review.text}</p>
+          <p style={{ fontSize: 13, color: C.gray600, marginBottom: 4 }}>{highlightMatches(review.text, highlightWord)}</p>
           <p style={{ fontSize: 11.5, color: C.gray400 }}>
             {review.facility} &middot; {formatDate(review.date)}
           </p>
