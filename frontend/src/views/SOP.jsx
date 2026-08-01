@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, Fragment } from 'react';
 import { useMsal } from '@azure/msal-react';
 import { useRole } from '../contexts/RoleContext';
 import { api } from '../api';
@@ -59,6 +59,12 @@ const DEPARTMENTS = [
   'Accounting', 'IT', 'Marketing', 'Administration',
 ];
 const DOC_TYPES = ['SOP', 'Manual', 'Guide'];
+// Published-document look, matched to the company's Word SOP template (letterhead,
+// navy/slate headings, "Internal Use Only" footer) - fixed "paper" colors so a
+// published doc reads identically regardless of the app's light/dark theme.
+const DOC_THEME = { navy: '#0F1B33', slate: '#44546A', blue: '#1F4D78', muted: '#6B7686', line: '#E2E5EA', paper: '#FFFFFF', ink: '#1A1F2B' };
+const DOC_FONT = "'Calibri','Segoe UI',Arial,sans-serif";
+const GREENS_LOGO_URL = '/assets/branding/greens-global-logo.png';
 const DEPT_ABBR = {
   'Operations': 'OPS', 'Revenue Management': 'RM', 'Real Estate Development': 'RED',
   'People (HR)': 'HR', 'Accounting': 'ACC', 'IT': 'IT', 'Marketing': 'MKT', 'Administration': 'ADM',
@@ -164,7 +170,7 @@ const Badge = ({ status }) => {
 
 const blankBody = () => ({
   purpose: '', scopeText: '', materials: [], responsibilities: [],
-  definitions: [], procedure: [], safety: [], references: [], attachments: [], media: [],
+  definitions: [], procedure: [], safety: [], references: [], attachments: [], media: [], tables: [],
 });
 
 // Resize an image file to a JPEG data URL (≤1100px) so it stores inline with the doc.
@@ -283,15 +289,40 @@ function resizeDataUrl(dataUrl) {
 
 // Flatten mammoth HTML to text, turning each <img> into its src (an [[IMG#]] marker)
 // inline so the AI sees where every screenshot sits in the step flow.
+//
+// Tables get special handling: Word wraps every cell in its own <p>, so a plain
+// walk turns a 2-row "Author | Version | Date" header table into six bare,
+// unlabeled lines - indistinguishable from real procedure content, and exactly
+// what made the formatter (both the AI and the offline heuristic) treat "Sai
+// Malladi" / "V 1.0" / "February 06, 2025" as individual steps. Each table is
+// instead collapsed to one pipe-joined line per row inside [[TABLE]]/[[/TABLE]]
+// markers, so a metadata table reads as an obvious, skippable block.
 function htmlToText(html) {
   const doc = new DOMParser().parseFromString(html, 'text/html');
   const out = [];
+  const cellText = (cell) => {
+    const parts = [];
+    const w = (node) => node.childNodes.forEach(ch => {
+      if (ch.nodeType === 3) parts.push(ch.nodeValue);
+      else if (ch.nodeType === 1) {
+        if (ch.tagName.toLowerCase() === 'img') parts.push(' ' + (ch.getAttribute('src') || '') + ' ');
+        w(ch);
+      }
+    });
+    w(cell);
+    return parts.join(' ').replace(/\s+/g, ' ').trim();
+  };
   const walk = (node) => node.childNodes.forEach(ch => {
     if (ch.nodeType === 3) out.push(ch.nodeValue);
     else if (ch.nodeType === 1) {
       const tag = ch.tagName.toLowerCase();
       if (tag === 'img') out.push(' ' + (ch.getAttribute('src') || '') + ' ');
-      else { walk(ch); if (/^(p|div|li|tr|h[1-6]|br|ul|ol)$/.test(tag)) out.push('\n'); }
+      else if (tag === 'table') {
+        const rows = [...ch.querySelectorAll('tr')]
+          .map(tr => [...tr.querySelectorAll('td,th')].map(cellText).filter(Boolean).join(' | '))
+          .filter(Boolean);
+        if (rows.length) out.push('\n[[TABLE]]\n' + rows.join('\n') + '\n[[/TABLE]]\n');
+      } else { walk(ch); if (/^(p|div|li|tr|h[1-6]|br|ul|ol)$/.test(tag)) out.push('\n'); }
     }
   });
   walk(doc.body);
@@ -653,7 +684,8 @@ export default function SOP({ activeSub, onSubChange }) {
     const b = d.body || {};
     return [d.title, d.doc_code, d.owner_name, b.purpose, b.scopeText,
       (b.procedure || []).map(s => s.text + ' ' + (s.detail || '')).join(' '),
-      (b.references || []).join(' ')].join('  ').toLowerCase();
+      (b.references || []).join(' '),
+      (b.tables || []).map(t => t.title + ' ' + (t.headers || []).join(' ') + ' ' + (t.rows || []).map(r => r.join(' ')).join(' ')).join(' ')].join('  ').toLowerCase();
   };
   const filtered = docs.filter(d => {
     if (deptFilter !== 'all' && !(d.departments || []).includes(deptFilter)) return false;
@@ -788,17 +820,35 @@ export default function SOP({ activeSub, onSubChange }) {
     if (!content) { setErr('Paste or upload an existing document, or add a title/purpose for the AI to work from.'); return; }
     setAiBusy(true); setErr('');
     try {
-      const { sop } = await api.aiFormatKbDoc({ content, title: draft.title, departments: draft.departments });
+      const { sop, source } = await api.aiFormatKbDoc({ content, title: draft.title, departments: draft.departments });
+      if (source !== 'ai') { setErr('Claude API is unavailable right now (no key locally, or a network/parse error) - this used a best-effort offline formatter instead, which cannot group steps, place images, or read tables. Try again once the API key is configured, or expect to do heavier manual cleanup.'); }
       // Map the [[IMG#]] markers Claude placed back to the uploaded image URLs, and
       // scrub any stray markers out of text so they never render as literal "[[IMG1]]".
+      // Marker matching is lenient about brackets/spacing since the model doesn't
+      // always echo the exact literal token.
       const imgMap = draft._importImages || {};
+      const normMarker = (s) => { const m = (s || '').match(/img\s*(\d+)/i); return m ? `[[IMG${m[1]}]]` : ''; };
       const strip = (t) => (typeof t === 'string' ? t.replace(/\[\[IMG\d+\]\]/g, '').replace(/[ \t]{2,}/g, ' ').trim() : t);
+      const usedMarkers = new Set();
       const procedure = (sop.procedure?.length ? sop.procedure : draft.body.procedure).map(s => {
-        const m = (s.image || '').trim();
-        const mapped = imgMap[m];
-        return { ...s, text: strip(s.text), detail: strip(s.detail),
-                 image: mapped || (/^\[\[IMG\d+\]\]$/.test(m) ? '' : (s.image || '')) };
+        const marker = normMarker(s.image);
+        const mapped = marker && imgMap[marker];
+        if (mapped) usedMarkers.add(marker);
+        return { ...s, text: strip(s.text), detail: strip(s.detail), image: mapped || (marker ? '' : (s.image || '')) };
       });
+      // Claude occasionally forgets to place a pasted/extracted screenshot on any
+      // step - never let an image vanish silently. Unused markers fill the next
+      // imageless step in order; anything left over becomes its own step so it's
+      // always visible and editable in the published document.
+      const leftover = Object.keys(imgMap)
+        .filter(mk => !usedMarkers.has(mk))
+        .sort((a, b) => parseInt(a.replace(/\D/g, ''), 10) - parseInt(b.replace(/\D/g, ''), 10));
+      let li = 0;
+      for (const step of procedure) {
+        if (li >= leftover.length) break;
+        if (!step.image) { step.image = imgMap[leftover[li]]; li++; }
+      }
+      while (li < leftover.length) { procedure.push({ text: 'Reference screenshot', detail: '', image: imgMap[leftover[li]] }); li++; }
       const before = { title: draft.title, departments: [...draft.departments], body: JSON.parse(JSON.stringify(draft.body)) };
       const afterBody = {
         ...draft.body,
@@ -810,6 +860,7 @@ export default function SOP({ activeSub, onSubChange }) {
         procedure,
         safety: sop.safety?.length ? sop.safety.map(strip) : draft.body.safety,
         references: sop.references?.length ? sop.references.map(strip) : draft.body.references,
+        tables: sop.tables?.length ? sop.tables : draft.body.tables,
       };
       const afterTitle = draft.title || sop.title || '';
       // autofill the draft, then open the full-screen review of what changed
@@ -843,6 +894,7 @@ export default function SOP({ activeSub, onSubChange }) {
         procedure: sop.procedure || [],
         safety: sop.safety || [],
         references: sop.references || [],
+        tables: sop.tables || [],
       };
       const afterTitle = sop.title || draft.title;
       setDraft(p => ({ ...p, title: afterTitle, body: afterBody }));
@@ -876,7 +928,15 @@ export default function SOP({ activeSub, onSubChange }) {
     const h = (t) => <h4 style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', fontWeight: 700, margin: '20px 0 7px' }}>{t}</h4>;
     const para = (s) => <p style={{ fontSize: '0.92rem', lineHeight: 1.65, color: 'var(--text-primary)', margin: 0, whiteSpace: 'pre-wrap' }}>{s}</p>;
     const ul = (arr) => <ul style={{ margin: 0, paddingLeft: 20, fontSize: '0.92rem', lineHeight: 1.65, color: 'var(--text-primary)' }}>{arr.map((x, i) => <li key={i} style={{ marginBottom: 3 }}>{x}</li>)}</ul>;
-    const empty = !b.purpose && !b.scopeText && !(b.materials || []).length && !(b.responsibilities || []).length && !(b.procedure || []).length && !(b.safety || []).length && !(b.references || []).length;
+    const empty = !b.purpose && !b.scopeText && !(b.materials || []).length && !(b.responsibilities || []).length && !(b.procedure || []).length && !(b.safety || []).length && !(b.references || []).length && !(b.tables || []).length;
+    const table = (t, i) => (
+      <div key={i} style={{ overflowX: 'auto', marginBottom: 10 }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+          <thead><tr>{(t.headers || []).map((hd, ci) => <th key={ci} style={{ padding: '7px 11px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-secondary)', textAlign: 'left', fontWeight: 700 }}>{hd}</th>)}</tr></thead>
+          <tbody>{(t.rows || []).map((row, ri) => <tr key={ri}>{row.map((c, ci) => <td key={ci} style={{ padding: '7px 11px', border: '1px solid var(--border-color)' }}>{c}</td>)}</tr>)}</tbody>
+        </table>
+      </div>
+    );
     return (
       <div>
         <h2 style={{ margin: '0 0 4px', fontSize: '1.5rem' }}>{d.title || 'Untitled document'}</h2>
@@ -890,6 +950,7 @@ export default function SOP({ activeSub, onSubChange }) {
         {(b.materials || []).length > 0 && <>{h('Materials & Required Items')}{ul(b.materials)}</>}
         {(b.responsibilities || []).length > 0 && <>{h('Responsibilities')}{ul(b.responsibilities.map(r => `${r.role}: ${r.duty}`))}</>}
         {(b.definitions || []).length > 0 && <>{h('Definitions')}{ul(b.definitions.map(r => `${r.term}: ${r.def}`))}</>}
+        {(b.tables || []).length > 0 && b.tables.map((t, i) => <Fragment key={i}>{h(t.title || 'Reference Table')}{table(t, i)}</Fragment>)}
         {(b.procedure || []).length > 0 && <>{h('Procedure')}<ol style={{ margin: 0, paddingLeft: 20, fontSize: '0.92rem', lineHeight: 1.65, color: 'var(--text-primary)' }}>{b.procedure.map((s, i) => <li key={i} style={{ marginBottom: 8 }}>{s.text}{s.detail ? <div style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginTop: 2 }}>{s.detail}</div> : null}{s.image ? <div><img src={s.image} alt="" style={{ height: 72, borderRadius: 8, marginTop: 5, border: '1px solid var(--border-color)' }} /></div> : null}</li>)}</ol></>}
         {(b.safety || []).length > 0 && <>{h('Safety & Compliance')}{ul(b.safety)}</>}
         {(b.references || []).length > 0 && <>{h('References')}{ul(b.references)}</>}
@@ -904,10 +965,15 @@ export default function SOP({ activeSub, onSubChange }) {
     try {
       const { text, images } = await extractDoc(file);
       if (!text.trim()) { setErr('No readable text found in that file (a scanned/image-only PDF has no text). Paste the text instead.'); return; }
-      // Store extracted screenshots (Supabase, inline fallback), keyed by their [[IMG#]] marker.
+      // Store extracted screenshots (Supabase, inline fallback), keyed by their
+      // [[IMG#]] marker - and keep the original data URL as a thumbnail so
+      // screenshots pulled out of an uploaded doc show in the strip just like
+      // pasted ones do.
       const uploaded = {};
-      for (const [marker, dataUrl] of Object.entries(images)) uploaded[marker] = await uploadKbImage(dataUrl);
-      setDraft(p => p ? { ...p, _raw: text, _importImages: uploaded, title: p.title || file.name.replace(/\.[^.]+$/, '') } : p);
+      const thumbs = {};
+      for (const [marker, dataUrl] of Object.entries(images)) { uploaded[marker] = await uploadKbImage(dataUrl); thumbs[marker] = dataUrl; }
+      setDraft(p => p ? { ...p, _raw: text, _importImages: { ...(p._importImages || {}), ...uploaded },
+        _importThumbs: { ...(p._importThumbs || {}), ...thumbs }, title: p.title || file.name.replace(/\.[^.]+$/, '') } : p);
     } catch (e) {
       setErr(e?.message || 'Could not read that file. Try pasting the text instead.');
     }
@@ -1115,6 +1181,15 @@ export default function SOP({ activeSub, onSubChange }) {
         {content}
       </div>
     );
+    // Numbered, template-styled section - matches the Word doc's "1  Purpose & Scope"
+    // heading treatment (navy, bold, not all-caps). Used inside #kb-doc only.
+    let _secNum = 0;
+    const docSection = (title, content) => (
+      <div style={{ marginBottom: 24 }}>
+        <h3 style={{ fontSize: '1.02rem', color: DOC_THEME.navy, borderBottom: `1px solid ${DOC_THEME.line}`, paddingBottom: 7, marginBottom: 11, fontWeight: 700 }}>{++_secNum}. {title}</h3>
+        {content}
+      </div>
+    );
     const isMan = d.doc_type === 'Manual' && (b.chapters || []).length > 0;
     const manualBody = () => {
       const chs = b.chapters || [];
@@ -1174,6 +1249,13 @@ export default function SOP({ activeSub, onSubChange }) {
       sec('Materials & Required Items', (b.materials || []).map(x => `- ${x}`));
       sec('Responsibilities', (b.responsibilities || []).map(r => `- ${r.role}: ${r.duty}`));
       sec('Definitions', (b.definitions || []).map(r => `- ${r.term}: ${r.def}`));
+      (b.tables || []).forEach(t => {
+        L.push(`## ${t.title || 'Reference Table'}`);
+        L.push(`| ${(t.headers || []).join(' | ')} |`);
+        L.push(`| ${(t.headers || []).map(() => '---').join(' | ')} |`);
+        (t.rows || []).forEach(row => L.push(`| ${row.join(' | ')} |`));
+        L.push('');
+      });
       sec('Procedure', (b.procedure || []).map((s, i) => `${i + 1}. ${s.text}${s.detail ? ` - ${s.detail}` : ''}`));
       sec('Safety & Compliance', (b.safety || []).map(x => `- ${x}`));
       sec('References', (b.references || []).map(x => `- ${x}`));
@@ -1265,44 +1347,96 @@ export default function SOP({ activeSub, onSubChange }) {
         {docLang !== 'en' && <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 9, padding: '8px 11px', fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: 14 }}>Machine-translated to {({ es: 'Spanish', hi: 'Hindi' })[docLang]}. The English version is authoritative.</div>}
 
         <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'minmax(0, 1fr) 280px', gap: isMobile ? 16 : 24, alignItems: 'start' }}>
-          <div id="kb-doc" style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 24, boxShadow: 'var(--shadow-sm)', minWidth: 0 }}>
-            {/* header grid */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 1, backgroundColor: 'var(--border-color)', border: '1px solid var(--border-color)', borderRadius: 10, overflow: 'hidden', marginBottom: 22 }}>
-              {[['SOP ID', d.doc_code || '-'], ['Type', d.doc_type], ['Version', 'v' + d.version],
-                ['Owner', prettyName(d.owner_name || d.owner_email), d.owner_email],
-                ['Reviewer', prettyName(d.reviewer_name || d.reviewer_email), d.reviewer_email],
-                ['Effective', fmtDate(d.effective_date)], ['Updated', fmtDate(d.updated_at)]].map(([k, v, tip]) => (
-                <div key={k} style={{ backgroundColor: 'var(--bg-card)', padding: '10px 13px', minWidth: 0 }}>
-                  <div style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: 3 }}>{k}</div>
-                  <div title={tip || undefined} style={{ fontSize: '0.85rem', fontWeight: 500, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{v}</div>
-                </div>
-              ))}
-              <div style={{ backgroundColor: 'var(--bg-card)', padding: '10px 13px', gridColumn: '1 / -1' }}>
-                <div style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: 3 }}>Applies to</div>
-                <div style={{ fontSize: '0.85rem', fontWeight: 500, color: 'var(--text-primary)' }}>{deptLabel}</div>
+          <div id="kb-doc" style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, boxShadow: 'var(--shadow-sm)', minWidth: 0, overflow: 'hidden' }}>
+          {/* Company letterhead skin - fixed "paper" colors (not theme vars) so the
+              published document reads identically to the Word template regardless
+              of the app's light/dark theme. Ends before Discussion, which is app
+              chrome (comments), not part of the document, and stays theme-aware. */}
+          <div style={{ backgroundColor: DOC_THEME.paper, color: DOC_THEME.ink, fontFamily: DOC_FONT }}>
+            {/* letterhead */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, padding: '14px 26px', borderBottom: `2px solid ${DOC_THEME.navy}`, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <img src={GREENS_LOGO_URL} alt="Greens Global" style={{ height: 26, width: 'auto', display: 'block' }} />
+                <span style={{ fontSize: '0.68rem', fontWeight: 700, color: DOC_THEME.muted, letterSpacing: '0.03em' }}>NEXUS KNOWLEDGE BASE</span>
               </div>
+              <span style={{ fontSize: '0.72rem', fontWeight: 700, color: DOC_THEME.muted, letterSpacing: '0.02em' }}>{d.doc_code || '-'}</span>
             </div>
 
-            {tPurpose && section('Purpose', <p style={{ color: 'var(--text-primary)', margin: 0, lineHeight: 1.6 }}>{tPurpose}</p>)}
-            {tScope && section('Scope', <p style={{ color: 'var(--text-primary)', margin: 0, lineHeight: 1.6 }}>{tScope}</p>)}
+            {/* cover */}
+            <div style={{ padding: '24px 26px 4px' }}>
+              <div style={{ fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.12em', color: DOC_THEME.muted, marginBottom: 6 }}>
+                {d.doc_type === 'SOP' ? 'STANDARD OPERATING PROCEDURE' : (d.doc_type || 'DOCUMENT').toUpperCase()}
+              </div>
+              <h2 style={{ margin: 0, fontSize: '1.6rem', fontWeight: 700, color: DOC_THEME.navy }}>{dTitle}</h2>
+            </div>
+
+            <div style={{ padding: '18px 26px 26px' }}>
+            {/* document control */}
+            <div style={{ border: `1px solid ${DOC_THEME.line}`, borderRadius: 8, marginBottom: 24, overflow: 'hidden' }}>
+              <div style={{ padding: '8px 13px', borderBottom: `1px solid ${DOC_THEME.line}`, background: '#F7F8FA', fontSize: '0.72rem', fontWeight: 700, color: DOC_THEME.slate, letterSpacing: '0.04em' }}>DOCUMENT CONTROL</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 1, backgroundColor: DOC_THEME.line }}>
+                {[['SOP ID', d.doc_code || '-'], ['Type', d.doc_type], ['Version', 'v' + d.version],
+                  ['Owner', prettyName(d.owner_name || d.owner_email), d.owner_email],
+                  ['Reviewer', prettyName(d.reviewer_name || d.reviewer_email), d.reviewer_email],
+                  ['Effective', fmtDate(d.effective_date)], ['Updated', fmtDate(d.updated_at)]].map(([k, v, tip]) => (
+                  <div key={k} style={{ backgroundColor: DOC_THEME.paper, padding: '10px 13px', minWidth: 0 }}>
+                    <div style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: DOC_THEME.muted, marginBottom: 3 }}>{k}</div>
+                    <div title={tip || undefined} style={{ fontSize: '0.85rem', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{v}</div>
+                  </div>
+                ))}
+                <div style={{ backgroundColor: DOC_THEME.paper, padding: '10px 13px', gridColumn: '1 / -1' }}>
+                  <div style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: DOC_THEME.muted, marginBottom: 3 }}>Applies to</div>
+                  <div style={{ fontSize: '0.85rem', fontWeight: 500 }}>{deptLabel}</div>
+                </div>
+              </div>
+              {(d.revision_history || []).length > 0 && (
+                <div style={{ borderTop: `1px solid ${DOC_THEME.line}` }}>
+                  <div style={{ padding: '8px 13px', fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: DOC_THEME.muted, background: '#F7F8FA' }}>Revision History</div>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+                    <thead><tr>{['Version', 'Date', 'Author', 'Summary of Changes'].map(h => <th key={h} style={{ textAlign: 'left', padding: '6px 13px', borderTop: `1px solid ${DOC_THEME.line}`, color: DOC_THEME.slate, fontWeight: 700 }}>{h}</th>)}</tr></thead>
+                    <tbody>{d.revision_history.slice(0, 8).map((r, i) => (
+                      <tr key={i}>
+                        <td style={{ padding: '6px 13px', borderTop: `1px solid ${DOC_THEME.line}` }}>{r.version}</td>
+                        <td style={{ padding: '6px 13px', borderTop: `1px solid ${DOC_THEME.line}` }}>{fmtDate(r.date)}</td>
+                        <td style={{ padding: '6px 13px', borderTop: `1px solid ${DOC_THEME.line}` }}>{prettyName(r.author)}</td>
+                        <td style={{ padding: '6px 13px', borderTop: `1px solid ${DOC_THEME.line}` }}>{r.notes}</td>
+                      </tr>
+                    ))}</tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {(tPurpose || tScope) && docSection('Purpose & Scope', (<>
+              {tPurpose && <p style={{ margin: tScope ? '0 0 10px' : 0, lineHeight: 1.6 }}>{tPurpose}</p>}
+              {tScope && <p style={{ margin: 0, lineHeight: 1.6 }}>{tScope}</p>}
+            </>))}
             {isMan && manualBody()}
             {!isMan && <>
-            {b.materials?.length > 0 && section('Materials & Required Items', <ul style={{ margin: 0, paddingLeft: 20, color: 'var(--text-primary)', lineHeight: 1.7 }}>{b.materials.map((m, i) => <li key={i}>{m}</li>)}</ul>)}
-            {b.responsibilities?.length > 0 && section('Responsibilities', (
+            {b.materials?.length > 0 && docSection('Materials & Required Items', <ul style={{ margin: 0, paddingLeft: 20, lineHeight: 1.7 }}>{b.materials.map((m, i) => <li key={i}>{m}</li>)}</ul>)}
+            {b.responsibilities?.length > 0 && docSection('Responsibilities', (
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
                 <tbody>{b.responsibilities.map((r, i) => (
-                  <tr key={i}><td style={{ padding: '7px 11px', border: '1px solid var(--border-color)', fontWeight: 600, width: '32%', backgroundColor: 'var(--bg-secondary)' }}>{r.role}</td><td style={{ padding: '7px 11px', border: '1px solid var(--border-color)' }}>{r.duty}</td></tr>
+                  <tr key={i}><td style={{ padding: '7px 11px', border: `1px solid ${DOC_THEME.line}`, fontWeight: 600, width: '32%', backgroundColor: '#F7F8FA' }}>{r.role}</td><td style={{ padding: '7px 11px', border: `1px solid ${DOC_THEME.line}` }}>{r.duty}</td></tr>
                 ))}</tbody>
               </table>
             ))}
-            {b.definitions?.length > 0 && section('Definitions', (
+            {b.definitions?.length > 0 && docSection('Definitions', (
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
                 <tbody>{b.definitions.map((r, i) => (
-                  <tr key={i}><td style={{ padding: '7px 11px', border: '1px solid var(--border-color)', fontWeight: 600, width: '32%', backgroundColor: 'var(--bg-secondary)' }}>{r.term}</td><td style={{ padding: '7px 11px', border: '1px solid var(--border-color)' }}>{r.def}</td></tr>
+                  <tr key={i}><td style={{ padding: '7px 11px', border: `1px solid ${DOC_THEME.line}`, fontWeight: 600, width: '32%', backgroundColor: '#F7F8FA' }}>{r.term}</td><td style={{ padding: '7px 11px', border: `1px solid ${DOC_THEME.line}` }}>{r.def}</td></tr>
                 ))}</tbody>
               </table>
             ))}
-            {section('Procedure', tProcedure?.length > 0 ? (<>
+            {(b.tables || []).map((t, i) => docSection(t.title || 'Reference Table', (
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                  <thead><tr>{(t.headers || []).map((hd, ci) => <th key={ci} style={{ padding: '7px 11px', border: `1px solid ${DOC_THEME.line}`, backgroundColor: '#F7F8FA', textAlign: 'left', fontWeight: 700 }}>{hd}</th>)}</tr></thead>
+                  <tbody>{(t.rows || []).map((row, ri) => <tr key={ri}>{row.map((c, ci) => <td key={ci} style={{ padding: '7px 11px', border: `1px solid ${DOC_THEME.line}` }}>{c}</td>)}</tr>)}</tbody>
+                </table>
+              </div>
+            )))}
+            {docSection('Procedure', tProcedure?.length > 0 ? (<>
               {runDone && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, background: 'hsla(145,63%,42%,0.1)', border: '1px solid hsla(145,63%,42%,0.35)', borderRadius: 10, padding: '10px 13px' }}>
                   <CheckSquare size={17} style={{ color: 'hsl(145,55%,32%)', flex: '0 0 auto' }} />
@@ -1314,8 +1448,8 @@ export default function SOP({ activeSub, onSubChange }) {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 11, marginBottom: 12, background: 'hsla(215,100%,50%,0.06)', border: '1px solid hsla(215,100%,50%,0.25)', borderRadius: 10, padding: '10px 13px' }}>
                   <ListChecks size={17} style={{ color: 'hsl(var(--color-blue))', flex: '0 0 auto' }} />
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-primary)' }}>Run in progress · {activeRun.steps_done.length} of {activeRun.step_count} steps done</div>
-                    <div style={{ height: 6, borderRadius: 999, background: 'var(--bg-secondary)', overflow: 'hidden', marginTop: 5 }}>
+                    <div style={{ fontSize: '0.82rem', fontWeight: 700 }}>Run in progress · {activeRun.steps_done.length} of {activeRun.step_count} steps done</div>
+                    <div style={{ height: 6, borderRadius: 999, background: DOC_THEME.line, overflow: 'hidden', marginTop: 5 }}>
                       <div style={{ width: `${Math.round(activeRun.steps_done.length / (activeRun.step_count || 1) * 100)}%`, height: '100%', background: 'hsl(145,63%,42%)', transition: 'width 0.25s ease' }} />
                     </div>
                   </div>
@@ -1326,31 +1460,39 @@ export default function SOP({ activeSub, onSubChange }) {
                 {tProcedure.map((s, i) => {
                   const done = !!activeRun && activeRun.steps_done.includes(i);
                   return (
-                  <li key={i} style={{ position: 'relative', padding: '10px 0 10px 40px', borderBottom: '1px solid var(--bg-secondary)', color: 'var(--text-primary)', opacity: done ? 0.55 : 1, transition: 'opacity 0.15s ease' }}>
+                  <li key={i} style={{ position: 'relative', padding: '10px 0 10px 40px', borderBottom: `1px solid ${DOC_THEME.line}`, opacity: done ? 0.55 : 1, transition: 'opacity 0.15s ease' }}>
                     {activeRun
-                      ? <button onClick={() => toggleRunStep(i)} title={done ? 'Mark not done' : 'Mark step done'} style={{ position: 'absolute', left: 0, top: 9, width: 26, height: 26, borderRadius: 8, border: '2px solid', borderColor: done ? 'hsl(145,63%,42%)' : 'var(--border-color)', backgroundColor: done ? 'hsl(145,63%,42%)' : 'var(--bg-card)', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}>{done ? <CheckSquare size={14} /> : ''}</button>
-                      : <span style={{ position: 'absolute', left: 0, top: 9, width: 26, height: 26, borderRadius: 8, backgroundColor: 'var(--bg-secondary)', color: 'hsl(var(--color-blue))', fontWeight: 700, fontSize: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{i + 1}</span>}
+                      ? <button onClick={() => toggleRunStep(i)} title={done ? 'Mark not done' : 'Mark step done'} style={{ position: 'absolute', left: 0, top: 9, width: 26, height: 26, borderRadius: 8, border: '2px solid', borderColor: done ? 'hsl(145,63%,42%)' : DOC_THEME.line, backgroundColor: done ? 'hsl(145,63%,42%)' : DOC_THEME.paper, color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}>{done ? <CheckSquare size={14} /> : ''}</button>
+                      : <span style={{ position: 'absolute', left: 0, top: 9, width: 26, height: 26, borderRadius: 8, backgroundColor: '#F7F8FA', color: DOC_THEME.blue, fontWeight: 700, fontSize: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{i + 1}</span>}
                     <span style={done ? { textDecoration: 'line-through' } : undefined}>{s.text}</span>
                     <StepDetail detail={s.detail} />
-                    {s.image && <img src={signedImgs[s.image] || s.image} alt="step illustration" onClick={() => setLightbox(signedImgs[s.image] || s.image)} style={{ marginTop: 9, maxWidth: 360, width: '100%', borderRadius: 10, border: '1px solid var(--border-color)', display: 'block', cursor: 'zoom-in' }} />}
+                    {s.image && <img src={signedImgs[s.image] || s.image} alt="step illustration" onClick={() => setLightbox(signedImgs[s.image] || s.image)} style={{ marginTop: 9, maxWidth: 360, width: '100%', borderRadius: 10, border: `1px solid ${DOC_THEME.line}`, display: 'block', cursor: 'zoom-in' }} />}
                   </li>
                   );
                 })}
               </ol>
-            </>) : <p style={{ color: 'var(--text-muted)', margin: 0 }}>No steps recorded.</p>)}
-            {tSafety?.length > 0 && section('Safety & Compliance', <ul style={{ margin: 0, paddingLeft: 20, color: 'var(--text-primary)', lineHeight: 1.7 }}>{tSafety.map((s, i) => <li key={i}>{s}</li>)}</ul>)}
-            {b.references?.length > 0 && section('References', <ul style={{ margin: 0, paddingLeft: 20, color: 'var(--text-primary)', lineHeight: 1.7 }}>{b.references.map((s, i) => <li key={i}>{s}</li>)}</ul>)}
-            {b.media?.length > 0 && section('Training media', <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>{b.media.map((m, i) => mediaEmbed(m, i))}</div>)}
-            {b.attachments?.length > 0 && section('Attachments & Diagrams', (
+            </>) : <p style={{ color: DOC_THEME.muted, margin: 0 }}>No steps recorded.</p>)}
+            {tSafety?.length > 0 && docSection('Safety & Compliance', <ul style={{ margin: 0, paddingLeft: 20, lineHeight: 1.7 }}>{tSafety.map((s, i) => <li key={i}>{s}</li>)}</ul>)}
+            {b.references?.length > 0 && docSection('References', <ul style={{ margin: 0, paddingLeft: 20, lineHeight: 1.7 }}>{b.references.map((s, i) => <li key={i}>{s}</li>)}</ul>)}
+            {b.media?.length > 0 && docSection('Training media', <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>{b.media.map((m, i) => mediaEmbed(m, i))}</div>)}
+            {b.attachments?.length > 0 && docSection('Attachments & Diagrams', (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
                 {b.attachments.map((a, i) => a.type === 'image' && a.data
-                  ? <img key={i} src={a.data} alt={a.name} onClick={() => setLightbox(a.data)} style={{ height: 120, borderRadius: 10, border: '1px solid var(--border-color)', cursor: 'zoom-in' }} />
-                  : <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: '0.8rem', color: 'var(--text-secondary)', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 10, padding: '10px 12px' }}><Paperclip size={14} />{a.name}</span>)}
+                  ? <img key={i} src={a.data} alt={a.name} onClick={() => setLightbox(a.data)} style={{ height: 120, borderRadius: 10, border: `1px solid ${DOC_THEME.line}`, cursor: 'zoom-in' }} />
+                  : <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: '0.8rem', color: DOC_THEME.muted, background: '#F7F8FA', border: `1px solid ${DOC_THEME.line}`, borderRadius: 10, padding: '10px 12px' }}><Paperclip size={14} />{a.name}</span>)}
               </div>
             ))}
             </>}
+            </div>
 
-            <div style={{ marginTop: 26, borderTop: '2px solid var(--border-color)', paddingTop: 18 }}>
+            {/* footer */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 14, padding: '10px 26px', borderTop: `1px solid ${DOC_THEME.line}`, fontSize: '0.7rem', color: DOC_THEME.muted, flexWrap: 'wrap' }}>
+              <span>Internal Use Only</span>
+              <span>{dTitle}</span>
+            </div>
+          </div>
+
+            <div style={{ margin: '18px 24px 0', padding: '18px 0 24px', borderTop: '2px solid var(--border-color)' }}>
               <h3 style={{ fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'hsl(var(--color-blue))', margin: '0 0 14px', fontWeight: 700 }}>Discussion <span style={{ fontFamily: 'inherit', color: 'var(--text-muted)' }}>{comments.length}</span></h3>
               {comments.length === 0
                 ? <div style={{ fontSize: '0.83rem', color: 'var(--text-muted)', marginBottom: 4 }}>No comments yet. Start the discussion below.</div>
@@ -1604,6 +1746,57 @@ export default function SOP({ activeSub, onSubChange }) {
         </div>
         <button className="secondary-btn" onClick={() => addItem(field, { [k1]: '', [k2]: '' })} style={{ marginTop: 12, height: 36, fontSize: '0.82rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={14} /> Add</button>
       </>), isGap(field));
+    const tableEditor = () => section('Reference Tables', 'Structured data that belongs in a table, not prose - lookup lists, mappings, comparison charts.', (<>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {draft.body.tables.map((t, ti) => {
+            const updTable = (patch) => updItem('tables', ti, { ...t, ...patch });
+            const updCell = (ri, ci, val) => updTable({ rows: t.rows.map((row, rj) => rj === ri ? row.map((c, cj) => cj === ci ? val : c) : row) });
+            const updHeader = (ci, val) => updTable({ headers: t.headers.map((hd, hj) => hj === ci ? val : hd) });
+            const addRow = () => updTable({ rows: [...t.rows, t.headers.map(() => '')] });
+            const delRow = (ri) => updTable({ rows: t.rows.filter((_, rj) => rj !== ri) });
+            const addCol = () => updTable({ headers: [...t.headers, `Column ${t.headers.length + 1}`], rows: t.rows.map(row => [...row, '']) });
+            const delCol = (ci) => updTable({ headers: t.headers.filter((_, hj) => hj !== ci), rows: t.rows.map(row => row.filter((_, cj) => cj !== ci)) });
+            return (
+              <div key={ti} style={{ border: '1px solid var(--border-color)', borderRadius: 12, padding: 14, backgroundColor: 'var(--bg-secondary)' }}>
+                <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+                  <input className="form-input" value={t.title || ''} placeholder="Table title (e.g. Access Groups)" onChange={e => updTable({ title: e.target.value })} style={{ flex: 1, fontWeight: 600 }} />
+                  <button className="secondary-btn" onClick={() => delItem('tables', ti)} style={{ width: 42, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}><Trash2 size={16} /></button>
+                </div>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: '0.85rem' }}>
+                    <thead><tr>
+                      {t.headers.map((hd, ci) => (
+                        <th key={ci} style={{ padding: 4, border: '1px solid var(--border-color)' }}>
+                          <div style={{ display: 'flex', gap: 4 }}>
+                            <input className="form-input" value={hd} onChange={e => updHeader(ci, e.target.value)} style={{ padding: '6px 8px', fontWeight: 600, minWidth: 90 }} />
+                            <button className="secondary-btn" title="Remove column" onClick={() => delCol(ci)} style={{ width: 28, padding: 0, flex: '0 0 auto' }}><X size={13} /></button>
+                          </div>
+                        </th>
+                      ))}
+                      <th style={{ padding: 4 }}><button className="secondary-btn" onClick={addCol} style={{ height: 30, fontSize: '0.76rem', display: 'inline-flex', alignItems: 'center', gap: 4 }}><Plus size={12} /> Column</button></th>
+                    </tr></thead>
+                    <tbody>
+                      {t.rows.map((row, ri) => (
+                        <tr key={ri}>
+                          {row.map((c, ci) => (
+                            <td key={ci} style={{ padding: 4, border: '1px solid var(--border-color)' }}>
+                              <input className="form-input" value={c} onChange={e => updCell(ri, ci, e.target.value)} style={{ padding: '6px 8px', minWidth: 90, width: '100%' }} />
+                            </td>
+                          ))}
+                          <td style={{ padding: 4 }}><button className="secondary-btn" onClick={() => delRow(ri)} style={{ width: 28, height: 28, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Trash2 size={13} /></button></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <button className="secondary-btn" onClick={addRow} style={{ marginTop: 10, height: 32, fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 4 }}><Plus size={13} /> Row</button>
+              </div>
+            );
+          })}
+          {draft.body.tables.length === 0 && <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0 }}>None yet.</p>}
+        </div>
+        <button className="secondary-btn" onClick={() => addItem('tables', { title: '', headers: ['Column 1', 'Column 2'], rows: [['', '']] })} style={{ marginTop: 12, height: 36, fontSize: '0.82rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={14} /> Add Table</button>
+      </>));
 
     // wizard: new SOPs open on Capture; manuals and edits jump straight to Content
     const steps = (isNew && !isManual) ? ['Capture', 'Content', 'Settings', 'Publish'] : ['Content', 'Settings', 'Publish'];
@@ -1624,7 +1817,7 @@ export default function SOP({ activeSub, onSubChange }) {
       ]] : []),
     ];
     return (
-      <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out', width: '100%', maxWidth: 980, margin: '0 auto' }}>
+      <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out', width: '100%', maxWidth: 1320, margin: '0 auto' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
           <button className="secondary-btn" onClick={backToList} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 34 }}>
             <ArrowLeft size={15} /> {isNew ? 'Cancel' : 'Back'}
@@ -1685,38 +1878,49 @@ export default function SOP({ activeSub, onSubChange }) {
         )}
 
         {stepName === 'Capture' && <>{/* Capture step - show the task once, Claude writes the SOP */}
-        <div style={{ maxWidth: 780, margin: '0 auto' }}>
-          <div style={{ border: '1px solid hsla(266,70%,60%,0.4)', background: 'hsla(266,70%,60%,0.05)', borderRadius: 16, padding: '24px 26px', marginBottom: 14, boxShadow: 'var(--shadow-sm)' }}>
-            <div style={{ textAlign: 'center', marginBottom: 16 }}>
-              <div style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: 'hsla(266,70%,60%,0.14)', color: 'hsl(266,72%,56%)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 10px' }}><Sparkles size={22} /></div>
-              <strong style={{ fontSize: '1.05rem', display: 'block' }}>Show It, Don't Write It</strong>
-              <span style={{ fontSize: '0.84rem', color: 'var(--text-secondary)' }}>Do the task once: paste a screenshot of each step (Ctrl+V), jot rough notes between them, or upload an existing document. Claude turns it into a finished, standardized {draft.doc_type} - you review every change before keeping it.</span>
-            </div>
-            <textarea className="form-input" autoFocus value={draft._raw} onPaste={pasteImport} placeholder={'Type rough step notes and press Ctrl+V to drop in screenshots as you go…\n\ne.g.\nOpen the gate panel and enter the master code\n[screenshot]\nCheck the log for the last entry…'} onChange={e => setDraft(p => ({ ...p, _raw: e.target.value }))} style={{ width: '100%', minHeight: 200, resize: 'vertical', fontSize: '0.92rem', lineHeight: 1.6 }} />
-            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 6 }}>Tip: paste screenshots in the order you do the steps, or press Ctrl+V anytime - Claude attaches each one to the right step.</div>
-            {Object.keys(draft._importThumbs || {}).length > 0 && (
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
-                {Object.entries(draft._importThumbs).map(([marker, src]) => (
-                  <div key={marker} style={{ position: 'relative', border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden' }}>
-                    <img src={src} alt={marker} style={{ height: 58, display: 'block' }} />
-                    <span style={{ position: 'absolute', bottom: 2, left: 4, fontSize: '0.6rem', fontWeight: 700, color: '#fff', background: 'rgba(0,0,0,0.55)', borderRadius: 4, padding: '0 4px' }}>{marker.replace(/[[\]]/g, '')}</span>
+        <div style={{ maxWidth: 1180, margin: '0 auto' }}>
+          <div style={{ border: '1px solid hsla(266,70%,60%,0.4)', background: 'hsla(266,70%,60%,0.05)', borderRadius: 16, padding: isMobile ? '24px 22px' : '30px 34px', marginBottom: 14, boxShadow: 'var(--shadow-sm)' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'minmax(260px, 340px) 1fr', gap: isMobile ? 20 : 36 }}>
+              <div style={{ textAlign: isMobile ? 'center' : 'left' }}>
+                <div style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: 'hsla(266,70%,60%,0.14)', color: 'hsl(266,72%,56%)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: isMobile ? '0 auto 10px' : '0 0 12px' }}><Sparkles size={22} /></div>
+                <strong style={{ fontSize: '1.15rem', display: 'block', marginBottom: 8 }}>Show It, Don't Write It</strong>
+                <span style={{ fontSize: '0.88rem', color: 'var(--text-secondary)', lineHeight: 1.6 }}>Do the task once: paste a screenshot of each step (Ctrl+V), jot rough notes between them, or upload an existing document. Claude turns it into a finished, standardized {draft.doc_type} - you review every change before keeping it.</span>
+                {!isMobile && (
+                  <div style={{ marginTop: 20, fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+                    Prefer to write it yourself? <button onClick={nextStep} style={{ background: 'none', border: 'none', color: 'hsl(var(--color-blue))', fontWeight: 600, cursor: 'pointer', fontSize: '0.82rem', padding: 0 }}>Start With a Blank Document</button>
                   </div>
-                ))}
+                )}
               </div>
-            )}
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'center', marginTop: 16, flexWrap: 'wrap' }}>
-              <label className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 42, cursor: 'pointer', margin: 0 }}>
-                <Paperclip size={15} /> Upload File
-                <input type="file" accept={IMPORT_ACCEPT} onChange={e => { importFile(e.target.files[0]); e.target.value = ''; }} style={{ display: 'none' }} />
-              </label>
-              <button className="primary-btn" disabled={aiBusy} onClick={runAiFormat} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 42, padding: '0 22px', fontSize: '0.92rem', background: 'linear-gradient(135deg, hsl(258,82%,62%), hsl(288,70%,58%))', border: 'none', color: '#fff' }}>
-                {aiBusy ? <Loader size={15} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Sparkles size={15} />} {aiBusy ? 'Writing Your SOP…' : 'Format with Claude'}
-              </button>
+              <div>
+                <textarea className="form-input" autoFocus value={draft._raw} onPaste={pasteImport} placeholder={'Type rough step notes and press Ctrl+V to drop in screenshots as you go…\n\ne.g.\nOpen the gate panel and enter the master code\n[screenshot]\nCheck the log for the last entry…'} onChange={e => setDraft(p => ({ ...p, _raw: e.target.value }))} style={{ width: '100%', minHeight: 260, resize: 'vertical', fontSize: '0.92rem', lineHeight: 1.6 }} />
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 6 }}>Tip: paste screenshots in the order you do the steps, or press Ctrl+V anytime - Claude attaches each one to the right step.</div>
+                {Object.keys(draft._importThumbs || {}).length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
+                    {Object.entries(draft._importThumbs).map(([marker, src]) => (
+                      <div key={marker} style={{ position: 'relative', border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden' }}>
+                        <img src={src} alt={marker} style={{ height: 58, display: 'block' }} />
+                        <span style={{ position: 'absolute', bottom: 2, left: 4, fontSize: '0.6rem', fontWeight: 700, color: '#fff', background: 'rgba(0,0,0,0.55)', borderRadius: 4, padding: '0 4px' }}>{marker.replace(/[[\]]/g, '')}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div style={{ display: 'flex', gap: 10, justifyContent: isMobile ? 'center' : 'flex-start', marginTop: 16, flexWrap: 'wrap' }}>
+                  <label className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 42, cursor: 'pointer', margin: 0 }}>
+                    <Paperclip size={15} /> Upload File
+                    <input type="file" accept={IMPORT_ACCEPT} onChange={e => { importFile(e.target.files[0]); e.target.value = ''; }} style={{ display: 'none' }} />
+                  </label>
+                  <button className="primary-btn" disabled={aiBusy} onClick={runAiFormat} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 42, padding: '0 22px', fontSize: '0.92rem', background: 'linear-gradient(135deg, hsl(258,82%,62%), hsl(288,70%,58%))', border: 'none', color: '#fff' }}>
+                    {aiBusy ? <Loader size={15} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Sparkles size={15} />} {aiBusy ? 'Writing Your SOP…' : 'Format with Claude'}
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
-          <div style={{ textAlign: 'center', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
-            Prefer to write it yourself? <button onClick={nextStep} style={{ background: 'none', border: 'none', color: 'hsl(var(--color-blue))', fontWeight: 600, cursor: 'pointer', fontSize: '0.82rem', padding: 0 }}>Start With a Blank Document</button>
-          </div>
+          {isMobile && (
+            <div style={{ textAlign: 'center', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+              Prefer to write it yourself? <button onClick={nextStep} style={{ background: 'none', border: 'none', color: 'hsl(var(--color-blue))', fontWeight: 600, cursor: 'pointer', fontSize: '0.82rem', padding: 0 }}>Start With a Blank Document</button>
+            </div>
+          )}
         </div></>}
 
         {stepName === 'Content' && <>
@@ -1782,6 +1986,7 @@ export default function SOP({ activeSub, onSubChange }) {
         {listEditor('materials', 'Materials & Required Items', 'e.g. Master key set', 'Anything someone needs on hand before they start - tools, access, forms, or equipment.')}
         {pairEditor('responsibilities', 'Responsibilities', 'Who does what - list each role and what they’re accountable for in this process.', 'role', 'duty', 'Role', 'Responsibility')}
         {pairEditor('definitions', 'Definitions', 'Spell out any terms, acronyms, or system names a new reader might not know.', 'term', 'def', 'Term', 'Definition')}
+        {tableEditor()}
 
         {/* procedure */}
         {section('Procedure', 'The heart of the document - the steps to follow, in order. Keep each step to one clear action; add a note or picture where it helps.', (<>
@@ -2808,7 +3013,8 @@ export default function SOP({ activeSub, onSubChange }) {
               <div className="modal-overlay" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '3vh 2vw' }} onClick={e => { if (e.target === e.currentTarget) setCertOpen(false); }}>
                 <div style={{ background: 'var(--bg-card)', borderRadius: 16, width: '96vw', maxWidth: 720, boxShadow: '0 20px 60px rgba(0,0,0,0.3)', overflow: 'hidden' }}>
                   <div id="kb-cert" style={{ padding: 36, textAlign: 'center', border: '10px solid hsl(145,40%,30%)', margin: 14, borderRadius: 10, background: '#fff', color: '#1a2332' }}>
-                    <div style={{ fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.18em', fontWeight: 700, color: 'hsl(145,40%,30%)' }}>Nexus</div>
+                    <img src={GREENS_LOGO_URL} alt="Greens Global" style={{ height: 34, width: 'auto', display: 'block', margin: '0 auto 10px' }} />
+                    <div style={{ fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.18em', fontWeight: 700, color: 'hsl(145,40%,30%)' }}>Nexus Learning</div>
                     <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: '1.9rem', fontWeight: 800, margin: '10px 0 4px' }}>Certificate of Completion</div>
                     <div style={{ fontSize: '0.9rem', color: '#64748b', marginBottom: 22 }}>This certifies that</div>
                     <div style={{ fontSize: '1.6rem', fontWeight: 700, fontFamily: "'Plus Jakarta Sans', sans-serif", borderBottom: '2px solid #e2e8f0', display: 'inline-block', padding: '0 24px 8px' }}>{myName}</div>

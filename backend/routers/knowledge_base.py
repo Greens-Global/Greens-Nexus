@@ -12,6 +12,7 @@ if the proxy/key/network is unavailable it falls back to a local heuristic
 formatter so the editor feature never hard-fails.
 """
 import os
+import re
 import json
 import uuid
 import base64
@@ -732,11 +733,29 @@ _STD_SCHEMA = (
     '{"title":string,"purpose":string,"scopeText":string,"materials":[string],'
     '"responsibilities":[{"role":string,"duty":string}],'
     '"definitions":[{"term":string,"def":string}],'
+    '"tables":[{"title":string,"headers":[string],"rows":[[string]]}],'
     '"procedure":[{"text":string,"detail":string,"image":string}],"safety":[string],"references":[string]}\n'
     'Build each section by RESTRUCTURING the material - never transcribe it line by line:\n'
     '- IGNORE shallow or placeholder section labels in the source (e.g. a one-line "Purpose: <the title>" '
     'or "Definitions: Plex: a software"). The real, detailed content is often dumped under a single heading '
     '(commonly "Procedure"). Read the WHOLE source and rebuild every section from the substantive content.\n'
+    '- TABLES: blocks wrapped in [[TABLE]] ... [[/TABLE]] came from a table in the source document, one line '
+    "per row with cells joined by ' | '. A short table near the top with fields like Author, Version, "
+    'Revision, Date, Owner, Approved by, or Status is DOCUMENT METADATA - ignore it completely. Never turn '
+    "its rows or cells into procedure steps, materials, or any other section; never output a person's name, "
+    "a bare version string (e.g. 'V 1.0'), or a bare date as its own procedure step or list item - those are "
+    'metadata artifacts, not content. If a table instead holds genuine reference/lookup data - a mapping of '
+    'names to values, a comparison of options, a list of groups/roles/settings with several columns each, '
+    'anything a reader would scan as a lookup rather than read as a paragraph - put it in "tables" as '
+    '{title, headers, rows} PRESERVING EVERY ROW LOSSLESSLY (do not sample, truncate, or summarize a 20+ row '
+    'table down to a few examples); give it a short descriptive title from context (e.g. "Egnyte Access '
+    'Groups"). Only fold a table into prose/bullets when it is small (2-3 rows) and reads naturally as a '
+    "sentence. Never leave raw '|'-joined rows or the [[TABLE]] markers themselves in any other output field.\n"
+    '- DEFINITIONS: a list that names several terms, roles, or types each followed by a colon and a '
+    'description (e.g. "Standard Users: a limited role for external collaborators…", "Power Users: an '
+    'advanced role…") is a definitions list - extract every one as {term, def} in "definitions", even if it '
+    'appears inline in a paragraph, under an unrelated heading, or with no heading at all. Do not leave '
+    'this kind of list sitting in "procedure" or "materials".\n'
     '- "purpose": 2-4 full sentences on what this SOP accomplishes and why - synthesize it; never just echo '
     'the title.\n'
     '- "scopeText": who/what it applies to and its boundaries.\n'
@@ -776,6 +795,12 @@ def _normalize_sop(o: dict) -> dict:
         "materials": [s if isinstance(s, str) else s.get("text", "") for s in arr(o.get("materials"))],
         "responsibilities": [{"role": r.get("role") or r.get("who", ""), "duty": r.get("duty") or r.get("responsibility", "")} for r in arr(o.get("responsibilities")) if isinstance(r, dict)],
         "definitions": [{"term": r.get("term", ""), "def": r.get("def") or r.get("definition", "")} for r in arr(o.get("definitions")) if isinstance(r, dict)],
+        "tables": [
+            {"title": t.get("title", ""),
+             "headers": [str(h) for h in arr(t.get("headers"))],
+             "rows": [[str(c) for c in arr(row)] for row in arr(t.get("rows"))]}
+            for t in arr(o.get("tables")) if isinstance(t, dict)
+        ],
         "procedure": [({"text": s, "detail": "", "image": ""} if isinstance(s, str) else {"text": s.get("text") or s.get("step", ""), "detail": s.get("detail", ""), "image": s.get("image", "")}) for s in arr(o.get("procedure"))],
         "safety": [s if isinstance(s, str) else s.get("text", "") for s in arr(o.get("safety"))],
         "references": [s if isinstance(s, str) else s.get("text", "") for s in arr(o.get("references"))],
@@ -787,7 +812,26 @@ def _heuristic_format(text: str, title: str) -> dict:
     out = _normalize_sop({})
     out["title"] = title
     steps, refs, safety, materials = [], [], [], []
+    tables: list[dict] = []
     purpose = ""
+    # Strip [[TABLE]]...[[/TABLE]] blocks (and inline [[IMG#]] markers) before the
+    # line-by-line walk below - without this, a table's pipe-joined rows and any
+    # image placeholder land in "procedure" as bogus, unreadable steps, since this
+    # fallback has no per-section understanding the way the AI prompt does.
+    _META_HEADERS = {"author", "version", "revision", "date", "owner", "approved by", "status"}
+    def _table(m):
+        rows = [r for r in m.group(1).strip().splitlines() if r.strip()]
+        if not rows:
+            return ""
+        cells = [r.split(" | ") for r in rows]
+        headers = cells[0]
+        if len(cells) <= 2 and sum(1 for h in headers if h.strip().lower() in _META_HEADERS) >= 2:
+            return ""  # document metadata table (author/version/date) - not content
+        tables.append({"title": "", "headers": headers, "rows": cells[1:] or cells})
+        return ""
+    text = re.sub(r"\[\[TABLE\]\](.*?)\[\[/TABLE\]\]", _table, text or "", flags=re.DOTALL)
+    text = re.sub(r"\[\[IMG\d+\]\]", "", text)
+    out["tables"] = tables
     for raw in (text or "").splitlines():
         line = raw.strip()
         if not line:
