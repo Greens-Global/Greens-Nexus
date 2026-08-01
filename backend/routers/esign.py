@@ -25,6 +25,8 @@ import os
 import pathlib
 import re
 import secrets
+import threading
+import time
 import uuid
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File, Form, Header, Response
@@ -1342,15 +1344,49 @@ def my_decline(party_id: str, body: DeclineIn, request: Request,
 
 _CODE_LOCKOUT_ATTEMPTS = 10
 
+# Token-guessing throttle (SECURITY-TODO item 7a). The 43-char token's entropy
+# is the real defense; this stops an attacker from probing at network speed and
+# makes probing visible in the logs. In-process per gunicorn worker (no Redis
+# in this stack), so the effective ceiling is 8x these numbers - still collapses
+# guessing from "unbounded" to "a few hundred tries an hour, loudly".
+_GUESS_WINDOW_SEC = 900
+_GUESS_MAX_MISSES = 20          # unknown-token 404s per IP per window
+_guess_lock = threading.Lock()
+_guess_misses: dict = {}        # ip -> [timestamps of unknown-token misses]
 
-def _party_by_token(db: Session, token: str) -> tuple:
+
+def _note_token_miss(request: Optional[Request]) -> None:
+    """Record an unknown-token 404 for this IP; 429 once it exceeds the cap.
+    Wrong tokens only - legit signers re-opening their link never hit this."""
+    ip, _ = _client_meta(request)
+    now = time.time()
+    with _guess_lock:
+        hits = [t for t in _guess_misses.get(ip, []) if now - t < _GUESS_WINDOW_SEC]
+        hits.append(now)
+        _guess_misses[ip] = hits
+        if len(_guess_misses) > 10000:      # bound memory under spoofed-IP floods
+            _guess_misses.clear()
+        blocked = len(hits) > _GUESS_MAX_MISSES
+        just_tripped = len(hits) == _GUESS_MAX_MISSES + 1   # log the crossing, not every hit
+    if blocked:
+        if just_tripped:
+            from middleware_hardening import security_log
+            security_log("esign_token_guessing", f"{len(hits)} unknown-token misses in "
+                         f"{_GUESS_WINDOW_SEC}s", ip=ip)
+        raise HTTPException(429, "Too many attempts - try again later.")
+
+
+def _party_by_token(db: Session, token: str, request: Optional[Request] = None) -> tuple:
     if not token or len(token) < 20:
+        _note_token_miss(request)
         raise HTTPException(404, "Not found")
     party = db.query(HrSignParty).filter(HrSignParty.token == token).first()
     if not party:
+        _note_token_miss(request)
         raise HTTPException(404, "Not found")
     req = db.query(HrSignRequest).filter(HrSignRequest.id == party.request_id).first()
     if not req:
+        _note_token_miss(request)
         raise HTTPException(404, "Not found")
     return req, party
 
@@ -1392,7 +1428,7 @@ def _check_access_code(db: Session, req: HrSignRequest, party: HrSignParty,
 @router.get("/public/{token}")
 def public_render(token: str, request: Request, code: str = "",
                   x_access_code: str = Header(""), db: Session = Depends(get_db)):
-    req, party = _party_by_token(db, token)
+    req, party = _party_by_token(db, token, request)
     _check_expiry(db, req)
     code = code or x_access_code   # prefer the header - a query param leaks into logs/history
     if not _check_access_code(db, req, party, code, request):
@@ -1412,7 +1448,7 @@ def public_render(token: str, request: Request, code: str = "",
 
 @router.post("/public/{token}/sign")
 def public_sign(token: str, body: SignIn, request: Request, db: Session = Depends(get_db)):
-    req, party = _party_by_token(db, token)
+    req, party = _party_by_token(db, token, request)
     if not _check_access_code(db, req, party, body.access_code or "", request):
         raise HTTPException(403, "Wrong access code")
     ip, ua = _client_meta(request)
@@ -1421,7 +1457,7 @@ def public_sign(token: str, body: SignIn, request: Request, db: Session = Depend
 
 @router.post("/public/{token}/decline")
 def public_decline(token: str, body: DeclineIn, request: Request, db: Session = Depends(get_db)):
-    req, party = _party_by_token(db, token)
+    req, party = _party_by_token(db, token, request)
     if not _check_access_code(db, req, party, body.access_code or "", request):
         raise HTTPException(403, "Wrong access code")
     ip, ua = _client_meta(request)
@@ -1433,7 +1469,7 @@ def public_download(token: str, request: Request, code: str = "",
                     x_access_code: str = Header(""), db: Session = Depends(get_db)):
     """A party's own copy of the SEALED document - only once completed. Externals
     have no Nexus login; this is how they retain their copy (ESIGN retention)."""
-    req, party = _party_by_token(db, token)
+    req, party = _party_by_token(db, token, request)
     code = code or x_access_code   # prefer the header - a query param leaks into logs/history
     if not _check_access_code(db, req, party, code, request):
         raise HTTPException(403, "Wrong access code")
@@ -1450,7 +1486,7 @@ def public_download(token: str, request: Request, code: str = "",
 
 
 @router.get("/public/verify/{verify_token}")
-def public_verify(verify_token: str, db: Session = Depends(get_db)):
+def public_verify(verify_token: str, request: Request, db: Session = Depends(get_db)):
     """Public, unauthenticated certificate verification - what the QR code on
     the Certificate of Completion links to. Anyone holding a copy of the
     document (an auditor, opposing counsel, the other party) can confirm it's
@@ -1466,6 +1502,7 @@ def public_verify(verify_token: str, db: Session = Depends(get_db)):
     a scanned QR code reaches)."""
     req = db.query(HrSignRequest).filter(HrSignRequest.verify_token == verify_token).first()
     if not req or req.status != "completed" or not req.final_pdf_path:
+        _note_token_miss(request)   # same guessing throttle as the signing links
         raise HTTPException(404, "Verification record not found")
     integrity = _check_final_integrity(req)
     events = (db.query(HrSignEvent).filter(HrSignEvent.request_id == req.id)

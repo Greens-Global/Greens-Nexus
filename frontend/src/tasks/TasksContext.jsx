@@ -10,6 +10,7 @@ import { useRole } from '../contexts/RoleContext';
 import { useNameResolver } from '../lib/useNameResolver';
 import { STATUS_META, STATUS_ORDER, NX } from './theme';
 import { celebrateCompletion } from './celebrate';
+import { pollWhileVisible } from '../lib/pollWhileVisible';
 
 const Ctx = createContext(null);
 
@@ -112,14 +113,14 @@ export function TasksProvider({ children }) {
   useEffect(() => {
     let timer = null;
     const debounced = () => { clearTimeout(timer); timer = setTimeout(() => { refetchTasks(); loadNotifications(); }, 400); };
-    const iv = setInterval(() => { refetchTasks().catch(() => {}); }, 45000);
+    const stopPoll = pollWhileVisible(() => { refetchTasks().catch(() => {}); }, 45000);
     let channel = null;
     if (supabase) {
       channel = supabase.channel('task_event_pings')
         .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'task_events' }, debounced)
         .subscribe();
     }
-    return () => { clearInterval(iv); clearTimeout(timer); if (channel) supabase?.removeChannel(channel); };
+    return () => { stopPoll(); clearTimeout(timer); if (channel) supabase?.removeChannel(channel); };
   }, [refetchTasks, loadNotifications]);
 
   // ── Lookups ────────────────────────────────────────────────────────────────

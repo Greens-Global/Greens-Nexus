@@ -4,6 +4,7 @@ import { useMsal } from '@azure/msal-react';
 import { InteractionStatus } from '@azure/msal-browser';
 import { api, setActAsSessionId, getActAsSessionId } from '../api';
 import { apiTokenRequest } from '../authConfig';
+import { queryClient, qk } from '../lib/queryClient';
 
 const RoleCtx = createContext(null);
 
@@ -159,8 +160,15 @@ export function RoleProvider({ children }) {
     };
 
     tryFetch();
-    // Load groups so myGrantedModules is accurate for every user on every page
-    api.getGroups().then(data => { if (!cancelled) setGroups(data); }).catch(() => {});
+    // Load groups so myGrantedModules is accurate for every user on every page.
+    // Routed through the shared TanStack cache (qk.groups) so this dedupes with
+    // every useGroups() screen - whoever loads first, the other reuses it - and
+    // a group mutation invalidates one cache for all of them. getMyRole above is
+    // deliberately NOT wrapped: its bespoke 3x-retry + 401 interactive-redirect
+    // recovery must stay exactly as-is, and a context already shares its result
+    // app-wide, so there is nothing to gain and real reliability to lose.
+    queryClient.fetchQuery({ queryKey: qk.groups, queryFn: api.getGroups, staleTime: 30_000 })
+      .then(data => { if (!cancelled) setGroups(data); }).catch(() => {});
 
     return () => { cancelled = true; };
   }, [myEmail]);
@@ -224,7 +232,10 @@ export function RoleProvider({ children }) {
 
   // ── Access Groups ──────────────────────────────────────────────────────────
   const refreshGroups = useCallback(() => {
-    api.getGroups().then(setGroups).catch(() => {});
+    // Force-fresh (staleTime 0) and write through the shared cache so every
+    // useGroups() consumer reflects the change too.
+    queryClient.fetchQuery({ queryKey: qk.groups, queryFn: api.getGroups, staleTime: 0 })
+      .then(setGroups).catch(() => {});
   }, []);
 
   const createGroup = useCallback(async (body) => {

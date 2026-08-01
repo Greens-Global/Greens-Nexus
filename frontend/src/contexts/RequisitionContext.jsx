@@ -3,33 +3,8 @@ import { createContext, useContext, useState, useEffect } from 'react';
 import { useMsal } from '@azure/msal-react';
 import { api } from '../api';
 import { supabase } from '../lib/supabase';
+import { pollWhileVisible } from '../lib/pollWhileVisible';
 
-export const DEPT_SUPERVISORS = {
-  'Operations':    'Robert Kim',
-  'Accounting':    'Sarah Johnson',
-  'IT Support':    'David Kim',
-  'Real Estate':   'Jessica Taylor',
-  'Marketing':     'Marcus Vance',
-  'Admin':         'Emily Rodriguez',
-  'Construction':  'Michael Chen',
-};
-
-const INIT_HW_ASSETS = [
-  { id: 'A001', name: 'Dell XPS 15 Laptop',          category: 'Laptop',     serialNumber: 'SN-XPS15-001',  assignedTo: 'Visesh Lodha',      dept: 'IT',          location: 'Main Office',  status: 'Checked Out', purchased: '2024-03-10', warrantyEnd: '2027-03-10' },
-  { id: 'A002', name: 'MacBook Pro 14" M3',           category: 'Laptop',     serialNumber: 'SN-MBP14-002',  assignedTo: 'Sarah Johnson',     dept: 'Accounting',  location: 'Main Office',  status: 'Checked Out', purchased: '2024-06-01', warrantyEnd: '2027-06-01' },
-  { id: 'A003', name: 'Dell UltraSharp 27" Monitor',  category: 'Monitor',    serialNumber: 'SN-DEL27-003',  assignedTo: 'Michael Chen',      dept: 'Development', location: 'Dev Floor',    status: 'Checked Out', purchased: '2023-11-15', warrantyEnd: '2026-11-15' },
-  { id: 'A004', name: 'HP ProDesk 600 G9 Desktop',    category: 'Desktop',    serialNumber: 'SN-HPD600-004', assignedTo: 'Reception Desk',    dept: 'Admin',       location: 'Front Lobby',  status: 'Checked Out', purchased: '2023-08-20', warrantyEnd: '2026-08-20' },
-  { id: 'A005', name: 'Cisco Catalyst 2960 Switch',   category: 'Network',    serialNumber: 'SN-CC2960-005', assignedTo: 'IT Rack',           dept: 'IT',          location: 'Server Room',  status: 'Checked Out', purchased: '2022-05-01', warrantyEnd: '2025-05-01' },
-  { id: 'A006', name: 'Synology DS1823xs+ NAS',       category: 'Server',     serialNumber: 'SN-SYN-006',    assignedTo: 'IT Infrastructure', dept: 'IT',          location: 'Server Room',  status: 'Checked Out', purchased: '2023-02-14', warrantyEnd: '2026-02-14' },
-  { id: 'A007', name: 'iPhone 15 Pro',                category: 'Phone',      serialNumber: 'SN-IP15P-007',  assignedTo: 'Robert Kim',        dept: 'OPS',         location: 'Field',        status: 'Checked Out', purchased: '2024-01-08', warrantyEnd: '2025-01-08' },
-  { id: 'A008', name: 'iPad Pro 12.9" Gen 6',         category: 'Tablet',     serialNumber: 'SN-IPAD-008',   assignedTo: 'Marcus Vance',      dept: 'OPS',         location: 'Field',        status: 'Checked Out', purchased: '2023-09-22', warrantyEnd: '2024-09-22' },
-  { id: 'A009', name: 'Logitech MX Keys Keyboard',    category: 'Peripheral', serialNumber: 'SN-LGT-009',    assignedTo: 'Unassigned',        dept: 'IT',          location: 'IT Storage',   status: 'Available',   purchased: '2024-02-28', warrantyEnd: '2026-02-28' },
-  { id: 'A010', name: 'APC Smart-UPS 1500VA',         category: 'Power',      serialNumber: 'SN-APC-010',    assignedTo: 'IT Rack',           dept: 'IT',          location: 'Server Room',  status: 'Checked Out', purchased: '2022-11-01', warrantyEnd: '2025-11-01' },
-  { id: 'A011', name: 'Dell Latitude 5540 Laptop',    category: 'Laptop',     serialNumber: 'SN-LAT54-011',  assignedTo: 'Unassigned',        dept: 'IT',          location: 'IT Storage',   status: 'Available',   purchased: '2025-01-15', warrantyEnd: '2028-01-15' },
-  { id: 'A012', name: 'HP EliteBook 840 G11',         category: 'Laptop',     serialNumber: 'SN-HPE840-012', assignedTo: 'Unassigned',        dept: 'IT',          location: 'IT Storage',   status: 'Available',   purchased: '2025-03-10', warrantyEnd: '2028-03-10' },
-  { id: 'A013', name: 'Samsung Galaxy Tab S9',        category: 'Tablet',     serialNumber: 'SN-SGT-013',    assignedTo: 'Unassigned',        dept: 'IT',          location: 'IT Storage',   status: 'Available',   purchased: '2025-02-20', warrantyEnd: '2028-02-20' },
-  { id: 'A014', name: 'Dell 24" Monitor P2423D',      category: 'Monitor',    serialNumber: 'SN-DEL24-014',  assignedTo: 'Unassigned',        dept: 'IT',          location: 'IT Storage',   status: 'Available',   purchased: '2025-04-01', warrantyEnd: '2028-04-01' },
-];
 
 // ── Mappers: API (snake_case) ↔ frontend (camelCase) ─────────────────────────
 
@@ -132,9 +107,11 @@ export function RequisitionProvider({ children }) {
         // Migrate hw_assets from localStorage if DB is empty
         if (assets.length === 0) {
           let seed;
-          try { seed = JSON.parse(localStorage.getItem('gn_hw_assets')) || INIT_HW_ASSETS; }
-          catch { seed = INIT_HW_ASSETS; }
-          await Promise.allSettled(seed.map(a => api.createHardwareAsset(assetToApi(a))));
+          try { seed = JSON.parse(localStorage.getItem('gn_hw_assets')) || []; }
+          catch { seed = []; }
+          if (seed.length > 0) {
+            await Promise.allSettled(seed.map(a => api.createHardwareAsset(assetToApi(a))));
+          }
           localStorage.removeItem('gn_hw_assets');
           const fresh = await api.getHardwareAssets();
           setHwAssets(fresh.map(assetFromApi));
@@ -169,7 +146,7 @@ export function RequisitionProvider({ children }) {
       .catch(() => {
         // API unreachable - fall back to localStorage so app still works
         try { setRequisitions(JSON.parse(localStorage.getItem('gn_reqs')) || []); } catch { setRequisitions([]); }
-        try { setHwAssets(JSON.parse(localStorage.getItem('gn_hw_assets')) || INIT_HW_ASSETS); } catch { setHwAssets(INIT_HW_ASSETS); }
+        try { setHwAssets(JSON.parse(localStorage.getItem('gn_hw_assets')) || []); } catch { setHwAssets([]); }
       });
   }, []);
 
@@ -181,7 +158,7 @@ export function RequisitionProvider({ children }) {
   // mechanism as the bell. The 30s poll stays as the fallback.
 
   useEffect(() => {
-    const iv = setInterval(() => {
+    const stopPoll = pollWhileVisible(() => {
       refreshRequisitions();
       refreshAssets();
     }, 30000);
@@ -203,7 +180,7 @@ export function RequisitionProvider({ children }) {
     }
 
     return () => {
-      clearInterval(iv);
+      stopPoll();
       clearTimeout(pingTimer);
       if (channel) supabase?.removeChannel(channel);
     };
@@ -222,7 +199,7 @@ export function RequisitionProvider({ children }) {
       quantity: Number(quantity), reason,
       employeeEmail: ownerEmail,
       status: 'pending_manager',
-      supervisorName: DEPT_SUPERVISORS[employeeDept] || 'TBD',
+      supervisorName: 'TBD',   // resolved by the picked approver, not a hardcoded map
       managerName: null, managerApprovalDate: null, rejectionReason: null,
       assetId: null, assetName: null, assetCategory: null, assetSerial: null,
       assetAllocatedDate: null, expectedReturnDate: null, allocatedBy: null,
@@ -235,7 +212,7 @@ export function RequisitionProvider({ children }) {
       id, employee_name: employeeName, employee_email: ownerEmail,
       employee_dept: employeeDept, item, quantity: Number(quantity),
       reason: reason || '', status: 'pending_manager',
-      supervisor_name: DEPT_SUPERVISORS[employeeDept] || 'TBD',
+      supervisor_name: 'TBD',
       approver_email: (approverEmail || '').toLowerCase(),  // backend notifies only this manager
     })
       .then(() => newReq)

@@ -4,6 +4,7 @@ import {
   LayoutGrid, Copy, MonitorOff, PlayCircle, Users, User, TrendingUp,
 } from 'lucide-react';
 import { api } from '../api';
+import { usePeopleDirectory } from '../lib/queries';
 import { useRole, MODULES, MODULE_LEVELS, ROLES } from '../contexts/RoleContext';
 import { useNameResolver } from '../lib/useNameResolver';
 import { capabilityText } from '../lib/moduleCapabilities';
@@ -98,7 +99,7 @@ export default function RolesAccess({ embedded = false }) {
   const [sub, setSub] = useState('people');
   const [jobRoles, setJobRoles] = useState(null);
   const [groups, setGroups] = useState(null);
-  const [dir, setDir] = useState(null);
+  const { data: dir } = usePeopleDirectory();
   const [editing, setEditing] = useState(undefined); // undefined=closed, null=new, obj=edit
   const [editGroup, setEditGroup] = useState(undefined);
   const [assignFor, setAssignFor] = useState(null);
@@ -114,7 +115,6 @@ export default function RolesAccess({ embedded = false }) {
   const loadGroups = () => api.getGroups().then(gs => setGroups(gs.filter(g => !g.is_job_role))).catch(() => setGroups([]));
   useEffect(() => {
     loadRoles(); loadGroups();
-    api.getPeopleDirectory().then(setDir).catch(() => setDir([]));
   }, []);
 
   const people = useMemo(() => (dir || [])
@@ -1079,14 +1079,12 @@ function GroupEditor({ group, jobRoles = [], onClose, onSaved, onErr }) {
 
 // ── assign modal ─────────────────────────────────────────────────────────────
 function AssignModal({ role, onClose, onAssigned, onErr }) {
-  const [dir, setDir] = useState(null);
+  const { data: dir } = usePeopleDirectory();
   const [q, setQ] = useState('');
   const [busy, setBusy] = useState('');
   // Everyone already on this role, plus anyone added during this sitting - so the
   // dialog stays open and you can add several people in a row without reopening.
   const [added, setAdded] = useState(() => new Set((role.members || []).map(e => (e || '').toLowerCase())));
-  useEffect(() => { api.getPeopleDirectory().then(setDir).catch(() => setDir([])); }, []);
-
   const people = useMemo(() => (dir || []).map(p => ({ email: (p.email || p.workEmail || '').toLowerCase(), name: p.display_name || p.name || p.fullName || p.email || p.workEmail || '' })).filter(p => p.email), [dir]);
   const filtered = people.filter(p => !q.trim() || p.name.toLowerCase().includes(q.toLowerCase()) || p.email.includes(q.toLowerCase()));
   const addedThisSitting = [...added].filter(e => !(role.members || []).map(m => (m || '').toLowerCase()).includes(e)).length;

@@ -86,42 +86,34 @@ export function isBackendDown() { return _backendDown; }
 // silently drop back to the real account mid-session.
 const ACT_AS_KEY = 'nexus:act-as-session';
 let _actAsSessionId = sessionStorage.getItem(ACT_AS_KEY) || null;
+
+// TanStack Query cache bridge. api.js stays framework-agnostic - main.jsx hands
+// it the queryClient so writes and identity switches can invalidate/clear the
+// TanStack cache alongside the legacy _getCache, keeping both coherent while
+// screens migrate off cachedGet onto query hooks.
+let _queryClient = null;
+export function setCacheBridge(client) { _queryClient = client; }
+
 export function getActAsSessionId() { return _actAsSessionId; }
 export function setActAsSessionId(id) {
   _actAsSessionId = id;
   if (id) sessionStorage.setItem(ACT_AS_KEY, id);
   else sessionStorage.removeItem(ACT_AS_KEY);
+  // Identity just changed - cached GETs (role, directory, pickers) belong to
+  // the PREVIOUS identity and must never leak across an Act As boundary.
+  _getCache.clear();
+  _queryClient?.clear();
 }
 function _actAsHeader() {
   return _actAsSessionId ? { 'X-Act-As-Session': _actAsSessionId } : {};
 }
 
-// ── Keep-warm ─────────────────────────────────────────────────────────────────
-// The dev/prod API is Azure App Service, which parks the process after a few
-// idle minutes and then cold-starts (5-15s) on the next request - so the FIRST
-// screen a user opens after any lull feels slow and "glitchy". A cheap /health
-// ping on boot and every few minutes (only while the tab is visible) keeps the
-// process warm through a working session, so navigations stay snappy. This is a
-// mitigation, not a substitute for enabling "Always On" on the App Service -
-// that eliminates cold starts entirely at the infra level.
-let _keepWarmTimer = null;
-function _pingHealth() {
-  // Bare fetch - no auth, no retry, never flips the reconnecting banner; a failed
-  // warm-up ping should be invisible.
-  fetch(`${BASE}/health`, { cache: 'no-store' }).catch(() => {});
-}
-export function startKeepWarm(everyMs = 4 * 60_000) {
-  if (_keepWarmTimer) return;               // idempotent - safe to call once on boot
-  _pingHealth();                            // start waking the backend immediately
-  _keepWarmTimer = setInterval(() => {
-    if (document.visibilityState === 'visible') _pingHealth();
-  }, everyMs);
-  // Returning to a tab that sat idle is exactly when the backend has gone cold -
-  // ping right away so the next click doesn't eat the cold start.
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') _pingHealth();
-  });
-}
+// ── Keep-warm: REMOVED (Aug 1, 2026) ─────────────────────────────────────────
+// There used to be a /health ping here (boot + every 4 min per tab) papering
+// over Azure App Service cold starts. "Always On" is now enabled on BOTH the
+// dev and prod App Services, so the platform keeps the process warm and the
+// ping was pure waste. If cold starts ever come back, check Always On in the
+// Azure portal first - do not resurrect the ping.
 
 // FastAPI 422 returns `detail` as an array of {loc, msg, type}. Passing that to
 // new Error() stringifies to "[object Object]", which then surfaces in toasts.
@@ -206,6 +198,15 @@ async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
 
   // Successful response - backend is up
   _setBackendDown(false);
+  // Any successful mutation invalidates the whole GET cache: the next read of
+  // anything refetches, so cachedGet can never serve a pre-write value to the
+  // user who just wrote (other users' writes are bounded by the TTLs below).
+  // Same for the TanStack cache - a broad invalidate keeps migrated query hooks
+  // coherent; screens tighten this to specific keys as they convert.
+  if ((options.method || 'GET').toUpperCase() !== 'GET') {
+    _getCache.clear();
+    _queryClient?.invalidateQueries();
+  }
   if (res.status === 204) return null;
   return res.json();
 }
@@ -494,13 +495,13 @@ export const api = {
   clickExternalLink: (id) => req(`/external-links/${id}/click`, { method: "PATCH" }),
 
   // Nexus Roles
-  getMyRole:    ()                    => req('/roles/me'),
+  getMyRole:    ()                    => cachedGet('/roles/me'),
   getAllRoles:   ()                   => req('/roles'),
   assignRole:   (email, role, by, displayName) => req(`/roles/${encodeURIComponent(email)}`, { method: 'PUT', body: JSON.stringify({ role, assigned_by: by, display_name: displayName || '' }) }),
   syncRoles:    (emails)             => req('/roles/sync', { method: 'POST', body: JSON.stringify({ emails }) }),
 
   // Access Groups
-  getGroups:         ()                  => req('/groups'),
+  getGroups:         ()                  => cachedGet('/groups', 30_000),
   createGroup:       (body)              => req('/groups', { method: 'POST', body: JSON.stringify(body) }),
   updateGroup:       (id, body)          => req(`/groups/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
   deleteGroup:       (id)                => req(`/groups/${id}`, { method: 'DELETE' }),
@@ -577,7 +578,7 @@ export const api = {
   createItemCustomField: (d)          => req('/items/custom-fields', { method: 'POST', body: JSON.stringify(d) }),
   updateItemCustomField: (id, d)      => req(`/items/custom-fields/${id}`, { method: 'PATCH', body: JSON.stringify(d) }),
   deleteItemCustomField: (id)         => req(`/items/custom-fields/${id}`, { method: 'DELETE' }),
-  getItemTypes:        ()             => req('/items/types'),
+  getItemTypes:        ()             => cachedGet('/items/types'),
   addItemType:         (name)         => req('/items/types', { method: 'POST', body: JSON.stringify({ name }) }),
   deleteItemType:      (name)         => req(`/items/types/${encodeURIComponent(name)}`, { method: 'DELETE' }),
   getItemsReport:      (params)       => reqBlob(`/items/report?${new URLSearchParams(params)}`),
@@ -667,7 +668,7 @@ export const api = {
   deleteEmployee: (id)       => req(`/hr/employees/${id}`, { method: 'DELETE' }),
 
   // HR - companies/entities & work sites (Section A foundation)
-  getEntities:    ()         => req('/hr/entities'),
+  getEntities:    ()         => cachedGet('/hr/entities', 120_000),
   createEntity:   (data)     => req('/hr/entities', { method: 'POST', body: JSON.stringify(data) }),
   updateEntity:   (id, data) => req(`/hr/entities/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   getGroupManager: ()        => req('/hr/group-manager'),
@@ -678,7 +679,7 @@ export const api = {
   addCompanyDepartment:     (entityId, name) => req(`/hr/entities/${entityId}/departments`, { method: 'POST', body: JSON.stringify({ name }) }),
   deleteCompanyDepartment:  (entityId, deptId) => req(`/hr/entities/${entityId}/departments/${deptId}`, { method: 'DELETE' }),
   updateCompanyDepartment:  (entityId, deptId, data) => req(`/hr/entities/${entityId}/departments/${deptId}`, { method: 'PATCH', body: JSON.stringify(data) }),
-  getWorkSites:   ()         => req('/hr/work-sites'),
+  getWorkSites:   ()         => cachedGet('/hr/work-sites', 120_000),
   createWorkSite: (data)     => req('/hr/work-sites', { method: 'POST', body: JSON.stringify(data) }),
   updateWorkSite: (id, data) => req(`/hr/work-sites/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteWorkSite: (id)       => req(`/hr/work-sites/${id}`, { method: 'DELETE' }),
@@ -963,7 +964,10 @@ export const api = {
   // GET is unauthenticated on the backend (the login screen itself needs it
   // pre-login) - req() still works fine here since it just sends no auth
   // header when there's no signed-in account yet.
-  getBrandingConfig:    ()        => req('/branding/config'),
+  getBrandingConfig:    ()        => cachedGet('/branding/config', 300_000),
+
+  // Diagnostics
+  reportClientError:    (body)    => req('/client-errors', { method: 'POST', body: JSON.stringify(body) }),
   updateBrandingConfig: (accent)  => req('/branding/config', { method: 'PUT', body: JSON.stringify({ accent }) }),
 
   // ── Investor Relations (GP capital management: funds, LPs, calls, distributions) ──

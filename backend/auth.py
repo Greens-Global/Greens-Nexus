@@ -191,25 +191,41 @@ MODULE_LEVELS = ("viewer", "editor", "full", "owner")
 _MODULE_LEVEL_RANK = {lvl: i + 1 for i, lvl in enumerate(MODULE_LEVELS)}
 
 
-def _module_level(email: str, module_id: str, db: Session) -> int:
-    """Highest permission-level rank any Access Group grants this user for
-    `module_id` (0 if none) - mirrors the frontend's myGrantedModules
-    (RoleContext.jsx), which stores the same per-module level per group."""
+def _grants_for(email: str, db: Session) -> dict:
+    """All module grants for `email` as {module_id: best rank}, cached (see
+    cache.py). One request usually checks one module, but the query cost is the
+    same either way, and caching the whole map means every grant-gated
+    dependency in the same TTL window is a dict lookup instead of a JOIN."""
     from models import NexusGroup, NexusGroupMember
+    import cache
+
+    key = email.lower()
+    grants = cache.module_grants.get(key)
+    if grants is not None:
+        return grants
 
     rows = (
         db.query(NexusGroup.allowed_modules)
         .join(NexusGroupMember, NexusGroupMember.group_id == NexusGroup.id)
-        .filter(NexusGroupMember.email == email.lower())
+        .filter(NexusGroupMember.email == key)
         .all()
     )
-    best = 0
+    grants = {}
     for (modules,) in rows:
         for part in (modules or "").split(","):
             mid, _, level = part.strip().partition(":")
-            if mid == module_id:
-                best = max(best, _MODULE_LEVEL_RANK.get(level, _MODULE_LEVEL_RANK["viewer"]))
-    return best
+            if mid:
+                rank = _MODULE_LEVEL_RANK.get(level, _MODULE_LEVEL_RANK["viewer"])
+                grants[mid] = max(grants.get(mid, 0), rank)
+    cache.module_grants.set(key, grants)
+    return grants
+
+
+def _module_level(email: str, module_id: str, db: Session) -> int:
+    """Highest permission-level rank any Access Group grants this user for
+    `module_id` (0 if none) - mirrors the frontend's myGrantedModules
+    (RoleContext.jsx), which stores the same per-module level per group."""
+    return _grants_for(email, db).get(module_id, 0)
 
 
 def require_level_or_module(min_level: int, module_id: str, min_module_level: str):

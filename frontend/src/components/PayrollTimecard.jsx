@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { ChevronLeft, ChevronRight, Pencil, Plus, X, Loader2, CheckCircle, Download, AlertTriangle, MapPin, PlayCircle } from 'lucide-react';
 import { api } from '../api';
+import { useWorkSites } from '../lib/queries';
 import { ensureStepUp, isStepUpRequired, StepUpNeeded } from '../stepup/StepUp';
 import { useRole } from '../contexts/RoleContext';
 import GuidedTour from './GuidedTour';
@@ -524,11 +525,10 @@ function PunchEditModal({ day, email, categories = [], busy, setBusy, onDone, on
   const seg = day.seg;
   const [inAt, setInAt] = useState(seg?.in ? utcToInput(seg.in) : `${day.date}T09:00`);
   const [outAt, setOutAt] = useState(seg?.out ? utcToInput(seg.out) : `${day.date}T17:00`);
-  const [sites, setSites] = useState([]);
+  const { data: sites = [] } = useWorkSites();
   const [siteId, setSiteId] = useState(seg?.workSiteId || '');
   const [cat, setCat] = useState(seg?.category || '');
   const tz = new Date().getTimezoneOffset();
-  useEffect(() => { api.getWorkSites().then(s => setSites(s || [])).catch(() => setSites([])); }, []);
 
   async function save() {
     setBusy(true);

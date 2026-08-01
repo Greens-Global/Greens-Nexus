@@ -3,6 +3,7 @@ import { Send, FileText, ClipboardList, User, Users, Link2, Package, Plus } from
 import { useMsal } from '@azure/msal-react';
 import { useRequisitions }  from '../contexts/RequisitionContext';
 import { cleanName } from '../lib/utils';
+import { usePeopleDirectory, useItemApprovers } from '../lib/queries';
 import { api } from '../api';
 
 const ITEMS = ['Laptop','PC','Monitors','Speakers','Headset','Mouse','Keyboard','Battery Backup','Webcam','Safety Vest','Safety Helmet','Hand Tools','Power Tools','Nametag','Uniforms','Keys & Key Sets','Tablet','Phone'];
@@ -64,18 +65,14 @@ export default function Purchase({ activeSub = null }) {
   const [flash,        setFlash]        = useState(false);
   const [submitError,  setSubmitError]  = useState('');   // P0-6: shown when the submit actually fails
   const [submitting,   setSubmitting]   = useState(false);
-  const [directory,    setDirectory]    = useState([]);   // company people picker for on-behalf
-  const [approvers,    setApprovers]    = useState([]);   // manager list - only the picked one is notified
+  const { data: directory = [] } = usePeopleDirectory();   // shared cache across all pickers
+  const { data: approvers = [] } = useItemApprovers();     // manager list - only the picked one is notified
   const [approverEmail, setApproverEmail] = useState('');
 
   useEffect(() => {
-    api.getPeopleDirectory().then(setDirectory).catch(() => {});
-    api.getItemApprovers().then(rows => {
-      setApprovers(rows);
-      const remembered = localStorage.getItem('nexus-approver-email');
-      if (remembered && rows.some(a => a.email === remembered)) setApproverEmail(remembered);
-    }).catch(() => {});
-  }, []);
+    const remembered = localStorage.getItem('nexus-approver-email');
+    if (remembered && approvers.some(a => a.email === remembered)) setApproverEmail(remembered);
+  }, [approvers]);
 
   const isOther       = item === OTHER_ITEM;
   const resolvedItem  = isOther ? customItem.trim() : item;

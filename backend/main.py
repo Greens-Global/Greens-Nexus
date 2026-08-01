@@ -738,9 +738,25 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Nexus API", lifespan=lifespan)
 
+# Error tracking: inert without a DSN. Set NEXUS_SENTRY_DSN (and pip install
+# sentry-sdk) to stream unhandled exceptions to Sentry; until then the
+# exception handler below + client-errors endpoint are the error trail.
+if os.getenv("NEXUS_SENTRY_DSN"):
+    try:
+        import sentry_sdk
+        sentry_sdk.init(dsn=os.getenv("NEXUS_SENTRY_DSN"), traces_sample_rate=0.05)
+        print("[startup] sentry error tracking enabled")
+    except ImportError:
+        print("[startup] NEXUS_SENTRY_DSN set but sentry-sdk not installed - skipped")
+
 # Gzip every response over ~1 KB. The item list is ~300 KB of JSON that compresses
 # to ~10% - the single biggest win for the slow Item Management load over the wire.
 app.add_middleware(GZipMiddleware, minimum_size=1024)
+# ETag/304 revalidation + auth-failure throttling (see middleware_hardening.py).
+# Added after GZip so ETags hash the compressed bytes; CORS stays outermost.
+from middleware_hardening import ETagMiddleware, AuthFailureThrottle  # noqa: E402
+app.add_middleware(ETagMiddleware)
+app.add_middleware(AuthFailureThrottle)
 # AuditMiddleware must be added before CORSMiddleware so it wraps the full request
 app.add_middleware(AuditMiddleware)
 _CORS_ORIGINS = [
@@ -836,4 +852,6 @@ app.include_router(stepup.router)         # Step-up MFA for sensitive data (vaul
 app.include_router(act_as.router)         # Act As: impersonate a lower-role employee's account
 app.include_router(branding.router)       # Branding settings: login-screen accent color
 app.include_router(egnyte.router)         # Egnyte: list/read/upload/search, one shared client
+from routers import client_errors          # noqa: E402
+app.include_router(client_errors.router)  # Client-side error intake -> audit trail + logs
 

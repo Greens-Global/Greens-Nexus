@@ -12,6 +12,7 @@ import ShiftSchedule from './ShiftSchedule';
 import PayrollTimecard from './PayrollTimecard';
 import LiveCrewMap from './LiveCrewMap';
 import TimeInsights from './TimeInsights';
+import { pollWhileVisible } from '../lib/pollWhileVisible';
 
 const TYPE_COLOR = { vacation: '#2563eb', sick: '#16a34a', personal: '#8b5cf6', unpaid: '#6b7280', other: '#f59e0b' };
 
@@ -185,8 +186,8 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
       .then(r => { if (live) setMonAlerts(Array.isArray(r?.alerts) ? r.alerts : []); })
       .catch(() => {});
     loadAlerts();
-    const t = setInterval(loadAlerts, 60000);
-    return () => { live = false; clearInterval(t); };
+    const stop = pollWhileVisible(loadAlerts, 60000);
+    return () => { live = false; stop(); };
   }, []);
 
   // Punch-fix requests (employee add/remove) awaiting this approver's decision.
@@ -195,8 +196,7 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
     api.timePunchRequests('pending').then(r => setPunchReqs(Array.isArray(r) ? r : [])).catch(() => {}), []);
   useEffect(() => {
     loadPunchReqs();
-    const t = setInterval(loadPunchReqs, 60000);
-    return () => clearInterval(t);
+    return pollWhileVisible(loadPunchReqs, 60000);
   }, [loadPunchReqs]);
   async function decidePunchReq(id, status) {
     let note = '';

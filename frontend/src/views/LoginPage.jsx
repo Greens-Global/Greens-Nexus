@@ -18,7 +18,7 @@ import { useEffect, useState } from "react";
 import { useMsal } from "@azure/msal-react";
 import { CheckSquare, Clock, Users } from "lucide-react";
 import { loginRequest } from "../authConfig";
-import { api } from "../api";
+import { useBranding } from "../lib/queries";
 
 // Accent is a Global Admin-configurable setting (AdminPanel -> Branding), not
 // hardcoded - see backend/routers/branding.py. The hero panel needs three
@@ -33,17 +33,14 @@ const ACCENT_PALETTES = {
 export default function LoginPage() {
   const { instance } = useMsal();
   const [on, setOn] = useState(false);
-  const [accent, setAccent] = useState("green");
+  const { data: branding } = useBranding();
+  const accent = branding?.accent === "blue" ? "blue" : "green";
 
   useEffect(() => {
     const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
     if (reduce) { setOn(true); return; }
     const id = requestAnimationFrame(() => setOn(true));
     return () => cancelAnimationFrame(id);
-  }, []);
-
-  useEffect(() => {
-    api.getBrandingConfig().then(cfg => setAccent(cfg.accent === "blue" ? "blue" : "green")).catch(() => {});
   }, []);
 
   const P = ACCENT_PALETTES[accent];
