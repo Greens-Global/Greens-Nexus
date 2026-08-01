@@ -124,7 +124,7 @@ export default function DistributionsTab() {
           sub={fundFilter ? 'This fund has not distributed capital yet.' : 'Record a distribution when the portfolio returns capital to investors.'} />
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {rows.map(dist => {
+          {rows.slice(0, 500).map(dist => {
             const open = expandedId === dist.id;
             const paid = dist.paidAmount ?? 0;
             const total = dist.totalAmount ?? 0;

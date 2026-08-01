@@ -284,7 +284,7 @@ export default function DocumentsBrowser({ openCreateSignal, openDocSignal, empl
           <p style={{ fontSize: 13.5, margin: '0 0 16px' }}>No documents match here yet.</p>
           <button className="primary-btn" onClick={() => setCreateOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><FilePlus2 size={13} /> Create one</button>
         </div>
-      ) : docs.map(d => {
+      ) : docs.slice(0, 500).map(d => {
         const st = DOC_STATUS[d.status] || DOC_STATUS.draft;
         const signSt = d.signRequestId ? SIGN_STATUS[d.signStatus] : null;
         const folder = folders.find(f => f.id === d.folderId);
