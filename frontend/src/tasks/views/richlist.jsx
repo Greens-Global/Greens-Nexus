@@ -963,11 +963,6 @@ export default function RichListView({ visible, group, ctx, store, people, selec
                     <TaskRow key={t.id} t={t} cols={cols} customFields={customFields} template={template} store={store} people={people} selected={selected.has(t.id)} toggleSel={toggleSel} onOpen={onOpen}
                       hidden={hiddenEff} groupColor={gc} onDragStartRow={setDragId} onDragEndRow={() => { setDragId(null); setDropKey(null); }} />
                   ))}
-                  {g.renderTasks.length < g.tasks.length && (
-                    <div style={{ padding: '8px 14px', fontSize: 12, color: NX.faint, fontFamily: FONT }}>
-                      + {g.tasks.length - g.renderTasks.length} more in this group - search or filter to narrow down
-                    </div>
-                  )}
                   <AddTaskInline store={store} lockedProjectId={lockedProjectId} defaults={groupAddDefaults(effGroup, g.key)} />
                   {/* summary footer - mirrors monday's group tallies */}
                   <div style={{ display: 'grid', gridTemplateColumns: template, alignItems: 'center', padding: '5px 0', fontSize: 12 }}>
