@@ -659,6 +659,26 @@ export default function RichListView({ visible, group, ctx, store, people, selec
 
   const groupCtx = { ...ctx, statusMeta: store.statusMeta, statusOrder: store.statusOrder, customFields: allCustomFields };
   const groups = useMemo(() => groupTasks(visible, effGroup, groupCtx).filter((g) => g.tasks.length > 0), [visible, effGroup, ctx, store.statusMeta, store.statusOrder]);
+  // Render cap: TaskRow is heavy (10+ cells, dropdowns, portals). Drawing every
+  // row of an unfiltered company-wide list (thousands of tasks) builds tens of
+  // thousands of DOM nodes synchronously and freezes the tab. Cap the number of
+  // ROWS drawn; group headers/counts/summaries below still reflect the FULL set,
+  // so nothing looks lost - the banner tells the user to search/filter to reach
+  // the rest. This keeps the list fast at any task count. (Full virtualization
+  // is the eventual answer, but a cap is the safe fix that can't break grouping,
+  // drag-and-drop, or column resizing.)
+  const MAX_RENDER_ROWS = 200;
+  const totalRows = useMemo(() => groups.reduce((n, g) => n + g.tasks.length, 0), [groups]);
+  const isCapped = totalRows > MAX_RENDER_ROWS;
+  const renderPlan = useMemo(() => {
+    if (!isCapped) return groups.map((g) => ({ ...g, renderTasks: g.tasks }));
+    let budget = MAX_RENDER_ROWS;
+    return groups.map((g) => {
+      const take = Math.max(0, Math.min(g.tasks.length, budget));
+      budget -= take;
+      return { ...g, renderTasks: g.tasks.slice(0, take) };
+    });
+  }, [groups, isCapped]);
   const visibleIds = groups.flatMap((g) => g.tasks.map((t) => t.id));
   const allSel = visibleIds.length > 0 && visibleIds.every((id) => selected.has(id));
   const someSel = !allSel && visibleIds.some((id) => selected.has(id));
@@ -728,8 +748,13 @@ export default function RichListView({ visible, group, ctx, store, people, selec
 
   return (
     <div className="nx-list-scroll" style={{ margin: 16, minHeight: 'calc(100% - 32px)' }}>
+      {isCapped && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 14px', marginBottom: 4, borderRadius: 10, background: NX.border2, color: NX.dim, fontSize: 12.5, fontFamily: FONT }}>
+          <span>Showing the first {MAX_RENDER_ROWS} of {totalRows} tasks for speed. Use search or filters to find specific tasks.</span>
+        </div>
+      )}
       <div style={{ minWidth: 'fit-content' }}>
-        {groups.map((g) => {
+        {renderPlan.map((g) => {
           const isCol = collapsed.has(g.key);
           // monday.com-style group block: colored title, left color bar, and a
           // summary footer (due-date range + status distribution bar).
@@ -765,10 +790,15 @@ export default function RichListView({ visible, group, ctx, store, people, selec
               {!isCol && (
                 <div style={{ border: `1px solid ${isDropTarget ? gc : NX.border}`, borderRadius: 12, overflow: 'hidden', background: NX.surface, boxShadow: isDropTarget ? `0 0 0 2px ${gc}55` : 'none', transition: 'box-shadow 0.12s' }}>
                   {groupHeader}
-                  {g.tasks.map((t) => (
+                  {g.renderTasks.map((t) => (
                     <TaskRow key={t.id} t={t} cols={cols} customFields={customFields} template={template} store={store} people={people} selected={selected.has(t.id)} toggleSel={toggleSel} onOpen={onOpen}
                       hidden={hiddenEff} groupColor={gc} onDragStartRow={setDragId} onDragEndRow={() => { setDragId(null); setDropKey(null); }} />
                   ))}
+                  {g.renderTasks.length < g.tasks.length && (
+                    <div style={{ padding: '8px 14px', fontSize: 12, color: NX.faint, fontFamily: FONT }}>
+                      + {g.tasks.length - g.renderTasks.length} more in this group - search or filter to narrow down
+                    </div>
+                  )}
                   <AddTaskInline store={store} lockedProjectId={lockedProjectId} defaults={groupAddDefaults(effGroup, g.key)} />
                   {/* summary footer - mirrors monday's group tallies */}
                   <div style={{ display: 'grid', gridTemplateColumns: template, alignItems: 'center', padding: '5px 0', fontSize: 12 }}>
