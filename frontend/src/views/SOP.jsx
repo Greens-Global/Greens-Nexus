@@ -202,6 +202,17 @@ function mediaEmbed(m, key) {
   if (/\.(mp4|webm|ogg)$/i.test(url)) return <div key={key} style={frame}><video src={url} controls preload="metadata" style={fill} /></div>;
   return <a key={key} href={url} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: '0.88rem', color: 'hsl(var(--color-blue))', fontWeight: 600 }}>▶ {m.title || url}</a>;
 }
+// Template sections the AI formatter is expected to fill. Anything it returns
+// empty is a gap in the source material - highlighted red in the editor so the
+// author knows exactly what to add.
+const SOP_FIELD_LABELS = {
+  purpose: 'Purpose', scopeText: 'Scope', materials: 'Materials & Required Items',
+  responsibilities: 'Responsibilities', definitions: 'Definitions', procedure: 'Procedure',
+  safety: 'Safety & Compliance', references: 'References',
+};
+const bodyFieldEmpty = (body, f) =>
+  (f === 'purpose' || f === 'scopeText') ? !((body?.[f] || '').trim()) : !((body?.[f] || []).length);
+
 const blankDraft = (name, email) => ({
   id: null, title: '', doc_type: 'SOP', departments: [], reviewer_email: '',
   reviewer_name: '', version: '1.0', effective_date: '', body: blankBody(),
@@ -802,7 +813,9 @@ export default function SOP({ activeSub, onSubChange }) {
       };
       const afterTitle = draft.title || sop.title || '';
       // autofill the draft, then open the full-screen review of what changed
-      setDraft(p => ({ ...p, title: afterTitle, _importSource: raw ? content : p._importSource, body: afterBody }));
+      // which template sections the source did NOT cover - flagged red in Content
+      const gapFields = Object.keys(SOP_FIELD_LABELS).filter(f => bodyFieldEmpty(afterBody, f));
+      setDraft(p => ({ ...p, title: afterTitle, _importSource: raw ? content : p._importSource, _gaps: gapFields, body: afterBody }));
       setAiReview({ open: true, tab: 'changes', source: raw ? content : '',
         before, after: { title: afterTitle, departments: [...draft.departments], body: afterBody } });
       // wizard: a fresh capture that formatted successfully moves on to Content
@@ -1503,11 +1516,20 @@ export default function SOP({ activeSub, onSubChange }) {
     const fieldLabel = { fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-primary)', display: 'block', marginBottom: 2 };
     const fieldTip = (text) => <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', margin: '0 0 8px', lineHeight: 1.45 }}>{text}</div>;
     const bigText = { width: '100%', fontSize: '0.95rem', lineHeight: 1.65, padding: '13px 15px', resize: 'vertical' };
-    const section = (title, hint, children) => (
-      <div style={cardStyle}>
+    // Sections the AI flagged as missing from the source, still unfilled - the
+    // red highlight clears itself the moment the author adds content.
+    const gaps = (draft._gaps || []).filter(f => bodyFieldEmpty(draft.body, f));
+    const isGap = (f) => gaps.includes(f);
+    const gapChip = <span style={{ fontSize: '0.66rem', fontWeight: 700, color: 'hsl(0,70%,45%)', background: 'hsla(0,84%,60%,0.1)', border: '1px solid hsla(0,84%,60%,0.35)', borderRadius: 999, padding: '2px 9px', whiteSpace: 'nowrap', flex: '0 0 auto' }}>Missing - Please Add</span>;
+    const section = (title, hint, children, gap) => (
+      <div style={{ ...cardStyle, ...(gap ? { borderColor: 'hsla(0,84%,60%,0.55)', boxShadow: '0 0 0 3px hsla(0,84%,60%,0.06)' } : {}) }}>
         <div style={{ marginBottom: 16 }}>
-          <h3 style={{ fontSize: '1rem', fontWeight: 700, margin: 0, fontFamily: "'Plus Jakarta Sans', sans-serif", color: 'var(--text-primary)' }}>{title}</h3>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <h3 style={{ fontSize: '1rem', fontWeight: 700, margin: 0, fontFamily: "'Plus Jakarta Sans', sans-serif", color: 'var(--text-primary)' }}>{title}</h3>
+            {gap && gapChip}
+          </div>
           {hint && <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: '3px 0 0' }}>{hint}</p>}
+          {gap && <p style={{ fontSize: '0.76rem', color: 'hsl(0,70%,45%)', margin: '4px 0 0' }}>Your source didn't cover this. Add it below if it applies, or leave it empty on purpose.</p>}
         </div>
         {children}
       </div>
@@ -1568,7 +1590,7 @@ export default function SOP({ activeSub, onSubChange }) {
           {draft.body[field].length === 0 && <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0 }}>None yet.</p>}
         </div>
         <button className="secondary-btn" onClick={() => addItem(field, '')} style={{ marginTop: 12, height: 36, fontSize: '0.82rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={14} /> Add</button>
-      </>));
+      </>), isGap(field));
     const pairEditor = (field, label, hint, k1, k2, p1, p2) => section(label, hint, (<>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {draft.body[field].map((row, i) => (
@@ -1581,7 +1603,7 @@ export default function SOP({ activeSub, onSubChange }) {
           {draft.body[field].length === 0 && <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0 }}>None yet.</p>}
         </div>
         <button className="secondary-btn" onClick={() => addItem(field, { [k1]: '', [k2]: '' })} style={{ marginTop: 12, height: 36, fontSize: '0.82rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={14} /> Add</button>
-      </>));
+      </>), isGap(field));
 
     // wizard: new SOPs open on Capture; manuals and edits jump straight to Content
     const steps = (isNew && !isManual) ? ['Capture', 'Content', 'Settings', 'Publish'] : ['Content', 'Settings', 'Publish'];
@@ -1595,6 +1617,11 @@ export default function SOP({ activeSub, onSubChange }) {
       [isManual ? (draft.body.chapters || []).length > 0 : stepCount > 0, isManual ? 'Chapters' : 'Procedure', isManual ? `${(draft.body.chapters || []).length} chapter(s)` : (stepCount ? `${stepCount} step${stepCount === 1 ? '' : 's'}` : 'No steps yet (Content step)')],
       [draft.departments.length > 0, 'Departments', draft.departments.length ? draft.departments.map(x => DEPT_ABBR[x] || x).join(', ') : 'Not tagged yet (Settings step) - untagged docs are corporate-wide'],
       [!!draft.reviewer_email.trim(), 'Reviewer', draft.reviewer_email ? (draft.reviewer_name || draft.reviewer_email) : 'Required to submit for review (Settings step)'],
+      ...(draft._gaps ? [[
+        (draft._gaps || []).filter(f => bodyFieldEmpty(draft.body, f)).length === 0,
+        'Template Coverage',
+        (() => { const g = (draft._gaps || []).filter(f => bodyFieldEmpty(draft.body, f)); return g.length ? `Still missing from your source: ${g.map(f => SOP_FIELD_LABELS[f]).join(', ')} (Content step)` : 'Every section the source missed has been filled or reviewed'; })(),
+      ]] : []),
     ];
     return (
       <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out', width: '100%', maxWidth: 980, margin: '0 auto' }}>
@@ -1622,6 +1649,16 @@ export default function SOP({ activeSub, onSubChange }) {
             {aiReview && <button className="secondary-btn" onClick={() => setAiReview(p => ({ ...p, open: true, tab: 'changes' }))} style={{ height: 34, fontSize: '0.8rem', flex: '0 0 auto' }}>Review Changes</button>}
             <button className="secondary-btn" onClick={() => setPreviewOpen(true)} style={{ height: 34, fontSize: '0.8rem', flex: '0 0 auto' }}>Preview</button>
             <button className="secondary-btn" disabled={aiBusy} onClick={runAiFormat} style={{ height: 34, fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center', gap: 5, flex: '0 0 auto' }}>{aiBusy ? <Loader size={13} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Sparkles size={13} />} Re-run AI</button>
+          </div>
+        )}
+
+        {stepName === 'Content' && gaps.length > 0 && (
+          <div style={{ display: 'flex', gap: 11, alignItems: 'flex-start', border: '1px solid hsla(0,84%,60%,0.4)', background: 'hsla(0,84%,60%,0.05)', borderRadius: 12, padding: '12px 15px', marginBottom: 18 }}>
+            <span style={{ width: 26, height: 26, borderRadius: 8, background: 'hsla(0,84%,60%,0.12)', color: 'hsl(0,70%,45%)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '0.85rem', flex: '0 0 auto' }}>!</span>
+            <div style={{ flex: 1, minWidth: 0, fontSize: '0.84rem', color: 'var(--text-primary)', lineHeight: 1.5 }}>
+              <strong>Your source didn't cover {gaps.length} section{gaps.length === 1 ? '' : 's'}:</strong> {gaps.map(f => SOP_FIELD_LABELS[f]).join(', ')}.
+              <span style={{ color: 'var(--text-secondary)' }}> They're outlined in red below - fill in what applies, or leave a section empty if it genuinely doesn't. The highlight clears as you type.</span>
+            </div>
           </div>
         )}
 
@@ -1730,16 +1767,16 @@ export default function SOP({ activeSub, onSubChange }) {
         {stepName === 'Content' && <>
         {section('Overview', 'Set the context before the steps - what this is for and who it covers.', (<>
           <div style={{ marginBottom: 18 }}>
-            <label style={fieldLabel}>Purpose</label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><label style={fieldLabel}>Purpose</label>{isGap('purpose') && gapChip}</div>
             {fieldTip('In a sentence or two, why this document exists and what it should achieve.')}
-            <textarea className="form-input" value={draft.body.purpose} placeholder="Why this document exists…" onChange={e => setBody({ purpose: e.target.value })} style={{ ...bigText, minHeight: 120 }} />
+            <textarea className="form-input" value={draft.body.purpose} placeholder="Why this document exists…" onChange={e => setBody({ purpose: e.target.value })} style={{ ...bigText, minHeight: 120, ...(isGap('purpose') ? { borderColor: 'hsla(0,84%,60%,0.55)' } : {}) }} />
           </div>
           <div>
-            <label style={fieldLabel}>Scope</label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><label style={fieldLabel}>Scope</label>{isGap('scopeText') && gapChip}</div>
             {fieldTip('Who must follow it, and any situations it does or doesn’t cover.')}
-            <textarea className="form-input" value={draft.body.scopeText} placeholder="Who and what this applies to…" onChange={e => setBody({ scopeText: e.target.value })} style={{ ...bigText, minHeight: 120 }} />
+            <textarea className="form-input" value={draft.body.scopeText} placeholder="Who and what this applies to…" onChange={e => setBody({ scopeText: e.target.value })} style={{ ...bigText, minHeight: 120, ...(isGap('scopeText') ? { borderColor: 'hsla(0,84%,60%,0.55)' } : {}) }} />
           </div>
-        </>))}
+        </>), isGap('purpose') || isGap('scopeText'))}
 
         {isManual ? chapterBuilder() : (<>
         {listEditor('materials', 'Materials & Required Items', 'e.g. Master key set', 'Anything someone needs on hand before they start - tools, access, forms, or equipment.')}
@@ -1764,7 +1801,7 @@ export default function SOP({ activeSub, onSubChange }) {
             {draft.body.procedure.length === 0 && <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0 }}>No steps yet.</p>}
           </div>
           <button className="secondary-btn" onClick={() => addItem('procedure', { text: '', detail: '' })} style={{ marginTop: 12, height: 36, fontSize: '0.82rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={14} /> Add Step</button>
-        </>))}
+        </>), isGap('procedure'))}
 
         {listEditor('safety', 'Safety & Compliance', 'e.g. Never enter a unit alone if…', 'Risks to watch for and any rules, regulations, or policies that must be followed.')}
         {listEditor('references', 'References', 'e.g. OPS-021 Access Control', 'Related SOPs, policies, or documents someone may need alongside this one.')}
