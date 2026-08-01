@@ -730,10 +730,31 @@ class KbDocument(Base):
     review_every_months = Column(Integer, default=12)          # freshness cadence
     verified_at      = Column(String, default="")             # last verified (ISO date)
     verified_by      = Column(String, default="")
+    stale_notified_at = Column(String, default="")            # last stale-reminder date (dedupes bell nudges per review cycle)
     retention_months = Column(Integer, default=84)            # records-retention window
     created_by       = Column(String, default="")
     created_at       = Column(String, default="")
     updated_at       = Column(String, default="")
+
+
+class KbRun(Base):
+    """One execution of an SOP's procedure as a live checklist ("run"). The
+    steps are snapshotted by count only - steps_done holds the indices ticked
+    off, so a doc edit mid-run degrades gracefully rather than corrupting the
+    run. New table - create_all builds it."""
+    __tablename__ = "kb_runs"
+    id           = Column(String, primary_key=True)   # run_ + hex
+    doc_id       = Column(String, nullable=False)
+    doc_code     = Column(String, default="")
+    doc_title    = Column(String, default="")
+    version      = Column(String, default="")          # doc version when the run started
+    user_email   = Column(String, nullable=False)
+    user_name    = Column(String, default="")
+    steps_done   = Column(String, default="[]")        # JSON list of completed step indices
+    step_count   = Column(Integer, default=0)          # total steps at start
+    status       = Column(String, default="open")      # open | completed | abandoned
+    started_at   = Column(String, default="")
+    completed_at = Column(String, default="")
 
 
 class KbAcknowledgement(Base):

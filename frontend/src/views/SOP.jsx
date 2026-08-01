@@ -8,6 +8,7 @@ import {
   X, ArrowLeft, Plus, Trash2, Edit3, Send, Archive, ArchiveRestore, Loader, ChevronUp, ChevronDown,
   Image as ImageIcon, Paperclip, Settings, Grid3x3, BarChart3, GraduationCap, Eye, ChevronRight, Star,
   List, LayoutGrid, Building2, PanelRight, FileText, HelpCircle, Share2, Link2, Download, Printer,
+  ShieldCheck, Play, ListChecks,
 } from 'lucide-react';
 
 const rid = () => 'r' + Math.random().toString(36).slice(2, 9);
@@ -80,8 +81,8 @@ const HELP_PAGES = [
   { key: 'playbook', label: 'Playbook', title: 'Browsing the Playbook',
     intro: 'The Playbook is every SOP, manual, and guide in one place. This is where you find and read documents.',
     steps: [
-      'Search: click the search box (or press “/”) and type a title, document ID, or words from the text. Use the Department, Type, and Status dropdowns to narrow the list.',
-      'Ask AI: flip the toggle from Search to Ask AI, type a question in plain English, and press Ask. The answer comes only from approved SOPs and shows the sources it used.',
+      'One box does both: type in the big box (or press “/”) to filter the library live, then press Enter (or the Ask AI button) to ask the question in plain English. Answers come only from approved SOPs and cite their sources.',
+      'Trust at a glance: every document shows a green "Verified" chip (who confirmed it and when) or an amber "Needs Verification" chip when it is past its review date. Use the Department, Type, and Status dropdowns to narrow the list.',
       'Change the view: use List, Tiles, or Department (grouped) above the list - your choice is remembered next time.',
       'Pin favorites: click the ☆ star on any document to pin it; pinned items jump to the top of the right panel for quick access.',
       'The right panel: “For You” shows anything waiting on your sign-off, plus Pinned and Popular documents. Press the panel button (top-right of the list) to hide it and give the list full width.',
@@ -91,6 +92,8 @@ const HELP_PAGES = [
     intro: 'The document view shows the full, approved procedure plus everything you can do with it.',
     steps: [
       'Read top to bottom - purpose, scope, steps, safety, and references. Use the Language bar to switch to a translated version where available.',
+      'Run This SOP turns the procedure into a live checklist: tick steps off as you do them, your progress saves automatically, and open runs wait for you under "Runs in Progress" on the home panel.',
+      'The Freshness card shows when it was last verified. If you own the document (or manage), one click on "Still Accurate - Verify" resets the review clock; stale docs nag their owner via the bell.',
       'Pin it with the Pin button to keep it handy in your side panel.',
       'Share / export: the Share button offers your device’s share sheet, Copy link, Copy as text, Download (.md), and Print / Save as PDF.',
       'If the document requires sign-off, read it and click Review & sign to e-sign - your acknowledgement is recorded against this version.',
@@ -101,7 +104,7 @@ const HELP_PAGES = [
     intro: 'Anyone can start a draft. It’s a guided form, and Claude can do most of the heavy lifting.',
     steps: [
       'Click New SOP. Give it a clear, searchable Document title.',
-      'Fastest start: paste existing text or upload a file in the “Start from an existing document” panel and press Format with Claude. Review the before/after diff, then Keep changes or Revert.',
+      'Fastest start: do the task once and capture it - paste screenshots of each step with Ctrl+V into the purple panel, jot rough notes between them (or upload an existing file), and press Format with Claude. Review the before/after diff, then Keep changes or Revert.',
       'Or fill the sections by hand - each card (Document Details, Overview, Procedure, Safety, …) has a short tip explaining what belongs there.',
       'Editing an existing document? Use “Edit with Claude”: describe the change (e.g. “add a step about checking ID”) and Claude rewrites it - you review the diff before keeping it.',
       'Choose a Reviewing manager under Document Details (required to submit). New documents start at version 1.0.',
@@ -121,6 +124,7 @@ const HELP_PAGES = [
       'KPI tiles: Action Needed (opens Tasks), Needs Review (stale docs), Sign-offs, and Drafts - each jumps to the relevant area.',
       'Tools: Assignment Matrix (which departments each doc applies to), Sign-off Tracking (who has acknowledged each policy), Insights (usage & freshness), Training Courses, and New Manual.',
       'Activity Log: every change across the library; click an entry to open the document, or jump straight to the version diff when one exists.',
+      'Recent Runs: who is executing which SOP as a checklist right now, and what completed - real usage, not just page views.',
       'Use New SOP / New Course from here, or open Training Courses to author and assign training.',
     ] },
   { key: 'learn', label: 'Taking Training', title: 'Learn - taking a course',
@@ -207,6 +211,22 @@ const blankDraft = (name, email) => ({
 });
 
 const fmtDate = (s) => (s ? new Date(s.length > 10 ? s : s + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '-');
+
+// Trust-at-a-glance chip (Guru-style verification state). Rendered everywhere a
+// doc appears so stale content visibly decays instead of silently rotting.
+function VerifyBadge({ d, compact }) {
+  if (!d || d.status !== 'approved') return null;
+  const base = { display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '0.68rem', fontWeight: 700, borderRadius: 999, padding: '2px 8px', whiteSpace: 'nowrap' };
+  if (d.is_stale) {
+    return <span style={{ ...base, color: 'hsl(32,80%,38%)', background: 'hsla(38,92%,50%,0.14)' }} title={d.verified_at ? `Last verified ${fmtDate(d.verified_at)} - past its review date` : 'Never verified'}>Needs Verification</span>;
+  }
+  if (!d.verified_at) return null;
+  return (
+    <span style={{ ...base, color: 'hsl(145,55%,30%)', background: 'hsla(145,63%,42%,0.14)' }} title={`Verified${d.verified_by ? ' by ' + d.verified_by : ''} on ${fmtDate(d.verified_at)}`}>
+      <ShieldCheck size={11} /> {compact ? 'Verified' : `Verified ${fmtDate(d.verified_at)}`}
+    </span>
+  );
+}
 
 // Extensions accepted by the document importers below.
 const IMPORT_ACCEPT = '.txt,.md,.markdown,.csv,.json,.html,.htm,.rtf,.log,.pdf,.doc,.docx';
@@ -360,7 +380,6 @@ export default function SOP({ activeSub, onSubChange }) {
   const [typeFilter, setTypeFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
   const [libView, setLibView] = useState(() => { try { return localStorage.getItem('kbLibView') || 'list'; } catch { return 'list'; } }); // list | cards | outline
-  const [searchMode, setSearchMode] = useState('search'); // search | ask
   const [pins, setPins] = useState([]); // doc ids the user has pinned
   const [reviewers, setReviewers] = useState([]); // managers who can approve
   const searchRef = useRef(null);
@@ -369,6 +388,12 @@ export default function SOP({ activeSub, onSubChange }) {
   const openHelp = (key) => setHelp(key || 'playbook');
   const helpBtn = (key) => <button onClick={() => openHelp(key)} title="Help for this page" aria-label="Help" style={{ width: 34, height: 34, borderRadius: 9, border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-secondary)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}><HelpCircle size={16} /></button>;
   const [ask, setAsk] = useState({ q: '', loading: false, answer: null, sources: [], grounded: true });
+
+  // runnable checklists (Process Street-style "runs" of an SOP)
+  const [myRuns, setMyRuns] = useState([]);       // my open runs
+  const [adminRuns, setAdminRuns] = useState(null); // manager: recent runs across the library
+  const [activeRun, setActiveRun] = useState(null); // the run being executed in the open doc
+  const [runDone, setRunDone] = useState(null);     // just-completed run (celebration banner)
 
   // review modal
   const [reviewDoc, setReviewDoc] = useState(null);
@@ -452,8 +477,16 @@ export default function SOP({ activeSub, onSubChange }) {
   useEffect(() => {
     if (sub === 'manage' && isManager) { setActivity(null); api.getKbActivity().then(setActivity).catch(() => setActivity([])); }
   }, [sub, isManager, docs]);
-  // pins (favorites) + reviewer list - loaded once
+  // pins (favorites) + reviewer list + my open runs - loaded once
   useEffect(() => { api.getKbPins().then(setPins).catch(() => {}); }, []);
+  useEffect(() => { api.getMyKbRuns().then(setMyRuns).catch(() => {}); }, []);
+  useEffect(() => {
+    if (sub === 'manage' && isManager) { setAdminRuns(null); api.getKbRuns().then(setAdminRuns).catch(() => setAdminRuns([])); }
+  }, [sub, isManager]);
+  // resume any open run on the doc being viewed
+  useEffect(() => {
+    if (mode === 'detail' && selected) { setActiveRun(myRuns.find(r => r.doc_id === selected.id) || null); setRunDone(null); }
+  }, [mode, selected]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { api.getKbReviewers().then(setReviewers).catch(() => {}); }, []);
   // remember the chosen library view between sessions
   useEffect(() => { try { localStorage.setItem('kbLibView', libView); } catch { /* ignore */ } }, [libView]);
@@ -478,13 +511,13 @@ export default function SOP({ activeSub, onSubChange }) {
       if (e.key !== '/' || e.metaKey || e.ctrlKey || e.altKey) return;
       const t = e.target;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
-      if (sub !== 'index' || mode !== 'list' || searchMode !== 'search') return;
+      if (sub !== 'index' || mode !== 'list') return;
       e.preventDefault();
       searchRef.current?.focus();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [sub, mode, searchMode]);
+  }, [sub, mode]);
 
   const togglePin = async (id, ev) => {
     if (ev) { ev.stopPropagation(); ev.preventDefault(); }
@@ -492,6 +525,49 @@ export default function SOP({ activeSub, onSubChange }) {
     setPins(optimistic);
     try { const list = await api.toggleKbPin(id); setPins(list); }
     catch (e) { setErr(e.message || 'Failed to update pin'); api.getKbPins().then(setPins).catch(() => {}); }
+  };
+
+  // ── runnable checklists ──
+  const startRun = async (d) => {
+    try {
+      const r = await api.startKbRun(d.id);
+      setActiveRun(r); setRunDone(null);
+      setMyRuns(prev => (prev.some(x => x.id === r.id) ? prev : [r, ...prev]));
+      if (selected?.id !== d.id) openDetail(d);
+    } catch (e) { setErr(e.message || 'Could not start the run'); }
+  };
+  const toggleRunStep = async (i) => {
+    if (!activeRun) return;
+    const has = activeRun.steps_done.includes(i);
+    const steps = has ? activeRun.steps_done.filter(x => x !== i) : [...activeRun.steps_done, i];
+    setActiveRun(p => (p ? { ...p, steps_done: steps } : p));
+    try {
+      const r = await api.updateKbRun(activeRun.id, { steps_done: steps });
+      if (r.status === 'completed') {
+        setActiveRun(null); setRunDone(r);
+        setMyRuns(prev => prev.filter(x => x.id !== r.id));
+      } else {
+        setActiveRun(r);
+        setMyRuns(prev => prev.map(x => (x.id === r.id ? r : x)));
+      }
+    } catch (e) { setErr(e.message || 'Could not save your progress'); }
+  };
+  const abandonRun = async () => {
+    if (!activeRun) return;
+    const id = activeRun.id;
+    setActiveRun(null);
+    setMyRuns(prev => prev.filter(x => x.id !== id));
+    try { await api.updateKbRun(id, { status: 'abandoned' }); } catch { /* best-effort */ }
+  };
+
+  // one-click "still accurate" verification (owner or manager)
+  const verifyDocQuick = async (d, ev) => {
+    if (ev) { ev.stopPropagation(); ev.preventDefault(); }
+    try {
+      const doc = await api.verifyKbDoc(d.id);
+      setDocs(prev => prev.map(x => (x.id === doc.id ? doc : x)));
+      if (selected?.id === doc.id) setSelected(doc);
+    } catch (e) { setErr(e.message || 'Failed to mark verified'); }
   };
 
   // jump from the activity log to a document (and, when diffable, straight to its version diff)
@@ -799,11 +875,35 @@ export default function SOP({ activeSub, onSubChange }) {
     }
   };
 
-  // ── Ask AI ──
-  const doAsk = async () => {
-    const q = ask.q.trim();
+  // Ctrl+V screenshots straight into the draft source (capture-first authoring,
+  // Scribe-style): each pasted image becomes an [[IMG#]] marker in the raw notes
+  // that Claude attaches to the right procedure step on Format.
+  const pasteImport = async (e) => {
+    const items = [...(e.clipboardData?.items || [])].filter(it => (it.type || '').startsWith('image/'));
+    if (!items.length) return;   // plain text pastes fall through to the textarea
+    e.preventDefault();
+    const files = items.map(it => it.getAsFile()).filter(Boolean);
+    const assets = await Promise.all(files.map(fileToAsset));
+    const imgs = { ...(draft?._importImages || {}) };
+    const thumbs = { ...(draft?._importThumbs || {}) };
+    let n = Object.keys(imgs).length;
+    const markers = [];
+    for (const a of assets) {
+      if (a.type !== 'image' || !a.data) continue;
+      const marker = `[[IMG${n += 1}]]`;
+      imgs[marker] = await uploadKbImage(a.data);
+      thumbs[marker] = a.data;
+      markers.push(marker);
+    }
+    if (!markers.length) return;
+    setDraft(p => (p ? { ...p, _importImages: imgs, _importThumbs: thumbs, _raw: ((p._raw || '').trimEnd() + '\n' + markers.join('\n') + '\n').replace(/^\n+/, '') } : p));
+  };
+
+  // ── Ask AI ── (qArg lets the combined Home box ask with the search text)
+  const doAsk = async (qArg) => {
+    const q = (typeof qArg === 'string' ? qArg : ask.q).trim();
     if (!q) return;
-    setAsk(a => ({ ...a, loading: true, answer: null, sources: [] }));
+    setAsk(a => ({ ...a, q, loading: true, answer: null, sources: [] }));
     try {
       const r = await api.askKb({ question: q });
       setAsk(a => ({ ...a, loading: false, answer: r.answer, sources: r.sources || [], grounded: r.grounded !== false }));
@@ -1082,7 +1182,7 @@ export default function SOP({ activeSub, onSubChange }) {
               <span style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', backgroundColor: 'var(--bg-secondary)', borderRadius: 6, padding: '2px 8px' }}>{d.doc_type}</span>
               <Badge status={d.status} />
               {d.require_ack && <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'hsl(32,80%,38%)', background: 'hsla(38,92%,50%,0.14)', borderRadius: 999, padding: '3px 10px' }}>Sign-off required</span>}
-              {d.is_stale && <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'hsl(32,80%,38%)', background: 'hsla(38,92%,50%,0.14)', borderRadius: 999, padding: '3px 10px' }}>Needs Review</span>}
+              <VerifyBadge d={d} />
             </div>
             <h2>{dTitle}</h2>
           </div>
@@ -1101,6 +1201,9 @@ export default function SOP({ activeSub, onSubChange }) {
                 </div>
               </>)}
             </div>
+            {d.status === 'approved' && !isMan && (b.procedure || []).length > 0 && !activeRun && (
+              <button className="primary-btn" onClick={() => startRun(d)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 38 }}><Play size={14} /> Run This SOP</button>
+            )}
             {canEdit(d) && <button className="secondary-btn" onClick={() => openEdit(d)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 38 }}><Edit3 size={14} /> Edit</button>}
             {(d.status === 'draft' || d.status === 'changes_requested') && (d.owner_email === myEmail || isManager) && (
               <button className="primary-btn" disabled={busy} onClick={() => submitDoc(d)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 38 }}><Send size={14} /> Submit for Review</button>
@@ -1159,18 +1262,42 @@ export default function SOP({ activeSub, onSubChange }) {
                 ))}</tbody>
               </table>
             ))}
-            {section('Procedure', tProcedure?.length > 0 ? (
+            {section('Procedure', tProcedure?.length > 0 ? (<>
+              {runDone && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, background: 'hsla(145,63%,42%,0.1)', border: '1px solid hsla(145,63%,42%,0.35)', borderRadius: 10, padding: '10px 13px' }}>
+                  <CheckSquare size={17} style={{ color: 'hsl(145,55%,32%)', flex: '0 0 auto' }} />
+                  <div style={{ flex: 1, fontSize: '0.85rem', color: 'hsl(145,55%,26%)', fontWeight: 600 }}>Run complete - all {runDone.step_count} steps done. Nice work.</div>
+                  <button className="close-btn" onClick={() => setRunDone(null)}><X size={15} /></button>
+                </div>
+              )}
+              {activeRun && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 11, marginBottom: 12, background: 'hsla(215,100%,50%,0.06)', border: '1px solid hsla(215,100%,50%,0.25)', borderRadius: 10, padding: '10px 13px' }}>
+                  <ListChecks size={17} style={{ color: 'hsl(var(--color-blue))', flex: '0 0 auto' }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-primary)' }}>Run in progress · {activeRun.steps_done.length} of {activeRun.step_count} steps done</div>
+                    <div style={{ height: 6, borderRadius: 999, background: 'var(--bg-secondary)', overflow: 'hidden', marginTop: 5 }}>
+                      <div style={{ width: `${Math.round(activeRun.steps_done.length / (activeRun.step_count || 1) * 100)}%`, height: '100%', background: 'hsl(145,63%,42%)', transition: 'width 0.25s ease' }} />
+                    </div>
+                  </div>
+                  <button className="secondary-btn" onClick={abandonRun} style={{ height: 30, fontSize: '0.76rem', flex: '0 0 auto' }}>Abandon Run</button>
+                </div>
+              )}
               <ol style={{ margin: 0, paddingLeft: 0, listStyle: 'none', counterReset: 'step' }}>
-                {tProcedure.map((s, i) => (
-                  <li key={i} style={{ position: 'relative', padding: '10px 0 10px 40px', borderBottom: '1px solid var(--bg-secondary)', color: 'var(--text-primary)' }}>
-                    <span style={{ position: 'absolute', left: 0, top: 9, width: 26, height: 26, borderRadius: 8, backgroundColor: 'var(--bg-secondary)', color: 'hsl(var(--color-blue))', fontWeight: 700, fontSize: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{i + 1}</span>
-                    {s.text}
+                {tProcedure.map((s, i) => {
+                  const done = !!activeRun && activeRun.steps_done.includes(i);
+                  return (
+                  <li key={i} style={{ position: 'relative', padding: '10px 0 10px 40px', borderBottom: '1px solid var(--bg-secondary)', color: 'var(--text-primary)', opacity: done ? 0.55 : 1, transition: 'opacity 0.15s ease' }}>
+                    {activeRun
+                      ? <button onClick={() => toggleRunStep(i)} title={done ? 'Mark not done' : 'Mark step done'} style={{ position: 'absolute', left: 0, top: 9, width: 26, height: 26, borderRadius: 8, border: '2px solid', borderColor: done ? 'hsl(145,63%,42%)' : 'var(--border-color)', backgroundColor: done ? 'hsl(145,63%,42%)' : 'var(--bg-card)', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}>{done ? <CheckSquare size={14} /> : ''}</button>
+                      : <span style={{ position: 'absolute', left: 0, top: 9, width: 26, height: 26, borderRadius: 8, backgroundColor: 'var(--bg-secondary)', color: 'hsl(var(--color-blue))', fontWeight: 700, fontSize: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{i + 1}</span>}
+                    <span style={done ? { textDecoration: 'line-through' } : undefined}>{s.text}</span>
                     <StepDetail detail={s.detail} />
                     {s.image && <img src={signedImgs[s.image] || s.image} alt="step illustration" onClick={() => setLightbox(signedImgs[s.image] || s.image)} style={{ marginTop: 9, maxWidth: 360, width: '100%', borderRadius: 10, border: '1px solid var(--border-color)', display: 'block', cursor: 'zoom-in' }} />}
                   </li>
-                ))}
+                  );
+                })}
               </ol>
-            ) : <p style={{ color: 'var(--text-muted)', margin: 0 }}>No steps recorded.</p>)}
+            </>) : <p style={{ color: 'var(--text-muted)', margin: 0 }}>No steps recorded.</p>)}
             {tSafety?.length > 0 && section('Safety & Compliance', <ul style={{ margin: 0, paddingLeft: 20, color: 'var(--text-primary)', lineHeight: 1.7 }}>{tSafety.map((s, i) => <li key={i}>{s}</li>)}</ul>)}
             {b.references?.length > 0 && section('References', <ul style={{ margin: 0, paddingLeft: 20, color: 'var(--text-primary)', lineHeight: 1.7 }}>{b.references.map((s, i) => <li key={i}>{s}</li>)}</ul>)}
             {b.media?.length > 0 && section('Training media', <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>{b.media.map((m, i) => mediaEmbed(m, i))}</div>)}
@@ -1222,7 +1349,7 @@ export default function SOP({ activeSub, onSubChange }) {
                   : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', fontWeight: 700, color: 'hsl(145,55%,30%)', background: 'hsla(145,63%,42%,0.14)', borderRadius: 999, padding: '4px 10px' }}><CheckSquare size={13} /> Verified</span>}
                 <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 8 }}>{d.verified_at ? `Last verified ${fmtDate(d.verified_at)}${d.verified_by ? ` by ${prettyName(d.verified_by)}` : ''}.` : 'Not yet verified.'}</div>
                 <div style={{ fontSize: '0.78rem', color: d.is_stale ? 'hsl(32,80%,38%)' : 'var(--text-muted)', marginTop: 3 }}>Every {d.review_every_months} mo · next due {fmtDate(d.next_review)}.</div>
-                {isManager && <button className={d.is_stale ? 'primary-btn' : 'secondary-btn'} onClick={verifyDoc} style={{ marginTop: 10, width: '100%', height: 32, fontSize: '0.8rem' }}>Mark Verified Today</button>}
+                {(isManager || d.owner_email === myEmail) && <button className={d.is_stale ? 'primary-btn' : 'secondary-btn'} onClick={verifyDoc} style={{ marginTop: 10, width: '100%', height: 32, fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}><ShieldCheck size={14} /> Still Accurate - Verify</button>}
               </div>
             )}
 
@@ -1474,23 +1601,34 @@ export default function SOP({ activeSub, onSubChange }) {
           </div>
         )}
 
-        {!isManual && !draft._importSource && !draft.id && <>{/* Import / AI-format panel (new docs only) */}
-        <div style={{ border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-card)', borderRadius: 12, padding: 16, marginBottom: 18, boxShadow: 'var(--shadow-sm)' }}>
+        {!isManual && !draft._importSource && !draft.id && <>{/* Capture-first panel (new docs only) - the fastest path to a finished SOP */}
+        <div style={{ border: '1px solid hsla(266,70%,60%,0.4)', background: 'hsla(266,70%,60%,0.05)', borderRadius: 14, padding: 18, marginBottom: 18, boxShadow: 'var(--shadow-sm)' }}>
           <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
-            <div style={{ width: 34, height: 34, borderRadius: 9, backgroundColor: 'hsla(215,100%,50%,0.1)', color: 'hsl(var(--color-blue))', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}><Sparkles size={18} /></div>
+            <div style={{ width: 34, height: 34, borderRadius: 9, backgroundColor: 'hsla(266,70%,60%,0.14)', color: 'hsl(266,72%,56%)', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}><Sparkles size={18} /></div>
             <div style={{ flex: 1, minWidth: 180 }}>
-              <strong style={{ fontSize: '0.9rem', display: 'block' }}>Start from an existing document</strong>
-              <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Paste or upload an existing SOP (or rough notes) and Claude formats every section. Optional - you can also just fill it in below.</span>
+              <strong style={{ fontSize: '0.92rem', display: 'block' }}>Fastest Way: Show It, Don't Write It</strong>
+              <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Do the task once with rough notes: paste screenshots of each step (Ctrl+V below), jot what happens, or upload an existing document - Claude turns it into a finished, standardized SOP.</span>
             </div>
             <label className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 38, cursor: 'pointer', margin: 0, flex: '0 0 auto' }}>
-              <Paperclip size={15} /> Upload file
+              <Paperclip size={15} /> Upload File
               <input type="file" accept={IMPORT_ACCEPT} onChange={e => { importFile(e.target.files[0]); e.target.value = ''; }} style={{ display: 'none' }} />
             </label>
-            <button className="primary-btn" disabled={aiBusy} onClick={runAiFormat} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 38, flex: '0 0 auto' }}>
+            <button className="primary-btn" disabled={aiBusy} onClick={runAiFormat} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 38, flex: '0 0 auto', background: 'linear-gradient(135deg, hsl(258,82%,62%), hsl(288,70%,58%))', border: 'none', color: '#fff' }}>
               {aiBusy ? <Loader size={15} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Sparkles size={15} />} {aiBusy ? 'Formatting…' : 'Format with Claude'}
             </button>
           </div>
-          <textarea className="form-input" value={draft._raw} placeholder="Paste existing SOP text or bullet notes here, or upload a file above…" onChange={e => setDraft(p => ({ ...p, _raw: e.target.value }))} style={{ width: '100%', minHeight: 90, resize: 'vertical' }} />
+          <textarea className="form-input" value={draft._raw} onPaste={pasteImport} placeholder={'Type rough step notes here and press Ctrl+V to drop in screenshots as you go…\n\ne.g.\nOpen the gate panel and enter the master code\n[screenshot]\nCheck the log for the last entry…'} onChange={e => setDraft(p => ({ ...p, _raw: e.target.value }))} style={{ width: '100%', minHeight: 110, resize: 'vertical' }} />
+          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 6 }}>Tip: paste screenshots in the order you do the steps, or press Ctrl+V anytime - each lands where your cursor left off and Claude attaches it to the right step.</div>
+          {Object.keys(draft._importThumbs || {}).length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
+              {Object.entries(draft._importThumbs).map(([marker, src]) => (
+                <div key={marker} style={{ position: 'relative', border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden' }}>
+                  <img src={src} alt={marker} style={{ height: 58, display: 'block' }} />
+                  <span style={{ position: 'absolute', bottom: 2, left: 4, fontSize: '0.6rem', fontWeight: 700, color: '#fff', background: 'rgba(0,0,0,0.55)', borderRadius: 4, padding: '0 4px' }}>{marker.replace(/[[\]]/g, '')}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div></>}
 
         {/* Prominent title field */}
@@ -1749,8 +1887,38 @@ export default function SOP({ activeSub, onSubChange }) {
         <ChevronRight size={15} style={{ color: 'var(--text-muted)', flex: '0 0 auto' }} />
       </div>
     );
+    const myVerify = docs.filter(d => d.is_stale && d.owner_email === myEmail);
     return (
       <>
+        {myVerify.length > 0 && (
+          <div style={panel}>
+            {head(ShieldCheck, 'Needs Your Verification', myVerify.length)}
+            {myVerify.map((d, i) => row(d, i,
+              <button className="secondary-btn" onClick={(e) => verifyDocQuick(d, e)} title="Confirm this document is still accurate" style={{ height: 28, fontSize: '0.72rem', flex: '0 0 auto' }}>Verify</button>,
+              () => openDetail(d)))}
+          </div>
+        )}
+        {myRuns.length > 0 && (
+          <div style={panel}>
+            {head(ListChecks, 'Runs in Progress', myRuns.length)}
+            {myRuns.map((r, i) => {
+              const d = docs.find(x => x.id === r.doc_id);
+              const open = () => { if (d) openDetail(d); };
+              return (
+                <div key={r.id} role="button" tabIndex={0} onClick={open} onKeyDown={e => { if (e.key === 'Enter') open(); }} {...hover} style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', padding: '10px 12px', borderTop: i ? '1px solid var(--bg-secondary)' : 'none', cursor: 'pointer' }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: '0.83rem', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.doc_title}</div>
+                    <div style={{ height: 5, borderRadius: 999, background: 'var(--bg-secondary)', overflow: 'hidden', marginTop: 5 }}>
+                      <div style={{ width: `${Math.round(r.steps_done.length / (r.step_count || 1) * 100)}%`, height: '100%', background: 'hsl(145,63%,42%)' }} />
+                    </div>
+                  </div>
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', flex: '0 0 auto' }}>{r.steps_done.length}/{r.step_count}</span>
+                  <ChevronRight size={15} style={{ color: 'var(--text-muted)', flex: '0 0 auto' }} />
+                </div>
+              );
+            })}
+          </div>
+        )}
         {pinned.length > 0 && (
           <div style={panel}>
             {head(Star, 'Pinned', 0)}
@@ -1798,7 +1966,7 @@ export default function SOP({ activeSub, onSubChange }) {
                 </div>
                 {b.purpose && <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{b.purpose}</div>}
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginTop: 'auto', paddingTop: 8, borderTop: '1px solid var(--bg-secondary)' }}>
-                  <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>{d.doc_type} · v{d.version}</span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.7rem', color: 'var(--text-secondary)' }}>{d.doc_type} · v{d.version}<VerifyBadge d={d} compact /></span>
                   {deptChips(d)}
                 </div>
               </div>
@@ -1828,6 +1996,7 @@ export default function SOP({ activeSub, onSubChange }) {
                   <span style={{ display: 'block', fontWeight: 600, fontSize: '0.85rem', color: 'var(--text-primary)' }}>{d.title}</span>
                   <span style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'inherit' }}>{d.doc_code || '-'} · {d.doc_type} · v{d.version} · {d.owner_name || ''}</span>
                 </span>
+                <VerifyBadge d={d} compact />
                 <Badge status={d.status} />
               </button>
             ))}
@@ -1841,12 +2010,18 @@ export default function SOP({ activeSub, onSubChange }) {
     <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 14, padding: 14, marginBottom: 18 }}>
       {ask.loading && <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', display: 'inline-flex', alignItems: 'center', gap: 8 }}><Loader size={15} style={{ animation: 'spin 0.7s linear infinite' }} /> Searching your SOPs…</div>}
       {!ask.loading && ask.answer != null && (
-        <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 11, padding: 14 }}>
-          <div style={{ fontSize: '0.88rem', lineHeight: 1.6, color: 'var(--text-primary)', whiteSpace: 'pre-wrap' }}>{ask.answer}</div>
+        <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 11, padding: 14, position: 'relative' }}>
+          <button className="close-btn" onClick={() => setAsk(a => ({ ...a, answer: null, sources: [] }))} title="Dismiss answer" style={{ position: 'absolute', top: 8, right: 8 }}><X size={15} /></button>
+          <div style={{ fontSize: '0.88rem', lineHeight: 1.6, color: 'var(--text-primary)', whiteSpace: 'pre-wrap', paddingRight: 26 }}>{ask.answer}</div>
           {ask.sources?.length > 0 ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap', marginTop: 12, fontSize: '0.75rem', color: 'var(--text-muted)' }}>
               Sources:
-              {ask.sources.map(s => <button key={s.id} onClick={() => openSourceById(s.id)} style={{ fontSize: '0.72rem', background: 'var(--bg-secondary)', color: 'hsl(var(--color-blue))', border: '1px solid var(--border-color)', borderRadius: 999, padding: '3px 10px', cursor: 'pointer', fontWeight: 600 }}>{s.doc_code || s.title}</button>)}
+              {ask.sources.map(s => (
+                <button key={s.id} onClick={() => openSourceById(s.id)} title={s.is_stale ? 'This source is past its review date - double-check with the owner' : (s.verified_at ? `Verified ${fmtDate(s.verified_at)}` : s.title)} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: '0.72rem', background: 'var(--bg-secondary)', color: 'hsl(var(--color-blue))', border: '1px solid', borderColor: s.is_stale ? 'hsla(38,92%,50%,0.55)' : 'var(--border-color)', borderRadius: 999, padding: '3px 10px', cursor: 'pointer', fontWeight: 600 }}>
+                  {!s.is_stale && s.verified_at && <ShieldCheck size={11} style={{ color: 'hsl(145,55%,32%)' }} />}
+                  {s.doc_code || s.title}{s.is_stale ? ' · needs verification' : ''}
+                </button>
+              ))}
             </div>
           ) : <div style={{ marginTop: 12, fontSize: '0.75rem', color: 'hsl(32, 80%, 38%)' }}>No matching SOP found - worth adding one.</div>}
         </div>
@@ -1893,7 +2068,7 @@ export default function SOP({ activeSub, onSubChange }) {
                 <td style={{ padding: '11px 14px' }}><div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.9rem' }}>{d.title}</div><div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'inherit' }}>{d.doc_code || '-'} · v{d.version}</div></td>
                 <td className="kb-c-type" style={{ padding: '11px 14px', fontSize: '0.82rem' }}>{d.doc_type}</td>
                 <td className="kb-c-dept" style={{ padding: '11px 14px', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>{(d.departments || []).length ? d.departments.join(', ') : 'Unassigned'}</td>
-                <td style={{ padding: '11px 14px' }}><Badge status={d.status} /></td>
+                <td style={{ padding: '11px 14px' }}><div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 4 }}><Badge status={d.status} /><VerifyBadge d={d} compact /></div></td>
                 <td className="kb-c-owner" style={{ padding: '11px 14px', fontSize: '0.82rem' }}>{d.owner_name || '-'}</td>
                 <td className="kb-c-upd" style={{ padding: '11px 14px', fontSize: '0.78rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{fmtDate(d.updated_at)}</td>
               </tr>
@@ -1928,39 +2103,36 @@ export default function SOP({ activeSub, onSubChange }) {
       {helpModal()}
       {errBanner}
 
-      {/* SOP Index */}
+      {/* Knowledge Home - answer-first: one box that filters as you type and asks AI on Enter */}
       {sub === 'index' && (
         <>
-          <div className="view-header" style={{ marginBottom: 20 }}>
-            <div className="view-title-group"><h2>Playbook</h2><p>Your SOPs, manuals, and guides - all in one place</p></div>
-            <button className="primary-btn" onClick={openCreate} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={16} /> New SOP</button>
+          <div style={{ maxWidth: 820, margin: '4px auto 20px', textAlign: 'center' }}>
+            <h2 style={{ fontSize: '1.55rem', margin: '0 0 4px' }}>What Do You Need to Know?</h2>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.88rem', margin: '0 0 14px' }}>Type to filter the playbook, or press Enter to ask AI - answers come only from approved documents and cite their sources.</p>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <div style={{ position: 'relative', flex: 1, minWidth: 0 }}>
+                <Search size={18} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                <input ref={searchRef} type="text" className="form-input" value={search} onChange={e => setSearch(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter' && search.trim()) doAsk(search); }}
+                  placeholder="Search or ask anything… e.g. How do we hand over a unit key?"
+                  style={{ paddingLeft: 42, paddingRight: 36, width: '100%', height: 48, fontSize: '0.95rem', borderRadius: 12 }} />
+                {!search && <span style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 6, padding: '1px 7px', pointerEvents: 'none' }}>/</span>}
+              </div>
+              <button className="primary-btn" disabled={ask.loading || !search.trim()} onClick={() => doAsk(search)} style={{ height: 48, display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.9rem', borderRadius: 12, background: 'linear-gradient(135deg, hsl(258,82%,62%), hsl(288,70%,58%))', border: 'none', color: '#fff', flex: '0 0 auto' }}>{ask.loading ? <Loader size={15} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Sparkles size={15} />} {ask.loading ? 'Asking…' : 'Ask AI'}</button>
+            </div>
           </div>
 
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 16, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 14, padding: 10, boxShadow: 'var(--shadow-sm)' }}>
-            <div style={{ display: 'inline-flex', background: 'var(--bg-secondary)', borderRadius: 9, padding: 3, flex: '0 0 auto' }}>
-              {[['search', 'Search', Search], ['ask', 'Ask AI', Sparkles]].map(([m, label, Icon]) => (
-                <button key={m} onClick={() => setSearchMode(m)} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 7, border: 'none', cursor: 'pointer', fontSize: '0.82rem', fontWeight: 600, background: searchMode === m ? 'var(--bg-card)' : 'transparent', color: searchMode === m ? (m === 'ask' ? 'hsl(266,72%,56%)' : 'var(--text-primary)') : (m === 'ask' ? 'hsl(266,40%,55%)' : 'var(--text-secondary)'), boxShadow: searchMode === m ? 'var(--shadow-sm)' : 'none' }}><Icon size={14} /> {label}</button>
-              ))}
-            </div>
-            <div style={{ position: 'relative', flex: '1 1 240px', minWidth: 200 }}>
-              <Search size={16} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-              {searchMode === 'search'
-                ? <><input ref={searchRef} type="text" className="form-input" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search title, ID, or document text…" style={{ paddingLeft: 36, paddingRight: 34, width: '100%', height: 38, fontSize: '0.88rem' }} />
-                    {!search && <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 6, padding: '1px 7px', pointerEvents: 'none' }}>/</span>}</>
-                : <input type="text" className="form-input" value={ask.q} onChange={e => setAsk(a => ({ ...a, q: e.target.value }))} onKeyDown={e => { if (e.key === 'Enter') doAsk(); }} placeholder="Ask the knowledge base… e.g. When do we run the gate audit?" style={{ paddingLeft: 36, width: '100%', height: 38, fontSize: '0.88rem' }} />}
-            </div>
-            {searchMode === 'search' ? (<>
-              <select className="form-select" value={deptFilter} onChange={e => setDeptFilter(e.target.value)} style={{ height: 38, fontSize: '0.85rem', width: 'auto' }}><option value="all">All departments</option>{DEPARTMENTS.map(d => <option key={d}>{d}</option>)}</select>
-              <select className="form-select" value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={{ height: 38, fontSize: '0.85rem', width: 'auto' }}><option value="all">All types</option>{DOC_TYPES.map(t => <option key={t}>{t}</option>)}</select>
-              <select className="form-select" value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={{ height: 38, fontSize: '0.85rem', width: 'auto' }}><option value="all">All statuses</option>{Object.entries(STATUS_META).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</select>
-            </>) : (
-              <button className="primary-btn" disabled={ask.loading} onClick={doAsk} style={{ height: 38, display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.85rem', background: 'linear-gradient(135deg, hsl(258,82%,62%), hsl(288,70%,58%))', border: 'none', color: '#fff' }}>{ask.loading ? <Loader size={15} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Sparkles size={15} />} {ask.loading ? 'Asking…' : 'Ask'}</button>
-            )}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 14 }}>
+            <select className="form-select" value={deptFilter} onChange={e => setDeptFilter(e.target.value)} style={{ height: 36, fontSize: '0.83rem', width: 'auto' }}><option value="all">All departments</option>{DEPARTMENTS.map(d => <option key={d}>{d}</option>)}</select>
+            <select className="form-select" value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={{ height: 36, fontSize: '0.83rem', width: 'auto' }}><option value="all">All types</option>{DOC_TYPES.map(t => <option key={t}>{t}</option>)}</select>
+            <select className="form-select" value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={{ height: 36, fontSize: '0.83rem', width: 'auto' }}><option value="all">All statuses</option>{Object.entries(STATUS_META).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</select>
+            <span style={{ marginLeft: 'auto' }} />
+            <button className="primary-btn" onClick={openCreate} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 36, fontSize: '0.85rem' }}><Plus size={15} /> New SOP</button>
           </div>
 
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'flex-start' }}>
             <div style={{ flex: isMobile ? '1 1 100%' : '3 1 480px', minWidth: 0, width: isMobile ? '100%' : undefined }}>
-              {searchMode === 'ask' && askAnswer()}
+              {(ask.loading || ask.answer != null) && askAnswer()}
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
                 <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)' }}>{filtered.length} Document{filtered.length === 1 ? '' : 's'}</div>
                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
@@ -2155,6 +2327,29 @@ export default function SOP({ activeSub, onSubChange }) {
                               <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.notes || 'Updated.'}</div>
                             </div>
                             <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', whiteSpace: 'nowrap', flex: '0 0 auto' }}>{fmtDate(e.date)}</div>
+                          </button>
+                        );
+                      })}
+                    </div>}
+            </div>
+
+            <div style={{ flex: '1 1 320px', minWidth: 0, ...panel }}>
+              {panelHead('Recent Runs')}
+              {adminRuns === null
+                ? <div style={{ textAlign: 'center', padding: 24, color: 'var(--text-secondary)' }}><Loader size={18} style={{ animation: 'spin 0.7s linear infinite' }} /></div>
+                : adminRuns.length === 0
+                  ? <div style={{ padding: 16, fontSize: '0.83rem', color: 'var(--text-muted)' }}>No runs yet. Anyone can execute an SOP as a live checklist with the Run This SOP button.</div>
+                  : <div style={{ maxHeight: 360, overflow: 'auto' }}>
+                      {adminRuns.map((r, i) => {
+                        const d = docs.find(x => x.id === r.doc_id);
+                        return (
+                          <button key={r.id} onClick={() => d && openDetail(d)} {...hoverRow} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left', padding: '10px 14px', background: 'transparent', border: 'none', borderTop: i ? '1px solid var(--bg-secondary)' : 'none', cursor: 'pointer' }}>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: '0.83rem', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.doc_title}</div>
+                              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{prettyName(r.user_name || r.user_email)} · {r.steps_done.length}/{r.step_count} steps</div>
+                            </div>
+                            <span style={{ fontSize: '0.66rem', fontWeight: 700, borderRadius: 999, padding: '2px 8px', flex: '0 0 auto', color: r.status === 'completed' ? 'hsl(145,55%,30%)' : r.status === 'open' ? 'hsl(var(--color-blue))' : 'var(--text-muted)', background: r.status === 'completed' ? 'hsla(145,63%,42%,0.12)' : 'var(--bg-secondary)' }}>{r.status === 'completed' ? 'Completed' : r.status === 'open' ? 'In progress' : 'Abandoned'}</span>
+                            <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', whiteSpace: 'nowrap', flex: '0 0 auto' }}>{fmtDate(r.completed_at || r.started_at)}</span>
                           </button>
                         );
                       })}

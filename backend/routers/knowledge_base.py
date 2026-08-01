@@ -215,10 +215,37 @@ class CommentIn(BaseModel):
     text: str = ""
 
 
+def _emit_stale_reminders(db: Session, rows: list) -> None:
+    """Bell nudge to the owner (or reviewer) when an approved doc slips past its
+    review date - the Guru-style verification loop. Deduped per review cycle via
+    stale_notified_at, so a doc nags exactly once each time it goes stale."""
+    today = _today()
+    dirty = False
+    for d in rows:
+        if not _is_stale(d):
+            continue
+        nr = _next_review(d)
+        # already nudged for this cycle (notified on/after the doc went stale)
+        if d.stale_notified_at and (not nr or d.stale_notified_at >= nr):
+            continue
+        target = (d.owner_email or d.reviewer_email or "").lower().strip()
+        if not target:
+            continue
+        _kb_notify(db, recipient=target, ntype="kb_verify_due",
+                   title="A document needs your verification",
+                   body=f"“{d.title}” ({d.doc_code}) is past its review date. "
+                        "Open it and confirm it is still accurate, or update it.", doc=d)
+        d.stale_notified_at = today
+        dirty = True
+    if dirty:
+        db.commit()
+
+
 # ---- CRUD -----------------------------------------------------------------
 @router.get("/documents")
 def list_documents(db: Session = Depends(get_db)):
     rows = db.query(models.KbDocument).all()
+    _emit_stale_reminders(db, rows)
     rows.sort(key=lambda d: d.updated_at or "", reverse=True)
     return [_serialize(d) for d in rows]
 
@@ -449,8 +476,13 @@ def translate_document(doc_id: str, payload: TranslateIn, user: dict = Depends(g
 
 
 @router.post("/documents/{doc_id}/verify")
-def verify_document(doc_id: str, user: dict = Depends(require_level(3)), db: Session = Depends(get_db)):
+def verify_document(doc_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Owner or a manager confirms the doc is still accurate - one click resets
+    the freshness clock. Owners can verify their own docs (they are the subject
+    experts); everyone else needs manager level."""
     d = _get_or_404(doc_id, db)
+    if user["level"] < 3 and (d.owner_email or "").lower() != user["email"].lower():
+        raise HTTPException(status_code=403, detail="Only the document owner or a manager can verify")
     d.verified_at = _today()
     d.verified_by = user.get("name") or user["email"]
     d.updated_at = _now()
@@ -790,7 +822,10 @@ def _rank_docs(q: str, db: Session) -> list[models.KbDocument]:
         return []
     scored = []
     for d in db.query(models.KbDocument).all():
-        if d.status == "archived":
+        # Answers ground ONLY in published content - drafts and archived docs
+        # would let the AI cite procedures that were never (or are no longer)
+        # approved, which kills trust in the whole feature.
+        if d.status != "approved":
             continue
         hay = (d.title + " " + (d.body or "") + " " + (d.doc_code or "")).lower()
         s = sum(1 for t in terms if t in hay) + sum(1 for t in terms if t in d.title.lower())
@@ -826,7 +861,8 @@ def ask(payload: AskIn, user: dict = Depends(get_current_user), db: Session = De
     if not q:
         raise HTTPException(status_code=400, detail="Ask a question")
     top = _rank_docs(q, db)
-    sources = [{"id": d.id, "doc_code": d.doc_code, "title": d.title} for d in top]
+    sources = [{"id": d.id, "doc_code": d.doc_code, "title": d.title,
+                "verified_at": d.verified_at or "", "is_stale": _is_stale(d)} for d in top]
     if not _ANTHROPIC_API_KEY:
         return {"answer": _offline_answer(q, top), "sources": sources, "grounded": bool(top)}
     context = "\n\n".join(_doc_context(d) for d in top) or "(no matching SOPs found)"
@@ -924,6 +960,95 @@ def ai_revise(payload: AiReviseIn, user: dict = Depends(get_current_user)):
     except Exception as e:
         print(f"[kb ai-revise] failed: {e}")
         return {"source": "offline", "sop": current}
+
+
+# ---- Runs (execute an SOP as a live checklist) -----------------------------
+class RunUpdateIn(BaseModel):
+    steps_done: list[int] = []
+    status: str = ""          # "" = leave as-is; "completed" | "abandoned"
+
+
+def _serialize_run(r: models.KbRun) -> dict:
+    try:
+        done = json.loads(r.steps_done or "[]")
+    except (ValueError, TypeError):
+        done = []
+    return {
+        "id": r.id, "doc_id": r.doc_id, "doc_code": r.doc_code or "", "doc_title": r.doc_title,
+        "version": r.version or "", "user_email": r.user_email, "user_name": r.user_name or "",
+        "steps_done": done, "step_count": r.step_count or 0, "status": r.status,
+        "started_at": r.started_at or "", "completed_at": r.completed_at or "",
+    }
+
+
+def _run_or_404(run_id: str, db: Session) -> models.KbRun:
+    r = db.query(models.KbRun).filter(models.KbRun.id == run_id).first()
+    if not r:
+        raise HTTPException(status_code=404, detail="Run not found")
+    return r
+
+
+@router.post("/documents/{doc_id}/runs", status_code=201)
+def start_run(doc_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Start (or resume) a checklist run of this SOP's procedure. One open run
+    per person per document - starting again returns the existing open run."""
+    d = _get_or_404(doc_id, db)
+    if d.status != "approved":
+        raise HTTPException(status_code=400, detail="Only published documents can be run")
+    try:
+        steps = (json.loads(d.body or "{}").get("procedure") or [])
+    except (ValueError, TypeError):
+        steps = []
+    if not steps:
+        raise HTTPException(status_code=400, detail="This document has no procedure steps to run")
+    existing = db.query(models.KbRun).filter(
+        models.KbRun.doc_id == d.id, models.KbRun.user_email == user["email"],
+        models.KbRun.status == "open").first()
+    if existing:
+        return _serialize_run(existing)
+    r = models.KbRun(
+        id="run_" + uuid.uuid4().hex[:12], doc_id=d.id, doc_code=d.doc_code or "",
+        doc_title=d.title, version=d.version or "", user_email=user["email"],
+        user_name=user.get("name") or user["email"], steps_done="[]",
+        step_count=len(steps), status="open", started_at=_now(), completed_at="")
+    db.add(r)
+    db.commit()
+    db.refresh(r)
+    return _serialize_run(r)
+
+
+@router.patch("/runs/{run_id}")
+def update_run(run_id: str, payload: RunUpdateIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    r = _run_or_404(run_id, db)
+    if r.user_email.lower() != user["email"].lower():
+        raise HTTPException(status_code=403, detail="Not your run")
+    if r.status != "open":
+        raise HTTPException(status_code=400, detail="This run is already closed")
+    done = sorted({i for i in payload.steps_done if isinstance(i, int) and 0 <= i < (r.step_count or 0)})
+    r.steps_done = json.dumps(done)
+    if payload.status in ("completed", "abandoned") or (r.step_count and len(done) >= r.step_count):
+        r.status = payload.status or "completed"
+        r.completed_at = _now()
+    db.commit()
+    db.refresh(r)
+    return _serialize_run(r)
+
+
+@router.get("/my-runs")
+def my_runs(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """The current user's open runs (for 'continue where you left off')."""
+    rows = db.query(models.KbRun).filter(
+        models.KbRun.user_email == user["email"], models.KbRun.status == "open").all()
+    rows.sort(key=lambda r: r.started_at or "", reverse=True)
+    return [_serialize_run(r) for r in rows]
+
+
+@router.get("/runs")
+def list_runs(limit: int = 60, user: dict = Depends(require_level(3)), db: Session = Depends(get_db)):
+    """Manager view: recent runs across the library - who is executing what."""
+    rows = db.query(models.KbRun).all()
+    rows.sort(key=lambda r: (r.completed_at or r.started_at or ""), reverse=True)
+    return [_serialize_run(r) for r in rows[:max(1, min(limit, 300))]]
 
 
 # ---- Media (private bucket + signed URLs) ---------------------------------
