@@ -132,7 +132,15 @@ def people_directory(user: dict = Depends(get_current_user), db: Session = Depen
     NOT the ~150-account M365 GAL. Any signed-in user can call it (same shape as
     /roles/directory), so modules like Item Management can assign to real Nexus
     people. Only people with a work email are included (assignment/notification
-    needs a mailbox); offboarded staff are excluded."""
+    needs a mailbox); offboarded staff are excluded.
+
+    Cached (cache.py): every picker app-wide loads this list on mount, and it
+    only changes on HR edits/M365 sync - the single hottest read for its rate
+    of change. Same payload for every caller, so one cache entry serves all."""
+    import cache
+    cached = cache.people_directory.get("all")
+    if cached is not None:
+        return cached
     rows = (db.query(NexusEmployee)
               .filter(NexusEmployee.status != "offboarded")
               .filter(NexusEmployee.work_email != "")
@@ -140,10 +148,12 @@ def people_directory(user: dict = Depends(get_current_user), db: Session = Depen
     # company is the ENTITY ID on the employee row; resolve the display name once
     # so pickers can offer company/department filters without an HR-gated call.
     ent_names = {en.id: en.name for en in db.query(HrEntity).all()}
-    return [{"email": e.work_email, "name": _person_name(e), "photoUrl": e.photo_url or "",
-             "company": e.company or "", "companyName": ent_names.get(e.company or "", ""),
-             "department": e.department or ""}
-            for e in rows]
+    out = [{"email": e.work_email, "name": _person_name(e), "photoUrl": e.photo_url or "",
+            "company": e.company or "", "companyName": ent_names.get(e.company or "", ""),
+            "department": e.department or ""}
+           for e in rows]
+    cache.people_directory.set("all", out)
+    return out
 
 
 @router.get("/person")

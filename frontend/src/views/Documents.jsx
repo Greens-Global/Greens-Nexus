@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { FileSignature, LayoutDashboard, Folder, LayoutTemplate } from 'lucide-react';
 import { api } from '../api';
+import { useEntities } from '../lib/queries';
 import ESign from '../components/ESign';
 import DocumentsDashboard from '../components/DocumentsDashboard';
 import DocumentsBrowser from '../components/DocumentsBrowser';
@@ -42,7 +43,7 @@ export default function Documents({ activeSub, onSubChange }) {
   const [openTemplateSignal, setOpenTemplateSignal] = useState(null);
 
   const [employees, setEmployees] = useState([]);
-  const [entities, setEntities] = useState([]);
+  const { data: entities = [] } = useEntities();
   const [toast, setToast] = useState(null);
   const [esignPrefill, setEsignPrefill] = useState(() => {
     // Fresh navigation from HR Hiring: the prefill was stashed before this view
@@ -60,7 +61,6 @@ export default function Documents({ activeSub, onSubChange }) {
   // parties rather than break the module.
   useEffect(() => {
     api.getEmployees().then(setEmployees).catch(() => setEmployees([]));
-    api.getEntities().then(setEntities).catch(() => setEntities([]));
   }, []);
 
   // Repeat "Send for signature" while already on Documents: nexus:navigate fires

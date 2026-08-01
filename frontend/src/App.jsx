@@ -17,7 +17,7 @@ import GlobalSearch from "./components/GlobalSearch";
 import PullToRefresh from "./components/PullToRefresh";
 import UpdateBanner from "./components/UpdateBanner";
 import ViewErrorBoundary from "./components/ViewErrorBoundary";
-import { onBackendHealth, isBackendDown, startKeepWarm } from "./api";
+import { onBackendHealth, isBackendDown } from "./api";
 import { applyBrandAccent } from "./lib/brandAccent";
 
 // Always loaded - critical path
@@ -295,10 +295,6 @@ function MainApp() {
       setViewEpoch(e => e + 1);
     }
   }), []);
-  // Keep the Azure backend warm through a working session so screens don't eat a
-  // cold start on every open.
-  useEffect(() => { startKeepWarm(); }, []);
-
   // Collapse sidebar when clicking outside it - lets clicks pass through to content.
   // Must listen on 'click', NOT 'mousedown': collapsing on mousedown reflows the
   // page mid-press, the target moves before mouseup, and the browser never fires

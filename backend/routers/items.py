@@ -1115,7 +1115,10 @@ class ItemTypeIn(BaseModel):
 
 @router.get("/types")
 def list_item_types(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    return _type_names(db)
+    # Cached (cache.py): fetched on every Inventory mount, changes only via the
+    # Manage tab (whose writes invalidate it through the ItemType watch).
+    import cache
+    return cache.item_types.get_or_load("all", lambda: _type_names(db))
 
 
 @router.post("/types", status_code=201)
@@ -2707,20 +2710,31 @@ def _nexus_people_only(db: Session, rows):
 def list_approvers(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """Manager-level users an employee can address their checkout request to.
     Open to all authenticated users - only names/emails/roles are exposed."""
-    rows = db.query(NexusRole).filter(NexusRole.role.in_(
-        [role for role, level in _ROLE_LEVEL.items() if level >= _ROLE_LEVEL["manager"]]
-    )).order_by(NexusRole.email).all()
-    return _nexus_people_only(db, rows)
+    import cache
+
+    def _load():
+        rows = db.query(NexusRole).filter(NexusRole.role.in_(
+            [role for role, level in _ROLE_LEVEL.items() if level >= _ROLE_LEVEL["manager"]]
+        )).order_by(NexusRole.email).all()
+        return _nexus_people_only(db, rows)
+    # Same payload for every caller; role changes invalidate via the watch.
+    return cache.role_holders.get_or_load("approvers", _load)
 
 
 @router.get("/allocators")
 def list_allocators(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     if not _is_items_manager(user, db):
         raise HTTPException(403, "Manager or above required")
-    rows = db.query(NexusRole).filter(NexusRole.role.in_(
-        [role for role, level in _ROLE_LEVEL.items() if level >= _ROLE_LEVEL["supervisor"]]
-    )).order_by(NexusRole.email).all()
-    return _nexus_people_only(db, rows)
+    import cache
+
+    def _load():
+        rows = db.query(NexusRole).filter(NexusRole.role.in_(
+            [role for role, level in _ROLE_LEVEL.items() if level >= _ROLE_LEVEL["supervisor"]]
+        )).order_by(NexusRole.email).all()
+        return _nexus_people_only(db, rows)
+    # Permission check stays OUTSIDE the cache; the payload itself is the same
+    # for everyone who passes it.
+    return cache.role_holders.get_or_load("allocators", _load)
 
 
 # ── Report ────────────────────────────────────────────────────────────────────

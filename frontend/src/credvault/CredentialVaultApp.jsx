@@ -13,6 +13,7 @@ import {
   ExternalLink, Share2,
 } from "lucide-react";
 import { api } from "../api";
+import { useRolesDirectory } from "../lib/queries";
 import { ensureStepUp } from "../stepup/StepUp";
 import { useRole } from "../contexts/RoleContext";
 import { useNameResolver } from "../lib/useNameResolver";
@@ -43,7 +44,7 @@ export default function CredentialVaultApp() {
   const [approvals, setApprovals] = useState([]);
   const [accessGrants, setAccessGrants] = useState([]);
   const [personalCreds, setPersonalCreds] = useState([]);
-  const [people, setPeople] = useState([]);
+  const { data: people = [] } = useRolesDirectory();
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
 
@@ -62,7 +63,6 @@ export default function CredentialVaultApp() {
   useEffect(() => {
     refresh().catch(() => setLoadError(true)).finally(() => setLoading(false));
     refreshPersonal();
-    api.getRolesDirectory().then((rows) => setPeople(rows || [])).catch(() => {});
   }, [refresh, refreshPersonal]);
 
   // ── UI state (mirrors the standalone app) ─────────────────────────────────

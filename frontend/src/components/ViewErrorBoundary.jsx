@@ -43,7 +43,9 @@ export default class ViewErrorBoundary extends Component {
   }
 
   componentDidCatch(error) {
-    if (isStaleChunkError(error)) reloadForFreshBuild();
+    if (isStaleChunkError(error)) { reloadForFreshBuild(); return; }
+    // Real render crashes go to the server's error trail (lib/errorReporter).
+    import('../lib/errorReporter').then(m => m.reportError(error?.message || String(error), error?.stack)).catch(() => {});
   }
 
   componentDidUpdate(prevProps) {

@@ -9,6 +9,7 @@ import {
   ShieldCheck, Shield, AlertTriangle, Clock, ArrowUpRight,
 } from 'lucide-react';
 import { api } from '../api';
+import { usePeopleDirectory } from '../lib/queries';
 import { ensureStepUp, isStepUpRequired, StepUpNeeded } from '../stepup/StepUp';
 import { useRole, MODULES, MODULE_LEVELS, ROLES } from '../contexts/RoleContext';
 import TimeAdmin from '../components/TimeAdmin';
@@ -2795,11 +2796,10 @@ function EntitiesModal({ entities, employees = [], onClose, onChanged, toastOk, 
   const [busy, setBusy] = useState(false);
   // People directory for the manager pickers + the group manager (one person
   // above all companies; stored server-side as a singleton setting).
-  const [people, setPeople] = useState([]);
+  const { data: people = [] } = usePeopleDirectory();
   const [groupMgr, setGroupMgr] = useState('');
   const [groupMgrBusy, setGroupMgrBusy] = useState(false);
   useEffect(() => {
-    api.getPeopleDirectory().then(rows => setPeople(Array.isArray(rows) ? rows : [])).catch(() => {});
     api.getGroupManager().then(r => setGroupMgr(r?.email || '')).catch(() => {});
   }, []);
   const personName = email => people.find(p => (p.email || '').toLowerCase() === (email || '').toLowerCase())?.name || '';

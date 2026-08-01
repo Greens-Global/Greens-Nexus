@@ -9,6 +9,7 @@ import { api } from '../api';
 import DayTimeline from '../components/DayTimeline';
 import ModuleTabs from '../components/ModuleTabs';
 import BodModal from '../components/BodModal';
+import { pollWhileVisible } from '../lib/pollWhileVisible';
 
 const PUNCH_CHIP = {
   in:          { bg: 'hsla(var(--color-green),0.1)', fg: 'hsl(var(--color-green))' },
@@ -228,14 +229,14 @@ export default function TimeClock() {
   // instantly when the tab regains focus/visibility. Same-device punches fire
   // nexus:timeclock-changed locally.
   useEffect(() => {
-    const poll = setInterval(load, 20000);
+    const stopPoll = pollWhileVisible(load, 20000);
     const onVis = () => { if (document.visibilityState === 'visible') load(); };
     const onChange = () => load();
     document.addEventListener('visibilitychange', onVis);
     window.addEventListener('focus', onVis);
     window.addEventListener('nexus:timeclock-changed', onChange);
     return () => {
-      clearInterval(poll);
+      stopPoll();
       document.removeEventListener('visibilitychange', onVis);
       window.removeEventListener('focus', onVis);
       window.removeEventListener('nexus:timeclock-changed', onChange);

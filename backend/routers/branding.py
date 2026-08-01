@@ -28,15 +28,23 @@ _DEFAULT_ACCENT = "green"
 
 
 def _get_config(db: Session) -> dict:
+    # Cached (cache.py): this endpoint is UNAUTHENTICATED (the login screen
+    # needs it pre-sign-in), so without a cache anyone can make the DB do work
+    # from outside the auth wall. Accent changes are near-annual.
+    import cache
+    cached = cache.settings_config.get(_SETTINGS_KEY)
+    if cached is not None:
+        return cached
     row = db.query(models.NexusSetting).filter(models.NexusSetting.key == _SETTINGS_KEY).first()
-    if not row or not row.value:
-        return {"accent": _DEFAULT_ACCENT}
-    try:
-        cfg = json.loads(row.value)
-    except (TypeError, ValueError):
-        return {"accent": _DEFAULT_ACCENT}
-    if cfg.get("accent") not in _VALID_ACCENTS:
-        cfg["accent"] = _DEFAULT_ACCENT
+    cfg = {"accent": _DEFAULT_ACCENT}
+    if row and row.value:
+        try:
+            cfg = json.loads(row.value)
+        except (TypeError, ValueError):
+            cfg = {"accent": _DEFAULT_ACCENT}
+        if cfg.get("accent") not in _VALID_ACCENTS:
+            cfg["accent"] = _DEFAULT_ACCENT
+    cache.settings_config.set(_SETTINGS_KEY, cfg)
     return cfg
 
 

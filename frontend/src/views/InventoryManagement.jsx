@@ -13,6 +13,7 @@ import { useNotifications } from '../contexts/NotificationContext';
 import { useRequisitions }  from '../contexts/RequisitionContext';
 import { useRole }          from '../contexts/RoleContext';
 import { api }              from '../api';
+import { usePeopleDirectory } from '../lib/queries';
 import { supabase }         from '../lib/supabase';
 import { useMsal }          from '@azure/msal-react';
 import { cleanName }        from '../lib/utils';
@@ -232,11 +233,10 @@ function OpStatusBadge({ value }) {
 // (used for "Declared by" on person-bound op statuses). Picking a match captures
 // the email so the backend can notify them; free-typed text leaves email blank.
 function PersonTypeahead({ valueName, onPick, placeholder = 'Type a name…' }) {
-  const [dir,  setDir]  = useState([]);
+  const { data: dir = [] } = usePeopleDirectory();
   const [text, setText] = useState(valueName || '');
   const [open, setOpen] = useState(false);
   const boxRef = useRef(null);
-  useEffect(() => { api.getPeopleDirectory().then(d => setDir(Array.isArray(d) ? d : [])).catch(() => {}); }, []);
   useEffect(() => { setText(valueName || ''); }, [valueName]);
   useEffect(() => {
     function onDoc(e) { if (boxRef.current && !boxRef.current.contains(e.target)) setOpen(false); }

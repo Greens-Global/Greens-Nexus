@@ -32,6 +32,19 @@ const fmtDue = (iso) => fmtDate(iso);
 // defaultAssigneeId: who cards added from a column header belong to. My Tasks
 // passes the current user - a task created there with no assignee would drop
 // straight out of the view.
+// Per-column card render cap. Each card is heavy; an unfiltered board can have
+// thousands of tasks in one status column, which freezes the tab. Cap the cards
+// drawn per column (headers/counts stay accurate) and show a "+N more" note -
+// same reasoning as the list view's render cap.
+const MAX_BOARD_CARDS = 100;
+function MoreCards({ n }) {
+  return (
+    <div style={{ padding: '6px 4px', fontSize: 12, color: NX.faint, fontFamily: FONT }}>
+      + {n} more - search or filter to narrow down
+    </div>
+  );
+}
+
 export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId, defaultAssigneeId = '' }) {
   const [dragId, setDragId] = useState(null);
   const [dragOver, setDragOver] = useState(null);
@@ -264,7 +277,8 @@ export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId
                 {over && <div style={{ marginBottom: 8, borderRadius: 8, background: 'rgba(220,38,38,0.14)', color: NX.red, padding: '4px 8px', fontSize: 11, fontWeight: 700 }}>Over WIP limit ({tasks.length}/{limit})</div>}
                 <div className="nx-scroll" style={{ display: 'flex', flexDirection: 'column', gap: 12, flex: 1, minHeight: 0, overflowY: 'auto', paddingRight: 2 }}>
                   {addIn === status && <AddCard onAdd={(title) => addTask(status, title)} onCancel={() => setAddIn(null)} />}
-                  {tasks.map(renderCard)}
+                  {tasks.slice(0, MAX_BOARD_CARDS).map(renderCard)}
+                  {tasks.length > MAX_BOARD_CARDS && <MoreCards n={tasks.length - MAX_BOARD_CARDS} />}
                 </div>
               </div>
             );
@@ -296,7 +310,8 @@ export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId
                       <div key={status}
                         onDragOver={(e) => { e.preventDefault(); setDragOver(zoneKey); }} onDragLeave={() => setDragOver((d) => (d === zoneKey ? null : d))} onDrop={() => drop(status, lane)}
                         style={{ display: 'flex', flexDirection: 'column', gap: 12, width: 300, flexShrink: 0, minHeight: 80, borderRadius: 12, border: `1px solid ${dragOver === zoneKey ? NX.blue : 'transparent'}`, background: dragOver === zoneKey ? NX.hover : 'transparent', padding: 8 }}>
-                        {tasks.map(renderCard)}
+                        {tasks.slice(0, MAX_BOARD_CARDS).map(renderCard)}
+                        {tasks.length > MAX_BOARD_CARDS && <MoreCards n={tasks.length - MAX_BOARD_CARDS} />}
                         <button onClick={() => setAddIn(status)} style={{ ...btn('ghost'), justifyContent: 'center', border: `1px dashed ${NX.border}`, fontSize: 11, color: NX.faint, padding: '6px 0' }}><Plus size={12} />Add</button>
                       </div>
                     );

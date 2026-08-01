@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Loader, Plus, Trash2, Users } from 'lucide-react';
 import { api } from '../api';
 import { useNameResolver } from '../lib/useNameResolver';
+import { usePeopleDirectory } from '../lib/queries';
 import { formatCurrency, statusLabel } from './lib/format';
 import { EmptyState, ErrorState, FG, LoadingState, Modal, PeopleSelect, StatusText, useIrLoad } from './lib/ui';
 
@@ -16,8 +17,7 @@ const s = v => (v === null || v === undefined ? '' : String(v));
 export default function InvestorsTab() {
   const nameOf = useNameResolver();
   const { data: investors, loading, error, reload } = useIrLoad(() => api.getIrInvestors(), []);
-  const [people, setPeople] = useState([]);
-  useEffect(() => { api.getPeopleDirectory().then(d => setPeople(Array.isArray(d) ? d : [])).catch(() => {}); }, []);
+  const { data: people = [] } = usePeopleDirectory();
 
   const [modal, setModal] = useState(null); // { id?, form }
   const [busy, setBusy] = useState(false);

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { pollWhileVisible } from './pollWhileVisible';
 
 // Notices that this tab is running superseded code, BEFORE the user trips over
 // it.
@@ -37,13 +38,13 @@ export function useBuildVersion() {
     }
 
     check();
-    const t = setInterval(check, POLL_MS);
+    const stopPoll = pollWhileVisible(check, POLL_MS);
     const onVis = () => { if (document.visibilityState === 'visible') check(); };
     document.addEventListener('visibilitychange', onVis);
     window.addEventListener('focus', onVis);
     return () => {
       live = false;
-      clearInterval(t);
+      stopPoll();
       document.removeEventListener('visibilitychange', onVis);
       window.removeEventListener('focus', onVis);
     };
