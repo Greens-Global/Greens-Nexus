@@ -28,6 +28,13 @@ import Dashboard from "./views/Dashboard";
 // Lazy-loaded - only fetched when the user navigates there
 const InventoryManagement = lazy(() => import("./views/InventoryManagement"));
 const Tasks               = lazy(() => import("./views/Tasks"));
+const Tickets             = lazy(() => import("./views/Tickets"));
+// Tasks and Tickets share one data engine (tickets are still fetched/held in
+// TasksContext - see tickets/TicketsView.jsx). Mounting the provider here,
+// one call site shared by both cases below, means switching between the two
+// in the sidebar swaps children under the SAME provider instance instead of
+// unmounting/remounting it - no refetch of everything on every switch.
+const TasksProvider = lazy(() => import("./tasks/TasksContext").then(m => ({ default: m.TasksProvider })));
 const Purchase            = lazy(() => import("./views/Purchase"));
 const SOP                 = lazy(() => import("./views/SOP"));
 const IT                  = lazy(() => import("./views/IT"));
@@ -150,7 +157,8 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
   switch (activeView) {
     case "dashboard":          return <Dashboard onNavigate={onNavigate} />;
     case "manager-dashboard":  return <ManagerDashboard />;
-    case "tasks":              return <Tasks activeSub={activeSub} onSubChange={onSubChange} onNavigate={onNavigate} />;
+    case "tasks":              return <TasksProvider><Tasks activeSub={activeSub} onSubChange={onSubChange} onNavigate={onNavigate} /></TasksProvider>;
+    case "tickets":            return <TasksProvider><Tickets /></TasksProvider>;
     case "purchase":           return <Purchase activeSub={activeSub} />;
     case "sop":                return <SOP activeSub={activeSub} onSubChange={onSubChange} />;
     case "it":                 return <IT activeSub={activeSub} onSubChange={onSubChange} />;
@@ -189,6 +197,11 @@ const VIEW_TO_PATH = { inventory: 'itemmanagement' };
 function parsePath() {
   const segs = window.location.pathname.split('/').filter(Boolean);
   const raw = segs[0] || 'dashboard';
+  // Tickets used to be a Tasks sub-view (/tasks/tickets); it's now its own
+  // top-level module. Old email links and bookmarks still resolve - the
+  // ?ticket= query param that TicketsView reads on mount survives untouched
+  // since only the path is remapped here.
+  if (raw === 'tasks' && segs[1] === 'tickets') return { view: 'tickets', sub: null };
   return { view: PATH_TO_VIEW[raw] || raw, sub: segs[1] || null };
 }
 
@@ -460,7 +473,7 @@ function MainApp() {
                 whole canvas. It used to cancel .viewport's padding with negative
                 margins, which only matched ONE of the five breakpoint paddings
                 and so sat off-center at most widths. */}
-            <div className={(activeView === 'tasks' || activeView === 'pdf-editor') ? 'viewport viewport-flush'
+            <div className={(activeView === 'tasks' || activeView === 'tickets' || activeView === 'pdf-editor') ? 'viewport viewport-flush'
               : (activeView === 'dashboard' || activeView === 'manager-dashboard') ? 'viewport viewport-desk'
               : 'viewport'}>
               <ViewErrorBoundary resetKey={`${activeView}/${activeSub}/${viewEpoch}`}>

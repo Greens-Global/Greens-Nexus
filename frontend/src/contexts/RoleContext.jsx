@@ -17,6 +17,7 @@ export const MODULES = [
   { id: 'myhr',                label: 'My HR' },
   { id: 'manager-dashboard',   label: 'Manager Dashboard' },
   { id: 'tasks',               label: 'Tasks' },
+  { id: 'tickets',             label: 'Tickets' },
   { id: 'sop',                 label: 'Knowledge Base' },
   { id: 'it',                  label: 'IT' },
   { id: 'ops',                 label: 'Construction' },

@@ -115,7 +115,7 @@ def _notify_triage(db: Session, t: models.TaskTicket, actor: str) -> None:
             .filter(models.HrDepartment.id == t.hr_department_id).first())
     if not dept:
         return
-    tk_action = {"view": "tasks", "sub": "tickets", "label": "View ticket"}
+    tk_action = {"view": "tickets", "label": "View ticket"}
     # dict.fromkeys: dedupe (lead may also be the backup) while keeping lead first.
     for em in dict.fromkeys(e for e in [(dept.lead_email or "").lower(),
                                         (dept.backup_email or "").lower()] if e):
@@ -205,7 +205,7 @@ def _notify_participants(db: Session, t: models.TaskTicket, actor_email: str, ki
                          title: str, body: str, exclude: set | None = None):
     """Notify a ticket's participants (watchers/assignee/requester) except the actor
     and anyone in `exclude` (e.g. the requester, for internal notes)."""
-    action = {"view": "tasks", "sub": "tickets", "label": "View ticket"}
+    action = {"view": "tickets", "label": "View ticket"}
     skip = {(actor_email or "").lower()} | {e.lower() for e in (exclude or set())}
     for email in _ticket_participants(t):
         if email in skip:
@@ -243,7 +243,7 @@ def create_ticket(body: TicketBody, background_tasks: BackgroundTasks,
     db.add(t)
     log_activity(db, type="created", actor_email=user["email"], entity_kind="ticket",
                  entity_id=t.id, entity_code=t.code, entity_title=t.subject, detail="created this ticket")
-    tk_action = {"view": "tasks", "sub": "tickets", "label": "View ticket"}
+    tk_action = {"view": "tickets", "label": "View ticket"}
     if t.assignee_email and t.assignee_email != user["email"].lower():
         task_notify(db, kind="ticket_assigned", for_email=t.assignee_email,
                     title="You were assigned a ticket", body=f"{t.code} · {t.subject}", nexus_action=tk_action)
@@ -352,7 +352,7 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
     def _log(kind, detail):
         log_activity(db, type=kind, actor_email=user["email"], entity_kind="ticket",
                      entity_id=t.id, entity_code=t.code, entity_title=t.subject, detail=detail)
-    tk_action = {"view": "tasks", "sub": "tickets", "label": "View ticket"}
+    tk_action = {"view": "tickets", "label": "View ticket"}
     status_changed = "status" in data and t.status != prev_status
     assignee_changed = "assignee_email" in data and (t.assignee_email or "") != prev_assignee
     if status_changed:
@@ -608,7 +608,7 @@ def decide_approval(ticket_id: str, body: ApprovalBody, background_tasks: Backgr
     t.approval_decided_at = now_iso()
     t.modified_at = now_iso()
 
-    tk_action = {"view": "tasks", "sub": "tickets", "label": "View ticket"}
+    tk_action = {"view": "tickets", "label": "View ticket"}
     if decision == "approve":
         log_activity(db, type="approved", actor_email=user["email"], entity_kind="ticket",
                      entity_id=t.id, entity_code=t.code, entity_title=t.subject,
@@ -695,7 +695,7 @@ def escalate_ticket(ticket_id: str, background_tasks: BackgroundTasks,
                          title=f"Ticket escalated to {new_p}", body=f"{t.code} · {t.subject}")
     task_notify(db, kind="ticket_escalated", for_email="admins", title="A ticket was escalated",
                 body=f"{t.code} · {t.subject} → {new_p}",
-                nexus_action={"view": "tasks", "sub": "tickets", "label": "View ticket"})
+                nexus_action={"view": "tickets", "label": "View ticket"})
     db.commit()
     db.refresh(t)
     background_tasks.add_task(notify_ticket_event, t.id, "updated", user["email"],
