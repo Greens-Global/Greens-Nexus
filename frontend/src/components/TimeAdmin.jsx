@@ -640,7 +640,7 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
           {timeoff.length === 0 && (
             <div style={{ padding: '20px 16px', fontSize: 12.5, color: 'var(--muted)', textAlign: 'center' }}>No time-off requests yet.</div>
           )}
-          {timeoff.map(r => {
+          {timeoff.slice(0, 150).map(r => {
             const days = Math.round((new Date(r.endDate) - new Date(r.startDate)) / 86400000) + 1;
             return (
               <div key={r.id} style={{ display: 'grid', gridTemplateColumns: '200px 110px 1fr 70px 160px 170px', gap: 10, alignItems: 'center', padding: '10px 14px', borderBottom: '1px solid var(--line)', background: r.status === 'pending' ? 'rgba(251,191,36,0.05)' : 'transparent' }}>
@@ -664,6 +664,7 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
               </div>
             );
           })}
+          {timeoff.length > 150 && <div style={{ padding: '8px 16px', fontSize: 12, color: 'var(--muted)', textAlign: 'center' }}>Showing 150 of {timeoff.length} - filter to narrow down.</div>}
         </div>
       )}
 

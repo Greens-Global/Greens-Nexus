@@ -165,7 +165,7 @@ export function FilesView({ tasks, onOpen, nameOf }) {
         : files.length === 0 ? <EmptyState icon={Paperclip} title="No Attachments Yet" hint="Files attached to any task show up here." />
           : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12 }}>
-              {files.map(({ a, t }) => (
+              {files.slice(0, 200).map(({ a, t }) => (
                 <div key={a.id} style={{ display: 'flex', flexDirection: 'column', gap: 8, border: `1px solid ${NX.border}`, borderRadius: 12, background: NX.surface, padding: 14 }}>
                   <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
                     {iconFor(a.kind)}
@@ -179,6 +179,7 @@ export function FilesView({ tasks, onOpen, nameOf }) {
                   {a.addedBy && <div style={{ fontSize: 11, color: NX.faint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nameOf?.(a.addedBy) || a.addedBy}</div>}
                 </div>
               ))}
+              {files.length > 200 && <div style={{ gridColumn: '1 / -1', padding: '6px 2px', fontSize: 12, color: NX.faint }}>Showing 200 of {files.length} files - search to narrow down.</div>}
             </div>
           )}
     </div>
