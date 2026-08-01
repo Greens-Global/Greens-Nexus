@@ -6,6 +6,7 @@ import DocumentBuilder from './DocumentBuilder';
 import EgnyteBrowser from './EgnyteBrowser';
 import { BODY_EXTENSIONS } from '../lib/docBuilderSchema';
 import { uploadToSupabase } from '../lib/docBuilderUpload';
+import AsyncSection, { SkeletonBlocks } from './AsyncState';
 import { importDocumentFile } from '../lib/docBuilderImport';
 import TypedFieldInput from './TypedFieldInput';
 import { validateFieldValue, formatFieldValue, RESERVED_TYPES } from '../lib/mergeFieldTypes';
@@ -276,15 +277,19 @@ export default function DocumentsBrowser({ openCreateSignal, openDocSignal, empl
         </button>
       </div>
 
-      {!docs ? (
-        <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} /></div>
-      ) : docs.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: '52px 20px', color: 'var(--muted)' }}>
-          <FileText size={36} style={{ opacity: 0.3, marginBottom: 12 }} />
-          <p style={{ fontSize: 13.5, margin: '0 0 16px' }}>No documents match here yet.</p>
-          <button className="primary-btn" onClick={() => setCreateOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><FilePlus2 size={13} /> Create one</button>
-        </div>
-      ) : docs.slice(0, 500).map(d => {
+      <AsyncSection
+        loading={!docs}
+        isEmpty={!!docs && docs.length === 0}
+        skeleton={<div style={{ padding: '4px 0' }}><SkeletonBlocks count={6} height={56} /></div>}
+        emptyContent={
+          <div style={{ textAlign: 'center', padding: '52px 20px', color: 'var(--muted)' }}>
+            <FileText size={36} style={{ opacity: 0.3, marginBottom: 12 }} />
+            <p style={{ fontSize: 13.5, margin: '0 0 16px' }}>No documents match here yet.</p>
+            <button className="primary-btn" onClick={() => setCreateOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><FilePlus2 size={13} /> Create one</button>
+          </div>
+        }
+      >
+        {(docs || []).slice(0, 500).map(d => {
         const st = DOC_STATUS[d.status] || DOC_STATUS.draft;
         const signSt = d.signRequestId ? SIGN_STATUS[d.signStatus] : null;
         const folder = folders.find(f => f.id === d.folderId);
@@ -325,6 +330,7 @@ export default function DocumentsBrowser({ openCreateSignal, openDocSignal, empl
           </div>
         );
       })}
+      </AsyncSection>
 
       {createOpen && (
         <CreateDocModal folders={folders} toastErr={toastErr}
