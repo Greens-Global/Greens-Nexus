@@ -6,7 +6,7 @@
 // Tasks-module CreateTaskModal - it needs TasksProvider, which lives on the
 // Tasks view, so we mount a provider around it here just for the modal.
 import { useState, useEffect, useMemo } from 'react';
-import { X, Send, ExternalLink } from 'lucide-react';
+import { X, Send } from 'lucide-react';
 import { api } from '../api';
 import { sendMail, createEvent } from '../m365';
 import { TasksProvider } from '../tasks/TasksContext';
@@ -161,7 +161,7 @@ function defaultWindow() {
 
 function EventModal({ onClose }) {
   const people = usePeopleDirectory();
-  const [defStart, defEnd] = useMemo(defaultWindow, []);
+  const [defStart, defEnd] = useMemo(() => defaultWindow(), []);
   const [subject, setSubject] = useState('');
   const [start, setStart] = useState(defStart);
   const [end, setEnd] = useState(defEnd);

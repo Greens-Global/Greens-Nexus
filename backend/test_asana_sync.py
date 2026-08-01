@@ -998,8 +998,8 @@ class RichDescriptionTests(unittest.TestCase):
 
         emitted = {t.lower() for t in re.findall(r"</?([a-zA-Z0-9]+)", out)}
         self.assertTrue(emitted <= asana_sync._ASANA_HTML_TAGS | {"body"}, emitted)
-        for text in ("a", "c", "d", "e"):
-            self.assertIn(text, out)
+        for ch in ("a", "c", "d", "e"):
+            self.assertIn(ch, out)
 
     def test_paragraph_after_a_list_is_not_glued_to_it(self):
         out = asana_sync._to_asana_html('<ul><li>one</li></ul><p>after</p>')
