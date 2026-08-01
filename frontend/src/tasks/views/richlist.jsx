@@ -71,7 +71,7 @@ const TYPE_GROUPS = [
 const FIELD_PALETTE = [NX.blue, NX.purple, NX.green, NX.teal, NX.amber, NX.red, NX.pink, NX.dim];
 // Rows mounted per batch. Comfortably more than fills a tall screen, so the
 // sentinel below the last row is normally already past the viewport.
-const ROW_BATCH = 120;
+const ROW_BATCH = 60;
 
 // Renders its children into document.body, fixed-positioned against
 // `anchorRef`'s current on-screen rect. The rich-list table scrolls both
@@ -272,7 +272,7 @@ function TaskRow({ t, cols, customFields = [], template, store, people, selected
       style={{ borderBottom: `1px solid ${NX.border2}`, background: selected ? 'rgba(37,99,235,0.10)' : 'transparent', cursor: 'pointer' }}
       onMouseEnter={(e) => { if (!selected) e.currentTarget.style.background = NX.hover; }}
       onMouseLeave={(e) => { if (!selected) e.currentTarget.style.background = 'transparent'; }}>
-      <div style={{ display: 'grid', gridTemplateColumns: template, alignItems: 'stretch', fontSize: 13 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'var(--nx-grid)', alignItems: 'stretch', fontSize: 13 }}>
         {/* checkbox */}
         <div style={{ ...cellPad, justifyContent: 'center', padding: '2px 4px' }}>
           <button onClick={(e) => { e.stopPropagation(); toggleSel(t.id); }} style={{ width: 16, height: 16, borderRadius: 3, border: `1.5px solid ${selected ? NX.primary : NX.border}`, background: selected ? NX.primary : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 0, flexShrink: 0 }}>
@@ -805,23 +805,40 @@ export default function RichListView({ visible, group, ctx, store, people, selec
     return Object.keys(d).length ? d : null;
   };
 
+  const wrapRef = useRef(null);
+  const gridTemplate = (wd) => [
+    ...cols.map((c) => `${wd[c.key] ?? c.width}px`),
+    ...customFields.map((f) => `${wd[f.id] ?? 150}px`),
+    // Trailing gutter - the empty cell after the last column. Header, rows and
+    // group footer each render one, so the column has to stay.
+    '12px',
+  ].join(' ');
+  const template = gridTemplate(widths);
+
   const startResize = useCallback((key, startWidth) => (e) => {
     e.preventDefault();
     const startX = e.clientX;
-    const onMove = (ev) => setWidths((w) => ({ ...w, [key]: Math.max(60, startWidth + (ev.clientX - startX)) }));
-    const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+    let latest = startWidth, raf = 0;
+    // During the drag, write the new widths straight to the grid's CSS variable
+    // on the wrapper. The header and every rendered row read var(--nx-grid), so
+    // the browser reflows the grid with ZERO React re-renders - that is what
+    // makes resize smooth even with a hundred rows on screen. React state is
+    // committed once, on release.
+    const apply = () => {
+      raf = 0;
+      const el = wrapRef.current;
+      if (el) el.style.setProperty('--nx-grid', gridTemplate({ ...widths, [key]: latest }));
+    };
+    const onMove = (ev) => { latest = Math.max(60, startWidth + (ev.clientX - startX)); if (!raf) raf = requestAnimationFrame(apply); };
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      if (raf) cancelAnimationFrame(raf);
+      setWidths((w) => ({ ...w, [key]: latest }));
+    };
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
-  }, []);
-
-  const template = [
-    ...cols.map((c) => `${widths[c.key] ?? c.width}px`),
-    ...customFields.map((f) => `${widths[f.id] ?? 150}px`),
-    // Trailing gutter - just the gap after the last column now that Hide / + Column
-    // moved to the toolbar. Header, rows and group footer each still render one empty
-    // cell here, so the column has to stay.
-    '12px',
-  ].join(' ');
+  }, [widths, cols, customFields]);
 
   const groupCtx = { ...ctx, statusMeta: store.statusMeta, statusOrder: store.statusOrder, customFields: allCustomFields };
   const groups = useMemo(() => groupTasks(visible, effGroup, groupCtx).filter((g) => g.tasks.length > 0), [visible, effGroup, ctx, store.statusMeta, store.statusOrder]);
@@ -894,7 +911,7 @@ export default function RichListView({ visible, group, ctx, store, people, selec
   // monday repeats the column header inside every group block - this renders one.
   const headCell = { position: 'relative', display: 'flex', alignItems: 'center', minWidth: 0, minHeight: 34, padding: '2px 8px', borderRight: `1px solid ${NX.border2}`, boxSizing: 'border-box' };
   const groupHeader = (
-    <div style={{ display: 'grid', gridTemplateColumns: template, alignItems: 'stretch', borderBottom: `1px solid ${NX.border2}`, background: NX.surface, fontSize: 13, fontWeight: 400, color: NX.dim }}>
+    <div style={{ display: 'grid', gridTemplateColumns: 'var(--nx-grid)', alignItems: 'stretch', borderBottom: `1px solid ${NX.border2}`, background: NX.surface, fontSize: 13, fontWeight: 400, color: NX.dim }}>
       <div style={{ ...headCell, justifyContent: 'center', padding: '2px 4px' }}>
         <button onClick={onSelectAll} title={allSel ? 'Deselect all' : 'Select all'} style={{ width: 16, height: 16, borderRadius: 3, border: `1.5px solid ${allSel || someSel ? NX.primary : NX.border}`, background: allSel || someSel ? NX.primary : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 0, flexShrink: 0 }}>
           {allSel ? <Check size={11} strokeWidth={3} color="#fff" /> : someSel ? <Minus size={11} strokeWidth={3} color="#fff" /> : null}
@@ -922,7 +939,7 @@ export default function RichListView({ visible, group, ctx, store, people, selec
 
   return (
     <div className="nx-list-scroll" style={{ margin: 16, minHeight: 'calc(100% - 32px)' }}>
-      <div style={{ minWidth: 'fit-content' }}>
+      <div ref={wrapRef} style={{ minWidth: 'fit-content', '--nx-grid': template }}>
         {groups.map((g, gi) => {
           const isCol = collapsed.has(g.key);
           // monday.com-style group block: colored title, left color bar, and a
@@ -965,7 +982,7 @@ export default function RichListView({ visible, group, ctx, store, people, selec
                   ))}
                   <AddTaskInline store={store} lockedProjectId={lockedProjectId} defaults={groupAddDefaults(effGroup, g.key)} />
                   {/* summary footer - mirrors monday's group tallies */}
-                  <div style={{ display: 'grid', gridTemplateColumns: template, alignItems: 'center', padding: '5px 0', fontSize: 12 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'var(--nx-grid)', alignItems: 'center', padding: '5px 0', fontSize: 12 }}>
                     {cols.map((c) => c.key === 'due' ? (
                       <div key={c.key} style={{ padding: '2px 8px', display: 'flex', justifyContent: 'center' }}>
                         {dueRange && (

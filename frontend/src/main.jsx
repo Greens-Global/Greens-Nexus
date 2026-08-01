@@ -15,6 +15,17 @@ installErrorReporter();   // uncaught errors -> /client-errors -> audit trail
 setCacheBridge(queryClient);
 
 sessionStorage.removeItem('nx-entry-retry');  // app booted - re-arm the boot guard (public/guard.js)
+// The app booted successfully, so any ?nxcb= cache-buster in the URL (from a
+// ViewErrorBoundary recovery reload) has done its job - strip it so the user
+// never sees an internal-looking query param in their address bar. Cosmetic and
+// post-boot only; nxcb is write-only (never read by app logic).
+try {
+  const _u = new URL(window.location.href);
+  if (_u.searchParams.has('nxcb')) {
+    _u.searchParams.delete('nxcb');
+    window.history.replaceState(null, '', _u.pathname + _u.search + _u.hash);
+  }
+} catch { /* non-critical */ }
 // Preconnect to the API origin now, in parallel with MSAL init - the DNS+TLS
 // handshake to Azure is done before the first authed call needs it. The origin
 // is only known via env, so this can't live statically in index.html.
