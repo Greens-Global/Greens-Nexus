@@ -555,6 +555,7 @@ export default function TimeClock() {
               const d = new Date();
               const at = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
               setMissed({ kind: 'out', at, note: 'Forgot to punch out' });
+              setTab('timesheet');   // the missed-punch form lives on the Time Sheet tab
               setMissedOpen(true);
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}>

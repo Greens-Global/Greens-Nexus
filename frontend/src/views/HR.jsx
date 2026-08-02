@@ -4057,6 +4057,7 @@ export default function HR({ activeSub, onSubChange }) {
   }), [employees]);
 
   const onSaved = saved => {
+    const isNew = !employees.some(e => e.id === saved.id);   // add modal shows its own toast
     setEmployees(prev => {
       const i = prev.findIndex(e => e.id === saved.id);
       if (i === -1) return [...prev, saved].sort((a, b) => fullName(a).localeCompare(fullName(b)));
@@ -4068,6 +4069,8 @@ export default function HR({ activeSub, onSubChange }) {
     if (saved.entra) {
       if (saved.entra.synced) toastOk('Saved - profile synced to Microsoft 365.');
       else toastErr(`Saved in Nexus, but the M365 sync failed: ${saved.entra.error || 'Graph error'}. Use "Push to M365" to retry.`);
+    } else if (!isNew) {
+      toastOk('Saved.');
     }
   };
 
@@ -4164,7 +4167,7 @@ export default function HR({ activeSub, onSubChange }) {
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 12 }}>
             <ChevronLeft size={14} /> Back to directory
           </button>
-          <EmployeeDetail e={selected} employees={employees} isMobile={isMobile}
+          <EmployeeDetail key={selected.id} e={selected} employees={employees} isMobile={isMobile}
             companyName={entityName(selected.company)} canSeeComp={canSeeComp} isAdmin={isAdmin}
             toastOk={toastOk} toastErr={toastErr} onEmployeeUpdated={onSaved}
             onEdit={emp => { setEditing(emp); setFormOpen(true); }}
@@ -4296,7 +4299,7 @@ export default function HR({ activeSub, onSubChange }) {
                 </div>
                 <div style={{ padding: '16px 18px', minWidth: 0 }}>
                   {selected ? (
-                    <EmployeeDetail e={selected} employees={employees} isMobile={isMobile}
+                    <EmployeeDetail key={selected.id} e={selected} employees={employees} isMobile={isMobile}
                       companyName={entityName(selected.company)} canSeeComp={canSeeComp} isAdmin={isAdmin}
                       toastOk={toastOk} toastErr={toastErr} onEmployeeUpdated={onSaved}
                       onEdit={emp => { setEditing(emp); setFormOpen(true); }}
