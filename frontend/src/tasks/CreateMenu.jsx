@@ -1,31 +1,30 @@
 // Task Module - "+ Create" quick-create menu in the primary bar, beside Manage.
-// Ported from the export's NexusCreateMenu (Task / Ticket / Project / Portfolio),
+// Ported from the export's NexusCreateMenu (Task / Project / Portfolio),
 // styled with Nexus's shared .primary-btn class to match the SOP module's
-// "+ New SOP" reference button.
+// "+ New SOP" reference button. Ticket used to be a quick-create item here -
+// it now lives in the Tickets module's own "+ New Ticket" button.
 import { useEffect, useRef, useState } from 'react';
-import { Plus, ListChecks, Ticket, FolderKanban, Briefcase } from 'lucide-react';
+import { Plus, ListChecks, FolderKanban, Briefcase } from 'lucide-react';
 import { useTasks } from './TasksContext';
 import { NX, FONT, btn, input as inputStyle } from './theme';
 import { Modal, useIsMobile } from './components';
 import CreateTaskModal from './CreateTaskModal';
-import { CreateTicketModal } from '../tickets/TicketsView';
 import { ProjectCreateModal } from './ProjectsView';
 import { PortfolioCreateModal } from './PortfoliosView';
 
 const ITEMS = [
   { key: 'task', label: 'Task', icon: ListChecks },
-  { key: 'ticket', label: 'Ticket', icon: Ticket },
   { key: 'project', label: 'Project', icon: FolderKanban },
   { key: 'portfolio', label: 'Portfolio', icon: Briefcase },
 ];
 
 // `fab` renders the mobile floating action button instead of the "+ Create"
-// dropdown. Either way, tapping it opens the same Task / Ticket / Project /
-// Portfolio quick-create menu - the FAB just anchors it above the button.
+// dropdown. Either way, tapping it opens the same Task / Project / Portfolio
+// quick-create menu - the FAB just anchors it above the button.
 export default function CreateMenu({ onNavigate, fab = false, taskDefaults = {} }) {
   const { createTeam, projects } = useTasks();
   const [open, setOpen] = useState(false);
-  const [show, setShow] = useState(null); // 'task' | 'ticket' | 'project' | 'portfolio' | 'department' | null
+  const [show, setShow] = useState(null); // 'task' | 'project' | 'portfolio' | 'department' | null
   const ref = useRef(null);
 
   useEffect(() => {
@@ -96,7 +95,6 @@ export default function CreateMenu({ onNavigate, fab = false, taskDefaults = {} 
       )}
 
       {show === 'task' && <CreateTaskModal defaults={taskDefaults} onClose={() => setShow(null)} lockedProjectId={taskDefaults.projectId || ''} />}
-      {show === 'ticket' && <CreateTicketModal onClose={() => setShow(null)} />}
 
       {show === 'project' && (
         <ProjectCreateModal onClose={() => setShow(null)} onCreated={() => onNavigate && onNavigate('projects')} />

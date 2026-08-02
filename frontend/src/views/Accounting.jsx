@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { SkeletonBlocks } from '../components/AsyncState';
 import { TrendingUp, TrendingDown, DollarSign, FileText, ArrowUpRight, ArrowDownRight, CreditCard, SlidersHorizontal, Download, Plus, X, UploadCloud, PiggyBank, Loader2, Check, Wallet, ClipboardList, Receipt, Plane, FileCheck, Landmark, BookOpen, Building2, Briefcase, RefreshCcw, LayoutGrid, Map, Layers, FileSignature, Users, Plug, Gift, Settings, Search, Columns3, CalendarDays, Ban, Lock } from 'lucide-react';
 import { api } from '../api';
 import ModuleTabs from '../components/ModuleTabs';
@@ -619,7 +620,7 @@ export default function Accounting({ activeSub, onSubChange }) {
                     <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: 20 }}>Review and add missing memo references to card transactions</p>
                     {rampError && <p style={{ color: 'hsl(var(--color-red))', fontSize: '0.85rem', marginBottom: 16 }}>{rampError}</p>}
                     {rampLoading ? (
-                      <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Loading transactions…</p>
+                      <SkeletonBlocks count={4} height={40} />
                     ) : ramp.length === 0 ? (
                       <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>No Ramp card transactions yet.</p>
                     ) : (

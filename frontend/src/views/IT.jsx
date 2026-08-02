@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { SkeletonBlocks } from "../components/AsyncState";
 import { RefreshCw, Download, ArrowLeft, AlertTriangle, ChevronDown, ChevronUp, Globe, Wifi, Plus, ExternalLink, AlertCircle } from "lucide-react";
 import { msalInstance, msalReady } from "../msalInstance";
 import { apiTokenRequest } from "../authConfig";
@@ -534,7 +535,7 @@ function NetworkDashboard() {
       {/* ── Detail ── */}
       {view === "detail" && (
         <>
-          {!detail && loading && <div style={{ padding: 60, textAlign: "center", color: "var(--text-secondary)" }}>Loading site data...</div>}
+          {!detail && loading && <div style={{ padding: "16px 0" }}><SkeletonBlocks count={4} height={48} /></div>}
           {detail && (
             <>
               {/* Stat strip */}

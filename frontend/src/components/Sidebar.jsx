@@ -13,7 +13,7 @@ import {
   FlaskConical,
   KeyRound,
   Briefcase, FileSignature, ArrowDownToLine, ArrowUpFromLine,
-  HardDrive, FolderOpen,
+  HardDrive, FolderOpen, Ticket,
 } from "lucide-react";
 
 // Exported: MobileMenu mirrors this exact order/grouping on phones
@@ -27,6 +27,7 @@ export const NAV = [
   // KB is the LMS - assigned courses/SOPs must be reachable by everyone.
   // Manage/author actions inside stay role-gated (KB admin ops are level 3+).
   { view: "tasks", code: "TSK",             label: "Tasks",               icon: CheckSquare },
+  { view: "tickets", code: "TKT",           label: "Tickets",             icon: Ticket },
   { view: "sop", code: "KB", label: "Knowledge Base", icon: BookOpen },
   { divider: true },
   {

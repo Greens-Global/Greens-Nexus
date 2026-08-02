@@ -1,6 +1,7 @@
 // Task Module - pure helpers (ported from nexus/lib/filters.ts + stats.ts).
 // Operates on the runtime task shape (email used as person id).
 import { PRIORITY_ORDER, PRIORITY_META, STATUS_ORDER, STATUS_META } from './theme';
+import { api } from '../api';
 
 export const EMPTY_FILTER = {
   assigneeIds: [], statuses: [], priorities: [], teamIds: [], projectIds: [],
@@ -48,7 +49,11 @@ export function matchesFilter(task, f = EMPTY_FILTER) {
   // one) - the same shape as the assignee/status/priority filters above.
   for (const [fieldId, wanted] of Object.entries(f.customFields || {})) {
     if (!wanted?.length) continue;
-    if (!wanted.includes(taskFieldValue(task, fieldId))) return false;
+    // multiselect/people hold a LIST, so a task matches when it carries ANY of
+    // the wanted values. Comparing the array itself never matched anything.
+    const have = taskFieldValue(task, fieldId);
+    const hit = Array.isArray(have) ? have.some((v) => wanted.includes(v)) : wanted.includes(have);
+    if (!hit) return false;
   }
   if (!dueMatches(task, f.due || 'any', f.dueFrom, f.dueTo)) return false;
   if (f.search) {
@@ -248,6 +253,28 @@ export function filesFromPaste(e) {
   return out;
 }
 
+// Shared by the task-level Attachments tab and the comment composers' own
+// attach button - one File-to-TaskAttachment upload path instead of two
+// copies of the size-check/FileReader/base64 logic drifting apart. `extra` is
+// spread into the create body; the comment composers pass { comment_id } so
+// the attachment shows up inline under that comment instead of only in the
+// flat task-level list.
+const ATTACHMENT_MAX_INLINE = 2 * 1024 * 1024;
+export function uploadTaskAttachment(taskId, file, extra = {}) {
+  const size = `${Math.max(1, Math.round(file.size / 1024))} KB`;
+  const kind = file.type.startsWith('image/') ? 'image' : 'doc';
+  // Backend AttachmentCreate stores a single `url` (Supabase link, or an inline
+  // data URL for small files). Reads expose it as `a.url`.
+  const send = (dataUrl) => api.addTaskAttachment(taskId, { name: file.name, size, kind, url: dataUrl || '', ...extra });
+  if (file.size > ATTACHMENT_MAX_INLINE) return send(undefined);
+  return new Promise((resolve) => {
+    const r = new FileReader();
+    r.onload = () => resolve(send(typeof r.result === 'string' ? r.result : undefined));
+    r.onerror = () => resolve(send(undefined));
+    r.readAsDataURL(file);
+  });
+}
+
 // ── Dates ────────────────────────────────────────────────────────────────────
 // One date format for the whole module: mm/dd/yyyy. The views previously each
 // rolled their own (`Jul 15`, `15 July 2026`, locale default…), so a task's due
@@ -276,15 +303,17 @@ export function fmtDateTime(v) {
   });
 }
 
-/** 1.25 -> "1h 15m" (drops the minutes when they're 0, and hours when there are
- * none) - "Copy Task Link" and the estimate/actual fields store plain float
- * hours, but showing "1.25h" isn't a format anyone reads at a glance. */
+/** 1.25 -> "1h 15m", 30 -> "1d 6h" (drops any component that's zero - a day
+ * count only appears once a task's estimate/actual actually crosses 24h) -
+ * the estimate/actual fields store plain float hours, but showing "30h" or
+ * "1.25h" isn't a format anyone reads at a glance. */
 export function fmtHours(h) {
   const total = Math.round((Number(h) || 0) * 60);
   if (!total) return '0h';
-  const hh = Math.floor(total / 60), mm = total % 60;
-  if (!hh) return `${mm}m`;
-  return mm ? `${hh}h ${mm}m` : `${hh}h`;
+  const dd = Math.floor(total / (24 * 60));
+  const hh = Math.floor((total % (24 * 60)) / 60);
+  const mm = total % 60;
+  return [dd && `${dd}d`, hh && `${hh}h`, mm && `${mm}m`].filter(Boolean).join(' ');
 }
 
 /** The id from a copied "Copy Task Link" (?task=<id>), or '' if this page load

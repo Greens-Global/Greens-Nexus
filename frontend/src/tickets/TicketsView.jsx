@@ -26,6 +26,7 @@ import {
 import {
   TypeFieldInput, TicketTypeIcon, SlaBadge, TicketStatusChip,
 } from './TicketAtoms';
+import { SkeletonBlocks } from '../components/AsyncState';
 
 // Views offered by the mobile bar's view sheet (desktop uses the inline switcher).
 const TICKET_VIEW_TABS = [
@@ -581,10 +582,11 @@ export default function TicketsView() {
                     {g.label} <span style={{ color: NX.faint, fontWeight: 400 }}>{g.rows.length}</span>
                   </div>
                 )}
-                {g.rows.map((t) => (
+                {g.rows.slice(0, 200).map((t) => (
                   <TicketRow key={t.id} t={t} nameOf={nameOf} hrDeptName={hrDeptName} companyName={companyName} onOpen={() => setOpenId(t.id)}
                     checked={selected.has(t.id)} onToggle={() => toggleSel(t.id)} colWidths={colWidths} />
                 ))}
+                {g.rows.length > 200 && <div style={{ padding: '8px 16px', fontSize: 12, color: NX.faint }}>+ {g.rows.length - 200} more - filter to narrow down</div>}
               </div>
             ))}
           </div>
@@ -605,10 +607,11 @@ export default function TicketsView() {
                       {g.label} <span style={{ color: NX.faint, fontWeight: 400 }}>{g.rows.length}</span>
                     </div>
                   )}
-                  {g.rows.map((t) => (
+                  {g.rows.slice(0, 200).map((t) => (
                     <TicketRow key={t.id} t={t} nameOf={nameOf} hrDeptName={hrDeptName} companyName={companyName} onOpen={() => setOpenId(t.id)}
                       checked={selected.has(t.id)} onToggle={() => toggleSel(t.id)} colWidths={colWidths} hideRequester={scope === 'mine'} />
                   ))}
+                  {g.rows.length > 200 && <div style={{ padding: '8px 16px', fontSize: 12, color: NX.faint }}>+ {g.rows.length - 200} more - filter to narrow down</div>}
                 </div>
               ))}
             </div>
@@ -1819,7 +1822,7 @@ function TicketConversation({ ticketId, nameOf }) {
   return (
     <div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 12 }}>
-        {rows === null ? <div style={{ fontSize: 13, color: NX.faint, textAlign: 'center', padding: 16 }}>Loading…</div>
+        {rows === null ? <div style={{ padding: '6px 0' }}><SkeletonBlocks count={4} height={44} /></div>
           : rows.length === 0 ? <div style={{ fontSize: 13, color: NX.faint, textAlign: 'center', padding: 16 }}>No comments yet.</div>
             : rows.map((c) => (
               <div key={c.id} style={{ display: 'flex', gap: 8, ...(c.internal ? { background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.35)', borderRadius: 10, padding: 8 } : {}) }}>
@@ -1888,7 +1891,7 @@ function TicketAttachments({ ticketId, ticketType }) {
         {busy && <Loader2 size={14} style={{ animation: 'spin 1s linear infinite', color: NX.faint }} />}
         <span style={{ fontSize: 11, color: NX.faint }}>or press Ctrl+V to paste a screenshot</span>
       </div>
-      {rows === null ? <div style={{ fontSize: 13, color: NX.faint, textAlign: 'center', padding: 16 }}>Loading…</div>
+      {rows === null ? <div style={{ padding: '6px 0' }}><SkeletonBlocks count={4} height={44} /></div>
         : rows.length === 0 ? <div style={{ fontSize: 13, color: NX.faint, textAlign: 'center', padding: 16 }}>No attachments yet.</div>
           : (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
@@ -1930,7 +1933,7 @@ function TicketAttachments({ ticketId, ticketType }) {
 function TicketActivity({ ticketId, nameOf }) {
   const [rows, setRows] = useState(null);
   useEffect(() => { api.getTicketActivity(ticketId).then(setRows).catch(() => setRows([])); }, [ticketId]);
-  if (rows === null) return <div style={{ fontSize: 13, color: NX.faint, textAlign: 'center', padding: 16 }}>Loading…</div>;
+  if (rows === null) return <div style={{ padding: '6px 0' }}><SkeletonBlocks count={4} height={44} /></div>;
   if (rows.length === 0) return <div style={{ fontSize: 13, color: NX.faint, textAlign: 'center', padding: 16 }}>No activity yet.</div>;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -1966,7 +1969,7 @@ function TicketBoard({ tickets, nameOf, onOpen, onMove }) {
               <span style={{ fontSize: 12.5, fontWeight: 700, color: NX.ink }}>{m.label}</span>
               <span style={{ fontSize: 12, color: NX.faint, marginLeft: 'auto' }}>{col.length}</span>
             </div>
-            {col.map((t) => (
+            {col.slice(0, 100).map((t) => (
               <div key={t.id} draggable onDragStart={() => setDragId(t.id)} onDragEnd={() => setDragId(null)} onClick={() => onOpen(t.id)}
                 style={{ background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, padding: 10, cursor: 'grab', opacity: dragId === t.id ? 0.5 : 1, boxShadow: '0 1px 2px rgba(0,0,0,0.04)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -1983,6 +1986,7 @@ function TicketBoard({ tickets, nameOf, onOpen, onMove }) {
                 </div>
               </div>
             ))}
+            {col.length > 100 && <div style={{ fontSize: 11.5, color: NX.faint, textAlign: 'center', padding: '6px 0' }}>+ {col.length - 100} more - filter to narrow down</div>}
             {col.length === 0 && <div style={{ fontSize: 11.5, color: NX.faint, textAlign: 'center', padding: '10px 0' }}>-</div>}
           </div>
         );

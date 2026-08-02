@@ -1,15 +1,20 @@
-import { useState, useEffect, lazy } from 'react';
+import { useState, useEffect, lazy, Suspense } from 'react';
 import { useMsal } from '@azure/msal-react';
 import {
   ArrowRight, ArrowUpRight, BookOpen, CheckSquare, ChevronRight, ListTodo, Package, ShieldCheck, Bell, Clock, StickyNote,
   BarChart3, Layers, Zap, Users, ClipboardCheck, CalendarClock, ExternalLink, Boxes, X,
   ClipboardList, HandCoins, TrendingUp, Building2, FolderKanban, CalendarDays, Timer,
-  CheckCheck, Trash2,
+  CheckCheck, Trash2, Mail, CalendarPlus,
 } from 'lucide-react';
 
 // Heavy panels (ported from the old Overview / Team Analytics screens) load
 // lazily so TimeAdmin & the approval flows stay out of the main bundle.
 const lazyPanel = (name) => lazy(() => import('./panels.jsx').then(m => ({ default: m[name] })));
+
+// Quick-action composers (Outlook mail/event + the Tasks module's create modal)
+// - one lazy chunk, pulled in only when a "do" action is actually clicked.
+const QuickActionModal = lazy(() => import('./QuickActionModals.jsx'));
+
 const ApprovalsPanel    = lazyPanel('ApprovalsPanel');
 const WhoHasWhatPanel   = lazyPanel('WhoHasWhatPanel');
 const TeamTimePanel     = lazyPanel('TeamTimePanel');
@@ -178,24 +183,39 @@ function LinksWidget({ config }) {
   );
 }
 
+// Two kinds of action: `act` opens a composer that creates the thing in place
+// (an Outlook mail/event via Graph, or the Tasks module's own create modal),
+// everything else navigates to a screen the way this widget always has.
 const ACTIONS = [
+  { label: 'New task',        act: 'task',                       color: 'blue',   Icon: CheckSquare },
+  { label: 'New event',       act: 'event',                      color: 'purple', Icon: CalendarPlus },
+  { label: 'New email',       act: 'email',                      color: 'brand',  Icon: Mail },
   { label: 'Request an item', view: 'inventory', sub: 'catalog', color: 'orange', Icon: Package },
-  { label: 'New task',        view: 'tasks',                    color: 'blue',   Icon: CheckSquare },
-  { label: 'Time clock',      view: 'timeclock',                color: 'green',  Icon: Clock },
-  { label: 'Knowledge base',  view: 'sop',                      color: 'brand',  Icon: BookOpen },
+  { label: 'Time clock',      view: 'timeclock',                 color: 'green',  Icon: Clock },
+  { label: 'Knowledge base',  view: 'sop',                       color: 'brand',  Icon: BookOpen },
 ];
 function QuickActionsWidget() {
+  const [modal, setModal] = useState(null);
+  const [note, setNote] = useState('');
+  // Composers report whether Graph sent it or Outlook took over, so the card
+  // can say which actually happened instead of a blanket "Done".
+  const close = (res) => {
+    setModal(null);
+    if (res?.toast) { setNote(res.toast); setTimeout(() => setNote(''), 4000); }
+  };
   // Same row anatomy as DeskHome's quick actions - icon chip, label, chevron.
   return (
-    <DashCard title="Quick actions">
+    <DashCard title="Quick actions" sub={note || undefined}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 2, height: '100%', justifyContent: 'center' }}>
         {ACTIONS.map(a => (
-          <button key={a.label} className="dk-key" onClick={() => navigate(a.view, a.sub)}>
+          <button key={a.label} className="dk-key"
+            onClick={() => a.act ? setModal(a.act) : navigate(a.view, a.sub)}>
             <span className={`dk-chip dk-chip--${a.color}`}><a.Icon /></span> {a.label}
             <ChevronRight size={14} className="dk-key-arrow" />
           </button>
         ))}
       </div>
+      {modal && <Suspense fallback={null}><QuickActionModal kind={modal} onClose={close} /></Suspense>}
     </DashCard>
   );
 }
@@ -317,7 +337,7 @@ export const WIDGETS = {
   'kpi-bar':     { title: 'KPI bar chart',   cat: 'Metrics',   icon: BarChart3,    size: { w: 4, h: 3 }, limits: { minW: 3, minH: 3, maxW: 6, maxH: 5 }, render: KpiBarWidget },
   shortcut:      { title: 'Shortcut tile',   cat: 'Navigation', icon: Layers,      size: { w: 3, h: 2 }, limits: STAT_LIMITS, render: ShortcutWidget,     configurable: 'shortcut' },
   links:         { title: 'Quick links',     cat: 'Navigation', icon: ExternalLink, size: { w: 3, h: 4 }, limits: { minW: 2, minH: 3, maxW: 4, maxH: 6 }, render: LinksWidget },
-  'quick-actions': { title: 'Quick actions', cat: 'Navigation', icon: Zap,         size: { w: 3, h: 3 }, limits: { minW: 3, minH: 2, maxW: 6, maxH: 4 }, render: QuickActionsWidget },
+  'quick-actions': { title: 'Quick actions', cat: 'Navigation', icon: Zap,         size: { w: 3, h: 4 }, limits: { minW: 3, minH: 2, maxW: 6, maxH: 5 }, render: QuickActionsWidget },
   notifications: { title: 'Notifications',   cat: 'Live',      icon: Bell,         size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 6 }, render: NotificationsWidget },
   clock:         { title: 'Clock & greeting', cat: 'Utility',  icon: Clock,        size: { w: 3, h: 3 }, limits: { minW: 2, minH: 2, maxW: 4, maxH: 4 }, render: ClockWidget },
   notes:         { title: 'Notes',           cat: 'Utility',   icon: StickyNote,   size: { w: 3, h: 3 }, limits: { minW: 2, minH: 2, maxW: 6, maxH: 6 }, render: NotesWidget },

@@ -45,7 +45,7 @@ class AsanaCustomFieldTests(unittest.TestCase):
 
     def setUp(self):
         self.db = database.SessionLocal()
-        for m in (models.TaskCustomField, models.Task, models.AsanaTaskLink):
+        for m in (models.TaskCustomField, models.TaskCustomStatus, models.Task, models.AsanaTaskLink):
             self.db.query(m).delete()
         self.db.commit()
 
@@ -68,10 +68,12 @@ class AsanaCustomFieldTests(unittest.TestCase):
         self.assertEqual(f.project_ids, [PROJ])   # scoped, not global
         self.assertEqual(got, {f.id: "Build"})
 
-    def test_an_existing_nexus_field_is_adopted_not_duplicated(self):
+    def test_a_global_nexus_field_is_adopted_not_duplicated(self):
+        """A field this project can already see (global, or already scoped here)
+        is reused rather than shadowed by a second column of the same name."""
         self.db.add(models.TaskCustomField(id="mine", name="Stage", type="select",
                                            options=[{"id": "Design", "label": "Design", "color": "#111"}],
-                                           project_ids=["other-proj"]))
+                                           project_ids=[]))
         self.db.commit()
 
         got = asana_sync._inbound_custom_fields(
@@ -79,8 +81,37 @@ class AsanaCustomFieldTests(unittest.TestCase):
 
         self.assertEqual(len(self.db.query(models.TaskCustomField).all()), 1)
         self.assertEqual(got, {"mine": "Design"})
-        # scope widened to cover the project it just arrived from
-        self.assertIn(PROJ, self._field("Stage").project_ids)
+
+    def test_a_field_scoped_to_another_project_is_never_adopted(self):
+        """The leak this whole design exists to stop: a same-named field
+        belonging to a DIFFERENT project must not be absorbed and widened, or one
+        project's column silently becomes a column on the other's board too."""
+        self.db.add(models.TaskCustomField(id="theirs", name="Stage", type="select",
+                                           options=[{"id": "Design", "label": "Design", "color": "#111"}],
+                                           project_ids=["other-proj"]))
+        self.db.commit()
+
+        got = asana_sync._inbound_custom_fields(
+            self.db, {"custom_fields": [enum_cf("Stage", "Design", ["Design"])]}, PROJ)
+
+        self.assertEqual(len(self.db.query(models.TaskCustomField).all()), 2)
+        self.assertNotIn("theirs", got)
+        self.assertEqual(self.db.get(models.TaskCustomField, "theirs").project_ids, ["other-proj"])
+        mine = next(f for f in self.db.query(models.TaskCustomField).all() if f.id != "theirs")
+        self.assertEqual(mine.project_ids, [PROJ])
+
+    def test_identity_is_the_gid_so_a_rename_in_asana_renames_the_column(self):
+        """Matching by name lost the field entirely when someone renamed it in
+        Asana, leaving a second column beside the original."""
+        at = {"custom_fields": [{"name": "Stage", "gid": "cf1", "resource_subtype": "enum",
+                                 "enum_value": {"name": "Build"}, "enum_options": [{"name": "Build"}]}]}
+        asana_sync._inbound_custom_fields(self.db, at, PROJ)
+        at["custom_fields"][0]["name"] = "Phase"
+        asana_sync._inbound_custom_fields(self.db, at, PROJ)
+
+        fields = self.db.query(models.TaskCustomField).all()
+        self.assertEqual(len(fields), 1)
+        self.assertEqual(fields[0].name, "Phase")
 
     def test_a_new_asana_option_is_absorbed_into_an_existing_field(self):
         self.db.add(models.TaskCustomField(id="mine", name="Stage", type="select",
@@ -107,20 +138,60 @@ class AsanaCustomFieldTests(unittest.TestCase):
         self.assertEqual(names, ["Stage"])
         self.assertEqual(len(got), 1)
 
-    def test_unsupported_asana_types_are_skipped_not_flattened(self):
-        at = {"custom_fields": [
-            {"name": "Teams", "resource_subtype": "multi_enum", "enum_value": None},
-            {"name": "Owner", "resource_subtype": "people"},
-        ]}
+    def test_multi_enum_becomes_a_multiselect_holding_every_option(self):
+        at = {"custom_fields": [{
+            "name": "Teams", "gid": "cf1", "resource_subtype": "multi_enum",
+            "multi_enum_values": [{"name": "Design"}, {"name": "Build"}],
+            "enum_options": [{"name": "Design"}, {"name": "Build"}, {"name": "Ship"}]}]}
+
+        got = asana_sync._inbound_custom_fields(self.db, at, PROJ)
+
+        f = self._field("Teams")
+        self.assertEqual(f.type, "multiselect")
+        self.assertEqual(got[f.id], ["Design", "Build"])   # in the field's option order
+
+    def test_people_values_resolve_through_the_nexus_directory(self):
+        at = {"custom_fields": [{"name": "Reviewers", "gid": "cf2", "resource_subtype": "people",
+                                 "people_value": [{"email": "Sagar.Shoundik@greensglobal.com"},
+                                                  {"email": "neil@greensglobal.com"}]}]}
+
+        got = asana_sync._inbound_custom_fields(self.db, at, PROJ)
+
+        f = self._field("Reviewers")
+        self.assertEqual(f.type, "people")
+        self.assertEqual(got[f.id], ["neil@greensglobal.com", "sagar.shoundik@greensglobal.com"])
+
+    def test_a_formula_field_imports_read_only(self):
+        """Asana computes these and rejects any write, so they must import but
+        never push - _outbound_custom_fields skips anything read_only."""
+        at = {"custom_fields": [{"name": "Resolution SLA", "gid": "cf3", "resource_subtype": "text",
+                                 "is_formula_field": True, "display_value": "1h 42m"}]}
+
+        got = asana_sync._inbound_custom_fields(self.db, at, PROJ)
+
+        f = self._field("Resolution SLA")
+        self.assertTrue(f.read_only)
+        self.assertEqual(got[f.id], "1h 42m")
+
+    def test_an_empty_column_still_becomes_a_nexus_column(self):
+        """A column that exists in Asana is a column in Nexus whether or not this
+        task fills it in - otherwise a field nobody has set yet never appears."""
+        at = {"custom_fields": [enum_cf("Stage", None),
+                                {"name": "Notes", "resource_subtype": "text", "text_value": ""}]}
 
         self.assertEqual(asana_sync._inbound_custom_fields(self.db, at, PROJ), {})
-        self.assertEqual(self.db.query(models.TaskCustomField).count(), 0)
+        self.assertEqual(sorted(f.name for f in self.db.query(models.TaskCustomField).all()),
+                         ["Notes", "Stage"])
+        self.assertEqual(self._field("Stage").project_ids, [PROJ])
 
-    def test_empty_values_create_nothing(self):
-        at = {"custom_fields": [enum_cf("Stage", None), {"name": "Notes", "resource_subtype": "text", "text_value": ""}]}
+    def test_an_enum_value_survives_a_task_payload_with_no_options(self):
+        """Task payloads never carry enum_options - only the project-settings
+        call does. Seeding the option from the value is what stops the value
+        being dropped as "matches no option", which imported enums as blank."""
+        got = asana_sync._inbound_custom_fields(
+            self.db, {"custom_fields": [enum_cf("Category", "Security")]}, PROJ)
 
-        self.assertEqual(asana_sync._inbound_custom_fields(self.db, at, PROJ), {})
-        self.assertEqual(self.db.query(models.TaskCustomField).count(), 0)
+        self.assertEqual(got, {self._field("Category").id: "Security"})
 
     def test_number_and_date_values_are_typed(self):
         at = {"custom_fields": [
@@ -230,6 +301,131 @@ class AsanaCustomFieldTests(unittest.TestCase):
 
         self.assertEqual(asana_sync._outbound_custom_fields(self.db, cfg, t, "A1"),
                          {"CF1": "OPT_BUILD"})
+
+    # ── dynamic columns / stages from the project settings ──────────────
+    def test_seeding_creates_a_column_for_every_asana_field_with_full_options(self):
+        """The whole point of seeding from project settings rather than from task
+        values: a column nobody has filled in still appears, and an enum arrives
+        with its COMPLETE option list instead of only the option the first task
+        happened to carry."""
+        cfg = self._cfg_and_settings([
+            {"custom_field": {"gid": "CF1", "name": "Category", "resource_subtype": "enum",
+                              "enum_options": [{"gid": "o1", "name": "Security"},
+                                               {"gid": "o2", "name": "Troubleshooting"}]}},
+            {"custom_field": {"gid": "CF2", "name": "SAIT", "resource_subtype": "text"}},
+            {"custom_field": {"gid": "CF3", "name": "Task Progress", "resource_subtype": "enum"}},
+        ])
+
+        made = asana_sync.seed_project_fields(self.db, cfg, "A1", PROJ)
+
+        self.assertEqual(made, 2)   # Task Progress is reserved, never a column
+        cat = self._field("Category")
+        self.assertEqual(cat.project_ids, [PROJ])
+        self.assertEqual([o["label"] for o in cat.options], ["Security", "Troubleshooting"])
+
+    def test_seeding_the_same_field_from_two_projects_scopes_it_to_both_only(self):
+        """One Asana field used by two projects is ONE Nexus column scoped to
+        exactly those two - not a column on every board, and not two columns."""
+        settings = [{"custom_field": {"gid": "CF1", "name": "Category", "resource_subtype": "enum",
+                                      "enum_options": [{"gid": "o1", "name": "Security"}]}}]
+        cfg = self._cfg_and_settings(settings)
+        asana_sync._PROGRESS_FIELD_CACHE[("t", "A2")] = (asana_sync.time.time(), settings)
+
+        asana_sync.seed_project_fields(self.db, cfg, "A1", PROJ)
+        asana_sync.seed_project_fields(self.db, cfg, "A2", "proj-2")
+
+        fields = self.db.query(models.TaskCustomField).all()
+        self.assertEqual(len(fields), 1)
+        self.assertEqual(sorted(fields[0].project_ids), [PROJ, "proj-2"])
+
+    def test_an_asana_stage_with_no_builtin_equivalent_becomes_a_scoped_status(self):
+        """"Waiting"/"Deferred" used to be dropped on the way in, leaving the
+        task in whatever status Nexus already had."""
+        cfg = self._cfg_and_settings([{"custom_field": {
+            "gid": "CF1", "name": "Task Progress", "resource_subtype": "enum",
+            "enum_options": [{"gid": "o1", "name": "In Progress"},
+                             {"gid": "o2", "name": "Waiting"},
+                             {"gid": "o3", "name": "Deferred"}]}}])
+
+        made = asana_sync.seed_project_statuses(self.db, cfg, "A1", PROJ)
+
+        self.assertEqual(made, 2)   # "In Progress" is a built-in, not a custom status
+        labels = sorted(s.label for s in self.db.query(models.TaskCustomStatus).all())
+        self.assertEqual(labels, ["Deferred", "Waiting"])
+        for s in self.db.query(models.TaskCustomStatus).all():
+            self.assertEqual(s.project_ids, [PROJ])
+        # and a task carrying that stage now resolves onto it
+        self.assertEqual(asana_sync._status_for_progress(self.db, "Waiting", PROJ),
+                         next(s.id for s in self.db.query(models.TaskCustomStatus).all()
+                              if s.label == "Waiting"))
+        # ...but not from a project that doesn't use it
+        self.assertIsNone(asana_sync._status_for_progress(self.db, "Waiting", "proj-2"))
+
+    def test_seeding_statuses_twice_does_not_duplicate_them(self):
+        cfg = self._cfg_and_settings([{"custom_field": {
+            "gid": "CF1", "name": "Task Progress", "resource_subtype": "enum",
+            "enum_options": [{"gid": "o2", "name": "Waiting"}]}}])
+
+        asana_sync.seed_project_statuses(self.db, cfg, "A1", PROJ)
+        asana_sync.seed_project_statuses(self.db, cfg, "A1", PROJ)
+
+        self.assertEqual(self.db.query(models.TaskCustomStatus).count(), 1)
+
+    def test_outbound_pushes_a_multiselect_as_a_list_of_option_gids(self):
+        f = models.TaskCustomField(id="f1", name="Teams", type="multiselect", asana_gid="CF1",
+                                   options=[{"id": "Design", "label": "Design", "color": "#111"},
+                                            {"id": "Build", "label": "Build", "color": "#222"}],
+                                   project_ids=[PROJ])
+        self.db.add(f)
+        t = models.Task(id="t1", title="T", project_id=PROJ,
+                        custom_field_values={"f1": ["Design", "Build"]})
+        self.db.add(t)
+        self.db.commit()
+        cfg = self._cfg_and_settings([{"custom_field": {
+            "gid": "CF1", "name": "Teams", "resource_subtype": "multi_enum",
+            "enum_options": [{"gid": "OPT_D", "name": "Design"}, {"gid": "OPT_B", "name": "Build"}]}}])
+
+        self.assertEqual(asana_sync._outbound_custom_fields(self.db, cfg, t, "A1"),
+                         {"CF1": ["OPT_D", "OPT_B"]})
+
+    def test_outbound_pushes_people_as_asana_user_gids(self):
+        f = models.TaskCustomField(id="f1", name="Reviewers", type="people", asana_gid="CF1",
+                                   project_ids=[PROJ])
+        self.db.add(f)
+        t = models.Task(id="t1", title="T", project_id=PROJ,
+                        custom_field_values={"f1": ["neil@greensglobal.com"]})
+        self.db.add(t)
+        self.db.commit()
+        cfg = self._cfg_and_settings([{"custom_field": {
+            "gid": "CF1", "name": "Reviewers", "resource_subtype": "people"}}])
+        # _user_map needs a workspace to resolve against - without one it returns
+        # {} and no person can ever push, which is production behavior too.
+        cfg.workspace_gid = "W1"
+        asana_sync._USER_CACHE[("t", "W1")] = (asana_sync.time.time(), {"neil@greensglobal.com": "U1"})
+
+        self.assertEqual(asana_sync._outbound_custom_fields(self.db, cfg, t, "A1"), {"CF1": ["U1"]})
+
+    def test_outbound_never_pushes_a_read_only_formula_field(self):
+        """Asana rejects writes to a formula field - sending one fails the whole
+        task PUT, taking every other field on it down with it."""
+        self.db.add(models.TaskCustomField(id="f1", name="Resolution SLA", type="text",
+                                           asana_gid="CF1", read_only=True, project_ids=[PROJ]))
+        t = models.Task(id="t1", title="T", project_id=PROJ, custom_field_values={"f1": "1h 42m"})
+        self.db.add(t)
+        self.db.commit()
+        cfg = self._cfg_and_settings([{"custom_field": {
+            "gid": "CF1", "name": "Resolution SLA", "resource_subtype": "text"}}])
+
+        self.assertEqual(asana_sync._outbound_custom_fields(self.db, cfg, t, "A1"), {})
+
+    def test_list_digests_ignore_ordering(self):
+        """Asana returns multi_enum/people in its own order and Nexus stores them
+        in the field's - without normalizing, an untouched task looks changed on
+        every pull and ping-pongs between the two systems forever."""
+        self.assertEqual(asana_sync._fields_digest({"f1": ["a", "b"]}),
+                         asana_sync._fields_digest({"f1": ["b", "a"]}))
+        self.assertNotEqual(asana_sync._fields_digest({"f1": ["a", "b"]}),
+                            asana_sync._fields_digest({"f1": ["a", "c"]}))
 
     def test_outbound_skips_a_field_asana_does_not_have(self):
         """Never invent fields in a shared Asana workspace - a Nexus-only field

@@ -3,6 +3,7 @@ import { useMsal } from '@azure/msal-react';
 import { generateHTML } from '@tiptap/core';
 import { useRole } from '../contexts/RoleContext';
 import { api } from '../api';
+import { SkeletonBlocks } from '../components/AsyncState';
 import ModuleTabs from '../components/ModuleTabs';
 import DocumentBuilder from '../components/DocumentBuilder';
 import { BODY_EXTENSIONS } from '../lib/docBuilderSchema';
@@ -2733,7 +2734,7 @@ export default function SOP({ activeSub, onSubChange }) {
                 </div>
               </div>
               {loading
-                ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-secondary)' }}><Loader size={20} style={{ animation: 'spin 0.7s linear infinite' }} /> Loading…</div>
+                ? <div style={{ padding: '8px 0' }}><SkeletonBlocks count={4} height={56} /></div>
                 : (() => {
                     const empty = docs.length === 0 ? 'No documents yet - click “New SOP” to start your first draft.' : 'No documents match your filters.';
                     // The list table doesn't fit a phone - fall back to cards there.
@@ -2783,7 +2784,7 @@ export default function SOP({ activeSub, onSubChange }) {
               <div className="view-title-group"><h2>Tasks</h2><p>Everything that needs action - sign-offs, returned drafts, and reviews to approve.</p></div>
             </div>
             {loading
-              ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-secondary)' }}><Loader size={20} style={{ animation: 'spin 0.7s linear infinite' }} /> Loading…</div>
+              ? <div style={{ padding: '8px 0' }}><SkeletonBlocks count={4} height={56} /></div>
               : taskCount === 0
                 ? <div style={{ textAlign: 'center', padding: '48px 20px', border: '1px solid var(--border-color)', borderRadius: 14, background: 'var(--bg-card)', boxShadow: 'var(--shadow-sm)' }}>
                     <div style={{ width: 52, height: 52, borderRadius: 14, background: 'hsla(145,63%,42%,0.14)', color: 'hsl(145,55%,36%)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 14px' }}><CheckSquare size={26} /></div>
@@ -2993,7 +2994,7 @@ export default function SOP({ activeSub, onSubChange }) {
           <>
             <button className="secondary-btn" onClick={() => switchTab('manage')} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 14, height: 32, fontSize: '0.82rem' }}><ArrowLeft size={14} /> Manage</button>
             <div className="view-header" style={{ marginBottom: 16 }}><div className="view-title-group"><h2>Insights</h2><p>Usage, freshness, and training across the knowledge base</p></div></div>
-            {!i ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-secondary)' }}><Loader size={20} style={{ animation: 'spin 0.7s linear infinite' }} /> Loading…</div> : (
+            {!i ? <div style={{ padding: '8px 0' }}><SkeletonBlocks count={4} height={56} /></div> : (
               <>
                 <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 18 }}>
                   {tile('Documents', i.total)}{tile('Approved', i.approved, 'hsl(145,55%,30%)')}{tile('In Review', i.in_review)}{tile('Needs Review', i.needs_review.length, i.needs_review.length ? 'hsl(32,80%,38%)' : undefined)}

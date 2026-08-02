@@ -10,12 +10,15 @@ import {
 } from 'lucide-react';
 import { api } from '../api';
 import { usePeopleDirectory } from '../lib/queries';
+import { SkeletonBlocks } from '../components/AsyncState';
 import { ensureStepUp, isStepUpRequired, StepUpNeeded } from '../stepup/StepUp';
 import { useRole, MODULES, MODULE_LEVELS, ROLES } from '../contexts/RoleContext';
 import TimeAdmin from '../components/TimeAdmin';
 import ModuleTabs from '../components/ModuleTabs';
 import RolesAccess, { LevelPill, ModuleLevelPill, TierBadge } from './RolesAccess';
 import { capabilityText } from '../lib/moduleCapabilities';
+import PersonHover from '../components/PersonHoverCard';
+import { takePendingPerson } from '../lib/personNav';
 
 // ── HR module - Phase 1: employee master + People directory ──────────────────
 // Hiring pipeline, org chart and leave land in later phases (tabs are stubs).
@@ -40,13 +43,18 @@ const fullName = e => [e.firstName, e.lastName].filter(Boolean).join(' ');
 const initials = e => `${(e.firstName || '?')[0]}${(e.lastName || '')[0] || ''}`.toUpperCase();
 const hueFor = e => AVATAR_HUES[(e.employeeCode || e.id || '').split('').reduce((n, c) => n + c.charCodeAt(0), 0) % AVATAR_HUES.length];
 
-function Avatar({ e, size = 38 }) {
-  if (e.photoUrl) return <img src={e.photoUrl} alt="" style={{ width: size, height: size, borderRadius: size * 0.28, objectFit: 'cover', flexShrink: 0 }} />;
-  return (
-    <div style={{ width: size, height: size, borderRadius: size * 0.28, background: `hsla(${hueFor(e)},0.13)`, color: `hsl(${hueFor(e)})`, fontSize: size * 0.34, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-      {initials(e)}
-    </div>
-  );
+// `card={false}` for avatars already inside a clickable row (the People table,
+// org-chart nodes) - those rows select the person themselves, so a nested click
+// target and a floating card would fight the row.
+function Avatar({ e, size = 38, card = true }) {
+  const img = e.photoUrl
+    ? <img src={e.photoUrl} alt="" style={{ width: size, height: size, borderRadius: size * 0.28, objectFit: 'cover', flexShrink: 0 }} />
+    : (
+      <div style={{ width: size, height: size, borderRadius: size * 0.28, background: `hsla(${hueFor(e)},0.13)`, color: `hsl(${hueFor(e)})`, fontSize: size * 0.34, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+        {initials(e)}
+      </div>
+    );
+  return <PersonHover email={e.workEmail} name={fullName(e)} disabled={!card}>{img}</PersonHover>;
 }
 
 function useIsMobile(bp = 900) {
@@ -399,7 +407,7 @@ function AssetsSection({ employee }) {
         </button>
       </div>
       {!data ? (
-        <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0' }}>Loading…</div>
+        <SkeletonBlocks count={4} height={40} />
       ) : total === 0 ? (
         <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0' }}>
           {employee.workEmail ? 'No assigned equipment or active checkouts.' : 'No work email yet - provision the account to link assets.'}
@@ -856,7 +864,7 @@ function PayTab({ employee, reloadToken, onEdit }) {
         <button className="secondary-btn" onClick={onEdit} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}><Pencil size={13} /> Edit</button>
       </div>
       {!data ? (
-        <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '10px 0' }}>Loading…</div>
+        <SkeletonBlocks count={4} height={44} />
       ) : (
         <>
           {sectionLabel('Base pay')}
@@ -1194,7 +1202,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
         {/* Avatar opens the photo editor: view, re-crop with grid + zoom, or change */}
         <button title="View or change profile photo" onClick={() => setPhotoOpen(true)}
           style={{ position: 'relative', cursor: 'pointer', flexShrink: 0, background: 'none', border: 'none', padding: 0 }}>
-          <Avatar e={e} size={56} />
+          <Avatar e={e} size={56} card={false} />
           <span style={{ position: 'absolute', right: -4, bottom: -4, width: 22, height: 22, borderRadius: '50%', background: 'var(--pine)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid var(--card)' }}>
             <Camera size={11} />
           </span>
@@ -1809,7 +1817,7 @@ function OrgNodeCard({ e, kids, isCollapsed, onToggle, onSelect, dnd, entityName
           transition: 'border-color 0.1s, box-shadow 0.1s, opacity 0.12s',
         }}>
         {divColor && <span style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 5, background: `hsl(${divColor})` }} />}
-        <Avatar e={e} size={40} />
+        <Avatar e={e} size={40} card={false} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fullName(e)}</div>
           <div style={{ fontSize: 11, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.jobTitle || '-'}</div>
@@ -1908,7 +1916,7 @@ function OrgSidePanel({ e, people, entities, entityName, descendants, divisionNa
       onClick={ev => ev.target === ev.currentTarget && onClose()}>
       <div style={{ width: 'min(400px, 94vw)', height: '100%', background: 'var(--card)', boxShadow: 'var(--shadow-lg)', display: 'flex', flexDirection: 'column', animation: 'fadeIn 0.15s ease' }}>
         <div style={{ padding: '18px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 14 }}>
-          <Avatar e={e} size={52} />
+          <Avatar e={e} size={52} card={false} />
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontWeight: 800, fontSize: 16 }}>{fullName(e)}</div>
             <div style={{ fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -1966,7 +1974,7 @@ function OrgSidePanel({ e, people, entities, entityName, descendants, divisionNa
                 {reports.map(p => (
                   <button key={p.id} onClick={() => onSelect(p)}
                     style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 10, border: '1px solid var(--line)', background: 'var(--card)', cursor: 'pointer', textAlign: 'left', fontFamily: 'Inter,sans-serif' }}>
-                    <Avatar e={p} size={28} />
+                    <Avatar e={p} size={28} card={false} />
                     <span style={{ flex: 1, minWidth: 0 }}>
                       <span style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: 'var(--ink)' }}>{fullName(p)}</span>
                       <span style={{ display: 'block', fontSize: 10.5, color: 'var(--muted)' }}>{p.jobTitle || p.department || ''}</span>
@@ -3955,6 +3963,26 @@ export default function HR({ activeSub, onSubChange }) {
   const toastErr = msg => { setToast({ msg, kind: 'error' }); setTimeout(() => setToast(null), 5000); };
   const toastOk  = msg => { setToast({ msg, kind: 'ok' }); setTimeout(() => setToast(null), 4000); };
 
+  // Deep link from a person hover card anywhere in Nexus (openPersonProfile).
+  // Two triggers, because this view may or may not be mounted when the jump
+  // fires: the stash covers a cold mount, the event covers an already-open one.
+  // Waits for `employees` - the jump carries an email and only the loaded list
+  // can resolve it to the row id the detail pane selects on.
+  useEffect(() => {
+    if (!employees.length) return undefined;
+    const openFor = email => {
+      const em = (email || '').trim().toLowerCase();
+      if (!em) return;
+      const match = employees.find(x => (x.workEmail || '').toLowerCase() === em);
+      if (match) setSelectedId(match.id);
+      else toastErr(`${em} is not in People.`);
+    };
+    openFor(takePendingPerson());
+    const h = e => openFor(e.detail?.email);
+    window.addEventListener('nexus:person', h);
+    return () => window.removeEventListener('nexus:person', h);
+  }, [employees]);   // eslint-disable-line react-hooks/exhaustive-deps
+
   const [syncBusy, setSyncBusy] = useState(false);
   // One action: pull the directory (people + fields) AND their profile photos.
   async function runSync() {
@@ -4200,7 +4228,7 @@ export default function HR({ activeSub, onSubChange }) {
                       <tr key={e.id} onClick={() => setSelectedId(e.id)}>
                         <td>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 11, minWidth: 0 }}>
-                            <Avatar e={e} />
+                            <Avatar e={e} card={false} />
                             <div style={{ minWidth: 0 }}>
                               <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fullName(e)}</div>
                               <div className="ppl-cell-sub" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>

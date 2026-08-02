@@ -1,4 +1,5 @@
 import { useState, Suspense } from 'react';
+import { SkeletonBlocks } from '../components/AsyncState';
 import { LayoutGrid, Plus, Save, Pencil, MoreHorizontal, Star, Share2, Trash2, Copy, X, Wand2, SlidersHorizontal } from 'lucide-react';
 import { useRole } from '../contexts/RoleContext';
 import { useNotifications } from '../contexts/NotificationContext';
@@ -263,7 +264,7 @@ export default function CustomDashboard({ target }) {
       })()}
 
       {d.loading ? (
-        <div style={{ padding: '60px 0', textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>Loading your dashboard…</div>
+        <div style={{ padding: '8px 0' }}><SkeletonBlocks count={4} height={90} /></div>
       ) : (target === 'dashboard' && !d.editing && !d.activeId) ? (
         /* The Operations Desk home - the designed default. Saved views and
            Customize keep the widget grid untouched below. */

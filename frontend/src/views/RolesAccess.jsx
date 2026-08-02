@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { api } from '../api';
 import { usePeopleDirectory } from '../lib/queries';
+import { SkeletonBlocks } from '../components/AsyncState';
 import { useRole, MODULES, MODULE_LEVELS, ROLES } from '../contexts/RoleContext';
 import { useNameResolver } from '../lib/useNameResolver';
 import { capabilityText } from '../lib/moduleCapabilities';
@@ -22,7 +23,7 @@ const TIERS = Object.keys(ROLES);
 
 // Audit-tab module families - collapse 21 columns into 6 readable ones.
 const FAMILIES = [
-  { id: 'everyday', label: 'Everyday',      modules: ['dashboard', 'timeclock', 'myhr', 'tasks'] },
+  { id: 'everyday', label: 'Everyday',      modules: ['dashboard', 'timeclock', 'myhr', 'tasks', 'tickets'] },
   { id: 'company',  label: 'Company',       modules: ['sop', 'hr', 'documents', 'external-links', 'support'] },
   { id: 'money',    label: 'Money',         modules: ['accounting', 'investor-relations'] },
   { id: 'field',    label: 'Field & assets', modules: ['inventory', 'property-asset', 'ops', 'operations'] },
@@ -1141,7 +1142,9 @@ function Modal({ title, children, onClose, wide }) {
     </div>
   );
 }
-const Spinner = () => <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} /></div>;
+// Content-area loading: skeleton placeholders (not a bare spinner) so the layout
+// stays stable and it reads as "loading this list", the standardized pattern.
+const Spinner = () => <div style={{ padding: '8px 4px' }}><SkeletonBlocks count={5} height={54} /></div>;
 const Empty = ({ text }) => <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--muted)', fontSize: 13.5 }}>{text}</div>;
 
 const thCorner = { position: 'sticky', left: 0, top: 0, zIndex: 3, background: 'var(--card)', textAlign: 'left', padding: '11px 14px', fontSize: 11, fontWeight: 700, color: 'var(--muted)', borderRight: '1px solid var(--line)', borderBottom: '1.5px solid var(--line)', minWidth: 190 };

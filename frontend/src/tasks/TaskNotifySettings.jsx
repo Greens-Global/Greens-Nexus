@@ -15,6 +15,7 @@ const field = { marginBottom: 14 };
 const EVENT_LABELS = {
   created: 'Task created', assigned: 'Task assigned', due_soon: 'Due date reminder',
   overdue: 'Overdue reminder', completed: 'Task completed', commented: 'New comment',
+  mentioned: 'Mentioned in a comment',
   follower_added: 'Added as collaborator', modified: 'Task details changed', deleted: 'Task deleted',
 };
 const STATUS_META = {

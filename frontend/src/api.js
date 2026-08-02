@@ -12,12 +12,20 @@ async function getAuthHeader(forceRefresh = false) {
   // than one Microsoft account (e.g. work + personal) can have the wrong account
   // at [0], whose token the backend rejects with 401. Pin the active account once
   // so every request uses the same identity.
-  let account = msalInstance.getActiveAccount();
-  if (!account) {
-    account = msalInstance.getAllAccounts()[0];
-    if (account) msalInstance.setActiveAccount(account);
+  let account = msalInstance.getActiveAccount() || msalInstance.getAllAccounts()[0];
+  // On a cold load the signed-in account can lag msalReady by a moment -
+  // handleRedirectPromise is still resolving when the first providers mount and
+  // fetch. Firing in that gap sends NO Authorization header, so the request 401s,
+  // the caller retries with the token, and it succeeds - but that first-try 401 is
+  // logged to the console and looks alarming. Wait briefly for the account so the
+  // very first attempt already carries a token. Bounded (~2s); genuinely signed-out
+  // users never reach here because the app gates fetches behind AuthenticatedTemplate.
+  for (let i = 0; !account && i < 25; i++) {
+    await new Promise(r => setTimeout(r, 80));
+    account = msalInstance.getActiveAccount() || msalInstance.getAllAccounts()[0];
   }
   if (!account) return {};
+  if (!msalInstance.getActiveAccount()) msalInstance.setActiveAccount(account);
   try {
     const result = await msalInstance.acquireTokenSilent({
       ...apiTokenRequest,
@@ -277,6 +285,10 @@ export const api = {
 
   // Tasks - core (bodies are snake_case; the TasksContext maps to/from camelCase)
   getTasks: () => req("/tasks"),
+  // Incremental fetch - {tasks, deletedIds, serverTime}. `since` blank returns
+  // everything (no deletions), so this serves both the mount load and every
+  // repeated refresh through one path. See TasksContext's sinceRef.
+  getTasksDelta: (since = '') => req(`/tasks/delta${since ? `?since=${encodeURIComponent(since)}` : ''}`),
   createTask: (data) => req("/tasks", { method: "POST", body: JSON.stringify(data) }),
   updateTask: (id, data) => req(`/tasks/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
   deleteTask: (id) => req(`/tasks/${id}`, { method: "DELETE" }),
@@ -302,6 +314,7 @@ export const api = {
   deleteTaskSection: (id) => req(`/tasks/meta/sections/${id}`, { method: "DELETE" }),
   getTaskCustomStatuses: () => req("/tasks/meta/custom-statuses"),
   createTaskCustomStatus: (data) => req("/tasks/meta/custom-statuses", { method: "POST", body: JSON.stringify(data) }),
+  updateTaskCustomStatus: (id, data) => req(`/tasks/meta/custom-statuses/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
   deleteTaskCustomStatus: (id) => req(`/tasks/meta/custom-statuses/${id}`, { method: "DELETE" }),
   // Projects / portfolios / departments / member requests
   getTaskProjects: () => req("/task-projects"),
@@ -354,6 +367,12 @@ export const api = {
   getAsanaSyncProjects: () => req("/asana-sync/asana-projects", { timeoutMs: 60000 }),
   getAsanaWebhooks: () => req("/asana-sync/webhooks"),
   registerAsanaWebhooks: (data) => req("/asana-sync/webhooks", { method: "POST", body: JSON.stringify(data), timeoutMs: 60000 }),
+  // ── Per-user Asana connection (Account Settings) ──
+  // Personal, not admin: each of these acts on the signed-in user's own grant.
+  // No endpoint here ever returns the token itself.
+  asanaOauthStatus:     () => req("/asana-oauth/status"),
+  asanaOauthStart:      () => req("/asana-oauth/start", { method: "POST" }),
+  asanaOauthDisconnect: () => req("/asana-oauth/me", { method: "DELETE" }),
   deleteAsanaWebhooks: () => req("/asana-sync/webhooks", { method: "DELETE", timeoutMs: 60000 }),
   getTaskAutomationRules: () => req("/task-automation-rules"),
   createTaskAutomationRule: (data) => req("/task-automation-rules", { method: "POST", body: JSON.stringify(data) }),

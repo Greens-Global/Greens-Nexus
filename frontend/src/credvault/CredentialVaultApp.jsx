@@ -13,6 +13,7 @@ import {
   ExternalLink, Share2,
 } from "lucide-react";
 import { api } from "../api";
+import { SkeletonBlocks } from "../components/AsyncState";
 import { useRolesDirectory } from "../lib/queries";
 import { ensureStepUp } from "../stepup/StepUp";
 import { useRole } from "../contexts/RoleContext";
@@ -426,8 +427,8 @@ export default function CredentialVaultApp() {
   const activeFilters = (fDept !== "All" ? 1 : 0) + (fType !== "All" ? 1 : 0) + (atRiskOnly ? 1 : 0) + (riskFilter ? 1 : 0);
 
   if (loading) return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "50vh" }}>
-      <div style={{ width: 28, height: 28, borderRadius: "50%", border: "3px solid var(--border-color)", borderTopColor: "var(--text-primary)", animation: "spin 0.7s linear infinite" }} />
+    <div style={{ padding: "16px 0" }}>
+      <SkeletonBlocks count={5} height={54} />
     </div>
   );
 

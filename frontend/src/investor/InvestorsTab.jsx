@@ -117,7 +117,7 @@ export default function InvestorsTab() {
               </tr>
             </thead>
             <tbody>
-              {rows.map(inv => (
+              {rows.slice(0, 500).map(inv => (
                 <tr key={inv.id} onClick={() => openEdit(inv)} style={{ cursor: 'pointer' }}>
                   <td>
                     <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 7 }}>

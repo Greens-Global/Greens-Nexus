@@ -1784,6 +1784,16 @@ class TaskCustomStatus(Base):
     label    = Column(String, nullable=False)
     color    = Column(String, default="")
     position = Column(Integer, default=0)
+    # Which projects show this status, same convention as TaskCustomField:
+    # EMPTY = every project, which is what every status was before scoping
+    # existed, so upgrading changes nothing until someone narrows one. Without
+    # it a status added for one board became a column on every board.
+    project_ids = Column(JSON, default=list)
+    # The Asana "Task Progress" enum option this mirrors, blank for a Nexus-only
+    # status. Asana options that have no built-in Nexus equivalent ("Waiting",
+    # "Deferred", anything a project invents) become custom statuses on exactly
+    # the projects that use them, rather than being dropped on the way in.
+    asana_option_gid = Column(String, default="", index=True)
 
 
 class TaskComment(Base):
@@ -1809,6 +1819,11 @@ class TaskAttachment(Base):
     url        = Column(String, default="")              # Supabase storage url (see _validate_photo_url)
     added_at   = Column(String, default="")
     added_by   = Column(String, default="")
+    # Set only for a file attached while composing a comment (blank = today's
+    # plain task-level attachment, unaffected). Asana's own API has no
+    # comment/story parent for an attachment - only a Nexus-native comment gets
+    # this link, so nothing here is guessed at for Asana-origin data.
+    comment_id = Column(String, default="", index=True)
 
 
 class TaskActivity(Base):
@@ -1824,6 +1839,18 @@ class TaskActivity(Base):
     actor_email  = Column(String, default="")
     at           = Column(String, default="", index=True)
     detail       = Column(String, default="")
+
+
+class TaskDeleteLog(Base):
+    """One row per deleted task/subtask - lets a delta fetch (GET /tasks/delta)
+    tell a client a task is GONE, not just absent from an incremental result
+    (silence is ambiguous: absent could mean "unchanged" or "deleted"). Mirrors
+    the Asana-sync tombstone pattern (AsanaPendingDelete / queue_task_delete in
+    asana_sync.py) for the identical reason."""
+    __tablename__ = "task_delete_log"
+    id         = Column(String, primary_key=True)
+    task_id    = Column(String, default="", index=True)
+    deleted_at = Column(String, default="", index=True)
 
 
 class TaskSavedView(Base):
@@ -1875,17 +1902,35 @@ class TaskCustomField(Base):
     id          = Column(String, primary_key=True)
     name        = Column(String, nullable=False)
     description = Column(String, default="")
-    # text|number|date|checkbox|select - the five kinds a value is actually
-    # STORED as. The "+ Column" menu's fifteen visual types all map onto these
-    # (see views/richlist.jsx TYPE_GROUPS).
+    # text|number|date|checkbox|select|multiselect|people - the seven kinds a
+    # value is actually STORED as. The "+ Column" menu's visual types all map
+    # onto these (see views/richlist.jsx TYPE_GROUPS). The last two hold LISTS:
+    # multiselect a list of option ids, people a list of Nexus work emails -
+    # they exist so Asana's multi_enum and people fields round-trip instead of
+    # being flattened to text (which pushed back as garbage).
     type        = Column(String, default="text")
     # [{id,label,color}]. Older rows hold plain strings; task_config normalizes
     # both shapes on read, so nothing needs backfilling.
     options     = Column(JSON, default=list)
+    # Asana formula fields are computed on their side and the API rejects any
+    # write, so they import but must never push. Nothing else sets this; a
+    # read-only field renders disabled in the editors and _outbound_custom_fields
+    # skips it entirely.
+    read_only   = Column(Boolean, default=False)
     # Which projects use this field. EMPTY = every project, the pre-scoping behavior,
     # so upgrading changes nothing until an admin narrows a field. Without it one
     # field became a column on every board in the workspace.
+    #
+    # For an Asana-derived field this is maintained by the sync, not by hand: it
+    # holds exactly the Nexus projects whose Asana counterpart carries the field,
+    # which is why a column added to one Asana board never appears on the others.
     project_ids = Column(JSON, default=list)
+    # The Asana custom field this mirrors, blank for a Nexus-only field. Identity
+    # comes from the gid rather than the name so a field RENAMED in Asana stays
+    # the same Nexus column (the name follows), and so two same-named fields in
+    # different projects stay two separate columns instead of silently merging -
+    # matching by name did both of those wrong.
+    asana_gid   = Column(String, default="", index=True)
     # Must have a value before a task can be created (checked on the create form,
     # not on the API - inbound Asana tasks legitimately arrive without it).
     required    = Column(Boolean, default=False)
@@ -2016,6 +2061,14 @@ class TaskEmailLog(Base):
     recipient            = Column(String, default="")
     recipient_role       = Column(String, default="")     # assignee|follower|creator|owner
     subject              = Column(String, default="")
+    # The exact rendered body from the original send attempt, reused verbatim on
+    # retry (same reasoning as `subject` above). Without this, a retried
+    # commented/mentioned email had no comment text to rebuild from and silently
+    # sent a generic "Task updated" body instead - and any retry, of any event
+    # type, could drift from what the event actually said if the task's fields
+    # changed between the failed attempt and the retry. Blank on legacy rows
+    # created before this column existed; _rebuild_email is the fallback there.
+    html                 = Column(String, default="")
     status               = Column(String, default="pending")   # pending|sent|failed|retrying
     graph_message_id     = Column(String, default="")
     conversation_id      = Column(String, default="")
@@ -2079,6 +2132,14 @@ class AsanaSyncConfig(Base):
     # counterpart. Separate from `enabled` because it's the one irreversible
     # part of the sync - everything else this module does is additive.
     delete_sync         = Column(Boolean, default=True)
+    # The Two-Way Sync card's OWN sync/delete toggles, independent of `enabled`/
+    # `delete_sync` above (which belong to the Setup card's blanket toggle).
+    # Every gate in this module ORs the two pairs together via sync_is_on()/
+    # delete_sync_is_on() - either card's toggle being on is enough to sync
+    # whatever is currently in AsanaProjectMap. Default False so nothing changes
+    # for an existing install until someone opts into the manual-mapping card.
+    manual_sync_enabled = Column(Boolean, default=False)
+    manual_delete_sync  = Column(Boolean, default=False)
 
 
 class AsanaProjectMap(Base):
@@ -2143,6 +2204,45 @@ class AsanaCommentLink(Base):
     nexus_comment_id = Column(String, default="", index=True)
     asana_story_gid  = Column(String, default="", index=True)
     created_at       = Column(String, default="")
+
+
+class AsanaUserToken(Base):
+    """One Nexus user's own Asana OAuth grant.
+
+    Asana attributes a story to whoever owns the token that posted it - there is
+    no impersonation parameter - so a comment can only appear under its real
+    author if Nexus holds that person's own token. Connected per user from
+    Account Settings; see asana_oauth.py.
+
+    Tokens are Fernet-encrypted at rest (secret_box, NEXUS_VAULT_KEY). The
+    access token is short-lived (~1h) and refreshed transparently before use;
+    the refresh token is the long-lived secret and is what a disconnect
+    destroys."""
+    __tablename__ = "asana_user_tokens"
+    id                = Column(String, primary_key=True)
+    email             = Column(String, default="", index=True, unique=True)  # Nexus user
+    access_token_enc  = Column(String, default="")
+    refresh_token_enc = Column(String, default="")
+    expires_at        = Column(String, default="")   # ISO; refreshed just before use
+    asana_user_gid    = Column(String, default="")
+    asana_name        = Column(String, default="")   # for the "Connected as ..." line
+    asana_email       = Column(String, default="")
+    created_at        = Column(String, default="")
+    updated_at        = Column(String, default="")
+
+
+class AsanaOAuthState(Base):
+    """One in-flight OAuth authorization, keyed by the opaque `state` value.
+
+    Two jobs: CSRF (Asana echoes it back, so a callback carrying a state we
+    never issued is rejected) and identity - the callback is a plain browser
+    redirect with no bearer token, so this row is the only thing tying the code
+    being exchanged to the Nexus user who started the flow. Consumed once and
+    deleted; anything older than the TTL is treated as expired."""
+    __tablename__ = "asana_oauth_states"
+    id         = Column(String, primary_key=True)   # the state value itself
+    email      = Column(String, default="")         # who started the flow
+    created_at = Column(String, default="")
 
 
 class AsanaAttachmentLink(Base):

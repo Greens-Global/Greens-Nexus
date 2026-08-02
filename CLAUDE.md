@@ -57,15 +57,40 @@ keep the diff minimal.
 - Sessions run with `autoflush=False`: uncommitted changes are NOT visible to
   queries in the same request — sibling-count queries must exclude/add the
   current row manually.
+- **Never do blocking I/O on the async event loop.** Background loops (the
+  `*_loop` tasks started in `main.py`'s lifespan) and any `async def`
+  endpoint/middleware must push synchronous DB queries and outbound HTTP
+  (Microsoft Graph, Asana) into a thread via `await asyncio.to_thread(...)` —
+  copy `reminders_loop` / `long_session_loop`. A sync call left on the loop
+  freezes the WHOLE worker (every request it is serving, CORS preflights
+  included) for the call's full duration. This caused instance-wide ~16s
+  freezes that looked like "random slow modules" and CORS/502 storms (Aug 2);
+  the fix was moving the `task_notify` / `ticket_notify` scans into `to_thread`.
 - New columns: add to the model in `models.py` AND an
-  `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` line in `main.py`'s migrations
-  list. Model columns missing from the live DB break every SELECT with a 500.
-- New tables: define the model; `create_all` creates it on startup.
+  `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` line in BOTH of `main.py`'s
+  migration lists (SQLite AND Postgres). Model columns missing from the live DB
+  break every SELECT with a 500.
+- New tables: define the model; `create_all` creates it on startup — but with
+  **RLS disabled**. You MUST `ALTER TABLE ... ENABLE ROW LEVEL SECURITY` on BOTH
+  dev and prod as part of the release. The backend bypasses RLS via the
+  privileged `DATABASE_URL`; RLS only locks out the public anon key, so a new
+  table without it is fully exposed to anyone holding that key. Run
+  `get_advisors` after every release — this gap recurs.
 - Photo URLs from clients must pass `_validate_photo_url` (Supabase storage only).
 
 ## Frontend conventions
 
 - All server calls go through `frontend/src/api.js` — add new endpoints there.
+  It already retries idempotent GETs on 5xx/network with backoff and debounces
+  the "reconnecting" banner; do not add a second retry layer on top.
+- **Never let a screen render blank.** The whole app is wrapped in
+  `RootErrorBoundary` (`main.jsx`) and each view in `ViewErrorBoundary`; the gap
+  where MSAL is mid-interaction is filled by `AuthBusyFallback` (`App.jsx`). Any
+  new top-level surface or provider that can throw must keep a boundary above it
+  — a crash without one unmounts React to a white screen. For pending data show
+  a skeleton/loader via `AsyncState.jsx` (`AsyncSection` / `SkeletonBlocks`),
+  never nothing. New high-risk views get a render-smoke test (`*.test.jsx`, run
+  in CI) so a crash-on-render is caught before merge.
 - File uploads: use the existing Supabase upload helpers (they set
   `cacheControl: '31536000'`; image paths are unique and cached immutably).
 - Cross-view navigation uses the `nexus:navigate` window event

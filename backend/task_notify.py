@@ -45,7 +45,7 @@ _DEFAULT_SETTINGS = {
     "overdueRepeatDays": 3,   # re-remind an overdue task every N days until done/reassigned; 0 = only once
     "enabledEvents": {
         "created": True, "assigned": True, "due_soon": True, "overdue": True,
-        "completed": True, "commented": True, "follower_added": True,
+        "completed": True, "commented": True, "mentioned": True, "follower_added": True,
         "modified": True, "deleted": True,
     },
 }
@@ -203,6 +203,7 @@ def _send_one(db: Session, *, task_id: str, task_code: str, event_type: str, ide
         db.add(row)
     row.status = "pending"
     row.subject = subject
+    row.html = html
     row.attempts = (row.attempts or 0) + 1
     row.updated_at = now
     db.commit()
@@ -298,8 +299,8 @@ def notify_task_event(task_id: str, event_type: str, actor_email: str, **kw) -> 
                 subject, html = tmpl.completed_email(t=ctx, base_url=_APP_URL, logo_url=logo_url)
             elif event_type == "mentioned":
                 subject, html = tmpl.mentioned_email(t=ctx, base_url=_APP_URL, logo_url=logo_url,
-                                                     comment_body=extra.get("comment_body", ""),
-                                                     actor_name=actor_name)
+                                                     comment_body=kw.get("comment_body", ""),
+                                                     actor_name=ctx["actorName"])
             elif event_type == "commented":
                 subject, html = tmpl.commented_email(t=ctx, base_url=_APP_URL, logo_url=logo_url,
                                                       comment_body=kw.get("comment_body", ""))
@@ -405,7 +406,14 @@ def _retry_failed_once(db: Session) -> None:
         db.commit()
         ctx = _task_context(db, t, row.recipient)
         try:
+            # Prefer the ORIGINAL rendered body over rebuilding one: a rebuild
+            # has no comment text to work from for commented/mentioned, and for
+            # every event type it re-renders against the task's CURRENT state,
+            # which can have drifted from what the event actually said between
+            # the failed attempt and this retry. Only a legacy row from before
+            # `html` existed falls back to a rebuild.
             subject, html = _rebuild_email(row.event_type, ctx, row.recipient_role, cfg)
+            html = row.html or html
             result = graph_mail.send_mail(from_email=from_email, to=[row.recipient], cc=cc,
                                            subject=row.subject or subject, html=html, reply_to=cfg.get("replyTo") or "")
             row.status = "sent"
@@ -427,6 +435,13 @@ def _retry_failed_once(db: Session) -> None:
 
 
 def _rebuild_email(event_type: str, ctx: dict, role: str, cfg: dict) -> tuple[str, str]:
+    """Fallback only for a row whose `html` predates that column (see
+    TaskEmailLog.html) - every current row carries its own original body and
+    never reaches this. Re-rendering against the task's CURRENT state means
+    this can drift from what the event actually said; for commented/mentioned
+    there is no comment text left to rebuild from at all, so those render
+    honestly empty (the templates already show "-" for a blank comment_body)
+    rather than the wrong "Task updated" body the generic fallback used to send."""
     logo_url = cfg.get("logoUrl") or ""
     if event_type == "created":
         return tmpl.created_email(t=ctx, base_url=_APP_URL, logo_url=logo_url, audience="assignee" if role == "assignee" else "other")
@@ -434,6 +449,11 @@ def _rebuild_email(event_type: str, ctx: dict, role: str, cfg: dict) -> tuple[st
         return tmpl.assigned_email(t=ctx, base_url=_APP_URL, logo_url=logo_url, audience="assignee" if role == "assignee" else "other")
     if event_type == "completed":
         return tmpl.completed_email(t=ctx, base_url=_APP_URL, logo_url=logo_url)
+    if event_type == "commented":
+        return tmpl.commented_email(t=ctx, base_url=_APP_URL, logo_url=logo_url, comment_body="")
+    if event_type == "mentioned":
+        return tmpl.mentioned_email(t=ctx, base_url=_APP_URL, logo_url=logo_url, comment_body="",
+                                    actor_name=ctx.get("actorName", ""))
     if event_type == "follower_added":
         return tmpl.follower_added_email(t=ctx, base_url=_APP_URL, logo_url=logo_url)
     if event_type in ("due_soon", "overdue"):
@@ -444,23 +464,37 @@ def _rebuild_email(event_type: str, ctx: dict, role: str, cfg: dict) -> tuple[st
     return tmpl.modified_email(t=ctx, base_url=_APP_URL, logo_url=logo_url, update_kind="Task updated")
 
 
+def _task_scan_once(do_due: bool) -> None:
+    """The blocking body of task_notify_loop: synchronous DB queries plus
+    Outlook/Graph email sends. Run via asyncio.to_thread (see the loop) so it
+    NEVER executes on the request event loop - a slow synchronous Graph send here
+    used to freeze every request the worker was serving, CORS preflights
+    included, for as long as the send took. Matches reminders_loop /
+    long_session_loop, which already offload their scans the same way."""
+    db = SessionLocal()
+    try:
+        _retry_failed_once(db)
+        if do_due:
+            _due_reminders_once(db)
+    finally:
+        db.close()
+
+
 async def task_notify_loop() -> None:
     """Started once from main.py's lifespan, same convention as
     ticket_notify.ticket_notify_loop. Retries failed/stuck sends every 5 min;
     scans for due-date reminders hourly (that resolution is all a "due in N
-    days" reminder needs)."""
+    days" reminder needs). The scan runs in a worker thread (asyncio.to_thread)
+    so its blocking DB + Graph I/O never stalls the event loop."""
     await asyncio.sleep(75)   # stagger slightly after the ticket loop's own 60s startup delay
     last_due_scan = 0.0
     while True:
-        db = SessionLocal()
+        now = asyncio.get_event_loop().time()
+        do_due = (now - last_due_scan) >= _DUE_SCAN_LOOP_SEC
         try:
-            _retry_failed_once(db)
-            now = asyncio.get_event_loop().time()
-            if now - last_due_scan >= _DUE_SCAN_LOOP_SEC:
-                _due_reminders_once(db)
+            await asyncio.to_thread(_task_scan_once, do_due)
+            if do_due:
                 last_due_scan = now
         except Exception:
             pass
-        finally:
-            db.close()
         await asyncio.sleep(_RETRY_LOOP_SEC)

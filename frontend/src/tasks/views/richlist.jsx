@@ -7,16 +7,19 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } fr
 import { createPortal } from 'react-dom';
 import {
   CheckCircle2, Circle, MessageSquare, Paperclip, Diamond, ChevronDown, Check, Minus, ListTree, Plus, Trash2, Folder,
+  // (MessageSquare/Paperclip now render as count badges next to the title,
+  // like the subtask badge below - not as ActionIcons buttons.)
   Hash, List, Calendar, CheckSquare, ListOrdered, CircleDot, BarChart3, TrendingUp, Star, CalendarPlus, CalendarClock, Timer, ArrowLeft, EyeOff,
+  Lock, Users, ListChecks,
 } from 'lucide-react';
 import { groupTasks, matchesFilter, sortTasks, topLevel, groupAddDefaults, fieldsForProject, teamInProject } from '../lib';
 import { NX, FONT, btn, input as inputStyle, PRIORITY_META, PRIORITY_ORDER, STATUS_META, STATUS_ORDER, colorForKey } from '../theme';
 import { Avatar, useClickOutside, DateField } from '../components';
-import { emailToName } from '../../lib/utils';
+import { emailToName, rootZoom } from '../../lib/utils';
 
 const BASE_COLS = [
   { key: 'checkbox', label: '', width: 28 },
-  { key: 'actions', label: 'Actions', width: 118 },
+  { key: 'actions', label: 'Actions', width: 72 },
   { key: 'task', label: 'Task', width: 280, grow: true },
   { key: 'assignee', label: 'Person', width: 120 },
   { key: 'project', label: 'Project', width: 132 },
@@ -41,6 +44,8 @@ const TYPE_GROUPS = [
   { label: 'Recommended', types: [
     { key: 'text', label: 'Text/Number', icon: Hash, storage: 'text' },
     { key: 'select', label: 'Dropdown List', icon: List, storage: 'select' },
+    { key: 'multiselect', label: 'Multi-Select', icon: ListChecks, storage: 'multiselect' },
+    { key: 'people', label: 'People', icon: Users, storage: 'people' },
     { key: 'date', label: 'Date', icon: Calendar, storage: 'date' },
     { key: 'checkbox', label: 'Checkbox', icon: CheckSquare, storage: 'checkbox' },
   ] },
@@ -64,6 +69,9 @@ const TYPE_GROUPS = [
   ] },
 ];
 const FIELD_PALETTE = [NX.blue, NX.purple, NX.green, NX.teal, NX.amber, NX.red, NX.pink, NX.dim];
+// Rows mounted per batch. Comfortably more than fills a tall screen, so the
+// sentinel below the last row is normally already past the viewport.
+const ROW_BATCH = 60;
 
 // Renders its children into document.body, fixed-positioned against
 // `anchorRef`'s current on-screen rect. The rich-list table scrolls both
@@ -71,21 +79,63 @@ const FIELD_PALETTE = [NX.blue, NX.purple, NX.green, NX.teal, NX.amber, NX.red, 
 // escape it (e.g. a dropdown near the table's right edge) - a portal sidesteps
 // that entirely by positioning against real viewport coordinates instead of
 // an ancestor that might clip or scroll.
+const PANEL_MARGIN = 8;   // breathing room between a panel and the window edge
+
+// See rootZoom in lib/utils: <html> carries a CSS zoom, so a rect measured in
+// the outer space must be divided by it before being written as a CSS length.
+
 function PortalDropdown({ anchorRef, panelRef, align = 'left', width, bare = false, children }) {
   const [pos, setPos] = useState(null);
   useLayoutEffect(() => {
     const el = anchorRef.current;
     if (!el) return;
-    const r = el.getBoundingClientRect();
-    const next = { top: r.bottom + 4 };
-    if (align === 'right') next.right = Math.max(8, window.innerWidth - r.right);
-    else next.left = r.left;
-    setPos(next);
-  }, [anchorRef, align]);
+    // Clamp to the viewport on BOTH axes. Positioning purely from the anchor
+    // put a panel half off-screen whenever its column sat near the right edge -
+    // and since this grid scrolls horizontally, any column can end up there.
+    // A long option list near the bottom ran under the window the same way.
+    const place = () => {
+      const z = rootZoom();
+      const r = el.getBoundingClientRect();
+      const panel = panelRef.current;
+      // The panel's own rect is in the outer space too, so every term below
+      // stays in one space; only the final write is converted back.
+      const pr = panel?.getBoundingClientRect();
+      const w = pr?.width || (width || 168) * z;
+      const h = pr?.height || 0;
+      const gap = 4 * z;
+      let left = align === 'right' ? r.right - w : r.left;
+      left = Math.max(PANEL_MARGIN, Math.min(left, window.innerWidth - w - PANEL_MARGIN));
+      let top = r.bottom + gap;
+      if (h && top + h > window.innerHeight - PANEL_MARGIN) {
+        // Flip above the anchor when there's room, else sit against the bottom.
+        const above = r.top - gap - h;
+        top = above >= PANEL_MARGIN ? above : Math.max(PANEL_MARGIN, window.innerHeight - h - PANEL_MARGIN);
+      }
+      // Back into the inner space, which is what a CSS length on this element means.
+      // maxWidth is a CSS length on this element, so it belongs in the inner
+      // space as well - `calc(100vw - …)` would be off by the same factor.
+      setPos({ top: top / z, left: left / z, maxWidth: (window.innerWidth - PANEL_MARGIN * 2) / z });
+    };
+    place();
+    // The first pass runs before the portal exists, so the panel has no real
+    // size yet - measure again once it's mounted and correct the placement.
+    const id = requestAnimationFrame(place);
+    // A fixed panel is frozen in viewport space while its anchor moves with the
+    // grid, so any scroll after opening leaves the menu behind - visibly offset
+    // from the cell it belongs to. Capture-phase catches the grid's own scroll,
+    // not just the window's.
+    window.addEventListener('scroll', place, true);
+    window.addEventListener('resize', place);
+    return () => {
+      cancelAnimationFrame(id);
+      window.removeEventListener('scroll', place, true);
+      window.removeEventListener('resize', place);
+    };
+  }, [anchorRef, panelRef, align, width]);
   if (!pos) return null;
   return createPortal(
     <div ref={panelRef} onClick={(e) => e.stopPropagation()} style={{
-      position: 'fixed', top: pos.top, left: pos.left, right: pos.right, width, zIndex: 200,
+      position: 'fixed', top: pos.top, left: pos.left, width, zIndex: 200, maxWidth: pos.maxWidth,
       ...(bare ? {} : {
         background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10,
         boxShadow: '0 12px 32px rgba(0,0,0,0.16)',
@@ -174,7 +224,7 @@ function AssigneeCell({ value, people, onSelect, compact }) {
             <div onClick={() => pick(null)} style={{ padding: '8px 12px', fontSize: 13, color: NX.dim, cursor: 'pointer' }}>Unassigned</div>
             {filtered.map((p) => (
               <div key={p.email} onClick={() => pick(p.email)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer', color: NX.ink, background: p.email === value ? NX.hover : 'transparent' }}>
-                <Avatar email={p.email} name={p.name} size={22} />
+                <Avatar email={p.email} name={p.name} size={22} card={false} />
                 <span style={{ flex: 1 }}>{p.name}</span>
                 {p.email === value && <Check size={14} style={{ color: NX.blue }} />}
               </div>
@@ -186,20 +236,17 @@ function AssigneeCell({ value, people, onSelect, compact }) {
   );
 }
 
-function ActionIcons({ t, store, onOpen }) {
-  const fileRef = useRef(null);
+function ActionIcons({ t, store }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 1, color: NX.faint }}>
-      <button title="Comments" onClick={(e) => { e.stopPropagation(); onOpen(t.id); }} style={{ ...btn('ghost'), padding: 5 }}><MessageSquare size={13} /></button>
-      <button title="Attach File" onClick={(e) => { e.stopPropagation(); fileRef.current?.click(); }} style={{ ...btn('ghost'), padding: 5 }}><Paperclip size={13} /></button>
-      <input ref={fileRef} type="file" multiple style={{ display: 'none' }} onChange={() => { /* attach wired in detail drawer */ }} />
-      <button title="Toggle Milestone" onClick={(e) => { e.stopPropagation(); store.updateTask(t.id, { isMilestone: !t.isMilestone }); }} style={{ ...btn('ghost'), padding: 5, color: t.isMilestone ? NX.purple : NX.faint }}><Diamond size={13} /></button>
       <button title="Complete" onClick={(e) => { e.stopPropagation(); store.toggleComplete(t); }} style={{ ...btn('ghost'), padding: 5, color: t.completed ? NX.green : NX.faint }}>{t.completed ? <CheckCircle2 size={13} /> : <Circle size={13} />}</button>
     </div>
   );
 }
 
 function TaskRow({ t, cols, customFields = [], template, store, people, selected, toggleSel, onOpen, hidden = new Set(), groupColor, onDragStartRow, onDragEndRow }) {
+  // Deferred until the project picker is first opened - see the select below.
+  const [projOpen, setProjOpen] = useState(false);
   // monday-style spreadsheet cells: every cell carries a right border, rows are
   // a compact ~36px, and status/priority blocks fill their cell edge-to-edge.
   const cellPad = { minWidth: 0, display: 'flex', alignItems: 'center', minHeight: 36, padding: '2px 8px', borderRight: `1px solid ${NX.border2}`, boxSizing: 'border-box' };
@@ -216,6 +263,8 @@ function TaskRow({ t, cols, customFields = [], template, store, people, selected
   const subIds = t.subtaskIds || [];
   const subs = subIds.map((id) => (store.taskById ? store.taskById[id] : null) || store.tasks?.find((x) => x.id === id)).filter(Boolean);
   const subsDone = subs.filter((s) => s.completed).length;
+  const commentCount = (t.commentIds || []).length;
+  const attachmentCount = (t.attachmentIds || []).length;
   return (
     <div onClick={() => onOpen(t.id)} data-task-row draggable
       onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; onDragStartRow?.(t.id); }}
@@ -223,7 +272,7 @@ function TaskRow({ t, cols, customFields = [], template, store, people, selected
       style={{ borderBottom: `1px solid ${NX.border2}`, background: selected ? 'rgba(37,99,235,0.10)' : 'transparent', cursor: 'pointer' }}
       onMouseEnter={(e) => { if (!selected) e.currentTarget.style.background = NX.hover; }}
       onMouseLeave={(e) => { if (!selected) e.currentTarget.style.background = 'transparent'; }}>
-      <div style={{ display: 'grid', gridTemplateColumns: template, alignItems: 'stretch', fontSize: 13 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'var(--nx-grid)', alignItems: 'stretch', fontSize: 13 }}>
         {/* checkbox */}
         <div style={{ ...cellPad, justifyContent: 'center', padding: '2px 4px' }}>
           <button onClick={(e) => { e.stopPropagation(); toggleSel(t.id); }} style={{ width: 16, height: 16, borderRadius: 3, border: `1.5px solid ${selected ? NX.primary : NX.border}`, background: selected ? NX.primary : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 0, flexShrink: 0 }}>
@@ -231,7 +280,7 @@ function TaskRow({ t, cols, customFields = [], template, store, people, selected
           </button>
         </div>
         {/* actions */}
-        {show('actions') && <div style={cellPad}><ActionIcons t={t} store={store} onOpen={onOpen} /></div>}
+        {show('actions') && <div style={{ ...cellPad, justifyContent: 'center' }}><ActionIcons t={t} store={store} /></div>}
         {/* task */}
         <div style={{ ...cellPad, gap: 6 }}>
           {t.isMilestone && <Diamond size={12} style={{ color: NX.purple, flexShrink: 0 }} />}
@@ -239,9 +288,20 @@ function TaskRow({ t, cols, customFields = [], template, store, people, selected
           {subs.length > 0 && (
             <span title={`${subsDone}/${subs.length} subtasks done`} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: NX.faint, flexShrink: 0 }}>
               <ListTree size={12} />{subsDone}/{subs.length}
-              <span style={{ width: 34, height: 4, borderRadius: 2, background: NX.border2, overflow: 'hidden', display: 'inline-block' }}>
-                <span style={{ display: 'block', height: '100%', width: `${Math.round((subsDone / subs.length) * 100)}%`, background: '#00c875' }} />
-              </span>
+            </span>
+          )}
+          {/* Same badge language as subtasks above - icon + count, present only
+              when there's something to show. No longer buttons in ActionIcons:
+              those opened the drawer/file-picker regardless of whether the task
+              had anything to show, which is what a plain indicator here avoids. */}
+          {commentCount > 0 && (
+            <span title={`${commentCount} comment${commentCount === 1 ? '' : 's'}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, color: NX.faint, flexShrink: 0 }}>
+              <MessageSquare size={12} />{commentCount}
+            </span>
+          )}
+          {attachmentCount > 0 && (
+            <span title={`${attachmentCount} attachment${attachmentCount === 1 ? '' : 's'}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, color: NX.faint, flexShrink: 0 }}>
+              <Paperclip size={12} />{attachmentCount}
             </span>
           )}
         </div>
@@ -266,9 +326,19 @@ function TaskRow({ t, cols, customFields = [], template, store, people, selected
         {/* project */}
         {show('project') && (
         <div className="rl-cell" style={editCell} onClick={(e) => e.stopPropagation()}>
-          <select value={t.projectId || ''} onChange={(e) => store.updateTask(t.id, { projectId: e.target.value || null })} style={{ border: 'none', borderRadius: 6, padding: 0, fontSize: 13, color: t.projectId ? NX.dim : NX.faint, background: 'transparent', fontFamily: FONT, width: '100%', cursor: 'pointer' }}>
+          {/* Options are built only once this select is actually opened. Every
+              other cell here is already lazy (PillSelect renders its menu on
+              open), but this one eagerly emitted one <option> per project PER
+              ROW - rows x projects DOM nodes before a single click, which is
+              what pinned the main thread on a full task list. Closed, it renders
+              just the selected option so the label still shows. */}
+          <select value={t.projectId || ''} onMouseDown={() => setProjOpen(true)} onFocus={() => setProjOpen(true)}
+            onChange={(e) => store.updateTask(t.id, { projectId: e.target.value || null })}
+            style={{ border: 'none', borderRadius: 6, padding: 0, fontSize: 13, color: t.projectId ? NX.dim : NX.faint, background: 'transparent', fontFamily: FONT, width: '100%', cursor: 'pointer' }}>
             <option value="">No project</option>
-            {store.projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            {projOpen
+              ? store.projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)
+              : !!t.projectId && <option value={t.projectId}>{store.projectName(t.projectId)}</option>}
           </select>
         </div>
         )}
@@ -329,7 +399,7 @@ function TaskRow({ t, cols, customFields = [], template, store, people, selected
         {/* custom fields (already filtered to visible ones by the caller) */}
         {customFields.map((f) => (
           <div key={f.id} className="rl-cell" style={editCell} onClick={(e) => e.stopPropagation()}>
-            <FieldCell field={f} value={(t.customFieldValues || {})[f.id]}
+            <FieldCell field={f} value={(t.customFieldValues || {})[f.id]} people={people}
               onChange={(v) => store.updateTask(t.id, { customFieldValues: { ...(t.customFieldValues || {}), [f.id]: v } })} />
           </div>
         ))}
@@ -374,7 +444,8 @@ function AddFieldMenu({ createCustomField }) {
   const pickType = (t) => { setPicked(t); setName(t.label); setStep('config'); };
   const create = () => {
     if (!picked || !name.trim()) return;
-    const opts = picked.storage === 'select' ? options.map((o) => o.trim()).filter(Boolean) : [];
+    const needsOptions = picked.storage === 'select' || picked.storage === 'multiselect';
+    const opts = needsOptions ? options.map((o) => o.trim()).filter(Boolean) : [];
     createCustomField({ name: name.trim(), description: description.trim(), type: picked.storage, options: opts }).catch(() => {});
     reset(); close();
   };
@@ -422,7 +493,7 @@ function AddFieldMenu({ createCustomField }) {
                 <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2}
                   style={{ ...inputStyle, fontSize: 12.5, padding: '6px 8px', resize: 'none' }} />
               </div>
-              {picked?.storage === 'select' && (
+              {(picked?.storage === 'select' || picked?.storage === 'multiselect') && (
                 <div>
                   <label style={{ display: 'block', fontSize: 11.5, fontWeight: 600, color: NX.dim, marginBottom: 4 }}>
                     {picked.key === 'status' ? 'Status' : 'Dropdown list'} values
@@ -452,8 +523,103 @@ function AddFieldMenu({ createCustomField }) {
   );
 }
 
+// A multiselect cell: the chosen options as chips, with a popover to toggle
+// them. Deliberately not PillSelect - that one closes on pick, which is wrong
+// when the whole point is choosing several.
+// Serves both the multiselect and the people cell. Goes through PortalDropdown
+// like every other menu here - an absolutely-positioned panel gets clipped by
+// the grid, which scrolls on both axes. `email` on an option renders an avatar.
+function MultiPillSelect({ options, picked, onToggle, placeholder = '-' }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  const panelRef = useRef(null);
+  useClickOutside([ref, panelRef], () => setOpen(false), open);
+  const chosen = options.filter((o) => picked.includes(o.key));
+  return (
+    <div ref={ref} style={{ width: '100%' }}>
+      <button onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }} style={{
+        width: '100%', border: 'none', background: 'transparent', cursor: 'pointer', fontFamily: FONT,
+        display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap', padding: '2px 0', minHeight: 22,
+      }}>
+        {chosen.length === 0 && <span style={{ fontSize: 12.5, color: NX.faint }}>{placeholder}</span>}
+        {chosen.map((o) => (
+          <span key={o.key} style={{
+            display: 'inline-flex', alignItems: 'center', gap: 4,
+            fontSize: 11.5, fontWeight: 600, color: o.color, background: `${o.color}1a`,
+            border: `1px solid ${o.color}55`, borderRadius: 20,
+            padding: o.email ? '1px 8px 1px 2px' : '1px 8px', whiteSpace: 'nowrap',
+          }}>
+            {o.email && <Avatar email={o.email} name={o.label} size={16} card={false} />}
+            {o.label}
+          </span>
+        ))}
+      </button>
+      {open && (
+        <PortalDropdown anchorRef={ref} panelRef={panelRef} width={208}>
+          <div className="nx-scroll" style={{ maxHeight: 260, overflowY: 'auto', padding: 4 }}>
+            {options.length === 0 && <div style={{ padding: '8px 10px', fontSize: 12.5, color: NX.faint }}>No options</div>}
+            {options.map((o) => {
+              const on = picked.includes(o.key);
+              return (
+                <button key={o.key} onClick={(e) => { e.stopPropagation(); onToggle(o.key); }} style={{
+                  display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left',
+                  border: 'none', background: on ? NX.surface2 : 'transparent', cursor: 'pointer',
+                  padding: '6px 8px', borderRadius: 7, fontFamily: FONT, fontSize: 12.5, color: NX.ink,
+                }}>
+                  <span style={{
+                    width: 14, height: 14, borderRadius: 3, flexShrink: 0,
+                    border: `1.5px solid ${on ? o.color : NX.border}`, background: on ? o.color : 'transparent',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}>{on && <Check size={9} strokeWidth={3} color="#fff" />}</span>
+                  {o.email && <Avatar email={o.email} name={o.label} size={18} card={false} />}
+                  <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </PortalDropdown>
+      )}
+    </div>
+  );
+}
+
+// Options arrive as {id,label,color}; rows written before options carried colors
+// hold plain strings, so read both shapes rather than assuming either.
+const fieldOpts = (field) =>
+  (field.options || []).map((o, i) => (typeof o === 'string'
+    ? { key: o, label: o, color: FIELD_PALETTE[i % FIELD_PALETTE.length] }
+    : { key: o.id, label: o.label, color: o.color || FIELD_PALETTE[i % FIELD_PALETTE.length] }));
+
 // Value editor for one custom-field cell, keyed by type.
-function FieldCell({ field, value, onChange }) {
+function FieldCell({ field, value, onChange, people = [] }) {
+  if (field.readOnly) {
+    // Calculated in Asana, which rejects writes - display only.
+    return (
+      <span title="Calculated in Asana - not editable here"
+        style={{ fontSize: 12.5, color: NX.dim, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+        {value || '-'}
+        <Lock size={10} style={{ color: NX.faint }} />
+      </span>
+    );
+  }
+  if (field.type === 'people') {
+    const picked = Array.isArray(value) ? value : [];
+    // People already chosen but no longer in the directory (someone offboarded,
+    // or an Asana-only collaborator) still need to render, so union the two.
+    const opts = [...people, ...picked.filter((em) => !people.some((p) => p.email === em))
+      .map((em) => ({ email: em, name: emailToName(em) }))]
+      .map((p, i) => ({ key: p.email, label: p.name, email: p.email, color: FIELD_PALETTE[i % FIELD_PALETTE.length] }));
+    const toggle = (k) => onChange(picked.includes(k) ? picked.filter((x) => x !== k) : [...picked, k]);
+    return <MultiPillSelect options={opts} picked={picked} onToggle={toggle} />;
+  }
+  if (field.type === 'multiselect') {
+    const opts = fieldOpts(field);
+    const picked = Array.isArray(value) ? value : [];
+    const toggle = (k) => onChange(picked.includes(k) ? picked.filter((x) => x !== k) : [...picked, k]);
+    return (
+      <MultiPillSelect options={opts} picked={picked} onToggle={toggle} />
+    );
+  }
   if (field.type === 'checkbox') {
     return (
       <button onClick={() => onChange(!value)} title={value ? 'Checked' : 'Unchecked'} style={{
@@ -465,7 +631,7 @@ function FieldCell({ field, value, onChange }) {
     );
   }
   if (field.type === 'select') {
-    const opts = (field.options || []).map((label, i) => ({ key: label, label, color: FIELD_PALETTE[i % FIELD_PALETTE.length] }));
+    const opts = fieldOpts(field);
     const cur = opts.find((o) => o.key === value);
     return (
       <PillSelect label={cur ? cur.label : '-'} color={cur ? cur.color : NX.faint} tint={cur ? `${cur.color}1a` : 'transparent'}
@@ -639,46 +805,71 @@ export default function RichListView({ visible, group, ctx, store, people, selec
     return Object.keys(d).length ? d : null;
   };
 
+  const wrapRef = useRef(null);
+  const gridTemplate = (wd) => [
+    ...cols.map((c) => `${wd[c.key] ?? c.width}px`),
+    ...customFields.map((f) => `${wd[f.id] ?? 150}px`),
+    // Trailing gutter - the empty cell after the last column. Header, rows and
+    // group footer each render one, so the column has to stay.
+    '12px',
+  ].join(' ');
+  const template = gridTemplate(widths);
+
   const startResize = useCallback((key, startWidth) => (e) => {
     e.preventDefault();
     const startX = e.clientX;
-    const onMove = (ev) => setWidths((w) => ({ ...w, [key]: Math.max(60, startWidth + (ev.clientX - startX)) }));
-    const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+    let latest = startWidth, raf = 0;
+    // During the drag, write the new widths straight to the grid's CSS variable
+    // on the wrapper. The header and every rendered row read var(--nx-grid), so
+    // the browser reflows the grid with ZERO React re-renders - that is what
+    // makes resize smooth even with a hundred rows on screen. React state is
+    // committed once, on release.
+    const apply = () => {
+      raf = 0;
+      const el = wrapRef.current;
+      if (el) el.style.setProperty('--nx-grid', gridTemplate({ ...widths, [key]: latest }));
+    };
+    const onMove = (ev) => { latest = Math.max(60, startWidth + (ev.clientX - startX)); if (!raf) raf = requestAnimationFrame(apply); };
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      if (raf) cancelAnimationFrame(raf);
+      setWidths((w) => ({ ...w, [key]: latest }));
+    };
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
-  }, []);
-
-  const template = [
-    ...cols.map((c) => `${widths[c.key] ?? c.width}px`),
-    ...customFields.map((f) => `${widths[f.id] ?? 150}px`),
-    // Trailing gutter - just the gap after the last column now that Hide / + Column
-    // moved to the toolbar. Header, rows and group footer each still render one empty
-    // cell here, so the column has to stay.
-    '12px',
-  ].join(' ');
+  }, [widths, cols, customFields]);
 
   const groupCtx = { ...ctx, statusMeta: store.statusMeta, statusOrder: store.statusOrder, customFields: allCustomFields };
   const groups = useMemo(() => groupTasks(visible, effGroup, groupCtx).filter((g) => g.tasks.length > 0), [visible, effGroup, ctx, store.statusMeta, store.statusOrder]);
-  // Render cap: TaskRow is heavy (10+ cells, dropdowns, portals). Drawing every
-  // row of an unfiltered company-wide list (thousands of tasks) builds tens of
-  // thousands of DOM nodes synchronously and freezes the tab. Cap the number of
-  // ROWS drawn; group headers/counts/summaries below still reflect the FULL set,
-  // so nothing looks lost - the banner tells the user to search/filter to reach
-  // the rest. This keeps the list fast at any task count. (Full virtualization
-  // is the eventual answer, but a cap is the safe fix that can't break grouping,
-  // drag-and-drop, or column resizing.)
-  const MAX_RENDER_ROWS = 200;
-  const totalRows = useMemo(() => groups.reduce((n, g) => n + g.tasks.length, 0), [groups]);
-  const isCapped = totalRows > MAX_RENDER_ROWS;
-  const renderPlan = useMemo(() => {
-    if (!isCapped) return groups.map((g) => ({ ...g, renderTasks: g.tasks }));
-    let budget = MAX_RENDER_ROWS;
-    return groups.map((g) => {
-      const take = Math.max(0, Math.min(g.tasks.length, budget));
-      budget -= take;
-      return { ...g, renderTasks: g.tasks.slice(0, take) };
-    });
-  }, [groups, isCapped]);
+  // Incremental rendering. Every task used to mount a full row on first paint -
+  // ~80 DOM nodes each, so the real workspace (2,400 tasks) built ~190k nodes
+  // synchronously and the tab went "page isn't responding". Rows are handed out
+  // from a budget that grows as the sentinel below scrolls into view, so the
+  // first paint is bounded no matter how large the list is. Selection and the
+  // group tallies still count every task - only the DOM is deferred.
+  const totalRows = groups.reduce((n, g) => n + g.tasks.length, 0);
+  const [renderBudget, setRenderBudget] = useState(ROW_BATCH);
+  // A new filter or grouping is a different list - start over rather than
+  // carrying a budget grown against the previous one. Keyed on length rather
+  // than the array itself: `visible` is rebuilt upstream on every render, so
+  // depending on its identity would reset the budget continuously and make
+  // scrolling past the first batch impossible.
+  useEffect(() => { setRenderBudget(ROW_BATCH); }, [effGroup, visible.length]);
+  const groupBudgets = useMemo(() => {
+    let left = renderBudget;
+    return groups.map((g) => { const n = Math.max(0, Math.min(left, g.tasks.length)); left -= n; return n; });
+  }, [groups, renderBudget]);
+  const moreRef = useRef(null);
+  useEffect(() => {
+    const el = moreRef.current;
+    if (!el || renderBudget >= totalRows) return;
+    const io = new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting)) setRenderBudget((b) => b + ROW_BATCH);
+    }, { rootMargin: '600px' });   // grow before the user reaches the end
+    io.observe(el);
+    return () => io.disconnect();
+  }, [renderBudget, totalRows]);
   const visibleIds = groups.flatMap((g) => g.tasks.map((t) => t.id));
   const allSel = visibleIds.length > 0 && visibleIds.every((id) => selected.has(id));
   const someSel = !allSel && visibleIds.some((id) => selected.has(id));
@@ -720,14 +911,14 @@ export default function RichListView({ visible, group, ctx, store, people, selec
   // monday repeats the column header inside every group block - this renders one.
   const headCell = { position: 'relative', display: 'flex', alignItems: 'center', minWidth: 0, minHeight: 34, padding: '2px 8px', borderRight: `1px solid ${NX.border2}`, boxSizing: 'border-box' };
   const groupHeader = (
-    <div style={{ display: 'grid', gridTemplateColumns: template, alignItems: 'stretch', borderBottom: `1px solid ${NX.border2}`, background: NX.surface, fontSize: 13, fontWeight: 400, color: NX.dim }}>
+    <div style={{ display: 'grid', gridTemplateColumns: 'var(--nx-grid)', alignItems: 'stretch', borderBottom: `1px solid ${NX.border2}`, background: NX.surface, fontSize: 13, fontWeight: 400, color: NX.dim }}>
       <div style={{ ...headCell, justifyContent: 'center', padding: '2px 4px' }}>
         <button onClick={onSelectAll} title={allSel ? 'Deselect all' : 'Select all'} style={{ width: 16, height: 16, borderRadius: 3, border: `1.5px solid ${allSel || someSel ? NX.primary : NX.border}`, background: allSel || someSel ? NX.primary : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 0, flexShrink: 0 }}>
           {allSel ? <Check size={11} strokeWidth={3} color="#fff" /> : someSel ? <Minus size={11} strokeWidth={3} color="#fff" /> : null}
         </button>
       </div>
       {cols.slice(1).map((c) => (
-        <div key={c.key} style={{ ...headCell, justifyContent: c.key === 'task' || c.key === 'actions' ? 'flex-start' : 'center' }}>
+        <div key={c.key} style={{ ...headCell, justifyContent: c.key === 'task' ? 'flex-start' : 'center' }}>
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.label}</span>
           <ColResizer onMouseDown={startResize(c.key, widths[c.key] ?? c.width)} />
         </div>
@@ -748,13 +939,8 @@ export default function RichListView({ visible, group, ctx, store, people, selec
 
   return (
     <div className="nx-list-scroll" style={{ margin: 16, minHeight: 'calc(100% - 32px)' }}>
-      {isCapped && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 14px', marginBottom: 4, borderRadius: 10, background: NX.border2, color: NX.dim, fontSize: 12.5, fontFamily: FONT }}>
-          <span>Showing the first {MAX_RENDER_ROWS} of {totalRows} tasks for speed. Use search or filters to find specific tasks.</span>
-        </div>
-      )}
-      <div style={{ minWidth: 'fit-content' }}>
-        {renderPlan.map((g) => {
+      <div ref={wrapRef} style={{ minWidth: 'fit-content', '--nx-grid': template }}>
+        {groups.map((g, gi) => {
           const isCol = collapsed.has(g.key);
           // monday.com-style group block: colored title, left color bar, and a
           // summary footer (due-date range + status distribution bar).
@@ -790,18 +976,13 @@ export default function RichListView({ visible, group, ctx, store, people, selec
               {!isCol && (
                 <div style={{ border: `1px solid ${isDropTarget ? gc : NX.border}`, borderRadius: 12, overflow: 'hidden', background: NX.surface, boxShadow: isDropTarget ? `0 0 0 2px ${gc}55` : 'none', transition: 'box-shadow 0.12s' }}>
                   {groupHeader}
-                  {g.renderTasks.map((t) => (
+                  {g.tasks.slice(0, groupBudgets[gi] ?? g.tasks.length).map((t) => (
                     <TaskRow key={t.id} t={t} cols={cols} customFields={customFields} template={template} store={store} people={people} selected={selected.has(t.id)} toggleSel={toggleSel} onOpen={onOpen}
                       hidden={hiddenEff} groupColor={gc} onDragStartRow={setDragId} onDragEndRow={() => { setDragId(null); setDropKey(null); }} />
                   ))}
-                  {g.renderTasks.length < g.tasks.length && (
-                    <div style={{ padding: '8px 14px', fontSize: 12, color: NX.faint, fontFamily: FONT }}>
-                      + {g.tasks.length - g.renderTasks.length} more in this group - search or filter to narrow down
-                    </div>
-                  )}
                   <AddTaskInline store={store} lockedProjectId={lockedProjectId} defaults={groupAddDefaults(effGroup, g.key)} />
                   {/* summary footer - mirrors monday's group tallies */}
-                  <div style={{ display: 'grid', gridTemplateColumns: template, alignItems: 'center', padding: '5px 0', fontSize: 12 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'var(--nx-grid)', alignItems: 'center', padding: '5px 0', fontSize: 12 }}>
                     {cols.map((c) => c.key === 'due' ? (
                       <div key={c.key} style={{ padding: '2px 8px', display: 'flex', justifyContent: 'center' }}>
                         {dueRange && (
@@ -819,6 +1000,18 @@ export default function RichListView({ visible, group, ctx, store, people, selec
             </div>
           );
         })}
+        {/* Grows the render budget as it comes into view - see ROW_BATCH. Kept
+            in the flow (not fixed) so it only fires while the user is actually
+            near the end of the list. */}
+        {renderBudget < totalRows && (
+          <div ref={moreRef} style={{ padding: '18px 2px', textAlign: 'center', fontSize: 12.5, color: NX.faint }}>
+            Showing {renderBudget} of {totalRows}
+            <button onClick={() => setRenderBudget(totalRows)}
+              style={{ ...btn('ghost'), fontSize: 12.5, padding: '4px 10px', marginLeft: 8 }}>
+              Show all
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

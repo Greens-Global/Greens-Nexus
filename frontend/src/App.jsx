@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef, lazy, Suspense } from "react";
-import { AuthenticatedTemplate, UnauthenticatedTemplate } from "@azure/msal-react";
+import { AuthenticatedTemplate, UnauthenticatedTemplate, useMsal } from "@azure/msal-react";
+import { InteractionStatus } from "@azure/msal-browser";
+import { loginRequest } from "./authConfig";
 import { NotificationProvider } from "./contexts/NotificationContext";
 import { RoleProvider, useRole, MODULES } from "./contexts/RoleContext";
 import { RequisitionProvider } from "./contexts/RequisitionContext";
@@ -28,6 +30,13 @@ import Dashboard from "./views/Dashboard";
 // Lazy-loaded - only fetched when the user navigates there
 const InventoryManagement = lazy(() => import("./views/InventoryManagement"));
 const Tasks               = lazy(() => import("./views/Tasks"));
+const Tickets             = lazy(() => import("./views/Tickets"));
+// Tasks and Tickets share one data engine (tickets are still fetched/held in
+// TasksContext - see tickets/TicketsView.jsx). Mounting the provider here,
+// one call site shared by both cases below, means switching between the two
+// in the sidebar swaps children under the SAME provider instance instead of
+// unmounting/remounting it - no refetch of everything on every switch.
+const TasksProvider = lazy(() => import("./tasks/TasksContext").then(m => ({ default: m.TasksProvider })));
 const Purchase            = lazy(() => import("./views/Purchase"));
 const SOP                 = lazy(() => import("./views/SOP"));
 const IT                  = lazy(() => import("./views/IT"));
@@ -103,6 +112,54 @@ const _SKIP_MSAL_GATE = import.meta.env.VITE_E2E === 'true'
 const AuthedGate  = _SKIP_MSAL_GATE ? ({ children }) => children : AuthenticatedTemplate;
 const UnauthedGate = _SKIP_MSAL_GATE ? () => null : UnauthenticatedTemplate;
 
+// The blank-screen killer for auth. AuthenticatedTemplate AND
+// UnauthenticatedTemplate both render nothing while MSAL is mid-interaction
+// (inProgress !== None) - startup handleRedirectPromise, a login redirect, or the
+// silent-renewal-failed -> acquireTokenRedirect recovery. That window is exactly
+// when a user hits a white screen. This sibling fills it with a branded loader,
+// and after a few seconds surfaces plain-language recovery buttons so a
+// non-technical user is never stranded and never needs to know Ctrl+Shift+R.
+function AuthLoader({ stuck }) {
+  const { instance } = useMsal();
+  const retry = () => {
+    try { sessionStorage.removeItem('nexus:reauth-at'); } catch { /* ignore */ }
+    instance.loginRedirect(loginRequest).catch(() => {});
+  };
+  return (
+    <div style={{ minHeight: '100dvh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 18, background: 'var(--paper, #f6f7f9)', fontFamily: 'Inter, sans-serif', padding: '0 24px', textAlign: 'center' }}>
+      <div style={{ width: 34, height: 34, borderRadius: '50%', border: '3px solid var(--line, #e6e8eb)', borderTopColor: 'var(--ink, #111827)', animation: 'spin 0.7s linear infinite' }} />
+      <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--ink, #111827)' }}>Signing you in…</div>
+      {stuck && (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 13, marginTop: 2 }}>
+          <div style={{ fontSize: 13.5, color: 'var(--muted, #6b7280)', maxWidth: 330, lineHeight: 1.5 }}>
+            This is taking longer than usual. You can retry the sign-in or reload the page.
+          </div>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button onClick={retry} style={{ padding: '9px 20px', borderRadius: 9, border: 'none', background: 'var(--ink, #111827)', color: 'var(--paper, #fff)', fontSize: 13.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
+              Sign in again
+            </button>
+            <button onClick={() => window.location.reload()} style={{ padding: '9px 20px', borderRadius: 9, border: '1px solid var(--line, #e6e8eb)', background: 'transparent', color: 'var(--ink, #111827)', fontSize: 13.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
+              Reload
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AuthBusyFallback() {
+  const { inProgress } = useMsal();
+  const busy = inProgress !== InteractionStatus.None;
+  const [stuck, setStuck] = useState(false);
+  useEffect(() => {
+    if (!busy) { setStuck(false); return; }
+    const t = setTimeout(() => setStuck(true), 8000);
+    return () => clearTimeout(t);
+  }, [busy]);
+  return busy ? <AuthLoader stuck={stuck} /> : null;
+}
+
 // Waits for role to load so the UI never flashes with wrong access level
 function RoleGate({ children }) {
   const { loading } = useRole();
@@ -150,7 +207,8 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
   switch (activeView) {
     case "dashboard":          return <Dashboard onNavigate={onNavigate} />;
     case "manager-dashboard":  return <ManagerDashboard />;
-    case "tasks":              return <Tasks activeSub={activeSub} onSubChange={onSubChange} onNavigate={onNavigate} />;
+    case "tasks":              return <TasksProvider><Tasks activeSub={activeSub} onSubChange={onSubChange} onNavigate={onNavigate} /></TasksProvider>;
+    case "tickets":            return <TasksProvider><Tickets /></TasksProvider>;
     case "purchase":           return <Purchase activeSub={activeSub} />;
     case "sop":                return <SOP activeSub={activeSub} onSubChange={onSubChange} />;
     case "it":                 return <IT activeSub={activeSub} onSubChange={onSubChange} />;
@@ -189,6 +247,11 @@ const VIEW_TO_PATH = { inventory: 'itemmanagement' };
 function parsePath() {
   const segs = window.location.pathname.split('/').filter(Boolean);
   const raw = segs[0] || 'dashboard';
+  // Tickets used to be a Tasks sub-view (/tasks/tickets); it's now its own
+  // top-level module. Old email links and bookmarks still resolve - the
+  // ?ticket= query param that TicketsView reads on mount survives untouched
+  // since only the path is remapped here.
+  if (raw === 'tasks' && segs[1] === 'tickets') return { view: 'tickets', sub: null };
   return { view: PATH_TO_VIEW[raw] || raw, sub: segs[1] || null };
 }
 
@@ -460,7 +523,7 @@ function MainApp() {
                 whole canvas. It used to cancel .viewport's padding with negative
                 margins, which only matched ONE of the five breakpoint paddings
                 and so sat off-center at most widths. */}
-            <div className={(activeView === 'tasks' || activeView === 'pdf-editor') ? 'viewport viewport-flush'
+            <div className={(activeView === 'tasks' || activeView === 'tickets' || activeView === 'pdf-editor') ? 'viewport viewport-flush'
               : (activeView === 'dashboard' || activeView === 'manager-dashboard') ? 'viewport viewport-desk'
               : 'viewport'}>
               <ViewErrorBoundary resetKey={`${activeView}/${activeSub}/${viewEpoch}`}>
@@ -497,6 +560,10 @@ function MainApp() {
       <UnauthedGate>
         <LoginPage />
       </UnauthedGate>
+      {/* Fills the gap both MSAL templates leave blank while an interaction is in
+          progress - the exact window a user would otherwise see a white screen.
+          Skipped under the dev/E2E bypass, which has no real MSAL interaction. */}
+      {!_SKIP_MSAL_GATE && <AuthBusyFallback />}
       {/* Outside both gates on purpose: a tab running superseded code should be
           told so whether or not it is signed in. */}
       <UpdateBanner />

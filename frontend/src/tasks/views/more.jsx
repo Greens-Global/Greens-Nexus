@@ -25,8 +25,13 @@ const initialsOf = (label = '') => {
 
 // ── Timeline (gantt) ─────────────────────────────────────────────────────────
 const DAY_W = 26, ROW_H = 44, LABEL_W = 230;
+const MAX_TIMELINE_ROWS = 300;
 export function TimelineView({ tasks, onOpen, nameOf }) {
-  const rows = useMemo(() => tasks.filter((t) => t.startOn || t.dueOn), [tasks]);
+  const allDated = useMemo(() => tasks.filter((t) => t.startOn || t.dueOn), [tasks]);
+  // Render cap: each timeline row draws a label, grid line, bar and dependency
+  // arrows; thousands of rows freeze the tab. Cap the rows (the Gantt geometry,
+  // rowOf and gridH all derive from this, so capping here keeps them consistent).
+  const rows = allDated.length > MAX_TIMELINE_ROWS ? allDated.slice(0, MAX_TIMELINE_ROWS) : allDated;
   const { start, totalDays } = useMemo(() => {
     const dates = rows.flatMap((t) => [t.startOn, t.dueOn].filter(Boolean));
     const min = dates.length ? dates.reduce((a, b) => (a < b ? a : b)) : toISO(new Date());
@@ -52,6 +57,12 @@ export function TimelineView({ tasks, onOpen, nameOf }) {
   const gridW = totalDays * DAY_W, gridH = Math.max(rows.length * ROW_H, 120);
 
   return (
+    <>
+    {allDated.length > MAX_TIMELINE_ROWS && (
+      <div style={{ margin: '16px 16px 0', padding: '8px 12px', borderRadius: 8, background: NX.border2, color: NX.dim, fontSize: 12, fontFamily: FONT }}>
+        Showing {MAX_TIMELINE_ROWS} of {allDated.length} scheduled tasks - filter to narrow the timeline.
+      </div>
+    )}
     <div className="nx-scroll" style={{ margin: 16, overflow: 'auto', border: `1px solid ${NX.border}`, borderRadius: 14, background: NX.surface, fontFamily: FONT }}>
       <div style={{ width: LABEL_W + gridW }}>
         <div style={{ position: 'sticky', top: 0, zIndex: 10, display: 'flex', borderBottom: `1px solid ${NX.border}`, background: NX.surface }}>
@@ -112,6 +123,7 @@ export function TimelineView({ tasks, onOpen, nameOf }) {
         </div>
       </div>
     </div>
+    </>
   );
 }
 
@@ -121,7 +133,7 @@ function iconFor(kind) {
   if (kind === 'doc') return <FileText size={18} style={{ color: NX.blue }} />;
   return <File size={18} style={{ color: NX.dim }} />;
 }
-export function FilesView({ tasks, onOpen }) {
+export function FilesView({ tasks, onOpen, nameOf }) {
   const [rows, setRows] = useState(null);
   const [query, setQuery] = useState('');
   useEffect(() => {
@@ -153,7 +165,7 @@ export function FilesView({ tasks, onOpen }) {
         : files.length === 0 ? <EmptyState icon={Paperclip} title="No Attachments Yet" hint="Files attached to any task show up here." />
           : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12 }}>
-              {files.map(({ a, t }) => (
+              {files.slice(0, 200).map(({ a, t }) => (
                 <div key={a.id} style={{ display: 'flex', flexDirection: 'column', gap: 8, border: `1px solid ${NX.border}`, borderRadius: 12, background: NX.surface, padding: 14 }}>
                   <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
                     {iconFor(a.kind)}
@@ -161,12 +173,13 @@ export function FilesView({ tasks, onOpen }) {
                   </div>
                   <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13, fontWeight: 600, color: NX.ink }} title={a.name}>{a.name}</div>
                   <div style={{ fontSize: 11, color: NX.faint }}>{a.size}{a.addedAt ? ` · ${fmtDate(a.addedAt)}` : ''}</div>
-                  <button onClick={() => onOpen(t.id)} style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2, border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 12, color: NX.dim, padding: 0 }}>
-                    <span style={{ background: NX.surface2, borderRadius: 4, padding: '1px 6px', fontSize: 10, fontWeight: 700 }}>{t.code}</span>
-                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title}</span>
+                  <button onClick={() => onOpen(t.id)} title={t.title} style={{ display: 'block', width: '100%', textAlign: 'left', marginTop: 2, border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 12, color: NX.blue, padding: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {t.title}
                   </button>
+                  {a.addedBy && <div style={{ fontSize: 11, color: NX.faint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nameOf?.(a.addedBy) || a.addedBy}</div>}
                 </div>
               ))}
+              {files.length > 200 && <div style={{ gridColumn: '1 / -1', padding: '6px 2px', fontSize: 12, color: NX.faint }}>Showing 200 of {files.length} files - search to narrow down.</div>}
             </div>
           )}
     </div>

@@ -632,7 +632,7 @@ export default function NotificationBell({ onNavigate }) {
               <div style={{ padding: '16px 24px 8px', fontSize: 11.5, fontWeight: 700, letterSpacing: '.07em', color: 'var(--muted)', textTransform: 'uppercase' }}>
                 Needs Action - {actionable.length}
               </div>
-              {actionable.map(n => {
+              {actionable.slice(0, 300).map(n => {
                 const meta = TYPE_META[n.type];
                 const isRejecting = rejectingId === n.id;
                 const isApproving = approvingId === n.id;
@@ -792,7 +792,7 @@ export default function NotificationBell({ onNavigate }) {
               <div style={{ padding: '16px 24px 8px', fontSize: 11.5, fontWeight: 700, letterSpacing: '.07em', color: 'var(--muted)', textTransform: 'uppercase' }}>
                 Updates - {updates.length}
               </div>
-              {groupByRequest(updates).map(({ key, primary: n, trail }) => {
+              {groupByRequest(updates).slice(0, 300).map(({ key, primary: n, trail }) => {
                 const meta = TYPE_META[n.type] ?? TYPE_META['approved'];
                 // Manager alerts must not read like routine lifecycle updates -
                 // orange card + ALERT chip, subject bold, body in full ink

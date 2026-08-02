@@ -7,6 +7,8 @@ import { queryClient } from './lib/queryClient'
 import { setCacheBridge } from './api'
 import './style.css'
 import App from './App.jsx'
+import RootErrorBoundary from './components/RootErrorBoundary'
+import { DialogHost } from './ui/dialog'
 import { installErrorReporter } from './lib/errorReporter'
 
 installErrorReporter();   // uncaught errors -> /client-errors -> audit trail
@@ -15,6 +17,17 @@ installErrorReporter();   // uncaught errors -> /client-errors -> audit trail
 setCacheBridge(queryClient);
 
 sessionStorage.removeItem('nx-entry-retry');  // app booted - re-arm the boot guard (public/guard.js)
+// The app booted successfully, so any ?nxcb= cache-buster in the URL (from a
+// ViewErrorBoundary recovery reload) has done its job - strip it so the user
+// never sees an internal-looking query param in their address bar. Cosmetic and
+// post-boot only; nxcb is write-only (never read by app logic).
+try {
+  const _u = new URL(window.location.href);
+  if (_u.searchParams.has('nxcb')) {
+    _u.searchParams.delete('nxcb');
+    window.history.replaceState(null, '', _u.pathname + _u.search + _u.hash);
+  }
+} catch { /* non-critical */ }
 // Preconnect to the API origin now, in parallel with MSAL init - the DNS+TLS
 // handshake to Azure is done before the first authed call needs it. The origin
 // is only known via env, so this can't live statically in index.html.
@@ -31,11 +44,14 @@ try {
 window.__NEXUS_BUILD = '2026-07-28';
 createRoot(document.getElementById('root')).render(
   <StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <MsalProvider instance={msalInstance}>
-        <App />
-      </MsalProvider>
-    </QueryClientProvider>
+    <RootErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <MsalProvider instance={msalInstance}>
+          <App />
+          <DialogHost />
+        </MsalProvider>
+      </QueryClientProvider>
+    </RootErrorBoundary>
   </StrictMode>,
 )
 
