@@ -133,6 +133,12 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false })
     catch (e) { toastErr?.(e?.message || 'Could not approve.'); }
     setBusy(false);
   }
+  async function signTimecard() {
+    setBusy(true);
+    try { await api.timeSignMyTimecard(start); toastOk?.('Timecard signed - thank you.'); load(); }
+    catch (e) { toastErr?.(e?.message || 'Could not sign.'); }
+    setBusy(false);
+  }
 
   const shift = (n) => setPStart(new Date(pStart.getTime() + n * 14 * DAY));
   const label = `${pStart.toLocaleDateString([], { month: 'numeric', day: 'numeric', year: 'numeric' })} – ${new Date(pStart.getTime() + 13 * DAY).toLocaleDateString([], { month: 'numeric', day: 'numeric', year: 'numeric' })}`;
@@ -479,11 +485,30 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false })
           <p style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 14 }}>
             By execution and signature of this time sheet, I agree I have reviewed this time card, and agree the hours stated are accurate and correct.
           </p>
-          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap' }}>
-            <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4 }}>
-              <span style={{ fontSize: 14, fontWeight: 700 }}>X</span>
-              <span style={{ borderBottom: '1.5px solid var(--ink)', minWidth: 260, display: 'inline-block' }} />
-            </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            {self ? (
+              <>
+                <button className="primary-btn" onClick={signTimecard} disabled={busy || !!fin}
+                  title={fin ? 'Period is finalized' : 'Records your name and the time as your electronic signature'}
+                  style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <CheckCircle size={14} /> {data.signed ? 'Re-sign' : 'Sign & submit'}
+                </button>
+                {data.signed && (
+                  <span style={{ fontSize: 12, color: 'hsl(var(--color-green))', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                    <CheckCircle size={13} /> Signed {new Date(data.signed.at).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
+                  </span>
+                )}
+              </>
+            ) : data.signed ? (
+              <span style={{ fontSize: 13, fontWeight: 700, color: 'hsl(var(--color-green))', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <CheckCircle size={15} /> Signed by {data.signed.name || nameFor(data.signed.by) || 'employee'}
+              </span>
+            ) : (
+              <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4 }}>
+                <span style={{ fontSize: 14, fontWeight: 700 }}>X</span>
+                <span style={{ borderBottom: '1.5px solid var(--ink)', minWidth: 260, display: 'inline-block' }} />
+              </div>
+            )}
             <span style={{ fontSize: 11, color: 'var(--muted)' }}>Employee signature · {label}</span>
           </div>
         </div>

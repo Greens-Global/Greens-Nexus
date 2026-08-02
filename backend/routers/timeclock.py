@@ -612,14 +612,46 @@ def _signoff_state(db: Session, email: str, start: str, end: str) -> dict:
     rows = (db.query(TimeApproval)
             .filter(TimeApproval.employee_email == email, TimeApproval.revoked == 0,
                     TimeApproval.period_start == start, TimeApproval.period_end == end).all())
-    approval = finalized = None
+    approval = finalized = signed = None
     for r in rows:
-        d = {"by": r.approved_by, "at": r.approved_at, "workedMin": r.worked_min}
-        if (r.kind or "manager") == "final":
+        d = {"by": r.approved_by, "at": r.approved_at, "workedMin": r.worked_min, "name": r.note or ""}
+        k = r.kind or "manager"
+        if k == "final":
             finalized = d
+        elif k == "employee_sign":
+            signed = d
         else:
             approval = d
-    return {"approval": approval, "finalized": finalized}
+    return {"approval": approval, "finalized": finalized, "signed": signed}
+
+
+class SignTimecardIn(BaseModel):
+    start: str = ""     # pay-period start (Sunday); omit for the current period
+
+
+@router.post("/my-timecard/sign")
+def sign_my_timecard(body: SignTimecardIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Employee attests their OWN timecard for the period - records their name and a
+    timestamp (electronic sign-off). Reuses TimeApproval with kind='employee_sign'.
+    Re-signing replaces the prior signature (e.g. after a correction). A later punch
+    change makes the signature go stale (see _team_rows / the timecard header)."""
+    email = user["email"]
+    anchor = (body.start or "").strip() or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    p_start, p_end = _pay_period(anchor)
+    worked = _compute_timecard(db, email, p_start, p_end).get("totals", {}).get("workedMin", 0)
+    for r in (db.query(TimeApproval)
+              .filter(TimeApproval.employee_email == email, TimeApproval.period_start == p_start,
+                      TimeApproval.period_end == p_end, TimeApproval.kind == "employee_sign",
+                      TimeApproval.revoked == 0).all()):
+        r.revoked = 1
+    emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == email).first()
+    name = f"{emp.first_name} {emp.last_name}".strip() if emp else email.split("@")[0].replace(".", " ").title()
+    row = TimeApproval(id=str(uuid.uuid4()), employee_email=email, period_start=p_start, period_end=p_end,
+                       worked_min=worked, approved_by=email, approved_at=_now_iso(),
+                       kind="employee_sign", note=name)
+    db.add(row)
+    db.commit()
+    return {"signed": {"by": email, "name": name, "at": row.approved_at, "workedMin": worked}}
 
 
 class FinalizeIn(BaseModel):
@@ -711,6 +743,15 @@ def adjust_punch(punch_id: str, body: PunchAdjust,
     row.adjusted_at = _now_iso()
     if body.adjust_note:
         row.adjust_note = body.adjust_note.strip()[:300]
+    # Tell the employee their timecard was changed on their behalf - transparency,
+    # and symmetric with the employee-edit -> approver flow. Skip a manager editing
+    # their own punch (no self-notification).
+    if row.employee_email != user["email"]:
+        _hr_notify(db, row.employee_email, "Timecard corrected",
+                   f"Your {row.kind.replace('_', ' ')} punch on {row.local_date} was corrected by a manager"
+                   + (f": {body.adjust_note.strip()[:200]}" if body.adjust_note else ".")
+                   + " - open your timecard to review.",
+                   ref_id=row.id, action={"view": "timeclock", "sub": "timecard"})
     db.commit()
     return _serialize(row)
 

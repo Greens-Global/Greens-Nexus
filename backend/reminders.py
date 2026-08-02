@@ -134,8 +134,32 @@ def run_daily_scan() -> int:
         )
         act = {"view": "hr", "sub": "hr-people"}
 
+        # Timecard sign reminder: one day before the bi-weekly pay period ends,
+        # nudge each employee to review + sign their timecard so payroll can close
+        # on time. Skips anyone who already signed the period.
+        from routers.timeclock import _pay_period
+        from models import TimeApproval
+        _today = datetime.now(timezone.utc).date()
+        _pstart, _pend = _pay_period(_today.isoformat())
+        _sign_due = _today == (datetime.strptime(_pend, "%Y-%m-%d").date() - timedelta(days=1))
+        _signed = set()
+        if _sign_due:
+            _signed = {a.employee_email for a in db.query(TimeApproval).filter(
+                TimeApproval.kind == "employee_sign", TimeApproval.period_start == _pstart,
+                TimeApproval.period_end == _pend, TimeApproval.revoked == 0).all()}
+
         for e in employees:
             name = f"{e.first_name} {e.last_name}".strip()
+
+            # 0. Timecard sign reminder (one day before the current period ends)
+            if _sign_due and e.work_email and e.work_email.lower() not in _signed:
+                sent += _notify(
+                    db, "timecard_sign", e.work_email,
+                    "Sign your timecard",
+                    f"Your timecard for {_pstart} to {_pend} is due tomorrow. "
+                    f"Please review your hours and sign it.",
+                    ref_id=_pstart, action={"view": "timeclock", "sub": "timecard"},
+                )
 
             # 1. Right-to-work / visa doc expiry (compliance.expiryDate)
             exp = (e.compliance or {}).get("expiryDate", "")
