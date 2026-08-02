@@ -654,6 +654,11 @@ function PunchEditModal({ day, email, categories = [], busy, setBusy, onDone, on
   const [cat, setCat] = useState(seg?.category || '');
   const [reason, setReason] = useState('');   // self mode: justification for the approver
   const tz = new Date().getTimezoneOffset();
+  useEffect(() => {   // Escape closes the modal (keyboard parity with the backdrop click)
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
   // What's missing on this day and therefore addable (self can only ADD, not overwrite).
   const needIn = !seg?.inId, needOut = !seg?.outId;
 
@@ -707,7 +712,8 @@ function PunchEditModal({ day, email, categories = [], busy, setBusy, onDone, on
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, fontFamily: 'var(--wk-font)' }}
       onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, width: '100%', maxWidth: 400, padding: 20, boxShadow: '0 24px 70px rgba(17,24,39,0.30)' }}>
+      <div role="dialog" aria-modal="true" aria-label={self ? 'Request a missing punch' : seg ? 'Edit punch' : 'Add punch'}
+        style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, width: '100%', maxWidth: 400, padding: 20, boxShadow: '0 24px 70px rgba(17,24,39,0.30)' }}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
           <span style={{ fontSize: 15, fontWeight: 700, flex: 1 }}>{self ? 'Request a missing punch' : seg ? 'Edit punch' : 'Add punch'}</span>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
