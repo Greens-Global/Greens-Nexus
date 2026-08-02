@@ -10,6 +10,7 @@ import { dialog } from '../ui/dialog';
 import { SkeletonBlocks } from '../components/AsyncState';
 import DayTimeline from '../components/DayTimeline';
 import ModuleTabs from '../components/ModuleTabs';
+import PayrollTimecard from '../components/PayrollTimecard';
 import BodModal from '../components/BodModal';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 
@@ -506,6 +507,7 @@ export default function TimeClock() {
         tabs={[
           { key: 'clock',     label: 'Clock' },
           { key: 'timesheet', label: 'Time Sheet' },
+          { key: 'timecard',  label: 'Timecard' },
           { key: 'timeoff',   label: 'Time Off' },
         ]}
         active={tab} onChange={setTab} />
@@ -516,6 +518,13 @@ export default function TimeClock() {
           color: msg.ok ? 'hsl(var(--color-green))' : '#b91c1c', fontSize: 13, fontWeight: 600 }}>
           {msg.ok ? <CheckCircle size={15} /> : <AlertTriangle size={15} />} {msg.text}
         </div>
+      )}
+
+      {/* The exact same payroll timecard HR sees, scoped to the signed-in employee.
+          Inline In/Out edits here create a pending request (no pay effect until an
+          approver accepts). */}
+      {tab === 'timecard' && (
+        <PayrollTimecard selfMode toastOk={t => toast(true, t)} toastErr={t => toast(false, t)} />
       )}
 
       {/* Punch card + today panel, side by side on wide screens */}

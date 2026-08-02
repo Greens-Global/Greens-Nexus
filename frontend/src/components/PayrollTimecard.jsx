@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { ChevronLeft, ChevronRight, Pencil, Plus, X, Loader2, CheckCircle, Download, AlertTriangle, MapPin, PlayCircle } from 'lucide-react';
 import { api } from '../api';
+import { dialog } from '../ui/dialog';
 import { useWorkSites } from '../lib/queries';
 import { ensureStepUp, isStepUpRequired, StepUpNeeded } from '../stepup/StepUp';
 import { useRole } from '../contexts/RoleContext';
@@ -48,7 +49,8 @@ function LocCell({ seg }) {
   );
 }
 
-export default function PayrollTimecard({ toastOk, toastErr }) {
+export default function PayrollTimecard({ toastOk, toastErr, selfMode = false }) {
+  const self = selfMode;   // employee viewing their OWN timecard (from /my-payroll)
   const [people, setPeople] = useState([]);
   const [email, setEmail] = useState('');
   const [pStart, setPStart] = useState(() => periodStartFor(new Date()));
@@ -70,6 +72,7 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
 
   // employee list (scoped) for the picker
   useEffect(() => {
+    if (self) return;   // employee self-view has no picker / team list
     api.timeTeam(start, end).then(r => {
       const list = (r.rows || []).map(x => ({ email: x.email, name: x.name || x.email }));
       setPeople(list);
@@ -79,10 +82,19 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
   }, []);
   // Per-employee missing/exception counts for the sidebar (re-loads per period).
   useEffect(() => {
+    if (self) return;
     api.timeTeamExceptions(start, end).then(r => setExceptions(r || [])).catch(() => setExceptions([]));
-  }, [start, end]);
+  }, [self, start, end]);
 
   const load = useCallback(() => {
+    if (self) {
+      // Employee's own timecard - same shape as the HR card, no step-up needed for
+      // one's own pay (like a payslip). /my-payroll keys off the period start.
+      setData(null);
+      api.timeMyPayroll(start).then(d => { setStepLocked(false); setData(d); setRateInput(d.rateSet ? String(d.rate) : ''); setRuleInput(d.overtimeRule || 'ca'); })
+        .catch(e => { setData(null); toastErr?.(e?.message || 'Could not load your timecard.'); });
+      return;
+    }
     if (!email) return;
     setData(null);
     api.timePayroll(email, start, end).then(d => { setStepLocked(false); setData(d); setRateInput(d.rateSet ? String(d.rate) : ''); setRuleInput(d.overtimeRule || 'ca'); })
@@ -92,7 +104,7 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
         if (isStepUpRequired(e)) { setStepLocked(true); return; }
         setData(null); toastErr?.(e?.message || 'Could not load the timecard.');
       });
-  }, [email, start, end, toastErr]);
+  }, [self, email, start, end, toastErr]);
   useEffect(load, [load]);
 
   const byDate = useMemo(() => Object.fromEntries((data?.days || []).map(d => [d.date, d])), [data]);
@@ -170,6 +182,7 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
   return (
     <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start', fontFamily: 'var(--wk-font)' }}>
       {/* Employee sidebar - who has missing punches / exceptions this period */}
+      {!self && (
       <div data-tour="pr-sidebar" style={{ width: 210, flexShrink: 0, border: '1px solid var(--wk-line2)', borderRadius: 14, overflow: 'hidden', maxHeight: 620, overflowY: 'auto', background: 'var(--card)', boxShadow: 'var(--wk-shadow)' }} className="pr-sidebar">
         <div style={{ padding: '9px 12px', background: 'var(--wk-hover)', fontSize: 12, fontWeight: 500, color: 'var(--wk-dim)', display: 'flex' }}>
           <span style={{ flex: 1 }}>Employee</span><span title="Missing punches">M</span><span style={{ width: 22, textAlign: 'right' }} title="Exceptions">E</span>
@@ -186,22 +199,27 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
           );
         })}
       </div>
+      )}
 
       <div style={{ flex: 1, minWidth: 0 }}>
       {/* Toolbar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
-        <select className="form-input" value={email} onChange={e => setEmail(e.target.value)} style={{ fontSize: 13, minWidth: 180, fontWeight: 700 }} title="Also selectable from the sidebar">
-          {people.map(p => <option key={p.email} value={p.email}>{p.name}{exByEmail[p.email]?.missing ? ` (${exByEmail[p.email].missing} missing)` : ''}</option>)}
-        </select>
+        {self
+          ? <span style={{ fontSize: 15, fontWeight: 800, minWidth: 180 }}>My Timecard</span>
+          : <select className="form-input" value={email} onChange={e => setEmail(e.target.value)} style={{ fontSize: 13, minWidth: 180, fontWeight: 700 }} title="Also selectable from the sidebar">
+              {people.map(p => <option key={p.email} value={p.email}>{p.name}{exByEmail[p.email]?.missing ? ` (${exByEmail[p.email].missing} missing)` : ''}</option>)}
+            </select>}
         <div data-tour="pr-period" style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
           <button className="icon-btn" onClick={() => shift(-1)} style={{ padding: 6 }}><ChevronLeft size={16} /></button>
           <span style={{ fontSize: 12.5, fontWeight: 700, minWidth: 175, textAlign: 'center' }}>{label}</span>
           <button className="icon-btn" onClick={() => shift(1)} style={{ padding: 6 }}><ChevronRight size={16} /></button>
         </div>
+        {!self && (
         <button onClick={() => setTour(true)} title="A guided walkthrough of this screen - nothing is changed while it runs."
           style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: '1px solid var(--wk-line2)', borderRadius: 999, padding: '5px 12px', fontFamily: 'var(--wk-font)', fontWeight: 700, fontSize: 12, cursor: 'pointer', color: 'var(--ink)' }}>
           <PlayCircle size={14} /> Simulate
         </button>
+        )}
         <div style={{ flex: 1 }} />
         <label data-tour="pr-rounding" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, color: 'var(--muted)', fontWeight: 700, cursor: 'pointer' }}
           title="SwipeClock shows rounded times (nearest 5 min) and computes pay from them. Tick to see the raw punch times instead - totals stay computed from rounded.">
@@ -230,6 +248,7 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
             Auto-lunch
           </label>
         )}
+        {!self && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <span style={{ fontSize: 11.5, color: 'var(--muted)', fontWeight: 700 }}>OT rule</span>
           <select className="form-input" value={ruleInput} onChange={e => setRuleInput(e.target.value)}
@@ -244,6 +263,7 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
             onChange={e => setRateInput(e.target.value)} style={{ width: 90, fontSize: 13 }} />
           <button className="secondary-btn" onClick={saveRate} disabled={busy} style={{ fontSize: 12 }}>Save</button>
         </div>
+        )}
       </div>
 
       {!stepLocked && data && (
@@ -310,11 +330,11 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
                   <td style={{ ...td, textAlign: 'left', fontWeight: r.first === undefined ? 400 : 700, color: r.seg ? 'var(--ink)' : 'var(--muted)' }}>
                     {r.first === false ? '' : dow(r.ds)}
                   </td>
-                  <td style={{ ...td, textAlign: 'left' }}>{r.seg ? <InlineTime seg={r.seg} k="in" showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} /> : '-'}</td>
+                  <td style={{ ...td, textAlign: 'left' }}>{r.seg ? <InlineTime seg={r.seg} k="in" showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} /> : '-'}</td>
                   <td style={{ ...td, textAlign: 'left' }}>
                     {r.seg ? (r.seg.out
-                      ? <InlineTime seg={r.seg} k="out" showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} />
-                      : <button onClick={() => !fin && setEditDay({ date: r.ds, seg: r.seg })} title={fin ? 'Period finalized - locked' : 'Add the missing clock-out'}
+                      ? <InlineTime seg={r.seg} k="out" showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} />
+                      : <button onClick={() => !fin && !self && setEditDay({ date: r.ds, seg: r.seg })} title={fin ? 'Period finalized - locked' : self ? 'Use the Clock tab to add a missing punch' : 'Add the missing clock-out'}
                           style={{ background: 'none', border: 'none', padding: 0, cursor: fin ? 'default' : 'pointer', color: '#b91c1c', fontWeight: 700, font: 'inherit' }}>Missing</button>) : '-'}
                   </td>
                   <td style={{ ...td, color: r.seg?.deductedMin ? '#b45309' : 'var(--muted)' }}>{r.seg?.deductedMin ? `−${r.seg.deductedMin}m` : '-'}</td>
@@ -331,7 +351,7 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
                   <td style={{ ...td, color: 'var(--muted)' }}>{r.seg ? `${money(rate)}/hr` : '-'}</td>
                   <td style={{ ...td, fontWeight: 700 }}>{r.seg ? money(r.seg.amount) : '-'}</td>
                   <td style={{ ...td, textAlign: 'center' }}>
-                    {!fin && (
+                    {!self && !fin && (
                       <button onClick={() => setEditDay({ date: r.ds, seg: r.seg })}
                         title={r.seg ? 'Edit punch' : 'Add punch'}
                         style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'inline-flex' }}>
@@ -408,11 +428,17 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', color: 'var(--muted)' }}>
               <span>Edited punches</span><span style={{ fontWeight: 700 }}>{T.editedPunches}</span>
             </div>
+            {T.pendingEdits > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', color: '#b45309', fontWeight: 700 }} title={self ? 'Your edits waiting for approval - not counted in pay yet' : 'Employee edits awaiting your review - approve/reject each in the In/Out column'}>
+                <span>Pending edits</span><span>{T.pendingEdits}</span>
+              </div>
+            )}
             {T.deductedMin > 0 && (
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', color: 'var(--muted)' }}>
                 <span>Auto-lunch deducted</span><span style={{ fontWeight: 700, color: '#b45309' }}>−{T.deductedMin}m</span>
               </div>
             )}
+            {!self && (
             <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
               <button className="secondary-btn" onClick={async () => { const up = await ensureStepUp(); if (!up.ok) { if (!up.cancelled) toastErr?.('Identity check didn’t complete.'); return; } api.timeExportCsv(start, end, 'punches'); }} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> CSV</button>
               <button className="primary-btn" data-tour="pr-approve" onClick={approve} disabled={busy || !!fin}
@@ -424,6 +450,7 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
                 : <button className="secondary-btn" onClick={finalize} disabled={busy} title="Step 2 (HR): finalize for payroll and lock the period"
                     style={{ fontSize: 12.5, fontWeight: 700 }}>Finalize</button>)}
             </div>
+            )}
           </div>
         </div>
       )}
@@ -488,36 +515,72 @@ const t12s = (iso) => iso ? new Date(iso + 'Z').toLocaleTimeString([], { hour: '
 // Shows the geo dot (green in-fence / red off-site) and, when "Show unrounded
 // times" is on, the raw seconds-precision time in small italics beside it -
 // exactly how SwipeClock renders its unrounded overlay.
-function InlineTime({ seg, k, showRaw, locked, onSaved, toastErr }) {
+function InlineTime({ seg, k, showRaw, locked, onSaved, toastErr, self }) {
   const [editing, setEditing] = useState(false);
   const [val, setVal] = useState('');
-  const id = (locked ? '' : (k === 'in' ? seg?.inId : seg?.outId));
+  const punchId = k === 'in' ? seg?.inId : seg?.outId;   // always available (for approve/reject)
+  const id = (locked ? '' : punchId);                    // editable id (blank when locked)
   const raw = k === 'in' ? seg?.in : seg?.out;
   const rounded = k === 'in' ? (seg?.inR || seg?.in) : (seg?.outR || seg?.out);
+  const pendingAt = k === 'in' ? seg?.inPendingAt : seg?.outPendingAt;
+  const pendReason = k === 'in' ? seg?.inEditReason : seg?.outEditReason;
+  const isPending = (k === 'in' ? seg?.inEditStatus : seg?.outEditStatus) === 'pending' && pendingAt;
   if (!raw) return <span style={{ color: 'var(--muted)' }}>-</span>;
+
+  async function commit(atUtc) {
+    if (self) {
+      // Employee edit: goes to the approver, and does NOT change pay until approved.
+      const reason = await dialog.prompt('', {
+        title: `Change your ${k === 'in' ? 'clock-in' : 'clock-out'} time`,
+        message: 'This is sent to your approver. Your pay is unchanged until they approve it.',
+        placeholder: 'Reason (optional)', confirmText: 'Send for approval',
+      });
+      if (reason === null) return;   // cancelled
+      try { await api.timePunchEditCreate({ punch_id: id, at: atUtc, reason: reason || '' }); onSaved?.(); }
+      catch (err) { toastErr?.(err?.message || 'Could not send the edit.'); }
+    } else {
+      try { await api.timeAdjustPunch(id, { at: atUtc }); onSaved?.(); }
+      catch (err) { toastErr?.(err?.message || 'Could not save the time.'); }
+    }
+  }
+
   if (editing) return (
     <input autoFocus type="datetime-local" className="form-input" value={val}
       onChange={e => setVal(e.target.value)}
       onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') { setVal(''); setEditing(false); } }}
       onBlur={async () => {
         const orig = utcToInput(raw); setEditing(false);
-        if (val && val !== orig) {
-          try { await api.timeAdjustPunch(id, { at: inputToUtc(val) }); onSaved?.(); }
-          catch (err) { toastErr?.(err?.message || 'Could not save the time.'); }
-        }
+        if (val && val !== orig) await commit(inputToUtc(val));
       }}
       style={{ fontSize: 12, padding: '2px 4px', width: 172 }} />
   );
   const geo = seg.geo || '';
+  const mini = { border: 'none', background: 'none', cursor: 'pointer', padding: '0 2px', fontWeight: 800, fontSize: 12, lineHeight: 1 };
   return (
-    <button onClick={() => { if (!id) return; setVal(utcToInput(raw)); setEditing(true); }}
-      title={id ? 'Click to edit this punch time - the original stays on record' : ''}
-      style={{ background: 'none', border: 'none', padding: 0, cursor: id ? 'pointer' : 'default', font: 'inherit', color: 'inherit', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-      {geo && <span title={geo === 'in_fence' ? 'On site' : geo === 'out_of_fence' ? 'Off site' : 'No location'}
-        style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0, background: geo === 'in_fence' ? 'hsl(var(--color-green))' : geo === 'out_of_fence' ? '#b91c1c' : 'var(--line-strong,var(--line))' }} />}
-      <span style={{ borderBottom: '1px dashed var(--line-strong,var(--line))' }}>{t12(rounded)}</span>
-      {showRaw && <span style={{ fontSize: 10.5, fontStyle: 'italic', color: 'var(--muted)' }}>{t12s(raw)}</span>}
-    </button>
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+      <button onClick={() => { if (!id) return; setVal(utcToInput(raw)); setEditing(true); }}
+        title={id ? (self ? 'Propose a new time - goes to your approver; pay unchanged until approved' : 'Click to edit this punch time - the original stays on record') : ''}
+        style={{ background: 'none', border: 'none', padding: 0, cursor: id ? 'pointer' : 'default', font: 'inherit', color: 'inherit', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+        {geo && <span title={geo === 'in_fence' ? 'On site' : geo === 'out_of_fence' ? 'Off site' : 'No location'}
+          style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0, background: geo === 'in_fence' ? 'hsl(var(--color-green))' : geo === 'out_of_fence' ? '#b91c1c' : 'var(--line-strong,var(--line))' }} />}
+        <span style={{ borderBottom: '1px dashed var(--line-strong,var(--line))' }}>{t12(rounded)}</span>
+        {showRaw && <span style={{ fontSize: 10.5, fontStyle: 'italic', color: 'var(--muted)' }}>{t12s(raw)}</span>}
+      </button>
+      {isPending && (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10.5, color: '#b45309', fontWeight: 700 }}
+          title={`${self ? 'Your proposed time' : 'Proposed by employee'}${pendReason ? ': ' + pendReason : ''} - not counted until approved`}>
+          &rarr; {t12(pendingAt)} <span style={{ fontStyle: 'italic' }}>pending</span>
+          {!self && !locked && punchId && (
+            <>
+              <button title="Approve this time" style={{ ...mini, color: 'hsl(var(--color-green))' }}
+                onClick={async () => { try { await api.timePunchEditDecide(punchId, { status: 'approved' }); onSaved?.(); } catch (e) { toastErr?.(e?.message || 'Could not approve.'); } }}>&#10003;</button>
+              <button title="Reject this time" style={{ ...mini, color: '#b91c1c' }}
+                onClick={async () => { const note = await dialog.prompt('', { title: 'Reject edit', message: 'Sent to the employee.', placeholder: 'Reason (optional)', confirmText: 'Reject', danger: true }); if (note === null) return; try { await api.timePunchEditDecide(punchId, { status: 'rejected', note: note || '' }); onSaved?.(); } catch (e) { toastErr?.(e?.message || 'Could not reject.'); } }}>&#10007;</button>
+            </>
+          )}
+        </span>
+      )}
+    </span>
   );
 }
 
