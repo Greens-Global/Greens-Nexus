@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { ChevronLeft, ChevronRight, Pencil, Plus, X, Loader2, CheckCircle, Download, AlertTriangle, MapPin, PlayCircle, Info } from 'lucide-react';
 import { api } from '../api';
 import { dialog } from '../ui/dialog';
@@ -18,7 +18,8 @@ const DAY = 86400000;
 const isoDate = (d) => new Date(d).toISOString().slice(0, 10);
 const hhmm = (min) => `${Math.floor((min || 0) / 60)}:${String((min || 0) % 60).padStart(2, '0')}`;
 const dec = (min) => ((min || 0) / 60).toFixed(2);
-const money = (n) => `$${(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const CUR_SYM = { USD: '$', INR: '₹' };
+const money = (n, cur = 'USD') => `${CUR_SYM[cur] || '$'}${(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const t12 = (iso) => iso ? new Date(iso + 'Z').toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }).replace(' ', '').toLowerCase() : '-';
 const utcToInput = (iso) => { const d = new Date(iso + 'Z'); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); };
 const inputToUtc = (v) => new Date(v).toISOString().slice(0, 19);
@@ -111,6 +112,21 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false })
   }, [self, email, start, end]);
   useEffect(load, [load]);
 
+  // Fixed employees are paid by MONTH, but the default period anchor is the
+  // bi-weekly Sunday (which can fall in the previous month). On the first fixed
+  // load, snap to the CURRENT month so they don't open on last month by default.
+  const fixedSnapped = useRef(false);
+  useEffect(() => {
+    if (!data || data.payType !== 'fixed' || fixedSnapped.current) return;
+    fixedSnapped.current = true;
+    const todayM = new Date().toISOString().slice(0, 7);
+    const cardM = (data.periodStart || '').slice(0, 7);
+    if (cardM && cardM !== todayM) {
+      const [y, m] = todayM.split('-').map(Number);
+      setPStart(new Date(y, m - 1, 15));   // mid-month: safe from UTC month-boundary drift
+    }
+  }, [data]);
+
   const byDate = useMemo(() => Object.fromEntries((data?.days || []).map(d => [d.date, d])), [data]);
   const weekTotals = useMemo(() => {
     const w = {};
@@ -141,6 +157,11 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false })
   }
 
   const shift = (n) => setPStart(new Date(pStart.getTime() + n * 14 * DAY));
+  const isFixed = data?.payType === 'fixed';   // monthly salary employee (not hourly)
+  const cur = data?.currency || 'USD';         // $ or ₹
+  const fmtM = (n) => money(n, cur);
+  // Fixed employees navigate by MONTH; the backend reads `start` as a month anchor.
+  const shiftMonth = (n) => { const base = data?.periodStart ? new Date(data.periodStart + 'T00:00') : pStart; setPStart(new Date(base.getFullYear(), base.getMonth() + n, 15)); };
   const label = `${pStart.toLocaleDateString([], { month: 'numeric', day: 'numeric', year: 'numeric' })} – ${new Date(pStart.getTime() + 13 * DAY).toLocaleDateString([], { month: 'numeric', day: 'numeric', year: 'numeric' })}`;
   const T = data?.totals;
   const fin = data?.finalized;         // HR finalization - the period is LOCKED
@@ -188,6 +209,19 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false })
 
   const exByEmail = Object.fromEntries(exceptions.map(e => [e.email, e]));
   const sidebar = (exceptions.length ? exceptions : people.map(p => ({ ...p, missing: 0, exceptions: 0 })));
+
+  // Fixed-salary employees get a dedicated MONTHLY card - the hourly SwipeClock
+  // grid (OT split, weekly subtotals, $/hr) does not apply to them.
+  if (isFixed && data) {
+    return (
+      <FixedTimecard data={data} self={self} email={email} people={people} setEmail={setEmail}
+        nameFor={nameFor} cur={cur} fmtM={fmtM} showRaw={showRaw} setShowRaw={setShowRaw}
+        isAdmin={isAdmin} busy={busy} setBusy={setBusy}
+        onPrev={() => shiftMonth(-1)} onNext={() => shiftMonth(1)}
+        onApprove={approve} onFinalize={finalize} onUnfinalize={unfinalize} onSign={signTimecard}
+        editDay={editDay} setEditDay={setEditDay} load={load} toastOk={toastOk} toastErr={toastErr} />
+    );
+  }
 
   return (
     <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start', fontFamily: 'var(--wk-font)' }}>
@@ -284,7 +318,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false })
       {!stepLocked && data && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>
           {data.dept && <span><strong style={{ color: 'var(--ink)' }}>Department:</strong> {data.dept}</span>}
-          <span><strong style={{ color: 'var(--ink)' }}>Pay rate:</strong> {money(rate)}/hr</span>
+          <span><strong style={{ color: 'var(--ink)' }}>Pay rate:</strong> {fmtM(rate)}/hr</span>
           <span><strong style={{ color: 'var(--ink)' }}>OT rule:</strong> {ruleInput === 'ca' ? 'California' : ruleInput === 'federal' ? 'Federal' : 'None'}</span>
           {mgrAp && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 10px', borderRadius: 999, background: 'hsla(var(--color-green),0.1)', color: 'hsl(var(--color-green))', fontWeight: 700 }}>
             <CheckCircle size={12} /> Manager approved · {nameFor(mgrAp.by)}</span>}
@@ -370,8 +404,8 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false })
                   <td style={{ ...td, color: r.seg?.dtMin ? '#b91c1c' : 'var(--muted)', fontWeight: r.seg?.dtMin ? 700 : 400 }}>{r.seg?.dtMin ? hhmm(r.seg.dtMin) : '-'}</td>
                   <td style={{ ...td, textAlign: 'left' }}><LocCell seg={r.seg} /></td>
                   <td style={{ ...td, textAlign: 'left', color: 'var(--muted)' }}>{r.seg ? (data?.dept || '-') : '-'}</td>
-                  <td style={{ ...td, color: 'var(--muted)' }}>{r.seg ? `${money(rate)}/hr` : '-'}</td>
-                  <td style={{ ...td, fontWeight: 700 }}>{r.seg ? money(r.seg.amount) : '-'}</td>
+                  <td style={{ ...td, color: 'var(--muted)' }}>{r.seg ? `${fmtM(rate)}/hr` : '-'}</td>
+                  <td style={{ ...td, fontWeight: 700 }}>{r.seg ? fmtM(r.seg.amount) : '-'}</td>
                   <td style={{ ...td, textAlign: 'center' }}>
                     {!self && !fin && (
                       <button onClick={() => setEditDay({ date: r.ds, seg: r.seg })}
@@ -398,7 +432,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false })
                   <td style={td}></td>
                   <td style={td}></td>
                   <td style={td}></td>
-                  <td style={td}>{money(T.totalPay)}</td>
+                  <td style={td}>{fmtM(T.totalPay)}</td>
                   <td style={td}></td>
                 </tr>
               </tfoot>
@@ -416,10 +450,10 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false })
               // so payroll can be keyed either way without converting by hand.
               const hd = (min) => `${hhmm(min)} (${dec(min)})`;
               const rows = [
-                [`Total Regular hours at ${money(rate)}/hr`, hd(T.regMin), money(T.regPay)],
-                [`Total Overtime hours at ${money(rate * 1.5)}/hr`, hd(T.otMin), money(T.otPay)],
-                ...(T.dtMin ? [[`Total Double-time hours at ${money(rate * 2)}/hr`, hd(T.dtMin), money(T.dtPay)]] : []),
-                ['Totals', hd(T.regMin + T.otMin + (T.dtMin || 0)), money(T.totalPay)],
+                [`Total Regular hours at ${fmtM(rate)}/hr`, hd(T.regMin), fmtM(T.regPay)],
+                [`Total Overtime hours at ${fmtM(rate * 1.5)}/hr`, hd(T.otMin), fmtM(T.otPay)],
+                ...(T.dtMin ? [[`Total Double-time hours at ${fmtM(rate * 2)}/hr`, hd(T.dtMin), fmtM(T.dtPay)]] : []),
+                ['Totals', hd(T.regMin + T.otMin + (T.dtMin || 0)), fmtM(T.totalPay)],
               ];
               const last = rows.length - 1;
               return rows.map(([lbl, hrs, amt], i) => (
@@ -438,7 +472,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false })
                 <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 70px 90px', gap: 8, padding: '7px 12px', borderTop: '1px solid var(--line)', fontSize: 12.5 }}>
                   <span style={{ color: c.category === 'Uncategorised' ? 'var(--muted)' : 'var(--ink)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.category}</span>
                   <span style={{ textAlign: 'right' }}>{hhmm(c.workedMin)}</span>
-                  <span style={{ textAlign: 'right', fontWeight: 700 }}>{money(c.pay)}</span>
+                  <span style={{ textAlign: 'right', fontWeight: 700 }}>{fmtM(c.pay)}</span>
                 </div>
               ))}
             </div>
@@ -540,6 +574,177 @@ const t12s = (iso) => iso ? new Date(iso + 'Z').toLocaleTimeString([], { hour: '
 // One signature line in the sign-off block. `sig` is the backend sign-off record
 // ({by, at, name?, stale}); `action` (employee only) shows the Sign button;
 // `pending` is the hint shown to others before that party has acted.
+// Monthly card for a FIXED-salary employee. Same day grid + inline edit/add +
+// signatures as the hourly card, but the pay math is the fixed model: salary,
+// per-day present/half/absent/weekend status, deductions and weekend overtime.
+function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM, showRaw, setShowRaw, isAdmin, busy, setBusy, onPrev, onNext, onApprove, onFinalize, onUnfinalize, onSign, editDay, setEditDay, load, toastOk, toastErr }) {
+  const T = data.totals || {};
+  const fin = data.finalized;
+  const mgrAp = data.approval;
+  const byDate = Object.fromEntries((data.days || []).map(d => [d.date, d]));
+  const fixedDays = data.fixedDays || [];
+  const monthLabel = data.periodStart ? new Date(data.periodStart + 'T00:00').toLocaleDateString([], { month: 'long', year: 'numeric' }) : '';
+  const dow = (ds) => new Date(ds + 'T00:00').toLocaleDateString([], { weekday: 'short', month: 'numeric', day: 'numeric' });
+  const th = { fontSize: 11.5, fontWeight: 600, color: 'var(--wk-dim)', padding: '8px 10px', textAlign: 'left', whiteSpace: 'nowrap' };
+  const td = { fontSize: 12.5, padding: '6px 10px', textAlign: 'left', borderTop: '1px solid var(--line)', whiteSpace: 'nowrap' };
+  const STATUS = {
+    present: { label: 'Present', bg: 'hsla(var(--color-green),0.12)', fg: 'hsl(var(--color-green))' },
+    half: { label: 'Half day', bg: 'rgba(180,83,9,0.12)', fg: '#b45309' },
+    absent: { label: 'Absent', bg: 'rgba(185,28,28,0.1)', fg: '#b91c1c' },
+    weekend: { label: 'Weekend', bg: 'var(--mist)', fg: 'var(--muted)' },
+    weekend_worked: { label: 'Weekend OT', bg: 'var(--wk-brand-tint)', fg: 'var(--wk-brand)' },
+    upcoming: { label: 'Upcoming', bg: 'transparent', fg: 'var(--muted)' },
+  };
+  const effect = (fd) => fd.deduct ? <span style={{ color: '#b91c1c', fontWeight: 700 }}>−{fmtM(fd.deduct)}</span>
+    : fd.bonus ? <span style={{ color: 'var(--wk-brand)', fontWeight: 700 }}>+{fmtM(fd.bonus)}</span>
+    : <span style={{ color: 'var(--muted)' }}>—</span>;
+
+  return (
+    <div style={{ fontFamily: 'var(--wk-font)' }}>
+      {/* Toolbar - month nav (fixed pay is by calendar month, no work-week) */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
+        {self
+          ? <span style={{ fontSize: 15, fontWeight: 800, minWidth: 160 }}>My Timecard</span>
+          : <select className="form-input" value={email} onChange={e => setEmail(e.target.value)} style={{ fontSize: 13, minWidth: 180, fontWeight: 700 }}>
+              {people.map(p => <option key={p.email} value={p.email}>{p.name}</option>)}
+            </select>}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <button className="icon-btn" onClick={onPrev} style={{ padding: 6 }}><ChevronLeft size={16} /></button>
+          <span style={{ fontSize: 12.5, fontWeight: 700, minWidth: 130, textAlign: 'center' }}>{monthLabel}</span>
+          <button className="icon-btn" onClick={onNext} style={{ padding: 6 }}><ChevronRight size={16} /></button>
+        </div>
+        <div style={{ flex: 1 }} />
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, color: 'var(--muted)', fontWeight: 700, cursor: 'pointer' }}>
+          <input type="checkbox" checked={showRaw} onChange={e => setShowRaw(e.target.checked)} /> Show unrounded times
+        </label>
+      </div>
+
+      {/* Fixed-pay strip */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 10px', borderRadius: 999, background: 'var(--wk-brand-tint)', color: 'var(--wk-brand)', fontWeight: 700 }}>Fixed salary</span>
+        {data.dept && <span><strong style={{ color: 'var(--ink)' }}>Department:</strong> {data.dept}</span>}
+        <span><strong style={{ color: 'var(--ink)' }}>Salary:</strong> {fmtM(data.monthlySalary)}/mo</span>
+        <span><strong style={{ color: 'var(--ink)' }}>Daily:</strong> {fmtM(data.dailyRate)} ({T.daysInMonth}d)</span>
+        <span><strong style={{ color: 'var(--ink)' }}>Weekend OT:</strong> {fmtM(data.weekendOtAmount)}/day</span>
+        {mgrAp && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 10px', borderRadius: 999, background: 'hsla(var(--color-green),0.1)', color: 'hsl(var(--color-green))', fontWeight: 700 }}><CheckCircle size={12} /> Manager approved · {nameFor(mgrAp.by)}</span>}
+        {fin && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 10px', borderRadius: 999, background: 'var(--ink)', color: 'var(--card)', fontWeight: 700 }}><CheckCircle size={12} /> Finalized · period locked</span>}
+      </div>
+
+      {self && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, color: 'var(--wk-brand)', background: 'var(--wk-brand-tint)', borderRadius: 9, padding: '8px 12px', marginBottom: 10, fontWeight: 500 }}>
+          <Pencil size={13} style={{ flexShrink: 0 }} /> Your pay is fixed at {fmtM(data.monthlySalary)}/month. A missed weekday deducts one day; each weekend day worked adds {fmtM(data.weekendOtAmount)}. Tap a time to request a change.
+        </div>
+      )}
+      {!data.rateSet && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, color: '#b45309', marginBottom: 10 }}>
+          <AlertTriangle size={13} /> No salary set for this employee - pay shows {fmtM(0)} until you set one.
+        </div>
+      )}
+
+      {/* Day grid */}
+      <div style={{ overflowX: 'auto', border: '1px solid var(--wk-line2)', borderRadius: 14, background: 'var(--card)', boxShadow: 'var(--wk-shadow)' }}>
+        <table style={{ width: '100%', minWidth: 640, borderCollapse: 'collapse' }}>
+          <thead>
+            <tr style={{ background: 'var(--wk-hover)' }}>
+              <th style={th}>Date</th><th style={th}>Day</th><th style={th}>In</th><th style={th}>Out</th>
+              <th style={{ ...th, textAlign: 'right' }}>Hours</th><th style={{ ...th, textAlign: 'right' }}>Effect on pay</th>
+            </tr>
+          </thead>
+          <tbody>
+            {fixedDays.map(fd => {
+              const d = byDate[fd.date];
+              const segs = d?.segments || [];
+              const st = STATUS[fd.status] || STATUS.upcoming;
+              const rowsForDay = segs.length ? segs : [null];
+              return rowsForDay.map((seg, si) => (
+                <tr key={fd.date + '-' + si} style={{ background: fd.isWeekend ? 'var(--mist)' : 'transparent' }}>
+                  <td style={{ ...td, fontWeight: 700 }}>{si === 0 ? dow(fd.date) : ''}</td>
+                  <td style={td}>{si === 0 && <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 9px', borderRadius: 999, background: st.bg, color: st.fg }}>{st.label}</span>}</td>
+                  <td style={td}>{seg
+                    ? <InlineTime seg={seg} k="in" showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} />
+                    : (self && !fin && fd.status !== 'upcoming')
+                      ? <button onClick={() => setEditDay({ date: fd.date, seg: null })} title="Add a punch for this day - goes to your approver" style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--wk-brand)', fontWeight: 600, font: 'inherit', opacity: 0.75 }}>+ add</button>
+                      : (!self && !fin && fd.status !== 'upcoming')
+                        ? <button onClick={() => setEditDay({ date: fd.date, seg: null })} title="Add a punch for this day" style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--wk-brand)', fontWeight: 600, font: 'inherit', opacity: 0.75 }}>+ add</button>
+                        : <span style={{ color: 'var(--muted)' }}>-</span>}</td>
+                  <td style={td}>{seg
+                    ? (seg.out
+                        ? <InlineTime seg={seg} k="out" showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} />
+                        : (self && fin) ? <span style={{ color: '#b91c1c', fontWeight: 700 }}>Missing</span>
+                            : <button onClick={() => !fin && setEditDay({ date: fd.date, seg })} title={fin ? 'Locked' : 'Add the missing clock-out'} style={{ background: 'none', border: 'none', padding: 0, cursor: fin ? 'default' : 'pointer', color: '#b91c1c', fontWeight: 700, font: 'inherit' }}>Missing</button>)
+                    : <span style={{ color: 'var(--muted)' }}>-</span>}</td>
+                  <td style={{ ...td, textAlign: 'right' }}>{seg && si === 0 ? hhmm(d.workedMin) : (seg ? '' : <span style={{ color: 'var(--muted)' }}>-</span>)}</td>
+                  <td style={{ ...td, textAlign: 'right' }}>{si === 0 ? effect(fd) : ''}</td>
+                </tr>
+              ));
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Monthly pay summary */}
+      <div style={{ marginTop: 14, display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+        <div style={{ flex: 1, minWidth: 300, border: '1px solid var(--wk-line2)', borderRadius: 14, overflow: 'hidden', background: 'var(--card)', boxShadow: 'var(--wk-shadow)' }}>
+          {(() => {
+            const rows = [
+              ['Monthly salary', fmtM(T.monthlySalary)],
+              [`Missed days (${T.missedFullDays} full${T.missedHalfDays ? `, ${T.missedHalfDays} half` : ''})`, T.deduction ? `−${fmtM(T.deduction)}` : fmtM(0)],
+              [`Weekend overtime (${T.weekendDaysWorked} day${T.weekendDaysWorked === 1 ? '' : 's'})`, T.weekendBonus ? `+${fmtM(T.weekendBonus)}` : fmtM(0)],
+              ['Net pay this month', fmtM(T.totalPay)],
+            ];
+            const last = rows.length - 1;
+            return rows.map(([lbl, amt], i) => (
+              <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 150px', gap: 8, padding: '9px 14px', borderTop: i ? '1px solid var(--line)' : 'none', background: i === last ? 'var(--wk-hover)' : 'transparent', fontWeight: i === last ? 800 : 500, fontSize: i === last ? 14 : 12.5 }}>
+                <span style={{ color: i === last ? 'var(--ink)' : 'var(--muted)' }}>{lbl}</span>
+                <span style={{ textAlign: 'right', color: i === last ? 'var(--wk-brand)' : 'var(--ink)' }}>{amt}</span>
+              </div>
+            ));
+          })()}
+        </div>
+        <div style={{ minWidth: 200, fontSize: 12 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', color: 'var(--muted)' }}>
+            <span>Missing punches</span><span style={{ fontWeight: 700, color: T.missingPunches ? '#b91c1c' : 'var(--ink)' }}>{T.missingPunches}</span>
+          </div>
+          {T.pendingEdits > 0 && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', color: '#b45309', fontWeight: 700 }} title={self ? 'Your edits waiting for approval' : 'Employee edits awaiting your review'}>
+              <span>Pending edits</span><span>{T.pendingEdits}</span>
+            </div>
+          )}
+          {!self && (
+            <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+              <button className={mgrAp ? 'secondary-btn' : 'primary-btn'} onClick={onApprove} disabled={busy || !!fin}
+                title={fin ? 'Period is finalized' : mgrAp ? 'Approved - click to re-approve after changes' : 'Step 1: manager sign-off'}
+                style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5, ...(mgrAp ? { color: 'hsl(var(--color-green))', borderColor: 'hsl(var(--color-green))' } : {}) }}>
+                <CheckCircle size={13} /> {busy ? '…' : mgrAp ? 'Approved' : 'Approve'}</button>
+              {isAdmin && (fin
+                ? <button className="secondary-btn" onClick={onUnfinalize} disabled={busy} style={{ fontSize: 12.5 }}>Unlock</button>
+                : <button className="secondary-btn" onClick={onFinalize} disabled={busy} style={{ fontSize: 12.5, fontWeight: 700 }}>Finalize</button>)}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Three-signature sign-off (same as hourly) */}
+      <div style={{ marginTop: 18, paddingTop: 14, borderTop: '1px solid var(--line)' }}>
+        <p style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 12 }}>
+          The employee signs to attest attendance; the manager approves and HR finalizes for payroll. Month: {monthLabel}.
+        </p>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12 }}>
+          <SigLine label="Employee" sig={data.signed} nameFor={nameFor} action={self && !fin ? { label: data.signed ? 'Re-sign' : 'Sign & submit', onClick: onSign, busy } : null} />
+          <SigLine label="Manager" sig={data.approval} nameFor={nameFor} pending="Approve to sign" />
+          <SigLine label="HR" sig={data.finalized} nameFor={nameFor} pending="Finalize to sign" />
+        </div>
+      </div>
+
+      {editDay && (
+        <PunchEditModal day={editDay} email={email} busy={busy} setBusy={setBusy}
+          onDone={() => { setEditDay(null); load(); }} onClose={() => setEditDay(null)}
+          toastOk={toastOk} toastErr={toastErr} self={self} />
+      )}
+    </div>
+  );
+}
+
 function SigLine({ label, sig, nameFor, action, pending }) {
   const done = sig && sig.at;
   const who = done ? (sig.name || (nameFor && nameFor(sig.by)) || (sig.by || '').split('@')[0].replace(/\./g, ' ')) : '';

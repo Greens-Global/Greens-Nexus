@@ -72,7 +72,7 @@ function useIsMobile(bp = 900) {
 }
 
 // ── Add / Edit modal ──────────────────────────────────────────────────────────
-function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false, onClose, onSaved, toastOk, toastErr }) {
+function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false, canSeeComp = false, onClose, onSaved, toastOk, toastErr }) {
   const editing = !!employee;
   const [jobRoles, setJobRoles] = useState([]);
   const [jobRoleId, setJobRoleId] = useState('');
@@ -118,6 +118,23 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
   }
   const set = (k, v) => setF(prev => ({ ...prev, [k]: v }));
   const setC = (k, v) => setF(prev => ({ ...prev, contractor: { ...(prev.contractor || {}), [k]: v } }));
+
+  // Compensation (gated by the comp-access grant). Keyed by work email; loads the
+  // current rate when editing, saved right after the profile on Save.
+  const [comp, setComp] = useState({ payType: 'hourly', currency: 'USD', hourlyRate: '', monthlySalary: '', weekendOtAmount: '1000', fullDayHours: '8' });
+  const [compDirty, setCompDirty] = useState(false);
+  const setW = (k, v) => { setComp(prev => ({ ...prev, [k]: v })); setCompDirty(true); };
+  useEffect(() => {
+    if (!canSeeComp || !editing || !employee?.workEmail) return;
+    api.timePayrollRateGet(employee.workEmail).then(r => {
+      if (!r?.isSet) return;
+      setComp({ payType: r.payType || 'hourly', currency: r.currency || 'USD',
+                hourlyRate: r.hourlyRate ? String(r.hourlyRate) : '',
+                monthlySalary: r.monthlySalary ? String(r.monthlySalary) : '',
+                weekendOtAmount: r.weekendOtAmount != null ? String(r.weekendOtAmount) : '1000',
+                fullDayHours: r.fullDayHours ? String(r.fullDayHours) : '8' });
+    }).catch(() => {});
+  }, [canSeeComp, editing, employee?.workEmail]);
   useEffect(() => {
     if (!f.company) { setDeptOptions([]); return; }
     setDeptLoading(true);
@@ -142,6 +159,22 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
     setBusy(true);
     try {
       const saved = editing ? await api.updateEmployee(employee.id, f) : await api.createEmployee(f);
+      // Compensation, keyed by work email - saved after the profile so a brand-new
+      // hire's rate lands on the email that was just provisioned.
+      const wemail = (saved?.workEmail || f.work_email || '').trim();
+      if (canSeeComp && compDirty && wemail) {
+        try {
+          await api.timePayrollRate({
+            email: wemail, pay_type: comp.payType, currency: comp.currency,
+            hourly_rate: parseFloat(comp.hourlyRate) || 0,
+            monthly_salary: parseFloat(comp.monthlySalary) || 0,
+            weekend_ot_amount: parseFloat(comp.weekendOtAmount) || 0,
+            full_day_hours: parseFloat(comp.fullDayHours) || 8,
+          });
+        } catch (err) { toastErr(err?.message || 'Employee saved, but the wage could not be saved - set it on the Pay tab.'); }
+      } else if (canSeeComp && compDirty && !wemail) {
+        toastErr('Wage needs a work email - saved everything else; set the wage once the email is provisioned.');
+      }
       // New hire + a chosen job role → set their access + tier now. Needs a work
       // email; if not provisioned yet, prompt to set it later on the Access tab.
       if (!editing && jobRoleId) {
@@ -186,6 +219,15 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
           {input('PERSONAL EMAIL', 'personal_email', { type: 'email' })}
           {input('PHONE', 'phone')}
           {input('JOB TITLE', 'job_title')}
+          {/* Company FIRST, then Department - departments come from the chosen
+              company, so asking for it first keeps the form in reading order. */}
+          <div>
+            <label style={FL}>COMPANY / ENTITY</label>
+            <select className="form-input" style={{ width: '100%' }} value={f.company} onChange={e => set('company', e.target.value)}>
+              <option value="">- not set -</option>
+              {entities.map(en => <option key={en.id} value={en.id}>{en.name}</option>)}
+            </select>
+          </div>
           <div>
             <label style={FL}>DEPARTMENT</label>
             {addingDept ? (
@@ -239,13 +281,6 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
           </div>
           {input('LOCATION', 'location', { placeholder: 'e.g. Escondido office' })}
           <div>
-            <label style={FL}>COMPANY / ENTITY</label>
-            <select className="form-input" style={{ width: '100%' }} value={f.company} onChange={e => set('company', e.target.value)}>
-              <option value="">- not set -</option>
-              {entities.map(en => <option key={en.id} value={en.id}>{en.name}</option>)}
-            </select>
-          </div>
-          <div>
             <label style={FL}>ACCOUNT TYPE</label>
             <select className="form-input" style={{ width: '100%' }} value={f.identity_type} onChange={e => set('identity_type', e.target.value)}>
               <option value="internal">Internal (MS 365 staff)</option>
@@ -287,6 +322,54 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
                   </select>
                 </div>
                 {cInput('ENGAGEMENT AREA', 'engagement_area', { placeholder: 'e.g. Escondido dev / remote' })}
+              </div>
+            </div>
+          )}
+          {canSeeComp && !isContractor && (
+            <div style={{ gridColumn: '1 / -1', border: '1px solid var(--line)', borderRadius: 12, padding: '14px 16px', background: 'hsla(var(--color-blue),0.05)' }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: 'hsl(var(--color-blue))', letterSpacing: '.04em', marginBottom: 12 }}>PAYROLL WAGE</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                <div>
+                  <label style={FL}>PAY TYPE</label>
+                  <select className="form-input" style={{ width: '100%' }} value={comp.payType} onChange={e => setW('payType', e.target.value)}>
+                    <option value="hourly">Hourly</option>
+                    <option value="fixed">Fixed (monthly salary)</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={FL}>CURRENCY</label>
+                  <select className="form-input" style={{ width: '100%' }} value={comp.currency} onChange={e => setW('currency', e.target.value)}>
+                    <option value="USD">USD ($)</option><option value="INR">INR (₹)</option>
+                  </select>
+                </div>
+                {comp.payType === 'hourly' ? (
+                  <div>
+                    <label style={FL}>HOURLY RATE</label>
+                    <input className="form-input" type="number" min="0" step="0.01" style={{ width: '100%' }} value={comp.hourlyRate} onChange={e => setW('hourlyRate', e.target.value)} placeholder="0.00" />
+                  </div>
+                ) : (
+                  <>
+                    <div>
+                      <label style={FL}>MONTHLY SALARY</label>
+                      <input className="form-input" type="number" min="0" step="1" style={{ width: '100%' }} value={comp.monthlySalary} onChange={e => setW('monthlySalary', e.target.value)} placeholder="e.g. 30000" />
+                    </div>
+                    <div>
+                      <label style={FL}>WEEKEND OT / DAY</label>
+                      <input className="form-input" type="number" min="0" step="1" style={{ width: '100%' }} value={comp.weekendOtAmount} onChange={e => setW('weekendOtAmount', e.target.value)} placeholder="e.g. 1000" />
+                    </div>
+                    <div>
+                      <label style={FL}>FULL DAY (HOURS)</label>
+                      <input className="form-input" type="number" min="1" step="0.5" style={{ width: '100%' }} value={comp.fullDayHours} onChange={e => setW('fullDayHours', e.target.value)} placeholder="8" />
+                      <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>Under half this counts as a half day.</div>
+                    </div>
+                  </>
+                )}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 10 }}>
+                {comp.payType === 'fixed'
+                  ? 'Fixed: paid the monthly salary; a missed weekday deducts salary / days-in-month (half for a half day); each weekend day worked adds the weekend overtime.'
+                  : 'Hourly: paid per hour worked, with overtime per the timecard.'}
+                {!editing && !f.work_email && ' Needs a work email to save the wage.'}
               </div>
             </div>
           )}
@@ -4341,7 +4424,7 @@ export default function HR({ activeSub, onSubChange }) {
       </>)}
 
       {formOpen && (
-        <EmployeeFormModal employee={editing} employees={employees} entities={entities} isAdmin={isAdmin}
+        <EmployeeFormModal employee={editing} employees={employees} entities={entities} isAdmin={isAdmin} canSeeComp={canSeeComp}
           onClose={() => { setFormOpen(false); setEditing(null); }}
           onSaved={onSaved} toastOk={toastOk} toastErr={toastErr} />
       )}

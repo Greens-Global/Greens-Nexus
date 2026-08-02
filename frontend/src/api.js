@@ -896,6 +896,7 @@ export const api = {
   timeSchedDelete:   (id)        => req(`/timeclock/schedule/${id}`, { method: 'DELETE' }),
   timePayroll:       (email, start, end) => req(`/timeclock/payroll?email=${encodeURIComponent(email)}&start=${start}&end=${end}`),
   timePayrollRate:   (data)      => req('/timeclock/payroll/rate', { method: 'PUT', body: JSON.stringify(data) }),
+  timePayrollRateGet: (email)    => req(`/timeclock/payroll/rate?email=${encodeURIComponent(email)}`),
   timeAutoLunchGet:  ()          => req('/timeclock/payroll/autolunch'),
   timeAutoLunchSet:  (data)      => req('/timeclock/payroll/autolunch', { method: 'PUT', body: JSON.stringify(data) }),
   timeRoundingGet:   ()          => req('/timeclock/payroll/rounding'),

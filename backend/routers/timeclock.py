@@ -2393,14 +2393,14 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
                 status = "weekend_worked"; bonus = weekend_ot; weekend_worked += 1
             else:
                 status = "weekend"
-        elif ds > today:
-            status = "upcoming"             # weekday not yet elapsed - no deduction yet
-        elif wm == 0:
-            status = "absent"; deduct = daily; missed_full += 1
-        elif wm < half_min:
+        elif wm >= half_min:
+            status = "present"              # earned a full day - never deducted
+        elif ds >= today:
+            status = "upcoming"             # today or future, not a full day yet - don't judge mid-day
+        elif wm > 0:
             status = "half"; deduct = daily / 2.0; missed_half += 1
         else:
-            status = "present"
+            status = "absent"; deduct = daily; missed_full += 1
         deduction += deduct
         fixed_days.append({"date": ds, "workedMin": wm, "isWeekend": is_weekend,
                            "status": status, "deduct": round(deduct, 2), "bonus": round(bonus, 2)})
