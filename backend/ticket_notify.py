@@ -506,18 +506,30 @@ def _auto_close_once(db: Session) -> None:
                      detail=f"Auto-closed after {days} day(s) in Resolved with no reopen")
 
 
+def _ticket_scan_once() -> None:
+    """Blocking body of ticket_notify_loop: synchronous DB queries plus
+    Outlook/Graph email retries and auto-close. Run via asyncio.to_thread (see
+    the loop) so it never executes on the request event loop - a slow synchronous
+    Graph send here would otherwise freeze every request on this worker, CORS
+    preflights included, until it returned. Mirrors reminders_loop /
+    long_session_loop, which already offload their scans this way."""
+    db = SessionLocal()
+    try:
+        _retry_failed_once(db)
+        _auto_close_once(db)
+    finally:
+        db.close()
+
+
 async def ticket_notify_loop() -> None:
     """Started once from main.py's lifespan, same convention as
     reminders.reminders_loop - retries failed/stuck sends and auto-closes
-    long-resolved tickets on a fixed interval."""
+    long-resolved tickets on a fixed interval. The scan runs in a worker thread
+    (asyncio.to_thread) so its blocking DB + Graph I/O never stalls the loop."""
     await asyncio.sleep(60)   # let startup finish before the first scan
     while True:
-        db = SessionLocal()
         try:
-            _retry_failed_once(db)
-            _auto_close_once(db)
+            await asyncio.to_thread(_ticket_scan_once)
         except Exception:
             pass   # a scan failure must not kill the loop - next tick tries again
-        finally:
-            db.close()
         await asyncio.sleep(_RETRY_LOOP_SEC)

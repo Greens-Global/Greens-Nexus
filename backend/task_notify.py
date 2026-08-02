@@ -464,23 +464,37 @@ def _rebuild_email(event_type: str, ctx: dict, role: str, cfg: dict) -> tuple[st
     return tmpl.modified_email(t=ctx, base_url=_APP_URL, logo_url=logo_url, update_kind="Task updated")
 
 
+def _task_scan_once(do_due: bool) -> None:
+    """The blocking body of task_notify_loop: synchronous DB queries plus
+    Outlook/Graph email sends. Run via asyncio.to_thread (see the loop) so it
+    NEVER executes on the request event loop - a slow synchronous Graph send here
+    used to freeze every request the worker was serving, CORS preflights
+    included, for as long as the send took. Matches reminders_loop /
+    long_session_loop, which already offload their scans the same way."""
+    db = SessionLocal()
+    try:
+        _retry_failed_once(db)
+        if do_due:
+            _due_reminders_once(db)
+    finally:
+        db.close()
+
+
 async def task_notify_loop() -> None:
     """Started once from main.py's lifespan, same convention as
     ticket_notify.ticket_notify_loop. Retries failed/stuck sends every 5 min;
     scans for due-date reminders hourly (that resolution is all a "due in N
-    days" reminder needs)."""
+    days" reminder needs). The scan runs in a worker thread (asyncio.to_thread)
+    so its blocking DB + Graph I/O never stalls the event loop."""
     await asyncio.sleep(75)   # stagger slightly after the ticket loop's own 60s startup delay
     last_due_scan = 0.0
     while True:
-        db = SessionLocal()
+        now = asyncio.get_event_loop().time()
+        do_due = (now - last_due_scan) >= _DUE_SCAN_LOOP_SEC
         try:
-            _retry_failed_once(db)
-            now = asyncio.get_event_loop().time()
-            if now - last_due_scan >= _DUE_SCAN_LOOP_SEC:
-                _due_reminders_once(db)
+            await asyncio.to_thread(_task_scan_once, do_due)
+            if do_due:
                 last_due_scan = now
         except Exception:
             pass
-        finally:
-            db.close()
         await asyncio.sleep(_RETRY_LOOP_SEC)
