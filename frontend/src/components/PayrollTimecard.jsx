@@ -116,6 +116,11 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false })
   // bi-weekly Sunday (which can fall in the previous month). On the first fixed
   // load, snap to the CURRENT month so they don't open on last month by default.
   const fixedSnapped = useRef(false);
+  // Remember a fixed employee across reloads: a month switch nulls `data` briefly,
+  // and without this the render would fall back to the hourly bi-weekly shell for a
+  // frame (the "15/10 - 28/10" flash) before the month card loads.
+  const wasFixed = useRef(false);
+  if (data) wasFixed.current = data.payType === 'fixed';
   useEffect(() => {
     if (!data || data.payType !== 'fixed' || fixedSnapped.current) return;
     fixedSnapped.current = true;
@@ -220,6 +225,16 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false })
         onPrev={() => shiftMonth(-1)} onNext={() => shiftMonth(1)}
         onApprove={approve} onFinalize={finalize} onUnfinalize={unfinalize} onSign={signTimecard}
         editDay={editDay} setEditDay={setEditDay} load={load} toastOk={toastOk} toastErr={toastErr} />
+    );
+  }
+  // A known fixed employee is mid-reload (switching months): show a clean loader
+  // instead of the hourly bi-weekly toolbar, so the header never flashes the wrong
+  // period between months.
+  if (wasFixed.current && data === null && !stepLocked) {
+    return (
+      <div style={{ fontFamily: 'var(--wk-font)', padding: '52px 0', textAlign: 'center', color: 'var(--muted)' }}>
+        <Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} />
+      </div>
     );
   }
 
