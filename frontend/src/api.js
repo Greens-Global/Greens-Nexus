@@ -27,11 +27,23 @@ async function getAuthHeader(forceRefresh = false) {
   if (!account) return {};
   if (!msalInstance.getActiveAccount()) msalInstance.setActiveAccount(account);
   try {
-    const result = await msalInstance.acquireTokenSilent({
+    let result = await msalInstance.acquireTokenSilent({
       ...apiTokenRequest,
       account,
       forceRefresh,
     });
+    // MSAL caches the ID and access tokens with SEPARATE lifetimes and decides
+    // whether to refresh based on the ACCESS token - so acquireTokenSilent can
+    // hand back an ID token that's already expired while its access token is still
+    // valid. The Nexus backend authenticates off the ID token (Bearer idToken), so
+    // a stale one 401s; the caller's forceRefresh retry then succeeds (the
+    // transient 401s that still showed in the console after the account-wait fix).
+    // Pre-empt it: if the ID token is at/near expiry, refresh now so the FIRST
+    // request already carries a fresh token.
+    const exp = result?.idTokenClaims?.exp;
+    if (!forceRefresh && typeof exp === 'number' && exp * 1000 < Date.now() + 60_000) {
+      result = await msalInstance.acquireTokenSilent({ ...apiTokenRequest, account, forceRefresh: true });
+    }
     return { Authorization: `Bearer ${result.idToken}` };
   } catch {
     return {};
