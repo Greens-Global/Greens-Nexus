@@ -698,8 +698,16 @@ def finalize_timecard(body: FinalizeIn, user: dict = Depends(require_administrat
     # Freeze the pay rate + OT rule as of finalize, so a later change can't
     # re-price this locked, paid period (see _compute_timecard).
     _rr = db.query(PayrollRate).filter(PayrollRate.employee_email == email).first()
+    # Snapshot BOTH pay models so neither an hourly rate nor a fixed salary can
+    # retro-price this locked, paid period after a later change (see
+    # _compute_timecard and _fixed_card, which read this back for finalized periods).
     _snap = json.dumps({"rate": float(_rr.hourly_rate) if _rr else 0.0,
-                        "rule": (getattr(_rr, "overtime_rule", None) or "ca") if _rr else "ca"})
+                        "rule": (getattr(_rr, "overtime_rule", None) or "ca") if _rr else "ca",
+                        "payType": (getattr(_rr, "pay_type", None) or "hourly") if _rr else "hourly",
+                        "currency": (getattr(_rr, "currency", None) or "USD") if _rr else "USD",
+                        "monthlySalary": float(getattr(_rr, "monthly_salary", 0) or 0) if _rr else 0.0,
+                        "weekendOtAmount": float(getattr(_rr, "weekend_ot_amount", 0) or 0) if _rr else 0.0,
+                        "fullDayHours": float(getattr(_rr, "full_day_hours", 8) or 8) if _rr else 8.0})
     row = TimeApproval(id=str(uuid.uuid4()), employee_email=email,
                        period_start=body.start, period_end=body.end, worked_min=worked,
                        approved_by=user["email"], approved_at=_now_iso(), kind="final",
@@ -2370,6 +2378,19 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
     weekend_ot = float(getattr(rr, "weekend_ot_amount", 0) or 0) if rr else 0.0
     full_hours = float(getattr(rr, "full_day_hours", 8) or 8) if rr else 8.0
     currency = (getattr(rr, "currency", None) or "USD") if rr else "USD"
+    # A FINALIZED month is frozen at the salary it was finalized with, so a later
+    # raise can't retro-price an already-paid month (mirrors the hourly freeze).
+    _fin_snap = _finalized_row(db, em, m_start, m_end)
+    if _fin_snap and _fin_snap.note:
+        try:
+            _sn = json.loads(_fin_snap.note)
+            if isinstance(_sn, dict) and "monthlySalary" in _sn:
+                salary = float(_sn.get("monthlySalary") or 0)
+                weekend_ot = float(_sn.get("weekendOtAmount") or 0)
+                full_hours = float(_sn.get("fullDayHours") or 8) or 8
+                currency = _sn.get("currency") or currency
+        except Exception:   # noqa: BLE001 - a bad snapshot must not break the card
+            pass
 
     first = datetime.strptime(m_start, "%Y-%m-%d").date()
     last = datetime.strptime(m_end, "%Y-%m-%d").date()
