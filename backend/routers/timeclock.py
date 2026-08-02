@@ -163,11 +163,14 @@ def _live_punches(db: Session, email: str, start: str = "", end: str = ""):
     return q.order_by(TimePunch.at).all()
 
 
-def _day_summaries(punches: list) -> dict:
+def _day_summaries(punches: list, round_min: int = 0) -> dict:
     """local_date -> {workedMin, breakMin, firstIn, lastOut, flags, punches}.
-    Exact minutes, no rounding. Pairs across the FULL sequence (not per calendar
-    day) so an overnight shift - in one night, out the next morning - counts as one
-    segment on the day it STARTED. Unclosed pairs are flagged, never guessed."""
+    When round_min>0 each punch is rounded to the nearest round_min minutes before
+    the worked-minute math, so approve / finalize / timesheet totals match the
+    rounded PAY engine (_compute_timecard) - the number attested and approved is
+    the number paid. Pass 0 for exact minutes. Pairs across the FULL sequence (not
+    per calendar day) so an overnight shift - in one night, out the next morning -
+    counts as one segment on the day it STARTED. Unclosed pairs are flagged."""
     by_day = {}
     for p in punches:
         by_day.setdefault(p.local_date, []).append(p)
@@ -187,6 +190,8 @@ def _day_summaries(punches: list) -> dict:
         t = _parse_iso(p.at)
         if t is None:
             continue
+        if round_min:
+            t = _round_punch(t, round_min)
         d = p.local_date
         if p.geo_status == "out_of_fence":
             flag(d, "out_of_fence")
@@ -405,12 +410,13 @@ def self_manual_punch(body: SelfPunchIn, user: dict = Depends(get_current_user),
 @router.get("/me")
 def my_timesheet(start: str = "", end: str = "",
                  user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    return {"days": _day_summaries(_live_punches(db, user["email"], start, end))}
+    return {"days": _day_summaries(_live_punches(db, user["email"], start, end), _round_min(db))}
 
 
 # ── Manager / HR endpoints ────────────────────────────────────────────────────
 
 def _team_rows(db: Session, start: str, end: str, only_emails=None) -> list:
+    rmin = _round_min(db)   # round like the pay engine so review == paid
     q = db.query(TimePunch).filter(TimePunch.voided == 0)
     if only_emails is not None:
         q = q.filter(TimePunch.employee_email.in_(only_emails))
@@ -425,7 +431,7 @@ def _team_rows(db: Session, start: str, end: str, only_emails=None) -> list:
              for e in db.query(NexusEmployee).all() if e.work_email}
     rows = []
     for email, plist in sorted(by_emp.items()):
-        days = _day_summaries(plist)
+        days = _day_summaries(plist, rmin)
         rows.append({
             "email": email,
             "name": names.get(email) or email.split("@")[0].replace(".", " ").title(),
@@ -534,7 +540,7 @@ def approve_timecard(body: ApprovalIn, user: dict = Depends(require_team_write),
             # available to pair with this day's in-punch - otherwise the locked-in
             # approved minutes would be short by the whole after-midnight portion.
             _nx = (date.fromisoformat(day) + timedelta(days=1)).isoformat()
-            worked = _day_summaries(_live_punches(db, email, day, _nx)).get(day, {}).get("workedMin", 0)
+            worked = _day_summaries(_live_punches(db, email, day, _nx), _round_min(db)).get(day, {}).get("workedMin", 0)
             old = (db.query(TimeApproval)
                    .filter(TimeApproval.employee_email == email,
                            TimeApproval.period_start == day, TimeApproval.period_end == day,
@@ -570,7 +576,7 @@ def approve_timecard(body: ApprovalIn, user: dict = Depends(require_team_write),
     # extra day's own shifts don't inflate the total.
     _end_nx = (date.fromisoformat(body.end) + timedelta(days=1)).isoformat() if body.end else body.end
     worked = sum(v["workedMin"] for k, v in _day_summaries(
-        _live_punches(db, email, body.start, _end_nx)).items()
+        _live_punches(db, email, body.start, _end_nx), _round_min(db)).items()
         if not body.end or k <= body.end)
     row = TimeApproval(id=str(uuid.uuid4()), employee_email=email,
                        period_start=body.start, period_end=body.end,
@@ -614,11 +620,12 @@ def _signoff_state(db: Session, email: str, start: str, end: str) -> dict:
                     TimeApproval.period_start == start, TimeApproval.period_end == end).all())
     approval = finalized = signed = None
     for r in rows:
-        d = {"by": r.approved_by, "at": r.approved_at, "workedMin": r.worked_min, "name": r.note or ""}
+        d = {"by": r.approved_by, "at": r.approved_at, "workedMin": r.worked_min}
         k = r.kind or "manager"
         if k == "final":
-            finalized = d
+            finalized = d          # note holds the rate/rule snapshot, not a name
         elif k == "employee_sign":
+            d["name"] = r.note or ""   # employee-sign stores the signer's name in note
             signed = d
         else:
             approval = d
@@ -673,10 +680,16 @@ def finalize_timecard(body: FinalizeIn, user: dict = Depends(require_administrat
         raise HTTPException(409, "Already finalized for this period")
     _end_nx = (date.fromisoformat(body.end) + timedelta(days=1)).isoformat()
     worked = sum(v["workedMin"] for k, v in _day_summaries(
-        _live_punches(db, email, body.start, _end_nx)).items() if k <= body.end)
+        _live_punches(db, email, body.start, _end_nx), _round_min(db)).items() if k <= body.end)
+    # Freeze the pay rate + OT rule as of finalize, so a later change can't
+    # re-price this locked, paid period (see _compute_timecard).
+    _rr = db.query(PayrollRate).filter(PayrollRate.employee_email == email).first()
+    _snap = json.dumps({"rate": float(_rr.hourly_rate) if _rr else 0.0,
+                        "rule": (getattr(_rr, "overtime_rule", None) or "ca") if _rr else "ca"})
     row = TimeApproval(id=str(uuid.uuid4()), employee_email=email,
                        period_start=body.start, period_end=body.end, worked_min=worked,
-                       approved_by=user["email"], approved_at=_now_iso(), kind="final")
+                       approved_by=user["email"], approved_at=_now_iso(), kind="final",
+                       note=_snap)
     db.add(row)
     _hr_notify(db, email, "Timecard finalized",
                f"Your timecard {body.start} – {body.end} is finalized for payroll. "
@@ -1360,6 +1373,11 @@ def decide_punch_edit(punch_id: str, body: PunchEditDecision,
             row.original_at = row.at
         row.at = row.pending_at[:19]
         row.local_date = _local_date(row.at, row.tz_offset_min or 0)
+        # Stamp the change time so any day/period approval or employee signature on
+        # this day goes STALE - team_timesheet keys staleness on
+        # max(created_at, adjusted_at); without this, an approved edit silently
+        # changes pay under an existing sign-off.
+        row.adjusted_at = now
         _hr_notify(db, row.employee_email, "Punch edit approved",
                    f"Your edited {row.kind} punch time was approved and now counts toward your hours."
                    + (f" Note: {note}" if note else ""),
@@ -2360,6 +2378,13 @@ def _rounding_cfg(db: Session) -> dict:
     return cfg
 
 
+def _round_min(db: Session) -> int:
+    """The active punch-rounding step (0 when rounding is off) - the value to pass
+    to _day_summaries so its totals match the rounded PAY engine."""
+    c = _rounding_cfg(db)
+    return c["nearestMin"] if c["enabled"] else 0
+
+
 def _round_punch(t: datetime, nearest: int) -> datetime:
     """Drop seconds, then round the minute-of-day to the nearest `nearest`
     (half rounds up): 1:22:00→1:20, 1:23:00→1:25, 9:04:00→9:05 at nearest=5."""
@@ -2439,6 +2464,18 @@ def _compute_timecard(db: Session, em: str, start: str, end: str) -> dict:
     rate_row = db.query(PayrollRate).filter(PayrollRate.employee_email == em).first()
     rate = float(rate_row.hourly_rate) if rate_row else 0.0
     rule = (getattr(rate_row, "overtime_rule", None) or "ca") if rate_row else "ca"
+    # A FINALIZED period is frozen at the rate + OT rule it was finalized with, so a
+    # later raise or rule switch never retro-reprices an already-paid timecard
+    # (finalize snapshots these into the approval row's note).
+    _fin_snap = _finalized_row(db, em, start, end)
+    if _fin_snap and _fin_snap.note:
+        try:
+            _sn = json.loads(_fin_snap.note)
+            if isinstance(_sn, dict) and "rate" in _sn:
+                rate = float(_sn.get("rate") or 0.0)
+                rule = _sn.get("rule") or rule
+        except Exception:   # noqa: BLE001 - a bad snapshot must not break the timecard
+            pass
     emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == em).first()
     dept = (emp.department if emp else "") or ""
 
