@@ -9,6 +9,7 @@ import {
   ShieldCheck, Shield, AlertTriangle, Clock, ArrowUpRight,
 } from 'lucide-react';
 import { api } from '../api';
+import { dialog } from '../ui/dialog';
 import { usePeopleDirectory } from '../lib/queries';
 import { SkeletonBlocks } from '../components/AsyncState';
 import { ensureStepUp, isStepUpRequired, StepUpNeeded } from '../stepup/StepUp';
@@ -843,7 +844,7 @@ function PayTab({ employee, reloadToken, onEdit }) {
     try { const { url } = await api.getDocUrl(id); window.open(url, '_blank', 'noopener'); } catch { /* noop */ }
   };
   const deleteStub = async (id) => {
-    if (!window.confirm('Delete this paystub?')) return;
+    if (!await dialog.confirm('Delete this paystub?', { title: 'Delete paystub', confirmText: 'Delete', danger: true })) return;
     try { await api.deleteEmployeeDoc(id); setStubs(s => s.filter(x => x.id !== id)); } catch { /* noop */ }
   };
 
@@ -2833,7 +2834,7 @@ function EntitiesModal({ entities, employees = [], onClose, onChanged, toastOk, 
     setBusy(false);
   }
   async function remove(en) {
-    if (!window.confirm(`Delete “${en.name}”? Workers keep their record but lose this company link.`)) return;
+    if (!await dialog.confirm(`Delete "${en.name}"? Workers keep their record but lose this company link.`, { title: 'Delete company', confirmText: 'Delete', danger: true })) return;
     try { await api.deleteEntity(en.id); await onChanged(); toastOk('Company deleted.'); }
     catch (e) { toastErr(e?.message || 'Could not delete company.'); }
   }
@@ -3475,7 +3476,7 @@ function WorkSitesModal({ sites, entities, onClose, onChanged, toastOk, toastErr
     setBusy(false);
   }
   async function remove(s) {
-    if (!window.confirm(`Delete work site “${s.name}”?`)) return;
+    if (!await dialog.confirm(`Delete work site "${s.name}"?`, { title: 'Delete work site', confirmText: 'Delete', danger: true })) return;
     try { await api.deleteWorkSite(s.id); await onChanged(); toastOk('Work site deleted.'); }
     catch (e) { toastErr(e?.message || 'Could not delete.'); }
   }

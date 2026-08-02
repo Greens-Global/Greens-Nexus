@@ -148,14 +148,14 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false })
   const nameFor = (em) => people.find(p => p.email === (em || '').toLowerCase())?.name || em || '';
 
   async function finalize() {
-    if (!window.confirm(`Finalize ${nameFor(email)}'s timecard for ${label}? This locks all time records for the period - edits will need an unlock.`)) return;
+    if (!await dialog.confirm(`Finalize ${nameFor(email)}'s timecard for ${label}? This locks all time records for the period - edits will need an unlock.`, { title: 'Finalize timecard', confirmText: 'Finalize', danger: true })) return;
     setBusy(true);
     try { await api.timeFinalize({ email, start, end }); toastOk?.('Timecard finalized - the period is locked.'); load(); }
     catch (e) { toastErr?.(e?.message || 'Could not finalize.'); }
     setBusy(false);
   }
   async function unfinalize() {
-    if (!window.confirm(`Unlock ${nameFor(email)}'s finalized timecard for ${label}? Edits become possible again; re-finalize when done.`)) return;
+    if (!await dialog.confirm(`Unlock ${nameFor(email)}'s finalized timecard for ${label}? Edits become possible again; re-finalize when done.`, { title: 'Unlock period', confirmText: 'Unlock' })) return;
     setBusy(true);
     try { await api.timeUnfinalize({ email, start, end }); toastOk?.('Period unlocked.'); load(); }
     catch (e) { toastErr?.(e?.message || 'Could not unlock.'); }
