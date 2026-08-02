@@ -12,12 +12,20 @@ async function getAuthHeader(forceRefresh = false) {
   // than one Microsoft account (e.g. work + personal) can have the wrong account
   // at [0], whose token the backend rejects with 401. Pin the active account once
   // so every request uses the same identity.
-  let account = msalInstance.getActiveAccount();
-  if (!account) {
-    account = msalInstance.getAllAccounts()[0];
-    if (account) msalInstance.setActiveAccount(account);
+  let account = msalInstance.getActiveAccount() || msalInstance.getAllAccounts()[0];
+  // On a cold load the signed-in account can lag msalReady by a moment -
+  // handleRedirectPromise is still resolving when the first providers mount and
+  // fetch. Firing in that gap sends NO Authorization header, so the request 401s,
+  // the caller retries with the token, and it succeeds - but that first-try 401 is
+  // logged to the console and looks alarming. Wait briefly for the account so the
+  // very first attempt already carries a token. Bounded (~2s); genuinely signed-out
+  // users never reach here because the app gates fetches behind AuthenticatedTemplate.
+  for (let i = 0; !account && i < 25; i++) {
+    await new Promise(r => setTimeout(r, 80));
+    account = msalInstance.getActiveAccount() || msalInstance.getAllAccounts()[0];
   }
   if (!account) return {};
+  if (!msalInstance.getActiveAccount()) msalInstance.setActiveAccount(account);
   try {
     const result = await msalInstance.acquireTokenSilent({
       ...apiTokenRequest,
