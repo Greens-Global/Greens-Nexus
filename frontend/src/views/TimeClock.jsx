@@ -208,6 +208,16 @@ export default function TimeClock() {
   const [monBusy, setMonBusy] = useState(false);
   const [missed, setMissed] = useState({ kind: 'out', at: '', note: '' });
   const [myReqs, setMyReqs] = useState([]);    // my punch-fix requests + their status
+  // Decided requests (approved/rejected) can be dismissed once the employee has
+  // seen them; pending ones stay until decided. Dismissals persist per-browser.
+  const [dismissedReqs, setDismissedReqs] = useState(() => {
+    try { return new Set(JSON.parse(localStorage.getItem('nx-timereq-dismissed') || '[]')); } catch { return new Set(); }
+  });
+  const dismissReq = (id) => setDismissedReqs(prev => {
+    const n = new Set(prev); n.add(id);
+    try { localStorage.setItem('nx-timereq-dismissed', JSON.stringify([...n])); } catch { /* ignore */ }
+    return n;
+  });
   const [, setTick] = useState(0);             // re-render for the live timer
   useEffect(() => { api.timeMyPunchRequests().then(setMyReqs).catch(() => {}); }, []);
   const msgTimer = useRef(null);
@@ -812,29 +822,41 @@ export default function TimeClock() {
         </div>
       )}
 
-      {/* My pending/decided fix requests, so the employee can track them. */}
-      {myReqs.length > 0 && (
+      {/* My punch requests - pending stay until decided; decided (approved/rejected)
+          can be dismissed once seen. Click a row to open the Timecard and act. */}
+      {(() => {
+        const visible = myReqs.filter(r => r.status === 'pending' || !dismissedReqs.has(r.id));
+        if (!visible.length) return null;
+        return (
         <div style={{ marginBottom: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {myReqs.slice(0, 6).map(r => {
+          {visible.slice(0, 8).map(r => {
             const c = r.status === 'approved' ? 'hsl(var(--color-green))'
               : r.status === 'rejected' ? 'hsl(var(--color-red))' : '#b45309';
             const tint = r.status === 'approved' ? 'hsla(var(--color-green),0.1)'
               : r.status === 'rejected' ? 'rgba(185,28,28,0.08)' : 'rgba(180,83,9,0.1)';
             const when = r.action === 'add' && r.at ? ` at ${localTime(r.at)}` : '';
+            const decided = r.status !== 'pending';
             return (
               /* Status is a PILL and free-text (your reason, the approver's note)
                  is QUOTED with a label - bare dot-separated fragments read as
                  buttons/errors ("· Reject" looked like a dead action). */
-              <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap', fontSize: 12.5, padding: '8px 12px', background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 10 }}>
+              <div key={r.id} onClick={() => setTab('timecard')} title="Open your timecard"
+                style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap', fontSize: 12.5, padding: '8px 12px', background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 10, cursor: 'pointer' }}>
                 <span style={{ fontWeight: 700, fontSize: 11, textTransform: 'capitalize', color: c, background: tint, padding: '2px 10px', borderRadius: 999, flexShrink: 0 }}>{r.status}</span>
                 <span style={{ color: 'var(--ink)', fontWeight: 600 }}>{r.action === 'add' ? `Add ${(KIND_LABEL[r.punchKind] || r.punchKind).toLowerCase()}${when}` : 'Remove a punch'}</span>
                 {r.reason && <span style={{ color: 'var(--muted)' }}>Your reason: “{r.reason}”</span>}
                 {r.status === 'rejected' && r.decisionNote && <span style={{ color: 'hsl(var(--color-red))' }}>Approver: “{r.decisionNote}”</span>}
+                <span style={{ flex: 1, minWidth: 8 }} />
+                {decided
+                  ? <button onClick={(e) => { e.stopPropagation(); dismissReq(r.id); }} title="Dismiss"
+                      style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'inline-flex', padding: 2, flexShrink: 0 }}><X size={14} /></button>
+                  : <span style={{ fontSize: 11, color: 'var(--muted)', fontStyle: 'italic', flexShrink: 0 }}>waiting for approver</span>}
               </div>
             );
           })}
         </div>
-      )}
+        );
+      })()}
 
       {/* Summary - one composition bar (worked/idle/break) + payroll totals */}
       <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 16 }}>
