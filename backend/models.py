@@ -1413,6 +1413,15 @@ class PayrollRate(Base):
     # (non-US - their local law is handled outside Nexus). Defaults to 'ca' since
     # the workforce is California; set explicitly for out-of-state / overseas.
     overtime_rule  = Column(String, default="ca")
+    # Pay model. 'hourly' = the SwipeClock hourly + OT engine above (default, keeps
+    # every existing employee unchanged). 'fixed' = monthly salary: the month is the
+    # period (no work-week), pay = salary - (missed weekday-days x salary/days-in-month,
+    # half for a half day) + (weekend days worked x weekend_ot_amount). See _fixed_card.
+    pay_type          = Column(String, default="hourly")   # hourly | fixed
+    currency          = Column(String, default="USD")      # USD | INR
+    monthly_salary    = Column(Float,  default=0)          # fixed pay: gross per month
+    weekend_ot_amount = Column(Float,  default=0)          # fixed pay: flat per weekend day worked
+    full_day_hours    = Column(Float,  default=8)          # fixed pay: half-day threshold = this / 2
     updated_by     = Column(String, default="")
     updated_at     = Column(String, default="")
 

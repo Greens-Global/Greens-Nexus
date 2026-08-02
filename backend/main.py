@@ -45,6 +45,11 @@ def _run_migrations():
         # are swallowed.
         sqlite_migrations = [
             "ALTER TABLE payroll_rates ADD COLUMN overtime_rule VARCHAR DEFAULT 'ca'",
+            "ALTER TABLE payroll_rates ADD COLUMN pay_type VARCHAR DEFAULT 'hourly'",
+            "ALTER TABLE payroll_rates ADD COLUMN currency VARCHAR DEFAULT 'USD'",
+            "ALTER TABLE payroll_rates ADD COLUMN monthly_salary FLOAT DEFAULT 0",
+            "ALTER TABLE payroll_rates ADD COLUMN weekend_ot_amount FLOAT DEFAULT 0",
+            "ALTER TABLE payroll_rates ADD COLUMN full_day_hours FLOAT DEFAULT 8",
             "ALTER TABLE agent_activity ADD COLUMN domain VARCHAR DEFAULT ''",
             "ALTER TABLE agent_activity ADD COLUMN category VARCHAR DEFAULT ''",
             "ALTER TABLE items ADD COLUMN picture_required BOOLEAN DEFAULT 1",
@@ -345,6 +350,11 @@ def _run_migrations():
         return
     migrations = [
         "ALTER TABLE payroll_rates ADD COLUMN IF NOT EXISTS overtime_rule VARCHAR DEFAULT 'ca'",
+        "ALTER TABLE payroll_rates ADD COLUMN IF NOT EXISTS pay_type VARCHAR DEFAULT 'hourly'",
+        "ALTER TABLE payroll_rates ADD COLUMN IF NOT EXISTS currency VARCHAR DEFAULT 'USD'",
+        "ALTER TABLE payroll_rates ADD COLUMN IF NOT EXISTS monthly_salary FLOAT DEFAULT 0",
+        "ALTER TABLE payroll_rates ADD COLUMN IF NOT EXISTS weekend_ot_amount FLOAT DEFAULT 0",
+        "ALTER TABLE payroll_rates ADD COLUMN IF NOT EXISTS full_day_hours FLOAT DEFAULT 8",
         "ALTER TABLE agent_activity ADD COLUMN IF NOT EXISTS domain VARCHAR DEFAULT ''",
         "ALTER TABLE agent_activity ADD COLUMN IF NOT EXISTS category VARCHAR DEFAULT ''",
         "ALTER TABLE requisitions ADD COLUMN IF NOT EXISTS employee_email VARCHAR DEFAULT ''",

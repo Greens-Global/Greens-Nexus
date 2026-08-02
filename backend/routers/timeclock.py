@@ -2340,6 +2340,99 @@ def _pay_period(date_str: str):
     return start.isoformat(), (start + timedelta(days=_PAYPERIOD_DAYS - 1)).isoformat()
 
 
+def _month_bounds(date_str: str):
+    """Return (first_iso, last_iso) of the CALENDAR month containing date_str.
+    Fixed-salary employees are paid by the month, not the bi-weekly period."""
+    d = datetime.strptime(date_str, "%Y-%m-%d").date()
+    first = d.replace(day=1)
+    nxt = date(first.year + (first.month == 12), (first.month % 12) + 1, 1)
+    return first.isoformat(), (nxt - timedelta(days=1)).isoformat()
+
+
+def _fixed_card(db: Session, em: str, anchor: str) -> dict:
+    """Monthly timecard for a FIXED-salary employee. Reuses _compute_timecard for
+    the day/segment grid (so inline edit/add, signatures and worked-minutes are
+    identical), then overlays the fixed-pay math on top:
+
+        pay = monthly_salary
+              - (missed weekday-days x daily_rate, half a day for a half day)
+              + (weekend days worked x weekend_ot_amount)
+
+    daily_rate = monthly_salary / calendar-days-in-month. A weekday counts as a
+    HALF day if worked > 0 but under half a full day (full_day_hours / 2), and a
+    full absence if worked == 0. Weekends are never deducted; each weekend DAY
+    worked adds the flat weekend overtime. Future weekdays in the current month
+    don't deduct until they've elapsed. No work-week / no hourly OT here."""
+    m_start, m_end = _month_bounds(anchor)
+    card = _compute_timecard(db, em, m_start, m_end)   # grid + worked minutes + segments
+    rr = db.query(PayrollRate).filter(PayrollRate.employee_email == em).first()
+    salary = float(getattr(rr, "monthly_salary", 0) or 0) if rr else 0.0
+    weekend_ot = float(getattr(rr, "weekend_ot_amount", 0) or 0) if rr else 0.0
+    full_hours = float(getattr(rr, "full_day_hours", 8) or 8) if rr else 8.0
+    currency = (getattr(rr, "currency", None) or "USD") if rr else "USD"
+
+    first = datetime.strptime(m_start, "%Y-%m-%d").date()
+    last = datetime.strptime(m_end, "%Y-%m-%d").date()
+    days_in_month = (last - first).days + 1
+    daily = salary / days_in_month if days_in_month else 0.0
+    half_min = (full_hours / 2.0) * 60.0
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    worked_by_day = {d["date"]: d.get("workedMin", 0) for d in card.get("days", [])}
+    missed_full = missed_half = weekend_worked = 0
+    deduction = 0.0
+    fixed_days = []
+    for i in range(days_in_month):
+        dd = first + timedelta(days=i)
+        ds = dd.isoformat()
+        wm = worked_by_day.get(ds, 0)
+        is_weekend = dd.weekday() >= 5      # Sat=5, Sun=6
+        deduct = bonus = 0.0
+        if is_weekend:
+            if wm > 0:
+                status = "weekend_worked"; bonus = weekend_ot; weekend_worked += 1
+            else:
+                status = "weekend"
+        elif ds > today:
+            status = "upcoming"             # weekday not yet elapsed - no deduction yet
+        elif wm == 0:
+            status = "absent"; deduct = daily; missed_full += 1
+        elif wm < half_min:
+            status = "half"; deduct = daily / 2.0; missed_half += 1
+        else:
+            status = "present"
+        deduction += deduct
+        fixed_days.append({"date": ds, "workedMin": wm, "isWeekend": is_weekend,
+                           "status": status, "deduct": round(deduct, 2), "bonus": round(bonus, 2)})
+
+    weekend_bonus = round(weekend_worked * weekend_ot, 2)
+    deduction = round(deduction, 2)
+    total_pay = round(salary - deduction + weekend_bonus, 2)
+
+    card["payType"] = "fixed"
+    card["currency"] = currency
+    card["monthlySalary"] = salary
+    card["dailyRate"] = round(daily, 2)
+    card["weekendOtAmount"] = weekend_ot
+    card["fullDayHours"] = full_hours
+    card["fixedDays"] = fixed_days
+    card["totals"] = {**card.get("totals", {}),
+                      "payType": "fixed", "monthlySalary": salary,
+                      "daysInMonth": days_in_month, "dailyRate": round(daily, 2),
+                      "missedFullDays": missed_full, "missedHalfDays": missed_half,
+                      "weekendDaysWorked": weekend_worked,
+                      "deduction": deduction, "weekendBonus": weekend_bonus,
+                      "totalPay": total_pay}
+    card["periodStart"], card["periodEnd"] = m_start, m_end
+    card["periodDays"] = days_in_month
+    return card
+
+
+def _pay_type(db: Session, em: str) -> str:
+    rr = db.query(PayrollRate).filter(PayrollRate.employee_email == em).first()
+    return (getattr(rr, "pay_type", None) or "hourly") if rr else "hourly"
+
+
 _AUTOLUNCH_KEY = "timeclock_autolunch"
 _AUTOLUNCH_DEFAULT = {"enabled": False, "afterMin": 360, "deductMin": 30}
 
@@ -2707,6 +2800,11 @@ def payroll_timecard(email: str, start: str, end: str,
     scope = _visible_emails(db, user)
     if scope is not None and em not in scope:
         raise HTTPException(403, "Outside your team")
+    if _pay_type(db, em) == "fixed":
+        # Fixed-salary employees are paid by the calendar month; `start` anchors it.
+        card = _fixed_card(db, em, start or datetime.now(timezone.utc).strftime("%Y-%m-%d"))
+        card.update(_signoff_state(db, em, card["periodStart"], card["periodEnd"]))
+        return card
     card = _compute_timecard(db, em, start, end)
     card.update(_signoff_state(db, em, start, end))
     return card
@@ -2719,6 +2817,10 @@ def my_payroll(start: str = "", user: dict = Depends(get_current_user), db: Sess
     per-day rows, weekly-OT split, pay, and the worked/break/idle composition."""
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     anchor = start.strip() or today
+    if _pay_type(db, user["email"]) == "fixed":
+        card = _fixed_card(db, user["email"], anchor)
+        card.update(_signoff_state(db, user["email"], card["periodStart"], card["periodEnd"]))
+        return card
     p_start, p_end = _pay_period(anchor)
     card = _compute_timecard(db, user["email"], p_start, p_end)
     card.update(_signoff_state(db, user["email"], p_start, p_end))
@@ -2729,8 +2831,39 @@ def my_payroll(start: str = "", user: dict = Depends(get_current_user), db: Sess
 
 class RateIn(BaseModel):
     email: str
-    hourly_rate: float
-    overtime_rule: Optional[str] = None   # ca | federal | none (unchanged if omitted)
+    hourly_rate: Optional[float] = None
+    overtime_rule: Optional[str] = None      # ca | federal | none (unchanged if omitted)
+    pay_type: Optional[str] = None           # hourly | fixed
+    currency: Optional[str] = None           # USD | INR
+    monthly_salary: Optional[float] = None   # fixed pay: gross per month
+    weekend_ot_amount: Optional[float] = None
+    full_day_hours: Optional[float] = None
+
+
+def _rate_dict(row) -> dict:
+    """The compensation config, in the shape the wage editor loads and saves."""
+    return {
+        "hourlyRate": float(getattr(row, "hourly_rate", 0) or 0) if row else 0.0,
+        "overtimeRule": (getattr(row, "overtime_rule", None) or "ca") if row else "ca",
+        "payType": (getattr(row, "pay_type", None) or "hourly") if row else "hourly",
+        "currency": (getattr(row, "currency", None) or "USD") if row else "USD",
+        "monthlySalary": float(getattr(row, "monthly_salary", 0) or 0) if row else 0.0,
+        "weekendOtAmount": float(getattr(row, "weekend_ot_amount", 0) or 0) if row else 0.0,
+        "fullDayHours": float(getattr(row, "full_day_hours", 8) or 8) if row else 8.0,
+        "isSet": row is not None,
+    }
+
+
+@router.get("/payroll/rate")
+def get_payroll_rate(email: str, user: dict = Depends(require_team_read),
+                     db: Session = Depends(get_db)):
+    """The current compensation config for one employee, so the wage editor can
+    pre-fill. Same visibility as the timecard (which already exposes the rate)."""
+    em = email.strip().lower()
+    scope = _visible_emails(db, user)
+    if scope is not None and em not in scope:
+        raise HTTPException(403, "Outside your team")
+    return _rate_dict(db.query(PayrollRate).filter(PayrollRate.employee_email == em).first())
 
 
 @router.put("/payroll/rate")
@@ -2744,13 +2877,24 @@ def set_payroll_rate(body: RateIn, user: dict = Depends(require_team_write),
     if not row:
         row = PayrollRate(employee_email=em)
         db.add(row)
-    row.hourly_rate = max(0.0, float(body.hourly_rate or 0))
+    if body.hourly_rate is not None:
+        row.hourly_rate = max(0.0, float(body.hourly_rate or 0))
     if body.overtime_rule in ("ca", "federal", "none"):
         row.overtime_rule = body.overtime_rule
+    if body.pay_type in ("hourly", "fixed"):
+        row.pay_type = body.pay_type
+    if body.currency in ("USD", "INR"):
+        row.currency = body.currency
+    if body.monthly_salary is not None:
+        row.monthly_salary = max(0.0, float(body.monthly_salary or 0))
+    if body.weekend_ot_amount is not None:
+        row.weekend_ot_amount = max(0.0, float(body.weekend_ot_amount or 0))
+    if body.full_day_hours is not None:
+        row.full_day_hours = max(1.0, float(body.full_day_hours or 8))
     row.updated_by = user["email"]
     row.updated_at = _now_iso()
     db.commit()
-    return {"ok": True, "rate": row.hourly_rate, "overtimeRule": row.overtime_rule or "ca"}
+    return {"ok": True, **_rate_dict(row)}
 
 
 # App/window-activity read endpoints (/my-activity, /activity-day, /activity)
