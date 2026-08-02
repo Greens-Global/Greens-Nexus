@@ -6,6 +6,7 @@ import {
   CalendarDays, Activity, Inbox, CalendarClock, Banknote, CalendarOff,
 } from 'lucide-react';
 import { api } from '../api';
+import { dialog } from '../ui/dialog';
 import DayTimeline from './DayTimeline';
 import ShiftsPanel from './ShiftsPanel';
 import ShiftSchedule from './ShiftSchedule';
@@ -201,8 +202,8 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
   async function decidePunchReq(id, status) {
     let note = '';
     if (status === 'rejected') {
-      const r = window.prompt('Reason (sent to the employee):');
-      if (r === null) return;   // cancelled
+      const r = await dialog.prompt('', { title: 'Reject request', message: 'Sent to the employee.', placeholder: 'Reason (optional)', confirmText: 'Reject', danger: true });
+      if (r === null) return;   // cancelled - do NOT reject
       note = r;
     }
     try {
@@ -218,9 +219,13 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
   }
 
   async function decideTimeoff(id, status) {
-    const note = status === 'rejected' ? (window.prompt('Reason (sent to the employee):') || '') : '';
+    let note = '';
+    if (status === 'rejected') {
+      note = await dialog.prompt('', { title: 'Reject time-off request', message: 'Sent to the employee.', placeholder: 'Reason (optional)', confirmText: 'Reject', danger: true });
+      if (note === null) return;   // cancelled - do NOT reject (was the cancel-still-rejects bug)
+    }
     try {
-      await api.timeOffDecide(id, { status, note });
+      await api.timeOffDecide(id, { status, note: note || '' });
       toastOk(`Request ${status}.`);
       loadTimeoff();
     } catch (e) { toastErr(e?.message || 'Could not update the request.'); }

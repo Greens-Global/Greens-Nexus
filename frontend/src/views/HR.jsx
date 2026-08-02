@@ -2695,6 +2695,7 @@ function CompanyDepartments({ entity, employees = [], toastOk, toastErr }) {
   const [busy, setBusy] = useState(false);
   const [editId, setEditId] = useState(null);   // department being renamed
   const [editName, setEditName] = useState('');
+  const cancelRef = useRef(false);   // set on Escape so the ensuing onBlur doesn't SAVE
   const load = () => api.getCompanyDepartments(entity.id).then(setDepts).catch(() => setDepts([]));
   useEffect(() => { setDepts(null); load(); }, [entity.id]);
   // Anyone with a work email can lead triage - not restricted to this company, since
@@ -2752,8 +2753,8 @@ function CompanyDepartments({ entity, employees = [], toastOk, toastErr }) {
                 {editId === d.id ? (
                   <input className="form-input" autoFocus value={editName} maxLength={40}
                     onChange={e => setEditName(e.target.value)}
-                    onKeyDown={e => { if (e.key === 'Enter') rename(d); if (e.key === 'Escape') setEditId(null); }}
-                    onBlur={() => rename(d)}
+                    onKeyDown={e => { if (e.key === 'Enter') { e.currentTarget.blur(); } if (e.key === 'Escape') { cancelRef.current = true; setEditId(null); } }}
+                    onBlur={() => { if (cancelRef.current) { cancelRef.current = false; return; } rename(d); }}
                     style={{ fontSize: 13, padding: '4px 8px' }} />
                 ) : (
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0 }}>

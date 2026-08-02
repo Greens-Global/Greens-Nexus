@@ -129,7 +129,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false })
   }
   async function approve() {
     setBusy(true);
-    try { await api.timeApprove({ email, start, end }); toastOk?.('Timecard approved - the employee is notified.'); }
+    try { await api.timeApprove({ email, start, end }); toastOk?.('Timecard approved - the employee is notified.'); load(); }
     catch (e) { toastErr?.(e?.message || 'Could not approve.'); }
     setBusy(false);
   }
@@ -456,9 +456,10 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false })
             {!self && (
             <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
               <button className="secondary-btn" onClick={async () => { const up = await ensureStepUp(); if (!up.ok) { if (!up.cancelled) toastErr?.('Identity check didn’t complete.'); return; } api.timeExportCsv(start, end, 'punches'); }} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> CSV</button>
-              <button className="primary-btn" data-tour="pr-approve" onClick={approve} disabled={busy || !!fin}
-                title={fin ? 'Period is finalized' : mgrAp ? `Already approved by ${nameFor(mgrAp.by)} - re-approve to refresh` : 'Step 1: manager sign-off'}
-                style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 }}><CheckCircle size={13} /> Approve</button>
+              <button className={mgrAp ? 'secondary-btn' : 'primary-btn'} data-tour="pr-approve" onClick={approve} disabled={busy || !!fin}
+                title={fin ? 'Period is finalized' : mgrAp ? `Approved by ${nameFor(mgrAp.by)} - click to re-approve after changes` : 'Step 1: manager sign-off'}
+                style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5, ...(mgrAp ? { color: 'hsl(var(--color-green))', borderColor: 'hsl(var(--color-green))' } : {}) }}>
+                <CheckCircle size={13} /> {busy ? '…' : mgrAp ? 'Approved' : 'Approve'}</button>
               {isAdmin && (fin
                 ? <button className="secondary-btn" onClick={unfinalize} disabled={busy} title="HR: unlock this finalized period for corrections"
                     style={{ fontSize: 12.5 }}>Unlock</button>
