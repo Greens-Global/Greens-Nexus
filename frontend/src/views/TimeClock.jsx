@@ -841,7 +841,9 @@ export default function TimeClock() {
               /* Status is a PILL and free-text (your reason, the approver's note)
                  is QUOTED with a label - bare dot-separated fragments read as
                  buttons/errors ("· Reject" looked like a dead action). */
-              <div key={r.id} onClick={() => setTab('timecard')} title="Open your timecard"
+              <div key={r.id} role="button" tabIndex={0} onClick={() => setTab('timecard')}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setTab('timecard'); } }}
+                title="Open your timecard" aria-label="Open your timecard"
                 style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap', fontSize: 12.5, padding: '8px 12px', background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 10, cursor: 'pointer' }}>
                 <span style={{ fontWeight: 700, fontSize: 11, textTransform: 'capitalize', color: c, background: tint, padding: '2px 10px', borderRadius: 999, flexShrink: 0 }}>{r.status}</span>
                 <span style={{ color: 'var(--ink)', fontWeight: 600 }}>{r.action === 'add' ? `Add ${(KIND_LABEL[r.punchKind] || r.punchKind).toLowerCase()}${when}` : 'Remove a punch'}</span>

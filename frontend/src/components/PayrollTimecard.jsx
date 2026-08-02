@@ -620,9 +620,9 @@ function InlineTime({ seg, k, showRaw, locked, onSaved, toastErr, self }) {
           &rarr; {t12(pendingAt)} <span style={{ fontStyle: 'italic' }}>pending</span>
           {!self && !locked && punchId && (
             <>
-              <button title="Approve this time" style={{ ...mini, color: 'hsl(var(--color-green))' }}
+              <button title="Approve this time" aria-label="Approve this edited time" style={{ ...mini, color: 'hsl(var(--color-green))' }}
                 onClick={async () => { try { await api.timePunchEditDecide(punchId, { status: 'approved' }); onSaved?.(); } catch (e) { toastErr?.(e?.message || 'Could not approve.'); } }}>&#10003;</button>
-              <button title="Reject this time" style={{ ...mini, color: '#b91c1c' }}
+              <button title="Reject this time" aria-label="Reject this edited time" style={{ ...mini, color: '#b91c1c' }}
                 onClick={async () => { const note = await dialog.prompt('', { title: 'Reject edit', message: 'Sent to the employee.', placeholder: 'Reason (optional)', confirmText: 'Reject', danger: true }); if (note === null) return; try { await api.timePunchEditDecide(punchId, { status: 'rejected', note: note || '' }); onSaved?.(); } catch (e) { toastErr?.(e?.message || 'Could not reject.'); } }}>&#10007;</button>
             </>
           )}
