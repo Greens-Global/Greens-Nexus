@@ -618,9 +618,20 @@ def _signoff_state(db: Session, email: str, start: str, end: str) -> dict:
     rows = (db.query(TimeApproval)
             .filter(TimeApproval.employee_email == email, TimeApproval.revoked == 0,
                     TimeApproval.period_start == start, TimeApproval.period_end == end).all())
+    # Latest punch change in the period. A sign-off older than this is STALE - the
+    # hours changed after it was signed/approved/finalized, so it must not read as
+    # a clean sign-off on the current numbers.
+    last_change = ""
+    for p in (db.query(TimePunch)
+              .filter(TimePunch.employee_email == email, TimePunch.voided == 0,
+                      TimePunch.local_date >= start, TimePunch.local_date <= end).all()):
+        ch = max(p.created_at or "", p.adjusted_at or "")
+        if ch > last_change:
+            last_change = ch
     approval = finalized = signed = None
     for r in rows:
-        d = {"by": r.approved_by, "at": r.approved_at, "workedMin": r.worked_min}
+        d = {"by": r.approved_by, "at": r.approved_at, "workedMin": r.worked_min,
+             "stale": bool(last_change and last_change > (r.approved_at or ""))}
         k = r.kind or "manager"
         if k == "final":
             finalized = d          # note holds the rate/rule snapshot, not a name
@@ -691,10 +702,28 @@ def finalize_timecard(body: FinalizeIn, user: dict = Depends(require_administrat
                        approved_by=user["email"], approved_at=_now_iso(), kind="final",
                        note=_snap)
     db.add(row)
+    # Signed snapshot for the employee's record - the finalized hours plus all three
+    # signatures (their own, the manager's approval, this HR finalization). The
+    # just-added finalize row isn't flushed yet, so it's passed in explicitly.
+    _so = _signoff_state(db, email, body.start, body.end)
+
+    def _sig(s, label, by="", at=""):
+        by = (s.get("by") if s else "") or by
+        at = (s.get("at") if s else "") or at
+        if not at:
+            return f"{label} (not signed)"
+        who = (s.get("name") if s else "") or by.split("@")[0].replace(".", " ").title()
+        return f"{label} {who} ({at[:10]})"
+
+    _sigs = "; ".join([
+        _sig(_so.get("signed"), "signed by"),
+        _sig(_so.get("approval"), "approved by"),
+        _sig(None, "finalized by", user["email"], row.approved_at),
+    ])
     _hr_notify(db, email, "Timecard finalized",
-               f"Your timecard {body.start} – {body.end} is finalized for payroll. "
-               "Time records for this period are now locked.",
-               action={"view": "timeclock", "sub": ""})
+               f"Your timecard {body.start} – {body.end} is finalized for payroll "
+               f"({worked // 60}h {worked % 60:02d}m) and locked. Signatures: {_sigs}.",
+               action={"view": "timeclock", "sub": "timecard"})
     db.commit()
     return {"finalized": {"by": row.approved_by, "at": row.approved_at, "workedMin": worked}}
 

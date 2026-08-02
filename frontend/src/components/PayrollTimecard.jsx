@@ -478,30 +478,19 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false })
         </p>
       )}
 
-      {/* Signature / attestation - SwipeClock's exact sign-off: attestation text
-          plus a BLANK X line. Nobody's name is pre-rendered - a signature that
-          hasn't happened yet must not look like it has. */}
+      {/* Three-signature sign-off. The Approve and Finalize buttons ARE the manager
+          and HR signatures - each line auto-fills when that person acts. A line goes
+          amber "changed since" if hours were edited after it was signed. */}
       {T && (
         <div style={{ marginTop: 18, paddingTop: 14, borderTop: '1px solid var(--line)' }}>
-          <p style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 14 }}>
-            By execution and signature of this time sheet, I agree I have reviewed this time card, and agree the hours stated are accurate and correct.
+          <p style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 12 }}>
+            The employee signs to attest the hours are accurate; the manager approves and HR finalizes for payroll. Period: {label}.
           </p>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-            {data.signed ? (
-              <span style={{ fontSize: 13, fontWeight: 700, color: 'hsl(var(--color-green))', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                <CheckCircle size={15} /> Signed{!self && (data.signed.name || nameFor(data.signed.by)) ? ` by ${data.signed.name || nameFor(data.signed.by)}` : ''} · {new Date(data.signed.at).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
-              </span>
-            ) : (
-              <span style={{ fontSize: 12, fontWeight: 700, color: '#b45309', background: 'rgba(180,83,9,0.1)', padding: '3px 12px', borderRadius: 999 }}>Unsigned</span>
-            )}
-            {self && !fin && (
-              <button className="primary-btn" onClick={signTimecard} disabled={busy}
-                title="Records your name and the time as your electronic signature"
-                style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                <CheckCircle size={14} /> {data.signed ? 'Re-sign' : 'Sign & submit'}
-              </button>
-            )}
-            <span style={{ fontSize: 11, color: 'var(--muted)' }}>Employee signature · {label}</span>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12 }}>
+            <SigLine label="Employee" sig={data.signed} nameFor={nameFor}
+              action={self && !fin ? { label: data.signed ? 'Re-sign' : 'Sign & submit', onClick: signTimecard, busy } : null} />
+            <SigLine label="Manager" sig={data.approval} nameFor={nameFor} pending="Approve to sign" />
+            <SigLine label="HR" sig={data.finalized} nameFor={nameFor} pending="Finalize to sign" />
           </div>
         </div>
       )}
@@ -541,6 +530,36 @@ const t12s = (iso) => iso ? new Date(iso + 'Z').toLocaleTimeString([], { hour: '
 // Shows the geo dot (green in-fence / red off-site) and, when "Show unrounded
 // times" is on, the raw seconds-precision time in small italics beside it -
 // exactly how SwipeClock renders its unrounded overlay.
+// One signature line in the sign-off block. `sig` is the backend sign-off record
+// ({by, at, name?, stale}); `action` (employee only) shows the Sign button;
+// `pending` is the hint shown to others before that party has acted.
+function SigLine({ label, sig, nameFor, action, pending }) {
+  const done = sig && sig.at;
+  const who = done ? (sig.name || (nameFor && nameFor(sig.by)) || (sig.by || '').split('@')[0].replace(/\./g, ' ')) : '';
+  return (
+    <div style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px', background: 'var(--card)' }}>
+      <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.07em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 7 }}>{label} signature</div>
+      {done ? (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 13.5, fontWeight: 700, color: sig.stale ? '#b45309' : 'hsl(var(--color-green))', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            <CheckCircle size={14} /> {who}
+          </span>
+          <span style={{ fontSize: 11, color: 'var(--muted)' }}>{new Date(sig.at).toLocaleDateString([], { month: 'short', day: 'numeric' })}</span>
+          {sig.stale && <span title="Hours changed after this signature - it needs to be redone" style={{ fontSize: 10, fontWeight: 700, color: '#b45309', background: 'rgba(180,83,9,0.12)', padding: '2px 8px', borderRadius: 999 }}>changed since</span>}
+        </div>
+      ) : (
+        <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--muted)' }}>{action ? 'Unsigned' : (pending || 'Pending')}</span>
+      )}
+      {action && (
+        <button className="primary-btn" onClick={action.onClick} disabled={action.busy}
+          style={{ marginTop: 10, fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <CheckCircle size={13} /> {action.busy ? '…' : action.label}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function InlineTime({ seg, k, showRaw, locked, onSaved, toastErr, self }) {
   const [editing, setEditing] = useState(false);
   const [val, setVal] = useState('');
