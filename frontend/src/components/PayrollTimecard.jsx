@@ -104,7 +104,11 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false })
         if (isStepUpRequired(e)) { setStepLocked(true); return; }
         setData(null); toastErr?.(e?.message || 'Could not load the timecard.');
       });
-  }, [self, email, start, end, toastErr]);
+    // toastErr is only used in the catch; excluding it keeps `load` stable so a
+    // parent that re-creates the callback each render (TimeClock's 1s stopwatch)
+    // can't trigger an endless refetch loop that pins the spinner.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [self, email, start, end]);
   useEffect(load, [load]);
 
   const byDate = useMemo(() => Object.fromEntries((data?.days || []).map(d => [d.date, d])), [data]);
