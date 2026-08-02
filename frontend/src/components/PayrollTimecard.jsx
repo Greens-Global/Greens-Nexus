@@ -345,13 +345,18 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false })
                   <td style={{ ...td, textAlign: 'left', fontWeight: r.first === undefined ? 400 : 700, color: r.seg ? 'var(--ink)' : 'var(--muted)' }}>
                     {r.first === false ? '' : dow(r.ds)}
                   </td>
-                  <td style={{ ...td, textAlign: 'left' }}>{r.seg ? <InlineTime seg={r.seg} k="in" showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} /> : '-'}</td>
+                  <td style={{ ...td, textAlign: 'left' }}>{r.seg
+                    ? <InlineTime seg={r.seg} k="in" showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} />
+                    : self && !fin
+                      ? <button onClick={() => setEditDay({ date: r.ds, seg: null })} title="Add a punch for this day - goes to your approver"
+                          style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--wk-brand)', fontWeight: 600, font: 'inherit', opacity: 0.75 }}>+ add</button>
+                      : '-'}</td>
                   <td style={{ ...td, textAlign: 'left' }}>
                     {r.seg ? (r.seg.out
                       ? <InlineTime seg={r.seg} k="out" showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} />
-                      : self
-                        ? <span title="Add a missing punch from the Clock tab (I forgot to punch out)" style={{ color: '#b91c1c', fontWeight: 700 }}>Missing</span>
-                        : <button onClick={() => !fin && setEditDay({ date: r.ds, seg: r.seg })} title={fin ? 'Period finalized - locked' : 'Add the missing clock-out'}
+                      : (self && fin)
+                        ? <span title="Period finalized - locked" style={{ color: '#b91c1c', fontWeight: 700 }}>Missing</span>
+                        : <button onClick={() => !fin && setEditDay({ date: r.ds, seg: r.seg })} title={fin ? 'Period finalized - locked' : self ? 'Add the missing clock-out - goes to your approver' : 'Add the missing clock-out'}
                             style={{ background: 'none', border: 'none', padding: 0, cursor: fin ? 'default' : 'pointer', color: '#b91c1c', fontWeight: 700, font: 'inherit' }}>Missing</button>) : '-'}
                   </td>
                   <td style={{ ...td, color: r.seg?.deductedMin ? '#b45309' : 'var(--muted)' }}>{r.seg?.deductedMin ? `−${r.seg.deductedMin}m` : '-'}</td>
@@ -501,7 +506,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false })
         <PunchEditModal day={editDay} email={email} busy={busy} setBusy={setBusy}
           categories={(data?.byCategory || []).map(c => c.category).filter(c => c && c !== 'Uncategorised')}
           onDone={() => { setEditDay(null); load(); }} onClose={() => setEditDay(null)}
-          toastOk={toastOk} toastErr={toastErr} />
+          toastOk={toastOk} toastErr={toastErr} self={self} />
       )}
       {tour && <GuidedTour onClose={() => setTour(false)} steps={[
         { target: 'pr-sidebar', title: 'Start with the employee list',
@@ -632,16 +637,38 @@ function InlineTime({ seg, k, showRaw, locked, onSaved, toastErr, self }) {
   );
 }
 
-function PunchEditModal({ day, email, categories = [], busy, setBusy, onDone, onClose, toastOk, toastErr }) {
+function PunchEditModal({ day, email, categories = [], busy, setBusy, onDone, onClose, toastOk, toastErr, self = false }) {
   const seg = day.seg;
   const [inAt, setInAt] = useState(seg?.in ? utcToInput(seg.in) : `${day.date}T09:00`);
   const [outAt, setOutAt] = useState(seg?.out ? utcToInput(seg.out) : `${day.date}T17:00`);
   const { data: sites = [] } = useWorkSites();
   const [siteId, setSiteId] = useState(seg?.workSiteId || '');
   const [cat, setCat] = useState(seg?.category || '');
+  const [reason, setReason] = useState('');   // self mode: justification for the approver
   const tz = new Date().getTimezoneOffset();
+  // What's missing on this day and therefore addable (self can only ADD, not overwrite).
+  const needIn = !seg?.inId, needOut = !seg?.outId;
 
   async function save() {
+    // Employees don't write the timecard directly - a missing punch becomes an
+    // approver-confirmed REQUEST. Nothing moves on pay until it's approved.
+    if (self) {
+      if (!reason.trim()) { toastErr?.('Add a reason so your approver can confirm it.'); return; }
+      setBusy(true);
+      try {
+        const adds = [];
+        if (needIn) adds.push(['in', inAt]);
+        if (needOut) adds.push(['out', outAt]);
+        for (const [kind, at] of adds) {
+          await api.timePunchRequestCreate({ action: 'add', punch_kind: kind, at: inputToUtc(at), tz_offset_min: tz, reason: reason.trim() });
+        }
+        toastOk?.("Request sent to your approver - nothing changes on your timecard until they approve it.");
+        window.dispatchEvent(new CustomEvent('nexus:timeclock-changed'));   // refresh the request stack
+        onDone();
+      } catch (e) { toastErr?.(e?.message || 'Could not send the request.'); }
+      setBusy(false);
+      return;
+    }
     setBusy(true);
     try {
       // Edit existing in-punch, or add one
@@ -674,14 +701,21 @@ function PunchEditModal({ day, email, categories = [], busy, setBusy, onDone, on
       onClick={e => e.target === e.currentTarget && onClose()}>
       <div style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, width: '100%', maxWidth: 400, padding: 20, boxShadow: '0 24px 70px rgba(17,24,39,0.30)' }}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
-          <span style={{ fontSize: 15, fontWeight: 700, flex: 1 }}>{seg ? 'Edit punch' : 'Add punch'}</span>
+          <span style={{ fontSize: 15, fontWeight: 700, flex: 1 }}>{self ? 'Request a missing punch' : seg ? 'Edit punch' : 'Add punch'}</span>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
         </div>
         <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>{new Date(day.date + 'T00:00').toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}</div>
         <div style={{ display: 'grid', gap: 12 }}>
-          <label style={{ fontSize: 11, color: 'var(--muted)' }}>Clock in<input type="datetime-local" className="form-input" value={inAt} onChange={e => setInAt(e.target.value)} style={{ width: '100%', fontSize: 13 }} /></label>
-          <label style={{ fontSize: 11, color: 'var(--muted)' }}>Clock out<input type="datetime-local" className="form-input" value={outAt} onChange={e => setOutAt(e.target.value)} style={{ width: '100%', fontSize: 13 }} /></label>
-          {seg?.inId && (
+          {/* In self mode only the MISSING punch is editable - an existing time stays
+              shown (disabled) for context but can't be silently overwritten here. */}
+          {(!self || needIn) && <label style={{ fontSize: 11, color: 'var(--muted)' }}>Clock in<input type="datetime-local" className="form-input" value={inAt} disabled={self && !needIn} onChange={e => setInAt(e.target.value)} style={{ width: '100%', fontSize: 13, opacity: self && !needIn ? 0.6 : 1 }} /></label>}
+          {(!self || needOut) && <label style={{ fontSize: 11, color: 'var(--muted)' }}>Clock out<input type="datetime-local" className="form-input" value={outAt} disabled={self && !needOut} onChange={e => setOutAt(e.target.value)} style={{ width: '100%', fontSize: 13, opacity: self && !needOut ? 0.6 : 1 }} /></label>}
+          {self && (
+            <label style={{ fontSize: 11, color: 'var(--muted)' }}>Reason (sent to your approver)
+              <input className="form-input" value={reason} onChange={e => setReason(e.target.value)} placeholder="e.g. forgot to clock out on site" style={{ width: '100%', fontSize: 13 }} autoFocus />
+            </label>
+          )}
+          {!self && seg?.inId && (
             <label style={{ fontSize: 11, color: 'var(--muted)' }}>Location (work site)
               <select className="form-input" value={siteId} onChange={e => setSiteId(e.target.value)} style={{ width: '100%', fontSize: 13 }}>
                 <option value="">- No location -</option>
@@ -690,7 +724,7 @@ function PunchEditModal({ day, email, categories = [], busy, setBusy, onDone, on
               <span style={{ fontSize: 10.5, color: 'var(--muted)' }}>Reassigning marks the punch as on-site at the chosen location.</span>
             </label>
           )}
-          {seg?.inId && (
+          {!self && seg?.inId && (
             <label style={{ fontSize: 11, color: 'var(--muted)' }}>Category (job / cost code)
               <input list="pr-cats" className="form-input" value={cat} onChange={e => setCat(e.target.value)}
                 placeholder="e.g. Operations-GS" style={{ width: '100%', fontSize: 13 }} />
@@ -699,10 +733,10 @@ function PunchEditModal({ day, email, categories = [], busy, setBusy, onDone, on
           )}
         </div>
         <div style={{ display: 'flex', gap: 8, marginTop: 16, alignItems: 'center' }}>
-          {seg?.outId && <button onClick={removeOut} disabled={busy} style={{ background: 'none', border: 'none', color: '#b91c1c', cursor: 'pointer', fontSize: 12, fontWeight: 700, fontFamily: 'var(--wk-font)' }}>Void out-punch</button>}
+          {!self && seg?.outId && <button onClick={removeOut} disabled={busy} style={{ background: 'none', border: 'none', color: '#b91c1c', cursor: 'pointer', fontSize: 12, fontWeight: 700, fontFamily: 'var(--wk-font)' }}>Void out-punch</button>}
           <div style={{ flex: 1 }} />
           <button className="secondary-btn" onClick={onClose}>Cancel</button>
-          <button className="primary-btn" onClick={save} disabled={busy}>{busy ? '…' : 'Save'}</button>
+          <button className="primary-btn" onClick={save} disabled={busy}>{busy ? '…' : self ? 'Send request' : 'Save'}</button>
         </div>
       </div>
     </div>
