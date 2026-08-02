@@ -10,7 +10,13 @@ export const msalConfig = {
     // and survives browser restarts, so opening Nexus from a new link signs in
     // silently instead of bouncing through Microsoft login every time.
     cacheLocation: "localStorage",
-    storeAuthStateInCookie: false,
+    // Keep the redirect's auth state in a first-party cookie too. Silent token
+    // renewal runs in a hidden iframe that depends on THIRD-party cookies, which
+    // modern browsers increasingly block by default - when they do, renewal fails
+    // and the user's token silently expires (the "sandboxed iframe can't navigate
+    // top" console error). A first-party cookie is immune to that block and lets
+    // the redirect flow recover reliably. Recommended by MSAL for exactly this.
+    storeAuthStateInCookie: true,
   },
 };
 

@@ -7,6 +7,7 @@ import { queryClient } from './lib/queryClient'
 import { setCacheBridge } from './api'
 import './style.css'
 import App from './App.jsx'
+import RootErrorBoundary from './components/RootErrorBoundary'
 import { installErrorReporter } from './lib/errorReporter'
 
 installErrorReporter();   // uncaught errors -> /client-errors -> audit trail
@@ -42,11 +43,13 @@ try {
 window.__NEXUS_BUILD = '2026-07-28';
 createRoot(document.getElementById('root')).render(
   <StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <MsalProvider instance={msalInstance}>
-        <App />
-      </MsalProvider>
-    </QueryClientProvider>
+    <RootErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <MsalProvider instance={msalInstance}>
+          <App />
+        </MsalProvider>
+      </QueryClientProvider>
+    </RootErrorBoundary>
   </StrictMode>,
 )
 
