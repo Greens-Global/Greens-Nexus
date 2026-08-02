@@ -1,13 +1,15 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, Fragment } from 'react';
 import { useMsal } from '@azure/msal-react';
 import { useRole } from '../contexts/RoleContext';
 import { api } from '../api';
+import { SkeletonBlocks } from '../components/AsyncState';
 import ModuleTabs from '../components/ModuleTabs';
 import {
   BookOpen, CheckSquare, Search, Clock, Sparkles,
   X, ArrowLeft, Plus, Trash2, Edit3, Send, Archive, ArchiveRestore, Loader, ChevronUp, ChevronDown,
   Image as ImageIcon, Paperclip, Settings, Grid3x3, BarChart3, GraduationCap, Eye, ChevronRight, Star,
   List, LayoutGrid, Building2, PanelRight, FileText, HelpCircle, Share2, Link2, Download, Printer,
+  ShieldCheck, Play, ListChecks,
 } from 'lucide-react';
 
 const rid = () => 'r' + Math.random().toString(36).slice(2, 9);
@@ -58,6 +60,12 @@ const DEPARTMENTS = [
   'Accounting', 'IT', 'Marketing', 'Administration',
 ];
 const DOC_TYPES = ['SOP', 'Manual', 'Guide'];
+// Published-document look, matched to the company's Word SOP template (letterhead,
+// navy/slate headings, "Internal Use Only" footer) - fixed "paper" colors so a
+// published doc reads identically regardless of the app's light/dark theme.
+const DOC_THEME = { navy: '#0F1B33', slate: '#44546A', blue: '#1F4D78', muted: '#6B7686', line: '#E2E5EA', paper: '#FFFFFF', ink: '#1A1F2B' };
+const DOC_FONT = "'Calibri','Segoe UI',Arial,sans-serif";
+const GREENS_LOGO_URL = '/assets/branding/greens-global-logo.png';
 const DEPT_ABBR = {
   'Operations': 'OPS', 'Revenue Management': 'RM', 'Real Estate Development': 'RED',
   'People (HR)': 'HR', 'Accounting': 'ACC', 'IT': 'IT', 'Marketing': 'MKT', 'Administration': 'ADM',
@@ -80,8 +88,8 @@ const HELP_PAGES = [
   { key: 'playbook', label: 'Playbook', title: 'Browsing the Playbook',
     intro: 'The Playbook is every SOP, manual, and guide in one place. This is where you find and read documents.',
     steps: [
-      'Search: click the search box (or press “/”) and type a title, document ID, or words from the text. Use the Department, Type, and Status dropdowns to narrow the list.',
-      'Ask AI: flip the toggle from Search to Ask AI, type a question in plain English, and press Ask. The answer comes only from approved SOPs and shows the sources it used.',
+      'One box does both: type in the big box (or press “/”) to filter the library live, then press Enter (or the Ask AI button) to ask the question in plain English. Answers come only from approved SOPs and cite their sources.',
+      'Trust at a glance: every document shows a green "Verified" chip (who confirmed it and when) or an amber "Needs Verification" chip when it is past its review date. Use the Department, Type, and Status dropdowns to narrow the list.',
       'Change the view: use List, Tiles, or Department (grouped) above the list - your choice is remembered next time.',
       'Pin favorites: click the ☆ star on any document to pin it; pinned items jump to the top of the right panel for quick access.',
       'The right panel: “For You” shows anything waiting on your sign-off, plus Pinned and Popular documents. Press the panel button (top-right of the list) to hide it and give the list full width.',
@@ -91,6 +99,8 @@ const HELP_PAGES = [
     intro: 'The document view shows the full, approved procedure plus everything you can do with it.',
     steps: [
       'Read top to bottom - purpose, scope, steps, safety, and references. Use the Language bar to switch to a translated version where available.',
+      'Run This SOP turns the procedure into a live checklist: tick steps off as you do them, your progress saves automatically, and open runs wait for you under "Runs in Progress" on the home panel.',
+      'The Freshness card shows when it was last verified. If you own the document (or manage), one click on "Still Accurate - Verify" resets the review clock; stale docs nag their owner via the bell.',
       'Pin it with the Pin button to keep it handy in your side panel.',
       'Share / export: the Share button offers your device’s share sheet, Copy link, Copy as text, Download (.md), and Print / Save as PDF.',
       'If the document requires sign-off, read it and click Review & sign to e-sign - your acknowledgement is recorded against this version.',
@@ -98,14 +108,13 @@ const HELP_PAGES = [
       'If you own the draft, Edit reopens it; managers see Review/Approve and Archive here.',
     ] },
   { key: 'create', label: 'Creating an SOP', title: 'Creating & Editing an SOP',
-    intro: 'Anyone can start a draft. It’s a guided form, and Claude can do most of the heavy lifting.',
+    intro: 'Anyone can start a draft. It’s a four-step wizard: Capture, Content, Settings, Publish - and Claude does the heavy lifting.',
     steps: [
-      'Click New SOP. Give it a clear, searchable Document title.',
-      'Fastest start: paste existing text or upload a file in the “Start from an existing document” panel and press Format with Claude. Review the before/after diff, then Keep changes or Revert.',
-      'Or fill the sections by hand - each card (Document Details, Overview, Procedure, Safety, …) has a short tip explaining what belongs there.',
-      'Editing an existing document? Use “Edit with Claude”: describe the change (e.g. “add a step about checking ID”) and Claude rewrites it - you review the diff before keeping it.',
-      'Choose a Reviewing manager under Document Details (required to submit). New documents start at version 1.0.',
-      'Use Preview to see the finished document, then Save draft, Save & submit for review, or - for managers - Save & publish.',
+      'Capture: do the task once and show it - paste screenshots of each step with Ctrl+V, jot rough notes between them, or upload an existing file, then press Format with Claude. Review the before/after diff, then Keep changes or Revert. (Or skip with “Start With a Blank Document”.)',
+      'Content: the title and the substance - Overview, Procedure, Safety, and so on. Each card has a short tip explaining what belongs there.',
+      'Editing an existing document? You land straight on Content, where “Edit with Claude” applies any change you describe - you review the diff before keeping it.',
+      'Settings: type, version, departments, review cadence, and the Reviewing manager (required to submit).',
+      'Publish: a readiness checklist plus a full preview side by side, then Save Draft, Save & Submit for Review, or - for managers - Save & Publish.',
     ] },
   { key: 'tasks', label: 'Tasks', title: 'Tasks - what needs your action',
     intro: 'Everything waiting on you in one place.',
@@ -121,6 +130,7 @@ const HELP_PAGES = [
       'KPI tiles: Action Needed (opens Tasks), Needs Review (stale docs), Sign-offs, and Drafts - each jumps to the relevant area.',
       'Tools: Assignment Matrix (which departments each doc applies to), Sign-off Tracking (who has acknowledged each policy), Insights (usage & freshness), Training Courses, and New Manual.',
       'Activity Log: every change across the library; click an entry to open the document, or jump straight to the version diff when one exists.',
+      'Recent Runs: who is executing which SOP as a checklist right now, and what completed - real usage, not just page views.',
       'Use New SOP / New Course from here, or open Training Courses to author and assign training.',
     ] },
   { key: 'learn', label: 'Taking Training', title: 'Learn - taking a course',
@@ -133,9 +143,9 @@ const HELP_PAGES = [
       'Required training shows a due date and flags anything overdue, so nothing slips.',
     ] },
   { key: 'authoring', label: 'Building a Course', title: 'Building & assigning a course (managers)',
-    intro: 'From Manage → Training Courses. Claude can generate a whole course from your material.',
+    intro: 'From Manage → Training Courses. A three-step wizard: Source, Build, Publish - Claude can generate the whole course from your material.',
     steps: [
-      'Click New Course, then paste or upload source material and press Generate course - Claude writes the objectives, lessons, and a quiz with explanations.',
+      'Source: paste or upload the material and press Generate Course - Claude writes the objectives, lessons, and a quiz with explanations. (Or skip with “Start With a Blank Course”.)',
       'Edit anything: the “What You’ll Learn” objectives, lessons (readings or linked SOPs), and quiz questions - mark the correct option and add a “why” explanation shown to learners who miss it.',
       'Set the pass mark, Preview, then Save draft or Publish.',
       'Assign: on any course, Assign opens a people picker and an optional due date - each assignee is notified and the course appears in their Required training.',
@@ -161,7 +171,7 @@ const Badge = ({ status }) => {
 
 const blankBody = () => ({
   purpose: '', scopeText: '', materials: [], responsibilities: [],
-  definitions: [], procedure: [], safety: [], references: [], attachments: [], media: [],
+  definitions: [], procedure: [], safety: [], references: [], attachments: [], media: [], tables: [],
 });
 
 // Resize an image file to a JPEG data URL (≤1100px) so it stores inline with the doc.
@@ -199,6 +209,17 @@ function mediaEmbed(m, key) {
   if (/\.(mp4|webm|ogg)$/i.test(url)) return <div key={key} style={frame}><video src={url} controls preload="metadata" style={fill} /></div>;
   return <a key={key} href={url} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: '0.88rem', color: 'hsl(var(--color-blue))', fontWeight: 600 }}>▶ {m.title || url}</a>;
 }
+// Template sections the AI formatter is expected to fill. Anything it returns
+// empty is a gap in the source material - highlighted red in the editor so the
+// author knows exactly what to add.
+const SOP_FIELD_LABELS = {
+  purpose: 'Purpose', scopeText: 'Scope', materials: 'Materials & Required Items',
+  responsibilities: 'Responsibilities', definitions: 'Definitions', procedure: 'Procedure',
+  safety: 'Safety & Compliance', references: 'References',
+};
+const bodyFieldEmpty = (body, f) =>
+  (f === 'purpose' || f === 'scopeText') ? !((body?.[f] || '').trim()) : !((body?.[f] || []).length);
+
 const blankDraft = (name, email) => ({
   id: null, title: '', doc_type: 'SOP', departments: [], reviewer_email: '',
   reviewer_name: '', version: '1.0', effective_date: '', body: blankBody(),
@@ -207,6 +228,43 @@ const blankDraft = (name, email) => ({
 });
 
 const fmtDate = (s) => (s ? new Date(s.length > 10 ? s : s + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '-');
+
+// Wizard step rail for the SOP / course creators - one focused screen at a
+// time instead of a wall of form cards. Completed steps are clickable.
+function Stepper({ steps, current, onGo }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 26px', maxWidth: 760, flexWrap: 'wrap', rowGap: 8 }}>
+      {steps.map((s, i) => {
+        const doneStep = i < current, on = i === current;
+        return (
+          <div key={s} style={{ display: 'flex', alignItems: 'center' }}>
+            {i > 0 && <div style={{ width: 34, height: 2, background: doneStep || on ? 'hsl(266,72%,56%)' : 'var(--border-color)', margin: '0 6px' }} />}
+            <button onClick={() => (doneStep ? onGo(i) : null)} style={{ display: 'inline-flex', alignItems: 'center', gap: 7, background: 'transparent', border: 'none', cursor: doneStep ? 'pointer' : 'default', padding: '4px 2px' }}>
+              <span style={{ width: 26, height: 26, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.74rem', fontWeight: 700, flex: '0 0 auto', background: on ? 'hsl(266,72%,56%)' : doneStep ? 'hsla(266,70%,60%,0.16)' : 'var(--bg-secondary)', color: on ? '#fff' : doneStep ? 'hsl(266,72%,56%)' : 'var(--text-muted)', border: doneStep ? '1px solid hsla(266,70%,60%,0.5)' : '1px solid transparent' }}>{doneStep ? '✓' : i + 1}</span>
+              <span style={{ fontSize: '0.82rem', fontWeight: on ? 700 : 500, color: on ? 'var(--text-primary)' : 'var(--text-muted)', whiteSpace: 'nowrap' }}>{s}</span>
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// Trust-at-a-glance chip (Guru-style verification state). Rendered everywhere a
+// doc appears so stale content visibly decays instead of silently rotting.
+function VerifyBadge({ d, compact }) {
+  if (!d || d.status !== 'approved') return null;
+  const base = { display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '0.68rem', fontWeight: 700, borderRadius: 999, padding: '2px 8px', whiteSpace: 'nowrap' };
+  if (d.is_stale) {
+    return <span style={{ ...base, color: 'hsl(32,80%,38%)', background: 'hsla(38,92%,50%,0.14)' }} title={d.verified_at ? `Last verified ${fmtDate(d.verified_at)} - past its review date` : 'Never verified'}>Needs Verification</span>;
+  }
+  if (!d.verified_at) return null;
+  return (
+    <span style={{ ...base, color: 'hsl(145,55%,30%)', background: 'hsla(145,63%,42%,0.14)' }} title={`Verified${d.verified_by ? ' by ' + d.verified_by : ''} on ${fmtDate(d.verified_at)}`}>
+      <ShieldCheck size={11} /> {compact ? 'Verified' : `Verified ${fmtDate(d.verified_at)}`}
+    </span>
+  );
+}
 
 // Extensions accepted by the document importers below.
 const IMPORT_ACCEPT = '.txt,.md,.markdown,.csv,.json,.html,.htm,.rtf,.log,.pdf,.doc,.docx';
@@ -232,15 +290,40 @@ function resizeDataUrl(dataUrl) {
 
 // Flatten mammoth HTML to text, turning each <img> into its src (an [[IMG#]] marker)
 // inline so the AI sees where every screenshot sits in the step flow.
+//
+// Tables get special handling: Word wraps every cell in its own <p>, so a plain
+// walk turns a 2-row "Author | Version | Date" header table into six bare,
+// unlabeled lines - indistinguishable from real procedure content, and exactly
+// what made the formatter (both the AI and the offline heuristic) treat "Sai
+// Malladi" / "V 1.0" / "February 06, 2025" as individual steps. Each table is
+// instead collapsed to one pipe-joined line per row inside [[TABLE]]/[[/TABLE]]
+// markers, so a metadata table reads as an obvious, skippable block.
 function htmlToText(html) {
   const doc = new DOMParser().parseFromString(html, 'text/html');
   const out = [];
+  const cellText = (cell) => {
+    const parts = [];
+    const w = (node) => node.childNodes.forEach(ch => {
+      if (ch.nodeType === 3) parts.push(ch.nodeValue);
+      else if (ch.nodeType === 1) {
+        if (ch.tagName.toLowerCase() === 'img') parts.push(' ' + (ch.getAttribute('src') || '') + ' ');
+        w(ch);
+      }
+    });
+    w(cell);
+    return parts.join(' ').replace(/\s+/g, ' ').trim();
+  };
   const walk = (node) => node.childNodes.forEach(ch => {
     if (ch.nodeType === 3) out.push(ch.nodeValue);
     else if (ch.nodeType === 1) {
       const tag = ch.tagName.toLowerCase();
       if (tag === 'img') out.push(' ' + (ch.getAttribute('src') || '') + ' ');
-      else { walk(ch); if (/^(p|div|li|tr|h[1-6]|br|ul|ol)$/.test(tag)) out.push('\n'); }
+      else if (tag === 'table') {
+        const rows = [...ch.querySelectorAll('tr')]
+          .map(tr => [...tr.querySelectorAll('td,th')].map(cellText).filter(Boolean).join(' | '))
+          .filter(Boolean);
+        if (rows.length) out.push('\n[[TABLE]]\n' + rows.join('\n') + '\n[[/TABLE]]\n');
+      } else { walk(ch); if (/^(p|div|li|tr|h[1-6]|br|ul|ol)$/.test(tag)) out.push('\n'); }
     }
   });
   walk(doc.body);
@@ -354,13 +437,14 @@ export default function SOP({ activeSub, onSubChange }) {
   const [aiInstruction, setAiInstruction] = useState(''); // "Edit with Claude" prompt
   const [aiReview, setAiReview] = useState(null); // full-screen AI review: { open, before, after, source, tab }
   const [previewOpen, setPreviewOpen] = useState(false); // preview the current draft before publishing
+  const [edStep, setEdStep] = useState(0);  // SOP creation wizard step
+  const [cdStep, setCdStep] = useState(0);  // course creation wizard step
 
   const [search, setSearch] = useState('');
   const [deptFilter, setDeptFilter] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
   const [libView, setLibView] = useState(() => { try { return localStorage.getItem('kbLibView') || 'list'; } catch { return 'list'; } }); // list | cards | outline
-  const [searchMode, setSearchMode] = useState('search'); // search | ask
   const [pins, setPins] = useState([]); // doc ids the user has pinned
   const [reviewers, setReviewers] = useState([]); // managers who can approve
   const searchRef = useRef(null);
@@ -369,6 +453,12 @@ export default function SOP({ activeSub, onSubChange }) {
   const openHelp = (key) => setHelp(key || 'playbook');
   const helpBtn = (key) => <button onClick={() => openHelp(key)} title="Help for this page" aria-label="Help" style={{ width: 34, height: 34, borderRadius: 9, border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-secondary)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}><HelpCircle size={16} /></button>;
   const [ask, setAsk] = useState({ q: '', loading: false, answer: null, sources: [], grounded: true });
+
+  // runnable checklists (Process Street-style "runs" of an SOP)
+  const [myRuns, setMyRuns] = useState([]);       // my open runs
+  const [adminRuns, setAdminRuns] = useState(null); // manager: recent runs across the library
+  const [activeRun, setActiveRun] = useState(null); // the run being executed in the open doc
+  const [runDone, setRunDone] = useState(null);     // just-completed run (celebration banner)
 
   // review modal
   const [reviewDoc, setReviewDoc] = useState(null);
@@ -452,8 +542,16 @@ export default function SOP({ activeSub, onSubChange }) {
   useEffect(() => {
     if (sub === 'manage' && isManager) { setActivity(null); api.getKbActivity().then(setActivity).catch(() => setActivity([])); }
   }, [sub, isManager, docs]);
-  // pins (favorites) + reviewer list - loaded once
+  // pins (favorites) + reviewer list + my open runs - loaded once
   useEffect(() => { api.getKbPins().then(setPins).catch(() => {}); }, []);
+  useEffect(() => { api.getMyKbRuns().then(setMyRuns).catch(() => {}); }, []);
+  useEffect(() => {
+    if (sub === 'manage' && isManager) { setAdminRuns(null); api.getKbRuns().then(setAdminRuns).catch(() => setAdminRuns([])); }
+  }, [sub, isManager]);
+  // resume any open run on the doc being viewed
+  useEffect(() => {
+    if (mode === 'detail' && selected) { setActiveRun(myRuns.find(r => r.doc_id === selected.id) || null); setRunDone(null); }
+  }, [mode, selected]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { api.getKbReviewers().then(setReviewers).catch(() => {}); }, []);
   // remember the chosen library view between sessions
   useEffect(() => { try { localStorage.setItem('kbLibView', libView); } catch { /* ignore */ } }, [libView]);
@@ -478,13 +576,13 @@ export default function SOP({ activeSub, onSubChange }) {
       if (e.key !== '/' || e.metaKey || e.ctrlKey || e.altKey) return;
       const t = e.target;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
-      if (sub !== 'index' || mode !== 'list' || searchMode !== 'search') return;
+      if (sub !== 'index' || mode !== 'list') return;
       e.preventDefault();
       searchRef.current?.focus();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [sub, mode, searchMode]);
+  }, [sub, mode]);
 
   const togglePin = async (id, ev) => {
     if (ev) { ev.stopPropagation(); ev.preventDefault(); }
@@ -492,6 +590,49 @@ export default function SOP({ activeSub, onSubChange }) {
     setPins(optimistic);
     try { const list = await api.toggleKbPin(id); setPins(list); }
     catch (e) { setErr(e.message || 'Failed to update pin'); api.getKbPins().then(setPins).catch(() => {}); }
+  };
+
+  // ── runnable checklists ──
+  const startRun = async (d) => {
+    try {
+      const r = await api.startKbRun(d.id);
+      setActiveRun(r); setRunDone(null);
+      setMyRuns(prev => (prev.some(x => x.id === r.id) ? prev : [r, ...prev]));
+      if (selected?.id !== d.id) openDetail(d);
+    } catch (e) { setErr(e.message || 'Could not start the run'); }
+  };
+  const toggleRunStep = async (i) => {
+    if (!activeRun) return;
+    const has = activeRun.steps_done.includes(i);
+    const steps = has ? activeRun.steps_done.filter(x => x !== i) : [...activeRun.steps_done, i];
+    setActiveRun(p => (p ? { ...p, steps_done: steps } : p));
+    try {
+      const r = await api.updateKbRun(activeRun.id, { steps_done: steps });
+      if (r.status === 'completed') {
+        setActiveRun(null); setRunDone(r);
+        setMyRuns(prev => prev.filter(x => x.id !== r.id));
+      } else {
+        setActiveRun(r);
+        setMyRuns(prev => prev.map(x => (x.id === r.id ? r : x)));
+      }
+    } catch (e) { setErr(e.message || 'Could not save your progress'); }
+  };
+  const abandonRun = async () => {
+    if (!activeRun) return;
+    const id = activeRun.id;
+    setActiveRun(null);
+    setMyRuns(prev => prev.filter(x => x.id !== id));
+    try { await api.updateKbRun(id, { status: 'abandoned' }); } catch { /* best-effort */ }
+  };
+
+  // one-click "still accurate" verification (owner or manager)
+  const verifyDocQuick = async (d, ev) => {
+    if (ev) { ev.stopPropagation(); ev.preventDefault(); }
+    try {
+      const doc = await api.verifyKbDoc(d.id);
+      setDocs(prev => prev.map(x => (x.id === doc.id ? doc : x)));
+      if (selected?.id === doc.id) setSelected(doc);
+    } catch (e) { setErr(e.message || 'Failed to mark verified'); }
   };
 
   // jump from the activity log to a document (and, when diffable, straight to its version diff)
@@ -544,7 +685,8 @@ export default function SOP({ activeSub, onSubChange }) {
     const b = d.body || {};
     return [d.title, d.doc_code, d.owner_name, b.purpose, b.scopeText,
       (b.procedure || []).map(s => s.text + ' ' + (s.detail || '')).join(' '),
-      (b.references || []).join(' ')].join('  ').toLowerCase();
+      (b.references || []).join(' '),
+      (b.tables || []).map(t => t.title + ' ' + (t.headers || []).join(' ') + ' ' + (t.rows || []).map(r => r.join(' ')).join(' ')).join(' ')].join('  ').toLowerCase();
   };
   const filtered = docs.filter(d => {
     if (deptFilter !== 'all' && !(d.departments || []).includes(deptFilter)) return false;
@@ -561,8 +703,8 @@ export default function SOP({ activeSub, onSubChange }) {
 
   // ── navigation ──
   const openDetail = (d) => { setSelected(d); setMode('detail'); };
-  const openCreate = () => { setDraft(blankDraft(myName, myEmail)); setMode('editor'); };
-  const openCreateManual = () => { setDraft({ ...blankDraft(myName, myEmail), doc_type: 'Manual' }); setMode('editor'); };
+  const openCreate = () => { setDraft(blankDraft(myName, myEmail)); setEdStep(0); setMode('editor'); };
+  const openCreateManual = () => { setDraft({ ...blankDraft(myName, myEmail), doc_type: 'Manual' }); setEdStep(0); setMode('editor'); };
   const openEdit = (d) => {
     setDraft({
       id: d.id, title: d.title, doc_type: d.doc_type, departments: [...(d.departments || [])],
@@ -572,13 +714,14 @@ export default function SOP({ activeSub, onSubChange }) {
       body: { ...blankBody(), ...(d.body || {}) }, owner_name: d.owner_name, owner_email: d.owner_email, _raw: '',
       _status: d.status, _reviewNote: d.review_note || '',
     });
+    setEdStep(0);
     setMode('editor');
   };
-  const backToList = () => { setMode('list'); setSelected(null); setDraft(null); };
+  const backToList = () => { setMode('list'); setSelected(null); setDraft(null); setEdStep(0); };
 
-  const switchTab = (key) => { backToList(); setLmsMode('list'); setLmsCourse(null); setPlayer(null); setCourseDraft(null); setCoursePreview(false); setCourseReport(null); setAssign(null); setLmsManage(false); onSubChange(key); };
+  const switchTab = (key) => { backToList(); setLmsMode('list'); setLmsCourse(null); setPlayer(null); setCourseDraft(null); setCoursePreview(false); setCourseReport(null); setAssign(null); setLmsManage(false); setCdStep(0); onSubChange(key); };
   const openCourseManager = () => { switchTab('lms'); setLmsManage(true); };
-  const openNewCourse = () => { switchTab('lms'); setLmsManage(true); setCourseDraft(blankCourse()); setLmsMode('editor'); };
+  const openNewCourse = () => { switchTab('lms'); setLmsManage(true); setCourseDraft(blankCourse()); setCdStep(0); setLmsMode('editor'); };
 
   // ── editor body helpers ──
   const setBody = (patch) => setDraft(p => ({ ...p, body: { ...p.body, ...patch } }));
@@ -678,17 +821,35 @@ export default function SOP({ activeSub, onSubChange }) {
     if (!content) { setErr('Paste or upload an existing document, or add a title/purpose for the AI to work from.'); return; }
     setAiBusy(true); setErr('');
     try {
-      const { sop } = await api.aiFormatKbDoc({ content, title: draft.title, departments: draft.departments });
+      const { sop, source } = await api.aiFormatKbDoc({ content, title: draft.title, departments: draft.departments });
+      if (source !== 'ai') { setErr('Claude API is unavailable right now (no key locally, or a network/parse error) - this used a best-effort offline formatter instead, which cannot group steps, place images, or read tables. Try again once the API key is configured, or expect to do heavier manual cleanup.'); }
       // Map the [[IMG#]] markers Claude placed back to the uploaded image URLs, and
       // scrub any stray markers out of text so they never render as literal "[[IMG1]]".
+      // Marker matching is lenient about brackets/spacing since the model doesn't
+      // always echo the exact literal token.
       const imgMap = draft._importImages || {};
+      const normMarker = (s) => { const m = (s || '').match(/img\s*(\d+)/i); return m ? `[[IMG${m[1]}]]` : ''; };
       const strip = (t) => (typeof t === 'string' ? t.replace(/\[\[IMG\d+\]\]/g, '').replace(/[ \t]{2,}/g, ' ').trim() : t);
+      const usedMarkers = new Set();
       const procedure = (sop.procedure?.length ? sop.procedure : draft.body.procedure).map(s => {
-        const m = (s.image || '').trim();
-        const mapped = imgMap[m];
-        return { ...s, text: strip(s.text), detail: strip(s.detail),
-                 image: mapped || (/^\[\[IMG\d+\]\]$/.test(m) ? '' : (s.image || '')) };
+        const marker = normMarker(s.image);
+        const mapped = marker && imgMap[marker];
+        if (mapped) usedMarkers.add(marker);
+        return { ...s, text: strip(s.text), detail: strip(s.detail), image: mapped || (marker ? '' : (s.image || '')) };
       });
+      // Claude occasionally forgets to place a pasted/extracted screenshot on any
+      // step - never let an image vanish silently. Unused markers fill the next
+      // imageless step in order; anything left over becomes its own step so it's
+      // always visible and editable in the published document.
+      const leftover = Object.keys(imgMap)
+        .filter(mk => !usedMarkers.has(mk))
+        .sort((a, b) => parseInt(a.replace(/\D/g, ''), 10) - parseInt(b.replace(/\D/g, ''), 10));
+      let li = 0;
+      for (const step of procedure) {
+        if (li >= leftover.length) break;
+        if (!step.image) { step.image = imgMap[leftover[li]]; li++; }
+      }
+      while (li < leftover.length) { procedure.push({ text: 'Reference screenshot', detail: '', image: imgMap[leftover[li]] }); li++; }
       const before = { title: draft.title, departments: [...draft.departments], body: JSON.parse(JSON.stringify(draft.body)) };
       const afterBody = {
         ...draft.body,
@@ -700,12 +861,17 @@ export default function SOP({ activeSub, onSubChange }) {
         procedure,
         safety: sop.safety?.length ? sop.safety.map(strip) : draft.body.safety,
         references: sop.references?.length ? sop.references.map(strip) : draft.body.references,
+        tables: sop.tables?.length ? sop.tables : draft.body.tables,
       };
       const afterTitle = draft.title || sop.title || '';
       // autofill the draft, then open the full-screen review of what changed
-      setDraft(p => ({ ...p, title: afterTitle, _importSource: raw ? content : p._importSource, body: afterBody }));
+      // which template sections the source did NOT cover - flagged red in Content
+      const gapFields = Object.keys(SOP_FIELD_LABELS).filter(f => bodyFieldEmpty(afterBody, f));
+      setDraft(p => ({ ...p, title: afterTitle, _importSource: raw ? content : p._importSource, _gaps: gapFields, body: afterBody }));
       setAiReview({ open: true, tab: 'changes', source: raw ? content : '',
         before, after: { title: afterTitle, departments: [...draft.departments], body: afterBody } });
+      // wizard: a fresh capture that formatted successfully moves on to Content
+      if (!draft.id && draft.doc_type !== 'Manual') setEdStep(p => (p === 0 ? 1 : p));
     } catch (e) { setErr(e.message || 'AI formatting failed'); }
     finally { setAiBusy(false); }
   };
@@ -729,6 +895,7 @@ export default function SOP({ activeSub, onSubChange }) {
         procedure: sop.procedure || [],
         safety: sop.safety || [],
         references: sop.references || [],
+        tables: sop.tables || [],
       };
       const afterTitle = sop.title || draft.title;
       setDraft(p => ({ ...p, title: afterTitle, body: afterBody }));
@@ -762,7 +929,15 @@ export default function SOP({ activeSub, onSubChange }) {
     const h = (t) => <h4 style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', fontWeight: 700, margin: '20px 0 7px' }}>{t}</h4>;
     const para = (s) => <p style={{ fontSize: '0.92rem', lineHeight: 1.65, color: 'var(--text-primary)', margin: 0, whiteSpace: 'pre-wrap' }}>{s}</p>;
     const ul = (arr) => <ul style={{ margin: 0, paddingLeft: 20, fontSize: '0.92rem', lineHeight: 1.65, color: 'var(--text-primary)' }}>{arr.map((x, i) => <li key={i} style={{ marginBottom: 3 }}>{x}</li>)}</ul>;
-    const empty = !b.purpose && !b.scopeText && !(b.materials || []).length && !(b.responsibilities || []).length && !(b.procedure || []).length && !(b.safety || []).length && !(b.references || []).length;
+    const empty = !b.purpose && !b.scopeText && !(b.materials || []).length && !(b.responsibilities || []).length && !(b.procedure || []).length && !(b.safety || []).length && !(b.references || []).length && !(b.tables || []).length;
+    const table = (t, i) => (
+      <div key={i} style={{ overflowX: 'auto', marginBottom: 10 }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+          <thead><tr>{(t.headers || []).map((hd, ci) => <th key={ci} style={{ padding: '7px 11px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-secondary)', textAlign: 'left', fontWeight: 700 }}>{hd}</th>)}</tr></thead>
+          <tbody>{(t.rows || []).map((row, ri) => <tr key={ri}>{row.map((c, ci) => <td key={ci} style={{ padding: '7px 11px', border: '1px solid var(--border-color)' }}>{c}</td>)}</tr>)}</tbody>
+        </table>
+      </div>
+    );
     return (
       <div>
         <h2 style={{ margin: '0 0 4px', fontSize: '1.5rem' }}>{d.title || 'Untitled document'}</h2>
@@ -776,6 +951,7 @@ export default function SOP({ activeSub, onSubChange }) {
         {(b.materials || []).length > 0 && <>{h('Materials & Required Items')}{ul(b.materials)}</>}
         {(b.responsibilities || []).length > 0 && <>{h('Responsibilities')}{ul(b.responsibilities.map(r => `${r.role}: ${r.duty}`))}</>}
         {(b.definitions || []).length > 0 && <>{h('Definitions')}{ul(b.definitions.map(r => `${r.term}: ${r.def}`))}</>}
+        {(b.tables || []).length > 0 && b.tables.map((t, i) => <Fragment key={i}>{h(t.title || 'Reference Table')}{table(t, i)}</Fragment>)}
         {(b.procedure || []).length > 0 && <>{h('Procedure')}<ol style={{ margin: 0, paddingLeft: 20, fontSize: '0.92rem', lineHeight: 1.65, color: 'var(--text-primary)' }}>{b.procedure.map((s, i) => <li key={i} style={{ marginBottom: 8 }}>{s.text}{s.detail ? <div style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginTop: 2 }}>{s.detail}</div> : null}{s.image ? <div><img src={s.image} alt="" style={{ height: 72, borderRadius: 8, marginTop: 5, border: '1px solid var(--border-color)' }} /></div> : null}</li>)}</ol></>}
         {(b.safety || []).length > 0 && <>{h('Safety & Compliance')}{ul(b.safety)}</>}
         {(b.references || []).length > 0 && <>{h('References')}{ul(b.references)}</>}
@@ -790,20 +966,49 @@ export default function SOP({ activeSub, onSubChange }) {
     try {
       const { text, images } = await extractDoc(file);
       if (!text.trim()) { setErr('No readable text found in that file (a scanned/image-only PDF has no text). Paste the text instead.'); return; }
-      // Store extracted screenshots (Supabase, inline fallback), keyed by their [[IMG#]] marker.
+      // Store extracted screenshots (Supabase, inline fallback), keyed by their
+      // [[IMG#]] marker - and keep the original data URL as a thumbnail so
+      // screenshots pulled out of an uploaded doc show in the strip just like
+      // pasted ones do.
       const uploaded = {};
-      for (const [marker, dataUrl] of Object.entries(images)) uploaded[marker] = await uploadKbImage(dataUrl);
-      setDraft(p => p ? { ...p, _raw: text, _importImages: uploaded, title: p.title || file.name.replace(/\.[^.]+$/, '') } : p);
+      const thumbs = {};
+      for (const [marker, dataUrl] of Object.entries(images)) { uploaded[marker] = await uploadKbImage(dataUrl); thumbs[marker] = dataUrl; }
+      setDraft(p => p ? { ...p, _raw: text, _importImages: { ...(p._importImages || {}), ...uploaded },
+        _importThumbs: { ...(p._importThumbs || {}), ...thumbs }, title: p.title || file.name.replace(/\.[^.]+$/, '') } : p);
     } catch (e) {
       setErr(e?.message || 'Could not read that file. Try pasting the text instead.');
     }
   };
 
-  // ── Ask AI ──
-  const doAsk = async () => {
-    const q = ask.q.trim();
+  // Ctrl+V screenshots straight into the draft source (capture-first authoring,
+  // Scribe-style): each pasted image becomes an [[IMG#]] marker in the raw notes
+  // that Claude attaches to the right procedure step on Format.
+  const pasteImport = async (e) => {
+    const items = [...(e.clipboardData?.items || [])].filter(it => (it.type || '').startsWith('image/'));
+    if (!items.length) return;   // plain text pastes fall through to the textarea
+    e.preventDefault();
+    const files = items.map(it => it.getAsFile()).filter(Boolean);
+    const assets = await Promise.all(files.map(fileToAsset));
+    const imgs = { ...(draft?._importImages || {}) };
+    const thumbs = { ...(draft?._importThumbs || {}) };
+    let n = Object.keys(imgs).length;
+    const markers = [];
+    for (const a of assets) {
+      if (a.type !== 'image' || !a.data) continue;
+      const marker = `[[IMG${n += 1}]]`;
+      imgs[marker] = await uploadKbImage(a.data);
+      thumbs[marker] = a.data;
+      markers.push(marker);
+    }
+    if (!markers.length) return;
+    setDraft(p => (p ? { ...p, _importImages: imgs, _importThumbs: thumbs, _raw: ((p._raw || '').trimEnd() + '\n' + markers.join('\n') + '\n').replace(/^\n+/, '') } : p));
+  };
+
+  // ── Ask AI ── (qArg lets the combined Home box ask with the search text)
+  const doAsk = async (qArg) => {
+    const q = (typeof qArg === 'string' ? qArg : ask.q).trim();
     if (!q) return;
-    setAsk(a => ({ ...a, loading: true, answer: null, sources: [] }));
+    setAsk(a => ({ ...a, q, loading: true, answer: null, sources: [] }));
     try {
       const r = await api.askKb({ question: q });
       setAsk(a => ({ ...a, loading: false, answer: r.answer, sources: r.sources || [], grounded: r.grounded !== false }));
@@ -871,7 +1076,7 @@ export default function SOP({ activeSub, onSubChange }) {
     catch (e) { setErr(e.message || 'Failed to remove'); }
   };
   const openCourseEditor = async (id) => {
-    setCoursePreview(false);
+    setCoursePreview(false); setCdStep(0);
     if (!id) { setCourseDraft(blankCourse()); setLmsMode('editor'); return; }
     try { const c = await api.getKbCourse(id); setCourseDraft({ id: c.id, title: c.title, description: c.description, overview: c.overview || [], recert_months: c.recert_months || 0, departments: [...(c.departments || [])], est_minutes: c.est_minutes, lessons: c.lessons || [], quiz: c.quiz?.questions ? c.quiz : { passPct: 80, questions: [] } }); setLmsMode('editor'); }
     catch (e) { setErr(e.message || 'Failed to open course'); }
@@ -916,6 +1121,8 @@ export default function SOP({ activeSub, onSubChange }) {
         lessons: (course.lessons || []).length ? course.lessons : p.lessons,
         quiz: course.quiz?.questions?.length ? course.quiz : p.quiz,
       }));
+      // wizard: a successful generation moves on to the Build step
+      if (!courseDraft.id) setCdStep(p => (p === 0 ? 1 : p));
     }
     setCourseAiBusy(false);
   };
@@ -972,6 +1179,15 @@ export default function SOP({ activeSub, onSubChange }) {
     const section = (title, content) => (
       <div style={{ marginBottom: 22 }}>
         <h3 style={{ fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'hsl(var(--color-blue))', borderBottom: '2px solid var(--border-color)', paddingBottom: 6, marginBottom: 10, fontWeight: 700 }}>{title}</h3>
+        {content}
+      </div>
+    );
+    // Numbered, template-styled section - matches the Word doc's "1  Purpose & Scope"
+    // heading treatment (navy, bold, not all-caps). Used inside #kb-doc only.
+    let _secNum = 0;
+    const docSection = (title, content) => (
+      <div style={{ marginBottom: 24 }}>
+        <h3 style={{ fontSize: '1.02rem', color: DOC_THEME.navy, borderBottom: `1px solid ${DOC_THEME.line}`, paddingBottom: 7, marginBottom: 11, fontWeight: 700 }}>{++_secNum}. {title}</h3>
         {content}
       </div>
     );
@@ -1034,6 +1250,13 @@ export default function SOP({ activeSub, onSubChange }) {
       sec('Materials & Required Items', (b.materials || []).map(x => `- ${x}`));
       sec('Responsibilities', (b.responsibilities || []).map(r => `- ${r.role}: ${r.duty}`));
       sec('Definitions', (b.definitions || []).map(r => `- ${r.term}: ${r.def}`));
+      (b.tables || []).forEach(t => {
+        L.push(`## ${t.title || 'Reference Table'}`);
+        L.push(`| ${(t.headers || []).join(' | ')} |`);
+        L.push(`| ${(t.headers || []).map(() => '---').join(' | ')} |`);
+        (t.rows || []).forEach(row => L.push(`| ${row.join(' | ')} |`));
+        L.push('');
+      });
       sec('Procedure', (b.procedure || []).map((s, i) => `${i + 1}. ${s.text}${s.detail ? ` - ${s.detail}` : ''}`));
       sec('Safety & Compliance', (b.safety || []).map(x => `- ${x}`));
       sec('References', (b.references || []).map(x => `- ${x}`));
@@ -1082,7 +1305,7 @@ export default function SOP({ activeSub, onSubChange }) {
               <span style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', backgroundColor: 'var(--bg-secondary)', borderRadius: 6, padding: '2px 8px' }}>{d.doc_type}</span>
               <Badge status={d.status} />
               {d.require_ack && <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'hsl(32,80%,38%)', background: 'hsla(38,92%,50%,0.14)', borderRadius: 999, padding: '3px 10px' }}>Sign-off required</span>}
-              {d.is_stale && <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'hsl(32,80%,38%)', background: 'hsla(38,92%,50%,0.14)', borderRadius: 999, padding: '3px 10px' }}>Needs Review</span>}
+              <VerifyBadge d={d} />
             </div>
             <h2>{dTitle}</h2>
           </div>
@@ -1101,6 +1324,9 @@ export default function SOP({ activeSub, onSubChange }) {
                 </div>
               </>)}
             </div>
+            {d.status === 'approved' && !isMan && (b.procedure || []).length > 0 && !activeRun && (
+              <button className="primary-btn" onClick={() => startRun(d)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 38 }}><Play size={14} /> Run This SOP</button>
+            )}
             {canEdit(d) && <button className="secondary-btn" onClick={() => openEdit(d)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 38 }}><Edit3 size={14} /> Edit</button>}
             {(d.status === 'draft' || d.status === 'changes_requested') && (d.owner_email === myEmail || isManager) && (
               <button className="primary-btn" disabled={busy} onClick={() => submitDoc(d)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 38 }}><Send size={14} /> Submit for Review</button>
@@ -1122,68 +1348,152 @@ export default function SOP({ activeSub, onSubChange }) {
         {docLang !== 'en' && <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 9, padding: '8px 11px', fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: 14 }}>Machine-translated to {({ es: 'Spanish', hi: 'Hindi' })[docLang]}. The English version is authoritative.</div>}
 
         <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'minmax(0, 1fr) 280px', gap: isMobile ? 16 : 24, alignItems: 'start' }}>
-          <div id="kb-doc" style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 24, boxShadow: 'var(--shadow-sm)', minWidth: 0 }}>
-            {/* header grid */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 1, backgroundColor: 'var(--border-color)', border: '1px solid var(--border-color)', borderRadius: 10, overflow: 'hidden', marginBottom: 22 }}>
-              {[['SOP ID', d.doc_code || '-'], ['Type', d.doc_type], ['Version', 'v' + d.version],
-                ['Owner', prettyName(d.owner_name || d.owner_email), d.owner_email],
-                ['Reviewer', prettyName(d.reviewer_name || d.reviewer_email), d.reviewer_email],
-                ['Effective', fmtDate(d.effective_date)], ['Updated', fmtDate(d.updated_at)]].map(([k, v, tip]) => (
-                <div key={k} style={{ backgroundColor: 'var(--bg-card)', padding: '10px 13px', minWidth: 0 }}>
-                  <div style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: 3 }}>{k}</div>
-                  <div title={tip || undefined} style={{ fontSize: '0.85rem', fontWeight: 500, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{v}</div>
-                </div>
-              ))}
-              <div style={{ backgroundColor: 'var(--bg-card)', padding: '10px 13px', gridColumn: '1 / -1' }}>
-                <div style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: 3 }}>Applies to</div>
-                <div style={{ fontSize: '0.85rem', fontWeight: 500, color: 'var(--text-primary)' }}>{deptLabel}</div>
+          <div id="kb-doc" style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, boxShadow: 'var(--shadow-sm)', minWidth: 0, overflow: 'hidden' }}>
+          {/* Company letterhead skin - fixed "paper" colors (not theme vars) so the
+              published document reads identically to the Word template regardless
+              of the app's light/dark theme. Ends before Discussion, which is app
+              chrome (comments), not part of the document, and stays theme-aware. */}
+          <div style={{ backgroundColor: DOC_THEME.paper, color: DOC_THEME.ink, fontFamily: DOC_FONT }}>
+            {/* letterhead */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, padding: '14px 26px', borderBottom: `2px solid ${DOC_THEME.navy}`, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <img src={GREENS_LOGO_URL} alt="Greens Global" style={{ height: 26, width: 'auto', display: 'block' }} />
+                <span style={{ fontSize: '0.68rem', fontWeight: 700, color: DOC_THEME.muted, letterSpacing: '0.03em' }}>NEXUS KNOWLEDGE BASE</span>
               </div>
+              <span style={{ fontSize: '0.72rem', fontWeight: 700, color: DOC_THEME.muted, letterSpacing: '0.02em' }}>{d.doc_code || '-'}</span>
             </div>
 
-            {tPurpose && section('Purpose', <p style={{ color: 'var(--text-primary)', margin: 0, lineHeight: 1.6 }}>{tPurpose}</p>)}
-            {tScope && section('Scope', <p style={{ color: 'var(--text-primary)', margin: 0, lineHeight: 1.6 }}>{tScope}</p>)}
+            {/* cover */}
+            <div style={{ padding: '24px 26px 4px' }}>
+              <div style={{ fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.12em', color: DOC_THEME.muted, marginBottom: 6 }}>
+                {d.doc_type === 'SOP' ? 'STANDARD OPERATING PROCEDURE' : (d.doc_type || 'DOCUMENT').toUpperCase()}
+              </div>
+              <h2 style={{ margin: 0, fontSize: '1.6rem', fontWeight: 700, color: DOC_THEME.navy }}>{dTitle}</h2>
+            </div>
+
+            <div style={{ padding: '18px 26px 26px' }}>
+            {/* document control */}
+            <div style={{ border: `1px solid ${DOC_THEME.line}`, borderRadius: 8, marginBottom: 24, overflow: 'hidden' }}>
+              <div style={{ padding: '8px 13px', borderBottom: `1px solid ${DOC_THEME.line}`, background: '#F7F8FA', fontSize: '0.72rem', fontWeight: 700, color: DOC_THEME.slate, letterSpacing: '0.04em' }}>DOCUMENT CONTROL</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 1, backgroundColor: DOC_THEME.line }}>
+                {[['SOP ID', d.doc_code || '-'], ['Type', d.doc_type], ['Version', 'v' + d.version],
+                  ['Owner', prettyName(d.owner_name || d.owner_email), d.owner_email],
+                  ['Reviewer', prettyName(d.reviewer_name || d.reviewer_email), d.reviewer_email],
+                  ['Effective', fmtDate(d.effective_date)], ['Updated', fmtDate(d.updated_at)]].map(([k, v, tip]) => (
+                  <div key={k} style={{ backgroundColor: DOC_THEME.paper, padding: '10px 13px', minWidth: 0 }}>
+                    <div style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: DOC_THEME.muted, marginBottom: 3 }}>{k}</div>
+                    <div title={tip || undefined} style={{ fontSize: '0.85rem', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{v}</div>
+                  </div>
+                ))}
+                <div style={{ backgroundColor: DOC_THEME.paper, padding: '10px 13px', gridColumn: '1 / -1' }}>
+                  <div style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: DOC_THEME.muted, marginBottom: 3 }}>Applies to</div>
+                  <div style={{ fontSize: '0.85rem', fontWeight: 500 }}>{deptLabel}</div>
+                </div>
+              </div>
+              {(d.revision_history || []).length > 0 && (
+                <div style={{ borderTop: `1px solid ${DOC_THEME.line}` }}>
+                  <div style={{ padding: '8px 13px', fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: DOC_THEME.muted, background: '#F7F8FA' }}>Revision History</div>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+                    <thead><tr>{['Version', 'Date', 'Author', 'Summary of Changes'].map(h => <th key={h} style={{ textAlign: 'left', padding: '6px 13px', borderTop: `1px solid ${DOC_THEME.line}`, color: DOC_THEME.slate, fontWeight: 700 }}>{h}</th>)}</tr></thead>
+                    <tbody>{d.revision_history.slice(0, 8).map((r, i) => (
+                      <tr key={i}>
+                        <td style={{ padding: '6px 13px', borderTop: `1px solid ${DOC_THEME.line}` }}>{r.version}</td>
+                        <td style={{ padding: '6px 13px', borderTop: `1px solid ${DOC_THEME.line}` }}>{fmtDate(r.date)}</td>
+                        <td style={{ padding: '6px 13px', borderTop: `1px solid ${DOC_THEME.line}` }}>{prettyName(r.author)}</td>
+                        <td style={{ padding: '6px 13px', borderTop: `1px solid ${DOC_THEME.line}` }}>{r.notes}</td>
+                      </tr>
+                    ))}</tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {(tPurpose || tScope) && docSection('Purpose & Scope', (<>
+              {tPurpose && <p style={{ margin: tScope ? '0 0 10px' : 0, lineHeight: 1.6 }}>{tPurpose}</p>}
+              {tScope && <p style={{ margin: 0, lineHeight: 1.6 }}>{tScope}</p>}
+            </>))}
             {isMan && manualBody()}
             {!isMan && <>
-            {b.materials?.length > 0 && section('Materials & Required Items', <ul style={{ margin: 0, paddingLeft: 20, color: 'var(--text-primary)', lineHeight: 1.7 }}>{b.materials.map((m, i) => <li key={i}>{m}</li>)}</ul>)}
-            {b.responsibilities?.length > 0 && section('Responsibilities', (
+            {b.materials?.length > 0 && docSection('Materials & Required Items', <ul style={{ margin: 0, paddingLeft: 20, lineHeight: 1.7 }}>{b.materials.map((m, i) => <li key={i}>{m}</li>)}</ul>)}
+            {b.responsibilities?.length > 0 && docSection('Responsibilities', (
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
                 <tbody>{b.responsibilities.map((r, i) => (
-                  <tr key={i}><td style={{ padding: '7px 11px', border: '1px solid var(--border-color)', fontWeight: 600, width: '32%', backgroundColor: 'var(--bg-secondary)' }}>{r.role}</td><td style={{ padding: '7px 11px', border: '1px solid var(--border-color)' }}>{r.duty}</td></tr>
+                  <tr key={i}><td style={{ padding: '7px 11px', border: `1px solid ${DOC_THEME.line}`, fontWeight: 600, width: '32%', backgroundColor: '#F7F8FA' }}>{r.role}</td><td style={{ padding: '7px 11px', border: `1px solid ${DOC_THEME.line}` }}>{r.duty}</td></tr>
                 ))}</tbody>
               </table>
             ))}
-            {b.definitions?.length > 0 && section('Definitions', (
+            {b.definitions?.length > 0 && docSection('Definitions', (
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
                 <tbody>{b.definitions.map((r, i) => (
-                  <tr key={i}><td style={{ padding: '7px 11px', border: '1px solid var(--border-color)', fontWeight: 600, width: '32%', backgroundColor: 'var(--bg-secondary)' }}>{r.term}</td><td style={{ padding: '7px 11px', border: '1px solid var(--border-color)' }}>{r.def}</td></tr>
+                  <tr key={i}><td style={{ padding: '7px 11px', border: `1px solid ${DOC_THEME.line}`, fontWeight: 600, width: '32%', backgroundColor: '#F7F8FA' }}>{r.term}</td><td style={{ padding: '7px 11px', border: `1px solid ${DOC_THEME.line}` }}>{r.def}</td></tr>
                 ))}</tbody>
               </table>
             ))}
-            {section('Procedure', tProcedure?.length > 0 ? (
+            {(b.tables || []).map((t, i) => docSection(t.title || 'Reference Table', (
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                  <thead><tr>{(t.headers || []).map((hd, ci) => <th key={ci} style={{ padding: '7px 11px', border: `1px solid ${DOC_THEME.line}`, backgroundColor: '#F7F8FA', textAlign: 'left', fontWeight: 700 }}>{hd}</th>)}</tr></thead>
+                  <tbody>{(t.rows || []).map((row, ri) => <tr key={ri}>{row.map((c, ci) => <td key={ci} style={{ padding: '7px 11px', border: `1px solid ${DOC_THEME.line}` }}>{c}</td>)}</tr>)}</tbody>
+                </table>
+              </div>
+            )))}
+            {docSection('Procedure', tProcedure?.length > 0 ? (<>
+              {runDone && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, background: 'hsla(145,63%,42%,0.1)', border: '1px solid hsla(145,63%,42%,0.35)', borderRadius: 10, padding: '10px 13px' }}>
+                  <CheckSquare size={17} style={{ color: 'hsl(145,55%,32%)', flex: '0 0 auto' }} />
+                  <div style={{ flex: 1, fontSize: '0.85rem', color: 'hsl(145,55%,26%)', fontWeight: 600 }}>Run complete - all {runDone.step_count} steps done. Nice work.</div>
+                  <button className="close-btn" onClick={() => setRunDone(null)}><X size={15} /></button>
+                </div>
+              )}
+              {activeRun && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 11, marginBottom: 12, background: 'hsla(215,100%,50%,0.06)', border: '1px solid hsla(215,100%,50%,0.25)', borderRadius: 10, padding: '10px 13px' }}>
+                  <ListChecks size={17} style={{ color: 'hsl(var(--color-blue))', flex: '0 0 auto' }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: '0.82rem', fontWeight: 700 }}>Run in progress · {activeRun.steps_done.length} of {activeRun.step_count} steps done</div>
+                    <div style={{ height: 6, borderRadius: 999, background: DOC_THEME.line, overflow: 'hidden', marginTop: 5 }}>
+                      <div style={{ width: `${Math.round(activeRun.steps_done.length / (activeRun.step_count || 1) * 100)}%`, height: '100%', background: 'hsl(145,63%,42%)', transition: 'width 0.25s ease' }} />
+                    </div>
+                  </div>
+                  <button className="secondary-btn" onClick={abandonRun} style={{ height: 30, fontSize: '0.76rem', flex: '0 0 auto' }}>Abandon Run</button>
+                </div>
+              )}
               <ol style={{ margin: 0, paddingLeft: 0, listStyle: 'none', counterReset: 'step' }}>
-                {tProcedure.map((s, i) => (
-                  <li key={i} style={{ position: 'relative', padding: '10px 0 10px 40px', borderBottom: '1px solid var(--bg-secondary)', color: 'var(--text-primary)' }}>
-                    <span style={{ position: 'absolute', left: 0, top: 9, width: 26, height: 26, borderRadius: 8, backgroundColor: 'var(--bg-secondary)', color: 'hsl(var(--color-blue))', fontWeight: 700, fontSize: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{i + 1}</span>
-                    {s.text}
+                {tProcedure.map((s, i) => {
+                  const done = !!activeRun && activeRun.steps_done.includes(i);
+                  return (
+                  <li key={i} style={{ position: 'relative', padding: '10px 0 10px 40px', borderBottom: `1px solid ${DOC_THEME.line}`, opacity: done ? 0.55 : 1, transition: 'opacity 0.15s ease' }}>
+                    {activeRun
+                      ? <button onClick={() => toggleRunStep(i)} title={done ? 'Mark not done' : 'Mark step done'} style={{ position: 'absolute', left: 0, top: 9, width: 26, height: 26, borderRadius: 8, border: '2px solid', borderColor: done ? 'hsl(145,63%,42%)' : DOC_THEME.line, backgroundColor: done ? 'hsl(145,63%,42%)' : DOC_THEME.paper, color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}>{done ? <CheckSquare size={14} /> : ''}</button>
+                      : <span style={{ position: 'absolute', left: 0, top: 9, width: 26, height: 26, borderRadius: 8, backgroundColor: '#F7F8FA', color: DOC_THEME.blue, fontWeight: 700, fontSize: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{i + 1}</span>}
+                    <span style={done ? { textDecoration: 'line-through' } : undefined}>{s.text}</span>
                     <StepDetail detail={s.detail} />
-                    {s.image && <img src={signedImgs[s.image] || s.image} alt="step illustration" onClick={() => setLightbox(signedImgs[s.image] || s.image)} style={{ marginTop: 9, maxWidth: 360, width: '100%', borderRadius: 10, border: '1px solid var(--border-color)', display: 'block', cursor: 'zoom-in' }} />}
+                    {s.image && <img src={signedImgs[s.image] || s.image} alt="step illustration" onClick={() => setLightbox(signedImgs[s.image] || s.image)} style={{ marginTop: 9, maxWidth: 360, width: '100%', borderRadius: 10, border: `1px solid ${DOC_THEME.line}`, display: 'block', cursor: 'zoom-in' }} />}
                   </li>
-                ))}
+                  );
+                })}
               </ol>
-            ) : <p style={{ color: 'var(--text-muted)', margin: 0 }}>No steps recorded.</p>)}
-            {tSafety?.length > 0 && section('Safety & Compliance', <ul style={{ margin: 0, paddingLeft: 20, color: 'var(--text-primary)', lineHeight: 1.7 }}>{tSafety.map((s, i) => <li key={i}>{s}</li>)}</ul>)}
-            {b.references?.length > 0 && section('References', <ul style={{ margin: 0, paddingLeft: 20, color: 'var(--text-primary)', lineHeight: 1.7 }}>{b.references.map((s, i) => <li key={i}>{s}</li>)}</ul>)}
-            {b.media?.length > 0 && section('Training media', <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>{b.media.map((m, i) => mediaEmbed(m, i))}</div>)}
-            {b.attachments?.length > 0 && section('Attachments & Diagrams', (
+            </>) : <p style={{ color: DOC_THEME.muted, margin: 0 }}>No steps recorded.</p>)}
+            {tSafety?.length > 0 && docSection('Safety & Compliance', <ul style={{ margin: 0, paddingLeft: 20, lineHeight: 1.7 }}>{tSafety.map((s, i) => <li key={i}>{s}</li>)}</ul>)}
+            {b.references?.length > 0 && docSection('References', <ul style={{ margin: 0, paddingLeft: 20, lineHeight: 1.7 }}>{b.references.map((s, i) => <li key={i}>{s}</li>)}</ul>)}
+            {b.media?.length > 0 && docSection('Training media', <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>{b.media.map((m, i) => mediaEmbed(m, i))}</div>)}
+            {b.attachments?.length > 0 && docSection('Attachments & Diagrams', (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
                 {b.attachments.map((a, i) => a.type === 'image' && a.data
-                  ? <img key={i} src={a.data} alt={a.name} onClick={() => setLightbox(a.data)} style={{ height: 120, borderRadius: 10, border: '1px solid var(--border-color)', cursor: 'zoom-in' }} />
-                  : <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: '0.8rem', color: 'var(--text-secondary)', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 10, padding: '10px 12px' }}><Paperclip size={14} />{a.name}</span>)}
+                  ? <img key={i} src={a.data} alt={a.name} onClick={() => setLightbox(a.data)} style={{ height: 120, borderRadius: 10, border: `1px solid ${DOC_THEME.line}`, cursor: 'zoom-in' }} />
+                  : <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: '0.8rem', color: DOC_THEME.muted, background: '#F7F8FA', border: `1px solid ${DOC_THEME.line}`, borderRadius: 10, padding: '10px 12px' }}><Paperclip size={14} />{a.name}</span>)}
               </div>
             ))}
             </>}
+            </div>
 
-            <div style={{ marginTop: 26, borderTop: '2px solid var(--border-color)', paddingTop: 18 }}>
+            {/* footer */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 14, padding: '10px 26px', borderTop: `1px solid ${DOC_THEME.line}`, fontSize: '0.7rem', color: DOC_THEME.muted, flexWrap: 'wrap' }}>
+              <span>Internal Use Only</span>
+              <span>{dTitle}</span>
+            </div>
+          </div>
+
+            <div style={{ margin: '18px 24px 0', padding: '18px 0 24px', borderTop: '2px solid var(--border-color)' }}>
               <h3 style={{ fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'hsl(var(--color-blue))', margin: '0 0 14px', fontWeight: 700 }}>Discussion <span style={{ fontFamily: 'inherit', color: 'var(--text-muted)' }}>{comments.length}</span></h3>
               {comments.length === 0
                 ? <div style={{ fontSize: '0.83rem', color: 'var(--text-muted)', marginBottom: 4 }}>No comments yet. Start the discussion below.</div>
@@ -1222,7 +1532,7 @@ export default function SOP({ activeSub, onSubChange }) {
                   : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', fontWeight: 700, color: 'hsl(145,55%,30%)', background: 'hsla(145,63%,42%,0.14)', borderRadius: 999, padding: '4px 10px' }}><CheckSquare size={13} /> Verified</span>}
                 <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 8 }}>{d.verified_at ? `Last verified ${fmtDate(d.verified_at)}${d.verified_by ? ` by ${prettyName(d.verified_by)}` : ''}.` : 'Not yet verified.'}</div>
                 <div style={{ fontSize: '0.78rem', color: d.is_stale ? 'hsl(32,80%,38%)' : 'var(--text-muted)', marginTop: 3 }}>Every {d.review_every_months} mo · next due {fmtDate(d.next_review)}.</div>
-                {isManager && <button className={d.is_stale ? 'primary-btn' : 'secondary-btn'} onClick={verifyDoc} style={{ marginTop: 10, width: '100%', height: 32, fontSize: '0.8rem' }}>Mark Verified Today</button>}
+                {(isManager || d.owner_email === myEmail) && <button className={d.is_stale ? 'primary-btn' : 'secondary-btn'} onClick={verifyDoc} style={{ marginTop: 10, width: '100%', height: 32, fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}><ShieldCheck size={14} /> Still Accurate - Verify</button>}
               </div>
             )}
 
@@ -1349,11 +1659,20 @@ export default function SOP({ activeSub, onSubChange }) {
     const fieldLabel = { fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-primary)', display: 'block', marginBottom: 2 };
     const fieldTip = (text) => <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', margin: '0 0 8px', lineHeight: 1.45 }}>{text}</div>;
     const bigText = { width: '100%', fontSize: '0.95rem', lineHeight: 1.65, padding: '13px 15px', resize: 'vertical' };
-    const section = (title, hint, children) => (
-      <div style={cardStyle}>
+    // Sections the AI flagged as missing from the source, still unfilled - the
+    // red highlight clears itself the moment the author adds content.
+    const gaps = (draft._gaps || []).filter(f => bodyFieldEmpty(draft.body, f));
+    const isGap = (f) => gaps.includes(f);
+    const gapChip = <span style={{ fontSize: '0.66rem', fontWeight: 700, color: 'hsl(0,70%,45%)', background: 'hsla(0,84%,60%,0.1)', border: '1px solid hsla(0,84%,60%,0.35)', borderRadius: 999, padding: '2px 9px', whiteSpace: 'nowrap', flex: '0 0 auto' }}>Missing - Please Add</span>;
+    const section = (title, hint, children, gap) => (
+      <div style={{ ...cardStyle, ...(gap ? { borderColor: 'hsla(0,84%,60%,0.55)', boxShadow: '0 0 0 3px hsla(0,84%,60%,0.06)' } : {}) }}>
         <div style={{ marginBottom: 16 }}>
-          <h3 style={{ fontSize: '1rem', fontWeight: 700, margin: 0, fontFamily: "'Plus Jakarta Sans', sans-serif", color: 'var(--text-primary)' }}>{title}</h3>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <h3 style={{ fontSize: '1rem', fontWeight: 700, margin: 0, fontFamily: "'Plus Jakarta Sans', sans-serif", color: 'var(--text-primary)' }}>{title}</h3>
+            {gap && gapChip}
+          </div>
           {hint && <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: '3px 0 0' }}>{hint}</p>}
+          {gap && <p style={{ fontSize: '0.76rem', color: 'hsl(0,70%,45%)', margin: '4px 0 0' }}>Your source didn't cover this. Add it below if it applies, or leave it empty on purpose.</p>}
         </div>
         {children}
       </div>
@@ -1414,7 +1733,7 @@ export default function SOP({ activeSub, onSubChange }) {
           {draft.body[field].length === 0 && <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0 }}>None yet.</p>}
         </div>
         <button className="secondary-btn" onClick={() => addItem(field, '')} style={{ marginTop: 12, height: 36, fontSize: '0.82rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={14} /> Add</button>
-      </>));
+      </>), isGap(field));
     const pairEditor = (field, label, hint, k1, k2, p1, p2) => section(label, hint, (<>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {draft.body[field].map((row, i) => (
@@ -1427,22 +1746,97 @@ export default function SOP({ activeSub, onSubChange }) {
           {draft.body[field].length === 0 && <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0 }}>None yet.</p>}
         </div>
         <button className="secondary-btn" onClick={() => addItem(field, { [k1]: '', [k2]: '' })} style={{ marginTop: 12, height: 36, fontSize: '0.82rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={14} /> Add</button>
+      </>), isGap(field));
+    const tableEditor = () => section('Reference Tables', 'Structured data that belongs in a table, not prose - lookup lists, mappings, comparison charts.', (<>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {draft.body.tables.map((t, ti) => {
+            const updTable = (patch) => updItem('tables', ti, { ...t, ...patch });
+            const updCell = (ri, ci, val) => updTable({ rows: t.rows.map((row, rj) => rj === ri ? row.map((c, cj) => cj === ci ? val : c) : row) });
+            const updHeader = (ci, val) => updTable({ headers: t.headers.map((hd, hj) => hj === ci ? val : hd) });
+            const addRow = () => updTable({ rows: [...t.rows, t.headers.map(() => '')] });
+            const delRow = (ri) => updTable({ rows: t.rows.filter((_, rj) => rj !== ri) });
+            const addCol = () => updTable({ headers: [...t.headers, `Column ${t.headers.length + 1}`], rows: t.rows.map(row => [...row, '']) });
+            const delCol = (ci) => updTable({ headers: t.headers.filter((_, hj) => hj !== ci), rows: t.rows.map(row => row.filter((_, cj) => cj !== ci)) });
+            return (
+              <div key={ti} style={{ border: '1px solid var(--border-color)', borderRadius: 12, padding: 14, backgroundColor: 'var(--bg-secondary)' }}>
+                <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+                  <input className="form-input" value={t.title || ''} placeholder="Table title (e.g. Access Groups)" onChange={e => updTable({ title: e.target.value })} style={{ flex: 1, fontWeight: 600 }} />
+                  <button className="secondary-btn" onClick={() => delItem('tables', ti)} style={{ width: 42, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}><Trash2 size={16} /></button>
+                </div>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: '0.85rem' }}>
+                    <thead><tr>
+                      {t.headers.map((hd, ci) => (
+                        <th key={ci} style={{ padding: 4, border: '1px solid var(--border-color)' }}>
+                          <div style={{ display: 'flex', gap: 4 }}>
+                            <input className="form-input" value={hd} onChange={e => updHeader(ci, e.target.value)} style={{ padding: '6px 8px', fontWeight: 600, minWidth: 90 }} />
+                            <button className="secondary-btn" title="Remove column" onClick={() => delCol(ci)} style={{ width: 28, padding: 0, flex: '0 0 auto' }}><X size={13} /></button>
+                          </div>
+                        </th>
+                      ))}
+                      <th style={{ padding: 4 }}><button className="secondary-btn" onClick={addCol} style={{ height: 30, fontSize: '0.76rem', display: 'inline-flex', alignItems: 'center', gap: 4 }}><Plus size={12} /> Column</button></th>
+                    </tr></thead>
+                    <tbody>
+                      {t.rows.map((row, ri) => (
+                        <tr key={ri}>
+                          {row.map((c, ci) => (
+                            <td key={ci} style={{ padding: 4, border: '1px solid var(--border-color)' }}>
+                              <input className="form-input" value={c} onChange={e => updCell(ri, ci, e.target.value)} style={{ padding: '6px 8px', minWidth: 90, width: '100%' }} />
+                            </td>
+                          ))}
+                          <td style={{ padding: 4 }}><button className="secondary-btn" onClick={() => delRow(ri)} style={{ width: 28, height: 28, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Trash2 size={13} /></button></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <button className="secondary-btn" onClick={addRow} style={{ marginTop: 10, height: 32, fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 4 }}><Plus size={13} /> Row</button>
+              </div>
+            );
+          })}
+          {draft.body.tables.length === 0 && <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0 }}>None yet.</p>}
+        </div>
+        <button className="secondary-btn" onClick={() => addItem('tables', { title: '', headers: ['Column 1', 'Column 2'], rows: [['', '']] })} style={{ marginTop: 12, height: 36, fontSize: '0.82rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={14} /> Add Table</button>
       </>));
 
+    // wizard: new SOPs open on Capture; manuals and edits jump straight to Content
+    const steps = (isNew && !isManual) ? ['Capture', 'Content', 'Settings', 'Publish'] : ['Content', 'Settings', 'Publish'];
+    const stepIdx = Math.min(edStep, steps.length - 1);
+    const stepName = steps[stepIdx];
+    const nextStep = () => setEdStep(Math.min(stepIdx + 1, steps.length - 1));
+    const prevStep = () => setEdStep(Math.max(stepIdx - 1, 0));
+    const stepCount = (draft.body.procedure || []).length;
+    const checklist = [
+      [!!draft.title.trim(), 'Title', draft.title.trim() ? `"${draft.title.trim()}"` : 'Add a clear, searchable title (Content step)'],
+      [isManual ? (draft.body.chapters || []).length > 0 : stepCount > 0, isManual ? 'Chapters' : 'Procedure', isManual ? `${(draft.body.chapters || []).length} chapter(s)` : (stepCount ? `${stepCount} step${stepCount === 1 ? '' : 's'}` : 'No steps yet (Content step)')],
+      [draft.departments.length > 0, 'Departments', draft.departments.length ? draft.departments.map(x => DEPT_ABBR[x] || x).join(', ') : 'Not tagged yet (Settings step) - untagged docs are corporate-wide'],
+      [!!draft.reviewer_email.trim(), 'Reviewer', draft.reviewer_email ? (draft.reviewer_name || draft.reviewer_email) : 'Required to submit for review (Settings step)'],
+      ...(draft._gaps ? [[
+        (draft._gaps || []).filter(f => bodyFieldEmpty(draft.body, f)).length === 0,
+        'Template Coverage',
+        (() => { const g = (draft._gaps || []).filter(f => bodyFieldEmpty(draft.body, f)); return g.length ? `Still missing from your source: ${g.map(f => SOP_FIELD_LABELS[f]).join(', ')} (Content step)` : 'Every section the source missed has been filled or reviewed'; })(),
+      ]] : []),
+    ];
     return (
-      <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out', width: '100%' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 18 }}>
+      <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out', width: '100%', maxWidth: 1320, margin: '0 auto' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
           <button className="secondary-btn" onClick={backToList} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 34 }}>
             <ArrowLeft size={15} /> {isNew ? 'Cancel' : 'Back'}
           </button>
           <span style={{ marginLeft: 'auto' }}>{helpBtn('create')}</span>
         </div>
         {helpModal()}
-        <h2 style={{ marginBottom: 4, fontSize: '1.7rem' }}>{isNew ? 'New' : 'Edit'} {draft.doc_type}</h2>
-        <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: 22 }}>Fill in the sections below, or paste raw notes and let Claude format it into the the company standard.</p>
+        <h2 style={{ margin: '0 0 4px', fontSize: '1.55rem', textAlign: 'center' }}>{isNew ? 'New' : 'Edit'} {draft.doc_type}</h2>
+        <p style={{ color: 'var(--text-secondary)', fontSize: '0.86rem', margin: '0 0 16px', textAlign: 'center' }}>
+          {stepName === 'Capture' ? 'Show Claude the task once - it writes the document.'
+            : stepName === 'Content' ? 'The substance: what to do and how.'
+            : stepName === 'Settings' ? 'Who it applies to and how it stays current.'
+            : 'Check everything over, then send it on its way.'}
+        </p>
+        <Stepper steps={steps} current={stepIdx} onGo={setEdStep} />
         {errBanner}
 
-        {draft._importSource && (
+        {stepName === 'Content' && draft._importSource && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', border: '1px solid hsla(266,70%,60%,0.4)', background: 'hsla(266,70%,60%,0.06)', borderRadius: 12, padding: '12px 16px', marginBottom: 18 }}>
             <Sparkles size={18} style={{ color: 'hsl(266,72%,56%)', flex: '0 0 auto' }} />
             <div style={{ flex: 1, minWidth: 180, fontSize: '0.84rem', color: 'var(--text-primary)' }}>Claude formatted this draft. Review what changed or preview it before you publish.</div>
@@ -1452,7 +1846,17 @@ export default function SOP({ activeSub, onSubChange }) {
           </div>
         )}
 
-        {!isManual && draft.id && draft._status === 'changes_requested' && (
+        {stepName === 'Content' && gaps.length > 0 && (
+          <div style={{ display: 'flex', gap: 11, alignItems: 'flex-start', border: '1px solid hsla(0,84%,60%,0.4)', background: 'hsla(0,84%,60%,0.05)', borderRadius: 12, padding: '12px 15px', marginBottom: 18 }}>
+            <span style={{ width: 26, height: 26, borderRadius: 8, background: 'hsla(0,84%,60%,0.12)', color: 'hsl(0,70%,45%)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '0.85rem', flex: '0 0 auto' }}>!</span>
+            <div style={{ flex: 1, minWidth: 0, fontSize: '0.84rem', color: 'var(--text-primary)', lineHeight: 1.5 }}>
+              <strong>Your source didn't cover {gaps.length} section{gaps.length === 1 ? '' : 's'}:</strong> {gaps.map(f => SOP_FIELD_LABELS[f]).join(', ')}.
+              <span style={{ color: 'var(--text-secondary)' }}> They're outlined in red below - fill in what applies, or leave a section empty if it genuinely doesn't. The highlight clears as you type.</span>
+            </div>
+          </div>
+        )}
+
+        {stepName === 'Content' && !isManual && draft.id && draft._status === 'changes_requested' && (
           <div style={{ border: '1px solid hsla(0,84%,60%,0.4)', background: 'hsla(0,84%,60%,0.06)', borderRadius: 12, padding: 14, marginBottom: 18 }}>
             <strong style={{ fontSize: '0.88rem', color: 'hsl(0,70%,45%)' }}>Reviewer requested changes</strong>
             {draft._reviewNote && <div style={{ fontSize: '0.82rem', color: 'var(--text-primary)', margin: '5px 0 10px', whiteSpace: 'pre-wrap' }}>{draft._reviewNote}</div>}
@@ -1461,7 +1865,7 @@ export default function SOP({ activeSub, onSubChange }) {
           </div>
         )}
 
-        {!isManual && draft.id && (
+        {stepName === 'Content' && !isManual && draft.id && (
           <div style={{ border: '1px solid hsla(266,70%,60%,0.4)', background: 'hsla(266,70%,60%,0.06)', borderRadius: 12, padding: 14, marginBottom: 18 }}>
             <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10 }}>
               <Sparkles size={17} style={{ color: 'hsl(266,72%,56%)', flex: '0 0 auto' }} />
@@ -1474,25 +1878,53 @@ export default function SOP({ activeSub, onSubChange }) {
           </div>
         )}
 
-        {!isManual && !draft._importSource && !draft.id && <>{/* Import / AI-format panel (new docs only) */}
-        <div style={{ border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-card)', borderRadius: 12, padding: 16, marginBottom: 18, boxShadow: 'var(--shadow-sm)' }}>
-          <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
-            <div style={{ width: 34, height: 34, borderRadius: 9, backgroundColor: 'hsla(215,100%,50%,0.1)', color: 'hsl(var(--color-blue))', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}><Sparkles size={18} /></div>
-            <div style={{ flex: 1, minWidth: 180 }}>
-              <strong style={{ fontSize: '0.9rem', display: 'block' }}>Start from an existing document</strong>
-              <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Paste or upload an existing SOP (or rough notes) and Claude formats every section. Optional - you can also just fill it in below.</span>
+        {stepName === 'Capture' && <>{/* Capture step - show the task once, Claude writes the SOP */}
+        <div style={{ maxWidth: 1180, margin: '0 auto' }}>
+          <div style={{ border: '1px solid hsla(266,70%,60%,0.4)', background: 'hsla(266,70%,60%,0.05)', borderRadius: 16, padding: isMobile ? '24px 22px' : '30px 34px', marginBottom: 14, boxShadow: 'var(--shadow-sm)' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'minmax(260px, 340px) 1fr', gap: isMobile ? 20 : 36 }}>
+              <div style={{ textAlign: isMobile ? 'center' : 'left' }}>
+                <div style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: 'hsla(266,70%,60%,0.14)', color: 'hsl(266,72%,56%)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: isMobile ? '0 auto 10px' : '0 0 12px' }}><Sparkles size={22} /></div>
+                <strong style={{ fontSize: '1.15rem', display: 'block', marginBottom: 8 }}>Show It, Don't Write It</strong>
+                <span style={{ fontSize: '0.88rem', color: 'var(--text-secondary)', lineHeight: 1.6 }}>Do the task once: paste a screenshot of each step (Ctrl+V), jot rough notes between them, or upload an existing document. Claude turns it into a finished, standardized {draft.doc_type} - you review every change before keeping it.</span>
+                {!isMobile && (
+                  <div style={{ marginTop: 20, fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+                    Prefer to write it yourself? <button onClick={nextStep} style={{ background: 'none', border: 'none', color: 'hsl(var(--color-blue))', fontWeight: 600, cursor: 'pointer', fontSize: '0.82rem', padding: 0 }}>Start With a Blank Document</button>
+                  </div>
+                )}
+              </div>
+              <div>
+                <textarea className="form-input" autoFocus value={draft._raw} onPaste={pasteImport} placeholder={'Type rough step notes and press Ctrl+V to drop in screenshots as you go…\n\ne.g.\nOpen the gate panel and enter the master code\n[screenshot]\nCheck the log for the last entry…'} onChange={e => setDraft(p => ({ ...p, _raw: e.target.value }))} style={{ width: '100%', minHeight: 260, resize: 'vertical', fontSize: '0.92rem', lineHeight: 1.6 }} />
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 6 }}>Tip: paste screenshots in the order you do the steps, or press Ctrl+V anytime - Claude attaches each one to the right step.</div>
+                {Object.keys(draft._importThumbs || {}).length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
+                    {Object.entries(draft._importThumbs).map(([marker, src]) => (
+                      <div key={marker} style={{ position: 'relative', border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden' }}>
+                        <img src={src} alt={marker} style={{ height: 58, display: 'block' }} />
+                        <span style={{ position: 'absolute', bottom: 2, left: 4, fontSize: '0.6rem', fontWeight: 700, color: '#fff', background: 'rgba(0,0,0,0.55)', borderRadius: 4, padding: '0 4px' }}>{marker.replace(/[[\]]/g, '')}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div style={{ display: 'flex', gap: 10, justifyContent: isMobile ? 'center' : 'flex-start', marginTop: 16, flexWrap: 'wrap' }}>
+                  <label className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 42, cursor: 'pointer', margin: 0 }}>
+                    <Paperclip size={15} /> Upload File
+                    <input type="file" accept={IMPORT_ACCEPT} onChange={e => { importFile(e.target.files[0]); e.target.value = ''; }} style={{ display: 'none' }} />
+                  </label>
+                  <button className="primary-btn" disabled={aiBusy} onClick={runAiFormat} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 42, padding: '0 22px', fontSize: '0.92rem', background: 'linear-gradient(135deg, hsl(258,82%,62%), hsl(288,70%,58%))', border: 'none', color: '#fff' }}>
+                    {aiBusy ? <Loader size={15} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Sparkles size={15} />} {aiBusy ? 'Writing Your SOP…' : 'Format with Claude'}
+                  </button>
+                </div>
+              </div>
             </div>
-            <label className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 38, cursor: 'pointer', margin: 0, flex: '0 0 auto' }}>
-              <Paperclip size={15} /> Upload file
-              <input type="file" accept={IMPORT_ACCEPT} onChange={e => { importFile(e.target.files[0]); e.target.value = ''; }} style={{ display: 'none' }} />
-            </label>
-            <button className="primary-btn" disabled={aiBusy} onClick={runAiFormat} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 38, flex: '0 0 auto' }}>
-              {aiBusy ? <Loader size={15} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Sparkles size={15} />} {aiBusy ? 'Formatting…' : 'Format with Claude'}
-            </button>
           </div>
-          <textarea className="form-input" value={draft._raw} placeholder="Paste existing SOP text or bullet notes here, or upload a file above…" onChange={e => setDraft(p => ({ ...p, _raw: e.target.value }))} style={{ width: '100%', minHeight: 90, resize: 'vertical' }} />
+          {isMobile && (
+            <div style={{ textAlign: 'center', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+              Prefer to write it yourself? <button onClick={nextStep} style={{ background: 'none', border: 'none', color: 'hsl(var(--color-blue))', fontWeight: 600, cursor: 'pointer', fontSize: '0.82rem', padding: 0 }}>Start With a Blank Document</button>
+            </div>
+          )}
         </div></>}
 
+        {stepName === 'Content' && <>
         {/* Prominent title field */}
         <div style={cardStyle}>
           <label style={fieldLabel}>Document title</label>
@@ -1500,6 +1932,9 @@ export default function SOP({ activeSub, onSubChange }) {
           <input className="form-input" value={draft.title} placeholder="e.g. Unit Move-In Procedure" onChange={e => setDraft(p => ({ ...p, title: e.target.value }))} style={{ fontSize: '1.35rem', fontWeight: 600, padding: '14px 16px', height: 'auto', fontFamily: "'Plus Jakarta Sans', sans-serif" }} />
         </div>
 
+        </>}
+
+        {stepName === 'Settings' && <>
         {section('Document Details', 'Who it applies to and how it’s kept current. The reviewing manager approves it before it goes live.', (<>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: 18 }}>
             <div className="form-group"><label>Type</label><select className="form-select" value={draft.doc_type} onChange={e => setDraft(p => ({ ...p, doc_type: e.target.value }))} style={{ padding: '11px 36px 11px 14px' }}>{DOC_TYPES.map(t => <option key={t}>{t}</option>)}</select></div>
@@ -1532,24 +1967,27 @@ export default function SOP({ activeSub, onSubChange }) {
             Require acknowledgement (e-signature sign-off) from staff once approved
           </label>
         </>))}
+        </>}
 
+        {stepName === 'Content' && <>
         {section('Overview', 'Set the context before the steps - what this is for and who it covers.', (<>
           <div style={{ marginBottom: 18 }}>
-            <label style={fieldLabel}>Purpose</label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><label style={fieldLabel}>Purpose</label>{isGap('purpose') && gapChip}</div>
             {fieldTip('In a sentence or two, why this document exists and what it should achieve.')}
-            <textarea className="form-input" value={draft.body.purpose} placeholder="Why this document exists…" onChange={e => setBody({ purpose: e.target.value })} style={{ ...bigText, minHeight: 120 }} />
+            <textarea className="form-input" value={draft.body.purpose} placeholder="Why this document exists…" onChange={e => setBody({ purpose: e.target.value })} style={{ ...bigText, minHeight: 120, ...(isGap('purpose') ? { borderColor: 'hsla(0,84%,60%,0.55)' } : {}) }} />
           </div>
           <div>
-            <label style={fieldLabel}>Scope</label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><label style={fieldLabel}>Scope</label>{isGap('scopeText') && gapChip}</div>
             {fieldTip('Who must follow it, and any situations it does or doesn’t cover.')}
-            <textarea className="form-input" value={draft.body.scopeText} placeholder="Who and what this applies to…" onChange={e => setBody({ scopeText: e.target.value })} style={{ ...bigText, minHeight: 120 }} />
+            <textarea className="form-input" value={draft.body.scopeText} placeholder="Who and what this applies to…" onChange={e => setBody({ scopeText: e.target.value })} style={{ ...bigText, minHeight: 120, ...(isGap('scopeText') ? { borderColor: 'hsla(0,84%,60%,0.55)' } : {}) }} />
           </div>
-        </>))}
+        </>), isGap('purpose') || isGap('scopeText'))}
 
         {isManual ? chapterBuilder() : (<>
         {listEditor('materials', 'Materials & Required Items', 'e.g. Master key set', 'Anything someone needs on hand before they start - tools, access, forms, or equipment.')}
         {pairEditor('responsibilities', 'Responsibilities', 'Who does what - list each role and what they’re accountable for in this process.', 'role', 'duty', 'Role', 'Responsibility')}
         {pairEditor('definitions', 'Definitions', 'Spell out any terms, acronyms, or system names a new reader might not know.', 'term', 'def', 'Term', 'Definition')}
+        {tableEditor()}
 
         {/* procedure */}
         {section('Procedure', 'The heart of the document - the steps to follow, in order. Keep each step to one clear action; add a note or picture where it helps.', (<>
@@ -1569,7 +2007,7 @@ export default function SOP({ activeSub, onSubChange }) {
             {draft.body.procedure.length === 0 && <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0 }}>No steps yet.</p>}
           </div>
           <button className="secondary-btn" onClick={() => addItem('procedure', { text: '', detail: '' })} style={{ marginTop: 12, height: 36, fontSize: '0.82rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={14} /> Add Step</button>
-        </>))}
+        </>), isGap('procedure'))}
 
         {listEditor('safety', 'Safety & Compliance', 'e.g. Never enter a unit alone if…', 'Risks to watch for and any rules, regulations, or policies that must be followed.')}
         {listEditor('references', 'References', 'e.g. OPS-021 Access Control', 'Related SOPs, policies, or documents someone may need alongside this one.')}
@@ -1589,14 +2027,42 @@ export default function SOP({ activeSub, onSubChange }) {
           <button className="secondary-btn" onClick={() => pickFiles(true, assets => setBody({ attachments: [...(draft.body.attachments || []), ...assets] }))} style={{ marginTop: 12, height: 36, fontSize: '0.82rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={14} /> Add files / pictures</button>
         </>))}
         </>)}
+        </>}
 
-        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', flexWrap: 'wrap', paddingTop: 8, borderTop: '1px solid var(--border-color)', marginTop: 8 }}>
-          <button className="secondary-btn" onClick={backToList}>Cancel</button>
-          <button className="secondary-btn" onClick={() => setPreviewOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginRight: 'auto' }}><Eye size={14} /> Preview</button>
-          <button className="secondary-btn" disabled={busy} onClick={() => save(false)}>Save Draft</button>
-          <button className="secondary-btn" disabled={busy} onClick={() => save(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Send size={14} /> Save &amp; Submit for Review</button>
-          {isManager && <button className="primary-btn" disabled={busy} onClick={saveAndPublish} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><CheckSquare size={14} /> Save &amp; publish</button>}
-        </div>
+        {stepName === 'Publish' && (
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '280px minmax(0, 1fr)', gap: 16, alignItems: 'start' }}>
+            <div style={{ ...cardStyle, marginBottom: 0 }}>
+              <span style={secLabel}>Ready to Publish?</span>
+              {checklist.map(([ok, label, note]) => (
+                <div key={label} style={{ display: 'flex', gap: 9, alignItems: 'flex-start', marginBottom: 12 }}>
+                  <span style={{ width: 20, height: 20, borderRadius: '50%', flex: '0 0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.72rem', fontWeight: 700, background: ok ? 'hsla(145,63%,42%,0.14)' : 'hsla(38,92%,50%,0.14)', color: ok ? 'hsl(145,55%,32%)' : 'hsl(32,80%,38%)' }}>{ok ? <CheckSquare size={12} /> : '!'}</span>
+                  <span style={{ minWidth: 0 }}>
+                    <span style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-primary)' }}>{label}</span>
+                    <span style={{ display: 'block', fontSize: '0.74rem', color: 'var(--text-muted)', lineHeight: 1.45 }}>{note}</span>
+                  </span>
+                </div>
+              ))}
+              <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', borderTop: '1px solid var(--bg-secondary)', paddingTop: 10, lineHeight: 1.5 }}>
+                Save Draft keeps it private to you. Submit sends it to your reviewer.{isManager ? ' Publish makes it live immediately.' : ''}
+              </div>
+            </div>
+            <div style={{ ...cardStyle, marginBottom: 0, maxHeight: '64vh', overflow: 'auto' }}>{renderSopPreview(draft)}</div>
+          </div>
+        )}
+
+        {stepName !== 'Capture' && (
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', paddingTop: 14, borderTop: '1px solid var(--border-color)', marginTop: 16 }}>
+            {stepIdx > 0 && <button className="secondary-btn" onClick={prevStep} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><ArrowLeft size={14} /> Back</button>}
+            <span style={{ marginRight: 'auto' }} />
+            <button className="secondary-btn" disabled={busy} onClick={() => save(false)}>Save Draft</button>
+            {stepName !== 'Publish'
+              ? <button className="primary-btn" onClick={nextStep} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>Next: {steps[stepIdx + 1]} <ChevronRight size={15} /></button>
+              : <>
+                  <button className="secondary-btn" disabled={busy} onClick={() => save(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Send size={14} /> Save &amp; Submit for Review</button>
+                  {isManager && <button className="primary-btn" disabled={busy} onClick={saveAndPublish} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><CheckSquare size={14} /> Save &amp; Publish</button>}
+                </>}
+          </div>
+        )}
 
         {/* Full-screen AI changes review */}
         {aiReview?.open && (() => {
@@ -1749,8 +2215,38 @@ export default function SOP({ activeSub, onSubChange }) {
         <ChevronRight size={15} style={{ color: 'var(--text-muted)', flex: '0 0 auto' }} />
       </div>
     );
+    const myVerify = docs.filter(d => d.is_stale && d.owner_email === myEmail);
     return (
       <>
+        {myVerify.length > 0 && (
+          <div style={panel}>
+            {head(ShieldCheck, 'Needs Your Verification', myVerify.length)}
+            {myVerify.map((d, i) => row(d, i,
+              <button className="secondary-btn" onClick={(e) => verifyDocQuick(d, e)} title="Confirm this document is still accurate" style={{ height: 28, fontSize: '0.72rem', flex: '0 0 auto' }}>Verify</button>,
+              () => openDetail(d)))}
+          </div>
+        )}
+        {myRuns.length > 0 && (
+          <div style={panel}>
+            {head(ListChecks, 'Runs in Progress', myRuns.length)}
+            {myRuns.map((r, i) => {
+              const d = docs.find(x => x.id === r.doc_id);
+              const open = () => { if (d) openDetail(d); };
+              return (
+                <div key={r.id} role="button" tabIndex={0} onClick={open} onKeyDown={e => { if (e.key === 'Enter') open(); }} {...hover} style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', padding: '10px 12px', borderTop: i ? '1px solid var(--bg-secondary)' : 'none', cursor: 'pointer' }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: '0.83rem', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.doc_title}</div>
+                    <div style={{ height: 5, borderRadius: 999, background: 'var(--bg-secondary)', overflow: 'hidden', marginTop: 5 }}>
+                      <div style={{ width: `${Math.round(r.steps_done.length / (r.step_count || 1) * 100)}%`, height: '100%', background: 'hsl(145,63%,42%)' }} />
+                    </div>
+                  </div>
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', flex: '0 0 auto' }}>{r.steps_done.length}/{r.step_count}</span>
+                  <ChevronRight size={15} style={{ color: 'var(--text-muted)', flex: '0 0 auto' }} />
+                </div>
+              );
+            })}
+          </div>
+        )}
         {pinned.length > 0 && (
           <div style={panel}>
             {head(Star, 'Pinned', 0)}
@@ -1798,7 +2294,7 @@ export default function SOP({ activeSub, onSubChange }) {
                 </div>
                 {b.purpose && <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{b.purpose}</div>}
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginTop: 'auto', paddingTop: 8, borderTop: '1px solid var(--bg-secondary)' }}>
-                  <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>{d.doc_type} · v{d.version}</span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.7rem', color: 'var(--text-secondary)' }}>{d.doc_type} · v{d.version}<VerifyBadge d={d} compact /></span>
                   {deptChips(d)}
                 </div>
               </div>
@@ -1828,6 +2324,7 @@ export default function SOP({ activeSub, onSubChange }) {
                   <span style={{ display: 'block', fontWeight: 600, fontSize: '0.85rem', color: 'var(--text-primary)' }}>{d.title}</span>
                   <span style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'inherit' }}>{d.doc_code || '-'} · {d.doc_type} · v{d.version} · {d.owner_name || ''}</span>
                 </span>
+                <VerifyBadge d={d} compact />
                 <Badge status={d.status} />
               </button>
             ))}
@@ -1841,12 +2338,18 @@ export default function SOP({ activeSub, onSubChange }) {
     <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 14, padding: 14, marginBottom: 18 }}>
       {ask.loading && <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', display: 'inline-flex', alignItems: 'center', gap: 8 }}><Loader size={15} style={{ animation: 'spin 0.7s linear infinite' }} /> Searching your SOPs…</div>}
       {!ask.loading && ask.answer != null && (
-        <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 11, padding: 14 }}>
-          <div style={{ fontSize: '0.88rem', lineHeight: 1.6, color: 'var(--text-primary)', whiteSpace: 'pre-wrap' }}>{ask.answer}</div>
+        <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 11, padding: 14, position: 'relative' }}>
+          <button className="close-btn" onClick={() => setAsk(a => ({ ...a, answer: null, sources: [] }))} title="Dismiss answer" style={{ position: 'absolute', top: 8, right: 8 }}><X size={15} /></button>
+          <div style={{ fontSize: '0.88rem', lineHeight: 1.6, color: 'var(--text-primary)', whiteSpace: 'pre-wrap', paddingRight: 26 }}>{ask.answer}</div>
           {ask.sources?.length > 0 ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap', marginTop: 12, fontSize: '0.75rem', color: 'var(--text-muted)' }}>
               Sources:
-              {ask.sources.map(s => <button key={s.id} onClick={() => openSourceById(s.id)} style={{ fontSize: '0.72rem', background: 'var(--bg-secondary)', color: 'hsl(var(--color-blue))', border: '1px solid var(--border-color)', borderRadius: 999, padding: '3px 10px', cursor: 'pointer', fontWeight: 600 }}>{s.doc_code || s.title}</button>)}
+              {ask.sources.map(s => (
+                <button key={s.id} onClick={() => openSourceById(s.id)} title={s.is_stale ? 'This source is past its review date - double-check with the owner' : (s.verified_at ? `Verified ${fmtDate(s.verified_at)}` : s.title)} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: '0.72rem', background: 'var(--bg-secondary)', color: 'hsl(var(--color-blue))', border: '1px solid', borderColor: s.is_stale ? 'hsla(38,92%,50%,0.55)' : 'var(--border-color)', borderRadius: 999, padding: '3px 10px', cursor: 'pointer', fontWeight: 600 }}>
+                  {!s.is_stale && s.verified_at && <ShieldCheck size={11} style={{ color: 'hsl(145,55%,32%)' }} />}
+                  {s.doc_code || s.title}{s.is_stale ? ' · needs verification' : ''}
+                </button>
+              ))}
             </div>
           ) : <div style={{ marginTop: 12, fontSize: '0.75rem', color: 'hsl(32, 80%, 38%)' }}>No matching SOP found - worth adding one.</div>}
         </div>
@@ -1893,7 +2396,7 @@ export default function SOP({ activeSub, onSubChange }) {
                 <td style={{ padding: '11px 14px' }}><div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.9rem' }}>{d.title}</div><div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'inherit' }}>{d.doc_code || '-'} · v{d.version}</div></td>
                 <td className="kb-c-type" style={{ padding: '11px 14px', fontSize: '0.82rem' }}>{d.doc_type}</td>
                 <td className="kb-c-dept" style={{ padding: '11px 14px', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>{(d.departments || []).length ? d.departments.join(', ') : 'Unassigned'}</td>
-                <td style={{ padding: '11px 14px' }}><Badge status={d.status} /></td>
+                <td style={{ padding: '11px 14px' }}><div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 4 }}><Badge status={d.status} /><VerifyBadge d={d} compact /></div></td>
                 <td className="kb-c-owner" style={{ padding: '11px 14px', fontSize: '0.82rem' }}>{d.owner_name || '-'}</td>
                 <td className="kb-c-upd" style={{ padding: '11px 14px', fontSize: '0.78rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{fmtDate(d.updated_at)}</td>
               </tr>
@@ -1928,39 +2431,36 @@ export default function SOP({ activeSub, onSubChange }) {
       {helpModal()}
       {errBanner}
 
-      {/* SOP Index */}
+      {/* Knowledge Home - answer-first: one box that filters as you type and asks AI on Enter */}
       {sub === 'index' && (
         <>
-          <div className="view-header" style={{ marginBottom: 20 }}>
-            <div className="view-title-group"><h2>Playbook</h2><p>Your SOPs, manuals, and guides - all in one place</p></div>
-            <button className="primary-btn" onClick={openCreate} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={16} /> New SOP</button>
+          <div style={{ maxWidth: 820, margin: '4px auto 20px', textAlign: 'center' }}>
+            <h2 style={{ fontSize: '1.55rem', margin: '0 0 4px' }}>What Do You Need to Know?</h2>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.88rem', margin: '0 0 14px' }}>Type to filter the playbook, or press Enter to ask AI - answers come only from approved documents and cite their sources.</p>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <div style={{ position: 'relative', flex: 1, minWidth: 0 }}>
+                <Search size={18} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                <input ref={searchRef} type="text" className="form-input" value={search} onChange={e => setSearch(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter' && search.trim()) doAsk(search); }}
+                  placeholder="Search or ask anything… e.g. How do we hand over a unit key?"
+                  style={{ paddingLeft: 42, paddingRight: 36, width: '100%', height: 48, fontSize: '0.95rem', borderRadius: 12 }} />
+                {!search && <span style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 6, padding: '1px 7px', pointerEvents: 'none' }}>/</span>}
+              </div>
+              <button className="primary-btn" disabled={ask.loading || !search.trim()} onClick={() => doAsk(search)} style={{ height: 48, display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.9rem', borderRadius: 12, background: 'linear-gradient(135deg, hsl(258,82%,62%), hsl(288,70%,58%))', border: 'none', color: '#fff', flex: '0 0 auto' }}>{ask.loading ? <Loader size={15} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Sparkles size={15} />} {ask.loading ? 'Asking…' : 'Ask AI'}</button>
+            </div>
           </div>
 
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 16, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 14, padding: 10, boxShadow: 'var(--shadow-sm)' }}>
-            <div style={{ display: 'inline-flex', background: 'var(--bg-secondary)', borderRadius: 9, padding: 3, flex: '0 0 auto' }}>
-              {[['search', 'Search', Search], ['ask', 'Ask AI', Sparkles]].map(([m, label, Icon]) => (
-                <button key={m} onClick={() => setSearchMode(m)} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 7, border: 'none', cursor: 'pointer', fontSize: '0.82rem', fontWeight: 600, background: searchMode === m ? 'var(--bg-card)' : 'transparent', color: searchMode === m ? (m === 'ask' ? 'hsl(266,72%,56%)' : 'var(--text-primary)') : (m === 'ask' ? 'hsl(266,40%,55%)' : 'var(--text-secondary)'), boxShadow: searchMode === m ? 'var(--shadow-sm)' : 'none' }}><Icon size={14} /> {label}</button>
-              ))}
-            </div>
-            <div style={{ position: 'relative', flex: '1 1 240px', minWidth: 200 }}>
-              <Search size={16} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-              {searchMode === 'search'
-                ? <><input ref={searchRef} type="text" className="form-input" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search title, ID, or document text…" style={{ paddingLeft: 36, paddingRight: 34, width: '100%', height: 38, fontSize: '0.88rem' }} />
-                    {!search && <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 6, padding: '1px 7px', pointerEvents: 'none' }}>/</span>}</>
-                : <input type="text" className="form-input" value={ask.q} onChange={e => setAsk(a => ({ ...a, q: e.target.value }))} onKeyDown={e => { if (e.key === 'Enter') doAsk(); }} placeholder="Ask the knowledge base… e.g. When do we run the gate audit?" style={{ paddingLeft: 36, width: '100%', height: 38, fontSize: '0.88rem' }} />}
-            </div>
-            {searchMode === 'search' ? (<>
-              <select className="form-select" value={deptFilter} onChange={e => setDeptFilter(e.target.value)} style={{ height: 38, fontSize: '0.85rem', width: 'auto' }}><option value="all">All departments</option>{DEPARTMENTS.map(d => <option key={d}>{d}</option>)}</select>
-              <select className="form-select" value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={{ height: 38, fontSize: '0.85rem', width: 'auto' }}><option value="all">All types</option>{DOC_TYPES.map(t => <option key={t}>{t}</option>)}</select>
-              <select className="form-select" value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={{ height: 38, fontSize: '0.85rem', width: 'auto' }}><option value="all">All statuses</option>{Object.entries(STATUS_META).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</select>
-            </>) : (
-              <button className="primary-btn" disabled={ask.loading} onClick={doAsk} style={{ height: 38, display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.85rem', background: 'linear-gradient(135deg, hsl(258,82%,62%), hsl(288,70%,58%))', border: 'none', color: '#fff' }}>{ask.loading ? <Loader size={15} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Sparkles size={15} />} {ask.loading ? 'Asking…' : 'Ask'}</button>
-            )}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 14 }}>
+            <select className="form-select" value={deptFilter} onChange={e => setDeptFilter(e.target.value)} style={{ height: 36, fontSize: '0.83rem', width: 'auto' }}><option value="all">All departments</option>{DEPARTMENTS.map(d => <option key={d}>{d}</option>)}</select>
+            <select className="form-select" value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={{ height: 36, fontSize: '0.83rem', width: 'auto' }}><option value="all">All types</option>{DOC_TYPES.map(t => <option key={t}>{t}</option>)}</select>
+            <select className="form-select" value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={{ height: 36, fontSize: '0.83rem', width: 'auto' }}><option value="all">All statuses</option>{Object.entries(STATUS_META).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</select>
+            <span style={{ marginLeft: 'auto' }} />
+            <button className="primary-btn" onClick={openCreate} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 36, fontSize: '0.85rem' }}><Plus size={15} /> New SOP</button>
           </div>
 
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'flex-start' }}>
             <div style={{ flex: isMobile ? '1 1 100%' : '3 1 480px', minWidth: 0, width: isMobile ? '100%' : undefined }}>
-              {searchMode === 'ask' && askAnswer()}
+              {(ask.loading || ask.answer != null) && askAnswer()}
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
                 <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)' }}>{filtered.length} Document{filtered.length === 1 ? '' : 's'}</div>
                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
@@ -1969,7 +2469,7 @@ export default function SOP({ activeSub, onSubChange }) {
                 </div>
               </div>
               {loading
-                ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-secondary)' }}><Loader size={20} style={{ animation: 'spin 0.7s linear infinite' }} /> Loading…</div>
+                ? <div style={{ padding: '8px 0' }}><SkeletonBlocks count={4} height={56} /></div>
                 : (() => {
                     const empty = docs.length === 0 ? 'No documents yet - click “New SOP” to start your first draft.' : 'No documents match your filters.';
                     // The list table doesn't fit a phone - fall back to cards there.
@@ -2019,7 +2519,7 @@ export default function SOP({ activeSub, onSubChange }) {
               <div className="view-title-group"><h2>Tasks</h2><p>Everything that needs action - sign-offs, returned drafts, and reviews to approve.</p></div>
             </div>
             {loading
-              ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-secondary)' }}><Loader size={20} style={{ animation: 'spin 0.7s linear infinite' }} /> Loading…</div>
+              ? <div style={{ padding: '8px 0' }}><SkeletonBlocks count={4} height={56} /></div>
               : taskCount === 0
                 ? <div style={{ textAlign: 'center', padding: '48px 20px', border: '1px solid var(--border-color)', borderRadius: 14, background: 'var(--bg-card)', boxShadow: 'var(--shadow-sm)' }}>
                     <div style={{ width: 52, height: 52, borderRadius: 14, background: 'hsla(145,63%,42%,0.14)', color: 'hsl(145,55%,36%)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 14px' }}><CheckSquare size={26} /></div>
@@ -2160,6 +2660,29 @@ export default function SOP({ activeSub, onSubChange }) {
                       })}
                     </div>}
             </div>
+
+            <div style={{ flex: '1 1 320px', minWidth: 0, ...panel }}>
+              {panelHead('Recent Runs')}
+              {adminRuns === null
+                ? <div style={{ textAlign: 'center', padding: 24, color: 'var(--text-secondary)' }}><Loader size={18} style={{ animation: 'spin 0.7s linear infinite' }} /></div>
+                : adminRuns.length === 0
+                  ? <div style={{ padding: 16, fontSize: '0.83rem', color: 'var(--text-muted)' }}>No runs yet. Anyone can execute an SOP as a live checklist with the Run This SOP button.</div>
+                  : <div style={{ maxHeight: 360, overflow: 'auto' }}>
+                      {adminRuns.map((r, i) => {
+                        const d = docs.find(x => x.id === r.doc_id);
+                        return (
+                          <button key={r.id} onClick={() => d && openDetail(d)} {...hoverRow} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left', padding: '10px 14px', background: 'transparent', border: 'none', borderTop: i ? '1px solid var(--bg-secondary)' : 'none', cursor: 'pointer' }}>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: '0.83rem', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.doc_title}</div>
+                              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{prettyName(r.user_name || r.user_email)} · {r.steps_done.length}/{r.step_count} steps</div>
+                            </div>
+                            <span style={{ fontSize: '0.66rem', fontWeight: 700, borderRadius: 999, padding: '2px 8px', flex: '0 0 auto', color: r.status === 'completed' ? 'hsl(145,55%,30%)' : r.status === 'open' ? 'hsl(var(--color-blue))' : 'var(--text-muted)', background: r.status === 'completed' ? 'hsla(145,63%,42%,0.12)' : 'var(--bg-secondary)' }}>{r.status === 'completed' ? 'Completed' : r.status === 'open' ? 'In progress' : 'Abandoned'}</span>
+                            <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', whiteSpace: 'nowrap', flex: '0 0 auto' }}>{fmtDate(r.completed_at || r.started_at)}</span>
+                          </button>
+                        );
+                      })}
+                    </div>}
+            </div>
           </div>
         </>
         );
@@ -2206,7 +2729,7 @@ export default function SOP({ activeSub, onSubChange }) {
           <>
             <button className="secondary-btn" onClick={() => switchTab('manage')} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 14, height: 32, fontSize: '0.82rem' }}><ArrowLeft size={14} /> Manage</button>
             <div className="view-header" style={{ marginBottom: 16 }}><div className="view-title-group"><h2>Insights</h2><p>Usage, freshness, and training across the knowledge base</p></div></div>
-            {!i ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-secondary)' }}><Loader size={20} style={{ animation: 'spin 0.7s linear infinite' }} /> Loading…</div> : (
+            {!i ? <div style={{ padding: '8px 0' }}><SkeletonBlocks count={4} height={56} /></div> : (
               <>
                 <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 18 }}>
                   {tile('Documents', i.total)}{tile('Approved', i.approved, 'hsl(145,55%,30%)')}{tile('In Review', i.in_review)}{tile('Needs Review', i.needs_review.length, i.needs_review.length ? 'hsl(32,80%,38%)' : undefined)}
@@ -2491,7 +3014,8 @@ export default function SOP({ activeSub, onSubChange }) {
               <div className="modal-overlay" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '3vh 2vw' }} onClick={e => { if (e.target === e.currentTarget) setCertOpen(false); }}>
                 <div style={{ background: 'var(--bg-card)', borderRadius: 16, width: '96vw', maxWidth: 720, boxShadow: '0 20px 60px rgba(0,0,0,0.3)', overflow: 'hidden' }}>
                   <div id="kb-cert" style={{ padding: 36, textAlign: 'center', border: '10px solid hsl(145,40%,30%)', margin: 14, borderRadius: 10, background: '#fff', color: '#1a2332' }}>
-                    <div style={{ fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.18em', fontWeight: 700, color: 'hsl(145,40%,30%)' }}>Nexus</div>
+                    <img src={GREENS_LOGO_URL} alt="Greens Global" style={{ height: 34, width: 'auto', display: 'block', margin: '0 auto 10px' }} />
+                    <div style={{ fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.18em', fontWeight: 700, color: 'hsl(145,40%,30%)' }}>Nexus Learning</div>
                     <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: '1.9rem', fontWeight: 800, margin: '10px 0 4px' }}>Certificate of Completion</div>
                     <div style={{ fontSize: '0.9rem', color: '#64748b', marginBottom: 22 }}>This certifies that</div>
                     <div style={{ fontSize: '1.6rem', fontWeight: 700, fontFamily: "'Plus Jakarta Sans', sans-serif", borderBottom: '2px solid #e2e8f0', display: 'inline-block', padding: '0 24px 8px' }}>{myName}</div>
@@ -2531,33 +3055,57 @@ export default function SOP({ activeSub, onSubChange }) {
             {children}
           </div>
         );
+        // wizard: new courses open on Source; edits jump straight to Build
+        const csteps = d.id ? ['Build', 'Publish'] : ['Source', 'Build', 'Publish'];
+        const cIdx = Math.min(cdStep, csteps.length - 1);
+        const cstep = csteps[cIdx];
+        const cNext = () => setCdStep(Math.min(cIdx + 1, csteps.length - 1));
+        const cPrev = () => setCdStep(Math.max(cIdx - 1, 0));
+        const cChecklist = [
+          [!!d.title.trim(), 'Title', d.title.trim() || 'Add a course title (Build step)'],
+          [d.lessons.length > 0, 'Lessons', d.lessons.length ? `${d.lessons.length} lesson${d.lessons.length === 1 ? '' : 's'}` : 'No lessons yet (Build step)'],
+          [d.quiz.questions.length > 0, 'Quiz', d.quiz.questions.length ? `${d.quiz.questions.length} questions · pass mark ${d.quiz.passPct}%` : 'No quiz - learners complete by reading only'],
+          [d.departments.length > 0, 'Departments', d.departments.length ? d.departments.map(x => DEPT_ABBR[x] || x).join(', ') : 'Not tagged yet'],
+        ];
         return (
-          <div style={{ width: '100%' }}>
-            <button className="secondary-btn" onClick={() => { setCourseDraft(null); setLmsMode('list'); }} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 18, height: 34 }}><ArrowLeft size={15} /> {d.id ? 'Back' : 'Cancel'}</button>
-            <h2 style={{ marginBottom: 4, fontSize: '1.7rem' }}>{d.id ? 'Edit Course' : 'New Course'}</h2>
-            <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: 22 }}>Generate a course from your material, or build it by hand - readings or linked SOPs plus a knowledge-check quiz.</p>
+          <div style={{ width: '100%', maxWidth: 980, margin: '0 auto' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+              <button className="secondary-btn" onClick={() => { setCourseDraft(null); setLmsMode('list'); }} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 34 }}><ArrowLeft size={15} /> {d.id ? 'Back' : 'Cancel'}</button>
+            </div>
+            <h2 style={{ margin: '0 0 4px', fontSize: '1.55rem', textAlign: 'center' }}>{d.id ? 'Edit Course' : 'New Course'}</h2>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.86rem', margin: '0 0 16px', textAlign: 'center' }}>
+              {cstep === 'Source' ? 'Hand Claude the material - it writes the lessons and quiz.'
+                : cstep === 'Build' ? 'Shape the lessons, objectives, and quiz.'
+                : 'Describe it, check it over, and publish.'}
+            </p>
+            <Stepper steps={csteps} current={cIdx} onGo={setCdStep} />
             {errBanner}
 
-            {!d._importSource && (
-              <div style={{ border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-card)', borderRadius: 12, padding: 16, marginBottom: 18, boxShadow: 'var(--shadow-sm)' }}>
-                <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
-                  <div style={{ width: 34, height: 34, borderRadius: 9, backgroundColor: 'hsla(266,70%,60%,0.12)', color: 'hsl(266,72%,56%)', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}><Sparkles size={18} /></div>
-                  <div style={{ flex: 1, minWidth: 180 }}>
-                    <strong style={{ fontSize: '0.9rem', display: 'block' }}>Generate with Claude AI</strong>
-                    <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Paste or upload source material - a policy, manual, or transcript - and Claude writes the lessons and quiz.</span>
+            {cstep === 'Source' && (
+              <div style={{ maxWidth: 780, margin: '0 auto' }}>
+                <div style={{ border: '1px solid hsla(266,70%,60%,0.4)', background: 'hsla(266,70%,60%,0.05)', borderRadius: 16, padding: '24px 26px', marginBottom: 14, boxShadow: 'var(--shadow-sm)' }}>
+                  <div style={{ textAlign: 'center', marginBottom: 16 }}>
+                    <div style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: 'hsla(266,70%,60%,0.14)', color: 'hsl(266,72%,56%)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 10px' }}><GraduationCap size={22} /></div>
+                    <strong style={{ fontSize: '1.05rem', display: 'block' }}>Start With Your Material</strong>
+                    <span style={{ fontSize: '0.84rem', color: 'var(--text-secondary)' }}>Paste or upload a policy, manual, or transcript - Claude writes the objectives, lessons, and a quiz with explanations. You edit everything before it publishes.</span>
                   </div>
-                  <label className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 38, cursor: 'pointer', margin: 0, flex: '0 0 auto' }}>
-                    <Paperclip size={15} /> Upload file
-                    <input type="file" accept={IMPORT_ACCEPT} onChange={e => { cdImportFile(e.target.files[0]); e.target.value = ''; }} style={{ display: 'none' }} />
-                  </label>
-                  <button className="primary-btn" disabled={courseAiBusy} onClick={runCourseAi} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 38, flex: '0 0 auto', background: 'linear-gradient(135deg, hsl(258,82%,62%), hsl(288,70%,58%))', border: 'none', color: '#fff' }}>
-                    {courseAiBusy ? <Loader size={15} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Sparkles size={15} />} {courseAiBusy ? 'Generating…' : 'Generate course'}
-                  </button>
+                  <textarea className="form-input" autoFocus value={d._raw || ''} placeholder="Paste the source material here, or upload a file below…" onChange={e => cdSet({ _raw: e.target.value })} style={{ width: '100%', minHeight: 200, resize: 'vertical', fontSize: '0.9rem', lineHeight: 1.55 }} />
+                  <div style={{ display: 'flex', gap: 10, justifyContent: 'center', marginTop: 16, flexWrap: 'wrap' }}>
+                    <label className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 42, cursor: 'pointer', margin: 0 }}>
+                      <Paperclip size={15} /> Upload File
+                      <input type="file" accept={IMPORT_ACCEPT} onChange={e => { cdImportFile(e.target.files[0]); e.target.value = ''; }} style={{ display: 'none' }} />
+                    </label>
+                    <button className="primary-btn" disabled={courseAiBusy} onClick={runCourseAi} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 42, padding: '0 22px', fontSize: '0.92rem', background: 'linear-gradient(135deg, hsl(258,82%,62%), hsl(288,70%,58%))', border: 'none', color: '#fff' }}>
+                      {courseAiBusy ? <Loader size={15} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Sparkles size={15} />} {courseAiBusy ? 'Writing the Course…' : 'Generate Course'}
+                    </button>
+                  </div>
                 </div>
-                <textarea className="form-input" value={d._raw || ''} placeholder="Paste the source material here, or upload a file above…" onChange={e => cdSet({ _raw: e.target.value })} style={{ width: '100%', minHeight: 110, resize: 'vertical', fontSize: '0.88rem', lineHeight: 1.5 }} />
+                <div style={{ textAlign: 'center', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+                  Prefer to build it yourself? <button onClick={cNext} style={{ background: 'none', border: 'none', color: 'hsl(var(--color-blue))', fontWeight: 600, cursor: 'pointer', fontSize: '0.82rem', padding: 0 }}>Start With a Blank Course</button>
+                </div>
               </div>
             )}
-            {d._importSource && (
+            {cstep === 'Build' && d._importSource && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', border: '1px solid hsla(266,70%,60%,0.4)', background: 'hsla(266,70%,60%,0.06)', borderRadius: 12, padding: '12px 16px', marginBottom: 18 }}>
                 <Sparkles size={18} style={{ color: 'hsl(266,72%,56%)', flex: '0 0 auto' }} />
                 <div style={{ flex: 1, minWidth: 160, fontSize: '0.84rem', color: 'var(--text-primary)' }}>Claude generated this course from your source. Review and edit everything below.</div>
@@ -2566,12 +3114,16 @@ export default function SOP({ activeSub, onSubChange }) {
               </div>
             )}
 
+            {cstep === 'Build' && <>
             <div style={cardStyle}>
               <label style={fieldLabel}>Course title</label>
-              {fieldTip('A clear name learners will recognise - e.g. New Hire Orientation.')}
+              {fieldTip('A clear name learners will recognize - e.g. New Hire Orientation.')}
               <input className="form-input" value={d.title} placeholder="e.g. New Hire Orientation" onChange={e => cdSet({ title: e.target.value })} style={{ fontSize: '1.35rem', fontWeight: 600, padding: '14px 16px', height: 'auto', fontFamily: "'Plus Jakarta Sans', sans-serif" }} />
             </div>
 
+            </>}
+
+            {cstep === 'Publish' && <>
             {csection('Course Details', 'What it covers, how long it takes, and who it’s for.', (<>
               <div style={{ marginBottom: 18 }}>
                 <label style={fieldLabel}>Description</label>
@@ -2596,7 +3148,9 @@ export default function SOP({ activeSub, onSubChange }) {
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>{DEPARTMENTS.map(dep => { const on = d.departments.includes(dep); return <button key={dep} onClick={() => cdSet({ departments: on ? d.departments.filter(x => x !== dep) : [...d.departments, dep] })} style={{ fontSize: '0.82rem', padding: '8px 14px', borderRadius: 999, border: '1px solid', borderColor: on ? 'var(--text-primary)' : 'var(--border-color)', background: on ? 'var(--text-primary)' : 'var(--bg-card)', color: on ? 'var(--bg-card)' : 'var(--text-secondary)', cursor: 'pointer' }}>{dep}</button>; })}</div>
               </div>
             </>))}
+            </>}
 
+            {cstep === 'Build' && <>
             {csection('What You’ll Learn', 'A few objectives shown on the course intro so learners know what they’ll take away.', (<>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {(d.overview || []).map((obj, i) => (
@@ -2654,13 +3208,34 @@ export default function SOP({ activeSub, onSubChange }) {
               </div>
               <button className="secondary-btn" onClick={cdAddQ} style={{ height: 36, fontSize: '0.82rem', marginTop: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={14} /> Add Question</button>
             </>))}
+            </>}
 
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', flexWrap: 'wrap', paddingTop: 8, borderTop: '1px solid var(--border-color)', marginTop: 8 }}>
-              <button className="secondary-btn" onClick={() => { setCourseDraft(null); setLmsMode('list'); }}>Cancel</button>
-              <button className="secondary-btn" onClick={() => setCoursePreview(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginRight: 'auto' }}><Eye size={14} /> Preview</button>
-              <button className="secondary-btn" onClick={() => saveCourse(false)}>Save Draft</button>
-              <button className="primary-btn" onClick={() => saveCourse(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><CheckSquare size={14} /> Publish</button>
-            </div>
+            {cstep === 'Publish' && (
+              <div style={{ ...cardStyle }}>
+                <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', fontWeight: 700, marginBottom: 12 }}>Ready to Publish?</div>
+                {cChecklist.map(([ok, label, note]) => (
+                  <div key={label} style={{ display: 'flex', gap: 9, alignItems: 'flex-start', marginBottom: 12 }}>
+                    <span style={{ width: 20, height: 20, borderRadius: '50%', flex: '0 0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.72rem', fontWeight: 700, background: ok ? 'hsla(145,63%,42%,0.14)' : 'hsla(38,92%,50%,0.14)', color: ok ? 'hsl(145,55%,32%)' : 'hsl(32,80%,38%)' }}>{ok ? <CheckSquare size={12} /> : '!'}</span>
+                    <span style={{ minWidth: 0 }}>
+                      <span style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-primary)' }}>{label}</span>
+                      <span style={{ display: 'block', fontSize: '0.74rem', color: 'var(--text-muted)', lineHeight: 1.45 }}>{note}</span>
+                    </span>
+                  </div>
+                ))}
+                <button className="secondary-btn" onClick={() => setCoursePreview(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 34, fontSize: '0.82rem' }}><Eye size={14} /> Preview as a Learner</button>
+              </div>
+            )}
+
+            {cstep !== 'Source' && (
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', paddingTop: 14, borderTop: '1px solid var(--border-color)', marginTop: 16 }}>
+                {cIdx > 0 && <button className="secondary-btn" onClick={cPrev} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><ArrowLeft size={14} /> Back</button>}
+                <span style={{ marginRight: 'auto' }} />
+                <button className="secondary-btn" onClick={() => saveCourse(false)}>Save Draft</button>
+                {cstep !== 'Publish'
+                  ? <button className="primary-btn" onClick={cNext} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>Next: {csteps[cIdx + 1]} <ChevronRight size={15} /></button>
+                  : <button className="primary-btn" onClick={() => saveCourse(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><CheckSquare size={14} /> Publish</button>}
+              </div>
+            )}
 
             {coursePreview && (
               <div className="modal-overlay" style={{ display: 'flex', alignItems: 'stretch', justifyContent: 'center', padding: '2.5vh 2vw' }} onClick={e => { if (e.target === e.currentTarget) setCoursePreview(false); }}>

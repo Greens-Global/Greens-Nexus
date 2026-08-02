@@ -182,7 +182,7 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
         ) : view === 'timeline' ? (
           <TimelineView tasks={visible} onOpen={setOpenId} nameOf={nameOf} />
         ) : view === 'files' ? (
-          <FilesView tasks={visible} onOpen={setOpenId} />
+          <FilesView tasks={visible} onOpen={setOpenId} nameOf={nameOf} />
         ) : (view === 'workload' && showWorkload) ? (
           <WorkloadView tasks={visible} nameOf={nameOf} />
         ) : (

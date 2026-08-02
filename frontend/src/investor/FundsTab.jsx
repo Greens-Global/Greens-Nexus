@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Briefcase, ExternalLink, Info, Loader, Plus, Trash2, X } from 'lucide-react';
 import { api } from '../api';
 import { useNameResolver } from '../lib/useNameResolver';
+import { usePeopleDirectory } from '../lib/queries';
 import { formatCurrency, formatMultiple, formatPercent, numOrNull } from './lib/format';
 import { EmptyState, ErrorState, FG, LoadingState, Modal, PeopleSelect, StatusText, ThinBar, useIrLoad } from './lib/ui';
 
@@ -149,8 +150,7 @@ function DealPortalAccess({ fundId }) {
 export default function FundsTab() {
   const nameOf = useNameResolver();
   const { data: funds, loading, error, reload } = useIrLoad(() => api.getIrFunds(), []);
-  const [people, setPeople] = useState([]);
-  useEffect(() => { api.getPeopleDirectory().then(d => setPeople(Array.isArray(d) ? d : [])).catch(() => {}); }, []);
+  const { data: people = [] } = usePeopleDirectory();
 
   // Optional Deal ↔ Property link (read-only reference into Asset Management,
   // not duplication). The workspace endpoint is grant-gated (property-asset

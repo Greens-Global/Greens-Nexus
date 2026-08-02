@@ -10,6 +10,7 @@ import { useRole } from '../contexts/RoleContext';
 import { useNameResolver } from '../lib/useNameResolver';
 import { STATUS_META, STATUS_ORDER, NX } from './theme';
 import { celebrateCompletion } from './celebrate';
+import { pollWhileVisible } from '../lib/pollWhileVisible';
 
 const Ctx = createContext(null);
 
@@ -28,6 +29,15 @@ function buildStatusOrder(customStatuses) {
   const custom = [...(customStatuses || [])].sort((a, b) => (a.position || 0) - (b.position || 0));
   return [...STATUS_ORDER, ...custom.map((c) => c.id)];
 }
+// Statuses a project actually uses: its own plus any global one, same convention
+// as fieldsForProject. Only the ORDER is scoped, never statusMeta - a task
+// carries its status id wherever it's rendered (search results, My Tasks, a
+// portfolio rollup), and a meta lookup that missed would draw a raw uuid.
+export const statusesForProject = (customStatuses, projectId) =>
+  (customStatuses || []).filter((s) => {
+    const ids = (s.projectIds || []).filter(Boolean);
+    return ids.length === 0 || (projectId ? ids.includes(projectId) : false);
+  });
 
 // camelCase (frontend) → snake_case (API body). The backend serialises replies
 // back to camelCase, so we only map on the way out.
@@ -73,10 +83,14 @@ export function TasksProvider({ children }) {
   const [changelog, setChangelog] = useState([]);
   const [loading, setLoading] = useState(true);
   const commentCache = useRef({});   // taskId -> comment[]
+  // Last server timestamp a task fetch is known-good as of - see refetchTasks.
+  // A ref, not state: read inside a stable useCallback, must not itself
+  // trigger a re-render when it changes.
+  const sinceRef = useRef('');
 
   const loadCore = useCallback(async () => {
     const [t, p, pf, d, tk, tc, sv, r, tpl, cf, cs, mr, intk, chl, tvw] = await Promise.all([
-      api.getTasks().catch(() => []),
+      api.getTasksDelta('').catch(() => ({ tasks: [], serverTime: '' })),
       api.getTaskProjects().catch(() => []),
       api.getTaskPortfolios().catch(() => []),
       api.getTaskTeams().catch(() => []),
@@ -92,7 +106,8 @@ export function TasksProvider({ children }) {
       api.getTaskChangelog().catch(() => []),
       api.getTicketViews().catch(() => []),
     ]);
-    setTasks(t || []); setProjects(p || []); setPortfolios(pf || []); setTeams(d || []);
+    setTasks(t?.tasks || []); sinceRef.current = t?.serverTime || '';
+    setProjects(p || []); setPortfolios(pf || []); setTeams(d || []);
     setTickets(tk || []); setTicketComponents(tc || []); setSavedViews(sv || []); setRules(r || []); setTemplates(tpl || []);
     setCustomFields(cf || []); setCustomStatuses(cs || []); setMemberRequests(mr || []);
     setIntakeForms(intk || []); setChangelog(chl || []); setTicketViews(tvw || []);
@@ -105,21 +120,33 @@ export function TasksProvider({ children }) {
 
   useEffect(() => { loadCore(); loadNotifications(); }, [loadCore, loadNotifications]);
 
-  // Realtime: refetch tasks (+notifications) on a task_events ping; 45s poll fallback.
+  // Realtime: refetch tasks (+notifications) on a task_events ping; 45s poll
+  // fallback. Incremental (GET /tasks/delta) rather than a full replace - the
+  // full workspace (~2,400 tasks) doesn't need to cross the wire again just
+  // because ONE task changed. sinceRef only advances on a successful response,
+  // so a failed poll leaves it untouched and the next attempt naturally
+  // re-covers the gap.
   const refetchTasks = useCallback(async () => {
-    setTasks(await api.getTasks().catch((e) => { throw e; }));
+    const { tasks: changed, deletedIds, serverTime } = await api.getTasksDelta(sinceRef.current);
+    setTasks((prev) => {
+      const byId = new Map(prev.map((x) => [x.id, x]));
+      for (const t of changed || []) byId.set(t.id, t);
+      for (const id of deletedIds || []) byId.delete(id);
+      return [...byId.values()];
+    });
+    sinceRef.current = serverTime;
   }, []);
   useEffect(() => {
     let timer = null;
     const debounced = () => { clearTimeout(timer); timer = setTimeout(() => { refetchTasks(); loadNotifications(); }, 400); };
-    const iv = setInterval(() => { refetchTasks().catch(() => {}); }, 45000);
+    const stopPoll = pollWhileVisible(() => { refetchTasks().catch(() => {}); }, 45000);
     let channel = null;
     if (supabase) {
       channel = supabase.channel('task_event_pings')
         .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'task_events' }, debounced)
         .subscribe();
     }
-    return () => { clearInterval(iv); clearTimeout(timer); if (channel) supabase?.removeChannel(channel); };
+    return () => { stopPoll(); clearTimeout(timer); if (channel) supabase?.removeChannel(channel); };
   }, [refetchTasks, loadNotifications]);
 
   // ── Lookups ────────────────────────────────────────────────────────────────
@@ -308,6 +335,7 @@ export function TasksProvider({ children }) {
     createCustomField: mk(api.createTaskCustomField, setCustomFields),
     deleteCustomField: mkDel(api.deleteTaskCustomField, setCustomFields),
     createCustomStatus: mk(api.createTaskCustomStatus, setCustomStatuses),
+    updateCustomStatus: mkUpd(api.updateTaskCustomStatus, setCustomStatuses),
     deleteCustomStatus: mkDel(api.deleteTaskCustomStatus, setCustomStatuses),
     raiseMemberRequest: mk(api.createTaskMemberRequest, setMemberRequests),
     decideMemberRequest: async (id, status) => {
@@ -338,11 +366,17 @@ export function TasksProvider({ children }) {
   // statuses change - the single source every status surface should read from.
   const statusMeta = useMemo(() => buildStatusMeta(customStatuses), [customStatuses]);
   const statusOrder = useMemo(() => buildStatusOrder(customStatuses), [customStatuses]);
+  // The board columns / grouping order for one project. Without this a status
+  // invented for one project became a column on every board in the workspace.
+  const statusOrderFor = useCallback(
+    (projectId) => buildStatusOrder(statusesForProject(customStatuses, projectId)),
+    [customStatuses],
+  );
 
   const value = {
     loading, myEmail, nameOf,
     tasks, projects, portfolios, teams, tickets, ticketComponents, savedViews, ticketViews, rules, templates,
-    customFields, customStatuses, statusMeta, statusOrder, notifications, memberRequests, intakeForms, changelog,
+    customFields, customStatuses, statusMeta, statusOrder, statusOrderFor, notifications, memberRequests, intakeForms, changelog,
     taskById, projectById, portfolioById, teamById, projectName, teamName,
     getComments, addComment, commentCache: commentCache.current,
     createTask, updateTask, deleteTask, bulkUpdate, toggleComplete, setStatus,

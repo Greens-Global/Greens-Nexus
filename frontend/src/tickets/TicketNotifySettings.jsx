@@ -6,6 +6,7 @@ import { Mail, RefreshCw, Save, AlertTriangle, CheckCircle2, Clock, RotateCcw } 
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { NX, FONT, btn, input as inputStyle, card } from '../tasks/theme';
+import { SkeletonBlocks } from '../components/AsyncState';
 
 const fieldLabel = { display: 'block', fontSize: 12.5, fontWeight: 600, color: NX.dim, marginBottom: 6 };
 const field = { marginBottom: 14 };

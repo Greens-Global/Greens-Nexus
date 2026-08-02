@@ -9,6 +9,7 @@ import ModuleTabs from '../components/ModuleTabs';
 import { supabase } from '../lib/supabase';
 import { useRole } from '../contexts/RoleContext';
 import { useNameResolver } from '../lib/useNameResolver';
+import { usePeopleDirectory } from '../lib/queries';
 import { stopRecording, isRecording, startFlowRecording, startBugRecording, takeBugVideoBlob, takeTranscript } from '../lib/stepRecorder';
 import { replayFlow } from '../lib/flowReplayer';
 import { graphToken, graphJSON, postChatMessage, GRAPH } from '../teamsGraph';
@@ -297,14 +298,13 @@ function CaseRunner({ caseObj, runId, existing, onSaved, onFileBug, onClose, toa
 
 // ── Assign modal - cases → person + due date; fires email + bell + Teams DM ──
 function AssignModal({ runId, cases, resultsByCase, onClose, onDone, toastOk, toastErr }) {
-  const [people, setPeople] = useState([]);
+  const { data: people = [] } = usePeopleDirectory();
   const [email, setEmail] = useState('');
   const [module, setModule] = useState(QA_MODULES[0]);
   const [onlyUnrun, setOnlyUnrun] = useState(true);
   const [due, setDue] = useState('');
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
-  useEffect(() => { api.getPeopleDirectory().then(setPeople).catch(() => {}); }, []);
 
   const pool = useMemo(() => cases.filter(c => c.module === module && c.status === 'active' && (!onlyUnrun || !resultsByCase[c.id]?.result)), [cases, module, onlyUnrun, resultsByCase]);
 

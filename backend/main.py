@@ -20,6 +20,7 @@ from routers import tasks, purchases, reviews, marketing, sop, assets, accountin
 from routers import task_projects, task_config  # Task Module (Jul 2026)
 from routers import tickets as tickets_router    # Ticket Module - split out of task_config (Jul 2026)
 from routers import asana_webhook  # Asana two-way sync - public webhook receiver
+from routers import asana_oauth as asana_oauth_router  # Per-user Asana connection (Account Settings)
 from routers import jobroles  # Roles & Access redesign (Jul 2026)
 from routers import access_scopes  # row-level scopes for external users (Jul 2026)
 from routers import qa  # Testing module - dev-only via NEXUS_QA_MODULE env (Jul 2026)
@@ -76,6 +77,7 @@ def _run_migrations():
             "ALTER TABLE kb_documents ADD COLUMN retention_months INTEGER DEFAULT 84",
             "ALTER TABLE kb_courses ADD COLUMN overview VARCHAR DEFAULT ''",
             "ALTER TABLE kb_courses ADD COLUMN recert_months INTEGER DEFAULT 0",
+            "ALTER TABLE kb_documents ADD COLUMN stale_notified_at VARCHAR DEFAULT ''",
             # audit_logs: track when an entry was reverted via the Undo action
             "ALTER TABLE audit_logs ADD COLUMN undone_at VARCHAR DEFAULT ''",
             "ALTER TABLE audit_logs ADD COLUMN undone_by VARCHAR DEFAULT ''",
@@ -284,6 +286,16 @@ def _run_migrations():
             # behavior, so existing fields keep showing everywhere.
             "ALTER TABLE task_custom_fields ADD COLUMN project_ids JSON DEFAULT '[]'",
             "ALTER TABLE task_custom_fields ADD COLUMN required BOOLEAN DEFAULT 0",
+            # Asana formula fields import but can never push back (the API
+            # rejects writes) - this marks them so the editors disable them.
+            "ALTER TABLE task_custom_fields ADD COLUMN read_only BOOLEAN DEFAULT 0",
+            # Asana-derived fields are identified by gid, not by name.
+            "ALTER TABLE task_custom_fields ADD COLUMN asana_gid VARCHAR DEFAULT ''",
+            "ALTER TABLE task_custom_statuses ADD COLUMN asana_option_gid VARCHAR DEFAULT ''",
+            # Custom statuses get the same per-project scoping custom fields
+            # already had. Empty = every project, so existing statuses are
+            # unchanged until someone narrows one.
+            "ALTER TABLE task_custom_statuses ADD COLUMN project_ids JSON DEFAULT '[]'",
             # Setup-only Asana PAT; blank falls back to the service token.
             "ALTER TABLE asana_sync_config ADD COLUMN setup_token VARCHAR DEFAULT ''",
             "UPDATE task_teams SET project_ids = json_array(project_id) "
@@ -297,6 +309,19 @@ def _run_migrations():
             "CREATE UNIQUE INDEX IF NOT EXISTS ux_asana_task_link_gid ON asana_task_links (asana_gid) WHERE asana_gid <> ''",
             # Two-way delete propagation (opt-out; see AsanaSyncConfig.delete_sync).
             "ALTER TABLE asana_sync_config ADD COLUMN delete_sync BOOLEAN DEFAULT 1",
+            # Two-Way Sync card's own sync/delete toggles, independent of the
+            # Setup card's enabled/delete_sync above - see AsanaSyncConfig and
+            # asana_sync.sync_is_on()/delete_sync_is_on().
+            "ALTER TABLE asana_sync_config ADD COLUMN manual_sync_enabled BOOLEAN DEFAULT 0",
+            "ALTER TABLE asana_sync_config ADD COLUMN manual_delete_sync BOOLEAN DEFAULT 0",
+            # The exact rendered body from the original send, reused verbatim on
+            # retry instead of re-rendering (which had no comment text to work
+            # from for commented/mentioned and could drift from task edits made
+            # between the failed attempt and the retry). See TaskEmailLog.html.
+            "ALTER TABLE task_email_log ADD COLUMN html VARCHAR DEFAULT ''",
+            # Set only for a file attached while composing a comment (blank =
+            # today's plain task-level attachment). See TaskAttachment.comment_id.
+            "ALTER TABLE task_attachments ADD COLUMN comment_id VARCHAR DEFAULT ''",
             # Push-only digest (tags/followers/dependencies/section/attachments)
             # so the reconcile sweep can skip an unchanged task outright.
             "ALTER TABLE asana_task_links ADD COLUMN last_push_hash VARCHAR DEFAULT ''",
@@ -405,6 +430,7 @@ def _run_migrations():
         "ALTER TABLE kb_documents ADD COLUMN IF NOT EXISTS retention_months INTEGER DEFAULT 84",
         "ALTER TABLE kb_courses ADD COLUMN IF NOT EXISTS overview VARCHAR DEFAULT ''",
         "ALTER TABLE kb_courses ADD COLUMN IF NOT EXISTS recert_months INTEGER DEFAULT 0",
+        "ALTER TABLE kb_documents ADD COLUMN IF NOT EXISTS stale_notified_at VARCHAR DEFAULT ''",
         "ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS undone_at VARCHAR DEFAULT ''",
         "ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS undone_by VARCHAR DEFAULT ''",
         # HR Section A: which legal entity employs each worker
@@ -594,6 +620,15 @@ def _run_migrations():
         # project_ids keeps a field global (the pre-scoping behavior).
         "ALTER TABLE task_custom_fields ADD COLUMN IF NOT EXISTS project_ids JSONB DEFAULT '[]'::jsonb",
         "ALTER TABLE task_custom_fields ADD COLUMN IF NOT EXISTS required BOOLEAN DEFAULT FALSE",
+        # Asana formula fields import but can never push back (the API rejects
+        # writes) - this marks them so the editors disable them.
+        "ALTER TABLE task_custom_fields ADD COLUMN IF NOT EXISTS read_only BOOLEAN DEFAULT FALSE",
+        # Asana-derived fields/statuses are identified by gid, not by name.
+        "ALTER TABLE task_custom_fields ADD COLUMN IF NOT EXISTS asana_gid VARCHAR DEFAULT ''",
+        "ALTER TABLE task_custom_statuses ADD COLUMN IF NOT EXISTS asana_option_gid VARCHAR DEFAULT ''",
+        # Custom statuses get the same per-project scoping custom fields already
+        # had. Empty = every project, so existing statuses are unchanged.
+        "ALTER TABLE task_custom_statuses ADD COLUMN IF NOT EXISTS project_ids JSONB DEFAULT '[]'::jsonb",
         # Setup-only Asana PAT; blank falls back to the service token.
         "ALTER TABLE asana_sync_config ADD COLUMN IF NOT EXISTS setup_token VARCHAR DEFAULT ''",
         "UPDATE task_teams SET project_ids = jsonb_build_array(project_id) "
@@ -607,6 +642,17 @@ def _run_migrations():
         "CREATE UNIQUE INDEX IF NOT EXISTS ux_asana_task_link_gid ON asana_task_links (asana_gid) WHERE asana_gid <> ''",
         # Two-way delete propagation (opt-out; see AsanaSyncConfig.delete_sync).
         "ALTER TABLE asana_sync_config ADD COLUMN IF NOT EXISTS delete_sync BOOLEAN DEFAULT TRUE",
+        # Two-Way Sync card's own sync/delete toggles, independent of the Setup
+        # card's enabled/delete_sync above - see AsanaSyncConfig and
+        # asana_sync.sync_is_on()/delete_sync_is_on().
+        "ALTER TABLE asana_sync_config ADD COLUMN IF NOT EXISTS manual_sync_enabled BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE asana_sync_config ADD COLUMN IF NOT EXISTS manual_delete_sync BOOLEAN DEFAULT FALSE",
+        # The exact rendered body from the original send, reused verbatim on
+        # retry instead of re-rendering. See TaskEmailLog.html.
+        "ALTER TABLE task_email_log ADD COLUMN IF NOT EXISTS html VARCHAR DEFAULT ''",
+        # Set only for a file attached while composing a comment. See
+        # TaskAttachment.comment_id.
+        "ALTER TABLE task_attachments ADD COLUMN IF NOT EXISTS comment_id VARCHAR DEFAULT ''",
         # Push-only digest (tags/followers/dependencies/section/attachments)
         # so the reconcile sweep can skip an unchanged task outright.
         "ALTER TABLE asana_task_links ADD COLUMN IF NOT EXISTS last_push_hash VARCHAR DEFAULT ''",
@@ -738,9 +784,25 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Nexus API", lifespan=lifespan)
 
+# Error tracking: inert without a DSN. Set NEXUS_SENTRY_DSN (and pip install
+# sentry-sdk) to stream unhandled exceptions to Sentry; until then the
+# exception handler below + client-errors endpoint are the error trail.
+if os.getenv("NEXUS_SENTRY_DSN"):
+    try:
+        import sentry_sdk
+        sentry_sdk.init(dsn=os.getenv("NEXUS_SENTRY_DSN"), traces_sample_rate=0.05)
+        print("[startup] sentry error tracking enabled")
+    except ImportError:
+        print("[startup] NEXUS_SENTRY_DSN set but sentry-sdk not installed - skipped")
+
 # Gzip every response over ~1 KB. The item list is ~300 KB of JSON that compresses
 # to ~10% - the single biggest win for the slow Item Management load over the wire.
 app.add_middleware(GZipMiddleware, minimum_size=1024)
+# ETag/304 revalidation + auth-failure throttling (see middleware_hardening.py).
+# Added after GZip so ETags hash the compressed bytes; CORS stays outermost.
+from middleware_hardening import ETagMiddleware, AuthFailureThrottle  # noqa: E402
+app.add_middleware(ETagMiddleware)
+app.add_middleware(AuthFailureThrottle)
 # AuditMiddleware must be added before CORSMiddleware so it wraps the full request
 app.add_middleware(AuditMiddleware)
 _CORS_ORIGINS = [
@@ -830,10 +892,14 @@ app.include_router(task_config.router)    # Task Module: views/rules/templates/n
 app.include_router(tickets_router.router) # Ticket Module: tickets, conversation, components, links, escalation
 app.include_router(credvault.router)      # Credential Vault: encrypted company/personal secrets ("credvault" grant)
 app.include_router(asana_webhook.router)  # Asana two-way sync: public webhook receiver (verified by HMAC)
+app.include_router(asana_oauth_router.router)         # Per-user Asana connection (signed-in user, own grant only)
+app.include_router(asana_oauth_router.public_router)  # OAuth callback - Asana redirects a browser here, no bearer token
 app.include_router(policy.router)         # Sign-in company-policy & monitoring acknowledgment
 app.include_router(investor_relations.router)  # Investor Relations: funds/investors/commitments/calls/distributions
 app.include_router(stepup.router)         # Step-up MFA for sensitive data (vault reveals / payroll / confidential HR)
 app.include_router(act_as.router)         # Act As: impersonate a lower-role employee's account
 app.include_router(branding.router)       # Branding settings: login-screen accent color
 app.include_router(egnyte.router)         # Egnyte: list/read/upload/search, one shared client
+from routers import client_errors          # noqa: E402
+app.include_router(client_errors.router)  # Client-side error intake -> audit trail + logs
 

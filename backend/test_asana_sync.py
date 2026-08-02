@@ -574,6 +574,40 @@ class FullFidelityInboundTests(unittest.TestCase):
         self.assertEqual(self.counts["comments"], 1)
         self.assertEqual(self.counts["activities"], 1)
 
+    def test_a_pulled_comment_is_attributed_to_the_real_person(self):
+        """Comments used to be stored with a hardcoded author_email of
+        "asana-sync" and the real name stamped into the BODY, so every inbound
+        comment showed up authored by a placeholder. The resolved email was
+        already being computed for activity rows - comments just ignored it."""
+        tid = asana_sync._apply_inbound(self.db, self._task("g1", "T"), "proj-1", self.counts)
+        _FakeAsana.stories["g1"] = [
+            {"gid": "s1", "type": "comment", "text": "hello", "created_at": "2026-07-02T10:00:00Z",
+             "created_by": {"name": "Sagar", "email": "sagar@greensglobal.com"}},
+        ]
+
+        asana_sync._pull_stories(self.db, _FakeAsana(), "g1", tid, self.counts)
+
+        c = self.db.query(models.TaskComment).filter_by(task_id=tid).one()
+        self.assertEqual(c.author_email, "sagar@greensglobal.com")
+        # ...and the name isn't ALSO stamped into the body, which would show it twice.
+        self.assertNotIn("[Asana", c.body)
+        self.assertIn("hello", c.body)
+
+    def test_an_unresolvable_author_keeps_the_body_stamp(self):
+        """With no email on the story there's nothing to attribute to, so the
+        stamp is the only place the name survives - it has to stay."""
+        tid = asana_sync._apply_inbound(self.db, self._task("g1", "T"), "proj-1", self.counts)
+        _FakeAsana.stories["g1"] = [
+            {"gid": "s1", "type": "comment", "text": "hello", "created_at": "2026-07-02T10:00:00Z",
+             "created_by": {"name": "Someone Outside"}},   # no email
+        ]
+
+        asana_sync._pull_stories(self.db, _FakeAsana(), "g1", tid, self.counts)
+
+        c = self.db.query(models.TaskComment).filter_by(task_id=tid).one()
+        self.assertEqual(c.author_email, "asana-sync")
+        self.assertIn("[Asana · Someone Outside]", c.body)
+
     def test_dependencies_resolve_regardless_of_walk_order(self):
         # The blocker is visited AFTER the task it blocks - inline resolution
         # can't see it, so only the deferred pass can wire this up.
@@ -964,8 +998,8 @@ class RichDescriptionTests(unittest.TestCase):
 
         emitted = {t.lower() for t in re.findall(r"</?([a-zA-Z0-9]+)", out)}
         self.assertTrue(emitted <= asana_sync._ASANA_HTML_TAGS | {"body"}, emitted)
-        for text in ("a", "c", "d", "e"):
-            self.assertIn(text, out)
+        for ch in ("a", "c", "d", "e"):
+            self.assertIn(ch, out)
 
     def test_paragraph_after_a_list_is_not_glued_to_it(self):
         out = asana_sync._to_asana_html('<ul><li>one</li></ul><p>after</p>')

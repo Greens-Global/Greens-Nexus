@@ -13,6 +13,7 @@ import { useNotifications } from '../contexts/NotificationContext';
 import { useRequisitions }  from '../contexts/RequisitionContext';
 import { useRole }          from '../contexts/RoleContext';
 import { api }              from '../api';
+import { usePeopleDirectory } from '../lib/queries';
 import { supabase }         from '../lib/supabase';
 import { useMsal }          from '@azure/msal-react';
 import { cleanName }        from '../lib/utils';
@@ -232,11 +233,10 @@ function OpStatusBadge({ value }) {
 // (used for "Declared by" on person-bound op statuses). Picking a match captures
 // the email so the backend can notify them; free-typed text leaves email blank.
 function PersonTypeahead({ valueName, onPick, placeholder = 'Type a name…' }) {
-  const [dir,  setDir]  = useState([]);
+  const { data: dir = [] } = usePeopleDirectory();
   const [text, setText] = useState(valueName || '');
   const [open, setOpen] = useState(false);
   const boxRef = useRef(null);
-  useEffect(() => { api.getPeopleDirectory().then(d => setDir(Array.isArray(d) ? d : [])).catch(() => {}); }, []);
   useEffect(() => { setText(valueName || ''); }, [valueName]);
   useEffect(() => {
     function onDoc(e) { if (boxRef.current && !boxRef.current.contains(e.target)) setOpen(false); }
@@ -3112,7 +3112,10 @@ const ItemPhotoGrid = memo(function ItemPhotoGrid({ items, checkouts, itemsLoadi
   return (
     <>
       <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(160px,1fr))', gap:14 }}>
-        {sorted.map(item => {
+        {/* Render cap: the catalog can hold thousands of items (1,680+ on prod);
+            drawing every card at once freezes the browse screen. Cap the cards;
+            search/filter reaches the rest. */}
+        {sorted.slice(0, 200).map(item => {
           const tm = TYPE_META[item.itemType] || TYPE_META.Other;
           const alreadyInCart = inCart?.has(item.id);
           const isAvailable = item.status === 'available';
@@ -3267,6 +3270,11 @@ const ItemPhotoGrid = memo(function ItemPhotoGrid({ items, checkouts, itemsLoadi
           );
         })}
       </div>
+      {sorted.length > 200 && (
+        <div style={{ padding:'10px 4px', fontSize:12, color:'var(--muted)', textAlign:'center' }}>
+          Showing 200 of {sorted.length} items - search or filter to narrow down.
+        </div>
+      )}
       {lightbox && <ImageLightbox src={lightbox.src} alt={lightbox.alt} onClose={() => setLightbox(null)} />}
     </>
   );
@@ -3688,7 +3696,7 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
                     </tr>
                   </thead>
                   <tbody>
-                    {sortItemsBy(filteredItems, catalogSort.key, catalogSort.dir).map(item => {
+                    {sortItemsBy(filteredItems, catalogSort.key, catalogSort.dir).slice(0, 200).map(item => {
                       const tm = TYPE_META[item.itemType] || TYPE_META.Other;
                       const alreadyInCart = inCart.has(item.id);
                       const hasPending = item.status==='available' && (
@@ -3721,6 +3729,9 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
                         </tr>
                       );
                     })}
+                    {filteredItems.length > 200 && (
+                      <tr><td colSpan={20} style={{ padding:'10px 14px', fontSize:12, color:'var(--muted)', textAlign:'center' }}>Showing 200 of {filteredItems.length} items - search or filter to narrow down.</td></tr>
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -3941,7 +3952,7 @@ const ManagerCatalogTab = memo(function ManagerCatalogTab({ items, itemsLoading,
                 </tr>
               </thead>
               <tbody>
-                {sortedForList.map(item => {
+                {sortedForList.slice(0, 200).map(item => {
                   const tm = TYPE_META[item.itemType] || TYPE_META.Other;
                   const alreadyInCart = inCart?.has(item.id);
                   const hasPending = pendingCheckoutIds.has(item.id);
@@ -3975,6 +3986,9 @@ const ManagerCatalogTab = memo(function ManagerCatalogTab({ items, itemsLoading,
                     </tr>
                   );
                 })}
+                {sortedForList.length > 200 && (
+                  <tr><td colSpan={20} style={{ padding:'10px 14px', fontSize:12, color:'var(--muted)', textAlign:'center' }}>Showing 200 of {sortedForList.length} items - search or filter to narrow down.</td></tr>
+                )}
               </tbody>
             </table>
           </div>

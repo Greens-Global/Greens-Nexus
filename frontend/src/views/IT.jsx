@@ -1,8 +1,10 @@
 import { useState, useEffect, useCallback } from "react";
+import { SkeletonBlocks } from "../components/AsyncState";
 import { RefreshCw, Download, ArrowLeft, AlertTriangle, ChevronDown, ChevronUp, Globe, Wifi, Plus, ExternalLink, AlertCircle } from "lucide-react";
 import { msalInstance, msalReady } from "../msalInstance";
 import { apiTokenRequest } from "../authConfig";
 import ModuleTabs from "../components/ModuleTabs";
+import { pollWhileVisible } from '../lib/pollWhileVisible';
 
 const BASE = `${import.meta.env.VITE_API_BASE ?? "http://localhost:8000"}/unifi`;
 
@@ -258,8 +260,7 @@ function NetworkDashboard() {
 
   useEffect(() => {
     loadOverview();
-    const iv = setInterval(loadOverview, 60000);
-    return () => clearInterval(iv);
+    return pollWhileVisible(loadOverview, 60000);
   }, [loadOverview]);
 
   function openDetail(site) {
@@ -534,7 +535,7 @@ function NetworkDashboard() {
       {/* ── Detail ── */}
       {view === "detail" && (
         <>
-          {!detail && loading && <div style={{ padding: 60, textAlign: "center", color: "var(--text-secondary)" }}>Loading site data...</div>}
+          {!detail && loading && <div style={{ padding: "16px 0" }}><SkeletonBlocks count={4} height={48} /></div>}
           {detail && (
             <>
               {/* Stat strip */}

@@ -7,6 +7,8 @@ import { Camera, CheckCircle, XCircle, RotateCcw, Loader2, AlertCircle, User, Pa
 import { api } from '../api';
 import { emailToName } from '../lib/utils';
 import { supabase } from '../lib/supabase';
+import { pollWhileVisible } from '../lib/pollWhileVisible';
+import { usePeopleDirectory } from '../lib/queries';
 
 const FL = { fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 6, letterSpacing: '.04em' };
 
@@ -61,13 +63,13 @@ export function useAssignments() {
     setAssignments(_asgState);                   // sync to whatever's already loaded
     if (_asgSubs.size === 1) {                    // first consumer owns the shared poll
       _asgFetch();
-      _asgTimer = setInterval(_asgFetch, 15000);
+      _asgTimer = pollWhileVisible(_asgFetch, 15000);   // holds the stop function
     } else {
       _asgFetch();                                // later consumer: in-flight-deduped refresh
     }
     return () => {
       _asgSubs.delete(setAssignments);
-      if (_asgSubs.size === 0 && _asgTimer) { clearInterval(_asgTimer); _asgTimer = null; }
+      if (_asgSubs.size === 0 && _asgTimer) { _asgTimer(); _asgTimer = null; }
     };
   }, []);
   return { assignments, refreshAssignments: _asgFetch };
@@ -135,14 +137,13 @@ function ModalShell({ title, sub, children, onClose, busy = false }) {
 
 // Manager: assign (or reassign) an item to a person from the directory
 export function AssignItemModal({ item, mode, userEmail = '', locations = [], onClose, onDone, toast }) {
-  const [directory, setDirectory] = useState([]);
+  const { data: directory = [] } = usePeopleDirectory();   // shared cache - one fetch across all pickers
   const [tab,  setTab]  = useState('person');   // 'person' | 'location'
   const [pick, setPick] = useState('');
   const [loc,  setLoc]  = useState(item.location || '');
   const [skipAccept, setSkipAccept] = useState(false); // manager option - activate without the assignee accepting
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  useEffect(() => { api.getPeopleDirectory().then(setDirectory).catch(() => {}); }, []);
   const chosen = directory.find(d => d.email === pick);
   // A person currently holds it ⇒ the person flow is a reassignment. Location is
   // independent of the holder (just where the item lives), so it's always a set.

@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+import cache
 import models
 from database import get_db
 from auth import get_current_user
@@ -173,49 +174,58 @@ def kpis(scope: str = "self", user: dict = Depends(get_current_user), db: Sessio
     so one broken metric never fails the whole dashboard. scope 'team' unlocks
     manager metrics for level>=2."""
     email = user["email"]
-    out: dict[str, int] = {}
+    team = scope == "team" and user["level"] >= 2
 
-    def safe(key, fn):
-        try:
-            out[key] = int(fn())
-        except Exception:
-            out[key] = 0
+    # A dozen COUNT queries per call; cached per (email, team) for a short TTL so
+    # a dashboard full of widgets (and its poll) doesn't recompute every load, and
+    # single-flight collapses the concurrent burst into one DB pass. Counts are
+    # glanceable, so ~20s staleness is fine (see cache.dashboard_kpis).
+    def _compute() -> dict:
+        out: dict[str, int] = {}
 
-    M = models
-    safe("open_tasks", lambda: db.query(M.Task).filter(M.Task.status != "Completed").count())
-    safe("pending_requisitions", lambda: db.query(M.Requisition).filter(M.Requisition.status == "pending_manager").count())
-    safe("pending_inventory", lambda: db.query(M.ItemCheckout).filter(M.ItemCheckout.status == "pending").count())
-    safe("open_purchases", lambda: db.query(M.PurchaseRequest).filter(M.PurchaseRequest.status == "pending").count())
-    safe("my_checkouts", lambda: db.query(M.ItemCheckout).filter(
-        M.ItemCheckout.requested_by_email == email,
-        M.ItemCheckout.status.in_(["approved", "allocated", "pending_receipt"])).count())
-    safe("my_assignments", lambda: db.query(M.ItemAssignment).filter(
-        M.ItemAssignment.assignee_email == email, M.ItemAssignment.status == "active").count())
-    safe("my_open_tasks", lambda: db.query(M.Task).filter(
-        M.Task.assignee == email, M.Task.status != "Completed").count())
-    safe("unread_notifications", lambda: db.query(M.NexusNotification).filter(
-        M.NexusNotification.recipient == email).count())
+        def safe(key, fn):
+            try:
+                out[key] = int(fn())
+            except Exception:
+                out[key] = 0
 
-    def warranties():
-        cutoff = (datetime.now(timezone.utc) + timedelta(days=30)).strftime("%Y-%m-%d")
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        return db.query(M.HardwareAsset).filter(
-            M.HardwareAsset.warranty_end != "",
-            M.HardwareAsset.warranty_end <= cutoff,
-            M.HardwareAsset.warranty_end >= today).count()
-    safe("warranties_expiring", warranties)
+        M = models
+        safe("open_tasks", lambda: db.query(M.Task).filter(M.Task.status != "Completed").count())
+        safe("pending_requisitions", lambda: db.query(M.Requisition).filter(M.Requisition.status == "pending_manager").count())
+        safe("pending_inventory", lambda: db.query(M.ItemCheckout).filter(M.ItemCheckout.status == "pending").count())
+        safe("open_purchases", lambda: db.query(M.PurchaseRequest).filter(M.PurchaseRequest.status == "pending").count())
+        safe("my_checkouts", lambda: db.query(M.ItemCheckout).filter(
+            M.ItemCheckout.requested_by_email == email,
+            M.ItemCheckout.status.in_(["approved", "allocated", "pending_receipt"])).count())
+        safe("my_assignments", lambda: db.query(M.ItemAssignment).filter(
+            M.ItemAssignment.assignee_email == email, M.ItemAssignment.status == "active").count())
+        safe("my_open_tasks", lambda: db.query(M.Task).filter(
+            M.Task.assignee == email, M.Task.status != "Completed").count())
+        safe("unread_notifications", lambda: db.query(M.NexusNotification).filter(
+            M.NexusNotification.recipient == email).count())
 
-    def clocked_in():
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        rows = (db.query(M.TimePunch)
-                .filter(M.TimePunch.local_date == today)
-                .order_by(M.TimePunch.at).all())
-        latest: dict[str, str] = {}
-        for p in rows:
-            latest[p.employee_email] = p.kind
-        return sum(1 for k in latest.values() if k != "out")
-    if scope == "team" and user["level"] >= 2:
-        safe("clocked_in_now", clocked_in)
-        safe("time_off_pending", lambda: db.query(M.TimeOffRequest).filter(M.TimeOffRequest.status == "pending").count())
+        def warranties():
+            cutoff = (datetime.now(timezone.utc) + timedelta(days=30)).strftime("%Y-%m-%d")
+            today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            return db.query(M.HardwareAsset).filter(
+                M.HardwareAsset.warranty_end != "",
+                M.HardwareAsset.warranty_end <= cutoff,
+                M.HardwareAsset.warranty_end >= today).count()
+        safe("warranties_expiring", warranties)
 
+        def clocked_in():
+            today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            rows = (db.query(M.TimePunch)
+                    .filter(M.TimePunch.local_date == today)
+                    .order_by(M.TimePunch.at).all())
+            latest: dict[str, str] = {}
+            for p in rows:
+                latest[p.employee_email] = p.kind
+            return sum(1 for k in latest.values() if k != "out")
+        if team:
+            safe("clocked_in_now", clocked_in)
+            safe("time_off_pending", lambda: db.query(M.TimeOffRequest).filter(M.TimeOffRequest.status == "pending").count())
+        return out
+
+    out = cache.dashboard_kpis.get_or_load((email, team), _compute)
     return {"kpis": out, "at": _now()}

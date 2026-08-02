@@ -40,26 +40,41 @@ TIERS = ("Standard", "High", "Critical")
 TYPES = ("Password", "API key", "Access key", "Certificate")
 
 # ── Encryption at rest ────────────────────────────────────────────────────────
+# Fail-closed on Azure (Aug 1, 2026): the derived dev fallback key is a known
+# constant, so on a deployed API it provides zero protection - anyone with the
+# repo can decrypt what it "encrypts". A deployed worker without NEXUS_VAULT_KEY
+# now DISABLES the vault (503 on every operation) instead of silently running
+# fake crypto. Same posture as NEXUS_SKIP_AUTH being refused on Azure. The
+# whole app deliberately does NOT crash - only the vault locks.
 _VAULT_KEY = os.getenv("NEXUS_VAULT_KEY", "").strip()
+_ON_AZURE = bool(os.getenv("WEBSITE_SITE_NAME"))
 if _VAULT_KEY:
     _fernet = Fernet(_VAULT_KEY.encode())
+elif _ON_AZURE:
+    _fernet = None
+    print("[credvault] NEXUS_VAULT_KEY not set on a DEPLOYED API - vault DISABLED (fail-closed)")
 else:
-    # DEV-ONLY fallback so local SQLite dev works out of the box. On Azure, set
-    # NEXUS_VAULT_KEY (Fernet.generate_key()) - secrets encrypted with this
-    # fallback are NOT protected by a real secret.
+    # DEV-ONLY fallback so local SQLite dev works out of the box.
     _fernet = Fernet(base64.urlsafe_b64encode(
         hashlib.sha256(b"nexus-credvault-DEV-ONLY-key-set-NEXUS_VAULT_KEY").digest()
     ))
     print("[credvault] WARNING: NEXUS_VAULT_KEY not set - using dev-only fallback key")
 
 
+def _require_key():
+    if _fernet is None:
+        raise HTTPException(503, "Vault is locked: NEXUS_VAULT_KEY is not configured "
+                                 "on this deployment. Set it in App Service configuration.")
+    return _fernet
+
+
 def _enc(secret: str) -> str:
-    return _fernet.encrypt(secret.encode()).decode()
+    return _require_key().encrypt(secret.encode()).decode()
 
 
 def _dec(ciphertext: str) -> str:
     try:
-        return _fernet.decrypt(ciphertext.encode()).decode()
+        return _require_key().decrypt(ciphertext.encode()).decode()
     except InvalidToken:
         raise HTTPException(500, "Credential cannot be decrypted (vault key mismatch)")
 

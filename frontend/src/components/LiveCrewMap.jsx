@@ -3,6 +3,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { api } from '../api.js';
 import EnrolPhone from './EnrolPhone';
+import { pollWhileVisible } from '../lib/pollWhileVisible';
 
 // Live location of clocked-in field crews (native app posts pings to /track/*).
 // Markers coloured by geofence verdict; click a person to replay today's path.
@@ -54,7 +55,7 @@ export default function LiveCrewMap({ toastErr, employees = [] }) {
       .then(r => { setCrew(r.crew || []); setUpdated(new Date().toLocaleTimeString()); })
       .catch(e => { setCrew([]); toastErr && toastErr(e?.message || 'Could not load live locations.'); });
   }, [toastErr]);
-  useEffect(() => { load(); const t = setInterval(load, REFRESH_MS); return () => clearInterval(t); }, [load]);
+  useEffect(() => { load(); return pollWhileVisible(load, REFRESH_MS); }, [load]);
 
   // Redraw crew markers whenever the live set changes.
   useEffect(() => {

@@ -46,7 +46,11 @@ else:
         url = url.replace("postgresql+pg8000://", "postgresql+psycopg2://", 1)
     engine = create_engine(
         url,
-        connect_args={"sslmode": "require", "options": "-c statement_timeout=25000"},
+        # application_name makes our connections self-identifying in
+        # pg_stat_activity (otherwise they're anonymous rows hiding behind the
+        # Supavisor pooler's own label when diagnosing connection pressure).
+        connect_args={"sslmode": "require", "application_name": "nexus-api",
+                      "options": "-c statement_timeout=25000"},
         # Connection budget: Supabase max_connections=60, ~10 reserved for
         # superuser/internal → ~50 usable, shared by BOTH deployment slots while
         # a deploy overlaps. The old 3+5 per worker × 8 workers = 64 potential
@@ -65,6 +69,11 @@ else:
     )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+# Cache invalidation rides the session lifecycle (see cache.py) so no writer
+# has to remember to call it.
+import cache as _cache  # noqa: E402 - needs SessionLocal to exist first
+_cache.wire(SessionLocal)
 
 
 class Base(DeclarativeBase):

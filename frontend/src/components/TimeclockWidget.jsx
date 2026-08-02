@@ -3,6 +3,7 @@ import { Clock, LogOut, MonitorUp, MonitorX, MonitorPause, Loader2, ChevronUp } 
 import { api } from '../api';
 import { editGuard } from '../asset/lib/editGuard.js';
 import BodModal from './BodModal';
+import { pollWhileVisible } from '../lib/pollWhileVisible';
 
 // ── Global mini-timer - lives on EVERY screen while clocked in ────────────────
 // A floating pill with a live HH:MM:SS stopwatch, a quick punch-out, and the
@@ -55,7 +56,7 @@ export default function TimeclockWidget() {
     window.addEventListener('nexus:timeclock-changed', onChange);
     // Poll fairly often so a punch/break on ANOTHER device reflects in this
     // widget's timer without a manual refresh (server holds the punch state).
-    const poll = setInterval(load, 25000);
+    const stopPoll = pollWhileVisible(load, 25000);
     const sec = setInterval(() => setTick(t => t + 1), 1000);
     // Wall-clock scheduler: a frequent tick that fires a shot only once the full
     // interval has actually elapsed. Browsers throttle/freeze background-tab
@@ -76,7 +77,7 @@ export default function TimeclockWidget() {
       window.removeEventListener('keydown', bump);
       document.removeEventListener('visibilitychange', onVis);
       window.removeEventListener('focus', onVis);
-      clearInterval(poll); clearInterval(sec); clearInterval(due);
+      stopPoll(); clearInterval(sec); clearInterval(due);
       stopCapture();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

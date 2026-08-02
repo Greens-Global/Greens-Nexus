@@ -19,12 +19,10 @@ Design notes:
   owner or an administrator (level >= 4) may edit/archive/delete a document.
 """
 import copy
-import os
 import re
 import uuid
 from datetime import datetime, timezone
 from urllib.parse import quote
-import httpx
 from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.orm import Session
 from pydantic import BaseModel

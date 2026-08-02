@@ -1,0 +1,26 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "overused-font",
+        "value": "inter",
+        "createdAt": "2026-07-27T22:08:43.572Z",
+        "reason": "Legacy module brand face (DESIGN.md)"
+      },
+      {
+        "rule": "overused-font",
+        "value": "figtree",
+        "createdAt": "2026-08-01T12:15:04.685Z",
+        "reason": "Ratified Work OS brand face (DESIGN.md, Jul 28 owner sign-off)"
+      },
+      {
+        "rule": "overused-font",
+        "value": "plus jakarta sans",
+        "createdAt": "2026-08-01T12:15:04.821Z",
+        "reason": "Legacy module brand face (DESIGN.md)"
+      }
+    ]
+  }
+}

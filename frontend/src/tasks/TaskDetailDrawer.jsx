@@ -13,12 +13,12 @@ import {
 } from 'lucide-react';
 import { api } from '../api';
 import { useTasks } from './TasksContext';
-import { fmtDate as fmtDateRaw, fmtDateTime, filesFromPaste, parseImportedAuthor, fmtHours, teamInProject, fieldsForProject, fieldOption, richBodyHtml } from './lib';
+import { fmtDate as fmtDateRaw, fmtDateTime, filesFromPaste, parseImportedAuthor, fmtHours, teamInProject, fieldsForProject, fieldOption, richBodyHtml, uploadTaskAttachment } from './lib';
 
 // Drawer shows an em-dash for an unset date rather than an empty cell.
 const fmtDate = (iso) => (iso ? fmtDateRaw(iso) : '-');
 import { NX, FONT, btn, input as inputStyle, STATUS_META, STATUS_ORDER, PRIORITY_META, PRIORITY_ORDER } from './theme';
-import { Avatar, PersonSelect, usePeople, useIsMobile, DateField } from './components';
+import { Avatar, PersonSelect, PersonMultiSelect, usePeople, useIsMobile, DateField } from './components';
 import RichDescription, { isEmptyDoc } from './RichDescription';
 
 const DEP_TYPES = { FS: 'Finish → Start', SS: 'Start → Start', FF: 'Finish → Finish', SF: 'Start → Finish' };
@@ -367,6 +367,32 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit }) {
 }
 
 // ── Members (collaborators) menu ─────────────────────────────────────────────
+// Shared by MembersMenu below and the Properties tab's own Collaborators row -
+// they were two copies of the same unfiltered checkbox list, easy to miss a
+// search box on one and not the other. One body, used by both triggers.
+function CollaboratorMenuBody({ people, selected, onToggle }) {
+  const [q, setQ] = useState('');
+  const filtered = q.trim()
+    ? people.filter((u) => `${u.name} ${u.email}`.toLowerCase().includes(q.trim().toLowerCase()))
+    : people;
+  return (
+    <div>
+      <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: NX.faint, padding: '4px 6px' }}>Collaborators</div>
+      <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people…"
+        style={{ width: '100%', boxSizing: 'border-box', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '6px 8px', fontSize: 13, outline: 'none', fontFamily: FONT, background: 'transparent', color: NX.ink }} />
+      <div className="nx-scroll" style={{ maxHeight: 220, overflowY: 'auto' }}>
+        {filtered.map((u) => (
+          <label key={u.email} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', fontSize: 13, cursor: 'pointer' }}>
+            <input type="checkbox" checked={selected.includes(u.email)} onChange={() => onToggle(u.email)} />
+            <Avatar email={u.email} name={u.name} size={20} card={false} /> {u.name}
+          </label>
+        ))}
+        {filtered.length === 0 && <div style={{ padding: 8, fontSize: 12, color: NX.faint }}>{people.length === 0 ? 'No people' : 'No match'}</div>}
+      </div>
+    </div>
+  );
+}
+
 function MembersMenu({ task, people, nameOf, patch }) {
   const followers = task.followerIds || [];
   const toggle = (email) => patch({ followerIds: followers.includes(email) ? followers.filter((e) => e !== email) : [...followers, email] });
@@ -376,18 +402,7 @@ function MembersMenu({ task, people, nameOf, patch }) {
       <Pop width={230} trigger={(t) => (
         <button onClick={t} title="Collaborators" style={{ ...btn('ghost'), padding: 5, marginLeft: followers.length ? 2 : 0, color: NX.faint }}><UserPlus size={16} /></button>
       )}>
-        {() => (
-          <div>
-            <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: NX.faint, padding: '4px 6px' }}>Collaborators</div>
-            {people.map((u) => (
-              <label key={u.email} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', fontSize: 13, cursor: 'pointer' }}>
-                <input type="checkbox" checked={followers.includes(u.email)} onChange={() => toggle(u.email)} />
-                <Avatar email={u.email} name={u.name} size={20} /> {u.name}
-              </label>
-            ))}
-            {people.length === 0 && <div style={{ padding: 8, fontSize: 12, color: NX.faint }}>No people</div>}
-          </div>
-        )}
+        {() => <CollaboratorMenuBody people={people} selected={followers} onToggle={toggle} />}
       </Pop>
     </div>
   );
@@ -529,18 +544,7 @@ function OverviewTab({ task, patch, people, projectName, teamName, teams, projec
             display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
           }}><UserPlus size={13} /></button>
         )}>
-          {(close) => (
-            <div>
-              <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: NX.faint, padding: '4px 6px' }}>Collaborators</div>
-              {people.map((u) => (
-                <label key={u.email} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', fontSize: 13, cursor: 'pointer' }}>
-                  <input type="checkbox" checked={followers.includes(u.email)} onChange={() => toggleFollower(u.email)} />
-                  <Avatar email={u.email} name={u.name} size={20} /> {u.name}
-                </label>
-              ))}
-              {people.length === 0 && <div style={{ padding: 8, fontSize: 12, color: NX.faint }}>No people</div>}
-            </div>
-          )}
+          {() => <CollaboratorMenuBody people={people} selected={followers} onToggle={toggleFollower} />}
         </Pop>
       </Row>
 
@@ -704,7 +708,7 @@ function OverviewTab({ task, patch, people, projectName, teamName, teams, projec
       {!isMobile && (
         <Section title="Comments">
           <QuickComment task={task} addComment={addComment} getComments={getComments}
-            nameOf={nameOf} onViewAll={onViewAllComments} />
+            nameOf={nameOf} myEmail={myEmail} onViewAll={onViewAllComments} />
         </Section>
       )}
 
@@ -721,11 +725,90 @@ function OverviewTab({ task, patch, people, projectName, teamName, teams, projec
 // named (backend routers/tasks.py extract_mentions).
 const RECENT_COMMENTS = 3;
 
-function QuickComment({ task, addComment, getComments, nameOf, onViewAll }) {
+// Shared by both comment composers (Overview's QuickComment and the dedicated
+// CommentsTab) - one implementation of "attach a file while writing a
+// comment" instead of two that can drift apart, the same reason CommentItem
+// itself is shared rather than duplicated per tab.
+//
+// Asana's own API has no comment/story parent for an attachment (see
+// asana_sync._pull_attachments), so only a comment composed here gets this
+// link - grouping by commentId naturally leaves every Asana-origin and
+// pre-existing attachment exactly where it already was: task-level only,
+// nothing guessed at.
+function useCommentAttachments(taskId) {
+  const [byComment, setByComment] = useState(new Map());
+  const reload = useCallback(() => {
+    api.getTaskAttachments(taskId).then((rows) => {
+      const m = new Map();
+      for (const a of rows || []) {
+        if (!a.commentId) continue;
+        if (!m.has(a.commentId)) m.set(a.commentId, []);
+        m.get(a.commentId).push(a);
+      }
+      setByComment(m);
+    }).catch(() => setByComment(new Map()));
+  }, [taskId]);
+  useEffect(() => { reload(); }, [reload]);
+  return [byComment, reload];
+}
+
+// Paperclip button + hidden file input + staged-file chips, shown above a
+// composer's Send button. Files aren't uploaded here - a comment_id is
+// required to link them (see uploadPendingAttachments), and the comment
+// doesn't exist yet while its composer is still open.
+function PendingAttachments({ files, setFiles }) {
+  const fileRef = useRef(null);
+  const onFile = (e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) setFiles((p) => [...p, f]); };
+  const remove = (i) => setFiles((p) => p.filter((_, j) => j !== i));
+  if (!files.length) {
+    return (
+      <>
+        <input ref={fileRef} type="file" style={{ display: 'none' }} onChange={onFile} />
+        <button type="button" onClick={() => fileRef.current?.click()} title="Attach file"
+          style={{ ...btn('ghost'), padding: 5, color: NX.faint }}><Paperclip size={13} /></button>
+      </>
+    );
+  }
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+      <input ref={fileRef} type="file" style={{ display: 'none' }} onChange={onFile} />
+      <button type="button" onClick={() => fileRef.current?.click()} title="Attach another file"
+        style={{ ...btn('ghost'), padding: 5, color: NX.faint }}><Paperclip size={13} /></button>
+      {files.map((f, i) => (
+        <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, border: `1px solid ${NX.border}`, borderRadius: 20, padding: '2px 8px 2px 2px', fontSize: 11.5, color: NX.dim }}>
+          {f.type.startsWith('image/')
+            ? <img src={URL.createObjectURL(f)} alt="" style={{ width: 18, height: 18, borderRadius: 4, objectFit: 'cover' }} />
+            : <Paperclip size={11} />}
+          <span style={{ maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
+          <button type="button" onClick={() => remove(i)} title="Remove" style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: NX.faint, display: 'flex' }}><X size={11} /></button>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+// Best-effort per file, run after the comment itself has already posted - one
+// failed upload must never look like the comment failed too.
+function uploadPendingAttachments(taskId, commentId, files) {
+  return Promise.all(files.map((f) => uploadTaskAttachment(taskId, f, { comment_id: commentId }).catch(() => {})));
+}
+
+// Same CLAUDE.md Ctrl+V mandate every other upload widget follows
+// (imageFromPaste / filesFromPaste) - stages the image rather than uploading
+// immediately, since AttachmentsTab's version can upload on the spot (already
+// task-scoped) but a comment's attachment needs the comment's id first.
+function onPasteStage(e, setFiles) {
+  const files = filesFromPaste(e);
+  if (files.length) { e.preventDefault(); setFiles((p) => [...p, ...files]); }
+}
+
+function QuickComment({ task, addComment, getComments, nameOf, myEmail, onViewAll }) {
   const [body, setBody] = useState('');
   const [rows, setRows] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [pending, setPending] = useState([]);
   const people = usePeople();
+  const [attachments, reloadAttachments] = useCommentAttachments(task.id);
 
   const load = useCallback(() => {
     getComments?.(task.id).then((r) => setRows(r || [])).catch(() => setRows([]));
@@ -736,11 +819,23 @@ function QuickComment({ task, addComment, getComments, nameOf, onViewAll }) {
     if (isEmptyDoc(body) || busy) return;
     setBusy(true);
     try {
-      await addComment(task.id, body);
+      const c = await addComment(task.id, body);
       setBody('');
+      if (pending.length) {
+        await uploadPendingAttachments(task.id, c.id, pending);
+        setPending([]);
+        reloadAttachments();
+      }
       load();
     } catch { /* surfaced by the store */ } finally { setBusy(false); }
   };
+
+  // Same pin/edit/delete shape as the full Comments tab (CommentsTab) - this is
+  // a preview of the identical data, not a separate simplified view, so it
+  // needs the same actions rather than a read-only cut-down.
+  const pin = async (c) => { await api.editTaskComment(c.id, { pinned: !c.pinned }).catch(() => {}); load(); };
+  const edit = async (c, text) => { await api.editTaskComment(c.id, { body: text }).catch(() => {}); load(); };
+  const del = async (c) => { if (!window.confirm('Delete this comment?')) return; await api.deleteTaskComment(c.id).catch(() => {}); load(); };
 
   // Newest last, like a chat log - the composer sits directly under the most
   // recent line so the thread reads top to bottom into the box you type in.
@@ -757,19 +852,16 @@ function QuickComment({ task, addComment, getComments, nameOf, onViewAll }) {
               View {hidden} earlier comment{hidden === 1 ? '' : 's'}
             </button>
           )}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {/* Same CommentItem the Comments tab uses - this used to be its own
+                cut-down rendering that skipped parseImportedAuthor entirely, so
+                an Asana-synced comment showed as "asana-sync" with the raw
+                "[Asana · Name]" stamp still in the body instead of the real
+                author. Reusing the component means the two can't drift again. */}
             {shown.map((c) => (
-              <div key={c.id} style={{ display: 'flex', gap: 8 }}>
-                <Avatar email={c.authorId} name={nameOf?.(c.authorId)} size={26} />
-                <div style={{ minWidth: 0, flex: 1 }}>
-                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-                    <span style={{ fontSize: 12.5, fontWeight: 700, color: NX.ink }}>{nameOf?.(c.authorId) || c.authorId}</span>
-                    <span style={{ fontSize: 11, color: NX.faint }}>{fmtDateTime(c.createdAt)}</span>
-                  </div>
-                  <div className="nx-rich-view" style={{ color: NX.dim, marginTop: 1 }}
-                    dangerouslySetInnerHTML={{ __html: richBodyHtml(c.body, nameOf) }} />
-                </div>
-              </div>
+              <CommentItem key={c.id} c={c} nameOf={nameOf} mine={c.authorId === myEmail}
+                attachments={attachments.get(c.id) || []}
+                onPin={() => pin(c)} onEdit={(t) => edit(c, t)} onDelete={() => del(c)} />
             ))}
           </div>
           <button onClick={onViewAll} style={{ ...btn('ghost'), padding: 0, fontSize: 12, fontWeight: 600, color: NX.primary, marginTop: 8 }}>
@@ -777,16 +869,19 @@ function QuickComment({ task, addComment, getComments, nameOf, onViewAll }) {
           </button>
         </div>
       )}
-      <RichDescription
-        value={body}
-        onChange={setBody}
-        onSubmit={submit}
-        mentionPeople={people}
-        minHeight={64}
-      />
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
+      <div onPaste={(e) => onPasteStage(e, setPending)}>
+        <RichDescription
+          value={body}
+          onChange={setBody}
+          onSubmit={submit}
+          mentionPeople={people}
+          minHeight={64}
+        />
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8, gap: 8 }}>
+        <PendingAttachments files={pending} setFiles={setPending} />
         <button onClick={submit} disabled={isEmptyDoc(body) || busy}
-          style={{ ...btn('primary'), opacity: (isEmptyDoc(body) || busy) ? 0.5 : 1 }}>
+          style={{ ...btn('primary'), opacity: (isEmptyDoc(body) || busy) ? 0.5 : 1, flexShrink: 0 }}>
           {busy ? 'Posting…' : 'Comment'}
         </button>
       </div>
@@ -904,11 +999,23 @@ function DiscussionPane({ task, taskId, nameOf, myEmail, getComments, addComment
 function CommentsTab({ task, nameOf, myEmail, getComments, addComment }) {
   const [comments, setComments] = useState(null);
   const [body, setBody] = useState('');
+  const [pending, setPending] = useState([]);
   const people = usePeople();
+  const [attachments, reloadAttachments] = useCommentAttachments(task.id);
   const reload = () => getComments(task.id).then(setComments).catch(() => setComments([]));
   useEffect(() => { reload(); /* eslint-disable-next-line */ }, [task.id]);
 
-  const submit = async () => { if (isEmptyDoc(body)) return; setBody(''); await addComment(task.id, body).catch(() => {}); reload(); };
+  const submit = async () => {
+    if (isEmptyDoc(body)) return;
+    setBody('');
+    const c = await addComment(task.id, body).catch(() => null);
+    if (c && pending.length) {
+      await uploadPendingAttachments(task.id, c.id, pending);
+      setPending([]);
+      reloadAttachments();
+    }
+    reload();
+  };
   const pin = async (c) => { await api.editTaskComment(c.id, { pinned: !c.pinned }).catch(() => {}); reload(); };
   const edit = async (c, text) => { await api.editTaskComment(c.id, { body: text }).catch(() => {}); reload(); };
   const del = async (c) => { if (!window.confirm('Delete this comment?')) return; await api.deleteTaskComment(c.id).catch(() => {}); reload(); };
@@ -917,24 +1024,27 @@ function CommentsTab({ task, nameOf, myEmail, getComments, addComment }) {
 
   return (
     <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <div>
+      <div onPaste={(e) => onPasteStage(e, setPending)}>
         <RichDescription value={body} onChange={setBody} onSubmit={submit}
           mentionPeople={people} minHeight={64} />
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8 }}>
           <span style={{ fontSize: 11, color: NX.faint }}>
             Type <b>@</b> to mention someone - they'll get an email.
           </span>
+          <PendingAttachments files={pending} setFiles={setPending} />
           <button onClick={submit} disabled={isEmptyDoc(body)}
             style={{ ...btn('primary'), marginLeft: 'auto', opacity: isEmptyDoc(body) ? 0.5 : 1 }}>Send</button>
         </div>
       </div>
       {comments === null ? <div style={{ color: NX.faint, fontSize: 13, textAlign: 'center', padding: 20 }}>Loading…</div>
         : list.length === 0 ? <div style={{ color: NX.faint, fontSize: 13, textAlign: 'center', padding: 24 }}>No comments yet.</div>
-          : list.map((c) => <CommentItem key={c.id} c={c} nameOf={nameOf} mine={c.authorId === myEmail} onPin={() => pin(c)} onEdit={(t) => edit(c, t)} onDelete={() => del(c)} />)}
+          : list.map((c) => <CommentItem key={c.id} c={c} nameOf={nameOf} mine={c.authorId === myEmail}
+              attachments={attachments.get(c.id) || []}
+              onPin={() => pin(c)} onEdit={(t) => edit(c, t)} onDelete={() => del(c)} />)}
     </div>
   );
 }
-function CommentItem({ c, nameOf, mine, onPin, onEdit, onDelete }) {
+function CommentItem({ c, nameOf, mine, attachments = [], onPin, onEdit, onDelete }) {
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(c.body);
   const [hover, setHover] = useState(false);
@@ -974,7 +1084,40 @@ function CommentItem({ c, nameOf, mine, onPin, onEdit, onDelete }) {
           <div className="nx-rich-view" style={{ marginTop: 2, color: NX.dim }}
             dangerouslySetInnerHTML={{ __html: richBodyHtml(displayBody, nameOf) }} />
         )}
+        {attachments.length > 0 && <CommentAttachments items={attachments} />}
       </div>
+    </div>
+  );
+}
+
+// Files attached while THIS comment was composed - see TaskAttachment.comment_id.
+// An image renders as a real inline preview (not the small chip the Attachments
+// tab uses); anything else renders as a named card with a Download link,
+// matching Asana's own comment-attachment layout.
+function CommentAttachments({ items }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
+      {items.map((a) => (
+        a.kind === 'image' ? (
+          <a key={a.id} href={a.dataUrl || a.url} target="_blank" rel="noreferrer" title={a.name}>
+            <img src={a.dataUrl || a.url} alt={a.name}
+              style={{ display: 'block', maxWidth: 320, maxHeight: 240, borderRadius: 10, border: `1px solid ${NX.border}`, objectFit: 'cover' }} />
+          </a>
+        ) : (
+          <a key={a.id} href={a.dataUrl || a.url} download={a.name} style={{
+            display: 'flex', alignItems: 'center', gap: 10, width: 260, padding: '9px 12px',
+            border: `1px solid ${NX.border}`, borderRadius: 10, textDecoration: 'none',
+          }}>
+            <Paperclip size={16} style={{ color: NX.dim, flexShrink: 0 }} />
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div style={{ fontSize: 12.5, fontWeight: 600, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name}</div>
+              <div style={{ fontSize: 11, color: NX.faint, display: 'flex', alignItems: 'center', gap: 4 }}>
+                <Download size={10} /> Download
+              </div>
+            </div>
+          </a>
+        )
+      ))}
     </div>
   );
 }
@@ -1009,15 +1152,7 @@ function AttachmentsTab({ task, refresh }) {
   const reload = () => api.getTaskAttachments(task.id).then(setRows).catch(() => setRows([]));
   useEffect(() => { reload(); /* eslint-disable-next-line */ }, [task.id]);
 
-  const sendFile = (f) => {
-    const size = `${Math.max(1, Math.round(f.size / 1024))} KB`;
-    const kind = f.type.startsWith('image/') ? 'image' : 'doc';
-    // Backend AttachmentCreate stores a single `url` (Supabase link, or an inline
-    // data URL for small files). Reads expose it as `a.url`.
-    const send = (dataUrl) => api.addTaskAttachment(task.id, { name: f.name, size, kind, url: dataUrl || '' }).then(() => { reload(); refresh?.(); }).catch(() => {});
-    if (f.size <= MAX_INLINE) { const r = new FileReader(); r.onload = () => send(typeof r.result === 'string' ? r.result : undefined); r.onerror = () => send(undefined); r.readAsDataURL(f); }
-    else send(undefined);
-  };
+  const sendFile = (f) => uploadTaskAttachment(task.id, f).then(() => { reload(); refresh?.(); }).catch(() => {});
   const onFile = (e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) sendFile(f); };
   const onPaste = (e) => { const files = filesFromPaste(e); if (files.length) { e.preventDefault(); files.forEach(sendFile); } };
   const del = async (a) => { await api.deleteTaskAttachment(a.id).catch(() => {}); reload(); refresh?.(); };
@@ -1061,7 +1196,7 @@ function SubtaskAssignee({ subtask, people, updateTask }) {
           <>
             <MenuItem icon={!subtask.assigneeId ? <Check size={13} /> : <span style={{ width: 13, display: 'inline-block' }} />} onClick={() => { updateTask(subtask.id, { assigneeId: '' }); close(); }}>Unassigned</MenuItem>
             {people.map((p) => (
-              <MenuItem key={p.email} icon={<Avatar email={p.email} name={p.name} size={16} />} onClick={() => { updateTask(subtask.id, { assigneeId: p.email }); close(); }}>{p.name}</MenuItem>
+              <MenuItem key={p.email} icon={<Avatar email={p.email} name={p.name} size={16} card={false} />} onClick={() => { updateTask(subtask.id, { assigneeId: p.email }); close(); }}>{p.name}</MenuItem>
             ))}
           </>
         )}
@@ -1220,7 +1355,51 @@ function LabelsEditor({ tags, onChange }) {
 
 export function CustomFieldInput({ field, value, onChange }) {
   const [v, setV] = useState(value ?? '');
+  const people = usePeople();
   useEffect(() => setV(value ?? ''), [value]);
+  // Asana computes formula fields and rejects any write, so there is nothing to
+  // edit - show the value it sent and say why it can't be changed here.
+  if (field.readOnly) {
+    return (
+      <span title="Calculated in Asana - not editable here"
+        style={{ fontSize: 13, color: NX.dim, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+        {value || '-'}
+        <Lock size={11} style={{ color: NX.faint }} />
+      </span>
+    );
+  }
+  if (field.type === 'people') {
+    return (
+      <div style={{ minWidth: 220 }}>
+        <PersonMultiSelect value={Array.isArray(value) ? value : []} onChange={onChange}
+          people={people} placeholder="Nobody" />
+      </div>
+    );
+  }
+  if (field.type === 'multiselect' && Array.isArray(field.options)) {
+    const opts = field.options.map((o) => (typeof o === 'string' ? { id: o, label: o, color: '' } : o));
+    const picked = Array.isArray(value) ? value : [];
+    const toggle = (id) => onChange(picked.includes(id) ? picked.filter((x) => x !== id) : [...picked, id]);
+    return (
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+        {opts.map((o) => {
+          const on = picked.includes(o.id);
+          return (
+            <button key={o.id} type="button" onClick={() => toggle(o.id)}
+              style={{
+                border: `1px solid ${on ? (o.color || NX.primary) : NX.border}`, borderRadius: 20,
+                padding: '3px 10px', fontSize: 12, fontFamily: FONT, cursor: 'pointer', fontWeight: on ? 600 : 500,
+                background: on ? `${o.color || NX.primary}1a` : 'transparent',
+                color: on ? (o.color || NX.primary) : NX.dim,
+              }}>
+              {o.label}
+            </button>
+          );
+        })}
+        {opts.length === 0 && <span style={{ fontSize: 12.5, color: NX.faint }}>No options</span>}
+      </div>
+    );
+  }
   if (field.type === 'select' && Array.isArray(field.options)) {
     // Options are {id,label,color} now; older rows are plain strings, so read
     // both shapes. The chosen option's color tints the control the way Asana's

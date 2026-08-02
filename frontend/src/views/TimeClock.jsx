@@ -6,9 +6,11 @@ import {
   ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import { api } from '../api';
+import { SkeletonBlocks } from '../components/AsyncState';
 import DayTimeline from '../components/DayTimeline';
 import ModuleTabs from '../components/ModuleTabs';
 import BodModal from '../components/BodModal';
+import { pollWhileVisible } from '../lib/pollWhileVisible';
 
 const PUNCH_CHIP = {
   in:          { bg: 'hsla(var(--color-green),0.1)', fg: 'hsl(var(--color-green))' },
@@ -228,14 +230,14 @@ export default function TimeClock() {
   // instantly when the tab regains focus/visibility. Same-device punches fire
   // nexus:timeclock-changed locally.
   useEffect(() => {
-    const poll = setInterval(load, 20000);
+    const stopPoll = pollWhileVisible(load, 20000);
     const onVis = () => { if (document.visibilityState === 'visible') load(); };
     const onChange = () => load();
     document.addEventListener('visibilitychange', onVis);
     window.addEventListener('focus', onVis);
     window.addEventListener('nexus:timeclock-changed', onChange);
     return () => {
-      clearInterval(poll);
+      stopPoll();
       document.removeEventListener('visibilitychange', onVis);
       window.removeEventListener('focus', onVis);
       window.removeEventListener('nexus:timeclock-changed', onChange);
@@ -538,9 +540,7 @@ export default function TimeClock() {
       <div className="tc-grid" style={{ marginBottom: 18 }}>
       <div className="tc-span2" style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, padding: '20px 22px', boxShadow: 'var(--wk-shadow)', minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
         {!status ? (
-          <div style={{ textAlign: 'center', color: 'var(--muted)', padding: 20 }}>
-            <Loader2 size={22} style={{ animation: 'spin 1s linear infinite' }} />
-          </div>
+          <SkeletonBlocks count={2} height={20} />
         ) : (
           <div style={{ display: 'flex', alignItems: 'center', gap: 28, flexWrap: 'wrap' }}>
             {clockedIn && (
