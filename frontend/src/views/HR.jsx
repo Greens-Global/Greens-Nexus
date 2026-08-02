@@ -11,6 +11,8 @@ import {
 import { api } from '../api';
 import { dialog } from '../ui/dialog';
 import { usePeopleDirectory } from '../lib/queries';
+import { useQueryClient } from '@tanstack/react-query';
+import { qk } from '../lib/queryClient';
 import { SkeletonBlocks, ErrorBanner } from '../components/AsyncState';
 import { ensureStepUp, isStepUpRequired, StepUpNeeded } from '../stepup/StepUp';
 import { useRole, MODULES, MODULE_LEVELS, ROLES } from '../contexts/RoleContext';
@@ -2710,6 +2712,11 @@ function CompanyDepartments({ entity, employees = [], toastOk, toastErr }) {
   const [editName, setEditName] = useState('');
   const cancelRef = useRef(false);   // set on Escape so the ensuing onBlur doesn't SAVE
   const [loadErr, setLoadErr] = useState(false);
+  const qc = useQueryClient();
+  // A dept add/rename/remove changes the choices in every people/department picker
+  // and the directory's department labels - refresh the shared caches so they don't
+  // show a stale name until the next reload.
+  const refreshDirectory = () => qc.invalidateQueries({ queryKey: qk.peopleDirectory });
   const load = () => { setLoadErr(false); return api.getCompanyDepartments(entity.id).then(setDepts).catch(() => setLoadErr(true)); };
   useEffect(() => { setDepts(null); load(); }, [entity.id]);   // eslint-disable-line react-hooks/exhaustive-deps
   // Anyone with a work email can lead triage - not restricted to this company, since
@@ -2718,12 +2725,12 @@ function CompanyDepartments({ entity, employees = [], toastOk, toastErr }) {
   async function add() {
     const n = name.trim();
     if (!n || busy) return; setBusy(true);
-    try { const list = await api.addCompanyDepartment(entity.id, n); setDepts(list); setName(''); }
+    try { const list = await api.addCompanyDepartment(entity.id, n); setDepts(list); setName(''); refreshDirectory(); }
     catch (e) { toastErr(e?.message || 'Could not add department.'); }
     setBusy(false);
   }
   async function remove(d) {
-    try { const list = await api.deleteCompanyDepartment(entity.id, d.id); setDepts(list); }
+    try { const list = await api.deleteCompanyDepartment(entity.id, d.id); setDepts(list); refreshDirectory(); }
     catch (e) { toastErr(e?.message || 'Could not remove department.'); }
   }
   async function rename(d) {
@@ -2733,6 +2740,7 @@ function CompanyDepartments({ entity, employees = [], toastOk, toastErr }) {
     try {
       const list = await api.updateCompanyDepartment(entity.id, d.id, { name: n });
       setDepts(list);
+      refreshDirectory();
       toastOk?.(`Renamed “${d.name}” to “${n}” - people already in it follow the new name.`);
     } catch (e) { toastErr(e?.message || 'Could not rename department.'); }
   }

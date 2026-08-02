@@ -438,6 +438,9 @@ def _team_rows(db: Session, start: str, end: str, only_emails=None) -> list:
             "workedMin": sum(d["workedMin"] for d in days.values()),
             "breakMin": sum(d["breakMin"] for d in days.values()),
             "flagCount": sum(len(d["flags"]) for d in days.values()),
+            # Pending employee time-edits waiting on this approver - so the team list
+            # flags who needs review without the approver opening every timecard.
+            "pendingEdits": sum(1 for p in plist if p.edit_status == "pending" and p.pending_at),
             "days": days,
         })
     return rows

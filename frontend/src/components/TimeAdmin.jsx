@@ -399,6 +399,12 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
                 <AlertTriangle size={11} /> {r.flagCount}
               </span>
             )}
+            {r.pendingEdits > 0 && (
+              <span title={`${r.pendingEdits} time edit${r.pendingEdits === 1 ? '' : 's'} from this employee awaiting your review - open the timecard to approve`}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 800, color: 'var(--wk-brand)', background: 'var(--wk-brand-tint)', padding: '3px 9px', borderRadius: 999 }}>
+                <Pencil size={10} /> {r.pendingEdits} to review
+              </span>
+            )}
             {r.breakMin > 0 && <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{r.breakMin}m break</span>}
             {isRowApproved(r) ? (
               <span title="Every worked day in this period is signed off and unchanged since"
