@@ -2402,6 +2402,39 @@ button, [role="button"], select { touch-action: manipulation; }
   cursor: default;
 }
 
+.doc-bookmark {
+  display: inline-block; color: #d97706; font-size: 0.85em; cursor: default; user-select: none; padding: 0 1px;
+}
+
+/* KB SOP quick sections (Purpose/Process/Notes) - a bordered box the author
+   types into; the label bar is display-only (contenteditable:false on the
+   node itself), the body below it is the actual editable content. */
+.doc-section-box {
+  border: 1px solid var(--line); border-radius: 8px; margin: 10px 0; overflow: hidden; background: var(--card);
+}
+.doc-section-box-label {
+  font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
+  color: var(--muted); background: var(--mist); padding: 6px 12px; border-bottom: 1px solid var(--line);
+}
+.doc-section-box-body {
+  padding: 10px 12px;
+}
+.doc-section-box-body > *:last-child {
+  margin-bottom: 0;
+}
+
+/* Line numbers (Layout tab) - a CSS-counter approximation, numbering each
+   top-level block (paragraph/heading/list/table) rather than every wrapped
+   visual line the way Word's real line-numbering does; a true per-line count
+   needs layout measurement no CSS counter can give us. */
+.doc-line-numbers .doc-editor .ProseMirror { counter-reset: docline; }
+.doc-line-numbers .doc-editor .ProseMirror > * { counter-increment: docline; position: relative; }
+.doc-line-numbers .doc-editor .ProseMirror > *::before {
+  content: counter(docline);
+  position: absolute; left: -34px; width: 26px; text-align: right;
+  font-size: 10px; color: #9ca3af; user-select: none;
+}
+
 /* ── Documents - Document Builder (Phase 2) ──────────────────────────────────
    Page-styled canvas (no existing precedent in the repo to reuse) - a white
    card sized like a printed page, typography matched to .tpl-para above for
@@ -2438,6 +2471,13 @@ button, [role="button"], select { touch-action: manipulation; }
 .doc-band.doc-footer { padding-bottom: 0; padding-top: 14px; margin-bottom: 0; margin-top: 14px; border-bottom: none; border-top: 1px dashed var(--line); }
 .doc-editor .ProseMirror { outline: none; min-height: 240px; }
 .doc-band .doc-editor .ProseMirror { min-height: 40px; }
+/* Header/footer editors sitting inline in the combined letterhead row (not
+   wrapped in .doc-band anymore, now that they share a row with the
+   letterhead instead of being stacked bands) still need the same short
+   min-height override - without it they inherit the BODY editor's 240px
+   default and blow the row height out, throwing off the letterhead's
+   vertical alignment next to them. */
+.doc-inline-editor .ProseMirror { min-height: 24px; }
 .doc-editor .ProseMirror p { margin: 0 0 10px; }
 .doc-editor .ProseMirror table { border-collapse: collapse; margin: 12px 0; width: 100%; }
 .doc-editor .ProseMirror td, .doc-editor .ProseMirror th { border: 1px solid var(--line); padding: 6px 9px; }
@@ -2445,6 +2485,13 @@ button, [role="button"], select { touch-action: manipulation; }
 .doc-editor .ProseMirror img { max-width: 100%; border-radius: 4px; }
 .doc-editor .ProseMirror p.is-editor-empty:first-child::before {
   content: attr(data-placeholder); float: left; height: 0; pointer-events: none; color: #9ca3af; font-style: italic;
+}
+/* Word's "Show/Hide ¶" - purely visual, no ProseMirror decorations needed:
+   every block just gets a trailing pilcrow when the toggle is on. */
+.show-marks .ProseMirror p::after,
+.show-marks .ProseMirror h1::after, .show-marks .ProseMirror h2::after, .show-marks .ProseMirror h3::after,
+.show-marks .ProseMirror li::after {
+  content: '¶'; color: #9ca3af; margin-left: 3px; font-weight: 400; user-select: none;
 }
 .doc-pagebreak {
   display: flex; align-items: center; gap: 10px; margin: 18px 0;
@@ -2507,7 +2554,16 @@ button, [role="button"], select { touch-action: manipulation; }
 @media print {
   body * { visibility: hidden !important; }
   .doc-page, .doc-page * { visibility: visible !important; }
-  .doc-page { position: absolute; top: 0; left: 0; box-shadow: none; max-width: 100%; }
+  /* One page per sheet now that each .doc-page is a real, independent page
+     (not one continuous canvas) - position:absolute at top:0/left:0 made
+     sense for a single page but stacks every page on top of each other at
+     the same spot once there's more than one. break-after forces the next
+     .doc-page onto its own printed page instead. The dedicated in-app Print
+     button actually prints the backend-rendered PDF iframe (real pagination,
+     doesn't touch this rule at all) - this only matters if someone hits
+     Ctrl+P directly on the live editing view. */
+  .doc-page { position: relative; box-shadow: none; max-width: 100%; break-after: page; }
+  .doc-page:last-child { break-after: auto; }
 }
 
 /* ============================================================

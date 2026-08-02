@@ -1,4 +1,4 @@
-from sqlalchemy import BigInteger, Boolean, Column, Float, Integer, JSON, String
+from sqlalchemy import BigInteger, Boolean, Column, Float, Integer, JSON, String, Text
 from database import Base
 
 
@@ -732,9 +732,27 @@ class KbDocument(Base):
     verified_by      = Column(String, default="")
     stale_notified_at = Column(String, default="")            # last stale-reminder date (dedupes bell nudges per review cycle)
     retention_months = Column(Integer, default=84)            # records-retention window
+    tags             = Column(String, default="")              # comma-separated, free-form taxonomy alongside departments
+    related_ids      = Column(String, default="")              # comma-separated kb_documents.id - manual "See also" picks
+    content_text     = Column(Text, default="")                # denormalized plaintext (guided body fields, or the linked
+                                                                 # freeform document's text) so search covers both authoring
+                                                                 # modes without re-parsing body/TipTap JSON on every query
     created_by       = Column(String, default="")
     created_at       = Column(String, default="")
     updated_at       = Column(String, default="")
+
+
+class KbFeedback(Base):
+    """One user's "was this helpful?" vote on a KB document. Unique per
+    (doc_id, user_email) - like KbAcknowledgement, re-voting UPDATES the same
+    row rather than piling up duplicates, so counts stay meaningful across
+    edits/re-reads instead of just growing forever."""
+    __tablename__ = "kb_feedback"
+    id         = Column(String, primary_key=True)   # uuid
+    doc_id     = Column(String, nullable=False)
+    user_email = Column(String, nullable=False)
+    helpful    = Column(Boolean, default=True)
+    created_at = Column(String, default="")
 
 
 class KbRun(Base):

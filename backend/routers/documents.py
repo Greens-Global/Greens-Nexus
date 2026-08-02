@@ -540,7 +540,7 @@ def seed_starter_templates(user: dict = Depends(get_current_user), db: Session =
             continue
         body = content_fn() if content_fn else {"type": "doc", "content": [{"type": "paragraph"}]}
         db.add(DocTemplate(id=str(uuid.uuid4()), name=name, category=category, tags=[],
-                            content={"body": body, "header": None, "footer": None},
+                            content={"pages": [{"id": str(uuid.uuid4()), "json": body}], "header": None, "footer": None},
                             requires_letterhead=requires_lh, letterhead_id=lh_id,
                             status="active", version=1, created_by=user["email"], created_at=now,
                             updated_by=user["email"], updated_at=now))
@@ -646,16 +646,19 @@ def list_letterheads(user: dict = Depends(get_current_user), db: Session = Depen
 
 @router.post("/letterheads")
 def create_letterhead(body: LetterheadIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    if user["level"] < _ADMIN_LEVEL:
-        raise HTTPException(403, "Only administrators can manage letterheads")
+    # Any employee can add their own letterhead (e.g. from the Document
+    # Builder's letterhead picker) - only setting the org-wide DEFAULT is
+    # admin-gated below, since that changes what every other document falls
+    # back to.
     if not body.name.strip():
         raise HTTPException(400, "name is required")
     now = _now_iso()
-    if body.isDefault:
+    make_default = bool(body.isDefault) and user["level"] >= _ADMIN_LEVEL
+    if make_default:
         db.query(DocLetterhead).update({DocLetterhead.is_default: False}, synchronize_session=False)
     row = DocLetterhead(id=str(uuid.uuid4()), name=body.name.strip(), logo_path=body.logoPath or "",
                          header_json=body.headerJson or {}, footer_json=body.footerJson or {},
-                         address=body.address or "", is_default=bool(body.isDefault),
+                         address=body.address or "", is_default=make_default,
                          created_by=user["email"], created_at=now)
     db.add(row); db.commit(); db.refresh(row)
     return _ser_letterhead(row)
@@ -663,11 +666,12 @@ def create_letterhead(body: LetterheadIn, user: dict = Depends(get_current_user)
 
 @router.patch("/letterheads/{lid}")
 def update_letterhead(lid: str, body: LetterheadUpdate, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    if user["level"] < _ADMIN_LEVEL:
-        raise HTTPException(403, "Only administrators can manage letterheads")
     row = db.query(DocLetterhead).filter(DocLetterhead.id == lid).first()
     if not row:
         raise HTTPException(404, "Letterhead not found")
+    is_admin = user["level"] >= _ADMIN_LEVEL
+    if not is_admin and row.created_by != user["email"]:
+        raise HTTPException(403, "You can only edit letterheads you created")
     if body.name is not None:
         if not body.name.strip():
             raise HTTPException(400, "name cannot be blank")
@@ -680,10 +684,10 @@ def update_letterhead(lid: str, body: LetterheadUpdate, user: dict = Depends(get
         row.footer_json = body.footerJson
     if body.address is not None:
         row.address = body.address
-    if body.isDefault is not None and body.isDefault:
+    if body.isDefault is not None and body.isDefault and is_admin:
         db.query(DocLetterhead).update({DocLetterhead.is_default: False}, synchronize_session=False)
         row.is_default = True
-    elif body.isDefault is not None:
+    elif body.isDefault is not None and is_admin:
         row.is_default = False
     db.commit(); db.refresh(row)
     return _ser_letterhead(row)
@@ -691,10 +695,10 @@ def update_letterhead(lid: str, body: LetterheadUpdate, user: dict = Depends(get
 
 @router.delete("/letterheads/{lid}")
 def delete_letterhead(lid: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    if user["level"] < _ADMIN_LEVEL:
-        raise HTTPException(403, "Only administrators can manage letterheads")
     row = db.query(DocLetterhead).filter(DocLetterhead.id == lid).first()
     if row:
+        if user["level"] < _ADMIN_LEVEL and row.created_by != user["email"]:
+            raise HTTPException(403, "You can only delete letterheads you created")
         db.delete(row); db.commit()
     return {"ok": True}
 
@@ -948,8 +952,15 @@ def _export_prep(db: Session, did: str, user: dict):
                     merge[token] = f"[{kind_label.get(ftype, 'Field')}: {fd.get('label') or token}]"
     content = row.content if isinstance(row.content, dict) else {}
     header_blocks = tiptap_to_blocks(content.get("header"), merge)
-    body_blocks = tiptap_to_blocks(content.get("body"), merge)
     footer_blocks = tiptap_to_blocks(content.get("footer"), merge)
+    # Pages (each a real, independent unit - Document Builder's Pages panel).
+    # Backward compat: a document saved before that rewrite has content.body
+    # (one continuous doc) instead - treat it as a single page.
+    raw_pages = content.get("pages")
+    if isinstance(raw_pages, list) and raw_pages:
+        pages_blocks = [tiptap_to_blocks(p.get("json") if isinstance(p, dict) else None, merge) for p in raw_pages]
+    else:
+        pages_blocks = [tiptap_to_blocks(content.get("body"), merge)]
     # Page Setup (Phase 14) - a sibling of body/header/footer in the same
     # content JSON, no schema change needed. Missing/unknown values fall back
     # to US Letter (_resolve_page_setup's own default).
@@ -959,21 +970,21 @@ def _export_prep(db: Session, did: str, user: dict):
         lh = db.query(DocLetterhead).filter(DocLetterhead.id == row.letterhead_id).first()
         if lh:
             letterhead = _ser_letterhead(lh)
-    return row, header_blocks, body_blocks, footer_blocks, letterhead, page_setup
+    return row, header_blocks, pages_blocks, footer_blocks, letterhead, page_setup
 
 
 @router.get("/{did}/export/pdf")
 def export_document_pdf(did: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    row, header_blocks, body_blocks, footer_blocks, letterhead, page_setup = _export_prep(db, did, user)
-    pdf_bytes = render_pdf(row.title, header_blocks, body_blocks, footer_blocks, letterhead, page_setup)
+    row, header_blocks, pages_blocks, footer_blocks, letterhead, page_setup = _export_prep(db, did, user)
+    pdf_bytes = render_pdf(row.title, header_blocks, pages_blocks, footer_blocks, letterhead, page_setup)
     return Response(content=pdf_bytes, media_type="application/pdf",
                     headers={"Content-Disposition": _content_disposition(row.title, "pdf")})
 
 
 @router.get("/{did}/export/docx")
 def export_document_docx(did: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    row, header_blocks, body_blocks, footer_blocks, letterhead, page_setup = _export_prep(db, did, user)
-    docx_bytes = render_docx(row.title, header_blocks, body_blocks, footer_blocks, letterhead, page_setup)
+    row, header_blocks, pages_blocks, footer_blocks, letterhead, page_setup = _export_prep(db, did, user)
+    docx_bytes = render_docx(row.title, header_blocks, pages_blocks, footer_blocks, letterhead, page_setup)
     return Response(content=docx_bytes, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                     headers={"Content-Disposition": _content_disposition(row.title, "docx")})
 

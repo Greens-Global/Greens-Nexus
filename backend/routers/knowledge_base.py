@@ -92,6 +92,14 @@ def _next_doc_code(departments: list[str], db: Session) -> str:
     return f"{prefix}-{(max(nums) + 1 if nums else 1):03d}"
 
 
+def _code_label(d: "models.KbDocument") -> str:
+    """" (IT-005)" once a doc has a doc_code, else "". A draft/in-review SOP
+    has none - doc_code is assigned only on approval (review_document, decision
+    == "approve") - so it never occupies an audit-trail number for a document
+    that might get abandoned or rejected before it's ever actually published."""
+    return f" ({d.doc_code})" if d.doc_code else ""
+
+
 def _add_months(iso: str, months: int) -> str:
     if not iso:
         return ""
@@ -123,6 +131,28 @@ def _blank_body() -> dict:
     }
 
 
+def _compute_content_text(body: dict) -> str:
+    """Flatten a guided SOP body into one plaintext blob for search - the same
+    fields the frontend's docSearchText already matches against, just done
+    once here so it also lands in content_text alongside freeform docs'
+    synced text (see the /content-text endpoint), letting one search box
+    cover both authoring modes. Freeform docs carry no body text of their own
+    (just a linkedDocumentId) - callers should leave content_text untouched
+    for those rather than call this."""
+    if not isinstance(body, dict):
+        return ""
+    parts = [
+        body.get("purpose", ""), body.get("scopeText", ""),
+        " ".join(m for m in (body.get("materials") or []) if isinstance(m, str)),
+        " ".join(f"{r.get('term','')} {r.get('definition','')}" for r in (body.get("definitions") or []) if isinstance(r, dict)),
+        " ".join(f"{s.get('text','')} {s.get('detail','')}" for s in (body.get("procedure") or []) if isinstance(s, dict)),
+        " ".join(s for s in (body.get("safety") or []) if isinstance(s, str)),
+        " ".join(r for r in (body.get("references") or []) if isinstance(r, str)),
+        " ".join(r for r in (body.get("responsibilities") or []) if isinstance(r, str)),
+    ]
+    return " ".join(p for p in parts if p).strip()
+
+
 def _serialize(d: models.KbDocument) -> dict:
     try:
         body = json.loads(d.body or "{}")
@@ -147,6 +177,9 @@ def _serialize(d: models.KbDocument) -> dict:
         "effective_date": d.effective_date or "",
         "body": {**_blank_body(), **(body if isinstance(body, dict) else {})},
         "review_note": d.review_note or "",
+        "tags": [s for s in (d.tags or "").split(",") if s],
+        "related_ids": [s for s in (d.related_ids or "").split(",") if s],
+        "content_text": d.content_text or "",  # denormalized plaintext - lets the client-side search box match freeform doc content too
         "require_ack": bool(d.require_ack),
         "views": d.views or 0,
         "review_every_months": d.review_every_months or 12,
@@ -188,6 +221,16 @@ class KbDocIn(BaseModel):
     require_ack: bool = False
     review_every_months: int = 12
     retention_months: int = 84
+    tags: list[str] = []
+    related_ids: list[str] = []
+
+
+class ContentTextIn(BaseModel):
+    text: str = ""
+
+
+class FeedbackIn(BaseModel):
+    helpful: bool = True
 
 
 class ReviewIn(BaseModel):
@@ -279,7 +322,7 @@ def create_document(payload: KbDocIn, user: dict = Depends(get_current_user), db
     now = _now()
     d = models.KbDocument(
         id=_new_id(),
-        doc_code=_next_doc_code(payload.departments, db),
+        doc_code="",  # assigned only on approval (review_document) - see _code_label
         title=payload.title.strip(),
         doc_type=payload.doc_type or "SOP",
         departments=",".join(payload.departments),
@@ -293,7 +336,10 @@ def create_document(payload: KbDocIn, user: dict = Depends(get_current_user), db
         require_ack=bool(payload.require_ack),
         review_every_months=payload.review_every_months or 12,
         retention_months=payload.retention_months or 84,
+        tags=",".join(payload.tags),
+        related_ids=",".join(payload.related_ids),
         body=json.dumps({**_blank_body(), **(payload.body or {})}),
+        content_text=_compute_content_text({**_blank_body(), **(payload.body or {})}),
         revision_history=json.dumps([
             {"version": payload.version or "1.0", "date": _today(), "author": user["email"], "notes": "Created."}
         ]),
@@ -325,9 +371,20 @@ def update_document(doc_id: str, payload: KbDocIn, user: dict = Depends(get_curr
     d.require_ack = bool(payload.require_ack)
     d.review_every_months = payload.review_every_months or 12
     d.retention_months = payload.retention_months or 84
-    d.body = json.dumps({**_blank_body(), **(payload.body or {})})
-    if not d.doc_code:
-        d.doc_code = _next_doc_code(payload.departments, db)
+    d.tags = ",".join(payload.tags)
+    d.related_ids = ",".join(payload.related_ids)
+    merged_body = {**_blank_body(), **(payload.body or {})}
+    d.body = json.dumps(merged_body)
+    # Freeform docs carry no body text (just a linkedDocumentId) - their
+    # content_text is kept in sync separately via /content-text, so
+    # overwriting it here with an empty guided-field flatten would erase it.
+    if merged_body.get("authoringMode") != "freeform":
+        d.content_text = _compute_content_text(merged_body)
+    # No doc_code assignment here, deliberately - see _code_label. A draft (or
+    # a doc bounced back with changes_requested) stays without one no matter
+    # how many times its department changes; it only gets a real, permanent
+    # number the moment review_document actually approves it, so an abandoned
+    # or rejected draft never burns an audit-trail id.
     d.updated_at = _now()
     _push_history(d, {"version": d.version, "date": _today(), "author": user.get("name") or user["email"], "notes": "Edited."})
     _snapshot(d, db)
@@ -350,8 +407,8 @@ def submit_document(doc_id: str, user: dict = Depends(get_current_user), db: Ses
     _push_history(d, {"version": d.version, "date": _today(), "author": user["email"], "notes": "Submitted for review."})
     _kb_notify(db, recipient=d.reviewer_email, ntype="kb_review_request",
                title="A SOP is awaiting your review",
-               body=f"{user.get('name') or user['email']} submitted “{d.title}” "
-                    f"({d.doc_code}) for your review.", doc=d)
+               body=f"{user.get('name') or user['email']} submitted “{d.title}”"
+                    f"{_code_label(d)} for your review.", doc=d)
     db.commit()
     return _serialize(d)
 
@@ -369,6 +426,12 @@ def review_document(doc_id: str, payload: ReviewIn, user: dict = Depends(require
             d.version = "1.0"
         if not d.effective_date:
             d.effective_date = _today()
+        # The permanent, audit-trail document id is assigned right here, the
+        # instant a SOP actually goes live - never earlier (see _code_label).
+        # A draft that's edited/resubmitted/rejected any number of times
+        # before this never consumes a number.
+        if not d.doc_code:
+            d.doc_code = _next_doc_code(d.departments.split(",") if d.departments else [], db)
         d.verified_at = _today()
         d.verified_by = user.get("name") or user["email"]
         d.review_note = payload.note
@@ -377,7 +440,7 @@ def review_document(doc_id: str, payload: ReviewIn, user: dict = Depends(require
         note = f" Note: {payload.note}" if (payload.note or "").strip() else ""
         _kb_notify(db, recipient=d.owner_email, ntype="kb_approved",
                    title="Your SOP was approved & published",
-                   body=f"{reviewer} approved “{d.title}” ({d.doc_code}). It's now live.{note}", doc=d)
+                   body=f"{reviewer} approved “{d.title}”{_code_label(d)}. It's now live.{note}", doc=d)
     elif payload.decision == "request_changes":
         if not payload.note.strip():
             raise HTTPException(status_code=400, detail="A note is required when requesting changes")
@@ -386,7 +449,7 @@ def review_document(doc_id: str, payload: ReviewIn, user: dict = Depends(require
         _push_history(d, {"version": d.version, "date": _today(), "author": user["email"], "notes": f"Changes requested: {payload.note}"})
         _kb_notify(db, recipient=d.owner_email, ntype="kb_changes_requested",
                    title="Changes requested on your SOP",
-                   body=f"{reviewer} requested changes on “{d.title}” ({d.doc_code}): {payload.note}", doc=d)
+                   body=f"{reviewer} requested changes on “{d.title}”{_code_label(d)}: {payload.note}", doc=d)
     else:
         raise HTTPException(status_code=400, detail="decision must be 'approve' or 'request_changes'")
     d.updated_at = _now()
@@ -497,12 +560,78 @@ def verify_document(doc_id: str, user: dict = Depends(get_current_user), db: Ses
 def set_departments(doc_id: str, payload: DepartmentsIn, user: dict = Depends(require_level(3)), db: Session = Depends(get_db)):
     d = _get_or_404(doc_id, db)
     d.departments = ",".join(payload.departments)
-    if not d.doc_code:
+    # Backfill only - a published doc should always have a code by now (see
+    # review_document); never assign one here for a still-unpublished draft.
+    if d.status == "approved" and not d.doc_code:
         d.doc_code = _next_doc_code(payload.departments, db)
     d.updated_at = _now()
     db.commit()
     db.refresh(d)
     return _serialize(d)
+
+
+@router.get("/documents/{doc_id}/related")
+def get_related(doc_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Resolves related_ids into summaries for the "See also" section - done
+    as its own call (not folded into _serialize/list_documents) so the list
+    view never pays an N+1 query just to render cards nobody's looking at
+    yet; only the detail view, which needs exactly one doc's picks, calls
+    this."""
+    d = _get_or_404(doc_id, db)
+    ids = [s for s in (d.related_ids or "").split(",") if s]
+    if not ids:
+        return []
+    rows = db.query(models.KbDocument).filter(models.KbDocument.id.in_(ids)).all()
+    by_id = {r.id: r for r in rows}
+    return [{"id": r.id, "title": r.title, "doc_code": r.doc_code, "doc_type": r.doc_type, "status": r.status}
+            for i in ids if (r := by_id.get(i)) and r.status != "archived"]
+
+
+@router.patch("/documents/{doc_id}/content-text")
+def set_content_text(doc_id: str, payload: ContentTextIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Freeform SOPs keep their actual text in a linked Document row (TipTap
+    JSON), not in body - the KB doc itself only knows a linkedDocumentId. The
+    Full Editor has no reason to know about KB search, so instead of teaching
+    DocumentBuilder.jsx about kb_documents, SOP.jsx extracts plaintext from the
+    TipTap JSON after every save and pushes it here, denormalized onto
+    content_text - the same field guided docs get from _compute_content_text.
+    One search box (docSearchText on the frontend) then covers both authoring
+    modes without caring which one produced the text."""
+    d = _get_or_404(doc_id, db)
+    if not _can_edit(d, user):
+        raise HTTPException(status_code=403, detail="You can't edit this document")
+    d.content_text = (payload.text or "")[:20000]
+    db.commit()
+    return {"ok": True}
+
+
+def _feedback_summary(doc_id: str, user: dict, db: Session) -> dict:
+    rows = db.query(models.KbFeedback).filter(models.KbFeedback.doc_id == doc_id).all()
+    helpful = sum(1 for r in rows if r.helpful)
+    not_helpful = sum(1 for r in rows if not r.helpful)
+    mine = next((r.helpful for r in rows if r.user_email.lower() == user["email"].lower()), None)
+    return {"helpful": helpful, "not_helpful": not_helpful, "my_vote": mine}
+
+
+@router.get("/documents/{doc_id}/feedback")
+def get_feedback(doc_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    _get_or_404(doc_id, db)
+    return _feedback_summary(doc_id, user, db)
+
+
+@router.post("/documents/{doc_id}/feedback")
+def submit_feedback(doc_id: str, payload: FeedbackIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    _get_or_404(doc_id, db)
+    row = db.query(models.KbFeedback).filter(
+        models.KbFeedback.doc_id == doc_id, models.KbFeedback.user_email == user["email"]
+    ).first()
+    if row:
+        row.helpful = bool(payload.helpful)
+    else:
+        db.add(models.KbFeedback(id=_new_id(), doc_id=doc_id, user_email=user["email"],
+                                  helpful=bool(payload.helpful), created_at=_now()))
+    db.commit()
+    return _feedback_summary(doc_id, user, db)
 
 
 @router.get("/insights")
@@ -674,7 +803,7 @@ def add_comment(doc_id: str, payload: CommentIn, user: dict = Depends(get_curren
     cname = user.get("name") or user["email"]
     for target in {(d.owner_email or "").lower(), (d.reviewer_email or "").lower()} - {user["email"].lower(), ""}:
         _kb_notify(db, recipient=target, ntype="kb_comment", title="New comment on a SOP",
-                   body=f"{cname} commented on “{d.title}” ({d.doc_code}): {text[:160]}", doc=d)
+                   body=f"{cname} commented on “{d.title}”{_code_label(d)}: {text[:160]}", doc=d)
     db.commit()
     return list_comments(doc_id, user, db)
 
@@ -807,11 +936,26 @@ def _normalize_sop(o: dict) -> dict:
     }
 
 
+_HEURISTIC_DEF_RE = re.compile(r'^([A-Za-z][A-Za-z0-9 /&-]{1,40}):\s*(.{8,})$')
+# A "Verb ...: detail" line (e.g. "Configure the proxy: set the hostname…") is a
+# procedure step whose first word just happens to be short, not a definition -
+# definitions start with the NOUN being defined, steps start with an imperative
+# verb. Excluding these keeps the word-count check above from misreading common
+# "Do X: <specifics>" procedure phrasing as a term/definition pair.
+_HEURISTIC_IMPERATIVE_STARTS = {
+    'configure', 'open', 'set', 'navigate', 'click', 'enable', 'disable', 'run',
+    'check', 'go', 'select', 'create', 'add', 'remove', 'delete', 'install',
+    'update', 'restart', 'verify', 'confirm', 'enter', 'type', 'log', 'login',
+    'connect', 'download', 'upload', 'save', 'close', 'start', 'stop', 'review',
+    'ensure', 'make', 'turn', 'press', 'choose', 'complete', 'submit', 'send',
+}
+
+
 def _heuristic_format(text: str, title: str) -> dict:
     """Offline fallback when the AI proxy is unavailable - best-effort structuring."""
     out = _normalize_sop({})
     out["title"] = title
-    steps, refs, safety, materials = [], [], [], []
+    steps, refs, safety, materials, definitions = [], [], [], [], []
     tables: list[dict] = []
     purpose = ""
     # Strip [[TABLE]]...[[/TABLE]] blocks (and inline [[IMG#]] markers) before the
@@ -851,11 +995,23 @@ def _heuristic_format(text: str, title: str) -> dict:
         elif not purpose:
             purpose = clean
         else:
-            steps.append(clean)
+            # A short "Term: description" line (few words before the colon) reads as
+            # a definition, not an instruction - a procedure step's own colon usually
+            # follows a much longer imperative clause. The AI prompt already tells the
+            # real model to pull these into "definitions"; this fallback has no
+            # section-level understanding, so it never had an equivalent check and
+            # dumped every one into "procedure" as a bogus step instead.
+            m = _HEURISTIC_DEF_RE.match(clean)
+            term_words = m.group(1).split() if m else []
+            if m and len(term_words) <= 5 and term_words[0].lower() not in _HEURISTIC_IMPERATIVE_STARTS:
+                definitions.append({"term": m.group(1).strip(), "def": m.group(2).strip()})
+            else:
+                steps.append(clean)
     out["purpose"] = purpose
     out["materials"] = materials
     out["safety"] = safety
     out["references"] = refs
+    out["definitions"] = definitions
     out["procedure"] = [{"text": s, "detail": ""} for s in steps]
     return out
 

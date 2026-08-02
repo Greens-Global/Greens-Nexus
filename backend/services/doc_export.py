@@ -23,6 +23,8 @@ import io
 from xml.sax.saxutils import escape as _esc
 import httpx
 
+from app_url import app_url
+
 
 # ── Page Setup (Phase 14) ────────────────────────────────────────────────────
 # `content.pageSetup` (a sibling of body/header/footer in the same JSON blob -
@@ -58,7 +60,8 @@ def _resolve_page_setup(page_setup: dict = None):
 
 # ── TipTap JSON -> neutral blocks ────────────────────────────────────────────
 
-_EMPTY_RUN_STYLE = {"color": None, "fontFamily": None, "fontSize": None, "link": None}
+_EMPTY_RUN_STYLE = {"color": None, "fontFamily": None, "fontSize": None, "link": None,
+                     "strike": False, "subscript": False, "superscript": False, "highlight": None}
 
 
 def _text_runs(nodes, merge: dict) -> list:
@@ -70,8 +73,11 @@ def _text_runs(nodes, merge: dict) -> list:
             mark_types = {m.get("type") for m in marks}
             style_attrs = next((m.get("attrs") or {} for m in marks if m.get("type") == "textStyle"), {})
             link_attrs = next((m.get("attrs") or {} for m in marks if m.get("type") == "link"), {})
+            highlight_attrs = next((m.get("attrs") or {} for m in marks if m.get("type") == "highlight"), {})
             runs.append({"text": n.get("text") or "", "bold": "bold" in mark_types,
                          "italic": "italic" in mark_types, "underline": "underline" in mark_types,
+                         "strike": "strike" in mark_types, "subscript": "subscript" in mark_types,
+                         "superscript": "superscript" in mark_types, "highlight": highlight_attrs.get("color"),
                          "color": style_attrs.get("color"), "fontFamily": style_attrs.get("fontFamily"),
                          "fontSize": style_attrs.get("fontSize"), "link": link_attrs.get("href")})
         elif t == "mergeField":
@@ -90,12 +96,17 @@ def _walk_blocks(nodes, merge: dict) -> list:
     for n in nodes or []:
         t = n.get("type")
         if t == "paragraph":
-            align = (n.get("attrs") or {}).get("textAlign") or "left"
-            blocks.append({"type": "paragraph", "align": align, "runs": _text_runs(n.get("content"), merge)})
+            attrs = n.get("attrs") or {}
+            align = attrs.get("textAlign") or "left"
+            blocks.append({"type": "paragraph", "align": align, "runs": _text_runs(n.get("content"), merge),
+                           "border": attrs.get("border"), "spacingBefore": attrs.get("spacingBefore"),
+                           "spacingAfter": attrs.get("spacingAfter")})
         elif t == "heading":
             attrs = n.get("attrs") or {}
             blocks.append({"type": "heading", "level": attrs.get("level", 1), "align": attrs.get("textAlign") or "left",
-                           "runs": _text_runs(n.get("content"), merge)})
+                           "runs": _text_runs(n.get("content"), merge),
+                           "border": attrs.get("border"), "spacingBefore": attrs.get("spacingBefore"),
+                           "spacingAfter": attrs.get("spacingAfter")})
         elif t in ("bulletList", "orderedList"):
             items = [_walk_blocks(li.get("content"), merge) for li in (n.get("content") or [])]
             blocks.append({"type": t, "items": items})
@@ -131,6 +142,15 @@ def _walk_blocks(nodes, merge: dict) -> list:
             blocks.append({"type": "textbox", "blocks": _walk_blocks(n.get("content"), merge)})
         elif t == "mergeField":
             blocks.append({"type": "paragraph", "align": "left", "runs": _text_runs([n], merge)})
+        elif t == "sectionBox":
+            # The live editor renders this as a bordered box (no export
+            # primitive for that yet) - fall back to a bold label line so the
+            # section heading isn't silently lost from the PDF/DOCX.
+            label = (n.get("attrs") or {}).get("label") or ""
+            if label:
+                blocks.append({"type": "heading", "level": 3, "align": "left",
+                               "runs": [{"text": label, "bold": True, "italic": False, "underline": False, **_EMPTY_RUN_STYLE}]})
+            blocks.extend(_walk_blocks(n.get("content"), merge))
         else:
             nested = n.get("content")
             if nested:
@@ -159,6 +179,13 @@ def _blocks_to_plaintext(blocks: list) -> str:
 def _fetch_image_bytes(url: str):
     if not url:
         return None
+    # Letterhead logos may be stored as a path relative to the frontend's own
+    # static assets (e.g. "/assets/branding/logo.png") - the browser resolves
+    # that against the current origin for free, but this export runs on the
+    # backend with no origin of its own, so resolve it against the frontend's
+    # public URL (same helper email links already use) before fetching.
+    if url.startswith("/"):
+        url = app_url() + url
     try:
         resp = httpx.get(url, timeout=10)
         resp.raise_for_status()
@@ -229,9 +256,17 @@ def _runs_to_markup(runs: list) -> str:
             t = f"<i>{t}</i>"
         if r.get("underline"):
             t = f"<u>{t}</u>"
+        if r.get("strike"):
+            t = f"<strike>{t}</strike>"
+        if r.get("superscript"):
+            t = f"<super>{t}</super>"
+        elif r.get("subscript"):
+            t = f"<sub>{t}</sub>"
         font_attrs = []
         if r.get("color"):
             font_attrs.append(f"color='{r['color']}'")
+        if r.get("highlight"):
+            font_attrs.append(f"backColor='{r['highlight']}'")
         size = _font_size_num(r.get("fontSize"))
         if size:
             font_attrs.append(f"size={size}")
@@ -303,6 +338,37 @@ def _shape_drawing(b: dict):
     return d
 
 
+def _para_spacing_style(style, b: dict):
+    """spacingBefore/spacingAfter (points, set via the Layout tab's numeric
+    fields) map straight onto ParagraphStyle's own space-before/after, which
+    reportlab already measures in points - no unit conversion needed."""
+    before, after = b.get("spacingBefore"), b.get("spacingAfter")
+    if before is None and after is None:
+        return style
+    return style.clone(f"{style.name}_sp{before}_{after}",
+                        spaceBefore=before if before is not None else style.spaceBefore,
+                        spaceAfter=after if after is not None else style.spaceAfter)
+
+
+def _bordered_para(flowable, content_width: float, border: str):
+    """Wraps a single Paragraph in a 1-cell borderless-elsewhere Table, the
+    same technique already used for text boxes below - reportlab's Paragraph
+    flowable has no native border/box of its own to draw one directly."""
+    from reportlab.lib import colors
+    from reportlab.platypus import Table, TableStyle
+    color = colors.HexColor("#111827")
+    for hex_str in (border or "").split():
+        if hex_str.startswith("#"):
+            color = colors.HexColor(hex_str)
+    tbl = Table([[flowable]], colWidths=[content_width])
+    tbl.setStyle(TableStyle([
+        ("BOX", (0, 0), (-1, -1), 1, color),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6), ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 4), ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+    ]))
+    return tbl
+
+
 def _blocks_to_flow(blocks: list, body_style, styles, content_width: float) -> list:
     from reportlab.lib import colors
     from reportlab.lib.units import mm
@@ -313,12 +379,16 @@ def _blocks_to_flow(blocks: list, body_style, styles, content_width: float) -> l
         if t == "paragraph":
             style = _pdf_align_style(body_style, b.get("align"))
             style = _para_style_for_runs(style, b["runs"])
-            flow.append(Paragraph(_runs_to_markup(b["runs"]) or "&nbsp;", style))
+            style = _para_spacing_style(style, b)
+            para = Paragraph(_runs_to_markup(b["runs"]) or "&nbsp;", style)
+            flow.append(_bordered_para(para, content_width, b.get("border")) if b.get("border") else para)
         elif t == "heading":
             level = max(1, min(6, b.get("level", 1)))
             style = _pdf_align_style(styles[f"Heading{level}"], b.get("align"))
             style = _para_style_for_runs(style, b["runs"])
-            flow.append(Paragraph(_runs_to_markup(b["runs"]), style))
+            style = _para_spacing_style(style, b)
+            para = Paragraph(_runs_to_markup(b["runs"]), style)
+            flow.append(_bordered_para(para, content_width, b.get("border")) if b.get("border") else para)
         elif t in ("bulletList", "orderedList"):
             items = []
             for item_blocks in b["items"]:
@@ -428,12 +498,12 @@ def _letterhead_flow(letterhead: dict, content_width: float) -> list:
     return flow
 
 
-def render_pdf(title: str, header_blocks: list, body_blocks: list, footer_blocks: list,
+def render_pdf(title: str, header_blocks: list, pages_blocks: list, footer_blocks: list,
                letterhead: dict = None, page_setup: dict = None) -> bytes:
     from reportlab.lib.units import inch, mm
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib import colors
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak
 
     w_in, h_in, margin_in = _resolve_page_setup(page_setup)
     pagesize = (w_in * inch, h_in * inch)
@@ -446,7 +516,16 @@ def render_pdf(title: str, header_blocks: list, body_blocks: list, footer_blocks
 
     flow = [Paragraph(_esc(title), ParagraphStyle("title", parent=styles["Title"], fontSize=16)), Spacer(1, 4 * mm)]
     flow.extend(_letterhead_flow(letterhead, content_width))
-    flow.extend(_blocks_to_flow(body_blocks, body_style, styles, content_width))
+    # pages_blocks: one block-list per page (Document Builder's Pages panel -
+    # each page is now a real, independent unit, not a pageBreak marker
+    # inside one continuous body). Force a real page boundary between them;
+    # _blocks_to_flow's own pageBreak-block handling still runs too, for
+    # backward compat with content saved before pages were real, independent
+    # units (a single-page body doc could still carry manual pageBreak nodes).
+    for i, blocks in enumerate(pages_blocks):
+        if i > 0:
+            flow.append(PageBreak())
+        flow.extend(_blocks_to_flow(blocks, body_style, styles, content_width))
     if not flow:
         flow.append(Paragraph("", body_style))
 
@@ -461,6 +540,11 @@ def render_pdf(title: str, header_blocks: list, body_blocks: list, footer_blocks
             canvas.drawString(margin, pagesize[1] - margin + 8, header_text)
         if footer_text:
             canvas.drawString(margin, margin - 14, footer_text)
+        # Right-aligned page number, mirroring a printed SOP's footer (title
+        # left, page right). Current-page only (no "of N") - that needs a
+        # second pass to know the final page count before the first page is
+        # drawn, which SimpleDocTemplate doesn't expose here.
+        canvas.drawRightString(pagesize[0] - margin, margin - 14, f"Page {canvas.getPageNumber()}")
         canvas.restoreState()
 
     buf = io.BytesIO()
@@ -492,6 +576,22 @@ def _hex_to_rgbcolor(hex_color):
         return None
 
 
+_DOCX_HIGHLIGHT_MAP = {
+    # python-docx only accepts WD_COLOR_INDEX's fixed named palette, not
+    # arbitrary hex - each TipTap highlight color snaps to its nearest match.
+    "#fef08a": "YELLOW", "#fde68a": "YELLOW", "#fecaca": "RED", "#fca5a5": "RED",
+    "#bbf7d0": "BRIGHT_GREEN", "#86efac": "BRIGHT_GREEN", "#bfdbfe": "TURQUOISE",
+    "#93c5fd": "TURQUOISE", "#e9d5ff": "VIOLET", "#d8b4fe": "VIOLET",
+    "#fed7aa": "DARK_YELLOW", "#fdba74": "DARK_YELLOW",
+}
+
+
+def _docx_highlight(hex_color: str):
+    from docx.enum.text import WD_COLOR_INDEX
+    name = _DOCX_HIGHLIGHT_MAP.get((hex_color or "").lower(), "YELLOW" if hex_color else None)
+    return getattr(WD_COLOR_INDEX, name) if name else None
+
+
 def _add_runs(paragraph, runs: list) -> None:
     from docx.shared import Pt, RGBColor
     for r in runs or []:
@@ -503,6 +603,13 @@ def _add_runs(paragraph, runs: list) -> None:
         run.italic = bool(r.get("italic"))
         link = r.get("link")
         run.underline = bool(r.get("underline")) or bool(link)  # link: styled, not clickable - see module docstring
+        run.font.strike = bool(r.get("strike"))
+        run.font.subscript = bool(r.get("subscript"))
+        run.font.superscript = bool(r.get("superscript"))
+        if r.get("highlight"):
+            hl = _docx_highlight(r["highlight"])
+            if hl:
+                run.font.highlight_color = hl
         color = _hex_to_rgbcolor(r.get("color")) or (RGBColor(0x1a, 0x0d, 0xab) if link and not r.get("color") else None)
         if color:
             run.font.color.rgb = color
@@ -562,6 +669,43 @@ def _shade_docx_cell(cell, hex_color: str) -> None:
     tcPr.append(shd)
 
 
+def _border_docx_paragraph(paragraph, border: str) -> None:
+    """Paragraph border (Layout tab) - same rationale as _shade_docx_cell
+    above: python-docx has no public API for a paragraph border, so it's set
+    via the raw <w:pBdr> OOXML element on <w:pPr>."""
+    from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
+    color = "111827"
+    for hex_str in (border or "").split():
+        if hex_str.startswith("#") and len(hex_str) == 7:
+            color = hex_str.lstrip("#")
+    pPr = paragraph._p.get_or_add_pPr()
+    pBdr = OxmlElement("w:pBdr")
+    for side in ("top", "left", "bottom", "right"):
+        el = OxmlElement(f"w:{side}")
+        el.set(qn("w:val"), "single")
+        el.set(qn("w:sz"), "6")
+        el.set(qn("w:space"), "4")
+        el.set(qn("w:color"), color)
+        pBdr.append(el)
+    pPr.append(pBdr)
+
+
+def _apply_docx_para_extras(paragraph, b: dict) -> None:
+    """spacingBefore/spacingAfter + border (Layout tab, editor-only until
+    now) - applied after _add_runs so this stays a thin, self-contained
+    post-processing step rather than threading extra params through the
+    run-formatting call."""
+    from docx.shared import Pt
+    before, after = b.get("spacingBefore"), b.get("spacingAfter")
+    if before is not None:
+        paragraph.paragraph_format.space_before = Pt(before)
+    if after is not None:
+        paragraph.paragraph_format.space_after = Pt(after)
+    if b.get("border"):
+        _border_docx_paragraph(paragraph, b["border"])
+
+
 def _blocks_to_docx(doc, blocks: list) -> None:
     from docx.shared import Inches
     for b in blocks or []:
@@ -572,6 +716,7 @@ def _blocks_to_docx(doc, blocks: list) -> None:
             if align is not None:
                 p.alignment = align
             _add_runs(p, b["runs"])
+            _apply_docx_para_extras(p, b)
         elif t == "heading":
             level = max(1, min(6, b.get("level", 1)))
             p = doc.add_heading("", level=level)
@@ -579,6 +724,7 @@ def _blocks_to_docx(doc, blocks: list) -> None:
             if align is not None:
                 p.alignment = align
             _add_runs(p, b["runs"])
+            _apply_docx_para_extras(p, b)
         elif t in ("bulletList", "orderedList"):
             style = "List Bullet" if t == "bulletList" else "List Number"
             for item_blocks in b["items"]:
@@ -653,7 +799,7 @@ def _blocks_to_docx(doc, blocks: list) -> None:
             doc.add_page_break()
 
 
-def render_docx(title: str, header_blocks: list, body_blocks: list, footer_blocks: list,
+def render_docx(title: str, header_blocks: list, pages_blocks: list, footer_blocks: list,
                 letterhead: dict = None, page_setup: dict = None) -> bytes:
     from docx import Document as DocxDocument
     from docx.shared import Pt, Inches
@@ -715,7 +861,13 @@ def render_docx(title: str, header_blocks: list, body_blocks: list, footer_block
                 p.runs[0].font.size = Pt(8)
         doc.add_paragraph()
 
-    _blocks_to_docx(doc, body_blocks)
+    # pages_blocks: one block-list per page (see render_pdf's matching
+    # comment) - a real page break between each one, on top of
+    # _blocks_to_docx's own pageBreak-block handling (backward compat).
+    for i, blocks in enumerate(pages_blocks):
+        if i > 0:
+            doc.add_page_break()
+        _blocks_to_docx(doc, blocks)
 
     buf = io.BytesIO()
     doc.save(buf)
