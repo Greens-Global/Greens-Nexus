@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { ChevronLeft, ChevronRight, Pencil, Plus, X, Loader2, CheckCircle, Download, AlertTriangle, MapPin, PlayCircle } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Pencil, Plus, X, Loader2, CheckCircle, Download, AlertTriangle, MapPin, PlayCircle, Info } from 'lucide-react';
 import { api } from '../api';
 import { dialog } from '../ui/dialog';
 import { useWorkSites } from '../lib/queries';
@@ -577,6 +577,7 @@ function InlineTime({ seg, k, showRaw, locked, onSaved, toastErr, self }) {
   const pendingAt = k === 'in' ? seg?.inPendingAt : seg?.outPendingAt;
   const pendReason = k === 'in' ? seg?.inEditReason : seg?.outEditReason;
   const isPending = (k === 'in' ? seg?.inEditStatus : seg?.outEditStatus) === 'pending' && pendingAt;
+  const adjustNote = k === 'in' ? seg?.inAdjustNote : seg?.outAdjustNote;   // why this punch was changed
   if (!raw) return <span style={{ color: 'var(--muted)' }}>-</span>;
 
   async function commit(atUtc) {
@@ -619,6 +620,13 @@ function InlineTime({ seg, k, showRaw, locked, onSaved, toastErr, self }) {
         {self && id && <Pencil size={10} style={{ opacity: 0.7, flexShrink: 0, color: 'var(--wk-brand)' }} />}
         {showRaw && <span style={{ fontSize: 10.5, fontStyle: 'italic', color: 'var(--muted)' }}>{t12s(raw)}</span>}
       </button>
+      {!isPending && adjustNote && (
+        /* This punch time was changed - hover the info dot for the reason on record. */
+        <span title={`Time changed: ${adjustNote}`} aria-label={`Time changed: ${adjustNote}`}
+          style={{ display: 'inline-flex', color: '#b45309', cursor: 'help', flexShrink: 0 }}>
+          <Info size={12} />
+        </span>
+      )}
       {isPending && (
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10.5, color: '#b45309', fontWeight: 700 }}
           title={`${self ? 'Your proposed time' : 'Proposed by employee'}${pendReason ? ': ' + pendReason : ''} - not counted until approved`}>
