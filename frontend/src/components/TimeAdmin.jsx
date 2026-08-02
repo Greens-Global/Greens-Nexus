@@ -14,6 +14,7 @@ import PayrollTimecard from './PayrollTimecard';
 import LiveCrewMap from './LiveCrewMap';
 import TimeInsights from './TimeInsights';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
+import { ErrorBanner } from './AsyncState';
 
 const TYPE_COLOR = { vacation: '#2563eb', sick: '#16a34a', personal: '#8b5cf6', unpaid: '#6b7280', other: '#f59e0b' };
 
@@ -114,8 +115,10 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
   useEffect(() => { load(); }, [load]);
 
   const [timeoff, setTimeoff] = useState([]);
+  const [timeoffErr, setTimeoffErr] = useState(false);
   const loadTimeoff = useCallback(() => {
-    api.timeOffList().then(setTimeoff).catch(() => setTimeoff([]));
+    setTimeoffErr(false);
+    api.timeOffList().then(r => { setTimeoff(r); }).catch(() => setTimeoffErr(true));   // don't mask a failure as "no requests"
   }, []);
   useEffect(() => { loadTimeoff(); }, [loadTimeoff]);
 
@@ -642,7 +645,9 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
           <div style={{ display: 'grid', gridTemplateColumns: '200px 110px 1fr 70px 160px 170px', gap: 10, padding: '10px 14px', background: 'var(--wk-hover)', fontSize: 12.5, fontWeight: 500, color: 'var(--wk-dim)' }}>
             <span>Requested by</span><span>Type</span><span>Period</span><span>Days</span><span>Approver</span><span style={{ textAlign: 'right' }}>Status</span>
           </div>
-          {timeoff.length === 0 && (
+          {timeoffErr ? (
+            <div style={{ padding: '14px 16px' }}><ErrorBanner message="Couldn't load time-off requests right now." onRetry={loadTimeoff} /></div>
+          ) : timeoff.length === 0 && (
             <div style={{ padding: '20px 16px', fontSize: 12.5, color: 'var(--muted)', textAlign: 'center' }}>No time-off requests yet.</div>
           )}
           {timeoff.slice(0, 150).map(r => {

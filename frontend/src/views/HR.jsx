@@ -1,5 +1,5 @@
 /* eslint-disable react-hooks/refs -- the org-chart canvas reads container/zoom refs during render for pan-zoom fit-to-view; safe intentional reads the React-Compiler rule flags */
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { QuestionnairesModal, InterviewPanel, LeaderboardModal } from '../components/Interviews';
 import {
   Users, Plus, Search, X, Loader2, Mail, Phone, Briefcase, MapPin,
@@ -11,7 +11,7 @@ import {
 import { api } from '../api';
 import { dialog } from '../ui/dialog';
 import { usePeopleDirectory } from '../lib/queries';
-import { SkeletonBlocks } from '../components/AsyncState';
+import { SkeletonBlocks, ErrorBanner } from '../components/AsyncState';
 import { ensureStepUp, isStepUpRequired, StepUpNeeded } from '../stepup/StepUp';
 import { useRole, MODULES, MODULE_LEVELS, ROLES } from '../contexts/RoleContext';
 import TimeAdmin from '../components/TimeAdmin';
@@ -1623,8 +1623,13 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
   const [qOpen, setQOpen] = useState(false);        // questionnaires manager
   const [lbOpen, setLbOpen] = useState(false);      // interview leaderboard
   const [ivFor, setIvFor] = useState(null);         // candidate for the interview room
+  const [loadErr, setLoadErr] = useState(false);
 
-  useEffect(() => { api.getCandidates().then(setCandidates).catch(() => setCandidates([])); }, []);
+  const loadCandidates = useCallback(() => {
+    setLoadErr(false); setCandidates(null);
+    api.getCandidates().then(setCandidates).catch(() => setLoadErr(true));
+  }, []);
+  useEffect(() => { loadCandidates(); }, [loadCandidates]);
 
   async function moveStage(c, stage, note) {
     if (busy) return;
@@ -1642,6 +1647,7 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
     setBusy(false);
   }
 
+  if (loadErr) return <ErrorBanner message="Couldn't load candidates right now." onRetry={loadCandidates} />;
   if (candidates === null) return <div style={{ display: 'flex', justifyContent: 'center', padding: '48px 0' }}><Loader2 size={26} style={{ animation: 'spin 0.8s linear infinite', color: 'var(--muted)' }} /></div>;
 
   const open = candidates.filter(c => !['hired', 'rejected'].includes(c.stage));
@@ -2588,10 +2594,15 @@ function LeaveTab({ employees, toastOk, toastErr }) {
   const [selF, setSelF] = useState([]);          // people filter - empty = everyone
   const [balances, setBalances] = useState(null);
   const [busyId, setBusyId] = useState(null);
+  const [loadErr, setLoadErr] = useState(false);
   const year = new Date().getFullYear();
   const empF = selF.length === 1 ? selF[0] : 'All';   // balances show for exactly one person
 
-  useEffect(() => { api.getLeave().then(setLeave).catch(() => setLeave([])); }, []);
+  const loadLeave = useCallback(() => {
+    setLoadErr(false); setLeave(null);
+    api.getLeave().then(setLeave).catch(() => setLoadErr(true));   // don't mask a failure as "no requests"
+  }, []);
+  useEffect(() => { loadLeave(); }, [loadLeave]);
   useEffect(() => {
     if (empF === 'All') { setBalances(null); return; }
     api.getLeaveBalances(empF, year).then(setBalances).catch(() => setBalances(null));
@@ -2610,6 +2621,7 @@ function LeaveTab({ employees, toastOk, toastErr }) {
     setBusyId(null);
   }
 
+  if (loadErr) return <ErrorBanner message="Couldn't load leave requests right now." onRetry={loadLeave} />;
   if (leave === null) return <div style={{ display: 'flex', justifyContent: 'center', padding: '48px 0' }}><Loader2 size={26} style={{ animation: 'spin 0.8s linear infinite', color: 'var(--muted)' }} /></div>;
 
   const visible = selF.length === 0 ? leave : leave.filter(r => selF.includes(r.employeeId));
@@ -2697,8 +2709,9 @@ function CompanyDepartments({ entity, employees = [], toastOk, toastErr }) {
   const [editId, setEditId] = useState(null);   // department being renamed
   const [editName, setEditName] = useState('');
   const cancelRef = useRef(false);   // set on Escape so the ensuing onBlur doesn't SAVE
-  const load = () => api.getCompanyDepartments(entity.id).then(setDepts).catch(() => setDepts([]));
-  useEffect(() => { setDepts(null); load(); }, [entity.id]);
+  const [loadErr, setLoadErr] = useState(false);
+  const load = () => { setLoadErr(false); return api.getCompanyDepartments(entity.id).then(setDepts).catch(() => setLoadErr(true)); };
+  useEffect(() => { setDepts(null); load(); }, [entity.id]);   // eslint-disable-line react-hooks/exhaustive-deps
   // Anyone with a work email can lead triage - not restricted to this company, since
   // a shared function (IT, Finance) often serves several entities.
   const staff = employees.filter(e => e.workEmail && e.status !== 'offboarded');
@@ -2742,7 +2755,8 @@ function CompanyDepartments({ entity, employees = [], toastOk, toastErr }) {
           <Plus size={14} /> Add
         </button>
       </div>
-      {depts === null ? <div style={{ color: 'var(--muted)', fontSize: 13, padding: '10px 0' }}>Loading…</div>
+      {loadErr ? <ErrorBanner message="Couldn't load departments right now." onRetry={load} />
+        : depts === null ? <div style={{ color: 'var(--muted)', fontSize: 13, padding: '10px 0' }}>Loading…</div>
         : depts.length === 0 ? <div style={{ color: 'var(--muted)', fontSize: 13, padding: '10px 0' }}>No departments yet - add the first one above.</div>
         : (
           <div style={{ border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>
