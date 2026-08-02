@@ -2456,7 +2456,7 @@ def _compute_timecard(db: Session, em: str, start: str, end: str) -> dict:
     open_in = open_in_at = open_in_at_r = open_in_id = open_in_date = None
     open_in_site = open_in_geo = open_in_site_id = open_in_cat = None
     open_in_note = ""
-    open_in_pend = open_in_estat = open_in_ereason = ""
+    open_in_pend = open_in_estat = open_in_ereason = open_in_adjnote = ""
     open_break = None
     brk = 0.0
     sflags = set()
@@ -2470,7 +2470,8 @@ def _compute_timecard(db: Session, em: str, start: str, end: str) -> dict:
              "note": open_in_note,
              "workSite": open_in_site or "", "workSiteId": open_in_site_id or "", "geo": open_in_geo or "", "category": open_in_cat or "",
              "inPendingAt": open_in_pend, "inEditStatus": open_in_estat, "inEditReason": open_in_ereason,
-             "outPendingAt": "", "outEditStatus": "", "outEditReason": ""})
+             "outPendingAt": "", "outEditStatus": "", "outEditReason": "",
+             "inAdjustNote": open_in_adjnote, "outAdjustNote": ""})
         missing_punches += 1
 
     for p in punches:
@@ -2488,6 +2489,7 @@ def _compute_timecard(db: Session, em: str, start: str, end: str) -> dict:
             open_in_site, open_in_geo, open_in_site_id = (p.work_site_name or ""), (p.geo_status or ""), (p.work_site_id or "")
             open_in_cat = getattr(p, "category", "") or ""
             open_in_pend, open_in_estat, open_in_ereason = (p.pending_at or ""), (p.edit_status or ""), (p.edit_reason or "")
+            open_in_adjnote = (p.adjust_note or "")
             open_break, brk, sflags = None, 0.0, set()
             if p.geo_status == "out_of_fence":
                 sflags.add("out_of_fence")
@@ -2514,7 +2516,8 @@ def _compute_timecard(db: Session, em: str, start: str, end: str) -> dict:
                      "note": _notes,
                      "workSite": open_in_site or "", "workSiteId": open_in_site_id or "", "geo": open_in_geo or "", "category": open_in_cat or "",
                      "inPendingAt": open_in_pend, "inEditStatus": open_in_estat, "inEditReason": open_in_ereason,
-                     "outPendingAt": (p.pending_at or ""), "outEditStatus": (p.edit_status or ""), "outEditReason": (p.edit_reason or "")})
+                     "outPendingAt": (p.pending_at or ""), "outEditStatus": (p.edit_status or ""), "outEditReason": (p.edit_reason or ""),
+                     "inAdjustNote": open_in_adjnote, "outAdjustNote": (p.adjust_note or "")})
                 open_in = None
             # else: orphan out with no open in - ignored (its in was outside the range)
         elif p.kind == "break_start":

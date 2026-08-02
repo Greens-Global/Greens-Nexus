@@ -486,28 +486,19 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false })
             By execution and signature of this time sheet, I agree I have reviewed this time card, and agree the hours stated are accurate and correct.
           </p>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-            {self ? (
-              <>
-                <button className="primary-btn" onClick={signTimecard} disabled={busy || !!fin}
-                  title={fin ? 'Period is finalized' : 'Records your name and the time as your electronic signature'}
-                  style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                  <CheckCircle size={14} /> {data.signed ? 'Re-sign' : 'Sign & submit'}
-                </button>
-                {data.signed && (
-                  <span style={{ fontSize: 12, color: 'hsl(var(--color-green))', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                    <CheckCircle size={13} /> Signed {new Date(data.signed.at).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
-                  </span>
-                )}
-              </>
-            ) : data.signed ? (
+            {data.signed ? (
               <span style={{ fontSize: 13, fontWeight: 700, color: 'hsl(var(--color-green))', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                <CheckCircle size={15} /> Signed by {data.signed.name || nameFor(data.signed.by) || 'employee'}
+                <CheckCircle size={15} /> Signed{!self && (data.signed.name || nameFor(data.signed.by)) ? ` by ${data.signed.name || nameFor(data.signed.by)}` : ''} · {new Date(data.signed.at).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
               </span>
             ) : (
-              <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4 }}>
-                <span style={{ fontSize: 14, fontWeight: 700 }}>X</span>
-                <span style={{ borderBottom: '1.5px solid var(--ink)', minWidth: 260, display: 'inline-block' }} />
-              </div>
+              <span style={{ fontSize: 12, fontWeight: 700, color: '#b45309', background: 'rgba(180,83,9,0.1)', padding: '3px 12px', borderRadius: 999 }}>Unsigned</span>
+            )}
+            {self && !fin && (
+              <button className="primary-btn" onClick={signTimecard} disabled={busy}
+                title="Records your name and the time as your electronic signature"
+                style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <CheckCircle size={14} /> {data.signed ? 'Re-sign' : 'Sign & submit'}
+              </button>
             )}
             <span style={{ fontSize: 11, color: 'var(--muted)' }}>Employee signature · {label}</span>
           </div>
