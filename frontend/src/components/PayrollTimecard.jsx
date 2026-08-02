@@ -50,10 +50,13 @@ function LocCell({ seg }) {
   );
 }
 
-export default function PayrollTimecard({ toastOk, toastErr, selfMode = false }) {
+export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, initialEmail = '' }) {
   const self = selfMode;   // employee viewing their OWN timecard (from /my-payroll)
   const [people, setPeople] = useState([]);
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(initialEmail);
+  // Jump to a specific employee when the caller changes initialEmail (e.g. the
+  // "N to review" badge in TimeAdmin opens that person's card).
+  useEffect(() => { if (initialEmail) setEmail(initialEmail); }, [initialEmail]);
   const [pStart, setPStart] = useState(() => periodStartFor(new Date()));
   const [data, setData] = useState(null);
   const [rateInput, setRateInput] = useState('');
@@ -119,8 +122,8 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false })
   // Remember a fixed employee across reloads: a month switch nulls `data` briefly,
   // and without this the render would fall back to the hourly bi-weekly shell for a
   // frame (the "15/10 - 28/10" flash) before the month card loads.
-  const wasFixed = useRef(false);
-  if (data) wasFixed.current = data.payType === 'fixed';
+  const [wasFixed, setWasFixed] = useState(false);   // state, not a ref, so render can read it
+  useEffect(() => { if (data) setWasFixed(data.payType === 'fixed'); }, [data]);
   useEffect(() => {
     if (!data || data.payType !== 'fixed' || fixedSnapped.current) return;
     fixedSnapped.current = true;
@@ -132,6 +135,16 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false })
     }
   }, [data]);
 
+  // HR switching employees: re-anchor to the current period and re-arm the fixed snap,
+  // so a fixed employee's month anchor (the 15th) can't leave the NEXT (hourly)
+  // employee's grid off its Sunday anchor and break SwipeClock parity for the session.
+  useEffect(() => {
+    if (self) return;
+    fixedSnapped.current = false;
+    setPStart(periodStartFor(new Date()));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [email]);
+
   const byDate = useMemo(() => Object.fromEntries((data?.days || []).map(d => [d.date, d])), [data]);
   const weekTotals = useMemo(() => {
     const w = {};
@@ -139,6 +152,11 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false })
     return w;
   }, [data]);
   const rate = data?.rate || 0;
+  // ALWAYS act on the card's ACTUAL period bounds (bi-weekly for hourly, the calendar
+  // month for fixed) - not the frontend bi-weekly `start`/`end`, which are wrong for a
+  // fixed employee. Approve/finalize/sign/CSV would otherwise hit the wrong period.
+  const perStart = data?.periodStart || start;
+  const perEnd = data?.periodEnd || end;
 
   async function saveRate() {
     const up = await ensureStepUp();
@@ -150,40 +168,48 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false })
   }
   async function approve() {
     setBusy(true);
-    try { await api.timeApprove({ email, start, end }); toastOk?.('Timecard approved - the employee is notified.'); load(); }
+    try { await api.timeApprove({ email, start: perStart, end: perEnd }); toastOk?.('Timecard approved - the employee is notified.'); load(); }
     catch (e) { toastErr?.(e?.message || 'Could not approve.'); }
     setBusy(false);
   }
   async function signTimecard() {
     setBusy(true);
-    try { await api.timeSignMyTimecard(start); toastOk?.('Timecard signed - thank you.'); load(); }
+    try { await api.timeSignMyTimecard(perStart); toastOk?.('Timecard signed - thank you.'); load(); }
     catch (e) { toastErr?.(e?.message || 'Could not sign.'); }
     setBusy(false);
   }
 
-  const shift = (n) => setPStart(new Date(pStart.getTime() + n * 14 * DAY));
+  // Hourly nav MUST stay Sunday-anchored (SwipeClock parity). periodStartFor re-aligns
+  // even if pStart drifted off-Sunday from a prior fixed employee's month snap.
+  const shift = (n) => setPStart(periodStartFor(new Date(pStart.getTime() + n * 14 * DAY)));
   const isFixed = data?.payType === 'fixed';   // monthly salary employee (not hourly)
   const cur = data?.currency || 'USD';         // $ or ₹
   const fmtM = (n) => money(n, cur);
   // Fixed employees navigate by MONTH; the backend reads `start` as a month anchor.
   const shiftMonth = (n) => { const base = data?.periodStart ? new Date(data.periodStart + 'T00:00') : pStart; setPStart(new Date(base.getFullYear(), base.getMonth() + n, 15)); };
   const label = `${pStart.toLocaleDateString([], { month: 'numeric', day: 'numeric', year: 'numeric' })} – ${new Date(pStart.getTime() + 13 * DAY).toLocaleDateString([], { month: 'numeric', day: 'numeric', year: 'numeric' })}`;
+  // The period as the employee sees it - a month for fixed, the bi-weekly range for hourly.
+  const periodLabel = isFixed && data?.periodStart
+    ? new Date(data.periodStart + 'T00:00').toLocaleDateString([], { month: 'long', year: 'numeric' })
+    : label;
   const T = data?.totals;
   const fin = data?.finalized;         // HR finalization - the period is LOCKED
   const mgrAp = data?.approval;        // manager approval (step 1 of 2)
-  const nameFor = (em) => people.find(p => p.email === (em || '').toLowerCase())?.name || em || '';
+  // Never surface a raw email - fall back to a name formatted from the local-part.
+  const nameFor = (em) => people.find(p => p.email === (em || '').toLowerCase())?.name
+    || (em ? em.split('@')[0].replace(/[._]/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : '');
 
   async function finalize() {
-    if (!await dialog.confirm(`Finalize ${nameFor(email)}'s timecard for ${label}? This locks all time records for the period - edits will need an unlock.`, { title: 'Finalize timecard', confirmText: 'Finalize', danger: true })) return;
+    if (!await dialog.confirm(`Finalize ${nameFor(email)}'s timecard for ${periodLabel}? This locks all time records for the period - edits will need an unlock.`, { title: 'Finalize timecard', confirmText: 'Finalize', danger: true })) return;
     setBusy(true);
-    try { await api.timeFinalize({ email, start, end }); toastOk?.('Timecard finalized - the period is locked.'); load(); }
+    try { await api.timeFinalize({ email, start: perStart, end: perEnd }); toastOk?.('Timecard finalized - the period is locked.'); load(); }
     catch (e) { toastErr?.(e?.message || 'Could not finalize.'); }
     setBusy(false);
   }
   async function unfinalize() {
-    if (!await dialog.confirm(`Unlock ${nameFor(email)}'s finalized timecard for ${label}? Edits become possible again; re-finalize when done.`, { title: 'Unlock period', confirmText: 'Unlock' })) return;
+    if (!await dialog.confirm(`Unlock ${nameFor(email)}'s finalized timecard for ${periodLabel}? Edits become possible again; re-finalize when done.`, { title: 'Unlock period', confirmText: 'Unlock' })) return;
     setBusy(true);
-    try { await api.timeUnfinalize({ email, start, end }); toastOk?.('Period unlocked.'); load(); }
+    try { await api.timeUnfinalize({ email, start: perStart, end: perEnd }); toastOk?.('Period unlocked.'); load(); }
     catch (e) { toastErr?.(e?.message || 'Could not unlock.'); }
     setBusy(false);
   }
@@ -230,7 +256,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false })
   // A known fixed employee is mid-reload (switching months): show a clean loader
   // instead of the hourly bi-weekly toolbar, so the header never flashes the wrong
   // period between months.
-  if (wasFixed.current && data === null && !stepLocked) {
+  if (wasFixed && data === null && !stepLocked) {
     return (
       <div style={{ fontFamily: 'var(--wk-font)', padding: '52px 0', textAlign: 'center', color: 'var(--muted)' }}>
         <Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} />
@@ -317,7 +343,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false })
             <option value="federal">Federal (US)</option>
             <option value="none">None (non-US)</option>
           </select>
-          <span style={{ fontSize: 11.5, color: 'var(--muted)', fontWeight: 700 }}>Rate $/hr</span>
+          <span style={{ fontSize: 11.5, color: 'var(--muted)', fontWeight: 700 }}>Rate {CUR_SYM[cur] || '$'}/hr</span>
           <input type="number" min="0" step="0.01" className="form-input" value={rateInput} placeholder="0.00"
             onChange={e => setRateInput(e.target.value)} style={{ width: 90, fontSize: 13 }} />
           <button className="secondary-btn" onClick={saveRate} disabled={busy} style={{ fontSize: 12 }}>Save</button>
@@ -343,7 +369,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false })
       )}
       {!stepLocked && !data?.rateSet && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, color: '#b45309', marginBottom: 10 }}>
-          <AlertTriangle size={13} /> No pay rate set for this employee - wages show $0 until you set one.
+          <AlertTriangle size={13} /> No pay rate set for this employee - wages show {fmtM(0)} until you set one.
         </div>
       )}
 
@@ -652,7 +678,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
       )}
       {!data.rateSet && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, color: '#b45309', marginBottom: 10 }}>
-          <AlertTriangle size={13} /> No salary set for this employee - pay shows {fmtM(0)} until you set one.
+          <AlertTriangle size={13} /> No salary set - set it on this person's profile (People &rarr; Edit &rarr; Payroll wage). Pay shows {fmtM(0)} until then.
         </div>
       )}
 

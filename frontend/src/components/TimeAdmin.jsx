@@ -99,7 +99,8 @@ const FL = { fontSize: 12, fontWeight: 600, color: 'var(--muted)' };
 const HD = { fontSize: 13.5, fontWeight: 600, color: 'var(--ink)' };
 
 export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
-  const [view, setView] = useState('timecards');   // timecards | timeoff
+  const [view, setView] = useState('timecards');   // timecards | timeoff | payroll
+  const [payrollEmail, setPayrollEmail] = useState('');   // preselect a person in the Payroll view (from the "to review" badge)
   const [[start, end], setRange] = useState(() => weekRange(0));
   const [rows, setRows] = useState(null);
   const [open, setOpen] = useState({});          // email -> bool
@@ -108,11 +109,20 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
   const [addP, setAddP] = useState({ kind: 'out', at: '', note: '' });
   const [busy, setBusy] = useState(false);
 
-  const load = useCallback(() => {
-    setRows(null);
+  // `quiet` keeps the current rows on screen during a refetch (after an approve/edit/
+  // add) instead of collapsing the whole list + KPI strip to a spinner on every action.
+  const load = useCallback((quiet = false) => {
+    if (!quiet) setRows(null);
     api.timeTeam(start, end).then(r => setRows(r.rows)).catch(e => { setRows([]); toastErr(e?.message || 'Could not load timesheets.'); });
   }, [start, end, toastErr]);
   useEffect(() => { load(); }, [load]);
+  // A punch add/remove/edit anywhere (this tab or the employee's own timecard) should
+  // refresh the team rows so the two views never silently disagree.
+  useEffect(() => {
+    const onChange = () => load(true);
+    window.addEventListener('nexus:timeclock-changed', onChange);
+    return () => window.removeEventListener('nexus:timeclock-changed', onChange);
+  }, [load]);
 
   const [timeoff, setTimeoff] = useState([]);
   const [timeoffErr, setTimeoffErr] = useState(false);
@@ -144,7 +154,7 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
     try {
       await api.timeApprove({ email, days: daysArr });
       if (!quiet) toastOk(daysArr.length === 1 ? 'Day approved - the employee gets a notification.' : `Approved ${daysArr.length} days - the employee gets a notification.`);
-      load();
+      load(true);
     } catch (e) { toastErr(e?.message || 'Could not approve.'); }
   }
   const [approvingAll, setApprovingAll] = useState(false);
@@ -159,7 +169,7 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
     }
     toastOk(`Approved ${ok} of ${targets.length} timecard${targets.length === 1 ? '' : 's'}.`);
     setApprovingAll(false);
-    load();
+    load(true);
   }
   const [person, setPerson] = useState(null);   // employee drill-down (their time portal)
   const [shiftMode, setShiftMode] = useState('schedule'); // schedule | presets
@@ -213,11 +223,12 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
       await api.timeDecidePunchRequest(id, { status, note });
       toastOk(`Request ${status}.`);
       loadPunchReqs();
+      load(true);   // an approved add/remove changes the timecard - keep the rows in sync
     } catch (e) { toastErr(e?.message || 'Could not update the request.'); }
   }
 
   async function revokeApproval(id) {
-    try { await api.timeApprovalRevoke(id); toastOk('Approval revoked.'); load(); }
+    try { await api.timeApprovalRevoke(id); toastOk('Approval revoked.'); load(true); }
     catch (e) { toastErr(e?.message || 'Could not revoke.'); }
   }
 
@@ -253,7 +264,7 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
         note: edit.note, void: edit.voided, adjust_note: edit.adjustNote || '',
       });
       toastOk('Punch updated - the original time stays on record.');
-      setEdit(null); load();
+      setEdit(null); load(true);
     } catch (e) { toastErr(e?.message || 'Could not update the punch.'); }
     setBusy(false);
   }
@@ -267,7 +278,7 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
         at: new Date(addP.at).toISOString().slice(0, 19),
         tz_offset_min: new Date().getTimezoneOffset(), note: addP.note });
       toastOk('Punch added.');
-      setAddFor(null); setAddP({ kind: 'out', at: '', note: '' }); load();
+      setAddFor(null); setAddP({ kind: 'out', at: '', note: '' }); load(true);
     } catch (e) { toastErr(e?.message || 'Could not add the punch.'); }
     setBusy(false);
   }
@@ -400,10 +411,11 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
               </span>
             )}
             {r.pendingEdits > 0 && (
-              <span title={`${r.pendingEdits} time edit${r.pendingEdits === 1 ? '' : 's'} from this employee awaiting your review - open the timecard to approve`}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 800, color: 'var(--wk-brand)', background: 'var(--wk-brand-tint)', padding: '3px 9px', borderRadius: 999 }}>
+              <button onClick={e => { e.stopPropagation(); setPayrollEmail(r.email); setView('payroll'); }}
+                title={`${r.pendingEdits} time edit${r.pendingEdits === 1 ? '' : 's'} from this employee awaiting your review - click to open their Payroll timecard and approve or reject each`}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 800, color: 'var(--wk-brand)', background: 'var(--wk-brand-tint)', border: 'none', padding: '3px 9px', borderRadius: 999, cursor: 'pointer', fontFamily: 'var(--wk-font)' }}>
                 <Pencil size={10} /> {r.pendingEdits} to review
-              </span>
+              </button>
             )}
             {r.breakMin > 0 && <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{r.breakMin}m break</span>}
             {isRowApproved(r) ? (
@@ -609,7 +621,7 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
       )}
 
       {/* Payroll - per-employee, per-pay-period editable timecard */}
-      {view === 'payroll' && <PayrollTimecard toastOk={toastOk} toastErr={toastErr} />}
+      {view === 'payroll' && <PayrollTimecard toastOk={toastOk} toastErr={toastErr} initialEmail={payrollEmail} />}
 
       {view === 'livemap' && <LiveCrewMap toastErr={toastErr} employees={employees} />}
 

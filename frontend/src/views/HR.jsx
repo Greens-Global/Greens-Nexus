@@ -159,35 +159,45 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
     setBusy(true);
     try {
       const saved = editing ? await api.updateEmployee(employee.id, f) : await api.createEmployee(f);
-      // Compensation, keyed by work email - saved after the profile so a brand-new
-      // hire's rate lands on the email that was just provisioned.
       const wemail = (saved?.workEmail || f.work_email || '').trim();
+      // Compensation, keyed by work email - saved after the profile. Any warning is
+      // HELD and fired LAST so the single-slot toast doesn't overwrite it with the
+      // profile "Saved"/M365 message.
+      let wageWarn = '';
       if (canSeeComp && compDirty && wemail) {
-        try {
-          await api.timePayrollRate({
-            email: wemail, pay_type: comp.payType, currency: comp.currency,
-            hourly_rate: parseFloat(comp.hourlyRate) || 0,
-            monthly_salary: parseFloat(comp.monthlySalary) || 0,
-            weekend_ot_amount: parseFloat(comp.weekendOtAmount) || 0,
-            full_day_hours: parseFloat(comp.fullDayHours) || 8,
-          });
-        } catch (err) { toastErr(err?.message || 'Employee saved, but the wage could not be saved - set it on the Pay tab.'); }
+        const up = await ensureStepUp();   // payroll writes need a fresh step-up when enforced
+        if (!up.ok) {
+          wageWarn = up.cancelled ? 'Profile saved - wage skipped (identity check cancelled).'
+            : 'Profile saved - wage skipped (identity check did not complete).';
+        } else {
+          try {
+            await api.timePayrollRate({
+              email: wemail, pay_type: comp.payType, currency: comp.currency,
+              hourly_rate: parseFloat(comp.hourlyRate) || 0,
+              monthly_salary: parseFloat(comp.monthlySalary) || 0,
+              weekend_ot_amount: parseFloat(comp.weekendOtAmount) || 0,
+              full_day_hours: parseFloat(comp.fullDayHours) || 8,
+            });
+          } catch (err) { wageWarn = `Profile saved, but the wage could not be saved: ${err?.message || 'error'} - set it on the Pay tab.`; }
+        }
       } else if (canSeeComp && compDirty && !wemail) {
-        toastErr('Wage needs a work email - saved everything else; set the wage once the email is provisioned.');
+        wageWarn = 'Profile saved - the wage needs a work email; set it once the email is provisioned.';
       }
       // New hire + a chosen job role → set their access + tier now. Needs a work
       // email; if not provisioned yet, prompt to set it later on the Access tab.
       if (!editing && jobRoleId) {
-        const em = (saved?.workEmail || f.work_email || '').trim();
-        if (em) {
-          try { await api.assignJobRole(jobRoleId, em); toastOk?.(`${fullName(saved)} added - job role & access assigned.`); }
+        if (wemail) {
+          try { await api.assignJobRole(jobRoleId, wemail); toastOk?.(`${fullName(saved)} added - job role & access assigned.`); }
           catch (err) { toastErr(err?.message || 'Employee added, but the job role could not be assigned - set it on their Access tab.'); }
         } else {
           toastOk?.('Employee added - assign their job role from the Access tab once a work email is set.');
         }
+      } else if (!editing && !saved.entra) {
+        toastOk?.('Employee added.');   // plain add (no job role, no M365) had no confirmation before
       }
       onSaved(saved);
       onClose();
+      if (wageWarn) toastErr(wageWarn);   // LAST → wins the single toast slot
     } catch (err) {
       toastErr(err?.message || 'Could not save employee.');
       setBusy(false);
@@ -220,10 +230,12 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
           {input('PHONE', 'phone')}
           {input('JOB TITLE', 'job_title')}
           {/* Company FIRST, then Department - departments come from the chosen
-              company, so asking for it first keeps the form in reading order. */}
+              company, so asking for it first keeps the form in reading order.
+              Changing company clears the department (it belongs to the old company). */}
           <div>
             <label style={FL}>COMPANY / ENTITY</label>
-            <select className="form-input" style={{ width: '100%' }} value={f.company} onChange={e => set('company', e.target.value)}>
+            <select className="form-input" style={{ width: '100%' }} value={f.company}
+              onChange={e => { set('company', e.target.value); set('department', ''); setAddingDept(false); }}>
               <option value="">- not set -</option>
               {entities.map(en => <option key={en.id} value={en.id}>{en.name}</option>)}
             </select>

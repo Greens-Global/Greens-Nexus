@@ -571,7 +571,11 @@ def approve_timecard(body: ApprovalIn, user: dict = Depends(require_team_write),
                 .filter(TimeApproval.employee_email == email,
                         TimeApproval.period_start == body.start,
                         TimeApproval.period_end == body.end,
-                        TimeApproval.revoked == 0).first())
+                        TimeApproval.revoked == 0,
+                        # ONLY a prior MANAGER approval blocks re-approval - the employee's
+                        # own signature and the HR finalization share this table + period
+                        # bounds (kind 'employee_sign' / 'final') and must not count.
+                        TimeApproval.kind == "manager").first())
     if existing:
         raise HTTPException(409, "Already approved for this period")
     # Fetch one day past `end` so a shift that starts on the last day and ends
@@ -658,8 +662,14 @@ def sign_my_timecard(body: SignTimecardIn, user: dict = Depends(get_current_user
     change makes the signature go stale (see _team_rows / the timecard header)."""
     email = user["email"]
     anchor = (body.start or "").strip() or datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    p_start, p_end = _pay_period(anchor)
-    worked = _compute_timecard(db, email, p_start, p_end).get("totals", {}).get("workedMin", 0)
+    # Fixed-salary employees sign their MONTH; hourly sign the bi-weekly period. The
+    # sign row must be keyed to the same bounds the card's sign-off state checks.
+    if _pay_type(db, email) == "fixed":
+        p_start, p_end = _month_bounds(anchor)
+        worked = _fixed_card(db, email, anchor).get("totals", {}).get("workedMin", 0)
+    else:
+        p_start, p_end = _pay_period(anchor)
+        worked = _compute_timecard(db, email, p_start, p_end).get("totals", {}).get("workedMin", 0)
     for r in (db.query(TimeApproval)
               .filter(TimeApproval.employee_email == email, TimeApproval.period_start == p_start,
                       TimeApproval.period_end == p_end, TimeApproval.kind == "employee_sign",
