@@ -6,6 +6,7 @@ import {
   ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import { api } from '../api';
+import { dialog } from '../ui/dialog';
 import { SkeletonBlocks } from '../components/AsyncState';
 import DayTimeline from '../components/DayTimeline';
 import ModuleTabs from '../components/ModuleTabs';
@@ -373,8 +374,13 @@ export default function TimeClock() {
   }
 
   async function requestRemovePunch(p) {
-    const reason = window.prompt('Why should this punch be removed? (sent to your approver)');
-    if (reason === null) return;
+    const reason = await dialog.prompt('Why should this punch be removed?', {
+      title: 'Remove punch',
+      placeholder: 'Reason (sent to your approver)',
+      confirmText: 'Send request',
+      required: true,
+    });
+    if (reason === null) return;   // cancelled
     if (!reason.trim()) { toast(false, 'A reason is required.'); return; }
     try {
       await api.timePunchRequestCreate({ action: 'remove', target_punch_id: p.id, reason: reason.trim() });

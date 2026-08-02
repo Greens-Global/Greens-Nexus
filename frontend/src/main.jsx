@@ -8,6 +8,7 @@ import { setCacheBridge } from './api'
 import './style.css'
 import App from './App.jsx'
 import RootErrorBoundary from './components/RootErrorBoundary'
+import { DialogHost } from './ui/dialog'
 import { installErrorReporter } from './lib/errorReporter'
 
 installErrorReporter();   // uncaught errors -> /client-errors -> audit trail
@@ -47,6 +48,7 @@ createRoot(document.getElementById('root')).render(
       <QueryClientProvider client={queryClient}>
         <MsalProvider instance={msalInstance}>
           <App />
+          <DialogHost />
         </MsalProvider>
       </QueryClientProvider>
     </RootErrorBoundary>
