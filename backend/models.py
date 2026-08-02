@@ -1247,6 +1247,18 @@ class TimePunch(Base):
     category       = Column(String, default="")         # job-costing / cost-code tag on the in-punch (SwipeClock "Category")
     created_by     = Column(String, default="")
     created_at     = Column(String, default="")
+    # Employee self-edit of a punch time, pending approver review. Shows on the
+    # timesheet immediately (transparency) but has NO effect on pay: worked-minutes
+    # and payroll keep using `at` until approved. On approve, `at` becomes
+    # pending_at; on reject, pending_at is discarded. Distinct from the manager
+    # `adjusted_*` fields, which apply immediately and are final.
+    pending_at       = Column(String, default="")   # proposed new time (UTC ISO), '' when none
+    edit_reason      = Column(String, default="")   # optional employee justification
+    edited_by        = Column(String, default="")   # employee who requested the edit
+    edited_at        = Column(String, default="")
+    edit_status      = Column(String, default="")   # '' | pending | approved | rejected
+    edit_reviewed_by = Column(String, default="")   # approver email
+    edit_reviewed_at = Column(String, default="")
 
 
 class TimeScreenshot(Base):

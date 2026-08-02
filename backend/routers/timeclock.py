@@ -146,6 +146,11 @@ def _serialize(p: TimePunch) -> dict:
         "adjustedBy": p.adjusted_by or "", "adjustedAt": p.adjusted_at or "",
         "adjustNote": p.adjust_note or "", "voided": bool(p.voided),
         "createdBy": p.created_by or "", "createdAt": p.created_at,
+        # Employee self-edit awaiting approval. pendingAt is the PROPOSED time; `at`
+        # (above) is still the pay-effective time until the edit is approved.
+        "pendingAt": p.pending_at or "", "editStatus": p.edit_status or "",
+        "editReason": p.edit_reason or "", "editedBy": p.edited_by or "",
+        "editedAt": p.edited_at or "", "editReviewedBy": p.edit_reviewed_by or "",
     }
 
 
@@ -189,6 +194,8 @@ def _day_summaries(punches: list) -> dict:
             flag(d, "manual")
         if p.adjusted_by:
             flag(d, "adjusted")
+        if p.edit_status == "pending":
+            flag(d, "edit_pending")
         if p.kind == "in":
             if open_in is not None:
                 flag(open_in_date, "missing_out")   # prior shift never closed
@@ -1235,6 +1242,114 @@ def decide_punch_request(req_id: str, body: PunchRequestDecision,
     r.decided_by, r.decided_at, r.decision_note = user["email"], now, note
     db.commit()
     return _pr_dict(r)
+
+
+# ── Employee self-edit of a punch TIME (applies to display now, to pay only on
+#    approval). Separate from the manager's final `adjust_punch` (PATCH /punches)
+#    and from add/remove punch-requests. ────────────────────────────────────────
+
+class PunchEditIn(BaseModel):
+    punch_id: str
+    at: str                       # proposed new time (UTC ISO)
+    reason: Optional[str] = ""    # optional justification
+
+
+@router.post("/punch-edits")
+def request_punch_edit(body: PunchEditIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Employee proposes a new time for one of their OWN punches. The proposal
+    shows on the timesheet immediately (both the employee and HR see the same row),
+    flagged pending, but has NO effect on pay - worked-minutes keep using the
+    current `at` until an approver accepts. Reason is optional."""
+    email = user["email"]
+    row = db.query(TimePunch).filter(TimePunch.id == body.punch_id).first()
+    if not row or row.voided:
+        raise HTTPException(404, "That punch isn't available.")
+    if row.employee_email != email:
+        raise HTTPException(403, "You can only edit your own punches.")
+    _guard_not_finalized(db, row.employee_email, row.local_date)
+    at = (body.at or "").strip()
+    t = _parse_iso(at)
+    if not t:
+        raise HTTPException(400, "Pick a valid date and time.")
+    _tz = t if t.tzinfo else t.replace(tzinfo=timezone.utc)
+    if _tz > datetime.now(timezone.utc) + timedelta(minutes=5):
+        raise HTTPException(400, "You can't set a punch time in the future.")
+    row.pending_at = at[:19]
+    row.edit_reason = (body.reason or "").strip()[:300]
+    row.edited_by, row.edited_at, row.edit_status = email, _now_iso(), "pending"
+    row.edit_reviewed_by, row.edit_reviewed_at = "", ""
+    emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == email).first()
+    name = f"{emp.first_name} {emp.last_name}".strip() if emp else email.split("@")[0].replace(".", " ").title()
+    if emp and emp.manager_email:
+        _hr_notify(db, emp.manager_email, "Timesheet edit requested",
+                   f"{name} proposed a new time for a {row.kind} punch on {row.local_date}."
+                   + (f" Reason: {row.edit_reason}" if row.edit_reason else ""),
+                   ref_id=row.id, action={"view": "hr", "sub": "hr-time"})
+    db.commit()
+    return _serialize(row)
+
+
+class PunchEditDecision(BaseModel):
+    status: str                   # approved | rejected
+    note: Optional[str] = ""
+
+
+@router.patch("/punch-edits/{punch_id}")
+def decide_punch_edit(punch_id: str, body: PunchEditDecision,
+                      user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+    """Approver accepts or rejects an employee's pending punch-time edit. On
+    approve, the proposed time becomes the pay-effective `at` (it now counts toward
+    hours). On reject, the proposal is discarded and `at` is unchanged."""
+    row = db.query(TimePunch).filter(TimePunch.id == punch_id).with_for_update().first()
+    if not row:
+        raise HTTPException(404, "Punch not found")
+    if row.edit_status != "pending" or not row.pending_at:
+        raise HTTPException(409, "There is no pending edit on this punch.")
+    visible = _visible_emails(db, user)
+    if visible is not None and row.employee_email not in visible:
+        raise HTTPException(403, "That employee isn't on your team.")
+    _guard_not_finalized(db, row.employee_email, row.local_date)
+    decision = body.status if body.status in ("approved", "rejected") else ""
+    if not decision:
+        raise HTTPException(400, "status must be approved or rejected")
+    now = _now_iso()
+    note = (body.note or "").strip()
+    if decision == "approved":
+        if not row.original_at:            # freeze the pre-edit value once
+            row.original_at = row.at
+        row.at = row.pending_at[:19]
+        row.local_date = _local_date(row.at, row.tz_offset_min or 0)
+        _hr_notify(db, row.employee_email, "Punch edit approved",
+                   f"Your edited {row.kind} punch time was approved and now counts toward your hours."
+                   + (f" Note: {note}" if note else ""),
+                   ref_id=row.id, action={"view": "timeclock", "sub": "timesheet"})
+    else:
+        _hr_notify(db, row.employee_email, "Punch edit rejected",
+                   f"Your edited {row.kind} punch time was not approved; your timesheet is unchanged."
+                   + (f" Reason: {note}" if note else ""),
+                   ref_id=row.id, action={"view": "timeclock", "sub": "timesheet"})
+    row.pending_at = ""
+    row.edit_status = decision
+    row.edit_reviewed_by, row.edit_reviewed_at = user["email"], now
+    db.commit()
+    return _serialize(row)
+
+
+@router.get("/punch-edits")
+def list_pending_punch_edits(user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
+    """Pending employee punch-time edits awaiting review, scoped to the approver's team."""
+    visible = _visible_emails(db, user)
+    q = db.query(TimePunch).filter(TimePunch.edit_status == "pending", TimePunch.voided == 0)
+    if visible is not None:
+        q = q.filter(TimePunch.employee_email.in_(visible))
+    names = {e.work_email: f"{e.first_name} {e.last_name}".strip()
+             for e in db.query(NexusEmployee).all() if e.work_email}
+    out = []
+    for p in q.order_by(TimePunch.edited_at.desc()).all():
+        d = _serialize(p)
+        d["employeeName"] = names.get(p.employee_email) or p.employee_email.split("@")[0].replace(".", " ").title()
+        out.append(d)
+    return out
 
 
 # ── Silent agent enrollment (no-login, token-authenticated devices) ───────────

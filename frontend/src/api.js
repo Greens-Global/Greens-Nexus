@@ -811,6 +811,10 @@ export const api = {
   timePunchRequestCreate: (data) => req('/timeclock/punch-requests', { method: 'POST', body: JSON.stringify(data) }),
   timeMyPunchRequests:    () => req('/timeclock/punch-requests/mine'),
   timePunchRequests:      (status) => req(`/timeclock/punch-requests?status=${status || 'pending'}`),
+  // Employee self-edit of a punch time (applies to display now, to pay only on approval)
+  timePunchEditCreate:    (data)     => req('/timeclock/punch-edits', { method: 'POST', body: JSON.stringify(data) }),
+  timePunchEditDecide:    (id, data) => req(`/timeclock/punch-edits/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  timePendingPunchEdits:  ()         => req('/timeclock/punch-edits'),
   timeDecidePunchRequest: (id, data) => req(`/timeclock/punch-requests/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   // Employee's own bi-weekly pay-period timecard (payroll rows + composition)
   timeMyPayroll:          (start) => req(`/timeclock/my-payroll?start=${start || ''}`),
