@@ -13,7 +13,7 @@ import {
   FlaskConical,
   KeyRound,
   Briefcase, FileSignature, ArrowDownToLine, ArrowUpFromLine,
-  HardDrive, FolderOpen, Ticket,
+  HardDrive, FolderOpen, Ticket, MapPin,
 } from "lucide-react";
 
 // Exported: MobileMenu mirrors this exact order/grouping on phones
@@ -22,6 +22,7 @@ export const NAV = [
   { view: "timeclock", code: "CLK",         label: "Time Clock",         icon: Clock },
   { view: "myhr", code: "MHR",              label: "My HR",              icon: Contact },
   { view: "manager-dashboard", code: "MGR", label: "Manager Dashboard",  icon: UserCheck,    minRole: 'supervisor' },
+  { view: "locations", code: "LOC",         label: "Locations",          icon: MapPin,       minRole: 'supervisor' },
   { divider: true },
   // Tasks + Knowledge Base are baseline: employees work their own tasks and the
   // KB is the LMS - assigned courses/SOPs must be reachable by everyone.

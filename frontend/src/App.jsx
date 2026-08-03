@@ -58,6 +58,7 @@ const Placeholder         = lazy(() => import("./views/Placeholder"));
 const PublicSign          = lazy(() => import("./views/PublicSign"));
 const PublicVerify        = lazy(() => import("./views/PublicVerify"));
 const TimeClock           = lazy(() => import("./views/TimeClock"));
+const Locations           = lazy(() => import("./views/Locations"));
 const MyHR                = lazy(() => import("./views/MyHR"));
 const Testing             = lazy(() => import("./views/Testing"));
 const CredentialVault     = lazy(() => import("./views/CredentialVault"));
@@ -77,6 +78,7 @@ const viewLabel = (view) => VIEW_LABELS[view] || LABEL_OVERRIDES[view]
 // Views absent from this map are accessible to everyone (dashboard, inventory, support).
 const VIEW_MIN_ROLES = {
   'manager-dashboard':  'supervisor',
+  'locations':          'supervisor',   // team locations map - managers/HR only
   // tasks / sop / external-links are baseline (all employees): own tasks, the
   // KB/LMS with assigned courses, and plain links. Admin actions inside each
   // stay role-gated server-side.
@@ -227,6 +229,7 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
     case "external-links":     return <ExternalLinks />;
     case "support":            return <Support />;
     case "timeclock":          return <TimeClock />;
+    case "locations":          return <Locations />;
     case "myhr":               return <MyHR />;
     case "testing":            return <Testing />;
     case "credvault":          return <CredentialVault />;

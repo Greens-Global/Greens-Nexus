@@ -879,6 +879,7 @@ export const api = {
   // Field-worker location tracking (manager/HR views; device pings use X-Agent-Token from the native app, not these)
   trackLive:         ()            => req('/timeclock/track/live'),
   trackPath:         (email, date) => req(`/timeclock/track/path?email=${encodeURIComponent(email)}&date=${date}`),
+  timeLocations:     ()            => req('/timeclock/locations'),
   timeShifts:        ()          => req('/timeclock/shifts'),
   timeShiftCreate:   (data)      => req('/timeclock/shifts', { method: 'POST', body: JSON.stringify(data) }),
   timeShiftUpdate:   (id, data)  => req(`/timeclock/shifts/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
