@@ -705,6 +705,15 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
               const segs = d?.segments || [];
               const st = STATUS[fd.status] || STATUS.upcoming;
               const rowsForDay = segs.length ? segs : [null];
+              // Break/away time for the day = all non-worked time between the first
+              // clock-in and last clock-out (formal Start Break gaps AND the gaps
+              // where they clocked out and back in - e.g. stepping out for lunch).
+              let dayBreak = d?.breakMin || 0;
+              const segsOut = segs.filter(s => s.out);
+              if (segsOut.length && segs[0]?.in) {
+                const spanMin = Math.round((new Date(segsOut[segsOut.length - 1].out + 'Z') - new Date(segs[0].in + 'Z')) / 60000);
+                dayBreak = Math.max(dayBreak, spanMin - (d.workedMin || 0));
+              }
               // Reasons/notes visible IN the card (not just on hover), employee AND HR.
               const notes = [];
               segs.forEach(s => {
@@ -730,7 +739,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
                             : <button onClick={() => !fin && setEditDay({ date: fd.date, seg })} title={fin ? 'Locked' : 'Add the missing clock-out'} style={{ background: 'none', border: 'none', padding: 0, cursor: fin ? 'default' : 'pointer', color: '#b91c1c', fontWeight: 700, font: 'inherit' }}>Missing</button>)
                     : <span style={{ color: 'var(--muted)' }}>-</span>}</td>
                   <td style={{ ...td, textAlign: 'right' }}>{seg && si === 0 ? hhmm(d.workedMin) : (seg ? '' : <span style={{ color: 'var(--muted)' }}>-</span>)}</td>
-                  <td style={{ ...td, textAlign: 'right', color: 'var(--muted)' }}>{si === 0 ? (d?.breakMin ? hhmm(d.breakMin) : '-') : ''}</td>
+                  <td style={{ ...td, textAlign: 'right', color: 'var(--muted)' }} title={dayBreak > 0 ? 'Away time between the first clock-in and last clock-out' : ''}>{si === 0 ? (dayBreak > 0 ? hhmm(dayBreak) : '-') : ''}</td>
                   <td style={{ ...td, textAlign: 'right' }}>{si === 0 ? effect(fd) : ''}</td>
                 </tr>
               ));
@@ -814,8 +823,8 @@ function SigLine({ label, sig, nameFor, action, pending }) {
   const done = sig && sig.at;
   const who = done ? (sig.name || (nameFor && nameFor(sig.by)) || (sig.by || '').split('@')[0].replace(/\./g, ' ')) : '';
   return (
-    <div style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px', background: 'var(--card)' }}>
-      <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.07em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 7 }}>{label} signature</div>
+    <div style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '14px', background: 'var(--card)', display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 8 }}>
+      <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.07em', textTransform: 'uppercase', color: 'var(--muted)' }}>{label} signature</div>
       {done ? (
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 13.5, fontWeight: 700, color: sig.stale ? '#b45309' : 'hsl(var(--color-green))', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
@@ -829,7 +838,7 @@ function SigLine({ label, sig, nameFor, action, pending }) {
       )}
       {action && (
         <button className="primary-btn" onClick={action.onClick} disabled={action.busy}
-          style={{ marginTop: 10, fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
           <CheckCircle size={13} /> {action.busy ? '…' : action.label}
         </button>
       )}

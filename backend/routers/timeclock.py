@@ -2477,12 +2477,17 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
             status = "working"              # clocked in, still on shift today - no deduction yet
         elif wm >= FULL_MIN:
             status = "present"              # 5h+ = full day, never deducted
-        elif ds >= today:
-            status = "upcoming"             # today/future, not a full day yet and not clocked in
+        elif ds > today:
+            status = "upcoming"             # future weekday, nothing logged yet
+        elif ds == today:
+            # Today, in progress: reflect activity but never deduct - the day isn't over
+            # and they may clock back in. A full day is already "present" above; anything
+            # less (even 0) stays open. Only once the day has elapsed do half/absent bite.
+            status = "working" if wm > 0 else "upcoming"
         elif wm >= HALF_MIN:
-            status = "half"; deduct = daily / 2.0; missed_half += 1   # 4h-5h
+            status = "half"; deduct = daily / 2.0; missed_half += 1   # past day, 4h-5h
         else:
-            status = "absent"; deduct = daily; missed_full += 1       # under 4h
+            status = "absent"; deduct = daily; missed_full += 1       # past day, under 4h
         deduction += deduct
         fixed_days.append({"date": ds, "workedMin": wm, "isWeekend": is_weekend,
                            "future": ds > today,   # can't add a punch for a day that hasn't happened
