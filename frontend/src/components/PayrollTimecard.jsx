@@ -107,22 +107,40 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   // keeps the current card (no blink, the HR sidebar stays put).
   useEffect(() => { setData(_timecardCache.get(cacheKey) ?? null); }, [cacheKey]);
 
+  // Stale-response guard. The fixed-salary snap moves pStart mid-mount (bi-weekly
+  // anchor -> current month), firing a SECOND fetch while the first is still in
+  // flight. Without this the slower (wrong-month) response could resolve last and
+  // pin the card on the wrong month - which then looks "stuck" because pStart has
+  // already moved, so the arrows compute the same month and don't refetch. Stamp
+  // each request with its period key and apply only the still-current one.
+  const reqKeyRef = useRef('');
   const load = useCallback(() => {
     if (self) {
       // Employee's own timecard - same shape as the HR card, no step-up needed for
       // one's own pay (like a payslip). /my-payroll keys off the period start.
-      api.timeMyPayroll(start).then(d => { _timecardCache.set(_tcKey(true, '', start, end), d); setStepLocked(false); setData(d); setRateInput(d.rateSet ? String(d.rate) : ''); setRuleInput(d.overtimeRule || 'ca'); })
-        .catch(e => { setData(null); toastErr?.(e?.message || 'Could not load your timecard.'); });
+      const key = _tcKey(true, '', start, end);
+      reqKeyRef.current = key;
+      api.timeMyPayroll(start).then(d => {
+        _timecardCache.set(key, d);
+        if (reqKeyRef.current !== key) return;   // period moved on before this arrived
+        setStepLocked(false); setData(d); setRateInput(d.rateSet ? String(d.rate) : ''); setRuleInput(d.overtimeRule || 'ca');
+      }).catch(e => { if (reqKeyRef.current === key) { setData(null); toastErr?.(e?.message || 'Could not load your timecard.'); } });
       return;
     }
     if (!email) return;
-    api.timePayroll(email, start, end).then(d => { _timecardCache.set(_tcKey(false, email, start, end), d); setStepLocked(false); setData(d); setRateInput(d.rateSet ? String(d.rate) : ''); setRuleInput(d.overtimeRule || 'ca'); })
-      .catch(e => {
-        // Payroll shows $ - the backend requires a fresh step-up MFA. Show the
-        // Verify gate (a gesture) rather than popping a challenge on mount.
-        if (isStepUpRequired(e)) { setStepLocked(true); return; }
-        setData(null); toastErr?.(e?.message || 'Could not load the timecard.');
-      });
+    const key = _tcKey(false, email, start, end);
+    reqKeyRef.current = key;
+    api.timePayroll(email, start, end).then(d => {
+      _timecardCache.set(key, d);
+      if (reqKeyRef.current !== key) return;
+      setStepLocked(false); setData(d); setRateInput(d.rateSet ? String(d.rate) : ''); setRuleInput(d.overtimeRule || 'ca');
+    }).catch(e => {
+      if (reqKeyRef.current !== key) return;
+      // Payroll shows $ - the backend requires a fresh step-up MFA. Show the
+      // Verify gate (a gesture) rather than popping a challenge on mount.
+      if (isStepUpRequired(e)) { setStepLocked(true); return; }
+      setData(null); toastErr?.(e?.message || 'Could not load the timecard.');
+    });
     // toastErr is only used in the catch; excluding it keeps `load` stable so a
     // parent that re-creates the callback each render (TimeClock's 1s stopwatch)
     // can't trigger an endless refetch loop that pins the spinner.
