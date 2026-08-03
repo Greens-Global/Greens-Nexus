@@ -13,6 +13,7 @@ import ShiftSchedule from './ShiftSchedule';
 import PayrollTimecard from './PayrollTimecard';
 import LiveCrewMap from './LiveCrewMap';
 import TimeInsights from './TimeInsights';
+import ImageLightbox from './ImageLightbox';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { ErrorBanner } from './AsyncState';
 
@@ -179,14 +180,15 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
   const [shotPeople, setShotPeople] = useState(null);
   const [shotWho, setShotWho] = useState(null);       // {email, name}
   const [shotFrames, setShotFrames] = useState(null);
+  const [shotView, setShotView] = useState(null);     // open lightbox at this frame index
   useEffect(() => {
     if (view !== 'screenshots') return;
-    setShotPeople(null); setShotWho(null); setShotFrames(null);
+    setShotPeople(null); setShotWho(null); setShotFrames(null); setShotView(null);
     api.timeTeamShots(shotDate).then(r => setShotPeople(r.people || [])).catch(() => setShotPeople([]));
   }, [view, shotDate]);
   useEffect(() => {
     if (!shotWho) { setShotFrames(null); return; }
-    setShotFrames(null);
+    setShotFrames(null); setShotView(null);
     api.timeTeamShots(shotDate, shotWho.email).then(r => setShotFrames(r.shots || [])).catch(() => setShotFrames([]));
   }, [shotWho, shotDate]);
 
@@ -727,9 +729,9 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
               : shotFrames.length === 0
                 ? <div style={{ padding: '26px 18px', textAlign: 'center', fontSize: 12.5, color: 'var(--muted)' }}>No frames for this person on this day.</div>
                 : <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 12 }}>
-                    {shotFrames.map(s => (
-                      <a key={s.id} href={s.url} target="_blank" rel="noopener noreferrer"
-                        style={{ display: 'block', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden', textDecoration: 'none', background: 'var(--mist)' }}>
+                    {shotFrames.map((s, i) => (
+                      <button key={s.id} onClick={() => setShotView(i)} title="Click to view - use arrow keys to browse"
+                        style={{ display: 'block', width: '100%', textAlign: 'left', padding: 0, border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden', background: 'var(--mist)', cursor: 'pointer', fontFamily: 'var(--wk-font)' }}>
                         <img src={s.url} alt={`Capture ${localTime(s.at)}`} loading="lazy"
                           style={{ width: '100%', aspectRatio: '16/9', objectFit: 'cover', display: 'block' }} />
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px' }}>
@@ -742,10 +744,11 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
                             </span>
                           )}
                         </div>
-                      </a>
+                      </button>
                     ))}
                   </div>
           )}
+          <ImageLightbox shots={shotFrames} index={shotView} setIndex={setShotView} />
         </div>
       )}
 
