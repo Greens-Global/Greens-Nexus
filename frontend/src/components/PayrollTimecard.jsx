@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { ChevronLeft, ChevronRight, Pencil, Plus, X, Loader2, CheckCircle, Download, AlertTriangle, MapPin, PlayCircle, Info } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronDown, ChevronUp, ArrowRight, Pencil, Plus, X, Loader2, CheckCircle, Download, AlertTriangle, MapPin, PlayCircle, Info } from 'lucide-react';
 import { api } from '../api';
 import { dialog } from '../ui/dialog';
 import { useWorkSites } from '../lib/queries';
@@ -250,16 +250,44 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   const exByEmail = Object.fromEntries(exceptions.map(e => [e.email, e]));
   const sidebar = (exceptions.length ? exceptions : people.map(p => ({ ...p, missing: 0, exceptions: 0 })));
 
+  // The employee master-detail list - shared by the hourly and fixed-salary views
+  // so switching between them never rearranges the screen (hidden in self mode).
+  const employeeSidebar = !self ? (
+    <div data-tour="pr-sidebar" style={{ width: 210, flexShrink: 0, border: '1px solid var(--wk-line2)', borderRadius: 14, overflow: 'hidden', maxHeight: 620, overflowY: 'auto', background: 'var(--card)', boxShadow: 'var(--wk-shadow)' }} className="pr-sidebar">
+      <div style={{ padding: '9px 12px', background: 'var(--wk-hover)', fontSize: 12, fontWeight: 500, color: 'var(--wk-dim)', display: 'flex' }}>
+        <span style={{ flex: 1 }}>Employee</span><span title="Missing punches">M</span><span style={{ width: 22, textAlign: 'right' }} title="Exceptions">E</span>
+      </div>
+      {sidebar.map(p => {
+        const sel = p.email === email;
+        return (
+          <button key={p.email} onClick={() => setEmail(p.email)}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', textAlign: 'left', padding: '8px 12px', border: 'none', borderTop: '1px solid var(--line)', cursor: 'pointer', fontFamily: 'var(--wk-font)', fontSize: 12.5, background: sel ? 'var(--wk-brand-tint)' : 'transparent', fontWeight: sel ? 700 : 500, color: sel ? 'var(--wk-brand)' : 'var(--ink)' }}>
+            <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+            <span style={{ width: 16, textAlign: 'center', color: '#b91c1c', fontWeight: 800 }}>{p.missing || ''}</span>
+            <span style={{ width: 22, textAlign: 'right', color: '#b45309', fontWeight: 800 }}>{p.exceptions || ''}</span>
+          </button>
+        );
+      })}
+    </div>
+  ) : null;
+
   // Fixed-salary employees get a dedicated MONTHLY card - the hourly SwipeClock
-  // grid (OT split, weekly subtotals, $/hr) does not apply to them.
+  // grid (OT split, weekly subtotals, $/hr) does not apply to them - but it lives
+  // inside the SAME master-detail layout as the hourly view.
   if (isFixed && data) {
-    return (
+    const fixedCard = (
       <FixedTimecard data={data} self={self} email={email} people={people} setEmail={setEmail}
         nameFor={nameFor} cur={cur} fmtM={fmtM} showRaw={showRaw} setShowRaw={setShowRaw}
         isAdmin={isAdmin} busy={busy} setBusy={setBusy}
         onPrev={() => shiftMonth(-1)} onNext={() => shiftMonth(1)}
         onApprove={approve} onFinalize={finalize} onUnfinalize={unfinalize} onSign={signTimecard}
         editDay={editDay} setEditDay={setEditDay} load={load} toastOk={toastOk} toastErr={toastErr} />
+    );
+    return self ? fixedCard : (
+      <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start', fontFamily: 'var(--wk-font)' }}>
+        {employeeSidebar}
+        <div style={{ flex: 1, minWidth: 0 }}>{fixedCard}</div>
+      </div>
     );
   }
   // A known fixed employee is mid-reload (switching months): show a clean loader
@@ -276,24 +304,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   return (
     <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start', fontFamily: 'var(--wk-font)' }}>
       {/* Employee sidebar - who has missing punches / exceptions this period */}
-      {!self && (
-      <div data-tour="pr-sidebar" style={{ width: 210, flexShrink: 0, border: '1px solid var(--wk-line2)', borderRadius: 14, overflow: 'hidden', maxHeight: 620, overflowY: 'auto', background: 'var(--card)', boxShadow: 'var(--wk-shadow)' }} className="pr-sidebar">
-        <div style={{ padding: '9px 12px', background: 'var(--wk-hover)', fontSize: 12, fontWeight: 500, color: 'var(--wk-dim)', display: 'flex' }}>
-          <span style={{ flex: 1 }}>Employee</span><span title="Missing punches">M</span><span style={{ width: 22, textAlign: 'right' }} title="Exceptions">E</span>
-        </div>
-        {sidebar.map(p => {
-          const sel = p.email === email;
-          return (
-            <button key={p.email} onClick={() => setEmail(p.email)}
-              style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', textAlign: 'left', padding: '8px 12px', border: 'none', borderTop: '1px solid var(--line)', cursor: 'pointer', fontFamily: 'var(--wk-font)', fontSize: 12.5, background: sel ? 'var(--wk-brand-tint)' : 'transparent', fontWeight: sel ? 700 : 500, color: sel ? 'var(--wk-brand)' : 'var(--ink)' }}>
-              <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
-              <span style={{ width: 16, textAlign: 'center', color: '#b91c1c', fontWeight: 800 }}>{p.missing || ''}</span>
-              <span style={{ width: 22, textAlign: 'right', color: '#b45309', fontWeight: 800 }}>{p.exceptions || ''}</span>
-            </button>
-          );
-        })}
-      </div>
-      )}
+      {employeeSidebar}
 
       <div style={{ flex: 1, minWidth: 0 }}>
       {/* Toolbar */}
@@ -631,6 +642,8 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
   const T = data.totals || {};
   const fin = data.finalized;
   const mgrAp = data.approval;
+  const [openPunches, setOpenPunches] = useState({});   // date -> show every punch pair
+  const [openBreaks, setOpenBreaks] = useState({});     // date -> show each break window
   const byDate = Object.fromEntries((data.days || []).map(d => [d.date, d]));
   const fixedDays = data.fixedDays || [];
   const monthLabel = data.periodStart ? new Date(data.periodStart + 'T00:00').toLocaleDateString([], { month: 'long', year: 'numeric' }) : '';
@@ -704,16 +717,30 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
               const d = byDate[fd.date];
               const segs = d?.segments || [];
               const st = STATUS[fd.status] || STATUS.upcoming;
-              const rowsForDay = segs.length ? segs : [null];
-              // Break/away time for the day = all non-worked time between the first
-              // clock-in and last clock-out (formal Start Break gaps AND the gaps
-              // where they clocked out and back in - e.g. stepping out for lunch).
-              let dayBreak = d?.breakMin || 0;
+              const multi = segs.length > 1;               // collapse only when there's more than one punch pair
+              const punchesOpen = !!openPunches[fd.date];
+              const breaksOpen = !!openBreaks[fd.date];
+
+              // Break/away time for the day = non-worked time between the first clock-in
+              // and last clock-out (formal Start Break gaps AND clock-out/back-in gaps),
+              // plus each individual break window for the click-to-expand detail.
               const segsOut = segs.filter(s => s.out);
+              let dayBreak = d?.breakMin || 0;
               if (segsOut.length && segs[0]?.in) {
                 const spanMin = Math.round((new Date(segsOut[segsOut.length - 1].out + 'Z') - new Date(segs[0].in + 'Z')) / 60000);
                 dayBreak = Math.max(dayBreak, spanMin - (d.workedMin || 0));
               }
+              const breaks = [];
+              for (let i = 1; i < segs.length; i++) {
+                const pOut = segs[i - 1].out, tIn = segs[i].in;
+                if (pOut && tIn) {
+                  const m = Math.round((new Date(tIn + 'Z') - new Date(pOut + 'Z')) / 60000);
+                  if (m > 0) breaks.push({ start: pOut, end: tIn, min: m });
+                }
+              }
+              const overBreak = dayBreak > 60;             // 60 min/day allowance
+              const breakFg = dayBreak <= 0 ? 'var(--muted)' : overBreak ? '#b91c1c' : 'hsl(var(--color-green))';
+
               // Reasons/notes visible IN the card (not just on hover), employee AND HR.
               const notes = [];
               segs.forEach(s => {
@@ -723,34 +750,110 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
                 if (s.outAdjustNote) notes.push(s.outAdjustNote);
                 if (s.note) notes.push(s.note);
               });
-              const out = rowsForDay.map((seg, si) => (
-                <tr key={fd.date + '-' + si} style={{ background: fd.isWeekend ? 'var(--mist)' : 'transparent' }}>
-                  <td style={{ ...td, fontWeight: 700 }}>{si === 0 ? dow(fd.date) : ''}</td>
-                  <td style={td}>{si === 0 && <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 9px', borderRadius: 999, background: st.bg, color: st.fg }}>{st.label}</span>}</td>
-                  <td style={td}>{seg
-                    ? <InlineTime seg={seg} k="in" showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} />
-                    : (!fin && !fd.future)
-                      ? <button onClick={() => setEditDay({ date: fd.date, seg: null })} title={self ? 'Add a missing punch for this day - goes to your approver' : 'Add a punch for this day'} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--wk-brand)', fontWeight: 600, font: 'inherit', opacity: 0.75 }}>+ add</button>
-                      : <span style={{ color: 'var(--muted)' }}>-</span>}</td>
-                  <td style={td}>{seg
-                    ? (seg.out
-                        ? <InlineTime seg={seg} k="out" showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} />
-                        : (self && fin) ? <span style={{ color: '#b91c1c', fontWeight: 700 }}>Missing</span>
-                            : <button onClick={() => !fin && setEditDay({ date: fd.date, seg })} title={fin ? 'Locked' : 'Add the missing clock-out'} style={{ background: 'none', border: 'none', padding: 0, cursor: fin ? 'default' : 'pointer', color: '#b91c1c', fontWeight: 700, font: 'inherit' }}>Missing</button>)
-                    : <span style={{ color: 'var(--muted)' }}>-</span>}</td>
-                  <td style={{ ...td, textAlign: 'right' }}>{seg && si === 0 ? hhmm(d.workedMin) : (seg ? '' : <span style={{ color: 'var(--muted)' }}>-</span>)}</td>
-                  <td style={{ ...td, textAlign: 'right', color: 'var(--muted)' }} title={dayBreak > 0 ? 'Away time between the first clock-in and last clock-out' : ''}>{si === 0 ? (dayBreak > 0 ? hhmm(dayBreak) : '-') : ''}</td>
-                  <td style={{ ...td, textAlign: 'right' }}>{si === 0 ? effect(fd) : ''}</td>
+
+              // Editable in/out cell for a single segment (or an expanded punch row).
+              const inCell = (seg) => <InlineTime seg={seg} k="in" showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} />;
+              const outCell = (seg) => seg.out
+                ? <InlineTime seg={seg} k="out" showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} />
+                : (self && fin) ? <span style={{ color: '#b91c1c', fontWeight: 700 }}>Missing</span>
+                    : <button onClick={() => !fin && setEditDay({ date: fd.date, seg })} title={fin ? 'Locked' : 'Add the missing clock-out'} style={{ background: 'none', border: 'none', padding: 0, cursor: fin ? 'default' : 'pointer', color: '#b91c1c', fontWeight: 700, font: 'inherit' }}>Missing</button>;
+              const addBtn = <button onClick={() => setEditDay({ date: fd.date, seg: null })} title={self ? 'Add a missing punch for this day - goes to your approver' : 'Add a punch for this day'} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--wk-brand)', fontWeight: 600, font: 'inherit', opacity: 0.85 }}>+ add</button>;
+              const statusPill = <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 9px', borderRadius: 999, background: st.bg, color: st.fg }}>{st.label}</span>;
+              const breakCell = (
+                <td style={{ ...td, textAlign: 'right' }}>
+                  {dayBreak > 0
+                    ? <button onClick={() => setOpenBreaks(o => ({ ...o, [fd.date]: !o[fd.date] }))} aria-expanded={breaksOpen}
+                        title="Daily break allowance is 60 min. Click to see each break in/out."
+                        style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit', fontWeight: 700, color: breakFg, borderBottom: '1px dashed currentColor', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                        {hhmm(dayBreak)}{overBreak && <AlertTriangle size={11} />}
+                      </button>
+                    : <span style={{ color: 'var(--muted)' }}>-</span>}
+                </td>
+              );
+
+              const rows = [];
+              const rowBg = fd.isWeekend ? 'var(--mist)' : 'transparent';
+              const firstSeg = segs[0];
+              const lastSeg = segs[segs.length - 1];
+
+              // ── One summary row per day: first clock-in, last clock-out, hours, break ──
+              rows.push(
+                <tr key={fd.date} style={{ background: rowBg }}>
+                  <td style={{ ...td, fontWeight: 700 }}>{dow(fd.date)}</td>
+                  <td style={td}>{statusPill}</td>
+                  <td style={td}>
+                    {!segs.length
+                      ? ((!fin && !fd.future) ? addBtn : <span style={{ color: 'var(--muted)' }}>-</span>)
+                      : multi
+                        ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                            <span style={{ fontWeight: 600 }}>{t12(firstSeg.in)}</span>
+                            <button onClick={() => setOpenPunches(o => ({ ...o, [fd.date]: !o[fd.date] }))} aria-expanded={punchesOpen}
+                              title="Show every clock-in and clock-out for this day"
+                              style={{ background: 'var(--wk-hover)', border: '1px solid var(--line)', borderRadius: 999, padding: '1px 8px', cursor: 'pointer', font: 'inherit', fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                              {segs.length} punches {punchesOpen ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+                            </button>
+                          </span>
+                        : inCell(firstSeg)}
+                  </td>
+                  <td style={td}>
+                    {!segs.length
+                      ? <span style={{ color: 'var(--muted)' }}>-</span>
+                      : multi
+                        ? (lastSeg.out ? <span style={{ fontWeight: 600 }}>{t12(lastSeg.out)}</span> : <span style={{ color: '#b91c1c', fontWeight: 700 }}>Missing</span>)
+                        : outCell(firstSeg)}
+                  </td>
+                  <td style={{ ...td, textAlign: 'right' }}>{segs.length ? hhmm(d.workedMin) : <span style={{ color: 'var(--muted)' }}>-</span>}</td>
+                  {breakCell}
+                  <td style={{ ...td, textAlign: 'right' }}>{effect(fd)}</td>
                 </tr>
-              ));
-              if (notes.length) out.push(
-                <tr key={fd.date + '-notes'} style={{ background: fd.isWeekend ? 'var(--mist)' : 'transparent' }}>
+              );
+
+              // ── Expanded: every punch pair, editable ──
+              if (multi && punchesOpen) {
+                segs.forEach((seg, si) => rows.push(
+                  <tr key={fd.date + '-p' + si} style={{ background: 'var(--wk-hover)' }}>
+                    <td style={td}></td>
+                    <td style={{ ...td, color: 'var(--muted)', fontSize: 11 }}>Punch {si + 1}</td>
+                    <td style={td}>{inCell(seg)}</td>
+                    <td style={td}>{outCell(seg)}</td>
+                    <td style={{ ...td, textAlign: 'right', color: 'var(--muted)' }}>{hhmm(seg.workedMin)}</td>
+                    <td style={td}></td>
+                    <td style={td}></td>
+                  </tr>
+                ));
+                if (!fin && !fd.future) rows.push(
+                  <tr key={fd.date + '-padd'} style={{ background: 'var(--wk-hover)' }}>
+                    <td style={td}></td><td style={td}></td>
+                    <td style={td} colSpan={2}>{addBtn}</td>
+                    <td style={td}></td><td style={td}></td><td style={td}></td>
+                  </tr>
+                );
+              }
+
+              // ── Expanded: each break window (clock-out -> next clock-in + duration) ──
+              if (breaksOpen && breaks.length) rows.push(
+                <tr key={fd.date + '-br'} style={{ background: 'var(--wk-hover)' }}>
+                  <td colSpan={7} style={{ ...td, whiteSpace: 'normal', fontSize: 12 }}>
+                    <span style={{ fontWeight: 700, color: breakFg, marginRight: 10 }}>Breaks - {hhmm(dayBreak)} {overBreak ? '(over the 60 min allowance)' : '(within 60 min)'}</span>
+                    {breaks.map((b, i) => (
+                      <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 999, padding: '2px 9px', margin: '2px 6px 2px 0', fontSize: 11.5 }}>
+                        {t12(b.start)} <ArrowRight size={10} style={{ opacity: 0.6 }} /> {t12(b.end)}
+                        <span style={{ fontWeight: 700, marginLeft: 3, color: b.min > 60 ? '#b91c1c' : undefined }}>({b.min}m)</span>
+                      </span>
+                    ))}
+                  </td>
+                </tr>
+              );
+
+              // ── Notes (reasons for changes) ──
+              if (notes.length) rows.push(
+                <tr key={fd.date + '-notes'} style={{ background: rowBg }}>
                   <td colSpan={7} style={{ ...td, borderTop: 'none', paddingTop: 0, color: 'var(--muted)', fontStyle: 'italic', fontSize: 11.5, whiteSpace: 'normal' }}>
                     <Pencil size={10} style={{ marginRight: 5, verticalAlign: 'middle' }} />{notes.join('  ·  ')}
                   </td>
                 </tr>
               );
-              return out;
+              return rows;
             })}
           </tbody>
         </table>
