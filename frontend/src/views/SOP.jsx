@@ -1,15 +1,18 @@
 import { useState, useEffect, useCallback, useRef, Fragment } from 'react';
 import { useMsal } from '@azure/msal-react';
+import { generateHTML } from '@tiptap/core';
 import { useRole } from '../contexts/RoleContext';
 import { api } from '../api';
 import { SkeletonBlocks } from '../components/AsyncState';
 import ModuleTabs from '../components/ModuleTabs';
+import DocumentBuilder from '../components/DocumentBuilder';
+import { BODY_EXTENSIONS } from '../lib/docBuilderSchema';
 import {
   BookOpen, CheckSquare, Search, Clock, Sparkles,
   X, ArrowLeft, Plus, Trash2, Edit3, Send, Archive, ArchiveRestore, Loader, ChevronUp, ChevronDown,
   Image as ImageIcon, Paperclip, Settings, Grid3x3, BarChart3, GraduationCap, Eye, ChevronRight, Star,
   List, LayoutGrid, Building2, PanelRight, FileText, HelpCircle, Share2, Link2, Download, Printer,
-  ShieldCheck, Play, ListChecks,
+  ShieldCheck, Play, ListChecks, ThumbsUp, ThumbsDown,
 } from 'lucide-react';
 
 const rid = () => 'r' + Math.random().toString(36).slice(2, 9);
@@ -66,6 +69,16 @@ const DOC_TYPES = ['SOP', 'Manual', 'Guide'];
 const DOC_THEME = { navy: '#0F1B33', slate: '#44546A', blue: '#1F4D78', muted: '#6B7686', line: '#E2E5EA', paper: '#FFFFFF', ink: '#1A1F2B' };
 const DOC_FONT = "'Calibri','Segoe UI',Arial,sans-serif";
 const GREENS_LOGO_URL = '/assets/branding/greens-global-logo.png';
+// Quick-insert headings for the Full Editor, so a freeform SOP can carry the
+// same three load-bearing sections a guided SOP's fields already enforce
+// (what/why, the steps, anything extra) without the author retyping/
+// reformatting a heading by hand every time.
+const SOP_QUICK_SECTIONS = [
+  { heading: 'Purpose', hint: 'Why this document exists and what it should achieve' },
+  { heading: 'Responsibilities', hint: 'Who owns which part of this process' },
+  { heading: 'Process', hint: 'The steps to follow, in order' },
+  { heading: 'Notes', hint: 'Anything else worth calling out - exceptions, tips, warnings' },
+];
 const DEPT_ABBR = {
   'Operations': 'OPS', 'Revenue Management': 'RM', 'Real Estate Development': 'RED',
   'People (HR)': 'HR', 'Accounting': 'ACC', 'IT': 'IT', 'Marketing': 'MKT', 'Administration': 'ADM',
@@ -108,11 +121,11 @@ const HELP_PAGES = [
       'If you own the draft, Edit reopens it; managers see Review/Approve and Archive here.',
     ] },
   { key: 'create', label: 'Creating an SOP', title: 'Creating & Editing an SOP',
-    intro: 'Anyone can start a draft. It’s a four-step wizard: Capture, Content, Settings, Publish - and Claude does the heavy lifting.',
+    intro: 'Anyone can start a draft. It’s a four-step wizard: Capture, Content, Settings, Publish - and Nexus does the heavy lifting.',
     steps: [
-      'Capture: do the task once and show it - paste screenshots of each step with Ctrl+V, jot rough notes between them, or upload an existing file, then press Format with Claude. Review the before/after diff, then Keep changes or Revert. (Or skip with “Start With a Blank Document”.)',
+      'Capture: do the task once and show it - paste screenshots of each step with Ctrl+V, jot rough notes between them, or upload an existing file, then press Format with Nexus. Review the before/after diff, then Keep changes or Revert. (Or skip with “Start With a Blank Document”.)',
       'Content: the title and the substance - Overview, Procedure, Safety, and so on. Each card has a short tip explaining what belongs there.',
-      'Editing an existing document? You land straight on Content, where “Edit with Claude” applies any change you describe - you review the diff before keeping it.',
+      'Editing an existing document? You land straight on Content, where “Edit with Nexus” applies any change you describe - you review the diff before keeping it.',
       'Settings: type, version, departments, review cadence, and the Reviewing manager (required to submit).',
       'Publish: a readiness checklist plus a full preview side by side, then Save Draft, Save & Submit for Review, or - for managers - Save & Publish.',
     ] },
@@ -172,6 +185,7 @@ const Badge = ({ status }) => {
 const blankBody = () => ({
   purpose: '', scopeText: '', materials: [], responsibilities: [],
   definitions: [], procedure: [], safety: [], references: [], attachments: [], media: [], tables: [],
+  authoringMode: 'guided', linkedDocumentId: '',
 });
 
 // Resize an image file to a JPEG data URL (≤1100px) so it stores inline with the doc.
@@ -224,10 +238,26 @@ const blankDraft = (name, email) => ({
   id: null, title: '', doc_type: 'SOP', departments: [], reviewer_email: '',
   reviewer_name: '', version: '1.0', effective_date: '', body: blankBody(),
   require_ack: false, review_every_months: 12, retention_months: 84,
+  tags: [], related_ids: [],
   owner_name: name, owner_email: email, _raw: '',
 });
 
 const fmtDate = (s) => (s ? new Date(s.length > 10 ? s : s + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '-');
+
+// Flattens a freeform SOP's TipTap content (content.pages[].json) into plain
+// text, pushed to the backend's content_text column so the search box (which
+// only ever reads guided-body fields otherwise) can also match freeform SOPs.
+function tiptapPlainText(node) {
+  if (!node) return '';
+  if (Array.isArray(node)) return node.map(tiptapPlainText).join(' ');
+  if (typeof node.text === 'string') return node.text;
+  if (Array.isArray(node.content)) return node.content.map(tiptapPlainText).join(' ');
+  return '';
+}
+function freeformContentToText(content) {
+  const pages = content?.pages || (content?.body ? [{ json: content.body }] : []);
+  return pages.map(p => tiptapPlainText(p.json)).join(' ').replace(/\s+/g, ' ').trim();
+}
 
 // Wizard step rail for the SOP / course creators - one focused screen at a
 // time instead of a wall of form cards. Completed steps are clickable.
@@ -238,9 +268,9 @@ function Stepper({ steps, current, onGo }) {
         const doneStep = i < current, on = i === current;
         return (
           <div key={s} style={{ display: 'flex', alignItems: 'center' }}>
-            {i > 0 && <div style={{ width: 34, height: 2, background: doneStep || on ? 'hsl(266,72%,56%)' : 'var(--border-color)', margin: '0 6px' }} />}
+            {i > 0 && <div style={{ width: 34, height: 2, background: doneStep || on ? 'hsl(var(--color-green))' : 'var(--border-color)', margin: '0 6px' }} />}
             <button onClick={() => (doneStep ? onGo(i) : null)} style={{ display: 'inline-flex', alignItems: 'center', gap: 7, background: 'transparent', border: 'none', cursor: doneStep ? 'pointer' : 'default', padding: '4px 2px' }}>
-              <span style={{ width: 26, height: 26, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.74rem', fontWeight: 700, flex: '0 0 auto', background: on ? 'hsl(266,72%,56%)' : doneStep ? 'hsla(266,70%,60%,0.16)' : 'var(--bg-secondary)', color: on ? '#fff' : doneStep ? 'hsl(266,72%,56%)' : 'var(--text-muted)', border: doneStep ? '1px solid hsla(266,70%,60%,0.5)' : '1px solid transparent' }}>{doneStep ? '✓' : i + 1}</span>
+              <span style={{ width: 26, height: 26, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.74rem', fontWeight: 700, flex: '0 0 auto', background: on ? 'hsl(var(--color-green))' : doneStep ? 'hsla(var(--color-green),0.16)' : 'var(--bg-secondary)', color: on ? '#fff' : doneStep ? 'hsl(var(--color-green))' : 'var(--text-muted)', border: doneStep ? '1px solid hsla(var(--color-green),0.5)' : '1px solid transparent' }}>{doneStep ? '✓' : i + 1}</span>
               <span style={{ fontSize: '0.82rem', fontWeight: on ? 700 : 500, color: on ? 'var(--text-primary)' : 'var(--text-muted)', whiteSpace: 'nowrap' }}>{s}</span>
             </button>
           </div>
@@ -444,6 +474,7 @@ export default function SOP({ activeSub, onSubChange }) {
   const [deptFilter, setDeptFilter] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [tagFilter, setTagFilter] = useState('all');
   const [libView, setLibView] = useState(() => { try { return localStorage.getItem('kbLibView') || 'list'; } catch { return 'list'; } }); // list | cards | outline
   const [pins, setPins] = useState([]); // doc ids the user has pinned
   const [reviewers, setReviewers] = useState([]); // managers who can approve
@@ -466,6 +497,8 @@ export default function SOP({ activeSub, onSubChange }) {
 
   // sign-offs
   const [ackInfo, setAckInfo] = useState(null);
+  const [feedback, setFeedback] = useState(null); // { helpful, not_helpful, my_vote }
+  const [related, setRelated] = useState([]);
   const [signOpen, setSignOpen] = useState(false);
   const [signName, setSignName] = useState('');
   const [signoffs, setSignoffs] = useState([]);
@@ -481,6 +514,7 @@ export default function SOP({ activeSub, onSubChange }) {
   const [diff, setDiff] = useState(null); // { from, to } indices into snapshots
   const [docLang, setDocLang] = useState('en');
   const [translating, setTranslating] = useState('');
+  const [freeformHtml, setFreeformHtml] = useState({ id: '', html: '', loading: false });
 
   // LMS (Learn)
   const [lmsCourses, setLmsCourses] = useState([]);
@@ -510,9 +544,11 @@ export default function SOP({ activeSub, onSubChange }) {
   // load acknowledgements, comments and version snapshots when viewing a document
   useEffect(() => {
     if (mode === 'detail' && selected) {
-      setAckInfo(null); setComments([]); setSnapshots([]); setCommentText(''); setDocLang('en');
+      setAckInfo(null); setComments([]); setSnapshots([]); setCommentText(''); setDocLang('en'); setFeedback(null); setRelated([]);
       api.getKbAcks(selected.id).then(setAckInfo).catch(() => {});
       api.getKbComments(selected.id).then(setComments).catch(() => {});
+      api.getKbFeedback(selected.id).then(setFeedback).catch(() => {});
+      api.getKbRelated(selected.id).then(setRelated).catch(() => {});
       api.getKbSnapshots(selected.id).then(snaps => {
         setSnapshots(snaps);
         // bounceback from the activity log: jump straight to the diff for this version
@@ -552,6 +588,27 @@ export default function SOP({ activeSub, onSubChange }) {
   useEffect(() => {
     if (mode === 'detail' && selected) { setActiveRun(myRuns.find(r => r.doc_id === selected.id) || null); setRunDone(null); }
   }, [mode, selected]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Freeform (Full Editor) SOPs keep their rich content on a linked Document
+  // row, not in body.procedure/etc - render it to static HTML for the
+  // published view (and print) via the same TipTap extensions the editor uses.
+  useEffect(() => {
+    const linkedId = mode === 'detail' && selected?.body?.authoringMode === 'freeform' ? selected.body.linkedDocumentId : '';
+    if (!linkedId) { setFreeformHtml({ id: '', html: '', loading: false }); return; }
+    if (freeformHtml.id === linkedId) return;
+    setFreeformHtml({ id: linkedId, html: '', loading: true });
+    api.getDocument(linkedId).then(doc => {
+      // Each page is a real, independent unit (Document Builder's Pages
+      // panel) - render them in order with a visible rule between pages.
+      // Backward compat: a document saved before that rewrite has
+      // content.body (one continuous doc) instead of content.pages.
+      const pages = Array.isArray(doc.content?.pages) && doc.content.pages.length
+        ? doc.content.pages.map(p => p.json)
+        : [doc.content?.body || { type: 'doc', content: [] }];
+      const html = pages.map(p => generateHTML(p, BODY_EXTENSIONS))
+        .join('<hr style="margin:28px 0;border:none;border-top:1px dashed #d8dbe0" />');
+      setFreeformHtml({ id: linkedId, html, loading: false });
+    }).catch(() => setFreeformHtml({ id: linkedId, html: '', loading: false }));
+  }, [mode, selected, freeformHtml.id]);
   useEffect(() => { api.getKbReviewers().then(setReviewers).catch(() => {}); }, []);
   // remember the chosen library view between sessions
   useEffect(() => { try { localStorage.setItem('kbLibView', libView); } catch { /* ignore */ } }, [libView]);
@@ -668,6 +725,10 @@ export default function SOP({ activeSub, onSubChange }) {
     try { const doc = await api.verifyKbDoc(selected.id); setSelected(doc); refresh(); }
     catch (e) { setErr(e.message || 'Failed to mark verified'); }
   };
+  const voteFeedback = async (helpful) => {
+    try { setFeedback(await api.submitKbFeedback(selected.id, helpful)); }
+    catch (e) { setErr(e.message || 'Failed to record feedback'); }
+  };
   const translateDoc = async (lang) => {
     if (lang === 'en') { setDocLang('en'); return; }
     if (selected.body?.translations?.[lang]) { setDocLang(lang); return; }
@@ -686,12 +747,15 @@ export default function SOP({ activeSub, onSubChange }) {
     return [d.title, d.doc_code, d.owner_name, b.purpose, b.scopeText,
       (b.procedure || []).map(s => s.text + ' ' + (s.detail || '')).join(' '),
       (b.references || []).join(' '),
-      (b.tables || []).map(t => t.title + ' ' + (t.headers || []).join(' ') + ' ' + (t.rows || []).map(r => r.join(' ')).join(' ')).join(' ')].join('  ').toLowerCase();
+      (b.tables || []).map(t => t.title + ' ' + (t.headers || []).join(' ') + ' ' + (t.rows || []).map(r => r.join(' ')).join(' ')).join(' '),
+      (d.tags || []).join(' '), d.content_text || ''].join('  ').toLowerCase();
   };
+  const allTags = [...new Set(docs.flatMap(d => d.tags || []))].sort((a, b) => a.localeCompare(b));
   const filtered = docs.filter(d => {
     if (deptFilter !== 'all' && !(d.departments || []).includes(deptFilter)) return false;
     if (typeFilter !== 'all' && d.doc_type !== typeFilter) return false;
     if (statusFilter !== 'all' && d.status !== statusFilter) return false;
+    if (tagFilter !== 'all' && !(d.tags || []).includes(tagFilter)) return false;
     if (search && !docSearchText(d).includes(search.toLowerCase().trim())) return false;
     return true;
   });
@@ -711,6 +775,7 @@ export default function SOP({ activeSub, onSubChange }) {
       reviewer_email: d.reviewer_email || '', reviewer_name: d.reviewer_name || '',
       version: d.version, effective_date: d.effective_date || '', require_ack: !!d.require_ack,
       review_every_months: d.review_every_months || 12, retention_months: d.retention_months || 84,
+      tags: [...(d.tags || [])], related_ids: [...(d.related_ids || [])],
       body: { ...blankBody(), ...(d.body || {}) }, owner_name: d.owner_name, owner_email: d.owner_email, _raw: '',
       _status: d.status, _reviewNote: d.review_note || '',
     });
@@ -751,6 +816,7 @@ export default function SOP({ activeSub, onSubChange }) {
     require_ack: draft.require_ack,
     review_every_months: parseInt(draft.review_every_months, 10) || 12,
     retention_months: parseInt(draft.retention_months, 10) || 84,
+    tags: draft.tags || [], related_ids: draft.related_ids || [],
   });
 
   const save = async (submit) => {
@@ -779,6 +845,7 @@ export default function SOP({ activeSub, onSubChange }) {
       doc = await api.reviewKbDoc(doc.id, { decision: 'approve', note: draft._importSource ? 'Imported and published.' : 'Published.' });
       refresh();
       setSelected(doc); setMode('detail'); setDraft(null);
+      syncFreeformDocCode(doc);
     } catch (e) { setErr(e.message || 'Publish failed'); }
     finally { setBusy(false); }
   };
@@ -790,6 +857,24 @@ export default function SOP({ activeSub, onSubChange }) {
     finally { setBusy(false); }
   };
 
+  // A Full Editor SOP's doc_code doesn't exist until this exact moment (see
+  // knowledge_base.py review_document - assigned on approval only, never on a
+  // draft, so an abandoned draft never burns an audit number). The header
+  // still shows the "(assigned when published…)" placeholder from Capture -
+  // swap it for the real id now, but only if it still looks untouched, so a
+  // header the author hand-edited is never clobbered.
+  const syncFreeformDocCode = async (doc) => {
+    if (doc?.status !== 'approved' || doc?.body?.authoringMode !== 'freeform' || !doc.body.linkedDocumentId || !doc.doc_code) return;
+    try {
+      const cur = await api.getDocument(doc.body.linkedDocumentId);
+      if (cur.content?.header?.content?.[0]?.content?.[0]?.text !== 'Document ID: ') return;
+      const headerContent = { type: 'doc', content: [{ type: 'paragraph', content: [
+        { type: 'text', marks: [{ type: 'bold' }], text: 'Document ID: ' }, { type: 'text', text: doc.doc_code },
+      ] }] };
+      await api.updateDocument(doc.body.linkedDocumentId, { content: { ...cur.content, header: headerContent } });
+    } catch { /* cosmetic - never block publish on it */ }
+  };
+
   const doReview = async (decision) => {
     if (decision === 'request_changes' && !reviewNote.trim()) { setErr('Add a note describing the changes needed.'); return; }
     setBusy(true); setErr('');
@@ -797,6 +882,7 @@ export default function SOP({ activeSub, onSubChange }) {
       const doc = await api.reviewKbDoc(reviewDoc.id, { decision, note: reviewNote });
       setReviewDoc(null); setReviewNote(''); refresh();
       if (selected?.id === doc.id) setSelected(doc);
+      syncFreeformDocCode(doc);
     } catch (e) { setErr(e.message || 'Review failed'); }
     finally { setBusy(false); }
   };
@@ -822,7 +908,7 @@ export default function SOP({ activeSub, onSubChange }) {
     setAiBusy(true); setErr('');
     try {
       const { sop, source } = await api.aiFormatKbDoc({ content, title: draft.title, departments: draft.departments });
-      if (source !== 'ai') { setErr('Claude API is unavailable right now (no key locally, or a network/parse error) - this used a best-effort offline formatter instead, which cannot group steps, place images, or read tables. Try again once the API key is configured, or expect to do heavier manual cleanup.'); }
+      if (source !== 'ai') { setErr('Nexus AI is unavailable right now (no key locally, or a network/parse error) - this used a best-effort offline formatter instead, which cannot group steps, place images, or read tables. Try again once the API key is configured, or expect to do heavier manual cleanup.'); }
       // Map the [[IMG#]] markers Claude placed back to the uploaded image URLs, and
       // scrub any stray markers out of text so they never render as literal "[[IMG1]]".
       // Marker matching is lenient about brackets/spacing since the model doesn't
@@ -875,15 +961,67 @@ export default function SOP({ activeSub, onSubChange }) {
     } catch (e) { setErr(e.message || 'AI formatting failed'); }
     finally { setAiBusy(false); }
   };
+  // "Full Editor": hand authoring off to the same Word-like TipTap editor the
+  // Documents module uses (tables/images/shapes/page-setup, the works) instead
+  // of the guided structured fields. The rich content lives on a linked
+  // Document row (api.createDocument) - the KbDocument row stays the system of
+  // record for title/status/reviewer/doc_code, same governance as guided SOPs,
+  // it just points at body.linkedDocumentId instead of filling body.procedure
+  // etc. Because guided-only fields (procedure, safety, ...) stay empty, "Run
+  // This SOP" and "Format/Edit with Claude" hide themselves automatically -
+  // they already gate on those arrays being non-empty.
+  const startFreeform = async () => {
+    setAiBusy(true); setErr('');
+    try {
+      // Create the KbDocument row now (not at Publish, like the guided path) -
+      // draft.id flips to a real id here, so every later save/submit correctly
+      // PATCHes this same row instead of creating a second one. doc_code is
+      // never assigned this early (only on approval - see the audit-trail
+      // fix in knowledge_base.py), so the header always starts on the
+      // placeholder text regardless of what createKbDoc returns - nothing
+      // here actually needs to wait on it, so every independent call fires
+      // in parallel instead of stacking up as four sequential round-trips
+      // (~1 minute end to end when each one queues behind the last).
+      const title = draft.title || 'Untitled SOP';
+      const headerContent = { type: 'doc', content: [{ type: 'paragraph', content: [
+        { type: 'text', marks: [{ type: 'bold' }], text: 'Document ID: ' }, { type: 'text', text: '(assigned when published - audit ids aren’t issued to drafts)' },
+      ] }] };
+      // No seeded footer - every page already gets a running "title · Page N
+      // of M" footer by default (Document Builder), so a separate footer
+      // band showing just the title again would be a duplicate directly
+      // below it.
+      const [kbDocResult, letterheads, linkedDoc] = await Promise.all([
+        draft.id ? Promise.resolve(draft) : api.createKbDoc({ ...payloadFromDraft(), title }),
+        api.getDocLetterheads().catch(() => []),  // letterhead is a nice-to-have, not a blocker
+        api.createDocument({ title, content: { header: headerContent } }),
+      ]);
+      const kbDoc = draft.id ? draft : kbDocResult;
+      // Attaching the letterhead is cosmetic and touches nothing the wizard
+      // needs next - don't make the user wait on it, let it land in the
+      // background while they're already looking at the editor.
+      const letterheadId = letterheads.find(l => l.name === 'Nexus Knowledge Base')?.id || '';
+      if (letterheadId) api.updateDocument(linkedDoc.id, { letterheadId }).catch(() => {});
+      setDraft(p => ({ ...p, id: kbDoc.id, title: p.title || title, doc_code: kbDoc.doc_code,
+        body: { ...p.body, authoringMode: 'freeform', linkedDocumentId: linkedDoc.id } }));
+      // draft.id going from null to real flips isNew false on the next render,
+      // which drops 'Capture' from the step rail (4 steps -> 3) - Content is
+      // index 1 in the Capture-included rail but index 0 once it's gone, so
+      // the index to land on changes together with draft.id, not independently
+      // of it. Always 0 here, never the "was it 0" check runAiFormat uses,
+      // because that path never sets draft.id and so never shrinks the rail.
+      setEdStep(0);
+    } catch (e) { setErr(e.message || 'Could not open the full editor'); }
+    finally { setAiBusy(false); }
+  };
   // "Edit with Claude": apply a natural-language change to the current draft, then review the diff.
   // An optional overrideInstruction lets the "Address reviewer feedback" button drive the same flow.
   const runAiRevise = async (overrideInstruction) => {
     const instruction = (typeof overrideInstruction === 'string' ? overrideInstruction : aiInstruction).trim();
-    if (!instruction) { setErr('Describe the change you want Claude to make.'); return; }
+    if (!instruction) { setErr('Describe the change you want Nexus to make.'); return; }
     setAiBusy(true); setErr('');
     try {
       const { sop, source } = await api.aiReviseKbDoc({ body: draft.body, title: draft.title, instruction, departments: draft.departments });
-      if (source === 'offline') { setErr('AI editing needs the Claude API key (unavailable in local dev) - edit the sections manually.'); setAiBusy(false); return; }
+      if (source === 'offline') { setErr('AI editing needs the Nexus AI key (unavailable in local dev) - edit the sections manually.'); setAiBusy(false); return; }
       const before = { title: draft.title, departments: [...draft.departments], body: JSON.parse(JSON.stringify(draft.body)) };
       const afterBody = {
         ...draft.body,
@@ -914,7 +1052,7 @@ export default function SOP({ activeSub, onSubChange }) {
     if ((draft._reviewNote || '').trim()) parts.push(`Reviewer's change request:\n${draft._reviewNote.trim()}`);
     const cs = (comments || []).filter(c => (c.text || '').trim());
     if (cs.length) parts.push('Comments:\n' + cs.map(c => `- ${c.author_name || c.author_email}: ${c.text}`).join('\n'));
-    if (!parts.length) { setErr('No reviewer feedback found to address - edit the sections, or use Edit with Claude.'); return; }
+    if (!parts.length) { setErr('No reviewer feedback found to address - edit the sections, or use Edit with Nexus.'); return; }
     await runAiRevise('A reviewer asked for changes on this SOP. Revise it to FULLY address the following feedback, keeping everything else intact:\n\n' + parts.join('\n\n'));
   };
   const revertAi = () => {
@@ -945,7 +1083,9 @@ export default function SOP({ activeSub, onSubChange }) {
           <span>{d.doc_type}</span><span>·</span><span>v{d.version || '0.1'}</span>
           {(d.departments || []).length > 0 && <><span>·</span>{d.departments.map(x => <span key={x} style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 999, padding: '1px 8px' }}>{DEPT_ABBR[x] || x}</span>)}</>}
         </div>
-        {empty && <p style={{ fontSize: '0.88rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>Nothing to preview yet - fill in the sections below.</p>}
+        {b.authoringMode === 'freeform'
+          ? <p style={{ fontSize: '0.88rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>{b.linkedDocumentId ? 'This document uses the Full Editor - open the Content step to see and edit it there.' : 'Open the Content step and start the Full Editor to write this document.'}</p>
+          : (empty && <p style={{ fontSize: '0.88rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>Nothing to preview yet - fill in the sections below.</p>)}
         {b.purpose && <>{h('Purpose')}{para(b.purpose)}</>}
         {b.scopeText && <>{h('Scope')}{para(b.scopeText)}</>}
         {(b.materials || []).length > 0 && <>{h('Materials & Required Items')}{ul(b.materials)}</>}
@@ -1175,6 +1315,7 @@ export default function SOP({ activeSub, onSubChange }) {
   if (mode === 'detail' && selected) {
     const d = selected;
     const b = d.body || {};
+    const isFreeformDoc = b.authoringMode === 'freeform';
     const deptLabel = (d.departments || []).length ? d.departments.join(', ') : 'Unassigned';
     const section = (title, content) => (
       <div style={{ marginBottom: 22 }}>
@@ -1355,19 +1496,19 @@ export default function SOP({ activeSub, onSubChange }) {
               chrome (comments), not part of the document, and stays theme-aware. */}
           <div style={{ backgroundColor: DOC_THEME.paper, color: DOC_THEME.ink, fontFamily: DOC_FONT }}>
             {/* letterhead */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, padding: '14px 26px', borderBottom: `2px solid ${DOC_THEME.navy}`, flexWrap: 'wrap' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 26px', borderBottom: `2px solid ${DOC_THEME.navy}`, flexWrap: 'wrap' }}>
+              <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
                 <img src={GREENS_LOGO_URL} alt="Greens Global" style={{ height: 26, width: 'auto', display: 'block' }} />
-                <span style={{ fontSize: '0.68rem', fontWeight: 700, color: DOC_THEME.muted, letterSpacing: '0.03em' }}>NEXUS KNOWLEDGE BASE</span>
+                <span style={{ fontSize: '0.68rem', fontWeight: 700, color: DOC_THEME.muted, letterSpacing: '0.03em', whiteSpace: 'nowrap' }}>NEXUS KNOWLEDGE BASE</span>
               </div>
-              <span style={{ fontSize: '0.72rem', fontWeight: 700, color: DOC_THEME.muted, letterSpacing: '0.02em' }}>{d.doc_code || '-'}</span>
+              <div style={{ flex: 1, textAlign: 'center', fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.1em', color: DOC_THEME.muted, whiteSpace: 'nowrap' }}>
+                {d.doc_type === 'SOP' ? 'STANDARD OPERATING PROCEDURE' : (d.doc_type || 'DOCUMENT').toUpperCase()}
+              </div>
+              <span style={{ flex: 1, textAlign: 'right', fontSize: '0.72rem', fontWeight: 700, color: DOC_THEME.muted, letterSpacing: '0.02em', whiteSpace: 'nowrap' }}>{d.doc_code || '-'}</span>
             </div>
 
             {/* cover */}
             <div style={{ padding: '24px 26px 4px' }}>
-              <div style={{ fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.12em', color: DOC_THEME.muted, marginBottom: 6 }}>
-                {d.doc_type === 'SOP' ? 'STANDARD OPERATING PROCEDURE' : (d.doc_type || 'DOCUMENT').toUpperCase()}
-              </div>
               <h2 style={{ margin: 0, fontSize: '1.6rem', fontWeight: 700, color: DOC_THEME.navy }}>{dTitle}</h2>
             </div>
 
@@ -1389,25 +1530,22 @@ export default function SOP({ activeSub, onSubChange }) {
                   <div style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: DOC_THEME.muted, marginBottom: 3 }}>Applies to</div>
                   <div style={{ fontSize: '0.85rem', fontWeight: 500 }}>{deptLabel}</div>
                 </div>
+                {(d.tags || []).length > 0 && (
+                  <div style={{ backgroundColor: DOC_THEME.paper, padding: '10px 13px', gridColumn: '1 / -1' }}>
+                    <div style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: DOC_THEME.muted, marginBottom: 3 }}>Tags</div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                      {d.tags.map(t => <span key={t} style={{ fontSize: '0.78rem', fontWeight: 500, padding: '2px 9px', borderRadius: 999, background: '#F7F8FA', border: `1px solid ${DOC_THEME.line}` }}>{t}</span>)}
+                    </div>
+                  </div>
+                )}
               </div>
-              {(d.revision_history || []).length > 0 && (
-                <div style={{ borderTop: `1px solid ${DOC_THEME.line}` }}>
-                  <div style={{ padding: '8px 13px', fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: DOC_THEME.muted, background: '#F7F8FA' }}>Revision History</div>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
-                    <thead><tr>{['Version', 'Date', 'Author', 'Summary of Changes'].map(h => <th key={h} style={{ textAlign: 'left', padding: '6px 13px', borderTop: `1px solid ${DOC_THEME.line}`, color: DOC_THEME.slate, fontWeight: 700 }}>{h}</th>)}</tr></thead>
-                    <tbody>{d.revision_history.slice(0, 8).map((r, i) => (
-                      <tr key={i}>
-                        <td style={{ padding: '6px 13px', borderTop: `1px solid ${DOC_THEME.line}` }}>{r.version}</td>
-                        <td style={{ padding: '6px 13px', borderTop: `1px solid ${DOC_THEME.line}` }}>{fmtDate(r.date)}</td>
-                        <td style={{ padding: '6px 13px', borderTop: `1px solid ${DOC_THEME.line}` }}>{prettyName(r.author)}</td>
-                        <td style={{ padding: '6px 13px', borderTop: `1px solid ${DOC_THEME.line}` }}>{r.notes}</td>
-                      </tr>
-                    ))}</tbody>
-                  </table>
-                </div>
-              )}
             </div>
 
+            {isFreeformDoc ? (
+              freeformHtml.loading ? <p style={{ color: DOC_THEME.muted, margin: 0 }}>Loading document…</p>
+              : freeformHtml.html ? <div className="doc-image-wrap" style={{ lineHeight: 1.6 }} dangerouslySetInnerHTML={{ __html: freeformHtml.html }} />
+              : <p style={{ color: DOC_THEME.muted, margin: 0 }}>This document has no content yet.</p>
+            ) : (<>
             {(tPurpose || tScope) && docSection('Purpose & Scope', (<>
               {tPurpose && <p style={{ margin: tScope ? '0 0 10px' : 0, lineHeight: 1.6 }}>{tPurpose}</p>}
               {tScope && <p style={{ margin: 0, lineHeight: 1.6 }}>{tScope}</p>}
@@ -1484,6 +1622,7 @@ export default function SOP({ activeSub, onSubChange }) {
               </div>
             ))}
             </>}
+            </>)}
             </div>
 
             {/* footer */}
@@ -1523,6 +1662,34 @@ export default function SOP({ activeSub, onSubChange }) {
               {d.status === 'changes_requested' && d.review_note && <p style={{ fontSize: '0.8rem', color: 'hsl(0,70%,45%)', margin: '10px 0 0' }}>{d.review_note}</p>}
               {d.status === 'approved' && <p style={{ fontSize: '0.8rem', color: 'hsl(145,55%,32%)', margin: '10px 0 0' }}>Published and live in the library.</p>}
             </div>
+
+            {d.status === 'approved' && (
+              <div style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 16, boxShadow: 'var(--shadow-sm)' }}>
+                <h3 style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', margin: '0 0 12px' }}>Was this helpful?</h3>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button onClick={() => voteFeedback(true)} style={{ flex: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, height: 34, fontSize: '0.8rem', fontWeight: 600, borderRadius: 8, border: '1px solid', borderColor: feedback?.my_vote === true ? 'hsl(145,55%,40%)' : 'var(--border-color)', background: feedback?.my_vote === true ? 'hsla(145,63%,42%,0.14)' : 'var(--bg-card)', color: feedback?.my_vote === true ? 'hsl(145,55%,30%)' : 'var(--text-secondary)', cursor: 'pointer' }}>
+                    <ThumbsUp size={14} /> {feedback?.helpful ?? 0}
+                  </button>
+                  <button onClick={() => voteFeedback(false)} style={{ flex: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, height: 34, fontSize: '0.8rem', fontWeight: 600, borderRadius: 8, border: '1px solid', borderColor: feedback?.my_vote === false ? 'hsl(0,70%,50%)' : 'var(--border-color)', background: feedback?.my_vote === false ? 'hsla(0,70%,50%,0.12)' : 'var(--bg-card)', color: feedback?.my_vote === false ? 'hsl(0,70%,45%)' : 'var(--text-secondary)', cursor: 'pointer' }}>
+                    <ThumbsDown size={14} /> {feedback?.not_helpful ?? 0}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {related.length > 0 && (
+              <div style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 16, boxShadow: 'var(--shadow-sm)' }}>
+                <h3 style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', margin: '0 0 12px' }}>See Also</h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {related.map(r => (
+                    <button key={r.id} onClick={() => { const doc = docs.find(x => x.id === r.id); if (doc) openDetail(doc); }}
+                      style={{ textAlign: 'left', background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: '0.82rem', color: 'hsl(var(--color-blue))', fontWeight: 500 }}>
+                      {r.title}{r.doc_code ? ` (${r.doc_code})` : ''}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {d.status === 'approved' && (
               <div style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 16, boxShadow: 'var(--shadow-sm)' }}>
@@ -1651,6 +1818,7 @@ export default function SOP({ activeSub, onSubChange }) {
   if (mode === 'editor' && draft) {
     const isNew = !draft.id;
     const isManual = draft.doc_type === 'Manual';
+    const isFreeform = draft.body.authoringMode === 'freeform';
     const chapters = draft.body.chapters || [];
     const sopOpts = docs.filter(d => d.doc_type !== 'Manual' && d.id !== draft.id).sort((a, b) => (a.doc_code || '').localeCompare(b.doc_code || ''));
     // editor layout primitives - roomy, card-grouped sections with generous spacing
@@ -1808,7 +1976,9 @@ export default function SOP({ activeSub, onSubChange }) {
     const stepCount = (draft.body.procedure || []).length;
     const checklist = [
       [!!draft.title.trim(), 'Title', draft.title.trim() ? `"${draft.title.trim()}"` : 'Add a clear, searchable title (Content step)'],
-      [isManual ? (draft.body.chapters || []).length > 0 : stepCount > 0, isManual ? 'Chapters' : 'Procedure', isManual ? `${(draft.body.chapters || []).length} chapter(s)` : (stepCount ? `${stepCount} step${stepCount === 1 ? '' : 's'}` : 'No steps yet (Content step)')],
+      isFreeform
+        ? [!!draft.body.linkedDocumentId, 'Content', draft.body.linkedDocumentId ? 'Written in the Full Editor' : 'Open the Full Editor (Content step)']
+        : [isManual ? (draft.body.chapters || []).length > 0 : stepCount > 0, isManual ? 'Chapters' : 'Procedure', isManual ? `${(draft.body.chapters || []).length} chapter(s)` : (stepCount ? `${stepCount} step${stepCount === 1 ? '' : 's'}` : 'No steps yet (Content step)')],
       [draft.departments.length > 0, 'Departments', draft.departments.length ? draft.departments.map(x => DEPT_ABBR[x] || x).join(', ') : 'Not tagged yet (Settings step) - untagged docs are corporate-wide'],
       [!!draft.reviewer_email.trim(), 'Reviewer', draft.reviewer_email ? (draft.reviewer_name || draft.reviewer_email) : 'Required to submit for review (Settings step)'],
       ...(draft._gaps ? [[
@@ -1828,7 +1998,7 @@ export default function SOP({ activeSub, onSubChange }) {
         {helpModal()}
         <h2 style={{ margin: '0 0 4px', fontSize: '1.55rem', textAlign: 'center' }}>{isNew ? 'New' : 'Edit'} {draft.doc_type}</h2>
         <p style={{ color: 'var(--text-secondary)', fontSize: '0.86rem', margin: '0 0 16px', textAlign: 'center' }}>
-          {stepName === 'Capture' ? 'Show Claude the task once - it writes the document.'
+          {stepName === 'Capture' ? 'Show Nexus the task once - it writes the document.'
             : stepName === 'Content' ? 'The substance: what to do and how.'
             : stepName === 'Settings' ? 'Who it applies to and how it stays current.'
             : 'Check everything over, then send it on its way.'}
@@ -1836,17 +2006,43 @@ export default function SOP({ activeSub, onSubChange }) {
         <Stepper steps={steps} current={stepIdx} onGo={setEdStep} />
         {errBanner}
 
-        {stepName === 'Content' && draft._importSource && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', border: '1px solid hsla(266,70%,60%,0.4)', background: 'hsla(266,70%,60%,0.06)', borderRadius: 12, padding: '12px 16px', marginBottom: 18 }}>
-            <Sparkles size={18} style={{ color: 'hsl(266,72%,56%)', flex: '0 0 auto' }} />
-            <div style={{ flex: 1, minWidth: 180, fontSize: '0.84rem', color: 'var(--text-primary)' }}>Claude formatted this draft. Review what changed or preview it before you publish.</div>
+        {stepName === 'Capture' && (
+          <div style={{ maxWidth: 1180, margin: '0 auto 18px', display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)', gap: 10 }}>
+            {[
+              { icon: Sparkles, label: 'AI Capture', tag: 'Recommended', desc: 'Paste notes/screenshots - Nexus writes it', active: true, onClick: null },
+              { icon: FileText, label: 'Blank Document', tag: '', desc: 'Fill in the guided sections yourself', active: false, onClick: nextStep },
+              { icon: Edit3, label: 'Full Editor', tag: '', desc: 'Word-like - tables, images, page layout, total freedom', active: false, onClick: startFreeform },
+            ].map(o => (
+              <button key={o.label} disabled={aiBusy} onClick={o.onClick || undefined} style={{
+                display: 'flex', alignItems: 'flex-start', gap: 11, textAlign: 'left', cursor: o.onClick ? 'pointer' : 'default',
+                border: '1px solid', borderColor: o.active ? 'hsl(var(--color-green))' : 'var(--border-color)',
+                background: o.active ? 'hsla(var(--color-green),0.06)' : 'var(--bg-card)',
+                borderRadius: 12, padding: '13px 15px',
+              }}>
+                <span style={{ width: 34, height: 34, borderRadius: 9, flex: '0 0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center', background: o.active ? 'hsla(var(--color-green),0.14)' : 'var(--bg-secondary)', color: o.active ? 'hsl(var(--color-green))' : 'var(--text-secondary)' }}><o.icon size={17} /></span>
+                <span style={{ minWidth: 0 }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                    <span style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--text-primary)' }}>{o.label}</span>
+                    {o.tag && <span style={{ fontSize: '0.62rem', fontWeight: 700, color: 'hsl(var(--color-green))', background: 'hsla(var(--color-green),0.14)', borderRadius: 999, padding: '2px 7px', flex: '0 0 auto' }}>{o.tag}</span>}
+                  </span>
+                  <span style={{ display: 'block', fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 2, lineHeight: 1.4 }}>{o.desc}</span>
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {stepName === 'Content' && !isFreeform && draft._importSource && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', border: '1px solid hsla(var(--color-green),0.4)', background: 'hsla(var(--color-green),0.06)', borderRadius: 12, padding: '12px 16px', marginBottom: 18 }}>
+            <Sparkles size={18} style={{ color: 'hsl(var(--color-green))', flex: '0 0 auto' }} />
+            <div style={{ flex: 1, minWidth: 180, fontSize: '0.84rem', color: 'var(--text-primary)' }}>Nexus formatted this draft. Review what changed or preview it before you publish.</div>
             {aiReview && <button className="secondary-btn" onClick={() => setAiReview(p => ({ ...p, open: true, tab: 'changes' }))} style={{ height: 34, fontSize: '0.8rem', flex: '0 0 auto' }}>Review Changes</button>}
             <button className="secondary-btn" onClick={() => setPreviewOpen(true)} style={{ height: 34, fontSize: '0.8rem', flex: '0 0 auto' }}>Preview</button>
             <button className="secondary-btn" disabled={aiBusy} onClick={runAiFormat} style={{ height: 34, fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center', gap: 5, flex: '0 0 auto' }}>{aiBusy ? <Loader size={13} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Sparkles size={13} />} Re-run AI</button>
           </div>
         )}
 
-        {stepName === 'Content' && gaps.length > 0 && (
+        {stepName === 'Content' && !isFreeform && gaps.length > 0 && (
           <div style={{ display: 'flex', gap: 11, alignItems: 'flex-start', border: '1px solid hsla(0,84%,60%,0.4)', background: 'hsla(0,84%,60%,0.05)', borderRadius: 12, padding: '12px 15px', marginBottom: 18 }}>
             <span style={{ width: 26, height: 26, borderRadius: 8, background: 'hsla(0,84%,60%,0.12)', color: 'hsl(0,70%,45%)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '0.85rem', flex: '0 0 auto' }}>!</span>
             <div style={{ flex: 1, minWidth: 0, fontSize: '0.84rem', color: 'var(--text-primary)', lineHeight: 1.5 }}>
@@ -1856,45 +2052,40 @@ export default function SOP({ activeSub, onSubChange }) {
           </div>
         )}
 
-        {stepName === 'Content' && !isManual && draft.id && draft._status === 'changes_requested' && (
+        {stepName === 'Content' && !isManual && !isFreeform && draft.id && draft._status === 'changes_requested' && (
           <div style={{ border: '1px solid hsla(0,84%,60%,0.4)', background: 'hsla(0,84%,60%,0.06)', borderRadius: 12, padding: 14, marginBottom: 18 }}>
             <strong style={{ fontSize: '0.88rem', color: 'hsl(0,70%,45%)' }}>Reviewer requested changes</strong>
             {draft._reviewNote && <div style={{ fontSize: '0.82rem', color: 'var(--text-primary)', margin: '5px 0 10px', whiteSpace: 'pre-wrap' }}>{draft._reviewNote}</div>}
-            <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', margin: '6px 0 10px' }}>Let Claude apply this feedback (and any comments) for you - you'll review the before/after before keeping it.</div>
-            <button className="primary-btn" disabled={aiBusy} onClick={addressFeedback} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'linear-gradient(135deg, hsl(258,82%,62%), hsl(288,70%,58%))', border: 'none', color: '#fff' }}>{aiBusy ? <Loader size={15} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Sparkles size={15} />} {aiBusy ? 'Working…' : 'Address feedback with Claude'}</button>
+            <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', margin: '6px 0 10px' }}>Let Nexus apply this feedback (and any comments) for you - you'll review the before/after before keeping it.</div>
+            <button className="primary-btn" disabled={aiBusy} onClick={addressFeedback} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, backgroundColor: 'hsl(var(--color-green))', border: 'none', color: '#fff' }}>{aiBusy ? <Loader size={15} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Sparkles size={15} />} {aiBusy ? 'Working…' : 'Address feedback with Nexus'}</button>
           </div>
         )}
 
-        {stepName === 'Content' && !isManual && draft.id && (
-          <div style={{ border: '1px solid hsla(266,70%,60%,0.4)', background: 'hsla(266,70%,60%,0.06)', borderRadius: 12, padding: 14, marginBottom: 18 }}>
+        {stepName === 'Content' && !isManual && !isFreeform && draft.id && (
+          <div style={{ border: '1px solid hsla(var(--color-green),0.4)', background: 'hsla(var(--color-green),0.06)', borderRadius: 12, padding: 14, marginBottom: 18 }}>
             <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10 }}>
-              <Sparkles size={17} style={{ color: 'hsl(266,72%,56%)', flex: '0 0 auto' }} />
-              <div style={{ flex: 1, minWidth: 0 }}><strong style={{ fontSize: '0.88rem' }}>Edit with Claude</strong><div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>Describe a change and Claude rewrites the document - you review the before/after before keeping it.</div></div>
+              <Sparkles size={17} style={{ color: 'hsl(var(--color-green))', flex: '0 0 auto' }} />
+              <div style={{ flex: 1, minWidth: 0 }}><strong style={{ fontSize: '0.88rem' }}>Edit with Nexus</strong><div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>Describe a change and Nexus rewrites the document - you review the before/after before keeping it.</div></div>
             </div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <input className="form-input" value={aiInstruction} onChange={e => setAiInstruction(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') runAiRevise(); }} placeholder="e.g. Add a safety note about wet floors, or tighten the procedure to 6 steps" style={{ flex: '1 1 260px', minWidth: 0 }} />
-              <button className="primary-btn" disabled={aiBusy || !aiInstruction.trim()} onClick={runAiRevise} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'linear-gradient(135deg, hsl(258,82%,62%), hsl(288,70%,58%))', border: 'none', color: '#fff', flex: '0 0 auto' }}>{aiBusy ? <Loader size={15} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Sparkles size={15} />} {aiBusy ? 'Editing…' : 'Apply with Claude'}</button>
+              <button className="primary-btn" disabled={aiBusy || !aiInstruction.trim()} onClick={runAiRevise} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, backgroundColor: 'hsl(var(--color-green))', border: 'none', color: '#fff', flex: '0 0 auto' }}>{aiBusy ? <Loader size={15} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Sparkles size={15} />} {aiBusy ? 'Editing…' : 'Apply with Nexus'}</button>
             </div>
           </div>
         )}
 
-        {stepName === 'Capture' && <>{/* Capture step - show the task once, Claude writes the SOP */}
+        {stepName === 'Capture' && <>{/* Capture step - show the task once, Nexus writes the SOP */}
         <div style={{ maxWidth: 1180, margin: '0 auto' }}>
-          <div style={{ border: '1px solid hsla(266,70%,60%,0.4)', background: 'hsla(266,70%,60%,0.05)', borderRadius: 16, padding: isMobile ? '24px 22px' : '30px 34px', marginBottom: 14, boxShadow: 'var(--shadow-sm)' }}>
+          <div style={{ border: '1px solid hsla(var(--color-green),0.4)', background: 'hsla(var(--color-green),0.05)', borderRadius: 16, padding: isMobile ? '24px 22px' : '30px 34px', marginBottom: 14, boxShadow: 'var(--shadow-sm)' }}>
             <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'minmax(260px, 340px) 1fr', gap: isMobile ? 20 : 36 }}>
               <div style={{ textAlign: isMobile ? 'center' : 'left' }}>
-                <div style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: 'hsla(266,70%,60%,0.14)', color: 'hsl(266,72%,56%)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: isMobile ? '0 auto 10px' : '0 0 12px' }}><Sparkles size={22} /></div>
+                <div style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: 'hsla(var(--color-green),0.14)', color: 'hsl(var(--color-green))', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: isMobile ? '0 auto 10px' : '0 0 12px' }}><Sparkles size={22} /></div>
                 <strong style={{ fontSize: '1.15rem', display: 'block', marginBottom: 8 }}>Show It, Don't Write It</strong>
-                <span style={{ fontSize: '0.88rem', color: 'var(--text-secondary)', lineHeight: 1.6 }}>Do the task once: paste a screenshot of each step (Ctrl+V), jot rough notes between them, or upload an existing document. Claude turns it into a finished, standardized {draft.doc_type} - you review every change before keeping it.</span>
-                {!isMobile && (
-                  <div style={{ marginTop: 20, fontSize: '0.82rem', color: 'var(--text-muted)' }}>
-                    Prefer to write it yourself? <button onClick={nextStep} style={{ background: 'none', border: 'none', color: 'hsl(var(--color-blue))', fontWeight: 600, cursor: 'pointer', fontSize: '0.82rem', padding: 0 }}>Start With a Blank Document</button>
-                  </div>
-                )}
+                <span style={{ fontSize: '0.88rem', color: 'var(--text-secondary)', lineHeight: 1.6 }}>Do the task once: paste a screenshot of each step (Ctrl+V), jot rough notes between them, or upload an existing document. Nexus turns it into a finished, standardized {draft.doc_type} - you review every change before keeping it.</span>
               </div>
               <div>
                 <textarea className="form-input" autoFocus value={draft._raw} onPaste={pasteImport} placeholder={'Type rough step notes and press Ctrl+V to drop in screenshots as you go…\n\ne.g.\nOpen the gate panel and enter the master code\n[screenshot]\nCheck the log for the last entry…'} onChange={e => setDraft(p => ({ ...p, _raw: e.target.value }))} style={{ width: '100%', minHeight: 260, resize: 'vertical', fontSize: '0.92rem', lineHeight: 1.6 }} />
-                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 6 }}>Tip: paste screenshots in the order you do the steps, or press Ctrl+V anytime - Claude attaches each one to the right step.</div>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 6 }}>Tip: paste screenshots in the order you do the steps, or press Ctrl+V anytime - Nexus attaches each one to the right step.</div>
                 {Object.keys(draft._importThumbs || {}).length > 0 && (
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
                     {Object.entries(draft._importThumbs).map(([marker, src]) => (
@@ -1910,27 +2101,41 @@ export default function SOP({ activeSub, onSubChange }) {
                     <Paperclip size={15} /> Upload File
                     <input type="file" accept={IMPORT_ACCEPT} onChange={e => { importFile(e.target.files[0]); e.target.value = ''; }} style={{ display: 'none' }} />
                   </label>
-                  <button className="primary-btn" disabled={aiBusy} onClick={runAiFormat} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 42, padding: '0 22px', fontSize: '0.92rem', background: 'linear-gradient(135deg, hsl(258,82%,62%), hsl(288,70%,58%))', border: 'none', color: '#fff' }}>
-                    {aiBusy ? <Loader size={15} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Sparkles size={15} />} {aiBusy ? 'Writing Your SOP…' : 'Format with Claude'}
+                  <button className="primary-btn" disabled={aiBusy} onClick={runAiFormat} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 42, padding: '0 22px', fontSize: '0.92rem', backgroundColor: 'hsl(var(--color-green))', border: 'none', color: '#fff' }}>
+                    {aiBusy ? <Loader size={15} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Sparkles size={15} />} {aiBusy ? 'Writing Your SOP…' : 'Format with Nexus'}
                   </button>
                 </div>
               </div>
             </div>
           </div>
-          {isMobile && (
-            <div style={{ textAlign: 'center', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
-              Prefer to write it yourself? <button onClick={nextStep} style={{ background: 'none', border: 'none', color: 'hsl(var(--color-blue))', fontWeight: 600, cursor: 'pointer', fontSize: '0.82rem', padding: 0 }}>Start With a Blank Document</button>
-            </div>
-          )}
         </div></>}
 
         {stepName === 'Content' && <>
         {/* Prominent title field */}
         <div style={cardStyle}>
-          <label style={fieldLabel}>Document title</label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
+            <label style={fieldLabel}>Document title</label>
+            {isFreeform && draft.doc_code && <span style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-muted)', background: 'var(--bg-secondary)', borderRadius: 999, padding: '2px 9px' }}>{draft.doc_code}</span>}
+          </div>
           {fieldTip('A clear, specific name people would actually search for.')}
           <input className="form-input" value={draft.title} placeholder="e.g. Unit Move-In Procedure" onChange={e => setDraft(p => ({ ...p, title: e.target.value }))} style={{ fontSize: '1.35rem', fontWeight: 600, padding: '14px 16px', height: 'auto', fontFamily: "'Plus Jakarta Sans', sans-serif" }} />
         </div>
+
+        {isFreeform && (
+          <div style={{ ...cardStyle, padding: 18 }}>
+            <DocumentBuilder
+              docId={draft.body.linkedDocumentId}
+              kind="document"
+              onClose={nextStep}
+              toastOk={() => {}}
+              toastErr={(m) => setErr(m || 'Full editor error')}
+              quickSections={SOP_QUICK_SECTIONS}
+              onContentSaved={(content) => {
+                if (draft.id) api.setKbContentText(draft.id, freeformContentToText(content)).catch(() => {});
+              }}
+            />
+          </div>
+        )}
 
         </>}
 
@@ -1962,6 +2167,51 @@ export default function SOP({ activeSub, onSubChange }) {
               })}
             </div>
           </div>
+          <div style={{ marginTop: 20 }}>
+            <label style={fieldLabel}>Tags</label>
+            {fieldTip('Free-form keywords for browsing/filtering the library - press Enter to add.')}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+              {(draft.tags || []).map(t => (
+                <span key={t} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', fontWeight: 500, padding: '5px 10px', borderRadius: 999, background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: 'var(--text-secondary)' }}>
+                  {t}
+                  <button onClick={() => setDraft(p => ({ ...p, tags: p.tags.filter(x => x !== t) }))} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', color: 'var(--text-muted)' }}><X size={12} /></button>
+                </span>
+              ))}
+            </div>
+            <input className="form-input" placeholder="Type a tag and press Enter…" style={{ padding: '10px 14px', maxWidth: 320 }}
+              onKeyDown={e => {
+                if (e.key !== 'Enter') return;
+                e.preventDefault();
+                const v = e.target.value.trim();
+                if (v && !(draft.tags || []).includes(v)) setDraft(p => ({ ...p, tags: [...(p.tags || []), v] }));
+                e.target.value = '';
+              }} />
+          </div>
+          <div style={{ marginTop: 20 }}>
+            <label style={fieldLabel}>Related documents (See also)</label>
+            {fieldTip('Point readers to other SOPs/Manuals that pair with this one.')}
+            <select className="form-select" style={{ padding: '11px 36px 11px 14px', maxWidth: 360 }} value=""
+              onChange={e => {
+                const id = e.target.value;
+                if (id && !(draft.related_ids || []).includes(id)) setDraft(p => ({ ...p, related_ids: [...(p.related_ids || []), id] }));
+              }}>
+              <option value="">+ Add a related document…</option>
+              {docs.filter(o => o.id !== draft.id && o.status !== 'archived' && !(draft.related_ids || []).includes(o.id)).map(o => (
+                <option key={o.id} value={o.id}>{o.title}{o.doc_code ? ` (${o.doc_code})` : ''}</option>
+              ))}
+            </select>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
+              {(draft.related_ids || []).map(id => {
+                const o = docs.find(x => x.id === id);
+                return (
+                  <span key={id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', fontWeight: 500, padding: '5px 10px', borderRadius: 999, background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: 'var(--text-secondary)' }}>
+                    {o ? o.title : id}
+                    <button onClick={() => setDraft(p => ({ ...p, related_ids: p.related_ids.filter(x => x !== id) }))} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', color: 'var(--text-muted)' }}><X size={12} /></button>
+                  </span>
+                );
+              })}
+            </div>
+          </div>
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 10, marginTop: 18, cursor: 'pointer', fontSize: '0.85rem' }}>
             <input type="checkbox" checked={!!draft.require_ack} onChange={e => setDraft(p => ({ ...p, require_ack: e.target.checked }))} style={{ width: 17, height: 17, cursor: 'pointer' }} />
             Require acknowledgement (e-signature sign-off) from staff once approved
@@ -1969,7 +2219,7 @@ export default function SOP({ activeSub, onSubChange }) {
         </>))}
         </>}
 
-        {stepName === 'Content' && <>
+        {stepName === 'Content' && !isFreeform && <>
         {section('Overview', 'Set the context before the steps - what this is for and who it covers.', (<>
           <div style={{ marginBottom: 18 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><label style={fieldLabel}>Purpose</label>{isGap('purpose') && gapChip}</div>
@@ -2074,7 +2324,7 @@ export default function SOP({ activeSub, onSubChange }) {
             <div className="modal-overlay" style={{ display: 'flex', alignItems: 'stretch', justifyContent: 'center', padding: '2.5vh 2vw' }} onClick={e => { if (e.target === e.currentTarget) close(); }}>
               <div style={{ background: 'var(--bg-card)', borderRadius: 16, width: '96vw', maxWidth: 1180, height: '95vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.28)', overflow: 'hidden' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '16px 22px', borderBottom: '1px solid var(--border-color)', flexWrap: 'wrap' }}>
-                  <Sparkles size={20} style={{ color: 'hsl(266,72%,56%)', flex: '0 0 auto' }} />
+                  <Sparkles size={20} style={{ color: 'hsl(var(--color-green))', flex: '0 0 auto' }} />
                   <div style={{ flex: 1, minWidth: 160 }}>
                     <h3 style={{ margin: 0 }}>Review AI Changes</h3>
                     <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Green is added, red struck-through is removed. Already applied to your draft - revert if it's not right.</div>
@@ -2167,6 +2417,17 @@ export default function SOP({ activeSub, onSubChange }) {
       <span style={{ display: 'inline-flex', gap: 4, flexWrap: 'wrap' }}>
         {ds.slice(0, 3).map(x => <span key={x} style={{ fontSize: '0.66rem', fontWeight: 600, color: 'var(--text-secondary)', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 999, padding: '1px 7px' }}>{DEPT_ABBR[x] || x}</span>)}
         {ds.length > 3 && <span style={{ fontSize: '0.66rem', color: 'var(--text-muted)' }}>+{ds.length - 3}</span>}
+      </span>
+    );
+  };
+
+  const tagChips = (d) => {
+    const ts = d.tags || [];
+    if (!ts.length) return null;
+    return (
+      <span style={{ display: 'inline-flex', gap: 4, flexWrap: 'wrap' }}>
+        {ts.slice(0, 3).map(t => <span key={t} style={{ fontSize: '0.66rem', fontWeight: 500, color: 'hsl(var(--color-blue))', background: 'hsla(210,80%,55%,0.1)', border: '1px solid hsla(210,80%,55%,0.3)', borderRadius: 999, padding: '1px 7px' }}>{t}</span>)}
+        {ts.length > 3 && <span style={{ fontSize: '0.66rem', color: 'var(--text-muted)' }}>+{ts.length - 3}</span>}
       </span>
     );
   };
@@ -2297,6 +2558,7 @@ export default function SOP({ activeSub, onSubChange }) {
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.7rem', color: 'var(--text-secondary)' }}>{d.doc_type} · v{d.version}<VerifyBadge d={d} compact /></span>
                   {deptChips(d)}
                 </div>
+                {tagChips(d)}
               </div>
             );
           })}
@@ -2446,7 +2708,7 @@ export default function SOP({ activeSub, onSubChange }) {
                   style={{ paddingLeft: 42, paddingRight: 36, width: '100%', height: 48, fontSize: '0.95rem', borderRadius: 12 }} />
                 {!search && <span style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 6, padding: '1px 7px', pointerEvents: 'none' }}>/</span>}
               </div>
-              <button className="primary-btn" disabled={ask.loading || !search.trim()} onClick={() => doAsk(search)} style={{ height: 48, display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.9rem', borderRadius: 12, background: 'linear-gradient(135deg, hsl(258,82%,62%), hsl(288,70%,58%))', border: 'none', color: '#fff', flex: '0 0 auto' }}>{ask.loading ? <Loader size={15} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Sparkles size={15} />} {ask.loading ? 'Asking…' : 'Ask AI'}</button>
+              <button className="primary-btn" disabled={ask.loading || !search.trim()} onClick={() => doAsk(search)} style={{ height: 48, display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.9rem', borderRadius: 12, backgroundColor: 'hsl(var(--color-green))', border: 'none', color: '#fff', flex: '0 0 auto', cursor: (ask.loading || !search.trim()) ? 'default' : 'pointer', pointerEvents: (ask.loading || !search.trim()) ? 'none' : 'auto' }}>{ask.loading ? <Loader size={15} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Sparkles size={15} />} {ask.loading ? 'Asking…' : 'Ask AI'}</button>
             </div>
           </div>
 
@@ -2454,6 +2716,9 @@ export default function SOP({ activeSub, onSubChange }) {
             <select className="form-select" value={deptFilter} onChange={e => setDeptFilter(e.target.value)} style={{ height: 36, fontSize: '0.83rem', width: 'auto' }}><option value="all">All departments</option>{DEPARTMENTS.map(d => <option key={d}>{d}</option>)}</select>
             <select className="form-select" value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={{ height: 36, fontSize: '0.83rem', width: 'auto' }}><option value="all">All types</option>{DOC_TYPES.map(t => <option key={t}>{t}</option>)}</select>
             <select className="form-select" value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={{ height: 36, fontSize: '0.83rem', width: 'auto' }}><option value="all">All statuses</option>{Object.entries(STATUS_META).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</select>
+            {allTags.length > 0 && (
+              <select className="form-select" value={tagFilter} onChange={e => setTagFilter(e.target.value)} style={{ height: 36, fontSize: '0.83rem', width: 'auto' }}><option value="all">All tags</option>{allTags.map(t => <option key={t} value={t}>{t}</option>)}</select>
+            )}
             <span style={{ marginLeft: 'auto' }} />
             <button className="primary-btn" onClick={openCreate} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 36, fontSize: '0.85rem' }}><Plus size={15} /> New SOP</button>
           </div>
@@ -3083,9 +3348,9 @@ export default function SOP({ activeSub, onSubChange }) {
 
             {cstep === 'Source' && (
               <div style={{ maxWidth: 780, margin: '0 auto' }}>
-                <div style={{ border: '1px solid hsla(266,70%,60%,0.4)', background: 'hsla(266,70%,60%,0.05)', borderRadius: 16, padding: '24px 26px', marginBottom: 14, boxShadow: 'var(--shadow-sm)' }}>
+                <div style={{ border: '1px solid hsla(var(--color-green),0.4)', background: 'hsla(var(--color-green),0.05)', borderRadius: 16, padding: '24px 26px', marginBottom: 14, boxShadow: 'var(--shadow-sm)' }}>
                   <div style={{ textAlign: 'center', marginBottom: 16 }}>
-                    <div style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: 'hsla(266,70%,60%,0.14)', color: 'hsl(266,72%,56%)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 10px' }}><GraduationCap size={22} /></div>
+                    <div style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: 'hsla(var(--color-green),0.14)', color: 'hsl(var(--color-green))', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 10px' }}><GraduationCap size={22} /></div>
                     <strong style={{ fontSize: '1.05rem', display: 'block' }}>Start With Your Material</strong>
                     <span style={{ fontSize: '0.84rem', color: 'var(--text-secondary)' }}>Paste or upload a policy, manual, or transcript - Claude writes the objectives, lessons, and a quiz with explanations. You edit everything before it publishes.</span>
                   </div>
@@ -3095,7 +3360,7 @@ export default function SOP({ activeSub, onSubChange }) {
                       <Paperclip size={15} /> Upload File
                       <input type="file" accept={IMPORT_ACCEPT} onChange={e => { cdImportFile(e.target.files[0]); e.target.value = ''; }} style={{ display: 'none' }} />
                     </label>
-                    <button className="primary-btn" disabled={courseAiBusy} onClick={runCourseAi} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 42, padding: '0 22px', fontSize: '0.92rem', background: 'linear-gradient(135deg, hsl(258,82%,62%), hsl(288,70%,58%))', border: 'none', color: '#fff' }}>
+                    <button className="primary-btn" disabled={courseAiBusy} onClick={runCourseAi} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 42, padding: '0 22px', fontSize: '0.92rem', backgroundColor: 'hsl(var(--color-green))', border: 'none', color: '#fff' }}>
                       {courseAiBusy ? <Loader size={15} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Sparkles size={15} />} {courseAiBusy ? 'Writing the Course…' : 'Generate Course'}
                     </button>
                   </div>
@@ -3106,8 +3371,8 @@ export default function SOP({ activeSub, onSubChange }) {
               </div>
             )}
             {cstep === 'Build' && d._importSource && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', border: '1px solid hsla(266,70%,60%,0.4)', background: 'hsla(266,70%,60%,0.06)', borderRadius: 12, padding: '12px 16px', marginBottom: 18 }}>
-                <Sparkles size={18} style={{ color: 'hsl(266,72%,56%)', flex: '0 0 auto' }} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', border: '1px solid hsla(var(--color-green),0.4)', background: 'hsla(var(--color-green),0.06)', borderRadius: 12, padding: '12px 16px', marginBottom: 18 }}>
+                <Sparkles size={18} style={{ color: 'hsl(var(--color-green))', flex: '0 0 auto' }} />
                 <div style={{ flex: 1, minWidth: 160, fontSize: '0.84rem', color: 'var(--text-primary)' }}>Claude generated this course from your source. Review and edit everything below.</div>
                 <button className="secondary-btn" onClick={() => setCoursePreview(true)} style={{ height: 34, fontSize: '0.8rem', flex: '0 0 auto' }}>Preview</button>
                 <button className="secondary-btn" disabled={courseAiBusy} onClick={runCourseAi} style={{ height: 34, fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center', gap: 5, flex: '0 0 auto' }}>{courseAiBusy ? <Loader size={13} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Sparkles size={13} />} Re-run</button>
