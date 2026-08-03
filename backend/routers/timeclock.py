@@ -40,7 +40,7 @@ from models import (TimePunch, TimeScreenshot, TimeOffRequest, TimeApproval, Tim
                     TrackConsent, TrackSession, TrackPing, MonitoringPolicy, MonitoringConsent,
                     PunchRequest, AgentActivity, AppRating, NexusGroup, NexusGroupMember,
                     NexusSetting, NexusNotification)
-from routers.hr import _hr_notify, _storage_headers, _SUPABASE_URL, _DOC_BUCKET
+from routers.hr import _hr_notify, _storage_headers, _SUPABASE_URL, _DOC_BUCKET, sync_comp_from_rate
 from routers.esign import _client_meta
 from routers.stepup import require_stepup
 
@@ -2951,6 +2951,8 @@ def set_payroll_rate(body: RateIn, user: dict = Depends(require_team_write),
         row.full_day_hours = max(1.0, float(body.full_day_hours or 8))
     row.updated_by = user["email"]
     row.updated_at = _now_iso()
+    db.flush()                       # so the sync reads the just-updated rate
+    sync_comp_from_rate(db, em)      # mirror pay amount/basis/currency into Pay & Benefits
     db.commit()
     return {"ok": True, **_rate_dict(row)}
 

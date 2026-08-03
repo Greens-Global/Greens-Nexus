@@ -10,7 +10,7 @@ from typing import Optional
 from database import get_db
 from auth import require_module_grant
 from routers.stepup import require_stepup
-from models import NexusEmployee
+from models import NexusEmployee, PayrollRate
 
 # HR data is the most sensitive in the app. Access is grant-driven (Jun 17): a
 # supervisor/manager role no longer auto-opens HR - they need an explicit "hr"
@@ -1874,6 +1874,51 @@ def get_compensation(eid: str, user: dict = Depends(require_hr_comp_read),
     return {"compensation": row.compensation or {}, "bank": row.bank or []}
 
 
+# ── Pay-record link: the inline "Payroll wage" (PayrollRate, drives the timecard)
+#    and the "Pay & Benefits" compensation record mirror each other's pay amount /
+#    basis / currency, so the two never disagree. Benefits + bank stay only on comp;
+#    weekend OT stays only on the rate. Each syncs the OTHER table directly (no loop).
+def sync_comp_from_rate(db: Session, email: str) -> None:
+    """Inline Payroll wage saved → reflect it in the Pay & Benefits record."""
+    emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == (email or "").lower()).first()
+    rate = db.query(PayrollRate).filter(PayrollRate.employee_email == (email or "").lower()).first()
+    if not emp or not rate:
+        return
+    comp = dict(emp.compensation or {})
+    if (getattr(rate, "pay_type", "hourly") or "hourly") == "fixed":
+        comp["payBasis"], comp["frequency"] = "salary", "monthly"
+        comp["base"] = getattr(rate, "monthly_salary", 0) or 0
+    else:
+        comp["payBasis"] = "hourly"
+        comp["base"] = getattr(rate, "hourly_rate", 0) or 0
+    comp["currency"] = getattr(rate, "currency", "USD") or "USD"
+    emp.compensation = comp
+
+
+def sync_rate_from_comp(db: Session, emp: NexusEmployee) -> None:
+    """Pay & Benefits saved → reflect base/basis/currency in the timecard rate."""
+    if not emp or not emp.work_email:
+        return
+    comp = emp.compensation or {}
+    basis = comp.get("payBasis", "")
+    base = float(comp.get("base") or 0)
+    row = db.query(PayrollRate).filter(PayrollRate.employee_email == emp.work_email.lower()).first()
+    if not row:
+        row = PayrollRate(employee_email=emp.work_email.lower())
+        db.add(row)
+    cur = comp.get("currency") or ""
+    if cur in ("USD", "INR"):
+        row.currency = cur
+    if basis == "hourly":
+        row.pay_type, row.hourly_rate = "hourly", base
+    elif basis == "salary":
+        # base is per the pay frequency - normalize to a MONTHLY figure for the timecard.
+        mult = {"monthly": 1.0, "semimonthly": 2.0, "biweekly": 26 / 12, "weekly": 52 / 12}.get(
+            comp.get("frequency", "monthly"), 1.0)
+        row.pay_type, row.monthly_salary = "fixed", round(base * mult, 2)
+    # daily / fixed_fee have no timecard pay model - leave the rate untouched.
+
+
 @router.put("/employees/{eid}/compensation")
 def save_compensation(eid: str, body: CompensationIn, user: dict = Depends(require_hr_comp_write),
                       _su: dict = Depends(require_stepup), db: Session = Depends(get_db)):
@@ -1897,6 +1942,7 @@ def save_compensation(eid: str, body: CompensationIn, user: dict = Depends(requi
     if body.bank is not None:
         row.bank = body.bank
     row.updated_at = datetime.now(timezone.utc).isoformat()
+    sync_rate_from_comp(db, row)   # keep the timecard pay rate in step with this record
     db.commit()
     return {"compensation": row.compensation or {}, "bank": row.bank or []}
 
