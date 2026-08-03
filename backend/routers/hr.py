@@ -1989,56 +1989,55 @@ def employee_assets(eid: str, user: dict = Depends(require_hr_read), db: Session
 # ---------------------------------------------------------------------------
 # HR Section: Work Logs (Beginning/End-of-day) on the People profile. HR-gated
 # so an HR user can see it without a Time-module grant. Source of truth stays
-# in timeclock.py (TimeBod/TimePunch); this only reads. Also surfaced per-day
-# on the timesheet itself (GET /timeclock/bod/day) for whoever has timesheet
-# access - the two views serve different audiences, both stay.
+# in timeclock.py's TimeBod - append-only (record_bod always INSERTs a new row,
+# never updates one), so no submission ever overwrites another and every past
+# month's history stays available forever.
+#
+# This endpoint is existence-only by design: it answers "which days in this
+# month have a BOD/EOD" (for the calendar list + pagination), never message/
+# task content. A day's actual content loads lazily, only on click, from
+# GET /timeclock/bod/day - the same endpoint and drawer the timesheet's
+# per-day Work Log icon uses. Nothing here is loaded until asked for.
 # ---------------------------------------------------------------------------
-from models import TimeBod, TimePunch
-from datetime import timedelta
+from models import TimeBod
+import calendar as _calendar_mod
 
 
-@router.get("/employees/{eid}/bod")
-def employee_bod_log(eid: str, start: str = "", end: str = "",
-                     user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
-    """Defaults to the trailing 7 days (today inclusive); pass start/end
-    (YYYY-MM-DD) to page back through older history."""
+@router.get("/employees/{eid}/bod/summary")
+def employee_bod_summary(eid: str, month: str = "",
+                         user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    """Every day of `month` (YYYY-MM) with hasBod/hasEod flags - no content."""
     emp = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
     if not emp:
         raise HTTPException(404, "Employee not found")
+    m = month or datetime.now(timezone.utc).strftime("%Y-%m")
+    try:
+        year, mon = int(m[:4]), int(m[5:7])
+        if not (1 <= mon <= 12):
+            raise ValueError
+    except ValueError:
+        raise HTTPException(400, "month must be YYYY-MM")
     email = (emp.work_email or "").strip().lower()
     if not email:
-        return {"start": start, "end": end, "logs": []}
-    today = datetime.now(timezone.utc).date()
-    end_d = end or today.strftime("%Y-%m-%d")
-    start_d = start or (today - timedelta(days=6)).strftime("%Y-%m-%d")
-    rows = (db.query(TimeBod)
+        return {"month": m, "days": []}
+
+    rows = (db.query(TimeBod.local_date, TimeBod.kind)
             .filter(TimeBod.employee_email == email, TimeBod.kind.in_(("bod", "eod")),
                     TimeBod.message != "(sent outside Nexus)",
-                    TimeBod.local_date >= start_d, TimeBod.local_date <= end_d)
-            .order_by(TimeBod.created_at.desc()).limit(200).all())
+                    TimeBod.local_date.like(f"{m}-%"))
+            .distinct().all())
+    have = {}
+    for local_date, kind in rows:
+        slot = have.setdefault(local_date, {"hasBod": False, "hasEod": False})
+        slot["hasBod" if kind == "bod" else "hasEod"] = True
 
-    # The actual clock-in/out time (from TimePunch, the punch of record) beside
-    # each BOD/EOD post - "in" backs a BOD, "out" backs an EOD. A day can hold
-    # more than one of each (corrections, multiple sessions): the first in-punch
-    # and the last out-punch are the ones that bracket the work day.
-    dates = sorted({r.local_date for r in rows})
-    punch_in_at, punch_out_at = {}, {}
-    if dates:
-        punches = (db.query(TimePunch)
-                   .filter(TimePunch.employee_email == email, TimePunch.local_date.in_(dates),
-                           TimePunch.voided == 0, TimePunch.kind.in_(("in", "out")))
-                   .order_by(TimePunch.at.asc()).all())
-        for p in punches:
-            if p.kind == "in" and p.local_date not in punch_in_at:
-                punch_in_at[p.local_date] = p.at
-            elif p.kind == "out":
-                punch_out_at[p.local_date] = p.at   # keep overwriting - last one wins
-
-    return {"start": start_d, "end": end_d, "logs": [{
-        "id": r.id, "kind": r.kind, "date": r.local_date,
-        "message": r.message or "", "tasks": r.tasks or "", "at": r.created_at,
-        "punchAt": (punch_in_at if r.kind == "bod" else punch_out_at).get(r.local_date, ""),
-    } for r in rows]}
+    days_in_month = _calendar_mod.monthrange(year, mon)[1]
+    days = [
+        {"date": f"{year:04d}-{mon:02d}-{d:02d}",
+         **have.get(f"{year:04d}-{mon:02d}-{d:02d}", {"hasBod": False, "hasEod": False})}
+        for d in range(1, days_in_month + 1)
+    ]
+    return {"month": m, "days": days}
 
 
 # ---------------------------------------------------------------------------

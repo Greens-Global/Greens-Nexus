@@ -6,7 +6,7 @@ import {
   ChevronLeft, Network, CalendarOff, UserPlus, Pencil, FileText,
   CheckCircle, XCircle, ChevronRight, History, CalendarDays, Camera,
   Building2, Trash2, MapPinned, Wallet, Landmark, Lock, Contact, Heart,
-  ShieldCheck, Shield, AlertTriangle, Clock, ArrowUpRight, Circle,
+  ShieldCheck, Shield, AlertTriangle, Clock, ArrowUpRight,
 } from 'lucide-react';
 import { api } from '../api';
 import { dialog } from '../ui/dialog';
@@ -23,6 +23,7 @@ import { capabilityText } from '../lib/moduleCapabilities';
 import PersonHover from '../components/PersonHoverCard';
 import { takePendingPerson } from '../lib/personNav';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
+import WorkLogDrawer, { WorkLogButton } from '../components/WorkLogDrawer';
 
 // ── HR module - Phase 1: employee master + People directory ──────────────────
 // Hiring pipeline, org chart and leave land in later phases (tabs are stubs).
@@ -525,93 +526,44 @@ function AssetsSection({ employee }) {
 function localIsoDate(d) {
   return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
 }
-function lastWeekRange() {
-  const end = new Date();
-  const start = new Date();
-  start.setDate(end.getDate() - 6);
-  return [localIsoDate(start), localIsoDate(end)];
+const currentMonthKey = () => localIsoDate(new Date()).slice(0, 7);   // YYYY-MM
+function shiftMonthKey(m, delta) {
+  const [y, mo] = m.split('-').map(Number);
+  const d = new Date(y, mo - 1 + delta, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
-// TimePunch.at is a naive UTC ISO string (no trailing Z) - same convention as
-// TimeAdmin's localTime() - append it before handing to Date so the browser
-// doesn't misread it as already-local.
-const punchTime = (iso) => iso ? new Date(iso + 'Z').toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
-
-// The composer's task list is free text (one item per line, optionally numbered
-// and/or prefixed "Pending: "), not a structured field - split it into rows
-// that read like the Tasks module's checklist rather than one dense caption.
-function parseTaskLines(tasks) {
-  return (tasks || '').split('\n').map(s => s.trim()).filter(Boolean).map(line => {
-    const pending = /^pending\s*:/i.test(line);
-    const text = line.replace(/^pending\s*:\s*/i, '').replace(/^\d+[.)]\s*/, '');
-    // "- done" can sit mid-sentence ("Client call - done, sending recap"), not
-    // just at the end, so match it anywhere rather than only as a trailing suffix.
-    const done = !pending && /-\s*done\b|\(done\)/i.test(text);
-    return { text: text.replace(/\s*-\s*done\b,?\s*/i, ' ').replace(/\s*\(done\)\s*/i, ' ').trim(), pending, done };
-  });
+function monthLabel(m) {
+  const [y, mo] = m.split('-').map(Number);
+  return new Date(y, mo - 1, 1).toLocaleDateString([], { month: 'long', year: 'numeric' });
 }
 
-// kind: 'bod' items are a plan, not yet performed - they only ever show as
-// open (never a green check, even if the free text happens to say "done").
-// Only 'eod' items can be marked complete or pending.
-function TaskChecklist({ tasks, kind }) {
-  const items = parseTaskLines(tasks);
-  if (items.length === 0) return null;
-  return (
-    <div style={{ marginTop: 8, display: 'grid', gap: 5 }}>
-      {items.map((it, i) => {
-        const pending = kind === 'eod' && it.pending;
-        const done = kind === 'eod' && it.done;
-        return (
-          <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 7 }}>
-            {pending
-              ? <AlertTriangle size={14} style={{ color: 'hsl(var(--color-orange))', flexShrink: 0, marginTop: 1.5 }} />
-              : done
-                ? <CheckCircle size={14} style={{ color: 'hsl(var(--color-green))', flexShrink: 0, marginTop: 1.5 }} />
-                : <Circle size={14} style={{ color: 'var(--muted)', flexShrink: 0, marginTop: 1.5 }} />}
-            <span style={{ fontSize: 13, lineHeight: 1.4, color: pending ? 'hsl(var(--color-orange))' : 'var(--ink)', fontWeight: pending ? 600 : 400 }}>
-              {pending && <span style={{ fontWeight: 700, fontSize: 10.5, letterSpacing: '.04em', textTransform: 'uppercase', marginRight: 6 }}>Pending:</span>}
-              {it.text}
-            </span>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-// Read-only log of a person's Beginning/End-of-day posts (Section: Time Clock's
-// BOD/EOD composer). Source of truth stays in timeclock.py's TimeBod table;
-// this only reads, newest first, so a manager doesn't have to scroll Teams to
-// see what someone said they'd do and what was left pending. Defaults to the
-// trailing week; the date filter pages back through older history. This is the
-// browse-history view; the timesheet's per-day Work Log icon (PayrollTimecard /
-// WorkLogDrawer) is the day-of-work-review view - both read the same data.
+// Work Logs, browsed a month at a time. Every day in the month lists here
+// permanently - TimeBod rows are append-only (record_bod always INSERTs a new
+// row, never updates one), so nothing is ever overwritten and history for any
+// past month stays available forever. Nothing but existence flags loads for
+// the month view itself (GET /hr/employees/{id}/bod/summary - no message/task
+// content); a day's actual content is fetched lazily, only when its icon is
+// clicked, by the same WorkLogDrawer + GET /timeclock/bod/day the timesheet
+// uses - one lazy fetch per day, on demand, never a bulk load up front.
 function WorkLogsSection({ employee }) {
-  const [[start, end], setRange] = useState(lastWeekRange);
-  const [logs, setLogs] = useState(null);
+  const [month, setMonth] = useState(currentMonthKey);
+  const [days, setDays] = useState(null);
+  const [openDay, setOpenDay] = useState(null);   // date string - opens the drawer
   const load = useCallback((quiet = false) => {
-    if (!quiet) setLogs(null);
-    api.getEmployeeBod(employee.id, start, end).then(r => setLogs(r.logs || []))
-      .catch(() => { if (!quiet) setLogs([]); });   // a failed background poll keeps the last good data on screen
-  }, [employee.id, start, end]);
+    if (!quiet) setDays(null);
+    api.getEmployeeBodSummary(employee.id, month).then(r => setDays(r.days || []))
+      .catch(() => { if (!quiet) setDays([]); });
+  }, [employee.id, month]);
   useEffect(() => { load(); }, [load]);
-  // Live while viewing this range: a manager watching a report shouldn't have
-  // to reopen the tab to see a punch that just landed. Quiet refresh (keeps
-  // the current cards on screen) only while the range covers today, and only
-  // while the tab is actually visible - same pattern as TimeClock's own poll.
+  // Cheap existence-only poll (no content) while viewing the current month, so
+  // a punch landing today fills in its icon without reopening the tab.
   useEffect(() => {
-    const today = localIsoDate(new Date());
-    if (today < start || today > end) return undefined;
-    return pollWhileVisible(() => load(true), 15000);
-  }, [load, start, end]);
+    if (month !== currentMonthKey()) return undefined;
+    return pollWhileVisible(() => load(true), 20000);
+  }, [load, month]);
 
-  // Group the flat, newest-first list into one card per local_date.
-  const byDate = [];
-  for (const l of logs || []) {
-    let group = byDate.find(g => g.date === l.date);
-    if (!group) { group = { date: l.date, bod: null, eod: null }; byDate.push(group); }
-    group[l.kind] = l;
-  }
+  const todayStr = localIsoDate(new Date());
+  const atCurrentMonth = month === currentMonthKey();
 
   return (
     <div style={{ marginTop: 18 }}>
@@ -619,45 +571,38 @@ function WorkLogsSection({ employee }) {
         <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', color: 'var(--muted)', textTransform: 'uppercase', flex: 1 }}>
           <Clock size={11} style={{ verticalAlign: 'middle', marginRight: 5 }} />Work logs (BOD/EOD)
         </span>
-        <button className="secondary-btn" onClick={() => setRange(lastWeekRange())} style={{ fontSize: 11.5, padding: '4px 10px' }}>This week</button>
-        <input className="form-input" type="date" value={start} onChange={ev => setRange([ev.target.value, end])} style={{ fontSize: 12, width: 140 }} />
-        <span style={{ fontSize: 12, color: 'var(--muted)' }}>to</span>
-        <input className="form-input" type="date" value={end} onChange={ev => setRange([start, ev.target.value])} style={{ fontSize: 12, width: 140 }} />
+        <button className="icon-btn" onClick={() => setMonth(m => shiftMonthKey(m, -1))} title="Previous month" style={{ padding: 5 }}><ChevronLeft size={14} /></button>
+        <span style={{ fontSize: 12.5, fontWeight: 700, minWidth: 120, textAlign: 'center' }}>{monthLabel(month)}</span>
+        <button className="icon-btn" onClick={() => setMonth(m => shiftMonthKey(m, 1))} disabled={atCurrentMonth} title="Next month" style={{ padding: 5, opacity: atCurrentMonth ? 0.4 : 1 }}><ChevronRight size={14} /></button>
       </div>
-      {logs === null ? (
-        <SkeletonBlocks count={3} height={54} />
-      ) : byDate.length === 0 ? (
-        <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0' }}>
-          {!employee.workEmail ? 'No work email yet - work logs key off it.' : 'No work logs posted in this date range.'}
-        </div>
+      {days === null ? (
+        <SkeletonBlocks count={4} height={34} />
+      ) : !employee.workEmail ? (
+        <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0' }}>No work email yet - work logs key off it.</div>
       ) : (
-        <div style={{ display: 'grid', gap: 8 }}>
-          {byDate.map(g => (
-            <div key={g.date} style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '11px 14px' }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)', marginBottom: 8 }}>{g.date}</div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
-                {[['Beginning of day', g.bod, 'bod', 'Punched in'], ['End of day', g.eod, 'eod', 'Punched out']].map(([label, slot, kind, punchLabel]) => (
-                  <div key={label} style={{ background: 'var(--mist)', borderRadius: 10, padding: '9px 12px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                      <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em', flex: 1 }}>{label}</span>
-                      {slot?.punchAt && (
-                        <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--wk-brand, var(--ink))' }} title={`${punchLabel} at ${punchTime(slot.punchAt)}`}>
-                          {punchLabel} {punchTime(slot.punchAt)}
-                        </span>
-                      )}
-                    </div>
-                    {slot ? (<>
-                      <div style={{ fontSize: 12.5, color: 'var(--ink)', whiteSpace: 'pre-wrap' }}>{slot.message || <span style={{ color: 'var(--muted)' }}>(no message)</span>}</div>
-                      <TaskChecklist tasks={slot.tasks} kind={kind} />
-                    </>) : (
-                      <span style={{ fontSize: 12, color: 'var(--muted)' }}>-</span>
-                    )}
-                  </div>
-                ))}
+        <div style={{ display: 'grid', gap: 3 }}>
+          {days.map(d => {
+            const has = d.hasBod || d.hasEod;
+            const future = d.date > todayStr;
+            return (
+              <div key={d.date} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 11px', borderRadius: 8, background: has ? 'var(--mist)' : 'transparent' }}>
+                <span style={{ flex: 1, fontSize: 12.5, fontWeight: has ? 700 : 400, color: future ? 'var(--muted)' : 'var(--ink)' }}>
+                  {new Date(d.date + 'T00:00').toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}
+                </span>
+                {d.hasBod && <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--wk-brand, var(--ink))', background: 'var(--wk-brand-tint, var(--line))', padding: '1px 7px', borderRadius: 999 }}>BOD</span>}
+                {d.hasEod && <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--wk-brand, var(--ink))', background: 'var(--wk-brand-tint, var(--line))', padding: '1px 7px', borderRadius: 999 }}>EOD</span>}
+                {has ? (
+                  <WorkLogButton onClick={() => setOpenDay(d.date)} title={`View the Work Log for ${d.date}`} />
+                ) : (
+                  <span style={{ fontSize: 11, color: 'var(--muted)', width: 19, textAlign: 'center' }}>{future ? '' : '-'}</span>
+                )}
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
+      )}
+      {openDay && (
+        <WorkLogDrawer email={employee.workEmail} date={openDay} name={fullName(employee)} onClose={() => setOpenDay(null)} />
       )}
     </div>
   );

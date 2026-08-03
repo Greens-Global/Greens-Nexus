@@ -725,7 +725,7 @@ export const api = {
 
   // HR - live assets (permanent assignments + active checkouts from Item Management)
   getEmployeeAssets: (id)      => req(`/hr/employees/${id}/assets`),
-  getEmployeeBod:    (id, start, end) => req(`/hr/employees/${id}/bod?start=${start || ''}&end=${end || ''}`),
+  getEmployeeBodSummary: (id, month) => req(`/hr/employees/${id}/bod/summary?month=${month || ''}`),
   changeEmployeeStatus: (id, data) => req(`/hr/employees/${id}/status`, { method: 'POST', body: JSON.stringify(data) }),
 
   // HR - mailbox export (zip of .eml via Graph; needs Mail.Read consent)
