@@ -538,29 +538,38 @@ function parseTaskLines(tasks) {
   return (tasks || '').split('\n').map(s => s.trim()).filter(Boolean).map(line => {
     const pending = /^pending\s*:/i.test(line);
     const text = line.replace(/^pending\s*:\s*/i, '').replace(/^\d+[.)]\s*/, '');
-    const done = !pending && /(-\s*done|\(done\))\s*$/i.test(text);
-    return { text: text.replace(/\s*[-(]\s*done\)?\s*$/i, '').trim(), pending, done };
+    // "- done" can sit mid-sentence ("Client call - done, sending recap"), not
+    // just at the end, so match it anywhere rather than only as a trailing suffix.
+    const done = !pending && /-\s*done\b|\(done\)/i.test(text);
+    return { text: text.replace(/\s*-\s*done\b,?\s*/i, ' ').replace(/\s*\(done\)\s*/i, ' ').trim(), pending, done };
   });
 }
 
-function TaskChecklist({ tasks }) {
+// kind: 'bod' items are a plan, not yet performed - they only ever show as
+// open (never a green check, even if the free text happens to say "done").
+// Only 'eod' items can be marked complete or pending.
+function TaskChecklist({ tasks, kind }) {
   const items = parseTaskLines(tasks);
   if (items.length === 0) return null;
   return (
     <div style={{ marginTop: 8, display: 'grid', gap: 5 }}>
-      {items.map((it, i) => (
-        <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 7 }}>
-          {it.pending
-            ? <AlertTriangle size={14} style={{ color: 'hsl(var(--color-orange))', flexShrink: 0, marginTop: 1.5 }} />
-            : it.done
-              ? <CheckCircle size={14} style={{ color: 'hsl(var(--color-green))', flexShrink: 0, marginTop: 1.5 }} />
-              : <Circle size={14} style={{ color: 'var(--muted)', flexShrink: 0, marginTop: 1.5 }} />}
-          <span style={{ fontSize: 13, lineHeight: 1.4, color: it.pending ? 'hsl(var(--color-orange))' : 'var(--ink)', fontWeight: it.pending ? 600 : 400 }}>
-            {it.text}
-            {it.pending && <span style={{ fontWeight: 700, fontSize: 10.5, letterSpacing: '.04em', textTransform: 'uppercase', marginLeft: 6 }}>Pending</span>}
-          </span>
-        </div>
-      ))}
+      {items.map((it, i) => {
+        const pending = kind === 'eod' && it.pending;
+        const done = kind === 'eod' && it.done;
+        return (
+          <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 7 }}>
+            {pending
+              ? <AlertTriangle size={14} style={{ color: 'hsl(var(--color-orange))', flexShrink: 0, marginTop: 1.5 }} />
+              : done
+                ? <CheckCircle size={14} style={{ color: 'hsl(var(--color-green))', flexShrink: 0, marginTop: 1.5 }} />
+                : <Circle size={14} style={{ color: 'var(--muted)', flexShrink: 0, marginTop: 1.5 }} />}
+            <span style={{ fontSize: 13, lineHeight: 1.4, color: pending ? 'hsl(var(--color-orange))' : 'var(--ink)', fontWeight: pending ? 600 : 400 }}>
+              {pending && <span style={{ fontWeight: 700, fontSize: 10.5, letterSpacing: '.04em', textTransform: 'uppercase', marginRight: 6 }}>Pending:</span>}
+              {it.text}
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -609,12 +618,12 @@ function WorkLogsSection({ employee }) {
             <div key={g.date} style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '11px 14px' }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)', marginBottom: 8 }}>{g.date}</div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
-                {[['Beginning of day', g.bod], ['End of day', g.eod]].map(([label, slot]) => (
+                {[['Beginning of day', g.bod, 'bod'], ['End of day', g.eod, 'eod']].map(([label, slot, kind]) => (
                   <div key={label} style={{ background: 'var(--mist)', borderRadius: 10, padding: '9px 12px' }}>
                     <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 4 }}>{label}</div>
                     {slot ? (<>
                       <div style={{ fontSize: 12.5, color: 'var(--ink)', whiteSpace: 'pre-wrap' }}>{slot.message || <span style={{ color: 'var(--muted)' }}>(no message)</span>}</div>
-                      <TaskChecklist tasks={slot.tasks} />
+                      <TaskChecklist tasks={slot.tasks} kind={kind} />
                     </>) : (
                       <span style={{ fontSize: 12, color: 'var(--muted)' }}>-</span>
                     )}
