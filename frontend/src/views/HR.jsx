@@ -23,7 +23,7 @@ import { capabilityText } from '../lib/moduleCapabilities';
 import PersonHover from '../components/PersonHoverCard';
 import { takePendingPerson } from '../lib/personNav';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
-import { WorkLogContent } from '../components/WorkLogDrawer';
+import { TaskChecklist, punchTime } from '../components/WorkLogDrawer';
 
 // ── HR module - Phase 1: employee master + People directory ──────────────────
 // Hiring pipeline, org chart and leave land in later phases (tabs are stubs).
@@ -526,58 +526,45 @@ function AssetsSection({ employee }) {
 function localIsoDate(d) {
   return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
 }
-const currentMonthKey = () => localIsoDate(new Date()).slice(0, 7);   // YYYY-MM
-function shiftMonthKey(m, delta) {
-  const [y, mo] = m.split('-').map(Number);
-  const d = new Date(y, mo - 1 + delta, 1);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-}
-function monthLabel(m) {
-  const [y, mo] = m.split('-').map(Number);
-  return new Date(y, mo - 1, 1).toLocaleDateString([], { month: 'long', year: 'numeric' });
+function lastWeekRange() {
+  const end = new Date();
+  const start = new Date();
+  start.setDate(end.getDate() - 6);
+  return [localIsoDate(start), localIsoDate(end)];
 }
 
-// Work Logs, browsed a month at a time. Every day in the month lists here
-// permanently - TimeBod rows are append-only (record_bod always INSERTs a new
-// row, never updates one), so nothing is ever overwritten and history for any
-// past month stays available forever. Nothing but existence flags loads for
-// the month view itself (GET /hr/employees/{id}/bod/summary - no message/task
-// content); a day's full content loads lazily, only when that day is expanded,
-// via the same GET /timeclock/bod/day the timesheet's drawer uses - one fetch
-// per day, on demand, cached so re-collapsing/re-expanding doesn't refetch.
-// Expands IN PLACE as a card under the clicked day (the original look here),
-// unlike the timesheet's icon which opens a side drawer - same data, same
-// lazy-fetch discipline, different presentation per surface.
+// Read-only log of a person's Beginning/End-of-day posts (Section: Time Clock's
+// BOD/EOD composer). Source of truth stays in timeclock.py's TimeBod table;
+// this only reads, newest first, so a manager doesn't have to scroll Teams to
+// see what someone said they'd do and what was left pending. Defaults to the
+// trailing week; the date filter pages back through older history. BOD and
+// EOD render together on the same card for each day.
 function WorkLogsSection({ employee }) {
-  const [month, setMonth] = useState(currentMonthKey);
-  const [days, setDays] = useState(null);
-  const [openDate, setOpenDate] = useState(null);      // expanded day, or null
-  const [content, setContent] = useState({});          // date -> payload | 'error' (lazy cache)
+  const [[start, end], setRange] = useState(lastWeekRange);
+  const [logs, setLogs] = useState(null);
   const load = useCallback((quiet = false) => {
-    if (!quiet) setDays(null);
-    api.getEmployeeBodSummary(employee.id, month).then(r => setDays(r.days || []))
-      .catch(() => { if (!quiet) setDays([]); });
-  }, [employee.id, month]);
+    if (!quiet) setLogs(null);
+    api.getEmployeeBod(employee.id, start, end).then(r => setLogs(r.logs || []))
+      .catch(() => { if (!quiet) setLogs([]); });   // a failed background poll keeps the last good data on screen
+  }, [employee.id, start, end]);
   useEffect(() => { load(); }, [load]);
-  // Cheap existence-only poll (no content) while viewing the current month, so
-  // a punch landing today fills in its icon without reopening the tab.
+  // Live while viewing this range: a manager watching a report shouldn't have
+  // to reopen the tab to see a punch that just landed. Quiet refresh (keeps
+  // the current cards on screen) only while the range covers today, and only
+  // while the tab is actually visible - same pattern as TimeClock's own poll.
   useEffect(() => {
-    if (month !== currentMonthKey()) return undefined;
-    return pollWhileVisible(() => load(true), 20000);
-  }, [load, month]);
+    const today = localIsoDate(new Date());
+    if (today < start || today > end) return undefined;
+    return pollWhileVisible(() => load(true), 15000);
+  }, [load, start, end]);
 
-  function toggleDay(date) {
-    if (openDate === date) { setOpenDate(null); return; }
-    setOpenDate(date);
-    if (!(date in content)) {
-      api.timeBodDay(employee.workEmail, date)
-        .then(r => setContent(c => ({ ...c, [date]: r })))
-        .catch(() => setContent(c => ({ ...c, [date]: 'error' })));
-    }
+  // Group the flat, newest-first list into one card per local_date (BOD + EOD together).
+  const byDate = [];
+  for (const l of logs || []) {
+    let group = byDate.find(g => g.date === l.date);
+    if (!group) { group = { date: l.date, bod: null, eod: null }; byDate.push(group); }
+    group[l.kind] = l;
   }
-
-  const todayStr = localIsoDate(new Date());
-  const atCurrentMonth = month === currentMonthKey();
 
   return (
     <div style={{ marginTop: 18 }}>
@@ -585,44 +572,44 @@ function WorkLogsSection({ employee }) {
         <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', color: 'var(--muted)', textTransform: 'uppercase', flex: 1 }}>
           <Clock size={11} style={{ verticalAlign: 'middle', marginRight: 5 }} />Work logs (BOD/EOD)
         </span>
-        <button className="icon-btn" onClick={() => setMonth(m => shiftMonthKey(m, -1))} title="Previous month" style={{ padding: 5 }}><ChevronLeft size={14} /></button>
-        <span style={{ fontSize: 12.5, fontWeight: 700, minWidth: 120, textAlign: 'center' }}>{monthLabel(month)}</span>
-        <button className="icon-btn" onClick={() => setMonth(m => shiftMonthKey(m, 1))} disabled={atCurrentMonth} title="Next month" style={{ padding: 5, opacity: atCurrentMonth ? 0.4 : 1 }}><ChevronRight size={14} /></button>
+        <button className="secondary-btn" onClick={() => setRange(lastWeekRange())} style={{ fontSize: 11.5, padding: '4px 10px' }}>This week</button>
+        <input className="form-input" type="date" value={start} onChange={ev => setRange([ev.target.value, end])} style={{ fontSize: 12, width: 140 }} />
+        <span style={{ fontSize: 12, color: 'var(--muted)' }}>to</span>
+        <input className="form-input" type="date" value={end} onChange={ev => setRange([start, ev.target.value])} style={{ fontSize: 12, width: 140 }} />
       </div>
-      {days === null ? (
-        <SkeletonBlocks count={4} height={34} />
-      ) : !employee.workEmail ? (
-        <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0' }}>No work email yet - work logs key off it.</div>
+      {logs === null ? (
+        <SkeletonBlocks count={3} height={54} />
+      ) : byDate.length === 0 ? (
+        <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0' }}>
+          {!employee.workEmail ? 'No work email yet - work logs key off it.' : 'No work logs posted in this date range.'}
+        </div>
       ) : (
         <div style={{ display: 'grid', gap: 8 }}>
-          {days.map(d => {
-            const has = d.hasBod || d.hasEod;
-            const future = d.date > todayStr;
-            const open = openDate === d.date;
-            const niceDate = new Date(d.date + 'T00:00').toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
-            return (
-              <div key={d.date} style={{ border: '1px solid var(--line)', borderRadius: 12, overflow: 'hidden' }}>
-                <button onClick={() => has && toggleDay(d.date)} disabled={!has}
-                  style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '9px 12px', border: 'none',
-                    background: has ? 'var(--mist)' : 'transparent', cursor: has ? 'pointer' : 'default', font: 'inherit', textAlign: 'left' }}>
-                  <span style={{ flex: 1, fontSize: 12.5, fontWeight: has ? 700 : 400, color: future ? 'var(--muted)' : 'var(--ink)' }}>{niceDate}</span>
-                  {d.hasBod && <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--wk-brand, var(--ink))', background: 'var(--wk-brand-tint, var(--line))', padding: '1px 7px', borderRadius: 999 }}>BOD</span>}
-                  {d.hasEod && <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--wk-brand, var(--ink))', background: 'var(--wk-brand-tint, var(--line))', padding: '1px 7px', borderRadius: 999 }}>EOD</span>}
-                  {has ? (
-                    <FileText size={15} title={open ? 'Collapse' : `View the Work Log for ${niceDate}`} style={{ color: 'var(--wk-brand, var(--pine))', flexShrink: 0 }} />
-                  ) : (
-                    <span style={{ fontSize: 11, color: 'var(--muted)', width: 19, textAlign: 'center' }}>{future ? '' : '-'}</span>
-                  )}
-                </button>
-                {open && (
-                  <div style={{ padding: '12px 14px', borderTop: '1px solid var(--line)' }}>
-                    <WorkLogContent data={content[d.date] === 'error' ? undefined : (content[d.date] ?? null)}
-                      err={content[d.date] === 'error' ? 'Could not load the work log.' : ''} />
+          {byDate.map(g => (
+            <div key={g.date} style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '11px 14px' }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)', marginBottom: 8 }}>{g.date}</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
+                {[['Beginning of day', g.bod, 'bod', 'Punched in'], ['End of day', g.eod, 'eod', 'Punched out']].map(([label, slot, kind, punchLabel]) => (
+                  <div key={label} style={{ background: 'var(--mist)', borderRadius: 10, padding: '9px 12px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                      <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em', flex: 1 }}>{label}</span>
+                      {slot?.punchAt && (
+                        <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--wk-brand, var(--ink))' }} title={`${punchLabel} at ${punchTime(slot.punchAt)}`}>
+                          {punchLabel} {punchTime(slot.punchAt)}
+                        </span>
+                      )}
+                    </div>
+                    {slot ? (<>
+                      <div style={{ fontSize: 12.5, color: 'var(--ink)', whiteSpace: 'pre-wrap' }}>{slot.message || <span style={{ color: 'var(--muted)' }}>(no message)</span>}</div>
+                      <TaskChecklist tasks={slot.tasks} kind={kind} />
+                    </>) : (
+                      <span style={{ fontSize: 12, color: 'var(--muted)' }}>-</span>
+                    )}
                   </div>
-                )}
+                ))}
               </div>
-            );
-          })}
+            </div>
+          ))}
         </div>
       )}
     </div>
