@@ -93,6 +93,8 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   const [tour, setTour] = useState(false);               // Simulate walkthrough
   const { can } = useRole();
   const isAdmin = can('administrator');
+  // Location dot on a punch links to the Locations map, for viewers who can reach it.
+  const hourlyLocate = (!self || isAdmin) ? (data?.email || email || '') : '';
 
   const start = isoDate(pStart);
   const end = isoDate(pStart.getTime() + 13 * DAY);
@@ -484,14 +486,14 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                     {r.first === false ? '' : dow(r.ds)}
                   </td>
                   <td style={{ ...td, textAlign: 'left' }}>{r.seg
-                    ? <InlineTime seg={r.seg} k="in" showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} />
+                    ? <InlineTime seg={r.seg} k="in" showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} locateEmail={hourlyLocate} />
                     : self && !fin
                       ? <button onClick={() => setEditDay({ date: r.ds, seg: null })} title="Add a punch for this day - goes to your approver"
                           style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--wk-brand)', fontWeight: 600, font: 'inherit', opacity: 0.75 }}>+ add</button>
                       : '-'}</td>
                   <td style={{ ...td, textAlign: 'left' }}>
                     {r.seg ? (r.seg.out
-                      ? <InlineTime seg={r.seg} k="out" showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} />
+                      ? <InlineTime seg={r.seg} k="out" showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} locateEmail={hourlyLocate} />
                       : (self && fin)
                         ? <span title="Period finalized - locked" style={{ color: '#b91c1c', fontWeight: 700 }}>Missing</span>
                         : <button onClick={() => !fin && setEditDay({ date: r.ds, seg: r.seg })} title={fin ? 'Period finalized - locked' : self ? 'Add the missing clock-out - goes to your approver' : 'Add the missing clock-out'}
@@ -808,9 +810,12 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
               const notes = segs.flatMap(segReasons);
 
               // Editable in/out cell for a single segment (or an expanded punch row).
-              const inCell = (seg) => <InlineTime seg={seg} k="in" showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} />;
+              // The location dot links to the Locations map (only for viewers who can
+              // reach it: HR/managers on someone else's card, or an admin on their own).
+              const locateEmail = (!self || isAdmin) ? (data.email || '') : '';
+              const inCell = (seg) => <InlineTime seg={seg} k="in" showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} locateEmail={locateEmail} />;
               const outCell = (seg) => seg.out
-                ? <InlineTime seg={seg} k="out" showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} />
+                ? <InlineTime seg={seg} k="out" showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} locateEmail={locateEmail} />
                 : (self && fin) ? <span style={{ color: '#b91c1c', fontWeight: 700 }}>Missing</span>
                     : <button onClick={() => !fin && setEditDay({ date: fd.date, seg })} title={fin ? 'Locked' : 'Add the missing clock-out'} style={{ background: 'none', border: 'none', padding: 0, cursor: fin ? 'default' : 'pointer', color: '#b91c1c', fontWeight: 700, font: 'inherit' }}>Missing</button>;
               const addBtn = <button onClick={() => setEditDay({ date: fd.date, seg: null })} title={self ? 'Add a missing punch for this day - goes to your approver' : 'Add a punch for this day'} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--wk-brand)', fontWeight: 600, font: 'inherit', opacity: 0.85 }}>+ add</button>;
@@ -1057,7 +1062,7 @@ function SigLine({ label, sig, nameFor, action, pending }) {
   );
 }
 
-function InlineTime({ seg, k, showRaw, locked, onSaved, toastErr, self }) {
+function InlineTime({ seg, k, showRaw, locked, onSaved, toastErr, self, locateEmail }) {
   const [editing, setEditing] = useState(false);
   const [val, setVal] = useState('');
   const punchId = k === 'in' ? seg?.inId : seg?.outId;   // always available (for approve/reject)
@@ -1099,13 +1104,19 @@ function InlineTime({ seg, k, showRaw, locked, onSaved, toastErr, self }) {
   );
   const geo = seg.geo || '';
   const mini = { border: 'none', background: 'none', cursor: 'pointer', padding: '0 2px', fontWeight: 800, fontSize: 12, lineHeight: 1 };
+  const dotColor = geo === 'in_fence' ? 'hsl(var(--color-green))' : geo === 'out_of_fence' ? '#b91c1c' : 'var(--line-strong,var(--line))';
+  // Clicking the location dot jumps to the Locations map, focused on this person.
+  const openMap = (e) => { e.stopPropagation(); if (!locateEmail) return; sessionStorage.setItem('nexus:locateEmail', locateEmail); window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'locations' } })); };
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+      {geo && (locateEmail
+        ? <button onClick={openMap} aria-label="See on map" title="See this person's last location on the map"
+            style={{ width: 10, height: 10, borderRadius: '50%', flexShrink: 0, padding: 0, cursor: 'pointer', border: 'none', background: dotColor, boxShadow: `0 0 0 2px var(--card), 0 0 0 3px ${dotColor}` }} />
+        : <span title={geo === 'in_fence' ? 'On site' : geo === 'out_of_fence' ? 'Off site' : 'No location'}
+            style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0, background: dotColor }} />)}
       <button onClick={() => { if (!id) return; setVal(utcToInput(raw)); setEditing(true); }}
         title={id ? (self ? 'Propose a new time - goes to your approver; pay unchanged until approved' : 'Click to edit this punch time - the original stays on record') : ''}
         style={{ background: 'none', border: 'none', padding: 0, cursor: id ? 'pointer' : 'default', font: 'inherit', color: 'inherit', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-        {geo && <span title={geo === 'in_fence' ? 'On site' : geo === 'out_of_fence' ? 'Off site' : 'No location'}
-          style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0, background: geo === 'in_fence' ? 'hsl(var(--color-green))' : geo === 'out_of_fence' ? '#b91c1c' : 'var(--line-strong,var(--line))' }} />}
         <span style={{ borderBottom: id ? `1px dashed ${self ? 'var(--wk-brand)' : 'var(--line-strong,var(--line))'}` : '1px dashed var(--line-strong,var(--line))', color: self && id ? 'var(--wk-brand)' : undefined, fontWeight: self && id ? 600 : undefined }}>{t12(rounded)}</span>
         {self && id && <Pencil size={10} style={{ opacity: 0.7, flexShrink: 0, color: 'var(--wk-brand)' }} />}
         {showRaw && <span style={{ fontSize: 10.5, fontStyle: 'italic', color: 'var(--muted)' }}>{t12s(raw)}</span>}
