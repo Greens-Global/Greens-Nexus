@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import {
   Clock, ChevronDown, ChevronRight, ChevronLeft, MapPin, AlertTriangle, Download,
   Pencil, Plus, Loader2, X, CheckCircle, Ban, Camera, MoonStar,
-  CalendarDays, Activity, Inbox, CalendarClock, Banknote, CalendarOff,
+  CalendarDays, Activity, Inbox, CalendarClock, Banknote, CalendarOff, MessageSquareText,
 } from 'lucide-react';
 import { api } from '../api';
 import { dialog } from '../ui/dialog';
@@ -190,6 +190,16 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
     api.timeTeamShots(shotDate, shotWho.email).then(r => setShotFrames(r.shots || [])).catch(() => setShotFrames([]));
   }, [shotWho, shotDate]);
 
+  // BOD/EOD report: what each team member posted for the day (message + task
+  // list only - never the surrounding Teams chat), plus who hasn't posted.
+  const [bodDate, setBodDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [bodPeople, setBodPeople] = useState(null);
+  useEffect(() => {
+    if (view !== 'bod') return;
+    setBodPeople(null);
+    api.timeTeamBod(bodDate).then(r => setBodPeople(r.people || [])).catch(() => setBodPeople([]));
+  }, [view, bodDate]);
+
   // Disclosed-monitoring tamper/coverage alerts - surfaces employees who are
   // clocked in while their agent has gone quiet (killed/uninstalled/offline), so
   // evasion is a visible, attributable event rather than a silent success. Polled.
@@ -333,7 +343,8 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
       <div className="scroll-tabs" style={{ display: 'flex', gap: 2, marginBottom: 18, borderBottom: '1px solid var(--wk-line)' }}>
         {[['payroll', 'Payroll', Banknote], ['livemap', 'Live map', MapPin], ['attendance', 'Attendance', CalendarDays],
           ['insights', 'Insights', Activity], ['requests', 'Punch requests', Inbox, punchReqs.length],
-          ['screenshots', 'Screenshots', Camera], ['shifts', 'Shifts', CalendarClock],
+          ['screenshots', 'Screenshots', Camera], ['bod', 'BOD/EOD', MessageSquareText],
+          ['shifts', 'Shifts', CalendarClock],
           ['timeoff', 'Time off', CalendarOff, pendingCount]].map(([key, label, Icon, badge]) => {
           const on = view === key;
           return (
@@ -745,6 +756,66 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
                       </a>
                     ))}
                   </div>
+          )}
+        </div>
+      )}
+
+      {/* BOD/EOD report - just the message + task list each visible employee
+          posted for the day (never the surrounding Teams chat), plus who
+          hasn't posted at all - the thing a manager can't get from Teams. */}
+      {view === 'bod' && (
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+            <span className="wkc-chip"><MessageSquareText size={14} /></span>
+            <span style={{ fontSize: 13.5, fontWeight: 600 }}>Beginning/end of day</span>
+            <div style={{ flex: 1 }} />
+            <input className="form-input" type="date" value={bodDate} onChange={e => setBodDate(e.target.value)}
+              style={{ fontSize: 12, width: 150 }} />
+          </div>
+
+          {bodPeople === null ? (
+            <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} /></div>
+          ) : bodPeople.length === 0 ? (
+            <div style={{ padding: '26px 18px', textAlign: 'center', fontSize: 12.5, color: 'var(--muted)', border: '1.5px dashed var(--line)', borderRadius: 12 }}>
+              No one on your team yet.
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gap: 8 }}>
+              {bodPeople.map(p => {
+                const has = p.bod || p.eod;
+                return (
+                  <div key={p.email} style={{ border: '1px solid var(--wk-line2)', borderRadius: 12, padding: '12px 14px', background: 'var(--card)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: has ? 10 : 0 }}>
+                      <span style={{ fontSize: 13.5, fontWeight: 700, flex: 1 }}>{p.name}</span>
+                      {!has && (
+                        <span style={{ fontSize: 11, fontWeight: 700, color: '#b45309', background: 'rgba(180,83,9,0.1)', padding: '2px 9px', borderRadius: 999 }}>
+                          No update
+                        </span>
+                      )}
+                    </div>
+                    {has && (
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 10 }}>
+                        {[['Beginning of day', p.bod], ['End of day', p.eod]].map(([label, slot]) => (
+                          <div key={label} style={{ background: 'var(--mist)', borderRadius: 10, padding: '9px 12px' }}>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', marginBottom: 4 }}>{label}</div>
+                            {slot ? (<>
+                              <div style={{ fontSize: 12.5, color: 'var(--ink)', whiteSpace: 'pre-wrap' }}>{slot.message || <span style={{ color: 'var(--muted)' }}>(no message)</span>}</div>
+                              {slot.tasks && (
+                                <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 6, whiteSpace: 'pre-wrap' }}>
+                                  <strong style={{ color: 'var(--ink)' }}>Tasks: </strong>{slot.tasks}
+                                </div>
+                              )}
+                            </>) : (
+                              <span style={{ fontSize: 12, color: 'var(--muted)' }}>-</span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           )}
         </div>
       )}
