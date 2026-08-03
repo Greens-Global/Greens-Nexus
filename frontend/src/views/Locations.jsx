@@ -10,7 +10,13 @@ import { pollWhileVisible } from '../lib/pollWhileVisible';
 // department / country (+ on-site, clocked-in, name). Coordinates come from the
 // punch itself, so a desktop clusters at ~IP accuracy and a phone is GPS-precise.
 
-const RING = { in: '#16a34a', out: '#94a3b8' };
+// Live clock state (from the person's latest punch): drives the pin/avatar ring.
+const CLOCK = {
+  working:  { color: '#16a34a', label: 'Working' },
+  on_break: { color: '#d97706', label: 'On break' },
+  off:      { color: '#94a3b8', label: 'Not clocked in' },
+};
+const clockOf = (p) => CLOCK[p.status] || (p.clockedIn ? CLOCK.working : CLOCK.off);
 const fmtAcc = (m) => m >= 1000 ? `±${(m / 1000).toFixed(m >= 10000 ? 0 : 1)}km` : `±${m}m`;
 // Status label + color. On-site/off-site come from the geofence verdict; otherwise
 // judge by ACCURACY, not geo_status - a punch reads "no_location" whenever there's
@@ -38,7 +44,7 @@ const ago = (iso) => {
 
 function pinHtml(p, active) {
   const size = active ? 48 : 38;
-  const ring = p.clockedIn ? RING.in : RING.out;
+  const ring = clockOf(p).color;
   const inner = p.photoUrl
     ? `<img src="${esc(p.photoUrl)}" alt="" style="width:100%;height:100%;object-fit:cover"/>`
     : `<div style="width:100%;height:100%;background:#334155;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:${Math.round(size / 2.8)}px;font-family:Inter,sans-serif">${initials(p.name)}</div>`;
@@ -122,7 +128,7 @@ export default function Locations({ toastErr }) {
       const size = active ? 48 : 38;
       const m = L.marker([lat, lng], { icon: L.divIcon({ className: '', html: pinHtml(p, active), iconSize: [size, size], iconAnchor: [size / 2, size / 2] }), zIndexOffset: active ? 1000 : 0 })
         .addTo(layer)
-        .bindTooltip(`${p.name}${p.department ? ` · ${p.department}` : ''} · ${locStatus(p).label}`, { direction: 'top', offset: [0, -size / 2] })
+        .bindTooltip(`${p.name}${p.department ? ` · ${p.department}` : ''} · ${clockOf(p).label} · ${locStatus(p).label}`, { direction: 'top', offset: [0, -size / 2] })
         .on('click', () => setSel(p.email));
       markerByEmail.current[p.email] = [lat, lng];
       bounds.push([lat, lng]);
@@ -181,6 +187,13 @@ export default function Locations({ toastErr }) {
         </label>
         {activeFilters ? <button className="secondary-btn" onClick={clearFilters} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 4 }}><X size={12} /> Clear</button> : null}
         <div style={{ flex: 1 }} />
+        <span style={{ display: 'inline-flex', gap: 10, fontSize: 11, color: 'var(--muted)' }}>
+          {Object.values(CLOCK).map(s => (
+            <span key={s.label} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <span style={{ width: 9, height: 9, borderRadius: '50%', border: `2px solid ${s.color}` }} />{s.label}
+            </span>
+          ))}
+        </span>
         <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>
           <strong style={{ color: 'var(--ink)' }}>{shown.length}</strong> shown{updated ? ` · updated ${updated}` : ''}
         </span>
@@ -199,11 +212,12 @@ export default function Locations({ toastErr }) {
           ) : shown.map(p => {
             const active = sel === p.email;
             const g = locStatus(p);
+            const c = clockOf(p);
             return (
               <button key={p.email} onClick={() => setSel(active ? null : p.email)}
                 style={{ textAlign: 'left', padding: '9px 11px', borderRadius: 10, cursor: 'pointer', display: 'flex', gap: 9, alignItems: 'center',
                   border: `1px solid ${active ? 'var(--wk-brand)' : 'var(--wk-line2)'}`, background: active ? 'var(--wk-brand-tint)' : 'var(--card)', fontFamily: 'var(--wk-font)' }}>
-                <span style={{ width: 34, height: 34, borderRadius: '50%', overflow: 'hidden', flexShrink: 0, border: `2px solid ${p.clockedIn ? RING.in : RING.out}`, background: '#334155', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 800, fontSize: 12 }}>
+                <span style={{ width: 34, height: 34, borderRadius: '50%', overflow: 'hidden', flexShrink: 0, border: `2px solid ${c.color}`, background: '#334155', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 800, fontSize: 12 }}>
                   {p.photoUrl ? <img src={p.photoUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : initials(p.name)}
                 </span>
                 <span style={{ minWidth: 0, flex: 1 }}>
@@ -211,9 +225,10 @@ export default function Locations({ toastErr }) {
                   <span style={{ display: 'block', fontSize: 11, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {[p.department, p.companyName].filter(Boolean).join(' · ') || '—'}
                   </span>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10.5, marginTop: 1 }}>
-                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: g.color }} />
-                    <span style={{ color: 'var(--muted)' }}>{g.label} · {ago(p.at)}{p.clockedIn ? ' · on the clock' : ''}</span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10.5, marginTop: 1, flexWrap: 'wrap' }}>
+                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: c.color }} />
+                    <span style={{ fontWeight: 700, color: c.color }}>{c.label}</span>
+                    <span style={{ color: 'var(--muted)' }}>· {g.label} · {ago(p.at)}</span>
                   </span>
                 </span>
               </button>

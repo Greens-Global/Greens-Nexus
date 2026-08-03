@@ -2024,6 +2024,11 @@ def team_locations(user: dict = Depends(require_team_read), db: Session = Depend
             continue
         last = (db.query(TimePunch).filter(TimePunch.employee_email == email, TimePunch.voided == 0)
                 .order_by(TimePunch.at.desc()).first())
+        last_kind = last.kind if last else ""
+        # working (clocked in) / on_break / off (clocked out or never in today)
+        status = ("on_break" if last_kind == "break_start"
+                  else "working" if last_kind in ("in", "break_end")
+                  else "off")
         ent = ents.get(em.company or "")
         people.append({
             "email": email,
@@ -2038,7 +2043,8 @@ def team_locations(user: dict = Depends(require_team_read), db: Session = Depend
             "geoStatus": loc.geo_status or "no_location",
             "workSiteName": loc.work_site_name or "",
             "at": loc.at,
-            "clockedIn": bool(last and last.kind != "out"),
+            "clockedIn": status != "off",
+            "status": status,
         })
     return {"people": people}
 
