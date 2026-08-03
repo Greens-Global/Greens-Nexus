@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { X, Camera, ChevronLeft, Loader2, MoonStar } from 'lucide-react';
 import { api } from '../api';
+import ImageLightbox from './ImageLightbox';
 
 // ── Admin → Screenshots - work-session capture gallery ───────────────────────
 // Pick a day → people with captures → their frames (signed URLs, 1h expiry).
@@ -13,20 +14,23 @@ export default function ScreenshotsAdmin({ onClose }) {
   const [people, setPeople] = useState(null);
   const [who, setWho] = useState(null);       // {email, name}
   const [shots, setShots] = useState(null);
+  const [viewIdx, setViewIdx] = useState(null);   // open lightbox at this shot index
 
   const loadPeople = useCallback(() => {
-    setPeople(null); setWho(null); setShots(null);
+    setPeople(null); setWho(null); setShots(null); setViewIdx(null);
     api.timeShots(date).then(r => setPeople(r.people || [])).catch(() => setPeople([]));
   }, [date]);
   useEffect(() => { loadPeople(); }, [loadPeople]);
 
   useEffect(() => {
     if (!who) return;
-    setShots(null);
+    setShots(null); setViewIdx(null);
     api.timeShots(date, who.email).then(r => setShots(r.shots || [])).catch(() => setShots([]));
   }, [who, date]);
 
+
   return (
+    <>
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1450, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
       onClick={e => e.target === e.currentTarget && onClose()}>
       <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 900, maxHeight: 'min(92dvh, 760px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
@@ -69,9 +73,9 @@ export default function ScreenshotsAdmin({ onClose }) {
             shots === null
               ? <div style={{ textAlign: 'center', padding: 30, color: 'var(--muted)' }}><Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} /></div>
               : <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 12 }}>
-                  {shots.map(s => (
-                    <a key={s.id} href={s.url} target="_blank" rel="noopener noreferrer"
-                      style={{ display: 'block', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden', textDecoration: 'none', background: 'var(--mist)' }}>
+                  {shots.map((s, i) => (
+                    <button key={s.id} onClick={() => setViewIdx(i)} title="Click to view - use arrow keys to browse"
+                      style={{ display: 'block', width: '100%', textAlign: 'left', padding: 0, border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden', background: 'var(--mist)', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
                       <img src={s.url} alt={`Capture ${localTime(s.at)}`} loading="lazy"
                         style={{ width: '100%', aspectRatio: '16/9', objectFit: 'cover', display: 'block' }} />
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px' }}>
@@ -84,12 +88,15 @@ export default function ScreenshotsAdmin({ onClose }) {
                           </span>
                         )}
                       </div>
-                    </a>
+                    </button>
                   ))}
                 </div>
           )}
         </div>
       </div>
     </div>
+
+    <ImageLightbox shots={shots} index={viewIdx} setIndex={setViewIdx} />
+    </>
   );
 }

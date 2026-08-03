@@ -43,6 +43,59 @@ export const MergeField = Node.create({
   },
 });
 
+// Word's Insert > Bookmarks - a named, zero-width anchor point. Renders as a
+// small flag while editing (contenteditable:false, like MergeField's chip)
+// so it's visible/clickable but never accidentally typed into; invisible on
+// export (doc_export.py's block walker has no bookmark case, so it's simply
+// skipped rather than needing an explicit "don't render this" branch).
+export const Bookmark = Node.create({
+  name: 'bookmark',
+  group: 'inline',
+  inline: true,
+  atom: true,
+
+  addAttributes() {
+    return { name: { default: '' } };
+  },
+
+  parseHTML() {
+    return [{ tag: 'span[data-bookmark]', getAttrs: el => ({ name: el.getAttribute('data-bookmark') }) }];
+  },
+
+  renderHTML({ node }) {
+    return ['span', { class: 'doc-bookmark', 'data-bookmark': node.attrs.name, contenteditable: 'false', title: `Bookmark: ${node.attrs.name}` }, '⚑'];
+  },
+});
+
+// KB SOP quick sections (Purpose/Process/Notes) - a bordered container the
+// author types INTO, not just a heading. `content: 'block+'` scopes typing
+// to inside the box; the label is a static child (contenteditable:false) so
+// it can never be edited or deleted by accident, only the caller can set it.
+// Insertion (insertQuickSection in DocumentBuilder.jsx) always adds a plain
+// paragraph sibling right after the box - clicking below the box lands there,
+// outside it, so the next thing you type is unwrapped, ordinary body text.
+export const SectionBox = Node.create({
+  name: 'sectionBox',
+  group: 'block',
+  content: 'block+',
+  defining: true,
+
+  addAttributes() {
+    return { label: { default: '' } };
+  },
+
+  parseHTML() {
+    return [{ tag: 'div[data-section-box]', contentElement: '.doc-section-box-body' }];
+  },
+
+  renderHTML({ node }) {
+    return ['div', { class: 'doc-section-box', 'data-section-box': '' },
+      ['div', { class: 'doc-section-box-label', contenteditable: 'false' }, node.attrs.label],
+      ['div', { class: 'doc-section-box-body' }, 0],
+    ];
+  },
+});
+
 // Block, non-editable divider - visual-only for now; Phase 4's PDF export
 // will honor it as an actual page boundary.
 export const PageBreak = Node.create({

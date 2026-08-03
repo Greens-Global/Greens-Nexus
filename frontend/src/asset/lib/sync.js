@@ -72,17 +72,27 @@ export function serverPut(json) {
   try { ws = JSON.parse(json); } catch { return Promise.resolve({ status: 200, ts: 0 }); }
   return api.savePropertyWorkspace(ws)
     .then((r) => ({ status: 200, ts: (r && r._ts) || 0 }))
-    // 409 = the server refused this write outright. Two flavors:
-    //   - 'stale' (someone else saved since we last pulled): recoverable - the
-    //     flush path pulls, merges by id and retries, so neither side's work is
-    //     dropped.
-    //   - anything else (e.g. the empty-over-populated wipe guard): definitive -
-    //     the queue drops the write and the next pull re-syncs.
-    .catch((e) => ({
-      status: e && e.status === 409 ? 409 : 0,
-      ts: 0,
-      stale: !!(e && e.status === 409 && /stale/i.test(String(e.message || ''))),
-    }));
+    // Preserve the REAL HTTP status so flush() can tell apart:
+    //   - 409 'stale' (someone saved since we pulled): recoverable - flush pulls,
+    //     merges by id and retries, so neither side's work is dropped.
+    //   - 409 other (e.g. the empty-over-populated wipe guard): definitive-benign
+    //     - drop the write, the next pull re-syncs.
+    //   - other 4xx (403 no write grant, 413 too big, 422 bad shape): PERMANENT -
+    //     retrying can never succeed, so drop it and surface a visible error
+    //     instead of silently retrying forever (which lost edits with no warning).
+    //   - 0 (network) or 5xx: transient - keep retrying with backoff.
+    // The old code collapsed every non-409 to 0, so a permanent 4xx looked like a
+    // network blip and was retried in silence until the tab closed and the edit
+    // vanished. Never regress this to `status: 0`.
+    .catch((e) => {
+      const status = (e && typeof e.status === 'number') ? e.status : 0;
+      return {
+        status,
+        ts: 0,
+        stale: !!(status === 409 && /stale/i.test(String(e && e.message || ''))),
+        message: String((e && e.message) || ''),
+      };
+    });
 }
 
 /**
@@ -147,6 +157,8 @@ let pending = null;
 let pushTimer = null;
 /** Consecutive failed-flush count, drives exponential backoff; reset to 0 on a successful (200) or definitively-rejected (409) PUT. */
 let retryCount = 0;
+/** Whether the soft "not syncing yet" warning has already been surfaced for the current failing streak - so a stuck server warns once, not every 30s retry. Cleared on any successful/definitive PUT. */
+let softNotified = false;
 /** Bookkeeping mirrors of the last state we know the server has, used by the pull loop to decide whether a server poll found something newer. */
 let lastTs = 0;
 let lastLogCount = 0;
@@ -188,6 +200,24 @@ export function queueWrite(stateObj, debounceMs = 1200) {
 }
 
 /**
+ * Surface a save failure to the app and, through it, the user. sync.js is
+ * framework-agnostic (no React), so it fires a window event the asset UI listens
+ * for to show a banner/toast, and mirrors it to the console. `soft` = the write
+ * is still being retried (transient/5xx); a hard failure (4xx) means the write
+ * was dropped and will NOT be retried, so the user must redo it.
+ */
+function notifySaveFailed(status, message, soft) {
+  try {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('nexus:asset-save-failed', {
+        detail: { status, message: message || '', soft: !!soft, at: Date.now() },
+      }));
+    }
+  } catch { /* event dispatch is best-effort */ }
+  try { console.error('[asset-sync] save failed', { status, message, soft }); } catch { /* noop */ }
+}
+
+/**
  * Attempt to send the pending write now (bypassing the debounce timer). Safe to call
  * unconditionally (e.g. from an interval or an online/visibility handler) - it's a no-op if
  * nothing is pending.
@@ -208,10 +238,11 @@ export function flush() {
     pushTimer = null;
   }
   const inFlight = pending;
-  serverPut(inFlight).then(({ status, ts, stale }) => {
+  serverPut(inFlight).then(({ status, ts, stale, message }) => {
     if (status === 200) {
       if (pending === inFlight) pending = null;
       retryCount = 0;
+      softNotified = false;
       // Adopt the server's stamp for the write we just landed (even if it's
       // "behind" our client clock - server time is the only one pulls compare).
       if (ts) { lastTs = ts; baseTs = ts; }
@@ -243,12 +274,27 @@ export function flush() {
         pushTimer = setTimeout(flush, 400);
       });
     } else if (status === 409) {
-      // Definitive rejection (e.g. the empty-over-populated wipe guard): drop
-      // the write; the next pull re-syncs this tab.
+      // Definitive-benign rejection (e.g. the empty-over-populated wipe guard):
+      // drop the write; the next pull re-syncs this tab.
       if (pending === inFlight) pending = null;
       retryCount = 0;
+    } else if (status >= 400 && status < 500) {
+      // Permanent client error (403 no write grant, 413 too big, 422 bad shape):
+      // retrying can never succeed. Drop the write so it can't loop forever, and
+      // surface it so the edit doesn't vanish silently - this is the exact class
+      // of failure the old code swallowed as a fake "network blip".
+      if (pending === inFlight) pending = null;
+      retryCount = 0;
+      softNotified = false;
+      notifySaveFailed(status, message, false);
     } else {
+      // Transient (network -> 0, or 5xx server hiccup): keep retrying with
+      // exponential backoff. Once we've backed off to the cap and still can't
+      // land the write, surface a soft "not syncing yet" warning so a persistently
+      // failing server is never fully silent - but keep retrying so it recovers
+      // on its own when the server comes back.
       retryCount = Math.min((retryCount || 0) + 1, 6);
+      if (retryCount >= 6 && !softNotified) { softNotified = true; notifySaveFailed(status, message, true); }
       pushTimer = setTimeout(flush, Math.min(1500 * Math.pow(2, retryCount - 1), 30000));
     }
   });

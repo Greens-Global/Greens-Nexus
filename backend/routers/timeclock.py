@@ -1997,6 +1997,68 @@ def track_live(user: dict = Depends(require_team_read), db: Session = Depends(ge
     return {"crew": crew}
 
 
+@router.get("/locations")
+def team_locations(user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
+    """Each employee's LATEST punch location, for the Locations map. Scoped to the
+    viewer's team (whole company for HR/admins). A punch carries lat/lng even when
+    the geofence can't judge it (no site, or a coarse desktop fix), so this shows
+    where each person last punched from. Joined with company/department/country +
+    photo so the map can filter and pin with the person's avatar."""
+    from models import HrEntity
+    scope = _visible_emails(db, user)
+    ents = {e.id: e for e in db.query(HrEntity).all()}
+    people = []
+    emps = db.query(NexusEmployee).filter(NexusEmployee.status == "active").all()
+    for em in emps:
+        email = (em.work_email or "").lower()
+        if not email or (scope is not None and email not in scope):
+            continue
+        # Latest punch WITH coordinates (for the pin), and latest punch OVERALL
+        # (for the clocked-in dot). Usually the same row, but a manual +add punch
+        # has no coords, so keep them separate.
+        loc = (db.query(TimePunch)
+               .filter(TimePunch.employee_email == email, TimePunch.voided == 0,
+                       TimePunch.lat.isnot(None), TimePunch.lat != "")
+               .order_by(TimePunch.at.desc()).first())
+        if not loc:
+            continue
+        last = (db.query(TimePunch).filter(TimePunch.employee_email == email, TimePunch.voided == 0)
+                .order_by(TimePunch.at.desc()).first())
+        last_kind = last.kind if last else ""
+        # working (clocked in) / on_break / off (clocked out or never in today)
+        status = ("on_break" if last_kind == "break_start"
+                  else "working" if last_kind in ("in", "break_end")
+                  else "off")
+        # Device the LOCATION punch came from - a phone gives real GPS, a desktop
+        # only a coarse Wi-Fi/IP fix, so this explains the accuracy at a glance.
+        ua = (loc.user_agent or "").lower()
+        device = "mobile" if any(k in ua for k in ("mobi", "android", "iphone", "ipad", "ipod")) else "desktop"
+        ent = ents.get(em.company or "")
+        people.append({
+            "email": email,
+            "name": f"{em.first_name} {em.last_name}".strip() or email,
+            "photoUrl": em.photo_url or "",
+            "jobTitle": em.job_title or "",
+            "department": em.department or "",
+            "companyId": em.company or "",
+            "companyName": (ent.name if ent else ""),
+            "country": (ent.country if ent else ""),
+            "lat": loc.lat, "lng": loc.lng, "accuracyM": loc.accuracy_m or 0,
+            "geoStatus": loc.geo_status or "no_location",
+            "workSiteName": loc.work_site_name or "",
+            "at": loc.at,
+            "clockedIn": status != "off",
+            "status": status,
+            "device": device,
+            # The location is STALE when the current (latest) punch carried no
+            # coordinates - e.g. clocked in from a desktop that didn't share
+            # location - so this pin is a last-known spot, not where they are now.
+            "locStale": bool(last and loc.id != last.id),
+            "statusAt": last.at if last else loc.at,
+        })
+    return {"people": people}
+
+
 @router.get("/track/path")
 def track_path(email: str, date: str, user: dict = Depends(require_team_read),
                db: Session = Depends(get_db)):

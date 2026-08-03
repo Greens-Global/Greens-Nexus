@@ -58,6 +58,7 @@ const Placeholder         = lazy(() => import("./views/Placeholder"));
 const PublicSign          = lazy(() => import("./views/PublicSign"));
 const PublicVerify        = lazy(() => import("./views/PublicVerify"));
 const TimeClock           = lazy(() => import("./views/TimeClock"));
+const Locations           = lazy(() => import("./views/Locations"));
 const MyHR                = lazy(() => import("./views/MyHR"));
 const Testing             = lazy(() => import("./views/Testing"));
 const CredentialVault     = lazy(() => import("./views/CredentialVault"));
@@ -77,6 +78,7 @@ const viewLabel = (view) => VIEW_LABELS[view] || LABEL_OVERRIDES[view]
 // Views absent from this map are accessible to everyone (dashboard, inventory, support).
 const VIEW_MIN_ROLES = {
   'manager-dashboard':  'supervisor',
+  'locations':          'supervisor',   // team locations map - managers/HR only
   // tasks / sop / external-links are baseline (all employees): own tasks, the
   // KB/LMS with assigned courses, and plain links. Admin actions inside each
   // stay role-gated server-side.
@@ -160,6 +162,38 @@ function AuthBusyFallback() {
   return busy ? <AuthLoader stuck={stuck} /> : null;
 }
 
+// The escape hatch for a DEAD session while the app is already rendered: api.js
+// fires `nexus:auth-stuck` when even a forced token refresh + one interactive
+// re-login couldn't fix persistent 401s (a browser hard-blocking Microsoft's
+// background cookies). Instead of an endless spinner, show a full-screen prompt so
+// the user can re-sign-in with a real click (which succeeds where the auto-redirect
+// loop didn't).
+function AuthStuckOverlay() {
+  const { instance } = useMsal();
+  const [stuck, setStuck] = useState(false);
+  useEffect(() => {
+    const on = () => setStuck(true);
+    window.addEventListener('nexus:auth-stuck', on);
+    return () => window.removeEventListener('nexus:auth-stuck', on);
+  }, []);
+  if (!stuck) return null;
+  const signIn = () => {
+    try { sessionStorage.removeItem('nexus:reauth-at'); sessionStorage.removeItem('nexus:reauth-win'); } catch { /* ignore */ }
+    instance.loginRedirect(loginRequest).catch(() => {});
+  };
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 100000, background: 'var(--paper, #f6f7f9)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 15, fontFamily: 'Inter, sans-serif', padding: '0 24px', textAlign: 'center' }}>
+      <div style={{ fontSize: 17, fontWeight: 700, color: 'var(--ink, #111827)' }}>Your session has expired</div>
+      <div style={{ fontSize: 13.5, color: 'var(--muted, #6b7280)', maxWidth: 360, lineHeight: 1.55 }}>
+        We couldn't refresh your sign-in automatically - your browser may be blocking Microsoft's background cookies. Sign in again to continue.
+      </div>
+      <button onClick={signIn} style={{ padding: '10px 22px', borderRadius: 10, border: 'none', background: 'var(--ink, #111827)', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
+        Sign in again
+      </button>
+    </div>
+  );
+}
+
 // Waits for role to load so the UI never flashes with wrong access level
 function RoleGate({ children }) {
   const { loading } = useRole();
@@ -227,6 +261,7 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
     case "external-links":     return <ExternalLinks />;
     case "support":            return <Support />;
     case "timeclock":          return <TimeClock />;
+    case "locations":          return <Locations />;
     case "myhr":               return <MyHR />;
     case "testing":            return <Testing />;
     case "credvault":          return <CredentialVault />;
@@ -455,6 +490,7 @@ function MainApp() {
 
   return (
     <>
+      <AuthStuckOverlay />
       <AuthedGate>
         <PolicyGate>
         <NotificationProvider>

@@ -139,17 +139,23 @@ export default function TimeclockWidget() {
   useEffect(() => {
     window.__nexusCapture = {
       // Resolves true when a screen stream is live OR capture isn't required here
-      // (policy off, or this person is monitoring-exempt); false only when a share
-      // IS required and the employee dismissed the browser's picker. The punch
-      // button awaits this to enforce share-to-clock-in for non-exempt staff.
+      // (policy off, monitoring-exempt, or the device CAN'T screen-share); false
+      // only when a share IS required, the device supports it, and the employee
+      // dismissed the browser's picker. The punch button awaits this to enforce
+      // share-to-clock-in for non-exempt staff on capable devices.
       start: async () => {
         if (streamsRef.current.length) return true;   // already sharing
         if (!canCaptureRef.current) return true;      // not required for this person
+        // Mobile/tablet browsers have no getDisplayMedia - you can't screen-monitor
+        // a phone. Never block a field worker's punch on a share they physically
+        // cannot perform; the punch records normally (monitoring simply n/a here).
+        if (!navigator.mediaDevices?.getDisplayMedia) return true;
         await startRef.current?.();
         return streamsRef.current.length > 0;
       },
       stop: stopCapture,
-      required: () => canCaptureRef.current,
+      // Only "required" on a device that can actually screen-share.
+      required: () => canCaptureRef.current && !!navigator.mediaDevices?.getDisplayMedia,
     };
     return () => { if (window.__nexusCapture) delete window.__nexusCapture; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
