@@ -76,7 +76,18 @@ export default function WorkLogDrawer({ email, date, name = '', onClose }) {
     api.timeBodDay(email, date).then(setData).catch(e => setErr(e?.message || 'Could not load the work log.'));
   }, [email, date]);
 
-  const niceDate = new Date(date + 'T00:00').toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+  // Lock the page behind the drawer while it's open - otherwise the underlying
+  // page can still scroll, which shows a second scrollbar alongside the
+  // drawer's own and reads as a layout bug.
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = prev; };
+  }, []);
+
+  // MM-DD-YYYY, per the wanted display format.
+  const [y, mo, d] = date.split('-');
+  const niceDate = `${mo}-${d}-${y}`;
 
   return createPortal(
     <div onMouseDown={(e) => e.target === e.currentTarget && onClose()}
