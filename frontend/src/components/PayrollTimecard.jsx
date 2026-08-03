@@ -514,11 +514,24 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                   <td style={{ ...td, fontWeight: 700 }}>{r.seg ? fmtM(r.seg.amount) : '-'}</td>
                   <td style={{ ...td, textAlign: 'center' }}>
                     {!self && !fin && (
-                      <button onClick={() => setEditDay({ date: r.ds, seg: r.seg })}
-                        title={r.seg ? 'Edit punch' : 'Add punch'}
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'inline-flex' }}>
-                        {r.seg ? <Pencil size={13} /> : <Plus size={14} />}
-                      </button>
+                      <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center', justifyContent: 'center' }}>
+                        <button onClick={() => setEditDay({ date: r.ds, seg: r.seg })}
+                          title={r.seg ? 'Edit punch' : 'Add punch'}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'inline-flex' }}>
+                          {r.seg ? <Pencil size={13} /> : <Plus size={14} />}
+                        </button>
+                        {/* A day that already has punches still needs a way to add ANOTHER
+                            session - the edit pencil only edits the existing pair. Show a
+                            second "+" on the day's last row (Neil, Aug 3: "no option to just
+                            add a punch, only edit a punch"). */}
+                        {r.seg && r.last && (
+                          <button onClick={() => setEditDay({ date: r.ds, seg: null })}
+                            title="Add another punch for this day"
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--wk-brand)', display: 'inline-flex' }}>
+                            <Plus size={14} />
+                          </button>
+                        )}
+                      </span>
                     )}
                   </td>
                 </tr>
@@ -845,17 +858,20 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
                   <td style={td}>
                     {!segs.length
                       ? ((!fin && !fd.future) ? addBtn : <span style={{ color: 'var(--muted)' }}>-</span>)
-                      : multi
-                        ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                            {/* first clock-in - editable in place; toggle reveals the rest */}
-                            {inCell(firstSeg)}
+                      : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                          {/* first clock-in - editable in place; toggle reveals the rest */}
+                          {inCell(firstSeg)}
+                          {multi && (
                             <button onClick={() => setOpenPunches(o => ({ ...o, [fd.date]: !o[fd.date] }))} aria-expanded={punchesOpen}
                               title="Show every clock-in and clock-out for this day"
                               style={{ background: 'var(--wk-hover)', border: '1px solid var(--line)', borderRadius: 999, padding: '1px 8px', cursor: 'pointer', font: 'inherit', fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
                               {segs.length} punches {punchesOpen ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
                             </button>
-                          </span>
-                        : inCell(firstSeg)}
+                          )}
+                          {/* Add ANOTHER session to a day that already has punches - the
+                              inline in/out cells only EDIT existing ones (Neil, Aug 3). */}
+                          {!self && !fin && !fd.future && addBtn}
+                        </span>}
                   </td>
                   <td style={td}>
                     {!segs.length
