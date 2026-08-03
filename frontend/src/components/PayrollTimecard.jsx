@@ -663,6 +663,24 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
     : fd.bonus ? <span style={{ color: 'var(--wk-brand)', fontWeight: 700 }}>+{fmtM(fd.bonus)}</span>
     : <span style={{ color: 'var(--muted)' }}>no change</span>;
 
+  // Pending add/remove punch requests, grouped by their local date so they render
+  // on the right day of the card (HR approves/rejects in-context, not in a side tab).
+  const reqsByDate = {};
+  (data.pendingRequests || []).forEach(r => { (reqsByDate[r.localDate] = reqsByDate[r.localDate] || []).push(r); });
+  const reqBtn = { borderRadius: 999, padding: '3px 12px', cursor: 'pointer', font: 'inherit', fontSize: 11.5, fontWeight: 700 };
+  const decideReq = async (id, status) => {
+    let note = '';
+    if (status === 'rejected') {
+      note = await dialog.prompt('', { title: 'Reject request', message: 'The employee is notified.', placeholder: 'Reason (optional)', confirmText: 'Reject', danger: true });
+      if (note === null) return;
+    }
+    try {
+      await api.timeDecidePunchRequest(id, { status, note: note || '' });
+      toastOk?.(status === 'approved' ? 'Punch added to the timecard.' : 'Request rejected.');
+      load();
+    } catch (e) { toastErr?.(e?.message || 'Could not update the request.'); }
+  };
+
   return (
     <div style={{ fontFamily: 'var(--wk-font)' }}>
       {/* Toolbar - month nav (fixed pay is by calendar month, no work-week) */}
@@ -853,6 +871,37 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
                   </td>
                 </tr>
               );
+
+              // ── Pending add/remove requests on this day - HR approves/rejects here ──
+              (reqsByDate[fd.date] || []).forEach(r => {
+                const isIn = r.punchKind === 'in';
+                const kindLabel = r.action === 'remove' ? 'Remove a punch' : `Add clock-${isIn ? 'in' : 'out'}`;
+                rows.push(
+                  <tr key={fd.date + '-req-' + r.id} style={{ background: 'rgba(180,83,9,0.07)' }}>
+                    <td style={td}></td>
+                    <td style={td}><span style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: '.03em', textTransform: 'uppercase', padding: '2px 8px', borderRadius: 999, background: 'rgba(180,83,9,0.16)', color: '#b45309', display: 'inline-flex', alignItems: 'center', gap: 4 }}><AlertTriangle size={10} /> Request</span></td>
+                    <td style={td}>{r.action === 'add' && isIn ? <span style={{ color: '#b45309', fontWeight: 700 }}>{t12(r.at)}</span> : <span style={{ color: 'var(--muted)' }}>-</span>}</td>
+                    <td style={td}>{r.action === 'add' && !isIn ? <span style={{ color: '#b45309', fontWeight: 700 }}>{t12(r.at)}</span> : <span style={{ color: 'var(--muted)' }}>-</span>}</td>
+                    <td style={td}></td>
+                    <td style={td}></td>
+                    <td style={{ ...td, textAlign: 'right' }}>
+                      {!self
+                        ? <span style={{ display: 'inline-flex', gap: 6, justifyContent: 'flex-end' }}>
+                            <button onClick={() => decideReq(r.id, 'approved')} title="Approve - adds this punch to the timecard" style={{ ...reqBtn, border: 'none', background: 'hsl(var(--color-green))', color: '#fff' }}>Approve</button>
+                            <button onClick={() => decideReq(r.id, 'rejected')} title="Reject - the employee is notified" style={{ ...reqBtn, border: '1px solid var(--wk-line2)', background: 'var(--card)', color: 'var(--ink)' }}>Reject</button>
+                          </span>
+                        : <span style={{ fontSize: 11, color: '#b45309', fontWeight: 700, fontStyle: 'italic' }}>pending approval</span>}
+                    </td>
+                  </tr>
+                );
+                rows.push(
+                  <tr key={fd.date + '-reqr-' + r.id} style={{ background: 'rgba(180,83,9,0.07)' }}>
+                    <td colSpan={7} style={{ ...td, borderTop: 'none', paddingTop: 0, color: '#b45309', fontSize: 11.5, whiteSpace: 'normal' }}>
+                      <span style={{ fontWeight: 700 }}>{kindLabel}</span>{r.reason ? <span style={{ fontStyle: 'italic' }}> · {r.employeeName || 'Employee'}: “{r.reason}”</span> : ''}
+                    </td>
+                  </tr>
+                );
+              });
               return rows;
             })}
           </tbody>

@@ -2876,11 +2876,24 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
             a["pay"] = round(a["pay"] + (s.get("amount") or 0), 2)
     by_category = sorted(cat_agg.values(), key=lambda x: -x["workedMin"])
 
+    # Pending add/remove punch requests in this window - surfaced ON the timecard
+    # (grouped by their local date) so HR can approve/reject in-context, not only
+    # from the separate Punch requests tab. Inline time EDITS already ride on their
+    # segment; these are the add/remove asks that have no existing punch to attach to.
+    preqs = (db.query(PunchRequest)
+             .filter(PunchRequest.employee_email == em, PunchRequest.status == "pending",
+                     PunchRequest.local_date >= start, PunchRequest.local_date <= end)
+             .order_by(PunchRequest.at.asc()).all())
+    pending_requests = [{"id": r.id, "action": r.action, "punchKind": r.punch_kind,
+                         "at": r.at, "localDate": r.local_date, "reason": r.reason,
+                         "targetPunchId": r.target_punch_id, "employeeName": r.employee_name,
+                         "createdAt": r.created_at} for r in preqs]
+
     return {"email": em, "start": start, "end": end, "rate": rate, "rateSet": rate_row is not None,
             "dept": dept, "overtimeRule": rule, "days": days_out,
             "rounding": {"enabled": _rnd["enabled"], "nearestMin": _rnd["nearestMin"]},
             "autoLunch": {"enabled": al["enabled"], "afterMin": al["afterMin"], "deductMin": al["deductMin"]},
-            "byCategory": by_category,
+            "byCategory": by_category, "pendingRequests": pending_requests,
             "totals": {"regMin": total_reg, "otMin": total_ot, "dtMin": total_dt,
                        "regPay": reg_pay, "otPay": ot_pay, "dtPay": dt_pay,
                        "totalPay": round(reg_pay + ot_pay + dt_pay, 2),
