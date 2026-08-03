@@ -665,6 +665,7 @@ def sign_my_timecard(body: SignTimecardIn, user: dict = Depends(get_current_user
     # Fixed-salary employees sign their MONTH; hourly sign the bi-weekly period. The
     # sign row must be keyed to the same bounds the card's sign-off state checks.
     if _pay_type(db, email) == "fixed":
+        anchor = (body.start or "").strip() or _employee_today(db, email)
         p_start, p_end = _month_bounds(anchor)
         worked = _fixed_card(db, email, anchor).get("totals", {}).get("workedMin", 0)
     else:
@@ -703,11 +704,21 @@ def finalize_timecard(body: FinalizeIn, user: dict = Depends(require_administrat
     if _finalized_row(db, email, body.start, body.end):
         raise HTTPException(409, "Already finalized for this period")
     _end_nx = (date.fromisoformat(body.end) + timedelta(days=1)).isoformat()
-    worked = sum(v["workedMin"] for k, v in _day_summaries(
-        _live_punches(db, email, body.start, _end_nx), _round_min(db)).items() if k <= body.end)
     # Freeze the pay rate + OT rule as of finalize, so a later change can't
     # re-price this locked, paid period (see _compute_timecard).
     _rr = db.query(PayrollRate).filter(PayrollRate.employee_email == email).first()
+    _is_fixed = ((getattr(_rr, "pay_type", None) or "hourly") == "fixed") if _rr else False
+    _fixed_snap = {}
+    if _is_fixed:
+        # PIN the whole fixed result as-of-finalize: statuses key off "today", so a
+        # month finalized mid-month would otherwise re-price as its days elapse.
+        _ft = _fixed_card(db, email, body.start).get("totals", {})
+        worked = _ft.get("workedMin", 0)   # unrounded - matches the fixed card + the sign
+        _fixed_snap = {k: _ft.get(k) for k in ("totalPay", "deduction", "weekendBonus",
+                       "missedFullDays", "missedHalfDays", "weekendDaysWorked")}
+    else:
+        worked = sum(v["workedMin"] for k, v in _day_summaries(
+            _live_punches(db, email, body.start, _end_nx), _round_min(db)).items() if k <= body.end)
     # Snapshot BOTH pay models so neither an hourly rate nor a fixed salary can
     # retro-price this locked, paid period after a later change (see
     # _compute_timecard and _fixed_card, which read this back for finalized periods).
@@ -717,7 +728,8 @@ def finalize_timecard(body: FinalizeIn, user: dict = Depends(require_administrat
                         "currency": (getattr(_rr, "currency", None) or "USD") if _rr else "USD",
                         "monthlySalary": float(getattr(_rr, "monthly_salary", 0) or 0) if _rr else 0.0,
                         "weekendOtAmount": float(getattr(_rr, "weekend_ot_amount", 0) or 0) if _rr else 0.0,
-                        "fullDayHours": float(getattr(_rr, "full_day_hours", 8) or 8) if _rr else 8.0})
+                        "fullDayHours": float(getattr(_rr, "full_day_hours", 8) or 8) if _rr else 8.0,
+                        **_fixed_snap})
     row = TimeApproval(id=str(uuid.uuid4()), employee_email=email,
                        period_start=body.start, period_end=body.end, worked_min=worked,
                        approved_by=user["email"], approved_at=_now_iso(), kind="final",
@@ -2353,6 +2365,18 @@ def _week_start_str(date_str: str) -> str:
     return (d - timedelta(days=(d.weekday() + 1) % 7)).strftime("%Y-%m-%d")
 
 
+def _employee_today(db: Session, email: str) -> str:
+    """The employee's LOCAL calendar date. Attendance days (`local_date`) are stored
+    in the puncher's own timezone, so judging 'has this day elapsed / is it in the
+    future' against UTC would mis-deduct a full day at the day/month boundary for any
+    non-UTC employee. Derive their offset from their most recent punch (JS
+    getTimezoneOffset: local = UTC − offset); default UTC when they've never punched."""
+    p = (db.query(TimePunch).filter(TimePunch.employee_email == email)
+         .order_by(TimePunch.at.desc()).first())
+    off = (p.tz_offset_min or 0) if p else 0
+    return (datetime.now(timezone.utc) - timedelta(minutes=off)).strftime("%Y-%m-%d")
+
+
 # ── Bi-weekly pay period (California: Sunday→Saturday × 2 = 14 days) ───────────
 # Periods step 14 days from a fixed Sunday anchor, aligned to the company's REAL
 # payroll calendar in SwipeClock (site 47239: period 7/26/26–8/8/26, verified
@@ -2403,6 +2427,7 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
     # A FINALIZED month is frozen at the salary it was finalized with, so a later
     # raise can't retro-price an already-paid month (mirrors the hourly freeze).
     _fin_snap = _finalized_row(db, em, m_start, m_end)
+    _frozen = {}   # finalize-time totals - pin the whole result so it can't re-price
     if _fin_snap and _fin_snap.note:
         try:
             _sn = json.loads(_fin_snap.note)
@@ -2411,6 +2436,9 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
                 weekend_ot = float(_sn.get("weekendOtAmount") or 0)
                 full_hours = float(_sn.get("fullDayHours") or 8) or 8
                 currency = _sn.get("currency") or currency
+                if _sn.get("totalPay") is not None:
+                    _frozen = {k: _sn.get(k) for k in ("totalPay", "deduction", "weekendBonus",
+                               "missedFullDays", "missedHalfDays", "weekendDaysWorked")}
         except Exception:   # noqa: BLE001 - a bad snapshot must not break the card
             pass
 
@@ -2424,7 +2452,7 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
     # bands are fixed here.
     HALF_MIN, FULL_MIN = 4 * 60, 5 * 60
     _ = full_hours
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    today = _employee_today(db, em)   # employee-LOCAL date, not UTC (boundary correctness)
 
     worked_by_day = {d["date"]: d.get("workedMin", 0) for d in card.get("days", [])}
     # An open in-punch (no clock-out yet) means the person is mid-shift.
@@ -2463,6 +2491,15 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
     weekend_bonus = round(weekend_worked * weekend_ot, 2)
     deduction = round(deduction, 2)
     total_pay = round(salary - deduction + weekend_bonus, 2)
+    # A finalized month is PINNED to its finalize-time result (day statuses key off
+    # "today", so without this a mid-month finalize would drift as days elapse).
+    if _frozen:
+        deduction = _frozen.get("deduction", deduction)
+        weekend_bonus = _frozen.get("weekendBonus", weekend_bonus)
+        total_pay = _frozen.get("totalPay", total_pay)
+        missed_full = _frozen.get("missedFullDays", missed_full)
+        missed_half = _frozen.get("missedHalfDays", missed_half)
+        weekend_worked = _frozen.get("weekendDaysWorked", weekend_worked)
 
     card["payType"] = "fixed"
     card["currency"] = currency
@@ -2860,7 +2897,7 @@ def payroll_timecard(email: str, start: str, end: str,
         raise HTTPException(403, "Outside your team")
     if _pay_type(db, em) == "fixed":
         # Fixed-salary employees are paid by the calendar month; `start` anchors it.
-        card = _fixed_card(db, em, start or datetime.now(timezone.utc).strftime("%Y-%m-%d"))
+        card = _fixed_card(db, em, start or _employee_today(db, em))
         card.update(_signoff_state(db, em, card["periodStart"], card["periodEnd"]))
         return card
     card = _compute_timecard(db, em, start, end)
@@ -2876,6 +2913,8 @@ def my_payroll(start: str = "", user: dict = Depends(get_current_user), db: Sess
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     anchor = start.strip() or today
     if _pay_type(db, user["email"]) == "fixed":
+        # Default to the employee's LOCAL month, not the UTC one (boundary correctness).
+        anchor = start.strip() or _employee_today(db, user["email"])
         card = _fixed_card(db, user["email"], anchor)
         card.update(_signoff_state(db, user["email"], card["periodStart"], card["periodEnd"]))
         return card

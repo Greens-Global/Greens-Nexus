@@ -353,7 +353,8 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
       </div>
 
       {/* Range + export bar (shared by Timecards and Insights) */}
-      {(view === 'timecards' || view === 'insights') && (
+      {view === 'insights' && (
+      /* Insights date range only - approve/CSV live on the Payroll timecard now. */
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
         {[['This week', 0], ['Last week', -1]].map(([l, off]) => {
           const r = weekRange(off);
@@ -368,20 +369,6 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
         <input className="form-input" type="date" value={end} onChange={e => setRange([start, e.target.value])} style={{ fontSize: 12, width: 150 }} />
         <div style={{ flex: 1 }} />
         <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--muted)' }}>Team total: <span style={{ color: 'var(--ink)', fontVariantNumeric: 'tabular-nums' }}>{fmtMin(totalMin)}</span></span>
-        {(rows || []).some(r => !isRowApproved(r)) && (
-          <button className="primary-btn" onClick={approveAll} disabled={approvingAll}
-            title="Approve every unapproved timecard in this period"
-            style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-            {approvingAll ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={12} />}
-            Approve all ({(rows || []).filter(r => !isRowApproved(r)).length})
-          </button>
-        )}
-        <button className="secondary-btn" onClick={() => exportCsv('summary')} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-          <Download size={12} /> Summary CSV
-        </button>
-        <button className="secondary-btn" onClick={() => exportCsv('punches')} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-          <Download size={12} /> All punches CSV
-        </button>
       </div>
       )}
 

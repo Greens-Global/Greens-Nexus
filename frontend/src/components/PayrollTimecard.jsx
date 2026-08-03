@@ -78,7 +78,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   useEffect(() => {
     if (self) return;   // employee self-view has no picker / team list
     api.timeTeam(start, end).then(r => {
-      const list = (r.rows || []).map(x => ({ email: x.email, name: x.name || x.email }));
+      const list = (r.rows || []).map(x => ({ email: x.email, name: x.name || x.email, pendingEdits: x.pendingEdits || 0 }));
       setPeople(list);
       setEmail(e => e || list[0]?.email || '');
     }).catch(() => {});
@@ -230,8 +230,17 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
     if (!segs.length) rows.push({ type: 'day', ds, seg: null });
     else {
       segs.forEach((seg, i) => rows.push({ type: 'day', ds, seg, first: i === 0, last: i === segs.length - 1 }));
-      const notes = segs.map(s => s.note).filter(Boolean);
-      if (notes.length) rows.push({ type: 'note', text: notes.join(' · ') });
+      // Same reasons/notes the fixed card shows: employee edit reasons + HR adjust
+      // notes + punch notes, visible in the card (not only on the hover Info dot).
+      const notes = [];
+      segs.forEach(s => {
+        if (s.inEditStatus === 'pending' && s.inEditReason) notes.push(`Employee: “${s.inEditReason}”`);
+        if (s.outEditStatus === 'pending' && s.outEditReason) notes.push(`Employee: “${s.outEditReason}”`);
+        if (s.inAdjustNote) notes.push(s.inAdjustNote);
+        if (s.outAdjustNote) notes.push(s.outAdjustNote);
+        if (s.note) notes.push(s.note);
+      });
+      if (notes.length) rows.push({ type: 'note', text: notes.join('  ·  ') });
     }
   });
   if (prevWeek) rows.push({ type: 'wk', week: prevWeek });
@@ -292,7 +301,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
         {self
           ? <span style={{ fontSize: 15, fontWeight: 800, minWidth: 180 }}>My Timecard</span>
           : <select className="form-input" value={email} onChange={e => setEmail(e.target.value)} style={{ fontSize: 13, minWidth: 180, fontWeight: 700 }} title="Also selectable from the sidebar">
-              {people.map(p => <option key={p.email} value={p.email}>{p.name}{exByEmail[p.email]?.missing ? ` (${exByEmail[p.email].missing} missing)` : ''}</option>)}
+              {people.map(p => <option key={p.email} value={p.email}>{p.name}{p.pendingEdits ? ` (${p.pendingEdits} to review)` : exByEmail[p.email]?.missing ? ` (${exByEmail[p.email].missing} missing)` : ''}</option>)}
             </select>}
         <div data-tour="pr-period" style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
           <button className="icon-btn" onClick={() => shift(-1)} style={{ padding: 6 }}><ChevronLeft size={16} /></button>
@@ -639,7 +648,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
   };
   const effect = (fd) => fd.deduct ? <span style={{ color: '#b91c1c', fontWeight: 700 }}>−{fmtM(fd.deduct)}</span>
     : fd.bonus ? <span style={{ color: 'var(--wk-brand)', fontWeight: 700 }}>+{fmtM(fd.bonus)}</span>
-    : <span style={{ color: 'var(--muted)' }}>—</span>;
+    : <span style={{ color: 'var(--muted)' }}>no change</span>;
 
   return (
     <div style={{ fontFamily: 'var(--wk-font)' }}>
@@ -648,7 +657,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
         {self
           ? <span style={{ fontSize: 15, fontWeight: 800, minWidth: 160 }}>My Timecard</span>
           : <select className="form-input" value={email} onChange={e => setEmail(e.target.value)} style={{ fontSize: 13, minWidth: 180, fontWeight: 700 }}>
-              {people.map(p => <option key={p.email} value={p.email}>{p.name}</option>)}
+              {people.map(p => <option key={p.email} value={p.email}>{p.name}{p.pendingEdits ? ` (${p.pendingEdits} to review)` : ''}</option>)}
             </select>}
         <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
           <button className="icon-btn" onClick={onPrev} style={{ padding: 6 }}><ChevronLeft size={16} /></button>

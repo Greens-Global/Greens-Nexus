@@ -1910,13 +1910,16 @@ def sync_rate_from_comp(db: Session, emp: NexusEmployee) -> None:
     if cur in ("USD", "INR"):
         row.currency = cur
     if basis == "hourly":
-        row.pay_type, row.hourly_rate = "hourly", base
+        row.pay_type, row.hourly_rate, row.monthly_salary = "hourly", base, 0.0
     elif basis == "salary":
         # base is per the pay frequency - normalize to a MONTHLY figure for the timecard.
         mult = {"monthly": 1.0, "semimonthly": 2.0, "biweekly": 26 / 12, "weekly": 52 / 12}.get(
             comp.get("frequency", "monthly"), 1.0)
-        row.pay_type, row.monthly_salary = "fixed", round(base * mult, 2)
-    # daily / fixed_fee have no timecard pay model - leave the rate untouched.
+        row.pay_type, row.monthly_salary, row.hourly_rate = "fixed", round(base * mult, 2), 0.0
+    else:
+        # daily / fixed_fee have NO timecard pay model - zero the timecard pay so it
+        # can't keep silently paying the previous (hourly/salary) model.
+        row.pay_type, row.hourly_rate, row.monthly_salary = "hourly", 0.0, 0.0
 
 
 @router.put("/employees/{eid}/compensation")
