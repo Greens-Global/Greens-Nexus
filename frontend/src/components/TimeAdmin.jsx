@@ -6,6 +6,7 @@ import {
   CalendarDays, Activity, Inbox, CalendarClock, Banknote, CalendarOff,
 } from 'lucide-react';
 import { api } from '../api';
+import { dialog } from '../ui/dialog';
 import DayTimeline from './DayTimeline';
 import ShiftsPanel from './ShiftsPanel';
 import ShiftSchedule from './ShiftSchedule';
@@ -13,6 +14,7 @@ import PayrollTimecard from './PayrollTimecard';
 import LiveCrewMap from './LiveCrewMap';
 import TimeInsights from './TimeInsights';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
+import { ErrorBanner } from './AsyncState';
 
 const TYPE_COLOR = { vacation: '#2563eb', sick: '#16a34a', personal: '#8b5cf6', unpaid: '#6b7280', other: '#f59e0b' };
 
@@ -97,7 +99,8 @@ const FL = { fontSize: 12, fontWeight: 600, color: 'var(--muted)' };
 const HD = { fontSize: 13.5, fontWeight: 600, color: 'var(--ink)' };
 
 export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
-  const [view, setView] = useState('timecards');   // timecards | timeoff
+  const [view, setView] = useState('payroll');   // payroll (the timecard) | livemap | attendance | insights | requests | screenshots | shifts | timeoff
+  const [payrollEmail, setPayrollEmail] = useState('');   // preselect a person in the Payroll view (from the "to review" badge)
   const [[start, end], setRange] = useState(() => weekRange(0));
   const [rows, setRows] = useState(null);
   const [open, setOpen] = useState({});          // email -> bool
@@ -106,15 +109,26 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
   const [addP, setAddP] = useState({ kind: 'out', at: '', note: '' });
   const [busy, setBusy] = useState(false);
 
-  const load = useCallback(() => {
-    setRows(null);
+  // `quiet` keeps the current rows on screen during a refetch (after an approve/edit/
+  // add) instead of collapsing the whole list + KPI strip to a spinner on every action.
+  const load = useCallback((quiet = false) => {
+    if (!quiet) setRows(null);
     api.timeTeam(start, end).then(r => setRows(r.rows)).catch(e => { setRows([]); toastErr(e?.message || 'Could not load timesheets.'); });
   }, [start, end, toastErr]);
   useEffect(() => { load(); }, [load]);
+  // A punch add/remove/edit anywhere (this tab or the employee's own timecard) should
+  // refresh the team rows so the two views never silently disagree.
+  useEffect(() => {
+    const onChange = () => load(true);
+    window.addEventListener('nexus:timeclock-changed', onChange);
+    return () => window.removeEventListener('nexus:timeclock-changed', onChange);
+  }, [load]);
 
   const [timeoff, setTimeoff] = useState([]);
+  const [timeoffErr, setTimeoffErr] = useState(false);
   const loadTimeoff = useCallback(() => {
-    api.timeOffList().then(setTimeoff).catch(() => setTimeoff([]));
+    setTimeoffErr(false);
+    api.timeOffList().then(r => { setTimeoff(r); }).catch(() => setTimeoffErr(true));   // don't mask a failure as "no requests"
   }, []);
   useEffect(() => { loadTimeoff(); }, [loadTimeoff]);
 
@@ -140,7 +154,7 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
     try {
       await api.timeApprove({ email, days: daysArr });
       if (!quiet) toastOk(daysArr.length === 1 ? 'Day approved - the employee gets a notification.' : `Approved ${daysArr.length} days - the employee gets a notification.`);
-      load();
+      load(true);
     } catch (e) { toastErr(e?.message || 'Could not approve.'); }
   }
   const [approvingAll, setApprovingAll] = useState(false);
@@ -155,7 +169,7 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
     }
     toastOk(`Approved ${ok} of ${targets.length} timecard${targets.length === 1 ? '' : 's'}.`);
     setApprovingAll(false);
-    load();
+    load(true);
   }
   const [person, setPerson] = useState(null);   // employee drill-down (their time portal)
   const [shiftMode, setShiftMode] = useState('schedule'); // schedule | presets
@@ -201,26 +215,31 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
   async function decidePunchReq(id, status) {
     let note = '';
     if (status === 'rejected') {
-      const r = window.prompt('Reason (sent to the employee):');
-      if (r === null) return;   // cancelled
+      const r = await dialog.prompt('', { title: 'Reject request', message: 'Sent to the employee.', placeholder: 'Reason (optional)', confirmText: 'Reject', danger: true });
+      if (r === null) return;   // cancelled - do NOT reject
       note = r;
     }
     try {
       await api.timeDecidePunchRequest(id, { status, note });
       toastOk(`Request ${status}.`);
       loadPunchReqs();
+      load(true);   // an approved add/remove changes the timecard - keep the rows in sync
     } catch (e) { toastErr(e?.message || 'Could not update the request.'); }
   }
 
   async function revokeApproval(id) {
-    try { await api.timeApprovalRevoke(id); toastOk('Approval revoked.'); load(); }
+    try { await api.timeApprovalRevoke(id); toastOk('Approval revoked.'); load(true); }
     catch (e) { toastErr(e?.message || 'Could not revoke.'); }
   }
 
   async function decideTimeoff(id, status) {
-    const note = status === 'rejected' ? (window.prompt('Reason (sent to the employee):') || '') : '';
+    let note = '';
+    if (status === 'rejected') {
+      note = await dialog.prompt('', { title: 'Reject time-off request', message: 'Sent to the employee.', placeholder: 'Reason (optional)', confirmText: 'Reject', danger: true });
+      if (note === null) return;   // cancelled - do NOT reject (was the cancel-still-rejects bug)
+    }
     try {
-      await api.timeOffDecide(id, { status, note });
+      await api.timeOffDecide(id, { status, note: note || '' });
       toastOk(`Request ${status}.`);
       loadTimeoff();
     } catch (e) { toastErr(e?.message || 'Could not update the request.'); }
@@ -245,7 +264,7 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
         note: edit.note, void: edit.voided, adjust_note: edit.adjustNote || '',
       });
       toastOk('Punch updated - the original time stays on record.');
-      setEdit(null); load();
+      setEdit(null); load(true);
     } catch (e) { toastErr(e?.message || 'Could not update the punch.'); }
     setBusy(false);
   }
@@ -259,7 +278,7 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
         at: new Date(addP.at).toISOString().slice(0, 19),
         tz_offset_min: new Date().getTimezoneOffset(), note: addP.note });
       toastOk('Punch added.');
-      setAddFor(null); setAddP({ kind: 'out', at: '', note: '' }); load();
+      setAddFor(null); setAddP({ kind: 'out', at: '', note: '' }); load(true);
     } catch (e) { toastErr(e?.message || 'Could not add the punch.'); }
     setBusy(false);
   }
@@ -312,9 +331,9 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
           Documents-style underline tab band (icons, brand underline, hairline
           base) instead of floating pills that merged into the content. */}
       <div className="scroll-tabs" style={{ display: 'flex', gap: 2, marginBottom: 18, borderBottom: '1px solid var(--wk-line)' }}>
-        {[['timecards', 'Timecards', Clock], ['livemap', 'Live map', MapPin], ['attendance', 'Attendance', CalendarDays],
+        {[['payroll', 'Payroll', Banknote], ['livemap', 'Live map', MapPin], ['attendance', 'Attendance', CalendarDays],
           ['insights', 'Insights', Activity], ['requests', 'Punch requests', Inbox, punchReqs.length],
-          ['screenshots', 'Screenshots', Camera], ['shifts', 'Shifts', CalendarClock], ['payroll', 'Payroll', Banknote],
+          ['screenshots', 'Screenshots', Camera], ['shifts', 'Shifts', CalendarClock],
           ['timeoff', 'Time off', CalendarOff, pendingCount]].map(([key, label, Icon, badge]) => {
           const on = view === key;
           return (
@@ -334,7 +353,8 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
       </div>
 
       {/* Range + export bar (shared by Timecards and Insights) */}
-      {(view === 'timecards' || view === 'insights') && (
+      {view === 'insights' && (
+      /* Insights date range only - approve/CSV live on the Payroll timecard now. */
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
         {[['This week', 0], ['Last week', -1]].map(([l, off]) => {
           const r = weekRange(off);
@@ -349,20 +369,6 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
         <input className="form-input" type="date" value={end} onChange={e => setRange([start, e.target.value])} style={{ fontSize: 12, width: 150 }} />
         <div style={{ flex: 1 }} />
         <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--muted)' }}>Team total: <span style={{ color: 'var(--ink)', fontVariantNumeric: 'tabular-nums' }}>{fmtMin(totalMin)}</span></span>
-        {(rows || []).some(r => !isRowApproved(r)) && (
-          <button className="primary-btn" onClick={approveAll} disabled={approvingAll}
-            title="Approve every unapproved timecard in this period"
-            style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-            {approvingAll ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={12} />}
-            Approve all ({(rows || []).filter(r => !isRowApproved(r)).length})
-          </button>
-        )}
-        <button className="secondary-btn" onClick={() => exportCsv('summary')} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-          <Download size={12} /> Summary CSV
-        </button>
-        <button className="secondary-btn" onClick={() => exportCsv('punches')} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-          <Download size={12} /> All punches CSV
-        </button>
       </div>
       )}
 
@@ -390,6 +396,13 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 800, color: '#b45309' }}>
                 <AlertTriangle size={11} /> {r.flagCount}
               </span>
+            )}
+            {r.pendingEdits > 0 && (
+              <button onClick={e => { e.stopPropagation(); setPayrollEmail(r.email); setView('payroll'); }}
+                title={`${r.pendingEdits} time edit${r.pendingEdits === 1 ? '' : 's'} from this employee awaiting your review - click to open their Payroll timecard and approve or reject each`}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 800, color: 'var(--wk-brand)', background: 'var(--wk-brand-tint)', border: 'none', padding: '3px 9px', borderRadius: 999, cursor: 'pointer', fontFamily: 'var(--wk-font)' }}>
+                <Pencil size={10} /> {r.pendingEdits} to review
+              </button>
             )}
             {r.breakMin > 0 && <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{r.breakMin}m break</span>}
             {isRowApproved(r) ? (
@@ -595,7 +608,7 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
       )}
 
       {/* Payroll - per-employee, per-pay-period editable timecard */}
-      {view === 'payroll' && <PayrollTimecard toastOk={toastOk} toastErr={toastErr} />}
+      {view === 'payroll' && <PayrollTimecard toastOk={toastOk} toastErr={toastErr} initialEmail={payrollEmail} />}
 
       {view === 'livemap' && <LiveCrewMap toastErr={toastErr} employees={employees} />}
 
@@ -637,7 +650,9 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
           <div style={{ display: 'grid', gridTemplateColumns: '200px 110px 1fr 70px 160px 170px', gap: 10, padding: '10px 14px', background: 'var(--wk-hover)', fontSize: 12.5, fontWeight: 500, color: 'var(--wk-dim)' }}>
             <span>Requested by</span><span>Type</span><span>Period</span><span>Days</span><span>Approver</span><span style={{ textAlign: 'right' }}>Status</span>
           </div>
-          {timeoff.length === 0 && (
+          {timeoffErr ? (
+            <div style={{ padding: '14px 16px' }}><ErrorBanner message="Couldn't load time-off requests right now." onRetry={loadTimeoff} /></div>
+          ) : timeoff.length === 0 && (
             <div style={{ padding: '20px 16px', fontSize: 12.5, color: 'var(--muted)', textAlign: 'center' }}>No time-off requests yet.</div>
           )}
           {timeoff.slice(0, 150).map(r => {

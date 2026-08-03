@@ -4,6 +4,7 @@ import {
   CheckCircle, Play, ClipboardList, RefreshCw,
 } from 'lucide-react';
 import { api } from '../api';
+import { dialog } from '../ui/dialog';
 
 // AI-assisted interviews: Teams invite → live questionnaire → transcript
 // auto-fill → calibrated scores → role leaderboard → final-round invite.
@@ -86,7 +87,11 @@ export function QuestionnairesModal({ onClose, toastOk, toastErr }) {
                   </div>
                   <button className="secondary-btn" style={{ fontSize: 12, padding: '4px 12px' }}
                     onClick={() => setEditing({ id: t.id, name: t.name, text: t.questions.map(q => q.q).join('\n') })}>Edit</button>
-                  <button onClick={async () => { if (window.confirm(`Delete "${t.name}"?`)) { await api.ivTemplateDelete(t.id).catch(() => {}); setTpls(ts => ts.filter(x => x.id !== t.id)); } }}
+                  <button onClick={async () => {
+                      if (!await dialog.confirm(`Delete "${t.name}"?`, { title: 'Delete template', confirmText: 'Delete', danger: true })) return;
+                      try { await api.ivTemplateDelete(t.id); setTpls(ts => ts.filter(x => x.id !== t.id)); toastOk?.('Template deleted.'); }
+                      catch (e) { toastErr?.(e?.message || 'Could not delete the template.'); }
+                    }}
                     style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 3 }}><Trash2 size={14} /></button>
                 </div>
               ))}

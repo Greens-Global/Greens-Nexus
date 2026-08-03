@@ -1,5 +1,5 @@
 /* eslint-disable react-hooks/refs -- the org-chart canvas reads container/zoom refs during render for pan-zoom fit-to-view; safe intentional reads the React-Compiler rule flags */
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { QuestionnairesModal, InterviewPanel, LeaderboardModal } from '../components/Interviews';
 import {
   Users, Plus, Search, X, Loader2, Mail, Phone, Briefcase, MapPin,
@@ -9,8 +9,11 @@ import {
   ShieldCheck, Shield, AlertTriangle, Clock, ArrowUpRight,
 } from 'lucide-react';
 import { api } from '../api';
+import { dialog } from '../ui/dialog';
 import { usePeopleDirectory } from '../lib/queries';
-import { SkeletonBlocks } from '../components/AsyncState';
+import { useQueryClient } from '@tanstack/react-query';
+import { qk } from '../lib/queryClient';
+import { SkeletonBlocks, ErrorBanner } from '../components/AsyncState';
 import { ensureStepUp, isStepUpRequired, StepUpNeeded } from '../stepup/StepUp';
 import { useRole, MODULES, MODULE_LEVELS, ROLES } from '../contexts/RoleContext';
 import TimeAdmin from '../components/TimeAdmin';
@@ -69,7 +72,7 @@ function useIsMobile(bp = 900) {
 }
 
 // ── Add / Edit modal ──────────────────────────────────────────────────────────
-function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false, onClose, onSaved, toastOk, toastErr }) {
+function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false, canSeeComp = false, onClose, onSaved, toastOk, toastErr }) {
   const editing = !!employee;
   const [jobRoles, setJobRoles] = useState([]);
   const [jobRoleId, setJobRoleId] = useState('');
@@ -115,6 +118,23 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
   }
   const set = (k, v) => setF(prev => ({ ...prev, [k]: v }));
   const setC = (k, v) => setF(prev => ({ ...prev, contractor: { ...(prev.contractor || {}), [k]: v } }));
+
+  // Compensation (gated by the comp-access grant). Keyed by work email; loads the
+  // current rate when editing, saved right after the profile on Save.
+  const [comp, setComp] = useState({ payType: 'hourly', currency: 'USD', hourlyRate: '', monthlySalary: '', weekendOtAmount: '1000', fullDayHours: '8' });
+  const [compDirty, setCompDirty] = useState(false);
+  const setW = (k, v) => { setComp(prev => ({ ...prev, [k]: v })); setCompDirty(true); };
+  useEffect(() => {
+    if (!canSeeComp || !editing || !employee?.workEmail) return;
+    api.timePayrollRateGet(employee.workEmail).then(r => {
+      if (!r?.isSet) return;
+      setComp({ payType: r.payType || 'hourly', currency: r.currency || 'USD',
+                hourlyRate: r.hourlyRate ? String(r.hourlyRate) : '',
+                monthlySalary: r.monthlySalary ? String(r.monthlySalary) : '',
+                weekendOtAmount: r.weekendOtAmount != null ? String(r.weekendOtAmount) : '1000',
+                fullDayHours: r.fullDayHours ? String(r.fullDayHours) : '8' });
+    }).catch(() => {});
+  }, [canSeeComp, editing, employee?.workEmail]);
   useEffect(() => {
     if (!f.company) { setDeptOptions([]); return; }
     setDeptLoading(true);
@@ -139,19 +159,45 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
     setBusy(true);
     try {
       const saved = editing ? await api.updateEmployee(employee.id, f) : await api.createEmployee(f);
+      const wemail = (saved?.workEmail || f.work_email || '').trim();
+      // Compensation, keyed by work email - saved after the profile. Any warning is
+      // HELD and fired LAST so the single-slot toast doesn't overwrite it with the
+      // profile "Saved"/M365 message.
+      let wageWarn = '';
+      if (canSeeComp && compDirty && wemail) {
+        const up = await ensureStepUp();   // payroll writes need a fresh step-up when enforced
+        if (!up.ok) {
+          wageWarn = up.cancelled ? 'Profile saved - wage skipped (identity check cancelled).'
+            : 'Profile saved - wage skipped (identity check did not complete).';
+        } else {
+          try {
+            await api.timePayrollRate({
+              email: wemail, pay_type: comp.payType, currency: comp.currency,
+              hourly_rate: parseFloat(comp.hourlyRate) || 0,
+              monthly_salary: parseFloat(comp.monthlySalary) || 0,
+              weekend_ot_amount: parseFloat(comp.weekendOtAmount) || 0,
+              full_day_hours: parseFloat(comp.fullDayHours) || 8,
+            });
+          } catch (err) { wageWarn = `Profile saved, but the wage could not be saved: ${err?.message || 'error'} - set it on the Pay tab.`; }
+        }
+      } else if (canSeeComp && compDirty && !wemail) {
+        wageWarn = 'Profile saved - the wage needs a work email; set it once the email is provisioned.';
+      }
       // New hire + a chosen job role → set their access + tier now. Needs a work
       // email; if not provisioned yet, prompt to set it later on the Access tab.
       if (!editing && jobRoleId) {
-        const em = (saved?.workEmail || f.work_email || '').trim();
-        if (em) {
-          try { await api.assignJobRole(jobRoleId, em); toastOk?.(`${fullName(saved)} added - job role & access assigned.`); }
+        if (wemail) {
+          try { await api.assignJobRole(jobRoleId, wemail); toastOk?.(`${fullName(saved)} added - job role & access assigned.`); }
           catch (err) { toastErr(err?.message || 'Employee added, but the job role could not be assigned - set it on their Access tab.'); }
         } else {
           toastOk?.('Employee added - assign their job role from the Access tab once a work email is set.');
         }
+      } else if (!editing && !saved.entra) {
+        toastOk?.('Employee added.');   // plain add (no job role, no M365) had no confirmation before
       }
       onSaved(saved);
       onClose();
+      if (wageWarn) toastErr(wageWarn);   // LAST → wins the single toast slot
     } catch (err) {
       toastErr(err?.message || 'Could not save employee.');
       setBusy(false);
@@ -183,6 +229,17 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
           {input('PERSONAL EMAIL', 'personal_email', { type: 'email' })}
           {input('PHONE', 'phone')}
           {input('JOB TITLE', 'job_title')}
+          {/* Company FIRST, then Department - departments come from the chosen
+              company, so asking for it first keeps the form in reading order.
+              Changing company clears the department (it belongs to the old company). */}
+          <div>
+            <label style={FL}>COMPANY / ENTITY</label>
+            <select className="form-input" style={{ width: '100%' }} value={f.company}
+              onChange={e => { set('company', e.target.value); set('department', ''); setAddingDept(false); }}>
+              <option value="">- not set -</option>
+              {entities.map(en => <option key={en.id} value={en.id}>{en.name}</option>)}
+            </select>
+          </div>
           <div>
             <label style={FL}>DEPARTMENT</label>
             {addingDept ? (
@@ -236,13 +293,6 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
           </div>
           {input('LOCATION', 'location', { placeholder: 'e.g. Escondido office' })}
           <div>
-            <label style={FL}>COMPANY / ENTITY</label>
-            <select className="form-input" style={{ width: '100%' }} value={f.company} onChange={e => set('company', e.target.value)}>
-              <option value="">- not set -</option>
-              {entities.map(en => <option key={en.id} value={en.id}>{en.name}</option>)}
-            </select>
-          </div>
-          <div>
             <label style={FL}>ACCOUNT TYPE</label>
             <select className="form-input" style={{ width: '100%' }} value={f.identity_type} onChange={e => set('identity_type', e.target.value)}>
               <option value="internal">Internal (MS 365 staff)</option>
@@ -284,6 +334,49 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
                   </select>
                 </div>
                 {cInput('ENGAGEMENT AREA', 'engagement_area', { placeholder: 'e.g. Escondido dev / remote' })}
+              </div>
+            </div>
+          )}
+          {canSeeComp && !isContractor && (
+            <div style={{ gridColumn: '1 / -1', border: '1px solid var(--line)', borderRadius: 12, padding: '14px 16px', background: 'hsla(var(--color-blue),0.05)' }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: 'hsl(var(--color-blue))', letterSpacing: '.04em', marginBottom: 12 }}>PAYROLL WAGE</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                <div>
+                  <label style={FL}>PAY TYPE</label>
+                  <select className="form-input" style={{ width: '100%' }} value={comp.payType} onChange={e => setW('payType', e.target.value)}>
+                    <option value="hourly">Hourly</option>
+                    <option value="fixed">Fixed (monthly salary)</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={FL}>CURRENCY</label>
+                  <select className="form-input" style={{ width: '100%' }} value={comp.currency} onChange={e => setW('currency', e.target.value)}>
+                    <option value="USD">USD ($)</option><option value="INR">INR (₹)</option>
+                  </select>
+                </div>
+                {comp.payType === 'hourly' ? (
+                  <div>
+                    <label style={FL}>HOURLY RATE</label>
+                    <input className="form-input" type="number" min="0" step="0.01" style={{ width: '100%' }} value={comp.hourlyRate} onChange={e => setW('hourlyRate', e.target.value)} placeholder="0.00" />
+                  </div>
+                ) : (
+                  <>
+                    <div>
+                      <label style={FL}>MONTHLY SALARY</label>
+                      <input className="form-input" type="number" min="0" step="1" style={{ width: '100%' }} value={comp.monthlySalary} onChange={e => setW('monthlySalary', e.target.value)} placeholder="e.g. 30000" />
+                    </div>
+                    <div>
+                      <label style={FL}>WEEKEND OT / DAY</label>
+                      <input className="form-input" type="number" min="0" step="1" style={{ width: '100%' }} value={comp.weekendOtAmount} onChange={e => setW('weekendOtAmount', e.target.value)} placeholder="e.g. 1000" />
+                    </div>
+                  </>
+                )}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 10 }}>
+                {comp.payType === 'fixed'
+                  ? 'Fixed: paid the monthly salary; a missed weekday deducts salary / days-in-month. A weekday is Present at 5h+, Half day from 4h to 5h, Absent under 4h; each weekend day worked adds the weekend overtime.'
+                  : 'Hourly: paid per hour worked, with overtime per the timecard.'}
+                {!editing && !f.work_email && ' Needs a work email to save the wage.'}
               </div>
             </div>
           )}
@@ -843,7 +936,7 @@ function PayTab({ employee, reloadToken, onEdit }) {
     try { const { url } = await api.getDocUrl(id); window.open(url, '_blank', 'noopener'); } catch { /* noop */ }
   };
   const deleteStub = async (id) => {
-    if (!window.confirm('Delete this paystub?')) return;
+    if (!await dialog.confirm('Delete this paystub?', { title: 'Delete paystub', confirmText: 'Delete', danger: true })) return;
     try { await api.deleteEmployeeDoc(id); setStubs(s => s.filter(x => x.id !== id)); } catch { /* noop */ }
   };
 
@@ -1622,8 +1715,13 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
   const [qOpen, setQOpen] = useState(false);        // questionnaires manager
   const [lbOpen, setLbOpen] = useState(false);      // interview leaderboard
   const [ivFor, setIvFor] = useState(null);         // candidate for the interview room
+  const [loadErr, setLoadErr] = useState(false);
 
-  useEffect(() => { api.getCandidates().then(setCandidates).catch(() => setCandidates([])); }, []);
+  const loadCandidates = useCallback(() => {
+    setLoadErr(false); setCandidates(null);
+    api.getCandidates().then(setCandidates).catch(() => setLoadErr(true));
+  }, []);
+  useEffect(() => { loadCandidates(); }, [loadCandidates]);
 
   async function moveStage(c, stage, note) {
     if (busy) return;
@@ -1641,6 +1739,7 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
     setBusy(false);
   }
 
+  if (loadErr) return <ErrorBanner message="Couldn't load candidates right now." onRetry={loadCandidates} />;
   if (candidates === null) return <div style={{ display: 'flex', justifyContent: 'center', padding: '48px 0' }}><Loader2 size={26} style={{ animation: 'spin 0.8s linear infinite', color: 'var(--muted)' }} /></div>;
 
   const open = candidates.filter(c => !['hired', 'rejected'].includes(c.stage));
@@ -2587,10 +2686,15 @@ function LeaveTab({ employees, toastOk, toastErr }) {
   const [selF, setSelF] = useState([]);          // people filter - empty = everyone
   const [balances, setBalances] = useState(null);
   const [busyId, setBusyId] = useState(null);
+  const [loadErr, setLoadErr] = useState(false);
   const year = new Date().getFullYear();
   const empF = selF.length === 1 ? selF[0] : 'All';   // balances show for exactly one person
 
-  useEffect(() => { api.getLeave().then(setLeave).catch(() => setLeave([])); }, []);
+  const loadLeave = useCallback(() => {
+    setLoadErr(false); setLeave(null);
+    api.getLeave().then(setLeave).catch(() => setLoadErr(true));   // don't mask a failure as "no requests"
+  }, []);
+  useEffect(() => { loadLeave(); }, [loadLeave]);
   useEffect(() => {
     if (empF === 'All') { setBalances(null); return; }
     api.getLeaveBalances(empF, year).then(setBalances).catch(() => setBalances(null));
@@ -2609,6 +2713,7 @@ function LeaveTab({ employees, toastOk, toastErr }) {
     setBusyId(null);
   }
 
+  if (loadErr) return <ErrorBanner message="Couldn't load leave requests right now." onRetry={loadLeave} />;
   if (leave === null) return <div style={{ display: 'flex', justifyContent: 'center', padding: '48px 0' }}><Loader2 size={26} style={{ animation: 'spin 0.8s linear infinite', color: 'var(--muted)' }} /></div>;
 
   const visible = selF.length === 0 ? leave : leave.filter(r => selF.includes(r.employeeId));
@@ -2695,20 +2800,27 @@ function CompanyDepartments({ entity, employees = [], toastOk, toastErr }) {
   const [busy, setBusy] = useState(false);
   const [editId, setEditId] = useState(null);   // department being renamed
   const [editName, setEditName] = useState('');
-  const load = () => api.getCompanyDepartments(entity.id).then(setDepts).catch(() => setDepts([]));
-  useEffect(() => { setDepts(null); load(); }, [entity.id]);
+  const cancelRef = useRef(false);   // set on Escape so the ensuing onBlur doesn't SAVE
+  const [loadErr, setLoadErr] = useState(false);
+  const qc = useQueryClient();
+  // A dept add/rename/remove changes the choices in every people/department picker
+  // and the directory's department labels - refresh the shared caches so they don't
+  // show a stale name until the next reload.
+  const refreshDirectory = () => qc.invalidateQueries({ queryKey: qk.peopleDirectory });
+  const load = () => { setLoadErr(false); return api.getCompanyDepartments(entity.id).then(setDepts).catch(() => setLoadErr(true)); };
+  useEffect(() => { setDepts(null); load(); }, [entity.id]);   // eslint-disable-line react-hooks/exhaustive-deps
   // Anyone with a work email can lead triage - not restricted to this company, since
   // a shared function (IT, Finance) often serves several entities.
   const staff = employees.filter(e => e.workEmail && e.status !== 'offboarded');
   async function add() {
     const n = name.trim();
     if (!n || busy) return; setBusy(true);
-    try { const list = await api.addCompanyDepartment(entity.id, n); setDepts(list); setName(''); }
+    try { const list = await api.addCompanyDepartment(entity.id, n); setDepts(list); setName(''); refreshDirectory(); }
     catch (e) { toastErr(e?.message || 'Could not add department.'); }
     setBusy(false);
   }
   async function remove(d) {
-    try { const list = await api.deleteCompanyDepartment(entity.id, d.id); setDepts(list); }
+    try { const list = await api.deleteCompanyDepartment(entity.id, d.id); setDepts(list); refreshDirectory(); }
     catch (e) { toastErr(e?.message || 'Could not remove department.'); }
   }
   async function rename(d) {
@@ -2718,6 +2830,7 @@ function CompanyDepartments({ entity, employees = [], toastOk, toastErr }) {
     try {
       const list = await api.updateCompanyDepartment(entity.id, d.id, { name: n });
       setDepts(list);
+      refreshDirectory();
       toastOk?.(`Renamed “${d.name}” to “${n}” - people already in it follow the new name.`);
     } catch (e) { toastErr(e?.message || 'Could not rename department.'); }
   }
@@ -2740,7 +2853,8 @@ function CompanyDepartments({ entity, employees = [], toastOk, toastErr }) {
           <Plus size={14} /> Add
         </button>
       </div>
-      {depts === null ? <div style={{ color: 'var(--muted)', fontSize: 13, padding: '10px 0' }}>Loading…</div>
+      {loadErr ? <ErrorBanner message="Couldn't load departments right now." onRetry={load} />
+        : depts === null ? <div style={{ color: 'var(--muted)', fontSize: 13, padding: '10px 0' }}>Loading…</div>
         : depts.length === 0 ? <div style={{ color: 'var(--muted)', fontSize: 13, padding: '10px 0' }}>No departments yet - add the first one above.</div>
         : (
           <div style={{ border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>
@@ -2752,8 +2866,8 @@ function CompanyDepartments({ entity, employees = [], toastOk, toastErr }) {
                 {editId === d.id ? (
                   <input className="form-input" autoFocus value={editName} maxLength={40}
                     onChange={e => setEditName(e.target.value)}
-                    onKeyDown={e => { if (e.key === 'Enter') rename(d); if (e.key === 'Escape') setEditId(null); }}
-                    onBlur={() => rename(d)}
+                    onKeyDown={e => { if (e.key === 'Enter') { e.currentTarget.blur(); } if (e.key === 'Escape') { cancelRef.current = true; setEditId(null); } }}
+                    onBlur={() => { if (cancelRef.current) { cancelRef.current = false; return; } rename(d); }}
                     style={{ fontSize: 13, padding: '4px 8px' }} />
                 ) : (
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
@@ -2832,7 +2946,7 @@ function EntitiesModal({ entities, employees = [], onClose, onChanged, toastOk, 
     setBusy(false);
   }
   async function remove(en) {
-    if (!window.confirm(`Delete “${en.name}”? Workers keep their record but lose this company link.`)) return;
+    if (!await dialog.confirm(`Delete "${en.name}"? Workers keep their record but lose this company link.`, { title: 'Delete company', confirmText: 'Delete', danger: true })) return;
     try { await api.deleteEntity(en.id); await onChanged(); toastOk('Company deleted.'); }
     catch (e) { toastErr(e?.message || 'Could not delete company.'); }
   }
@@ -3474,7 +3588,7 @@ function WorkSitesModal({ sites, entities, onClose, onChanged, toastOk, toastErr
     setBusy(false);
   }
   async function remove(s) {
-    if (!window.confirm(`Delete work site “${s.name}”?`)) return;
+    if (!await dialog.confirm(`Delete work site "${s.name}"?`, { title: 'Delete work site', confirmText: 'Delete', danger: true })) return;
     try { await api.deleteWorkSite(s.id); await onChanged(); toastOk('Work site deleted.'); }
     catch (e) { toastErr(e?.message || 'Could not delete.'); }
   }
@@ -4055,6 +4169,7 @@ export default function HR({ activeSub, onSubChange }) {
   }), [employees]);
 
   const onSaved = saved => {
+    const isNew = !employees.some(e => e.id === saved.id);   // add modal shows its own toast
     setEmployees(prev => {
       const i = prev.findIndex(e => e.id === saved.id);
       if (i === -1) return [...prev, saved].sort((a, b) => fullName(a).localeCompare(fullName(b)));
@@ -4066,6 +4181,8 @@ export default function HR({ activeSub, onSubChange }) {
     if (saved.entra) {
       if (saved.entra.synced) toastOk('Saved - profile synced to Microsoft 365.');
       else toastErr(`Saved in Nexus, but the M365 sync failed: ${saved.entra.error || 'Graph error'}. Use "Push to M365" to retry.`);
+    } else if (!isNew) {
+      toastOk('Saved.');
     }
   };
 
@@ -4162,7 +4279,7 @@ export default function HR({ activeSub, onSubChange }) {
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 12 }}>
             <ChevronLeft size={14} /> Back to directory
           </button>
-          <EmployeeDetail e={selected} employees={employees} isMobile={isMobile}
+          <EmployeeDetail key={selected.id} e={selected} employees={employees} isMobile={isMobile}
             companyName={entityName(selected.company)} canSeeComp={canSeeComp} isAdmin={isAdmin}
             toastOk={toastOk} toastErr={toastErr} onEmployeeUpdated={onSaved}
             onEdit={emp => { setEditing(emp); setFormOpen(true); }}
@@ -4294,7 +4411,7 @@ export default function HR({ activeSub, onSubChange }) {
                 </div>
                 <div style={{ padding: '16px 18px', minWidth: 0 }}>
                   {selected ? (
-                    <EmployeeDetail e={selected} employees={employees} isMobile={isMobile}
+                    <EmployeeDetail key={selected.id} e={selected} employees={employees} isMobile={isMobile}
                       companyName={entityName(selected.company)} canSeeComp={canSeeComp} isAdmin={isAdmin}
                       toastOk={toastOk} toastErr={toastErr} onEmployeeUpdated={onSaved}
                       onEdit={emp => { setEditing(emp); setFormOpen(true); }}
@@ -4314,7 +4431,7 @@ export default function HR({ activeSub, onSubChange }) {
       </>)}
 
       {formOpen && (
-        <EmployeeFormModal employee={editing} employees={employees} entities={entities} isAdmin={isAdmin}
+        <EmployeeFormModal employee={editing} employees={employees} entities={entities} isAdmin={isAdmin} canSeeComp={canSeeComp}
           onClose={() => { setFormOpen(false); setEditing(null); }}
           onSaved={onSaved} toastOk={toastOk} toastErr={toastErr} />
       )}

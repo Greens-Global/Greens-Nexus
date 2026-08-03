@@ -4,6 +4,7 @@ import {
   LayoutGrid, Copy, MonitorOff, PlayCircle, Users, User, TrendingUp,
 } from 'lucide-react';
 import { api } from '../api';
+import { dialog } from '../ui/dialog';
 import { usePeopleDirectory } from '../lib/queries';
 import { SkeletonBlocks } from '../components/AsyncState';
 import { useRole, MODULES, MODULE_LEVELS, ROLES } from '../contexts/RoleContext';
@@ -207,7 +208,8 @@ export default function RolesAccess({ embedded = false }) {
   }
 
   async function onDelete(r) {
-    try { await api.deleteJobRole(r.id); toastOk(`Deleted “${r.name}”.`); if (selId === r.id) setSelId(null); loadRoles(); }
+    if (!await dialog.confirm(`Delete role "${r.name}"?${r.member_count ? ` ${r.member_count} people have it - reassign them first or the delete will fail.` : ''}`, { title: 'Delete role', confirmText: 'Delete', danger: true })) return;
+    try { await api.deleteJobRole(r.id); toastOk(`Deleted "${r.name}".`); if (selId === r.id) setSelId(null); loadRoles(); }
     catch (e) { toastErr(e?.message || 'Could not delete - reassign its people first.'); }
   }
   async function removeMember(email) {
@@ -216,7 +218,8 @@ export default function RolesAccess({ embedded = false }) {
     catch (e) { toastErr(e?.message || 'Could not remove.'); }
   }
   async function onDeleteGroup(g) {
-    try { await api.deleteGroup(g.id); toastOk(`Deleted “${g.name}”.`); loadGroups(); }
+    if (!await dialog.confirm(`Delete group "${g.name}"?${g.member_count ? ` ${g.member_count} people are in it and will lose that access.` : ''}`, { title: 'Delete group', confirmText: 'Delete', danger: true })) return;
+    try { await api.deleteGroup(g.id); toastOk(`Deleted "${g.name}".`); loadGroups(); }
     catch (e) { toastErr(e?.message || 'Could not delete group.'); }
   }
 
@@ -512,7 +515,7 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
   async function changeRole(roleId) {
     const r = (jobRoles || []).find(x => x.id === roleId);
     if (!r || !person) return;
-    if (!window.confirm(`Change ${nameOf(person)}'s job role to “${r.name}”? Their baseline access and tier will follow the new role.`)) return;
+    if (!await dialog.confirm(`Change ${nameOf(person)}'s job role to "${r.name}"? Their baseline access and tier will follow the new role.`, { title: 'Change job role', confirmText: 'Change role' })) return;
     try { await api.assignJobRole(r.id, person); toastOk(`${nameOf(person)} is now “${r.name}”.`); refresh(); }
     catch (e) { toastErr(e?.message || 'Could not change role.'); }
   }
@@ -523,7 +526,7 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
     catch (e) { toastErr(e?.message || 'Could not add to group.'); }
   }
   async function removeFromGroup(g) {
-    if (!window.confirm(`Remove ${nameOf(person)} from “${g.name}”? They lose that extra access; their job-role baseline is untouched.`)) return;
+    if (!await dialog.confirm(`Remove ${nameOf(person)} from "${g.name}"? They lose that extra access; their job-role baseline is untouched.`, { title: 'Remove from group', confirmText: 'Remove', danger: true })) return;
     try { await api.removeGroupMember(g.id, person); toastOk(`Removed ${nameOf(person)} from “${g.name}”.`); refresh(); }
     catch (e) { toastErr(e?.message || 'Could not remove.'); }
   }
@@ -784,7 +787,7 @@ function ApproverPicker({ role, people, nameOf, onSaved, toastOk, toastErr }) {
   }
   async function applyAll() {
     if (!val) return;
-    if (!window.confirm(`Set ${nameOf(val)} as manager/timesheet approver for all ${role.member_count} people in “${role.name}”? This overwrites their current manager; individual cards can be changed afterwards.`)) return;
+    if (!await dialog.confirm(`Set ${nameOf(val)} as manager/timesheet approver for all ${role.member_count} people in "${role.name}"? This overwrites their current manager; individual cards can be changed afterwards.`, { title: 'Set approver for whole role', confirmText: 'Set for all' })) return;
     setBusy('apply');
     try {
       const r = await api.applyJobRoleManager(role.id, val);

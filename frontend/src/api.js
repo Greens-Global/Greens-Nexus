@@ -27,11 +27,23 @@ async function getAuthHeader(forceRefresh = false) {
   if (!account) return {};
   if (!msalInstance.getActiveAccount()) msalInstance.setActiveAccount(account);
   try {
-    const result = await msalInstance.acquireTokenSilent({
+    let result = await msalInstance.acquireTokenSilent({
       ...apiTokenRequest,
       account,
       forceRefresh,
     });
+    // MSAL caches the ID and access tokens with SEPARATE lifetimes and decides
+    // whether to refresh based on the ACCESS token - so acquireTokenSilent can
+    // hand back an ID token that's already expired while its access token is still
+    // valid. The Nexus backend authenticates off the ID token (Bearer idToken), so
+    // a stale one 401s; the caller's forceRefresh retry then succeeds (the
+    // transient 401s that still showed in the console after the account-wait fix).
+    // Pre-empt it: if the ID token is at/near expiry, refresh now so the FIRST
+    // request already carries a fresh token.
+    const exp = result?.idTokenClaims?.exp;
+    if (!forceRefresh && typeof exp === 'number' && exp * 1000 < Date.now() + 60_000) {
+      result = await msalInstance.acquireTokenSilent({ ...apiTokenRequest, account, forceRefresh: true });
+    }
     return { Authorization: `Bearer ${result.idToken}` };
   } catch {
     return {};
@@ -811,6 +823,11 @@ export const api = {
   timePunchRequestCreate: (data) => req('/timeclock/punch-requests', { method: 'POST', body: JSON.stringify(data) }),
   timeMyPunchRequests:    () => req('/timeclock/punch-requests/mine'),
   timePunchRequests:      (status) => req(`/timeclock/punch-requests?status=${status || 'pending'}`),
+  // Employee self-edit of a punch time (applies to display now, to pay only on approval)
+  timePunchEditCreate:    (data)     => req('/timeclock/punch-edits', { method: 'POST', body: JSON.stringify(data) }),
+  timePunchEditDecide:    (id, data) => req(`/timeclock/punch-edits/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  timePendingPunchEdits:  ()         => req('/timeclock/punch-edits'),
+  timeSignMyTimecard:     (start)    => req('/timeclock/my-timecard/sign', { method: 'POST', body: JSON.stringify({ start: start || '' }) }),
   timeDecidePunchRequest: (id, data) => req(`/timeclock/punch-requests/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   // Employee's own bi-weekly pay-period timecard (payroll rows + composition)
   timeMyPayroll:          (start) => req(`/timeclock/my-payroll?start=${start || ''}`),
@@ -879,6 +896,7 @@ export const api = {
   timeSchedDelete:   (id)        => req(`/timeclock/schedule/${id}`, { method: 'DELETE' }),
   timePayroll:       (email, start, end) => req(`/timeclock/payroll?email=${encodeURIComponent(email)}&start=${start}&end=${end}`),
   timePayrollRate:   (data)      => req('/timeclock/payroll/rate', { method: 'PUT', body: JSON.stringify(data) }),
+  timePayrollRateGet: (email)    => req(`/timeclock/payroll/rate?email=${encodeURIComponent(email)}`),
   timeAutoLunchGet:  ()          => req('/timeclock/payroll/autolunch'),
   timeAutoLunchSet:  (data)      => req('/timeclock/payroll/autolunch', { method: 'PUT', body: JSON.stringify(data) }),
   timeRoundingGet:   ()          => req('/timeclock/payroll/rounding'),
