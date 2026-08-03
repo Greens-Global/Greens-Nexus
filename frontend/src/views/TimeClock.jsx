@@ -143,6 +143,30 @@ function SessionRing({ seconds, pct, color, label, sub }) {
 
 const localTime = (iso) => iso ? new Date(iso + 'Z').toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-';
 const fmtMin = (m) => `${Math.floor((m || 0) / 60)}h ${String((m || 0) % 60).padStart(2, '0')}m`;
+
+// Break = formal Start Break time + short (<=60 min) clock-out/clock-in gaps
+// (stepping away). A gap over 60 min is treated as OFF the clock (long lunch out /
+// left), not a break - matches the payroll timecard's break definition exactly.
+const BREAK_GAP_MAX = 60;
+const gapBreakFromPunches = (punches) => {
+  let total = 0, lastOut = null;
+  for (const p of (punches || [])) {
+    if (p.kind === 'out') lastOut = p.at;
+    else if (p.kind === 'in') {
+      if (lastOut) { const m = Math.round((new Date(p.at + 'Z') - new Date(lastOut + 'Z')) / 60000); if (m > 0 && m <= BREAK_GAP_MAX) total += m; }
+      lastOut = null;
+    }
+  }
+  return total;
+};
+const gapBreakFromSegments = (segs) => {
+  let total = 0;
+  for (let i = 1; i < (segs || []).length; i++) {
+    const pOut = segs[i - 1].out, tIn = segs[i].in;
+    if (pOut && tIn) { const m = Math.round((new Date(tIn + 'Z') - new Date(pOut + 'Z')) / 60000); if (m > 0 && m <= BREAK_GAP_MAX) total += m; }
+  }
+  return total;
+};
 const TIMEOFF_TYPES = { vacation: 'Vacation', sick: 'Sick', personal: 'Personal', unpaid: 'Unpaid', other: 'Other' };
 const TO_STATUS = { pending: '#b45309', approved: 'hsl(var(--color-green))', rejected: '#b91c1c', cancelled: 'var(--muted)' };
 const TO_TINT = { pending: 'rgba(180,83,9,0.1)', approved: 'hsla(var(--color-green),0.1)', rejected: 'rgba(185,28,28,0.08)', cancelled: 'var(--mist)' };
@@ -367,7 +391,7 @@ export default function TimeClock() {
   const weekTotal = Object.values(days).reduce((a, d) => a + d.workedMin, 0);
   // Daily break allowance: 1 hour. Used = completed breaks today + the live open one.
   const BREAK_ALLOWANCE_MIN = 60;
-  const breakUsedMin = (todayData?.breakMin || 0) + (onBreak ? Math.floor(sinceSec / 60) : 0);
+  const breakUsedMin = (todayData?.breakMin || 0) + gapBreakFromPunches(todayData?.punches) + (onBreak ? Math.floor(sinceSec / 60) : 0);
   const breakLeftMin = BREAK_ALLOWANCE_MIN - breakUsedMin;
 
   // ── Current pay period (the Clock tab's mini summary). The Time Sheet tab is the
@@ -566,10 +590,11 @@ export default function TimeClock() {
             {(() => {
               const t = clockPeriod.totals || {};
               const activeDays = (clockPeriod.days || []).filter(d => (d.workedMin || 0) > 0).length;
+              const periodBreak = (clockPeriod.days || []).reduce((a, d) => a + (d.breakMin || 0) + gapBreakFromSegments(d.segments), 0);
               return (
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 12, fontSize: 12 }}>
                   <span style={{ color: 'var(--muted)', fontWeight: 600 }}>Total {fmtMin(t.workedMin || 0)}</span>
-                  <span style={{ color: 'var(--muted)' }}>{activeDays} day{activeDays !== 1 ? 's' : ''} worked · {t.breakMin || 0}m breaks</span>
+                  <span style={{ color: 'var(--muted)' }}>{activeDays} day{activeDays !== 1 ? 's' : ''} worked · {periodBreak}m breaks</span>
                 </div>
               );
             })()}

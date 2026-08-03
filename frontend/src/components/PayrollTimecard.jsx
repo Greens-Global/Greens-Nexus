@@ -739,23 +739,22 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
               const punchesOpen = !!openPunches[fd.date];
               const breaksOpen = !!openBreaks[fd.date];
 
-              // Break/away time for the day = non-worked time between the first clock-in
-              // and last clock-out (formal Start Break gaps AND clock-out/back-in gaps),
-              // plus each individual break window for the click-to-expand detail.
-              const segsOut = segs.filter(s => s.out);
-              let dayBreak = d?.breakMin || 0;
-              if (segsOut.length && segs[0]?.in) {
-                const spanMin = Math.round((new Date(segsOut[segsOut.length - 1].out + 'Z') - new Date(segs[0].in + 'Z')) / 60000);
-                dayBreak = Math.max(dayBreak, spanMin - (d.workedMin || 0));
-              }
+              // Break = short between-session gaps (stepping away) plus any formal
+              // Start Break time. A gap LONGER than the 60-min daily allowance is
+              // treated as time OFF the clock (a long lunch out, left the site), not a
+              // break - so a multi-hour absence never masquerades as a giant break.
+              const BREAK_MAX = 60;
               const breaks = [];
+              let offClockGaps = 0;
               for (let i = 1; i < segs.length; i++) {
                 const pOut = segs[i - 1].out, tIn = segs[i].in;
                 if (pOut && tIn) {
                   const m = Math.round((new Date(tIn + 'Z') - new Date(pOut + 'Z')) / 60000);
-                  if (m > 0) breaks.push({ start: pOut, end: tIn, min: m });
+                  if (m > 0 && m <= BREAK_MAX) breaks.push({ start: pOut, end: tIn, min: m });
+                  else if (m > BREAK_MAX) offClockGaps++;
                 }
               }
+              const dayBreak = (d?.breakMin || 0) + breaks.reduce((a, b) => a + b.min, 0);
               const overBreak = dayBreak > 60;             // 60 min/day allowance
               const breakFg = dayBreak <= 0 ? 'var(--muted)' : overBreak ? '#b91c1c' : 'hsl(var(--color-green))';
 
@@ -804,7 +803,8 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
                       ? ((!fin && !fd.future) ? addBtn : <span style={{ color: 'var(--muted)' }}>-</span>)
                       : multi
                         ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                            <span style={{ fontWeight: 600 }}>{t12(firstSeg.in)}</span>
+                            {/* first clock-in - editable in place; toggle reveals the rest */}
+                            {inCell(firstSeg)}
                             <button onClick={() => setOpenPunches(o => ({ ...o, [fd.date]: !o[fd.date] }))} aria-expanded={punchesOpen}
                               title="Show every clock-in and clock-out for this day"
                               style={{ background: 'var(--wk-hover)', border: '1px solid var(--line)', borderRadius: 999, padding: '1px 8px', cursor: 'pointer', font: 'inherit', fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
@@ -817,7 +817,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
                     {!segs.length
                       ? <span style={{ color: 'var(--muted)' }}>-</span>
                       : multi
-                        ? (lastSeg.out ? <span style={{ fontWeight: 600 }}>{t12(lastSeg.out)}</span> : <span style={{ color: '#b91c1c', fontWeight: 700 }}>Missing</span>)
+                        ? outCell(lastSeg)
                         : outCell(firstSeg)}
                   </td>
                   <td style={{ ...td, textAlign: 'right' }}>{segs.length ? hhmm(d.workedMin) : <span style={{ color: 'var(--muted)' }}>-</span>}</td>
@@ -849,16 +849,17 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
               }
 
               // ── Expanded: each break window (clock-out -> next clock-in + duration) ──
-              if (breaksOpen && breaks.length) rows.push(
+              if (breaksOpen && dayBreak > 0) rows.push(
                 <tr key={fd.date + '-br'} style={{ background: 'var(--wk-hover)' }}>
                   <td colSpan={7} style={{ ...td, whiteSpace: 'normal', fontSize: 12 }}>
                     <span style={{ fontWeight: 700, color: breakFg, marginRight: 10 }}>Breaks - {hhmm(dayBreak)} {overBreak ? '(over the 60 min allowance)' : '(within 60 min)'}</span>
                     {breaks.map((b, i) => (
                       <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 999, padding: '2px 9px', margin: '2px 6px 2px 0', fontSize: 11.5 }}>
                         {t12(b.start)} <ArrowRight size={10} style={{ opacity: 0.6 }} /> {t12(b.end)}
-                        <span style={{ fontWeight: 700, marginLeft: 3, color: b.min > 60 ? '#b91c1c' : undefined }}>({b.min}m)</span>
+                        <span style={{ fontWeight: 700, marginLeft: 3 }}>({b.min}m)</span>
                       </span>
                     ))}
+                    {offClockGaps > 0 && <span style={{ color: 'var(--muted)', fontStyle: 'italic', marginLeft: 4 }}>· {offClockGaps} longer gap{offClockGaps === 1 ? '' : 's'} off the clock (not counted as break)</span>}
                   </td>
                 </tr>
               );
