@@ -30,6 +30,7 @@ export default defineConfig([
       'react-hooks/static-components': 'warn',
       'react-hooks/purity': 'warn',
       'react-hooks/immutability': 'warn',
+      'react-hooks/refs': 'warn',        // same v7 Compiler class (ref access in render); was missed from this list
       'react-hooks/exhaustive-deps': 'warn',
       'react-refresh/only-export-components': 'warn',
       // Pre-existing dead-code debt across the app — keep visible as warnings

@@ -682,6 +682,10 @@ def _run_migrations():
         "ALTER TABLE asana_task_links ADD COLUMN IF NOT EXISTS last_push_hash VARCHAR DEFAULT ''",
         # Asana-side digest, so a pull only re-applies genuinely changed tasks.
         "ALTER TABLE asana_task_links ADD COLUMN IF NOT EXISTS last_inbound_hash VARCHAR DEFAULT ''",
+        # KB taxonomy/search/related-articles (industry-standard KB feature batch).
+        "ALTER TABLE kb_documents ADD COLUMN IF NOT EXISTS tags VARCHAR DEFAULT ''",
+        "ALTER TABLE kb_documents ADD COLUMN IF NOT EXISTS related_ids VARCHAR DEFAULT ''",
+        "ALTER TABLE kb_documents ADD COLUMN IF NOT EXISTS content_text TEXT DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -745,6 +749,31 @@ async def lifespan(app: FastAPI):
         print("[startup] DB connection pool warmed")
     except Exception as e:
         print(f"[startup] DB pool warm-up skipped: {e}")
+    # One shared Documents-module letterhead (Greens Global logo + brand name)
+    # so a Knowledge Base "Full Editor" SOP has something real to auto-attach
+    # instead of a blank/manual setup. Idempotent by name - safe to run every
+    # boot. Letterhead creation is normally admin-only (see
+    # routers/documents.py create_letterhead); this is the one place that
+    # bypasses that, the same way it bypasses auth entirely at startup.
+    try:
+        import uuid as _uuid
+        from datetime import datetime as _dt, timezone as _tz
+        from database import SessionLocal
+        db = SessionLocal()
+        try:
+            if not db.query(models.DocLetterhead).filter(models.DocLetterhead.name == "Nexus Knowledge Base").first():
+                db.add(models.DocLetterhead(
+                    id=str(_uuid.uuid4()), name="Nexus Knowledge Base",
+                    logo_path="/assets/branding/greens-global-logo.png",
+                    header_json={}, footer_json={}, address="",
+                    is_default=False, created_by="system", created_at=_dt.now(_tz.utc).isoformat(),
+                ))
+                db.commit()
+                print("[startup] Nexus Knowledge Base letterhead seeded")
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"[startup] letterhead seed skipped: {e}")
     # Daily HR reminders (doc/visa expiry, contract ends, new starters,
     # interviews, expiring e-sign) - dedupes per day, safe across restarts.
     try:
