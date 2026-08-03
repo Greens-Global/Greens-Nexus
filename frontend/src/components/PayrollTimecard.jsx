@@ -740,10 +740,11 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
               const breaksOpen = !!openBreaks[fd.date];
 
               // Break = short between-session gaps (stepping away) plus any formal
-              // Start Break time. A gap LONGER than the 60-min daily allowance is
-              // treated as time OFF the clock (a long lunch out, left the site), not a
-              // break - so a multi-hour absence never masquerades as a giant break.
-              const BREAK_MAX = 60;
+              // Start Break time. A gap up to 90 min still counts as a break (a long
+              // lunch shows, in red once the day's total passes the 60-min allowance);
+              // a gap LONGER than 90 min is time OFF the clock (left the site / gone
+              // for the afternoon), so a multi-hour absence never shows as a break.
+              const BREAK_MAX = 90;
               const breaks = [];
               let offClockGaps = 0;
               for (let i = 1; i < segs.length; i++) {

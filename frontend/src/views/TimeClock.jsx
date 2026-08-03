@@ -144,10 +144,10 @@ function SessionRing({ seconds, pct, color, label, sub }) {
 const localTime = (iso) => iso ? new Date(iso + 'Z').toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-';
 const fmtMin = (m) => `${Math.floor((m || 0) / 60)}h ${String((m || 0) % 60).padStart(2, '0')}m`;
 
-// Break = formal Start Break time + short (<=60 min) clock-out/clock-in gaps
-// (stepping away). A gap over 60 min is treated as OFF the clock (long lunch out /
-// left), not a break - matches the payroll timecard's break definition exactly.
-const BREAK_GAP_MAX = 60;
+// Break = formal Start Break time + clock-out/clock-in gaps up to 90 min (stepping
+// away, incl. a long lunch). A gap over 90 min is OFF the clock (left / gone for the
+// afternoon), not a break - matches the payroll timecard's break definition exactly.
+const BREAK_GAP_MAX = 90;
 const gapBreakFromPunches = (punches) => {
   let total = 0, lastOut = null;
   for (const p of (punches || [])) {
