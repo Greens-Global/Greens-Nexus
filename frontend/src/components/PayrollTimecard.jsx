@@ -24,6 +24,20 @@ const t12 = (iso) => iso ? new Date(iso + 'Z').toLocaleTimeString([], { hour: 'n
 const utcToInput = (iso) => { const d = new Date(iso + 'Z'); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); };
 const inputToUtc = (v) => new Date(v).toISOString().slice(0, 19);
 
+// Internal punch markers that are NOT reasons meant for the reader (e.g. the tag
+// a +added punch carries). Never surfaced on the card.
+const _INTERNAL_NOTES = new Set(['payroll edit']);
+const cleanNote = (n) => { const t = (n || '').trim(); return t && !_INTERNAL_NOTES.has(t.toLowerCase()) ? t : ''; };
+// The human reason(s) attached to a segment's punches: a pending employee edit,
+// an HR adjust note, or a punch note - minus internal markers. Empty = not edited.
+const segReasons = (s) => {
+  const out = [];
+  if (s.inEditStatus === 'pending' && s.inEditReason) out.push(`Proposed in-time: ${s.inEditReason}`);
+  if (s.outEditStatus === 'pending' && s.outEditReason) out.push(`Proposed out-time: ${s.outEditReason}`);
+  [s.inAdjustNote, s.outAdjustNote, s.note].forEach(n => { const c = cleanNote(n); if (c) out.push(c); });
+  return out;
+};
+
 function periodStartFor(date) {
   const sun = new Date(date); sun.setHours(0, 0, 0, 0);
   sun.setDate(sun.getDate() - sun.getDay());                   // Sunday of this week
@@ -260,14 +274,8 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       segs.forEach((seg, i) => rows.push({ type: 'day', ds, seg, first: i === 0, last: i === segs.length - 1 }));
       // Same reasons/notes the fixed card shows: employee edit reasons + HR adjust
       // notes + punch notes, visible in the card (not only on the hover Info dot).
-      const notes = [];
-      segs.forEach(s => {
-        if (s.inEditStatus === 'pending' && s.inEditReason) notes.push(`Employee: “${s.inEditReason}”`);
-        if (s.outEditStatus === 'pending' && s.outEditReason) notes.push(`Employee: “${s.outEditReason}”`);
-        if (s.inAdjustNote) notes.push(s.inAdjustNote);
-        if (s.outAdjustNote) notes.push(s.outAdjustNote);
-        if (s.note) notes.push(s.note);
-      });
+      // Internal markers like "payroll edit" are filtered out (segReasons).
+      const notes = segs.flatMap(segReasons);
       if (notes.length) rows.push({ type: 'note', text: notes.join('  ·  ') });
     }
   });
@@ -796,14 +804,8 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
               const breakFg = dayBreak <= 0 ? 'var(--muted)' : overBreak ? '#b91c1c' : 'hsl(var(--color-green))';
 
               // Reasons/notes visible IN the card (not just on hover), employee AND HR.
-              const notes = [];
-              segs.forEach(s => {
-                if (s.inEditStatus === 'pending' && s.inEditReason) notes.push(`Employee: “${s.inEditReason}”`);
-                if (s.outEditStatus === 'pending' && s.outEditReason) notes.push(`Employee: “${s.outEditReason}”`);
-                if (s.inAdjustNote) notes.push(s.inAdjustNote);
-                if (s.outAdjustNote) notes.push(s.outAdjustNote);
-                if (s.note) notes.push(s.note);
-              });
+              // Internal markers like "payroll edit" are filtered out (segReasons).
+              const notes = segs.flatMap(segReasons);
 
               // Editable in/out cell for a single segment (or an expanded punch row).
               const inCell = (seg) => <InlineTime seg={seg} k="in" showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} />;
@@ -865,17 +867,35 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
 
               // ── Expanded: every punch pair, editable ──
               if (multi && punchesOpen) {
-                segs.forEach((seg, si) => rows.push(
-                  <tr key={fd.date + '-p' + si} style={{ background: 'var(--wk-hover)' }}>
-                    <td style={td}></td>
-                    <td style={{ ...td, color: 'var(--muted)', fontSize: 11 }}>Punch {si + 1}</td>
-                    <td style={td}>{inCell(seg)}</td>
-                    <td style={td}>{outCell(seg)}</td>
-                    <td style={{ ...td, textAlign: 'right', color: 'var(--muted)' }}>{hhmm(seg.workedMin)}</td>
-                    <td style={td}></td>
-                    <td style={td}></td>
-                  </tr>
-                ));
+                segs.forEach((seg, si) => {
+                  // An EDITED punch (a pending employee edit, or an HR time change)
+                  // is tinted amber, badged "edited", and shows its reason inline -
+                  // same for HR and the employee.
+                  const reasons = segReasons(seg);
+                  const edited = reasons.length > 0;
+                  const rBg = edited ? 'rgba(180,83,9,0.09)' : 'var(--wk-hover)';
+                  rows.push(
+                    <tr key={fd.date + '-p' + si} style={{ background: rBg }}>
+                      <td style={td}></td>
+                      <td style={{ ...td, color: 'var(--muted)', fontSize: 11 }}>
+                        Punch {si + 1}{edited && <span style={{ marginLeft: 6, fontSize: 9.5, fontWeight: 800, letterSpacing: '.03em', textTransform: 'uppercase', color: '#b45309', background: 'rgba(180,83,9,0.16)', padding: '1px 6px', borderRadius: 6 }}>edited</span>}
+                      </td>
+                      <td style={td}>{inCell(seg)}</td>
+                      <td style={td}>{outCell(seg)}</td>
+                      <td style={{ ...td, textAlign: 'right', color: 'var(--muted)' }}>{hhmm(seg.workedMin)}</td>
+                      <td style={td}></td>
+                      <td style={td}></td>
+                    </tr>
+                  );
+                  if (edited) rows.push(
+                    <tr key={fd.date + '-pr' + si} style={{ background: rBg }}>
+                      <td style={td}></td><td style={td}></td>
+                      <td colSpan={5} style={{ ...td, borderTop: 'none', paddingTop: 0, color: '#b45309', fontStyle: 'italic', fontSize: 11.5, whiteSpace: 'normal' }}>
+                        <Pencil size={10} style={{ marginRight: 5, verticalAlign: 'middle' }} />{reasons.join('  ·  ')}
+                      </td>
+                    </tr>
+                  );
+                });
                 if (!fin && !fd.future) rows.push(
                   <tr key={fd.date + '-padd'} style={{ background: 'var(--wk-hover)' }}>
                     <td style={td}></td><td style={td}></td>
@@ -901,10 +921,11 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
                 </tr>
               );
 
-              // ── Notes (reasons for changes) ──
-              if (notes.length) rows.push(
+              // ── Day-level reasons: shown when the day is COLLAPSED. When expanded,
+              //    each edited punch shows its own reason inline above instead. ──
+              if (notes.length && !(multi && punchesOpen)) rows.push(
                 <tr key={fd.date + '-notes'} style={{ background: rowBg }}>
-                  <td colSpan={7} style={{ ...td, borderTop: 'none', paddingTop: 0, color: 'var(--muted)', fontStyle: 'italic', fontSize: 11.5, whiteSpace: 'normal' }}>
+                  <td colSpan={7} style={{ ...td, borderTop: 'none', paddingTop: 0, color: '#b45309', fontStyle: 'italic', fontSize: 11.5, whiteSpace: 'normal' }}>
                     <Pencil size={10} style={{ marginRight: 5, verticalAlign: 'middle' }} />{notes.join('  ·  ')}
                   </td>
                 </tr>
