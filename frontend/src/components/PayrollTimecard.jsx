@@ -655,9 +655,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
           <button className="icon-btn" onClick={onNext} style={{ padding: 6 }}><ChevronRight size={16} /></button>
         </div>
         <div style={{ flex: 1 }} />
-        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, color: 'var(--muted)', fontWeight: 700, cursor: 'pointer' }}>
-          <input type="checkbox" checked={showRaw} onChange={e => setShowRaw(e.target.checked)} /> Show unrounded times
-        </label>
+        {/* No rounding toggle - salary pay is day-based, so times show exactly as punched. */}
       </div>
 
       {/* Fixed-pay strip */}
@@ -673,7 +671,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
 
       {self && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, color: 'var(--wk-brand)', background: 'var(--wk-brand-tint)', borderRadius: 9, padding: '8px 12px', marginBottom: 10, fontWeight: 500 }}>
-          <Pencil size={13} style={{ flexShrink: 0 }} /> Your pay is fixed at {fmtM(data.monthlySalary)}/month. A missed weekday deducts one day; each weekend day worked adds {fmtM(data.weekendOtAmount)}. Tap a time to request a change.
+          <Pencil size={13} style={{ flexShrink: 0 }} /> Your pay is fixed at {fmtM(data.monthlySalary)}/month. A missed weekday deducts one day; each weekend day worked adds {fmtM(data.weekendOtAmount)}. Tap a time to change it, or "+ add" on a past day to log a missed punch - it goes to your approver.
         </div>
       )}
       {!data.rateSet && (
@@ -688,7 +686,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
           <thead>
             <tr style={{ background: 'var(--wk-hover)' }}>
               <th style={th}>Date</th><th style={th}>Day</th><th style={th}>In</th><th style={th}>Out</th>
-              <th style={{ ...th, textAlign: 'right' }}>Hours</th><th style={{ ...th, textAlign: 'right' }}>Effect on pay</th>
+              <th style={{ ...th, textAlign: 'right' }}>Hours</th><th style={{ ...th, textAlign: 'right' }}>Break</th><th style={{ ...th, textAlign: 'right' }}>Effect on pay</th>
             </tr>
           </thead>
           <tbody>
@@ -703,11 +701,9 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
                   <td style={td}>{si === 0 && <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 9px', borderRadius: 999, background: st.bg, color: st.fg }}>{st.label}</span>}</td>
                   <td style={td}>{seg
                     ? <InlineTime seg={seg} k="in" showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} />
-                    : (self && !fin && fd.status !== 'upcoming')
-                      ? <button onClick={() => setEditDay({ date: fd.date, seg: null })} title="Add a punch for this day - goes to your approver" style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--wk-brand)', fontWeight: 600, font: 'inherit', opacity: 0.75 }}>+ add</button>
-                      : (!self && !fin && fd.status !== 'upcoming')
-                        ? <button onClick={() => setEditDay({ date: fd.date, seg: null })} title="Add a punch for this day" style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--wk-brand)', fontWeight: 600, font: 'inherit', opacity: 0.75 }}>+ add</button>
-                        : <span style={{ color: 'var(--muted)' }}>-</span>}</td>
+                    : (!fin && !fd.future)
+                      ? <button onClick={() => setEditDay({ date: fd.date, seg: null })} title={self ? 'Add a missing punch for this day - goes to your approver' : 'Add a punch for this day'} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--wk-brand)', fontWeight: 600, font: 'inherit', opacity: 0.75 }}>+ add</button>
+                      : <span style={{ color: 'var(--muted)' }}>-</span>}</td>
                   <td style={td}>{seg
                     ? (seg.out
                         ? <InlineTime seg={seg} k="out" showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} />
@@ -715,6 +711,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
                             : <button onClick={() => !fin && setEditDay({ date: fd.date, seg })} title={fin ? 'Locked' : 'Add the missing clock-out'} style={{ background: 'none', border: 'none', padding: 0, cursor: fin ? 'default' : 'pointer', color: '#b91c1c', fontWeight: 700, font: 'inherit' }}>Missing</button>)
                     : <span style={{ color: 'var(--muted)' }}>-</span>}</td>
                   <td style={{ ...td, textAlign: 'right' }}>{seg && si === 0 ? hhmm(d.workedMin) : (seg ? '' : <span style={{ color: 'var(--muted)' }}>-</span>)}</td>
+                  <td style={{ ...td, textAlign: 'right', color: 'var(--muted)' }}>{si === 0 ? (d?.breakMin ? hhmm(d.breakMin) : '-') : ''}</td>
                   <td style={{ ...td, textAlign: 'right' }}>{si === 0 ? effect(fd) : ''}</td>
                 </tr>
               ));

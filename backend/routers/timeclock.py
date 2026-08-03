@@ -2382,7 +2382,7 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
     worked adds the flat weekend overtime. Future weekdays in the current month
     don't deduct until they've elapsed. No work-week / no hourly OT here."""
     m_start, m_end = _month_bounds(anchor)
-    card = _compute_timecard(db, em, m_start, m_end)   # grid + worked minutes + segments
+    card = _compute_timecard(db, em, m_start, m_end, round_min=0)   # grid + worked minutes + segments; no rounding for salary
     rr = db.query(PayrollRate).filter(PayrollRate.employee_email == em).first()
     salary = float(getattr(rr, "monthly_salary", 0) or 0) if rr else 0.0
     weekend_ot = float(getattr(rr, "weekend_ot_amount", 0) or 0) if rr else 0.0
@@ -2434,6 +2434,7 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
             status = "absent"; deduct = daily; missed_full += 1
         deduction += deduct
         fixed_days.append({"date": ds, "workedMin": wm, "isWeekend": is_weekend,
+                           "future": ds > today,   # can't add a punch for a day that hasn't happened
                            "status": status, "deduct": round(deduct, 2), "bonus": round(bonus, 2)})
 
     weekend_bonus = round(weekend_worked * weekend_ot, 2)
@@ -2596,7 +2597,7 @@ def team_exceptions(start: str = "", end: str = "",
     return sorted(out, key=lambda x: (-(x["missing"] + x["exceptions"]), x["name"]))
 
 
-def _compute_timecard(db: Session, em: str, start: str, end: str) -> dict:
+def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Optional[int] = None) -> dict:
     """Per-day in/out segments, CA/federal overtime split, and wage totals off
     the HR-set hourly rate over [start, end]. Punch times are rounded per the
     SwipeClock-parity rule (_rounding_cfg - nearest 5 min by default) before any
@@ -2616,7 +2617,10 @@ def _compute_timecard(db: Session, em: str, start: str, end: str) -> dict:
     # punch strings are still emitted per segment so the UI can offer a
     # "show unrounded times" view, mirroring SwipeClock exactly.
     _rnd = _rounding_cfg(db)
-    _rmin = _rnd["nearestMin"] if _rnd["enabled"] else 0
+    # round_min override: fixed-salary employees pass 0 (no rounding) since their pay
+    # is day-based, not per-minute - nearest-5 rounding just makes real punch times
+    # look wrong (e.g. 9:46 -> 9:45). Hourly keeps SwipeClock rounding (round_min=None).
+    _rmin = round_min if round_min is not None else (_rnd["nearestMin"] if _rnd["enabled"] else 0)
     rate_row = db.query(PayrollRate).filter(PayrollRate.employee_email == em).first()
     rate = float(rate_row.hourly_rate) if rate_row else 0.0
     rule = (getattr(rate_row, "overtime_rule", None) or "ca") if rate_row else "ca"
