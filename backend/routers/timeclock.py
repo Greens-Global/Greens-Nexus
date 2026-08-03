@@ -2377,6 +2377,41 @@ def _employee_today(db: Session, email: str) -> str:
     return (datetime.now(timezone.utc) - timedelta(minutes=off)).strftime("%Y-%m-%d")
 
 
+def _employee_now(db: Session, email: str) -> datetime:
+    """The employee's LOCAL wall-clock time (naive), for comparing against a shift
+    start time. Same offset source as _employee_today."""
+    p = (db.query(TimePunch).filter(TimePunch.employee_email == email)
+         .order_by(TimePunch.at.desc()).first())
+    off = (p.tz_offset_min or 0) if p else 0
+    return datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=off)
+
+
+def _shift_start_for(db: Session, email: str, dd: date):
+    """The scheduled shift start (HH:MM) + grace minutes for this employee on this
+    date, or None if they have no shift that day. Prefers a ScheduledShift placed on
+    the exact date; else the employee's assigned Shift preset when the weekday is one
+    of its working days. Used ONLY to drive the live 'Late' status for salaried staff
+    (it never affects pay)."""
+    sched = (db.query(ScheduledShift)
+             .filter(ScheduledShift.employee_email == email,
+                     ScheduledShift.work_date == dd.isoformat()).first())
+    if sched:
+        grace = 10
+        if sched.shift_id:
+            preset = db.query(Shift).filter(Shift.id == sched.shift_id).first()
+            if preset:
+                grace = preset.grace_min or 0
+        return (sched.start_hhmm or "09:00", grace)
+    assign = db.query(ShiftAssignment).filter(ShiftAssignment.employee_email == email).first()
+    if assign and assign.shift_id:
+        preset = db.query(Shift).filter(Shift.id == assign.shift_id).first()
+        if preset:
+            days = {int(x) for x in (preset.days or "").split(",") if x.strip().isdigit()}
+            if dd.isoweekday() in days:   # Mon=1 .. Sun=7
+                return (preset.start_hhmm or "09:00", preset.grace_min or 0)
+    return None
+
+
 # ── Bi-weekly pay period (California: Sunday→Saturday × 2 = 14 days) ───────────
 # Periods step 14 days from a fixed Sunday anchor, aligned to the company's REAL
 # payroll calendar in SwipeClock (site 47239: period 7/26/26–8/8/26, verified
@@ -2458,6 +2493,20 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
     # An open in-punch (no clock-out yet) means the person is mid-shift.
     open_by_day = {d["date"]: any(not s.get("out") for s in d.get("segments", []))
                    for d in card.get("days", [])}
+    # Live "Late" for the CURRENT day only (salaried): the employee's shift start +
+    # grace has passed in their LOCAL time and they've not clocked in yet. Flags a
+    # no-show-so-far - NO deduction, since the day isn't over. Only when a shift start
+    # is known; otherwise today stays "Upcoming" until they punch in.
+    late_today = False
+    _sh = _shift_start_for(db, em, datetime.strptime(today, "%Y-%m-%d").date())
+    if _sh:
+        try:
+            _hh, _mm = (int(x) for x in _sh[0].split(":")[:2])
+            _now = _employee_now(db, em)
+            late_today = (_now.hour * 60 + _now.minute) >= (_hh * 60 + _mm + int(_sh[1] or 0))
+        except (ValueError, TypeError):
+            late_today = False
+
     missed_full = missed_half = weekend_worked = 0
     deduction = 0.0
     fixed_days = []
@@ -2480,10 +2529,11 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
         elif ds > today:
             status = "upcoming"             # future weekday, nothing logged yet
         elif ds == today:
-            # Today, in progress: reflect activity but never deduct - the day isn't over
-            # and they may clock back in. A full day is already "present" above; anything
-            # less (even 0) stays open. Only once the day has elapsed do half/absent bite.
-            status = "working" if wm > 0 else "upcoming"
+            # Today, in progress: never deduct - the day isn't over. With activity ->
+            # Working. Otherwise, if their shift start + grace has passed with no punch
+            # yet, a live "Late"; before the shift starts, "Upcoming". Half/absent only
+            # bite once the day has fully elapsed.
+            status = "working" if wm > 0 else ("late" if late_today else "upcoming")
         elif wm >= HALF_MIN:
             status = "half"; deduct = daily / 2.0; missed_half += 1   # past day, 4h-5h
         else:
