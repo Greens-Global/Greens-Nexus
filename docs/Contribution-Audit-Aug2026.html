@@ -1,0 +1,291 @@
+<title>Nexus - Contribution Audit, August 2026</title>
+<style>
+  :root {
+    --paper:#FBFAF6; --surface:#FFFFFF; --ink:#17211C; --muted:#5B675F;
+    --line:#E7E9E2; --line-soft:#F0F1EC; --track:#ECEEE8;
+    --accent:#1C7A4D; --accent-ink:#155F3C; --accent-soft:#E9F2EC;
+    --bad:#A9463A; --bad-soft:#F7ECE9; --bad-line:#EAD3CD;
+    --good:#1C7A4D; --good-soft:#E9F2EC; --good-line:#CFE4D6;
+    --shadow:0 1px 2px rgba(23,33,28,.04), 0 8px 26px rgba(23,33,28,.05);
+    --serif:Georgia,"Iowan Old Style","Times New Roman",serif;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper:#0F1512; --surface:#161D19; --ink:#EAF1EC; --muted:#9AA79E;
+      --line:#26302A; --line-soft:#1D2621; --track:#212B25;
+      --accent:#49B885; --accent-ink:#7FD3AC; --accent-soft:#152420;
+      --bad:#DE8073; --bad-soft:#241A18; --bad-line:#3A2723;
+      --good:#49B885; --good-soft:#152420; --good-line:#1F3A2E;
+      --shadow:0 1px 2px rgba(0,0,0,.3), 0 10px 30px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper:#0F1512; --surface:#161D19; --ink:#EAF1EC; --muted:#9AA79E;
+    --line:#26302A; --line-soft:#1D2621; --track:#212B25;
+    --accent:#49B885; --accent-ink:#7FD3AC; --accent-soft:#152420;
+    --bad:#DE8073; --bad-soft:#241A18; --bad-line:#3A2723;
+    --good:#49B885; --good-soft:#152420; --good-line:#1F3A2E;
+    --shadow:0 1px 2px rgba(0,0,0,.3), 0 10px 30px rgba(0,0,0,.35);
+  }
+  :root[data-theme="light"] {
+    --paper:#FBFAF6; --surface:#FFFFFF; --ink:#17211C; --muted:#5B675F;
+    --line:#E7E9E2; --line-soft:#F0F1EC; --track:#ECEEE8;
+    --accent:#1C7A4D; --accent-ink:#155F3C; --accent-soft:#E9F2EC;
+    --bad:#A9463A; --bad-soft:#F7ECE9; --bad-line:#EAD3CD;
+    --good:#1C7A4D; --good-soft:#E9F2EC; --good-line:#CFE4D6;
+    --shadow:0 1px 2px rgba(23,33,28,.04), 0 8px 26px rgba(23,33,28,.05);
+  }
+
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--paper); color:var(--ink); font-family:var(--sans); line-height:1.6; -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility; }
+  .wrap { max-width:788px; margin:0 auto; padding:52px 24px 80px; }
+
+  .eyebrow { font-size:12px; font-weight:600; letter-spacing:.14em; text-transform:uppercase; color:var(--accent); margin:0 0 16px; }
+  h1 { font-family:var(--serif); font-weight:600; letter-spacing:-.01em; font-size:clamp(29px,5.4vw,44px); line-height:1.09; text-wrap:balance; margin:0 0 14px; }
+  .dek { font-size:17.5px; color:var(--muted); max-width:60ch; margin:0 0 24px; }
+  .meta { display:flex; flex-wrap:wrap; align-items:center; gap:10px 14px; padding-top:20px; border-top:1px solid var(--line); font-size:13.5px; color:var(--muted); }
+  .badge { display:inline-flex; align-items:center; gap:7px; background:var(--accent-soft); color:var(--accent-ink); border:1px solid var(--good-line); border-radius:999px; padding:5px 12px; font-weight:600; font-size:13px; }
+  .badge .dot { width:7px; height:7px; border-radius:50%; background:var(--accent); }
+  .meta .sep { color:var(--line); }
+
+  input[name="person"] { position:absolute; width:1px; height:1px; opacity:0; pointer-events:none; }
+  .tabs { display:flex; gap:4px; margin:30px 0 6px; overflow-x:auto; border-bottom:1px solid var(--line); scrollbar-width:none; }
+  .tabs::-webkit-scrollbar { display:none; }
+  .tab { flex:0 0 auto; padding:11px 16px 13px; font-size:14.5px; font-weight:600; color:var(--muted); cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-1px; white-space:nowrap; transition:color .15s; }
+  .tab:hover { color:var(--ink); }
+  .tab small { font-weight:400; opacity:.7; }
+  #p-visesh:focus-visible ~ .tabs .t-visesh,
+  #p-neil:focus-visible ~ .tabs .t-neil,
+  #p-pranshu:focus-visible ~ .tabs .t-pranshu,
+  #p-sagar:focus-visible ~ .tabs .t-sagar,
+  #p-ankush:focus-visible ~ .tabs .t-ankush { outline:2px solid var(--accent); outline-offset:2px; border-radius:6px; }
+  #p-visesh:checked ~ .tabs .t-visesh,
+  #p-neil:checked ~ .tabs .t-neil,
+  #p-pranshu:checked ~ .tabs .t-pranshu,
+  #p-sagar:checked ~ .tabs .t-sagar,
+  #p-ankush:checked ~ .tabs .t-ankush { color:var(--ink); border-bottom-color:var(--accent); }
+  .pv { display:none; }
+  #p-visesh:checked ~ .panels .pv-visesh,
+  #p-neil:checked ~ .panels .pv-neil,
+  #p-pranshu:checked ~ .panels .pv-pranshu,
+  #p-sagar:checked ~ .panels .pv-sagar,
+  #p-ankush:checked ~ .panels .pv-ankush { display:block; }
+
+  .summary { margin:26px 0 4px; font-family:var(--serif); font-size:20px; line-height:1.5; color:var(--ink); letter-spacing:-.003em; max-width:62ch; }
+  .summary b { font-weight:700; color:var(--accent-ink); }
+
+  .section-label { font-family:var(--serif); font-size:13.5px; font-weight:600; letter-spacing:.02em; color:var(--muted); text-transform:uppercase; margin:44px 0 16px; padding-bottom:9px; border-bottom:1px solid var(--line); }
+
+  .card { background:var(--surface); border:1px solid var(--line); border-radius:16px; padding:22px; margin:16px 0; box-shadow:var(--shadow); }
+  .card h3 { font-family:var(--serif); font-weight:600; font-size:20px; margin:0 0 15px; }
+  .ba { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  @media (max-width:560px){ .ba { grid-template-columns:1fr; } }
+  .panel { border-radius:12px; padding:15px 16px; font-size:14.5px; }
+  .panel .tag { display:inline-block; font-size:11px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; margin-bottom:8px; }
+  .panel.before { background:var(--bad-soft); border:1px solid var(--bad-line); }
+  .panel.before .tag { color:var(--bad); }
+  .panel.after { background:var(--good-soft); border:1px solid var(--good-line); }
+  .panel.after .tag { color:var(--good); }
+  .panel p { margin:0; color:var(--ink); }
+  .impact { display:flex; gap:10px; align-items:baseline; margin-top:15px; padding-top:14px; border-top:1px dashed var(--line); font-size:14.5px; }
+  .impact .k { font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); white-space:nowrap; padding-top:2px; }
+  .impact p { margin:0; color:var(--ink); }
+
+  .pstats { display:flex; flex-wrap:wrap; gap:10px; margin:6px 0 4px; }
+  .pstat { flex:1 1 130px; background:var(--surface); border:1px solid var(--line); border-radius:13px; padding:15px 16px; box-shadow:var(--shadow); }
+  .pstat .n { font-family:var(--serif); font-size:23px; font-weight:600; color:var(--accent-ink); font-variant-numeric:tabular-nums; line-height:1.05; }
+  .pstat .l { margin-top:5px; font-size:12.5px; color:var(--muted); }
+
+  .metrics { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-top:8px; }
+  @media (max-width:640px){ .metrics { grid-template-columns:repeat(2,1fr); } }
+  @media (max-width:400px){ .metrics { grid-template-columns:1fr; } }
+  .metric { background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:17px 18px; box-shadow:var(--shadow); }
+  .metric .num { font-family:var(--serif); font-size:27px; font-weight:600; color:var(--accent-ink); font-variant-numeric:tabular-nums; line-height:1; }
+  .metric .lbl { margin-top:8px; font-size:13.5px; color:var(--ink); font-weight:600; }
+  .metric .was { margin-top:3px; font-size:12.5px; color:var(--muted); }
+
+  .systems { display:grid; grid-template-columns:repeat(2,1fr); gap:12px; }
+  @media (max-width:560px){ .systems { grid-template-columns:1fr; } }
+  .sys { background:var(--surface); border:1px solid var(--line); border-radius:13px; padding:15px 16px; box-shadow:var(--shadow); }
+  .sys h4 { margin:0 0 4px; font-size:15px; font-weight:650; color:var(--ink); }
+  .sys p { margin:0; font-size:13.5px; color:var(--muted); line-height:1.5; }
+
+  .ranks { background:var(--surface); border:1px solid var(--line); border-radius:16px; padding:22px 22px 14px; box-shadow:var(--shadow); }
+  .rank { display:grid; grid-template-columns:120px 1fr 84px; gap:14px; align-items:center; margin-bottom:14px; }
+  @media (max-width:520px){ .rank { grid-template-columns:92px 1fr 64px; gap:10px; } }
+  .rank .who { font-size:14px; font-weight:600; }
+  .rank .who small { display:block; font-weight:400; color:var(--muted); font-size:11.5px; }
+  .rank .track { background:var(--track); border-radius:7px; height:26px; overflow:hidden; }
+  .rank .fill { height:100%; border-radius:7px; background:var(--accent); min-width:3px; }
+  .rank.other .fill { background:var(--muted); opacity:.5; }
+  .rank .val { text-align:right; font-variant-numeric:tabular-nums; font-size:14px; font-weight:600; }
+  .rank .val small { display:block; font-weight:400; color:var(--muted); font-size:11.5px; }
+  .ranks .foot { font-size:13px; color:var(--muted); margin:8px 0 4px; }
+
+  footer { margin-top:32px; font-size:12.5px; color:var(--muted); text-align:center; }
+</style>
+
+<div class="wrap">
+  <p class="eyebrow">Contribution Audit &middot; Nexus Portal</p>
+  <h1>Who built Nexus - the record from the code</h1>
+  <p class="dek">Ten weeks, from an empty placeholder site to the company's operating system. Switch tabs to see any contributor's work. Figures come straight from the project history.</p>
+  <div class="meta">
+    <span class="badge"><span class="dot"></span>Live in production</span>
+    <span class="sep">&bull;</span>
+    <span>May 26 &ndash; August 3, 2026</span>
+    <span class="sep">&bull;</span>
+    <span>Team merges excluded - own commits only</span>
+  </div>
+
+  <input type="radio" name="person" id="p-visesh" checked>
+  <input type="radio" name="person" id="p-neil">
+  <input type="radio" name="person" id="p-pranshu">
+  <input type="radio" name="person" id="p-sagar">
+  <input type="radio" name="person" id="p-ankush">
+
+  <nav class="tabs" role="tablist" aria-label="Contributor">
+    <label class="tab t-visesh" for="p-visesh">Visesh</label>
+    <label class="tab t-neil" for="p-neil">Neil</label>
+    <label class="tab t-pranshu" for="p-pranshu">Pranshu</label>
+    <label class="tab t-sagar" for="p-sagar">Sagar</label>
+    <label class="tab t-ankush" for="p-ankush">Ankush</label>
+  </nav>
+
+  <div class="panels">
+
+    <!-- ============ VISESH ============ -->
+    <section class="pv pv-visesh">
+      <p class="summary">On May 26, Nexus was a <b>blank placeholder website</b>. Ten weeks later it runs the company - <b>42 back-end services, 32 screens, 150 database tables</b> across inventory, people, payroll, documents, security and more. Visesh authored <b>about 88% of the hand-written changes</b> in that history - the modules, plus the caching, performance, security and infrastructure work underneath them.</p>
+
+      <p class="section-label">Where Nexus started &middot; where it is now</p>
+      <div class="card">
+        <h3>Nexus itself</h3>
+        <div class="ba">
+          <div class="panel before"><span class="tag">Day 1 &middot; May 26</span><p>A single static web page on a free host. No login, no data, no features - a placeholder for a future product.</p></div>
+          <div class="panel after"><span class="tag">Today &middot; Aug 3</span><p>A full internal operating system with Microsoft sign-in, live servers and database, automatic deployments, and 15+ departments' worth of tools staff use daily.</p></div>
+        </div>
+        <div class="impact"><span class="k">In short</span><p>Nexus went from a placeholder page to the platform the company runs on - in ten weeks.</p></div>
+      </div>
+
+      <p class="section-label">The scale of the build</p>
+      <div class="metrics">
+        <div class="metric"><div class="num">914</div><div class="lbl">Changes authored</div><div class="was">~88% of all hand-written work</div></div>
+        <div class="metric"><div class="num">150</div><div class="lbl">Database tables</div><div class="was">From zero on day one</div></div>
+        <div class="metric"><div class="num">42 + 32</div><div class="lbl">Services &amp; screens</div><div class="was">The full working product</div></div>
+        <div class="metric"><div class="num">53</div><div class="lbl">Active build days</div><div class="was">Across ~10 weeks</div></div>
+        <div class="metric"><div class="num">~295k</div><div class="lbl">Lines of code added</div><div class="was">Across 900+ files</div></div>
+        <div class="metric"><div class="num">0 &rarr; 1</div><div class="lbl">Placeholder to platform</div><div class="was">Built, shipped, in use</div></div>
+      </div>
+
+      <p class="section-label">Modules built</p>
+      <div class="systems">
+        <div class="sys"><h4>Inventory &amp; equipment</h4><p>Who has what, checkouts and returns, approvals, permanent assignments, warranties.</p></div>
+        <div class="sys"><h4>People &amp; HR</h4><p>Staff profiles, org chart, hiring and interviews, departments, companies, leave.</p></div>
+        <div class="sys"><h4>Time clock &amp; payroll</h4><p>Clock in/out with location, timesheets, overtime, hourly and fixed monthly-salary pay runs, and the SwipeClock-parity payroll timecard.</p></div>
+        <div class="sys"><h4>Documents &amp; e-signature</h4><p>Sign contracts in-app, sealed and verifiable documents.</p></div>
+        <div class="sys"><h4>Roles &amp; access</h4><p>Permissions across the app, plus step-up sign-in before sensitive data (payroll, HR).</p></div>
+        <div class="sys"><h4>Dashboards &amp; search</h4><p>Customizable at-a-glance dashboards and app-wide global search.</p></div>
+      </div>
+
+      <p class="section-label">Engineering &amp; platform work</p>
+      <div class="systems">
+        <div class="sys"><h4>Speed &amp; caching</h4><p>Caching throughout - TanStack Query, dashboard and reference-data caches, and instant-from-cache screen loads - so pages load fast and the servers do less work.</p></div>
+        <div class="sys"><h4>Reliability at the root</h4><p>Fixed underlying causes of random errors and slowdowns: database connection over-commitment (random 500s), the periodic freeze, list lag at scale, and the blank-screen problem.</p></div>
+        <div class="sys"><h4>Security hardening</h4><p>Database row-level security across every table, encrypted sensitive data, step-up MFA, and web-security hardening (CSP / XSS).</p></div>
+        <div class="sys"><h4>Infrastructure &amp; deployment</h4><p>Microsoft login, live servers and database, and automatic deployments with cache-safety and rollback protection.</p></div>
+        <div class="sys"><h4>Testing &amp; quality gates</h4><p>Automated tests that block a broken release before it reaches staff, plus end-to-end payroll math tests run on every change.</p></div>
+        <div class="sys"><h4>Mobile</h4><p>Every screen works on phones - card layouts, touch targets, and mobile navigation.</p></div>
+      </div>
+
+      <p class="section-label">The latest chapter &middot; this weekend's payroll build</p>
+      <div class="card">
+        <h3>A full fixed-salary payroll model - built, tested, hardened</h3>
+        <div class="ba">
+          <div class="panel before"><span class="tag">Before</span><p>The timecard handled hourly pay only. Salaried staff had no attendance-based pay run, and employees couldn't see or correct their own timecard.</p></div>
+          <div class="panel after"><span class="tag">After</span><p>A monthly-salary pay model with attendance bands (present / half day / absent / working), weekend overtime, and INR/USD currency. Employees see the same payroll timecard HR sees and can fix punches as approver-confirmed requests - with a three-signature sign-off and a finalize that locks the month.</p></div>
+        </div>
+        <div class="impact"><span class="k">Verified</span><p>Every payroll change was checked by an <b>end-to-end test suite</b> (hourly and fixed engines), then a <b>three-agent code audit</b> caught and fixed a timezone-boundary deduction bug, an approval-vs-signature conflict, and a mid-month finalize that could re-price - before any of it reached a paycheck.</p></div>
+      </div>
+      <p style="font-size:13px;color:var(--muted);margin:14px 2px 0;">Full weekend log (Fri&ndash;Mon): the fixed-salary payroll model above, plus the employee Time Clock, a ~16-second periodic-freeze fix, a never-white-screen safety net, automated tests in CI, standardized loading across the app, and the on-brand dialog system.</p>
+    </section>
+
+    <!-- ============ NEIL ============ -->
+    <section class="pv pv-neil">
+      <p class="summary">Neil built the <b>Investor Relations platform</b> and shaped the dashboard experience - focused, product-level contributions on top of the core.</p>
+      <div class="pstats">
+        <div class="pstat"><div class="n">52</div><div class="l">changes authored</div></div>
+        <div class="pstat"><div class="n">~5.2%</div><div class="l">of the build</div></div>
+        <div class="pstat"><div class="n">Jun 16 &ndash; Jul 30</div><div class="l">active</div></div>
+      </div>
+      <p class="section-label">What Neil built</p>
+      <div class="systems">
+        <div class="sys"><h4>Investor Relations</h4><p>A capital platform plus an external portal for investors - funds, commitments, capital calls and distributions.</p></div>
+        <div class="sys"><h4>Dashboard experience</h4><p>Quick actions (create a task, event or email in place), a personalized greeting, and view/menu cleanup.</p></div>
+        <div class="sys"><h4>Product polish</h4><p>Item-management flow fixes and tidying of placeholder areas across the app.</p></div>
+      </div>
+    </section>
+
+    <!-- ============ PRANSHU ============ -->
+    <section class="pv pv-pranshu">
+      <p class="summary">Pranshu built the <b>Marketing</b> and <b>Credential Vault</b> modules, rebuilt the <b>Knowledge Base</b>, and split <b>Tickets</b> into its own module - four substantial pieces of the product.</p>
+      <div class="pstats">
+        <div class="pstat"><div class="n">31</div><div class="l">changes in this repo*</div></div>
+        <div class="pstat"><div class="n">4</div><div class="l">modules built</div></div>
+        <div class="pstat"><div class="n">May 26 &ndash; Aug 2</div><div class="l">active</div></div>
+      </div>
+      <p class="section-label">What Pranshu built</p>
+      <div class="systems">
+        <div class="sys"><h4>Marketing</h4><p>The full marketing module - campaigns, reputation and review ratings, and performance KPIs.</p></div>
+        <div class="sys"><h4>Credential Vault</h4><p>An encrypted store for the company's passwords and secrets, with per-person access controls.</p></div>
+        <div class="sys"><h4>Knowledge Base redesign</h4><p>Capture-first authoring, guided step-by-step wizards for new procedures and courses, and runnable SOPs.</p></div>
+        <div class="sys"><h4>Tickets module</h4><p>Carved Tickets out of Tasks into its own top-level area.</p></div>
+      </div>
+      <p style="font-size:13px;color:var(--muted);margin:14px 2px 0;">*Marketing and Credential Vault were built as standalone prototypes and integrated into Nexus by Visesh, so the commit count in this repository understates Pranshu's origin work.</p>
+    </section>
+
+    <!-- ============ SAGAR ============ -->
+    <section class="pv pv-sagar">
+      <p class="summary">Sagar <b>overhauled the task system and its two-way Asana sync</b> - making the task list fast at scale and keeping Nexus and Asana in step.</p>
+      <div class="pstats">
+        <div class="pstat"><div class="n">27</div><div class="l">changes authored</div></div>
+        <div class="pstat"><div class="n">~2.7%</div><div class="l">of the build</div></div>
+        <div class="pstat"><div class="n">Jul 15 &ndash; Jul 31</div><div class="l">active</div></div>
+      </div>
+      <p class="section-label">What Sagar built</p>
+      <div class="systems">
+        <div class="sys"><h4>Two-way Asana sync</h4><p>Fields, people and comments sync both directions, attributed to their real author, per project.</p></div>
+        <div class="sys"><h4>Task list at scale</h4><p>Fixed slowdowns on big lists and switched to fetching only what changed instead of everything.</p></div>
+        <div class="sys"><h4>Task notifications</h4><p>Reliability fixes for @mentions and email retries.</p></div>
+      </div>
+    </section>
+
+    <!-- ============ ANKUSH ============ -->
+    <section class="pv pv-ankush">
+      <p class="summary">Ankush built the <b>in-app PDF editor</b> and the <b>Asset Management</b> module - two self-contained tools added onto the platform.</p>
+      <div class="pstats">
+        <div class="pstat"><div class="n">10</div><div class="l">changes authored</div></div>
+        <div class="pstat"><div class="n">~1%</div><div class="l">of the build</div></div>
+        <div class="pstat"><div class="n">Jun 11 &ndash; Jul 29</div><div class="l">active</div></div>
+      </div>
+      <p class="section-label">What Ankush built</p>
+      <div class="systems">
+        <div class="sys"><h4>In-app PDF editor</h4><p>Edit, search/OCR and export documents inside Nexus, with security hardening and Word export.</p></div>
+        <div class="sys"><h4>Asset Management</h4><p>The property portfolio module - property data, images, and a landing redesign.</p></div>
+      </div>
+    </section>
+
+  </div>
+
+  <p class="section-label">Everyone, side by side</p>
+  <div class="ranks">
+    <div class="rank"><div class="who">Visesh</div><div class="track"><div class="fill" style="width:100%"></div></div><div class="val">914<small>~88%</small></div></div>
+    <div class="rank other"><div class="who">Neil</div><div class="track"><div class="fill" style="width:5.7%"></div></div><div class="val">52<small>5.2%</small></div></div>
+    <div class="rank other"><div class="who">Pranshu</div><div class="track"><div class="fill" style="width:3.4%"></div></div><div class="val">31<small>3.1%</small></div></div>
+    <div class="rank other"><div class="who">Sagar</div><div class="track"><div class="fill" style="width:3%"></div></div><div class="val">27<small>2.7%</small></div></div>
+    <div class="rank other"><div class="who">Ankush</div><div class="track"><div class="fill" style="width:1.1%"></div></div><div class="val">10<small>1%</small></div></div>
+    <p class="foot">Counts are commits made in this repository since day one (team merges excluded). Note: a couple of modules (Marketing, Credential Vault) began as standalone prototypes a teammate built and were integrated here, so this repo's counts don't capture every contributor's origin work.</p>
+  </div>
+
+  <footer>Greens Nexus &middot; Contribution audit &middot; May 26 &ndash; August 3, 2026 &middot; Figures taken from the project's code history</footer>
+</div>

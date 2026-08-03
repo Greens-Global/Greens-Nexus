@@ -1,0 +1,181 @@
+<title>Nexus - Weekend Work Log, Aug 2026</title>
+<style>
+  :root{
+    --bg:#f4f2ee; --panel:#ffffff; --ink:#1c2230; --muted:#5b6474; --faint:#8a92a1;
+    --line:#e6e2da; --line2:#efece6; --accent:#2f5bd0; --accent-soft:#eaf0ff;
+    --green:#1f8a54; --amber:#b45309; --chip:#eef1f6;
+    --shadow:0 1px 2px rgba(24,32,48,.05), 0 8px 24px rgba(24,32,48,.06);
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#12151c; --panel:#1a1f29; --ink:#e9edf4; --muted:#9aa4b4; --faint:#6b7484;
+      --line:#2a3140; --line2:#232a36; --accent:#7fa0ff; --accent-soft:#1c2740;
+      --green:#4bbd82; --amber:#d9922f; --chip:#232a36;
+      --shadow:0 1px 2px rgba(0,0,0,.3), 0 10px 30px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="light"]{
+    --bg:#f4f2ee; --panel:#ffffff; --ink:#1c2230; --muted:#5b6474; --faint:#8a92a1;
+    --line:#e6e2da; --line2:#efece6; --accent:#2f5bd0; --accent-soft:#eaf0ff; --green:#1f8a54; --amber:#b45309; --chip:#eef1f6;
+    --shadow:0 1px 2px rgba(24,32,48,.05), 0 8px 24px rgba(24,32,48,.06);
+  }
+  :root[data-theme="dark"]{
+    --bg:#12151c; --panel:#1a1f29; --ink:#e9edf4; --muted:#9aa4b4; --faint:#6b7484;
+    --line:#2a3140; --line2:#232a36; --accent:#7fa0ff; --accent-soft:#1c2740; --green:#4bbd82; --amber:#d9922f; --chip:#232a36;
+    --shadow:0 1px 2px rgba(0,0,0,.3), 0 10px 30px rgba(0,0,0,.35);
+  }
+  *{box-sizing:border-box}
+  body{margin:0}
+  .wrap{
+    font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+    background:var(--bg); color:var(--ink); line-height:1.55;
+    -webkit-font-smoothing:antialiased; padding:48px 20px 80px;
+  }
+  .page{max-width:840px; margin:0 auto}
+  .eyebrow{font-size:12px; font-weight:700; letter-spacing:.14em; text-transform:uppercase; color:var(--accent)}
+  h1{font-size:clamp(28px,4.5vw,40px); line-height:1.12; letter-spacing:-.02em; margin:10px 0 6px; text-wrap:balance}
+  .sub{color:var(--muted); font-size:15.5px; margin:0 0 26px}
+  .stats{display:flex; flex-wrap:wrap; gap:10px; margin:0 0 34px}
+  .stat{background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:12px 16px; box-shadow:var(--shadow); flex:1 1 150px}
+  .stat b{display:block; font-size:22px; font-weight:800; letter-spacing:-.01em; font-variant-numeric:tabular-nums}
+  .stat span{font-size:12px; color:var(--muted); font-weight:600}
+  .day{background:var(--panel); border:1px solid var(--line); border-radius:16px; box-shadow:var(--shadow); padding:22px 24px; margin:0 0 18px}
+  .dayhead{display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; margin-bottom:4px}
+  .date{font-size:12.5px; font-weight:800; letter-spacing:.04em; text-transform:uppercase; color:var(--accent);
+    background:var(--accent-soft); padding:4px 10px; border-radius:999px; white-space:nowrap}
+  .dayhead h2{font-size:19px; letter-spacing:-.01em; margin:0; font-weight:750}
+  .daynote{color:var(--muted); font-size:13.5px; margin:2px 0 16px}
+  .group{margin:14px 0 0; padding-top:14px; border-top:1px solid var(--line2)}
+  .group:first-of-type{border-top:none; padding-top:6px}
+  .gtitle{font-size:12px; font-weight:800; letter-spacing:.06em; text-transform:uppercase; color:var(--faint); margin:0 0 8px}
+  ul{margin:0; padding:0; list-style:none}
+  li{position:relative; padding:3px 0 3px 20px; font-size:14.5px; color:var(--ink)}
+  li::before{content:""; position:absolute; left:2px; top:11px; width:6px; height:6px; border-radius:50%; background:var(--accent); opacity:.85}
+  li .m{color:var(--muted)}
+  .tag{display:inline-block; font-size:10.5px; font-weight:800; letter-spacing:.03em; text-transform:uppercase;
+    padding:1px 7px; border-radius:6px; margin-left:6px; vertical-align:1px}
+  .tag.fix{background:color-mix(in srgb, var(--amber) 16%, transparent); color:var(--amber)}
+  .tag.new{background:color-mix(in srgb, var(--green) 16%, transparent); color:var(--green)}
+  .tag.merge{background:var(--chip); color:var(--muted)}
+  .foot{color:var(--faint); font-size:12.5px; margin-top:26px; text-align:center; line-height:1.7}
+  .foot b{color:var(--muted)}
+</style>
+
+<div class="wrap"><div class="page">
+  <div class="eyebrow">Greens Nexus &middot; Internal work log</div>
+  <h1>Weekend build report</h1>
+  <p class="sub">Friday, Aug 1 &ndash; Monday, Aug 4, 2026 (work dated Jul 31&ndash;Aug 3). A record of everything shipped over the weekend - major features, fixes, and small polish alike.</p>
+
+  <div class="stats">
+    <div class="stat"><b>89</b><span>commits merged to dev</span></div>
+    <div class="stat"><b>4</b><span>days worked (Fri&ndash;Mon)</span></div>
+    <div class="stat"><b>1</b><span>new payroll model shipped</span></div>
+    <div class="stat"><b>7</b><span>teammate PRs reviewed &amp; merged</span></div>
+  </div>
+
+  <!-- MONDAY -->
+  <div class="day">
+    <div class="dayhead"><span class="date">Mon &middot; Aug 3</span><h2>Fixed-salary payroll, end to end</h2></div>
+    <p class="daynote">A complete monthly-salary pay model built alongside the existing hourly one, then hardened with a multi-agent audit. Payroll math verified by an end-to-end test suite on every change.</p>
+
+    <div class="group">
+      <p class="gtitle">New feature - fixed monthly salary <span class="tag new">new</span></p>
+      <ul>
+        <li>New <b>fixed</b> pay type: paid a monthly salary, deducted per missed weekday, with weekend overtime - a calendar-month timecard (no work-week), separate from the hourly engine.</li>
+        <li>Attendance bands: a weekday is <b>Present</b> (5h+), <b>Half day</b> (4&ndash;5h), <b>Absent</b> (&lt;4h), or <b>Working</b> while clocked in.</li>
+        <li><b>Currency</b> support (INR / USD) across the timecard and wage editor.</li>
+        <li><b>Wage editor</b> moved into the employee profile (comp-gated), and <b>linked two-way</b> with the Pay &amp; Benefits record so pay never disagrees.</li>
+      </ul>
+    </div>
+    <div class="group">
+      <p class="gtitle">Employee timecard &amp; approvals</p>
+      <ul>
+        <li>Employees now see the <b>same payroll timecard HR sees</b>, for their own data; can edit or add missing punches as approver-confirmed requests - <b>no pay effect until approved</b>.</li>
+        <li>Three-signature sign-off (Employee / Manager / HR) with stale detection; <b>finalize freezes</b> the period so a later change can't re-price a paid month.</li>
+        <li>Approver notifications for every punch edit/request; reasons shown inline on the card.</li>
+        <li>Consolidated the redundant Time Sheet / Timecard tabs into one; dropped the duplicate People &gt; Timecards tab.</li>
+      </ul>
+    </div>
+    <div class="group">
+      <p class="gtitle">Audit &amp; correctness fixes <span class="tag fix">fixes</span></p>
+      <ul>
+        <li>Ran a three-agent code audit; fixed a <b>timezone boundary bug</b> that could deduct a full day's salary from a non-UTC employee at the day/month boundary.</li>
+        <li>Fixed an approval-vs-signature conflict (an employee signature was blocking manager approval) and period-mismatch on approve/finalize/sign for salaried staff.</li>
+        <li>Earlier payroll linking fixes (P1&ndash;P3): attested hours == paid hours, no retro-repricing, no silent stale sign-offs.</li>
+        <li>Data-loss and UX fixes: dead-end buttons, missing confirmations, retry banners, keyboard access, and a full native-dialog &rarr; on-brand-dialog conversion.</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- SUNDAY -->
+  <div class="day">
+    <div class="dayhead"><span class="date">Sun &middot; Aug 2</span><h2>Platform hardening + employee Time Clock</h2></div>
+    <p class="daynote">A production-stability day: killed a recurring freeze, added a safety net against white screens, put the app under test in CI, and began the employee-facing Time Clock.</p>
+
+    <div class="group">
+      <p class="gtitle">Stability &amp; performance <span class="tag fix">fixes</span></p>
+      <ul>
+        <li>Root-caused and fixed a <b>~16-second periodic freeze</b> - blocking notification scans were pinning the whole worker; moved off the event loop.</li>
+        <li><b>Never-white-screen</b> safety net: root error boundary + an auth busy-state loader so a crash can't blank the app.</li>
+        <li>Killed the cold-load 401 console noise (wait for the auth account; refresh a near-expiry token before first call).</li>
+        <li>Render-scalability sweep: capped large lists (tasks, tickets, audit log, inventory, leads) so big data sets don't hang a tab.</li>
+      </ul>
+    </div>
+    <div class="group">
+      <p class="gtitle">Quality &amp; consistency</p>
+      <ul>
+        <li>Stood up <b>automated tests in CI</b>: Vitest render-smoke tests + backend app-boot / router-import checks, gated on the pipeline.</li>
+        <li>Standardized loading states to skeletons across <b>six module batches</b> (Documents, Roles, My HR, Knowledge Base, Accounting, Dashboards, Vault, Time Clock, Tickets, People, IT).</li>
+        <li>Built the <b>Nexus dialog system</b> - an on-brand replacement for native browser alert / confirm / prompt.</li>
+        <li>Cached dashboard KPIs, fixed a CSP map-embed issue, and greened the CI lint gate.</li>
+      </ul>
+    </div>
+    <div class="group">
+      <p class="gtitle">Employee Time Clock (foundation)</p>
+      <ul>
+        <li>Employees can view their own payroll timecard and propose punch-time edits (pending approval, no pay effect until approved).</li>
+        <li>Surfaced pending edits on the card with an approve/reject flow for managers.</li>
+      </ul>
+    </div>
+    <div class="group">
+      <p class="gtitle">Teammate PRs reviewed &amp; merged <span class="tag merge">merge</span></p>
+      <ul>
+        <li>Sagar - Asana sync overhaul + per-user comment attribution + task fixes.</li>
+        <li>Pranshu - Tickets split into its own module; Knowledge Base AI-format fallback + SOP templates; reputation word cloud.</li>
+        <li>Neil - Dashboard quick actions.</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- SATURDAY -->
+  <div class="day">
+    <div class="dayhead"><span class="date">Sat &middot; Aug 1</span><h2>Knowledge Base redesign + People polish</h2></div>
+    <div class="group">
+      <ul>
+        <li>Redesigned the <b>Knowledge Base</b> around trust and capture-first authoring, with runnable SOPs and guided multi-step wizards for New SOP / New Course.</li>
+        <li>Highlighted the template sections a source document didn't cover (in red) so authors see the gaps.</li>
+        <li>People &amp; Roles polish: role cards show faces instead of a member count; People directory got a desktop master-detail layout + pagination; bundle editor gained one-click level pills, bulk actions, and inherit-from-role.</li>
+        <li><span class="tag fix">fix</span> Asset Management: stopped stale whole-blob saves from erasing the property portfolio.</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- FRIDAY -->
+  <div class="day">
+    <div class="dayhead"><span class="date">Fri &middot; Jul 31</span><h2>Asana sync, Tasks at scale, Roles filters</h2></div>
+    <div class="group">
+      <ul>
+        <li><b>Asana two-way sync overhaul</b>: multiselect/people fields sync both ways, per-project dynamic scoping, independent toggles, and comments attributed to their <b>real author</b> via per-user OAuth (dropped the "[Nexus - email]" stamp).</li>
+        <li>Task list performance at scale: fetch only what changed (not the whole workspace every 45s), fixed a list-view hang, popover positioning, comment attachments, and durations.</li>
+        <li>Split <b>Tickets</b> into its own top-level module, out of Tasks.</li>
+        <li><b>Roles &amp; Access</b>: cascading company + department filters (now universal), faces on people, department rename, scroll-into-view on selection.</li>
+        <li><span class="tag fix">fix</span> Root-caused a migration bug exhausting Postgres column slots on <code>task_projects</code>; set a real build id; hardened the asset-archive workflow; swept em dashes from user-facing copy.</li>
+      </ul>
+    </div>
+  </div>
+
+  <p class="foot">
+    <b>Verification.</b> Payroll changes were checked on every commit by an end-to-end test suite (both the hourly and fixed-salary engines), plus a three-agent code audit before sign-off.<br>
+    All work merged to the <b>dev</b> environment and deployed continuously. Generated from the commit history, Jul 31&ndash;Aug 3, 2026.
+  </p>
+</div></div>
