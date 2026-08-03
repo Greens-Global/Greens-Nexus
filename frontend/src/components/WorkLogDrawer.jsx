@@ -5,9 +5,10 @@ import { api } from '../api';
 import { SkeletonBlocks } from './AsyncState';
 
 // ── Work Log (BOD/EOD) - a day's planned/completed/pending, read from the
-// Time Clock's Beginning/End-of-day composer. Lives inside the timesheet now
-// (one icon per day, opens this drawer) rather than as its own page - see
-// PayrollTimecard's "Work Log" column.
+// Time Clock's Beginning/End-of-day composer. Two surfaces share this same
+// content renderer: the timesheet's per-day icon opens it in a drawer
+// (WorkLogDrawer, below); the People profile's Work Logs tab expands it
+// inline under the clicked day (see WorkLogContent + HR.jsx's WorkLogsSection).
 
 // The composer's task list is free text (one item per line, optionally numbered
 // and/or prefixed "Pending: "), not a structured field - split it into rows
@@ -26,7 +27,7 @@ function parseTaskLines(tasks) {
 // kind: 'bod' items are a plan, not yet performed - they only ever show as
 // open (never a green check, even if the free text happens to say "done").
 // Only 'eod' items can be marked complete or pending.
-function TaskChecklist({ tasks, kind }) {
+export function TaskChecklist({ tasks, kind }) {
   const items = parseTaskLines(tasks);
   if (items.length === 0) return null;
   return (
@@ -54,9 +55,10 @@ function TaskChecklist({ tasks, kind }) {
 
 // TimePunch.at is a naive UTC ISO string (no trailing Z) - append it before
 // handing to Date so the browser doesn't misread it as already-local.
-const punchTime = (iso) => iso ? new Date(iso + 'Z').toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+export const punchTime = (iso) => iso ? new Date(iso + 'Z').toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
 
-// Small icon button a timesheet row uses to open the drawer for its day.
+// Small icon button a timesheet row (or People tab day row) uses to open/expand
+// the Work Log for its day.
 export function WorkLogButton({ onClick, title = 'View work log' }) {
   return (
     <button onClick={onClick} title={title}
@@ -66,8 +68,39 @@ export function WorkLogButton({ onClick, title = 'View work log' }) {
   );
 }
 
+// The shared body: BEGINNING OF DAY / END OF DAY blocks with punch time,
+// message, and task checklist. `data` is the GET /timeclock/bod/day payload
+// (or null while loading, handled by the caller).
+export function WorkLogContent({ data, err }) {
+  if (err) return <div style={{ fontSize: 12.5, color: 'hsl(var(--color-red))' }}>{err}</div>;
+  if (data === null) return <SkeletonBlocks count={2} height={90} />;
+  if (!data.bod && !data.eod) return <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0' }}>No work log posted for this day.</div>;
+  return (
+    <div style={{ display: 'grid', gap: 14 }}>
+      {[['Beginning of day', data.bod, 'bod', 'Punched in', data.punchInAt],
+        ['End of day', data.eod, 'eod', 'Punched out', data.punchOutAt]].map(([label, slot, kind, punchLabel, punchAt]) => (
+        <div key={label} style={{ background: 'var(--mist)', borderRadius: 10, padding: '12px 14px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+            <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em', flex: 1 }}>{label}</span>
+            {punchAt && (
+              <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--wk-brand, var(--ink))' }}>{punchLabel} {punchTime(punchAt)}</span>
+            )}
+          </div>
+          {slot ? (<>
+            <div style={{ fontSize: 13, color: 'var(--ink)', whiteSpace: 'pre-wrap' }}>{slot.message || <span style={{ color: 'var(--muted)' }}>(no message)</span>}</div>
+            <TaskChecklist tasks={slot.tasks} kind={kind} />
+          </>) : (
+            <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>No {label.toLowerCase()} post.</span>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // email/date identify the day; onClose closes the drawer. Fetches on mount -
-// no caching, this is opened per-click and closed when done.
+// no caching, this is opened per-click and closed when done. Used by the
+// timesheet's per-day icon (PayrollTimecard).
 export default function WorkLogDrawer({ email, date, name = '', onClose }) {
   const [data, setData] = useState(null);
   const [err, setErr] = useState('');
@@ -103,33 +136,7 @@ export default function WorkLogDrawer({ email, date, name = '', onClose }) {
         </div>
 
         <div style={{ flex: 1, overflowY: 'auto', padding: '18px 20px' }}>
-          {err ? (
-            <div style={{ fontSize: 12.5, color: 'hsl(var(--color-red))' }}>{err}</div>
-          ) : data === null ? (
-            <SkeletonBlocks count={2} height={90} />
-          ) : !data.bod && !data.eod ? (
-            <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0' }}>No work log posted for this day.</div>
-          ) : (
-            <div style={{ display: 'grid', gap: 14 }}>
-              {[['Beginning of day', data.bod, 'bod', 'Punched in', data.punchInAt],
-                ['End of day', data.eod, 'eod', 'Punched out', data.punchOutAt]].map(([label, slot, kind, punchLabel, punchAt]) => (
-                <div key={label} style={{ background: 'var(--mist)', borderRadius: 10, padding: '12px 14px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                    <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em', flex: 1 }}>{label}</span>
-                    {punchAt && (
-                      <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--wk-brand, var(--ink))' }}>{punchLabel} {punchTime(punchAt)}</span>
-                    )}
-                  </div>
-                  {slot ? (<>
-                    <div style={{ fontSize: 13, color: 'var(--ink)', whiteSpace: 'pre-wrap' }}>{slot.message || <span style={{ color: 'var(--muted)' }}>(no message)</span>}</div>
-                    <TaskChecklist tasks={slot.tasks} kind={kind} />
-                  </>) : (
-                    <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>No {label.toLowerCase()} post.</span>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
+          <WorkLogContent data={data} err={err} />
         </div>
       </aside>
     </div>,

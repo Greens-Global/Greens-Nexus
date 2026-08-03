@@ -23,7 +23,7 @@ import { capabilityText } from '../lib/moduleCapabilities';
 import PersonHover from '../components/PersonHoverCard';
 import { takePendingPerson } from '../lib/personNav';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
-import WorkLogDrawer, { WorkLogButton } from '../components/WorkLogDrawer';
+import { WorkLogContent } from '../components/WorkLogDrawer';
 
 // ── HR module - Phase 1: employee master + People directory ──────────────────
 // Hiring pipeline, org chart and leave land in later phases (tabs are stubs).
@@ -542,13 +542,17 @@ function monthLabel(m) {
 // row, never updates one), so nothing is ever overwritten and history for any
 // past month stays available forever. Nothing but existence flags loads for
 // the month view itself (GET /hr/employees/{id}/bod/summary - no message/task
-// content); a day's actual content is fetched lazily, only when its icon is
-// clicked, by the same WorkLogDrawer + GET /timeclock/bod/day the timesheet
-// uses - one lazy fetch per day, on demand, never a bulk load up front.
+// content); a day's full content loads lazily, only when that day is expanded,
+// via the same GET /timeclock/bod/day the timesheet's drawer uses - one fetch
+// per day, on demand, cached so re-collapsing/re-expanding doesn't refetch.
+// Expands IN PLACE as a card under the clicked day (the original look here),
+// unlike the timesheet's icon which opens a side drawer - same data, same
+// lazy-fetch discipline, different presentation per surface.
 function WorkLogsSection({ employee }) {
   const [month, setMonth] = useState(currentMonthKey);
   const [days, setDays] = useState(null);
-  const [openDay, setOpenDay] = useState(null);   // date string - opens the drawer
+  const [openDate, setOpenDate] = useState(null);      // expanded day, or null
+  const [content, setContent] = useState({});          // date -> payload | 'error' (lazy cache)
   const load = useCallback((quiet = false) => {
     if (!quiet) setDays(null);
     api.getEmployeeBodSummary(employee.id, month).then(r => setDays(r.days || []))
@@ -561,6 +565,16 @@ function WorkLogsSection({ employee }) {
     if (month !== currentMonthKey()) return undefined;
     return pollWhileVisible(() => load(true), 20000);
   }, [load, month]);
+
+  function toggleDay(date) {
+    if (openDate === date) { setOpenDate(null); return; }
+    setOpenDate(date);
+    if (!(date in content)) {
+      api.timeBodDay(employee.workEmail, date)
+        .then(r => setContent(c => ({ ...c, [date]: r })))
+        .catch(() => setContent(c => ({ ...c, [date]: 'error' })));
+    }
+  }
 
   const todayStr = localIsoDate(new Date());
   const atCurrentMonth = month === currentMonthKey();
@@ -580,29 +594,36 @@ function WorkLogsSection({ employee }) {
       ) : !employee.workEmail ? (
         <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0' }}>No work email yet - work logs key off it.</div>
       ) : (
-        <div style={{ display: 'grid', gap: 3 }}>
+        <div style={{ display: 'grid', gap: 8 }}>
           {days.map(d => {
             const has = d.hasBod || d.hasEod;
             const future = d.date > todayStr;
+            const open = openDate === d.date;
+            const niceDate = new Date(d.date + 'T00:00').toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
             return (
-              <div key={d.date} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 11px', borderRadius: 8, background: has ? 'var(--mist)' : 'transparent' }}>
-                <span style={{ flex: 1, fontSize: 12.5, fontWeight: has ? 700 : 400, color: future ? 'var(--muted)' : 'var(--ink)' }}>
-                  {new Date(d.date + 'T00:00').toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}
-                </span>
-                {d.hasBod && <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--wk-brand, var(--ink))', background: 'var(--wk-brand-tint, var(--line))', padding: '1px 7px', borderRadius: 999 }}>BOD</span>}
-                {d.hasEod && <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--wk-brand, var(--ink))', background: 'var(--wk-brand-tint, var(--line))', padding: '1px 7px', borderRadius: 999 }}>EOD</span>}
-                {has ? (
-                  <WorkLogButton onClick={() => setOpenDay(d.date)} title={`View the Work Log for ${d.date}`} />
-                ) : (
-                  <span style={{ fontSize: 11, color: 'var(--muted)', width: 19, textAlign: 'center' }}>{future ? '' : '-'}</span>
+              <div key={d.date} style={{ border: '1px solid var(--line)', borderRadius: 12, overflow: 'hidden' }}>
+                <button onClick={() => has && toggleDay(d.date)} disabled={!has}
+                  style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '9px 12px', border: 'none',
+                    background: has ? 'var(--mist)' : 'transparent', cursor: has ? 'pointer' : 'default', font: 'inherit', textAlign: 'left' }}>
+                  <span style={{ flex: 1, fontSize: 12.5, fontWeight: has ? 700 : 400, color: future ? 'var(--muted)' : 'var(--ink)' }}>{niceDate}</span>
+                  {d.hasBod && <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--wk-brand, var(--ink))', background: 'var(--wk-brand-tint, var(--line))', padding: '1px 7px', borderRadius: 999 }}>BOD</span>}
+                  {d.hasEod && <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--wk-brand, var(--ink))', background: 'var(--wk-brand-tint, var(--line))', padding: '1px 7px', borderRadius: 999 }}>EOD</span>}
+                  {has ? (
+                    <FileText size={15} title={open ? 'Collapse' : `View the Work Log for ${niceDate}`} style={{ color: 'var(--wk-brand, var(--pine))', flexShrink: 0 }} />
+                  ) : (
+                    <span style={{ fontSize: 11, color: 'var(--muted)', width: 19, textAlign: 'center' }}>{future ? '' : '-'}</span>
+                  )}
+                </button>
+                {open && (
+                  <div style={{ padding: '12px 14px', borderTop: '1px solid var(--line)' }}>
+                    <WorkLogContent data={content[d.date] === 'error' ? undefined : (content[d.date] ?? null)}
+                      err={content[d.date] === 'error' ? 'Could not load the work log.' : ''} />
+                  </div>
                 )}
               </div>
             );
           })}
         </div>
-      )}
-      {openDay && (
-        <WorkLogDrawer email={employee.workEmail} date={openDay} name={fullName(employee)} onClose={() => setOpenDay(null)} />
       )}
     </div>
   );
