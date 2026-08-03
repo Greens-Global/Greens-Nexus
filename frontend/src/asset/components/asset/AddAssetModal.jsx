@@ -143,8 +143,14 @@ export function AddAssetModal({ row, properties, onSave, onDelete, onClose }) {
     schema.forEach((f) => { if (!f.sec) payload[f.k] = values[f.k] ?? ''; });
     if (isNonPropertyAsset) {
       payload.assetType = kind === 'vehicle' ? 'Vehicle' : 'Heavy Equipment';
-      payload.snapshot = buildAssetSnapshot(schema, values);
     }
+    // Build the grouped snapshot for EVERY asset class, properties included. The
+    // detail view reads any KEYLESS field only from asset.snapshot, so a property
+    // created without one showed its keyless fields (Legal Description, Notes,
+    // Construction Type, Placed-in-service/CO dates, etc.) blank even though the
+    // flat values saved fine - it looked like the wizard "didn't persist." This
+    // mirrors what the edit-details flow rebuilds every save (App.jsx saveDetail).
+    payload.snapshot = buildAssetSnapshot(schema, values);
 
     // Link info is only meaningful when creating a brand-new PROPERTY (existing assets keep
     // their current parent/child relationship, managed instead through ParcelManager).

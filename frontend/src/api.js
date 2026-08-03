@@ -1,5 +1,32 @@
 import { msalInstance, msalReady } from './msalInstance';
-import { apiTokenRequest } from './authConfig';
+import { apiTokenRequest, loginRequest } from './authConfig';
+
+// Recover a dead session app-wide. When even a FORCE-refreshed token still 401s,
+// MSAL's silent hidden-iframe renewal is failing - modern browsers block the
+// third-party cookies it needs - so the cached token is dead and can't be renewed
+// silently. A top-level interactive login is first-party and isn't subject to that
+// block. Centralised here so ANY request's 401 can trigger it, not just the role
+// fetch. Guarded HARD so it can never redirect-loop: at most once per 60s, and if
+// it recurs 3x in 5 min we STOP and fire `nexus:auth-stuck` for the UI to show a
+// manual "sign in again" screen. (Step-up is a 403, so it never lands here.)
+let _reauthing = false;
+function _maybeReauth() {
+  if (_reauthing) return;
+  let acct;
+  try { acct = msalInstance.getActiveAccount() || msalInstance.getAllAccounts()[0]; } catch { return; }
+  if (!acct) return;   // genuinely signed out - the login gate handles that
+  const now = Date.now();
+  try {
+    if (now - Number(sessionStorage.getItem('nexus:reauth-at') || 0) < 60_000) return;
+    const win = JSON.parse(sessionStorage.getItem('nexus:reauth-win') || '[]').filter(t => now - t < 5 * 60_000);
+    if (win.length >= 2) { window.dispatchEvent(new CustomEvent('nexus:auth-stuck')); return; }
+    win.push(now);
+    sessionStorage.setItem('nexus:reauth-win', JSON.stringify(win));
+    sessionStorage.setItem('nexus:reauth-at', String(now));
+  } catch { /* storage blocked - fall through and try once */ }
+  _reauthing = true;
+  msalInstance.loginRedirect(loginRequest).catch(() => { _reauthing = false; });
+}
 
 const BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
 
@@ -199,6 +226,11 @@ async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
   if (res.status === 401 && !tokenRefreshed) {
     return req(path, options, attempt, true);
   }
+  // Still 401 after a forced refresh: the token is dead and silent renewal can't
+  // fix it - recover with a guarded top-level interactive login.
+  if (res.status === 401 && tokenRefreshed) {
+    _maybeReauth();
+  }
   // Exponential backoff for 5xx - 1s, 2s, 4s - total ~7s before giving up.
   // Covers typical Azure cold-start without burning too many attempts on real errors.
   // Mutations are never retried - a 5xx can arrive after the write committed.
@@ -273,6 +305,9 @@ async function reqBlob(path, options = {}, attempt = 1, tokenRefreshed = false) 
   }
   if (res.status === 401 && !tokenRefreshed) {
     return reqBlob(path, options, attempt, true);
+  }
+  if (res.status === 401 && tokenRefreshed) {
+    _maybeReauth();
   }
   if (res.status >= 500 && attempt < MAX_5XX_ATTEMPTS && _isRetryable(options)) {
     await new Promise(r => setTimeout(r, Math.min(1000 * 2 ** (attempt - 1), 4000)));
@@ -486,6 +521,10 @@ export const api = {
   aiReviseKbDoc:    (data)      => req("/knowledge-base/ai-revise", { method: "POST", body: JSON.stringify(data), timeoutMs: AI_TIMEOUT_MS }),
   getKbPins:        ()          => req("/knowledge-base/pins"),
   toggleKbPin:      (id)        => req(`/knowledge-base/documents/${id}/pin`, { method: "POST" }),
+  getKbFeedback:    (id)        => req(`/knowledge-base/documents/${id}/feedback`),
+  submitKbFeedback: (id, helpful) => req(`/knowledge-base/documents/${id}/feedback`, { method: "POST", body: JSON.stringify({ helpful }) }),
+  getKbRelated:     (id)        => req(`/knowledge-base/documents/${id}/related`),
+  setKbContentText: (id, text)  => req(`/knowledge-base/documents/${id}/content-text`, { method: "PATCH", body: JSON.stringify({ text }) }),
   translateKbDoc:   (id, lang)  => req(`/knowledge-base/documents/${id}/translate`, { method: "POST", body: JSON.stringify({ lang }), timeoutMs: AI_TIMEOUT_MS }),
   uploadKbMedia:    (data)      => req('/knowledge-base/media/upload', { method: 'POST', body: JSON.stringify({ data }), timeoutMs: 60_000 }),
   signKbMedia:      (paths)     => req('/knowledge-base/media/sign', { method: 'POST', body: JSON.stringify({ paths }) }),
@@ -881,6 +920,7 @@ export const api = {
   // Field-worker location tracking (manager/HR views; device pings use X-Agent-Token from the native app, not these)
   trackLive:         ()            => req('/timeclock/track/live'),
   trackPath:         (email, date) => req(`/timeclock/track/path?email=${encodeURIComponent(email)}&date=${date}`),
+  timeLocations:     ()            => req('/timeclock/locations'),
   timeShifts:        ()          => req('/timeclock/shifts'),
   timeShiftCreate:   (data)      => req('/timeclock/shifts', { method: 'POST', body: JSON.stringify(data) }),
   timeShiftUpdate:   (id, data)  => req(`/timeclock/shifts/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),

@@ -200,9 +200,15 @@ function GeoChip({ p }) {
       title="This device gave only a rough Wi-Fi/IP location (no GPS) - too coarse to judge the geofence. Punch from a phone for a precise fix.">
       <MapPinOff size={12} /> approx. location (±{p.accuracyM >= 1000 ? `${(p.accuracyM / 1000).toFixed(1)}km` : `${p.accuracyM}m`})
     </span>);
-  // No location on the punch: show NOTHING (Neil, Jul 28 - the "no location"
-  // chip read as an error state when it is the normal desktop case). The
-  // punch is still recorded location-less server-side, unchanged.
+  // No geofence verdict, but a location WAS captured (no geofenced work site to
+  // judge against, or a coarse Wi-Fi/IP fix): still show the recorded location so
+  // it doesn't read as "nothing was captured". Only a genuinely location-less
+  // punch shows nothing (Neil, Jul 28 - an empty chip read as an error state).
+  if (p.lat && p.lng) return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 700, color: 'var(--muted)' }}
+      title="Location recorded. No geofenced work site to judge against, or the fix was too coarse (Wi-Fi/IP, no GPS - punch from a phone for a precise fix).">
+      <MapPin size={12} /> location recorded{p.accuracyM ? ` (±${p.accuracyM >= 1000 ? `${(p.accuracyM / 1000).toFixed(1)}km` : `${p.accuracyM}m`})` : ''}
+    </span>);
   return null;
 }
 

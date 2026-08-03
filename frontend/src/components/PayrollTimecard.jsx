@@ -25,6 +25,20 @@ const t12 = (iso) => iso ? new Date(iso + 'Z').toLocaleTimeString([], { hour: 'n
 const utcToInput = (iso) => { const d = new Date(iso + 'Z'); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); };
 const inputToUtc = (v) => new Date(v).toISOString().slice(0, 19);
 
+// Internal punch markers that are NOT reasons meant for the reader (e.g. the tag
+// a +added punch carries). Never surfaced on the card.
+const _INTERNAL_NOTES = new Set(['payroll edit']);
+const cleanNote = (n) => { const t = (n || '').trim(); return t && !_INTERNAL_NOTES.has(t.toLowerCase()) ? t : ''; };
+// The human reason(s) attached to a segment's punches: a pending employee edit,
+// an HR adjust note, or a punch note - minus internal markers. Empty = not edited.
+const segReasons = (s) => {
+  const out = [];
+  if (s.inEditStatus === 'pending' && s.inEditReason) out.push(`Proposed in-time: ${s.inEditReason}`);
+  if (s.outEditStatus === 'pending' && s.outEditReason) out.push(`Proposed out-time: ${s.outEditReason}`);
+  [s.inAdjustNote, s.outAdjustNote, s.note].forEach(n => { const c = cleanNote(n); if (c) out.push(c); });
+  return out;
+};
+
 function periodStartFor(date) {
   const sun = new Date(date); sun.setHours(0, 0, 0, 0);
   sun.setDate(sun.getDate() - sun.getDay());                   // Sunday of this week
@@ -81,6 +95,8 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   const { can, myEmail } = useRole();
   const isAdmin = can('administrator');
   const [workLogDay, setWorkLogDay] = useState(null);   // date string - opens the Work Log drawer for this day
+  // Location dot on a punch links to the Locations map, for viewers who can reach it.
+  const hourlyLocate = (!self || isAdmin) ? (data?.email || email || '') : '';
 
   const start = isoDate(pStart);
   const end = isoDate(pStart.getTime() + 13 * DAY);
@@ -109,22 +125,40 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   // keeps the current card (no blink, the HR sidebar stays put).
   useEffect(() => { setData(_timecardCache.get(cacheKey) ?? null); }, [cacheKey]);
 
+  // Stale-response guard. The fixed-salary snap moves pStart mid-mount (bi-weekly
+  // anchor -> current month), firing a SECOND fetch while the first is still in
+  // flight. Without this the slower (wrong-month) response could resolve last and
+  // pin the card on the wrong month - which then looks "stuck" because pStart has
+  // already moved, so the arrows compute the same month and don't refetch. Stamp
+  // each request with its period key and apply only the still-current one.
+  const reqKeyRef = useRef('');
   const load = useCallback(() => {
     if (self) {
       // Employee's own timecard - same shape as the HR card, no step-up needed for
       // one's own pay (like a payslip). /my-payroll keys off the period start.
-      api.timeMyPayroll(start).then(d => { _timecardCache.set(_tcKey(true, '', start, end), d); setStepLocked(false); setData(d); setRateInput(d.rateSet ? String(d.rate) : ''); setRuleInput(d.overtimeRule || 'ca'); })
-        .catch(e => { setData(null); toastErr?.(e?.message || 'Could not load your timecard.'); });
+      const key = _tcKey(true, '', start, end);
+      reqKeyRef.current = key;
+      api.timeMyPayroll(start).then(d => {
+        _timecardCache.set(key, d);
+        if (reqKeyRef.current !== key) return;   // period moved on before this arrived
+        setStepLocked(false); setData(d); setRateInput(d.rateSet ? String(d.rate) : ''); setRuleInput(d.overtimeRule || 'ca');
+      }).catch(e => { if (reqKeyRef.current === key) { setData(null); toastErr?.(e?.message || 'Could not load your timecard.'); } });
       return;
     }
     if (!email) return;
-    api.timePayroll(email, start, end).then(d => { _timecardCache.set(_tcKey(false, email, start, end), d); setStepLocked(false); setData(d); setRateInput(d.rateSet ? String(d.rate) : ''); setRuleInput(d.overtimeRule || 'ca'); })
-      .catch(e => {
-        // Payroll shows $ - the backend requires a fresh step-up MFA. Show the
-        // Verify gate (a gesture) rather than popping a challenge on mount.
-        if (isStepUpRequired(e)) { setStepLocked(true); return; }
-        setData(null); toastErr?.(e?.message || 'Could not load the timecard.');
-      });
+    const key = _tcKey(false, email, start, end);
+    reqKeyRef.current = key;
+    api.timePayroll(email, start, end).then(d => {
+      _timecardCache.set(key, d);
+      if (reqKeyRef.current !== key) return;
+      setStepLocked(false); setData(d); setRateInput(d.rateSet ? String(d.rate) : ''); setRuleInput(d.overtimeRule || 'ca');
+    }).catch(e => {
+      if (reqKeyRef.current !== key) return;
+      // Payroll shows $ - the backend requires a fresh step-up MFA. Show the
+      // Verify gate (a gesture) rather than popping a challenge on mount.
+      if (isStepUpRequired(e)) { setStepLocked(true); return; }
+      setData(null); toastErr?.(e?.message || 'Could not load the timecard.');
+    });
     // toastErr is only used in the catch; excluding it keeps `load` stable so a
     // parent that re-creates the callback each render (TimeClock's 1s stopwatch)
     // can't trigger an endless refetch loop that pins the spinner.
@@ -244,14 +278,8 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       segs.forEach((seg, i) => rows.push({ type: 'day', ds, seg, first: i === 0, last: i === segs.length - 1 }));
       // Same reasons/notes the fixed card shows: employee edit reasons + HR adjust
       // notes + punch notes, visible in the card (not only on the hover Info dot).
-      const notes = [];
-      segs.forEach(s => {
-        if (s.inEditStatus === 'pending' && s.inEditReason) notes.push(`Employee: “${s.inEditReason}”`);
-        if (s.outEditStatus === 'pending' && s.outEditReason) notes.push(`Employee: “${s.outEditReason}”`);
-        if (s.inAdjustNote) notes.push(s.inAdjustNote);
-        if (s.outAdjustNote) notes.push(s.outAdjustNote);
-        if (s.note) notes.push(s.note);
-      });
+      // Internal markers like "payroll edit" are filtered out (segReasons).
+      const notes = segs.flatMap(segReasons);
       if (notes.length) rows.push({ type: 'note', text: notes.join('  ·  ') });
     }
   });
@@ -471,14 +499,14 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                     {r.first === false ? '' : dow(r.ds)}
                   </td>
                   <td style={{ ...td, textAlign: 'left' }}>{r.seg
-                    ? <InlineTime seg={r.seg} k="in" showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} />
+                    ? <InlineTime seg={r.seg} k="in" showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} locateEmail={hourlyLocate} />
                     : self && !fin
                       ? <button onClick={() => setEditDay({ date: r.ds, seg: null })} title="Add a punch for this day - goes to your approver"
                           style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--wk-brand)', fontWeight: 600, font: 'inherit', opacity: 0.75 }}>+ add</button>
                       : '-'}</td>
                   <td style={{ ...td, textAlign: 'left' }}>
                     {r.seg ? (r.seg.out
-                      ? <InlineTime seg={r.seg} k="out" showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} />
+                      ? <InlineTime seg={r.seg} k="out" showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} locateEmail={hourlyLocate} />
                       : (self && fin)
                         ? <span title="Period finalized - locked" style={{ color: '#b91c1c', fontWeight: 700 }}>Missing</span>
                         : <button onClick={() => !fin && setEditDay({ date: r.ds, seg: r.seg })} title={fin ? 'Period finalized - locked' : self ? 'Add the missing clock-out - goes to your approver' : 'Add the missing clock-out'}
@@ -504,11 +532,24 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                   <td style={{ ...td, fontWeight: 700 }}>{r.seg ? fmtM(r.seg.amount) : '-'}</td>
                   <td style={{ ...td, textAlign: 'center' }}>
                     {!self && !fin && (
-                      <button onClick={() => setEditDay({ date: r.ds, seg: r.seg })}
-                        title={r.seg ? 'Edit punch' : 'Add punch'}
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'inline-flex' }}>
-                        {r.seg ? <Pencil size={13} /> : <Plus size={14} />}
-                      </button>
+                      <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center', justifyContent: 'center' }}>
+                        <button onClick={() => setEditDay({ date: r.ds, seg: r.seg })}
+                          title={r.seg ? 'Edit punch' : 'Add punch'}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'inline-flex' }}>
+                          {r.seg ? <Pencil size={13} /> : <Plus size={14} />}
+                        </button>
+                        {/* A day that already has punches still needs a way to add ANOTHER
+                            session - the edit pencil only edits the existing pair. Show a
+                            second "+" on the day's last row (Neil, Aug 3: "no option to just
+                            add a punch, only edit a punch"). */}
+                        {r.seg && r.last && (
+                          <button onClick={() => setEditDay({ date: r.ds, seg: null })}
+                            title="Add another punch for this day"
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--wk-brand)', display: 'inline-flex' }}>
+                            <Plus size={14} />
+                          </button>
+                        )}
+                      </span>
                     )}
                   </td>
                 </tr>
@@ -803,19 +844,16 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
               const breakFg = dayBreak <= 0 ? 'var(--muted)' : overBreak ? '#b91c1c' : 'hsl(var(--color-green))';
 
               // Reasons/notes visible IN the card (not just on hover), employee AND HR.
-              const notes = [];
-              segs.forEach(s => {
-                if (s.inEditStatus === 'pending' && s.inEditReason) notes.push(`Employee: “${s.inEditReason}”`);
-                if (s.outEditStatus === 'pending' && s.outEditReason) notes.push(`Employee: “${s.outEditReason}”`);
-                if (s.inAdjustNote) notes.push(s.inAdjustNote);
-                if (s.outAdjustNote) notes.push(s.outAdjustNote);
-                if (s.note) notes.push(s.note);
-              });
+              // Internal markers like "payroll edit" are filtered out (segReasons).
+              const notes = segs.flatMap(segReasons);
 
               // Editable in/out cell for a single segment (or an expanded punch row).
-              const inCell = (seg) => <InlineTime seg={seg} k="in" showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} />;
+              // The location dot links to the Locations map (only for viewers who can
+              // reach it: HR/managers on someone else's card, or an admin on their own).
+              const locateEmail = (!self || isAdmin) ? (data.email || '') : '';
+              const inCell = (seg) => <InlineTime seg={seg} k="in" showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} locateEmail={locateEmail} />;
               const outCell = (seg) => seg.out
-                ? <InlineTime seg={seg} k="out" showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} />
+                ? <InlineTime seg={seg} k="out" showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} locateEmail={locateEmail} />
                 : (self && fin) ? <span style={{ color: '#b91c1c', fontWeight: 700 }}>Missing</span>
                     : <button onClick={() => !fin && setEditDay({ date: fd.date, seg })} title={fin ? 'Locked' : 'Add the missing clock-out'} style={{ background: 'none', border: 'none', padding: 0, cursor: fin ? 'default' : 'pointer', color: '#b91c1c', fontWeight: 700, font: 'inherit' }}>Missing</button>;
               const addBtn = <button onClick={() => setEditDay({ date: fd.date, seg: null })} title={self ? 'Add a missing punch for this day - goes to your approver' : 'Add a punch for this day'} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--wk-brand)', fontWeight: 600, font: 'inherit', opacity: 0.85 }}>+ add</button>;
@@ -845,17 +883,20 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
                   <td style={td}>
                     {!segs.length
                       ? ((!fin && !fd.future) ? addBtn : <span style={{ color: 'var(--muted)' }}>-</span>)
-                      : multi
-                        ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                            {/* first clock-in - editable in place; toggle reveals the rest */}
-                            {inCell(firstSeg)}
+                      : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                          {/* first clock-in - editable in place; toggle reveals the rest */}
+                          {inCell(firstSeg)}
+                          {multi && (
                             <button onClick={() => setOpenPunches(o => ({ ...o, [fd.date]: !o[fd.date] }))} aria-expanded={punchesOpen}
                               title="Show every clock-in and clock-out for this day"
                               style={{ background: 'var(--wk-hover)', border: '1px solid var(--line)', borderRadius: 999, padding: '1px 8px', cursor: 'pointer', font: 'inherit', fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
                               {segs.length} punches {punchesOpen ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
                             </button>
-                          </span>
-                        : inCell(firstSeg)}
+                          )}
+                          {/* Add ANOTHER session to a day that already has punches - the
+                              inline in/out cells only EDIT existing ones (Neil, Aug 3). */}
+                          {!self && !fin && !fd.future && addBtn}
+                        </span>}
                   </td>
                   <td style={td}>
                     {!segs.length
@@ -875,18 +916,36 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
 
               // ── Expanded: every punch pair, editable ──
               if (multi && punchesOpen) {
-                segs.forEach((seg, si) => rows.push(
-                  <tr key={fd.date + '-p' + si} style={{ background: 'var(--wk-hover)' }}>
-                    <td style={td}></td>
-                    <td style={{ ...td, color: 'var(--muted)', fontSize: 11 }}>Punch {si + 1}</td>
-                    <td style={td}>{inCell(seg)}</td>
-                    <td style={td}>{outCell(seg)}</td>
-                    <td style={td}></td>
-                    <td style={{ ...td, textAlign: 'right', color: 'var(--muted)' }}>{hhmm(seg.workedMin)}</td>
-                    <td style={td}></td>
-                    <td style={td}></td>
-                  </tr>
-                ));
+                segs.forEach((seg, si) => {
+                  // An EDITED punch (a pending employee edit, or an HR time change)
+                  // is tinted amber, badged "edited", and shows its reason inline -
+                  // same for HR and the employee.
+                  const reasons = segReasons(seg);
+                  const edited = reasons.length > 0;
+                  const rBg = edited ? 'rgba(180,83,9,0.09)' : 'var(--wk-hover)';
+                  rows.push(
+                    <tr key={fd.date + '-p' + si} style={{ background: rBg }}>
+                      <td style={td}></td>
+                      <td style={{ ...td, color: 'var(--muted)', fontSize: 11 }}>
+                        Punch {si + 1}{edited && <span style={{ marginLeft: 6, fontSize: 9.5, fontWeight: 800, letterSpacing: '.03em', textTransform: 'uppercase', color: '#b45309', background: 'rgba(180,83,9,0.16)', padding: '1px 6px', borderRadius: 6 }}>edited</span>}
+                      </td>
+                      <td style={td}>{inCell(seg)}</td>
+                      <td style={td}>{outCell(seg)}</td>
+                      <td style={td}></td>
+                      <td style={{ ...td, textAlign: 'right', color: 'var(--muted)' }}>{hhmm(seg.workedMin)}</td>
+                      <td style={td}></td>
+                      <td style={td}></td>
+                    </tr>
+                  );
+                  if (edited) rows.push(
+                    <tr key={fd.date + '-pr' + si} style={{ background: rBg }}>
+                      <td style={td}></td><td style={td}></td>
+                      <td colSpan={6} style={{ ...td, borderTop: 'none', paddingTop: 0, color: '#b45309', fontStyle: 'italic', fontSize: 11.5, whiteSpace: 'normal' }}>
+                        <Pencil size={10} style={{ marginRight: 5, verticalAlign: 'middle' }} />{reasons.join('  ·  ')}
+                      </td>
+                    </tr>
+                  );
+                });
                 if (!fin && !fd.future) rows.push(
                   <tr key={fd.date + '-padd'} style={{ background: 'var(--wk-hover)' }}>
                     <td style={td}></td><td style={td}></td>
@@ -912,10 +971,11 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
                 </tr>
               );
 
-              // ── Notes (reasons for changes) ──
-              if (notes.length) rows.push(
+              // ── Day-level reasons: shown when the day is COLLAPSED. When expanded,
+              //    each edited punch shows its own reason inline above instead. ──
+              if (notes.length && !(multi && punchesOpen)) rows.push(
                 <tr key={fd.date + '-notes'} style={{ background: rowBg }}>
-                  <td colSpan={8} style={{ ...td, borderTop: 'none', paddingTop: 0, color: 'var(--muted)', fontStyle: 'italic', fontSize: 11.5, whiteSpace: 'normal' }}>
+                  <td colSpan={8} style={{ ...td, borderTop: 'none', paddingTop: 0, color: '#b45309', fontStyle: 'italic', fontSize: 11.5, whiteSpace: 'normal' }}>
                     <Pencil size={10} style={{ marginRight: 5, verticalAlign: 'middle' }} />{notes.join('  ·  ')}
                   </td>
                 </tr>
@@ -1048,7 +1108,7 @@ function SigLine({ label, sig, nameFor, action, pending }) {
   );
 }
 
-function InlineTime({ seg, k, showRaw, locked, onSaved, toastErr, self }) {
+function InlineTime({ seg, k, showRaw, locked, onSaved, toastErr, self, locateEmail }) {
   const [editing, setEditing] = useState(false);
   const [val, setVal] = useState('');
   const punchId = k === 'in' ? seg?.inId : seg?.outId;   // always available (for approve/reject)
@@ -1090,13 +1150,19 @@ function InlineTime({ seg, k, showRaw, locked, onSaved, toastErr, self }) {
   );
   const geo = seg.geo || '';
   const mini = { border: 'none', background: 'none', cursor: 'pointer', padding: '0 2px', fontWeight: 800, fontSize: 12, lineHeight: 1 };
+  const dotColor = geo === 'in_fence' ? 'hsl(var(--color-green))' : geo === 'out_of_fence' ? '#b91c1c' : 'var(--line-strong,var(--line))';
+  // Clicking the location dot jumps to the Locations map, focused on this person.
+  const openMap = (e) => { e.stopPropagation(); if (!locateEmail) return; sessionStorage.setItem('nexus:locateEmail', locateEmail); window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'locations' } })); };
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+      {geo && (locateEmail
+        ? <button onClick={openMap} aria-label="See on map" title="See this person's last location on the map"
+            style={{ width: 10, height: 10, borderRadius: '50%', flexShrink: 0, padding: 0, cursor: 'pointer', border: 'none', background: dotColor, boxShadow: `0 0 0 2px var(--card), 0 0 0 3px ${dotColor}` }} />
+        : <span title={geo === 'in_fence' ? 'On site' : geo === 'out_of_fence' ? 'Off site' : 'No location'}
+            style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0, background: dotColor }} />)}
       <button onClick={() => { if (!id) return; setVal(utcToInput(raw)); setEditing(true); }}
         title={id ? (self ? 'Propose a new time - goes to your approver; pay unchanged until approved' : 'Click to edit this punch time - the original stays on record') : ''}
         style={{ background: 'none', border: 'none', padding: 0, cursor: id ? 'pointer' : 'default', font: 'inherit', color: 'inherit', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-        {geo && <span title={geo === 'in_fence' ? 'On site' : geo === 'out_of_fence' ? 'Off site' : 'No location'}
-          style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0, background: geo === 'in_fence' ? 'hsl(var(--color-green))' : geo === 'out_of_fence' ? '#b91c1c' : 'var(--line-strong,var(--line))' }} />}
         <span style={{ borderBottom: id ? `1px dashed ${self ? 'var(--wk-brand)' : 'var(--line-strong,var(--line))'}` : '1px dashed var(--line-strong,var(--line))', color: self && id ? 'var(--wk-brand)' : undefined, fontWeight: self && id ? 600 : undefined }}>{t12(rounded)}</span>
         {self && id && <Pencil size={10} style={{ opacity: 0.7, flexShrink: 0, color: 'var(--wk-brand)' }} />}
         {showRaw && <span style={{ fontSize: 10.5, fontStyle: 'italic', color: 'var(--muted)' }}>{t12s(raw)}</span>}
@@ -1128,8 +1194,11 @@ function InlineTime({ seg, k, showRaw, locked, onSaved, toastErr, self }) {
 
 function PunchEditModal({ day, email, categories = [], busy, setBusy, onDone, onClose, toastOk, toastErr, self = false }) {
   const seg = day.seg;
-  const [inAt, setInAt] = useState(seg?.in ? utcToInput(seg.in) : `${day.date}T09:00`);
-  const [outAt, setOutAt] = useState(seg?.out ? utcToInput(seg.out) : `${day.date}T17:00`);
+  // Defaults: keep an existing time; when ADDING the missing half of a pair, seed it
+  // from the known half (a missing clock-out starts at the clock-in, not a random
+  // 17:00 that silently books an 8-hour shift) so the user only nudges it.
+  const [inAt, setInAt] = useState(seg?.in ? utcToInput(seg.in) : (seg?.out ? utcToInput(seg.out) : `${day.date}T09:00`));
+  const [outAt, setOutAt] = useState(seg?.out ? utcToInput(seg.out) : (seg?.in ? utcToInput(seg.in) : `${day.date}T17:00`));
   const { data: sites = [] } = useWorkSites();
   const [siteId, setSiteId] = useState(seg?.workSiteId || '');
   const [cat, setCat] = useState(seg?.category || '');
@@ -1144,6 +1213,13 @@ function PunchEditModal({ day, email, categories = [], busy, setBusy, onDone, on
   const needIn = !seg?.inId, needOut = !seg?.outId;
 
   async function save() {
+    // A clock-out must be after the clock-in it pairs with. With the out now
+    // defaulting to the in-time, leaving it unchanged trips this - forcing the real
+    // time in - and it also catches a time accidentally typed into the reason field.
+    const inRef = (seg?.inId && !needIn) ? utcToInput(seg.in) : inAt;
+    if (needOut && inRef && new Date(outAt) <= new Date(inRef)) {
+      toastErr?.('Set the clock-out time - it has to be after the clock-in.'); return;
+    }
     // Employees don't write the timecard directly - a missing punch becomes an
     // approver-confirmed REQUEST. Nothing moves on pay until it's approved.
     if (self) {
@@ -1203,11 +1279,11 @@ function PunchEditModal({ day, email, categories = [], busy, setBusy, onDone, on
         <div style={{ display: 'grid', gap: 12 }}>
           {/* In self mode only the MISSING punch is editable - an existing time stays
               shown (disabled) for context but can't be silently overwritten here. */}
-          {(!self || needIn) && <label style={{ fontSize: 11, color: 'var(--muted)' }}>Clock in<input type="datetime-local" className="form-input" value={inAt} disabled={self && !needIn} onChange={e => setInAt(e.target.value)} style={{ width: '100%', fontSize: 13, opacity: self && !needIn ? 0.6 : 1 }} /></label>}
-          {(!self || needOut) && <label style={{ fontSize: 11, color: 'var(--muted)' }}>Clock out<input type="datetime-local" className="form-input" value={outAt} disabled={self && !needOut} onChange={e => setOutAt(e.target.value)} style={{ width: '100%', fontSize: 13, opacity: self && !needOut ? 0.6 : 1 }} /></label>}
+          {(!self || needIn) && <label style={{ fontSize: 11, color: 'var(--muted)' }}>Clock in time<input autoFocus={self && needIn} type="datetime-local" className="form-input" value={inAt} disabled={self && !needIn} onChange={e => setInAt(e.target.value)} style={{ width: '100%', fontSize: 13, opacity: self && !needIn ? 0.6 : 1 }} /></label>}
+          {(!self || needOut) && <label style={{ fontSize: 11, color: 'var(--muted)' }}>Clock out time<input autoFocus={self && needOut && !needIn} type="datetime-local" className="form-input" value={outAt} disabled={self && !needOut} onChange={e => setOutAt(e.target.value)} style={{ width: '100%', fontSize: 13, opacity: self && !needOut ? 0.6 : 1 }} /></label>}
           {self && (
-            <label style={{ fontSize: 11, color: 'var(--muted)' }}>Reason (sent to your approver)
-              <input className="form-input" value={reason} onChange={e => setReason(e.target.value)} placeholder="e.g. forgot to clock out on site" style={{ width: '100%', fontSize: 13 }} autoFocus />
+            <label style={{ fontSize: 11, color: 'var(--muted)' }}>Reason (sent to your approver - not the time)
+              <input className="form-input" value={reason} onChange={e => setReason(e.target.value)} placeholder="Why you're adding it - e.g. forgot to clock out" style={{ width: '100%', fontSize: 13 }} />
             </label>
           )}
           {!self && seg?.inId && (

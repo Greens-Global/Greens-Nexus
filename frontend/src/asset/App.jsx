@@ -78,6 +78,27 @@ export default function App() {
     return () => clearTimeout(t);
   }, [highlight]);
 
+  // The sync engine (asset/lib/sync.js) can't reach React, so it fires this event
+  // when a save is refused. A hard 4xx (dropped, won't retry) shows a persistent
+  // error so the edit isn't lost silently; a soft/transient one shows a lighter
+  // "still trying" note. Previously these failures were swallowed entirely.
+  useEffect(() => {
+    const onSaveFailed = (e) => {
+      const d = (e && e.detail) || {};
+      if (d.soft) {
+        pushToast("Changes aren't syncing yet - retrying. Keep this tab open.", 'mut');
+      } else {
+        const why = d.status === 403 ? "you don't have edit access to Asset Management"
+          : d.status === 413 ? 'the portfolio is too large to save in one request'
+          : d.status === 422 ? 'the server rejected the data shape'
+          : `save failed (error ${d.status || 'network'})`;
+        pushToast(`Could not save - ${why}. Your last change was not stored.`, 'bad');
+      }
+    };
+    window.addEventListener('nexus:asset-save-failed', onSaveFailed);
+    return () => window.removeEventListener('nexus:asset-save-failed', onSaveFailed);
+  }, []);
+
   // Officers/execs/admins (role check) can see private-flagged assets; everyone else can't.
   const canSeePrivate = session && (session.level >= 5 || /owner|officer|exec|admin/i.test(session.role || ''));
   const visibleProperties = store.properties.filter((p) => !p.deleted && (!p.private || canSeePrivate));
