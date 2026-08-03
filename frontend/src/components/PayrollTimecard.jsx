@@ -1148,8 +1148,11 @@ function InlineTime({ seg, k, showRaw, locked, onSaved, toastErr, self, locateEm
 
 function PunchEditModal({ day, email, categories = [], busy, setBusy, onDone, onClose, toastOk, toastErr, self = false }) {
   const seg = day.seg;
-  const [inAt, setInAt] = useState(seg?.in ? utcToInput(seg.in) : `${day.date}T09:00`);
-  const [outAt, setOutAt] = useState(seg?.out ? utcToInput(seg.out) : `${day.date}T17:00`);
+  // Defaults: keep an existing time; when ADDING the missing half of a pair, seed it
+  // from the known half (a missing clock-out starts at the clock-in, not a random
+  // 17:00 that silently books an 8-hour shift) so the user only nudges it.
+  const [inAt, setInAt] = useState(seg?.in ? utcToInput(seg.in) : (seg?.out ? utcToInput(seg.out) : `${day.date}T09:00`));
+  const [outAt, setOutAt] = useState(seg?.out ? utcToInput(seg.out) : (seg?.in ? utcToInput(seg.in) : `${day.date}T17:00`));
   const { data: sites = [] } = useWorkSites();
   const [siteId, setSiteId] = useState(seg?.workSiteId || '');
   const [cat, setCat] = useState(seg?.category || '');
@@ -1164,6 +1167,13 @@ function PunchEditModal({ day, email, categories = [], busy, setBusy, onDone, on
   const needIn = !seg?.inId, needOut = !seg?.outId;
 
   async function save() {
+    // A clock-out must be after the clock-in it pairs with. With the out now
+    // defaulting to the in-time, leaving it unchanged trips this - forcing the real
+    // time in - and it also catches a time accidentally typed into the reason field.
+    const inRef = (seg?.inId && !needIn) ? utcToInput(seg.in) : inAt;
+    if (needOut && inRef && new Date(outAt) <= new Date(inRef)) {
+      toastErr?.('Set the clock-out time - it has to be after the clock-in.'); return;
+    }
     // Employees don't write the timecard directly - a missing punch becomes an
     // approver-confirmed REQUEST. Nothing moves on pay until it's approved.
     if (self) {
@@ -1223,11 +1233,11 @@ function PunchEditModal({ day, email, categories = [], busy, setBusy, onDone, on
         <div style={{ display: 'grid', gap: 12 }}>
           {/* In self mode only the MISSING punch is editable - an existing time stays
               shown (disabled) for context but can't be silently overwritten here. */}
-          {(!self || needIn) && <label style={{ fontSize: 11, color: 'var(--muted)' }}>Clock in<input type="datetime-local" className="form-input" value={inAt} disabled={self && !needIn} onChange={e => setInAt(e.target.value)} style={{ width: '100%', fontSize: 13, opacity: self && !needIn ? 0.6 : 1 }} /></label>}
-          {(!self || needOut) && <label style={{ fontSize: 11, color: 'var(--muted)' }}>Clock out<input type="datetime-local" className="form-input" value={outAt} disabled={self && !needOut} onChange={e => setOutAt(e.target.value)} style={{ width: '100%', fontSize: 13, opacity: self && !needOut ? 0.6 : 1 }} /></label>}
+          {(!self || needIn) && <label style={{ fontSize: 11, color: 'var(--muted)' }}>Clock in time<input autoFocus={self && needIn} type="datetime-local" className="form-input" value={inAt} disabled={self && !needIn} onChange={e => setInAt(e.target.value)} style={{ width: '100%', fontSize: 13, opacity: self && !needIn ? 0.6 : 1 }} /></label>}
+          {(!self || needOut) && <label style={{ fontSize: 11, color: 'var(--muted)' }}>Clock out time<input autoFocus={self && needOut && !needIn} type="datetime-local" className="form-input" value={outAt} disabled={self && !needOut} onChange={e => setOutAt(e.target.value)} style={{ width: '100%', fontSize: 13, opacity: self && !needOut ? 0.6 : 1 }} /></label>}
           {self && (
-            <label style={{ fontSize: 11, color: 'var(--muted)' }}>Reason (sent to your approver)
-              <input className="form-input" value={reason} onChange={e => setReason(e.target.value)} placeholder="e.g. forgot to clock out on site" style={{ width: '100%', fontSize: 13 }} autoFocus />
+            <label style={{ fontSize: 11, color: 'var(--muted)' }}>Reason (sent to your approver - not the time)
+              <input className="form-input" value={reason} onChange={e => setReason(e.target.value)} placeholder="Why you're adding it - e.g. forgot to clock out" style={{ width: '100%', fontSize: 13 }} />
             </label>
           )}
           {!self && seg?.inId && (

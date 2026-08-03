@@ -11,12 +11,19 @@ import { pollWhileVisible } from '../lib/pollWhileVisible';
 // punch itself, so a desktop clusters at ~IP accuracy and a phone is GPS-precise.
 
 const RING = { in: '#16a34a', out: '#94a3b8' };
-const GEO = {
-  in_fence:     { color: '#16a34a', label: 'On site' },
-  out_of_fence: { color: '#d97706', label: 'Off site' },
-  low_accuracy: { color: '#64748b', label: 'Weak GPS' },
-  no_location:  { color: '#64748b', label: 'Approx. (no GPS)' },
-};
+const fmtAcc = (m) => m >= 1000 ? `±${(m / 1000).toFixed(m >= 10000 ? 0 : 1)}km` : `±${m}m`;
+// Status label + color. On-site/off-site come from the geofence verdict; otherwise
+// judge by ACCURACY, not geo_status - a punch reads "no_location" whenever there's
+// no geofenced site to compare against, even with a pin-perfect phone GPS fix.
+function locStatus(p) {
+  if (p.geoStatus === 'in_fence') return { color: '#16a34a', label: `On site${p.workSiteName ? ` · ${p.workSiteName}` : ''}` };
+  if (p.geoStatus === 'out_of_fence') return { color: '#d97706', label: `Off site${p.workSiteName ? ` · ${p.workSiteName}` : ''}` };
+  const a = p.accuracyM || 0;
+  if (a > 0 && a <= 100) return { color: '#2563eb', label: `GPS ${fmtAcc(a)}` };       // precise phone/GPS fix
+  if (a > 0 && a <= 1000) return { color: '#64748b', label: `Approx. ${fmtAcc(a)}` };
+  if (a > 1000) return { color: '#64748b', label: `Approx. ${fmtAcc(a)} (no GPS)` };    // IP/Wi-Fi, no GPS
+  return { color: '#64748b', label: 'Located' };
+}
 const REFRESH_MS = 30000;
 const initials = (n) => (n || '').split(' ').filter(Boolean).slice(0, 2).map(w => w[0]).join('').toUpperCase() || '?';
 const esc = (s) => String(s || '').replace(/"/g, '&quot;');
@@ -109,7 +116,7 @@ export default function Locations({ toastErr }) {
       const size = active ? 48 : 38;
       const m = L.marker([lat, lng], { icon: L.divIcon({ className: '', html: pinHtml(p, active), iconSize: [size, size], iconAnchor: [size / 2, size / 2] }), zIndexOffset: active ? 1000 : 0 })
         .addTo(layer)
-        .bindTooltip(`${p.name}${p.department ? ` · ${p.department}` : ''} · ${GEO[p.geoStatus]?.label || ''}`, { direction: 'top', offset: [0, -size / 2] })
+        .bindTooltip(`${p.name}${p.department ? ` · ${p.department}` : ''} · ${locStatus(p).label}`, { direction: 'top', offset: [0, -size / 2] })
         .on('click', () => setSel(p.email));
       markerByEmail.current[p.email] = [lat, lng];
       bounds.push([lat, lng]);
@@ -185,7 +192,7 @@ export default function Locations({ toastErr }) {
             </div>
           ) : shown.map(p => {
             const active = sel === p.email;
-            const g = GEO[p.geoStatus] || GEO.no_location;
+            const g = locStatus(p);
             return (
               <button key={p.email} onClick={() => setSel(active ? null : p.email)}
                 style={{ textAlign: 'left', padding: '9px 11px', borderRadius: 10, cursor: 'pointer', display: 'flex', gap: 9, alignItems: 'center',
