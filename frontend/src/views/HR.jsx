@@ -22,6 +22,7 @@ import RolesAccess, { LevelPill, ModuleLevelPill, TierBadge } from './RolesAcces
 import { capabilityText } from '../lib/moduleCapabilities';
 import PersonHover from '../components/PersonHoverCard';
 import { takePendingPerson } from '../lib/personNav';
+import { pollWhileVisible } from '../lib/pollWhileVisible';
 
 // ── HR module - Phase 1: employee master + People directory ──────────────────
 // Hiring pipeline, org chart and leave land in later phases (tabs are stubs).
@@ -530,6 +531,10 @@ function lastWeekRange() {
   start.setDate(end.getDate() - 6);
   return [localIsoDate(start), localIsoDate(end)];
 }
+// TimePunch.at is a naive UTC ISO string (no trailing Z) - same convention as
+// TimeAdmin's localTime() - append it before handing to Date so the browser
+// doesn't misread it as already-local.
+const punchTime = (iso) => iso ? new Date(iso + 'Z').toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
 
 // The composer's task list is free text (one item per line, optionally numbered
 // and/or prefixed "Pending: "), not a structured field - split it into rows
@@ -582,10 +587,21 @@ function TaskChecklist({ tasks, kind }) {
 function WorkLogsSection({ employee }) {
   const [[start, end], setRange] = useState(lastWeekRange);
   const [logs, setLogs] = useState(null);
-  useEffect(() => {
-    setLogs(null);
-    api.getEmployeeBod(employee.id, start, end).then(r => setLogs(r.logs || [])).catch(() => setLogs([]));
+  const load = useCallback((quiet = false) => {
+    if (!quiet) setLogs(null);
+    api.getEmployeeBod(employee.id, start, end).then(r => setLogs(r.logs || []))
+      .catch(() => { if (!quiet) setLogs([]); });   // a failed background poll keeps the last good data on screen
   }, [employee.id, start, end]);
+  useEffect(() => { load(); }, [load]);
+  // Live while viewing this range: a manager watching a report shouldn't have
+  // to reopen the tab to see a punch that just landed. Quiet refresh (keeps
+  // the current cards on screen) only while the range covers today, and only
+  // while the tab is actually visible - same pattern as TimeClock's own poll.
+  useEffect(() => {
+    const today = localIsoDate(new Date());
+    if (today < start || today > end) return undefined;
+    return pollWhileVisible(() => load(true), 15000);
+  }, [load, start, end]);
 
   // Group the flat, newest-first list into one card per local_date.
   const byDate = [];
@@ -618,9 +634,16 @@ function WorkLogsSection({ employee }) {
             <div key={g.date} style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '11px 14px' }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)', marginBottom: 8 }}>{g.date}</div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
-                {[['Beginning of day', g.bod, 'bod'], ['End of day', g.eod, 'eod']].map(([label, slot, kind]) => (
+                {[['Beginning of day', g.bod, 'bod', 'Punched in'], ['End of day', g.eod, 'eod', 'Punched out']].map(([label, slot, kind, punchLabel]) => (
                   <div key={label} style={{ background: 'var(--mist)', borderRadius: 10, padding: '9px 12px' }}>
-                    <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 4 }}>{label}</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                      <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em', flex: 1 }}>{label}</span>
+                      {slot?.punchAt && (
+                        <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--wk-brand, var(--ink))' }} title={`${punchLabel} at ${punchTime(slot.punchAt)}`}>
+                          {punchLabel} {punchTime(slot.punchAt)}
+                        </span>
+                      )}
+                    </div>
                     {slot ? (<>
                       <div style={{ fontSize: 12.5, color: 'var(--ink)', whiteSpace: 'pre-wrap' }}>{slot.message || <span style={{ color: 'var(--muted)' }}>(no message)</span>}</div>
                       <TaskChecklist tasks={slot.tasks} kind={kind} />

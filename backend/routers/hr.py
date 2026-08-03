@@ -1989,9 +1989,9 @@ def employee_assets(eid: str, user: dict = Depends(require_hr_read), db: Session
 # ---------------------------------------------------------------------------
 # HR Section: Work Logs (Beginning/End-of-day) on the People profile. HR-gated
 # so an HR user can see it without a Time-module grant. Source of truth stays
-# in timeclock.py (TimeBod); this only reads.
+# in timeclock.py (TimeBod/TimePunch); this only reads.
 # ---------------------------------------------------------------------------
-from models import TimeBod
+from models import TimeBod, TimePunch
 from datetime import timedelta
 
 
@@ -2014,9 +2014,28 @@ def employee_bod_log(eid: str, start: str = "", end: str = "",
                     TimeBod.message != "(sent outside Nexus)",
                     TimeBod.local_date >= start_d, TimeBod.local_date <= end_d)
             .order_by(TimeBod.created_at.desc()).limit(200).all())
+
+    # The actual clock-in/out time (from TimePunch, the punch of record) beside
+    # each BOD/EOD post - "in" backs a BOD, "out" backs an EOD. A day can hold
+    # more than one of each (corrections, multiple sessions): the first in-punch
+    # and the last out-punch are the ones that bracket the work day.
+    dates = sorted({r.local_date for r in rows})
+    punch_in_at, punch_out_at = {}, {}
+    if dates:
+        punches = (db.query(TimePunch)
+                   .filter(TimePunch.employee_email == email, TimePunch.local_date.in_(dates),
+                           TimePunch.voided == 0, TimePunch.kind.in_(("in", "out")))
+                   .order_by(TimePunch.at.asc()).all())
+        for p in punches:
+            if p.kind == "in" and p.local_date not in punch_in_at:
+                punch_in_at[p.local_date] = p.at
+            elif p.kind == "out":
+                punch_out_at[p.local_date] = p.at   # keep overwriting - last one wins
+
     return {"start": start_d, "end": end_d, "logs": [{
         "id": r.id, "kind": r.kind, "date": r.local_date,
         "message": r.message or "", "tasks": r.tasks or "", "at": r.created_at,
+        "punchAt": (punch_in_at if r.kind == "bod" else punch_out_at).get(r.local_date, ""),
     } for r in rows]}
 
 
