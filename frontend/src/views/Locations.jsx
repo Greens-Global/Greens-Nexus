@@ -51,9 +51,10 @@ function pinHtml(p, active) {
   const dev = Math.round(size * 0.5), stat = Math.round(size * 0.34);
   const devEmoji = p.device === 'mobile' ? '📱' : '💻';
   // pfp ringed by clock status, with a device badge (top-left: phone=GPS / PC=no GPS)
-  // and a status dot (top-right).
-  return `<div style="position:relative;width:${size}px;height:${size}px">
-    <div style="width:100%;height:100%;border-radius:50%;border:3px solid ${c.color};box-shadow:0 2px 10px rgba(0,0,0,.4);overflow:hidden;background:#fff">${inner}</div>
+  // and a status dot (top-right). A STALE pin (current punch had no location, so
+  // this is a last-known spot) is dimmed with a dashed ring.
+  return `<div style="position:relative;width:${size}px;height:${size}px;opacity:${p.locStale ? 0.55 : 1}">
+    <div style="width:100%;height:100%;border-radius:50%;border:3px ${p.locStale ? 'dashed' : 'solid'} ${c.color};box-shadow:0 2px 10px rgba(0,0,0,.4);overflow:hidden;background:#fff">${inner}</div>
     <div title="${p.device === 'mobile' ? 'Phone - GPS' : 'Desktop - no GPS'}" style="position:absolute;top:-5px;left:-5px;width:${dev}px;height:${dev}px;border-radius:50%;background:#fff;border:1px solid rgba(0,0,0,.15);box-shadow:0 1px 3px rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;font-size:${Math.round(dev * 0.6)}px;line-height:1">${devEmoji}</div>
     <div style="position:absolute;top:-3px;right:-3px;width:${stat}px;height:${stat}px;border-radius:50%;background:${c.color};border:2px solid #fff;box-shadow:0 1px 2px rgba(0,0,0,.35)"></div>
   </div>`;
@@ -79,7 +80,7 @@ export default function Locations({ toastErr }) {
     const satellite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, attribution: 'Imagery &copy; Esri, Maxar, Earthstar Geographics' });
     const labels = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 });
     const hybrid = L.layerGroup([satellite, labels]);   // satellite + place/road labels on top
-    street.addTo(map);
+    hybrid.addTo(map);   // default to Satellite
     L.control.layers({ 'Map': street, 'Satellite': hybrid }, {}, { position: 'topright', collapsed: false }).addTo(map);
     markersRef.current = L.layerGroup().addTo(map);
     mapRef.current = map;
@@ -142,7 +143,12 @@ export default function Locations({ toastErr }) {
       bounds.push([lat, lng]);
     });
     if (sel && markerByEmail.current[sel]) {
-      try { map.setView(markerByEmail.current[sel], Math.max(map.getZoom(), 12), { animate: true }); } catch { /* noop */ }
+      // Zoom right in on the selected person - as tight as their accuracy justifies
+      // (a precise phone fix goes to street level; a coarse desktop blob stays wider
+      // so it doesn't imply a false pinpoint).
+      const acc = shown.find(x => x.email === sel)?.accuracyM || 0;
+      const z = acc > 0 && acc <= 300 ? 18 : acc > 0 && acc <= 3000 ? 15 : 13;
+      try { map.setView(markerByEmail.current[sel], z, { animate: true }); } catch { /* noop */ }
     } else if (bounds.length) {
       try { map.fitBounds(bounds, { padding: [50, 50], maxZoom: 13 }); } catch { /* single/degenerate */ }
     }
@@ -239,7 +245,9 @@ export default function Locations({ toastErr }) {
                     <span title={p.device === 'mobile' ? 'Phone - GPS' : 'Desktop - no GPS'} style={{ display: 'inline-flex', color: 'var(--muted)' }}>
                       {p.device === 'mobile' ? <Smartphone size={11} /> : <Monitor size={11} />}
                     </span>
-                    <span style={{ color: 'var(--muted)' }}>{g.label} · {ago(p.at)}</span>
+                    <span style={{ color: p.locStale ? '#b45309' : 'var(--muted)', fontStyle: p.locStale ? 'italic' : 'normal' }}>
+                      {p.locStale ? `last seen ${ago(p.at)} · ${g.label}` : `${g.label} · ${ago(p.at)}`}
+                    </span>
                   </span>
                 </span>
               </button>
@@ -250,7 +258,8 @@ export default function Locations({ toastErr }) {
 
       {selP && (
         <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 8 }}>
-          Showing {selP.name}. Pin accuracy ±{selP.accuracyM >= 1000 ? `${(selP.accuracyM / 1000).toFixed(1)} km` : `${selP.accuracyM} m`}
+          Showing {selP.name}. {selP.locStale && <span style={{ color: '#b45309', fontWeight: 600 }}>Last known location ({ago(selP.at)}) - their current session isn't sharing one. </span>}
+          Pin accuracy ±{selP.accuracyM >= 1000 ? `${(selP.accuracyM / 1000).toFixed(1)} km` : `${selP.accuracyM} m`}
           {selP.accuracyM > 1000 ? ' - this device had no GPS (punch from a phone for a precise fix).' : '.'}
         </div>
       )}

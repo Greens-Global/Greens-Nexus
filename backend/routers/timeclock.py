@@ -2050,6 +2050,11 @@ def team_locations(user: dict = Depends(require_team_read), db: Session = Depend
             "clockedIn": status != "off",
             "status": status,
             "device": device,
+            # The location is STALE when the current (latest) punch carried no
+            # coordinates - e.g. clocked in from a desktop that didn't share
+            # location - so this pin is a last-known spot, not where they are now.
+            "locStale": bool(last and loc.id != last.id),
+            "statusAt": last.at if last else loc.at,
         })
     return {"people": people}
 
