@@ -50,6 +50,12 @@ function LocCell({ seg }) {
   );
 }
 
+// Last successful payload per (employee|self + period), kept at MODULE scope so it
+// survives the component unmounting between tabs. Reopening the Time Sheet paints the
+// cached card instantly and refreshes in the background - no loader flash, no snap.
+const _timecardCache = new Map();
+const _tcKey = (self, email, start, end) => self ? `self:${start}` : (email ? `${email}:${start}:${end}` : '');
+
 export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, initialEmail = '' }) {
   const self = selfMode;   // employee viewing their OWN timecard (from /my-payroll)
   const [people, setPeople] = useState([]);
@@ -58,7 +64,11 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   // "N to review" badge in TimeAdmin opens that person's card).
   useEffect(() => { if (initialEmail) setEmail(initialEmail); }, [initialEmail]);
   const [pStart, setPStart] = useState(() => periodStartFor(new Date()));
-  const [data, setData] = useState(null);
+  // Seed from the module cache so a reopen renders the last card immediately (no loader).
+  const [data, setData] = useState(() => {
+    const s = isoDate(pStart), e = isoDate(pStart.getTime() + 13 * DAY);
+    return _timecardCache.get(_tcKey(selfMode, initialEmail, s, e)) || null;
+  });
   const [rateInput, setRateInput] = useState('');
   const [ruleInput, setRuleInput] = useState('ca');   // ca | federal | none
   const [editDay, setEditDay] = useState(null);   // { date, seg? }
@@ -72,6 +82,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
 
   const start = isoDate(pStart);
   const end = isoDate(pStart.getTime() + 13 * DAY);
+  const cacheKey = _tcKey(self, email, start, end);
   const dates = useMemo(() => Array.from({ length: 14 }, (_, i) => isoDate(pStart.getTime() + i * DAY)), [pStart]);
 
   // employee list (scoped) for the picker
@@ -90,22 +101,22 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
     api.timeTeamExceptions(start, end).then(r => setExceptions(r || [])).catch(() => setExceptions([]));
   }, [self, start, end]);
 
-  // Clear the card when the TARGET changes (employee or period) so a switch shows the
-  // loader, never the previous target's card - or, critically, the wrong pay-type
-  // shell for a frame. A manual refetch after a mutation keeps the current card
-  // (no blink, the HR sidebar stays put).
-  useEffect(() => { setData(null); }, [self, email, start, end]);
+  // When the TARGET changes (employee or period) paint the CACHED card for it
+  // immediately if we have one - otherwise the neutral loader. Never the previous
+  // target's card, or the wrong pay-type shell. A manual refetch after a mutation
+  // keeps the current card (no blink, the HR sidebar stays put).
+  useEffect(() => { setData(_timecardCache.get(cacheKey) ?? null); }, [cacheKey]);
 
   const load = useCallback(() => {
     if (self) {
       // Employee's own timecard - same shape as the HR card, no step-up needed for
       // one's own pay (like a payslip). /my-payroll keys off the period start.
-      api.timeMyPayroll(start).then(d => { setStepLocked(false); setData(d); setRateInput(d.rateSet ? String(d.rate) : ''); setRuleInput(d.overtimeRule || 'ca'); })
+      api.timeMyPayroll(start).then(d => { _timecardCache.set(_tcKey(true, '', start, end), d); setStepLocked(false); setData(d); setRateInput(d.rateSet ? String(d.rate) : ''); setRuleInput(d.overtimeRule || 'ca'); })
         .catch(e => { setData(null); toastErr?.(e?.message || 'Could not load your timecard.'); });
       return;
     }
     if (!email) return;
-    api.timePayroll(email, start, end).then(d => { setStepLocked(false); setData(d); setRateInput(d.rateSet ? String(d.rate) : ''); setRuleInput(d.overtimeRule || 'ca'); })
+    api.timePayroll(email, start, end).then(d => { _timecardCache.set(_tcKey(false, email, start, end), d); setStepLocked(false); setData(d); setRateInput(d.rateSet ? String(d.rate) : ''); setRuleInput(d.overtimeRule || 'ca'); })
       .catch(e => {
         // Payroll shows $ - the backend requires a fresh step-up MFA. Show the
         // Verify gate (a gesture) rather than popping a challenge on mount.
