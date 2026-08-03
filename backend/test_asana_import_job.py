@@ -380,6 +380,103 @@ class ProgressReportingTests(unittest.TestCase):
         self.assertEqual(counts["errors"], [])
 
 
+class ImportOwnerTests(unittest.TestCase):
+    """Who owns an imported project.
+
+    It used to be whoever clicked Import, always - create_project defaults
+    owner_email to the caller and the import never passed one, so a whole
+    workspace came across owned by one person. Asana's project `owner` (there is
+    no created_by on a project) now seeds it AT IMPORT TIME ONLY: ownership is a
+    Nexus-side decision afterwards, and a pull that kept restoring the Asana
+    value would silently undo every handover/reassignment."""
+
+    IMPORTER = {"email": "importer@greensglobal.com"}
+
+    @classmethod
+    def setUpClass(cls):
+        models.Base.metadata.create_all(bind=database.engine)
+
+    def setUp(self):
+        self.db = database.SessionLocal()
+        self.db.query(models.TaskProject).delete()
+        self.db.query(models.NexusEmployee).delete()
+        self.db.add(models.NexusEmployee(id=gen_id(), work_email="lead@greensglobal.com",
+                                         first_name="Lead", last_name="Person"))
+        self.db.commit()
+        asana_sync.refresh_directory_cache()
+        self._import_project = asana_sync.import_project
+        self._ensure_map = asana_sync.ensure_project_map
+        self._resolve = asana_sync.resolve_dependencies
+        asana_sync.import_project = lambda *a, **kw: None
+        asana_sync.ensure_project_map = lambda *a, **kw: None
+        asana_sync.resolve_dependencies = lambda *a, **kw: None
+
+    def tearDown(self):
+        asana_sync.import_project = self._import_project
+        asana_sync.ensure_project_map = self._ensure_map
+        asana_sync.resolve_dependencies = self._resolve
+        self.db.close()
+        asana_sync.refresh_directory_cache()
+
+    class _FakeAsana:
+        """Returns whatever owner the test set, for the one project gid-1."""
+        def __init__(self, owner=None, name="Imported"):
+            self.owner, self.name = owner, name
+            self.opt_fields = []
+
+        def get(self, path, **kw):
+            self.opt_fields.append(kw.get("opt_fields", ""))
+            return {"name": self.name, "notes": "", "owner": self.owner}
+
+    def _run(self, asana):
+        task_config._import_asana_projects(self.db, object(), asana, ["gid-1"], self.IMPORTER)
+        return self.db.query(models.TaskProject).filter(models.TaskProject.name == asana.name).first()
+
+    def test_owner_email_is_requested_from_asana(self):
+        """The compact `owner` Asana returns by default carries no email, so the
+        opt_fields have to ask for it explicitly - exactly like assignee.email."""
+        a = self._FakeAsana(owner={"gid": "1", "name": "Lead", "email": "lead@greensglobal.com"})
+        self._run(a)
+        self.assertIn("owner.email", a.opt_fields[0])
+
+    def test_the_asana_owner_becomes_the_nexus_owner(self):
+        p = self._run(self._FakeAsana(owner={"gid": "1", "name": "Lead", "email": "lead@greensglobal.com"}))
+        self.assertEqual(p.owner_email, "lead@greensglobal.com")
+
+    def test_a_guest_relay_address_resolves_to_the_real_person(self):
+        """Asana shows guests as the M365 relay; the local part identifies them."""
+        p = self._run(self._FakeAsana(owner={"gid": "1", "name": "Lead",
+                                             "email": "lead@greensg.onmicrosoft.com"}))
+        self.assertEqual(p.owner_email, "lead@greensglobal.com")
+
+    def test_an_owner_with_no_nexus_match_falls_back_to_the_importer(self):
+        """owner_email drives require_project_role and the visibility checks, so
+        an address matching nobody must not be stored - it would own nothing."""
+        p = self._run(self._FakeAsana(owner={"gid": "9", "name": "Outside", "email": "someone@other.com"}))
+        self.assertEqual(p.owner_email, self.IMPORTER["email"])
+
+    def test_a_project_with_no_owner_in_asana_falls_back_to_the_importer(self):
+        p = self._run(self._FakeAsana(owner=None))
+        self.assertEqual(p.owner_email, self.IMPORTER["email"])
+
+    def test_re_import_does_not_overwrite_an_existing_owner(self):
+        """The whole point of import-time-only: someone reassigned this project
+        in Nexus, and re-importing (or the pull that follows) must not undo it."""
+        self.db.add(models.TaskProject(id="p-keep", name="Imported", created_at=now_iso(),
+                                       owner_email="chosen@greensglobal.com"))
+        self.db.commit()
+        p = self._run(self._FakeAsana(owner={"gid": "1", "name": "Lead", "email": "lead@greensglobal.com"}))
+        self.assertEqual(p.owner_email, "chosen@greensglobal.com")
+
+    def test_re_import_fills_a_blank_owner(self):
+        """Filling an empty field isn't overwriting a decision."""
+        self.db.add(models.TaskProject(id="p-blank", name="Imported", created_at=now_iso(),
+                                       owner_email=""))
+        self.db.commit()
+        p = self._run(self._FakeAsana(owner={"gid": "1", "name": "Lead", "email": "lead@greensglobal.com"}))
+        self.assertEqual(p.owner_email, "lead@greensglobal.com")
+
+
 class ResumeTests(unittest.TestCase):
     """A stopped run continues from where it got to, rather than re-walking a
     hundred projects to reach the handful it never reached.
