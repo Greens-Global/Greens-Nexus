@@ -629,6 +629,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
   const th = { fontSize: 11.5, fontWeight: 600, color: 'var(--wk-dim)', padding: '8px 10px', textAlign: 'left', whiteSpace: 'nowrap' };
   const td = { fontSize: 12.5, padding: '6px 10px', textAlign: 'left', borderTop: '1px solid var(--line)', whiteSpace: 'nowrap' };
   const STATUS = {
+    working: { label: 'Working', bg: 'var(--wk-brand-tint)', fg: 'var(--wk-brand)' },
     present: { label: 'Present', bg: 'hsla(var(--color-green),0.12)', fg: 'hsl(var(--color-green))' },
     half: { label: 'Half day', bg: 'rgba(180,83,9,0.12)', fg: '#b45309' },
     absent: { label: 'Absent', bg: 'rgba(185,28,28,0.1)', fg: '#b91c1c' },
@@ -695,7 +696,16 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
               const segs = d?.segments || [];
               const st = STATUS[fd.status] || STATUS.upcoming;
               const rowsForDay = segs.length ? segs : [null];
-              return rowsForDay.map((seg, si) => (
+              // Reasons/notes visible IN the card (not just on hover), employee AND HR.
+              const notes = [];
+              segs.forEach(s => {
+                if (s.inEditStatus === 'pending' && s.inEditReason) notes.push(`Employee: “${s.inEditReason}”`);
+                if (s.outEditStatus === 'pending' && s.outEditReason) notes.push(`Employee: “${s.outEditReason}”`);
+                if (s.inAdjustNote) notes.push(s.inAdjustNote);
+                if (s.outAdjustNote) notes.push(s.outAdjustNote);
+                if (s.note) notes.push(s.note);
+              });
+              const out = rowsForDay.map((seg, si) => (
                 <tr key={fd.date + '-' + si} style={{ background: fd.isWeekend ? 'var(--mist)' : 'transparent' }}>
                   <td style={{ ...td, fontWeight: 700 }}>{si === 0 ? dow(fd.date) : ''}</td>
                   <td style={td}>{si === 0 && <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 9px', borderRadius: 999, background: st.bg, color: st.fg }}>{st.label}</span>}</td>
@@ -715,6 +725,14 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
                   <td style={{ ...td, textAlign: 'right' }}>{si === 0 ? effect(fd) : ''}</td>
                 </tr>
               ));
+              if (notes.length) out.push(
+                <tr key={fd.date + '-notes'} style={{ background: fd.isWeekend ? 'var(--mist)' : 'transparent' }}>
+                  <td colSpan={7} style={{ ...td, borderTop: 'none', paddingTop: 0, color: 'var(--muted)', fontStyle: 'italic', fontSize: 11.5, whiteSpace: 'normal' }}>
+                    <Pencil size={10} style={{ marginRight: 5, verticalAlign: 'middle' }} />{notes.join('  ·  ')}
+                  </td>
+                </tr>
+              );
+              return out;
             })}
           </tbody>
         </table>

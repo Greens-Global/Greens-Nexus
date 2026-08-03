@@ -99,7 +99,7 @@ const FL = { fontSize: 12, fontWeight: 600, color: 'var(--muted)' };
 const HD = { fontSize: 13.5, fontWeight: 600, color: 'var(--ink)' };
 
 export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
-  const [view, setView] = useState('timecards');   // timecards | timeoff | payroll
+  const [view, setView] = useState('payroll');   // payroll (the timecard) | livemap | attendance | insights | requests | screenshots | shifts | timeoff
   const [payrollEmail, setPayrollEmail] = useState('');   // preselect a person in the Payroll view (from the "to review" badge)
   const [[start, end], setRange] = useState(() => weekRange(0));
   const [rows, setRows] = useState(null);
@@ -331,9 +331,9 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
           Documents-style underline tab band (icons, brand underline, hairline
           base) instead of floating pills that merged into the content. */}
       <div className="scroll-tabs" style={{ display: 'flex', gap: 2, marginBottom: 18, borderBottom: '1px solid var(--wk-line)' }}>
-        {[['timecards', 'Timecards', Clock], ['livemap', 'Live map', MapPin], ['attendance', 'Attendance', CalendarDays],
+        {[['payroll', 'Payroll', Banknote], ['livemap', 'Live map', MapPin], ['attendance', 'Attendance', CalendarDays],
           ['insights', 'Insights', Activity], ['requests', 'Punch requests', Inbox, punchReqs.length],
-          ['screenshots', 'Screenshots', Camera], ['shifts', 'Shifts', CalendarClock], ['payroll', 'Payroll', Banknote],
+          ['screenshots', 'Screenshots', Camera], ['shifts', 'Shifts', CalendarClock],
           ['timeoff', 'Time off', CalendarOff, pendingCount]].map(([key, label, Icon, badge]) => {
           const on = view === key;
           return (

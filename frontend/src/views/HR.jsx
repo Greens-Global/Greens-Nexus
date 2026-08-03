@@ -369,17 +369,12 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
                       <label style={FL}>WEEKEND OT / DAY</label>
                       <input className="form-input" type="number" min="0" step="1" style={{ width: '100%' }} value={comp.weekendOtAmount} onChange={e => setW('weekendOtAmount', e.target.value)} placeholder="e.g. 1000" />
                     </div>
-                    <div>
-                      <label style={FL}>FULL DAY (HOURS)</label>
-                      <input className="form-input" type="number" min="1" step="0.5" style={{ width: '100%' }} value={comp.fullDayHours} onChange={e => setW('fullDayHours', e.target.value)} placeholder="8" />
-                      <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>Under half this counts as a half day.</div>
-                    </div>
                   </>
                 )}
               </div>
               <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 10 }}>
                 {comp.payType === 'fixed'
-                  ? 'Fixed: paid the monthly salary; a missed weekday deducts salary / days-in-month (half for a half day); each weekend day worked adds the weekend overtime.'
+                  ? 'Fixed: paid the monthly salary; a missed weekday deducts salary / days-in-month. A weekday is Present at 5h+, Half day from 4h to 5h, Absent under 4h; each weekend day worked adds the weekend overtime.'
                   : 'Hourly: paid per hour worked, with overtime per the timecard.'}
                 {!editing && !f.work_email && ' Needs a work email to save the wage.'}
               </div>

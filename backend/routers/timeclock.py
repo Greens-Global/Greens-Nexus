@@ -39,7 +39,7 @@ from models import (TimePunch, TimeScreenshot, TimeOffRequest, TimeApproval, Tim
                     ShiftAssignment, ScheduledShift, PayrollRate, HrWorkSite, NexusEmployee,
                     TrackConsent, TrackSession, TrackPing, MonitoringPolicy, MonitoringConsent,
                     PunchRequest, AgentActivity, AppRating, NexusGroup, NexusGroupMember,
-                    NexusSetting)
+                    NexusSetting, NexusNotification)
 from routers.hr import _hr_notify, _storage_headers, _SUPABASE_URL, _DOC_BUCKET
 from routers.esign import _client_meta
 from routers.stepup import require_stepup
@@ -1243,13 +1243,12 @@ def create_punch_request(body: PunchRequestIn, user: dict = Depends(get_current_
                        local_date=local_date, tz_offset_min=body.tz_offset_min or 0,
                        target_punch_id=target_id, reason=reason, status="pending", created_at=now)
     db.add(req)
-    # Notify the approver (the employee's manager). If no manager is set, the
-    # request still surfaces in the team review queue below.
+    # Notify the approver - the employee's manager, or ALL managers if none is set,
+    # so a no-manager employee's request still reaches someone.
     what = (f"add a {body.punch_kind} punch" if action == "add" else "remove a punch")
-    if emp and emp.manager_email:
-        _hr_notify(db, emp.manager_email, "Timesheet fix requested",
-                   f"{name} asked to {what}. Reason: {reason}",
-                   ref_id=req.id, action={"view": "hr", "sub": "hr-time"})
+    _notify_approvers(db, employee_email=req.employee_email, title="Timesheet fix requested",
+                      body=f"{name} asked to {what}. Reason: {reason}",
+                      ref_id=req.id, action={"view": "hr", "sub": "hr-time"})
     db.commit()
     return _pr_dict(req)
 
@@ -1352,6 +1351,20 @@ def decide_punch_request(req_id: str, body: PunchRequestDecision,
 #    approval). Separate from the manager's final `adjust_punch` (PATCH /punches)
 #    and from add/remove punch-requests. ────────────────────────────────────────
 
+def _notify_approvers(db: Session, *, employee_email: str, title: str, body: str,
+                      ref_id: str = "", action: Optional[dict] = None) -> None:
+    """Route a timecard request to whoever approves this person: their manager if
+    one is set, otherwise BROADCAST to all managers (recipient='') so it is never
+    silently dropped for an employee with no manager on file."""
+    emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == employee_email).first()
+    mgr = (emp.manager_email or "").strip().lower() if emp else ""
+    db.add(NexusNotification(
+        id=str(uuid.uuid4()), type="custom_alert", recipient=mgr,   # '' = all managers
+        title=title, body=body, ref_id=ref_id, item_name="", requested_by=employee_email,
+        action=json.dumps(action) if action else "", actioned=False, read_by="",
+        created_at=_now_iso()))
+
+
 class PunchEditIn(BaseModel):
     punch_id: str
     at: str                       # proposed new time (UTC ISO)
@@ -1384,11 +1397,10 @@ def request_punch_edit(body: PunchEditIn, user: dict = Depends(get_current_user)
     row.edit_reviewed_by, row.edit_reviewed_at = "", ""
     emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == email).first()
     name = f"{emp.first_name} {emp.last_name}".strip() if emp else email.split("@")[0].replace(".", " ").title()
-    if emp and emp.manager_email:
-        _hr_notify(db, emp.manager_email, "Timesheet edit requested",
-                   f"{name} proposed a new time for a {row.kind} punch on {row.local_date}."
-                   + (f" Reason: {row.edit_reason}" if row.edit_reason else ""),
-                   ref_id=row.id, action={"view": "hr", "sub": "hr-time"})
+    _notify_approvers(db, employee_email=email, title="Timesheet edit requested",
+                      body=f"{name} proposed a new time for a {row.kind} punch on {row.local_date}."
+                      + (f" Reason: {row.edit_reason}" if row.edit_reason else ""),
+                      ref_id=row.id, action={"view": "hr", "sub": "hr-time"})
     db.commit()
     return _serialize(row)
 
@@ -2406,10 +2418,18 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
     last = datetime.strptime(m_end, "%Y-%m-%d").date()
     days_in_month = (last - first).days + 1
     daily = salary / days_in_month if days_in_month else 0.0
-    half_min = (full_hours / 2.0) * 60.0
+    # Attendance bands (policy, same for everyone): a weekday is PRESENT (full credit)
+    # at 5h+, a HALF day from 4h up to 5h, and ABSENT under 4h. While still clocked in
+    # today it's WORKING (no judgment yet). full_hours stays on the record but the
+    # bands are fixed here.
+    HALF_MIN, FULL_MIN = 4 * 60, 5 * 60
+    _ = full_hours
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
     worked_by_day = {d["date"]: d.get("workedMin", 0) for d in card.get("days", [])}
+    # An open in-punch (no clock-out yet) means the person is mid-shift.
+    open_by_day = {d["date"]: any(not s.get("out") for s in d.get("segments", []))
+                   for d in card.get("days", [])}
     missed_full = missed_half = weekend_worked = 0
     deduction = 0.0
     fixed_days = []
@@ -2417,21 +2437,24 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
         dd = first + timedelta(days=i)
         ds = dd.isoformat()
         wm = worked_by_day.get(ds, 0)
+        has_open = open_by_day.get(ds, False)
         is_weekend = dd.weekday() >= 5      # Sat=5, Sun=6
         deduct = bonus = 0.0
         if is_weekend:
-            if wm > 0:
+            if wm > 0 or has_open:
                 status = "weekend_worked"; bonus = weekend_ot; weekend_worked += 1
             else:
                 status = "weekend"
-        elif wm >= half_min:
-            status = "present"              # earned a full day - never deducted
+        elif has_open and ds >= today:
+            status = "working"              # clocked in, still on shift today - no deduction yet
+        elif wm >= FULL_MIN:
+            status = "present"              # 5h+ = full day, never deducted
         elif ds >= today:
-            status = "upcoming"             # today or future, not a full day yet - don't judge mid-day
-        elif wm > 0:
-            status = "half"; deduct = daily / 2.0; missed_half += 1
+            status = "upcoming"             # today/future, not a full day yet and not clocked in
+        elif wm >= HALF_MIN:
+            status = "half"; deduct = daily / 2.0; missed_half += 1   # 4h-5h
         else:
-            status = "absent"; deduct = daily; missed_full += 1
+            status = "absent"; deduct = daily; missed_full += 1       # under 4h
         deduction += deduct
         fixed_days.append({"date": ds, "workedMin": wm, "isWeekend": is_weekend,
                            "future": ds > today,   # can't add a punch for a day that hasn't happened
