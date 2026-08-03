@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { MapPin, Users, Search, X } from 'lucide-react';
+import { MapPin, Users, Search, X, Smartphone, Monitor } from 'lucide-react';
 import { api } from '../api.js';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 
@@ -43,12 +43,20 @@ const ago = (iso) => {
 };
 
 function pinHtml(p, active) {
-  const size = active ? 48 : 38;
-  const ring = clockOf(p).color;
+  const size = active ? 48 : 40;
+  const c = clockOf(p);
   const inner = p.photoUrl
     ? `<img src="${esc(p.photoUrl)}" alt="" style="width:100%;height:100%;object-fit:cover"/>`
     : `<div style="width:100%;height:100%;background:#334155;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:${Math.round(size / 2.8)}px;font-family:Inter,sans-serif">${initials(p.name)}</div>`;
-  return `<div style="width:${size}px;height:${size}px;border-radius:50%;border:3px solid ${ring};box-shadow:0 2px 10px rgba(0,0,0,.4);overflow:hidden;background:#fff">${inner}</div>`;
+  const dev = Math.round(size * 0.5), stat = Math.round(size * 0.34);
+  const devEmoji = p.device === 'mobile' ? '📱' : '💻';
+  // pfp ringed by clock status, with a device badge (top-left: phone=GPS / PC=no GPS)
+  // and a status dot (top-right).
+  return `<div style="position:relative;width:${size}px;height:${size}px">
+    <div style="width:100%;height:100%;border-radius:50%;border:3px solid ${c.color};box-shadow:0 2px 10px rgba(0,0,0,.4);overflow:hidden;background:#fff">${inner}</div>
+    <div title="${p.device === 'mobile' ? 'Phone - GPS' : 'Desktop - no GPS'}" style="position:absolute;top:-5px;left:-5px;width:${dev}px;height:${dev}px;border-radius:50%;background:#fff;border:1px solid rgba(0,0,0,.15);box-shadow:0 1px 3px rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;font-size:${Math.round(dev * 0.6)}px;line-height:1">${devEmoji}</div>
+    <div style="position:absolute;top:-3px;right:-3px;width:${stat}px;height:${stat}px;border-radius:50%;background:${c.color};border:2px solid #fff;box-shadow:0 1px 2px rgba(0,0,0,.35)"></div>
+  </div>`;
 }
 
 export default function Locations({ toastErr }) {
@@ -125,7 +133,7 @@ export default function Locations({ toastErr }) {
       const lat = parseFloat(p.lat), lng = parseFloat(p.lng);
       if (!isFinite(lat) || !isFinite(lng)) return;
       const active = sel === p.email;
-      const size = active ? 48 : 38;
+      const size = active ? 48 : 40;
       const m = L.marker([lat, lng], { icon: L.divIcon({ className: '', html: pinHtml(p, active), iconSize: [size, size], iconAnchor: [size / 2, size / 2] }), zIndexOffset: active ? 1000 : 0 })
         .addTo(layer)
         .bindTooltip(`${p.name}${p.department ? ` · ${p.department}` : ''} · ${clockOf(p).label} · ${locStatus(p).label}`, { direction: 'top', offset: [0, -size / 2] })
@@ -200,9 +208,9 @@ export default function Locations({ toastErr }) {
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 280px', gap: 12, alignItems: 'start' }}>
-        <div ref={mapElRef} style={{ width: '100%', height: 'min(72vh, 660px)', borderRadius: 12, border: '1px solid var(--line)', overflow: 'hidden', background: 'var(--card)' }} />
+        <div ref={mapElRef} style={{ width: '100%', height: 'clamp(460px, calc(100dvh - 205px), 1100px)', borderRadius: 12, border: '1px solid var(--line)', overflow: 'hidden', background: 'var(--card)' }} />
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 'min(72vh, 660px)', overflowY: 'auto' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 'clamp(460px, calc(100dvh - 205px), 1100px)', overflowY: 'auto' }}>
           {people === null ? (
             <div style={{ color: 'var(--muted)', fontSize: 13, padding: 8 }}>Loading…</div>
           ) : shown.length === 0 ? (
@@ -228,7 +236,10 @@ export default function Locations({ toastErr }) {
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10.5, marginTop: 1, flexWrap: 'wrap' }}>
                     <span style={{ width: 7, height: 7, borderRadius: '50%', background: c.color }} />
                     <span style={{ fontWeight: 700, color: c.color }}>{c.label}</span>
-                    <span style={{ color: 'var(--muted)' }}>· {g.label} · {ago(p.at)}</span>
+                    <span title={p.device === 'mobile' ? 'Phone - GPS' : 'Desktop - no GPS'} style={{ display: 'inline-flex', color: 'var(--muted)' }}>
+                      {p.device === 'mobile' ? <Smartphone size={11} /> : <Monitor size={11} />}
+                    </span>
+                    <span style={{ color: 'var(--muted)' }}>{g.label} · {ago(p.at)}</span>
                   </span>
                 </span>
               </button>

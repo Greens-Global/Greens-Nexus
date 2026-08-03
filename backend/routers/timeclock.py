@@ -2029,6 +2029,10 @@ def team_locations(user: dict = Depends(require_team_read), db: Session = Depend
         status = ("on_break" if last_kind == "break_start"
                   else "working" if last_kind in ("in", "break_end")
                   else "off")
+        # Device the LOCATION punch came from - a phone gives real GPS, a desktop
+        # only a coarse Wi-Fi/IP fix, so this explains the accuracy at a glance.
+        ua = (loc.user_agent or "").lower()
+        device = "mobile" if any(k in ua for k in ("mobi", "android", "iphone", "ipad", "ipod")) else "desktop"
         ent = ents.get(em.company or "")
         people.append({
             "email": email,
@@ -2045,6 +2049,7 @@ def team_locations(user: dict = Depends(require_team_read), db: Session = Depend
             "at": loc.at,
             "clockedIn": status != "off",
             "status": status,
+            "device": device,
         })
     return {"people": people}
 
