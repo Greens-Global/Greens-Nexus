@@ -725,7 +725,6 @@ export const api = {
 
   // HR - live assets (permanent assignments + active checkouts from Item Management)
   getEmployeeAssets: (id)      => req(`/hr/employees/${id}/assets`),
-  getEmployeeBod:    (id, start, end) => req(`/hr/employees/${id}/bod?start=${start || ''}&end=${end || ''}`),
   changeEmployeeStatus: (id, data) => req(`/hr/employees/${id}/status`, { method: 'POST', body: JSON.stringify(data) }),
 
   // HR - mailbox export (zip of .eml via Graph; needs Mail.Read consent)
@@ -819,6 +818,7 @@ export const api = {
   timeMonitoringPolicy:  () => req('/timeclock/monitoring/policy'),
   timeSetMonitoringPolicy: (data) => req('/timeclock/monitoring/policy', { method: 'PUT', body: JSON.stringify(data) }),
   timeTeamShots:     (date, email) => req(`/timeclock/team-screenshots?date=${date || ''}&email=${encodeURIComponent(email || '')}`),
+  timeBodDay:        (email, date) => req(`/timeclock/bod/day?email=${encodeURIComponent(email || '')}&date=${date || ''}`),
   timeMonitoringAlerts: () => req('/timeclock/monitoring/alerts'),
   // Punch-fix requests: employee asks, approver (HR/manager) approves/rejects
   timePunchRequestCreate: (data) => req('/timeclock/punch-requests', { method: 'POST', body: JSON.stringify(data) }),

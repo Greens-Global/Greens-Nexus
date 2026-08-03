@@ -6,6 +6,7 @@ import { useWorkSites } from '../lib/queries';
 import { ensureStepUp, isStepUpRequired, StepUpNeeded } from '../stepup/StepUp';
 import { useRole } from '../contexts/RoleContext';
 import GuidedTour from './GuidedTour';
+import WorkLogDrawer, { WorkLogButton } from './WorkLogDrawer';
 
 // ── Payroll timecard (SwipeClock 1:1, manager-editable) ───────────────────────
 // One employee, one pay period (biweekly, SUNDAY-anchored on SwipeClock's real
@@ -77,8 +78,9 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   const [exceptions, setExceptions] = useState([]);      // per-employee missing/exception counts (sidebar)
   const [showRaw, setShowRaw] = useState(false);         // SwipeClock's "Show Unrounded Times"
   const [tour, setTour] = useState(false);               // Simulate walkthrough
-  const { can } = useRole();
+  const { can, myEmail } = useRole();
   const isAdmin = can('administrator');
+  const [workLogDay, setWorkLogDay] = useState(null);   // date string - opens the Work Log drawer for this day
 
   const start = isoDate(pStart);
   const end = isoDate(pStart.getTime() + 13 * DAY);
@@ -291,13 +293,23 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
         isAdmin={isAdmin} busy={busy} setBusy={setBusy}
         onPrev={() => shiftMonth(-1)} onNext={() => shiftMonth(1)}
         onApprove={approve} onFinalize={finalize} onUnfinalize={unfinalize} onSign={signTimecard}
-        editDay={editDay} setEditDay={setEditDay} load={load} toastOk={toastOk} toastErr={toastErr} />
+        editDay={editDay} setEditDay={setEditDay} load={load} toastOk={toastOk} toastErr={toastErr}
+        setWorkLogDay={setWorkLogDay} />
     );
-    return self ? fixedCard : (
-      <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start', fontFamily: 'var(--wk-font)' }}>
-        {employeeSidebar}
-        <div style={{ flex: 1, minWidth: 0 }}>{fixedCard}</div>
-      </div>
+    return (
+      <>
+        {self ? fixedCard : (
+          <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start', fontFamily: 'var(--wk-font)' }}>
+            {employeeSidebar}
+            <div style={{ flex: 1, minWidth: 0 }}>{fixedCard}</div>
+          </div>
+        )}
+        {workLogDay && (
+          <WorkLogDrawer email={self ? myEmail : email} date={workLogDay}
+            name={self ? '' : (people.find(p => p.email === email)?.name || email)}
+            onClose={() => setWorkLogDay(null)} />
+        )}
+      </>
     );
   }
   // Loading (first open, or switching employee/period): a neutral loader so the card
@@ -429,6 +441,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                 <th style={{ ...th, textAlign: 'left' }}>Category</th>
                 <th style={th}>Hours</th>
                 <th style={th}>Hrs/day</th>
+                <th title="What was planned, done, and left pending that day" style={{ ...th, textAlign: 'center' }}>Work Log</th>
                 <th style={th}>Non-OT</th>
                 <th style={th}>OT</th>
                 <th style={th}>OT 2×</th>
@@ -442,13 +455,13 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
             <tbody>
               {rows.map((r, i) => r.type === 'wk' ? (
                 <tr key={i} style={{ background: 'var(--wk-brand-tint)' }}>
-                  <td colSpan={15} style={{ ...td, textAlign: 'center', fontWeight: 700, color: 'var(--wk-brand)', fontSize: 12 }}>
+                  <td colSpan={16} style={{ ...td, textAlign: 'center', fontWeight: 700, color: 'var(--wk-brand)', fontSize: 12 }}>
                     Total hours clocked for week of {new Date(r.week + 'T00:00').toLocaleDateString([], { month: 'numeric', day: 'numeric' })} to {new Date(new Date(r.week + 'T00:00').getTime() + 6 * DAY).toLocaleDateString([], { month: 'numeric', day: 'numeric' })}: {hhmm(weekTotals[r.week]?.min || 0)}
                   </td>
                 </tr>
               ) : r.type === 'note' ? (
                 <tr key={i}>
-                  <td colSpan={15} style={{ ...td, textAlign: 'left', borderTop: 'none', paddingTop: 0, color: 'var(--muted)', fontStyle: 'italic', fontSize: 11.5 }}>
+                  <td colSpan={16} style={{ ...td, textAlign: 'left', borderTop: 'none', paddingTop: 0, color: 'var(--muted)', fontStyle: 'italic', fontSize: 11.5 }}>
                     <Pencil size={10} style={{ marginRight: 5, verticalAlign: 'middle' }} />{r.text}
                   </td>
                 </tr>
@@ -477,6 +490,11 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                   <td style={{ ...td, fontWeight: 700 }}>{r.seg && byDate[r.ds]
                     ? (r.last ? hhmm(byDate[r.ds].workedMin) : '↓')
                     : ''}</td>
+                  <td style={{ ...td, textAlign: 'center' }}>
+                    {r.first !== false && (
+                      <WorkLogButton onClick={() => setWorkLogDay(r.ds)} title={`View the Work Log for ${dow(r.ds)}`} />
+                    )}
+                  </td>
                   <td style={td}>{r.seg?.regMin ? hhmm(r.seg.regMin) : '-'}</td>
                   <td style={{ ...td, color: r.seg?.otMin ? '#b45309' : 'var(--muted)', fontWeight: r.seg?.otMin ? 700 : 400 }}>{r.seg?.otMin ? hhmm(r.seg.otMin) : '-'}</td>
                   <td style={{ ...td, color: r.seg?.dtMin ? '#b91c1c' : 'var(--muted)', fontWeight: r.seg?.dtMin ? 700 : 400 }}>{r.seg?.dtMin ? hhmm(r.seg.dtMin) : '-'}</td>
@@ -504,6 +522,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                   <td style={td}></td>
                   <td style={td}>{hhmm(T.regMin + T.otMin + (T.dtMin || 0))}</td>
                   <td style={td}>{hhmm(T.regMin + T.otMin + (T.dtMin || 0))}</td>
+                  <td style={td}></td>
                   <td style={td}>{hhmm(T.regMin)}</td>
                   <td style={td}>{hhmm(T.otMin)}</td>
                   <td style={td}>{T.dtMin ? hhmm(T.dtMin) : '-'}</td>
@@ -638,6 +657,11 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       ]} />}
       <style>{`.pr-row:hover { background: var(--bg); } .pr-sidebar button:hover { background: var(--bg); }`}</style>
       </div>
+      {workLogDay && (
+        <WorkLogDrawer email={self ? myEmail : email} date={workLogDay}
+          name={self ? '' : (people.find(p => p.email === email)?.name || email)}
+          onClose={() => setWorkLogDay(null)} />
+      )}
     </div>
   );
 }
@@ -655,7 +679,7 @@ const t12s = (iso) => iso ? new Date(iso + 'Z').toLocaleTimeString([], { hour: '
 // Monthly card for a FIXED-salary employee. Same day grid + inline edit/add +
 // signatures as the hourly card, but the pay math is the fixed model: salary,
 // per-day present/half/absent/weekend status, deductions and weekend overtime.
-function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM, showRaw, setShowRaw, isAdmin, busy, setBusy, onPrev, onNext, onApprove, onFinalize, onUnfinalize, onSign, editDay, setEditDay, load, toastOk, toastErr }) {
+function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM, showRaw, setShowRaw, isAdmin, busy, setBusy, onPrev, onNext, onApprove, onFinalize, onUnfinalize, onSign, editDay, setEditDay, load, toastOk, toastErr, setWorkLogDay }) {
   const T = data.totals || {};
   const fin = data.finalized;
   const mgrAp = data.approval;
@@ -745,6 +769,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
           <thead>
             <tr style={{ background: 'var(--wk-hover)' }}>
               <th style={th}>Date</th><th style={th}>Day</th><th style={th}>In</th><th style={th}>Out</th>
+              <th title="What was planned, done, and left pending that day" style={{ ...th, textAlign: 'center' }}>Work Log</th>
               <th style={{ ...th, textAlign: 'right' }}>Hours</th><th style={{ ...th, textAlign: 'right' }}>Break</th><th style={{ ...th, textAlign: 'right' }}>Effect on pay</th>
             </tr>
           </thead>
@@ -839,6 +864,9 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
                         ? outCell(lastSeg)
                         : outCell(firstSeg)}
                   </td>
+                  <td style={{ ...td, textAlign: 'center' }}>
+                    <WorkLogButton onClick={() => setWorkLogDay(fd.date)} title={`View the Work Log for ${dow(fd.date)}`} />
+                  </td>
                   <td style={{ ...td, textAlign: 'right' }}>{segs.length ? hhmm(d.workedMin) : <span style={{ color: 'var(--muted)' }}>-</span>}</td>
                   {breakCell}
                   <td style={{ ...td, textAlign: 'right' }}>{effect(fd)}</td>
@@ -853,6 +881,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
                     <td style={{ ...td, color: 'var(--muted)', fontSize: 11 }}>Punch {si + 1}</td>
                     <td style={td}>{inCell(seg)}</td>
                     <td style={td}>{outCell(seg)}</td>
+                    <td style={td}></td>
                     <td style={{ ...td, textAlign: 'right', color: 'var(--muted)' }}>{hhmm(seg.workedMin)}</td>
                     <td style={td}></td>
                     <td style={td}></td>
@@ -862,7 +891,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
                   <tr key={fd.date + '-padd'} style={{ background: 'var(--wk-hover)' }}>
                     <td style={td}></td><td style={td}></td>
                     <td style={td} colSpan={2}>{addBtn}</td>
-                    <td style={td}></td><td style={td}></td><td style={td}></td>
+                    <td style={td}></td><td style={td}></td><td style={td}></td><td style={td}></td>
                   </tr>
                 );
               }
@@ -870,7 +899,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
               // ── Expanded: each break window (clock-out -> next clock-in + duration) ──
               if (breaksOpen && dayBreak > 0) rows.push(
                 <tr key={fd.date + '-br'} style={{ background: 'var(--wk-hover)' }}>
-                  <td colSpan={7} style={{ ...td, whiteSpace: 'normal', fontSize: 12 }}>
+                  <td colSpan={8} style={{ ...td, whiteSpace: 'normal', fontSize: 12 }}>
                     <span style={{ fontWeight: 700, color: breakFg, marginRight: 10 }}>Breaks - {hhmm(dayBreak)} {overBreak ? '(over the 60 min allowance)' : '(within 60 min)'}</span>
                     {breaks.map((b, i) => (
                       <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 999, padding: '2px 9px', margin: '2px 6px 2px 0', fontSize: 11.5 }}>
@@ -886,7 +915,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
               // ── Notes (reasons for changes) ──
               if (notes.length) rows.push(
                 <tr key={fd.date + '-notes'} style={{ background: rowBg }}>
-                  <td colSpan={7} style={{ ...td, borderTop: 'none', paddingTop: 0, color: 'var(--muted)', fontStyle: 'italic', fontSize: 11.5, whiteSpace: 'normal' }}>
+                  <td colSpan={8} style={{ ...td, borderTop: 'none', paddingTop: 0, color: 'var(--muted)', fontStyle: 'italic', fontSize: 11.5, whiteSpace: 'normal' }}>
                     <Pencil size={10} style={{ marginRight: 5, verticalAlign: 'middle' }} />{notes.join('  ·  ')}
                   </td>
                 </tr>
@@ -904,6 +933,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
                     <td style={td}>{r.action === 'add' && !isIn ? <span style={{ color: '#b45309', fontWeight: 700 }}>{t12(r.at)}</span> : <span style={{ color: 'var(--muted)' }}>-</span>}</td>
                     <td style={td}></td>
                     <td style={td}></td>
+                    <td style={td}></td>
                     <td style={{ ...td, textAlign: 'right' }}>
                       {!self
                         ? <span style={{ display: 'inline-flex', gap: 6, justifyContent: 'flex-end' }}>
@@ -916,7 +946,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
                 );
                 rows.push(
                   <tr key={fd.date + '-reqr-' + r.id} style={{ background: 'rgba(180,83,9,0.07)' }}>
-                    <td colSpan={7} style={{ ...td, borderTop: 'none', paddingTop: 0, color: '#b45309', fontSize: 11.5, whiteSpace: 'normal' }}>
+                    <td colSpan={8} style={{ ...td, borderTop: 'none', paddingTop: 0, color: '#b45309', fontSize: 11.5, whiteSpace: 'normal' }}>
                       <span style={{ fontWeight: 700 }}>{kindLabel}</span>{r.reason ? <span style={{ fontStyle: 'italic' }}> · {r.employeeName || 'Employee'}: “{r.reason}”</span> : ''}
                     </td>
                   </tr>

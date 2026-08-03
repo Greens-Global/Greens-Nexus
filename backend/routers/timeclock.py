@@ -3262,6 +3262,40 @@ def bod_template(kind: str = "bod", user: dict = Depends(get_current_user),
     return {"message": d["message"], "tasks": d["tasks"], "fromHistory": False}
 
 
+@router.get("/bod/day")
+def bod_for_day(email: str, date: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """One day's Work Log for the timesheet drawer: that day's BOD/EOD plus the
+    actual punch in/out time. Self always allowed (like viewing your own
+    timecard); anyone else requires the same team-visibility a timesheet
+    review already needs - a level-3+ manager sees only their direct reports,
+    a level-4+/HR-module holder sees everyone, a plain employee sees no one."""
+    target = (email or "").strip().lower()
+    if not target or not date:
+        raise HTTPException(400, "email and date are required")
+    if target != user["email"]:
+        visible = _visible_emails(db, user)
+        if visible is not None and target not in visible:
+            raise HTTPException(403, "You don't have timesheet access to that person.")
+
+    rows = (db.query(TimeBod)
+            .filter(TimeBod.employee_email == target, TimeBod.local_date == date,
+                    TimeBod.kind.in_(("bod", "eod")), TimeBod.message != "(sent outside Nexus)")
+            .all())
+    bod = next((r for r in rows if r.kind == "bod"), None)
+    eod = next((r for r in rows if r.kind == "eod"), None)
+
+    punches = (db.query(TimePunch)
+               .filter(TimePunch.employee_email == target, TimePunch.local_date == date,
+                       TimePunch.voided == 0, TimePunch.kind.in_(("in", "out")))
+               .order_by(TimePunch.at.asc()).all())
+    punch_in_at = next((p.at for p in punches if p.kind == "in"), "")
+    punch_out_at = next((p.at for p in reversed(punches) if p.kind == "out"), "")
+
+    ser = lambda r: {"message": r.message or "", "tasks": r.tasks or ""} if r else None
+    return {"email": target, "date": date, "bod": ser(bod), "eod": ser(eod),
+            "punchInAt": punch_in_at, "punchOutAt": punch_out_at}
+
+
 # ── Time off (leave requests inside the Time module) ─────────────────────────
 
 TIMEOFF_TYPES = ("vacation", "sick", "personal", "unpaid", "other")
