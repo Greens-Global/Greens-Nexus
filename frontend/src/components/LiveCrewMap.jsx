@@ -121,7 +121,8 @@ export default function LiveCrewMap({ toastErr, employees = [] }) {
 
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 260px', gap: 12, alignItems: 'start' }}>
         <div ref={mapElRef} style={{ width: '100%', height: 'min(68vh, 620px)', borderRadius: 12,
-          border: '1px solid var(--line)', overflow: 'hidden', background: 'var(--card)' }} />
+          border: '1px solid var(--line)', overflow: 'hidden', background: 'var(--card)',
+          position: 'relative', zIndex: 0 }} />
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 'min(68vh, 620px)', overflowY: 'auto' }}>
           {crew === null ? (

@@ -214,7 +214,10 @@ export default function Locations({ toastErr }) {
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 280px', gap: 12, alignItems: 'start' }}>
-        <div ref={mapElRef} style={{ width: '100%', height: 'clamp(460px, calc(100dvh - 205px), 1100px)', borderRadius: 12, border: '1px solid var(--line)', overflow: 'hidden', background: 'var(--card)' }} />
+        {/* position:relative + z-index:0 contains Leaflet's GPU-composited tiles in
+            their own stacking context, so they can't paint over modals (e.g. the
+            profile-menu Screenshots viewer at z-1450) opened above the map. */}
+        <div ref={mapElRef} style={{ width: '100%', height: 'clamp(460px, calc(100dvh - 205px), 1100px)', borderRadius: 12, border: '1px solid var(--line)', overflow: 'hidden', background: 'var(--card)', position: 'relative', zIndex: 0 }} />
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 'clamp(460px, calc(100dvh - 205px), 1100px)', overflowY: 'auto' }}>
           {people === null ? (
