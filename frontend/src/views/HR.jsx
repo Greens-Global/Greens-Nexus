@@ -6,7 +6,7 @@ import {
   ChevronLeft, Network, CalendarOff, UserPlus, Pencil, FileText,
   CheckCircle, XCircle, ChevronRight, History, CalendarDays, Camera,
   Building2, Trash2, MapPinned, Wallet, Landmark, Lock, Contact, Heart,
-  ShieldCheck, Shield, AlertTriangle, Clock, ArrowUpRight,
+  ShieldCheck, Shield, AlertTriangle, Clock, ArrowUpRight, Circle,
 } from 'lucide-react';
 import { api } from '../api';
 import { dialog } from '../ui/dialog';
@@ -22,6 +22,7 @@ import RolesAccess, { LevelPill, ModuleLevelPill, TierBadge } from './RolesAcces
 import { capabilityText } from '../lib/moduleCapabilities';
 import PersonHover from '../components/PersonHoverCard';
 import { takePendingPerson } from '../lib/personNav';
+import { pollWhileVisible } from '../lib/pollWhileVisible';
 
 // ── HR module - Phase 1: employee master + People directory ──────────────────
 // Hiring pipeline, org chart and leave land in later phases (tabs are stubs).
@@ -513,6 +514,149 @@ function AssetsSection({ employee }) {
           {checkouts.map(c => line(
             <History size={14} style={{ color: 'hsl(var(--color-orange))', flexShrink: 0 }} />,
             c.itemName, [c.itemType, c.status === 'pending_receipt' ? 'awaiting receipt' : 'checked out', c.days && `${c.days}d`].filter(Boolean).join(' · '), `c-${c.id}`))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// day.toISOString().slice(0,10) but in local time, not UTC - a UTC-based cut
+// would flip to the wrong calendar day for anyone west of Greenwich.
+function localIsoDate(d) {
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+}
+function lastWeekRange() {
+  const end = new Date();
+  const start = new Date();
+  start.setDate(end.getDate() - 6);
+  return [localIsoDate(start), localIsoDate(end)];
+}
+// TimePunch.at is a naive UTC ISO string (no trailing Z) - same convention as
+// TimeAdmin's localTime() - append it before handing to Date so the browser
+// doesn't misread it as already-local.
+const punchTime = (iso) => iso ? new Date(iso + 'Z').toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+
+// The composer's task list is free text (one item per line, optionally numbered
+// and/or prefixed "Pending: "), not a structured field - split it into rows
+// that read like the Tasks module's checklist rather than one dense caption.
+function parseTaskLines(tasks) {
+  return (tasks || '').split('\n').map(s => s.trim()).filter(Boolean).map(line => {
+    const pending = /^pending\s*:/i.test(line);
+    const text = line.replace(/^pending\s*:\s*/i, '').replace(/^\d+[.)]\s*/, '');
+    // "- done" can sit mid-sentence ("Client call - done, sending recap"), not
+    // just at the end, so match it anywhere rather than only as a trailing suffix.
+    const done = !pending && /-\s*done\b|\(done\)/i.test(text);
+    return { text: text.replace(/\s*-\s*done\b,?\s*/i, ' ').replace(/\s*\(done\)\s*/i, ' ').trim(), pending, done };
+  });
+}
+
+// kind: 'bod' items are a plan, not yet performed - they only ever show as
+// open (never a green check, even if the free text happens to say "done").
+// Only 'eod' items can be marked complete or pending.
+function TaskChecklist({ tasks, kind }) {
+  const items = parseTaskLines(tasks);
+  if (items.length === 0) return null;
+  return (
+    <div style={{ marginTop: 8, display: 'grid', gap: 5 }}>
+      {items.map((it, i) => {
+        const pending = kind === 'eod' && it.pending;
+        const done = kind === 'eod' && it.done;
+        return (
+          <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 7 }}>
+            {pending
+              ? <AlertTriangle size={14} style={{ color: 'hsl(var(--color-orange))', flexShrink: 0, marginTop: 1.5 }} />
+              : done
+                ? <CheckCircle size={14} style={{ color: 'hsl(var(--color-green))', flexShrink: 0, marginTop: 1.5 }} />
+                : <Circle size={14} style={{ color: 'var(--muted)', flexShrink: 0, marginTop: 1.5 }} />}
+            <span style={{ fontSize: 13, lineHeight: 1.4, color: pending ? 'hsl(var(--color-orange))' : 'var(--ink)', fontWeight: pending ? 600 : 400 }}>
+              {pending && <span style={{ fontWeight: 700, fontSize: 10.5, letterSpacing: '.04em', textTransform: 'uppercase', marginRight: 6 }}>Pending:</span>}
+              {it.text}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// Read-only log of a person's Beginning/End-of-day posts (Section: Time Clock's
+// BOD/EOD composer). Source of truth stays in timeclock.py's TimeBod table;
+// this only reads, newest first, so a manager doesn't have to scroll Teams to
+// see what someone said they'd do and what was left pending. Defaults to the
+// trailing week; the date filter pages back through older history. This is the
+// browse-history view; the timesheet's per-day Work Log icon (PayrollTimecard /
+// WorkLogDrawer) is the day-of-work-review view - both read the same data.
+function WorkLogsSection({ employee }) {
+  const [[start, end], setRange] = useState(lastWeekRange);
+  const [logs, setLogs] = useState(null);
+  const load = useCallback((quiet = false) => {
+    if (!quiet) setLogs(null);
+    api.getEmployeeBod(employee.id, start, end).then(r => setLogs(r.logs || []))
+      .catch(() => { if (!quiet) setLogs([]); });   // a failed background poll keeps the last good data on screen
+  }, [employee.id, start, end]);
+  useEffect(() => { load(); }, [load]);
+  // Live while viewing this range: a manager watching a report shouldn't have
+  // to reopen the tab to see a punch that just landed. Quiet refresh (keeps
+  // the current cards on screen) only while the range covers today, and only
+  // while the tab is actually visible - same pattern as TimeClock's own poll.
+  useEffect(() => {
+    const today = localIsoDate(new Date());
+    if (today < start || today > end) return undefined;
+    return pollWhileVisible(() => load(true), 15000);
+  }, [load, start, end]);
+
+  // Group the flat, newest-first list into one card per local_date.
+  const byDate = [];
+  for (const l of logs || []) {
+    let group = byDate.find(g => g.date === l.date);
+    if (!group) { group = { date: l.date, bod: null, eod: null }; byDate.push(group); }
+    group[l.kind] = l;
+  }
+
+  return (
+    <div style={{ marginTop: 18 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', color: 'var(--muted)', textTransform: 'uppercase', flex: 1 }}>
+          <Clock size={11} style={{ verticalAlign: 'middle', marginRight: 5 }} />Work logs (BOD/EOD)
+        </span>
+        <button className="secondary-btn" onClick={() => setRange(lastWeekRange())} style={{ fontSize: 11.5, padding: '4px 10px' }}>This week</button>
+        <input className="form-input" type="date" value={start} onChange={ev => setRange([ev.target.value, end])} style={{ fontSize: 12, width: 140 }} />
+        <span style={{ fontSize: 12, color: 'var(--muted)' }}>to</span>
+        <input className="form-input" type="date" value={end} onChange={ev => setRange([start, ev.target.value])} style={{ fontSize: 12, width: 140 }} />
+      </div>
+      {logs === null ? (
+        <SkeletonBlocks count={3} height={54} />
+      ) : byDate.length === 0 ? (
+        <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0' }}>
+          {!employee.workEmail ? 'No work email yet - work logs key off it.' : 'No work logs posted in this date range.'}
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gap: 8 }}>
+          {byDate.map(g => (
+            <div key={g.date} style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '11px 14px' }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)', marginBottom: 8 }}>{g.date}</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
+                {[['Beginning of day', g.bod, 'bod', 'Punched in'], ['End of day', g.eod, 'eod', 'Punched out']].map(([label, slot, kind, punchLabel]) => (
+                  <div key={label} style={{ background: 'var(--mist)', borderRadius: 10, padding: '9px 12px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                      <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em', flex: 1 }}>{label}</span>
+                      {slot?.punchAt && (
+                        <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--wk-brand, var(--ink))' }} title={`${punchLabel} at ${punchTime(slot.punchAt)}`}>
+                          {punchLabel} {punchTime(slot.punchAt)}
+                        </span>
+                      )}
+                    </div>
+                    {slot ? (<>
+                      <div style={{ fontSize: 12.5, color: 'var(--ink)', whiteSpace: 'pre-wrap' }}>{slot.message || <span style={{ color: 'var(--muted)' }}>(no message)</span>}</div>
+                      <TaskChecklist tasks={slot.tasks} kind={kind} />
+                    </>) : (
+                      <span style={{ fontSize: 12, color: 'var(--muted)' }}>-</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </div>
@@ -1282,6 +1426,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
     ['assets', 'Assets', Briefcase],
     ['documents', 'Documents', FileText],
     isAdmin && ['access', 'Access', Shield],
+    ['bod', 'Work Logs', Clock],
   ].filter(Boolean);
   const expiry = nextExpiry(e);
   return (
@@ -1453,6 +1598,8 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
         {tab === 'assets' && <AssetsSection employee={e} />}
 
         {tab === 'access' && isAdmin && <EmployeeAccess email={meEmail} identityType={e.identityType} toastOk={toastOk} toastErr={toastErr} onChanged={onEmployeeUpdated} />}
+
+        {tab === 'bod' && <WorkLogsSection employee={e} />}
 
         {tab === 'documents' && (
           <>
