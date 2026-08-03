@@ -1987,6 +1987,32 @@ def employee_assets(eid: str, user: dict = Depends(require_hr_read), db: Session
 
 
 # ---------------------------------------------------------------------------
+# HR Section: Beginning/End-of-day log on the People profile. HR-gated so an
+# HR user can see it without a Time-module grant. Source of truth stays in
+# timeclock.py (TimeBod); this only reads.
+# ---------------------------------------------------------------------------
+from models import TimeBod
+
+
+@router.get("/employees/{eid}/bod")
+def employee_bod_log(eid: str, user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    emp = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
+    if not emp:
+        raise HTTPException(404, "Employee not found")
+    email = (emp.work_email or "").strip().lower()
+    if not email:
+        return {"logs": []}
+    rows = (db.query(TimeBod)
+            .filter(TimeBod.employee_email == email, TimeBod.kind.in_(("bod", "eod")),
+                    TimeBod.message != "(sent outside Nexus)")
+            .order_by(TimeBod.created_at.desc()).limit(60).all())
+    return {"logs": [{
+        "id": r.id, "kind": r.kind, "date": r.local_date,
+        "message": r.message or "", "tasks": r.tasks or "", "at": r.created_at,
+    } for r in rows]}
+
+
+# ---------------------------------------------------------------------------
 # HR Section B6 - inline status change with reason + effective date (audited)
 # ---------------------------------------------------------------------------
 class StatusChangeIn(BaseModel):

@@ -3216,48 +3216,9 @@ def record_bod(body: BodIn, user: dict = Depends(get_current_user), db: Session 
                 existing.read_by = ""   # a fresh EOD reopens a bell the manager already read
             else:
                 _hr_notify(db, emp.manager_email, f"Beginning/End of day - {name}", body_text,
-                           ref_id=ref_id, action={"view": "hr", "sub": "hr-time"})
+                           ref_id=ref_id, action={"view": "hr", "sub": "hr-people"})
     db.commit()
     return {"ok": True, "id": row.id}
-
-
-@router.get("/bod/team")
-def team_bod(date: str = "", user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
-    """Manager-scoped BOD/EOD report: just the message + tasks each visible
-    employee posted for the day (never the surrounding Teams chat), plus who
-    hasn't posted at all - the thing a manager actually can't get from Teams."""
-    visible = _visible_emails(db, user)   # None = whole company (admin/HR grant)
-    day = date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    q = db.query(TimeBod).filter(TimeBod.local_date == day, TimeBod.kind.in_(("bod", "eod")),
-                                  TimeBod.message != "(sent outside Nexus)")
-    if visible is not None:
-        if not visible:
-            return {"date": day, "people": []}
-        q = q.filter(TimeBod.employee_email.in_(visible))
-    rows = q.order_by(TimeBod.created_at.asc()).all()
-
-    by_email = {}
-    for r in rows:
-        slot = by_email.setdefault(r.employee_email, {"bod": None, "eod": None})
-        slot[r.kind] = {"message": r.message or "", "tasks": r.tasks or "", "at": r.created_at}
-
-    emp_q = db.query(NexusEmployee)
-    if visible is not None:
-        emp_q = emp_q.filter(NexusEmployee.work_email.in_(visible))
-    people = []
-    for e in emp_q.all():
-        if not e.work_email:
-            continue
-        slot = by_email.pop(e.work_email, {"bod": None, "eod": None})
-        people.append({"email": e.work_email,
-                       "name": f"{e.first_name} {e.last_name}".strip() or e.work_email,
-                       "bod": slot["bod"], "eod": slot["eod"]})
-    # Anyone with a post but no matching NexusEmployee row (edge case) still shows up.
-    for email, slot in by_email.items():
-        people.append({"email": email, "name": email, "bod": slot["bod"], "eod": slot["eod"]})
-
-    people.sort(key=lambda p: p["name"])
-    return {"date": day, "people": people}
 
 
 @router.get("/bod/last")

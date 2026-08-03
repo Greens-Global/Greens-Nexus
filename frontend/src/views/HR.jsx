@@ -519,6 +519,63 @@ function AssetsSection({ employee }) {
   );
 }
 
+// Read-only log of a person's Beginning/End-of-day posts (Section: Time Clock's
+// BOD/EOD composer). Source of truth stays in timeclock.py's TimeBod table;
+// this only reads, newest first, so a manager doesn't have to scroll Teams to
+// see what someone said they'd do and what was left pending.
+function BodLogSection({ employee }) {
+  const [logs, setLogs] = useState(null);
+  useEffect(() => { api.getEmployeeBod(employee.id).then(r => setLogs(r.logs || [])).catch(() => setLogs([])); }, [employee.id]);
+
+  // Group the flat, newest-first list into one card per local_date.
+  const byDate = [];
+  for (const l of logs || []) {
+    let group = byDate.find(g => g.date === l.date);
+    if (!group) { group = { date: l.date, bod: null, eod: null }; byDate.push(group); }
+    group[l.kind] = l;
+  }
+
+  return (
+    <div style={{ marginTop: 18 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', color: 'var(--muted)', textTransform: 'uppercase', marginBottom: 8 }}>
+        <Clock size={11} style={{ verticalAlign: 'middle', marginRight: 5 }} />Beginning / end of day
+      </div>
+      {logs === null ? (
+        <SkeletonBlocks count={3} height={54} />
+      ) : byDate.length === 0 ? (
+        <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0' }}>
+          {employee.workEmail ? 'No BOD/EOD posts yet.' : 'No work email yet - BOD/EOD posts key off it.'}
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gap: 8 }}>
+          {byDate.map(g => (
+            <div key={g.date} style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '11px 14px' }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)', marginBottom: 8 }}>{g.date}</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
+                {[['Beginning of day', g.bod], ['End of day', g.eod]].map(([label, slot]) => (
+                  <div key={label} style={{ background: 'var(--mist)', borderRadius: 10, padding: '9px 12px' }}>
+                    <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 4 }}>{label}</div>
+                    {slot ? (<>
+                      <div style={{ fontSize: 12.5, color: 'var(--ink)', whiteSpace: 'pre-wrap' }}>{slot.message || <span style={{ color: 'var(--muted)' }}>(no message)</span>}</div>
+                      {slot.tasks && (
+                        <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 6, whiteSpace: 'pre-wrap' }}>
+                          <strong style={{ color: 'var(--ink)' }}>Tasks: </strong>{slot.tasks}
+                        </div>
+                      )}
+                    </>) : (
+                      <span style={{ fontSize: 12, color: 'var(--muted)' }}>-</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function DocumentsSection({ employeeId, toastOk, toastErr }) {
   const [docs, setDocs] = useState(null);
   const [kind, setKind] = useState('other');
@@ -1282,6 +1339,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
     ['assets', 'Assets', Briefcase],
     ['documents', 'Documents', FileText],
     isAdmin && ['access', 'Access', Shield],
+    ['bod', 'BOD/EOD', Clock],
   ].filter(Boolean);
   const expiry = nextExpiry(e);
   return (
@@ -1453,6 +1511,8 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
         {tab === 'assets' && <AssetsSection employee={e} />}
 
         {tab === 'access' && isAdmin && <EmployeeAccess email={meEmail} identityType={e.identityType} toastOk={toastOk} toastErr={toastErr} onChanged={onEmployeeUpdated} />}
+
+        {tab === 'bod' && <BodLogSection employee={e} />}
 
         {tab === 'documents' && (
           <>
