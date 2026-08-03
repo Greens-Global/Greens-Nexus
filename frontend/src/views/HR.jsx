@@ -519,13 +519,30 @@ function AssetsSection({ employee }) {
   );
 }
 
+// day.toISOString().slice(0,10) but in local time, not UTC - a UTC-based cut
+// would flip to the wrong calendar day for anyone west of Greenwich.
+function localIsoDate(d) {
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+}
+function lastWeekRange() {
+  const end = new Date();
+  const start = new Date();
+  start.setDate(end.getDate() - 6);
+  return [localIsoDate(start), localIsoDate(end)];
+}
+
 // Read-only log of a person's Beginning/End-of-day posts (Section: Time Clock's
 // BOD/EOD composer). Source of truth stays in timeclock.py's TimeBod table;
 // this only reads, newest first, so a manager doesn't have to scroll Teams to
-// see what someone said they'd do and what was left pending.
-function BodLogSection({ employee }) {
+// see what someone said they'd do and what was left pending. Defaults to the
+// trailing week; the date filter pages back through older history.
+function WorkLogsSection({ employee }) {
+  const [[start, end], setRange] = useState(lastWeekRange);
   const [logs, setLogs] = useState(null);
-  useEffect(() => { api.getEmployeeBod(employee.id).then(r => setLogs(r.logs || [])).catch(() => setLogs([])); }, [employee.id]);
+  useEffect(() => {
+    setLogs(null);
+    api.getEmployeeBod(employee.id, start, end).then(r => setLogs(r.logs || [])).catch(() => setLogs([]));
+  }, [employee.id, start, end]);
 
   // Group the flat, newest-first list into one card per local_date.
   const byDate = [];
@@ -537,14 +554,20 @@ function BodLogSection({ employee }) {
 
   return (
     <div style={{ marginTop: 18 }}>
-      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', color: 'var(--muted)', textTransform: 'uppercase', marginBottom: 8 }}>
-        <Clock size={11} style={{ verticalAlign: 'middle', marginRight: 5 }} />Beginning / end of day
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', color: 'var(--muted)', textTransform: 'uppercase', flex: 1 }}>
+          <Clock size={11} style={{ verticalAlign: 'middle', marginRight: 5 }} />Work logs (BOD/EOD)
+        </span>
+        <button className="secondary-btn" onClick={() => setRange(lastWeekRange())} style={{ fontSize: 11.5, padding: '4px 10px' }}>This week</button>
+        <input className="form-input" type="date" value={start} onChange={ev => setRange([ev.target.value, end])} style={{ fontSize: 12, width: 140 }} />
+        <span style={{ fontSize: 12, color: 'var(--muted)' }}>to</span>
+        <input className="form-input" type="date" value={end} onChange={ev => setRange([start, ev.target.value])} style={{ fontSize: 12, width: 140 }} />
       </div>
       {logs === null ? (
         <SkeletonBlocks count={3} height={54} />
       ) : byDate.length === 0 ? (
         <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0' }}>
-          {employee.workEmail ? 'No BOD/EOD posts yet.' : 'No work email yet - BOD/EOD posts key off it.'}
+          {!employee.workEmail ? 'No work email yet - work logs key off it.' : 'No work logs posted in this date range.'}
         </div>
       ) : (
         <div style={{ display: 'grid', gap: 8 }}>
@@ -1339,7 +1362,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
     ['assets', 'Assets', Briefcase],
     ['documents', 'Documents', FileText],
     isAdmin && ['access', 'Access', Shield],
-    ['bod', 'BOD/EOD', Clock],
+    ['bod', 'Work Logs', Clock],
   ].filter(Boolean);
   const expiry = nextExpiry(e);
   return (
@@ -1512,7 +1535,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
 
         {tab === 'access' && isAdmin && <EmployeeAccess email={meEmail} identityType={e.identityType} toastOk={toastOk} toastErr={toastErr} onChanged={onEmployeeUpdated} />}
 
-        {tab === 'bod' && <BodLogSection employee={e} />}
+        {tab === 'bod' && <WorkLogsSection employee={e} />}
 
         {tab === 'documents' && (
           <>
