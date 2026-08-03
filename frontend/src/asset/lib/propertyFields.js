@@ -109,22 +109,27 @@ export const PT = [
   {
     group: 'Insurance',
     fields: [
-      { label: 'Carrier' },
-      { label: 'Policy Number' },
+      // keys mirror the modal's flat insurance fields so they reflect here too
+      // (same defect as Property Tax). Coverage has no modal field -> snapshot-only.
+      { label: 'Carrier', key: 'insCarrier' },
+      { label: 'Policy Number', key: 'insPolicy' },
       { label: 'Coverage' },
-      { label: 'Policy Expiration', type: 'date' },
-      { label: 'Agent / Broker' },
-      { label: 'Agent Phone' },
+      { label: 'Policy Expiration', type: 'date', key: 'insExpiration' },
+      { label: 'Agent / Broker', key: 'insAgent' },
+      { label: 'Agent Phone', key: 'insPhone' },
     ],
   },
   {
     group: 'Property Tax',
     fields: [
-      { label: 'Tax / Parcel Account' },
+      // keys mirror the Add/Edit Asset modal's flat fields (taxId/taxAnnual/taxDue)
+      // so tax entered in the modal reflects here. Assessed Value + Tax Rate have no
+      // modal field, so they stay snapshot-only.
+      { label: 'Tax / Parcel Account', key: 'taxId' },
       { label: 'Assessed Value', type: 'money' },
-      { label: 'Annual Tax', type: 'money' },
+      { label: 'Annual Tax', type: 'money', key: 'taxAnnual' },
       { label: 'Tax Rate' },
-      { label: 'Due Dates', type: 'dates' },
+      { label: 'Due Dates', type: 'dates', key: 'taxDue' },
     ],
   },
   {
