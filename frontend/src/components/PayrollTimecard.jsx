@@ -90,17 +90,21 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
     api.timeTeamExceptions(start, end).then(r => setExceptions(r || [])).catch(() => setExceptions([]));
   }, [self, start, end]);
 
+  // Clear the card when the TARGET changes (employee or period) so a switch shows the
+  // loader, never the previous target's card - or, critically, the wrong pay-type
+  // shell for a frame. A manual refetch after a mutation keeps the current card
+  // (no blink, the HR sidebar stays put).
+  useEffect(() => { setData(null); }, [self, email, start, end]);
+
   const load = useCallback(() => {
     if (self) {
       // Employee's own timecard - same shape as the HR card, no step-up needed for
       // one's own pay (like a payslip). /my-payroll keys off the period start.
-      setData(null);
       api.timeMyPayroll(start).then(d => { setStepLocked(false); setData(d); setRateInput(d.rateSet ? String(d.rate) : ''); setRuleInput(d.overtimeRule || 'ca'); })
         .catch(e => { setData(null); toastErr?.(e?.message || 'Could not load your timecard.'); });
       return;
     }
     if (!email) return;
-    setData(null);
     api.timePayroll(email, start, end).then(d => { setStepLocked(false); setData(d); setRateInput(d.rateSet ? String(d.rate) : ''); setRuleInput(d.overtimeRule || 'ca'); })
       .catch(e => {
         // Payroll shows $ - the backend requires a fresh step-up MFA. Show the
@@ -119,11 +123,6 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   // bi-weekly Sunday (which can fall in the previous month). On the first fixed
   // load, snap to the CURRENT month so they don't open on last month by default.
   const fixedSnapped = useRef(false);
-  // Remember a fixed employee across reloads: a month switch nulls `data` briefly,
-  // and without this the render would fall back to the hourly bi-weekly shell for a
-  // frame (the "15/10 - 28/10" flash) before the month card loads.
-  const [wasFixed, setWasFixed] = useState(false);   // state, not a ref, so render can read it
-  useEffect(() => { if (data) setWasFixed(data.payType === 'fixed'); }, [data]);
   useEffect(() => {
     if (!data || data.payType !== 'fixed' || fixedSnapped.current) return;
     fixedSnapped.current = true;
@@ -290,13 +289,20 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       </div>
     );
   }
-  // A known fixed employee is mid-reload (switching months): show a clean loader
-  // instead of the hourly bi-weekly toolbar, so the header never flashes the wrong
-  // period between months.
-  if (wasFixed && data === null && !stepLocked) {
-    return (
+  // Loading (first open, or switching employee/period): a neutral loader so the card
+  // never flashes the wrong pay-type shell (the hourly bi-weekly toolbar + $0.00)
+  // before the data reveals whether this employee is hourly or salaried. The HR
+  // sidebar stays so switching employees doesn't rearrange the screen.
+  if (data === null && !stepLocked) {
+    const spinner = (
       <div style={{ fontFamily: 'var(--wk-font)', padding: '52px 0', textAlign: 'center', color: 'var(--muted)' }}>
         <Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} />
+      </div>
+    );
+    return self ? spinner : (
+      <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start', fontFamily: 'var(--wk-font)' }}>
+        {employeeSidebar}
+        <div style={{ flex: 1, minWidth: 0 }}>{spinner}</div>
       </div>
     );
   }
