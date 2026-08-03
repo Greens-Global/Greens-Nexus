@@ -1442,8 +1442,11 @@ function ActivityTab({ store }) {
                   : <span style={{ ...iconBadge, width: 28, height: 28, color: NX.dim }}><Icon size={14} /></span>}
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 13, color: NX.ink }}>
-                    <span style={{ fontWeight: 700 }}>{actor}</span> {e.detail || humanize(e.type)}{' '}
-                    {e.entityCode && <span style={{ fontWeight: 700, color: NX.blue }}>{e.entityCode}</span>}
+                    {/* entityCode is still recorded on the row, just not shown -
+                        task numbers are hidden everywhere in this module now.
+                        The line below carries entityTitle, which identifies the
+                        task to a human better than a code did anyway. */}
+                    <span style={{ fontWeight: 700 }}>{actor}</span> {e.detail || humanize(e.type)}
                   </div>
                   {e.entityTitle && <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.entityTitle}</div>}
                 </div>
@@ -1512,9 +1515,8 @@ function ReportingTab({ store }) {
   const byProject = (projects || []).map((p) => ({ label: p.name, value: list.filter((t) => t.projectId === p.id).length, color: colorForKey(p.id) }));
 
   const exportCsv = () => {
-    const headers = ['Code', 'Title', 'Status', 'Priority', 'Assignee', 'Project', 'Due'];
+    const headers = ['Title', 'Status', 'Priority', 'Assignee', 'Project', 'Due'];
     const rows = list.map((t) => [
-      t.code || '',
       t.title || '',
       store.statusMeta[t.status]?.label || t.status || '',
       PRIORITY_META[t.priority]?.label || t.priority || '',

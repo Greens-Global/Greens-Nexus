@@ -279,7 +279,7 @@ function TaskRow({ t, store, selected, toggleSel, onOpen }) {
       </button>
       <div style={{ minWidth: 0 }}>
         <div style={{ fontSize: 14, fontWeight: 500, color: NX.ink, textDecoration: t.completed ? 'line-through' : 'none', opacity: t.completed ? 0.6 : 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title}</div>
-        <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 1 }}>{t.code}{t.projectId ? ` · ${projectName(t.projectId)}` : ''}</div>
+        {t.projectId && <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 1 }}>{projectName(t.projectId)}</div>}
       </div>
       {t.assigneeId ? <Avatar email={t.assigneeId} name={nameOf(t.assigneeId)} size={24} /> : <span style={{ width: 24 }} />}
       <PriorityChip priority={t.priority} />

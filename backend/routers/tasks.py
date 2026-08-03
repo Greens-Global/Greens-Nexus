@@ -214,6 +214,168 @@ def _get_task(db: Session, task_id: str) -> models.Task:
     return t
 
 
+# ── Field validation ─────────────────────────────────────────────────────────
+# Everything below rejects input the API used to store verbatim. Found by a QA
+# audit (Aug 2026); each case had a real downstream effect rather than being
+# merely untidy - see the individual notes.
+#
+# Only fields PRESENT in the payload are checked, so a task already holding a
+# bad value from before this existed can still be patched on other fields
+# instead of becoming uneditable.
+BUILTIN_STATUSES = {"not_started", "in_progress", "completed", "recurring"}
+PRIORITIES = {"urgent", "high", "medium", "low"}
+# Deliberately permissive - the job is to catch "not-an-address-at-all", not to
+# adjudicate RFC 5322.
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+_MAX_DEPENDENCY_WALK = 10_000   # cycle walks are bounded by `seen`; this is belt-and-braces
+
+
+def _valid_statuses(db: Session) -> set:
+    """Built-ins plus whatever custom statuses the workspace defines. Board and
+    list views GROUP by status, so an unknown value silently creates a phantom
+    column and misses every statusMeta lookup."""
+    custom = {s.id for s in db.query(models.TaskCustomStatus).all()}
+    return BUILTIN_STATUSES | custom
+
+
+def _check_iso_date(value, field: str) -> None:
+    """due_on/start_on are plain YYYY-MM-DD strings. A malformed one used to be
+    stored happily, and the due-date reminder scan parses with
+    date.fromisoformat inside a try/except that CONTINUES on failure - so a
+    typo'd date silently disabled reminders for that task forever."""
+    if value in ("", None):
+        return
+    try:
+        date.fromisoformat(str(value)[:10])
+    except ValueError:
+        raise HTTPException(422, f"{field} must be a date in YYYY-MM-DD format (got {value!r}).")
+
+
+def _walk_reaches(db: Session, start_ids: list, target_id: str, column) -> bool:
+    """True if following `column` (a list-of-ids field) from any of start_ids
+    reaches target_id. Used for both the parent chain and the dependency graph;
+    `seen` makes it terminate even on data that is already cyclic."""
+    seen, stack, steps = set(), [i for i in (start_ids or []) if i], 0
+    while stack and steps < _MAX_DEPENDENCY_WALK:
+        steps += 1
+        cur = stack.pop()
+        if cur == target_id:
+            return True
+        if cur in seen:
+            continue
+        seen.add(cur)
+        row = db.query(column).filter(models.Task.id == cur).first()
+        nxt = row[0] if row else None
+        if isinstance(nxt, list):
+            stack.extend(i for i in nxt if i)
+        elif nxt:
+            stack.append(nxt)
+    return False
+
+
+def validate_task_payload(db: Session, data: dict, task_id: str = "") -> dict:
+    """Validate + normalize a create/update/bulk payload in place. Returns the
+    same dict so callers can use it directly."""
+    if "title" in data and not str(data["title"] or "").strip():
+        raise HTTPException(422, "Title is required.")
+
+    if "status" in data and data["status"] is not None:
+        allowed = _valid_statuses(db)
+        if data["status"] not in allowed:
+            raise HTTPException(422, f"Unknown status {data['status']!r}.")
+
+    if "priority" in data and data["priority"] is not None and data["priority"] not in PRIORITIES:
+        raise HTTPException(422, f"Unknown priority {data['priority']!r}. "
+                                 f"Expected one of: {', '.join(sorted(PRIORITIES))}.")
+
+    for field in ("due_on", "start_on"):
+        if field in data:
+            _check_iso_date(data[field], field)
+
+    # Negative hours silently REDUCE a person's apparent load in the Workload
+    # rollup, which sums estimate/actual per assignee.
+    for field in ("estimate_hours", "actual_hours"):
+        if field in data and data[field] is not None:
+            try:
+                if float(data[field]) < 0:
+                    raise HTTPException(422, f"{field} cannot be negative.")
+            except (TypeError, ValueError):
+                raise HTTPException(422, f"{field} must be a number.")
+
+    # Normalize rather than reject: blank/duplicate entries are a UI slip, not
+    # something worth failing a save over. Blank tags rendered as empty pills and
+    # duplicates appeared twice in the filter list; duplicate collaborators drew
+    # the same avatar repeatedly.
+    if "tags" in data and isinstance(data["tags"], list):
+        seen, out = set(), []
+        for tag in data["tags"]:
+            v = str(tag or "").strip()
+            if v and v.lower() not in seen:
+                seen.add(v.lower())
+                out.append(v)
+        data["tags"] = out
+
+    for field in ("follower_emails", "liked_by_emails"):
+        if field in data and isinstance(data[field], list):
+            seen, out = set(), []
+            for em in data[field]:
+                v = str(em or "").strip().lower()
+                if not v or v in seen:
+                    continue
+                # A collaborator is a person, and every downstream use assumes an
+                # address: the notification fan-out mails it and the avatar
+                # derives initials from it. A non-address just silently never
+                # gets notified.
+                if not _EMAIL_RE.match(v):
+                    raise HTTPException(422, f"{v!r} is not a valid email address.")
+                seen.add(v)
+                out.append(v)
+            data[field] = out
+
+    # ── structural cycles ────────────────────────────────────────────────
+    # A task that is its own parent disappears from the UI entirely: topLevel()
+    # drops anything with a parentTaskId, and its "parent" is itself, so it
+    # never nests under anything either.
+    if task_id and data.get("parent_task_id"):
+        parent = data["parent_task_id"]
+        if parent == task_id:
+            raise HTTPException(422, "A task cannot be its own parent.")
+        if _walk_reaches(db, [parent], task_id, models.Task.parent_task_id):
+            raise HTTPException(422, "That parent would create a circular subtask chain.")
+
+    # A dependency cycle is worse than untidy: _check_dependency_gate refuses
+    # completion while a blocker is open, so two tasks blocking each other can
+    # NEVER be completed by anyone.
+    if task_id and data.get("blocked_by_ids"):
+        ids = [i for i in data["blocked_by_ids"] if i]
+        if task_id in ids:
+            raise HTTPException(422, "A task cannot block itself.")
+        _require_tasks_exist(db, ids)
+        if _walk_reaches(db, ids, task_id, models.Task.blocked_by_ids):
+            raise HTTPException(422, "That dependency would create a circular chain, "
+                                     "leaving both tasks permanently uncompletable.")
+
+    if task_id and data.get("blocking_ids"):
+        ids = [i for i in data["blocking_ids"] if i]
+        if task_id in ids:
+            raise HTTPException(422, "A task cannot block itself.")
+        _require_tasks_exist(db, ids)
+        if _walk_reaches(db, ids, task_id, models.Task.blocking_ids):
+            raise HTTPException(422, "That dependency would create a circular chain.")
+
+    return data
+
+
+def _require_tasks_exist(db: Session, ids: list) -> None:
+    """A dependency on an id that doesn't resolve is invisible: the drawer's
+    blockedBy lookup silently drops it and the completion gate ignores it, so
+    the task LOOKS blocked in the payload while behaving as if it isn't."""
+    found = {r[0] for r in db.query(models.Task.id).filter(models.Task.id.in_(ids)).all()}
+    missing = [i for i in ids if i not in found]
+    if missing:
+        raise HTTPException(422, f"Unknown task id(s): {', '.join(missing[:5])}.")
+
+
 def _check_dependency_gate(db: Session, t: models.Task, prev_status: str, prev_completed: bool,
                             new_status: str, new_completed: bool) -> None:
     """Enforce blockedBy relationship types before a status/completion change lands.
@@ -235,7 +397,10 @@ def _check_dependency_gate(db: Session, t: models.Task, prev_status: str, prev_c
         dep_type = dep_types.get(blocker_id, "FS")
         blocker_started = blocker.status != "not_started" or blocker.completed
         blocker_completed = bool(blocker.completed)
-        name = blocker.code or blocker.title
+        # Title, never the code: task numbers are not shown anywhere in the
+        # module, so "Blocked by TASK-1983" would name something the reader
+        # has no way to find.
+        name = blocker.title or "another task"
         if dep_type == "FS" and (starting_now or completing_now) and not blocker_completed:
             raise HTTPException(400, f"Blocked by {name}: finish it before starting or completing this task (Finish → Start).")
         if dep_type == "SS" and starting_now and not blocker_started:
@@ -395,12 +560,12 @@ def _spawn_next_occurrence(db: Session, t: models.Task, user: dict) -> Optional[
     db.add(nxt)
     aid = log_activity(db, type="created", actor_email=user["email"], entity_id=nid,
                        entity_code=nxt.code, entity_title=nxt.title,
-                       detail=f"recurring occurrence generated from {t.code}")
+                       detail=f"recurring occurrence generated from {t.title}")
     nxt.activity_ids = [aid]
     if nxt.assignee_email and nxt.assignee_email != user["email"].lower():
         task_notify(db, kind="task_assigned", for_email=nxt.assignee_email,
                     title="Recurring task due",
-                    body=f"{nxt.code} · {nxt.title} (due {next_due})", task_id=nid,
+                    body=f"{nxt.title} (due {next_due})", task_id=nid,
                     nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
     return nxt
 
@@ -456,6 +621,9 @@ def create_task(body: TaskCreate, background_tasks: BackgroundTasks,
         if parent:
             project = project_for_task(db, parent)
     require_project_role(db, user, project, "editor")
+    # Normalizes tags/followers in place too, so the row is written clean rather
+    # than needing a later PATCH to tidy it.
+    validate_task_payload(db, body.__dict__, task_id=tid)
     access_level = body.access_level or (project.access_level if project else None) or "org"
     t = models.Task(
         id=tid,
@@ -505,7 +673,7 @@ def create_task(body: TaskCreate, background_tasks: BackgroundTasks,
     if t.assignee_email and t.assignee_email != user["email"].lower():
         task_notify(db, kind="task_assigned", for_email=t.assignee_email,
                     title="You were assigned a task",
-                    body=f"{t.code} · {t.title}", task_id=tid,
+                    body=f"{t.title}", task_id=tid,
                     nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
     db.commit()
     db.refresh(t)
@@ -526,6 +694,7 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
     t = _get_task(db, task_id)
     require_project_role(db, user, project_for_task(db, t), "editor")
     data = upd.model_dump(exclude_unset=True)
+    validate_task_payload(db, data, task_id=task_id)
     if "custom_field_values" in data:
         data["custom_field_values"] = coerce_custom_field_values(db, data["custom_field_values"])
     prev_assignee = (t.assignee_email or "").lower()
@@ -584,7 +753,7 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
         if new_assignee and new_assignee != user["email"].lower():
             task_notify(db, kind="task_assigned", for_email=new_assignee,
                         title="You were assigned a task",
-                        body=f"{t.code} · {t.title}", task_id=t.id,
+                        body=f"{t.title}", task_id=t.id,
                         nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
     if t.completed and not prev_completed:
         acts.append(log_activity(db, type="completed", actor_email=user["email"],
@@ -693,13 +862,27 @@ _BULK_ALLOWED = {"status", "priority", "assignee_email", "team_id", "project_id"
 @router.post("/bulk")
 def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     patch = {k: v for k, v in (body.patch or {}).items() if k in _BULK_ALLOWED}
+    # Same validation update_task applies. Without it bulk was a way around it:
+    # an arbitrary status set here still created a phantom board column.
+    validate_task_payload(db, patch)
     rows = db.query(models.Task).filter(models.Task.id.in_(body.ids)).all()
+    # Same editor requirement update_task enforces per task. Without this, bulk
+    # was a straight bypass of it: _BULK_ALLOWED covers assignee, project,
+    # completed and due date, so anyone who could merely VIEW a task could
+    # reassign or close it by routing through here instead of PATCH.
+    # All-or-nothing on purpose - a partial apply would leave the caller with no
+    # way to tell which ids were silently skipped.
+    for t in rows:
+        require_project_role(db, user, project_for_task(db, t), "editor")
     if "status" in patch or "completed" in patch:
         for t in rows:
             prev_status, prev_completed = t.status, bool(t.completed)
             new_status = patch.get("status", prev_status)
             new_completed = bool(patch.get("completed", prev_completed)) or (patch.get("status") == "completed")
             _check_dependency_gate(db, t, prev_status, prev_completed, new_status, new_completed)
+    # Captured before the patch lands so the activity entries below can say what
+    # actually changed rather than restating the new value for every row.
+    before = {t.id: (t.status, bool(t.completed), (t.assignee_email or "").lower()) for t in rows}
     for t in rows:
         for k, v in patch.items():
             if k == "assignee_email":
@@ -712,6 +895,54 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
                 continue
             setattr(t, k, v)
         t.modified_at = now_iso()
+
+    # Activity + notifications. Bulk previously did NEITHER: reassigning fifty
+    # tasks told nobody and left no audit trail, while the same edit made one at
+    # a time through PATCH did both.
+    #
+    # Activity is per task (it's an audit trail - one row per thing that
+    # changed), but the bell notification is AGGREGATED per person: fifty
+    # separate "you were assigned a task" pings for one action is the failure
+    # mode CLAUDE.md warns about ("one notification per workflow, never one per
+    # item"). Email is deliberately not sent from here at all - see below.
+    actor = (user["email"] or "").lower()
+    newly_assigned: dict[str, list] = {}
+    for t in rows:
+        prev_status, prev_completed, prev_assignee = before[t.id]
+        acts = list(t.activity_ids or [])
+        if "status" in patch and t.status != prev_status:
+            acts.append(log_activity(db, type="status_changed", actor_email=user["email"],
+                                     entity_id=t.id, entity_code=t.code, entity_title=t.title,
+                                     detail=f"changed status to {t.status}"))
+        now_assignee = (t.assignee_email or "").lower()
+        if "assignee_email" in patch and now_assignee != prev_assignee:
+            acts.append(log_activity(db, type="assignee_changed", actor_email=user["email"],
+                                     entity_id=t.id, entity_code=t.code, entity_title=t.title,
+                                     detail="reassigned this task"))
+            if now_assignee and now_assignee != actor:
+                newly_assigned.setdefault(now_assignee, []).append(t)
+        if t.completed and not prev_completed:
+            acts.append(log_activity(db, type="completed", actor_email=user["email"],
+                                     entity_id=t.id, entity_code=t.code, entity_title=t.title,
+                                     detail="completed this task"))
+        t.activity_ids = acts
+
+    for email, assigned in newly_assigned.items():
+        # One task through bulk is the same action as one through PATCH, so it
+        # reads identically; more than one collapses into a single ping.
+        if len(assigned) == 1:
+            one = assigned[0]
+            task_notify(db, kind="task_assigned", for_email=email,
+                        title="You were assigned a task",
+                        body=f"{one.title}", task_id=one.id,
+                        nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
+        else:
+            task_notify(db, kind="task_assigned", for_email=email,
+                        title=f"You were assigned {len(assigned)} tasks",
+                        body=", ".join(t.title or "Untitled task" for t in assigned[:5])
+                             + (f" and {len(assigned) - 5} more" if len(assigned) > 5 else ""),
+                        nexus_action={"view": "tasks", "sub": "mine", "label": "View tasks"})
+
     db.commit()
     fire_task_event("", "bulk")
     return [task_to_dict(t) for t in rows]
@@ -758,7 +989,7 @@ def add_comment(task_id: str, body: CommentCreate, background_tasks: BackgroundT
         for who in set([(t.assignee_email or "").lower(), *[(e or "").lower() for e in (t.follower_emails or [])]]):
             if who and who != author:
                 task_notify(db, kind="task_activity", for_email=who,
-                            title="New comment on a task", body=f"{t.code} · {t.title}", task_id=task_id,
+                            title="New comment on a task", body=f"{t.title}", task_id=task_id,
                             nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
     db.commit()
     db.refresh(c)
@@ -774,7 +1005,7 @@ def add_comment(task_id: str, body: CommentCreate, background_tasks: BackgroundT
             for who in mentioned:
                 task_notify(db, kind="task_activity", for_email=who,
                             title="You were mentioned in a comment",
-                            body=f"{t.code} · {t.title}", task_id=task_id,
+                            body=f"{t.title}", task_id=task_id,
                             nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
             db.commit()
             background_tasks.add_task(notify_task_event, task_id, "mentioned", user["email"],
@@ -783,16 +1014,28 @@ def add_comment(task_id: str, body: CommentCreate, background_tasks: BackgroundT
 
 
 @router.patch("/comments/{comment_id}")
-def edit_comment(comment_id: str, upd: CommentUpdate, db: Session = Depends(get_db)):
+def edit_comment(comment_id: str, upd: CommentUpdate, user: dict = Depends(get_current_user),
+                 db: Session = Depends(get_db)):
+    """Editing the TEXT is author-only; pinning is a curation action any project
+    editor may take. Before this, neither was checked at all (the handler took no
+    `user`), so any signed-in person could rewrite anyone's comment on any task,
+    including in a project they can't otherwise see."""
     c = db.query(models.TaskComment).filter(models.TaskComment.id == comment_id).first()
     if not c:
         raise HTTPException(404, "Comment not found")
+    t = db.query(models.Task).filter(models.Task.id == c.task_id).first()
+    project = project_for_task(db, t) if t else None
     if upd.body is not None:
+        # Managers bypass every other project-role check in this module, but
+        # rewriting someone else's words is different in kind from access - so
+        # the author check is absolute.
+        if (c.author_email or "").lower() != (user["email"] or "").lower():
+            raise HTTPException(403, "Only the author can edit a comment.")
         c.body = upd.body
         c.edited_at = now_iso()
     if upd.pinned is not None:
+        require_project_role(db, user, project, "editor")
         c.pinned = bool(upd.pinned)
-    t = db.query(models.Task).filter(models.Task.id == c.task_id).first()
     if t:
         t.modified_at = now_iso()   # so a delta fetch (GET /tasks/delta) picks this task up
     db.commit()
@@ -802,11 +1045,16 @@ def edit_comment(comment_id: str, upd: CommentUpdate, db: Session = Depends(get_
 
 
 @router.delete("/comments/{comment_id}", status_code=204)
-def delete_comment(comment_id: str, db: Session = Depends(get_db)):
+def delete_comment(comment_id: str, user: dict = Depends(get_current_user),
+                   db: Session = Depends(get_db)):
+    """The author, or a project editor moderating the thread. Previously
+    unguarded entirely - see edit_comment."""
     c = db.query(models.TaskComment).filter(models.TaskComment.id == comment_id).first()
     if not c:
         raise HTTPException(404, "Comment not found")
     t = db.query(models.Task).filter(models.Task.id == c.task_id).first()
+    if (c.author_email or "").lower() != (user["email"] or "").lower():
+        require_project_role(db, user, project_for_task(db, t) if t else None, "editor")
     if t:
         t.comment_ids = [x for x in (t.comment_ids or []) if x != comment_id]
         t.modified_at = now_iso()   # so a delta fetch (GET /tasks/delta) picks this task up
@@ -834,6 +1082,19 @@ def list_attachments(task_id: str, db: Session = Depends(get_db)):
 def add_attachment(task_id: str, body: AttachmentCreate, user: dict = Depends(get_current_user),
                    db: Session = Depends(get_db)):
     t = _get_task(db, task_id)
+    # "commenter", not "editor", and deliberately: a commenter may attach a file
+    # while composing a comment (see AttachmentCreate.comment_id), so requiring
+    # editor here would 403 exactly the people that flow exists for. Matches
+    # add_comment's own threshold.
+    require_project_role(db, user, project_for_task(db, t), "commenter")
+    # An attachment tagged with a comment from a DIFFERENT task is incoherent:
+    # the comment view groups by comment id within one task, so the file would
+    # simply never render, while the row claims an association that isn't real.
+    if body.comment_id:
+        parent = db.query(models.TaskComment).filter(
+            models.TaskComment.id == body.comment_id).first()
+        if not parent or parent.task_id != task_id:
+            raise HTTPException(422, "comment_id must be a comment on this task.")
     aid = gen_id()
     a = models.TaskAttachment(id=aid, task_id=task_id, name=body.name, size=body.size or "",
                               kind=body.kind or "other", url=body.url or "",
@@ -859,6 +1120,10 @@ def delete_attachment(attachment_id: str, user: dict = Depends(get_current_user)
     if not a:
         raise HTTPException(404, "Attachment not found")
     t = db.query(models.Task).filter(models.Task.id == a.task_id).first()
+    # Whoever uploaded it can remove it; otherwise it takes an editor. Removing
+    # someone else's evidence from a task shouldn't be open to every viewer.
+    if (a.added_by or "").lower() != (user["email"] or "").lower():
+        require_project_role(db, user, project_for_task(db, t) if t else None, "editor")
     if t:
         t.attachment_ids = [x for x in (t.attachment_ids or []) if x != attachment_id]
         act = log_activity(db, type="attachment_removed", actor_email=user["email"], entity_id=t.id,
@@ -900,8 +1165,24 @@ def list_sections(db: Session = Depends(get_db)):
     return [section_to_dict(s) for s in db.query(models.TaskSection).all()]
 
 
+def _require_section_editor(db: Session, user: dict, project_id: str) -> None:
+    """Sections are a project's board columns, so editing them is an editor
+    action on that project. A section with no project (project_id "") is
+    workspace-level and stays unrestricted, matching how project_role_for
+    already treats a task with no project.
+
+    All three section endpoints previously took no `user` at all - anyone
+    signed in could rename or delete another project's board columns."""
+    if not project_id:
+        return
+    project = db.query(models.TaskProject).filter(models.TaskProject.id == project_id).first()
+    require_project_role(db, user, project, "editor")
+
+
 @router.post("/meta/sections", status_code=201)
-def create_section(body: SectionBody, db: Session = Depends(get_db)):
+def create_section(body: SectionBody, user: dict = Depends(get_current_user),
+                   db: Session = Depends(get_db)):
+    _require_section_editor(db, user, body.project_id or "")
     s = models.TaskSection(id=body.id or gen_id(), project_id=body.project_id or "",
                            name=body.name, position=body.position or 0, created_at=now_iso())
     db.add(s)
@@ -911,10 +1192,12 @@ def create_section(body: SectionBody, db: Session = Depends(get_db)):
 
 
 @router.patch("/meta/sections/{section_id}")
-def update_section(section_id: str, body: SectionBody, db: Session = Depends(get_db)):
+def update_section(section_id: str, body: SectionBody, user: dict = Depends(get_current_user),
+                   db: Session = Depends(get_db)):
     s = db.query(models.TaskSection).filter(models.TaskSection.id == section_id).first()
     if not s:
         raise HTTPException(404, "Section not found")
+    _require_section_editor(db, user, s.project_id or "")
     if body.name:
         s.name = body.name
     if body.position is not None:
@@ -925,9 +1208,24 @@ def update_section(section_id: str, body: SectionBody, db: Session = Depends(get
 
 
 @router.delete("/meta/sections/{section_id}", status_code=204)
-def delete_section(section_id: str, db: Session = Depends(get_db)):
-    db.query(models.TaskSection).filter(models.TaskSection.id == section_id).delete()
+def delete_section(section_id: str, user: dict = Depends(get_current_user),
+                   db: Session = Depends(get_db)):
+    s = db.query(models.TaskSection).filter(models.TaskSection.id == section_id).first()
+    if not s:
+        return
+    _require_section_editor(db, user, s.project_id or "")
+    # Release the tasks that were filed here. Deleting the row alone left them
+    # pointing at a section that no longer resolves, so they vanished from any
+    # view that groups by a known section - present in the data, invisible in
+    # the UI. modified_at is bumped so GET /tasks/delta carries the change.
+    orphaned = db.query(models.Task).filter(models.Task.section_id == section_id).all()
+    for t in orphaned:
+        t.section_id = ""
+        t.modified_at = now_iso()
+    db.delete(s)
     db.commit()
+    for t in orphaned:
+        fire_task_event(t.id, "updated")
 
 
 class CustomStatusBody(BaseModel):
