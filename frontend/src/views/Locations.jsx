@@ -60,7 +60,13 @@ export default function Locations({ toastErr }) {
     let map;
     try { map = L.map(mapElRef.current, { scrollWheelZoom: true }).setView([20, 40], 2); }
     catch { return; }
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap' }).addTo(map);
+    // Two base layers with a Map / Satellite toggle (Esri World Imagery is free, no key).
+    const street = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap' });
+    const satellite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, attribution: 'Imagery &copy; Esri, Maxar, Earthstar Geographics' });
+    const labels = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 });
+    const hybrid = L.layerGroup([satellite, labels]);   // satellite + place/road labels on top
+    street.addTo(map);
+    L.control.layers({ 'Map': street, 'Satellite': hybrid }, {}, { position: 'topright', collapsed: false }).addTo(map);
     markersRef.current = L.layerGroup().addTo(map);
     mapRef.current = map;
     setTimeout(() => { try { map.invalidateSize(); } catch { /* torn down */ } }, 120);
