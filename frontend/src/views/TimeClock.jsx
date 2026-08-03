@@ -597,6 +597,7 @@ export default function TimeClock() {
             const pct = Math.min(100, (wkMin / (40 * 60)) * 100);
             const bPct = Math.min(100, (breakUsedMin / BREAK_ALLOWANCE_MIN) * 100);
             const PTc = clockPeriod?.totals || {};
+            const curSym = (clockPeriod?.currency || PTc.currency) === 'INR' ? '₹' : '$';
             const pendingReqs = myReqs.filter(r => r.status === 'pending').length;
             return (<>
               <div>
@@ -621,7 +622,7 @@ export default function TimeClock() {
               {clockPeriod?.rateSet && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', borderTop: '1px solid var(--line)', paddingTop: 10 }}>
                   <span style={STAT_L}>Est. Pay This Period</span>
-                  <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--wk-brand)', fontVariantNumeric: 'tabular-nums' }}>${(PTc.totalPay || 0).toFixed(2)}</span>
+                  <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--wk-brand)', fontVariantNumeric: 'tabular-nums' }}>{curSym}{(PTc.totalPay || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                 </div>
               )}
               {pendingReqs > 0 && (
