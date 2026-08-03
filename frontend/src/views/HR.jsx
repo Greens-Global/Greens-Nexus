@@ -6,7 +6,7 @@ import {
   ChevronLeft, Network, CalendarOff, UserPlus, Pencil, FileText,
   CheckCircle, XCircle, ChevronRight, History, CalendarDays, Camera,
   Building2, Trash2, MapPinned, Wallet, Landmark, Lock, Contact, Heart,
-  ShieldCheck, Shield, AlertTriangle, Clock, ArrowUpRight,
+  ShieldCheck, Shield, AlertTriangle, Clock, ArrowUpRight, Circle,
 } from 'lucide-react';
 import { api } from '../api';
 import { dialog } from '../ui/dialog';
@@ -531,6 +531,40 @@ function lastWeekRange() {
   return [localIsoDate(start), localIsoDate(end)];
 }
 
+// The composer's task list is free text (one item per line, optionally numbered
+// and/or prefixed "Pending: "), not a structured field - split it into rows
+// that read like the Tasks module's checklist rather than one dense caption.
+function parseTaskLines(tasks) {
+  return (tasks || '').split('\n').map(s => s.trim()).filter(Boolean).map(line => {
+    const pending = /^pending\s*:/i.test(line);
+    const text = line.replace(/^pending\s*:\s*/i, '').replace(/^\d+[.)]\s*/, '');
+    const done = !pending && /(-\s*done|\(done\))\s*$/i.test(text);
+    return { text: text.replace(/\s*[-(]\s*done\)?\s*$/i, '').trim(), pending, done };
+  });
+}
+
+function TaskChecklist({ tasks }) {
+  const items = parseTaskLines(tasks);
+  if (items.length === 0) return null;
+  return (
+    <div style={{ marginTop: 8, display: 'grid', gap: 5 }}>
+      {items.map((it, i) => (
+        <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 7 }}>
+          {it.pending
+            ? <AlertTriangle size={14} style={{ color: 'hsl(var(--color-orange))', flexShrink: 0, marginTop: 1.5 }} />
+            : it.done
+              ? <CheckCircle size={14} style={{ color: 'hsl(var(--color-green))', flexShrink: 0, marginTop: 1.5 }} />
+              : <Circle size={14} style={{ color: 'var(--muted)', flexShrink: 0, marginTop: 1.5 }} />}
+          <span style={{ fontSize: 13, lineHeight: 1.4, color: it.pending ? 'hsl(var(--color-orange))' : 'var(--ink)', fontWeight: it.pending ? 600 : 400 }}>
+            {it.text}
+            {it.pending && <span style={{ fontWeight: 700, fontSize: 10.5, letterSpacing: '.04em', textTransform: 'uppercase', marginLeft: 6 }}>Pending</span>}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // Read-only log of a person's Beginning/End-of-day posts (Section: Time Clock's
 // BOD/EOD composer). Source of truth stays in timeclock.py's TimeBod table;
 // this only reads, newest first, so a manager doesn't have to scroll Teams to
@@ -580,11 +614,7 @@ function WorkLogsSection({ employee }) {
                     <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 4 }}>{label}</div>
                     {slot ? (<>
                       <div style={{ fontSize: 12.5, color: 'var(--ink)', whiteSpace: 'pre-wrap' }}>{slot.message || <span style={{ color: 'var(--muted)' }}>(no message)</span>}</div>
-                      {slot.tasks && (
-                        <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 6, whiteSpace: 'pre-wrap' }}>
-                          <strong style={{ color: 'var(--ink)' }}>Tasks: </strong>{slot.tasks}
-                        </div>
-                      )}
+                      <TaskChecklist tasks={slot.tasks} />
                     </>) : (
                       <span style={{ fontSize: 12, color: 'var(--muted)' }}>-</span>
                     )}
