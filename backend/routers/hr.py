@@ -10,7 +10,7 @@ from typing import Optional
 from database import get_db
 from auth import require_module_grant
 from routers.stepup import require_stepup
-from models import NexusEmployee, PayrollRate
+from models import NexusEmployee, PayrollRate, HrRemovedIdentity
 
 # HR data is the most sensitive in the app. Access is grant-driven (Jun 17): a
 # supervisor/manager role no longer auto-opens HR - they need an explicit "hr"
@@ -167,6 +167,11 @@ def create_employee(body: EmployeeIn, user: dict = Depends(require_hr_write), db
         updated_at=now,
     )
     db.add(row)
+    # If this person was previously removed from Nexus, clear the tombstone so a
+    # deliberate re-add is honored and future M365 syncs treat them normally.
+    _wemail = (body.work_email or "").strip().lower()
+    if _wemail:
+        db.query(HrRemovedIdentity).filter(HrRemovedIdentity.work_email == _wemail).delete()
     db.commit()
     db.refresh(row)
     return _serialize(row)
@@ -212,6 +217,16 @@ def delete_employee(eid: str, user: dict = Depends(require_hr_delete), db: Sessi
     row = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
     if not row:
         return {"ok": True}
+    # Tombstone the identity so the M365 sync won't re-create this person from Entra.
+    # Nexus-only removal: NO Graph call here, the Microsoft 365 account is untouched.
+    if row.work_email or row.m365_id:
+        db.add(HrRemovedIdentity(
+            id=str(uuid.uuid4()),
+            work_email=(row.work_email or "").lower(),
+            m365_id=row.m365_id or "",
+            removed_by=user["email"],
+            removed_at=datetime.now(timezone.utc).isoformat(),
+        ))
     db.delete(row)
     db.commit()
     return {"ok": True}
@@ -1306,6 +1321,11 @@ def sync_m365(user: dict = Depends(require_hr_write), db: Session = Depends(get_
     existing = db.query(NexusEmployee).all()
     by_m365  = {e.m365_id.lower(): e for e in existing if e.m365_id}
     by_email = {e.work_email.lower(): e for e in existing if e.work_email}
+    # Identities intentionally removed from Nexus - the sync must NOT resurrect them
+    # from Entra even though their Microsoft account still exists.
+    _tomb = db.query(HrRemovedIdentity).all()
+    tomb_ids    = {t.m365_id.lower() for t in _tomb if t.m365_id}
+    tomb_emails = {t.work_email.lower() for t in _tomb if t.work_email}
 
     now = datetime.now(timezone.utc).isoformat()
     # Compute the next code once and increment locally - _next_code re-reads the
@@ -1316,6 +1336,8 @@ def sync_m365(user: dict = Depends(require_hr_write), db: Session = Depends(get_
     for g in directory:
         gid  = (g.get("id") or "").lower()
         addr = _primary_addr(g)
+        if gid in tomb_ids or (addr and addr in tomb_emails):
+            continue   # removed from Nexus on purpose - don't re-create or re-link
         emp = by_m365.get(gid) or by_email.get(addr)
         if emp:
             changed = False
