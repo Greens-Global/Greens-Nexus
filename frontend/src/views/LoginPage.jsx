@@ -107,6 +107,11 @@ export default function LoginPage() {
             Single sign-on with your work account · Microsoft Entra ID
           </p>
           <p className="nxl-foot" style={{ "--i": 5 }}>Secure company workspace</p>
+          <p className="nxl-legal" style={{ "--i": 6 }}>
+            <a href="/privacy">Privacy Policy</a>
+            <span aria-hidden="true"> · </span>
+            <a href="/terms">Terms & Conditions</a>
+          </p>
         </div>
       </main>
 
@@ -230,6 +235,10 @@ export default function LoginPage() {
 
         .nxl-note { margin: 16px 0 0; font-size: 12.5px; color: #9699a6; }
         .nxl-foot { margin: 34px 0 0; font-size: 12px; color: #9699a6; }
+        .nxl-legal { margin: 6px 0 0; font-size: 12px; }
+        .nxl-legal a { color: #9699a6; text-decoration: underline; text-underline-offset: 2px; }
+        .nxl-legal a:hover { color: #676879; }
+        .nxl-legal span { color: #c3c6d4; }
 
         @media (max-width: 880px) {
           .nxl-hero { display: none; }
