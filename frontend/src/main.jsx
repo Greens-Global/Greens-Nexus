@@ -7,6 +7,7 @@ import { queryClient } from './lib/queryClient'
 import { setCacheBridge } from './api'
 import './style.css'
 import App from './App.jsx'
+import LandingPage from './components/LandingPage'
 import RootErrorBoundary from './components/RootErrorBoundary'
 import { DialogHost } from './ui/dialog'
 import { installErrorReporter } from './lib/errorReporter'
@@ -58,11 +59,22 @@ function renderApp() {
   );
 }
 
-// BFF cookie mode: resolve the server session BEFORE the first render - bffBootstrap
-// installs a synthetic account for the app to read, or redirects to /api/auth/login
-// when there's no session. MSAL mode renders immediately, exactly as before.
+function renderLanding() {
+  createRoot(document.getElementById('root')).render(
+    <StrictMode>
+      <RootErrorBoundary>
+        <LandingPage />
+      </RootErrorBoundary>
+    </StrictMode>,
+  );
+}
+
+// BFF cookie mode: resolve the server session BEFORE the first render. If signed
+// in, bffBootstrap installs a synthetic account and we render the app; if not, we
+// render the sign-in landing (no auto-redirect to Microsoft). MSAL mode renders
+// immediately, exactly as before.
 if (BFF_MODE) {
-  bffBootstrap().then((render) => { if (render) renderApp(); });
+  bffBootstrap().then((authed) => { authed ? renderApp() : renderLanding(); });
 } else {
   renderApp();
 }

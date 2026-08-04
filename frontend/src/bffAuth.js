@@ -67,11 +67,10 @@ function installSyntheticAccount(me) {
 export async function bffBootstrap() {
   try {
     const res = await fetch('/api/auth/me', { credentials: 'include' });
-    if (res.status === 401) { bffLogin(); return false; }   // not signed in -> log in
     if (res.ok) {
       _me = await res.json();
-      if (_me && _me.email) installSyntheticAccount(_me);
+      if (_me && _me.email) { installSyntheticAccount(_me); return true; }
     }
-  } catch { /* network blip: render anyway, real calls will recover */ }
-  return true;
+  } catch { /* network blip -> treat as anonymous, show the sign-in landing */ }
+  return false;   // no session (401) or transient -> main.jsx renders LandingPage
 }
