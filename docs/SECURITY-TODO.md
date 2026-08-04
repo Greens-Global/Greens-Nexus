@@ -53,6 +53,20 @@ Running list of security items for Greens Nexus. Started 2026-06-17.
    (Jul 22 release note) - user action, generate with
    `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`
    and set it in App Service configuration. Never commit it.
+4. **People directory over-exposure (`/myhr/directory`, `/roles/directory`).**
+   Any authenticated user - *regardless of role* - receives the ENTIRE Nexus
+   People list (work email + name + photo + company/department). The list also
+   includes **external-party contacts** (aaravconstruction, scmedicenter,
+   sanjivanihealth, greensstorage, greens.consulting, primeecs, builtbycmi) and
+   some **personal (gmail) emails**. Authenticated-only, so *not a public leak*,
+   and it's the backbone of every people-picker + email→name resolver app-wide -
+   but it's broad **data-minimization / least-privilege** debt. Decide the policy
+   first (is a full internal directory acceptable?), then options: (a) opaque
+   id+name on the wire, resolve email server-side only on an actual assign;
+   (b) exclude external/personal contacts from the general directory (put them in
+   a separate, restricted list); (c) typeahead search endpoint instead of a bulk
+   dump of ~150+ rows. Touches EVERY picker - scope as its own branch. (Noticed
+   Aug 4 while inspecting BFF API calls; pre-existing, unrelated to BFF.)
 
 ## 🔲 Older items (original list, kept for history)
 

@@ -10,6 +10,7 @@
 // the DMS importer's extension-filtered view - do not point one at the other.
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api';
+import { formatDate as usFormatDate } from '../lib/datetime';
 
 // ── connection state ─────────────────────────────────────────────────────────
 
@@ -74,10 +75,9 @@ export function formatBytes(n) {
 // endpoints and ISO on others, so parse defensively and show nothing rather
 // than "Invalid Date" when it is neither.
 export function formatWhen(value) {
-  if (!value) return '';
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return '';
-  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  // US MM/DD/YYYY, empty string on empty/invalid. Delegates to the canonical
+  // formatter; its loose parser still handles the RFC-1123 strings Egnyte sends.
+  return usFormatDate(value, '');
 }
 
 // ── errors ───────────────────────────────────────────────────────────────────

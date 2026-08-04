@@ -23,6 +23,7 @@ import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { useNameResolver } from '../lib/useNameResolver';
 import { fmtDate, filesFromPaste } from './lib';
+import { formatTime as usFormatTime } from '../lib/datetime';
 import { NX, FONT, chip, card, btn, input as inputStyle } from './theme';
 import { Avatar, Modal, usePeople, PersonSelect, useClickOutside } from './components';
 
@@ -69,7 +70,7 @@ function formatFullDate(iso) {
 function formatTime(iso) {
   if (!iso || !String(iso).includes('T')) return '';
   const d = toLocalDate(iso);
-  return d && !isNaN(d) ? d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : '';
+  return d && !isNaN(d) ? usFormatTime(d, '') : '';
 }
 function formatDateTime(iso) {
   const t = formatTime(iso);

@@ -7,6 +7,7 @@
 
 import { RECORD_TYPES } from './recordTypes.jsx';
 import { formatNumber, formatMoney, formatDate, daysUntil, currentUser, toNumber, acresOf } from './format.js';
+import { formatDateLong } from '../../lib/datetime';
 
 /** Escape a single CSV field: wraps in quotes (doubling any embedded quotes) if it contains a
  *  comma, quote, or newline. */
@@ -306,7 +307,7 @@ table.data td{padding:6px 8px;border-bottom:1px solid #f4f6f9;vertical-align:top
 section{break-inside:avoid}
 </style></head><body>
 <div class="band"><div><h1>${escHtml(asset.name)}</h1><div class="sub">${escHtml(formatAddress(asset))}${asset.county ? ` · ${escHtml(formatCounty(asset.county))}` : ''} · APN ${escHtml(asset.apn || '-')}</div></div>
-<div class="r"><b>GREENS</b><br>Asset Report<br>${escHtml(new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }))}<br>by ${escHtml(currentUser())}</div></div>
+<div class="r"><b>GREENS</b><br>Asset Report<br>${escHtml(formatDateLong(new Date()))}<br>by ${escHtml(currentUser())}</div></div>
 
 <div class="metrics">
 ${metricTile(formatNumber(asset.nrsf), 'NRSF')}${metricTile(toNumber(asset.unitsTotal) ? formatNumber(asset.unitsTotal) : '-', 'Units')}${metricTile(acresOf(asset.acreage, asset.acreageUnit) ? acresOf(asset.acreage, asset.acreageUnit).toFixed(2) + ' ac' : '-', 'Acreage')}${metricTile(escOrDash(asset.yearBuilt), 'Year built')}${metricTile(groupMembers.length > 1 ? groupMembers.length : '-', 'Linked')}${metricTile(statusClass, 'Status')}

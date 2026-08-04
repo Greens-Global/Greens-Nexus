@@ -7,6 +7,7 @@ import { queryClient } from './lib/queryClient'
 import { setCacheBridge } from './api'
 import './style.css'
 import App from './App.jsx'
+import LoginPage from './views/LoginPage'
 import RootErrorBoundary from './components/RootErrorBoundary'
 import { DialogHost } from './ui/dialog'
 import { installErrorReporter } from './lib/errorReporter'
@@ -58,11 +59,40 @@ function renderApp() {
   );
 }
 
-// BFF cookie mode: resolve the server session BEFORE the first render - bffBootstrap
-// installs a synthetic account for the app to read, or redirects to /api/auth/login
-// when there's no session. MSAL mode renders immediately, exactly as before.
-if (BFF_MODE) {
-  bffBootstrap().then((render) => { if (render) renderApp(); });
+function renderLanding() {
+  // The same LoginPage the MSAL flow shows (its button is BFF-aware), so the
+  // sign-in screen is identical whichever auth mode is active. It reads MSAL
+  // (useMsal) and branding (useBranding), so it needs both providers.
+  createRoot(document.getElementById('root')).render(
+    <StrictMode>
+      <RootErrorBoundary>
+        <QueryClientProvider client={queryClient}>
+          <MsalProvider instance={msalInstance}>
+            <LoginPage />
+          </MsalProvider>
+        </QueryClientProvider>
+      </RootErrorBoundary>
+    </StrictMode>,
+  );
+}
+
+// Public routes that App.jsx itself renders with no auth required (e-sign
+// signing/verification links, the Privacy Policy / Terms & Conditions pages
+// linked from the sign-in screen). These must reach App.jsx even in BFF mode
+// with no session cookie - skipping straight to renderApp() here is what lets
+// App's own /sign, /verify, /privacy, /terms branches run; otherwise
+// bffBootstrap's "no session -> renderLanding()" below would strand an
+// unauthenticated visitor (an external signer, or anyone sent a policy link)
+// on the "Continue with Microsoft" screen before App.jsx ever mounts.
+const PUBLIC_PATH = /^\/(sign|verify|privacy|terms)(\/|$)/;
+const isPublicPath = PUBLIC_PATH.test(window.location.pathname);
+
+// BFF cookie mode: resolve the server session BEFORE the first render. If signed
+// in, bffBootstrap installs a synthetic account and we render the app; if not, we
+// render the sign-in landing (no auto-redirect to Microsoft). MSAL mode renders
+// immediately, exactly as before.
+if (BFF_MODE && !isPublicPath) {
+  bffBootstrap().then((authed) => { authed ? renderApp() : renderLanding(); });
 } else {
   renderApp();
 }

@@ -9,7 +9,18 @@
 // See docs/BFF-Migration-Plan.md.
 import { msalInstance } from './msalInstance';
 
-export const BFF_MODE = import.meta.env.VITE_BFF_MODE === 'true';
+// Cookie mode is decided at RUNTIME by hostname, not a build-time flag. Prod's
+// bundle is built in GitHub Actions, which never receives VITE_BFF_MODE, so a
+// build-time flag can't reach prod (setting it in the Cloudflare dashboard does
+// nothing - that only feeds git-integrated builds like dev). So: the hosted app
+// (dev + prod, both under *.nexus.greensglobal.com) is always cookie-mode;
+// localhost and any other host stay on the MSAL/dev flow. An explicit
+// VITE_BFF_MODE still overrides either way ('true' to force on, 'false' to force
+// off as a rollback lever). See docs/BFF-Migration-Plan.md.
+const _bffEnv = import.meta.env.VITE_BFF_MODE;
+const _bffHosted = typeof location !== 'undefined'
+  && /(^|\.)nexus\.greensglobal\.com$/.test(location.hostname || '');
+export const BFF_MODE = _bffEnv === 'false' ? false : (_bffEnv === 'true' || _bffHosted);
 
 // Identity resolved from the session at boot (email/role/level/csrf), or null.
 let _me = null;
@@ -31,11 +42,13 @@ export function bffLogin() {
   window.location.href = `/api/auth/login?next=${next}`;
 }
 
-/** Kill the server session, then bounce to login. */
+/** Full sign-out: navigate to the server logout, which drops the session, ends
+ *  the Entra SSO session, and lands back on the app (re-gated to a fresh login).
+ *  A plain navigation (not fetch) so the browser follows the redirect chain to
+ *  Microsoft - a POST that only cleared the cookie left the SSO session alive,
+ *  so /auth/login silently re-authed and bounced the user right back in. */
 export function bffLogout() {
-  return fetch('/api/auth/logout', {
-    method: 'POST', credentials: 'include', headers: { 'X-CSRF-Token': csrfToken() },
-  }).catch(() => {}).finally(() => { window.location.href = '/api/auth/login'; });
+  window.location.href = '/api/auth/logout';
 }
 
 /** Make msalInstance report a SYNTHETIC account for the session user, so every
@@ -65,11 +78,10 @@ function installSyntheticAccount(me) {
 export async function bffBootstrap() {
   try {
     const res = await fetch('/api/auth/me', { credentials: 'include' });
-    if (res.status === 401) { bffLogin(); return false; }   // not signed in -> log in
     if (res.ok) {
       _me = await res.json();
-      if (_me && _me.email) installSyntheticAccount(_me);
+      if (_me && _me.email) { installSyntheticAccount(_me); return true; }
     }
-  } catch { /* network blip: render anyway, real calls will recover */ }
-  return true;
+  } catch { /* network blip -> treat as anonymous, show the sign-in landing */ }
+  return false;   // no session (401) or transient -> main.jsx renders LoginPage
 }

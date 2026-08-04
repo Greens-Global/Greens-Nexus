@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { LayoutDashboard, FolderSync, Folder, MapPin, Users, Calendar, Truck, Settings, Database, Server, ShieldCheck, FolderOpen, ChevronRight, ArrowLeft, Download, RefreshCw, Upload, X } from 'lucide-react';
 import ModuleTabs from '../components/ModuleTabs';
+import { formatDateLong } from '../lib/datetime';
 
 const INIT_PROJECTS = [
   { id: 1, name: 'Downtown Commercial Complex', status: 'on-track', location: 'Main Street, Downtown', members: 24, dueDate: 'Aug 15, 2026', progress: 75 },
@@ -48,7 +49,7 @@ export default function Operations({ activeSub, onSubChange }) {
   const submitProject = (e) => {
     e.preventDefault();
     const d = new Date(form.dueDate);
-    const formatted = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    const formatted = formatDateLong(d);
     setProjects(prev => [...prev, { id: Date.now(), name: form.name, location: form.location, members: parseInt(form.members), dueDate: formatted, progress: parseInt(form.progress), status: form.status }]);
     setShowModal(false);
     setForm({ name: '', location: '', members: '', dueDate: '', progress: '0', status: 'on-track' });

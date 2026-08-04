@@ -549,6 +549,7 @@ class NexusEmployee(Base):
     personal_email  = Column(String, default="")
     phone           = Column(String, default="")
     job_title       = Column(String, default="")
+    designation     = Column(String, default="")               # formal designation/rank, kept distinct from job_title (Charmi, Aug 4)
     department      = Column(String, default="")
     employment_type = Column(String, default="full_time")      # full_time | part_time | contractor | intern
     start_date      = Column(String, default="")               # ISO date
@@ -572,6 +573,20 @@ class NexusEmployee(Base):
     division        = Column(String, default="")               # functional division head-tag; org chart inherits down the tree (Phase 5)
     identity_type   = Column(String, default="internal")        # internal (MS365 staff) | guest (Entra B2B partner) | external (non-MS365, HR-record only)
     display_name    = Column(String, default="")               # Entra/Teams displayName verbatim - first+last drops middle names ("Sagar Kumar Shoundik" -> "Sagar Shoundik"), so people read as a different person than Teams shows. Refreshed by sync-m365; falls back to first+last when empty.
+
+
+class HrRemovedIdentity(Base):
+    """Tombstone for a person removed from Nexus (the Nexus-only delete). The M365
+    sync checks this and SKIPS re-creating them from Entra, so a removed person
+    stays removed even though their Microsoft account still exists. Removal takes
+    no Graph action - the M365 account is left untouched. Keyed by work_email
+    and/or m365_id; cleared if the same person is deliberately re-added."""
+    __tablename__ = "hr_removed_identities"
+    id          = Column(String, primary_key=True)
+    work_email  = Column(String, default="", index=True)
+    m365_id     = Column(String, default="", index=True)
+    removed_by  = Column(String, default="")
+    removed_at  = Column(String, default="")
 
 
 class HrCandidate(Base):

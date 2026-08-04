@@ -5,6 +5,7 @@ import { InteractionStatus } from '@azure/msal-browser';
 import { api, setActAsSessionId, getActAsSessionId } from '../api';
 import { apiTokenRequest } from '../authConfig';
 import { queryClient, qk } from '../lib/queryClient';
+import { BFF_MODE } from '../bffAuth';
 
 const RoleCtx = createContext(null);
 
@@ -141,7 +142,7 @@ export function RoleProvider({ children }) {
           // iframe hit, and it returns with a fresh token. Guarded so it can never
           // loop (at most once per 5 min) and skipped in E2E / when signed out.
           if (err?.status === 401 && import.meta.env.VITE_E2E !== 'true'
-              && import.meta.env.VITE_BFF_MODE !== 'true'   // BFF: api.js already redirected to /api/auth/login
+              && !BFF_MODE   // BFF: api.js already redirected to /api/auth/login
               && accounts.length && inProgressRef.current === InteractionStatus.None) {
             const KEY = 'nexus:reauth-at';
             const last = Number(sessionStorage.getItem(KEY) || 0);

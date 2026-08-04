@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { api } from '../api';
 import { dialog } from '../ui/dialog';
+import { formatDate, formatDateTime } from '../lib/datetime';
 
 // AI-assisted interviews: Teams invite → live questionnaire → transcript
 // auto-fill → calibrated scores → role leaderboard → final-round invite.
@@ -178,7 +179,7 @@ export function InterviewPanel({ candidate: c, onClose, toastOk, toastErr }) {
               <button key={iv.id} onClick={() => setSel(iv)}
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '6px 12px', borderRadius: 10, cursor: 'pointer', fontFamily: 'Inter,sans-serif', fontSize: 12,
                   border: `1.5px solid ${sel?.id === iv.id ? 'var(--pine)' : 'var(--line)'}`, background: sel?.id === iv.id ? 'hsla(var(--color-green),0.06)' : 'var(--card)' }}>
-                <span style={{ fontWeight: 700 }}>{iv.at ? new Date(iv.at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Unscheduled'}</span>
+                <span style={{ fontWeight: 700 }}>{iv.at ? formatDateTime(iv.at) : 'Unscheduled'}</span>
                 <Chip s={iv.status} />
               </button>
             ))}
@@ -360,7 +361,7 @@ export function LeaderboardModal({ onClose, toastOk, toastErr }) {
                       <span style={{ marginLeft: 7, fontSize: 10, fontWeight: 800, letterSpacing: '.04em', color: 'hsl(var(--color-purple))', background: 'hsla(var(--color-purple),0.12)', padding: '2px 8px', borderRadius: 10 }}>OFFER</span>
                     )}
                   </div>
-                  <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{iv.templateName || 'No questionnaire'} · {iv.at ? new Date(iv.at).toLocaleDateString() : ''}</div>
+                  <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{iv.templateName || 'No questionnaire'} · {iv.at ? formatDate(iv.at) : ''}</div>
                 </div>
                 <span style={{ fontSize: 17, fontWeight: 800, color: iv.totalScore >= 70 ? 'hsl(var(--color-green))' : iv.totalScore >= 45 ? 'hsl(var(--color-orange))' : 'hsl(var(--color-red))' }}>
                   {Math.round(iv.totalScore)}

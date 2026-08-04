@@ -25,7 +25,7 @@ const TYPE_COLOR = { vacation: '#2563eb', sick: '#16a34a', personal: '#8b5cf6', 
 // stamp who adjusted; voids hide from totals but stay in the record.
 
 const KIND_LABEL = { in: 'In', out: 'Out', break_start: 'Break start', break_end: 'Break end' };
-const localTime = (iso) => iso ? new Date(iso + 'Z').toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-';
+const localTime = (iso) => iso ? new Date(iso + 'Z').toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }) : '-';
 const fmtMin = (m) => `${Math.floor((m || 0) / 60)}h ${String((m || 0) % 60).padStart(2, '0')}m`;
 const isoDate = (d) => d.toISOString().slice(0, 10);
 
@@ -37,7 +37,7 @@ function AdminDayRow({ date, email, d, approval, onApprove }) {
     <div style={{ padding: '9px 0', borderBottom: '1px solid var(--line)' }}>
       <button onClick={() => setOpen(o => !o)}
         style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textAlign: 'left', fontFamily: 'var(--wk-font)' }}>
-        <span style={{ fontSize: 12, fontWeight: 700, width: 92, flexShrink: 0, color: 'var(--ink)' }}>{new Date(date + 'T12:00:00').toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}</span>
+        <span style={{ fontSize: 12, fontWeight: 700, width: 92, flexShrink: 0, color: 'var(--ink)' }}>{new Date(date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</span>
         <DayTimeline punches={d.punches} height={18} date={date} />
         {d.flags.length > 0 && <AlertTriangle size={12} style={{ color: '#b45309', flexShrink: 0 }} />}
         {onApprove && (
@@ -72,7 +72,7 @@ function AdminDayRow({ date, email, d, approval, onApprove }) {
           ) : (d.punches || []).map((p, i) => (
             <span key={i} style={{ fontSize: 11.5, color: 'var(--muted)' }}>
               <span style={{ fontWeight: 700, color: 'var(--ink)', textTransform: 'capitalize' }}>{String(p.kind || '').replace(/_/g, ' ')}</span>
-              {' '}{(() => { try { return new Date(p.at + (p.at.endsWith('Z') ? '' : 'Z')).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); } catch { return p.at; } })()}
+              {' '}{(() => { try { return new Date(p.at + (p.at.endsWith('Z') ? '' : 'Z')).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }); } catch { return p.at; } })()}
             </span>
           ))}
         </div>
@@ -440,7 +440,7 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
                 return (
                   <div key={date} style={{ marginBottom: 10 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span style={{ fontSize: 12, fontWeight: 800 }}>{new Date(date + 'T12:00:00').toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}</span>
+                      <span style={{ fontSize: 12, fontWeight: 800 }}>{new Date(date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</span>
                       <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{fmtMin(d.workedMin)}{d.breakMin ? ` · ${d.breakMin}m break` : ''}</span>
                       {d.flags.map(f => <span key={f} style={{ fontSize: 11, fontWeight: 700, color: '#b45309' }}>{f.replace(/_/g, ' ')}</span>)}
                     </div>
@@ -498,7 +498,7 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
               <button className="secondary-btn" onClick={() => shiftMonth(-1)} style={{ padding: '4px 8px' }}><ChevronLeft size={13} /></button>
               <span style={{ fontSize: 14, fontWeight: 800, width: 150, textAlign: 'center' }}>
-                {new Date(y, m - 1, 1).toLocaleDateString([], { month: 'long', year: 'numeric' })}
+                {new Date(y, m - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
               </span>
               <button className="secondary-btn" onClick={() => shiftMonth(1)} style={{ padding: '4px 8px' }}><ChevronRight size={13} /></button>
               <div style={{ flex: 1 }} />
@@ -578,7 +578,7 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
                     <div key={d} title={`${d} - ${fmtMin(dayTotals[d])}`} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, minWidth: 0 }}>
                       <div style={{ width: '70%', maxWidth: 38, height: `${Math.max(5, (dayTotals[d] / maxDay) * 110)}px`, background: 'var(--wk-brand)', borderRadius: 99 }} />
                       <span style={{ fontSize: 9.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
-                        {new Date(d + 'T12:00:00').toLocaleDateString([], { weekday: 'short' })}
+                        {new Date(d + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short' })}
                       </span>
                     </div>
                   ))}
@@ -629,7 +629,7 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
                   <div style={{ fontSize: 13, fontWeight: 800 }}>{r.employeeName || r.employeeEmail}</div>
                   <div style={{ fontSize: 12.5, color: 'var(--ink)', marginTop: 2 }}>
                     {r.action === 'add'
-                      ? `Add a ${kindLabel} punch${r.at ? ` at ${new Date(r.at + 'Z').toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}` : ''}`
+                      ? `Add a ${kindLabel} punch${r.at ? ` at ${new Date(r.at + 'Z').toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })}` : ''}`
                       : 'Remove a punch'}
                   </div>
                   {r.reason && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>“{r.reason}”</div>}
@@ -816,7 +816,7 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
                         {dts.map(d => (
                           <div key={d} title={`${d} - ${fmtMin(p.days[d].workedMin)}`} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, minWidth: 0 }}>
                             <div style={{ width: '65%', maxWidth: 34, height: `${Math.max(5, (p.days[d].workedMin / mx) * 66)}px`, background: 'var(--wk-brand)', borderRadius: 99 }} />
-                            <span style={{ fontSize: 9, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{new Date(d + 'T12:00:00').toLocaleDateString([], { weekday: 'short' })}</span>
+                            <span style={{ fontSize: 9, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{new Date(d + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short' })}</span>
                           </div>
                         ))}
                       </div>

@@ -21,7 +21,7 @@ const hhmm = (min) => `${Math.floor((min || 0) / 60)}:${String((min || 0) % 60).
 const dec = (min) => ((min || 0) / 60).toFixed(2);
 const CUR_SYM = { USD: '$', INR: '₹' };
 const money = (n, cur = 'USD') => `${CUR_SYM[cur] || '$'}${(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-const t12 = (iso) => iso ? new Date(iso + 'Z').toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }).replace(' ', '').toLowerCase() : '-';
+const t12 = (iso) => iso ? new Date(iso + 'Z').toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }).replace(' ', '').toLowerCase() : '-';
 const utcToInput = (iso) => { const d = new Date(iso + 'Z'); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); };
 const inputToUtc = (v) => new Date(v).toISOString().slice(0, 19);
 
@@ -484,7 +484,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
               {rows.map((r, i) => r.type === 'wk' ? (
                 <tr key={i} style={{ background: 'var(--wk-brand-tint)' }}>
                   <td colSpan={16} style={{ ...td, textAlign: 'center', fontWeight: 700, color: 'var(--wk-brand)', fontSize: 12 }}>
-                    Total hours clocked for week of {new Date(r.week + 'T00:00').toLocaleDateString([], { month: 'numeric', day: 'numeric' })} to {new Date(new Date(r.week + 'T00:00').getTime() + 6 * DAY).toLocaleDateString([], { month: 'numeric', day: 'numeric' })}: {hhmm(weekTotals[r.week]?.min || 0)}
+                    Total hours clocked for week of {new Date(r.week + 'T00:00').toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' })} to {new Date(new Date(r.week + 'T00:00').getTime() + 6 * DAY).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' })}: {hhmm(weekTotals[r.week]?.min || 0)}
                   </td>
                 </tr>
               ) : r.type === 'note' ? (
@@ -707,7 +707,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   );
 }
 
-const t12s = (iso) => iso ? new Date(iso + 'Z').toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' }).replace(' ', '').toLowerCase() : '';
+const t12s = (iso) => iso ? new Date(iso + 'Z').toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true }).replace(' ', '').toLowerCase() : '';
 
 // A punch time you can edit right in the sheet (SwipeClock-style): click the
 // time → it becomes an input, Enter/blur saves via the audited adjust endpoint.

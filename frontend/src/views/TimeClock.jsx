@@ -10,6 +10,7 @@ import ModuleTabs from '../components/ModuleTabs';
 import PayrollTimecard from '../components/PayrollTimecard';
 import BodModal from '../components/BodModal';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
+import { formatTime } from '../lib/datetime';
 
 // ── Time Clock - punch in/out with geofencing (all employees) ─────────────────
 // Soft-gate design (research-verified SwipeClock behavior): location is asked
@@ -141,7 +142,7 @@ function SessionRing({ seconds, pct, color, label, sub }) {
   );
 }
 
-const localTime = (iso) => iso ? new Date(iso + 'Z').toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-';
+const localTime = (iso) => iso ? formatTime(iso + 'Z', '-') : '-';
 const fmtMin = (m) => `${Math.floor((m || 0) / 60)}h ${String((m || 0) % 60).padStart(2, '0')}m`;
 
 // Break = formal Start Break time + clock-out/clock-in gaps up to 90 min (stepping

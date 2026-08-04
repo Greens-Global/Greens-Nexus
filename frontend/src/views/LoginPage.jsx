@@ -19,6 +19,7 @@ import { useMsal } from "@azure/msal-react";
 import { CheckSquare, Clock, Users } from "lucide-react";
 import { loginRequest } from "../authConfig";
 import { useBranding } from "../lib/queries";
+import { BFF_MODE } from "../bffAuth";
 
 // Accent is a Global Admin-configurable setting (AdminPanel -> Branding), not
 // hardcoded - see backend/routers/branding.py. The hero panel needs three
@@ -42,6 +43,13 @@ export default function LoginPage() {
     const id = requestAnimationFrame(() => setOn(true));
     return () => cancelAnimationFrame(id);
   }, []);
+
+  // BFF cookie mode signs in via the server (/api/auth/login); MSAL mode uses the
+  // redirect flow. Same button, same page - so prod and dev look identical either way.
+  const signIn = () => {
+    if (BFF_MODE) { window.location.href = "/api/auth/login"; return; }
+    instance.loginRedirect(loginRequest);
+  };
 
   const P = ACCENT_PALETTES[accent];
   const PANELS = [
@@ -85,7 +93,7 @@ export default function LoginPage() {
             Sign in with your work account to continue.
           </p>
 
-          <button className="nxl-cta" style={{ "--i": 3 }} onClick={() => instance.loginRedirect(loginRequest)}>
+          <button className="nxl-cta" style={{ "--i": 3 }} onClick={signIn}>
             <svg width="18" height="18" viewBox="0 0 21 21" fill="none" aria-hidden="true">
               <rect width="10" height="10" fill="#F35325" />
               <rect x="11" width="10" height="10" fill="#81BC06" />
@@ -99,6 +107,11 @@ export default function LoginPage() {
             Single sign-on with your work account · Microsoft Entra ID
           </p>
           <p className="nxl-foot" style={{ "--i": 5 }}>Secure company workspace</p>
+          <p className="nxl-legal" style={{ "--i": 6 }}>
+            <a href="/privacy">Privacy Policy</a>
+            <span aria-hidden="true"> · </span>
+            <a href="/terms">Terms & Conditions</a>
+          </p>
         </div>
       </main>
 
@@ -222,6 +235,10 @@ export default function LoginPage() {
 
         .nxl-note { margin: 16px 0 0; font-size: 12.5px; color: #9699a6; }
         .nxl-foot { margin: 34px 0 0; font-size: 12px; color: #9699a6; }
+        .nxl-legal { margin: 6px 0 0; font-size: 12px; }
+        .nxl-legal a { color: #9699a6; text-decoration: underline; text-underline-offset: 2px; }
+        .nxl-legal a:hover { color: #676879; }
+        .nxl-legal span { color: #c3c6d4; }
 
         @media (max-width: 880px) {
           .nxl-hero { display: none; }

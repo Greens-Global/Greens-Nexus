@@ -33,6 +33,7 @@ CLIENT_SECRET = os.getenv("NEXUS_BFF_CLIENT_SECRET", "").strip()
 _AUTHORITY    = f"https://login.microsoftonline.com/{TENANT_ID}"
 AUTHORIZE_URL = f"{_AUTHORITY}/oauth2/v2.0/authorize"
 TOKEN_URL     = f"{_AUTHORITY}/oauth2/v2.0/token"
+LOGOUT_URL    = f"{_AUTHORITY}/oauth2/v2.0/logout"
 # offline_access -> a refresh token (the whole point: renew server-side, no
 # browser iframe). openid/profile/email -> id token + identity claims.
 SCOPES = "openid profile email offline_access"
@@ -79,6 +80,25 @@ def authorize_url(redirect_uri: str, state: str, challenge: str) -> str:
         "code_challenge_method": "S256",
     })
     return f"{AUTHORIZE_URL}?{q}"
+
+
+def logout_url(post_logout_redirect_uri: str, id_token_hint: str = "") -> str:
+    """Entra sign-out URL. Ending the IdP session (not just the app session) is
+    what makes logout stick - otherwise /auth/login silently re-auths the still
+    active Microsoft session and bounces the user straight back in.
+
+    Pass id_token_hint (the account's id token) + client_id so Entra signs out the
+    EXACT account and redirects straight back. Without them Entra can't tell which
+    session to end, so it stalls on a blank "which account?" page, never ends the
+    session, and never returns to post_logout_redirect_uri - which is exactly the
+    'logged out of Nexus but Microsoft stays signed in' gap this closes."""
+    params = {
+        "post_logout_redirect_uri": post_logout_redirect_uri,
+        "client_id": CLIENT_ID,
+    }
+    if id_token_hint:
+        params["id_token_hint"] = id_token_hint
+    return f"{LOGOUT_URL}?{urllib.parse.urlencode(params)}"
 
 
 def _token_request(data: dict) -> dict:

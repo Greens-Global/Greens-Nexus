@@ -10,7 +10,7 @@ from typing import Optional
 from database import get_db
 from auth import require_module_grant
 from routers.stepup import require_stepup
-from models import NexusEmployee, PayrollRate
+from models import NexusEmployee, PayrollRate, HrRemovedIdentity
 
 # HR data is the most sensitive in the app. Access is grant-driven (Jun 17): a
 # supervisor/manager role no longer auto-opens HR - they need an explicit "hr"
@@ -38,6 +38,7 @@ class EmployeeIn(BaseModel):
     personal_email:  Optional[str] = ""
     phone:           Optional[str] = ""
     job_title:       Optional[str] = ""
+    designation:     Optional[str] = ""
     department:      Optional[str] = ""
     employment_type: Optional[str] = "full_time"
     start_date:      Optional[str] = ""
@@ -59,6 +60,7 @@ class EmployeeUpdate(BaseModel):
     personal_email:  Optional[str] = None
     phone:           Optional[str] = None
     job_title:       Optional[str] = None
+    designation:     Optional[str] = None
     department:      Optional[str] = None
     employment_type: Optional[str] = None
     start_date:      Optional[str] = None
@@ -103,6 +105,7 @@ def _serialize(e: NexusEmployee) -> dict:
         "personalEmail":  e.personal_email,
         "phone":          e.phone,
         "jobTitle":       e.job_title,
+        "designation":    e.designation or "",
         "department":     e.department,
         "employmentType": e.employment_type,
         "startDate":      e.start_date,
@@ -146,6 +149,7 @@ def create_employee(body: EmployeeIn, user: dict = Depends(require_hr_write), db
         personal_email=(body.personal_email or "").strip().lower(),
         phone=(body.phone or "").strip(),
         job_title=(body.job_title or "").strip(),
+        designation=(body.designation or "").strip(),
         department=(body.department or "").strip(),
         employment_type=body.employment_type or "full_time",
         start_date=(body.start_date or "").strip(),
@@ -163,6 +167,11 @@ def create_employee(body: EmployeeIn, user: dict = Depends(require_hr_write), db
         updated_at=now,
     )
     db.add(row)
+    # If this person was previously removed from Nexus, clear the tombstone so a
+    # deliberate re-add is honored and future M365 syncs treat them normally.
+    _wemail = (body.work_email or "").strip().lower()
+    if _wemail:
+        db.query(HrRemovedIdentity).filter(HrRemovedIdentity.work_email == _wemail).delete()
     db.commit()
     db.refresh(row)
     return _serialize(row)
@@ -208,6 +217,16 @@ def delete_employee(eid: str, user: dict = Depends(require_hr_delete), db: Sessi
     row = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
     if not row:
         return {"ok": True}
+    # Tombstone the identity so the M365 sync won't re-create this person from Entra.
+    # Nexus-only removal: NO Graph call here, the Microsoft 365 account is untouched.
+    if row.work_email or row.m365_id:
+        db.add(HrRemovedIdentity(
+            id=str(uuid.uuid4()),
+            work_email=(row.work_email or "").lower(),
+            m365_id=row.m365_id or "",
+            removed_by=user["email"],
+            removed_at=datetime.now(timezone.utc).isoformat(),
+        ))
     db.delete(row)
     db.commit()
     return {"ok": True}
@@ -1302,6 +1321,11 @@ def sync_m365(user: dict = Depends(require_hr_write), db: Session = Depends(get_
     existing = db.query(NexusEmployee).all()
     by_m365  = {e.m365_id.lower(): e for e in existing if e.m365_id}
     by_email = {e.work_email.lower(): e for e in existing if e.work_email}
+    # Identities intentionally removed from Nexus - the sync must NOT resurrect them
+    # from Entra even though their Microsoft account still exists.
+    _tomb = db.query(HrRemovedIdentity).all()
+    tomb_ids    = {t.m365_id.lower() for t in _tomb if t.m365_id}
+    tomb_emails = {t.work_email.lower() for t in _tomb if t.work_email}
 
     now = datetime.now(timezone.utc).isoformat()
     # Compute the next code once and increment locally - _next_code re-reads the
@@ -1312,6 +1336,8 @@ def sync_m365(user: dict = Depends(require_hr_write), db: Session = Depends(get_
     for g in directory:
         gid  = (g.get("id") or "").lower()
         addr = _primary_addr(g)
+        if gid in tomb_ids or (addr and addr in tomb_emails):
+            continue   # removed from Nexus on purpose - don't re-create or re-link
         emp = by_m365.get(gid) or by_email.get(addr)
         if emp:
             changed = False
@@ -1679,9 +1705,12 @@ def _ensure_departments(db: Session, entity: HrEntity) -> None:
         to_add = list(_DEFAULT_DEPTS)
     # 2) backfill any department strings already sitting on this company's employees
     used = db.query(NexusEmployee.department).filter(NexusEmployee.company == entity.id).distinct().all()
+    entity_key = _dept_key(entity.name or "")   # never let the company's OWN name become a department
     for (name,) in used:
         name = (name or "").strip()
-        if name and _dept_key(name) not in have and name not in to_add:
+        if not name or _dept_key(name) == entity_key:
+            continue
+        if _dept_key(name) not in have and name not in to_add:
             to_add.append(name)
     for name in to_add:
         if _dept_key(name) in have:
@@ -1721,6 +1750,8 @@ def add_department(entity_id: str, body: DepartmentIn, user: dict = Depends(requ
         raise HTTPException(400, "Department name cannot be empty")
     if len(name) > 40:
         raise HTTPException(400, "Department name is too long (40 characters max)")
+    if _dept_key(name) == _dept_key(entity.name or ""):
+        raise HTTPException(400, "A department can't have the same name as the company")
     _ensure_departments(db, entity)
     rows = db.query(HrDepartment).filter(HrDepartment.company_id == entity_id).all()
     if any(_dept_key(r.name) == _dept_key(name) for r in rows):
