@@ -1,4 +1,5 @@
 // Core formatting/parsing helpers used throughout the app.
+import { formatDate as usFormatDate } from '../../lib/datetime';
 
 /** Parse a possibly-formatted number ("$1,234.56", "12%", "") into a plain float. 0 on failure. */
 export function toNumber(v) {
@@ -26,11 +27,11 @@ export function formatMoney(v) {
   return n ? '$' + n.toLocaleString() : '-';
 }
 
-/** "Jan 1, 2026" style date, or an em dash if empty/invalid. Accepts "YYYY-MM-DD" or full ISO. */
+/** US MM/DD/YYYY date, or an em dash if empty and the raw value if unparseable.
+ *  Accepts "YYYY-MM-DD" or full ISO. Delegates to the canonical US formatter. */
 export function formatDate(v) {
   if (!v) return '-';
-  const d = new Date(String(v).slice(0, 10));
-  return isNaN(d) ? String(v) : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  return usFormatDate(String(v).slice(0, 10), String(v));
 }
 
 /** Days from today until `v` (negative = in the past). null if empty/invalid. */

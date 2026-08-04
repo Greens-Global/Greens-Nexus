@@ -13,6 +13,7 @@ import {
   ExternalLink, Share2,
 } from "lucide-react";
 import { api } from "../api";
+import { formatDate } from "../lib/datetime";
 import { SkeletonBlocks } from "../components/AsyncState";
 import { useRolesDirectory } from "../lib/queries";
 import { ensureStepUp } from "../stepup/StepUp";
@@ -192,7 +193,7 @@ export default function CredentialVaultApp() {
   const isStale = (c) => c.rotatedDays > (c.rotationMax || SETTINGS.rotationDays);
   const rotationDaysLeft = (c) => (c.rotationMax || SETTINGS.rotationDays) - c.rotatedDays;
   const isRotationDueSoon = (c) => { const left = rotationDaysLeft(c); return left > 0 && left <= 10; };
-  const rotationExpiryDate = (c) => { const d = new Date(Date.now() + rotationDaysLeft(c) * 86400000); return d.toLocaleDateString("en-US", { month: "short", day: "numeric", ...(d.getFullYear() !== new Date().getFullYear() && { year: "numeric" }) }); };
+  const rotationExpiryDate = (c) => formatDate(new Date(Date.now() + rotationDaysLeft(c) * 86400000));
   const healthFlags = (c) => { const f = []; if (SETTINGS.breachScan && c.breached) f.push("Breached"); if (c.strength === "weak") f.push("Weak"); if (c.reused) f.push("Reused"); if (isExpiring(c)) f.push(`Expires ${c.expiresInDays}d`); if (isRotationDueSoon(c)) f.push(`Rotation due in ${rotationDaysLeft(c)}d`); if (isStale(c)) f.push("Rotation overdue"); return f; };
   const healthDot = (c) => ((SETTINGS.breachScan && c.breached) || c.strength === "weak") ? "#f43f5e" : (c.reused || isExpiring(c) || isStale(c) || isRotationDueSoon(c)) ? "#f59e0b" : "#10b981";
 

@@ -18,6 +18,7 @@ import { supabase }         from '../lib/supabase';
 import { useMsal }          from '@azure/msal-react';
 import { cleanName }        from '../lib/utils';
 import { useNameResolver }  from '../lib/useNameResolver';
+import { formatDate, formatDateLong, formatTime } from '../lib/datetime';
 import { useAssignments, MyPermanentPanel, AssignmentsQueue, AssignItemModal } from '../components/Assignments';
 import { renderNotifBody } from '../components/NotificationBell';
 
@@ -1374,7 +1375,7 @@ function HighlightMatch({ text, query }) {
 // until 06-14-2026".
 function fmtDueDate(co) {
   const d = checkoutDueInfo(co).due;
-  return `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}-${d.getFullYear()}`;
+  return formatDate(d);
 }
 
 function InUseSummary({ checkout }) {
@@ -1384,7 +1385,7 @@ function InUseSummary({ checkout }) {
   const overdue   = daysLeft < 0;
   const dueToday  = daysLeft === 0;
   const color     = overdue ? 'var(--color-red)' : dueToday || daysLeft <= 1 ? 'var(--color-orange)' : 'var(--color-green)';
-  const fmtDue    = due.toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
+  const fmtDue    = formatDateLong(due);
 
   return (
     <div style={{ margin:'10px 0 4px', background:`hsla(${color},0.06)`, border:`1px solid hsla(${color},0.25)`, borderRadius:10, padding:'10px 14px' }}>
@@ -1475,11 +1476,7 @@ function orderActivitySummary(orderItems) {
   const rejected  = orderItems.filter(c => c.status === 'rejected');
   const cancelled = orderItems.filter(c => c.status === 'cancelled');
 
-  const fmtFull = iso => {
-    const d = new Date(iso);
-    return d.toLocaleDateString('en-US', { month:'numeric', day:'numeric', year:'numeric' })
-      + ' at ' + d.toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit' });
-  };
+  const fmtFull = iso => formatDate(iso) + ' at ' + formatTime(iso);
   const duration = (fromIso, toIso) => {
     const ms = new Date(toIso) - new Date(fromIso);
     if (ms <= 0) return null;
@@ -2551,7 +2548,7 @@ const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, 
   const [cancelAllBusy, setCancelAllBusy] = useState(false);
   const [photoPreview, setPhotoPreview] = useState(null);
   const [acceptingCo, setAcceptingCo] = useState(null);
-  const fmtDate = iso => new Date(iso).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
+  const fmtDate = iso => formatDateLong(iso);
 
   // Type/dept/date-range filters apply per item; status + date sort only matter for Past
   const inDateRange = c => {
@@ -4917,7 +4914,7 @@ function DeletedItemsModal({ onClose, onRestored, toast, highlightId }) {
   }, [highlightId, rows]);
 
   const toggle = id => setSelected(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
-  const fmtWhen = iso => { try { return new Date(iso).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }); } catch { return ''; } };
+  const fmtWhen = iso => formatDateLong(iso, '');
   // Days remaining before this item is purged for good (deleted_at + retention).
   const daysLeft = iso => { try { return Math.max(0, Math.ceil((new Date(iso).getTime() + RECYCLE_BIN_DAYS * 864e5 - Date.now()) / 864e5)); } catch { return null; } };
 
@@ -7059,7 +7056,7 @@ const PurchaseRequestsTab = memo(function PurchaseRequestsTab({ userEmail, userN
     if (isManager) api.getItemAllocators().then(setAllocators).catch(() => {});
   }, [isManager]);
 
-  const fmtDate = iso => new Date(iso).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
+  const fmtDate = iso => formatDateLong(iso);
 
   // manager_approved displays as plain "Approved" in green - the raw status
   // string leaking into the UI was Neil/Visesh feedback.

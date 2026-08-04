@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { api } from '../api';
 import { SkeletonBlocks } from '../components/AsyncState';
+import { formatDateLong, formatTime } from '../lib/datetime';
 
 // My HR - employee self-service. Shows ONLY the signed-in person's own record:
 // profile (with self-service contact edits), hours graph, equipment, sealed
@@ -29,9 +30,9 @@ const ASK_TYPES = [
   ['question', 'Question for HR'], ['other', 'Something else'],
 ];
 
-const fmtD = (iso) => iso ? new Date(iso + (iso.length === 10 ? 'T00:00:00' : '')).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '-';
+const fmtD = (iso) => formatDateLong(iso, '-');
 const hm = (min) => `${Math.floor((min || 0) / 60)}h ${String((min || 0) % 60).padStart(2, '0')}m`;
-const fmtT = (v) => !v ? '-' : (String(v).includes('T') ? new Date(v).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : v);
+const fmtT = (v) => !v ? '-' : (String(v).includes('T') ? formatTime(v, '-') : v);
 
 // Hours range filter - start/end in local time, ISO date keys.
 const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;

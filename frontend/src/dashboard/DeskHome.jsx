@@ -180,9 +180,9 @@ export default function DeskHome({ kpis = {}, notifications = [], markRead }) {
             {clockedIn ? <>Clocked in · <b>{fmtElapsed(elapsed)}</b></> : 'Clocked out · Open time clock'}
           </button>
           <div className="dk-zones">
-            <span>New York <b>{fmtZone(now, 'America/New_York')}</b></span>
+            <span>California <b>{fmtZone(now, 'America/Los_Angeles')}</b></span>
             <span className="dk-zone-sep" />
-            <span>Mumbai <b>{fmtZone(now, 'Asia/Kolkata')}</b></span>
+            <span>India <b>{fmtZone(now, 'Asia/Kolkata')}</b></span>
           </div>
         </div>
       </div>

@@ -549,6 +549,7 @@ class NexusEmployee(Base):
     personal_email  = Column(String, default="")
     phone           = Column(String, default="")
     job_title       = Column(String, default="")
+    designation     = Column(String, default="")               # formal designation/rank, kept distinct from job_title (Charmi, Aug 4)
     department      = Column(String, default="")
     employment_type = Column(String, default="full_time")      # full_time | part_time | contractor | intern
     start_date      = Column(String, default="")               # ISO date

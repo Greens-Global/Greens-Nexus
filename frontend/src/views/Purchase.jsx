@@ -5,6 +5,7 @@ import { useRequisitions }  from '../contexts/RequisitionContext';
 import { cleanName } from '../lib/utils';
 import { usePeopleDirectory, useItemApprovers } from '../lib/queries';
 import { api } from '../api';
+import { formatDateLong } from '../lib/datetime';
 
 const ITEMS = ['Laptop','PC','Monitors','Speakers','Headset','Mouse','Keyboard','Battery Backup','Webcam','Safety Vest','Safety Helmet','Hand Tools','Power Tools','Nametag','Uniforms','Keys & Key Sets','Tablet','Phone'];
 const OTHER_ITEM = '__other__';
@@ -122,7 +123,7 @@ export default function Purchase({ activeSub = null }) {
     }
   };
 
-  const fmtDate = (iso) => iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '-';
+  const fmtDate = (iso) => formatDateLong(iso, '-');
 
   return (
     <div className="purchase-view">

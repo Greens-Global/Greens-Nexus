@@ -9,6 +9,7 @@ import {
   ShieldCheck, Shield, AlertTriangle, Clock, ArrowUpRight,
 } from 'lucide-react';
 import { api } from '../api';
+import { formatDate } from '../lib/datetime';
 import { dialog } from '../ui/dialog';
 import { usePeopleDirectory } from '../lib/queries';
 import { useQueryClient } from '@tanstack/react-query';
@@ -84,6 +85,7 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
     personal_email:  employee?.personalEmail || '',
     phone:           employee?.phone || '',
     job_title:       employee?.jobTitle || '',
+    designation:     employee?.designation || '',
     department:      employee?.department || '',
     employment_type: employee?.employmentType || 'full_time',
     start_date:      employee?.startDate || '',
@@ -229,6 +231,7 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
           {input('PERSONAL EMAIL', 'personal_email', { type: 'email' })}
           {input('PHONE', 'phone')}
           {input('JOB TITLE', 'job_title')}
+          {input('DESIGNATION', 'designation')}
           {/* Company FIRST, then Department - departments come from the chosen
               company, so asking for it first keeps the form in reading order.
               Changing company clears the department (it belongs to the old company). */}
@@ -963,7 +966,7 @@ function PayTab({ employee, reloadToken, onEdit }) {
           {sectionLabel('Base pay')}
           {row2('base', 'Base', data.comp.base ? `${money(data.comp.base, data.comp.currency)} · ${label(PAY_BASIS, data.comp.payBasis)}` : '')}
           {row2('freq', 'Frequency', label(PAY_FREQ, data.comp.frequency))}
-          {row2('eff', 'Effective', data.comp.effectiveDate)}
+          {row2('eff', 'Effective', formatDate(data.comp.effectiveDate))}
           {sectionLabel('Benefits & deductions')}
           {(data.comp.benefits || []).length === 0
             ? <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0' }}>None recorded.</div>
@@ -1250,7 +1253,7 @@ function EmployeeAccess({ email, identityType = 'internal', toastOk, toastErr, o
   );
 }
 
-function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, isAdmin = false, onEdit, onBack, isMobile, toastOk, toastErr, onEmployeeUpdated }) {
+function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, isAdmin = false, onEdit, onBack, isMobile, toastOk, toastErr, onEmployeeUpdated, onRemoved }) {
   const [provisionOpen, setProvisionOpen] = useState(false);
   const [photoOpen, setPhotoOpen] = useState(false);
   const [compOpen, setCompOpen] = useState(false);
@@ -1261,6 +1264,18 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
   const [pushBusy, setPushBusy] = useState(false);
   const [tab, setTab] = useState('overview');
   const [payReload, setPayReload] = useState(0);   // bump to refetch PayTab after an edit
+  // Nexus-only removal - separate from offboarding (which deprovisions M365). Hard-
+  // deletes the Nexus record via the DELETE endpoint, which makes NO Graph calls.
+  async function removeFromNexus() {
+    if (!await dialog.confirm(
+      `Remove ${fullName(e)} from Nexus? This deletes their Nexus record and history. It does NOT change or deprovision their Microsoft 365 account - use "Change status -> Left" for a full offboarding.`,
+      { title: 'Remove from Nexus only', confirmText: 'Remove from Nexus', danger: true })) return;
+    try {
+      await api.deleteEmployee(e.id);
+      toastOk(`${fullName(e)} removed from Nexus. Microsoft 365 was not changed.`);
+      onRemoved?.(e.id);
+    } catch (err) { toastErr(err?.message || 'Could not remove from Nexus.'); }
+  }
   const sm = STATUS_META[e.status] || STATUS_META.active;
   // Case-insensitive email match - manager_email is stored lowercased server-side
   // and the org chart matches the same way, so a reassignment there reflects here.
@@ -1320,6 +1335,13 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
         <button className="secondary-btn" onClick={() => onEdit(e)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
           <Pencil size={13} /> Edit
         </button>
+        {isAdmin && (
+          <button className="secondary-btn" onClick={removeFromNexus}
+            title="Remove this person's Nexus record only - does not touch Microsoft 365"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'hsl(var(--color-red))', borderColor: 'hsla(var(--color-red),0.35)' }}>
+            <Trash2 size={13} /> Remove from Nexus
+          </button>
+        )}
         {!e.m365Id ? (
           <button className="primary-btn" onClick={() => setProvisionOpen(true)}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, background: 'hsl(var(--color-green))' }}>
@@ -1358,11 +1380,11 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
       </div>
       {/* Stat cards - all derived from the loaded record, no extra fetch */}
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 16 }}>
-        <StatCard label="Tenure" value={fmtTenure(e.startDate) || '-'} sub={e.startDate ? `since ${e.startDate}` : 'no start date'} />
+        <StatCard label="Tenure" value={fmtTenure(e.startDate) || '-'} sub={e.startDate ? `since ${formatDate(e.startDate)}` : 'no start date'} />
         <StatCard label="Direct reports" value={reports.length} sub={manager ? `reports to ${fullName(manager)}` : 'no manager'} />
         <StatCard label="Type" value={TYPE_LABEL[e.employmentType] || '-'} sub={e.department || '-'} />
         {expiry
-          ? <StatCard label={expiry.label} value={expiry.days < 0 ? 'Expired' : `${expiry.days}d`} sub={expiry.date} tone={expiry.days < 0 ? 'red' : expiry.days <= 60 ? 'orange' : undefined} />
+          ? <StatCard label={expiry.label} value={expiry.days < 0 ? 'Expired' : `${expiry.days}d`} sub={formatDate(expiry.date)} tone={expiry.days < 0 ? 'red' : expiry.days <= 60 ? 'orange' : undefined} />
           : <StatCard label="Compliance" value="Clear" sub="no upcoming expiry" />}
       </div>
 
@@ -1383,12 +1405,13 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
               {row(Mail, 'Work email', e.workEmail)}
               {row(Mail, 'Personal', e.personalEmail)}
               {row(Phone, 'Phone', e.phone)}
+              {e.designation && row(Briefcase, 'Designation', e.designation)}
               {row(Briefcase, 'Department', [e.department, TYPE_LABEL[e.employmentType]].filter(Boolean).join(' · '))}
               {companyName && row(Building2, 'Company', companyName)}
-              {row(CalendarOff, 'Start date', e.startDate)}
+              {row(CalendarOff, 'Start date', formatDate(e.startDate))}
               {row(MapPin, 'Location', e.location)}
               {e.employmentType === 'contractor' && e.contractor?.billing_client && row(Briefcase, 'Billing client', e.contractor.billing_client)}
-              {e.employmentType === 'contractor' && e.contractor?.contract_end && row(CalendarOff, 'Contract end', e.contractor.contract_end)}
+              {e.employmentType === 'contractor' && e.contractor?.contract_end && row(CalendarOff, 'Contract end', formatDate(e.contractor.contract_end))}
               {e.employmentType === 'contractor' && e.contractor?.rate && row(FileText, 'Rate', [e.contractor.rate, e.contractor.currency, e.contractor.rate_type].filter(Boolean).join(' '))}
               {row(Network, 'Reports to', manager ? `${fullName(manager)} (${manager.employeeCode})` : e.managerEmail)}
               {reports.length > 0 && row(Users, 'Direct reports', reports.map(fullName).join(', '))}
@@ -1403,7 +1426,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
               </button>
             </div>
             <div>
-              {row(CalendarDays, 'Date of birth', e.personal?.dob)}
+              {row(CalendarDays, 'Date of birth', formatDate(e.personal?.dob))}
               {row(Lock, 'National ID', e.personal?.nationalId ? maskId(e.personal.nationalId) : '')}
               {row(Heart, 'Emergency contact', e.personal?.emergency?.name ? [e.personal.emergency.name, e.personal.emergency.relationship && `(${e.personal.emergency.relationship})`, e.personal.emergency.phone].filter(Boolean).join(' · ') : '')}
             </div>
@@ -2762,7 +2785,7 @@ function LeaveTab({ employees, toastOk, toastErr }) {
                 <div style={{ flex: 1, minWidth: 160 }}>
                   <div style={{ fontWeight: 700, fontSize: 13.5 }}>{e ? fullName(e) : 'Unknown'} <span style={{ fontWeight: 600, color: 'var(--muted)', fontSize: 12 }}>· {LEAVE_TYPES.find(([v]) => v === r.leaveType)?.[1]} · {r.days} day{r.days !== 1 ? 's' : ''}</span></div>
                   <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>
-                    {r.startDate}{r.endDate && r.endDate !== r.startDate ? ` → ${r.endDate}` : ''}{r.reason ? ` · ${r.reason}` : ''}
+                    {formatDate(r.startDate)}{r.endDate && r.endDate !== r.startDate ? ` → ${formatDate(r.endDate)}` : ''}{r.reason ? ` · ${r.reason}` : ''}
                   </div>
                   {r.decisionNote && <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>Note: {r.decisionNote}</div>}
                 </div>
@@ -3298,7 +3321,7 @@ function StatusChangeModal({ employee, employees = [], onClose, onSaved, toastOk
               <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 6 }}>RECENT CHANGES</div>
               {employee.statusLog.slice(0, 4).map((h, i) => (
                 <div key={i} style={{ fontSize: 12, color: 'var(--muted)', padding: '3px 0' }}>
-                  {STATUS_META[h.from]?.label || h.from} → {STATUS_META[h.to]?.label || h.to} · {h.effectiveDate || (h.at || '').slice(0, 10)}{h.reason ? ` · ${h.reason}` : ''}
+                  {STATUS_META[h.from]?.label || h.from} → {STATUS_META[h.to]?.label || h.to} · {formatDate(h.effectiveDate || (h.at || '').slice(0, 10))}{h.reason ? ` · ${h.reason}` : ''}
                   {h.offboarding?.mailboxAction ? ` · mailbox: ${h.offboarding.mailboxAction}` : ''}
                 </div>
               ))}
@@ -3445,11 +3468,16 @@ function PersonalModal({ employee, onClose, onSaved, toastOk, toastErr }) {
 // ── Compensation + bank (HR Section B - gated by hr_comp grant / owner) ──────
 const PAY_BASIS = [['salary', 'Salary'], ['hourly', 'Hourly'], ['daily', 'Daily'], ['fixed_fee', 'Fixed fee']];
 const PAY_FREQ  = [['monthly', 'Monthly'], ['semimonthly', 'Semi-monthly'], ['biweekly', 'Bi-weekly'], ['weekly', 'Weekly']];
+// Default pay frequency by pay type (Charmi, Aug 4): hourly and US salary -> biweekly;
+// India (INR) salary -> monthly. Applied when pay basis/currency changes; the user
+// can still override via the dropdown.
+const defaultPayFreq = (payBasis, currency) =>
+  payBasis === 'hourly' ? 'biweekly' : (currency === 'INR' ? 'monthly' : 'biweekly');
 const BANK_TYPES = [['checking', 'Checking'], ['savings', 'Savings'], ['current', 'Current']];
 const BENEFIT_TYPES = [['health', 'Health'], ['dental', 'Dental'], ['vision', 'Vision'], ['life', 'Life'], ['disability', 'Disability'], ['retirement', 'Retirement / 401k / PF'], ['other', 'Other']];
 
 function CompensationModal({ employee, onClose, toastOk, toastErr }) {
-  const [comp, setComp] = useState({ base: '', payBasis: 'salary', frequency: 'monthly', currency: 'USD', effectiveDate: '', history: [], benefits: [] });
+  const [comp, setComp] = useState({ base: '', payBasis: 'salary', frequency: 'biweekly', currency: 'USD', effectiveDate: '', history: [], benefits: [] });
   const [bank, setBank] = useState([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -3458,7 +3486,7 @@ function CompensationModal({ employee, onClose, toastOk, toastErr }) {
   useEffect(() => {
     let live = true;
     api.getCompensation(employee.id)
-      .then(r => { if (!live) return; setComp({ base: '', payBasis: 'salary', frequency: 'monthly', currency: 'USD', effectiveDate: '', history: [], benefits: [], ...(r.compensation || {}) }); setBank(r.bank || []); })
+      .then(r => { if (!live) return; setComp({ base: '', payBasis: 'salary', frequency: 'biweekly', currency: 'USD', effectiveDate: '', history: [], benefits: [], ...(r.compensation || {}) }); setBank(r.bank || []); })
       .catch(e => toastErr(e?.message || 'Could not load compensation.'))
       .finally(() => live && setLoading(false));
     return () => { live = false; };
@@ -3507,8 +3535,8 @@ function CompensationModal({ employee, onClose, toastOk, toastErr }) {
             <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', letterSpacing: '.04em', marginBottom: 10 }}>BASE PAY</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
               <div><label style={FL}>BASE AMOUNT</label><input className="form-input" style={{ width: '100%' }} type="number" value={comp.base} onChange={e => setC('base', e.target.value)} placeholder="e.g. 90000" /></div>
-              <div><label style={FL}>CURRENCY</label><select className="form-input" style={{ width: '100%' }} value={comp.currency} onChange={e => setC('currency', e.target.value)}><option value="USD">USD</option><option value="INR">INR</option></select></div>
-              <div><label style={FL}>PAY BASIS</label><select className="form-input" style={{ width: '100%' }} value={comp.payBasis} onChange={e => setC('payBasis', e.target.value)}>{PAY_BASIS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></div>
+              <div><label style={FL}>CURRENCY</label><select className="form-input" style={{ width: '100%' }} value={comp.currency} onChange={e => { const cur = e.target.value; setComp(p => ({ ...p, currency: cur, frequency: defaultPayFreq(p.payBasis, cur) })); }}><option value="USD">USD</option><option value="INR">INR</option></select></div>
+              <div><label style={FL}>PAY BASIS</label><select className="form-input" style={{ width: '100%' }} value={comp.payBasis} onChange={e => { const b = e.target.value; setComp(p => ({ ...p, payBasis: b, frequency: defaultPayFreq(b, p.currency) })); }}>{PAY_BASIS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></div>
               <div><label style={FL}>PAY FREQUENCY</label><select className="form-input" style={{ width: '100%' }} value={comp.frequency} onChange={e => setC('frequency', e.target.value)}>{PAY_FREQ.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></div>
               <div><label style={FL}>EFFECTIVE DATE</label><input className="form-input" style={{ width: '100%' }} type="date" value={comp.effectiveDate} onChange={e => setC('effectiveDate', e.target.value)} /></div>
             </div>
@@ -3519,7 +3547,7 @@ function CompensationModal({ employee, onClose, toastOk, toastErr }) {
                 {comp.history.map((h, i) => (
                   <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '5px 0', borderBottom: '1px solid var(--line)', color: 'var(--muted)' }}>
                     <span>{money(h.base, h.currency)} · {h.payBasis || ''}</span>
-                    <span>{h.effectiveDate || (h.changedAt || '').slice(0, 10)}</span>
+                    <span>{formatDate(h.effectiveDate || (h.changedAt || '').slice(0, 10))}</span>
                   </div>
                 ))}
               </div>
@@ -4168,6 +4196,10 @@ export default function HR({ activeSub, onSubChange }) {
     depts: new Set(employees.filter(e => e.department).map(e => e.department)).size,
   }), [employees]);
 
+  const onRemovedFromNexus = (id) => {   // Nexus-only removal: drop from the list and close the profile
+    setEmployees(prev => prev.filter(e => e.id !== id));
+    setSelectedId(null);
+  };
   const onSaved = saved => {
     const isNew = !employees.some(e => e.id === saved.id);   // add modal shows its own toast
     setEmployees(prev => {
@@ -4281,7 +4313,7 @@ export default function HR({ activeSub, onSubChange }) {
           </button>
           <EmployeeDetail key={selected.id} e={selected} employees={employees} isMobile={isMobile}
             companyName={entityName(selected.company)} canSeeComp={canSeeComp} isAdmin={isAdmin}
-            toastOk={toastOk} toastErr={toastErr} onEmployeeUpdated={onSaved}
+            toastOk={toastOk} toastErr={toastErr} onEmployeeUpdated={onSaved} onRemoved={onRemovedFromNexus}
             onEdit={emp => { setEditing(emp); setFormOpen(true); }}
             onBack={() => setSelectedId(null)} />
           </>
@@ -4413,7 +4445,7 @@ export default function HR({ activeSub, onSubChange }) {
                   {selected ? (
                     <EmployeeDetail key={selected.id} e={selected} employees={employees} isMobile={isMobile}
                       companyName={entityName(selected.company)} canSeeComp={canSeeComp} isAdmin={isAdmin}
-                      toastOk={toastOk} toastErr={toastErr} onEmployeeUpdated={onSaved}
+                      toastOk={toastOk} toastErr={toastErr} onEmployeeUpdated={onSaved} onRemoved={onRemovedFromNexus}
                       onEdit={emp => { setEditing(emp); setFormOpen(true); }}
                       onBack={() => setSelectedId(null)} />
                   ) : (
