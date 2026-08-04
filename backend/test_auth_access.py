@@ -34,6 +34,9 @@ import models
 KNOWN_PUBLIC = {
     "/",                                   # API banner
     "/health", "/version",                 # infra probes
+    "/health/ready",                       # deep readiness probe (DB check) for blue-green slot warm-up
+    "/auth/login", "/auth/callback",       # BFF login: OAuth flow can't require auth; callback is state+PKCE guarded
+    "/auth/logout",                        # only clears the session cookie; harmless without a valid session
     "/branding/config",                    # login screen needs it pre-auth
     "/stepup/config",                      # same posture
     "/asana-sync/webhook",                 # X-Hook-Signature HMAC verified
