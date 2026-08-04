@@ -87,15 +87,21 @@ def callback(request: Request, code: str = "", state: str = "", error: str = "")
     return resp
 
 
-@router.post("/logout")
+@router.get("/logout")
 def logout(request: Request):
+    """Full sign-out: drop the server session AND end the Entra SSO session, then
+    land back on the app (which re-gates to a fresh login prompt). A GET so the
+    browser can navigate to it and follow the redirect to Microsoft - clearing the
+    app cookie alone was NOT enough, /auth/login just silently re-authed the still
+    active Microsoft session and bounced the user right back in."""
     sid = request.cookies.get(bff.SESSION_COOKIE, "")
     db = SessionLocal()
     try:
         bff.delete_session(db, sid)
     finally:
         db.close()
-    resp = JSONResponse({"ok": True})
+    dest = bff.logout_url(APP_URL) if (bff.configured() and APP_URL) else (APP_URL or "/")
+    resp = RedirectResponse(dest, status_code=302)
     resp.delete_cookie(bff.SESSION_COOKIE, path="/")
     resp.delete_cookie(bff.CSRF_COOKIE, path="/")
     return resp

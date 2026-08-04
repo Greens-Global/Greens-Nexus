@@ -33,6 +33,7 @@ CLIENT_SECRET = os.getenv("NEXUS_BFF_CLIENT_SECRET", "").strip()
 _AUTHORITY    = f"https://login.microsoftonline.com/{TENANT_ID}"
 AUTHORIZE_URL = f"{_AUTHORITY}/oauth2/v2.0/authorize"
 TOKEN_URL     = f"{_AUTHORITY}/oauth2/v2.0/token"
+LOGOUT_URL    = f"{_AUTHORITY}/oauth2/v2.0/logout"
 # offline_access -> a refresh token (the whole point: renew server-side, no
 # browser iframe). openid/profile/email -> id token + identity claims.
 SCOPES = "openid profile email offline_access"
@@ -79,6 +80,14 @@ def authorize_url(redirect_uri: str, state: str, challenge: str) -> str:
         "code_challenge_method": "S256",
     })
     return f"{AUTHORIZE_URL}?{q}"
+
+
+def logout_url(post_logout_redirect_uri: str) -> str:
+    """Entra sign-out URL. Ending the IdP session (not just the app session) is
+    what makes logout stick - otherwise /auth/login silently re-auths the still
+    active Microsoft session and bounces the user straight back in."""
+    q = urllib.parse.urlencode({"post_logout_redirect_uri": post_logout_redirect_uri})
+    return f"{LOGOUT_URL}?{q}"
 
 
 def _token_request(data: dict) -> dict:

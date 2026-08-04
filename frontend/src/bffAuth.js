@@ -31,11 +31,13 @@ export function bffLogin() {
   window.location.href = `/api/auth/login?next=${next}`;
 }
 
-/** Kill the server session, then bounce to login. */
+/** Full sign-out: navigate to the server logout, which drops the session, ends
+ *  the Entra SSO session, and lands back on the app (re-gated to a fresh login).
+ *  A plain navigation (not fetch) so the browser follows the redirect chain to
+ *  Microsoft - a POST that only cleared the cookie left the SSO session alive,
+ *  so /auth/login silently re-authed and bounced the user right back in. */
 export function bffLogout() {
-  return fetch('/api/auth/logout', {
-    method: 'POST', credentials: 'include', headers: { 'X-CSRF-Token': csrfToken() },
-  }).catch(() => {}).finally(() => { window.location.href = '/api/auth/login'; });
+  window.location.href = '/api/auth/logout';
 }
 
 /** Make msalInstance report a SYNTHETIC account for the session user, so every
