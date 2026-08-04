@@ -41,10 +41,14 @@
   }
 
   // Deliberately dependency-free and style-inline: the app's CSS may be exactly
-  // what failed to load. Neutral colors so it reads in light or dark.
-  function panel(title, sub, showButton) {
+  // what failed to load, and a strict CSP can block a <style> @keyframes - so the
+  // progress bar is animated from JS via inline styles. Neutral surface reads in
+  // light or dark; the brand green matches the rest of Nexus.
+  // mode: 'updating' (animated sweep, auto-reloads) | 'failed' (Reload button).
+  function panel(mode) {
     var id = 'nx-boot-panel';
     if (document.getElementById(id)) return;
+    var GREEN = 'hsl(142,60%,35%)';
     var wrap = document.createElement('div');
     wrap.id = id;
     wrap.setAttribute('role', 'status');
@@ -52,26 +56,60 @@
       'align-items:center;justify-content:center;background:#f6f7fb;color:#323338;' +
       "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif";
     var card = document.createElement('div');
-    card.style.cssText = 'text-align:center;max-width:340px;padding:28px 24px';
+    card.style.cssText = 'text-align:center;max-width:360px;padding:28px 24px';
+
+    var mark = document.createElement('div');
+    mark.textContent = 'N';
+    mark.style.cssText = 'width:46px;height:46px;border-radius:13px;margin:0 auto 16px;' +
+      'display:flex;align-items:center;justify-content:center;font-weight:800;font-size:24px;' +
+      'color:#fff;background:' + GREEN + ';box-shadow:0 8px 20px -6px hsla(145,60%,25%,.5)';
+    card.appendChild(mark);
+
     var h = document.createElement('div');
     h.style.cssText = 'font-size:17px;font-weight:700;margin-bottom:6px';
-    h.textContent = title;
     var p = document.createElement('div');
     p.style.cssText = 'font-size:13.5px;line-height:1.55;color:#676879';
-    p.textContent = sub;
-    card.appendChild(h);
-    card.appendChild(p);
-    if (showButton) {
+
+    if (mode === 'failed') {
+      h.textContent = 'Nexus needs a quick reload';
+      p.textContent = 'A fresh update didn’t finish loading - this almost always clears right after a deploy. Give it a reload; if it keeps happening, poke IT.';
+      card.appendChild(h);
+      card.appendChild(p);
       var b = document.createElement('button');
       b.textContent = 'Reload Nexus';
-      b.style.cssText = 'margin-top:18px;background:#2b45e1;color:#fff;border:0;' +
-        'border-radius:8px;padding:10px 22px;font-size:13.5px;font-weight:700;cursor:pointer';
+      b.style.cssText = 'margin-top:18px;background:' + GREEN + ';color:#fff;border:0;' +
+        'border-radius:9px;padding:11px 24px;font-size:13.5px;font-weight:700;cursor:pointer;' +
+        'box-shadow:0 6px 16px -6px hsla(145,60%,25%,.5)';
       b.onclick = function () {
         try { sessionStorage.removeItem(KEY); } catch (_) {}
         location.reload();
       };
       card.appendChild(b);
+    } else {
+      h.textContent = 'Freshening up Nexus';
+      card.appendChild(h);
+      var track = document.createElement('div');
+      track.style.cssText = 'width:220px;height:6px;border-radius:99px;background:#e4e7f0;' +
+        'overflow:hidden;margin:18px auto 14px;position:relative';
+      var bar = document.createElement('div');
+      bar.style.cssText = 'position:absolute;top:0;left:-38%;height:100%;width:38%;' +
+        'border-radius:99px;background:' + GREEN;
+      track.appendChild(bar);
+      card.appendChild(track);
+      p.style.minHeight = '20px';
+      card.appendChild(p);
+      // Light, rotating messages - a smile, not a distraction.
+      var msgs = ['Tightening a few bolts…', 'Polishing the pixels…',
+        'Herding the data…', 'Almost there - hang tight.'];
+      var mi = 0; p.textContent = msgs[0];
+      var pos = -38;
+      var sweep = setInterval(function () {
+        pos += 2.4; if (pos >= 100) pos = -38; bar.style.left = pos + '%';
+      }, 16);
+      var rot = setInterval(function () { mi = (mi + 1) % msgs.length; p.textContent = msgs[mi]; }, 2200);
+      wrap._nxTimers = [sweep, rot];   // torn down by the reload; kept for tidiness
     }
+
     wrap.appendChild(card);
     (document.body || document.documentElement).appendChild(wrap);
   }
@@ -80,14 +118,12 @@
     if (busy) return;
     var n = tries();
     if (n >= MAX) {
-      panel('Nexus could not finish loading',
-        'This usually clears on its own after a deploy. Reload to try again, or contact IT if it keeps happening.',
-        true);
+      panel('failed');
       return;
     }
     busy = true;
     bump(n + 1);
-    panel('Updating Nexus', 'Finishing an update - this reloads automatically.', false);
+    panel('updating');
     setTimeout(function () {
       var go = function () { location.reload(); };
       // Force the failing asset past any stale cache entry BEFORE reloading, so
