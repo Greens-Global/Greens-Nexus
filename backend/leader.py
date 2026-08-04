@@ -68,6 +68,13 @@ def _ensure_table():
         ))
 
 
+def _claim_lease() -> bool:
+    """Sync (runs in a worker thread): atomically claim or renew the lease.
+    Returns True if this instance now holds it."""
+    with engine.begin() as conn:
+        return conn.execute(_CLAIM, {"me": _INSTANCE, "stale": _LEASE_STALE_SECONDS}).first() is not None
+
+
 async def elect_and_run(start_jobs):
     """Run `start_jobs()` (which starts the background loops and returns their asyncio
     Tasks) ONLY while this instance holds the leader lease; cancel them when it loses
@@ -86,7 +93,7 @@ async def elect_and_run(start_jobs):
         return
 
     try:
-        _ensure_table()
+        await asyncio.to_thread(_ensure_table)
     except Exception as e:
         print(f"[leader] lease table unavailable, running jobs unmanaged: {e}")
         _is_leader = True
@@ -97,8 +104,8 @@ async def elect_and_run(start_jobs):
     running = False
     while True:
         try:
-            with engine.begin() as conn:
-                won = conn.execute(_CLAIM, {"me": _INSTANCE, "stale": _LEASE_STALE_SECONDS}).first() is not None
+            # DB call off the event loop - never block the worker (CLAUDE.md).
+            won = await asyncio.to_thread(_claim_lease)
         except Exception as e:
             # A transient DB blip must not flip leadership (which would double-start
             # or needlessly stop jobs) - keep the current state and try again.
