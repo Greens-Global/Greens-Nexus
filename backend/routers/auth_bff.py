@@ -74,6 +74,10 @@ def callback(request: Request, code: str = "", state: str = "", error: str = "")
     db = SessionLocal()
     try:
         sid, csrf, email = bff.create_session(db, token_resp)
+    except Exception:
+        # e.g. the DB pool isn't ready yet during a restart. Never surface a raw
+        # 500 to a user mid-login - send them back to a clean login to retry.
+        return fail
     finally:
         db.close()
     if not sid:

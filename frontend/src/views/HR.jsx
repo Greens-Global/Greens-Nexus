@@ -2843,6 +2843,9 @@ function CompanyDepartments({ entity, employees = [], toastOk, toastErr }) {
     setBusy(false);
   }
   async function remove(d) {
+    if (!await dialog.confirm(
+      `Delete the "${d.name}" department? Anyone currently assigned to it will be left with no department - you can reassign them on their profile.`,
+      { title: 'Delete department', confirmText: 'Delete', danger: true })) return;
     try { const list = await api.deleteCompanyDepartment(entity.id, d.id); setDepts(list); refreshDirectory(); }
     catch (e) { toastErr(e?.message || 'Could not remove department.'); }
   }

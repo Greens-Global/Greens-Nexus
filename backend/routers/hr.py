@@ -1806,9 +1806,20 @@ def update_department(entity_id: str, dept_id: str, body: DepartmentUpdate,
 
 
 @router.delete("/entities/{entity_id}/departments/{dept_id}")
-def delete_department(entity_id: str, dept_id: str, user: dict = Depends(require_hr_delete), db: Session = Depends(get_db)):
+def delete_department(entity_id: str, dept_id: str, reassign_to: Optional[str] = None,
+                      user: dict = Depends(require_hr_delete), db: Session = Depends(get_db)):
     row = db.query(HrDepartment).filter(HrDepartment.id == dept_id, HrDepartment.company_id == entity_id).first()
     if row:
+        # Move (or clear) anyone still tagged with this department FIRST - otherwise
+        # _ensure_departments backfills it straight back from those employee records
+        # on the next load, which is why a deleted department "came back on refresh".
+        # reassign_to = another department name to merge people into, else blank
+        # leaves them with no department.
+        target = (reassign_to or "").strip()
+        dept_key = _dept_key(row.name)
+        for e in db.query(NexusEmployee).filter(NexusEmployee.company == entity_id).all():
+            if _dept_key(e.department or "") == dept_key:
+                e.department = target
         db.delete(row); db.commit()
     rows = db.query(HrDepartment).filter(HrDepartment.company_id == entity_id).order_by(HrDepartment.sort_order, HrDepartment.name).all()
     return [_serialize_dept(d) for d in rows]
