@@ -103,9 +103,26 @@ def logout(request: Request):
 
 @router.get("/me")
 def me(request: Request, user: dict = Depends(get_current_user)):
-    """Bootstrap endpoint: who am I + the CSRF token to echo on mutations."""
+    """Bootstrap endpoint: who am I + display name + the CSRF token to echo on
+    mutations. The name comes from the session's id-token so the app shows the
+    real name (not the raw email) under cookie auth."""
+    sid = request.cookies.get(bff.SESSION_COOKIE, "")
+    name = ""
+    if sid:
+        db = SessionLocal()
+        try:
+            from models import ServerSession
+            row = db.query(ServerSession).filter(ServerSession.id == sid).first()
+            if row and row.id_token_enc:
+                claims = bff._decode_id_claims(secret_box.decrypt(row.id_token_enc))
+                name = (claims.get("name") or "").strip()
+        except Exception:
+            name = ""
+        finally:
+            db.close()
     return {
         "email": user["email"], "role": user["role"], "level": user["level"],
+        "name": name or user["email"],
         "csrf": request.cookies.get(bff.CSRF_COOKIE, ""),
-        "mode": "session" if request.cookies.get(bff.SESSION_COOKIE) else "bearer",
+        "mode": "session" if sid else "bearer",
     }
