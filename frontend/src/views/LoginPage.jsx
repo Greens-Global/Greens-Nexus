@@ -93,7 +93,7 @@ export default function LoginPage() {
             Sign in with your work account to continue.
           </p>
 
-          <button className="nxl-cta" style={{ "--i": 3 }} onClick={() => instance.loginRedirect(loginRequest)}>
+          <button className="nxl-cta" style={{ "--i": 3 }} onClick={signIn}>
             <svg width="18" height="18" viewBox="0 0 21 21" fill="none" aria-hidden="true">
               <rect width="10" height="10" fill="#F35325" />
               <rect x="11" width="10" height="10" fill="#81BC06" />
