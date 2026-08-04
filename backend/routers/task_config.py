@@ -155,6 +155,34 @@ def asana_import(body: AsanaImportBody, user: dict = Depends(get_current_user), 
     return _import_asana_projects(db, cfg, asana, gids, user, email_map)
 
 
+def _asana_project_owner(db, proj: dict, email_map: dict) -> str:
+    """The Nexus work email for an Asana project's owner, or "" if there isn't one.
+
+    Asana's project resource carries `owner` (a UserCompact) but NO creator
+    field - `created_at` exists, `created_by` does not. Asana makes the creator
+    the initial owner, so this is as close as the API gets to "who made this in
+    Asana"; a project whose ownership was reassigned there reports the new owner,
+    which is the more useful answer anyway.
+
+    Resolved through the Nexus directory like every other inbound Asana address
+    (_map_email handles the @…onmicrosoft.com guest relay), then required to be a
+    real employee. An unmatched address must NOT be stored: owner_email feeds
+    require_project_role and the project visibility checks (task_util), so a
+    non-Nexus owner is a dead pointer that grants its "owner" nothing and shows
+    up as an unknown face in the People picker. Callers fall back to the
+    importing user, which is what the owner was before this existed.
+    """
+    import asana_sync
+    email = asana_sync._map_email((proj.get("owner") or {}).get("email"), email_map, db)
+    if not email:
+        return ""
+    # The directory is keyed by work email, known personal email and bare local
+    # part, all lowercased, and maps every one of them onto the work email - so a
+    # hit here is exactly "this resolved to a real employee". Reused rather than
+    # re-queried because _map_email just built (and cached) it on the line above.
+    return email if asana_sync._nexus_directory(db).get(email) else ""
+
+
 def _import_asana_projects(db, cfg, asana, gids, user, email_map=None, on_progress=None,
                            should_stop=None):
     """Create-or-adopt a Nexus project per Asana project, map it, and import its
@@ -193,7 +221,9 @@ def _import_asana_projects(db, cfg, asana, gids, user, email_map=None, on_progre
             # which is the granularity that matters, since duplicates come from
             # two writers touching the SAME project at once.
             asana_sync._acquire_pull_lock(db)
-            proj = asana.get(f"/projects/{gid}", opt_fields="name,notes")
+            # owner.email rides along the same way assignee.email does on tasks -
+            # the compact `owner` Asana returns by default is gid/name only.
+            proj = asana.get(f"/projects/{gid}", opt_fields="name,notes,owner.name,owner.email")
             # Re-importing an Asana project that's already mapped (Two-way
             # Sync) must reuse that SAME Nexus project rather than create a
             # duplicate - this exact bug (a dangling AsanaProjectMap left
@@ -226,13 +256,27 @@ def _import_asana_projects(db, cfg, asana, gids, user, email_map=None, on_progre
                 # then duplicated instead of filling in.
                 existing_project = (db.query(models.TaskProject)
                                     .filter(models.TaskProject.name == pname).first())
+            # Asana's project owner, at IMPORT time only. Deliberately never
+            # applied on a Pull, and never over an owner a Nexus project already
+            # has: name/description are refreshed every pull, but ownership is a
+            # decision someone makes on this side (handover, a leaver's projects
+            # reassigned by task_projects.reassign) and a sweep that kept
+            # restoring the Asana value would silently undo it every two minutes.
+            asana_owner = _asana_project_owner(db, proj, email_map)
             if existing_project:
                 existing_project.name = pname
                 existing_project.description = proj.get("notes") or existing_project.description
+                # Filling a BLANK owner isn't overwriting one - a project that
+                # has no owner at all can only gain from this.
+                if asana_owner and not (existing_project.owner_email or "").strip():
+                    existing_project.owner_email = asana_owner
                 p = project_to_dict(existing_project)
             else:
+                # Falls back to the importing user (create_project's default) when
+                # Asana has no owner, or has one nobody in Nexus matches.
                 p = create_project(ProjectBody(name=pname,
-                                               description=proj.get("notes") or ""), user=user, db=db)
+                                               description=proj.get("notes") or "",
+                                               owner_email=asana_owner or None), user=user, db=db)
             counts["projects"] += 1
             # Record the pairing. An imported project is one the operator plainly
             # wants kept current, and without a map row Pull/Push skip it

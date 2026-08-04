@@ -7,9 +7,11 @@ import { queryClient } from './lib/queryClient'
 import { setCacheBridge } from './api'
 import './style.css'
 import App from './App.jsx'
+import LandingPage from './components/LandingPage'
 import RootErrorBoundary from './components/RootErrorBoundary'
 import { DialogHost } from './ui/dialog'
 import { installErrorReporter } from './lib/errorReporter'
+import { BFF_MODE, bffBootstrap } from './bffAuth'
 
 installErrorReporter();   // uncaught errors -> /client-errors -> audit trail
 // Let api.js drive the TanStack Query cache (invalidate after writes, clear on
@@ -42,18 +44,40 @@ try {
 // this deploy - required to bypass asset URLs cache-poisoned during the Jul 27
 // deploy window (fallback HTML cached immutable under the old entry URL).
 window.__NEXUS_BUILD = '2026-07-28';
-createRoot(document.getElementById('root')).render(
-  <StrictMode>
-    <RootErrorBoundary>
-      <QueryClientProvider client={queryClient}>
-        <MsalProvider instance={msalInstance}>
-          <App />
-          <DialogHost />
-        </MsalProvider>
-      </QueryClientProvider>
-    </RootErrorBoundary>
-  </StrictMode>,
-)
+function renderApp() {
+  createRoot(document.getElementById('root')).render(
+    <StrictMode>
+      <RootErrorBoundary>
+        <QueryClientProvider client={queryClient}>
+          <MsalProvider instance={msalInstance}>
+            <App />
+            <DialogHost />
+          </MsalProvider>
+        </QueryClientProvider>
+      </RootErrorBoundary>
+    </StrictMode>,
+  );
+}
+
+function renderLanding() {
+  createRoot(document.getElementById('root')).render(
+    <StrictMode>
+      <RootErrorBoundary>
+        <LandingPage />
+      </RootErrorBoundary>
+    </StrictMode>,
+  );
+}
+
+// BFF cookie mode: resolve the server session BEFORE the first render. If signed
+// in, bffBootstrap installs a synthetic account and we render the app; if not, we
+// render the sign-in landing (no auto-redirect to Microsoft). MSAL mode renders
+// immediately, exactly as before.
+if (BFF_MODE) {
+  bffBootstrap().then((authed) => { authed ? renderApp() : renderLanding(); });
+} else {
+  renderApp();
+}
 
 // Deploy trigger (Jul 31, 2026): first hash rotation after the R2 asset archive went live,
 // so stale-tab chunk requests fall back to the archive. Safe to remove.

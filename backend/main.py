@@ -837,6 +837,40 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Nexus API", lifespan=lifespan)
 
+
+@app.middleware("http")
+async def _bff_csrf_guard(request, call_next):
+    """CSRF enforcement for BFF cookie-authenticated writes. The browser sends the
+    session cookie automatically, so a mutating request that carries it must ALSO
+    carry a matching X-CSRF-Token (double-submit). Bearer/token requests have no
+    session cookie and are immune to CSRF, so they pass untouched. SameSite=Lax
+    already blocks the common vector; this is defense in depth. Runs the DB check
+    in a thread so it never blocks the event loop."""
+    import bff_session
+    if (bff_session.configured()
+            and request.method in ("POST", "PUT", "PATCH", "DELETE")
+            and not request.url.path.startswith("/auth/")):
+        sid = request.cookies.get(bff_session.SESSION_COOKIE, "")
+        if sid:   # a cookie-authenticated write -> require a matching CSRF token
+            hdr = request.headers.get("X-CSRF-Token", "")
+
+            def _ok():
+                from database import SessionLocal
+                from models import ServerSession
+                db = SessionLocal()
+                try:
+                    row = db.query(ServerSession).filter(ServerSession.id == sid).first()
+                    return bool(row and hdr and hdr == row.csrf_token)
+                finally:
+                    db.close()
+
+            import asyncio
+            if not await asyncio.to_thread(_ok):
+                from starlette.responses import JSONResponse
+                return JSONResponse(status_code=403, content={"detail": "CSRF token missing or invalid"})
+    return await call_next(request)
+
+
 # Error tracking: inert without a DSN. Set NEXUS_SENTRY_DSN (and pip install
 # sentry-sdk) to stream unhandled exceptions to Sentry; until then the
 # exception handler below + client-errors endpoint are the error trail.
@@ -906,6 +940,26 @@ def health():
     return {"status": "ok"}
 
 
+@app.get("/health/ready")
+def health_ready():
+    """Deep READINESS probe for blue-green (Azure slot warm-up + swap): reports
+    'ready' only once the DB is actually reachable, so a slot swap / load-balancer
+    completes only when this instance can serve real traffic. Distinct from
+    /health (shallow liveness): a DB blip trips readiness -> drain traffic, without
+    tripping liveness -> which would needlessly restart the worker. No auth."""
+    from fastapi.responses import JSONResponse
+    from sqlalchemy import text
+    from database import SessionLocal
+    db = SessionLocal()
+    try:
+        db.execute(text("SELECT 1"))
+        return {"status": "ready"}
+    except Exception as e:  # noqa: BLE001 - readiness must report, not raise
+        return JSONResponse(status_code=503, content={"status": "not_ready", "detail": str(e)[:160]})
+    finally:
+        db.close()
+
+
 @app.get("/version")
 def version():
     return {"version": "2.0.0", "auth": "token-based"}
@@ -955,4 +1009,7 @@ app.include_router(branding.router)       # Branding settings: login-screen acce
 app.include_router(egnyte.router)         # Egnyte: list/read/upload/search, one shared client
 from routers import client_errors          # noqa: E402
 app.include_router(client_errors.router)  # Client-side error intake -> audit trail + logs
+
+from routers import auth_bff               # noqa: E402  BFF login (dual-mode)
+app.include_router(auth_bff.router)        # /auth/login|callback|logout|me - inert without NEXUS_BFF_CLIENT_SECRET
 

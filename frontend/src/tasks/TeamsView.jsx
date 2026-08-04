@@ -131,7 +131,11 @@ export default function TeamsView({ onNavigate }) {
         {teams.length === 0 ? (
           <EmptyState icon={Users} title="No Teams Yet" hint="Create a team to group members and their work." />
         ) : (
-          <div style={{ display: 'grid', gap: 14, gridTemplateColumns: 'repeat(auto-fill, minmax(min(300px, 100%), 1fr))' }}>
+          // alignItems:start stops a card from stretching to the tallest one in
+          // its row. That was survivable when projects wrapped into 3-4 lines;
+          // with one per row, Accounting's 20 projects would have left every
+          // other card in that row as an empty white column.
+          <div style={{ display: 'grid', gap: 14, alignItems: 'start', gridTemplateColumns: 'repeat(auto-fill, minmax(min(300px, 100%), 1fr))' }}>
             {sortedTeams.map((d) => (
               <TeamCard key={d.id} team={d} teamProjects={projectsOf(d)} nameOf={nameOf} taskCount={taskCountByTeam[d.id] || 0} onOpen={() => setDetailId(d.id)} />
             ))}
@@ -166,12 +170,24 @@ function TeamCard({ team, teamProjects, nameOf, taskCount, onOpen }) {
         </span>
         <div style={{ minWidth: 0, flex: 1 }}>
           <div style={{ fontSize: 15.5, fontWeight: 700, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{team.name}</div>
+          {/* Members · projects · tasks. The project count belongs in the count
+              line even though the names are listed right below it: a long team
+              scrolls its list past the fold, and "4 projects" is the number you
+              compare between teams without counting rows. */}
           <div style={{ fontSize: 12, color: NX.faint, marginTop: 2 }}>
-            {members.length} member{members.length === 1 ? '' : 's'} · {taskCount} task{taskCount === 1 ? '' : 's'}
+            {members.length} member{members.length === 1 ? '' : 's'}
+            {' · '}{teamProjects.length} project{teamProjects.length === 1 ? '' : 's'}
+            {' · '}{taskCount} task{taskCount === 1 ? '' : 's'}
           </div>
-          {/* One chip per project - a team shared across several shows them all
-              here, which is what tells two same-named teams apart at a glance. */}
-          <div style={{ marginTop: 4, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+          {/* One chip per project, ONE PER ROW - a team shared across several
+              shows them all here, which is what tells two same-named teams apart
+              at a glance. Deliberately a column rather than a wrapping row: side
+              by side, two short names share a line and the eye has to scan in
+              two directions to be sure it has seen every project. A long list
+              costs vertical space and scrolling, which is the trade Neil asked
+              for. alignItems:flex-start keeps each pill hugging its own name
+              instead of stretching to the card's width. */}
+          <div style={{ marginTop: 4, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 4 }}>
             {teamProjects.length === 0 ? (
               <span style={{ display: 'inline-flex', fontSize: 11, fontWeight: 600, color: NX.faint, background: NX.surface2, borderRadius: 999, padding: '2px 8px' }}>
                 No project
@@ -351,6 +367,9 @@ function TeamDetail({ team, teamProjects, onBack, onEdit, onNavigate }) {
   const Icon = deptIcon(team.icon);
   const color = team.color || NX.blue;
   const members = team.memberIds || [];
+  // Same definition the card's count uses (tasks carrying this team's id), so
+  // the number doesn't change when you click into a team.
+  const taskCount = useMemo(() => tasks.filter((t) => t.teamId === team.id).length, [tasks, team.id]);
 
   return (
     <div style={{ fontFamily: FONT, color: NX.ink, height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0, background: NX.surface }}>
@@ -364,11 +383,14 @@ function TeamDetail({ team, teamProjects, onBack, onEdit, onNavigate }) {
           <button onClick={onEdit} style={{ ...btn('ghost'), padding: 0, display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 22, fontWeight: 700, color: NX.ink }} title="Edit Team">
             {team.name}
           </button>
+          {/* Matches TeamCard's count line exactly - the single-project case used
+              to name the project here instead of counting, so the same team read
+              differently depending on which screen you were on. The names are on
+              the Overview tab's Projects card either way. */}
           <div style={{ fontSize: 12, color: NX.faint }}>
-            {members.length} member{members.length === 1 ? '' : 's'} ·{' '}
-            {teamProjects.length === 0 ? 'No project'
-              : teamProjects.length === 1 ? teamProjects[0].name
-                : `${teamProjects.length} projects`}
+            {members.length} member{members.length === 1 ? '' : 's'}
+            {' · '}{teamProjects.length} project{teamProjects.length === 1 ? '' : 's'}
+            {' · '}{taskCount} task{taskCount === 1 ? '' : 's'}
           </div>
         </div>
         <MemberStack members={members} nameOf={nameOf} />

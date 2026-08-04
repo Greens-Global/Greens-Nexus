@@ -8,6 +8,7 @@ import { useHeaderTabs } from "./ModuleTabs";
 import ActAsModal from "./ActAsModal";
 import AccountSettingsModal from "./AccountSettingsModal";
 import { useMsal }        from "@azure/msal-react";
+import { BFF_MODE, bffLogout } from "../bffAuth";
 import { useRole, ROLES, MODULES } from "../contexts/RoleContext";
 
 export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle, canGoBack, onBack, onNavigate, prevLabel, onOpenAdmin, helpKey, helpLabel }) {
@@ -138,6 +139,9 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
   }
 
   function handleSignOut() {
+    // BFF mode: there is no MSAL session to end - kill the server session and
+    // clear the cookie via /api/auth/logout instead.
+    if (BFF_MODE) { bffLogout(); return; }
     instance.logoutRedirect({
       account,
       postLogoutRedirectUri: window.location.origin + window.location.pathname,
