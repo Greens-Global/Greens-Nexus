@@ -2751,3 +2751,24 @@ class AsanaImportJob(Base):
     # the same import forever.
     done_gids    = Column(JSON, default=list)
     attempts     = Column(Integer, default=1)
+
+
+class ServerSession(Base):
+    """Backend-For-Frontend login session. The browser holds ONLY the opaque id
+    (in an HttpOnly cookie); the Entra tokens live HERE, Fernet-encrypted at rest
+    (secret_box / NEXUS_VAULT_KEY). get_current_user resolves identity from this
+    when a session cookie is present, and falls back to the Bearer path otherwise
+    (dual-mode migration - see docs/BFF-Migration-Plan.md and bff_session.py).
+    RLS-enabled: the backend reaches it via the privileged DATABASE_URL; the anon
+    key must never touch it."""
+    __tablename__ = "server_sessions"
+    id                = Column(String, primary_key=True)    # opaque session id = the cookie value
+    user_email        = Column(String, nullable=False, index=True)
+    csrf_token        = Column(String, default="")          # double-submit CSRF secret
+    access_token_enc  = Column(String, default="")          # Fernet ciphertext
+    refresh_token_enc = Column(String, default="")          # Fernet ciphertext
+    id_token_enc      = Column(String, default="")          # Fernet ciphertext
+    access_expires_at = Column(Float, default=0.0)          # epoch seconds; drives server-side refresh
+    auth_time         = Column(Float, default=0.0)          # last interactive auth (step-up freshness)
+    created_at        = Column(String, default="")
+    last_seen         = Column(String, default="")
