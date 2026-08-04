@@ -837,6 +837,40 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Nexus API", lifespan=lifespan)
 
+
+@app.middleware("http")
+async def _bff_csrf_guard(request, call_next):
+    """CSRF enforcement for BFF cookie-authenticated writes. The browser sends the
+    session cookie automatically, so a mutating request that carries it must ALSO
+    carry a matching X-CSRF-Token (double-submit). Bearer/token requests have no
+    session cookie and are immune to CSRF, so they pass untouched. SameSite=Lax
+    already blocks the common vector; this is defense in depth. Runs the DB check
+    in a thread so it never blocks the event loop."""
+    import bff_session
+    if (bff_session.configured()
+            and request.method in ("POST", "PUT", "PATCH", "DELETE")
+            and not request.url.path.startswith("/auth/")):
+        sid = request.cookies.get(bff_session.SESSION_COOKIE, "")
+        if sid:   # a cookie-authenticated write -> require a matching CSRF token
+            hdr = request.headers.get("X-CSRF-Token", "")
+
+            def _ok():
+                from database import SessionLocal
+                from models import ServerSession
+                db = SessionLocal()
+                try:
+                    row = db.query(ServerSession).filter(ServerSession.id == sid).first()
+                    return bool(row and hdr and hdr == row.csrf_token)
+                finally:
+                    db.close()
+
+            import asyncio
+            if not await asyncio.to_thread(_ok):
+                from starlette.responses import JSONResponse
+                return JSONResponse(status_code=403, content={"detail": "CSRF token missing or invalid"})
+    return await call_next(request)
+
+
 # Error tracking: inert without a DSN. Set NEXUS_SENTRY_DSN (and pip install
 # sentry-sdk) to stream unhandled exceptions to Sentry; until then the
 # exception handler below + client-errors endpoint are the error trail.
