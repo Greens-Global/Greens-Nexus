@@ -575,6 +575,20 @@ class NexusEmployee(Base):
     display_name    = Column(String, default="")               # Entra/Teams displayName verbatim - first+last drops middle names ("Sagar Kumar Shoundik" -> "Sagar Shoundik"), so people read as a different person than Teams shows. Refreshed by sync-m365; falls back to first+last when empty.
 
 
+class HrRemovedIdentity(Base):
+    """Tombstone for a person removed from Nexus (the Nexus-only delete). The M365
+    sync checks this and SKIPS re-creating them from Entra, so a removed person
+    stays removed even though their Microsoft account still exists. Removal takes
+    no Graph action - the M365 account is left untouched. Keyed by work_email
+    and/or m365_id; cleared if the same person is deliberately re-added."""
+    __tablename__ = "hr_removed_identities"
+    id          = Column(String, primary_key=True)
+    work_email  = Column(String, default="", index=True)
+    m365_id     = Column(String, default="", index=True)
+    removed_by  = Column(String, default="")
+    removed_at  = Column(String, default="")
+
+
 class HrCandidate(Base):
     """Hiring pipeline (HR Phase 2). Stage moves are recorded in HrStageEvent;
     reaching `hired` auto-creates the NexusEmployee master record."""
