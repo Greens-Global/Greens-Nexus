@@ -3353,7 +3353,9 @@ def bod_for_day(email: str, date: str, user: dict = Depends(get_current_user), d
     punch_in_at = next((p.at for p in punches if p.kind == "in"), "")
     punch_out_at = next((p.at for p in reversed(punches) if p.kind == "out"), "")
 
-    ser = lambda r: {"message": r.message or "", "tasks": r.tasks or ""} if r else None
+    def ser(r):
+        return {"message": r.message or "", "tasks": r.tasks or ""} if r else None
+
     return {"email": target, "date": date, "bod": ser(bod), "eod": ser(eod),
             "punchInAt": punch_in_at, "punchOutAt": punch_out_at}
 
