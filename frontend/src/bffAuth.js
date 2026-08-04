@@ -72,5 +72,5 @@ export async function bffBootstrap() {
       if (_me && _me.email) { installSyntheticAccount(_me); return true; }
     }
   } catch { /* network blip -> treat as anonymous, show the sign-in landing */ }
-  return false;   // no session (401) or transient -> main.jsx renders LandingPage
+  return false;   // no session (401) or transient -> main.jsx renders LoginPage
 }

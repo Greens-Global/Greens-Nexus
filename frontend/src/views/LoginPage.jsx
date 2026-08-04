@@ -43,6 +43,13 @@ export default function LoginPage() {
     return () => cancelAnimationFrame(id);
   }, []);
 
+  // BFF cookie mode signs in via the server (/api/auth/login); MSAL mode uses the
+  // redirect flow. Same button, same page - so prod and dev look identical either way.
+  const signIn = () => {
+    if (import.meta.env.VITE_BFF_MODE === "true") { window.location.href = "/api/auth/login"; return; }
+    instance.loginRedirect(loginRequest);
+  };
+
   const P = ACCENT_PALETTES[accent];
   const PANELS = [
     { Icon: CheckSquare, tint: "#dff3fc", fg: "#0998c3", title: "Tasks", sub: "Projects, boards and deadlines" },
