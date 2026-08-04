@@ -49,7 +49,13 @@ else:
         # application_name makes our connections self-identifying in
         # pg_stat_activity (otherwise they're anonymous rows hiding behind the
         # Supavisor pooler's own label when diagnosing connection pressure).
+        # connect_timeout bounds NEW-connection establishment: pool_pre_ping only
+        # tests EXISTING pooled connections, so without this a stalled connect to
+        # the Supabase pooler hangs the caller indefinitely. That is what wedged
+        # asyncio's to_thread executor and silently stopped the leader-lease
+        # renewal (background reminders/notifications) after a few minutes.
         connect_args={"sslmode": "require", "application_name": "nexus-api",
+                      "connect_timeout": 10,
                       "options": "-c statement_timeout=25000"},
         # Connection budget: Supabase max_connections=60, ~10 reserved for
         # superuser/internal → ~50 usable, shared by BOTH deployment slots while

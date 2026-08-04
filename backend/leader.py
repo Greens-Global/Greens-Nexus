@@ -38,6 +38,12 @@ _IS_SQLITE = DATABASE_URL.startswith("sqlite")
 _INSTANCE = os.getenv("WEBSITE_INSTANCE_ID") or ("local-" + uuid.uuid4().hex[:10])
 _HEARTBEAT_SECONDS = 15
 _LEASE_STALE_SECONDS = 45   # a leader silent this long is considered dead
+# Hard ceiling on ONE claim attempt. The DB call runs in asyncio's to_thread
+# executor (small, and separate from the pool that serves sync endpoints); if a
+# claim ever wedges, this bounds the wait so the loop retries next cycle instead
+# of renewal silently stopping forever. connect_timeout/statement_timeout on the
+# engine free the wedged thread itself so the executor can't fill with zombies.
+_CLAIM_TIMEOUT_SECONDS = 20
 
 _is_leader = _IS_SQLITE     # single-process local dev is always the leader
 
@@ -105,10 +111,14 @@ async def elect_and_run(start_jobs):
     while True:
         try:
             # DB call off the event loop - never block the worker (CLAUDE.md).
-            won = await asyncio.to_thread(_claim_lease)
+            # wait_for caps a wedged claim so renewal resumes next cycle rather
+            # than the whole loop hanging on it forever.
+            won = await asyncio.wait_for(
+                asyncio.to_thread(_claim_lease), timeout=_CLAIM_TIMEOUT_SECONDS)
         except Exception as e:
-            # A transient DB blip must not flip leadership (which would double-start
-            # or needlessly stop jobs) - keep the current state and try again.
+            # A transient DB blip (or a claim timeout) must not flip leadership
+            # (which would double-start or needlessly stop jobs) - keep the current
+            # state and try again next cycle.
             print(f"[leader] heartbeat error, keeping current state: {e}")
             won = running
 
