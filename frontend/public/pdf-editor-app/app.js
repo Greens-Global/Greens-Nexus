@@ -1317,6 +1317,10 @@
 
     function goToPage(num) {
         if (num < 1 || num > state.totalPages) return;
+        // In continuous-scroll mode, scroll to the page and stay in scroll mode
+        // (what a user expects from clicking a thumbnail). Only fall back to the
+        // single-page renderer when scroll mode isn't active.
+        if (window.isScrollMode && window.isScrollMode() && window.scrollToScrollPage(num)) return;
         saveCurrentAnnotations();
         renderPage(num);
     }
@@ -5556,7 +5560,11 @@
 
         setStatus('Searching...');
 
-        for (let pageNum = 1; pageNum <= state.totalPages; pageNum++) {
+        // Search every page in the document. Use the PDF's own page count
+        // (pdfDoc.numPages) rather than state.totalPages, which can lag behind
+        // the loaded document and would silently limit the scan to fewer pages.
+        const pageCount = (state.pdfDoc && state.pdfDoc.numPages) || state.totalPages;
+        for (let pageNum = 1; pageNum <= pageCount; pageNum++) {
             const page = await state.pdfDoc.getPage(pageNum);
             const textContent = await page.getTextContent();
             if (gen !== _searchGen) return; // a newer search superseded us
@@ -5745,9 +5753,14 @@
             // (workers/wasm can't always load from inside it).
             const tessBase = new URL('libs/tesseract/', location.href).href
                 .replace('app.asar/', 'app.asar.unpacked/');
+            // corePath must be the DIRECTORY: the worker appends
+            // "/tesseract-core-simd.wasm.js" or "/tesseract-core.wasm.js" to it
+            // itself (based on SIMD detection). Passing the full .js filename made
+            // it build ".../tesseract-core-simd.wasm.js/tesseract-core-simd.wasm.js"
+            // → 404 → OCR silently stalled at "Initializing" in the browser.
             const worker = await Tesseract.createWorker({
                 workerPath: tessBase + 'worker.min.js',
-                corePath: tessBase + 'tesseract-core-simd.wasm.js',
+                corePath: tessBase,
                 langPath: tessBase,
                 gzip: true,
                 logger: (m) => {
@@ -6714,6 +6727,19 @@
     window.isScrollMode = () => _scrollOn;
     // Re-render scroll pages when zoom changes while scrolling
     window.rerenderScrollForZoom = () => { if (_scrollOn) { destroyScrollView(); buildScrollView(); } };
+    // Scroll the continuous view to a given page (1-based), staying in scroll
+    // mode. Used by thumbnail clicks / page-number jumps so navigating doesn't
+    // yank the user out of continuous scroll. Returns false if not applicable.
+    window.scrollToScrollPage = (n) => {
+        if (!_scrollOn) return false;
+        const el = _scrollEls[n - 1];
+        if (!el) return false;
+        state.currentPage = n;
+        el.wrap.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        renderScrollPage(n - 1); // make sure the target is drawn, not just estimated
+        updateThumbnailActive();
+        return true;
+    };
 
     // Auto-return to continuous scroll: while editing a single page, the user
     // can still scroll within that (possibly tall) page. Only when they scroll
@@ -8075,8 +8101,8 @@ Replacement:`;
             const pdfFile = new File([bytes], (file.name || 'document').replace(/\.docx?$/i, '') + '.pdf',
                 { type: 'application/pdf' });
             await loadPDF(pdfFile);
-            setStatus('Word converted to PDF — click "Save PDF" (top right) to save it');
-            showToast('Converted — click "Save PDF" (top right) to save it');
+            setStatus('Word converted to PDF — click "Download" (top left) to save it');
+            showToast('Converted — click "Download" to save the PDF');
         } catch (err) {
             console.error(err);
             setStatus('Word conversion failed: ' + err.message);

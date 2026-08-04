@@ -131,7 +131,6 @@ export const NAV = [
       { subview: "property", label: "Property Documents", icon: Home },
     ],
   },
-  { view: "pdf-editor", code: "PDF", label: "PDF Editor", icon: FileText },
   { divider: true },
   { view: "support", code: "SUP",        label: "Support",        icon: HelpCircle },
   { view: "external-links", code: "EXT", label: "External Links", icon: ExternalLink },
