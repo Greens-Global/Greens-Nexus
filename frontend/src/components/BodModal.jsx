@@ -3,6 +3,7 @@ import { Sunrise, Sunset, Coffee, X, Send, Loader2, MessageSquare } from 'lucide
 import { api } from '../api';
 import { msalInstance } from '../msalInstance';
 import { graphToken, postChatMessage } from '../teamsGraph';
+import { formatTime } from '../lib/datetime';
 
 // ── Beginning / End-of-day / Break message ────────────────────────────────────
 // BOD on first punch-in, EOD on punch-out, BREAK when stepping away. The message
@@ -97,7 +98,7 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
     // Locale pinned to en-US so the post reads the same for everyone regardless
     // of the sender's browser locale. Date line format: "Fri, July 24th, 2026".
     const dateStr = `${now.toLocaleDateString('en-US', { weekday: 'short' })}, ${now.toLocaleDateString('en-US', { month: 'long' })} ${ordinal(now.getDate())}, ${now.getFullYear()}`;
-    const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+    const timeStr = formatTime(now);
     const tally = mode === 'eod' && workedMin > 0 ? ` (${fmtWorked(workedMin)})` : '';
     // Lists are auto-numbered "1. …" - strip any numbering people typed
     // themselves so lines don't come out as "1. 1) Task".

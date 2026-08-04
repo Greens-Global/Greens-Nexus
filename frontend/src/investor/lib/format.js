@@ -1,4 +1,5 @@
 // Shared formatting for the Investor Relations module.
+import { formatDate as usFormatDate } from '../../lib/datetime';
 
 // Money: whole dollars for anything >= $1,000, cents below that.
 const USD_WHOLE = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 0 });
@@ -27,10 +28,8 @@ export function formatMultiple(n) {
 }
 
 export function formatDate(iso) {
-  if (!iso) return '-';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '-';
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  // US MM/DD/YYYY, dash on empty/invalid. Delegates to the canonical formatter.
+  return usFormatDate(iso, '-');
 }
 
 // Form helper: '' / bad input → null so optional numeric fields PATCH cleanly.

@@ -210,6 +210,12 @@ Old `hardware_assets` table (IT module) is legacy — planned to fold into
 - Use American English spelling everywhere — code, comments, UI copy, email/
   notification templates, docs (e.g. "color" not "colour", "behavior" not
   "behaviour", "organize" not "organise", "license" not "licence").
+- Use US date and time format everywhere in user-facing UI, copy, and exports:
+  dates as MM/DD/YYYY (never ISO YYYY-MM-DD or DD/MM/YYYY) and times as 12-hour
+  with AM/PM (never 24-hour) - Charmi/Visesh, Aug 4. Use the shared helpers in
+  `frontend/src/lib/datetime.js` (formatDate / formatTime / formatDateTime)
+  instead of ad-hoc toLocale*/Intl.DateTimeFormat calls so it stays consistent
+  app-wide.
 - **UI text casing (Neil, Jul 28 — supersedes any earlier sentence-case note):
   Titles, headings, tab labels, and buttons use Title Case** ("Punch In",
   "Start Break", "Time Sheet", "Request Time Off"). Body copy, hints, empty

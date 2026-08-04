@@ -7,6 +7,7 @@ import { SkeletonBlocks } from '../components/AsyncState';
 import ModuleTabs from '../components/ModuleTabs';
 import DocumentBuilder from '../components/DocumentBuilder';
 import { BODY_EXTENSIONS } from '../lib/docBuilderSchema';
+import { formatDateLong } from '../lib/datetime';
 import {
   BookOpen, CheckSquare, Search, Clock, Sparkles,
   X, ArrowLeft, Plus, Trash2, Edit3, Send, Archive, ArchiveRestore, Loader, ChevronUp, ChevronDown,
@@ -242,7 +243,7 @@ const blankDraft = (name, email) => ({
   owner_name: name, owner_email: email, _raw: '',
 });
 
-const fmtDate = (s) => (s ? new Date(s.length > 10 ? s : s + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '-');
+const fmtDate = (s) => formatDateLong(s, '-');
 
 // Flattens a freeform SOP's TipTap content (content.pages[].json) into plain
 // text, pushed to the backend's content_text column so the search box (which
