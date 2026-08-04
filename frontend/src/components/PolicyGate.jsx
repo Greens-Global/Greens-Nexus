@@ -90,7 +90,9 @@ export default function PolicyGate({ children }) {
               <p style={{ margin: 0, fontSize: 13, color: 'var(--ink)', lineHeight: 1.6 }}>{s.p}</p>
             </div>
           ))}
-          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>Version {POLICY_VERSION}</div>
+          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+            Version {POLICY_VERSION} · <a href="/privacy" target="_blank" rel="noopener noreferrer" style={{ color: 'inherit' }}>Privacy Policy</a> · <a href="/terms" target="_blank" rel="noopener noreferrer" style={{ color: 'inherit' }}>Terms & Conditions</a>
+          </div>
         </div>
 
         <div style={{ padding: '14px 26px 20px', borderTop: '1px solid var(--line)' }}>

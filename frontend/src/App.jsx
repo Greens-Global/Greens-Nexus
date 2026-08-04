@@ -58,6 +58,8 @@ const Support             = lazy(() => import("./views/Support"));
 const Placeholder         = lazy(() => import("./views/Placeholder"));
 const PublicSign          = lazy(() => import("./views/PublicSign"));
 const PublicVerify        = lazy(() => import("./views/PublicVerify"));
+const PrivacyPolicy       = lazy(() => import("./views/PrivacyPolicy"));
+const TermsConditions     = lazy(() => import("./views/TermsConditions"));
 const TimeClock           = lazy(() => import("./views/TimeClock"));
 const Locations           = lazy(() => import("./views/Locations"));
 const MyHR                = lazy(() => import("./views/MyHR"));
@@ -70,7 +72,7 @@ const VIEW_LABELS = Object.fromEntries(MODULES.map(m => [m.id, m.label]));
 // title-cased version of their id so breadcrumbs never show raw lowercase ids.
 // Acronyms the title-caser would mangle ("pdf-editor" -> "Pdf Editor"). These
 // views live in Sidebar's NAV but not in MODULES, so they hit the fallback.
-const LABEL_OVERRIDES = { 'pdf-editor': 'PDF Editor' };
+const LABEL_OVERRIDES = { 'pdf-editor': 'PDF Editor', 'terms-conditions': 'Terms & Conditions' };
 const viewLabel = (view) => VIEW_LABELS[view] || LABEL_OVERRIDES[view]
   || (view || '').split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 
@@ -268,6 +270,8 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
     case "testing":            return <Testing />;
     case "credvault":          return <CredentialVault />;
     case "egnyte":             return <Egnyte activeSub={activeSub} onSubChange={onSubChange} />;
+    case "privacy-policy":     return <PrivacyPolicy embedded />;
+    case "terms-conditions":   return <TermsConditions embedded />;
     default:                   return <Placeholder viewName={activeView} onBack={() => onNavigate("dashboard")} />;
   }
 }
@@ -337,6 +341,23 @@ export default function App() {
   // from production builds by the DEV guard.
   if (import.meta.env.DEV && window.location.pathname === '/__login') {
     return <LoginPage />;
+  }
+  // Privacy Policy / Terms & Conditions (/privacy, /terms) - same reasoning as
+  // /sign and /verify above: linked from the pre-login screen, so they must
+  // render for someone who has no Nexus login yet.
+  if (parsePath().view === 'privacy') {
+    return (
+      <Suspense fallback={<div style={{ minHeight: '100dvh' }} />}>
+        <PrivacyPolicy />
+      </Suspense>
+    );
+  }
+  if (parsePath().view === 'terms') {
+    return (
+      <Suspense fallback={<div style={{ minHeight: '100dvh' }} />}>
+        <TermsConditions />
+      </Suspense>
+    );
   }
   return <MainApp />;
 }
