@@ -242,6 +242,23 @@ def _extract_email(request: Request) -> str:
         return os.getenv("NEXUS_DEV_EMAIL", "dev@localhost").lower()
     auth = request.headers.get("authorization", "")
     if not auth.startswith("Bearer "):
+        # BFF cookie mode has NO Authorization header - resolve the actor directly
+        # from the session row (a lightweight PK lookup, no token refresh) so audit
+        # entries attribute the real user instead of "anonymous" / "Not signed in".
+        try:
+            import bff_session
+            sid = request.cookies.get(bff_session.SESSION_COOKIE, "")
+            if sid:
+                db = SessionLocal()
+                try:
+                    row = db.query(models.ServerSession.user_email).filter(
+                        models.ServerSession.id == sid).first()
+                    if row and row[0]:
+                        return row[0].lower()
+                finally:
+                    db.close()
+        except Exception:
+            pass
         return "anonymous"
     try:
         import base64
