@@ -961,6 +961,40 @@ def health_ready():
         db.close()
 
 
+@app.get("/health/leader")
+def health_leader():
+    """No-auth readout of the background-job leader lease (see leader.py). After you
+    scale out to 2 instances, hit this on the site to eyeball who's running the loops:
+    `this_instance` is whoever answered THIS request (the LB may route you to either),
+    `leader` is the current lease holder, `is_this_instance_leader` says whether they're
+    the same, and `heartbeat_age_seconds` should stay under ~15s on a healthy leader
+    (over 45s means the leader went silent and another instance is about to take over)."""
+    import leader as _leader
+    from fastapi.responses import JSONResponse
+    from sqlalchemy import text
+    from database import SessionLocal
+    this_instance = _leader._INSTANCE
+    if _leader._IS_SQLITE:
+        return {"this_instance": this_instance, "leader": this_instance,
+                "is_this_instance_leader": True, "heartbeat_age_seconds": 0,
+                "note": "single-process (SQLite) - always leader, no lease"}
+    db = SessionLocal()
+    try:
+        row = db.execute(text(
+            "SELECT holder, round(extract(epoch FROM (now() - heartbeat_at))) AS age "
+            "FROM nexus_leader WHERE id = 1"
+        )).first()
+        holder = row[0] if row else None
+        age = int(row[1]) if row and row[1] is not None else None
+        return {"this_instance": this_instance, "leader": holder,
+                "is_this_instance_leader": holder == this_instance,
+                "heartbeat_age_seconds": age}
+    except Exception as e:  # noqa: BLE001 - readout must report, not raise
+        return JSONResponse(status_code=503, content={"detail": str(e)[:160]})
+    finally:
+        db.close()
+
+
 @app.get("/version")
 def version():
     return {"version": "2.0.0", "auth": "token-based"}
