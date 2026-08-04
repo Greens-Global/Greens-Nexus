@@ -76,12 +76,22 @@ function installSyntheticAccount(me) {
  *  On a transient error we still render - the app's own calls will 401-redirect
  *  if we're genuinely unauthenticated, so a backend blip never white-screens. */
 export async function bffBootstrap() {
-  try {
-    const res = await fetch('/api/auth/me', { credentials: 'include' });
-    if (res.ok) {
-      _me = await res.json();
-      if (_me && _me.email) { installSyntheticAccount(_me); return true; }
-    }
-  } catch { /* network blip -> treat as anonymous, show the sign-in landing */ }
-  return false;   // no session (401) or transient -> main.jsx renders LoginPage
+  // Retry across a backend blip (deploy/restart) so a TRANSIENT failure never
+  // bounces a logged-in user to the sign-in screen. Only a real 401 (genuinely
+  // signed out) returns false immediately; 5xx/network keep retrying.
+  const delaysMs = [0, 800, 1500, 2500, 4000, 6000, 8000];   // ~23s - outlasts a slot-swap deploy
+  for (let i = 0; i < delaysMs.length; i++) {
+    if (delaysMs[i]) await new Promise(r => setTimeout(r, delaysMs[i]));
+    try {
+      const res = await fetch('/api/auth/me', { credentials: 'include' });
+      if (res.ok) {
+        _me = await res.json();
+        if (_me && _me.email) { installSyntheticAccount(_me); return true; }
+        return false;   // 200 but no identity -> treat as anonymous
+      }
+      if (res.status === 401) return false;   // genuinely signed out -> login screen
+      // 5xx / other -> backend still coming up, keep retrying
+    } catch { /* network error -> backend unreachable, keep retrying */ }
+  }
+  return false;   // still failing after all retries -> fall back to the login screen
 }
