@@ -6,6 +6,7 @@ import {
   ClipboardList, HandCoins, TrendingUp, Building2, FolderKanban, CalendarDays, Timer,
   CheckCheck, Trash2, Mail, CalendarPlus,
 } from 'lucide-react';
+import { formatTime } from '../lib/datetime';
 
 // Heavy panels (ported from the old Overview / Team Analytics screens) load
 // lazily so TimeAdmin & the approval flows stay out of the main bundle.
@@ -319,7 +320,7 @@ function ClockWidget() {
       style={{ height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 4, cursor: 'pointer' }}>
       <div style={{ fontSize: 13, color: 'var(--muted)', fontWeight: 500 }}>{greet}</div>
       <div style={{ fontSize: 32, fontWeight: 700, letterSpacing: '-.02em', color: 'var(--ink)' }}>
-        {now.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
+        {formatTime(now)}
       </div>
       <div style={{ fontSize: 13, color: 'var(--muted)' }}>{now.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}</div>
       <div className="kpi-delta" style={{ color: 'var(--wk-brand)', fontWeight: 600, marginTop: 8 }}><Clock size={12} /> Open time clock <ArrowRight size={12} /></div>

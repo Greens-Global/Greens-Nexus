@@ -11,6 +11,7 @@ import { useRole }          from '../contexts/RoleContext';
 import { api }              from '../api';
 import TimeAdmin            from '../components/TimeAdmin';
 import { navigate }         from './widgets.jsx';
+import { formatDateTime }   from '../lib/datetime';
 
 const Card = ({ title, sub, action, children }) => (
   <div className="dash-card" style={{ height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column' }}>
@@ -27,7 +28,7 @@ const Card = ({ title, sub, action, children }) => (
   </div>
 );
 
-const fmtDate = (iso) => iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-';
+const fmtDate = (iso) => formatDateTime(iso, '-');
 
 // ── Pending approvals (REAL - ported from ManagerDashboard "Pending Actions") ──
 export function ApprovalsPanel() {
