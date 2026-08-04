@@ -777,15 +777,6 @@ async def lifespan(app: FastAPI):
             db.close()
     except Exception as e:
         print(f"[startup] letterhead seed skipped: {e}")
-    # Daily HR reminders (doc/visa expiry, contract ends, new starters,
-    # interviews, expiring e-sign) - dedupes per day, safe across restarts.
-    try:
-        import asyncio as _asyncio
-        from reminders import reminders_loop
-        _asyncio.create_task(reminders_loop())
-        print("[startup] daily reminders scheduled")
-    except Exception as e:
-        print(f"[startup] reminders skipped: {e}")
     # Asana sync fallback poll (webhooks handle real-time; this is the safety net).
     try:
         from asana_sync import start_auto_pull, is_sync_worker
@@ -805,36 +796,43 @@ async def lifespan(app: FastAPI):
                 print(f"[startup] asana import {outcome}")
     except Exception as e:
         print(f"[startup] asana import resume skipped: {e}")
-    # Ticket Notification workflow - retries failed/stuck Outlook emails and
-    # auto-closes long-resolved tickets. Same bare-asyncio-loop pattern as the
-    # HR reminders job above.
+    # Background jobs - HR reminders, ticket/task notification retries + due-date
+    # reminders, the long-session nudge - run on a SINGLE elected leader instance so
+    # scaling out to multiple web instances can't double-send. Asana sync above keeps
+    # its own advisory-lock gating. See leader.py.
+    def _start_background_jobs():
+        import asyncio as _a
+        _tasks = []
+        try:
+            from reminders import reminders_loop
+            _tasks.append(_a.create_task(reminders_loop()))
+        except Exception as e:
+            print(f"[startup] reminders skipped: {e}")
+        try:
+            from ticket_notify import ticket_notify_loop
+            _tasks.append(_a.create_task(ticket_notify_loop()))
+        except Exception as e:
+            print(f"[startup] ticket notification loop skipped: {e}")
+        try:
+            from task_notify import task_notify_loop
+            _tasks.append(_a.create_task(task_notify_loop()))
+        except Exception as e:
+            print(f"[startup] task notification loop skipped: {e}")
+        try:
+            from timeclock_watch import long_session_loop
+            _tasks.append(_a.create_task(long_session_loop()))
+        except Exception as e:
+            print(f"[startup] long-session watch skipped: {e}")
+        print(f"[startup] background jobs started ({len(_tasks)} loops)")
+        return _tasks
     try:
         import asyncio as _asyncio
-        from ticket_notify import ticket_notify_loop
-        _asyncio.create_task(ticket_notify_loop())
-        print("[startup] ticket notification retry/auto-close loop scheduled")
+        import leader
+        _asyncio.create_task(leader.elect_and_run(_start_background_jobs))
+        print("[startup] background-jobs leader election started")
     except Exception as e:
-        print(f"[startup] ticket notification loop skipped: {e}")
-    # Task Notification workflow - retries failed/stuck Outlook emails and
-    # scans for due-date reminders. Same bare-asyncio-loop pattern as the
-    # Ticket Notification workflow above.
-    try:
-        import asyncio as _asyncio
-        from task_notify import task_notify_loop
-        _asyncio.create_task(task_notify_loop())
-        print("[startup] task notification retry/due-reminder loop scheduled")
-    except Exception as e:
-        print(f"[startup] task notification loop skipped: {e}")
-    # Time Clock long-session watch - nudges anyone clocked in 12+ hours
-    # ("still working, or forgot to punch out?"). Same bare-asyncio-loop
-    # pattern as the jobs above.
-    try:
-        import asyncio as _asyncio
-        from timeclock_watch import long_session_loop
-        _asyncio.create_task(long_session_loop())
-        print("[startup] time clock long-session watch scheduled")
-    except Exception as e:
-        print(f"[startup] long-session watch skipped: {e}")
+        print(f"[startup] leader election unavailable, running jobs directly: {e}")
+        _start_background_jobs()
     yield
 
 
@@ -959,6 +957,40 @@ def health_ready():
         return {"status": "ready"}
     except Exception as e:  # noqa: BLE001 - readiness must report, not raise
         return JSONResponse(status_code=503, content={"status": "not_ready", "detail": str(e)[:160]})
+    finally:
+        db.close()
+
+
+@app.get("/health/leader")
+def health_leader():
+    """No-auth readout of the background-job leader lease (see leader.py). After you
+    scale out to 2 instances, hit this on the site to eyeball who's running the loops:
+    `this_instance` is whoever answered THIS request (the LB may route you to either),
+    `leader` is the current lease holder, `is_this_instance_leader` says whether they're
+    the same, and `heartbeat_age_seconds` should stay under ~15s on a healthy leader
+    (over 45s means the leader went silent and another instance is about to take over)."""
+    import leader as _leader
+    from fastapi.responses import JSONResponse
+    from sqlalchemy import text
+    from database import SessionLocal
+    this_instance = _leader._INSTANCE
+    if _leader._IS_SQLITE:
+        return {"this_instance": this_instance, "leader": this_instance,
+                "is_this_instance_leader": True, "heartbeat_age_seconds": 0,
+                "note": "single-process (SQLite) - always leader, no lease"}
+    db = SessionLocal()
+    try:
+        row = db.execute(text(
+            "SELECT holder, round(extract(epoch FROM (now() - heartbeat_at))) AS age "
+            "FROM nexus_leader WHERE id = 1"
+        )).first()
+        holder = row[0] if row else None
+        age = int(row[1]) if row and row[1] is not None else None
+        return {"this_instance": this_instance, "leader": holder,
+                "is_this_instance_leader": holder == this_instance,
+                "heartbeat_age_seconds": age}
+    except Exception as e:  # noqa: BLE001 - readout must report, not raise
+        return JSONResponse(status_code=503, content={"detail": str(e)[:160]})
     finally:
         db.close()
 
