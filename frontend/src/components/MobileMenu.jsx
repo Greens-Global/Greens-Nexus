@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { X, ChevronRight, ChevronLeft, LogOut, Moon, Sun } from 'lucide-react';
 import { useMsal } from '@azure/msal-react';
+import { BFF_MODE, bffLogout } from '../bffAuth';
 import { useRole, ROLES } from '../contexts/RoleContext';
 import { NAV } from './Sidebar';
 
@@ -155,7 +156,7 @@ export default function MobileMenu({ open, onClose, onNavigate, activeView, them
       <div className="mobile-menu-rows secondary">
         {/* Dark mode moved to the profile dropdown (avatar, top-right) - Neil */}
         <button className="mobile-menu-row signout"
-          onClick={() => instance.logoutRedirect({ account, postLogoutRedirectUri: window.location.origin + window.location.pathname })}>
+          onClick={() => BFF_MODE ? bffLogout() : instance.logoutRedirect({ account, postLogoutRedirectUri: window.location.origin + window.location.pathname })}>
           <span>Sign Out</span>
           <LogOut size={16} />
         </button>

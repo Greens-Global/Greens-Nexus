@@ -178,7 +178,6 @@ export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId
           {proj && (
             <span style={{ padding: '2px 8px', borderRadius: 5, fontSize: 10.5, fontWeight: 600, background: `${projColor}1a`, color: projColor, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 130 }}>{proj.name}</span>
           )}
-          <span style={{ fontSize: 10, fontWeight: 700, color: NX.faint, letterSpacing: 0.3 }}>{t.code}</span>
           {t.isMilestone && <Diamond size={11} style={{ color: NX.purple }} />}
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 2 }}>
             <button onClick={(e) => { e.stopPropagation(); onOpen(t.id); }} onMouseDown={(e) => e.stopPropagation()} title="More Actions" style={{ ...btn('ghost'), padding: 3, color: NX.faint }}><MoreHorizontal size={15} /></button>

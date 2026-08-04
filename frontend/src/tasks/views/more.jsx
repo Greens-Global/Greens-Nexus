@@ -80,7 +80,6 @@ export function TimelineView({ tasks, onOpen, nameOf }) {
           <div style={{ width: LABEL_W, flexShrink: 0, borderRight: `1px solid ${NX.border}` }}>
             {rows.map((t) => (
               <button key={t.id} onClick={() => onOpen(t.id)} style={{ display: 'flex', alignItems: 'center', gap: 8, height: ROW_H, width: '100%', border: 'none', borderBottom: `1px solid ${NX.border2}`, padding: '0 12px', textAlign: 'left', background: 'transparent', cursor: 'pointer', fontSize: 12, fontFamily: FONT }}>
-                <span style={{ fontSize: 10, fontWeight: 700, color: NX.faint }}>{t.code}</span>
                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: NX.ink }}>{t.title}</span>
               </button>
             ))}

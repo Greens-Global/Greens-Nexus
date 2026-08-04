@@ -127,7 +127,13 @@ def create_project(body: ProjectBody, user: dict = Depends(get_current_user), db
         # the DB column's own 'org' backfill for pre-existing rows.
         access_level=body.access_level or "restricted",
         status=body.status or "not_started",
-        start_on=body.start_on or "", due_on=body.due_on or "", archived=False,
+        start_on=body.start_on or "", due_on=body.due_on or "",
+        # Honors the form's Archived checkbox. This was hardcoded False, so
+        # ticking it on the Create modal silently did nothing and the project
+        # came back unarchived - the box round-tripped through the request body
+        # and was thrown away here. bool() because the field is Optional and
+        # omitting it must still mean "not archived".
+        archived=bool(body.archived),
         activity_ids=[], created_at=now, modified_at=now, created_by=user["email"],
     )
     db.add(p)
@@ -380,7 +386,7 @@ def create_portfolio(body: PortfolioBody, user: dict = Depends(get_current_user)
     p = models.TaskPortfolio(
         id=body.id or gen_id(), name=body.name, description=body.description or "",
         color=body.color or "", owner_email=(body.owner_email or user["email"]).lower(),
-        project_ids=body.project_ids or [], archived=False,
+        project_ids=body.project_ids or [], archived=bool(body.archived),   # same drop as create_project had
         created_at=now, modified_at=now, created_by=user["email"],
     )
     db.add(p)

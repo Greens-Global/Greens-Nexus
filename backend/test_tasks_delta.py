@@ -155,7 +155,7 @@ class TasksDeltaTests(unittest.TestCase):
         c = add_comment(t.id, CommentCreate(body="hi"), BackgroundTasks(), notify=False, user=MANAGER, db=self.db)
         checkpoint = list_tasks_delta(since="", user=MANAGER, db=self.db)["serverTime"]
         time.sleep(0.01)
-        edit_comment(c["id"], CommentUpdate(pinned=True), db=self.db)
+        edit_comment(c["id"], CommentUpdate(pinned=True), user=MANAGER, db=self.db)
 
         res = list_tasks_delta(since=checkpoint, user=MANAGER, db=self.db)
 

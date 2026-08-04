@@ -330,8 +330,16 @@ def _nexus_section_name(db, t):
     return (s.name or "").strip() if s else ""
 
 
-def _task_digest(db, t):
-    return _digest(t.title, t.description, t.due_on, bool(t.completed), t.assignee_email,
+def _task_digest(db, t, assignee=None):
+    """`assignee` overrides the task's own value. The outbound push passes the
+    assignee it was actually ABLE to send, because last_hash is a record of what
+    Asana holds - not of what Nexus wishes it held. Storing the intended value
+    after failing to send it marks the task synced forever (see push_task).
+
+    Every other caller applies an Asana-sourced value and so leaves it None,
+    which keeps the task's own assignee."""
+    return _digest(t.title, t.description, t.due_on, bool(t.completed),
+                   t.assignee_email if assignee is None else assignee,
                    _status_progress_label(db, t), _BUILTIN_PRIORITY_LABELS.get(t.priority, ""),
                    t.start_on, t.tags, bool(t.is_milestone), _nexus_section_name(db, t),
                    fields=t.custom_field_values)
@@ -835,7 +843,15 @@ def push_task(db, task):
             return None
     progress_apid = _ancestor_project_gid(db, task, cfg)
     link = _link_by_nexus(db, task.id)
-    digest = _task_digest(db, task)
+    # Resolved BEFORE the digest, because the digest has to describe what Asana
+    # will actually hold. An assignee Nexus can't map to an Asana user is not
+    # sent at all (see below), so recording it as synced would be a lie that
+    # never corrects itself - last_hash would match on every future push and the
+    # assignee would be skipped forever, silently. Cheap: _user_map is cached.
+    ae = (task.assignee_email or "").lower()
+    assignee_gid = _asana_user_gid(cfg, ae) if ae else None
+    assignee_sent = (not ae) or bool(assignee_gid)
+    digest = _task_digest(db, task, assignee=(ae if assignee_sent else ""))
     push_digest = _push_digest(db, task)
     if link and link.last_hash == digest:
         # The task's own fields are unchanged, but tags/followers/dependencies/
@@ -875,13 +891,19 @@ def push_task(db, task):
         fields["start_on"] = None
     # Assignee: map the Nexus work email to an Asana user. Unassigned in Nexus →
     # unassign in Asana; assigned to someone not in Asana → leave Asana as-is.
-    ae = (task.assignee_email or "").lower()
+    # Resolved above, before the digest.
     if not ae:
         fields["assignee"] = None
+    elif assignee_gid:
+        fields["assignee"] = assignee_gid
     else:
-        gid = _asana_user_gid(cfg, ae)
-        if gid:
-            fields["assignee"] = gid
+        # Was silent. The commonest cause is a blank Workspace GID in Manage →
+        # Asana Sync: _user_map returns {} without one, so NO assignee can ever
+        # resolve while every other field syncs normally - which reads as
+        # "assignee sync is broken" with nothing anywhere saying why.
+        print(f"[asana] {task.code or task.id}: assignee {ae!r} has no Asana user "
+              f"({'set the Workspace GID in Manage - Asana Sync' if not cfg.workspace_gid else 'no matching Asana account in this workspace'})"
+              f" - pushing every other field and leaving Asana's assignee as-is")
     custom_fields = {}
     progress_field = _task_progress_field(cfg, progress_apid)
     if progress_field:
@@ -1919,6 +1941,52 @@ def dedupe_tasks(db, apply=False):
 _STORY_OPT_FIELDS = "type,resource_subtype,text,html_text,created_at,created_by.name,created_by.email"
 
 
+# How far back to look for a Nexus comment that matches an incoming story.
+# Generous because the failure it repairs (a link that never committed) can sit
+# unnoticed until the next full sweep, but bounded so an unrelated comment with
+# identical text months later is never adopted.
+_ADOPT_WINDOW_SECONDS = 24 * 60 * 60
+
+
+def _adopt_pushed_comment(db, nexus_task_id, story_text, story_at):
+    """The Nexus comment this Asana story was created FROM, if it looks like one
+    of ours that lost its link - else None.
+
+    Matched on (same task, same visible text, no existing link, created near the
+    story). Comments that already carry a link are excluded, so a genuine Asana
+    comment can never be mistaken for one: the only candidates are Nexus-side
+    comments that were never successfully linked.
+
+    A false positive needs somebody to write a Nexus comment that fails to link
+    AND somebody to independently write character-identical text in Asana inside
+    the window - and even then the outcome is one comment rather than two, which
+    is what was wanted anyway."""
+    wanted = _html_to_text(story_text or "").strip()
+    if not wanted:
+        return None
+    try:
+        story_dt = datetime.fromisoformat((story_at or "").replace("Z", "+00:00"))
+    except (ValueError, AttributeError):
+        story_dt = datetime.now(timezone.utc)
+    linked = {r[0] for r in db.query(models.AsanaCommentLink.nexus_comment_id).all()}
+    rows = (db.query(models.TaskComment)
+            .filter(models.TaskComment.task_id == nexus_task_id).all())
+    for c in rows:
+        if c.id in linked:
+            continue
+        if _html_to_text(c.body or "").strip() != wanted:
+            continue
+        try:
+            made = datetime.fromisoformat((c.created_at or "").replace("Z", "+00:00"))
+        except (ValueError, AttributeError):
+            continue
+        if made.tzinfo is None:
+            made = made.replace(tzinfo=timezone.utc)
+        if abs((story_dt - made).total_seconds()) <= _ADOPT_WINDOW_SECONDS:
+            return c
+    return None
+
+
 def _pull_stories(db, asana, asana_gid, nexus_task_id, counts):
     """Bring an Asana task's whole story feed into Nexus, deduped by story gid.
 
@@ -1952,6 +2020,21 @@ def _pull_stories(db, asana, asana_gid, nexus_task_id, counts):
                     models.AsanaCommentLink.asana_story_gid == sgid).first():
                 continue
             if not text:
+                continue
+            # Is this story one WE pushed, whose link never landed? push_comment
+            # POSTs the story and only then commits the AsanaCommentLink, so a
+            # pull that arrives in between - the webhook fires the instant the
+            # story exists - finds no link and used to create a SECOND Nexus
+            # comment. Same outcome if the commit failed outright, except that
+            # one repeats on every future pull.
+            #
+            # Adopting the existing comment instead of duplicating it also
+            # repairs the missing link, so the next pull short-circuits above.
+            adopted = _adopt_pushed_comment(db, nexus_task_id, text, at_ts)
+            if adopted:
+                db.add(models.AsanaCommentLink(id=gen_id(), nexus_comment_id=adopted.id,
+                                               asana_story_gid=sgid, created_at=now_iso()))
+                db.flush()
                 continue
             cid = gen_id()
             # Keep Asana's formatting where it sent any - html_text is the rich version,

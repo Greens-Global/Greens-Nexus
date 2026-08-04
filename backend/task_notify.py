@@ -353,10 +353,20 @@ def _due_reminders_once(db: Session) -> None:
         if days_left < 0:
             if not cfg["enabledEvents"].get("overdue", True):
                 continue
-            # Only re-remind every `overdue_repeat` days (0 = once, right when
-            # it first goes overdue) - otherwise every overdue task emails its
-            # assignee daily forever, which nobody wants.
-            if overdue_repeat and abs(days_left) % overdue_repeat != 0:
+            # ALWAYS mail on the first day overdue - that's the one that matters
+            # - then repeat every `overdue_repeat` days after it. 0 means the
+            # first day only.
+            #
+            # The old condition (`if overdue_repeat and abs(days_left) %
+            # overdue_repeat != 0`) inverted both halves of its own docstring:
+            #   - overdue_repeat == 0 is falsy, so the guard never ran and the
+            #     "only once" setting mailed the assignee EVERY DAY, forever.
+            #   - with the default 3, day 1 gave 1 % 3 != 0 -> skipped, so the
+            #     day a task actually went overdue was silent and the first
+            #     mail didn't land until day 3.
+            overdue_days = -days_left          # 1 == first day overdue
+            if overdue_days > 1 and (not overdue_repeat
+                                     or (overdue_days - 1) % overdue_repeat != 0):
                 continue
             event_type, idem_suffix = "overdue", day_key
         elif 0 <= days_left <= due_soon_days:

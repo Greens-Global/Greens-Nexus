@@ -38,10 +38,14 @@ def _rows_table(rows: list[tuple[str, str]]) -> str:
     return f"<table width='100%' cellpadding='0' cellspacing='0' style='border-collapse:collapse;margin:14px 0'>{trs}</table>"
 
 
-def task_email_html(*, task_code: str, task_title: str, status: str, heading: str,
+def task_email_html(*, task_title: str, status: str, heading: str,
                     intro: str, rows: list[tuple[str, str]], cta_label: str, cta_url: str,
                     secondary_ctas: list[tuple[str, str]] | None = None,
                     note: str = "", logo_url: str = "") -> str:
+    """No task code anywhere in the output. These mails used to lead with a
+    "TASK TASK-1983" eyebrow above the title; the number means nothing to the
+    recipient, and it is now hidden across the whole task module, so an email
+    quoting one would be the only place it still leaked."""
     logo_block = (
         f"<img src='{escape(logo_url)}' alt='Company logo' height='28' style='display:block' />"
         if logo_url else
@@ -63,9 +67,6 @@ def task_email_html(*, task_code: str, task_title: str, status: str, heading: st
     </tr>
     <tr>
       <td style="padding:26px 28px 8px">
-        <div style="font-size:11.5px;color:#9ca3af;font-weight:700;letter-spacing:.04em;text-transform:uppercase;margin-bottom:6px">
-          Task {escape(task_code or '')}
-        </div>
         <h2 style="margin:0 0 10px;font-size:19px;color:#111827;line-height:1.35">{escape(task_title or '')}</h2>
         {_status_badge(status)}
       </td>
@@ -125,8 +126,10 @@ def _task_subject(t: dict, state: str) -> str:
     The task name leads because that is what the recipient recognizes in a full
     inbox; the old subject opened with the code twice ("[Task TASK-1983] Overdue
     - TASK-1983 - ...") and pushed the title past where most clients truncate.
+    The code is no longer a fallback either - a titleless task says "Task", which
+    is no less useful than "TASK-1983" to somebody who can't look the code up.
     Plain hyphens, never en/em dashes (CLAUDE.md)."""
-    return f"[{COMPANY_NAME}] - {t.get('title') or t.get('code') or 'Task'} - {state}"
+    return f"[{COMPANY_NAME}] - {t.get('title') or 'Task'} - {state}"
 
 def created_email(*, t: dict, base_url: str, logo_url: str, audience: str) -> tuple[str, str]:
     subject = _task_subject(t, "New Task")
@@ -136,7 +139,7 @@ def created_email(*, t: dict, base_url: str, logo_url: str, audience: str) -> tu
         f"{t.get('actorName') or t.get('actorEmail')} created a new task you're following."
     )
     html = task_email_html(
-        task_code=t["code"], task_title=t["title"], status=t["status"],
+        task_title=t["title"], status=t["status"],
         heading="New task" if audience != "assignee" else "You have a new task",
         intro=intro,
         rows=[
@@ -159,7 +162,7 @@ def assigned_email(*, t: dict, base_url: str, logo_url: str, audience: str) -> t
         f"This task has been assigned to {t.get('assigneeName') or t.get('assigneeId')}."
     )
     html = task_email_html(
-        task_code=t["code"], task_title=t["title"], status=t["status"],
+        task_title=t["title"], status=t["status"],
         heading="You've been assigned a task" if audience == "assignee" else "Task assigned",
         intro=intro,
         rows=[
@@ -188,7 +191,7 @@ def due_reminder_email(*, t: dict, base_url: str, logo_url: str, days_left: int)
         heading = f"This task is due in {days_left} day{'s' if days_left != 1 else ''}"
         intro = f"Reminder: this task is due {t.get('dueDateDisplay') or 'soon'}."
     html = task_email_html(
-        task_code=t["code"], task_title=t["title"], status=t["status"],
+        task_title=t["title"], status=t["status"],
         heading=heading, intro=intro,
         rows=_common_rows(t),
         cta_label="Open Task", cta_url=_task_url(base_url, t["id"]), logo_url=logo_url,
@@ -200,7 +203,7 @@ def due_reminder_email(*, t: dict, base_url: str, logo_url: str, days_left: int)
 def completed_email(*, t: dict, base_url: str, logo_url: str) -> tuple[str, str]:
     subject = _task_subject(t, "Completed")
     html = task_email_html(
-        task_code=t["code"], task_title=t["title"], status=t["status"],
+        task_title=t["title"], status=t["status"],
         heading="This task has been completed",
         intro=f"{t.get('actorName') or t.get('actorEmail')} marked this task as complete.",
         rows=[
@@ -221,7 +224,7 @@ def mentioned_email(*, t: dict, base_url: str, logo_url: str, comment_body: str,
     who = actor_name or t.get("actorName") or t.get("actorEmail") or "Someone"
     subject = _task_subject(t, f"{who} Mentioned You")
     html = task_email_html(
-        task_code=t["code"], task_title=t["title"], status=t["status"],
+        task_title=t["title"], status=t["status"],
         heading="You were mentioned in a comment",
         intro=f"{who} mentioned you on this task.",
         rows=[
@@ -236,7 +239,7 @@ def mentioned_email(*, t: dict, base_url: str, logo_url: str, comment_body: str,
 def commented_email(*, t: dict, base_url: str, logo_url: str, comment_body: str) -> tuple[str, str]:
     subject = _task_subject(t, "New Comment")
     html = task_email_html(
-        task_code=t["code"], task_title=t["title"], status=t["status"],
+        task_title=t["title"], status=t["status"],
         heading="New comment on your task",
         intro=f"{t.get('actorName') or t.get('actorEmail')} commented on this task.",
         rows=[
@@ -251,7 +254,7 @@ def commented_email(*, t: dict, base_url: str, logo_url: str, comment_body: str)
 def follower_added_email(*, t: dict, base_url: str, logo_url: str) -> tuple[str, str]:
     subject = _task_subject(t, "Added as Collaborator")
     html = task_email_html(
-        task_code=t["code"], task_title=t["title"], status=t["status"],
+        task_title=t["title"], status=t["status"],
         heading="You've been added to a task",
         intro=f"{t.get('actorName') or t.get('actorEmail')} added you as a collaborator on this task - you'll now get updates on it.",
         rows=_common_rows(t),
@@ -263,7 +266,7 @@ def follower_added_email(*, t: dict, base_url: str, logo_url: str) -> tuple[str,
 def modified_email(*, t: dict, base_url: str, logo_url: str, update_kind: str) -> tuple[str, str]:
     subject = _task_subject(t, "Updated")
     html = task_email_html(
-        task_code=t["code"], task_title=t["title"], status=t["status"],
+        task_title=t["title"], status=t["status"],
         heading="Your task has an update",
         intro=f"{t.get('actorName') or t.get('actorEmail')} made a change to this task: {update_kind}.",
         rows=[
@@ -280,7 +283,7 @@ def modified_email(*, t: dict, base_url: str, logo_url: str, update_kind: str) -
 def deleted_email(*, t: dict, base_url: str, logo_url: str) -> tuple[str, str]:
     subject = _task_subject(t, "Deleted")
     html = task_email_html(
-        task_code=t["code"], task_title=t["title"], status=t.get("status") or "not_started",
+        task_title=t["title"], status=t.get("status") or "not_started",
         heading="A task you were on has been deleted",
         intro=f"{t.get('actorName') or t.get('actorEmail')} deleted this task - no further action is needed.",
         rows=[

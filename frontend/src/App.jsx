@@ -110,7 +110,8 @@ const VIEW_MIN_ROLES = {
 // so both templates would render nothing forever instead of picking up the
 // synthetic dev account. Everything else behaves normally.
 const _SKIP_MSAL_GATE = import.meta.env.VITE_E2E === 'true'
-  || (import.meta.env.DEV && import.meta.env.VITE_DEV_SKIP_AUTH === 'true');
+  || (import.meta.env.DEV && import.meta.env.VITE_DEV_SKIP_AUTH === 'true')
+  || import.meta.env.VITE_BFF_MODE === 'true';   // BFF: boot already gated on the session cookie
 const AuthedGate  = _SKIP_MSAL_GATE ? ({ children }) => children : AuthenticatedTemplate;
 const UnauthedGate = _SKIP_MSAL_GATE ? () => null : UnauthenticatedTemplate;
 

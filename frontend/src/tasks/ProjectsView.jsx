@@ -8,7 +8,7 @@ import { api } from '../api';
 import { useTasks } from './TasksContext';
 import { taskStats, teamInProject, teamProjectIds } from './lib';
 import { NX, FONT, btn, input as inputStyle, card, chip } from './theme';
-import { Avatar, StatusChip, EmptyState, Modal, usePeople, PersonSelect, useIsMobile, MobileFab } from './components';
+import { Avatar, EmptyState, Modal, usePeople, PersonSelect, useIsMobile, MobileFab } from './components';
 import TasksWorkspace from './TasksWorkspace';
 
 const EMPTY_FORM = {
@@ -21,6 +21,30 @@ const VISIBILITY_OPTS = [
   { key: 'org', icon: Globe, label: 'Nexus Global', desc: 'Any organization member can find and access this project.' },
   { key: 'restricted', icon: Lock, label: 'Collaborators only', desc: 'Only the owner, its teams’ members, and task assignees can access.' },
 ];
+
+// Project status is a READ-OUT of the task rollup, not a field anyone sets:
+// nothing started = Not Started, some work moving = In Progress, everything done
+// = Completed. A card reading "Not Started" over a half-full progress bar was
+// the tell that the stored `status` column was a value nobody ever updated -
+// there was no editor for it anywhere in the UI.
+//
+// The stored TaskProject.status is therefore no longer what the UI shows. It is
+// left untouched on the row (legacy/seeded values like "on_track" still sit in
+// dev data) rather than migrated, because nothing else reads it.
+const PROJECT_STATUS_META = {
+  not_started: { label: 'Not Started', color: NX.dim,    tint: NX.border2 },
+  in_progress: { label: 'In Progress', color: '#b26a00', tint: 'rgba(253,171,61,0.18)' },
+  completed:   { label: 'Completed',   color: '#0a7d4b', tint: 'rgba(0,200,117,0.16)' },
+};
+
+/** Derive a project's status from its task rollup (see taskStats).
+ *  `inProgress` counts too, not just `completed`: a project whose tasks are all
+ *  underway but none finished sits at 0% and is still plainly not "Not Started". */
+function projectStatusFor(stats) {
+  if (!stats.total) return 'not_started';
+  if (stats.completed >= stats.total) return 'completed';
+  return (stats.completed > 0 || stats.inProgress > 0) ? 'in_progress' : 'not_started';
+}
 
 export default function ProjectsView({ onNavigate }) {
   const isMobile = useIsMobile();
@@ -136,19 +160,24 @@ export default function ProjectsView({ onNavigate }) {
               }}
                 onMouseEnter={(e) => { e.currentTarget.style.boxShadow = '0 6px 18px rgba(0,0,0,0.09)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
                 onMouseLeave={(e) => { e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.transform = 'none'; }}>
-                {/* Kit cover band: the project's real color, actions overlaid */}
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 54, background: `linear-gradient(135deg, ${dcolor}33, ${dcolor}14)`, color: dcolor, position: 'relative', flexShrink: 0 }}>
-                  <FolderKanban size={20} />
-                  <div style={{ position: 'absolute', top: 8, right: 8, display: 'flex', gap: 2 }} onClick={(e) => e.stopPropagation()}>
-                    <button title="Edit Project" onClick={() => startEdit(p)} style={{ ...btn('ghost'), padding: 5, background: 'rgba(255,255,255,.7)', borderRadius: 7 }}><Pencil size={13} /></button>
-                    <button title="Delete Project" onClick={() => remove(p)} style={{ ...btn('ghost'), padding: 5, color: NX.red, background: 'rgba(255,255,255,.7)', borderRadius: 7 }}><Trash2 size={13} /></button>
-                  </div>
-                </div>
-
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: '12px 14px 14px', flex: 1 }}>
+                {/* Head row: the project's color rides its icon tile on the left,
+                    name beside it, actions right. This replaces a 54px cover band
+                    that spent the card's whole top edge on one centered icon. */}
                 <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 14.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                    <span style={{
+                      width: 28, height: 28, borderRadius: 8, flexShrink: 0,
+                      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                      background: `${dcolor}1f`, color: dcolor,
+                    }}><FolderKanban size={15} /></span>
+                    <div title={p.name} style={{ flex: 1, minWidth: 0, fontSize: 14.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</div>
+                    <div style={{ display: 'flex', gap: 2, flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
+                      <button title="Edit Project" onClick={() => startEdit(p)} style={{ ...btn('ghost'), padding: 5, borderRadius: 7 }}><Pencil size={13} /></button>
+                      <button title="Delete Project" onClick={() => remove(p)} style={{ ...btn('ghost'), padding: 5, color: NX.red, borderRadius: 7 }}><Trash2 size={13} /></button>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
                     {/* The teams that work this project, each in its own color.
                         This used to show hrDepartmentName - the CREATOR's People
                         department - so every project imported by one person read
@@ -194,7 +223,10 @@ export default function ProjectsView({ onNavigate }) {
                     </span>
                   ) : <span style={{ fontSize: 12, color: NX.faint }}>No owner</span>}
                   {pf && <span style={chip(NX.purple, `${NX.purple}1a`)}>{pf.name}</span>}
-                  <span style={{ marginLeft: 'auto' }}><StatusChip status={p.status} /></span>
+                  {(() => {
+                    const m = PROJECT_STATUS_META[projectStatusFor(stats)];
+                    return <span style={{ ...chip(m.color, m.tint), marginLeft: 'auto' }}>{m.label}</span>;
+                  })()}
                 </div>
                 </div>
               </div>
@@ -292,8 +324,13 @@ function DeleteProjectModal({ state, setState, onConfirm, onClose }) {
 // only exists after createProject resolves. Callers just get an onSaved(project)
 // callback for their own post-save action (close, navigate, etc).
 function ProjectModal({ form, setForm, people, portfolios, onClose, onSaved }) {
-  const { teams, createProject, updateProject, updateTeam } = useTasks();
+  const { teams, tasks, createProject, updateProject, updateTeam } = useTasks();
   const set = (patch) => setForm((f) => ({ ...f, ...patch }));
+  // Read-only: status is computed from this project's tasks, the same rollup the
+  // card's progress bar draws. Shown rather than hidden so the modal answers
+  // "why does it say that?" in place, instead of looking like a missing field.
+  const stats = useMemo(() => taskStats(form.id ? tasks.filter((t) => t.projectId === form.id) : []), [tasks, form.id]);
+  const statusMeta = PROJECT_STATUS_META[projectStatusFor(stats)];
   const label = { fontSize: 12.5, fontWeight: 600, color: NX.dim, marginBottom: 5, display: 'block' };
   const valid = form.name.trim().length > 0;
   const [saving, setSaving] = useState(false);
@@ -361,6 +398,20 @@ function ProjectModal({ form, setForm, people, portfolios, onClose, onSaved }) {
         <div>
           <label style={label}>Owner</label>
           <PersonSelect value={form.ownerId} onChange={(email) => set({ ownerId: email })} people={people} placeholder="No owner" />
+        </div>
+
+        <div>
+          <label style={label}>Status</label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <span style={chip(statusMeta.color, statusMeta.tint)}>{statusMeta.label}</span>
+            <span style={{ fontSize: 12.5, color: NX.faint }}>
+              {form.id
+                ? (stats.total
+                    ? `Set automatically from task progress - ${stats.completed}/${stats.total} done.`
+                    : 'Set automatically from task progress. This project has no tasks yet.')
+                : 'Set automatically from task progress once this project has tasks.'}
+            </span>
+          </div>
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>

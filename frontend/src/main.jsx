@@ -10,6 +10,7 @@ import App from './App.jsx'
 import RootErrorBoundary from './components/RootErrorBoundary'
 import { DialogHost } from './ui/dialog'
 import { installErrorReporter } from './lib/errorReporter'
+import { BFF_MODE, bffBootstrap } from './bffAuth'
 
 installErrorReporter();   // uncaught errors -> /client-errors -> audit trail
 // Let api.js drive the TanStack Query cache (invalidate after writes, clear on
@@ -42,18 +43,29 @@ try {
 // this deploy - required to bypass asset URLs cache-poisoned during the Jul 27
 // deploy window (fallback HTML cached immutable under the old entry URL).
 window.__NEXUS_BUILD = '2026-07-28';
-createRoot(document.getElementById('root')).render(
-  <StrictMode>
-    <RootErrorBoundary>
-      <QueryClientProvider client={queryClient}>
-        <MsalProvider instance={msalInstance}>
-          <App />
-          <DialogHost />
-        </MsalProvider>
-      </QueryClientProvider>
-    </RootErrorBoundary>
-  </StrictMode>,
-)
+function renderApp() {
+  createRoot(document.getElementById('root')).render(
+    <StrictMode>
+      <RootErrorBoundary>
+        <QueryClientProvider client={queryClient}>
+          <MsalProvider instance={msalInstance}>
+            <App />
+            <DialogHost />
+          </MsalProvider>
+        </QueryClientProvider>
+      </RootErrorBoundary>
+    </StrictMode>,
+  );
+}
+
+// BFF cookie mode: resolve the server session BEFORE the first render - bffBootstrap
+// installs a synthetic account for the app to read, or redirects to /api/auth/login
+// when there's no session. MSAL mode renders immediately, exactly as before.
+if (BFF_MODE) {
+  bffBootstrap().then((render) => { if (render) renderApp(); });
+} else {
+  renderApp();
+}
 
 // Deploy trigger (Jul 31, 2026): first hash rotation after the R2 asset archive went live,
 // so stale-tab chunk requests fall back to the archive. Safe to remove.

@@ -112,7 +112,7 @@ function DependencyPickerBody({ candidates, onPick }) {
       />
       <div style={{ maxHeight: 230, overflowY: 'auto' }}>
         {filtered.length ? filtered.slice(0, 40).map((c) => (
-          <MenuItem key={c.id} onClick={() => onPick(c)}>{c.code} · {c.title}</MenuItem>
+          <MenuItem key={c.id} onClick={() => onPick(c)}>{c.title}</MenuItem>
         )) : (
           <div style={{ padding: 9, fontSize: 12, color: NX.faint, textAlign: 'center' }}>
             {candidates.length ? 'No matching tasks.' : 'No eligible tasks in this project'}
@@ -252,7 +252,6 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit }) {
               {task.completed ? <CheckCircle2 size={15} style={{ color: NX.green }} /> : <Circle size={15} />}
               {!isMobile && (task.completed ? 'Completed' : 'Mark complete')}
             </button>
-            <span style={{ fontSize: 11, fontWeight: 700, color: NX.faint }}>{task.code}</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             <MembersMenu task={task} people={people} nameOf={nameOf} patch={patch} />
@@ -1095,29 +1094,45 @@ function CommentItem({ c, nameOf, mine, attachments = [], onPin, onEdit, onDelet
 // tab uses); anything else renders as a named card with a Download link,
 // matching Asana's own comment-attachment layout.
 function CommentAttachments({ items }) {
+  // A file over the inline limit is stored as metadata only, with no url (see
+  // uploadTaskAttachment) - so `href` has to be conditional. Rendering the card
+  // as a dead link was this component's own bug; the task-level Attachments
+  // list and the Files view already guard the same way.
+  const card = (a, body) => {
+    const href = a.dataUrl || a.url;
+    const style = {
+      display: 'flex', alignItems: 'center', gap: 10, width: 260, padding: '9px 12px',
+      border: `1px solid ${NX.border}`, borderRadius: 10, textDecoration: 'none',
+      opacity: href ? 1 : 0.65,
+    };
+    return href
+      ? <a key={a.id} href={href} download={a.name} style={style}>{body}</a>
+      : <div key={a.id} style={style} title="This file was too large to store inline">{body}</div>;
+  };
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
-      {items.map((a) => (
-        a.kind === 'image' ? (
-          <a key={a.id} href={a.dataUrl || a.url} target="_blank" rel="noreferrer" title={a.name}>
-            <img src={a.dataUrl || a.url} alt={a.name}
-              style={{ display: 'block', maxWidth: 320, maxHeight: 240, borderRadius: 10, border: `1px solid ${NX.border}`, objectFit: 'cover' }} />
-          </a>
-        ) : (
-          <a key={a.id} href={a.dataUrl || a.url} download={a.name} style={{
-            display: 'flex', alignItems: 'center', gap: 10, width: 260, padding: '9px 12px',
-            border: `1px solid ${NX.border}`, borderRadius: 10, textDecoration: 'none',
-          }}>
+      {items.map((a) => {
+        const href = a.dataUrl || a.url;
+        if (a.kind === 'image' && href) {
+          return (
+            <a key={a.id} href={href} target="_blank" rel="noreferrer" title={a.name}>
+              <img src={href} alt={a.name}
+                style={{ display: 'block', maxWidth: 320, maxHeight: 240, borderRadius: 10, border: `1px solid ${NX.border}`, objectFit: 'cover' }} />
+            </a>
+          );
+        }
+        return card(a, (
+          <>
             <Paperclip size={16} style={{ color: NX.dim, flexShrink: 0 }} />
             <div style={{ minWidth: 0, flex: 1 }}>
               <div style={{ fontSize: 12.5, fontWeight: 600, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name}</div>
               <div style={{ fontSize: 11, color: NX.faint, display: 'flex', alignItems: 'center', gap: 4 }}>
-                <Download size={10} /> Download
+                {href ? <><Download size={10} /> Download</> : 'Not stored'}
               </div>
             </div>
-          </a>
-        )
-      ))}
+          </>
+        ));
+      })}
     </div>
   );
 }
@@ -1257,7 +1272,7 @@ function DependenciesTab({ blockedBy, blocking, task, removeDependency }) {
   const line = (b, color, canRemove) => (
     <div key={b.id} style={{ display: 'flex', alignItems: 'center', gap: 8, background: NX.surface2, border: `1px solid ${NX.border}`, borderRadius: 8, padding: '7px 10px', fontSize: 12, marginBottom: 6 }}>
       <Link2 size={13} style={{ color }} />
-      <span style={{ flex: 1, color: NX.ink }}>{b.code} · {b.title}</span>
+      <span style={{ flex: 1, color: NX.ink }}>{b.title}</span>
       {b.dependencyType && DEP_TYPES[b.dependencyType] && <span style={{ color: NX.faint }}>{b.dependencyType}</span>}
       {canRemove && <button onClick={() => removeDependency(b.id)} style={{ ...btn('ghost'), padding: 2, color: NX.faint }}><X size={13} /></button>}
     </div>
@@ -1285,7 +1300,6 @@ function PropertiesTab({ task, nameOf, projectName, teamName, customFields, patc
   const sm = statusMeta[task.status] || {};
   const pm = PRIORITY_META[task.priority] || {};
   const rows = [
-    ['Task ID', <span style={{ fontFamily: 'monospace', fontSize: 12 }}>{task.code}</span>],
     ['Status', <Chip color={sm.color} tint={sm.tint}>{sm.label}</Chip>],
     ['Priority', <Chip color={pm.color} tint={pm.tint}>{pm.label}</Chip>],
     ['Assignee', task.assigneeId ? <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Avatar email={task.assigneeId} name={nameOf(task.assigneeId)} size={18} /> {nameOf(task.assigneeId)}</span> : 'Unassigned'],
