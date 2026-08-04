@@ -906,6 +906,26 @@ def health():
     return {"status": "ok"}
 
 
+@app.get("/health/ready")
+def health_ready():
+    """Deep READINESS probe for blue-green (Azure slot warm-up + swap): reports
+    'ready' only once the DB is actually reachable, so a slot swap / load-balancer
+    completes only when this instance can serve real traffic. Distinct from
+    /health (shallow liveness): a DB blip trips readiness -> drain traffic, without
+    tripping liveness -> which would needlessly restart the worker. No auth."""
+    from fastapi.responses import JSONResponse
+    from sqlalchemy import text
+    from database import SessionLocal
+    db = SessionLocal()
+    try:
+        db.execute(text("SELECT 1"))
+        return {"status": "ready"}
+    except Exception as e:  # noqa: BLE001 - readiness must report, not raise
+        return JSONResponse(status_code=503, content={"status": "not_ready", "detail": str(e)[:160]})
+    finally:
+        db.close()
+
+
 @app.get("/version")
 def version():
     return {"version": "2.0.0", "auth": "token-based"}
