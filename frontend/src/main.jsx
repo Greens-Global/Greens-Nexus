@@ -7,7 +7,7 @@ import { queryClient } from './lib/queryClient'
 import { setCacheBridge } from './api'
 import './style.css'
 import App from './App.jsx'
-import LandingPage from './components/LandingPage'
+import LoginPage from './views/LoginPage'
 import RootErrorBoundary from './components/RootErrorBoundary'
 import { DialogHost } from './ui/dialog'
 import { installErrorReporter } from './lib/errorReporter'
@@ -60,10 +60,17 @@ function renderApp() {
 }
 
 function renderLanding() {
+  // The same LoginPage the MSAL flow shows (its button is BFF-aware), so the
+  // sign-in screen is identical whichever auth mode is active. It reads MSAL
+  // (useMsal) and branding (useBranding), so it needs both providers.
   createRoot(document.getElementById('root')).render(
     <StrictMode>
       <RootErrorBoundary>
-        <LandingPage />
+        <QueryClientProvider client={queryClient}>
+          <MsalProvider instance={msalInstance}>
+            <LoginPage />
+          </MsalProvider>
+        </QueryClientProvider>
       </RootErrorBoundary>
     </StrictMode>,
   );

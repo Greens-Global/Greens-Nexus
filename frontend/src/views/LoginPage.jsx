@@ -19,6 +19,7 @@ import { useMsal } from "@azure/msal-react";
 import { CheckSquare, Clock, Users } from "lucide-react";
 import { loginRequest } from "../authConfig";
 import { useBranding } from "../lib/queries";
+import { BFF_MODE } from "../bffAuth";
 
 // Accent is a Global Admin-configurable setting (AdminPanel -> Branding), not
 // hardcoded - see backend/routers/branding.py. The hero panel needs three
@@ -42,6 +43,13 @@ export default function LoginPage() {
     const id = requestAnimationFrame(() => setOn(true));
     return () => cancelAnimationFrame(id);
   }, []);
+
+  // BFF cookie mode signs in via the server (/api/auth/login); MSAL mode uses the
+  // redirect flow. Same button, same page - so prod and dev look identical either way.
+  const signIn = () => {
+    if (BFF_MODE) { window.location.href = "/api/auth/login"; return; }
+    instance.loginRedirect(loginRequest);
+  };
 
   const P = ACCENT_PALETTES[accent];
   const PANELS = [
