@@ -21,6 +21,7 @@ import UpdateBanner from "./components/UpdateBanner";
 import ViewErrorBoundary from "./components/ViewErrorBoundary";
 import { onBackendHealth, isBackendDown } from "./api";
 import { applyBrandAccent } from "./lib/brandAccent";
+import { BFF_MODE } from "./bffAuth";
 
 // Always loaded - critical path
 import LoginPage from "./views/LoginPage";
@@ -111,7 +112,7 @@ const VIEW_MIN_ROLES = {
 // synthetic dev account. Everything else behaves normally.
 const _SKIP_MSAL_GATE = import.meta.env.VITE_E2E === 'true'
   || (import.meta.env.DEV && import.meta.env.VITE_DEV_SKIP_AUTH === 'true')
-  || import.meta.env.VITE_BFF_MODE === 'true';   // BFF: boot already gated on the session cookie
+  || BFF_MODE;   // BFF: boot already gated on the session cookie
 const AuthedGate  = _SKIP_MSAL_GATE ? ({ children }) => children : AuthenticatedTemplate;
 const UnauthedGate = _SKIP_MSAL_GATE ? () => null : UnauthenticatedTemplate;
 

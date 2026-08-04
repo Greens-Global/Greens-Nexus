@@ -9,7 +9,18 @@
 // See docs/BFF-Migration-Plan.md.
 import { msalInstance } from './msalInstance';
 
-export const BFF_MODE = import.meta.env.VITE_BFF_MODE === 'true';
+// Cookie mode is decided at RUNTIME by hostname, not a build-time flag. Prod's
+// bundle is built in GitHub Actions, which never receives VITE_BFF_MODE, so a
+// build-time flag can't reach prod (setting it in the Cloudflare dashboard does
+// nothing - that only feeds git-integrated builds like dev). So: the hosted app
+// (dev + prod, both under *.nexus.greensglobal.com) is always cookie-mode;
+// localhost and any other host stay on the MSAL/dev flow. An explicit
+// VITE_BFF_MODE still overrides either way ('true' to force on, 'false' to force
+// off as a rollback lever). See docs/BFF-Migration-Plan.md.
+const _bffEnv = import.meta.env.VITE_BFF_MODE;
+const _bffHosted = typeof location !== 'undefined'
+  && /(^|\.)nexus\.greensglobal\.com$/.test(location.hostname || '');
+export const BFF_MODE = _bffEnv === 'false' ? false : (_bffEnv === 'true' || _bffHosted);
 
 // Identity resolved from the session at boot (email/role/level/csrf), or null.
 let _me = null;
