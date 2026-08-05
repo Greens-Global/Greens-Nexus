@@ -32,12 +32,39 @@ export function csrfToken() {
   return m ? decodeURIComponent(m[1]) : '';
 }
 
+// Set by bffLogout just before navigating away; read by bffLogin. localStorage
+// so it is shared across TABS - the whole point (see bffLogin).
+const SIGNED_OUT_KEY = 'nexus:signedout';
+const SIGNED_OUT_WINDOW_MS = 60_000;
+
+export function clearSignedOutMarker() {
+  try { localStorage.removeItem(SIGNED_OUT_KEY); } catch { /* storage blocked */ }
+}
+
+function _justSignedOut() {
+  try { return Date.now() - Number(localStorage.getItem(SIGNED_OUT_KEY) || 0) < SIGNED_OUT_WINDOW_MS; }
+  catch { return false; }
+}
+
 let _redirecting = false;
 /** BFF's replacement for MSAL reauth: go to the server-side login, remembering
- *  where we were so the callback returns the user there. */
+ *  where we were so the callback returns the user there.
+ *
+ *  Right after an EXPLICIT logout this must NOT run: any other open Nexus tab
+ *  hits a 401 the moment the session dies, lands here, silently re-auths
+ *  against the still-live (or half-dead) Microsoft SSO session, and mints a
+ *  fresh cookie - resurrecting the user onto the dashboard they just logged
+ *  out of. That race is why logout "worked sometimes": it depended on how many
+ *  tabs were open. For a minute after logout, 401s route to the sign-in screen
+ *  instead; the screen's own button (LoginPage) is explicit and always works. */
 export function bffLogin() {
   if (_redirecting) return;
   _redirecting = true;
+  if (_justSignedOut()) {
+    if (location.pathname !== '/') window.location.href = '/';
+    else window.location.reload();   // already home - re-gate to the landing
+    return;
+  }
   const next = encodeURIComponent(location.pathname + location.search);
   window.location.href = `/api/auth/login?next=${next}`;
 }
@@ -48,6 +75,7 @@ export function bffLogin() {
  *  Microsoft - a POST that only cleared the cookie left the SSO session alive,
  *  so /auth/login silently re-authed and bounced the user right back in. */
 export function bffLogout() {
+  try { localStorage.setItem(SIGNED_OUT_KEY, String(Date.now())); } catch { /* storage blocked */ }
   window.location.href = '/api/auth/logout';
 }
 
