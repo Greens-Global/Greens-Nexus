@@ -13,6 +13,7 @@ import { useRole } from '../contexts/RoleContext';
 import { filesFromPaste } from '../tasks/lib';
 import { supabase } from '../lib/supabase';
 import { startScreenRecording } from '../lib/screenRecorder';
+import { stashDraft, appendDraftFile, takeDraft, peekDraft, setDraftUiMounted, finishRecording } from './recordingDraft';
 import { NX, FONT, chip, btn, input as inputStyle, PRIORITY_META, PRIORITY_ORDER } from '../tasks/theme';
 import { Avatar, PriorityChip, EmptyState, Modal, PersonSelect, usePeople, DateField, useIsMobile, useClickOutside } from '../tasks/components';
 import MobileTaskBar, { BottomSheet } from '../tasks/MobileTaskBar';
@@ -317,6 +318,11 @@ export default function TicketsView() {
   const [creating, setCreating] = useState(false);
   const [openId, setOpenId] = useState(null);
   const [selected, setSelected] = useState(() => new Set());
+
+  // A screen recording that ended while the user was on ANOTHER view navigates
+  // the app back here (recordingDraft.finishRecording) - reopen the create
+  // form so it can seed itself from the stashed draft, clip included.
+  useEffect(() => { if (peekDraft()?.resume) setCreating(true); }, []);
 
   // Deep-link support - the Outlook notification emails link to
   // "?ticket=<id>" (see backend/ticket_mail_templates.py's _ticket_url). Open
@@ -877,11 +883,14 @@ function RecordUploadButtons({ onFile, disabled, showRecord = true, onRecordingC
     setMenu(false);
     try {
       const started = await startScreenRecording({ voice }, (blob) => {
-        setRec(false);
+        // File FIRST, recording-state second: onRecordingChange(false) may
+        // trigger the navigate-back-and-resume flow (recordingDraft.js), and
+        // the clip must already be in the draft when the form reopens.
         // null = cancelled or genuinely empty; both end quietly. The old
         // "came out empty - try again" alert fired on every Cancel too, which
         // read as a failure when the user had simply changed their mind.
         if (blob) onFile(new File([blob], `ticket-recording-${Date.now()}.webm`, { type: 'video/webm' }));
+        setRec(false);
       });
       if (started) setRec(true);
     } catch (e) {
@@ -952,12 +961,18 @@ export function CreateTicketModal({ onClose }) {
     api.getTicketCompanies().then(setCompanies).catch(() => setCompanies([]));
     api.getTicketDepartments().then(setAllDepts).catch(() => setAllDepts([]));
   }, []);
-  const [form, setForm] = useState({
+  // A draft stashed during a screen recording (recordingDraft.js) seeds the
+  // form when it reopens - possibly after the user navigated to another view
+  // and back. Consumed exactly once per mount via the ref guard.
+  const seedRef = useRef(undefined);
+  if (seedRef.current === undefined) seedRef.current = takeDraft() || null;
+  const seed = seedRef.current;
+  const [form, setForm] = useState(seed?.form || {
     subject: '', description: '', type: 'bug', priority: 'medium', status: 'new',
     requesterId: myEmail || null, companyId: '', hrDepartmentId: '',
   });
-  const [tf, setTf] = useState({});   // per-type field values (keyed by field key)
-  const [step, setStep] = useState(1);                   // 1 = routing (company/dept/type), 2 = details
+  const [tf, setTf] = useState(seed?.tf || {});   // per-type field values (keyed by field key)
+  const [step, setStep] = useState(seed ? 2 : 1);        // 1 = routing (company/dept/type), 2 = details
   const [showErrors, setShowErrors] = useState(false);   // only nag after a failed submit
   const [busy, setBusy] = useState(false);
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
@@ -1005,7 +1020,7 @@ export function CreateTicketModal({ onClose }) {
   const libRef = useRef(null);
   const attachRef = useRef(null);
   const scanRef = useRef(null);
-  const [attachments, setAttachments] = useState([]);
+  const [attachments, setAttachments] = useState(seed?.attachments || []);
   const [photoMenu, setPhotoMenu] = useState(false);
   const [ocrBusy, setOcrBusy] = useState(false);
   // While a screen recording runs, the whole modal steps aside (see the early
@@ -1013,6 +1028,15 @@ export function CreateTicketModal({ onClose }) {
   // Stop pill and closed-and-discarded the form on any outside click. Hiding
   // the RENDER while this component stays mounted keeps every field intact.
   const [recActive, setRecActive] = useState(false);
+  // Tell the draft stash whether this form is alive: on Stop it either lets
+  // the mounted form reappear, or (form unmounted - the user navigated away
+  // to reproduce the issue) routes the app back here to resume from the stash.
+  useEffect(() => { setDraftUiMounted(true); return () => setDraftUiMounted(false); }, []);
+  const onRecChange = (v) => {
+    setRecActive(v);
+    if (v) stashDraft({ form, tf, attachments });
+    else finishRecording();
+  };
   const onFiles = (e) => {
     const list = Array.from(e.target.files || []); e.target.value = '';
     if (list.length) setAttachments((prev) => [...prev, ...list]);
@@ -1236,8 +1260,9 @@ export function CreateTicketModal({ onClose }) {
 
       <div style={field}>
         <label style={label}>Evidence</label>
-        <RecordUploadButtons onFile={(f) => setAttachments((prev) => [...prev, f])} showRecord={!NO_RECORDING_TYPES.includes(form.type)}
-          onRecordingChange={setRecActive} />
+        <RecordUploadButtons showRecord={!NO_RECORDING_TYPES.includes(form.type)}
+          onFile={(f) => { appendDraftFile(f); setAttachments((prev) => [...prev, f]); }}
+          onRecordingChange={onRecChange} />
         {attachments.length > 0 && (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
             {attachments.map((f, i) => (
