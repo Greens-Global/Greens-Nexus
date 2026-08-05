@@ -50,7 +50,14 @@ export default function LoginPage() {
     // Explicit click: lift the fresh-logout guard that suppresses AUTO re-login
     // (bffAuth.bffLogin) so the user's own sign-in is never blocked by it.
     clearSignedOutMarker();
-    if (BFF_MODE) { window.location.href = "/api/auth/login"; return; }
+    if (BFF_MODE) {
+      // Pass the last signed-in email as login_hint so Entra preselects the
+      // account instead of showing "Pick an account".
+      let hint = '';
+      try { hint = localStorage.getItem('nexus:lastEmail') || ''; } catch { /* storage blocked */ }
+      window.location.href = "/api/auth/login" + (hint ? `?hint=${encodeURIComponent(hint)}` : '');
+      return;
+    }
     instance.loginRedirect(loginRequest);
   };
 

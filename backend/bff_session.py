@@ -68,8 +68,8 @@ def new_pkce() -> tuple[str, str]:
     return verifier, challenge
 
 
-def authorize_url(redirect_uri: str, state: str, challenge: str) -> str:
-    q = urllib.parse.urlencode({
+def authorize_url(redirect_uri: str, state: str, challenge: str, login_hint: str = "") -> str:
+    params = {
         "client_id": CLIENT_ID,
         "response_type": "code",
         "redirect_uri": redirect_uri,
@@ -78,8 +78,13 @@ def authorize_url(redirect_uri: str, state: str, challenge: str) -> str:
         "state": state,
         "code_challenge": challenge,
         "code_challenge_method": "S256",
-    })
-    return f"{AUTHORIZE_URL}?{q}"
+    }
+    # Preselect the account (skip Entra's picker) when the client remembers who
+    # last signed in on this browser. Entra still authenticates fully - the hint
+    # only picks the tile, it never bypasses credentials.
+    if login_hint:
+        params["login_hint"] = login_hint
+    return f"{AUTHORIZE_URL}?{urllib.parse.urlencode(params)}"
 
 
 def logout_url(post_logout_redirect_uri: str, id_token_hint: str = "") -> str:
