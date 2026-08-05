@@ -59,12 +59,18 @@ let _redirecting = false;
  *  instead; the screen's own button (LoginPage) is explicit and always works. */
 export function bffLogin() {
   if (_redirecting) return;
-  _redirecting = true;
   if (_justSignedOut()) {
-    if (location.pathname !== '/') window.location.href = '/';
-    else window.location.reload();   // already home - re-gate to the landing
+    // A logout navigation is (or just was) in motion. Navigating ANYWHERE here
+    // hijacks it - the classic single-tab bug: the dying page's background
+    // poll 401s mid-navigation, auto-login wins the race, silently re-auths
+    // the still-live Microsoft session, and the user is back on the dashboard
+    // they just left. Do NOTHING: let the logout navigation complete. A tab
+    // that is genuinely stranded just sits until the user acts; the sign-in
+    // screen's explicit button clears the marker and always works.
+    _redirecting = true;   // and swallow the repeat 401s that follow
     return;
   }
+  _redirecting = true;
   const next = encodeURIComponent(location.pathname + location.search);
   window.location.href = `/api/auth/login?next=${next}`;
 }
