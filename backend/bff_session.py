@@ -243,6 +243,51 @@ def get_session(db, sid: str):
     return row
 
 
+# ── delegated Graph tokens (server-side Teams posting) ────────────────────────
+# Entra v2 refresh tokens are not resource-bound: the SAME refresh token the
+# session already holds can be redeemed for a Microsoft Graph access token, as
+# long as the user (or an admin, org-wide) has consented to the scopes. This is
+# what lets the BACKEND post the BOD/EOD Teams message as the user - the
+# confidential-client refresh chain lives for ~90 days rolling, vs the ~24h cap
+# on browser-side SPA tokens that made client-side posting unreliable.
+GRAPH_CHAT_SCOPES = ("https://graph.microsoft.com/Chat.ReadBasic "
+                     "https://graph.microsoft.com/ChatMessage.Send offline_access")
+
+
+def graph_token_for_email(db, email: str) -> str:
+    """Mint a delegated Graph chat token for this user from their most recent
+    live session. Persists the rotated refresh token back onto the session so
+    the chain keeps extending. Returns '' when no session can produce one (user
+    fully logged out everywhere, consent missing, or refresh revoked)."""
+    from models import ServerSession
+    if not configured() or not email:
+        return ""
+    rows = (db.query(ServerSession)
+            .filter(ServerSession.user_email == email.lower())
+            .order_by(ServerSession.last_seen.desc()).limit(3).all())
+    for row in rows:
+        try:
+            rt = secret_box.decrypt(row.refresh_token_enc or "")
+            if not rt:
+                continue
+            resp = _token_request({
+                "client_id": CLIENT_ID,
+                "client_secret": CLIENT_SECRET,
+                "grant_type": "refresh_token",
+                "refresh_token": rt,
+                "scope": GRAPH_CHAT_SCOPES,
+            })
+            if resp.get("refresh_token"):            # Entra rotates refresh tokens
+                row.refresh_token_enc = secret_box.encrypt(resp["refresh_token"])
+                db.commit()
+            tok = resp.get("access_token", "")
+            if tok:
+                return tok
+        except Exception:
+            continue   # try an older session; '' if none works
+    return ""
+
+
 def delete_session(db, sid: str) -> None:
     from models import ServerSession
     if not sid:

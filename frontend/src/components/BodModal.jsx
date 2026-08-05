@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import { Sunrise, Sunset, Coffee, X, Send, Loader2, MessageSquare } from 'lucide-react';
 import { api } from '../api';
 import { msalInstance } from '../msalInstance';
-import { graphToken, postChatMessage } from '../teamsGraph';
 import { formatTime } from '../lib/datetime';
 
 // ── Beginning / End-of-day / Break message ────────────────────────────────────
@@ -160,24 +159,23 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
     }
     const targetId = bound?.id || '';
     const targetName = bound?.name || '';
-    let sent = false, sendError = '';
-    if (targetId) {
-      try {
-        const tok = await graphToken();
-        if (!tok) throw new Error('Teams not connected');
-        await postChatMessage(tok, targetId, buildHtml(workedMin));
-        sent = true;
-      } catch (e) { sendError = String(e?.message || e).slice(0, 180); }
-    } else sendError = 'No team chat set up for your group';
+    // The browser only COMPOSES; the SERVER delivers (teams_post.py) using the
+    // session's own 90-day credential and retries until it lands. No client
+    // Graph call, so a stale browser token can never lose a post and nothing
+    // here can ever raise a Microsoft sign-in mid-punch.
+    let resp = null;
     try {
-      await api.timeBodRecord({
+      resp = await api.timeBodRecord({
         kind: mode, message, tasks, channel_id: targetId, channel_name: targetName,
-        sent, send_error: sent ? '' : sendError, tz_offset_min: new Date().getTimezoneOffset(),
+        html: targetId ? buildHtml(workedMin) : '',
+        sent: false, send_error: targetId ? '' : 'No team chat set up for your group',
+        tz_offset_min: new Date().getTimezoneOffset(),
       });
-    } catch { /* the Teams post is the user-visible outcome */ }
-    if (sent) toastOk(`Posted to ${targetName || 'your chat'} and recorded.`);
-    else if (!targetId) toastOk('Recorded in Nexus.');
-    else toastErr(`Recorded in Nexus, but the Teams post failed${sendError ? ` - ${sendError}` : ''}.`);
+    } catch { /* recording failed after api.js retries - surfaced below */ }
+    if (!targetId) toastOk('Recorded in Nexus.');
+    else if (resp?.sent) toastOk(`Posted to ${targetName || 'your chat'} and recorded.`);
+    else if (resp?.queued) toastOk(`Recorded - your ${MODES[mode]?.tag || 'Teams'} post to ${targetName || 'your chat'} is on its way.`);
+    else toastErr('Could not record your message - check your connection and try again.');
     setBusy(false);
     if (onSent) onSent(); else onClose();
   }
