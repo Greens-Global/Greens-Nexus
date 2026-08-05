@@ -190,6 +190,9 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
     if (!targetId) toastOk('Recorded in Nexus.');
     else if (resp?.sent) toastOk(`Posted to ${targetName || 'your chat'} and recorded.`);
     else if (resp?.queued) toastOk(`Recorded - your ${MODES[mode]?.tag || 'Teams'} post to ${targetName || 'your chat'} is on its way.`);
+    // ok without sent/queued = an older backend answered (mid-deploy version
+    // skew). The row recorded; don't scare the user with a failure toast.
+    else if (resp?.ok) toastOk('Recorded in Nexus.');
     else toastErr('Could not record your message - check your connection and try again.');
     setBusy(false);
     if (onSent) onSent(); else onClose();
