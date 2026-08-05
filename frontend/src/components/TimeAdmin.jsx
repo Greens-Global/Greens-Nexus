@@ -192,6 +192,7 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
     api.timeTeamShots(shotDate, shotWho.email).then(r => setShotFrames(r.shots || [])).catch(() => setShotFrames([]));
   }, [shotWho, shotDate]);
 
+
   // Disclosed-monitoring tamper/coverage alerts - surfaces employees who are
   // clocked in while their agent has gone quiet (killed/uninstalled/offline), so
   // evasion is a visible, attributable event rather than a silent success. Polled.
