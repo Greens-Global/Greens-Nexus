@@ -35,15 +35,37 @@ export function csrfToken() {
 // Set by bffLogout just before navigating away; read by bffLogin. localStorage
 // so it is shared across TABS - the whole point (see bffLogin).
 const SIGNED_OUT_KEY = 'nexus:signedout';
+// Per-TAB flag (sessionStorage): marks the tab that INITIATED the logout, whose
+// navigation to /api/auth/logout must never be hijacked. Other tabs don't have
+// it and are safe to send to the sign-in screen.
+const LOGOUT_TAB_KEY = 'nexus:loggingout';
 const SIGNED_OUT_WINDOW_MS = 60_000;
 
 export function clearSignedOutMarker() {
   try { localStorage.removeItem(SIGNED_OUT_KEY); } catch { /* storage blocked */ }
+  try { sessionStorage.removeItem(LOGOUT_TAB_KEY); } catch { /* storage blocked */ }
 }
 
 function _justSignedOut() {
   try { return Date.now() - Number(localStorage.getItem(SIGNED_OUT_KEY) || 0) < SIGNED_OUT_WINDOW_MS; }
   catch { return false; }
+}
+
+function _isLogoutTab() {
+  try { return !!sessionStorage.getItem(LOGOUT_TAB_KEY); } catch { return false; }
+}
+
+// The instant someone logs out in ANY tab, every OTHER tab goes straight to the
+// sign-in screen instead of sitting on a half-dead dashboard whose requests all
+// 401 ("Missing or invalid Authorization header" strandings). The storage event
+// only fires in tabs that did NOT write the key, so the logout tab's own
+// navigation is never disturbed.
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (e) => {
+    if (e.key === SIGNED_OUT_KEY && e.newValue && BFF_MODE && !_isLogoutTab()) {
+      window.location.href = '/';
+    }
+  });
 }
 
 let _redirecting = false;
@@ -60,14 +82,18 @@ let _redirecting = false;
 export function bffLogin() {
   if (_redirecting) return;
   if (_justSignedOut()) {
-    // A logout navigation is (or just was) in motion. Navigating ANYWHERE here
-    // hijacks it - the classic single-tab bug: the dying page's background
-    // poll 401s mid-navigation, auto-login wins the race, silently re-auths
-    // the still-live Microsoft session, and the user is back on the dashboard
-    // they just left. Do NOTHING: let the logout navigation complete. A tab
-    // that is genuinely stranded just sits until the user acts; the sign-in
-    // screen's explicit button clears the marker and always works.
-    _redirecting = true;   // and swallow the repeat 401s that follow
+    _redirecting = true;   // swallow the repeat 401s that follow either way
+    if (_isLogoutTab()) {
+      // THIS tab's logout navigation is in motion - navigating anywhere here
+      // hijacks it (the single-tab race: a background poll 401s mid-navigation,
+      // auto-login wins, silently re-auths, user is back on the dashboard).
+      // Do nothing; the logout completes and lands this tab on the sign-in page.
+      return;
+    }
+    // A DIFFERENT tab logged out. This tab is dead weight - show the sign-in
+    // screen instead of a stranded dashboard. (Normally the storage listener
+    // already did this; this is the fallback for a 401 that raced it.)
+    window.location.href = '/';
     return;
   }
   _redirecting = true;
@@ -81,6 +107,7 @@ export function bffLogin() {
  *  Microsoft - a POST that only cleared the cookie left the SSO session alive,
  *  so /auth/login silently re-authed and bounced the user right back in. */
 export function bffLogout() {
+  try { sessionStorage.setItem(LOGOUT_TAB_KEY, '1'); } catch { /* storage blocked */ }
   try { localStorage.setItem(SIGNED_OUT_KEY, String(Date.now())); } catch { /* storage blocked */ }
   window.location.href = '/api/auth/logout';
 }
@@ -149,6 +176,8 @@ export async function bffBootstrap() {
           // Remembered for the NEXT sign-in: passed as login_hint so Entra
           // preselects this account instead of showing the picker.
           try { localStorage.setItem('nexus:lastEmail', _me.email); } catch { /* storage blocked */ }
+          // Signed in successfully - any leftover logout markers are stale.
+          clearSignedOutMarker();
           installSyntheticAccount(_me);
           // Background: turn the live Entra SSO session into a REAL cached MSAL
           // account so Graph calls - the Teams BOD/EOD post, chat lists - work
