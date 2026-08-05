@@ -852,6 +852,19 @@ ENTRA_MAPPED_FIELDS = {"first_name", "last_name", "job_title", "department", "ph
                        "company", "personal", "manager_email"}
 
 
+def _m365_job_title(title: str) -> str:
+    """Level markers stay in Nexus, never in Entra. Nexus job titles carry a
+    trailing level ('Site Manager I', 'IT Development Associate 1') that maps
+    pay/roles internally - but pushed to M365 verbatim, each variant reads as a
+    DIFFERENT job title and splits one role into fake hierarchy tiers in org
+    views. Strip a trailing arabic or roman marker (separator required, so
+    'MIX' or 'Level 2 Technician' are untouched; roman is uppercase-only).
+    A title that IS only a marker is sent as-is rather than blanked."""
+    t = " ".join((title or "").split())
+    out = re.sub(r"[\s\-#]+(?:\d{1,3}|[IVX]{1,4})$", "", t).strip(" -")
+    return out or t
+
+
 def _graph_writeback(token: str, emp, db: Optional[Session] = None) -> list:
     """Push the editable profile attributes from Nexus back onto the linked Entra
     user (the reverse of Sync-from-M365). Only sends fields that have a value, so
@@ -874,7 +887,7 @@ def _graph_writeback(token: str, emp, db: Optional[Session] = None) -> list:
         ent = db.query(HrEntity).filter(HrEntity.id == emp.company).first()
         company_name = (ent.name if ent else "") or ""
     street = " ".join(str((emp.personal or {}).get("currentAddress", "")).split())[:1024]
-    for attr, value in (("jobTitle", emp.job_title), ("department", emp.department),
+    for attr, value in (("jobTitle", _m365_job_title(emp.job_title)), ("department", emp.department),
                         ("mobilePhone", emp.phone), ("officeLocation", emp.location),
                         ("employeeId", emp.employee_code),
                         ("employeeType", _EMPLOYEE_TYPE_LABEL.get(emp.employment_type or "", "")),
@@ -1006,7 +1019,7 @@ def provision_employee(eid: str, body: ProvisionIn, user: dict = Depends(require
             "mailNickname": upn.split("@", 1)[0].replace(".", ""),
             "userPrincipalName": upn,
             "usageLocation": usage_location,
-            "jobTitle": emp.job_title or None,
+            "jobTitle": _m365_job_title(emp.job_title) or None,
             "department": emp.department or None,
             "mobilePhone": emp.phone or None,
             "officeLocation": emp.location or None,
