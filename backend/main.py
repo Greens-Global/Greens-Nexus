@@ -101,6 +101,9 @@ def _run_migrations():
             "ALTER TABLE hr_sign_events ADD COLUMN event_hash VARCHAR DEFAULT ''",
             "ALTER TABLE hr_sign_requests ADD COLUMN verify_token VARCHAR DEFAULT ''",
             "ALTER TABLE time_bod ADD COLUMN kind VARCHAR DEFAULT 'bod'",
+            "ALTER TABLE time_bod ADD COLUMN html VARCHAR DEFAULT ''",
+            "ALTER TABLE time_bod ADD COLUMN attempts INTEGER DEFAULT 0",
+            "ALTER TABLE time_bod ADD COLUMN last_try_at VARCHAR DEFAULT ''",
             "ALTER TABLE time_punches ADD COLUMN category VARCHAR DEFAULT ''",
             "ALTER TABLE time_punches ADD COLUMN pending_at VARCHAR DEFAULT ''",
             "ALTER TABLE time_punches ADD COLUMN edit_reason VARCHAR DEFAULT ''",
@@ -501,6 +504,9 @@ def _run_migrations():
         "ALTER TABLE hr_sign_events ADD COLUMN IF NOT EXISTS event_hash TEXT DEFAULT ''",
         "ALTER TABLE hr_sign_requests ADD COLUMN IF NOT EXISTS verify_token TEXT DEFAULT ''",
         "ALTER TABLE time_bod ADD COLUMN IF NOT EXISTS kind TEXT DEFAULT 'bod'",
+        "ALTER TABLE time_bod ADD COLUMN IF NOT EXISTS html TEXT DEFAULT ''",
+        "ALTER TABLE time_bod ADD COLUMN IF NOT EXISTS attempts INTEGER DEFAULT 0",
+        "ALTER TABLE time_bod ADD COLUMN IF NOT EXISTS last_try_at TEXT DEFAULT ''",
         "ALTER TABLE time_punches ADD COLUMN IF NOT EXISTS category VARCHAR DEFAULT ''",
         "ALTER TABLE time_punches ADD COLUMN IF NOT EXISTS pending_at VARCHAR DEFAULT ''",
         "ALTER TABLE time_punches ADD COLUMN IF NOT EXISTS edit_reason VARCHAR DEFAULT ''",
@@ -823,6 +829,11 @@ async def lifespan(app: FastAPI):
             _tasks.append(_a.create_task(long_session_loop()))
         except Exception as e:
             print(f"[startup] long-session watch skipped: {e}")
+        try:
+            from teams_post import teams_post_loop
+            _tasks.append(_a.create_task(teams_post_loop()))
+        except Exception as e:
+            print(f"[startup] teams post queue skipped: {e}")
         print(f"[startup] background jobs started ({len(_tasks)} loops)")
         return _tasks
     try:

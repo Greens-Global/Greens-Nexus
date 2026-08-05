@@ -19,7 +19,7 @@ import { useMsal } from "@azure/msal-react";
 import { CheckSquare, Clock, Users } from "lucide-react";
 import { loginRequest } from "../authConfig";
 import { useBranding } from "../lib/queries";
-import { BFF_MODE } from "../bffAuth";
+import { BFF_MODE, clearSignedOutMarker } from "../bffAuth";
 
 // Accent is a Global Admin-configurable setting (AdminPanel -> Branding), not
 // hardcoded - see backend/routers/branding.py. The hero panel needs three
@@ -47,7 +47,17 @@ export default function LoginPage() {
   // BFF cookie mode signs in via the server (/api/auth/login); MSAL mode uses the
   // redirect flow. Same button, same page - so prod and dev look identical either way.
   const signIn = () => {
-    if (BFF_MODE) { window.location.href = "/api/auth/login"; return; }
+    // Explicit click: lift the fresh-logout guard that suppresses AUTO re-login
+    // (bffAuth.bffLogin) so the user's own sign-in is never blocked by it.
+    clearSignedOutMarker();
+    if (BFF_MODE) {
+      // Pass the last signed-in email as login_hint so Entra preselects the
+      // account instead of showing "Pick an account".
+      let hint = '';
+      try { hint = localStorage.getItem('nexus:lastEmail') || ''; } catch { /* storage blocked */ }
+      window.location.href = "/api/auth/login" + (hint ? `?hint=${encodeURIComponent(hint)}` : '');
+      return;
+    }
     instance.loginRedirect(loginRequest);
   };
 

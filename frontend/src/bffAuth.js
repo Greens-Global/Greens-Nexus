@@ -32,11 +32,44 @@ export function csrfToken() {
   return m ? decodeURIComponent(m[1]) : '';
 }
 
+// Set by bffLogout just before navigating away; read by bffLogin. localStorage
+// so it is shared across TABS - the whole point (see bffLogin).
+const SIGNED_OUT_KEY = 'nexus:signedout';
+const SIGNED_OUT_WINDOW_MS = 60_000;
+
+export function clearSignedOutMarker() {
+  try { localStorage.removeItem(SIGNED_OUT_KEY); } catch { /* storage blocked */ }
+}
+
+function _justSignedOut() {
+  try { return Date.now() - Number(localStorage.getItem(SIGNED_OUT_KEY) || 0) < SIGNED_OUT_WINDOW_MS; }
+  catch { return false; }
+}
+
 let _redirecting = false;
 /** BFF's replacement for MSAL reauth: go to the server-side login, remembering
- *  where we were so the callback returns the user there. */
+ *  where we were so the callback returns the user there.
+ *
+ *  Right after an EXPLICIT logout this must NOT run: any other open Nexus tab
+ *  hits a 401 the moment the session dies, lands here, silently re-auths
+ *  against the still-live (or half-dead) Microsoft SSO session, and mints a
+ *  fresh cookie - resurrecting the user onto the dashboard they just logged
+ *  out of. That race is why logout "worked sometimes": it depended on how many
+ *  tabs were open. For a minute after logout, 401s route to the sign-in screen
+ *  instead; the screen's own button (LoginPage) is explicit and always works. */
 export function bffLogin() {
   if (_redirecting) return;
+  if (_justSignedOut()) {
+    // A logout navigation is (or just was) in motion. Navigating ANYWHERE here
+    // hijacks it - the classic single-tab bug: the dying page's background
+    // poll 401s mid-navigation, auto-login wins the race, silently re-auths
+    // the still-live Microsoft session, and the user is back on the dashboard
+    // they just left. Do NOTHING: let the logout navigation complete. A tab
+    // that is genuinely stranded just sits until the user acts; the sign-in
+    // screen's explicit button clears the marker and always works.
+    _redirecting = true;   // and swallow the repeat 401s that follow
+    return;
+  }
   _redirecting = true;
   const next = encodeURIComponent(location.pathname + location.search);
   window.location.href = `/api/auth/login?next=${next}`;
@@ -48,6 +81,7 @@ export function bffLogin() {
  *  Microsoft - a POST that only cleared the cookie left the SSO session alive,
  *  so /auth/login silently re-authed and bounced the user right back in. */
 export function bffLogout() {
+  try { localStorage.setItem(SIGNED_OUT_KEY, String(Date.now())); } catch { /* storage blocked */ }
   window.location.href = '/api/auth/logout';
 }
 
@@ -112,6 +146,9 @@ export async function bffBootstrap() {
       if (res.ok) {
         _me = await res.json();
         if (_me && _me.email) {
+          // Remembered for the NEXT sign-in: passed as login_hint so Entra
+          // preselects this account instead of showing the picker.
+          try { localStorage.setItem('nexus:lastEmail', _me.email); } catch { /* storage blocked */ }
           installSyntheticAccount(_me);
           // Background: turn the live Entra SSO session into a REAL cached MSAL
           // account so Graph calls - the Teams BOD/EOD post, chat lists - work
