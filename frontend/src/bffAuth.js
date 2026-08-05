@@ -71,6 +71,31 @@ function installSyntheticAccount(me) {
   msalInstance.getActiveAccount = () => realActive() ?? acct;
 }
 
+/** Get a REAL MSAL account into the cache for the cookie-session user.
+ *  1st try: ssoSilent (hidden iframe, invisible). msal-browser v5's iframe
+ *  monitor times out in Chrome here even though Entra answers in <1s
+ *  (diagnosed live Aug 5), so it can't be the only path.
+ *  Fallback: a ONE-TIME top-level loginRedirect with prompt=none - the same
+ *  full-page mechanism the pre-BFF login used, immune to iframe issues. With
+ *  a live Entra session it bounces out and back in about a second with no UI;
+ *  MsalProvider processes the return and caches the account. Guarded so it
+ *  can never loop: at most one attempt per user per browser per day, and only
+ *  when no real account exists. */
+async function _primeMsalAccount(email) {
+  try {
+    const { msalReady } = await import('./msalInstance');
+    await msalReady;
+    const { primeGraphSso } = await import('./teamsGraph');
+    if (await primeGraphSso(email)) return;            // iframe path worked - done
+    const key = 'nexus:msalprime:' + email;
+    const last = Number(localStorage.getItem(key) || 0);
+    if (Date.now() - last < 24 * 3600 * 1000) return;  // already tried recently - never loop
+    localStorage.setItem(key, String(Date.now()));
+    const { loginRequest } = await import('./authConfig');
+    await msalInstance.loginRedirect({ ...loginRequest, prompt: 'none', loginHint: email });
+  } catch { /* priming is best-effort - Teams posts degrade to "not sent", nothing else */ }
+}
+
 /** Resolve identity from the session before the app renders. Returns whether to
  *  render: false only when we're redirecting to login (page is navigating away).
  *  On a transient error we still render - the app's own calls will 401-redirect
@@ -86,7 +111,16 @@ export async function bffBootstrap() {
       const res = await fetch('/api/auth/me', { credentials: 'include' });
       if (res.ok) {
         _me = await res.json();
-        if (_me && _me.email) { installSyntheticAccount(_me); return true; }
+        if (_me && _me.email) {
+          installSyntheticAccount(_me);
+          // Background: turn the live Entra SSO session into a REAL cached MSAL
+          // account so Graph calls - the Teams BOD/EOD post, chat lists - work
+          // silently later. Without this, cookie logins have no MSAL cache
+          // entry and every Graph call dead-ends. Fire-and-forget: boot never
+          // waits on it (it may navigate the page - see _primeMsalAccount).
+          _primeMsalAccount(_me.email);
+          return true;
+        }
         return false;   // 200 but no identity -> treat as anonymous
       }
       if (res.status === 401) return false;   // genuinely signed out -> login screen

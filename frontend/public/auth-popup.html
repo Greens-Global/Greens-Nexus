@@ -1,0 +1,14 @@
+<!doctype html>
+<!-- Blank MSAL popup redirect target. Interactive token popups redirect HERE
+     instead of the app root: the opener window polls this popup's URL, reads
+     the auth response from the hash, and closes the popup. Loading the real
+     app here instead used to boot the whole SPA inside the popup, which
+     consumed the hash and left a zombie mini-Nexus window that never closed.
+     This page must stay static and must NOT touch window.location.
+     Registered in Entra as a SPA redirect URI for each hosting domain. -->
+<html lang="en">
+<head><meta charset="utf-8"><title>Signing in…</title></head>
+<body style="font-family:Inter,system-ui,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;color:#374151">
+Completing sign-in…
+</body>
+</html>

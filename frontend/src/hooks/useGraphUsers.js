@@ -2,6 +2,7 @@ import { useMsal }                         from '@azure/msal-react';
 import { InteractionRequiredAuthError }    from '@azure/msal-browser';
 import { useState, useEffect } from 'react';
 import { cleanName } from '../lib/utils';
+import { popupRedirectUri } from '../authConfig';
 
 const GRAPH_URL = 'https://graph.microsoft.com/v1.0/users'
   + '?$select=id,displayName,mail,userPrincipalName,jobTitle,department,officeLocation,accountEnabled'
@@ -16,9 +17,10 @@ async function fetchUsers(instance, account, attempt = 1) {
   try {
     tokenRes = await instance.acquireTokenSilent(req);
   } catch (err) {
-    // Consent not yet granted - trigger interactive popup
+    // Consent not yet granted - trigger interactive popup (blank redirect page
+    // so the SPA can't boot inside the popup and strand it open)
     if (err instanceof InteractionRequiredAuthError) {
-      tokenRes = await instance.acquireTokenPopup(req);
+      tokenRes = await instance.acquireTokenPopup({ ...req, redirectUri: popupRedirectUri });
     } else {
       throw err;
     }

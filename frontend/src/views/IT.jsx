@@ -1,12 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
 import { SkeletonBlocks } from "../components/AsyncState";
 import { RefreshCw, Download, ArrowLeft, AlertTriangle, ChevronDown, ChevronUp, Globe, Wifi, Plus, ExternalLink, AlertCircle } from "lucide-react";
-import { msalInstance, msalReady } from "../msalInstance";
-import { apiTokenRequest } from "../authConfig";
+import { api } from "../api";
 import ModuleTabs from "../components/ModuleTabs";
 import { pollWhileVisible } from '../lib/pollWhileVisible';
-
-const BASE = `${import.meta.env.VITE_API_BASE ?? "http://localhost:8000"}/unifi`;
 
 // Asset Management tab removed Jun 12 (Visesh) - the legacy hardware_assets
 // flow is superseded by the Items module; equipment lives on the items table.
@@ -195,44 +192,16 @@ function NetworkDashboard() {
   const [alertsOpen, setAlertsOpen] = useState(false);
   const [lastUpdated, setLastUpdated] = useState(null);
 
-  const getAuthHeader = async () => {
-    await msalReady;
-    const accounts = msalInstance.getAllAccounts();
-    if (!accounts.length) return {};
-    try {
-      const result = await msalInstance.acquireTokenSilent({ ...apiTokenRequest, account: accounts[0] });
-      return { Authorization: `Bearer ${result.idToken}` };
-    } catch { return {}; }
-  };
-
-  const fetchWithTimeout = async (url, timeoutMs = 12000, attempt = 1) => {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      const authHeader = await getAuthHeader();
-      const r = await fetch(url, { signal: controller.signal, headers: authHeader });
-      clearTimeout(timer);
-      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
-      return r.json();
-    } catch (e) {
-      clearTimeout(timer);
-      if (e.name === 'AbortError') throw new Error('Request timed out - backend may be waking up. Try refreshing in a few seconds.', { cause: e });
-      // "Failed to fetch" - fetch() couldn't even complete (dropped connection,
-      // brief network blip). Usually transient, so retry with backoff rather
-      // than showing the user a cryptic browser-level error.
-      if (e instanceof TypeError && attempt < 3) {
-        await new Promise(r => setTimeout(r, 500 * attempt));
-        return fetchWithTimeout(url, timeoutMs, attempt + 1);
-      }
-      throw e;
-    }
-  };
-
+  // All calls go through api.js (req/reqBlob): it carries the session cookie in
+  // BFF mode or the Bearer token in MSAL mode, retries transient failures, and
+  // feeds the shared reconnecting banner. The old direct-fetch layer here sent
+  // a self-acquired Bearer token straight to the Azure host, which cookie-mode
+  // logins can't produce - every request 401ed.
   const loadOverview = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const data = await fetchWithTimeout(`${BASE}/overview`);
+      const data = await api.unifiOverview();
       const fresh = data.data || [];
       setSites(fresh);
       sessionStorage.setItem(CACHE_KEY, JSON.stringify(fresh));
@@ -248,7 +217,7 @@ function NetworkDashboard() {
     setLoading(true);
     setError(null);
     try {
-      const data = await fetchWithTimeout(`${BASE}/stats?siteId=${encodeURIComponent(siteId)}`);
+      const data = await api.unifiStats(siteId);
       setDetail(data);
       setLastUpdated(new Date().toLocaleTimeString());
     } catch (e) {
@@ -278,14 +247,10 @@ function NetworkDashboard() {
   }
 
   async function exportCSV() {
-    // A plain <a href> can't carry the Authorization header - the backend
-    // rejected it with 401. Fetch with the token, download the blob instead.
+    // A plain <a href> can't carry credentials - download via reqBlob instead.
     if (!currentSite) return;
     try {
-      const authHeader = await getAuthHeader();
-      const r = await fetch(`${BASE}/export/csv?siteId=${encodeURIComponent(currentSite.siteId)}`, { headers: authHeader });
-      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
-      const blob = await r.blob();
+      const { blob } = await api.unifiExportCsv(currentSite.siteId);
       const url  = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
