@@ -308,7 +308,8 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
           <div style={field}>
             <label style={label}>Status</label>
             <select value={form.recurFreq !== 'none' ? 'recurring' : form.status} onChange={(e) => set('status', e.target.value)} disabled={form.recurFreq !== 'none'} style={{ ...sel, ...(form.recurFreq !== 'none' ? { opacity: 0.7, cursor: 'not-allowed' } : {}) }}>
-              {store.statusOrder.map((s) => <option key={s} value={s}>{store.statusMeta[s]?.label || s}</option>)}
+              {/* Follows the chosen project, same as activeFields above. */}
+              {(store.statusOrderFor ? store.statusOrderFor(lockedProjectId || form.projectId) : store.statusOrder).map((s) => <option key={s} value={s}>{store.statusMeta[s]?.label || s}</option>)}
             </select>
             {form.recurFreq !== 'none' && <span style={{ fontSize: 11, color: NX.faint, marginTop: 3 }}>Recurring tasks are always “Recurring”.</span>}
           </div>

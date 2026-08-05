@@ -1175,26 +1175,107 @@ def seed_project_statuses(db, cfg, project_gid, nexus_project_id):
     if not field:
         return 0
     n = 0
-    existing = {s.asana_option_gid: s for s in db.query(models.TaskCustomStatus)
-                .filter(models.TaskCustomStatus.asana_option_gid != "").all()}
-    position = db.query(models.TaskCustomStatus).count()
+    rows = db.query(models.TaskCustomStatus).all()
+    # Two indexes, tried in this order:
+    #   by gid   - an option we have seen before, so a RENAME in Asana renames
+    #              the Nexus status instead of orphaning it.
+    #   by label - the same stage on a different project. Asana's Task Progress
+    #              is usually a per-project field, so "Waiting" on two projects
+    #              is two different option gids; keying on gid alone minted a
+    #              second "Waiting" row per project. Matching the label reuses
+    #              the one row and just widens its scope.
+    by_gid = {g: s for s in rows for g in status_option_gids(s)}
+    by_label = {}
+    for s in rows:
+        by_label.setdefault(_norm_status_label(s.label), s)
+    position = len(rows)
     for label_lower, option_gid in (field.get("options") or {}).items():
         if not option_gid or label_lower in _PROGRESS_LABEL_TO_STATUS:
             continue   # a built-in state - Task.status already carries it
-        s = existing.get(option_gid)
+        s = by_gid.get(option_gid) or by_label.get(_norm_status_label(label_lower))
         if s is None:
             s = models.TaskCustomStatus(
                 id=gen_id(), label=label_lower.title(), color=_STATUS_PALETTE[position % len(_STATUS_PALETTE)],
-                position=position, project_ids=[nexus_project_id], asana_option_gid=option_gid)
+                position=position, project_ids=[nexus_project_id],
+                asana_option_gid=option_gid, asana_option_gids=[option_gid])
             db.add(s)
             db.flush()   # autoflush=False - must be visible to the rest of this pull
+            by_gid[option_gid] = s
+            by_label[_norm_status_label(label_lower)] = s
             position += 1
             n += 1
             continue
+        # Reuse. Record this project's own option gid so a later rename of THIS
+        # project's copy is still recognised as the same status.
+        gids = status_option_gids(s)
+        if option_gid not in gids:
+            s.asana_option_gids = gids + [option_gid]
+        # An empty scope means "every project" - widening it would be a
+        # narrowing, so leave a global status global.
         scope = [p for p in (s.project_ids or []) if p]
         if scope and nexus_project_id not in scope:
             s.project_ids = scope + [nexus_project_id]
     return n
+
+
+def _norm_status_label(label: str) -> str:
+    return " ".join((label or "").split()).lower()
+
+
+def status_option_gids(s) -> list:
+    """Every Asana option gid a status fronts, newest schema first.
+
+    asana_option_gid is the legacy single-value column and is still populated
+    for the row's first option, so a database written before asana_option_gids
+    existed keeps matching."""
+    gids = [g for g in (getattr(s, "asana_option_gids", None) or []) if g]
+    if s.asana_option_gid and s.asana_option_gid not in gids:
+        gids.append(s.asana_option_gid)
+    return gids
+
+
+def dedupe_custom_statuses(db):
+    """Collapse statuses that share a label onto one row.
+
+    Repairs databases seeded before the label match above existed - the state in
+    the screenshot: one "Waiting" and one "Deferred" per synced project.
+
+    Task.status stores the status ID, so the merge MUST remap every task off the
+    rows it deletes. Skipping that would leave those tasks pointing at a status
+    that no longer exists, which renders as a raw uuid on the board and cannot be
+    changed back from the UI."""
+    rows = sorted(db.query(models.TaskCustomStatus).all(),
+                  key=lambda s: (s.position or 0, s.id))
+    groups = {}
+    for s in rows:
+        groups.setdefault(_norm_status_label(s.label), []).append(s)
+
+    merged = remapped = 0
+    for group in groups.values():
+        if len(group) < 2:
+            continue
+        keep, dups = group[0], group[1:]
+        scope = [p for p in (keep.project_ids or []) if p]
+        gids = status_option_gids(keep)
+        # A global row anywhere in the group makes the merged row global -
+        # anything else would REMOVE the status from projects that had it.
+        global_row = not scope
+        for d in dups:
+            d_scope = [p for p in (d.project_ids or []) if p]
+            if not d_scope:
+                global_row = True
+            scope += [p for p in d_scope if p not in scope]
+            gids += [g for g in status_option_gids(d) if g not in gids]
+            remapped += (db.query(models.Task)
+                         .filter(models.Task.status == d.id)
+                         .update({"status": keep.id}, synchronize_session=False))
+            db.delete(d)
+            merged += 1
+        keep.project_ids = [] if global_row else scope
+        keep.asana_option_gids = gids
+        if not keep.asana_option_gid and gids:
+            keep.asana_option_gid = gids[0]
+    return {"merged": merged, "tasksRemapped": remapped}
 
 
 def _status_for_progress(db, progress_label, nexus_project_id):

@@ -375,7 +375,8 @@ function TaskRow({ t, cols, customFields = [], template, store, people, selected
         {show('status') && (
         <div style={flushCell} onClick={(e) => e.stopPropagation()}>
           <PillSelect solid center label={sm.label} color={sm.color} tint={sm.tint} currentKey={t.status}
-            options={store.statusOrder.map((s) => ({ key: s, label: store.statusMeta[s]?.label || s, color: store.statusMeta[s]?.color }))}
+            // This row's OWN project, not the view's - the list is cross-project in My Tasks.
+            options={(store.statusOrderFor ? store.statusOrderFor(t.projectId) : store.statusOrder).map((s) => ({ key: s, label: store.statusMeta[s]?.label || s, color: store.statusMeta[s]?.color }))}
             onSelect={(k) => store.setStatus(t.id, k)} />
         </div>
         )}
@@ -840,8 +841,14 @@ export default function RichListView({ visible, group, ctx, store, people, selec
     window.addEventListener('mouseup', onUp);
   }, [widths, cols, customFields]);
 
-  const groupCtx = { ...ctx, statusMeta: store.statusMeta, statusOrder: store.statusOrder, customFields: allCustomFields };
-  const groups = useMemo(() => groupTasks(visible, effGroup, groupCtx).filter((g) => g.tasks.length > 0), [visible, effGroup, ctx, store.statusMeta, store.statusOrder]);
+  // Scoped, not global. A status invented for one project used to become a
+  // board column and a grouping bucket on EVERY project - the same scoping
+  // fieldsForProject already did for custom fields. statusMeta stays global on
+  // purpose: a task carries its status id wherever it is rendered (My Tasks,
+  // search, a portfolio rollup) and a missed meta lookup would draw a raw uuid.
+  const scopedStatusOrder = store.statusOrderFor ? store.statusOrderFor(lockedProjectId) : store.statusOrder;
+  const groupCtx = { ...ctx, statusMeta: store.statusMeta, statusOrder: scopedStatusOrder, customFields: allCustomFields };
+  const groups = useMemo(() => groupTasks(visible, effGroup, groupCtx).filter((g) => g.tasks.length > 0), [visible, effGroup, ctx, store.statusMeta, scopedStatusOrder]);
   // Incremental rendering. Every task used to mount a full row on first paint -
   // ~80 DOM nodes each, so the real workspace (2,400 tasks) built ~190k nodes
   // synchronously and the tab went "page isn't responding". Rows are handed out

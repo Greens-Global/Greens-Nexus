@@ -334,6 +334,9 @@ export function TasksProvider({ children }) {
     deleteTemplate: mkDel(api.deleteTaskTemplate, setTemplates),
     createCustomField: mk(api.createTaskCustomField, setCustomFields),
     deleteCustomField: mkDel(api.deleteTaskCustomField, setCustomFields),
+    // A merge deletes rows and rewrites the survivor's scope, so the list is
+    // re-read rather than patched in place.
+    dedupeCustomStatuses: async () => { const r = await api.dedupeTaskCustomStatuses(); await loadCore(); return r; },
     createCustomStatus: mk(api.createTaskCustomStatus, setCustomStatuses),
     updateCustomStatus: mkUpd(api.updateTaskCustomStatus, setCustomStatuses),
     deleteCustomStatus: mkDel(api.deleteTaskCustomStatus, setCustomStatuses),

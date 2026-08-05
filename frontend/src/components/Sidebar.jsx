@@ -39,7 +39,14 @@ export const NAV = [
     ],
   },
   {
-    view: "ops", code: "CON", label: "Construction", icon: null, minRole: 'supervisor',
+    // No minRole: the people this module exists for are construction workers,
+    // the lowest-privileged users in Nexus. The filter below only ever admits
+    // `administrator` or an explicit `ops` group grant, so ANY minRole here hid
+    // the module from the entire field crew. Access is enforced per jobsite
+    // instead - the API's _may_read/_may_log gate on the project's
+    // worker_emails, so a worker who is on no project sees an empty list rather
+    // than a wall. VIEW_MIN_ROLES in App.jsx must stay in step with this.
+    view: "ops", code: "CON", label: "Construction", icon: null,
     svgPath: "M756-120 537-339l84-84 219 219-84 84Zm-552 0-84-84 276-276-68-68-28 28-51-51v82l-28 28-121-121 28-28h82l-50-50 142-142q20-20 43-29t47-9q24 0 47 9t43 29l-92 92 50 50-28 28 68 68 90-90q-4-11-6.5-23t-2.5-24q0-59 40.5-99.5T701-841q15 0 28.5 3t27.5 9l-99 99 72 72 99-99q7 14 9.5 27.5T841-701q0 59-40.5 99.5T701-561q-12 0-24-2t-23-7L204-120Z",
     sub: [
       { subview: "ops-dashboard", label: "Project Dashboard", icon: LayoutDashboard },

@@ -212,7 +212,8 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
           <span style={{ fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap' }}>{selected.size} selected</span>
           <select onChange={(e) => { if (e.target.value) { bulkUpdate([...selected], { status: e.target.value }); clearSel(); } }} defaultValue="" style={selStyle}>
             <option value="" disabled>Status…</option>
-            {store.statusOrder.map((s) => <option key={s} value={s} style={{ color: NX.ink }}>{store.statusMeta[s]?.label || s}</option>)}
+            {/* Scoped to the project in view - see richlist's groupCtx note. */}
+            {(store.statusOrderFor ? store.statusOrderFor(lockedProjectId) : store.statusOrder).map((s) => <option key={s} value={s} style={{ color: NX.ink }}>{store.statusMeta[s]?.label || s}</option>)}
           </select>
           <select onChange={(e) => { if (e.target.value) { bulkUpdate([...selected], { priority: e.target.value }); clearSel(); } }} defaultValue="" style={selStyle}>
             <option value="" disabled>Priority…</option>
