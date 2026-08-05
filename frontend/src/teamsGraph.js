@@ -28,8 +28,19 @@ function realAccount() {
  *  once a real account exists); never throws. Called from bffBootstrap at app
  *  boot so tokens are ready long before anyone punches out. */
 let _ssoPrimed = null;
-export function primeGraphSso(loginHint) {
-  if (realAccount()) return Promise.resolve(true);
+export async function primeGraphSso(loginHint) {
+  const acct = realAccount();
+  if (acct) {
+    // An account in the cache is not enough: SPA refresh tokens die after
+    // ~24h, and past that acquireTokenSilent falls back to the broken iframe
+    // and every Teams post reports "not sent" - forever, since nothing would
+    // re-prime. Prove the account can still MINT a token; if it can't, fall
+    // through so the caller's redirect prime refreshes the whole credential.
+    try {
+      await withTimeout(msalInstance.acquireTokenSilent({ scopes: CHAT_SCOPES, account: acct, redirectUri: popupRedirectUri }), 8000);
+      return true;
+    } catch { /* stale credential - continue to re-prime below */ }
+  }
   if (_ssoPrimed) return _ssoPrimed;
   // redirectUri MUST be the blank popup page here too: MSAL's hidden iframe
   // returns to it carrying the auth response, and returning to the app root
