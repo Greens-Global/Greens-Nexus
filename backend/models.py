@@ -2795,3 +2795,23 @@ class ServerSession(Base):
     auth_time         = Column(Float, default=0.0)          # last interactive auth (step-up freshness)
     created_at        = Column(String, default="")
     last_seen         = Column(String, default="")
+
+
+class M365SyncRun(Base):
+    """One two-way M365 sync execution: pull the directory into Nexus, then push
+    every linked profile back to Entra. The whole thing runs as a background
+    task (a few minutes for ~180 Graph calls - far past any request timeout),
+    so this row is how the UI follows progress and how a finished run reports
+    its outcome. RLS must be enabled on dev+prod like every new table."""
+    __tablename__ = "m365_sync_runs"
+    id           = Column(String, primary_key=True)   # uuid
+    started_by   = Column(String, default="")
+    started_at   = Column(String, default="")
+    finished_at  = Column(String, default="")
+    phase        = Column(String, default="pull")     # pull | push | done | failed
+    total        = Column(Integer, default=0)         # people in the push phase
+    done         = Column(Integer, default=0)
+    pushed_ok    = Column(Integer, default=0)
+    push_failed  = Column(Integer, default=0)
+    pull_summary = Column(String, default="")         # JSON dict from the pull phase
+    errors       = Column(String, default="")         # JSON [{email, error}], capped
