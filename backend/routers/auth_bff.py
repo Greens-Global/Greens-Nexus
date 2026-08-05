@@ -41,16 +41,20 @@ def _set_cookie(resp, name, value, *, http_only=True, max_age=None):
 
 
 @router.get("/login")
-def login(request: Request, next: str = "/"):
+def login(request: Request, next: str = "/", hint: str = ""):
     if not bff.configured() or not _redirect_uri():
         return JSONResponse(status_code=503, content={"error": "BFF login not configured on the server"})
     verifier, challenge = bff.new_pkce()
     state = secrets.token_urlsafe(24)
     nxt = next if isinstance(next, str) and next.startswith("/") else "/"
+    # login_hint: the email that last signed in on this browser (client-remembered)
+    # so Entra preselects the account instead of asking. Sanity-gated; never trusted
+    # for identity - the id token from the code exchange decides who the user is.
+    hint = hint.strip().lower() if isinstance(hint, str) and "@" in hint and len(hint) < 200 else ""
     # Carry state + PKCE verifier + return path across the redirect in a short-lived,
     # encrypted, HttpOnly cookie (no server-side state table needed).
     payload = secret_box.encrypt(json.dumps({"s": state, "v": verifier, "n": nxt}))
-    resp = RedirectResponse(bff.authorize_url(_redirect_uri(), state, challenge), status_code=302)
+    resp = RedirectResponse(bff.authorize_url(_redirect_uri(), state, challenge, login_hint=hint), status_code=302)
     _set_cookie(resp, bff.LOGIN_COOKIE, payload, http_only=True, max_age=_LOGIN_MAX_AGE)
     return resp
 
@@ -112,6 +116,20 @@ def logout(request: Request):
                     id_token = secret_box.decrypt(row.id_token_enc)
                 except Exception:
                     id_token = ""
+                # id tokens expire in ~1h and Entra IGNORES an expired
+                # id_token_hint - the user gets the "pick an account" screen on
+                # sign-out and the redirect back may never happen. Anyone idle
+                # longer than an hour hit this (another "works for some"
+                # inconsistency). Mint a fresh one first; best-effort - a stale
+                # hint is still better than none.
+                if row.access_expires_at and bff._now() > (row.access_expires_at - 120):
+                    try:
+                        rt = secret_box.decrypt(row.refresh_token_enc or "")
+                        resp = bff.refresh_tokens(rt) if rt else {}
+                        if resp.get("id_token"):
+                            id_token = resp["id_token"]
+                    except Exception:
+                        pass
         bff.delete_session(db, sid)
     finally:
         db.close()

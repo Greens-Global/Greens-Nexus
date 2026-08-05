@@ -146,6 +146,9 @@ export async function bffBootstrap() {
       if (res.ok) {
         _me = await res.json();
         if (_me && _me.email) {
+          // Remembered for the NEXT sign-in: passed as login_hint so Entra
+          // preselects this account instead of showing the picker.
+          try { localStorage.setItem('nexus:lastEmail', _me.email); } catch { /* storage blocked */ }
           installSyntheticAccount(_me);
           // Background: turn the live Entra SSO session into a REAL cached MSAL
           // account so Graph calls - the Teams BOD/EOD post, chat lists - work
