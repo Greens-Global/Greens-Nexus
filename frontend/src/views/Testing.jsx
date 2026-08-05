@@ -14,6 +14,7 @@ import { stopRecording, isRecording, startFlowRecording, startBugRecording, take
 import { replayFlow } from '../lib/flowReplayer';
 import { graphToken, graphJSON, postChatMessage, GRAPH } from '../teamsGraph';
 import { msalInstance } from '../msalInstance';
+import { popupRedirectUri } from '../authConfig';
 
 // ── Testing module - interactive QA runs over the audit test cases, bug
 // reports with recorded steps + AI conversion, assignments with due dates.
@@ -318,7 +319,11 @@ function AssignModal({ runId, cases, resultsByCase, onClose, onDone, toastOk, to
       // …or create one (needs the Chat.Create scope - ask interactively once).
       if (!chatId) {
         const account = msalInstance.getAllAccounts()[0];
-        const tok2 = (await msalInstance.acquireTokenPopup({ scopes: ['Chat.Create', 'ChatMessage.Send'], account }).catch(() => null))?.accessToken;
+        const req = { scopes: ['Chat.Create', 'ChatMessage.Send'], redirectUri: popupRedirectUri };
+        // A cookie-mode synthetic account isn't in MSAL's cache - hint by email instead
+        if (account && account.localAccountId !== 'bff' && account.localAccountId !== 'dev-local') req.account = account;
+        else if (account?.username) req.loginHint = account.username;
+        const tok2 = (await msalInstance.acquireTokenPopup(req).catch(() => null))?.accessToken;
         if (!tok2) return false;
         const me = account?.username;
         const r = await fetch(`${GRAPH}/chats`, {

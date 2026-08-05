@@ -1,4 +1,5 @@
 import { msalInstance } from './msalInstance';
+import { popupRedirectUri } from './authConfig';
 
 // ── Shared Microsoft Graph helpers for Teams group chats ──────────────────────
 // Used by the message modal (BodModal) and the admin group→chat binding UI.
@@ -15,25 +16,64 @@ function withTimeout(promise, ms) {
   return Promise.race([promise, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))]);
 }
 
-// Silent only, fails fast - never hangs the UI. null if a login popup is needed.
+// Cookie-mode logins install a SYNTHETIC account (bffAuth.js) so the UI works
+// without MSAL - but it has no entry in MSAL's token cache, so passing it to
+// acquireToken* fails. Only a REAL cached account can mint tokens silently.
+function realAccount() {
+  return msalInstance.getAllAccounts().find(a => a.localAccountId !== 'bff' && a.localAccountId !== 'dev-local') || null;
+}
+
+/** One-shot ssoSilent: turn the browser's live Entra SSO session into a REAL
+ *  cached MSAL account for the signed-in email. Safe to call repeatedly (no-op
+ *  once a real account exists); never throws. Called from bffBootstrap at app
+ *  boot so tokens are ready long before anyone punches out. */
+let _ssoPrimed = null;
+export function primeGraphSso(loginHint) {
+  if (realAccount()) return Promise.resolve(true);
+  if (_ssoPrimed) return _ssoPrimed;
+  _ssoPrimed = withTimeout(msalInstance.ssoSilent({ scopes: CHAT_SCOPES, loginHint }), 10000)
+    .then(() => true)
+    .catch(() => { _ssoPrimed = null; return false; });   // retry allowed on next call
+  return _ssoPrimed;
+}
+
+// Silent only, fails fast - never hangs the UI, never pops a login. Punch-out
+// and BOD/EOD posts use ONLY this: a sign-in prompt must never gate a punch.
 export async function graphTokenSilent() {
-  const account = msalInstance.getAllAccounts()[0];
-  if (!account) return null;
+  let account = realAccount();
+  if (!account) {
+    // Cache not primed yet (first run after a cookie login) - try turning the
+    // Entra SSO session into an account now, still fully silent.
+    const hint = msalInstance.getAllAccounts()[0]?.username;
+    if (hint) await primeGraphSso(hint);
+    account = realAccount();
+    if (!account) return null;
+  }
   try {
     const r = await withTimeout(msalInstance.acquireTokenSilent({ scopes: CHAT_SCOPES, account }), 6000);
     return r.accessToken;
   } catch { return null; }
 }
 
-// Interactive - only ever from a user click (popups need a gesture).
+// Interactive - only ever from a deliberate user click on a settings/connect
+// surface (admin chat binding, Testing), never from the punch flow. Redirects
+// the popup to the blank auth-popup.html page so the SPA can't boot inside it.
 export async function graphTokenInteractive() {
-  const account = msalInstance.getAllAccounts()[0];
-  return (await msalInstance.acquireTokenPopup({ scopes: CHAT_SCOPES, account })).accessToken;
+  const account = realAccount();
+  const req = { scopes: CHAT_SCOPES, redirectUri: popupRedirectUri };
+  if (account) req.account = account;
+  else {
+    const hint = msalInstance.getAllAccounts()[0]?.username;
+    if (hint) req.loginHint = hint;
+  }
+  return (await msalInstance.acquireTokenPopup(req)).accessToken;
 }
 
-// A silent token if we have one, otherwise an interactive popup. For send/list.
+// Token for the SEND path: silent only, by design. If Teams isn't silently
+// reachable the caller records the action in Nexus and reports "not sent" -
+// it must never interrupt a punch with a Microsoft sign-in window.
 export async function graphToken() {
-  return (await graphTokenSilent()) || (await graphTokenInteractive().catch(() => null));
+  return await graphTokenSilent();
 }
 
 export async function graphJSON(url, tok, ms = 8000) {

@@ -33,6 +33,14 @@ export const apiTokenRequest = {
 
 export const clientId = "be6f1e37-83a8-4a29-8b46-96d20beb32f9";
 
+// Redirect target for INTERACTIVE POPUPS only (acquireTokenPopup). A blank
+// static page - never the app root: the SPA booting inside the popup consumed
+// the auth hash before MSAL's opener could read it, leaving a zombie popup
+// showing a mini copy of Nexus and no token. Must be registered as a SPA
+// redirect URI in Entra for every hosting domain (prod, dev, localhost).
+export const popupRedirectUri =
+  (typeof location !== 'undefined' ? location.origin : '') + '/auth-popup.html';
+
 // ── Step-up re-auth request (Entra Free - no Conditional Access needed) ────────
 // Forces a FRESH interactive Microsoft sign-in for the sensitive action. If the
 // tenant enforces MFA (Security Defaults or per-user MFA - both free), that
