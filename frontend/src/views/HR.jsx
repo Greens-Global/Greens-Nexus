@@ -80,25 +80,54 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
   const [jobRoles, setJobRoles] = useState([]);
   const [jobRoleId, setJobRoleId] = useState('');
   useEffect(() => { if (isAdmin && !editing) api.getJobRoles().then(setJobRoles).catch(() => {}); }, [isAdmin, editing]);
-  const [f, setF] = useState(() => ({
-    first_name:      employee?.firstName || '',
-    last_name:       employee?.lastName || '',
-    work_email:      employee?.workEmail || '',
-    personal_email:  employee?.personalEmail || '',
-    phone:           employee?.phone || '',
-    job_title:       employee?.jobTitle || '',
-    designation:     employee?.designation || '',
-    department:      employee?.department || '',
-    employment_type: employee?.employmentType || 'full_time',
-    start_date:      employee?.startDate || '',
-    manager_email:   employee?.managerEmail || '',
-    status:          employee?.status || 'active',
-    location:        employee?.location || '',
-    company:         employee?.company || '',
-    identity_type:   employee?.identityType || 'internal',
-    contractor:      employee?.contractor || {},
-    notes:           employee?.notes || '',
-  }));
+  const seedFrom = (e) => ({
+    first_name:      e?.firstName || '',
+    last_name:       e?.lastName || '',
+    work_email:      e?.workEmail || '',
+    personal_email:  e?.personalEmail || '',
+    phone:           e?.phone || '',
+    job_title:       e?.jobTitle || '',
+    designation:     e?.designation || '',
+    department:      e?.department || '',
+    employment_type: e?.employmentType || 'full_time',
+    start_date:      e?.startDate || '',
+    manager_email:   e?.managerEmail || '',
+    status:          e?.status || 'active',
+    location:        e?.location || '',
+    company:         e?.company || '',
+    identity_type:   e?.identityType || 'internal',
+    contractor:      e?.contractor || {},
+    notes:           e?.notes || '',
+  });
+  const [f, setF] = useState(() => seedFrom(employee));
+  // The row this modal opened from can be STALE: other surfaces change the
+  // record without this view's list refetching - assigning a job role (from
+  // Roles & Access or the card's Access tab) rewrites job_title server-side,
+  // and can set a default manager. Re-read the person on open and refresh any
+  // field the user hasn't already retyped: an untouched field still equals the
+  // stale seed, so only those are replaced and in-progress edits are never
+  // clobbered. (contractor is a nested object - left to its live edit state.)
+  useEffect(() => {
+    if (!editing || !employee?.id) return;
+    let live = true;
+    api.getEmployees().then((rows) => {
+      if (!live) return;
+      const fresh = (rows || []).find((r) => r.id === employee.id);
+      if (!fresh) return;
+      const orig = seedFrom(employee);
+      const next = seedFrom(fresh);
+      setF((cur) => {
+        const merged = { ...cur };
+        for (const k of Object.keys(next)) {
+          if (k === 'contractor') continue;
+          if (cur[k] === orig[k]) merged[k] = next[k];
+        }
+        return merged;
+      });
+    }).catch(() => {});
+    return () => { live = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing, employee?.id]);
   const [busy, setBusy] = useState(false);
   // Department options come from the SELECTED company - no company, no department.
   const [deptOptions, setDeptOptions] = useState([]);
