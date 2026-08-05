@@ -31,7 +31,12 @@ let _ssoPrimed = null;
 export function primeGraphSso(loginHint) {
   if (realAccount()) return Promise.resolve(true);
   if (_ssoPrimed) return _ssoPrimed;
-  _ssoPrimed = withTimeout(msalInstance.ssoSilent({ scopes: CHAT_SCOPES, loginHint }), 10000)
+  // redirectUri MUST be the blank popup page here too: MSAL's hidden iframe
+  // returns to it carrying the auth response, and returning to the app root
+  // instead boots the whole SPA inside the iframe, which consumes the hash
+  // before MSAL's poller reads it -> BrowserAuthError: timed_out (verified on
+  // dev, Aug 5). Requires auth-popup.html registered as a SPA redirect URI.
+  _ssoPrimed = withTimeout(msalInstance.ssoSilent({ scopes: CHAT_SCOPES, loginHint, redirectUri: popupRedirectUri }), 15000)
     .then(() => true)
     .catch(() => { _ssoPrimed = null; return false; });   // retry allowed on next call
   return _ssoPrimed;
@@ -50,7 +55,10 @@ export async function graphTokenSilent() {
     if (!account) return null;
   }
   try {
-    const r = await withTimeout(msalInstance.acquireTokenSilent({ scopes: CHAT_SCOPES, account }), 6000);
+    // Same blank-page redirectUri for the RENEWAL iframe acquireTokenSilent
+    // falls back to when the cached token is stale - the app-root iframe boot
+    // is what historically made silent renewals hang (see m365.js's note).
+    const r = await withTimeout(msalInstance.acquireTokenSilent({ scopes: CHAT_SCOPES, account, redirectUri: popupRedirectUri }), 8000);
     return r.accessToken;
   } catch { return null; }
 }
