@@ -21,7 +21,7 @@ from auth import get_current_user, require_manager
 from routers.task_util import (
     now_iso, gen_id, fire_task_event, task_notify, log_activity,
     is_manager, visible_project_ids, task_is_visible,
-    project_for_task, require_project_role,
+    project_for_task, require_project_role, create_comment,
 )
 from task_notify import notify_task_event
 # Values are stored in the shape each field declares - see that function.
@@ -180,26 +180,6 @@ class TaskUpdate(BaseModel):
     is_milestone:     Optional[bool] = None
     approval_status:  Optional[str] = None
     completed:        Optional[bool] = None
-
-
-_MENTION_RE = re.compile(r'href\s*=\s*["\']mailto:([^"\'>\s]+)["\']', re.I)
-
-
-def extract_mentions(html: str) -> list:
-    """Emails @mentioned in a comment.
-
-    The editor writes a mention as a mailto link (`<a href="mailto:x@y">@Name</a>`)
-    rather than a bespoke node type - that reuses the Link mark the editor
-    already has, needs no extra TipTap package, and degrades to a working
-    mailto: link anywhere the HTML is rendered plainly (including in the
-    notification email itself)."""
-    seen, out = set(), []
-    for m in _MENTION_RE.findall(html or ""):
-        e = m.strip().lower()
-        if e and "@" in e and e not in seen:
-            seen.add(e)
-            out.append(e)
-    return out
 
 
 def _next_code(db: Session) -> str:
@@ -447,15 +427,6 @@ def _asana_push_deleted() -> None:
     try:
         from asana_sync import on_task_deleted
         on_task_deleted()
-    except Exception:
-        pass
-
-
-def _asana_push_comment(comment_id: str) -> None:
-    """Fire-and-forget outbound comment sync. Fully guarded."""
-    try:
-        from asana_sync import on_comment_added
-        on_comment_added(comment_id)
     except Exception:
         pass
 
@@ -973,43 +944,11 @@ def add_comment(task_id: str, body: CommentCreate, background_tasks: BackgroundT
     # to true, so normal in-app commenting is unchanged.
     t = _get_task(db, task_id)
     require_project_role(db, user, project_for_task(db, t), "commenter")
-    cid = gen_id()
-    c = models.TaskComment(id=cid, task_id=task_id,
-                           author_email=(body.author_email or user["email"]).lower(),
-                           body=body.body or "", created_at=now_iso(), edited_at="", pinned=False)
-    db.add(c)
-    t.comment_ids = list(t.comment_ids or []) + [cid]
-    t.modified_at = now_iso()   # so a delta fetch (GET /tasks/delta) picks this task up
-    aid = log_activity(db, type="commented", actor_email=user["email"], entity_id=task_id,
-                       entity_code=t.code, entity_title=t.title, detail="added a comment")
-    t.activity_ids = list(t.activity_ids or []) + [aid]
-    # notify assignee + followers (except author)
-    author = user["email"].lower()
-    if notify:
-        for who in set([(t.assignee_email or "").lower(), *[(e or "").lower() for e in (t.follower_emails or [])]]):
-            if who and who != author:
-                task_notify(db, kind="task_activity", for_email=who,
-                            title="New comment on a task", body=f"{t.title}", task_id=task_id,
-                            nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
-    db.commit()
-    db.refresh(c)
-    fire_task_event(task_id, "comment")
-    _asana_push_comment(cid)
-    if notify:
-        background_tasks.add_task(notify_task_event, task_id, "commented", user["email"], comment_body=body.body or "")
-        # Mentions are their own event so the mail can say "X mentioned you"
-        # instead of the generic comment FYI. The author is dropped - mentioning
-        # yourself shouldn't email you.
-        mentioned = [e for e in extract_mentions(body.body or "") if e != author]
-        if mentioned:
-            for who in mentioned:
-                task_notify(db, kind="task_activity", for_email=who,
-                            title="You were mentioned in a comment",
-                            body=f"{t.title}", task_id=task_id,
-                            nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
-            db.commit()
-            background_tasks.add_task(notify_task_event, task_id, "mentioned", user["email"],
-                                      comment_body=body.body or "", mentioned=mentioned)
+    # The comment itself and all six of its side effects live in create_comment
+    # (routers/task_util.py) - see that docstring for why this endpoint is only
+    # a wrapper. `defer` keeps the notification emails off the response path.
+    c = create_comment(db, t, actor_email=user["email"], author_email=body.author_email or "",
+                       body=body.body or "", notify=notify, defer=background_tasks.add_task)
     return comment_to_dict(c)
 
 
@@ -1236,6 +1175,25 @@ class CustomStatusBody(BaseModel):
     project_ids: Optional[list] = None
 
 
+@router.post("/meta/custom-statuses/dedupe", dependencies=[Depends(require_manager)])
+def dedupe_custom_statuses(db: Session = Depends(get_db)):
+    """Collapse same-named statuses onto one row scoped to every project that
+    used them.
+
+    Repairs databases seeded before the Asana sync matched on label: Asana's
+    "Task Progress" is usually a PER-PROJECT custom field, so each project's
+    "Waiting" carried its own option gid and minted its own row.
+
+    Safe to run repeatedly - a no-op once there is nothing to merge. It remaps
+    Task.status off every row it deletes, so no task is left pointing at a
+    status that no longer exists.
+    """
+    import asana_sync
+    result = asana_sync.dedupe_custom_statuses(db)
+    db.commit()
+    return result
+
+
 @router.get("/meta/custom-statuses")
 def list_custom_statuses(project_id: str = "", db: Session = Depends(get_db)):
     """`project_id` narrows to the statuses that project actually uses (its own
@@ -1312,3 +1270,39 @@ def get_task_notify_log(task_id: str = "", status: str = "", limit: int = 200,
         "conversationId": r.conversation_id, "attempts": r.attempts, "error": r.error,
         "createdAt": r.created_at, "updatedAt": r.updated_at,
     } for r in rows]
+
+
+# ── Inbound email (replies -> comments) ──────────────────────────────────────
+@router.get("/inbound/log")
+def get_task_inbound_log(task_id: str = "", status: str = "", limit: int = 200,
+                         user: dict = Depends(require_manager), db: Session = Depends(get_db)):
+    """What the task mailbox has handed us and what became of it. The answer to
+    "I replied and nothing happened" - `reason` says which check refused it."""
+    q = db.query(models.TaskInboundEmail)
+    if task_id:
+        q = q.filter(models.TaskInboundEmail.task_id == task_id)
+    if status:
+        q = q.filter(models.TaskInboundEmail.status == status)
+    rows = q.order_by(models.TaskInboundEmail.processed_at.desc()).limit(min(limit, 500)).all()
+    return [{
+        "id": r.id, "taskId": r.task_id, "commentId": r.comment_id, "from": r.from_email,
+        "subject": r.subject, "status": r.status, "reason": r.reason, "matchedBy": r.matched_by,
+        "attachmentCount": r.attachment_count, "receivedAt": r.received_at,
+        "processedAt": r.processed_at,
+    } for r in rows]
+
+
+@router.post("/inbound/drain")
+def drain_task_inbox(user: dict = Depends(require_manager), db: Session = Depends(get_db)):
+    """Run one pass now instead of waiting for the 60s loop - the manual
+    counterpart to Asana's Pull, and the only way to exercise this on an
+    instance that isn't the sync worker. A plain `def` endpoint, so FastAPI
+    runs its blocking Graph calls in a threadpool rather than on the event
+    loop."""
+    from task_inbound import drain_once
+    try:
+        return drain_once(db)
+    except Exception as e:
+        # Surfaced, not swallowed: the first thing this hits on a new mailbox is
+        # a missing Mail.ReadWrite grant, and "500" would not say so.
+        raise HTTPException(502, f"Could not read the task mailbox: {e}")

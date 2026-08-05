@@ -71,6 +71,14 @@ def _role_for(email: str, db: Session) -> tuple[str, int]:
     return role, level
 
 
+def level_for(email: str, db: Session) -> int:
+    """This email's role level, for code acting on someone's behalf outside a
+    request - the inbound-email ingester has an address, not a signed-in user,
+    and still has to apply the same manager bypass every endpoint does. Reads
+    through the same cache as get_current_user."""
+    return _role_for((email or "").lower(), db)[1]
+
+
 def invalidate_role_cache(email: str | None = None) -> None:
     """Call after assigning/changing a role so the new value takes effect immediately."""
     if email:

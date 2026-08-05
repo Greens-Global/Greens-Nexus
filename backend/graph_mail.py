@@ -18,6 +18,8 @@ It costs one extra HTTP round-trip; for ticket emails (not high-volume
 transactional alerts) that's the right trade.
 """
 import os
+import time
+
 import httpx
 
 _AZURE_TENANT_ID     = os.getenv("AZURE_TENANT_ID", "")
@@ -55,6 +57,27 @@ def _graph_token() -> str:
     )
     resp.raise_for_status()
     return resp.json()["access_token"]
+
+
+_token_cache: tuple[str, float] = ("", 0.0)
+
+
+def access_token() -> str:
+    """The app-only Graph token, for callers that talk to Graph directly rather
+    than through send_mail - task_inbound.py reads the task mailbox. Same
+    reasoning as this module's docstring: one token-fetch, not a sixth copy.
+
+    Cached, unlike the send path: draining a mailbox is several Graph calls per
+    message (fetch, mark read, file it), and a token round trip in front of each
+    one would cost more than the work. Entra tokens last an hour; 45 minutes
+    leaves room for a slow batch to finish on the token it started with."""
+    global _token_cache
+    tok, expires = _token_cache
+    if tok and time.time() < expires:
+        return tok
+    tok = _graph_token()
+    _token_cache = (tok, time.time() + 45 * 60)
+    return tok
 
 
 def send_mail(*, from_email: str, to: list[str], cc: list[str] | None,
