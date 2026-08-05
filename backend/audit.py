@@ -13,7 +13,7 @@ import models
 from act_as import resolve_target as _resolve_act_as_target
 
 
-def _describe(method: str, path: str) -> tuple[str, str]:
+def _describe(method: str, path: str, body_fields: dict = None) -> tuple[str, str]:
     """Return (human_readable_action, resource_id) from method + path."""
     parts = [p for p in path.split("/") if p]
     # parts[0] = resource type, parts[1] = id or sub-action, parts[2] = sub-action
@@ -86,6 +86,11 @@ def _describe(method: str, path: str) -> tuple[str, str]:
         if method == "PATCH":                   return _fmt("Updated hardware asset"), display_id
         if method == "DELETE":                  return _fmt("Deleted hardware asset"), display_id
 
+    # ── Act As ────────────────────────────────────────────────────────────────
+    if resource == "act-as":
+        if rid == "start":                      return "Started Act As", ""
+        if rid == "stop":                       return "Stopped Act As", ""
+
     # ── Roles ─────────────────────────────────────────────────────────────────
     if resource == "roles":
         if method == "POST" and rid == "sync":  return "Synced user roles from M365", ""
@@ -138,11 +143,23 @@ def _describe(method: str, path: str) -> tuple[str, str]:
     # ── Time clock ────────────────────────────────────────────────────────────
     if resource == "timeclock":
         if rid == "punch" and sub == "manual":  return "Fixed a missed punch", ""
-        if rid == "punch":                      return "Punched the time clock", ""
+        if rid == "punch":
+            # kind comes from the request body (PunchIn.kind) - _read_body_fields
+            # copies it into body_fields before this runs. Falls back to the old
+            # generic label if it's ever missing (e.g. malformed/legacy body).
+            label = {"in": "Punched in", "out": "Punched out",
+                     "break_start": "Started a break", "break_end": "Ended a break"
+                     }.get((body_fields or {}).get("kind", ""))
+            return label or "Punched the time clock", ""
         if rid == "punches" and method == "POST":  return "Added a punch for someone (manual)", ""
         if rid == "punches" and method == "PATCH": return "Adjusted a punch", sub
         if rid == "screenshot":                 return "Desktop agent saved a screenshot", ""
-        if rid == "bod":                        return "Posted a start/end-of-day update", ""
+        if rid == "bod":
+            label = {"bod": "Posted a beginning-of-day update",
+                     "eod": "Posted an end-of-day update",
+                     "break": "Posted a break update"
+                     }.get((body_fields or {}).get("kind", ""))
+            return label or "Posted a start/end-of-day update", ""
         if rid == "timeoff" and method == "POST":  return "Requested time off", ""
         if rid == "timeoff" and method == "PATCH": return "Decided a time-off request", sub
         if rid == "approvals":                  return "Approved a timesheet", ""
@@ -321,6 +338,10 @@ _BODY_FIELDS_BY_RESOURCE = {
         "reject_reason", "condition", "condition_note",
     ),
     "hardware-assets": ("name", "category", "status", "assigned_to", "dept"),
+    # "kind" (punch in/out/break_start/break_end, or bod/eod/break) lets
+    # _describe() give the audit action a specific label instead of the
+    # generic "Punched the time clock" / "Posted a start/end-of-day update".
+    "timeclock": ("kind",),
 }
 
 
@@ -410,7 +431,7 @@ class AuditMiddleware(BaseHTTPMiddleware):
             return response
 
         try:
-            action, resource_id = _describe(method, path)
+            action, resource_id = _describe(method, path, body_fields)
             # Create endpoints have no id in the URL - they stamp the new id on the
             # response (X-Created-Id) so the row records WHICH record was added.
             if not resource_id:

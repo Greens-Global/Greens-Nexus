@@ -59,11 +59,11 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
   const { actingAs, realEmail } = useRole();
   // Act As (Jul 2026): while impersonating, the post is still attributed to and
   // sent as the TARGET employee (see act_as.py), but the real person at the
-  // keyboard must stay visible to the team - so an "on behalf of" line is
+  // keyboard must stay visible to the team - so an "Entered by …" line is
   // appended naming the real actor. accounts[0] is always the REAL signed-in
   // account (MSAL is untouched by the Act As overlay), so its name is who was
   // really acting, not the target being impersonated.
-  const actingOnBehalfName = actingAs
+  const actingEnteredByName = actingAs
     ? cleanName(accounts[0]?.name) || emailToName(realEmail)
     : '';
   const [message, setMessage] = useState('');
@@ -101,7 +101,10 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
   }, [mode]);
 
   function buildHtml(workedMin = 0) {
-    const onBehalf = actingOnBehalfName ? `<br/><i>On behalf of ${esc(actingOnBehalfName)}</i>` : '';
+    // The message itself stays first-person as the EMPLOYEE ("I'm on a
+    // break…") - that's whose punch this is. This line must therefore name
+    // who actually typed it, not read as if the admin were the one on break.
+    const onBehalf = actingEnteredByName ? `<br/><i>Entered by ${esc(actingEnteredByName)}</i>` : '';
     if (M.reasonOnly) return `I'm on a break${message.trim() ? ` for ${esc(message.trim())}` : ''}.${onBehalf}`;
     // Three-line header (spec, Jul 24):
     //   End of Day
