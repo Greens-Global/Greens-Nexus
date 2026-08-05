@@ -5,6 +5,7 @@ import httpx
 import jwt as pyjwt
 from jwt.algorithms import RSAAlgorithm
 from fastapi import Header, HTTPException, Depends, Request
+from sqlalchemy.exc import OperationalError, TimeoutError as SATimeoutError
 from sqlalchemy.orm import Session
 from database import SessionLocal, get_db
 
@@ -119,8 +120,12 @@ def _email_from_bearer(authorization: str) -> str:
 def _email_from_session(request: Request) -> str:
     """BFF path: resolve identity from the HttpOnly session cookie (server-side
     session, server-refreshed tokens). Returns '' when there's no usable session so
-    the caller falls through to Bearer. NEVER raises - a cookie problem must not
-    break auth for Bearer clients during the dual-mode migration."""
+    the caller falls through to Bearer. Never raises for a COOKIE problem - that
+    must not break auth for Bearer clients during the dual-mode migration. A DB
+    problem is different: the caller presented a valid-looking cookie we simply
+    could not check, and falling through turns into a 401, which the frontend
+    treats as a real logout (Aug 5: pooler connection exhaustion mass-logged-out
+    everyone into a login loop). Those raise 503 so api.js retries instead."""
     try:
         import bff_session
         if not bff_session.configured():
@@ -134,6 +139,10 @@ def _email_from_session(request: Request) -> str:
             return row.user_email if row else ""
         finally:
             db.close()
+    except (OperationalError, SATimeoutError):
+        # Connection refused/exhausted or pool_timeout exceeded - only reachable
+        # with a session cookie present, so Bearer clients are unaffected.
+        raise HTTPException(status_code=503, detail="Session store unavailable, retry shortly")
     except Exception:
         return ""
 
