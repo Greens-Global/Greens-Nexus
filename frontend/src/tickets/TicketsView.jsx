@@ -13,6 +13,7 @@ import { useRole } from '../contexts/RoleContext';
 import { filesFromPaste } from '../tasks/lib';
 import { supabase } from '../lib/supabase';
 import { startScreenRecording } from '../lib/screenRecorder';
+import { stashDraft, appendDraftFile, takeDraft, peekDraft, setDraftUiMounted, finishRecording } from './recordingDraft';
 import { NX, FONT, chip, btn, input as inputStyle, PRIORITY_META, PRIORITY_ORDER } from '../tasks/theme';
 import { Avatar, PriorityChip, EmptyState, Modal, PersonSelect, usePeople, DateField, useIsMobile, useClickOutside } from '../tasks/components';
 import MobileTaskBar, { BottomSheet } from '../tasks/MobileTaskBar';
@@ -317,6 +318,11 @@ export default function TicketsView() {
   const [creating, setCreating] = useState(false);
   const [openId, setOpenId] = useState(null);
   const [selected, setSelected] = useState(() => new Set());
+
+  // A screen recording that ended while the user was on ANOTHER view navigates
+  // the app back here (recordingDraft.finishRecording) - reopen the create
+  // form so it can seed itself from the stashed draft, clip included.
+  useEffect(() => { if (peekDraft()?.resume) setCreating(true); }, []);
 
   // Deep-link support - the Outlook notification emails link to
   // "?ticket=<id>" (see backend/ticket_mail_templates.py's _ticket_url). Open
@@ -867,21 +873,28 @@ async function uploadTicketFile(ticketId, f) {
 // narration) or a plain file picker. `onFile(file)` gets a plain File each
 // time (recordings become File objects too); the caller decides whether to
 // queue it locally (pre-creation) or upload it immediately (post-creation).
-function RecordUploadButtons({ onFile, disabled, showRecord = true }) {
+function RecordUploadButtons({ onFile, disabled, showRecord = true, onRecordingChange }) {
   const fileRef = useRef(null);
   const [menu, setMenu] = useState(false);
   const [recording, setRecording] = useState(false);
+  const setRec = (v) => { setRecording(v); onRecordingChange?.(v); };
 
   const record = async (voice) => {
     setMenu(false);
     try {
       const started = await startScreenRecording({ voice }, (blob) => {
-        setRecording(false);
+        // File FIRST, recording-state second: onRecordingChange(false) may
+        // trigger the navigate-back-and-resume flow (recordingDraft.js), and
+        // the clip must already be in the draft when the form reopens.
+        // null = cancelled or genuinely empty; both end quietly. The old
+        // "came out empty - try again" alert fired on every Cancel too, which
+        // read as a failure when the user had simply changed their mind.
         if (blob) onFile(new File([blob], `ticket-recording-${Date.now()}.webm`, { type: 'video/webm' }));
-        else alert('The recording came out empty - try again.');
+        setRec(false);
       });
-      if (started) setRecording(true);
+      if (started) setRec(true);
     } catch (e) {
+      setRec(false);
       // NotAllowedError covers both "dismissed the picker" and "denied
       // permission" in Chrome - quiet in both cases, same as Testing's
       // startBugRecording. Anything else (unsupported browser, NotFoundError,
@@ -948,12 +961,18 @@ export function CreateTicketModal({ onClose }) {
     api.getTicketCompanies().then(setCompanies).catch(() => setCompanies([]));
     api.getTicketDepartments().then(setAllDepts).catch(() => setAllDepts([]));
   }, []);
-  const [form, setForm] = useState({
+  // A draft stashed during a screen recording (recordingDraft.js) seeds the
+  // form when it reopens - possibly after the user navigated to another view
+  // and back. Consumed exactly once per mount via the ref guard.
+  const seedRef = useRef(undefined);
+  if (seedRef.current === undefined) seedRef.current = takeDraft() || null;
+  const seed = seedRef.current;
+  const [form, setForm] = useState(seed?.form || {
     subject: '', description: '', type: 'bug', priority: 'medium', status: 'new',
     requesterId: myEmail || null, companyId: '', hrDepartmentId: '',
   });
-  const [tf, setTf] = useState({});   // per-type field values (keyed by field key)
-  const [step, setStep] = useState(1);                   // 1 = routing (company/dept/type), 2 = details
+  const [tf, setTf] = useState(seed?.tf || {});   // per-type field values (keyed by field key)
+  const [step, setStep] = useState(seed ? 2 : 1);        // 1 = routing (company/dept/type), 2 = details
   const [showErrors, setShowErrors] = useState(false);   // only nag after a failed submit
   const [busy, setBusy] = useState(false);
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
@@ -1001,9 +1020,23 @@ export function CreateTicketModal({ onClose }) {
   const libRef = useRef(null);
   const attachRef = useRef(null);
   const scanRef = useRef(null);
-  const [attachments, setAttachments] = useState([]);
+  const [attachments, setAttachments] = useState(seed?.attachments || []);
   const [photoMenu, setPhotoMenu] = useState(false);
   const [ocrBusy, setOcrBusy] = useState(false);
+  // While a screen recording runs, the whole modal steps aside (see the early
+  // return before `shell`): the backdrop at z-4000 both buried the recorder's
+  // Stop pill and closed-and-discarded the form on any outside click. Hiding
+  // the RENDER while this component stays mounted keeps every field intact.
+  const [recActive, setRecActive] = useState(false);
+  // Tell the draft stash whether this form is alive: on Stop it either lets
+  // the mounted form reappear, or (form unmounted - the user navigated away
+  // to reproduce the issue) routes the app back here to resume from the stash.
+  useEffect(() => { setDraftUiMounted(true); return () => setDraftUiMounted(false); }, []);
+  const onRecChange = (v) => {
+    setRecActive(v);
+    if (v) stashDraft({ form, tf, attachments });
+    else finishRecording();
+  };
   const onFiles = (e) => {
     const list = Array.from(e.target.files || []); e.target.value = '';
     if (list.length) setAttachments((prev) => [...prev, ...list]);
@@ -1055,6 +1088,21 @@ export function CreateTicketModal({ onClose }) {
 
   const sel = { ...inputStyle, appearance: 'auto', cursor: 'pointer' };
   const errStyle = (k, set_) => (showErrors && set_.has(k) ? { borderColor: NX.red } : null);
+
+  // Recording in progress: get out of the way. The form (and its portal
+  // backdrop) disappears so the person can reproduce the issue and reach the
+  // recorder's Stop pill; this component stays mounted, so on stop the form
+  // returns exactly as they left it, with the clip attached. The chip is a
+  // pointer-events-free hint - the recorder pill owns Stop/Cancel.
+  if (recActive) {
+    return (
+      <div style={{ position: 'fixed', left: 18, bottom: 18, zIndex: 5990, pointerEvents: 'none',
+        background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 12, padding: '10px 14px',
+        boxShadow: '0 8px 30px rgba(0,0,0,.18)', fontSize: 12.5, color: NX.dim, maxWidth: 300, fontFamily: FONT }}>
+        Recording for your ticket - the form reopens with everything intact when you press Stop.
+      </div>
+    );
+  }
 
   // Phones get the Asana-style bottom sheet (same chrome as quick-create task);
   // desktop keeps the centred modal. A plain function, not a component - defining
@@ -1212,7 +1260,9 @@ export function CreateTicketModal({ onClose }) {
 
       <div style={field}>
         <label style={label}>Evidence</label>
-        <RecordUploadButtons onFile={(f) => setAttachments((prev) => [...prev, f])} showRecord={!NO_RECORDING_TYPES.includes(form.type)} />
+        <RecordUploadButtons showRecord={!NO_RECORDING_TYPES.includes(form.type)}
+          onFile={(f) => { appendDraftFile(f); setAttachments((prev) => [...prev, f]); }}
+          onRecordingChange={onRecChange} />
         {attachments.length > 0 && (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
             {attachments.map((f, i) => (
@@ -1859,10 +1909,55 @@ function TicketConversation({ ticketId, nameOf }) {
   );
 }
 
+// ── Attachment viewer ────────────────────────────────────────────────────────
+// In-app viewer: images, recordings and PDFs open over the drawer instead of a
+// new tab. z sits ABOVE the ticket modal (4000) and BELOW the recorder pill
+// (6000). Escape is captured so it closes the viewer without also closing the
+// drawer underneath; files with no inline renderer (docx, xlsx…) get a clean
+// download card rather than a broken embed.
+function AttachmentViewer({ att, onClose }) {
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); onClose(); } };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [onClose]);
+  if (!att) return null;
+  const isPdf = /\.pdf($|\?)/i.test(att.name || '') || /\.pdf($|\?)/i.test(att.url || '');
+  const body = att.kind === 'image' ? (
+    <img src={att.url} alt={att.name} style={{ maxWidth: '92vw', maxHeight: '78vh', objectFit: 'contain', borderRadius: 8 }} />
+  ) : att.kind === 'video' ? (
+    <video src={att.url} controls autoPlay style={{ maxWidth: '92vw', maxHeight: '78vh', borderRadius: 8, background: '#000' }} />
+  ) : isPdf ? (
+    <iframe src={att.url} title={att.name} style={{ width: '92vw', height: '78vh', border: 'none', borderRadius: 8, background: '#fff' }} />
+  ) : (
+    <div onClick={(e) => e.stopPropagation()} style={{ background: NX.surface, borderRadius: 14, padding: '34px 44px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, maxWidth: '86vw' }}>
+      <Paperclip size={30} style={{ color: NX.faint }} />
+      <div style={{ fontSize: 14.5, fontWeight: 700, color: NX.ink, maxWidth: 340, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.name}</div>
+      <div style={{ fontSize: 12.5, color: NX.dim }}>No inline preview for this file type.</div>
+      <a href={att.url} download={att.name} style={{ ...btn('primary'), textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+        <Download size={14} /> Download
+      </a>
+    </div>
+  );
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 5500, background: 'rgba(9,14,11,0.88)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, fontFamily: FONT }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ position: 'absolute', top: 0, left: 0, right: 0, display: 'flex', alignItems: 'center', gap: 12, padding: '13px 20px', color: '#fff' }}>
+        <span style={{ fontSize: 13.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.name}</span>
+        <span style={{ fontSize: 12, opacity: 0.65 }}>{att.size}</span>
+        <span style={{ flex: 1 }} />
+        {att.url && <a href={att.url} download={att.name} title="Download" style={{ color: '#fff', opacity: 0.8, display: 'flex' }}><Download size={16} /></a>}
+        <button onClick={onClose} aria-label="Close viewer" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#fff', display: 'flex', padding: 4 }}><X size={19} /></button>
+      </div>
+      <div onClick={(e) => e.stopPropagation()}>{body}</div>
+    </div>
+  );
+}
+
 // ── Attachments ──────────────────────────────────────────────────────────────
 function TicketAttachments({ ticketId, ticketType }) {
   const [rows, setRows] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [view, setView] = useState(null);   // attachment open in the in-app viewer
   const reload = () => api.getTicketAttachments(ticketId).then(setRows).catch(() => setRows([]));
   useEffect(() => { reload(); /* eslint-disable-next-line */ }, [ticketId]);
 
@@ -1903,13 +1998,13 @@ function TicketAttachments({ ticketId, ticketType }) {
                 return (
                   <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8, border: `1px solid ${NX.border}`, borderRadius: 10, padding: '6px 10px', fontSize: 12 }}>
                     {a.url ? (
-                      // No `download` here - opening in a new tab lets the browser
-                      // play video/view images inline instead of forcing a save.
-                      <a href={a.url} target="_blank" rel="noreferrer" title={`Open ${a.name}`}
-                        style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, color: 'inherit', textDecoration: 'none' }}>
+                      // Opens the IN-APP viewer (images/recordings/PDFs render
+                      // inline; other types get a download card) - never a new tab.
+                      <button type="button" onClick={() => setView(a)} title={`View ${a.name}`}
+                        style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, color: 'inherit', background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit' }}>
                         {thumb}
                         <span style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name}</span>
-                      </a>
+                      </button>
                     ) : (
                       <span title="This file failed to upload and isn't available - remove it and re-attach"
                         style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, color: NX.faint }}>
@@ -1925,6 +2020,7 @@ function TicketAttachments({ ticketId, ticketType }) {
               })}
             </div>
           )}
+      {view && <AttachmentViewer att={view} onClose={() => setView(null)} />}
     </div>
   );
 }

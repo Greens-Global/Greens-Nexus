@@ -23,6 +23,8 @@ import RolesAccess, { LevelPill, ModuleLevelPill, TierBadge } from './RolesAcces
 import { capabilityText } from '../lib/moduleCapabilities';
 import PersonHover from '../components/PersonHoverCard';
 import { takePendingPerson } from '../lib/personNav';
+import { pollWhileVisible } from '../lib/pollWhileVisible';
+import { TaskChecklist, punchTime } from '../components/WorkLogDrawer';
 
 // ── HR module - Phase 1: employee master + People directory ──────────────────
 // Hiring pipeline, org chart and leave land in later phases (tabs are stubs).
@@ -78,25 +80,54 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
   const [jobRoles, setJobRoles] = useState([]);
   const [jobRoleId, setJobRoleId] = useState('');
   useEffect(() => { if (isAdmin && !editing) api.getJobRoles().then(setJobRoles).catch(() => {}); }, [isAdmin, editing]);
-  const [f, setF] = useState(() => ({
-    first_name:      employee?.firstName || '',
-    last_name:       employee?.lastName || '',
-    work_email:      employee?.workEmail || '',
-    personal_email:  employee?.personalEmail || '',
-    phone:           employee?.phone || '',
-    job_title:       employee?.jobTitle || '',
-    designation:     employee?.designation || '',
-    department:      employee?.department || '',
-    employment_type: employee?.employmentType || 'full_time',
-    start_date:      employee?.startDate || '',
-    manager_email:   employee?.managerEmail || '',
-    status:          employee?.status || 'active',
-    location:        employee?.location || '',
-    company:         employee?.company || '',
-    identity_type:   employee?.identityType || 'internal',
-    contractor:      employee?.contractor || {},
-    notes:           employee?.notes || '',
-  }));
+  const seedFrom = (e) => ({
+    first_name:      e?.firstName || '',
+    last_name:       e?.lastName || '',
+    work_email:      e?.workEmail || '',
+    personal_email:  e?.personalEmail || '',
+    phone:           e?.phone || '',
+    job_title:       e?.jobTitle || '',
+    designation:     e?.designation || '',
+    department:      e?.department || '',
+    employment_type: e?.employmentType || 'full_time',
+    start_date:      e?.startDate || '',
+    manager_email:   e?.managerEmail || '',
+    status:          e?.status || 'active',
+    location:        e?.location || '',
+    company:         e?.company || '',
+    identity_type:   e?.identityType || 'internal',
+    contractor:      e?.contractor || {},
+    notes:           e?.notes || '',
+  });
+  const [f, setF] = useState(() => seedFrom(employee));
+  // The row this modal opened from can be STALE: other surfaces change the
+  // record without this view's list refetching - assigning a job role (from
+  // Roles & Access or the card's Access tab) rewrites job_title server-side,
+  // and can set a default manager. Re-read the person on open and refresh any
+  // field the user hasn't already retyped: an untouched field still equals the
+  // stale seed, so only those are replaced and in-progress edits are never
+  // clobbered. (contractor is a nested object - left to its live edit state.)
+  useEffect(() => {
+    if (!editing || !employee?.id) return;
+    let live = true;
+    api.getEmployees().then((rows) => {
+      if (!live) return;
+      const fresh = (rows || []).find((r) => r.id === employee.id);
+      if (!fresh) return;
+      const orig = seedFrom(employee);
+      const next = seedFrom(fresh);
+      setF((cur) => {
+        const merged = { ...cur };
+        for (const k of Object.keys(next)) {
+          if (k === 'contractor') continue;
+          if (cur[k] === orig[k]) merged[k] = next[k];
+        }
+        return merged;
+      });
+    }).catch(() => {});
+    return () => { live = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing, employee?.id]);
   const [busy, setBusy] = useState(false);
   // Department options come from the SELECTED company - no company, no department.
   const [deptOptions, setDeptOptions] = useState([]);
@@ -516,6 +547,101 @@ function AssetsSection({ employee }) {
           {checkouts.map(c => line(
             <History size={14} style={{ color: 'hsl(var(--color-orange))', flexShrink: 0 }} />,
             c.itemName, [c.itemType, c.status === 'pending_receipt' ? 'awaiting receipt' : 'checked out', c.days && `${c.days}d`].filter(Boolean).join(' · '), `c-${c.id}`))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// day.toISOString().slice(0,10) but in local time, not UTC - a UTC-based cut
+// would flip to the wrong calendar day for anyone west of Greenwich.
+function localIsoDate(d) {
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+}
+function lastWeekRange() {
+  const end = new Date();
+  const start = new Date();
+  start.setDate(end.getDate() - 6);
+  return [localIsoDate(start), localIsoDate(end)];
+}
+
+// Read-only log of a person's Beginning/End-of-day posts (Section: Time Clock's
+// BOD/EOD composer). Source of truth stays in timeclock.py's TimeBod table;
+// this only reads, newest first, so a manager doesn't have to scroll Teams to
+// see what someone said they'd do and what was left pending. Defaults to the
+// trailing week; the date filter pages back through older history. BOD and
+// EOD render together on the same card for each day.
+function WorkLogsSection({ employee }) {
+  const [[start, end], setRange] = useState(lastWeekRange);
+  const [logs, setLogs] = useState(null);
+  const load = useCallback((quiet = false) => {
+    if (!quiet) setLogs(null);
+    api.getEmployeeBod(employee.id, start, end).then(r => setLogs(r.logs || []))
+      .catch(() => { if (!quiet) setLogs([]); });   // a failed background poll keeps the last good data on screen
+  }, [employee.id, start, end]);
+  useEffect(() => { load(); }, [load]);
+  // Live while viewing this range: a manager watching a report shouldn't have
+  // to reopen the tab to see a punch that just landed. Quiet refresh (keeps
+  // the current cards on screen) only while the range covers today, and only
+  // while the tab is actually visible - same pattern as TimeClock's own poll.
+  useEffect(() => {
+    const today = localIsoDate(new Date());
+    if (today < start || today > end) return undefined;
+    return pollWhileVisible(() => load(true), 15000);
+  }, [load, start, end]);
+
+  // Group the flat, newest-first list into one card per local_date (BOD + EOD together).
+  const byDate = [];
+  for (const l of logs || []) {
+    let group = byDate.find(g => g.date === l.date);
+    if (!group) { group = { date: l.date, bod: null, eod: null }; byDate.push(group); }
+    group[l.kind] = l;
+  }
+
+  return (
+    <div style={{ marginTop: 18 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', color: 'var(--muted)', textTransform: 'uppercase', flex: 1 }}>
+          <Clock size={11} style={{ verticalAlign: 'middle', marginRight: 5 }} />Work logs (BOD/EOD)
+        </span>
+        <button className="secondary-btn" onClick={() => setRange(lastWeekRange())} style={{ fontSize: 11.5, padding: '4px 10px' }}>This week</button>
+        <input className="form-input" type="date" value={start} onChange={ev => setRange([ev.target.value, end])} style={{ fontSize: 12, width: 140 }} />
+        <span style={{ fontSize: 12, color: 'var(--muted)' }}>to</span>
+        <input className="form-input" type="date" value={end} onChange={ev => setRange([start, ev.target.value])} style={{ fontSize: 12, width: 140 }} />
+      </div>
+      {logs === null ? (
+        <SkeletonBlocks count={3} height={54} />
+      ) : byDate.length === 0 ? (
+        <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0' }}>
+          {!employee.workEmail ? 'No work email yet - work logs key off it.' : 'No work logs posted in this date range.'}
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gap: 8 }}>
+          {byDate.map(g => (
+            <div key={g.date} style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '11px 14px' }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)', marginBottom: 8 }}>{g.date}</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
+                {[['Beginning of day', g.bod, 'bod', 'Punched in'], ['End of day', g.eod, 'eod', 'Punched out']].map(([label, slot, kind, punchLabel]) => (
+                  <div key={label} style={{ background: 'var(--mist)', borderRadius: 10, padding: '9px 12px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                      <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em', flex: 1 }}>{label}</span>
+                      {slot?.punchAt && (
+                        <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--wk-brand, var(--ink))' }} title={`${punchLabel} at ${punchTime(slot.punchAt)}`}>
+                          {punchLabel} {punchTime(slot.punchAt)}
+                        </span>
+                      )}
+                    </div>
+                    {slot ? (<>
+                      <div style={{ fontSize: 12.5, color: 'var(--ink)', whiteSpace: 'pre-wrap' }}>{slot.message || <span style={{ color: 'var(--muted)' }}>(no message)</span>}</div>
+                      <TaskChecklist tasks={slot.tasks} kind={kind} />
+                    </>) : (
+                      <span style={{ fontSize: 12, color: 'var(--muted)' }}>-</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </div>
@@ -1297,6 +1423,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
     ['assets', 'Assets', Briefcase],
     ['documents', 'Documents', FileText],
     isAdmin && ['access', 'Access', Shield],
+    ['bod', 'Work Logs', Clock],
   ].filter(Boolean);
   const expiry = nextExpiry(e);
   return (
@@ -1476,6 +1603,8 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
         {tab === 'assets' && <AssetsSection employee={e} />}
 
         {tab === 'access' && isAdmin && <EmployeeAccess email={meEmail} identityType={e.identityType} toastOk={toastOk} toastErr={toastErr} onChanged={onEmployeeUpdated} />}
+
+        {tab === 'bod' && <WorkLogsSection employee={e} />}
 
         {tab === 'documents' && (
           <>
