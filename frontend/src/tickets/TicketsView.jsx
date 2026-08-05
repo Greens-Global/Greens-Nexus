@@ -867,21 +867,25 @@ async function uploadTicketFile(ticketId, f) {
 // narration) or a plain file picker. `onFile(file)` gets a plain File each
 // time (recordings become File objects too); the caller decides whether to
 // queue it locally (pre-creation) or upload it immediately (post-creation).
-function RecordUploadButtons({ onFile, disabled, showRecord = true }) {
+function RecordUploadButtons({ onFile, disabled, showRecord = true, onRecordingChange }) {
   const fileRef = useRef(null);
   const [menu, setMenu] = useState(false);
   const [recording, setRecording] = useState(false);
+  const setRec = (v) => { setRecording(v); onRecordingChange?.(v); };
 
   const record = async (voice) => {
     setMenu(false);
     try {
       const started = await startScreenRecording({ voice }, (blob) => {
-        setRecording(false);
+        setRec(false);
+        // null = cancelled or genuinely empty; both end quietly. The old
+        // "came out empty - try again" alert fired on every Cancel too, which
+        // read as a failure when the user had simply changed their mind.
         if (blob) onFile(new File([blob], `ticket-recording-${Date.now()}.webm`, { type: 'video/webm' }));
-        else alert('The recording came out empty - try again.');
       });
-      if (started) setRecording(true);
+      if (started) setRec(true);
     } catch (e) {
+      setRec(false);
       // NotAllowedError covers both "dismissed the picker" and "denied
       // permission" in Chrome - quiet in both cases, same as Testing's
       // startBugRecording. Anything else (unsupported browser, NotFoundError,
@@ -1004,6 +1008,11 @@ export function CreateTicketModal({ onClose }) {
   const [attachments, setAttachments] = useState([]);
   const [photoMenu, setPhotoMenu] = useState(false);
   const [ocrBusy, setOcrBusy] = useState(false);
+  // While a screen recording runs, the whole modal steps aside (see the early
+  // return before `shell`): the backdrop at z-4000 both buried the recorder's
+  // Stop pill and closed-and-discarded the form on any outside click. Hiding
+  // the RENDER while this component stays mounted keeps every field intact.
+  const [recActive, setRecActive] = useState(false);
   const onFiles = (e) => {
     const list = Array.from(e.target.files || []); e.target.value = '';
     if (list.length) setAttachments((prev) => [...prev, ...list]);
@@ -1055,6 +1064,21 @@ export function CreateTicketModal({ onClose }) {
 
   const sel = { ...inputStyle, appearance: 'auto', cursor: 'pointer' };
   const errStyle = (k, set_) => (showErrors && set_.has(k) ? { borderColor: NX.red } : null);
+
+  // Recording in progress: get out of the way. The form (and its portal
+  // backdrop) disappears so the person can reproduce the issue and reach the
+  // recorder's Stop pill; this component stays mounted, so on stop the form
+  // returns exactly as they left it, with the clip attached. The chip is a
+  // pointer-events-free hint - the recorder pill owns Stop/Cancel.
+  if (recActive) {
+    return (
+      <div style={{ position: 'fixed', left: 18, bottom: 18, zIndex: 5990, pointerEvents: 'none',
+        background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 12, padding: '10px 14px',
+        boxShadow: '0 8px 30px rgba(0,0,0,.18)', fontSize: 12.5, color: NX.dim, maxWidth: 300, fontFamily: FONT }}>
+        Recording for your ticket - the form reopens with everything intact when you press Stop.
+      </div>
+    );
+  }
 
   // Phones get the Asana-style bottom sheet (same chrome as quick-create task);
   // desktop keeps the centred modal. A plain function, not a component - defining
@@ -1212,7 +1236,8 @@ export function CreateTicketModal({ onClose }) {
 
       <div style={field}>
         <label style={label}>Evidence</label>
-        <RecordUploadButtons onFile={(f) => setAttachments((prev) => [...prev, f])} showRecord={!NO_RECORDING_TYPES.includes(form.type)} />
+        <RecordUploadButtons onFile={(f) => setAttachments((prev) => [...prev, f])} showRecord={!NO_RECORDING_TYPES.includes(form.type)}
+          onRecordingChange={setRecActive} />
         {attachments.length > 0 && (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
             {attachments.map((f, i) => (
