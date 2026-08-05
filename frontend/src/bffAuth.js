@@ -86,7 +86,19 @@ export async function bffBootstrap() {
       const res = await fetch('/api/auth/me', { credentials: 'include' });
       if (res.ok) {
         _me = await res.json();
-        if (_me && _me.email) { installSyntheticAccount(_me); return true; }
+        if (_me && _me.email) {
+          installSyntheticAccount(_me);
+          // Background: turn the live Entra SSO session into a REAL cached MSAL
+          // account (ssoSilent, no UI) so Graph calls - the Teams BOD/EOD post,
+          // chat lists - work silently later. Without this, cookie logins have
+          // no MSAL cache entry and every Graph call dead-ends or pops a login
+          // mid-punch. Fire-and-forget: boot never waits on it.
+          import('./msalInstance').then(({ msalReady }) => msalReady)
+            .then(() => import('./teamsGraph'))
+            .then(({ primeGraphSso }) => primeGraphSso(_me.email))
+            .catch(() => {});
+          return true;
+        }
         return false;   // 200 but no identity -> treat as anonymous
       }
       if (res.status === 401) return false;   // genuinely signed out -> login screen

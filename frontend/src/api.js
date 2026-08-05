@@ -1106,6 +1106,14 @@ export const api = {
   revokeIrPortalAccess: (investorId, fundId) => req(`/investor-relations/portal-access/${investorId}/${fundId}`, { method: "DELETE" }),
   getIrPortalMyDeals:   ()       => req("/investor-relations/portal/my-deals"),
   getIrPortalDeal:      (fundId) => req(`/investor-relations/portal/deals/${fundId}`),
+
+  // IT / UniFi network dashboard. These previously lived in IT.jsx as direct
+  // fetches to VITE_API_BASE with a self-acquired MSAL Bearer token, which broke
+  // in cookie mode (no Bearer exists -> 401 "Missing or invalid Authorization
+  // header"). Routed through req() they ride whichever auth mode is active.
+  unifiOverview:  ()       => req("/unifi/overview", { timeoutMs: 20_000 }),
+  unifiStats:     (siteId) => req(`/unifi/stats?siteId=${encodeURIComponent(siteId)}`, { timeoutMs: 20_000 }),
+  unifiExportCsv: (siteId) => reqBlob(`/unifi/export/csv?siteId=${encodeURIComponent(siteId)}`),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -
