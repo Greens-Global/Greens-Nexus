@@ -3223,7 +3223,7 @@ def team_screenshots(date: str = "", email: str = "",
          "url": urls.get(s.storage_path, "")} for s in rows]}
 
 
-# ── Beginning-of-day message (recorded copy; Teams post happens client-side) ─
+# ── Beginning-of-day message (server-side Teams delivery; see teams_post.py) ─
 
 class BodIn(BaseModel):
     kind: Optional[str] = "bod"      # bod | eod
@@ -3233,9 +3233,10 @@ class BodIn(BaseModel):
     team_name: Optional[str] = ""
     channel_id: Optional[str] = ""
     channel_name: Optional[str] = ""
-    sent: Optional[bool] = False
+    sent: Optional[bool] = False     # legacy clients: True = they posted client-side
     send_error: Optional[str] = ""
     tz_offset_min: Optional[int] = 0
+    html: Optional[str] = ""         # composed Teams message -> server delivers it
 
 
 @router.post("/bod")
@@ -3249,10 +3250,21 @@ def record_bod(body: BodIn, user: dict = Depends(get_current_user), db: Session 
                   team_id=(body.team_id or "")[:80], team_name=(body.team_name or "")[:120],
                   channel_id=(body.channel_id or "")[:120], channel_name=(body.channel_name or "")[:120],
                   sent=1 if body.sent else 0, send_error=(body.send_error or "")[:300],
-                  created_at=now)
+                  created_at=now, html=(body.html or "")[:8000], attempts=0, last_try_at="")
     db.add(row)
     db.commit()
-    return {"ok": True, "id": row.id}
+    # One inline delivery attempt so the common case lands in Teams before the
+    # toast shows. Sync endpoint = FastAPI threadpool, so blocking HTTP is fine
+    # here. Anything that fails stays queued - teams_post_loop retries until it
+    # delivers; the punch itself committed above regardless.
+    if (not row.sent) and row.channel_id and row.html:
+        try:
+            import teams_post
+            teams_post.deliver_row(db, row)
+        except Exception:
+            pass   # queued; the sweep owns it now
+    queued = (not row.sent) and bool(row.channel_id and row.html)
+    return {"ok": True, "id": row.id, "sent": bool(row.sent), "queued": queued}
 
 
 @router.get("/bod/last")

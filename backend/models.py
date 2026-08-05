@@ -1331,8 +1331,11 @@ class TimeApproval(Base):
 
 class TimeBod(Base):
     """Beginning/End-of-day message: on the first punch-in (bod) or a punch-out
-    (eod) the employee posts to a Teams channel (sent client-side AS THE USER
-    via delegated Graph); this row is the recorded copy."""
+    (eod) the employee posts to a Teams chat. The row doubles as the DELIVERY
+    QUEUE: the backend posts AS THE USER via a delegated Graph token minted from
+    their server-side BFF session (teams_post.py), retrying until it lands - the
+    browser only composes. (Pre-Aug-5 clients posted client-side and reported
+    sent/send_error themselves; those fields are honored unchanged.)"""
     __tablename__ = "time_bod"
     id             = Column(String, primary_key=True)   # uuid
     employee_email = Column(String, nullable=False, index=True)
@@ -1347,6 +1350,11 @@ class TimeBod(Base):
     sent           = Column(Integer, default=0)         # 1 = landed in Teams
     send_error     = Column(String, default="")
     created_at     = Column(String, default="")
+    # Server-side delivery queue fields (Aug 5): html = the composed Teams
+    # message; attempts/last_try_at drive the retry loop; '' html = legacy row.
+    html           = Column(String, default="")
+    attempts       = Column(Integer, default=0)
+    last_try_at    = Column(String, default="")
 
 
 class AgentDevice(Base):
