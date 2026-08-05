@@ -1,3 +1,10 @@
+# 'wasm-unsafe-eval' (Aug 6): permits compiling WebAssembly from scripts our CSP
+# already allows ('self') - needed by client-side OCR (tesseract.js, Asset
+# module). It does NOT enable JS eval. Do NOT add `data:` to script-src for any
+# reason - data: scripts are an XSS vector. OCR worker + traineddata must be
+# SELF-HOSTED (bundled/public/), never a CDN: connect-src has no CDN entries on
+# purpose. This CSP is a PLATFORM file - module owners ask, platform edits.
+#
 # Framing is SAME-ORIGIN, not denied outright (Jul 30). The PDF Editor module
 # hosts its vanilla-JS engine in a same-origin <iframe> (see PdfEditorModule.jsx),
 # and a DENY framing policy + `frame-ancestors 'none'` + a `frame-src` without
@@ -7,7 +14,7 @@
 # 'self' permits only our own origin. Do NOT go back to DENY/'none' without
 # first removing that iframe.
 /*
-  Content-Security-Policy: default-src 'self'; script-src 'self' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://*.azurewebsites.net https://*.supabase.co wss://*.supabase.co https://login.microsoftonline.com https://*.microsoftonline.com https://login.microsoft.com https://login.windows.net https://graph.microsoft.com https://cloudflareinsights.com https://nominatim.openstreetmap.org; img-src 'self' data: blob: https://*.supabase.co https://*.tile.openstreetmap.org https://*.arcgisonline.com https://picsum.photos https://fastly.picsum.photos; frame-src 'self' https://login.microsoftonline.com https://*.microsoftonline.com https://login.microsoft.com https://login.windows.net https://login.live.com https://www.youtube.com https://www.youtube-nocookie.com https://www.loom.com https://player.vimeo.com https://www.google.com https://maps.google.com; worker-src 'self' blob:; object-src 'none'; frame-ancestors 'self'; base-uri 'self'; form-action 'self';
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://*.azurewebsites.net https://*.supabase.co wss://*.supabase.co https://login.microsoftonline.com https://*.microsoftonline.com https://login.microsoft.com https://login.windows.net https://graph.microsoft.com https://cloudflareinsights.com https://nominatim.openstreetmap.org; img-src 'self' data: blob: https://*.supabase.co https://*.tile.openstreetmap.org https://*.arcgisonline.com https://picsum.photos https://fastly.picsum.photos; frame-src 'self' https://login.microsoftonline.com https://*.microsoftonline.com https://login.microsoft.com https://login.windows.net https://login.live.com https://www.youtube.com https://www.youtube-nocookie.com https://www.loom.com https://player.vimeo.com https://www.google.com https://maps.google.com; worker-src 'self' blob:; object-src 'none'; frame-ancestors 'self'; base-uri 'self'; form-action 'self';
   X-Content-Type-Options: nosniff
   X-Frame-Options: SAMEORIGIN
   Referrer-Policy: strict-origin-when-cross-origin
