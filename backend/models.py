@@ -1815,6 +1815,14 @@ class TaskCustomStatus(Base):
     # "Deferred", anything a project invents) become custom statuses on exactly
     # the projects that use them, rather than being dropped on the way in.
     asana_option_gid = Column(String, default="", index=True)
+    # Every Asana enum option this one status fronts. Asana's "Task Progress" is
+    # usually a PER-PROJECT custom field, so "Waiting" on two projects is two
+    # different option gids - keying identity on a single gid therefore minted a
+    # second "Waiting" row per project (Sagar, Aug 4: "single Waiting status
+    # should be used for both projects"). Matching on the LABEL and collecting
+    # the gids here gives one row scoped to many projects, while still letting a
+    # rename in Asana be recognised rather than orphaned.
+    asana_option_gids = Column(JSON, default=list)
 
 
 class TaskComment(Base):
@@ -2751,3 +2759,46 @@ class AsanaImportJob(Base):
     # the same import forever.
     done_gids    = Column(JSON, default=list)
     attempts     = Column(Integer, default=1)
+
+class TaskInboundEmail(Base):
+    """One message the task mailbox handed us, and what became of it (Task
+    Inbound Email, Aug 2026 - the reply half of TaskEmailLog above).
+
+    Written for EVERY message the drain looks at, not just the ones that became
+    comments. A reply that resolved to no task, came from an address nobody
+    recognises, or was an out-of-office is the case someone will ask about
+    ("I replied and nothing happened"), and without a row the answer is a
+    shrug - the message itself is already marked read and filed away.
+
+    `internet_message_id` is unique and is the idempotency guard: the drain
+    marks a message read only after the comment is committed, so a crash in
+    between means the next pass sees it again, and this constraint is what
+    stops that from posting the comment twice."""
+    __tablename__ = "task_inbound_email"
+    id                  = Column(String, primary_key=True)
+    internet_message_id = Column(String, default="", index=True, unique=True)
+    graph_message_id    = Column(String, default="")
+    conversation_id     = Column(String, default="")
+    from_email          = Column(String, default="", index=True)
+    subject             = Column(String, default="")
+    task_id             = Column(String, default="", index=True)
+    comment_id          = Column(String, default="")
+    matched_by          = Column(String, default="")   # address | headers | conversation
+    status              = Column(String, default="")   # posted | rejected | ignored | failed
+    # Why it was refused, or which of its files could not be filed - a posted
+    # reply with a skipped attachment carries both a comment and a reason.
+    reason              = Column(String, default="")
+    attachment_count    = Column(Integer, default=0)   # files actually filed (see task_inbound)
+    received_at         = Column(String, default="")
+    processed_at        = Column(String, default="")
+
+
+# Construction Module (Aug 2026) - jobsite daily logs, media, AI pipeline,
+# weekly reports. Defined in its own module (it shares nothing with the tables
+# above and models.py is long enough); imported here so its tables register on
+# the same Base and create_all picks them up on startup.
+from construction_models import (  # noqa: E402,F401  (import for side effect: table registration)
+    ConstructionProject, ConstructionDailyLog, ConstructionMedia, ConstructionAIJob,
+    ConstructionWeeklyReport, ConstructionMilestone, ConstructionRfi,
+    ConstructionSubmittal, ConstructionActivity,
+)
