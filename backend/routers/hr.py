@@ -1,9 +1,10 @@
 import json
 import re
+import time
 import uuid
 import httpx
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, BackgroundTasks
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
@@ -1312,6 +1313,11 @@ def _graph_directory(token: str) -> list:
 
 @router.post("/employees/sync-m365")
 def sync_m365(user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    """Pull the M365 directory into HR (see _pull_from_m365)."""
+    return _pull_from_m365(db, user["email"])
+
+
+def _pull_from_m365(db: Session, actor_email: str) -> dict:
     """Pull the M365 directory into HR. Only the company's own domains come in -
     _COMPANY_DOMAINS plus every domain tagged on a company in Company setup -
     guests and other partner domains are skipped, and so are non-people: departed
@@ -1387,7 +1393,7 @@ def sync_m365(user: dict = Depends(require_hr_write), db: Session = Depends(get_
                 company=domain_map.get(addr.split("@")[-1], ""),
                 status="active" if g.get("accountEnabled", True) else "inactive",
                 m365_id=g.get("id") or "",
-                created_by=user["email"], created_at=now, updated_at=now,
+                created_by=actor_email, created_at=now, updated_at=now,
             )
             db.add(emp)
             if gid:
@@ -1416,6 +1422,99 @@ def sync_m365(user: dict = Depends(require_hr_write), db: Session = Depends(get_
     db.commit()
     return {"created": created, "linked": linked, "updated": updated,
             "removed": removed, "unlinked": unlinked, "checked": len(directory)}
+
+
+# ── Two-way M365 sync (one button: pull directory, then push every profile) ──
+
+def _serialize_sync_run(r) -> dict:
+    return {"id": r.id, "phase": r.phase, "startedBy": r.started_by,
+            "startedAt": r.started_at, "finishedAt": r.finished_at,
+            "total": r.total, "done": r.done, "pushedOk": r.pushed_ok,
+            "pushFailed": r.push_failed,
+            "pull": json.loads(r.pull_summary) if r.pull_summary else None,
+            "errors": json.loads(r.errors) if r.errors else []}
+
+
+def _two_way_sync_task(run_id: str, actor_email: str):
+    """Background body of the two-way sync. Own DB session (the request's is
+    gone by the time this runs); commits progress every few people so the
+    status endpoint always has something fresh to report. Sync function on
+    purpose - FastAPI runs it in the threadpool, so blocking Graph calls are
+    fine here (never on the event loop)."""
+    from database import SessionLocal
+    from models import M365SyncRun
+    db = SessionLocal()
+    try:
+        run = db.query(M365SyncRun).filter(M365SyncRun.id == run_id).first()
+        if not run:
+            return
+        now = lambda: datetime.now(timezone.utc).isoformat()  # noqa: E731
+        try:
+            pull = _pull_from_m365(db, actor_email)
+        except Exception as e:
+            run.phase = "failed"
+            run.errors = json.dumps([{"email": "(pull phase)", "error": str(e)[:200]}])
+            run.finished_at = now()
+            db.commit()
+            return
+        run.pull_summary = json.dumps(pull)
+        emps = [e for e in db.query(NexusEmployee).filter(NexusEmployee.m365_id != "").all()
+                if not _emp_is_non_person(e)]
+        run.phase, run.total = "push", len(emps)
+        db.commit()
+        token = _graph_token()
+        errors = []
+        for i, emp in enumerate(emps):
+            try:
+                _graph_writeback(token, emp, db)
+                _graph_set_manager(token, emp)
+                run.pushed_ok += 1
+            except Exception as e:
+                run.push_failed += 1
+                if len(errors) < 40:
+                    errors.append({"email": emp.work_email or emp.id, "error": str(e)[:160]})
+            run.done = i + 1
+            if run.done % 5 == 0:
+                run.errors = json.dumps(errors)
+                db.commit()
+            time.sleep(0.12)   # throttle-polite pacing for Graph
+        run.errors = json.dumps(errors)
+        run.phase, run.finished_at = "done", now()
+        db.commit()
+    finally:
+        db.close()
+
+
+@router.post("/employees/sync-m365-two-way")
+def sync_m365_two_way(background_tasks: BackgroundTasks,
+                      user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    """Start a full two-way sync: pull the directory (link/backfill, exactly the
+    single-direction sync), then push EVERY linked profile back to Entra -
+    titles level-stripped, Nexus values winning wherever Nexus has one. Returns
+    immediately; poll .../status for progress. One run at a time."""
+    from models import M365SyncRun
+    latest = db.query(M365SyncRun).order_by(M365SyncRun.started_at.desc()).first()
+    if latest and latest.phase in ("pull", "push"):
+        try:
+            age = (datetime.now(timezone.utc)
+                   - datetime.fromisoformat(latest.started_at)).total_seconds()
+        except Exception:
+            age = 0
+        if age < 1800:   # a genuinely-running sync; older = crashed run, allow restart
+            raise HTTPException(409, "A sync is already running - watch its progress instead.")
+    run = M365SyncRun(id=str(uuid.uuid4()), started_by=user["email"],
+                      started_at=datetime.now(timezone.utc).isoformat())
+    db.add(run)
+    db.commit()
+    background_tasks.add_task(_two_way_sync_task, run.id, user["email"])
+    return {"started": run.id}
+
+
+@router.get("/employees/sync-m365-two-way/status")
+def sync_m365_two_way_status(user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    from models import M365SyncRun
+    run = db.query(M365SyncRun).order_by(M365SyncRun.started_at.desc()).first()
+    return _serialize_sync_run(run) if run else {"phase": "none"}
 
 
 @router.post("/employees/sync-photos")
