@@ -549,6 +549,7 @@ class NexusEmployee(Base):
     personal_email  = Column(String, default="")
     phone           = Column(String, default="")
     job_title       = Column(String, default="")
+    designation     = Column(String, default="")               # formal designation/rank, kept distinct from job_title (Charmi, Aug 4)
     department      = Column(String, default="")
     employment_type = Column(String, default="full_time")      # full_time | part_time | contractor | intern
     start_date      = Column(String, default="")               # ISO date
@@ -572,6 +573,20 @@ class NexusEmployee(Base):
     division        = Column(String, default="")               # functional division head-tag; org chart inherits down the tree (Phase 5)
     identity_type   = Column(String, default="internal")        # internal (MS365 staff) | guest (Entra B2B partner) | external (non-MS365, HR-record only)
     display_name    = Column(String, default="")               # Entra/Teams displayName verbatim - first+last drops middle names ("Sagar Kumar Shoundik" -> "Sagar Shoundik"), so people read as a different person than Teams shows. Refreshed by sync-m365; falls back to first+last when empty.
+
+
+class HrRemovedIdentity(Base):
+    """Tombstone for a person removed from Nexus (the Nexus-only delete). The M365
+    sync checks this and SKIPS re-creating them from Entra, so a removed person
+    stays removed even though their Microsoft account still exists. Removal takes
+    no Graph action - the M365 account is left untouched. Keyed by work_email
+    and/or m365_id; cleared if the same person is deliberately re-added."""
+    __tablename__ = "hr_removed_identities"
+    id          = Column(String, primary_key=True)
+    work_email  = Column(String, default="", index=True)
+    m365_id     = Column(String, default="", index=True)
+    removed_by  = Column(String, default="")
+    removed_at  = Column(String, default="")
 
 
 class HrCandidate(Base):
@@ -1316,8 +1331,11 @@ class TimeApproval(Base):
 
 class TimeBod(Base):
     """Beginning/End-of-day message: on the first punch-in (bod) or a punch-out
-    (eod) the employee posts to a Teams channel (sent client-side AS THE USER
-    via delegated Graph); this row is the recorded copy."""
+    (eod) the employee posts to a Teams chat. The row doubles as the DELIVERY
+    QUEUE: the backend posts AS THE USER via a delegated Graph token minted from
+    their server-side BFF session (teams_post.py), retrying until it lands - the
+    browser only composes. (Pre-Aug-5 clients posted client-side and reported
+    sent/send_error themselves; those fields are honored unchanged.)"""
     __tablename__ = "time_bod"
     id             = Column(String, primary_key=True)   # uuid
     employee_email = Column(String, nullable=False, index=True)
@@ -1332,6 +1350,11 @@ class TimeBod(Base):
     sent           = Column(Integer, default=0)         # 1 = landed in Teams
     send_error     = Column(String, default="")
     created_at     = Column(String, default="")
+    # Server-side delivery queue fields (Aug 5): html = the composed Teams
+    # message; attempts/last_try_at drive the retry loop; '' html = legacy row.
+    html           = Column(String, default="")
+    attempts       = Column(Integer, default=0)
+    last_try_at    = Column(String, default="")
 
 
 class AgentDevice(Base):
@@ -2791,6 +2814,28 @@ class TaskInboundEmail(Base):
     attachment_count    = Column(Integer, default=0)   # files actually filed (see task_inbound)
     received_at         = Column(String, default="")
     processed_at        = Column(String, default="")
+
+
+
+class ServerSession(Base):
+    """Backend-For-Frontend login session. The browser holds ONLY the opaque id
+    (in an HttpOnly cookie); the Entra tokens live HERE, Fernet-encrypted at rest
+    (secret_box / NEXUS_VAULT_KEY). get_current_user resolves identity from this
+    when a session cookie is present, and falls back to the Bearer path otherwise
+    (dual-mode migration - see docs/BFF-Migration-Plan.md and bff_session.py).
+    RLS-enabled: the backend reaches it via the privileged DATABASE_URL; the anon
+    key must never touch it."""
+    __tablename__ = "server_sessions"
+    id                = Column(String, primary_key=True)    # opaque session id = the cookie value
+    user_email        = Column(String, nullable=False, index=True)
+    csrf_token        = Column(String, default="")          # double-submit CSRF secret
+    access_token_enc  = Column(String, default="")          # Fernet ciphertext
+    refresh_token_enc = Column(String, default="")          # Fernet ciphertext
+    id_token_enc      = Column(String, default="")          # Fernet ciphertext
+    access_expires_at = Column(Float, default=0.0)          # epoch seconds; drives server-side refresh
+    auth_time         = Column(Float, default=0.0)          # last interactive auth (step-up freshness)
+    created_at        = Column(String, default="")
+    last_seen         = Column(String, default="")
 
 
 # Construction Module (Aug 2026) - jobsite daily logs, media, AI pipeline,

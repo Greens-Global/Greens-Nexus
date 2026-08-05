@@ -4,7 +4,8 @@ import json
 import httpx
 import jwt as pyjwt
 from jwt.algorithms import RSAAlgorithm
-from fastapi import Header, HTTPException, Depends
+from fastapi import Header, HTTPException, Depends, Request
+from sqlalchemy.exc import OperationalError, TimeoutError as SATimeoutError
 from sqlalchemy.orm import Session
 from database import SessionLocal, get_db
 
@@ -87,61 +88,94 @@ def invalidate_role_cache(email: str | None = None) -> None:
         _role_cache.clear()
 
 
+def _email_from_bearer(authorization: str) -> str:
+    """Existing SPA/Bearer path: validate a client-supplied Entra ID token and
+    return the caller's canonical email. Raises 401 if missing/invalid."""
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
+
+    token = authorization.removeprefix("Bearer ").strip()
+    try:
+        public_key = _get_public_key(token)
+        claims = pyjwt.decode(
+            token, public_key, algorithms=["RS256"], audience=CLIENT_ID, issuer=ISSUER,
+        )
+    except pyjwt.PyJWTError as exc:
+        raise HTTPException(status_code=401, detail=f"Invalid token: {exc}")
+
+    # Azure AD puts the UPN in several possible claims
+    email = (
+        claims.get("preferred_username")
+        or claims.get("upn")
+        or claims.get("unique_name")
+        or claims.get("email")
+        or ""
+    ).lower().strip()
+
+    # Canonical identity: some accounts sign in with the tenant-default
+    # @greensg.onmicrosoft.com UPN, but Nexus People (and every module's
+    # actor/notification records) key on the primary @greensglobal.com address of
+    # the SAME account. Without this rewrite those users split into two identities
+    # (Jul 24). The BFF path applies the same rule in bff_session.normalize_email.
+    if email.endswith("@greensg.onmicrosoft.com"):
+        email = email.split("@")[0] + "@greensglobal.com"
+
+    if not email:
+        raise HTTPException(status_code=401, detail="Token contains no identifiable email claim")
+    return email
+
+
+def _email_from_session(request: Request) -> str:
+    """BFF path: resolve identity from the HttpOnly session cookie (server-side
+    session, server-refreshed tokens). Returns '' when there's no usable session so
+    the caller falls through to Bearer. Never raises for a COOKIE problem - that
+    must not break auth for Bearer clients during the dual-mode migration. A DB
+    problem is different: the caller presented a valid-looking cookie we simply
+    could not check, and falling through turns into a 401, which the frontend
+    treats as a real logout (Aug 5: pooler connection exhaustion mass-logged-out
+    everyone into a login loop). Those raise 503 so api.js retries instead."""
+    try:
+        import bff_session
+        if not bff_session.configured():
+            return ""
+        sid = request.cookies.get(bff_session.SESSION_COOKIE, "")
+        if not sid:
+            return ""
+        db = SessionLocal()
+        try:
+            row = bff_session.get_session(db, sid)
+            return row.user_email if row else ""
+        finally:
+            db.close()
+    except (OperationalError, SATimeoutError):
+        # Connection refused/exhausted or pool_timeout exceeded - only reachable
+        # with a session cookie present, so Bearer clients are unaffected.
+        raise HTTPException(status_code=503, detail="Session store unavailable, retry shortly")
+    except Exception:
+        return ""
+
+
 def get_current_user(
+    request: Request,
     authorization: str = Header(default=None),
     x_act_as_session: str = Header(default=None, alias="X-Act-As-Session"),
 ) -> dict:
     """
-    FastAPI dependency. Validates the Azure AD ID token from the Authorization
-    header, returns {email, role, level}. Set NEXUS_SKIP_AUTH=true to bypass
-    in local development (never set in production).
+    FastAPI dependency. Resolves the caller to {email, role, level}. Identity comes
+    from, in order: the BFF session cookie, then the Bearer ID token - dual-mode,
+    so the app works on either during the migration. Set NEXUS_SKIP_AUTH=true to
+    bypass in local development (never set in production).
 
-    Deliberately does NOT take `db: Session = Depends(get_db)` - that would
-    check out a pooled connection for every request, including ones rejected
-    for a missing/expired/malformed token before any DB access is needed. Under
-    load, that turned auth rejections into pool-contention bottlenecks too. A
-    session is opened directly, only once the token has actually validated.
+    Deliberately does NOT take `db: Session = Depends(get_db)` - that would check
+    out a pooled connection for every request, including ones rejected before any
+    DB access is needed. A session is opened directly, only once identity resolves.
     """
-    if not SKIP_AUTH:
-        if not authorization or not authorization.startswith("Bearer "):
-            raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
-
-        token = authorization.removeprefix("Bearer ").strip()
-
-        try:
-            public_key = _get_public_key(token)
-            claims = pyjwt.decode(
-                token,
-                public_key,
-                algorithms=["RS256"],
-                audience=CLIENT_ID,
-                issuer=ISSUER,
-            )
-        except pyjwt.PyJWTError as exc:
-            raise HTTPException(status_code=401, detail=f"Invalid token: {exc}")
-
-        # Azure AD puts the UPN in several possible claims
-        email = (
-            claims.get("preferred_username")
-            or claims.get("upn")
-            or claims.get("unique_name")
-            or claims.get("email")
-            or ""
-        ).lower().strip()
-
-        # Canonical identity: some accounts sign in with the tenant-default
-        # @greensg.onmicrosoft.com UPN, but Nexus People (and every module's
-        # actor/notification records) key on the primary @greensglobal.com
-        # address of the SAME account. Without this rewrite those users split
-        # into two identities (Jul 24: Task-module assignees/actors didn't
-        # match anyone in the People directory).
-        if email.endswith("@greensg.onmicrosoft.com"):
-            email = email.split("@")[0] + "@greensglobal.com"
-
-        if not email:
-            raise HTTPException(status_code=401, detail="Token contains no identifiable email claim")
-    else:
+    if SKIP_AUTH:
         email = os.getenv("NEXUS_DEV_EMAIL", "dev@localhost").lower()
+    else:
+        email = _email_from_session(request)          # BFF cookie path ('' if none)
+        if not email:
+            email = _email_from_bearer(authorization)  # existing Bearer path (raises 401 if none)
 
     # Cache hit → skip the DB connection checkout entirely (the common case:
     # the same ~180 employees re-authenticate on every request they make).

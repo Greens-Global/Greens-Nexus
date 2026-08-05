@@ -142,6 +142,8 @@ export const NAV = [
   { divider: true },
   { view: "support", code: "SUP",        label: "Support",        icon: HelpCircle },
   { view: "external-links", code: "EXT", label: "External Links", icon: ExternalLink },
+  { view: "privacy-policy", code: "PRV", label: "Privacy Policy", icon: Shield },
+  { view: "terms-conditions", code: "TRM", label: "Terms & Conditions", icon: FileSignature },
   // Dev-only: the item renders only when the backend says the QA module is
   // enabled (NEXUS_QA_MODULE env on dev; absent on prod).
   { view: "testing", code: "QA",        label: "Testing",        icon: FlaskConical, minRole: 'supervisor', qaGated: true },

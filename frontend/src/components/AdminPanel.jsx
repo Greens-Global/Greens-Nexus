@@ -8,18 +8,13 @@ import { useNameResolver } from '../lib/useNameResolver';
 import Admin from '../views/Admin';
 import TimeTrackingAdmin from './TimeTrackingAdmin';
 import { applyBrandAccent } from '../lib/brandAccent';
+import { formatDateTime } from '../lib/datetime';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function fmtTime(iso) {
   if (!iso) return '-';
-  try {
-    const d = new Date(iso + 'Z');
-    return d.toLocaleString('en-GB', {
-      day: '2-digit', month: 'short', year: 'numeric',
-      hour: '2-digit', minute: '2-digit', hour12: false,
-    });
-  } catch { return iso.slice(0, 16).replace('T', ' '); }
+  return formatDateTime(iso + 'Z', '-');
 }
 
 // Renders the JSON `details` payload as a compact, human-scannable line -

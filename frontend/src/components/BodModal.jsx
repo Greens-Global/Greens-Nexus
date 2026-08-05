@@ -1,8 +1,11 @@
 import { useState, useEffect } from 'react';
+import { useMsal } from '@azure/msal-react';
 import { Sunrise, Sunset, Coffee, X, Send, Loader2, MessageSquare } from 'lucide-react';
 import { api } from '../api';
 import { msalInstance } from '../msalInstance';
-import { graphToken, postChatMessage } from '../teamsGraph';
+import { formatTime } from '../lib/datetime';
+import { useRole } from '../contexts/RoleContext';
+import { cleanName, emailToName } from '../lib/utils';
 
 // ── Beginning / End-of-day / Break message ────────────────────────────────────
 // BOD on first punch-in, EOD on punch-out, BREAK when stepping away. The message
@@ -52,6 +55,17 @@ const todayLocalKey = () => new Date(Date.now() - new Date().getTimezoneOffset()
 
 export default function BodModal({ mode = 'bod', required = false, onSent, onSkip, onClose, toastOk, toastErr }) {
   const M = MODES[mode] || MODES.bod;
+  const { accounts } = useMsal();
+  const { actingAs, realEmail } = useRole();
+  // Act As (Jul 2026): while impersonating, the post is still attributed to and
+  // sent as the TARGET employee (see act_as.py), but the real person at the
+  // keyboard must stay visible to the team - so an "Entered by …" line is
+  // appended naming the real actor. accounts[0] is always the REAL signed-in
+  // account (MSAL is untouched by the Act As overlay), so its name is who was
+  // really acting, not the target being impersonated.
+  const actingEnteredByName = actingAs
+    ? cleanName(accounts[0]?.name) || emailToName(realEmail)
+    : '';
   const [message, setMessage] = useState('');
   const [tasks, setTasks] = useState('');
   const [pending, setPending] = useState('');        // EOD only - starts empty; empty = no section in the post
@@ -87,7 +101,11 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
   }, [mode]);
 
   function buildHtml(workedMin = 0) {
-    if (M.reasonOnly) return `I'm on a break${message.trim() ? ` for ${esc(message.trim())}` : ''}.`;
+    // The message itself stays first-person as the EMPLOYEE ("I'm on a
+    // break…") - that's whose punch this is. This line must therefore name
+    // who actually typed it, not read as if the admin were the one on break.
+    const onBehalf = actingEnteredByName ? `<br/><i>Entered by ${esc(actingEnteredByName)}</i>` : '';
+    if (M.reasonOnly) return `I'm on a break${message.trim() ? ` for ${esc(message.trim())}` : ''}.${onBehalf}`;
     // Three-line header (spec, Jul 24):
     //   End of Day
     //   Fri, July 24th, 2026
@@ -97,7 +115,7 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
     // Locale pinned to en-US so the post reads the same for everyone regardless
     // of the sender's browser locale. Date line format: "Fri, July 24th, 2026".
     const dateStr = `${now.toLocaleDateString('en-US', { weekday: 'short' })}, ${now.toLocaleDateString('en-US', { month: 'long' })} ${ordinal(now.getDate())}, ${now.getFullYear()}`;
-    const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+    const timeStr = formatTime(now);
     const tally = mode === 'eod' && workedMin > 0 ? ` (${fmtWorked(workedMin)})` : '';
     // Lists are auto-numbered "1. …" - strip any numbering people typed
     // themselves so lines don't come out as "1. 1) Task".
@@ -105,7 +123,7 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
     const numbered = (lines) => lines.map((t, i) => `${i + 1}. ${esc(t)}`).join('<br/>');
     const taskLines = normalize(tasks);
     const pendingLines = mode === 'eod' ? normalize(pending) : [];
-    return `<b>${M.title}</b><br/>${dateStr}<br/>${timeStr}${tally}<br/><br/>${esc(message)}`
+    return `<b>${M.title}</b><br/>${dateStr}<br/>${timeStr}${tally}${onBehalf}<br/><br/>${esc(message)}`
       + (taskLines.length ? `<br/><br/><b>${M.tasksHead}</b><br/>${numbered(taskLines)}` : '')
       + (pendingLines.length ? `<br/><br/><b>Pending Tasks</b><br/>${numbered(pendingLines)}` : '');
   }
@@ -159,24 +177,26 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
     }
     const targetId = bound?.id || '';
     const targetName = bound?.name || '';
-    let sent = false, sendError = '';
-    if (targetId) {
-      try {
-        const tok = await graphToken();
-        if (!tok) throw new Error('Teams not connected');
-        await postChatMessage(tok, targetId, buildHtml(workedMin));
-        sent = true;
-      } catch (e) { sendError = String(e?.message || e).slice(0, 180); }
-    } else sendError = 'No team chat set up for your group';
+    // The browser only COMPOSES; the SERVER delivers (teams_post.py) using the
+    // session's own 90-day credential and retries until it lands. No client
+    // Graph call, so a stale browser token can never lose a post and nothing
+    // here can ever raise a Microsoft sign-in mid-punch.
+    let resp = null;
     try {
-      await api.timeBodRecord({
+      resp = await api.timeBodRecord({
         kind: mode, message, tasks, channel_id: targetId, channel_name: targetName,
-        sent, send_error: sent ? '' : sendError, tz_offset_min: new Date().getTimezoneOffset(),
+        html: targetId ? buildHtml(workedMin) : '',
+        sent: false, send_error: targetId ? '' : 'No team chat set up for your group',
+        tz_offset_min: new Date().getTimezoneOffset(),
       });
-    } catch { /* the Teams post is the user-visible outcome */ }
-    if (sent) toastOk(`Posted to ${targetName || 'your chat'} and recorded.`);
-    else if (!targetId) toastOk('Recorded in Nexus.');
-    else toastErr(`Recorded in Nexus, but the Teams post failed${sendError ? ` - ${sendError}` : ''}.`);
+    } catch { /* recording failed after api.js retries - surfaced below */ }
+    if (!targetId) toastOk('Recorded in Nexus.');
+    else if (resp?.sent) toastOk(`Posted to ${targetName || 'your chat'} and recorded.`);
+    else if (resp?.queued) toastOk(`Recorded - your ${MODES[mode]?.tag || 'Teams'} post to ${targetName || 'your chat'} is on its way.`);
+    // ok without sent/queued = an older backend answered (mid-deploy version
+    // skew). The row recorded; don't scare the user with a failure toast.
+    else if (resp?.ok) toastOk('Recorded in Nexus.');
+    else toastErr('Could not record your message - check your connection and try again.');
     setBusy(false);
     if (onSent) onSent(); else onClose();
   }

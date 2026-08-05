@@ -3,6 +3,7 @@ import { RotateCcw } from 'lucide-react';
 import { Card } from '../shared/Card.jsx';
 import { EmptyState } from '../shared/EmptyState.jsx';
 import { inferAssetKind } from '../../lib/vehicleFields.js';
+import { formatDate, formatTime } from '../../../lib/datetime';
 
 const MONO_FONT = "ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace";
 
@@ -25,19 +26,11 @@ function dayLabel(ts) {
   const key = dateKey(ts);
   if (key === dateKey(today.toISOString())) return 'Today';
   if (key === dateKey(yesterday.toISOString())) return 'Yesterday';
-  try {
-    return new Date(ts).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
-  } catch {
-    return key;
-  }
+  return formatDate(ts, key);
 }
 
 function timeLabel(ts) {
-  try {
-    return new Date(ts).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-  } catch {
-    return '';
-  }
+  return formatTime(ts, '');
 }
 
 /** Up-to-2-letter initials for a user's avatar circle, from the first two "words" (splitting on

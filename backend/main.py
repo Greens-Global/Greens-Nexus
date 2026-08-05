@@ -102,6 +102,9 @@ def _run_migrations():
             "ALTER TABLE hr_sign_events ADD COLUMN event_hash VARCHAR DEFAULT ''",
             "ALTER TABLE hr_sign_requests ADD COLUMN verify_token VARCHAR DEFAULT ''",
             "ALTER TABLE time_bod ADD COLUMN kind VARCHAR DEFAULT 'bod'",
+            "ALTER TABLE time_bod ADD COLUMN html VARCHAR DEFAULT ''",
+            "ALTER TABLE time_bod ADD COLUMN attempts INTEGER DEFAULT 0",
+            "ALTER TABLE time_bod ADD COLUMN last_try_at VARCHAR DEFAULT ''",
             "ALTER TABLE time_punches ADD COLUMN category VARCHAR DEFAULT ''",
             "ALTER TABLE time_punches ADD COLUMN pending_at VARCHAR DEFAULT ''",
             "ALTER TABLE time_punches ADD COLUMN edit_reason VARCHAR DEFAULT ''",
@@ -280,6 +283,7 @@ def _run_migrations():
             "ALTER TABLE nexus_employees ADD COLUMN division VARCHAR DEFAULT ''",
             "ALTER TABLE nexus_employees ADD COLUMN identity_type VARCHAR DEFAULT 'internal'",
             "ALTER TABLE nexus_employees ADD COLUMN display_name VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_employees ADD COLUMN designation VARCHAR DEFAULT ''",
             "ALTER TABLE asana_import_jobs ADD COLUMN cancel_requested BOOLEAN DEFAULT 0",
             "ALTER TABLE asana_project_map ADD COLUMN last_pull_at VARCHAR DEFAULT ''",
             "ALTER TABLE asana_project_map ADD COLUMN last_full_pull_at VARCHAR DEFAULT ''",
@@ -473,6 +477,8 @@ def _run_migrations():
         # External users: identity type (internal MS365 / Entra B2B guest / non-MS365 external)
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS identity_type VARCHAR DEFAULT 'internal'",
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS display_name VARCHAR DEFAULT ''",
+        # Charmi Aug 4: formal designation, kept distinct from job_title
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS designation VARCHAR DEFAULT ''",
         "ALTER TABLE asana_import_jobs ADD COLUMN IF NOT EXISTS cancel_requested BOOLEAN DEFAULT FALSE",
         "ALTER TABLE asana_project_map ADD COLUMN IF NOT EXISTS last_pull_at VARCHAR DEFAULT ''",
         "ALTER TABLE asana_project_map ADD COLUMN IF NOT EXISTS last_full_pull_at VARCHAR DEFAULT ''",
@@ -505,6 +511,9 @@ def _run_migrations():
         "ALTER TABLE hr_sign_events ADD COLUMN IF NOT EXISTS event_hash TEXT DEFAULT ''",
         "ALTER TABLE hr_sign_requests ADD COLUMN IF NOT EXISTS verify_token TEXT DEFAULT ''",
         "ALTER TABLE time_bod ADD COLUMN IF NOT EXISTS kind TEXT DEFAULT 'bod'",
+        "ALTER TABLE time_bod ADD COLUMN IF NOT EXISTS html TEXT DEFAULT ''",
+        "ALTER TABLE time_bod ADD COLUMN IF NOT EXISTS attempts INTEGER DEFAULT 0",
+        "ALTER TABLE time_bod ADD COLUMN IF NOT EXISTS last_try_at TEXT DEFAULT ''",
         "ALTER TABLE time_punches ADD COLUMN IF NOT EXISTS category VARCHAR DEFAULT ''",
         "ALTER TABLE time_punches ADD COLUMN IF NOT EXISTS pending_at VARCHAR DEFAULT ''",
         "ALTER TABLE time_punches ADD COLUMN IF NOT EXISTS edit_reason VARCHAR DEFAULT ''",
@@ -816,15 +825,6 @@ async def lifespan(app: FastAPI):
             db.close()
     except Exception as e:
         print(f"[startup] letterhead seed skipped: {e}")
-    # Daily HR reminders (doc/visa expiry, contract ends, new starters,
-    # interviews, expiring e-sign) - dedupes per day, safe across restarts.
-    try:
-        import asyncio as _asyncio
-        from reminders import reminders_loop
-        _asyncio.create_task(reminders_loop())
-        print("[startup] daily reminders scheduled")
-    except Exception as e:
-        print(f"[startup] reminders skipped: {e}")
     # Asana sync fallback poll (webhooks handle real-time; this is the safety net).
     try:
         from asana_sync import start_auto_pull, is_sync_worker
@@ -844,74 +844,111 @@ async def lifespan(app: FastAPI):
                 print(f"[startup] asana import {outcome}")
     except Exception as e:
         print(f"[startup] asana import resume skipped: {e}")
-    # Ticket Notification workflow - retries failed/stuck Outlook emails and
-    # auto-closes long-resolved tickets. Same bare-asyncio-loop pattern as the
-    # HR reminders job above.
+    # Background jobs - HR reminders, ticket/task notification retries + due-date
+    # reminders, the long-session nudge - run on a SINGLE elected leader instance so
+    # scaling out to multiple web instances can't double-send. Asana sync above keeps
+    # its own advisory-lock gating. See leader.py.
+    def _start_background_jobs():
+        import asyncio as _a
+        _tasks = []
+        try:
+            from reminders import reminders_loop
+            _tasks.append(_a.create_task(reminders_loop()))
+        except Exception as e:
+            print(f"[startup] reminders skipped: {e}")
+        try:
+            from ticket_notify import ticket_notify_loop
+            _tasks.append(_a.create_task(ticket_notify_loop()))
+        except Exception as e:
+            print(f"[startup] ticket notification loop skipped: {e}")
+        try:
+            from task_notify import task_notify_loop
+            _tasks.append(_a.create_task(task_notify_loop()))
+        except Exception as e:
+            print(f"[startup] task notification loop skipped: {e}")
+        try:
+            from timeclock_watch import long_session_loop
+            _tasks.append(_a.create_task(long_session_loop()))
+        except Exception as e:
+            print(f"[startup] long-session watch skipped: {e}")
+        try:
+            from teams_post import teams_post_loop
+            _tasks.append(_a.create_task(teams_post_loop()))
+        except Exception as e:
+            print(f"[startup] teams post queue skipped: {e}")
+        # These two keep their own is_sync_worker() gate INSIDE the leader's job
+        # set, and the two gates answer different questions. Leader election stops
+        # several web instances doing the same work twice; is_sync_worker stops a
+        # developer's laptop doing it at all - and a laptop is exactly where the
+        # leader check does not help, since on SQLite there is no lease and the
+        # jobs simply run (see leader.py). A mailbox message read on a laptop is a
+        # message the deployed API never sees.
+        try:
+            from asana_sync import is_sync_worker as _is_sync_worker
+            if _is_sync_worker():
+                from task_inbound import task_inbound_loop
+                _tasks.append(_a.create_task(task_inbound_loop()))
+            else:
+                print("[startup] task inbound email drain skipped (not the sync worker)")
+        except Exception as e:
+            print(f"[startup] task inbound email drain skipped: {e}")
+        try:
+            from asana_sync import is_sync_worker as _is_sync_worker
+            if _is_sync_worker():
+                from construction_worker import construction_sweep_loop
+                _tasks.append(_a.create_task(construction_sweep_loop()))
+            else:
+                print("[startup] construction Egnyte sweep skipped (not the sync worker)")
+        except Exception as e:
+            print(f"[startup] construction sweep skipped: {e}")
+        print(f"[startup] background jobs started ({len(_tasks)} loops)")
+        return _tasks
     try:
         import asyncio as _asyncio
-        from ticket_notify import ticket_notify_loop
-        _asyncio.create_task(ticket_notify_loop())
-        print("[startup] ticket notification retry/auto-close loop scheduled")
+        import leader
+        _asyncio.create_task(leader.elect_and_run(_start_background_jobs))
+        print("[startup] background-jobs leader election started")
     except Exception as e:
-        print(f"[startup] ticket notification loop skipped: {e}")
-    # Task Notification workflow - retries failed/stuck Outlook emails and
-    # scans for due-date reminders. Same bare-asyncio-loop pattern as the
-    # Ticket Notification workflow above.
-    try:
-        import asyncio as _asyncio
-        from task_notify import task_notify_loop
-        _asyncio.create_task(task_notify_loop())
-        print("[startup] task notification retry/due-reminder loop scheduled")
-    except Exception as e:
-        print(f"[startup] task notification loop skipped: {e}")
-    # Task Inbound Email - drains the task mailbox and turns replies into
-    # comments. Gated on is_sync_worker() so no laptop reads the shared mailbox
-    # (a message read there is a message the deployed API never sees), and on
-    # inboundEnabled in task_notify_config, which is off until a mailbox with
-    # the Mail.ReadWrite grant exists. The gate admits all 8 gunicorn workers,
-    # so the drain itself takes a Postgres advisory lock (task_inbound.py).
-    try:
-        import asyncio as _asyncio
-        from asana_sync import is_sync_worker as _is_sync_worker
-        if _is_sync_worker():
-            from task_inbound import task_inbound_loop
-            _asyncio.create_task(task_inbound_loop())
-            print("[startup] task inbound email drain scheduled")
-        else:
-            print("[startup] task inbound email drain skipped (not the sync worker)")
-    except Exception as e:
-        print(f"[startup] task inbound email drain skipped: {e}")
-    # Time Clock long-session watch - nudges anyone clocked in 12+ hours
-    # ("still working, or forgot to punch out?"). Same bare-asyncio-loop
-    # pattern as the jobs above.
-    # Construction: files the Egnyte record copy for jobsite media. Gated on
-    # is_sync_worker() for the same reason the Asana pull is - every developer's
-    # laptop pointed at DATABASE_URL would otherwise claim the same rows and
-    # upload the same files. Note the gate admits all 8 gunicorn workers, so the
-    # sweep itself takes a Postgres advisory lock (construction_worker.py).
-    try:
-        import asyncio as _asyncio
-        from asana_sync import is_sync_worker as _is_sync_worker
-        if _is_sync_worker():
-            from construction_worker import construction_sweep_loop
-            _asyncio.create_task(construction_sweep_loop())
-            print("[startup] construction Egnyte sweep scheduled")
-        else:
-            print("[startup] construction Egnyte sweep skipped (not the sync worker)")
-    except Exception as e:
-        print(f"[startup] construction sweep skipped: {e}")
-
-    try:
-        import asyncio as _asyncio
-        from timeclock_watch import long_session_loop
-        _asyncio.create_task(long_session_loop())
-        print("[startup] time clock long-session watch scheduled")
-    except Exception as e:
-        print(f"[startup] long-session watch skipped: {e}")
+        print(f"[startup] leader election unavailable, running jobs directly: {e}")
+        _start_background_jobs()
     yield
 
 
 app = FastAPI(title="Nexus API", lifespan=lifespan)
+
+
+@app.middleware("http")
+async def _bff_csrf_guard(request, call_next):
+    """CSRF enforcement for BFF cookie-authenticated writes. The browser sends the
+    session cookie automatically, so a mutating request that carries it must ALSO
+    carry a matching X-CSRF-Token (double-submit). Bearer/token requests have no
+    session cookie and are immune to CSRF, so they pass untouched. SameSite=Lax
+    already blocks the common vector; this is defense in depth. Runs the DB check
+    in a thread so it never blocks the event loop."""
+    import bff_session
+    if (bff_session.configured()
+            and request.method in ("POST", "PUT", "PATCH", "DELETE")
+            and not request.url.path.startswith("/auth/")):
+        sid = request.cookies.get(bff_session.SESSION_COOKIE, "")
+        if sid:   # a cookie-authenticated write -> require a matching CSRF token
+            hdr = request.headers.get("X-CSRF-Token", "")
+
+            def _ok():
+                from database import SessionLocal
+                from models import ServerSession
+                db = SessionLocal()
+                try:
+                    row = db.query(ServerSession).filter(ServerSession.id == sid).first()
+                    return bool(row and hdr and hdr == row.csrf_token)
+                finally:
+                    db.close()
+
+            import asyncio
+            if not await asyncio.to_thread(_ok):
+                from starlette.responses import JSONResponse
+                return JSONResponse(status_code=403, content={"detail": "CSRF token missing or invalid"})
+    return await call_next(request)
+
 
 # Error tracking: inert without a DSN. Set NEXUS_SENTRY_DSN (and pip install
 # sentry-sdk) to stream unhandled exceptions to Sentry; until then the
@@ -982,6 +1019,60 @@ def health():
     return {"status": "ok"}
 
 
+@app.get("/health/ready")
+def health_ready():
+    """Deep READINESS probe for blue-green (Azure slot warm-up + swap): reports
+    'ready' only once the DB is actually reachable, so a slot swap / load-balancer
+    completes only when this instance can serve real traffic. Distinct from
+    /health (shallow liveness): a DB blip trips readiness -> drain traffic, without
+    tripping liveness -> which would needlessly restart the worker. No auth."""
+    from fastapi.responses import JSONResponse
+    from sqlalchemy import text
+    from database import SessionLocal
+    db = SessionLocal()
+    try:
+        db.execute(text("SELECT 1"))
+        return {"status": "ready"}
+    except Exception as e:  # noqa: BLE001 - readiness must report, not raise
+        return JSONResponse(status_code=503, content={"status": "not_ready", "detail": str(e)[:160]})
+    finally:
+        db.close()
+
+
+@app.get("/health/leader")
+def health_leader():
+    """No-auth readout of the background-job leader lease (see leader.py). After you
+    scale out to 2 instances, hit this on the site to eyeball who's running the loops:
+    `this_instance` is whoever answered THIS request (the LB may route you to either),
+    `leader` is the current lease holder, `is_this_instance_leader` says whether they're
+    the same, and `heartbeat_age_seconds` should stay under ~15s on a healthy leader
+    (over 45s means the leader went silent and another instance is about to take over)."""
+    import leader as _leader
+    from fastapi.responses import JSONResponse
+    from sqlalchemy import text
+    from database import SessionLocal
+    this_instance = _leader._INSTANCE
+    if _leader._IS_SQLITE:
+        return {"this_instance": this_instance, "leader": this_instance,
+                "is_this_instance_leader": True, "heartbeat_age_seconds": 0,
+                "note": "single-process (SQLite) - always leader, no lease"}
+    db = SessionLocal()
+    try:
+        row = db.execute(text(
+            "SELECT holder, round(extract(epoch FROM (now() - heartbeat_at))) AS age "
+            "FROM nexus_leader WHERE id = 1"
+        )).first()
+        holder = row[0] if row else None
+        age = int(row[1]) if row and row[1] is not None else None
+        return {"this_instance": this_instance, "leader": holder,
+                "is_this_instance_leader": holder == this_instance,
+                "heartbeat_age_seconds": age}
+    except Exception as e:  # noqa: BLE001 - readout must report, not raise
+        return JSONResponse(status_code=503, content={"detail": str(e)[:160]})
+    finally:
+        db.close()
+
+
 @app.get("/version")
 def version():
     return {"version": "2.0.0", "auth": "token-based"}
@@ -1032,4 +1123,7 @@ app.include_router(branding.router)       # Branding settings: login-screen acce
 app.include_router(egnyte.router)         # Egnyte: list/read/upload/search, one shared client
 from routers import client_errors          # noqa: E402
 app.include_router(client_errors.router)  # Client-side error intake -> audit trail + logs
+
+from routers import auth_bff               # noqa: E402  BFF login (dual-mode)
+app.include_router(auth_bff.router)        # /auth/login|callback|logout|me - inert without NEXUS_BFF_CLIENT_SECRET
 

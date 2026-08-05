@@ -3223,7 +3223,7 @@ def team_screenshots(date: str = "", email: str = "",
          "url": urls.get(s.storage_path, "")} for s in rows]}
 
 
-# ── Beginning-of-day message (recorded copy; Teams post happens client-side) ─
+# ── Beginning-of-day message (server-side Teams delivery; see teams_post.py) ─
 
 class BodIn(BaseModel):
     kind: Optional[str] = "bod"      # bod | eod
@@ -3233,26 +3233,66 @@ class BodIn(BaseModel):
     team_name: Optional[str] = ""
     channel_id: Optional[str] = ""
     channel_name: Optional[str] = ""
-    sent: Optional[bool] = False
+    sent: Optional[bool] = False     # legacy clients: True = they posted client-side
     send_error: Optional[str] = ""
     tz_offset_min: Optional[int] = 0
+    html: Optional[str] = ""         # composed Teams message -> server delivers it
 
 
 @router.post("/bod")
 def record_bod(body: BodIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     now = _now_iso()
+    kind = body.kind if body.kind in ("bod", "eod", "break") else "bod"
     row = TimeBod(id=str(uuid.uuid4()), employee_email=user["email"],
-                  kind=body.kind if body.kind in ("bod", "eod", "break") else "bod",
+                  kind=kind,
                   local_date=_local_date(now, body.tz_offset_min or 0),
                   message=(body.message or "").strip()[:1000],
                   tasks=(body.tasks or "").strip()[:2000],
                   team_id=(body.team_id or "")[:80], team_name=(body.team_name or "")[:120],
                   channel_id=(body.channel_id or "")[:120], channel_name=(body.channel_name or "")[:120],
                   sent=1 if body.sent else 0, send_error=(body.send_error or "")[:300],
-                  created_at=now)
+                  created_at=now, html=(body.html or "")[:8000], attempts=0, last_try_at="")
     db.add(row)
+    # A real BOD/EOD (not the "already sent elsewhere" skip marker) notifies the
+    # manager - one notification per employee per day, updated in place so a BOD
+    # then an EOD don't stack into two bell entries (see CLAUDE.md notification rule).
+    if kind in ("bod", "eod") and row.message != "(sent outside Nexus)":
+        emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == user["email"]).first()
+        if emp and emp.manager_email:
+            name = f"{emp.first_name} {emp.last_name}".strip() or user["email"]
+            other = (db.query(TimeBod)
+                     .filter(TimeBod.employee_email == user["email"],
+                             TimeBod.local_date == row.local_date,
+                             TimeBod.kind.in_(("bod", "eod")))
+                     .filter(TimeBod.id != row.id).first())
+            both = other is not None and other.kind != kind
+            body_text = (f"{name} submitted both BOD and EOD for {row.local_date}."
+                         if both else f"{name} submitted their {kind.upper()} for {row.local_date}.")
+            ref_id = f"{user['email']}:{row.local_date}"
+            existing = db.query(NexusNotification).filter(
+                NexusNotification.ref_id == ref_id,
+                NexusNotification.type == "custom_alert",
+                NexusNotification.recipient == emp.manager_email.strip().lower(),
+            ).first()
+            if existing:
+                existing.body = body_text
+                existing.read_by = ""   # a fresh EOD reopens a bell the manager already read
+            else:
+                _hr_notify(db, emp.manager_email, f"Beginning/End of day - {name}", body_text,
+                           ref_id=ref_id, action={"view": "hr", "sub": "hr-people"})
     db.commit()
-    return {"ok": True, "id": row.id}
+    # One inline delivery attempt so the common case lands in Teams before the
+    # toast shows. Sync endpoint = FastAPI threadpool, so blocking HTTP is fine
+    # here. Anything that fails stays queued - teams_post_loop retries until it
+    # delivers; the punch itself committed above regardless.
+    if (not row.sent) and row.channel_id and row.html:
+        try:
+            import teams_post
+            teams_post.deliver_row(db, row)
+        except Exception:
+            pass   # queued; the sweep owns it now
+    queued = (not row.sent) and bool(row.channel_id and row.html)
+    return {"ok": True, "id": row.id, "sent": bool(row.sent), "queued": queued}
 
 
 @router.get("/bod/last")
@@ -3294,6 +3334,42 @@ def bod_template(kind: str = "bod", user: dict = Depends(get_current_user),
                 "fromHistory": True}
     d = _BOD_DEFAULTS.get(k, _BOD_DEFAULTS["bod"])
     return {"message": d["message"], "tasks": d["tasks"], "fromHistory": False}
+
+
+@router.get("/bod/day")
+def bod_for_day(email: str, date: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """One day's Work Log for the timesheet drawer: that day's BOD/EOD plus the
+    actual punch in/out time. Self always allowed (like viewing your own
+    timecard); anyone else requires the same team-visibility a timesheet
+    review already needs - a level-3+ manager sees only their direct reports,
+    a level-4+/HR-module holder sees everyone, a plain employee sees no one."""
+    target = (email or "").strip().lower()
+    if not target or not date:
+        raise HTTPException(400, "email and date are required")
+    if target != user["email"]:
+        visible = _visible_emails(db, user)
+        if visible is not None and target not in visible:
+            raise HTTPException(403, "You don't have timesheet access to that person.")
+
+    rows = (db.query(TimeBod)
+            .filter(TimeBod.employee_email == target, TimeBod.local_date == date,
+                    TimeBod.kind.in_(("bod", "eod")), TimeBod.message != "(sent outside Nexus)")
+            .all())
+    bod = next((r for r in rows if r.kind == "bod"), None)
+    eod = next((r for r in rows if r.kind == "eod"), None)
+
+    punches = (db.query(TimePunch)
+               .filter(TimePunch.employee_email == target, TimePunch.local_date == date,
+                       TimePunch.voided == 0, TimePunch.kind.in_(("in", "out")))
+               .order_by(TimePunch.at.asc()).all())
+    punch_in_at = next((p.at for p in punches if p.kind == "in"), "")
+    punch_out_at = next((p.at for p in reversed(punches) if p.kind == "out"), "")
+
+    def ser(r):
+        return {"message": r.message or "", "tasks": r.tasks or ""} if r else None
+
+    return {"email": target, "date": date, "bod": ser(bod), "eod": ser(eod),
+            "punchInAt": punch_in_at, "punchOutAt": punch_out_at}
 
 
 # ── Time off (leave requests inside the Time module) ─────────────────────────

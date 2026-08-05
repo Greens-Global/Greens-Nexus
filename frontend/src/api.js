@@ -1,5 +1,6 @@
 import { msalInstance, msalReady } from './msalInstance';
 import { apiTokenRequest, loginRequest } from './authConfig';
+import { BFF_MODE, csrfToken, bffLogin } from './bffAuth';
 
 // Recover a dead session app-wide. When even a FORCE-refreshed token still 401s,
 // MSAL's silent hidden-iframe renewal is failing - modern browsers block the
@@ -28,9 +29,14 @@ function _maybeReauth() {
   msalInstance.loginRedirect(loginRequest).catch(() => { _reauthing = false; });
 }
 
-const BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
+// BFF cookie mode: all calls go same-origin to /api (the Cloudflare Pages
+// Function proxies to the backend, so the session cookie is first-party).
+// Default (flag off): the existing MSAL/Bearer flow against VITE_API_BASE.
+const BASE = BFF_MODE ? '/api' : (import.meta.env.VITE_API_BASE ?? "http://localhost:8000");
 
 async function getAuthHeader(forceRefresh = false) {
+  // BFF mode: identity rides the HttpOnly session cookie - no Bearer token.
+  if (BFF_MODE) return {};
   // Wait for MSAL to finish loading its cache before asking for a token.
   // Without this, acquireTokenSilent fails on first render and the request
   // goes out with no Authorization header, causing a 401.
@@ -200,11 +206,14 @@ async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
       res = await fetch(`${BASE}${path}`, {
         ...options,
         signal: controller.signal,
+        // BFF mode: send the session cookie; double-submit the CSRF token on writes.
+        ...(BFF_MODE ? { credentials: 'include' } : {}),
         headers: {
           // FormData bodies set their own multipart boundary - forcing JSON breaks them
           ...(options.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
           ...authHeader,
           ..._actAsHeader(),
+          ...(BFF_MODE && (options.method || 'GET').toUpperCase() !== 'GET' ? { 'X-CSRF-Token': csrfToken() } : {}),
           ...(options.headers ?? {}),
         },
       });
@@ -222,13 +231,16 @@ async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
     throw err;
   }
 
-  // On 401 (expired token), force-refresh MSAL token and retry once
-  if (res.status === 401 && !tokenRefreshed) {
+  // BFF mode: a 401 means the session cookie is dead/absent -> server-side login
+  // (the replacement for MSAL's token-refresh + interactive reauth).
+  if (res.status === 401 && BFF_MODE) {
+    bffLogin();
+  } else if (res.status === 401 && !tokenRefreshed) {
+    // On 401 (expired token), force-refresh MSAL token and retry once
     return req(path, options, attempt, true);
-  }
-  // Still 401 after a forced refresh: the token is dead and silent renewal can't
-  // fix it - recover with a guarded top-level interactive login.
-  if (res.status === 401 && tokenRefreshed) {
+  } else if (res.status === 401 && tokenRefreshed) {
+    // Still 401 after a forced refresh: the token is dead and silent renewal can't
+    // fix it - recover with a guarded top-level interactive login.
     _maybeReauth();
   }
   // Exponential backoff for 5xx - 1s, 2s, 4s - total ~7s before giving up.
@@ -290,6 +302,7 @@ async function reqBlob(path, options = {}, attempt = 1, tokenRefreshed = false) 
       res = await fetch(`${BASE}${path}`, {
         ...options,
         signal: controller.signal,
+        ...(BFF_MODE ? { credentials: 'include' } : {}),
         headers: { ...authHeader, ..._actAsHeader(), ...(options.headers ?? {}) },
       });
     } finally {
@@ -303,10 +316,11 @@ async function reqBlob(path, options = {}, attempt = 1, tokenRefreshed = false) 
     }
     throw err;
   }
-  if (res.status === 401 && !tokenRefreshed) {
+  if (res.status === 401 && BFF_MODE) {
+    bffLogin();
+  } else if (res.status === 401 && !tokenRefreshed) {
     return reqBlob(path, options, attempt, true);
-  }
-  if (res.status === 401 && tokenRefreshed) {
+  } else if (res.status === 401 && tokenRefreshed) {
     _maybeReauth();
   }
   if (res.status >= 500 && attempt < MAX_5XX_ATTEMPTS && _isRetryable(options)) {
@@ -768,6 +782,7 @@ export const api = {
 
   // HR - live assets (permanent assignments + active checkouts from Item Management)
   getEmployeeAssets: (id)      => req(`/hr/employees/${id}/assets`),
+  getEmployeeBod:    (id, start, end) => req(`/hr/employees/${id}/bod?start=${start || ''}&end=${end || ''}`),
   changeEmployeeStatus: (id, data) => req(`/hr/employees/${id}/status`, { method: 'POST', body: JSON.stringify(data) }),
 
   // HR - mailbox export (zip of .eml via Graph; needs Mail.Read consent)
@@ -861,6 +876,7 @@ export const api = {
   timeMonitoringPolicy:  () => req('/timeclock/monitoring/policy'),
   timeSetMonitoringPolicy: (data) => req('/timeclock/monitoring/policy', { method: 'PUT', body: JSON.stringify(data) }),
   timeTeamShots:     (date, email) => req(`/timeclock/team-screenshots?date=${date || ''}&email=${encodeURIComponent(email || '')}`),
+  timeBodDay:        (email, date) => req(`/timeclock/bod/day?email=${encodeURIComponent(email || '')}&date=${date || ''}`),
   timeMonitoringAlerts: () => req('/timeclock/monitoring/alerts'),
   // Punch-fix requests: employee asks, approver (HR/manager) approves/rejects
   timePunchRequestCreate: (data) => req('/timeclock/punch-requests', { method: 'POST', body: JSON.stringify(data) }),
@@ -1135,6 +1151,14 @@ export const api = {
   createConstructionRegisterItem: (projectId, kind, data) => req(`/construction/projects/${projectId}/register/${kind}`, { method: "POST", body: JSON.stringify(data) }),
   updateConstructionRegisterItem: (kind, id, data) => req(`/construction/register/${kind}/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
   deleteConstructionRegisterItem: (kind, id) => req(`/construction/register/${kind}/${id}`, { method: "DELETE" }),
+
+  // IT / UniFi network dashboard. These previously lived in IT.jsx as direct
+  // fetches to VITE_API_BASE with a self-acquired MSAL Bearer token, which broke
+  // in cookie mode (no Bearer exists -> 401 "Missing or invalid Authorization
+  // header"). Routed through req() they ride whichever auth mode is active.
+  unifiOverview:  ()       => req("/unifi/overview", { timeoutMs: 20_000 }),
+  unifiStats:     (siteId) => req(`/unifi/stats?siteId=${encodeURIComponent(siteId)}`, { timeoutMs: 20_000 }),
+  unifiExportCsv: (siteId) => reqBlob(`/unifi/export/csv?siteId=${encodeURIComponent(siteId)}`),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

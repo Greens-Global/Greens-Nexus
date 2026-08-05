@@ -13,6 +13,8 @@ import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { useTasks } from './TasksContext';
 import TaskDetailDrawer from './TaskDetailDrawer';
+// Shared US date/time helpers - no ad-hoc toLocale* calls (CLAUDE.md).
+import { formatDate, formatDateTime } from '../lib/datetime';
 import { NX, FONT, btn, input as inputStyle, card } from './theme';
 
 const fieldLabel = { display: 'block', fontSize: 12.5, fontWeight: 600, color: NX.dim, marginBottom: 6 };
@@ -340,7 +342,9 @@ function RepliesLog({ replyTo, enabled }) {
                 <span style={{ color: NX.faint, flexShrink: 0, width: 210, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.reason}>
                   {r.reason || ''}
                 </span>
-                <span style={{ color: NX.faint, flexShrink: 0 }}>{fmtWhen(r.processedAt)}</span>
+                <span style={{ color: NX.faint, flexShrink: 0 }} title={formatDateTime(r.receivedAt)}>
+                  {formatDate(r.processedAt)}
+                </span>
               </div>
             );
           })}
@@ -352,11 +356,6 @@ function RepliesLog({ replyTo, enabled }) {
   );
 }
 
-function fmtWhen(iso) {
-  if (!iso) return '';
-  const d = new Date(iso);
-  return isNaN(d) ? '' : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-}
 
 function DeliveryLog() {
   const [rows, setRows] = useState(null);

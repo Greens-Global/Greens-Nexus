@@ -3,6 +3,7 @@ import { SkeletonBlocks } from '../components/AsyncState';
 import { TrendingUp, TrendingDown, DollarSign, FileText, ArrowUpRight, ArrowDownRight, CreditCard, SlidersHorizontal, Download, Plus, X, UploadCloud, PiggyBank, Loader2, Check, Wallet, ClipboardList, Receipt, Plane, FileCheck, Landmark, BookOpen, Building2, Briefcase, RefreshCcw, LayoutGrid, Map, Layers, FileSignature, Users, Plug, Gift, Settings, Search, Columns3, CalendarDays, Ban, Lock } from 'lucide-react';
 import { api } from '../api';
 import ModuleTabs from '../components/ModuleTabs';
+import { formatDateLong } from '../lib/datetime';
 
 const INIT_TRX = [
   { id: 'TRX-1234', title: 'Project Payment - Downtown Complex', date: 'May 20, 2026', cost: 125000 },
@@ -400,7 +401,7 @@ export default function Accounting({ activeSub, onSubChange }) {
     const cost = parseFloat(invForm.cost) * (invForm.type === 'outflow' ? -1 : 1);
     const id = `TRX-${Math.floor(1000 + Math.random() * 9000)}`;
     const d = new Date(invForm.date);
-    const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    const dateStr = formatDateLong(d);
     setTrx(prev => [{ id, title: invForm.title, date: dateStr, cost }, ...prev]);
     setShowInvoiceModal(false);
     setInvForm({ title: '', type: 'outflow', cost: '', date: new Date().toISOString().split('T')[0] });

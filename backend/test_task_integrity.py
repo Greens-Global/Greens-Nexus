@@ -32,8 +32,7 @@ import models
 import asana_sync
 from routers.task_util import gen_id, now_iso
 from routers.tasks import (
-    delete_section, add_attachment, update_task, create_task,
-    AttachmentCreate, TaskUpdate, TaskCreate,
+    delete_section, add_attachment, update_task, AttachmentCreate, TaskUpdate,
 )
 
 USER = {"email": "sagar@greensglobal.com", "level": 3}
