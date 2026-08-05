@@ -18,7 +18,10 @@
   X-Content-Type-Options: nosniff
   X-Frame-Options: SAMEORIGIN
   Referrer-Policy: strict-origin-when-cross-origin
-  Permissions-Policy: camera=(), microphone=(), geolocation=(self)
+  # microphone=(self) not (): ticket/QA "Screen + narration" recordings capture
+  # mic audio; a blanket deny silently produced voiceless recordings. Camera
+  # stays denied - nothing in Nexus uses it.
+  Permissions-Policy: camera=(), microphone=(self), geolocation=(self)
   Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
 
 # The HTML entry must always revalidate so a deploy's new asset hashes are picked
