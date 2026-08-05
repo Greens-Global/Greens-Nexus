@@ -41,7 +41,7 @@ from reportlab.lib.units import mm
 from reportlab.pdfgen import canvas as _canvas
 from reportlab.platypus import (BaseDocTemplate, Frame, Image, KeepTogether,
                                 NextPageTemplate, PageBreak, PageTemplate,
-                                Paragraph, Spacer, Table, TableStyle)
+                                Paragraph, Table, TableStyle)
 
 import construction_report
 
