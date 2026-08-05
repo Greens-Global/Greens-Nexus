@@ -1,8 +1,11 @@
 import { useState, useEffect } from 'react';
+import { useMsal } from '@azure/msal-react';
 import { Sunrise, Sunset, Coffee, X, Send, Loader2, MessageSquare } from 'lucide-react';
 import { api } from '../api';
 import { msalInstance } from '../msalInstance';
 import { formatTime } from '../lib/datetime';
+import { useRole } from '../contexts/RoleContext';
+import { cleanName, emailToName } from '../lib/utils';
 
 // ── Beginning / End-of-day / Break message ────────────────────────────────────
 // BOD on first punch-in, EOD on punch-out, BREAK when stepping away. The message
@@ -52,6 +55,17 @@ const todayLocalKey = () => new Date(Date.now() - new Date().getTimezoneOffset()
 
 export default function BodModal({ mode = 'bod', required = false, onSent, onSkip, onClose, toastOk, toastErr }) {
   const M = MODES[mode] || MODES.bod;
+  const { accounts } = useMsal();
+  const { actingAs, realEmail } = useRole();
+  // Act As (Jul 2026): while impersonating, the post is still attributed to and
+  // sent as the TARGET employee (see act_as.py), but the real person at the
+  // keyboard must stay visible to the team - so an "on behalf of" line is
+  // appended naming the real actor. accounts[0] is always the REAL signed-in
+  // account (MSAL is untouched by the Act As overlay), so its name is who was
+  // really acting, not the target being impersonated.
+  const actingOnBehalfName = actingAs
+    ? cleanName(accounts[0]?.name) || emailToName(realEmail)
+    : '';
   const [message, setMessage] = useState('');
   const [tasks, setTasks] = useState('');
   const [pending, setPending] = useState('');        // EOD only - starts empty; empty = no section in the post
@@ -87,7 +101,8 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
   }, [mode]);
 
   function buildHtml(workedMin = 0) {
-    if (M.reasonOnly) return `I'm on a break${message.trim() ? ` for ${esc(message.trim())}` : ''}.`;
+    const onBehalf = actingOnBehalfName ? `<br/><i>On behalf of ${esc(actingOnBehalfName)}</i>` : '';
+    if (M.reasonOnly) return `I'm on a break${message.trim() ? ` for ${esc(message.trim())}` : ''}.${onBehalf}`;
     // Three-line header (spec, Jul 24):
     //   End of Day
     //   Fri, July 24th, 2026
@@ -105,7 +120,7 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
     const numbered = (lines) => lines.map((t, i) => `${i + 1}. ${esc(t)}`).join('<br/>');
     const taskLines = normalize(tasks);
     const pendingLines = mode === 'eod' ? normalize(pending) : [];
-    return `<b>${M.title}</b><br/>${dateStr}<br/>${timeStr}${tally}<br/><br/>${esc(message)}`
+    return `<b>${M.title}</b><br/>${dateStr}<br/>${timeStr}${tally}${onBehalf}<br/><br/>${esc(message)}`
       + (taskLines.length ? `<br/><br/><b>${M.tasksHead}</b><br/>${numbered(taskLines)}` : '')
       + (pendingLines.length ? `<br/><br/><b>Pending Tasks</b><br/>${numbered(pendingLines)}` : '');
   }
