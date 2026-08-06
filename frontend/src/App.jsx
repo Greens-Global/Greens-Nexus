@@ -263,7 +263,7 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
     case "inventory":          return <InventoryManagement activeSub={activeSub} onSubChange={onSubChange} onNavigate={onNavigate} />;
     case "admin":              return <Admin />;
     case "external-links":     return <ExternalLinks />;
-    case "support":            return <Support />;
+    case "support":            return <TasksProvider><Support /></TasksProvider>;
     case "timeclock":          return <TimeClock />;
     case "locations":          return <Locations />;
     case "myhr":               return <MyHR />;

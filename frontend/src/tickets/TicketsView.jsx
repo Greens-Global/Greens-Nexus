@@ -1313,7 +1313,7 @@ function readOnlyFieldValue(f, value, nameOf) {
   return String(value);
 }
 
-function TicketDrawer({ ticketId, onClose, myDeptIds }) {
+export function TicketDrawer({ ticketId, onClose, myDeptIds }) {
   const { tickets, tasks, projects = [],
     addTicketLink, removeTicketLink, escalateTicket, createTask, myEmail, nameOf, updateTicket, deleteTicket,
     refresh } = useTasks();
