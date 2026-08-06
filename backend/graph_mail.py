@@ -17,6 +17,7 @@ Ticket Notification workflow needs to store (delivery log, future threading).
 It costs one extra HTTP round-trip; for ticket emails (not high-volume
 transactional alerts) that's the right trade.
 """
+import base64
 import os
 import time
 
@@ -81,12 +82,19 @@ def access_token() -> str:
 
 
 def send_mail(*, from_email: str, to: list[str], cc: list[str] | None,
-              subject: str, html: str, reply_to: str = "") -> dict:
+              subject: str, html: str, reply_to: str = "",
+              attachments: list[tuple] | None = None) -> dict:
     """Sends one email; returns {messageId, conversationId, internetMessageId}
     on success. Raises GraphMailError on any failure (unconfigured, HTTP
     error, network error) - callers must catch this, never let it propagate
     into a ticket-mutating request (email delivery must never block a ticket
-    operation)."""
+    operation).
+
+    `attachments` is [(filename, content_type, bytes)] and is optional - every
+    existing caller sends none and is unaffected. These ride INLINE on the
+    message, which Graph accepts up to a few MB in total; a caller with
+    something larger has to either link to it or drive an upload session
+    itself (see construction_notify.MAX_ATTACH_BYTES, which links instead)."""
     if not from_email:
         raise GraphMailError("No sender mailbox configured (NexusSetting ticket_notify_config.fromMailbox / NEXUS_FROM_EMAIL)")
     if not to:
@@ -103,6 +111,13 @@ def send_mail(*, from_email: str, to: list[str], cc: list[str] | None,
             message["ccRecipients"] = [{"emailAddress": {"address": e}} for e in cc]
         if reply_to:
             message["replyTo"] = [{"emailAddress": {"address": reply_to}}]
+        if attachments:
+            message["attachments"] = [{
+                "@odata.type": "#microsoft.graph.fileAttachment",
+                "name": name,
+                "contentType": content_type or "application/octet-stream",
+                "contentBytes": base64.b64encode(raw).decode(),
+            } for name, content_type, raw in attachments]
 
         # 1) Create the draft - this response carries the ids we need to store.
         # NOTE: creating a draft WRITES to the mailbox, so it needs the

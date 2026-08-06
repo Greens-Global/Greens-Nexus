@@ -26,6 +26,7 @@ THREE THINGS THIS HAD TO GET RIGHT, none of them obvious:
 """
 import asyncio
 import os
+from datetime import date, datetime, timedelta, timezone
 
 import httpx
 
@@ -413,16 +414,105 @@ def run_ai_jobs_once() -> dict:
     return counts
 
 
+# ── Weekly draft scheduler ───────────────────────────────────────────────────
+# `report_day` and `week_starts_on` have been on ConstructionProject since the
+# module was written, documented as "the weekday the draft is cut" - and nothing
+# cut anything. A manager had to remember to press Generate, which is the manual
+# step the module exists to delete.
+
+
+def _model_weekday(d: date) -> int:
+    """ConstructionProject counts 0=Sunday..6=Saturday; Python counts
+    Monday=0..Sunday=6. Getting this backwards would cut every draft on the
+    wrong day, quietly."""
+    return (d.weekday() + 1) % 7
+
+
+def week_start_for(d: date, week_starts_on: int) -> date:
+    """The start of the week `d` falls in, for a project whose week begins on
+    `week_starts_on`. Crews run Sun-Sat or Mon-Sun depending on the payroll week
+    the superintendent already thinks in, so this is per project, not global."""
+    back = (_model_weekday(d) - (week_starts_on or 0)) % 7
+    return d - timedelta(days=back)
+
+
+def cut_due_drafts(today: date = None) -> dict:
+    """Draft this week's report for every project whose report day is today.
+
+    The draft covers the week IN PROGRESS - a Friday cut on a Mon-Sun project
+    reports Monday through today, so the manager edits over the weekend while
+    the week is still fresh. Waiting for the week to close would put the report
+    a full week behind the site.
+
+    Idempotent by existence, not by a timestamp: a project that already has a
+    report row for this week_start is skipped. That is what makes a restart, a
+    second tick in the same minute, or a manager who drafted it early all safe,
+    with no extra state to keep correct."""
+    counts = {"cut": 0, "skipped": 0, "failed": 0}
+    today = today or datetime.now(timezone.utc).date()
+    db = SessionLocal()
+    try:
+        _acquire_sweep_lock(db)   # same lock as the sweep: one worker cuts drafts
+        projects = (db.query(models.ConstructionProject)
+                    .filter(models.ConstructionProject.status == "active",
+                            models.ConstructionProject.archived == False,  # noqa: E712
+                            models.ConstructionProject.deleted_at == "").all())
+        for p in projects:
+            if _model_weekday(today) != (p.report_day if p.report_day is not None else 5):
+                continue
+            ws = week_start_for(today, p.week_starts_on or 0).isoformat()
+            existing = (db.query(models.ConstructionWeeklyReport)
+                        .filter(models.ConstructionWeeklyReport.project_id == p.id,
+                                models.ConstructionWeeklyReport.week_start == ws,
+                                models.ConstructionWeeklyReport.deleted_at == "").first())
+            if existing:
+                counts["skipped"] += 1
+                continue
+            try:
+                import construction_notify
+                import construction_report
+                # The same generator the Generate button calls. A second drafting
+                # path would drift from it - the mistake CLAUDE.md records
+                # against the Asana sync's two inbound paths.
+                r = construction_report.generate(db, p, ws, "system")
+                construction_notify.draft_cut(db, p, r)
+                db.commit()
+                counts["cut"] += 1
+            except Exception as e:
+                db.rollback()
+                # A model outage must not stop the next project being drafted,
+                # and must not mark this week done - tomorrow is a different
+                # weekday, so this project simply waits for next week unless a
+                # manager drafts it by hand. Loud, because that is a real gap.
+                print(f"[construction] draft failed for {p.name} week {ws}: {e}")
+                counts["failed"] += 1
+    except Exception as e:
+        db.rollback()
+        print(f"[construction] draft scheduler failed: {e}")
+    finally:
+        db.close()
+    return counts
+
+
 async def construction_sweep_loop() -> None:
     """Started from main.py's lifespan, gated on is_sync_worker().
 
     The try wraps only the to_thread call, never the sleep, so a bad tick can
     never kill the loop - same shape as reminders_loop / task_notify_loop."""
     await asyncio.sleep(_STARTUP_DELAY_SEC)
+    last_draft_day = ""
     while True:
         try:
             await asyncio.to_thread(sweep_once)
             await asyncio.to_thread(run_ai_jobs_once)
+            # Once a day, not every minute: the work is a model call per project
+            # and the existence check would otherwise re-run 1440 times to do
+            # nothing. The date string is the guard, so a restart re-checks today
+            # exactly once more - which the existence check absorbs.
+            today = datetime.now(timezone.utc).date().isoformat()
+            if today != last_draft_day:
+                await asyncio.to_thread(cut_due_drafts)
+                last_draft_day = today
         except Exception as e:
             print(f"[construction] sweep loop error: {e}")
         await asyncio.sleep(_LOOP_SEC)

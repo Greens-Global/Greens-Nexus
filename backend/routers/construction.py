@@ -27,10 +27,11 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+import construction_notify
 import models
 from auth import get_current_user
 from database import get_db
@@ -452,6 +453,9 @@ def submit_log(log_id: str, user: dict = Depends(get_current_user),
     _log_activity(db, project_id=p.id, entity_kind="log", entity_id=l.id,
                   type="submitted", actor_email=user["email"],
                   detail=f"{len(media)} attachment(s)")
+    # Bells go in the same transaction as the status change: a log that says
+    # "submitted" while nobody was told is the state this workflow cannot have.
+    construction_notify.log_submitted(db, p, l)
     db.commit()
     db.refresh(l)
     return {**log_to_dict(l), "queuedJobs": len(jobs) + 1}
@@ -487,6 +491,10 @@ def review_log(log_id: str, body: dict, user: dict = Depends(get_current_user),
     l.modified_at = l.reviewed_at
     _log_activity(db, project_id=p.id, entity_kind="log", entity_id=l.id,
                   type=decision, actor_email=user["email"], detail=l.review_note)
+    # The sent-back case is the whole reason this exists: review_note is a
+    # question for the person on site, and it used to be written to the row and
+    # shown to nobody.
+    construction_notify.log_reviewed(db, p, l)
     db.commit()
     db.refresh(l)
     return log_to_dict(l)
@@ -915,7 +923,8 @@ def update_report(report_id: str, body: dict, user: dict = Depends(get_current_u
 
 
 @router.post("/reports/{report_id}/publish")
-def publish_report(report_id: str, user: dict = Depends(get_current_user),
+def publish_report(report_id: str, background_tasks: BackgroundTasks,
+                   user: dict = Depends(get_current_user),
                    db: Session = Depends(get_db)):
     """Approve and publish in one act. Publishing freezes the report - later
     edits produce a new version rather than mutating what an executive may
@@ -934,6 +943,10 @@ def publish_report(report_id: str, user: dict = Depends(get_current_user),
                   detail=f"v{r.version} week of {r.week_start}")
     db.commit()
     db.refresh(r)
+    # Delivery runs after the response: rendering a PDF of jobsite photos and
+    # then waiting on Graph is not something the manager who pressed Publish
+    # should sit through, and a mail failure must never un-publish a report.
+    background_tasks.add_task(construction_notify.deliver_published_report, r.id)
     return report_to_dict(r)
 
 
