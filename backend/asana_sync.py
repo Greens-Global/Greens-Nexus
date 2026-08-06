@@ -46,6 +46,7 @@ from database import SessionLocal
 import models
 from routers.task_util import now_iso, gen_id, log_activity
 from asana_import import Asana, _request, ImportError_
+import task_files
 # Per-user Asana grants, so a pushed comment is attributed to its real author.
 # Safe at module level: asana_oauth imports asana_sync lazily (inside
 # redirect_uri) precisely to keep this from becoming a cycle.
@@ -2085,10 +2086,10 @@ def _pull_stories(db, asana, asana_gid, nexus_task_id, counts):
         counts["activities"] = counts.get("activities", 0) + 1
 
 
-# Small files are downloaded and stored inline as a data: URI (same as the
-# task_config.py one-shot importer); anything larger, or hosted externally
-# (Google Drive/Dropbox etc - host != "asana"), just keeps its Asana view URL
-# rather than pulling the bytes through this API.
+# Small files are downloaded and stored in Supabase Storage (task_files.py;
+# data: inline is only the no-storage-creds local fallback); anything larger,
+# or hosted externally (Google Drive/Dropbox etc - host != "asana"), just keeps
+# its Asana view URL rather than pulling the bytes through this API.
 _ATTACHMENT_MAX_BYTES = int(5 * 1024 * 1024)
 
 
@@ -2127,7 +2128,10 @@ def _pull_attachments(db, asana, asana_gid, nexus_task_id, counts, email_map=Non
                     with urllib.request.urlopen(dl, timeout=90) as r:
                         raw = r.read()
                     mime = mimetypes.guess_type(name)[0] or "application/octet-stream"
-                    url = f"data:{mime};base64,{base64.b64encode(raw).decode()}"
+                    # Bytes go to Supabase Storage, not into this row - inlining
+                    # them as data: URLs grew the prod DB to 5.9 GB (task_files.py).
+                    url = task_files.store_bytes(name, raw, mime) \
+                        or f"data:{mime};base64,{base64.b64encode(raw).decode()}"
                 except Exception:
                     url = a.get("view_url") or dl or ""
             else:

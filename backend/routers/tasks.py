@@ -24,6 +24,7 @@ from routers.task_util import (
     project_for_task, require_project_role,
 )
 from task_notify import notify_task_event
+from task_files import data_url_to_storage
 # Values are stored in the shape each field declares - see that function.
 from routers.task_config import coerce_custom_field_values
 
@@ -1096,8 +1097,15 @@ def add_attachment(task_id: str, body: AttachmentCreate, user: dict = Depends(ge
         if not parent or parent.task_id != task_id:
             raise HTTPException(422, "comment_id must be a comment on this task.")
     aid = gen_id()
+    # Small files arrive from the composer as base64 data: URLs. Store the bytes
+    # in Supabase Storage and keep only the link - inline bytes in this column
+    # once grew the prod DB to 5.9 GB (see task_files.py). Falls back to the
+    # inline URL if storage is unreachable, which is never worse than before.
+    url = body.url or ""
+    if url.startswith("data:"):
+        url = data_url_to_storage(body.name, url) or url
     a = models.TaskAttachment(id=aid, task_id=task_id, name=body.name, size=body.size or "",
-                              kind=body.kind or "other", url=body.url or "",
+                              kind=body.kind or "other", url=url,
                               added_at=now_iso(), added_by=user["email"],
                               comment_id=body.comment_id or "")
     db.add(a)
