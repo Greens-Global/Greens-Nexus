@@ -803,7 +803,14 @@ function uploadPendingAttachments(taskId, commentId, files) {
 // (imageFromPaste / filesFromPaste) - stages the image rather than uploading
 // immediately, since AttachmentsTab's version can upload on the spot (already
 // task-scoped) but a comment's attachment needs the comment's id first.
-function onPasteStage(e, setFiles) {
+//
+// Only for a paste that lands OUTSIDE the editor. The rich editor has its own
+// handlePaste that embeds an image inline and calls preventDefault, and that
+// event still bubbles out to this wrapper - so staging it again posted the same
+// screenshot twice, once inline in the body and once as an attachment card
+// below it. Deferring to the editor keeps the image where the writer put it.
+export function onPasteStage(e, setFiles) {
+  if (e.defaultPrevented || e.nativeEvent?.defaultPrevented) return;
   const files = filesFromPaste(e);
   if (files.length) { e.preventDefault(); setFiles((p) => [...p, ...files]); }
 }
