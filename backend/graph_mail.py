@@ -17,7 +17,10 @@ Ticket Notification workflow needs to store (delivery log, future threading).
 It costs one extra HTTP round-trip; for ticket emails (not high-volume
 transactional alerts) that's the right trade.
 """
+import base64
 import os
+import time
+
 import httpx
 
 _AZURE_TENANT_ID     = os.getenv("AZURE_TENANT_ID", "")
@@ -57,13 +60,41 @@ def _graph_token() -> str:
     return resp.json()["access_token"]
 
 
+_token_cache: tuple[str, float] = ("", 0.0)
+
+
+def access_token() -> str:
+    """The app-only Graph token, for callers that talk to Graph directly rather
+    than through send_mail - task_inbound.py reads the task mailbox. Same
+    reasoning as this module's docstring: one token-fetch, not a sixth copy.
+
+    Cached, unlike the send path: draining a mailbox is several Graph calls per
+    message (fetch, mark read, file it), and a token round trip in front of each
+    one would cost more than the work. Entra tokens last an hour; 45 minutes
+    leaves room for a slow batch to finish on the token it started with."""
+    global _token_cache
+    tok, expires = _token_cache
+    if tok and time.time() < expires:
+        return tok
+    tok = _graph_token()
+    _token_cache = (tok, time.time() + 45 * 60)
+    return tok
+
+
 def send_mail(*, from_email: str, to: list[str], cc: list[str] | None,
-              subject: str, html: str, reply_to: str = "") -> dict:
+              subject: str, html: str, reply_to: str = "",
+              attachments: list[tuple] | None = None) -> dict:
     """Sends one email; returns {messageId, conversationId, internetMessageId}
     on success. Raises GraphMailError on any failure (unconfigured, HTTP
     error, network error) - callers must catch this, never let it propagate
     into a ticket-mutating request (email delivery must never block a ticket
-    operation)."""
+    operation).
+
+    `attachments` is [(filename, content_type, bytes)] and is optional - every
+    existing caller sends none and is unaffected. These ride INLINE on the
+    message, which Graph accepts up to a few MB in total; a caller with
+    something larger has to either link to it or drive an upload session
+    itself (see construction_notify.MAX_ATTACH_BYTES, which links instead)."""
     if not from_email:
         raise GraphMailError("No sender mailbox configured (NexusSetting ticket_notify_config.fromMailbox / NEXUS_FROM_EMAIL)")
     if not to:
@@ -80,6 +111,13 @@ def send_mail(*, from_email: str, to: list[str], cc: list[str] | None,
             message["ccRecipients"] = [{"emailAddress": {"address": e}} for e in cc]
         if reply_to:
             message["replyTo"] = [{"emailAddress": {"address": reply_to}}]
+        if attachments:
+            message["attachments"] = [{
+                "@odata.type": "#microsoft.graph.fileAttachment",
+                "name": name,
+                "contentType": content_type or "application/octet-stream",
+                "contentBytes": base64.b64encode(raw).decode(),
+            } for name, content_type, raw in attachments]
 
         # 1) Create the draft - this response carries the ids we need to store.
         # NOTE: creating a draft WRITES to the mailbox, so it needs the

@@ -10,6 +10,7 @@ events show up in the global bell in TopHeader, not just inside the module.
 """
 import json
 import os
+import re
 import threading
 import uuid
 from datetime import datetime, timezone
@@ -18,7 +19,7 @@ import httpx
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from models import TaskNotification, TaskActivity, NexusRole, NexusNotification, TaskProject, TaskTeam, Task
+from models import TaskNotification, TaskActivity, NexusRole, NexusNotification, TaskProject, TaskTeam, Task, TaskComment
 
 _SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 _SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
@@ -230,3 +231,131 @@ def require_project_role(db: Session, user: dict, project, min_role: str) -> Non
     if PROJECT_ROLE_RANK.get(role, 0) < PROJECT_ROLE_RANK[min_role]:
         name = f'"{project.name}"' if project else "this project"
         raise HTTPException(403, f"You need at least {min_role} access to {name}.")
+
+
+def can_comment(db: Session, email: str, project) -> bool:
+    """Whether `email` may comment on `project` - the boolean form of
+    require_project_role(..., "commenter").
+
+    require_project_role speaks HTTP: it takes a request's `user` dict and
+    raises 403. A background worker acting on someone's behalf (the inbound
+    email ingester) has an address, not a request, and needs an answer rather
+    than an exception - but it must not therefore invent its own idea of who
+    may comment. Both forms resolve the role through project_role_for and
+    apply the same manager bypass, so there is one definition of the rule: a
+    manager who replies to a notification by email must not be refused where
+    the same person commenting in the drawer succeeds."""
+    email = (email or "").lower()
+    if not email:
+        return False
+    from auth import level_for      # local: auth imports models, not this module
+    if level_for(email, db) >= 3:   # is_manager's cutoff
+        return True
+    return PROJECT_ROLE_RANK.get(project_role_for(db, email, project), 0) >= PROJECT_ROLE_RANK["commenter"]
+
+
+# ── Comments ─────────────────────────────────────────────────────────────────
+_MENTION_RE = re.compile(r'href\s*=\s*["\']mailto:([^"\'>\s]+)["\']', re.I)
+
+
+def extract_mentions(html: str) -> list:
+    """Emails @mentioned in a comment.
+
+    The editor writes a mention as a mailto link (`<a href="mailto:x@y">@Name</a>`)
+    rather than a bespoke node type - that reuses the Link mark the editor
+    already has, needs no extra TipTap package, and degrades to a working
+    mailto: link anywhere the HTML is rendered plainly (including in the
+    notification email itself)."""
+    seen, out = set(), []
+    for m in _MENTION_RE.findall(html or ""):
+        e = m.strip().lower()
+        if e and "@" in e and e not in seen:
+            seen.add(e)
+            out.append(e)
+    return out
+
+
+def asana_push_comment(comment_id: str) -> None:
+    """Fire-and-forget outbound comment sync. Fully guarded."""
+    try:
+        from asana_sync import on_comment_added
+        on_comment_added(comment_id)
+    except Exception:
+        pass
+
+
+def create_comment(db: Session, task, *, actor_email: str, author_email: str = "",
+                   body: str = "", notify: bool = True, defer=None) -> TaskComment:
+    """Write one comment on `task` and fire every side effect that belongs to it:
+    the activity entry, the in-app bells, the realtime ping, the Asana push and
+    the notification emails (including the separate @mention mail).
+
+    THE one comment-creation path. `POST /tasks/{id}/comments` is a thin wrapper
+    over this and so is anything else that ever posts a comment - a comment that
+    arrives from outside has to land in all six places exactly like a typed one.
+    The Asana sync learned this the hard way (CLAUDE.md: never add a second
+    inbound path); a second copy here would drift the same way, and silently.
+
+    Callers own fetching `task` and checking permission (require_project_role
+    for a request, can_comment for a worker) - this function trusts both.
+
+    `actor_email`  who performed the action: drives the activity entry, who is
+                   excluded from the notifications, and the "who commented"
+                   line in the mail.
+    `author_email` who the comment is FROM when that differs from the actor -
+                   the Asana importer backfills historical comments under their
+                   original authors while acting as the importing user.
+                   Defaults to the actor.
+    `notify=False` posts silently - that same backfill, which must not ping
+                   assignees and followers about years-old comments.
+    `defer`        how to run the notification EMAILS, which make blocking
+                   Graph calls: a request passes `BackgroundTasks.add_task` so
+                   they run after the response is sent; a worker already off
+                   the event loop passes nothing and they run inline.
+
+    Commits, and returns the refreshed comment."""
+    run_after = defer or (lambda fn, *a, **kw: fn(*a, **kw))
+    actor = (actor_email or "").lower()
+    author = (author_email or actor_email or "").lower()
+    text = body or ""
+
+    cid = gen_id()
+    c = TaskComment(id=cid, task_id=task.id, author_email=author, body=text,
+                    created_at=now_iso(), edited_at="", pinned=False)
+    db.add(c)
+    task.comment_ids = list(task.comment_ids or []) + [cid]
+    task.modified_at = now_iso()   # so a delta fetch (GET /tasks/delta) picks this task up
+    aid = log_activity(db, type="commented", actor_email=actor, entity_id=task.id,
+                       entity_code=task.code, entity_title=task.title, detail="added a comment")
+    task.activity_ids = list(task.activity_ids or []) + [aid]
+    # notify assignee + followers (except author)
+    if notify:
+        for who in set([(task.assignee_email or "").lower(),
+                        *[(e or "").lower() for e in (task.follower_emails or [])]]):
+            if who and who != actor:
+                task_notify(db, kind="task_activity", for_email=who,
+                            title="New comment on a task", body=f"{task.title}", task_id=task.id,
+                            nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
+    db.commit()
+    db.refresh(c)
+    fire_task_event(task.id, "comment")
+    asana_push_comment(cid)
+    if notify:
+        # Lazy: task_notify.py imports this module, so importing it at module
+        # level here would be a cycle.
+        from task_notify import notify_task_event
+        run_after(notify_task_event, task.id, "commented", actor, comment_body=text)
+        # Mentions are their own event so the mail can say "X mentioned you"
+        # instead of the generic comment FYI. The author is dropped - mentioning
+        # yourself shouldn't email you.
+        mentioned = [e for e in extract_mentions(text) if e != actor]
+        if mentioned:
+            for who in mentioned:
+                task_notify(db, kind="task_activity", for_email=who,
+                            title="You were mentioned in a comment",
+                            body=f"{task.title}", task_id=task.id,
+                            nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
+            db.commit()
+            run_after(notify_task_event, task.id, "mentioned", actor,
+                      comment_body=text, mentioned=mentioned)
+    return c

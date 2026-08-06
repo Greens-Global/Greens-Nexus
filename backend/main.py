@@ -21,6 +21,7 @@ from routers import task_projects, task_config  # Task Module (Jul 2026)
 from routers import tickets as tickets_router    # Ticket Module - split out of task_config (Jul 2026)
 from routers import asana_webhook  # Asana two-way sync - public webhook receiver
 from routers import asana_oauth as asana_oauth_router  # Per-user Asana connection (Account Settings)
+from routers import construction  # Construction module - jobsite daily logs, media, weekly reports
 from routers import jobroles  # Roles & Access redesign (Jul 2026)
 from routers import access_scopes  # row-level scopes for external users (Jul 2026)
 from routers import qa  # Testing module - dev-only via NEXUS_QA_MODULE env (Jul 2026)
@@ -312,6 +313,7 @@ def _run_migrations():
             # already had. Empty = every project, so existing statuses are
             # unchanged until someone narrows one.
             "ALTER TABLE task_custom_statuses ADD COLUMN project_ids JSON DEFAULT '[]'",
+            "ALTER TABLE task_custom_statuses ADD COLUMN asana_option_gids JSON DEFAULT '[]'",
             # Setup-only Asana PAT; blank falls back to the service token.
             "ALTER TABLE asana_sync_config ADD COLUMN setup_token VARCHAR DEFAULT ''",
             "UPDATE task_teams SET project_ids = json_array(project_id) "
@@ -343,6 +345,11 @@ def _run_migrations():
             "ALTER TABLE asana_task_links ADD COLUMN last_push_hash VARCHAR DEFAULT ''",
             # Asana-side digest, so a pull only re-applies genuinely changed tasks.
             "ALTER TABLE asana_task_links ADD COLUMN last_inbound_hash VARCHAR DEFAULT ''",
+            # An emailed reply is matched back to its task by threading header
+            # when the signed reply address didn't survive the round trip - the
+            # lookup is per inbound message, so it needs the index.
+            "CREATE INDEX IF NOT EXISTS ix_task_email_log_imid ON task_email_log (internet_message_id)",
+            "CREATE INDEX IF NOT EXISTS ix_task_email_log_conv ON task_email_log (conversation_id)",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -662,6 +669,7 @@ def _run_migrations():
         # Custom statuses get the same per-project scoping custom fields already
         # had. Empty = every project, so existing statuses are unchanged.
         "ALTER TABLE task_custom_statuses ADD COLUMN IF NOT EXISTS project_ids JSONB DEFAULT '[]'::jsonb",
+        "ALTER TABLE task_custom_statuses ADD COLUMN IF NOT EXISTS asana_option_gids JSONB DEFAULT '[]'::jsonb",
         # Setup-only Asana PAT; blank falls back to the service token.
         "ALTER TABLE asana_sync_config ADD COLUMN IF NOT EXISTS setup_token VARCHAR DEFAULT ''",
         "UPDATE task_teams SET project_ids = jsonb_build_array(project_id) "
@@ -695,6 +703,40 @@ def _run_migrations():
         "ALTER TABLE kb_documents ADD COLUMN IF NOT EXISTS tags VARCHAR DEFAULT ''",
         "ALTER TABLE kb_documents ADD COLUMN IF NOT EXISTS related_ids VARCHAR DEFAULT ''",
         "ALTER TABLE kb_documents ADD COLUMN IF NOT EXISTS content_text TEXT DEFAULT ''",
+        # Construction module: RLS on every table create_all made.
+        #
+        # This is here rather than in a release checklist because a checklist is
+        # exactly what the recurring gap in CLAUDE.md is - `create_all` builds a
+        # new table with RLS OFF, and the backend never notices because it
+        # connects via the privileged DATABASE_URL and bypasses RLS entirely.
+        # The only thing RLS locks out is the public anon key, so a table that
+        # misses this step is silently world-readable to anyone holding it.
+        # ENABLE ROW LEVEL SECURITY is idempotent, so running it every boot on
+        # both dev and prod costs nothing and cannot be forgotten.
+        #
+        # No policies are added on purpose: RLS with zero policies denies all
+        # anon access, which is what every one of these tables wants. Nothing
+        # reads them except this API. Daily logs carry GPS traces and jobsite
+        # photos, and reports carry contract values.
+        "ALTER TABLE construction_projects ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE construction_daily_logs ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE construction_media ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE construction_ai_jobs ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE construction_weekly_reports ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE construction_milestones ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE construction_rfis ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE construction_submittals ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE construction_activity ENABLE ROW LEVEL SECURITY",
+        # An emailed reply is matched back to its task by threading header when
+        # the signed reply address didn't survive the round trip - the lookup is
+        # per inbound message, so it needs the index.
+        "CREATE INDEX IF NOT EXISTS ix_task_email_log_imid ON task_email_log (internet_message_id)",
+        "CREATE INDEX IF NOT EXISTS ix_task_email_log_conv ON task_email_log (conversation_id)",
+        # Task module: create_all makes this table with RLS OFF, and it holds
+        # the sender and subject of every reply mailed to the task mailbox.
+        # Same recurring gap CLAUDE.md records; idempotent, so it runs each boot
+        # on dev and prod rather than living in a release checklist.
+        "ALTER TABLE task_inbound_email ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -834,6 +876,31 @@ async def lifespan(app: FastAPI):
             _tasks.append(_a.create_task(teams_post_loop()))
         except Exception as e:
             print(f"[startup] teams post queue skipped: {e}")
+        # These two keep their own is_sync_worker() gate INSIDE the leader's job
+        # set, and the two gates answer different questions. Leader election stops
+        # several web instances doing the same work twice; is_sync_worker stops a
+        # developer's laptop doing it at all - and a laptop is exactly where the
+        # leader check does not help, since on SQLite there is no lease and the
+        # jobs simply run (see leader.py). A mailbox message read on a laptop is a
+        # message the deployed API never sees.
+        try:
+            from asana_sync import is_sync_worker as _is_sync_worker
+            if _is_sync_worker():
+                from task_inbound import task_inbound_loop
+                _tasks.append(_a.create_task(task_inbound_loop()))
+            else:
+                print("[startup] task inbound email drain skipped (not the sync worker)")
+        except Exception as e:
+            print(f"[startup] task inbound email drain skipped: {e}")
+        try:
+            from asana_sync import is_sync_worker as _is_sync_worker
+            if _is_sync_worker():
+                from construction_worker import construction_sweep_loop
+                _tasks.append(_a.create_task(construction_sweep_loop()))
+            else:
+                print("[startup] construction Egnyte sweep skipped (not the sync worker)")
+        except Exception as e:
+            print(f"[startup] construction sweep skipped: {e}")
         try:
             # One-shot: drains task attachments inlined as data: URLs into
             # Supabase Storage (5.7 GB of the prod DB), then exits. Idempotent.
@@ -1053,6 +1120,7 @@ app.include_router(tickets_router.router) # Ticket Module: tickets, conversation
 app.include_router(credvault.router)      # Credential Vault: encrypted company/personal secrets ("credvault" grant)
 app.include_router(asana_webhook.router)  # Asana two-way sync: public webhook receiver (verified by HMAC)
 app.include_router(asana_oauth_router.router)         # Per-user Asana connection (signed-in user, own grant only)
+app.include_router(construction.router)  # Construction: projects, daily logs, jobsite media
 app.include_router(asana_oauth_router.public_router)  # OAuth callback - Asana redirects a browser here, no bearer token
 app.include_router(policy.router)         # Sign-in company-policy & monitoring acknowledgment
 app.include_router(investor_relations.router)  # Investor Relations: funds/investors/commitments/calls/distributions

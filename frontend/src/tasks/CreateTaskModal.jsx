@@ -10,6 +10,7 @@ import { Modal, PersonSelect, usePeople, DateField, useIsMobile } from './compon
 import { ProjectCreateModal } from './ProjectsView';
 import { CustomFieldInput } from './TaskDetailDrawer';
 import { filesFromPaste, teamInProject, fieldsForProject } from './lib';
+import ProjectPicker from './ProjectPicker';
 import RichDescription from './RichDescription';
 import { NX, FONT, input, btn, STATUS_META, PRIORITY_META, STATUS_ORDER, PRIORITY_ORDER } from './theme';
 
@@ -219,19 +220,24 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
             <>
               <div style={field}>
                 <label style={label}>Project {!isEdit && req}</label>
-                <select value={form.projectId} onChange={(e) => {
-                  if (e.target.value === '__new') { setCreatingProject(true); return; }
-                  // Pre-fill Team from the project when there's exactly one
-                  // associated team - with several there's no right answer, so
-                  // it stays blank and the picker below lists them.
-                  const pid = e.target.value;
-                  const own = teams.filter((t) => teamInProject(t, pid));
-                  setForm((f) => ({ ...f, projectId: pid, teamId: own.length === 1 ? own[0].id : '' }));
-                }} style={{ ...sel, ...missStyle('project') }}>
-                  <option value="">{isEdit ? 'No project' : 'Select a project…'}</option>
-                  {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                  <option value="__new">＋ Create new project…</option>
-                </select>
+                {/* Was a bare <select> of every project in database order. With
+                    ~30 of them that is the "unorganized and difficult" the end
+                    user reported: the ones you work in are ordered first, the
+                    rest follow alphabetically, and search covers the tail. */}
+                <ProjectPicker
+                  projects={projects} teams={teams} myEmail={myEmail}
+                  value={form.projectId}
+                  invalid={missing.includes('project')}
+                  allowNone={isEdit} noneLabel="No project"
+                  placeholder={isEdit ? 'No project' : 'Select a project…'}
+                  onCreateNew={() => setCreatingProject(true)}
+                  onChange={(pid) => {
+                    // Pre-fill Team from the project when there's exactly one
+                    // associated team - with several there's no right answer, so
+                    // it stays blank and the picker below lists them.
+                    const own = teams.filter((t) => teamInProject(t, pid));
+                    setForm((f) => ({ ...f, projectId: pid, teamId: own.length === 1 ? own[0].id : '' }));
+                  }} />
               </div>
               <div style={field}>
                 <label style={label}>Team</label>
@@ -308,7 +314,8 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
           <div style={field}>
             <label style={label}>Status</label>
             <select value={form.recurFreq !== 'none' ? 'recurring' : form.status} onChange={(e) => set('status', e.target.value)} disabled={form.recurFreq !== 'none'} style={{ ...sel, ...(form.recurFreq !== 'none' ? { opacity: 0.7, cursor: 'not-allowed' } : {}) }}>
-              {store.statusOrder.map((s) => <option key={s} value={s}>{store.statusMeta[s]?.label || s}</option>)}
+              {/* Follows the chosen project, same as activeFields above. */}
+              {(store.statusOrderFor ? store.statusOrderFor(lockedProjectId || form.projectId) : store.statusOrder).map((s) => <option key={s} value={s}>{store.statusMeta[s]?.label || s}</option>)}
             </select>
             {form.recurFreq !== 'none' && <span style={{ fontSize: 11, color: NX.faint, marginTop: 3 }}>Recurring tasks are always “Recurring”.</span>}
           </div>

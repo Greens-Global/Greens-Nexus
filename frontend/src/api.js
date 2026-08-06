@@ -473,6 +473,10 @@ export const api = {
   getTaskNotifySettings: () => req("/tasks/notify/settings"),
   updateTaskNotifySettings: (patch) => req("/tasks/notify/settings", { method: "PUT", body: JSON.stringify(patch) }),
   getTaskNotifyLog: (params = {}) => req(`/tasks/notify/log?${new URLSearchParams(params).toString()}`),
+  // Replies mailed back to a task notification (manager+). The drain normally
+  // runs itself every minute on the deployed API; this triggers one pass now.
+  getTaskInboundLog: (params = {}) => req(`/tasks/inbound/log?${new URLSearchParams(params).toString()}`),
+  drainTaskInbox: () => req("/tasks/inbound/drain", { method: "POST" }),
   // Ticket components / categories
   getTicketComponents: () => req("/task-ticket-components"),
   addTicketComponent: (data) => req("/task-ticket-components", { method: "POST", body: JSON.stringify(data) }),
@@ -1110,6 +1114,45 @@ export const api = {
   revokeIrPortalAccess: (investorId, fundId) => req(`/investor-relations/portal-access/${investorId}/${fundId}`, { method: "DELETE" }),
   getIrPortalMyDeals:   ()       => req("/investor-relations/portal/my-deals"),
   getIrPortalDeal:      (fundId) => req(`/investor-relations/portal/deals/${fundId}`),
+
+  // ── Construction module ────────────────────────────────────────────────────
+  // Media bytes are NOT in this list on purpose: the browser uploads straight to
+  // Supabase and only the resulting path is registered through
+  // createConstructionMedia. Routing a 100 MB clip through the API would hold it
+  // in a gunicorn worker's memory for the length of a jobsite LTE upload.
+  // One-time repair, not a sync step. Asana's "Task Progress" is usually a
+  // PER-PROJECT field, so each project's "Waiting" arrived with its own option
+  // gid and minted its own row. Idempotent - a no-op once merged.
+  dedupeTaskCustomStatuses: () => req("/tasks/meta/custom-statuses/dedupe", { method: "POST" }),
+
+  getConstructionOverview: () => req("/construction/overview"),
+  getConstructionProjects: () => req("/construction/projects"),
+  createConstructionProject: (data) => req("/construction/projects", { method: "POST", body: JSON.stringify(data) }),
+  updateConstructionProject: (id, data) => req(`/construction/projects/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  getConstructionReviewQueue: () => req("/construction/review-queue"),
+  getConstructionReports: (projectId) => req(`/construction/projects/${projectId}/reports`),
+  generateConstructionReport: (projectId, data) => req(`/construction/projects/${projectId}/reports/generate`, { method: "POST", body: JSON.stringify(data) }),
+  updateConstructionReport: (reportId, data) => req(`/construction/reports/${reportId}`, { method: "PATCH", body: JSON.stringify(data) }),
+  publishConstructionReport: (reportId) => req(`/construction/reports/${reportId}/publish`, { method: "POST" }),
+  // reqBlob, not a plain link: the endpoint is bearer-authenticated, and an
+  // <a href> carries no Authorization header - it would just 401.
+  exportConstructionReportPdf: (reportId) => reqBlob(`/construction/reports/${reportId}/pdf`),
+  getConstructionLogs:  (projectId) => req(`/construction/projects/${projectId}/logs`),
+  startConstructionLog: (projectId, data) => req(`/construction/projects/${projectId}/logs`, { method: "POST", body: JSON.stringify(data) }),
+  updateConstructionLog: (logId, data) => req(`/construction/logs/${logId}`, { method: "PATCH", body: JSON.stringify(data) }),
+  submitConstructionLog: (logId) => req(`/construction/logs/${logId}/submit`, { method: "POST" }),
+  reviewConstructionLog: (logId, data) => req(`/construction/logs/${logId}/review`, { method: "POST", body: JSON.stringify(data) }),
+  getConstructionMedia: (logId) => req(`/construction/logs/${logId}/media`),
+  createConstructionMedia: (logId, data) => req(`/construction/logs/${logId}/media`, { method: "POST", body: JSON.stringify(data) }),
+  deleteConstructionMedia: (mediaId) => req(`/construction/media/${mediaId}`, { method: "DELETE" }),
+  // Milestones, RFIs and submittals share one set of endpoints - `kind` is one
+  // of 'milestones' | 'rfis' | 'submittals'. Namespaced under /register/ so the
+  // wildcard segment cannot shadow /projects/{id}/reports or /reports/{id};
+  // route matching is registration-ordered and that would break silently.
+  getConstructionRegister: (projectId, kind) => req(`/construction/projects/${projectId}/register/${kind}`),
+  createConstructionRegisterItem: (projectId, kind, data) => req(`/construction/projects/${projectId}/register/${kind}`, { method: "POST", body: JSON.stringify(data) }),
+  updateConstructionRegisterItem: (kind, id, data) => req(`/construction/register/${kind}/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  deleteConstructionRegisterItem: (kind, id) => req(`/construction/register/${kind}/${id}`, { method: "DELETE" }),
 
   // IT / UniFi network dashboard. These previously lived in IT.jsx as direct
   // fetches to VITE_API_BASE with a self-acquired MSAL Bearer token, which broke
