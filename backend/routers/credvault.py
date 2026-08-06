@@ -17,18 +17,20 @@ import base64
 import hashlib
 import os
 import re
+import secrets as _secrets
 import uuid
 from datetime import datetime, timezone, timedelta
 
+import httpx
 from cryptography.fernet import Fernet, InvalidToken
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+import graph_mail
 import models
 from database import get_db
 from auth import get_current_user, require_module_grant, _module_level, _MODULE_LEVEL_RANK
-from routers.stepup import require_stepup
 
 router = APIRouter(
     prefix="/credvault",
@@ -124,6 +126,209 @@ def _days_until(iso: str):
         return (datetime.fromisoformat(iso) - datetime.now(timezone.utc)).days
     except ValueError:
         return None
+
+
+def _seconds_since(iso: str) -> float:
+    try:
+        return (datetime.now(timezone.utc) - datetime.fromisoformat(iso)).total_seconds()
+    except (ValueError, TypeError):
+        return 999999
+
+
+# ── SMS / Email OTP (Aug 2026) ──────────────────────────────────────────────
+# Replaces step-up MFA for company-vault reveal/share: instead of forcing a
+# fresh Entra re-login, the user picks SMS or Email and types the 6-digit code
+# they receive. A verified code opens a VaultOtpSession (short burst, mirrors
+# StepUpSession) that require_vault_otp checks.
+OTP_SESSION_TTL_SEC = int(os.getenv("NEXUS_VAULT_OTP_TTL_SEC", "300"))     # how long a verified code unlocks reveal/share
+OTP_CODE_TTL_SEC    = 600     # 10 minutes to type the code in
+OTP_MAX_ATTEMPTS    = 5
+OTP_RESEND_COOLDOWN_SEC = 30
+PERSONAL_UNLOCK_TTL_SEC = int(os.getenv("NEXUS_VAULT_PERSONAL_TTL_SEC", "600"))  # server ceiling; the UI auto-locks sooner (2 min idle)
+
+# sent.dm SMS - account is still pending 10DLC compliance approval as of Aug
+# 2026 (see the "Update Compliance Information" email). Until SENTDM_API_KEY
+# is set, SMS is STUBBED: the code is logged server-side (and, off Azure only,
+# returned to the caller as `devCode`) instead of actually being texted - so
+# the whole flow is wired end-to-end and going live is just adding the key.
+# https://docs.sent.dm/start/guides/sending-messages
+_SENTDM_API_KEY = os.getenv("SENTDM_API_KEY", "").strip()
+_SENTDM_URL = "https://api.sent.dm/v3/messages"
+
+
+def _gen_otp_code() -> str:
+    return f"{_secrets.randbelow(1000000):06d}"
+
+
+def _hash_otp_code(challenge_id: str, code: str) -> str:
+    # Salted with the (unguessable) challenge id - a leaked hash alone isn't
+    # brute-forceable offline without also knowing which challenge it pairs with.
+    return hashlib.sha256(f"{challenge_id}:{code}".encode()).hexdigest()
+
+
+def _mask_email(email: str) -> str:
+    if "@" not in (email or ""):
+        return "••••"
+    user, dom = email.split("@", 1)
+    return (user[:1] + "•" * max(2, len(user) - 1)) + "@" + dom
+
+
+def _mask_phone(phone: str) -> str:
+    digits = re.sub(r"\D", "", phone or "")
+    return "•••• " + digits[-4:] if len(digits) >= 4 else "••••"
+
+
+def _hash_password(password: str) -> str:
+    salt = _secrets.token_hex(16)
+    dk = hashlib.pbkdf2_hmac("sha256", password.encode(), bytes.fromhex(salt), 100_000)
+    return f"{salt}${dk.hex()}"
+
+
+def _verify_password(password: str, stored: str) -> bool:
+    try:
+        salt, hexhash = (stored or "").split("$", 1)
+    except ValueError:
+        return False
+    dk = hashlib.pbkdf2_hmac("sha256", (password or "").encode(), bytes.fromhex(salt), 100_000)
+    return _secrets.compare_digest(dk.hex(), hexhash)
+
+
+def _send_sms_or_stub(phone: str, text: str, code: str) -> str:
+    """Sends via sent.dm when configured. Returns the code when it instead ran
+    the dev stub (so local testing works without a live SMS account) - the
+    caller surfaces that as `devCode`; empty string means a real send happened."""
+    if _SENTDM_API_KEY:
+        try:
+            resp = httpx.post(
+                _SENTDM_URL, json={"to": [phone], "text": text, "channel": ["sms"]},
+                headers={"x-api-key": _SENTDM_API_KEY, "Content-Type": "application/json"},
+                timeout=10,
+            )
+            resp.raise_for_status()
+        except Exception as e:
+            print(f"[credvault] sent.dm SMS failed: {e}")
+            raise HTTPException(502, "Could not send the SMS code - please try Email instead.")
+        return ""
+    if _ON_AZURE:
+        print("[credvault] SENTDM_API_KEY not set on a DEPLOYED API - SMS code NOT sent (fail-closed)")
+        raise HTTPException(503, "SMS verification isn't configured on this deployment yet - use Email instead.")
+    print(f"[credvault] SMS STUB (SENTDM_API_KEY not set) - code for {phone}: {code}")
+    return code
+
+
+def _send_email_otp(to_email: str, code: str) -> str:
+    """Sends via Microsoft Graph when configured. Returns the code when it
+    instead ran the dev stub (Graph app-only creds absent locally); empty
+    string means a real send happened."""
+    if graph_mail.graph_configured():
+        try:
+            graph_mail.send_mail(
+                from_email=graph_mail.DEFAULT_FROM_EMAIL, to=[to_email], cc=None,
+                subject="Your Credential Vault verification code",
+                html=(f"<p>Your Greens Nexus Credential Vault verification code is:</p>"
+                      f"<p style='font-size:28px;font-weight:700;letter-spacing:6px'>{code}</p>"
+                      f"<p>This code expires in 10 minutes. If you didn't request this, you can ignore this email.</p>"),
+            )
+        except graph_mail.GraphMailError as e:
+            print(f"[credvault] OTP email failed: {e}")
+            raise HTTPException(502, "Could not send the email code - please try SMS instead.")
+        return ""
+    if _ON_AZURE:
+        print("[credvault] Graph mail not configured on a DEPLOYED API - OTP email NOT sent (fail-closed)")
+        raise HTTPException(503, "Email verification isn't configured on this deployment yet - use SMS instead.")
+    print(f"[credvault] EMAIL STUB (Graph not configured) - code for {to_email}: {code}")
+    return code
+
+
+def _create_otp_challenge(db: Session, email: str, purpose: str, channel: str) -> dict:
+    """Shared by /otp/request and /personal/lock/forgot. Raises on send failure
+    (nothing is persisted in that case) or if a resend is requested too soon."""
+    recent = (db.query(models.VaultOtpChallenge)
+              .filter(models.VaultOtpChallenge.email == email, models.VaultOtpChallenge.purpose == purpose,
+                      models.VaultOtpChallenge.consumed_at == "")
+              .order_by(models.VaultOtpChallenge.created_at.desc()).first())
+    if recent and _seconds_since(recent.created_at) < OTP_RESEND_COOLDOWN_SEC:
+        wait = int(OTP_RESEND_COOLDOWN_SEC - _seconds_since(recent.created_at))
+        raise HTTPException(429, f"Please wait {max(1, wait)}s before requesting another code.")
+
+    code = _gen_otp_code()
+    cid = str(uuid.uuid4())
+    phone = ""
+    if channel == "sms":
+        emp = db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email == email).first()
+        phone = (emp.phone if emp else "").strip()
+        if not phone:
+            raise HTTPException(400, "No phone number on file for SMS - use Email instead, or ask HR to add one.")
+        dev_code = _send_sms_or_stub(phone, f"Your Greens Nexus Credential Vault code is {code}. It expires in 10 minutes.", code)
+        target, masked = phone, _mask_phone(phone)
+    else:
+        channel = "email"
+        dev_code = _send_email_otp(email, code)
+        target, masked = email, _mask_email(email)
+
+    db.add(models.VaultOtpChallenge(
+        id=cid, email=email, purpose=purpose, channel=channel, target=target,
+        code_hash=_hash_otp_code(cid, code), attempts=0, consumed_at="",
+        expires_at=(datetime.now(timezone.utc) + timedelta(seconds=OTP_CODE_TTL_SEC)).isoformat(),
+        created_at=_now(),
+    ))
+    db.commit()
+    resp = {"challengeId": cid, "channel": channel, "target": masked, "expiresInSec": OTP_CODE_TTL_SEC}
+    if dev_code:
+        resp["devCode"] = dev_code
+    return resp
+
+
+def _consume_otp_challenge(db: Session, challenge_id: str, email: str, purpose: str, code: str) -> models.VaultOtpChallenge:
+    """Validates + marks a challenge consumed. Raises with a user-facing message
+    on any failure; never returns a still-usable challenge."""
+    ch = db.get(models.VaultOtpChallenge, challenge_id)
+    if not ch or ch.email != email or ch.purpose != purpose:
+        raise HTTPException(404, "Verification code not found - request a new one.")
+    if ch.consumed_at:
+        raise HTTPException(400, "This code was already used - request a new one.")
+    if ch.expires_at <= _now():
+        raise HTTPException(400, "This code has expired - request a new one.")
+    if ch.attempts >= OTP_MAX_ATTEMPTS:
+        raise HTTPException(429, "Too many incorrect attempts - request a new one.")
+    if _hash_otp_code(ch.id, (code or "").strip()) != ch.code_hash:
+        ch.attempts += 1
+        db.commit()
+        left = OTP_MAX_ATTEMPTS - ch.attempts
+        raise HTTPException(400, f"Incorrect code ({left} attempt{'s' if left != 1 else ''} left).")
+    ch.consumed_at = _now()
+    return ch
+
+
+def require_vault_otp(user: dict = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
+    """Dependency: admit the request only if the caller holds an unexpired,
+    verified SMS/Email OTP session. Gates company credential reveal/share -
+    the CredVault-native replacement for step-up MFA on those actions."""
+    row = (db.query(models.VaultOtpSession)
+           .filter(models.VaultOtpSession.email == user["email"], models.VaultOtpSession.purpose == "reveal_share",
+                   models.VaultOtpSession.expires_at > _now())
+           .order_by(models.VaultOtpSession.expires_at.desc()).first())
+    if row:
+        return user
+    raise HTTPException(status_code=403, detail={
+        "code": "vault_otp_required",
+        "message": "Please verify via SMS or Email to continue.",
+    })
+
+
+def require_personal_unlock(user: dict = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
+    """Dependency: admit the request only if the caller's Personal Vault is
+    currently unlocked (correct password entered recently)."""
+    row = (db.query(models.VaultPersonalUnlockSession)
+           .filter(models.VaultPersonalUnlockSession.email == user["email"],
+                   models.VaultPersonalUnlockSession.expires_at > _now())
+           .order_by(models.VaultPersonalUnlockSession.expires_at.desc()).first())
+    if row:
+        return user
+    raise HTTPException(status_code=403, detail={
+        "code": "personal_vault_locked",
+        "message": "Unlock your Personal Vault with your password to continue.",
+    })
 
 
 def _is_admin(user: dict) -> bool:
@@ -401,10 +606,10 @@ def purge_credential(cred_id: str, user: dict = Depends(get_current_user), db: S
 
 @router.post("/credentials/{cred_id}/reveal")
 def reveal_credential(cred_id: str, user: dict = Depends(get_current_user),
-                      _su: dict = Depends(require_stepup), db: Session = Depends(get_db)):
+                      _otp: dict = Depends(require_vault_otp), db: Session = Depends(get_db)):
     """The ONLY way a company secret leaves the server (besides grant reveal).
-    Requires a fresh step-up MFA (require_stepup). Critical tier + non-admin →
-    creates an approval request instead."""
+    Requires a fresh SMS/Email OTP verification (require_vault_otp). Critical
+    tier + non-admin → creates an approval request instead."""
     c = _get_cred(cred_id, db)
     if c.deleted_at:
         raise HTTPException(400, "Credential is in the trash")
@@ -488,8 +693,10 @@ class ShareIn(BaseModel):
 
 
 @router.post("/credentials/{cred_id}/share")
-def share_credential(cred_id: str, body: ShareIn,
-                     user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+def share_credential(cred_id: str, body: ShareIn, user: dict = Depends(get_current_user),
+                     _otp: dict = Depends(require_vault_otp), db: Session = Depends(get_db)):
+    """Requires a fresh SMS/Email OTP verification (require_vault_otp), same as
+    reveal - sharing a secret is just as sensitive as viewing it."""
     c = _get_cred(cred_id, db)
     if c.deleted_at:
         raise HTTPException(400, "Credential is in the trash")
@@ -617,7 +824,7 @@ def list_grants(user: dict = Depends(get_current_user), db: Session = Depends(ge
 
 @router.post("/grants/{grant_id}/reveal")
 def reveal_grant(grant_id: str, user: dict = Depends(get_current_user),
-                 _su: dict = Depends(require_stepup), db: Session = Depends(get_db)):
+                 _otp: dict = Depends(require_vault_otp), db: Session = Depends(get_db)):
     g = db.get(models.VaultAccessGrant, grant_id)
     if not g or g.granted_to != user["email"]:
         raise HTTPException(404, "Grant not found")
@@ -644,7 +851,129 @@ def list_logs(user: dict = Depends(get_current_user), db: Session = Depends(get_
     } for r in rows]
 
 
+# ── SMS / Email OTP - gates company reveal/share (see require_vault_otp) ─────
+class OtpRequestIn(BaseModel):
+    channel: str = "email"   # sms | email
+
+
+class OtpVerifyIn(BaseModel):
+    challengeId: str = ""
+    code: str = ""
+
+
+@router.get("/otp/targets")
+def otp_targets(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Which channels are available for THIS user, with masked destinations,
+    so the frontend can show "Text •••• 4821" instead of asking blind."""
+    emp = db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email == user["email"]).first()
+    phone = (emp.phone if emp else "").strip()
+    return {
+        "email": {"available": True, "masked": _mask_email(user["email"])},
+        "sms": {"available": bool(phone), "masked": _mask_phone(phone) if phone else ""},
+    }
+
+
+@router.post("/otp/request")
+def otp_request(body: OtpRequestIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    channel = body.channel if body.channel in ("sms", "email") else "email"
+    return _create_otp_challenge(db, user["email"], "reveal_share", channel)
+
+
+@router.post("/otp/verify")
+def otp_verify(body: OtpVerifyIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    ch = _consume_otp_challenge(db, body.challengeId, user["email"], "reveal_share", body.code)
+    sess = models.VaultOtpSession(
+        id=str(uuid.uuid4()), email=user["email"], purpose=ch.purpose, channel=ch.channel,
+        expires_at=(datetime.now(timezone.utc) + timedelta(seconds=OTP_SESSION_TTL_SEC)).isoformat(),
+        created_at=_now(),
+    )
+    db.add(sess)
+    db.commit()
+    return {"ok": True, "expiresInSec": OTP_SESSION_TTL_SEC}
+
+
 # ── Personal vault (strictly owner-scoped - no admin bypass) ─────────────────
+class PersonalAuthIn(BaseModel):
+    password: str = ""
+
+
+class PersonalResetIn(BaseModel):
+    challengeId: str = ""
+    code: str = ""
+    newPassword: str = ""
+
+
+def _open_personal_unlock(db: Session, email: str) -> None:
+    db.add(models.VaultPersonalUnlockSession(
+        id=str(uuid.uuid4()), email=email,
+        expires_at=(datetime.now(timezone.utc) + timedelta(seconds=PERSONAL_UNLOCK_TTL_SEC)).isoformat(),
+        created_at=_now(),
+    ))
+
+
+@router.get("/personal/lock/status")
+def personal_lock_status(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    row = db.get(models.VaultPersonalAuth, user["email"])
+    return {"hasPassword": bool(row and row.password_hash)}
+
+
+@router.post("/personal/lock/setup")
+def personal_lock_setup(body: PersonalAuthIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """First-time setup only - no OTP needed, the user is already signed into
+    Nexus. Resetting a forgotten password goes through /personal/lock/reset
+    instead (OTP-verified)."""
+    if len((body.password or "").strip()) < 6:
+        raise HTTPException(400, "Password must be at least 6 characters")
+    row = db.get(models.VaultPersonalAuth, user["email"])
+    if row and row.password_hash:
+        raise HTTPException(400, "A Personal Vault password is already set - use Forgot password to reset it.")
+    if not row:
+        row = models.VaultPersonalAuth(email=user["email"])
+        db.add(row)
+    row.password_hash = _hash_password(body.password.strip())
+    row.updated_at = _now()
+    _open_personal_unlock(db, user["email"])
+    db.commit()
+    return {"ok": True, "expiresInSec": PERSONAL_UNLOCK_TTL_SEC}
+
+
+@router.post("/personal/lock/verify")
+def personal_lock_verify(body: PersonalAuthIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    row = db.get(models.VaultPersonalAuth, user["email"])
+    if not row or not row.password_hash:
+        raise HTTPException(400, "No Personal Vault password set yet")
+    if not _verify_password(body.password or "", row.password_hash):
+        raise HTTPException(401, "Incorrect password")
+    _open_personal_unlock(db, user["email"])
+    db.commit()
+    return {"ok": True, "expiresInSec": PERSONAL_UNLOCK_TTL_SEC}
+
+
+@router.post("/personal/lock/forgot")
+def personal_lock_forgot(body: OtpRequestIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    row = db.get(models.VaultPersonalAuth, user["email"])
+    if not row or not row.password_hash:
+        raise HTTPException(400, "No Personal Vault password set yet - nothing to reset")
+    channel = body.channel if body.channel in ("sms", "email") else "email"
+    return _create_otp_challenge(db, user["email"], "personal_reset", channel)
+
+
+@router.post("/personal/lock/reset")
+def personal_lock_reset(body: PersonalResetIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    if len((body.newPassword or "").strip()) < 6:
+        raise HTTPException(400, "Password must be at least 6 characters")
+    _consume_otp_challenge(db, body.challengeId, user["email"], "personal_reset", body.code)
+    row = db.get(models.VaultPersonalAuth, user["email"])
+    if not row:
+        row = models.VaultPersonalAuth(email=user["email"])
+        db.add(row)
+    row.password_hash = _hash_password(body.newPassword.strip())
+    row.updated_at = _now()
+    _open_personal_unlock(db, user["email"])
+    db.commit()
+    return {"ok": True, "expiresInSec": PERSONAL_UNLOCK_TTL_SEC}
+
+
 class PersonalIn(BaseModel):
     name: str = ""
     username: str = ""
@@ -698,7 +1027,7 @@ def delete_personal(pid: str, user: dict = Depends(get_current_user), db: Sessio
 
 @router.post("/personal/{pid}/reveal")
 def reveal_personal(pid: str, user: dict = Depends(get_current_user),
-                    _su: dict = Depends(require_stepup), db: Session = Depends(get_db)):
+                    _pu: dict = Depends(require_personal_unlock), db: Session = Depends(get_db)):
     row = db.get(models.VaultPersonalCredential, pid)
     if not row or row.owner_email != user["email"]:
         raise HTTPException(404, "Not found")
