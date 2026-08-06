@@ -131,6 +131,13 @@ export default defineConfig({
           if (id.includes('mammoth'))                 return 'vendor-docx';
           if (id.includes('leaflet'))                 return 'vendor-maps';
           if (id.includes('qrcode'))                  return 'vendor-qr';
+          // heic2any bundles libheif (~1.4MB of wasm-ish decoder). It is only
+          // reached from construction/lib/upload.js's `await import()`, and only
+          // when a worker actually uploads an iPhone HEIC - which most uploads
+          // are not. Left in the catch-all it tripled vendor-react to 2032KB and
+          // shipped on first paint for every user of every module.
+          if (id.includes('heic2any') || id.includes('libheif')) return 'vendor-heic';
+          if (id.includes('exifr'))                   return 'vendor-exif';
           if (id.includes('node_modules'))            return 'vendor-react';
         },
       },

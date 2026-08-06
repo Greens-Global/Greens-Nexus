@@ -354,8 +354,16 @@ def _push_digest(db, t):
     dep_gids = sorted(_link_by_nexus(db, bid).asana_gid
                       for bid in (t.blocked_by_ids or [])
                       if _link_by_nexus(db, bid) and _link_by_nexus(db, bid).asana_gid)
-    att_ids = sorted(a.id for a in db.query(models.TaskAttachment).filter(
-        models.TaskAttachment.task_id == t.id).all())
+    # Each attachment carries whether Asana HAS it yet, not just that it exists.
+    # Hashing the ids alone meant a task whose attachment set never changed
+    # matched last_push_hash forever, so _push_extras never ran and anything the
+    # push had previously skipped stayed skipped permanently - which is exactly
+    # the state the data:-URL bug left behind. With the linked flag in here, a
+    # backlog of unpushed attachments reads as a difference and gets sent.
+    att_ids = sorted(
+        f"{a.id}:{1 if db.query(models.AsanaAttachmentLink).filter(models.AsanaAttachmentLink.nexus_attachment_id == a.id).first() else 0}"
+        for a in db.query(models.TaskAttachment).filter(
+            models.TaskAttachment.task_id == t.id).all())
     raw = "\x1f".join([
         ",".join(sorted((x or "").strip().lower() for x in (t.tags or []))),
         ",".join(sorted((e or "").lower() for e in (t.follower_emails or []))),
@@ -783,22 +791,111 @@ def _push_section(db, cfg, task, asana_gid, project_gid):
         pass
 
 
+# ── OUTBOUND: getting Nexus-held bytes somewhere Asana can reach ─────────────
+# Asana only accepts an EXTERNAL attachment by URL, and it fetches that URL
+# itself with none of our credentials. Anything Nexus holds as a `data:` URI is
+# therefore unreachable to it - which is why images pasted into a Nexus comment
+# never appeared in Asana, and why 8 of the 14 attachments on this database had
+# never been pushed and never would be.
+#
+# The repair is to give those bytes a real address. task_files.py already does
+# exactly that - it is what drained the inlined attachments out of the prod
+# DB - so this reuses it rather than growing a second uploader.
+_DATA_IMG_TAG_RE = re.compile(r'(?is)<img\b[^>]*?\bsrc\s*=\s*["\'](data:[^"\']+)["\'][^>]*?/?>')
+
+
+def _host_data_uri(task_id: str, data_uri: str, name: str) -> str:
+    """Upload one `data:` URI to storage and return its public URL, or "".
+
+    task_files.data_url_to_storage is the one uploader for task bytes (it is
+    what drained 5.7 GB of inlined attachments out of the prod DB) - this only
+    adds the size ceiling the sync wants, since a giant paste should not be
+    pushed at all rather than pushed slowly.
+
+    Never raises, including when storage is unconfigured: a laptop with no
+    SUPABASE_URL must still push a comment, minus the image."""
+    uri = (data_uri or "").strip()
+    if len(uri) * 3 / 4 > _ATTACHMENT_MAX_BYTES:
+        return ""
+    hosted = task_files.data_url_to_storage(name, uri)
+    if not hosted:
+        print(f"[asana] could not host {name} for outbound push")
+    return hosted
+
+
+def _externalize_inline_images(db, task, html: str, comment_id: str = "") -> str:
+    """Turn `data:` images inside Nexus-authored HTML into hosted attachments.
+
+    Two things happen per image: the bytes get a public URL, and a TaskAttachment
+    row is created for them. The row is the part that reaches Asana - _to_asana_
+    html strips <img> because Asana's rich text cannot carry an arbitrary image
+    src, so the file travels as an attachment on the task. That is what the
+    stripper's own comment always claimed happened; before this it did not.
+
+    The row is deliberately TASK-level, with no comment_id, even when the image
+    came from a comment. comment_id is what makes the drawer draw an attachment
+    card under that comment (CommentAttachments), and the image is already
+    visible inline right there - setting it would show the same screenshot
+    twice, which is the duplication this module must not create.
+
+    Returns the rewritten HTML. Unchanged when there is nothing to do, when
+    storage is unconfigured, or when an upload fails - the comment still goes,
+    carrying one less image."""
+    if not html or "data:image" not in html.lower():
+        return html
+    if not task_files.storage_configured():
+        return html
+
+    def swap(m):
+        tag, uri = m.group(0), m.group(1)
+        alt = _ALT_ATTR_RE.search(tag)
+        name = (alt.group(1).strip() if alt else "") or "pasted-image.png"
+        url = _host_data_uri(task.id, uri, name)
+        if not url:
+            return tag
+        aid = gen_id()
+        db.add(models.TaskAttachment(
+            id=aid, task_id=task.id, name=name,
+            size=f"{max(1, round(len(uri) * 3 / 4 / 1024))} KB", kind="image", url=url,
+            added_at=now_iso(), added_by=task.assignee_email or "nexus",
+            comment_id=""))   # task-level on purpose - see the docstring
+        task.attachment_ids = list(task.attachment_ids or []) + [aid]
+        return tag.replace(uri, url)
+
+    return _DATA_IMG_TAG_RE.sub(swap, html)
+
+
 def _push_attachments(db, cfg, task, asana_gid):
     """Push Nexus attachments to Asana as EXTERNAL attachments - Asana stores
-    the link, we never re-upload bytes.
+    the link and fetches it itself, so the URL has to be one the public internet
+    can reach.
 
-    Only http(s) URLs qualify. A `data:` URL is skipped by design, not by
-    omission: those exist only because _pull_attachments inlined a small file
-    that came FROM Asana, so the file is already there and pushing it back
-    would duplicate it. Recorded in AsanaAttachmentLink - the same table the
-    inbound side dedups on - so neither direction re-adds the other's work."""
+    A `data:` URL used to be skipped here, on the reasoning that such rows exist
+    only because _pull_attachments inlined a file that came FROM Asana. That was
+    wrong, and quietly: the Nexus uploader also stores every file under 2 MB as
+    a data: URI, so the skip silently dropped genuinely new Nexus attachments -
+    8 of the 14 on the database this was found on. The ones that really did come
+    from Asana are excluded by the AsanaAttachmentLink check below, which is the
+    correct test for "Asana already has this", so a data: row that reaches the
+    upload is by definition Nexus-origin.
+
+    Recorded in AsanaAttachmentLink - the same table the inbound side dedups on -
+    so neither direction re-adds the other's work."""
     rows = db.query(models.TaskAttachment).filter(models.TaskAttachment.task_id == task.id).all()
     for a in rows:
         url = (a.url or "").strip()
-        if not url.lower().startswith(("http://", "https://")):
-            continue
         if db.query(models.AsanaAttachmentLink).filter(
                 models.AsanaAttachmentLink.nexus_attachment_id == a.id).first():
+            continue    # came from Asana, or already pushed
+        if url.lower().startswith("data:"):
+            # Give it a real address, once. The row is updated so the next push
+            # is a plain link push and the bytes are never re-uploaded.
+            hosted = _host_data_uri(task.id, url, a.name or "attachment")
+            if not hosted:
+                continue
+            a.url = url = hosted
+            db.flush()
+        if not url.lower().startswith(("http://", "https://")):
             continue
         try:
             created = _asana_post(cfg.token, "/attachments", {"data": {
@@ -852,6 +949,10 @@ def push_task(db, task):
     ae = (task.assignee_email or "").lower()
     assignee_gid = _asana_user_gid(cfg, ae) if ae else None
     assignee_sent = (not ae) or bool(assignee_gid)
+    # Before the digest, deliberately: this can rewrite the description, and a
+    # digest taken beforehand would not match what is stored, so every later
+    # push would see a phantom change.
+    task.description = _externalize_inline_images(db, task, task.description or "")
     digest = _task_digest(db, task, assignee=(ae if assignee_sent else ""))
     push_digest = _push_digest(db, task)
     if link and link.last_hash == digest:
@@ -865,7 +966,11 @@ def push_task(db, task):
         # of HTTP calls per task per sweep.
         if link.last_push_hash != push_digest:
             _push_extras(db, cfg, task, link.asana_gid, apid or progress_apid)
-            link.last_push_hash = push_digest
+            # Recomputed AFTER the push, not the value taken before it: pushing
+            # an attachment creates its AsanaAttachmentLink, which is part of
+            # this digest now. Storing the pre-push value would leave every task
+            # one sweep behind itself forever.
+            link.last_push_hash = _push_digest(db, task)
             link.last_synced_at = now_iso()
             db.commit()
         return link.asana_gid   # no other change (or the change came from a sync)
@@ -972,7 +1077,7 @@ def push_task(db, task):
     link.last_synced_at = now_iso()
     db.commit()          # releases the advisory lock if the create path took it
     _push_extras(db, cfg, task, link.asana_gid, apid or progress_apid)
-    link.last_push_hash = push_digest
+    link.last_push_hash = _push_digest(db, task)   # after the push - see above
     db.commit()
     return link.asana_gid
 
@@ -1176,26 +1281,107 @@ def seed_project_statuses(db, cfg, project_gid, nexus_project_id):
     if not field:
         return 0
     n = 0
-    existing = {s.asana_option_gid: s for s in db.query(models.TaskCustomStatus)
-                .filter(models.TaskCustomStatus.asana_option_gid != "").all()}
-    position = db.query(models.TaskCustomStatus).count()
+    rows = db.query(models.TaskCustomStatus).all()
+    # Two indexes, tried in this order:
+    #   by gid   - an option we have seen before, so a RENAME in Asana renames
+    #              the Nexus status instead of orphaning it.
+    #   by label - the same stage on a different project. Asana's Task Progress
+    #              is usually a per-project field, so "Waiting" on two projects
+    #              is two different option gids; keying on gid alone minted a
+    #              second "Waiting" row per project. Matching the label reuses
+    #              the one row and just widens its scope.
+    by_gid = {g: s for s in rows for g in status_option_gids(s)}
+    by_label = {}
+    for s in rows:
+        by_label.setdefault(_norm_status_label(s.label), s)
+    position = len(rows)
     for label_lower, option_gid in (field.get("options") or {}).items():
         if not option_gid or label_lower in _PROGRESS_LABEL_TO_STATUS:
             continue   # a built-in state - Task.status already carries it
-        s = existing.get(option_gid)
+        s = by_gid.get(option_gid) or by_label.get(_norm_status_label(label_lower))
         if s is None:
             s = models.TaskCustomStatus(
                 id=gen_id(), label=label_lower.title(), color=_STATUS_PALETTE[position % len(_STATUS_PALETTE)],
-                position=position, project_ids=[nexus_project_id], asana_option_gid=option_gid)
+                position=position, project_ids=[nexus_project_id],
+                asana_option_gid=option_gid, asana_option_gids=[option_gid])
             db.add(s)
             db.flush()   # autoflush=False - must be visible to the rest of this pull
+            by_gid[option_gid] = s
+            by_label[_norm_status_label(label_lower)] = s
             position += 1
             n += 1
             continue
+        # Reuse. Record this project's own option gid so a later rename of THIS
+        # project's copy is still recognised as the same status.
+        gids = status_option_gids(s)
+        if option_gid not in gids:
+            s.asana_option_gids = gids + [option_gid]
+        # An empty scope means "every project" - widening it would be a
+        # narrowing, so leave a global status global.
         scope = [p for p in (s.project_ids or []) if p]
         if scope and nexus_project_id not in scope:
             s.project_ids = scope + [nexus_project_id]
     return n
+
+
+def _norm_status_label(label: str) -> str:
+    return " ".join((label or "").split()).lower()
+
+
+def status_option_gids(s) -> list:
+    """Every Asana option gid a status fronts, newest schema first.
+
+    asana_option_gid is the legacy single-value column and is still populated
+    for the row's first option, so a database written before asana_option_gids
+    existed keeps matching."""
+    gids = [g for g in (getattr(s, "asana_option_gids", None) or []) if g]
+    if s.asana_option_gid and s.asana_option_gid not in gids:
+        gids.append(s.asana_option_gid)
+    return gids
+
+
+def dedupe_custom_statuses(db):
+    """Collapse statuses that share a label onto one row.
+
+    Repairs databases seeded before the label match above existed - the state in
+    the screenshot: one "Waiting" and one "Deferred" per synced project.
+
+    Task.status stores the status ID, so the merge MUST remap every task off the
+    rows it deletes. Skipping that would leave those tasks pointing at a status
+    that no longer exists, which renders as a raw uuid on the board and cannot be
+    changed back from the UI."""
+    rows = sorted(db.query(models.TaskCustomStatus).all(),
+                  key=lambda s: (s.position or 0, s.id))
+    groups = {}
+    for s in rows:
+        groups.setdefault(_norm_status_label(s.label), []).append(s)
+
+    merged = remapped = 0
+    for group in groups.values():
+        if len(group) < 2:
+            continue
+        keep, dups = group[0], group[1:]
+        scope = [p for p in (keep.project_ids or []) if p]
+        gids = status_option_gids(keep)
+        # A global row anywhere in the group makes the merged row global -
+        # anything else would REMOVE the status from projects that had it.
+        global_row = not scope
+        for d in dups:
+            d_scope = [p for p in (d.project_ids or []) if p]
+            if not d_scope:
+                global_row = True
+            scope += [p for p in d_scope if p not in scope]
+            gids += [g for g in status_option_gids(d) if g not in gids]
+            remapped += (db.query(models.Task)
+                         .filter(models.Task.status == d.id)
+                         .update({"status": keep.id}, synchronize_session=False))
+            db.delete(d)
+            merged += 1
+        keep.project_ids = [] if global_row else scope
+        keep.asana_option_gids = gids
+        if not keep.asana_option_gid and gids:
+            keep.asana_option_gid = gids[0]
+    return {"merged": merged, "tasksRemapped": remapped}
 
 
 def _status_for_progress(db, progress_label, nexus_project_id):
@@ -2042,6 +2228,10 @@ def _pull_stories(db, asana, asana_gid, nexus_task_id, counts):
             # `text` the flattened fallback, which is escaped so a comment containing < or
             # & can't render as markup in the Nexus editor.
             rich = _mentions_from_asana(_from_asana_html({"html_notes": s.get("html_text") or ""}), get_config(db), db)
+            # An image pasted into the comment arrives as an <img> pointing at an
+            # Asana asset URL no Nexus browser can load. Repointed at the copy
+            # _pull_attachments stored - which is why that now runs first.
+            rich = _rewrite_asana_images(db, asana, rich, nexus_task_id, asana_gid)
             plain = "".join(f"<p>{escape(line)}</p>" for line in text.split("\n") if line.strip())
             # Attribute the comment to the real person. author_email is already
             # resolved through the directory above and was already used for
@@ -2091,6 +2281,159 @@ def _pull_stories(db, asana, asana_gid, nexus_task_id, counts):
 # or hosted externally (Google Drive/Dropbox etc - host != "asana"), just keeps
 # its Asana view URL rather than pulling the bytes through this API.
 _ATTACHMENT_MAX_BYTES = int(5 * 1024 * 1024)
+
+
+# ── Inline images in inbound HTML ────────────────────────────────────────────
+# An image pasted into an Asana comment (or description) arrives inside
+# html_text as an <img> pointing at an Asana asset URL. Those URLs are
+# session-authenticated and expiring, so a browser holding a Nexus session gets
+# refused and renders the alt text next to a broken-image glyph - which is
+# exactly what the module looked like before this: "testing from Asana
+# [broken] image.png".
+#
+# The bytes are almost always already here. Asana exposes a pasted image as an
+# attachment on the task, and _pull_attachments downloads those. So the repair
+# is a lookup, not a second download: find the Asana attachment gid the <img>
+# refers to and point the tag at the copy Nexus already stores.
+#
+# Deliberately conservative - it rewrites ONLY what it can positively resolve to
+# an Asana attachment. A comment that legitimately embeds a public image URL is
+# left alone.
+_IMG_TAG_RE = re.compile(r"(?is)<img\b[^>]*?/?>")
+_SRC_ATTR_RE = re.compile(r'(?is)\bsrc\s*=\s*["\']([^"\']*)["\']')
+_ALT_ATTR_RE = re.compile(r'(?is)\balt\s*=\s*["\']([^"\']*)["\']')
+# Asana puts the attachment gid in data-asana-gid; older/other shapes carry it
+# in the URL instead (get_asset?asset_id=123, /attachments/123). Try all three
+# rather than betting on one - the cost of guessing wrong is a broken image.
+_ASSET_ID_IN_URL_RE = re.compile(r"(?i)(?:asset_id=|/attachments?/)(\d{6,})")
+
+
+def _renderable_attachment_url(db, asana, gid: str, task_gid: str = "", cache=None) -> str:
+    """A URL Nexus can actually serve for one Asana attachment gid, or "".
+
+    Prefers the copy _pull_attachments already stored - that is a DB lookup and
+    no network at all. Falls back to fetching the bytes, for the case the pull
+    skipped: an attachment over _ATTACHMENT_MAX_BYTES keeps its Asana view URL,
+    and that URL is precisely the one a browser cannot load.
+
+    The fallback lists the TASK's attachments rather than GETting /attachments/
+    {gid} directly, because the client injects a `limit` param into every call
+    and detail endpoints can reject it. `cache` holds that list so a comment with
+    six pasted images costs one request, not six."""
+    if not gid:
+        return ""
+    link = (db.query(models.AsanaAttachmentLink)
+            .filter(models.AsanaAttachmentLink.asana_attachment_gid == gid).first())
+    if link:
+        a = (db.query(models.TaskAttachment)
+             .filter(models.TaskAttachment.id == link.nexus_attachment_id).first())
+        # A row whose url is still an Asana link is no better than what we have.
+        if a and (a.url or "").startswith(("data:", "http")) and "asana.com" not in (a.url or ""):
+            return a.url
+    if not asana or not task_gid:
+        return ""
+
+    if cache is None or "rows" not in cache:
+        try:
+            rows = asana.get(f"/tasks/{task_gid}/attachments",
+                             opt_fields="name,download_url,size,host") or []
+        except Exception:
+            rows = []
+        if cache is not None:
+            cache["rows"] = rows
+    else:
+        rows = cache["rows"]
+
+    meta = next((r for r in rows if str(r.get("gid")) == str(gid)), None)
+    if not meta or (meta.get("host") or "asana") != "asana":
+        return ""
+    size, dl = meta.get("size") or 0, meta.get("download_url")
+    if not dl or size > _ATTACHMENT_MAX_BYTES:
+        return ""
+    try:
+        with urllib.request.urlopen(dl, timeout=90) as r:
+            raw = r.read()
+    except Exception:
+        return ""
+    mime = mimetypes.guess_type(meta.get("name") or "")[0] or "image/png"
+    return f"data:{mime};base64,{base64.b64encode(raw).decode()}"
+
+
+def _rewrite_asana_images(db, asana, html: str, nexus_task_id: str = "", task_gid: str = "") -> str:
+    """Point inbound <img> tags at something a browser can load.
+
+    Order of attack per tag: the gid on the tag, then a gid in the src, then the
+    filename against this task's attachments. Anything still unresolved is
+    turned into a plain link rather than left as a broken image - a reader who
+    can see "image.png" and click through to Asana is better served than one
+    staring at a broken glyph, and the tag is logged so an unhandled shape shows
+    up in the sweep output instead of silently on someone's screen."""
+    if not html or "<img" not in html.lower():
+        return html
+    cache = {}
+
+    def repair(m):
+        tag = m.group(0)
+        s, a_ = _SRC_ATTR_RE.search(tag), _ALT_ATTR_RE.search(tag)
+        src = (s.group(1) if s else "").strip()
+        alt = (a_.group(1) if a_ else "").strip()
+        # Already renderable: our own data: URI, or any host that is not Asana.
+        if src.startswith("data:") or (src.startswith("http") and "asana.com" not in src.lower()):
+            return tag
+
+        gid = ""
+        g = _DATA_GID_RE.search(tag)
+        if g:
+            gid = g.group(1)
+        if not gid and src:
+            u = _ASSET_ID_IN_URL_RE.search(src)
+            if u:
+                gid = u.group(1)
+
+        url = _renderable_attachment_url(db, asana, gid, task_gid, cache)
+        if not url and alt and nexus_task_id:
+            # No gid on the tag at all. The pasted file and the attachment share
+            # a name, which is weak but beats a broken image, and it is scoped to
+            # this one task.
+            a = (db.query(models.TaskAttachment)
+                 .filter(models.TaskAttachment.task_id == nexus_task_id,
+                         models.TaskAttachment.name == alt).first())
+            if a and (a.url or "").startswith("data:"):
+                url = a.url
+        if url:
+            label = f' alt="{escape(alt)}"' if alt else ""
+            return f'<img src="{url}"{label}>'
+
+        print(f"[asana] inline image not resolved, linking instead: {tag[:180]}")
+        if src:
+            return f'<a href="{escape(src)}" target="_blank" rel="noopener">{escape(alt or "image")}</a>'
+        return escape(alt) if alt else ""
+
+    return _IMG_TAG_RE.sub(repair, html)
+
+
+def _repair_description_images(db, asana, asana_gid, nexus_task_id) -> None:
+    """Same repair as comments, for images pasted into an Asana DESCRIPTION.
+
+    Runs after _pull_attachments rather than inside _apply_inbound, because the
+    attachment it repoints at does not exist yet at apply time.
+
+    It then REWRITES last_hash, and that is not optional. last_hash is the
+    NEXUS-side digest the outbound sweep compares against; leaving it stale after
+    editing the description would read as a local edit and push the description
+    back to Asana. _to_asana_html strips <img> on the way out, so that push would
+    delete the very image from Asana that this function just repaired."""
+    t = db.query(models.Task).filter(models.Task.id == nexus_task_id).first()
+    if not t or "<img" not in (t.description or "").lower():
+        return
+    fixed = _rewrite_asana_images(db, asana, t.description, nexus_task_id, asana_gid)
+    if fixed == t.description:
+        return
+    t.description = fixed
+    link = _link_by_asana(db, asana_gid)
+    if link:
+        link.last_hash = _task_digest(db, t)
+    db.flush()
 
 
 def _pull_attachments(db, asana, asana_gid, nexus_task_id, counts, email_map=None):
@@ -2522,8 +2865,14 @@ def _pull_task_tree(db, asana, at, nexus_project_id, parent_task_id, counts, see
                                    parent_task_id=parent_task_id, email_map=email_map)
     if not nexus_task_id:
         return
-    _pull_stories(db, asana, gid, nexus_task_id, counts)
+    # Attachments BEFORE stories, and the order is load-bearing: a comment with a
+    # pasted image is repointed at the attachment Nexus already downloaded, so
+    # that attachment has to exist by the time the comment is written. Pulling
+    # stories first left every inline image pointing at Asana - which is what
+    # rendered as a broken glyph and a bare "image.png".
     _pull_attachments(db, asana, gid, nexus_task_id, counts, email_map)
+    _pull_stories(db, asana, gid, nexus_task_id, counts)
+    _repair_description_images(db, asana, gid, nexus_task_id)
     _sync_task_dependencies(db, at, nexus_task_id)
     if deferred is not None:
         # Re-resolved at the end of the run by resolve_dependencies, when every
@@ -2972,6 +3321,23 @@ def push_comment(db, comment):
     # person behind it to attribute to.
     user_token = asana_oauth.token_for(db, author) if author and author != "asana-sync" else None
     token = user_token or cfg.token
+    # An image pasted into the comment is a data: URI in the body, which Asana
+    # can neither inline nor fetch. Hosted first so it travels as an attachment
+    # on the task - the only route Asana offers, since its API has no comment
+    # parent for an attachment.
+    t = db.query(models.Task).filter(models.Task.id == comment.task_id).first()
+    if t:
+        fixed = _externalize_inline_images(db, t, comment.body or "", comment_id=comment.id)
+        if fixed != comment.body:
+            comment.body = fixed
+            db.flush()
+            # Sent now rather than waiting for the 10-minute sweep to notice the
+            # new attachment: the image belongs with the comment it was pasted
+            # into, and arriving separately ten minutes later reads as a glitch.
+            try:
+                _push_attachments(db, cfg, t, link.asana_gid)
+            except Exception as e:
+                print(f"[asana] comment image attach failed: {e}")
     # Comment bodies are HTML now. Asana stories accept html_text with the same tag
     # subset html_notes takes, so one sanitizer serves both and a formatted comment
     # arrives formatted instead of showing its markup.

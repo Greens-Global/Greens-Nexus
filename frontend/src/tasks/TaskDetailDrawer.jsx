@@ -133,15 +133,19 @@ function MenuItem({ icon, onClick, danger, children }) {
   );
 }
 
-export default function TaskDetailDrawer({ taskId, onClose, onEdit }) {
+// `initialTab` lets a caller open the drawer straight onto the tab that made
+// them open it - the Replies log opens a task because a comment arrived by
+// email, and landing on Overview would leave the reader to go find it.
+// Defaults to Overview, so every existing caller behaves exactly as before.
+export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab = 'overview' }) {
   const store = useTasks();
   const { taskById, tasks, teams, projects, projectName, teamName, nameOf, myEmail, customFields = [], updateTask, deleteTask, createTask, getComments, addComment } = store;
   const people = usePeople();
 
   const [activeId, setActiveId] = useState(taskId);
   useEffect(() => setActiveId(taskId), [taskId]);
-  const [tab, setTab] = useState('overview');
-  useEffect(() => setTab('overview'), [activeId]);
+  const [tab, setTab] = useState(initialTab);
+  useEffect(() => setTab(initialTab), [activeId, initialTab]);
   const [shareOpen, setShareOpen] = useState(false);
 
   const task = taskById[activeId];
@@ -477,7 +481,10 @@ function TitleInput({ value, completed, onCommit }) {
 // ── Overview ────────────────────────────────────────────────────────────────
 function OverviewTab({ task, patch, people, projectName, teamName, teams, projects, blockedBy, depCandidates, addDependency, removeDependency, setDependencyType, subtasks, createTask, updateTask, onOpenSub, nameOf, myEmail, getComments, addComment, refresh, onViewAllComments }) {
   const isMobile = useIsMobile();
-  const { statusMeta, statusOrder } = useTasks();
+  const { statusMeta, statusOrder, statusOrderFor } = useTasks();
+  // The task's own project, not the view's: this drawer opens from My Tasks and
+  // from search, where no project is locked.
+  const taskStatusOrder = statusOrderFor ? statusOrderFor(task.projectId) : statusOrder;
   const [recStep, setRecStep] = useState('root');
   // Recurrence end condition ("Ends" - Never / On date / After occurrences).
   // Local mode so "On date"/"After" stay selected before a value is entered
@@ -549,7 +556,7 @@ function OverviewTab({ task, patch, people, projectName, teamName, teams, projec
 
       <Row label="Status">
         <Pop width={176} trigger={(t) => <button onClick={t} style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: 0 }}><Chip color={sm.color} tint={sm.tint}>{sm.label}</Chip></button>}>
-          {(close) => statusOrder.map((s) => <MenuItem key={s} onClick={() => { patch({ status: s }); close(); }}>{statusMeta[s]?.label || s}</MenuItem>)}
+          {(close) => taskStatusOrder.map((s) => <MenuItem key={s} onClick={() => { patch({ status: s }); close(); }}>{statusMeta[s]?.label || s}</MenuItem>)}
         </Pop>
       </Row>
 
@@ -796,7 +803,14 @@ function uploadPendingAttachments(taskId, commentId, files) {
 // (imageFromPaste / filesFromPaste) - stages the image rather than uploading
 // immediately, since AttachmentsTab's version can upload on the spot (already
 // task-scoped) but a comment's attachment needs the comment's id first.
-function onPasteStage(e, setFiles) {
+//
+// Only for a paste that lands OUTSIDE the editor. The rich editor has its own
+// handlePaste that embeds an image inline and calls preventDefault, and that
+// event still bubbles out to this wrapper - so staging it again posted the same
+// screenshot twice, once inline in the body and once as an attachment card
+// below it. Deferring to the editor keeps the image where the writer put it.
+export function onPasteStage(e, setFiles) {
+  if (e.defaultPrevented || e.nativeEvent?.defaultPrevented) return;
   const files = filesFromPaste(e);
   if (files.length) { e.preventDefault(); setFiles((p) => [...p, ...files]); }
 }

@@ -1,13 +1,12 @@
 import { useState } from 'react';
-import { LayoutDashboard, FolderSync, Folder, MapPin, Users, Calendar, Truck, Settings, Database, Server, ShieldCheck, FolderOpen, ChevronRight, ArrowLeft, Download, RefreshCw, Upload, X } from 'lucide-react';
+// MapPin/Users/Calendar/X went unused when the mock project dashboard was
+// replaced by ConstructionDashboard; dropped here rather than left as dead
+// imports for the next reader to wonder about.
+import { LayoutDashboard, FolderSync, Folder, Truck, Settings, Database, Server, ShieldCheck, FolderOpen, ChevronRight, ArrowLeft, Download, RefreshCw, Upload, ClipboardList } from 'lucide-react';
 import ModuleTabs from '../components/ModuleTabs';
-import { formatDateLong } from '../lib/datetime';
+import ConstructionDashboard from '../construction/ConstructionDashboard';
+import SiteActivity from '../construction/SiteActivity';
 
-const INIT_PROJECTS = [
-  { id: 1, name: 'Downtown Commercial Complex', status: 'on-track', location: 'Main Street, Downtown', members: 24, dueDate: 'Aug 15, 2026', progress: 75 },
-  { id: 2, name: 'Residential Tower - Phase 2', status: 'delayed', location: 'Harbor View District', members: 18, dueDate: 'Sep 30, 2026', progress: 45 },
-  { id: 3, name: 'Industrial Warehouse', status: 'on-track', location: 'North Industrial Zone', members: 12, dueDate: 'Jun 10, 2026', progress: 92 },
-];
 
 const INIT_LOGISTICS = [
   { id: 1, item: 'Steel Beams - 50 units', destination: 'Downtown Complex', eta: 'May 22, 2026', status: 'in-transit' },
@@ -41,19 +40,8 @@ const CUBBY_FOLDERS = {
 
 export default function Operations({ activeSub, onSubChange }) {
   const sub = activeSub || 'ops-dashboard';
-  const [projects, setProjects] = useState(INIT_PROJECTS);
-  const [showModal, setShowModal] = useState(false);
-  const [form, setForm] = useState({ name: '', location: '', members: '', dueDate: '', progress: '0', status: 'on-track' });
   const [cubbyDir, setCubbyDir] = useState('root');
 
-  const submitProject = (e) => {
-    e.preventDefault();
-    const d = new Date(form.dueDate);
-    const formatted = formatDateLong(d);
-    setProjects(prev => [...prev, { id: Date.now(), name: form.name, location: form.location, members: parseInt(form.members), dueDate: formatted, progress: parseInt(form.progress), status: form.status }]);
-    setShowModal(false);
-    setForm({ name: '', location: '', members: '', dueDate: '', progress: '0', status: 'on-track' });
-  };
 
   const fileIconColor = (type) => {
     if (type === 'dwg') return 'hsl(var(--color-blue))';
@@ -72,68 +60,26 @@ export default function Operations({ activeSub, onSubChange }) {
       <ModuleTabs
         tabs={[
           { key: 'ops-dashboard', label: 'Project Dashboard', Icon: LayoutDashboard },
+          { key: 'ops-activity',  label: 'Site Activity',     Icon: ClipboardList },
           { key: 'ops-cubby',     label: 'Cubby Integration', Icon: FolderSync },
         ]}
         active={sub} onChange={onSubChange} />
 
-      {/* Project Dashboard */}
+      {/* Project Dashboard - live, backed by /construction/*. Was a hardcoded
+          INIT_PROJECTS array and a "156 / 12 / 0 / 94%" KPI row; that block now
+          lives in construction/ConstructionDashboard.jsx, which also owns the
+          New Project modal. */}
+      {sub === 'ops-dashboard' && <ConstructionDashboard />}
+
+      {/* Site Activity - the daily logs and the weekly report they add up to.
+          Its own tab because those two are what people open every day, and they
+          used to sit two levels down inside a project. */}
+      {sub === 'ops-activity' && <SiteActivity />}
+
+      {/* Logistics and Equipment are still the original mock arrays. Kept
+          rendering rather than dropped when projects went live - removing
+          working screens was not part of making projects real. */}
       {sub === 'ops-dashboard' && (
-        <>
-          <div className="view-header" style={{ marginBottom: 24 }}>
-            <div className="view-title-group">
-              <h2>Construction Overview</h2>
-              <p>Project management, logistics, and heavy machinery oversight</p>
-            </div>
-            <div style={{ display: 'flex', gap: 12 }}>
-              <button className="secondary-btn">Schedule Review</button>
-              <button className="primary-btn" onClick={() => setShowModal(true)}>New Project</button>
-            </div>
-          </div>
-
-          <div className="cards-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)', marginBottom: 24 }}>
-            {[
-              { label: 'Total Workforce', value: '156', helper: '+8 this month', helperColor: 'var(--ok-fg)' },
-              { label: 'Active Sites', value: '12', helper: '+2 this month', helperColor: 'var(--ok-fg)' },
-              { label: 'Safety Incidents', value: '0', helper: '0 this month', helperColor: 'var(--text-secondary)' },
-              { label: 'Productivity', value: '94%', helper: '+3% this month', helperColor: 'var(--ok-fg)' },
-            ].map(({ label, value, helper, helperColor }) => (
-              <div key={label} className="kpi-card card-blue" style={{ cursor: 'default' }}>
-                <div className="kpi-card-header"><span className="kpi-title">{label}</span></div>
-                <div className="kpi-stat" style={{ fontSize: '2rem' }}>{value}</div>
-                <div className="kpi-helper" style={{ color: helperColor, fontWeight: 600 }}>{helper}</div>
-              </div>
-            ))}
-          </div>
-
-          <div style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 24, marginBottom: 24, boxShadow: 'var(--shadow-sm)' }}>
-            <h3 style={{ fontSize: '1.1rem', fontFamily: "'Plus Jakarta Sans', sans-serif", marginBottom: 4 }}>Active Projects</h3>
-            <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: 20 }}>Current construction and development projects</p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-              {projects.map(proj => (
-                <div key={proj.id} style={{ backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 20, display: 'flex', flexDirection: 'column', gap: 12 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <Folder size={18} style={{ color: 'var(--text-secondary)' }} />
-                        <strong style={{ fontSize: '1.05rem', color: 'var(--text-primary)', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{proj.name}</strong>
-                        <span style={{ backgroundColor: proj.status === 'delayed' ? 'hsl(var(--color-red))' : '#111827', color: '#fff', fontSize: '0.7rem', padding: '2px 8px', borderRadius: 4, fontWeight: 600 }}>{proj.status}</span>
-                      </div>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, fontSize: '0.8rem', color: 'var(--text-secondary)', alignItems: 'center' }}>
-                        <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><MapPin size={12} /> {proj.location}</span>
-                        <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><Users size={12} /> {proj.members} members</span>
-                        <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><Calendar size={12} /> Due: {proj.dueDate}</span>
-                      </div>
-                    </div>
-                    <span style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-primary)' }}>{proj.progress}%</span>
-                  </div>
-                  <div style={{ width: '100%', height: 6, backgroundColor: 'var(--border-color)', borderRadius: 3, overflow: 'hidden' }}>
-                    <div style={{ width: `${proj.progress}%`, height: '100%', backgroundColor: '#000000', borderRadius: 3 }} />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
             <div style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 24, boxShadow: 'var(--shadow-sm)' }}>
               <h3 style={{ fontSize: '1.1rem', fontFamily: "'Plus Jakarta Sans', sans-serif", marginBottom: 4 }}>Logistics & Supply Chain</h3>
@@ -180,53 +126,6 @@ export default function Operations({ activeSub, onSubChange }) {
               </div>
             </div>
           </div>
-
-          {showModal && (
-            <div className="modal-overlay" style={{ display: 'flex' }}>
-              <div className="modal-content">
-                <div className="modal-header">
-                  <h3>Create New Project</h3>
-                  <button className="close-btn" onClick={() => setShowModal(false)}><X size={18} /></button>
-                </div>
-                <form onSubmit={submitProject}>
-                  <div className="form-grid">
-                    <div className="form-group form-group-full">
-                      <label>Project Name</label>
-                      <input type="text" className="form-input" required placeholder="e.g. Oakridge Estate Phase 2" value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} />
-                    </div>
-                    <div className="form-group">
-                      <label>Location</label>
-                      <input type="text" className="form-input" required placeholder="e.g. Main Street, Downtown" value={form.location} onChange={e => setForm(p => ({ ...p, location: e.target.value }))} />
-                    </div>
-                    <div className="form-group">
-                      <label>Subcontractors Count</label>
-                      <input type="number" className="form-input" required min="1" placeholder="e.g. 15" value={form.members} onChange={e => setForm(p => ({ ...p, members: e.target.value }))} />
-                    </div>
-                    <div className="form-group">
-                      <label>Target Due Date</label>
-                      <input type="date" className="form-input" required value={form.dueDate} onChange={e => setForm(p => ({ ...p, dueDate: e.target.value }))} />
-                    </div>
-                    <div className="form-group">
-                      <label>Initial Progress (%)</label>
-                      <input type="number" className="form-input" required min="0" max="100" placeholder="0" value={form.progress} onChange={e => setForm(p => ({ ...p, progress: e.target.value }))} />
-                    </div>
-                    <div className="form-group form-group-full">
-                      <label>Project Status</label>
-                      <select className="form-select" value={form.status} onChange={e => setForm(p => ({ ...p, status: e.target.value }))}>
-                        <option value="on-track">on-track</option>
-                        <option value="delayed">delayed</option>
-                      </select>
-                    </div>
-                  </div>
-                  <div className="modal-footer">
-                    <button type="button" className="secondary-btn" onClick={() => setShowModal(false)}>Cancel</button>
-                    <button type="submit" className="primary-btn">Create Project</button>
-                  </div>
-                </form>
-              </div>
-            </div>
-          )}
-        </>
       )}
 
       {/* Cubby Integration */}

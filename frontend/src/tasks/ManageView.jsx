@@ -1151,18 +1151,58 @@ function FieldModal({ projects = [], onClose, onSave }) {
 
 // ── 3. Custom statuses ────────────────────────────────────────────────────────
 function StatusesTab({ store }) {
-  const { customStatuses, createCustomStatus, updateCustomStatus, deleteCustomStatus, projects = [] } = store;
+  const { customStatuses, createCustomStatus, updateCustomStatus, deleteCustomStatus, dedupeCustomStatuses, projects = [] } = store;
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState(null);
+  const [merging, setMerging] = useState(false);
+  const [mergeNote, setMergeNote] = useState('');
   const projectName = (id) => projects.find((p) => p.id === id)?.name || '';
+
+  // Same label on more than one row is the symptom the merge fixes. Computed so
+  // the button only appears when there is something to do - an always-visible
+  // maintenance action invites a click that rewrites task statuses for nothing.
+  const dupeCount = (() => {
+    const seen = new Map();
+    for (const s of customStatuses) {
+      const k = (s.label || '').trim().toLowerCase();
+      seen.set(k, (seen.get(k) || 0) + 1);
+    }
+    return [...seen.values()].filter((n) => n > 1).reduce((a, n) => a + n - 1, 0);
+  })();
+
+  const merge = async () => {
+    setMerging(true); setMergeNote('');
+    try {
+      const r = await dedupeCustomStatuses();
+      setMergeNote(r.merged
+        ? `Merged ${r.merged} duplicate status${r.merged === 1 ? '' : 'es'}`
+          + (r.tasksRemapped ? `, moved ${r.tasksRemapped} task${r.tasksRemapped === 1 ? '' : 's'} onto the kept status.` : '.')
+        : 'Nothing to merge.');
+    } catch (e) {
+      setMergeNote(e.message || 'Could not merge statuses.');
+    } finally { setMerging(false); }
+  };
 
   return (
     <div>
       <SectionHead
         title="Custom Statuses"
         hint="Additional workflow statuses beyond the four built-in ones. Scope a status to specific projects so it is not a board column in every one."
-        action={<button style={btn('primary')} onClick={() => setAdding(true)}><Plus size={15} />New Status</button>}
+        action={(
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            {dupeCount > 0 && (
+              <button style={btn('outline')} onClick={merge} disabled={merging}
+                title="Asana's Task Progress is usually a per-project field, so the same stage arrives once per project. This collapses them onto one status scoped to every project that used it.">
+                {merging ? 'Merging…' : `Merge ${dupeCount} duplicate${dupeCount === 1 ? '' : 's'}`}
+              </button>
+            )}
+            <button style={btn('primary')} onClick={() => setAdding(true)}><Plus size={15} />New Status</button>
+          </div>
+        )}
       />
+      {mergeNote && (
+        <div style={{ marginBottom: 12, fontSize: 12.5, color: NX.dim }}>{mergeNote}</div>
+      )}
       {customStatuses.length === 0 ? (
         <EmptyState icon={Palette} title="No Custom Statuses" hint="Add a status to model your own workflow stages." />
       ) : customStatuses.map((s) => (

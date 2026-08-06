@@ -15,13 +15,30 @@ const DIST = fileURLToPath(new URL('../dist/assets', import.meta.url));
 const PER_CHUNK_KB = 1000;   // largest today: vendor-pdf ~848 KB
 const TOTAL_KB     = 8500;   // all JS today: ~7.2 MB pre-gzip
 
+// Named exemptions, so one oversized lazy chunk does not force the cap up for
+// EVERY chunk. An entry here is a deliberate decision with a reason, not a
+// pressure valve - anything unlisted still fails at PER_CHUNK_KB.
+const CHUNK_EXEMPT = {
+  // heic2any bundles libheif, a full HEIC decoder. It is loaded by a dynamic
+  // import() in construction/lib/upload.js and ONLY when a worker uploads an
+  // iPhone HEIC, so it never ships on first paint for anyone else. Reviewed
+  // Aug 4, 2026 - if this grows, prefer converting HEIC server-side (pillow +
+  // pillow-heif) over raising this number again.
+  'vendor-heic': 1400,
+};
+const capFor = (file) => {
+  const hit = Object.keys(CHUNK_EXEMPT).find((k) => file.startsWith(k));
+  return hit ? CHUNK_EXEMPT[hit] : PER_CHUNK_KB;
+};
+
 let total = 0;
 const offenders = [];
 for (const f of readdirSync(DIST)) {
   if (!f.endsWith('.js')) continue;
   const kb = statSync(join(DIST, f)).size / 1024;
   total += kb;
-  if (kb > PER_CHUNK_KB) offenders.push(`${f}: ${Math.round(kb)} KB (budget ${PER_CHUNK_KB} KB)`);
+  const cap = capFor(f);
+  if (kb > cap) offenders.push(`${f}: ${Math.round(kb)} KB (budget ${cap} KB)`);
 }
 
 if (total > TOTAL_KB) offenders.push(`TOTAL JS: ${Math.round(total)} KB (budget ${TOTAL_KB} KB)`);

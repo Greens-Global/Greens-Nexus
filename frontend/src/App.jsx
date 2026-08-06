@@ -86,7 +86,9 @@ const VIEW_MIN_ROLES = {
   // KB/LMS with assigned courses, and plain links. Admin actions inside each
   // stay role-gated server-side.
   'it':                 'supervisor',
-  'ops':                'supervisor',
+  // 'ops' (Construction) is deliberately absent - see the note on its NAV entry
+  // in Sidebar.jsx. Leaving it here would show workers the nav item and then an
+  // "Access Restricted" panel, which is worse than hiding it outright.
   'operations':         'supervisor',
   'development':        'supervisor',
   'property-asset':     'supervisor',
