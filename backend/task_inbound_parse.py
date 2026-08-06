@@ -46,6 +46,19 @@ def _sign(hexid: str) -> str:
     return hmac.new(_SECRET, hexid.encode(), hashlib.sha256).hexdigest()[:8]
 
 
+def reply_mailbox(cfg: dict) -> str:
+    """The mailbox BOTH halves must agree on: the one notifications are sent
+    from-and-back-to, and the one the drain reads.
+
+    It lives here, in the module neither half owns, because the two halves
+    disagreeing is not a hypothetical - it shipped. Outbound built the signed
+    address from `replyTo` alone while inbound read `inboundMailbox or replyTo`,
+    so an admin who filled in only "Mailbox to read" got notifications with NO
+    Reply-To at all: every reply landed with no token, matched nothing, and the
+    log said "could not match this reply to a task" for all of them."""
+    return (cfg.get("inboundMailbox") or cfg.get("replyTo") or "").strip().lower()
+
+
 def reply_address(mailbox: str, task_id: str) -> str:
     """`tasks+<hex>.<sig>@greensglobal.com` for one task.
 

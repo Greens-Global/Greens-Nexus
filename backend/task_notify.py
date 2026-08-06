@@ -31,7 +31,7 @@ import models
 from database import SessionLocal
 import graph_mail
 import task_mail_templates as tmpl
-from task_inbound_parse import reply_address
+from task_inbound_parse import reply_address, reply_mailbox
 from routers.task_util import log_activity
 
 _APP_URL = os.getenv("NEXUS_APP_URL", "")   # e.g. https://nexus.greensglobal.com - no trailing slash
@@ -221,7 +221,7 @@ def _send_one(db: Session, *, task_id: str, task_code: str, event_type: str, ide
     try:
         result = graph_mail.send_mail(from_email=from_email, to=[recipient], cc=cc,
                                        subject=subject, html=html,
-                                       reply_to=reply_address(cfg.get("replyTo") or "", task_id))
+                                       reply_to=reply_address(reply_mailbox(cfg), task_id))
         row.status = "sent"
         row.graph_message_id = result.get("messageId", "")
         row.conversation_id = result.get("conversationId", "")
@@ -435,7 +435,7 @@ def _retry_failed_once(db: Session) -> None:
             html = row.html or html
             result = graph_mail.send_mail(from_email=from_email, to=[row.recipient], cc=cc,
                                            subject=row.subject or subject, html=html,
-                                           reply_to=reply_address(cfg.get("replyTo") or "", row.task_id))
+                                           reply_to=reply_address(reply_mailbox(cfg), row.task_id))
             row.status = "sent"
             row.graph_message_id = result.get("messageId", "")
             row.conversation_id = result.get("conversationId", "")
