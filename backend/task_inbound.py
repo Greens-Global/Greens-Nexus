@@ -36,7 +36,7 @@ just received mail from an auto-responder is how a mail loop starts, and it
 needs its own rate limiting to be safe - a follow-up, deliberately not here.
 
 **Attachments are filed, not inlined.** Bytes go to Supabase storage
-(services/task_files.py) and become TaskAttachment rows linked to the comment,
+(task_files.py) and become TaskAttachment rows linked to the comment,
 because a `data:` URL in the row would never reach Asana. Files are best effort:
 the comment is already committed when they are fetched, so one that will not
 download is named in the row's `reason` rather than failing the reply. A reply
@@ -56,7 +56,7 @@ import task_notify
 from database import SessionLocal
 from routers.task_util import (can_comment, create_comment, fire_task_event, gen_id,
                                log_activity, project_for_task)
-from services import task_files
+import task_files
 
 _GRAPH = "https://graph.microsoft.com/v1.0"
 _LOOP_SEC = 60
@@ -134,6 +134,10 @@ _ATT_FIELDS = "id,name,contentType,size,isInline"
 # A reply with more files than this is a mailing-list digest or a mistake. The
 # cap bounds one message's work; what is left behind is named in the row.
 _MAX_ATTACHMENTS = 20
+# A gunicorn worker reads the whole file into memory to store it, so this is a
+# memory budget rather than a policy - same reasoning as every other upload cap
+# in the app.
+MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024
 
 
 def list_attachments(mailbox: str, msg_id: str) -> list[dict]:
@@ -368,15 +372,18 @@ def store_attachments(db, mailbox: str, msg: dict, task, comment_id: str,
                     mailbox, msg, att, kept_html):
                 continue        # signature logo - not a skip worth reporting
             size = int(att.get("size") or 0)
-            if size > task_files.MAX_BYTES:
-                skips.append(f'"{name}" is over {task_files.MAX_BYTES // 1024 // 1024} MB')
+            if size > MAX_ATTACHMENT_BYTES:
+                skips.append(f'"{name}" is over {MAX_ATTACHMENT_BYTES // 1024 // 1024} MB')
                 continue
             raw = fetch_attachment_bytes(mailbox, msg.get("id") or "", att.get("id") or "")
             content_type = att.get("contentType") or "application/octet-stream"
-            url = task_files.upload(task_files.storage_path(task.id, name), raw, content_type)
+            url = task_files.store_bytes(name, raw, content_type)
+            if not url:
+                skips.append(f'"{name}" could not be stored')
+                continue
             _attachment_row(db, task, comment_id, author, name=name, url=url,
-                            kind=task_files.kind_for(content_type),
-                            size=task_files.size_label(len(raw)))
+                            kind="image" if content_type.lower().startswith("image/") else "doc",
+                            size=f"{max(1, round(len(raw) / 1024))} KB")
             stored += 1
         except Exception as e:
             skips.append(f'"{name}" could not be filed: {e}')

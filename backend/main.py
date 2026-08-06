@@ -901,6 +901,13 @@ async def lifespan(app: FastAPI):
                 print("[startup] construction Egnyte sweep skipped (not the sync worker)")
         except Exception as e:
             print(f"[startup] construction sweep skipped: {e}")
+        try:
+            # One-shot: drains task attachments inlined as data: URLs into
+            # Supabase Storage (5.7 GB of the prod DB), then exits. Idempotent.
+            from task_files import attachment_migration_loop
+            _tasks.append(_a.create_task(attachment_migration_loop()))
+        except Exception as e:
+            print(f"[startup] attachment backlog migration skipped: {e}")
         print(f"[startup] background jobs started ({len(_tasks)} loops)")
         return _tasks
     try:

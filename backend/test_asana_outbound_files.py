@@ -17,7 +17,8 @@ that URL itself, with none of our credentials - so anything Nexus holds as a
                 reaches Asana through the attachment push" - which was not true,
                 because of the bug above.
 
-Both now route through services/task_files.py: the bytes get a real address,
+Both now route through task_files.py - the module that drained 5.7 GB of
+inlined attachments out of the prod DB: the bytes get a real address,
 and a TaskAttachment row carries them to Asana as an external attachment.
 
 Throwaway sqlite. No network - Supabase and the Asana POST are both stubbed.
@@ -38,7 +39,7 @@ import atexit
 import asana_sync
 import database
 import models
-from services import task_files
+import task_files
 
 models.Base.metadata.create_all(bind=database.engine)
 
@@ -77,16 +78,18 @@ class _Base(unittest.TestCase):
 
         self.posted = []
         self.uploaded = []
-        self._real = (asana_sync._asana_post, task_files.upload, task_files.configured)
+        self._real = (asana_sync._asana_post, task_files.data_url_to_storage,
+                      task_files.storage_configured)
         asana_sync._asana_post = lambda tok, path, body: (
             self.posted.append((path, body)) or {"gid": "asana-att-1"})
-        task_files.upload = lambda path, raw, ct: (
-            self.uploaded.append((path, len(raw), ct)) or HOSTED)
-        task_files.configured = lambda: True
+        task_files.data_url_to_storage = lambda name, uri: (
+            self.uploaded.append((name, len(uri))) or HOSTED)
+        task_files.storage_configured = lambda: True
         self.addCleanup(self._restore)
 
     def _restore(self):
-        asana_sync._asana_post, task_files.upload, task_files.configured = self._real
+        (asana_sync._asana_post, task_files.data_url_to_storage,
+         task_files.storage_configured) = self._real
 
     def _attachment(self, url, name="photo.png", linked=False):
         a = models.TaskAttachment(id=str(uuid.uuid4()), task_id=self.task.id, name=name,
@@ -136,9 +139,7 @@ class AttachmentPushTests(_Base):
         self.assertEqual(len(self.posted), 1)
 
     def test_storage_being_down_costs_the_file_not_the_sync(self):
-        def boom(path, raw, ct):
-            raise RuntimeError("Supabase 503")
-        task_files.upload = boom
+        task_files.data_url_to_storage = lambda name, uri: ""   # storage down
         self._attachment(PNG_URI)
         asana_sync._push_attachments(self.db, _Cfg(), self.task, "999")   # must not raise
         self.assertEqual(self.posted, [])
@@ -210,15 +211,13 @@ class InlineImagePushTests(_Base):
     def test_without_storage_configured_the_comment_still_goes(self):
         """A laptop with no SUPABASE_URL must be able to push a comment, minus
         the image - not fail the sync."""
-        task_files.configured = lambda: False
+        task_files.storage_configured = lambda: False
         html = f'<p><img src="{PNG_URI}"></p>'
         self.assertEqual(asana_sync._externalize_inline_images(self.db, self.task, html), html)
         self.assertEqual(self.db.query(models.TaskAttachment).count(), 0)
 
     def test_a_failed_upload_leaves_the_image_where_it_was(self):
-        def boom(path, raw, ct):
-            raise RuntimeError("nope")
-        task_files.upload = boom
+        task_files.data_url_to_storage = lambda name, uri: ""   # upload failed
         html = f'<p><img src="{PNG_URI}"></p>'
         self.assertEqual(asana_sync._externalize_inline_images(self.db, self.task, html), html)
         self.assertEqual(self.db.query(models.TaskAttachment).count(), 0)

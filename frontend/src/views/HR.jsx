@@ -80,25 +80,54 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
   const [jobRoles, setJobRoles] = useState([]);
   const [jobRoleId, setJobRoleId] = useState('');
   useEffect(() => { if (isAdmin && !editing) api.getJobRoles().then(setJobRoles).catch(() => {}); }, [isAdmin, editing]);
-  const [f, setF] = useState(() => ({
-    first_name:      employee?.firstName || '',
-    last_name:       employee?.lastName || '',
-    work_email:      employee?.workEmail || '',
-    personal_email:  employee?.personalEmail || '',
-    phone:           employee?.phone || '',
-    job_title:       employee?.jobTitle || '',
-    designation:     employee?.designation || '',
-    department:      employee?.department || '',
-    employment_type: employee?.employmentType || 'full_time',
-    start_date:      employee?.startDate || '',
-    manager_email:   employee?.managerEmail || '',
-    status:          employee?.status || 'active',
-    location:        employee?.location || '',
-    company:         employee?.company || '',
-    identity_type:   employee?.identityType || 'internal',
-    contractor:      employee?.contractor || {},
-    notes:           employee?.notes || '',
-  }));
+  const seedFrom = (e) => ({
+    first_name:      e?.firstName || '',
+    last_name:       e?.lastName || '',
+    work_email:      e?.workEmail || '',
+    personal_email:  e?.personalEmail || '',
+    phone:           e?.phone || '',
+    job_title:       e?.jobTitle || '',
+    designation:     e?.designation || '',
+    department:      e?.department || '',
+    employment_type: e?.employmentType || 'full_time',
+    start_date:      e?.startDate || '',
+    manager_email:   e?.managerEmail || '',
+    status:          e?.status || 'active',
+    location:        e?.location || '',
+    company:         e?.company || '',
+    identity_type:   e?.identityType || 'internal',
+    contractor:      e?.contractor || {},
+    notes:           e?.notes || '',
+  });
+  const [f, setF] = useState(() => seedFrom(employee));
+  // The row this modal opened from can be STALE: other surfaces change the
+  // record without this view's list refetching - assigning a job role (from
+  // Roles & Access or the card's Access tab) rewrites job_title server-side,
+  // and can set a default manager. Re-read the person on open and refresh any
+  // field the user hasn't already retyped: an untouched field still equals the
+  // stale seed, so only those are replaced and in-progress edits are never
+  // clobbered. (contractor is a nested object - left to its live edit state.)
+  useEffect(() => {
+    if (!editing || !employee?.id) return;
+    let live = true;
+    api.getEmployees().then((rows) => {
+      if (!live) return;
+      const fresh = (rows || []).find((r) => r.id === employee.id);
+      if (!fresh) return;
+      const orig = seedFrom(employee);
+      const next = seedFrom(fresh);
+      setF((cur) => {
+        const merged = { ...cur };
+        for (const k of Object.keys(next)) {
+          if (k === 'contractor') continue;
+          if (cur[k] === orig[k]) merged[k] = next[k];
+        }
+        return merged;
+      });
+    }).catch(() => {});
+    return () => { live = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing, employee?.id]);
   const [busy, setBusy] = useState(false);
   // Department options come from the SELECTED company - no company, no department.
   const [deptOptions, setDeptOptions] = useState([]);
@@ -4229,26 +4258,48 @@ export default function HR({ activeSub, onSubChange }) {
   }, [employees]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   const [syncBusy, setSyncBusy] = useState(false);
-  // One action: pull the directory (people + fields) AND their profile photos.
+  const [syncLabel, setSyncLabel] = useState('');
+  // ONE button, the whole sync: the server pulls the directory (link/backfill,
+  // as before), then pushes EVERY linked profile back to Entra - Nexus values
+  // win, job titles go out level-stripped. It runs server-side as a background
+  // job (a few minutes of Graph calls), so this just starts it and polls the
+  // status row; the photos pass stays a separate best-effort follow-up.
   async function runSync() {
     if (syncBusy) return;
     setSyncBusy(true);
+    setSyncLabel('Starting…');
     try {
-      const r = await api.syncM365();
-      const bits = [];
-      if (r.created) bits.push(`${r.created} added`);
-      bits.push(`${r.linked} linked`, `${r.updated} updated`);
-      if (r.removed?.length) bits.push(`${r.removed.length} removed (shared/inactive)`);
-      if (r.unlinked?.length) bits.push(`unlinked (account deleted): ${r.unlinked.join(', ')}`);
-      // Photos are a second, slower pass - don't fail the whole sync if it errors.
-      try {
-        const p = await api.syncM365Photos();
-        if (p.updated) bits.push(`${p.updated} photos`);
-      } catch { /* photo pass is best-effort */ }
-      toastOk(`M365 sync: ${bits.join(' · ')}.`);
+      await api.syncM365TwoWay();
+      let s = null;
+      for (;;) {
+        await new Promise(r => setTimeout(r, 2500));
+        try { s = await api.syncM365TwoWayStatus(); } catch { continue; }
+        if (s.phase === 'pull') setSyncLabel('Pulling directory…');
+        else if (s.phase === 'push') setSyncLabel(`Pushing ${s.done}/${s.total}…`);
+        else break;
+      }
+      if (s?.phase === 'failed') {
+        toastErr(`M365 sync failed: ${s.errors?.[0]?.error || 'see server logs'}.`);
+      } else {
+        const bits = [];
+        const p = s?.pull || {};
+        if (p.created) bits.push(`${p.created} added`);
+        bits.push(`${p.linked || 0} linked`, `${p.updated || 0} updated`);
+        bits.push(`${s?.pushedOk || 0} pushed to M365`);
+        if (s?.pushFailed) bits.push(`${s.pushFailed} push failure${s.pushFailed > 1 ? 's' : ''} (${(s.errors || []).slice(0, 3).map(e => e.email).join(', ')}${(s.errors || []).length > 3 ? '…' : ''})`);
+        if (p.removed?.length) bits.push(`${p.removed.length} removed (shared/inactive)`);
+        if (p.unlinked?.length) bits.push(`unlinked (account deleted): ${p.unlinked.join(', ')}`);
+        try {
+          setSyncLabel('Syncing photos…');
+          const ph = await api.syncM365Photos();
+          if (ph.updated) bits.push(`${ph.updated} photos`);
+        } catch { /* photo pass is best-effort */ }
+        toastOk(`M365 sync: ${bits.join(' · ')}.`);
+      }
       load();
     } catch (err) { toastErr(err?.message || 'Sync failed.'); }
     setSyncBusy(false);
+    setSyncLabel('');
   }
 
   function load() {
@@ -4348,9 +4399,9 @@ export default function HR({ activeSub, onSubChange }) {
         {sub === 'hr-people' && (
           <div style={{ display: 'flex', gap: 8, flexShrink: 0, flexWrap: 'wrap' }}>
             <button className="secondary-btn" disabled={syncBusy} style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}
-              title="Pull people from M365 (only @greensglobal.com and @greensstorage.com) - new people added, existing profiles linked, empty fields + profile photos backfilled from Entra."
+              title="Two-way sync: pulls the M365 directory in (new people added, profiles linked, empty fields + photos backfilled), then pushes every linked profile back to Entra - Nexus values win, job titles go out without level markers."
               onClick={runSync}>
-              {syncBusy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <History size={14} />} Sync from M365
+              {syncBusy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <History size={14} />} {syncBusy && syncLabel ? syncLabel : 'Sync M365'}
             </button>
             <button className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}
               title="Manage companies & their departments"

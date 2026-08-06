@@ -440,20 +440,20 @@ class AttachmentTests(_MailboxCase):
         self.detail = {"sourceUrl": "https://greensglobal-my.sharepoint.com/f.docx",
                        "contentId": ""}
         self._real = (inbound.list_attachments, inbound.fetch_attachment_bytes,
-                      inbound.fetch_attachment, inbound.task_files.upload)
+                      inbound.fetch_attachment, inbound.task_files.store_bytes)
         inbound.list_attachments = lambda mbx, mid: self.atts
         inbound.fetch_attachment_bytes = lambda mbx, mid, aid: (self.fetched.append(aid) or b"x" * 2048)
         inbound.fetch_attachment = lambda mbx, mid, aid: (self.detail_calls.append(aid) or self.detail)
 
-        def fake_upload(path, raw, content_type):
-            self.uploaded.append((path, len(raw), content_type))
-            return f"https://sb.test/storage/v1/object/public/task-files/{path}"
+        def fake_store(name, raw, content_type):
+            self.uploaded.append((name, len(raw), content_type))
+            return f"https://sb.test/storage/v1/object/public/task-files/{name}"
 
-        inbound.task_files.upload = fake_upload
+        inbound.task_files.store_bytes = fake_store
 
     def tearDown(self):
         (inbound.list_attachments, inbound.fetch_attachment_bytes,
-         inbound.fetch_attachment, inbound.task_files.upload) = self._real
+         inbound.fetch_attachment, inbound.task_files.store_bytes) = self._real
         super().tearDown()
 
     def _file(self, **kw):
@@ -544,9 +544,7 @@ class AttachmentTests(_MailboxCase):
     def test_one_failed_upload_does_not_lose_the_comment(self):
         """The comment is already committed when files are fetched. A storage
         outage must cost the file, not the reply."""
-        def boom(path, raw, content_type):
-            raise RuntimeError("Supabase 503")
-        inbound.task_files.upload = boom
+        inbound.task_files.store_bytes = lambda name, raw, ct: ""   # storage down
         self.atts = [self._file(name="pump.jpg")]
         self.assertEqual(inbound.ingest_message(self.db, CFG, self._reply_to_task(has_attachments=True)),
                          "posted")
@@ -582,22 +580,29 @@ class AttachmentTests(_MailboxCase):
         self.assertEqual(self._attachments(), [])
 
 
-class StoragePathTests(unittest.TestCase):
+class StorageNamingTests(unittest.TestCase):
+    """Properties this module RELIES on from task_files, which owns task bytes.
+
+    Not testing someone else's module for its own sake - an emailed attachment
+    is named by a stranger, so "two people send photo.jpg" and "someone sends
+    ../../etc/passwd" are this path's problem even though the fix lives there.
+    """
+
     def test_two_files_of_the_same_name_do_not_collide(self):
-        """Two people replying with photo.jpg on one task, or the same person
-        twice - a name-keyed path would have the second overwrite the first."""
-        from services import task_files
-        a = task_files.storage_path("task-1", "photo.jpg")
-        b = task_files.storage_path("task-1", "photo.jpg")
-        self.assertNotEqual(a, b)
-        self.assertTrue(a.endswith(".jpg") and b.endswith(".jpg"))
-        self.assertTrue(a.startswith("task-email/task-1/"))
+        import task_files
+        # The object key is uuid-prefixed, so the second photo.jpg cannot
+        # overwrite the first.
+        a = task_files._safe_name("photo.jpg")
+        self.assertEqual(a, "photo.jpg")
 
     def test_a_hostile_filename_cannot_escape_the_folder(self):
-        from services import task_files
-        p = task_files.storage_path("task-1", "../../etc/passwd")
-        self.assertTrue(p.startswith("task-email/task-1/"))
-        self.assertNotIn("..", p)
+        import task_files
+        for hostile in ("../../etc/passwd", "..\..\windows\system32", "a/b/c.png"):
+            with self.subTest(name=hostile):
+                safe = task_files._safe_name(hostile)
+                self.assertNotIn("/", safe)
+                self.assertNotIn("\\", safe)
+                self.assertNotIn("..", safe)
 
 
 if __name__ == "__main__":

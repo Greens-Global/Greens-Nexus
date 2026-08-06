@@ -44,12 +44,9 @@ from sqlalchemy import text
 
 from database import SessionLocal
 import models
-# Asana fetches an external attachment itself, so anything Nexus holds as a
-# data: URI needs a real address first. Same uploader the inbound email path
-# uses - one place that knows how to put task bytes in storage.
-from services import task_files
 from routers.task_util import now_iso, gen_id, log_activity
 from asana_import import Asana, _request, ImportError_
+import task_files
 # Per-user Asana grants, so a pushed comment is attributed to its real author.
 # Safe at module level: asana_oauth imports asana_sync lazily (inside
 # redirect_uri) precisely to keep this from becoming a cycle.
@@ -801,34 +798,29 @@ def _push_section(db, cfg, task, asana_gid, project_gid):
 # never appeared in Asana, and why 8 of the 14 attachments on this database had
 # never been pushed and never would be.
 #
-# The repair is to give those bytes a real address. services/task_files.py
-# already does exactly that for inbound email attachments, so this reuses it
-# rather than growing a second uploader.
-_DATA_URI_RE = re.compile(r"(?i)^data:([\w.+-]+/[\w.+-]+)?;base64,(.*)$", re.S)
+# The repair is to give those bytes a real address. task_files.py already does
+# exactly that - it is what drained the inlined attachments out of the prod
+# DB - so this reuses it rather than growing a second uploader.
 _DATA_IMG_TAG_RE = re.compile(r'(?is)<img\b[^>]*?\bsrc\s*=\s*["\'](data:[^"\']+)["\'][^>]*?/?>')
 
 
 def _host_data_uri(task_id: str, data_uri: str, name: str) -> str:
-    """Upload one `data:` URI to Supabase and return its public URL, or "".
+    """Upload one `data:` URI to storage and return its public URL, or "".
 
-    Returns "" rather than raising on every failure path, including Supabase
-    being unconfigured: a laptop with no SUPABASE_URL must still be able to push
-    a comment, minus the image, instead of failing the whole sync."""
-    m = _DATA_URI_RE.match((data_uri or "").strip())
-    if not m:
+    task_files.data_url_to_storage is the one uploader for task bytes (it is
+    what drained 5.7 GB of inlined attachments out of the prod DB) - this only
+    adds the size ceiling the sync wants, since a giant paste should not be
+    pushed at all rather than pushed slowly.
+
+    Never raises, including when storage is unconfigured: a laptop with no
+    SUPABASE_URL must still push a comment, minus the image."""
+    uri = (data_uri or "").strip()
+    if len(uri) * 3 / 4 > _ATTACHMENT_MAX_BYTES:
         return ""
-    mime = (m.group(1) or "application/octet-stream").lower()
-    try:
-        raw = base64.b64decode(m.group(2), validate=False)
-    except Exception:
-        return ""
-    if not raw or len(raw) > task_files.MAX_BYTES:
-        return ""
-    try:
-        return task_files.upload(task_files.storage_path(task_id, name), raw, mime)
-    except Exception as e:
-        print(f"[asana] could not host {name} for outbound push: {e}")
-        return ""
+    hosted = task_files.data_url_to_storage(name, uri)
+    if not hosted:
+        print(f"[asana] could not host {name} for outbound push")
+    return hosted
 
 
 def _externalize_inline_images(db, task, html: str, comment_id: str = "") -> str:
@@ -851,7 +843,7 @@ def _externalize_inline_images(db, task, html: str, comment_id: str = "") -> str
     carrying one less image."""
     if not html or "data:image" not in html.lower():
         return html
-    if not task_files.configured():
+    if not task_files.storage_configured():
         return html
 
     def swap(m):
@@ -2284,10 +2276,10 @@ def _pull_stories(db, asana, asana_gid, nexus_task_id, counts):
         counts["activities"] = counts.get("activities", 0) + 1
 
 
-# Small files are downloaded and stored inline as a data: URI (same as the
-# task_config.py one-shot importer); anything larger, or hosted externally
-# (Google Drive/Dropbox etc - host != "asana"), just keeps its Asana view URL
-# rather than pulling the bytes through this API.
+# Small files are downloaded and stored in Supabase Storage (task_files.py;
+# data: inline is only the no-storage-creds local fallback); anything larger,
+# or hosted externally (Google Drive/Dropbox etc - host != "asana"), just keeps
+# its Asana view URL rather than pulling the bytes through this API.
 _ATTACHMENT_MAX_BYTES = int(5 * 1024 * 1024)
 
 
@@ -2479,7 +2471,10 @@ def _pull_attachments(db, asana, asana_gid, nexus_task_id, counts, email_map=Non
                     with urllib.request.urlopen(dl, timeout=90) as r:
                         raw = r.read()
                     mime = mimetypes.guess_type(name)[0] or "application/octet-stream"
-                    url = f"data:{mime};base64,{base64.b64encode(raw).decode()}"
+                    # Bytes go to Supabase Storage, not into this row - inlining
+                    # them as data: URLs grew the prod DB to 5.9 GB (task_files.py).
+                    url = task_files.store_bytes(name, raw, mime) \
+                        or f"data:{mime};base64,{base64.b64encode(raw).decode()}"
                 except Exception:
                     url = a.get("view_url") or dl or ""
             else:

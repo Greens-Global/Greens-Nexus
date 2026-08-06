@@ -827,6 +827,8 @@ export const api = {
   getProvisionRuns:  (empId)        => req(`/hr/employees/${empId}/provision/runs`),
   syncM365:          ()             => req('/hr/employees/sync-m365', { method: 'POST' }),
   syncM365Photos:    ()             => req('/hr/employees/sync-photos', { method: 'POST' }),
+  syncM365TwoWay:       () => req('/hr/employees/sync-m365-two-way', { method: 'POST' }),
+  syncM365TwoWayStatus: () => req('/hr/employees/sync-m365-two-way/status'),
   pushToEntra:       (empId)        => req(`/hr/employees/${empId}/push-to-entra`, { method: 'POST' }),
   resendWelcome:     (empId)        => req(`/hr/employees/${empId}/welcome-email`, { method: 'POST' }),
 
