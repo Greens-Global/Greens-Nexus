@@ -92,7 +92,13 @@ def migrate_inlined_batch(db, batch: int = 25, skip_ids=None):
     q = db.query(models.TaskAttachment).filter(models.TaskAttachment.url.like("data:%"))
     if skip_ids:
         q = q.filter(~models.TaskAttachment.id.in_(skip_ids))
-    rows = q.order_by(models.TaskAttachment.id).limit(batch).all()
+    # FOR UPDATE SKIP LOCKED: every gunicorn worker on the leader instance runs
+    # this loop (leader.py's lease is per INSTANCE - WEBSITE_INSTANCE_ID is the
+    # same for all workers), so without row claims they'd grab the SAME batch
+    # and upload duplicate copies. Locked rows are simply someone else's batch.
+    # No-op on SQLite (local dev), harmless there.
+    rows = (q.order_by(models.TaskAttachment.id).limit(batch)
+            .with_for_update(skip_locked=True).all())
     migrated, failed = 0, []
     for a in rows:
         stored = data_url_to_storage(a.name, a.url)
@@ -108,6 +114,68 @@ def migrate_inlined_batch(db, batch: int = 25, skip_ids=None):
         migrated += 1
     db.commit()
     return migrated, failed, len(rows)
+
+
+def sweep_orphaned_objects(db) -> int:
+    """Delete task-files objects no task_attachments row references. Orphans
+    come from the pre-SKIP LOCKED days (every worker uploaded its own copy of
+    the same batch) and from attachment rows deleted after upload. Only
+    objects older than 15 minutes are touched - an object younger than that
+    may belong to a row another worker has uploaded but not yet committed.
+    Idempotent and safe to run from several workers at once (a double delete
+    is a 404). Returns the number of objects deleted."""
+    from datetime import datetime, timedelta, timezone
+    from sqlalchemy import text
+
+    url, key = _creds()
+    if not (url and key):
+        return 0
+    headers = {"Authorization": f"Bearer {key}", "apikey": key}
+
+    referenced = set()
+    marker = f"/{TASK_FILES_BUCKET}/"
+    for (u,) in db.execute(text(
+            "SELECT url FROM task_attachments WHERE url LIKE :p"),
+            {"p": f"%{marker}%"}):
+        referenced.add((u or "").split(marker, 1)[1])
+
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=15)
+    orphans, offset = [], 0
+    while True:
+        try:
+            r = httpx.post(f"{url}/storage/v1/object/list/{TASK_FILES_BUCKET}",
+                           headers=headers, timeout=60,
+                           json={"prefix": "tasks", "limit": 1000, "offset": offset,
+                                 "sortBy": {"column": "name", "order": "asc"}})
+        except Exception:
+            return 0
+        if not r.is_success:
+            return 0
+        page = r.json() or []
+        for o in page:
+            name = o.get("name") or ""
+            created = (o.get("created_at") or "").replace("Z", "+00:00")
+            try:
+                too_new = datetime.fromisoformat(created) > cutoff
+            except Exception:
+                too_new = True                      # unparseable age: leave it
+            if name and f"tasks/{name}" not in referenced and not too_new:
+                orphans.append(f"tasks/{name}")
+        if len(page) < 1000 or offset > 50000:      # runaway guard
+            break
+        offset += 1000
+
+    deleted = 0
+    for i in range(0, len(orphans), 100):
+        chunk = orphans[i:i + 100]
+        try:
+            r = httpx.request("DELETE", f"{url}/storage/v1/object/{TASK_FILES_BUCKET}",
+                              headers=headers, json={"prefixes": chunk}, timeout=60)
+            if r.is_success:
+                deleted += len(chunk)
+        except Exception:
+            break
+    return deleted
 
 
 async def attachment_migration_loop():
@@ -132,8 +200,20 @@ async def attachment_migration_loop():
         finally:
             db.close()
 
+    def _sweep():
+        db = SessionLocal()
+        try:
+            return sweep_orphaned_objects(db)
+        finally:
+            db.close()
+
     remaining = await asyncio.to_thread(_count)
     if not remaining:
+        # Backlog already drained - still sweep (cheap: one query + a few list
+        # calls) so orphans from earlier runs or deleted rows get cleaned up.
+        swept = await asyncio.to_thread(_sweep)
+        if swept:
+            print(f"[task-files] swept {swept} orphaned storage objects")
         return
     print(f"[task-files] migrating {remaining} inlined attachments to storage")
     failed, total_done = set(), 0
@@ -159,3 +239,8 @@ async def attachment_migration_loop():
         await asyncio.sleep(2)
     print(f"[task-files] backlog migration complete: {total_done} moved, "
           f"{len(failed)} undecodable (left inline)")
+    # Other workers may still be mid-batch; the sweep's 15-minute age guard
+    # protects their uploads, so waiting out the guard here isn't needed.
+    swept = await asyncio.to_thread(_sweep)
+    if swept:
+        print(f"[task-files] swept {swept} orphaned storage objects")
