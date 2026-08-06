@@ -607,3 +607,42 @@ class StorageNamingTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MailboxAgreementTests(unittest.TestCase):
+    """The two halves must resolve the SAME mailbox.
+
+    They did not, and it shipped: outbound built the signed reply address from
+    `replyTo` alone while inbound read `inboundMailbox or replyTo`. An admin who
+    filled in only "Mailbox to read" got notifications with NO Reply-To header,
+    so every reply arrived tokenless and the Replies log read "could not match
+    this reply to a task" for all of them - with nothing saying why.
+    """
+
+    MB = "nexus@greensglobal.com"
+
+    def test_only_the_inbound_mailbox_set_still_produces_a_reply_address(self):
+        cfg = {"inboundMailbox": self.MB, "replyTo": ""}
+        tid = gen_id()
+        addr = parse.reply_address(parse.reply_mailbox(cfg), tid)
+        self.assertTrue(addr.startswith("nexus+"), addr)
+        self.assertEqual(parse.task_id_from_recipients(parse.reply_mailbox(cfg), [addr]), tid)
+
+    def test_only_reply_to_set_still_works(self):
+        cfg = {"inboundMailbox": "", "replyTo": self.MB}
+        tid = gen_id()
+        addr = parse.reply_address(parse.reply_mailbox(cfg), tid)
+        self.assertEqual(parse.task_id_from_recipients(parse.reply_mailbox(cfg), [addr]), tid)
+
+    def test_the_inbound_mailbox_wins_when_both_are_set(self):
+        # The UI says "Overrides the reply-to address above" - so the address the
+        # notification carries has to be built from the override too, or replies
+        # come back to a mailbox nobody reads.
+        cfg = {"inboundMailbox": self.MB, "replyTo": "tasks@greensglobal.com"}
+        self.assertEqual(parse.reply_mailbox(cfg), self.MB)
+        addr = parse.reply_address(parse.reply_mailbox(cfg), gen_id())
+        self.assertTrue(addr.startswith("nexus+"), addr)
+
+    def test_neither_set_produces_no_address_rather_than_a_broken_one(self):
+        self.assertEqual(parse.reply_mailbox({}), "")
+        self.assertEqual(parse.reply_address(parse.reply_mailbox({}), gen_id()), "")

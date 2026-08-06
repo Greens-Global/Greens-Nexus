@@ -88,9 +88,10 @@ def _now() -> str:
 
 # ── Config ───────────────────────────────────────────────────────────────────
 def mailbox_of(cfg: dict) -> str:
-    """The mailbox to read. Falls back to replyTo, which is normally the same
-    address and is where the notifications already tell people to reply."""
-    return (cfg.get("inboundMailbox") or cfg.get("replyTo") or "").strip().lower()
+    """The mailbox to read - resolved by parse.reply_mailbox, the single answer
+    the outbound half uses too. They must not compute this separately; see that
+    function for what happened when they did."""
+    return parse.reply_mailbox(cfg)
 
 
 def is_enabled(cfg: dict) -> bool:
@@ -435,7 +436,21 @@ def ingest_message(db, cfg: dict, msg: dict) -> str:
 
     task, how = resolve_task(db, cfg, msg, headers)
     if not task:
-        return finish("rejected", "could not match this reply to a task")
+        # Name which of the three routes was even available. "Could not match"
+        # on its own sent us looking at the wrong half: the real cause was that
+        # the notifications carried no Reply-To, so no reply could ever have a
+        # token - and nothing in the row said so.
+        why = []
+        if not parse.task_id_from_recipients(mailbox_of(cfg), _recipients(msg)):
+            why.append("no signed reply address on it")
+        if not _referenced_ids(headers):
+            why.append("no threading headers")
+        elif not db.query(models.TaskEmailLog).filter(
+                models.TaskEmailLog.internet_message_id.in_(_referenced_ids(headers))).first():
+            why.append("its threading headers match nothing we sent")
+        if not (msg.get("conversationId") or "").strip():
+            why.append("no conversation id")
+        return finish("rejected", "could not match this reply to a task: " + ", ".join(why))
     row.task_id, row.matched_by = task.id, how
 
     author, why = resolve_author(db, sender)

@@ -6,15 +6,15 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  CheckCircle2, Circle, MessageSquare, Paperclip, Diamond, ChevronDown, Check, Minus, ListTree, Plus, Trash2, Folder,
-  // (MessageSquare/Paperclip now render as count badges next to the title,
-  // like the subtask badge below - not as ActionIcons buttons.)
+  CheckCircle2, Circle, Diamond, ChevronDown, Check, Minus, Plus, Trash2, Folder,
+  // The subtask/comment/attachment icons moved with their badges into
+  // components.TaskCountBadges, which My Tasks renders too.
   Hash, List, Calendar, CheckSquare, ListOrdered, CircleDot, BarChart3, TrendingUp, Star, CalendarPlus, CalendarClock, Timer, ArrowLeft, EyeOff,
   Lock, Users, ListChecks,
 } from 'lucide-react';
 import { groupTasks, matchesFilter, sortTasks, topLevel, groupAddDefaults, fieldsForProject, teamInProject } from '../lib';
 import { NX, FONT, btn, input as inputStyle, PRIORITY_META, PRIORITY_ORDER, STATUS_META, STATUS_ORDER, colorForKey } from '../theme';
-import { Avatar, useClickOutside, DateField } from '../components';
+import { Avatar, useClickOutside, DateField, TaskCountBadges } from '../components';
 import { emailToName, rootZoom } from '../../lib/utils';
 
 const BASE_COLS = [
@@ -260,11 +260,6 @@ function TaskRow({ t, cols, customFields = [], template, store, people, selected
   const setEst = (h, m) => store.updateTask(t.id, { estimateHours: (h || m) ? (Number(h || 0) + Number(m || 0) / 60) : null });
   const show = (k) => !hidden.has(k);
   const followers = (t.followerIds || []).filter((f) => f && f !== t.assigneeId);
-  const subIds = t.subtaskIds || [];
-  const subs = subIds.map((id) => (store.taskById ? store.taskById[id] : null) || store.tasks?.find((x) => x.id === id)).filter(Boolean);
-  const subsDone = subs.filter((s) => s.completed).length;
-  const commentCount = (t.commentIds || []).length;
-  const attachmentCount = (t.attachmentIds || []).length;
   return (
     <div onClick={() => onOpen(t.id)} data-task-row draggable
       onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; onDragStartRow?.(t.id); }}
@@ -285,25 +280,12 @@ function TaskRow({ t, cols, customFields = [], template, store, people, selected
         <div style={{ ...cellPad, gap: 6 }}>
           {t.isMilestone && <Diamond size={12} style={{ color: NX.purple, flexShrink: 0 }} />}
           <span style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: t.completed ? NX.faint : NX.ink, textDecoration: t.completed ? 'line-through' : 'none' }}>{t.title}</span>
-          {subs.length > 0 && (
-            <span title={`${subsDone}/${subs.length} subtasks done`} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: NX.faint, flexShrink: 0 }}>
-              <ListTree size={12} />{subsDone}/{subs.length}
-            </span>
-          )}
-          {/* Same badge language as subtasks above - icon + count, present only
-              when there's something to show. No longer buttons in ActionIcons:
-              those opened the drawer/file-picker regardless of whether the task
-              had anything to show, which is what a plain indicator here avoids. */}
-          {commentCount > 0 && (
-            <span title={`${commentCount} comment${commentCount === 1 ? '' : 's'}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, color: NX.faint, flexShrink: 0 }}>
-              <MessageSquare size={12} />{commentCount}
-            </span>
-          )}
-          {attachmentCount > 0 && (
-            <span title={`${attachmentCount} attachment${attachmentCount === 1 ? '' : 's'}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, color: NX.faint, flexShrink: 0 }}>
-              <Paperclip size={12} />{attachmentCount}
-            </span>
-          )}
+          {/* Icon + count, present only when there's something to show. Shared
+              with My Tasks (components.jsx) so a task cannot look emptier on one
+              screen than the other. No longer buttons in ActionIcons: those
+              opened the drawer/file-picker regardless of whether the task had
+              anything to show, which is what a plain indicator avoids. */}
+          <TaskCountBadges t={t} store={store} />
         </div>
         {/* assignee - monday Person cell: avatar + follower stack */}
         {show('assignee') && (
