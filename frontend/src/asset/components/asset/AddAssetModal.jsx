@@ -49,14 +49,19 @@ function addressFieldsChanged(row, values) {
 
 /**
  * @param row          existing asset when editing, null/undefined when adding
+ * @param draft        staged values when RE-opening a new (row-less) add wizard, e.g. after
+ *                     backing out of the paired Item Management popup for a Heavy Equipment
+ *                     asset - unlike `row`, this keeps `isAdding` true (Create Asset/CSV import
+ *                     stay available) but still seeds the class + field values and skips to step 1.
  * @param properties   the full asset list (used for the parent-link picker, excluding self)
- * @param onSave       (payload, addressChangeReason?, linkInfo?) => void
+ * @param onSave       (payload, addressChangeReason?, linkInfo?, meta?) => void - meta.guided is
+ *                     true only for the single-asset wizard save, not the CSV bulk-import loop
  * @param onDelete     () => void (only offered when editing)
  * @param onClose      () => void
  */
-export function AddAssetModal({ row, properties, onSave, onDelete, onClose }) {
-  const [kind, setKind] = useState(() => inferAssetKind(row));
-  const [step, setStep] = useState(row ? 1 : 0);
+export function AddAssetModal({ row, draft, properties, onSave, onDelete, onClose }) {
+  const [kind, setKind] = useState(() => draft?.kind || inferAssetKind(row));
+  const [step, setStep] = useState(row || draft ? 1 : 0);
   const importInputRef = useRef(null);
   const imageInputRef = useRef(null);
 
@@ -65,13 +70,14 @@ export function AddAssetModal({ row, properties, onSave, onDelete, onClose }) {
   const requiredFields = schema.filter((f) => !f.sec);
   const otherAssets = (properties || []).filter((p) => !row || p.id !== row.id);
 
-  // Form values, seeded from `row` across every schema's keys at once (not just the current
-  // kind's) so switching the asset-class picker before saving doesn't silently drop values
-  // already typed under a different class.
+  // Form values, seeded from `row` (or `draft`, when returning to an in-progress add) across
+  // every schema's keys at once (not just the current kind's) so switching the asset-class
+  // picker before saving doesn't silently drop values already typed under a different class.
   const [values, setValues] = useState(() => {
-    const initial = { image: row?.image || '' };
+    const source = row || draft;
+    const initial = { image: source?.image || '' };
     PROPERTY_WIZARD_FIELDS.concat(VEHICLE_FIELDS, EQUIPMENT_FIELDS).forEach((f) => {
-      if (!f.sec) initial[f.k] = row ? row[f.k] ?? '' : '';
+      if (!f.sec) initial[f.k] = source ? source[f.k] ?? '' : '';
     });
     return initial;
   });
@@ -156,7 +162,10 @@ export function AddAssetModal({ row, properties, onSave, onDelete, onClose }) {
     // their current parent/child relationship, managed instead through ParcelManager).
     const linkInfo = row || isNonPropertyAsset ? undefined : linkTargetId ? { targetId: linkTargetId, role: linkRole } : { role: 'none' };
 
-    onSave(payload, needsAddressReason ? addressChangeReason.trim() : undefined, linkInfo);
+    // 4th arg marks this as the guided single-add wizard (vs. the CSV bulk-import loop below,
+    // which calls onSave per row without it) - callers use it to gate flows that only make sense
+    // for one asset at a time, e.g. Heavy Equipment's paired Item Management popup.
+    onSave(payload, needsAddressReason ? addressChangeReason.trim() : undefined, linkInfo, { guided: true });
   };
 
   // ---- CSV bulk-import (step 0 only) -----------------------------------------------------

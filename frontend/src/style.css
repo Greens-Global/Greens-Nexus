@@ -734,6 +734,10 @@ input[type="number"] { -moz-appearance: textfield; }
 /* Native widget accents (checkboxes, radios, date-picker highlights) in brand. */
 input[type="checkbox"], input[type="radio"], input[type="range"], progress { accent-color: var(--wk-brand); }
 ::-webkit-calendar-picker-indicator { opacity: .55; cursor: pointer; }
+/* Datalist inputs (e.g. Add Item's Department field) draw their own native list
+   indicator, which looks inconsistent with the kit chevron used on real <select>s -
+   hide it here so callers can overlay a matching ChevronDown icon instead. */
+.datalist-input::-webkit-calendar-picker-indicator { display: none; }
 /* Chrome 135+ customizable <select>: the OPEN dropdown list becomes a kit
    popover (white card, rounded, cobalt selection) instead of the OS-drawn menu.
    Everything inside @supports so other browsers keep the classic native list. */
