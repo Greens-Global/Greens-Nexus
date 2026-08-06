@@ -16,31 +16,12 @@ import { api } from '../api';
 // Shared rather than local copies: AsyncState is the codebase's one loading /
 // error idiom, and a fourth hand-rolled banner is a fourth thing to restyle.
 import { ErrorBanner, SkeletonBlocks } from '../components/AsyncState';
+// Shared with SiteActivity, which draws the same cards and status chips.
+import { CARD, ROW } from './ui';
+import Empty from './Empty';
+import ConstructionInbox from './ConstructionInbox';
 import ReviewQueue from './ReviewQueue';
-import DailyLogCapture from './DailyLogCapture';
-import WeeklyReports from './WeeklyReports';
 import Registers from './Registers';
-
-const CARD = {
-  backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)',
-  borderRadius: 12, padding: 24, marginBottom: 24, boxShadow: 'var(--shadow-sm)',
-};
-const ROW = {
-  backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-color)',
-  borderRadius: 8, padding: 20, display: 'flex', flexDirection: 'column', gap: 12,
-};
-
-// Only a draft or a bounced-back log can still be edited. submit_log freezes
-// the rest server-side (409), so opening capture on one would dead-end.
-const editable = (l) => l.status === 'draft' || l.status === 'needs_info';
-
-const LOG_STATUS = {
-  draft:      { label: 'Draft',        bg: 'var(--border-color)',    fg: 'var(--text-secondary)' },
-  submitted:  { label: 'Submitted',    bg: 'hsl(var(--color-blue))', fg: '#fff' },
-  processed:  { label: 'AI Processed', bg: 'hsl(var(--color-blue))', fg: '#fff' },
-  needs_info: { label: 'Needs Info',   bg: 'hsl(var(--color-red))',  fg: '#fff' },
-  approved:   { label: 'Approved',     bg: 'hsl(var(--color-green))', fg: '#fff' },
-};
 
 function Stat({ label, value, helper }) {
   return (
@@ -52,29 +33,18 @@ function Stat({ label, value, helper }) {
   );
 }
 
-// Loading and empty are distinct states on purpose. A spinner that resolves to
-// "No projects yet" reads as working; an empty list that was actually a failed
-// fetch reads as "the data is gone" and generates a support ticket.
-function Empty({ icon: Icon, title, hint, action }) {
-  return (
-    <div style={{ textAlign: 'center', padding: '48px 24px', color: 'var(--text-secondary)' }}>
-      <Icon size={32} style={{ opacity: 0.4, marginBottom: 12 }} />
-      <div style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: 6 }}>{title}</div>
-      {hint && <p style={{ fontSize: '0.85rem', maxWidth: 420, margin: '0 auto 16px' }}>{hint}</p>}
-      {action}
-    </div>
-  );
-}
-
-// ── Project detail: the daily logs for one jobsite ──────────────────────────
+// ── Project detail: one jobsite's standing facts ────────────────────────────
+// The day-to-day (logs, weekly report) moved to Site Activity; what stays here
+// is what belongs to the jobsite itself - its identity, progress and registers.
 function ProjectDetail({ project, onBack }) {
   const { can } = useRole();
   const canReview = !!can?.('manager');
   const [logs, setLogs] = useState(null);
   const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [capturing, setCapturing] = useState(null);   // the log being filled in
 
+  // Still fetched, only to count them: "12 daily logs" is a fact about the
+  // jobsite, and a card that cannot say how much is over there is a weaker
+  // signpost than one that can.
   const load = useCallback(() => {
     setError('');
     api.getConstructionLogs(project.id)
@@ -83,23 +53,6 @@ function ProjectDetail({ project, onBack }) {
   }, [project.id]);
 
   useEffect(load, [load]);
-
-  const startToday = async () => {
-    setBusy(true);
-    try {
-      // Jobsite-local date, not UTC: a log filed at 6pm Pacific must not land on
-      // tomorrow because the server is on UTC.
-      const d = new Date();
-      const logDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-      // Straight into capture - the worker tapped Start to attach something,
-      // not to look at a list.
-      setCapturing(await api.startConstructionLog(project.id, { log_date: logDate }));
-    } catch (e) {
-      setError(e.message || 'Could not start a daily log.');
-    } finally {
-      setBusy(false);
-    }
-  };
 
   return (
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
@@ -117,94 +70,33 @@ function ProjectDetail({ project, onBack }) {
             </p>
           </div>
         </div>
-        <button className="primary-btn" onClick={startToday} disabled={busy}>
-          <Plus size={16} />{busy ? 'Starting…' : "Start Today's Log"}
+      </div>
+
+      {error && <ErrorBanner message={error} onRetry={load} />}
+
+      {/* The daily logs and the weekly report moved to the Site Activity tab -
+          they are the two things people open every day, and they were two levels
+          down from here. This card is the way back to them for anyone who
+          arrived via a project, so the move does not read as a deletion. */}
+      <div style={{ ...CARD, display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+        <ClipboardList size={20} style={{ color: 'var(--text-secondary)', flexShrink: 0 }} />
+        <div style={{ flex: 1, minWidth: 200 }}>
+          <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
+            {logs === null ? 'Daily logs' : `${logs.length} daily log${logs.length === 1 ? '' : 's'}`}
+          </div>
+          <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: 2 }}>
+            Daily logs and weekly reports for this jobsite live on Site Activity.
+          </div>
+        </div>
+        <button className="secondary-btn" onClick={() => window.dispatchEvent(
+          new CustomEvent('nexus:navigate', { detail: { view: 'ops', sub: 'ops-activity' } }))}>
+          Open Site Activity
         </button>
       </div>
 
-      <div style={CARD}>
-        <h3 style={{ fontSize: '1.1rem', fontFamily: "'Plus Jakarta Sans', sans-serif", marginBottom: 4 }}>Daily Logs</h3>
-        <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: 20 }}>
-          What the crew filed from site, newest first
-        </p>
-
-        {error && <ErrorBanner message={error} onRetry={load} />}
-
-        {logs === null ? (
-          <SkeletonBlocks count={3} height={96} borderRadius={8} />
-        ) : logs.length === 0 ? (
-          <Empty
-            icon={ClipboardList}
-            title="No daily logs yet"
-            hint="A log is one worker, one day on this site. Start one and attach photos, video or a voice note as the day goes."
-          />
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {logs.map((l) => {
-              const s = LOG_STATUS[l.status] || LOG_STATUS.draft;
-              return (
-                <div key={l.id} style={ROW} role={editable(l) ? 'button' : undefined}
-                  tabIndex={editable(l) ? 0 : undefined}
-                  onClick={() => editable(l) && setCapturing(l)}
-                  onKeyDown={(e) => { if (editable(l) && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); setCapturing(l); } }}
-                  title={editable(l) ? 'Add photos, video or a voice note' : undefined}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                        <strong style={{ fontSize: '1rem', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{l.logDate}</strong>
-                        <span style={{ backgroundColor: s.bg, color: s.fg, fontSize: '0.7rem', padding: '2px 8px', borderRadius: 4, fontWeight: 600 }}>{s.label}</span>
-                        {/* Advisory, never enforced - see _within_geofence. Shown so a
-                            manager can weigh it, not to accuse anyone. */}
-                        {!l.geofenceOk && (
-                          <span title="Recorded outside the jobsite geofence" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '0.7rem', color: 'hsl(var(--color-amber, 38 92% 45%))', fontWeight: 600 }}>
-                            <MapPin size={11} />Off-site
-                          </span>
-                        )}
-                      </div>
-                      <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: 4 }}>
-                        {l.authorEmail}
-                        {l.crewSize ? ` · crew of ${l.crewSize}` : ''}
-                        {l.hoursWorked ? ` · ${l.hoursWorked}h` : ''}
-                      </div>
-                    </div>
-                  </div>
-                  {/* The AI summary when it exists, the worker's own words until
-                      then. Never both - the summary is derived from the notes and
-                      showing the pair just makes the row twice as tall. */}
-                  {(l.aiSummary || l.notes) && (
-                    <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.5, margin: 0 }}>
-                      {l.aiSummary || l.notes}
-                    </p>
-                  )}
-                  {l.status === 'submitted' && !l.aiProcessedAt && (
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontStyle: 'italic' }}>
-                      Queued for AI processing
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* Between the logs and the report, in the order the week actually runs:
-          the crew files logs, the manager reconciles them against the schedule
-          and the open correspondence, and the report is cut from all three. */}
+      {/* The schedule and the open correspondence stay with the project: they are
+          properties of the jobsite, not of a given day or week. */}
       <Registers project={project} canReview={canReview} />
-
-      {/* Below the logs, not a tab: the report is what the logs are for, and a
-          manager who has just approved the week should see the draft it feeds
-          without hunting for it. */}
-      <WeeklyReports project={project} canReview={canReview} />
-
-      {capturing && (
-        <DailyLogCapture
-          log={capturing} project={project}
-          onClose={() => { setCapturing(null); load(); }}
-          onSubmitted={() => { setCapturing(null); load(); }}
-        />
-      )}
     </div>
   );
 }
@@ -299,6 +191,11 @@ export default function ConstructionDashboard() {
       </div>
 
       {error && <ErrorBanner message={error} onRetry={load} />}
+
+      {/* Above the stats on purpose: a log bounced back with a question is the
+          one thing on this screen that is waiting on the reader personally.
+          Renders nothing when there is nothing waiting. */}
+      <ConstructionInbox />
 
       <div className="cards-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', marginBottom: 24 }}>
         <Stat label="Active Sites"    value={data ? data.activeSites : '—'} />

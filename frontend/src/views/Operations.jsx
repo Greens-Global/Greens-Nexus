@@ -1,7 +1,11 @@
 import { useState } from 'react';
-import { LayoutDashboard, FolderSync, Folder, MapPin, Users, Calendar, Truck, Settings, Database, Server, ShieldCheck, FolderOpen, ChevronRight, ArrowLeft, Download, RefreshCw, Upload, X } from 'lucide-react';
+// MapPin/Users/Calendar/X went unused when the mock project dashboard was
+// replaced by ConstructionDashboard; dropped here rather than left as dead
+// imports for the next reader to wonder about.
+import { LayoutDashboard, FolderSync, Folder, Truck, Settings, Database, Server, ShieldCheck, FolderOpen, ChevronRight, ArrowLeft, Download, RefreshCw, Upload, ClipboardList } from 'lucide-react';
 import ModuleTabs from '../components/ModuleTabs';
 import ConstructionDashboard from '../construction/ConstructionDashboard';
+import SiteActivity from '../construction/SiteActivity';
 
 
 const INIT_LOGISTICS = [
@@ -56,6 +60,7 @@ export default function Operations({ activeSub, onSubChange }) {
       <ModuleTabs
         tabs={[
           { key: 'ops-dashboard', label: 'Project Dashboard', Icon: LayoutDashboard },
+          { key: 'ops-activity',  label: 'Site Activity',     Icon: ClipboardList },
           { key: 'ops-cubby',     label: 'Cubby Integration', Icon: FolderSync },
         ]}
         active={sub} onChange={onSubChange} />
@@ -65,6 +70,11 @@ export default function Operations({ activeSub, onSubChange }) {
           lives in construction/ConstructionDashboard.jsx, which also owns the
           New Project modal. */}
       {sub === 'ops-dashboard' && <ConstructionDashboard />}
+
+      {/* Site Activity - the daily logs and the weekly report they add up to.
+          Its own tab because those two are what people open every day, and they
+          used to sit two levels down inside a project. */}
+      {sub === 'ops-activity' && <SiteActivity />}
 
       {/* Logistics and Equipment are still the original mock arrays. Kept
           rendering rather than dropped when projects went live - removing

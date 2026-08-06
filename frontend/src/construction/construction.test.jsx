@@ -34,6 +34,11 @@ vi.mock('../api', () => ({ api: {
   submitConstructionLog: vi.fn(),
   createConstructionMedia: vi.fn(),
   deleteConstructionMedia: vi.fn(),
+  // The dashboard renders ConstructionInbox, which reads the shared bell feed.
+  // Listed here so this harness matches what the tree actually calls - the
+  // strip is covered on its own in ConstructionInbox.test.jsx.
+  getNotifications: vi.fn(),
+  markNotifRead: vi.fn(),
 } }));
 
 // The capture screen talks to Supabase Storage directly. Stubbed at the helper
@@ -96,6 +101,7 @@ beforeEach(() => {
   api.getConstructionMedia.mockResolvedValue([]);
   api.updateConstructionLog.mockResolvedValue({});
   api.submitConstructionLog.mockResolvedValue({});
+  api.getNotifications.mockResolvedValue([]);
   uploadConstructionMedia.mockResolvedValue({ payload: null, error: null });
 });
 
