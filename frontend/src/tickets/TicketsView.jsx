@@ -102,6 +102,10 @@ function TicketMobileFilters({
         <label style={lab}>Status</label>
         <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={row}>
           <option value="all">All statuses</option>
+          {/* Buckets, not statuses - they must be listed or the control renders
+              blank when a summary tile selects one. */}
+          <option value="open">Open (not resolved)</option>
+          <option value="unassigned">Unassigned</option>
           {TICKET_STATUS_ORDER.map((s) => <option key={s} value={s}>{TICKET_STATUS_META[s].label}</option>)}
         </select>
       </div>
@@ -179,6 +183,8 @@ function TicketFilterMenu({
             <label style={lab}>Status</label>
             <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={rowStyle}>
               <option value="all">All statuses</option>
+              <option value="open">Open (not resolved)</option>
+              <option value="unassigned">Unassigned</option>
               {TICKET_STATUS_ORDER.map((s) => <option key={s} value={s}>{TICKET_STATUS_META[s].label}</option>)}
             </select>
           </div>
@@ -276,8 +282,24 @@ export default function TicketsView() {
   const { tickets, ticketViews = [], createTicketView, deleteTicketView,
     myEmail, nameOf, updateTicket, deleteTicket } = useTasks();
   const people = usePeople();
-  const { can } = useRole();
-  const itAdmin = can('administrator');
+  // Desk membership comes from the server, not from holding administrator: the
+  // roster is configured in Manage, and an agent need not be an admin at all.
+  // Admins stay true so a mis-configured desk can always be fixed. Optimistic
+  // false while it loads - the queues appear a beat later rather than flashing
+  // for someone who should not see them. The backend re-checks every action.
+  const [itAdmin, setItAdmin] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    // onDesk, not canAct: the queues are shown to the people whose work they
+    // are. An administrator who was not picked in Manage can still act on a
+    // ticket, but "To Assign" is not their inbox - and they are not notified
+    // about those tickets either, so showing them the queue would contradict
+    // their own bell.
+    api.getMyTicketAccess()
+      .then((r) => { if (alive) setItAdmin(!!r?.onDesk); })
+      .catch(() => { if (alive) setItAdmin(false); });
+    return () => { alive = false; };
+  }, []);
   const isMobile = useIsMobile();
   // HR departments carry the triage lead/backup; used for the Triage scope and the
   // department filter. Loaded here rather than in context - tickets are the only
@@ -411,7 +433,12 @@ export default function TicketsView() {
       // Routing queue (IT Admin): gated requests nobody has been asked to sign off yet.
       if (scope === 'route' && !(t.approvalStatus === 'pending' && !t.approverId)) return false;
       if (hrDeptFilter !== 'all' && (t.hrDepartmentId || '') !== hrDeptFilter) return false;
-      if (statusFilter !== 'all' && t.status !== statusFilter) return false;
+      // 'open' is a bucket, not a status: any state that is not resolved/closed.
+      // Without it the Open tile had nothing to select, so it cleared the
+      // filters instead - showing closed tickets under a count that excluded them.
+      if (statusFilter === 'open' && CLOSED_STATES.includes(t.status)) return false;
+      if (statusFilter === 'unassigned' && (t.assigneeId || CLOSED_STATES.includes(t.status))) return false;
+      if (!['all', 'open', 'unassigned'].includes(statusFilter) && t.status !== statusFilter) return false;
       if (priorityFilter !== 'all' && t.priority !== priorityFilter) return false;
       if (typeFilter !== 'all' && (t.type || 'request') !== typeFilter) return false;
       if (slaFilter !== 'all' && slaState(t) !== slaFilter) return false;
@@ -551,11 +578,22 @@ export default function TicketsView() {
       )}
 
       {/* Status summary tiles (owner's chosen Order-list concept): colored
-          header band + count + caption. Every tile is a real filter action. */}
+          header band + count + caption. Every tile is a real filter action.
+
+          Open + Resolved + Closed PARTITION the board - every ticket is in
+          exactly one, and the three sum to the total. Unassigned and SLA
+          breached are overlays ON Open, so they deliberately double-count.
+          Closed was missing, which left finished tickets in no card at all and
+          made the numbers look like they did not add up. */}
       {!isMobile && view !== 'reports' && (() => {
         const openCount = tickets.filter((t) => !CLOSED_STATES.includes(t.status)).length;
         const breachedCount = tickets.filter((t) => slaState(t) === 'breached').length;
         const resolvedCount = tickets.filter((t) => t.status === 'resolved').length;
+        const closedCount = tickets.filter((t) => t.status === 'closed').length;
+        // Live tickets with nobody on them. Closed ones are excluded - a closed
+        // ticket having no assignee is not work waiting for someone.
+        const unassignedCount = tickets.filter(
+          (t) => !t.assigneeId && !CLOSED_STATES.includes(t.status)).length;
         const tile = (label, bandBg, bandFg, n, sub, onGo, active) => (
           <button key={label} onClick={onGo}
             style={{ textAlign: 'left', border: `1px solid ${active ? bandFg : NX.border}`, borderRadius: 14, overflow: 'hidden', background: NX.surface, cursor: 'pointer', fontFamily: FONT, padding: 0, boxShadow: active ? `0 0 0 1px ${bandFg}` : 'none', transition: 'transform .15s, box-shadow .15s' }}
@@ -570,14 +608,27 @@ export default function TicketsView() {
         );
         return (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14, padding: '14px 24px 0', background: NX.canvas }}>
+            {/* Every tile counts the WHOLE workspace, so every tile clears the
+                scope on the way in - otherwise a card reading 4 opens a list of
+                1 because "My Requests" was still selected, and the number looks
+                broken. (To assign is itself a scope, so it sets one instead.) */}
             {tile('Open', 'rgba(9,152,195,0.14)', '#0998c3', openCount, 'not yet resolved',
-              () => { setScope('all'); setStatusFilter('all'); setSlaFilter('all'); }, scope === 'all' && statusFilter === 'all' && slaFilter === 'all' && false)}
+              () => { setScope('all'); setSlaFilter('all'); setStatusFilter(statusFilter === 'open' ? 'all' : 'open'); },
+              statusFilter === 'open')}
+            {tile('Unassigned', 'rgba(124,58,237,0.14)', '#7c3aed', unassignedCount, 'nobody working them',
+              () => { setScope('all'); setSlaFilter('all'); setStatusFilter(statusFilter === 'unassigned' ? 'all' : 'unassigned'); },
+              statusFilter === 'unassigned')}
             {itAdmin && tile('To assign', 'rgba(217,119,6,0.15)', NX.amber, triageCount, 'waiting for triage',
               () => setScope('triage'), scope === 'triage')}
             {tile('SLA breached', 'rgba(220,38,38,0.12)', NX.red, breachedCount, 'past their target',
-              () => { setSlaFilter(slaFilter === 'breached' ? 'all' : 'breached'); }, slaFilter === 'breached')}
+              () => { setScope('all'); setStatusFilter('all'); setSlaFilter(slaFilter === 'breached' ? 'all' : 'breached'); },
+              slaFilter === 'breached')}
             {tile('Resolved', 'rgba(22,163,74,0.14)', NX.green, resolvedCount, 'awaiting closure',
-              () => { setStatusFilter(statusFilter === 'resolved' ? 'all' : 'resolved'); }, statusFilter === 'resolved')}
+              () => { setScope('all'); setSlaFilter('all'); setStatusFilter(statusFilter === 'resolved' ? 'all' : 'resolved'); },
+              statusFilter === 'resolved')}
+            {tile('Closed', 'rgba(100,116,139,0.16)', '#475569', closedCount, 'done and filed',
+              () => { setScope('all'); setSlaFilter('all'); setStatusFilter(statusFilter === 'closed' ? 'all' : 'closed'); },
+              statusFilter === 'closed')}
           </div>
         );
       })()}
@@ -1616,15 +1667,21 @@ function ApprovalPanel({ ticket: t, myEmail, nameOf, onDecided }) {
   const [busy, setBusy] = useState('');
   const [err, setErr] = useState('');
   const [approver, setApprover] = useState(null);
-  const { can } = useRole();
+  const [itAdmin, setItAdmin] = useState(false);
   const people = usePeople();
+  useEffect(() => {
+    let alive = true;
+    // canAct here, not onDesk - an administrator must be able to unstick a
+    // request whose desk was mis-configured.
+    api.getMyTicketAccess().then((r) => { if (alive) setItAdmin(!!r?.canAct); }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
   const status = t.approvalStatus || 'none';
   if (status === 'none') return null;
 
   const meta = APPROVAL_META[status];
   const mine = (t.approverId || '').toLowerCase() === (myEmail || '').toLowerCase();
-  const itAdmin = can('administrator');
-  // Not yet routed. The IT Admin's step, not the approver's.
+  // Not yet routed. The desk's step, not the approver's.
   const needsRouting = status === 'pending' && !t.approverId;
 
   const sendForApproval = async () => {

@@ -51,6 +51,7 @@ OWNER = "neil@greensglobal.com"
 ASSIGNEE = "agent@greensglobal.com"
 LEAD = "lead@greensglobal.com"
 FALLBACK = "ticketdesk@greensglobal.com"
+AGENT = "desk.agent@greensglobal.com"   # on the desk, holds no admin role
 
 
 class RecipientTests(unittest.TestCase):
@@ -150,6 +151,73 @@ class RecipientTests(unittest.TestCase):
         """First role wins - they must never receive two copies of one event."""
         got = self._to(self._ticket(requester_email=ADMIN), "created")
         self.assertEqual(got[ADMIN], "requester")
+
+
+class ConfiguredDeskTests(unittest.TestCase):
+    """The desk is chosen in Ticket -> Manage, not derived (Aug 2026).
+
+    Falling back to "every administrator" tied running the service desk to
+    holding app-wide admin - so letting somebody triage tickets meant handing
+    them the whole application. The roster is now a setting; administrators
+    remain the fallback for a workspace that has not configured one, so tickets
+    are never routed to nobody.
+    """
+
+    def setUp(self):
+        self.db = database.SessionLocal()
+        self.addCleanup(self.db.close)
+        for m in (models.NexusEmployee, models.TaskTicket, models.NexusRole,
+                  models.NexusSetting, models.TaskActivity):
+            self.db.query(m).delete()
+        self.db.commit()
+        self.db.add(models.NexusRole(email=ADMIN, role="administrator"))
+        self.db.commit()
+
+    def _set_desk(self, emails):
+        ticket_notify.save_settings(self.db, {"agentEmails": emails}, "someone@greensglobal.com")
+
+    def test_an_unconfigured_desk_falls_back_to_the_administrators(self):
+        """Never nobody - a workspace that has not set this up still routes."""
+        self.assertEqual(ticket_notify.ticket_agents(self.db), [ADMIN])
+
+    def test_a_configured_desk_replaces_the_administrators(self):
+        """The point of the setting: an agent needs no admin rights, and an
+        admin who does not work tickets stops being paged about them."""
+        self._set_desk([AGENT])
+        self.assertEqual(ticket_notify.ticket_agents(self.db), [AGENT])
+
+    def test_the_roster_is_normalized(self):
+        self._set_desk(["  MiXeD@Greensglobal.Com  ", "mixed@greensglobal.com", ""])
+        self.assertEqual(ticket_notify.ticket_agents(self.db), ["mixed@greensglobal.com"])
+
+    def test_new_tickets_email_the_configured_desk(self):
+        self._set_desk([AGENT])
+        t = models.TaskTicket(id=str(uuid.uuid4()), code="TKT-2", subject="S", type="bug",
+                              requester_email=REQUESTER, status="new", approval_status="none",
+                              created_at="", modified_at="")
+        self.db.add(t)
+        self.db.commit()
+        # The real cfg, as notify_ticket_event passes it - a bare dict would not
+        # carry the saved roster.
+        cfg = ticket_notify.get_settings(self.db)
+        got = dict(ticket_notify._recipients_for(self.db, t, "created", cfg))
+        self.assertEqual(got.get(AGENT), "it_admin")
+        self.assertNotIn(ADMIN, got)   # not on the desk, so not paged
+
+    def test_an_offboarded_agent_is_not_emailed(self):
+        self._set_desk([AGENT, OWNER])
+        self.db.add(models.NexusEmployee(id=str(uuid.uuid4()), first_name="X", work_email=AGENT,
+                                         company="co", status="offboarded"))
+        self.db.commit()
+        got = ticket_notify._agent_recipients(self.db, ticket_notify.get_settings(self.db))
+        self.assertEqual(got, [OWNER])
+
+    def test_the_roster_itself_still_lists_them(self):
+        """_agent_recipients filters for SENDING. Membership is a separate
+        question - an offboarded agent is off the desk by being offboarded, not
+        by being scrubbed from a list somebody has to remember to edit."""
+        self._set_desk([AGENT])
+        self.assertIn(AGENT, ticket_notify.ticket_agents(self.db))
 
 
 if __name__ == "__main__":

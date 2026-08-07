@@ -69,8 +69,12 @@ class _Case(unittest.TestCase):
     def setUp(self):
         self.db = database.SessionLocal()
         self.addCleanup(self.db.close)
+        # NexusSetting included deliberately: the desk roster lives there, and a
+        # class that configures one would otherwise leave it set for every test
+        # that runs after it.
         for m in (models.NexusEmployee, models.HrDepartment, models.TaskTicket,
-                  models.NexusRole, models.TaskNotification, models.TaskActivity):
+                  models.NexusRole, models.TaskNotification, models.TaskActivity,
+                  models.NexusSetting):
             self.db.query(m).delete()
         self.db.commit()
         self.dept = models.HrDepartment(id=str(uuid.uuid4()), company_id="co", name="IT",
@@ -296,6 +300,88 @@ class DecisionTests(_Case):
         # Not the approval gate any more - it is closed, and _ticket_edit_scope
         # governs. What matters is that nobody is handed work that was refused.
         self.assertEqual(self._row(t["id"]).assignee_email or "", "")
+
+
+class DeskMembershipTests(_Case):
+    """Who may run the desk, once it is a configured roster (Aug 2026).
+
+    Before this you had to be an administrator - i.e. hold the whole
+    application - to route a ticket for approval. The roster decouples the two.
+    """
+
+    def _set_desk(self, emails):
+        import ticket_notify
+        ticket_notify.save_settings(self.db, {"agentEmails": emails}, ADMIN)
+
+    def _send(self, ticket_id, actor, level=1, approver=APPROVER):
+        return tickets.request_approval(ticket_id, tickets.ApprovalRequestBody(approver_email=approver),
+                                        BackgroundTasks(), user=self._user(actor, level), db=self.db)
+
+    def test_a_configured_agent_needs_no_admin_rights(self):
+        """The whole point: triaging tickets should not require handing someone
+        administrator over the entire app."""
+        self._set_desk([AGENT])
+        t = self._create("access_request")
+        self.assertEqual(self._send(t["id"], actor=AGENT, level=1)["approverId"], APPROVER)
+
+    def test_someone_off_the_desk_still_cannot(self):
+        self._set_desk([AGENT])
+        t = self._create("access_request")
+        with self.assertRaises(HTTPException) as e:
+            self._send(t["id"], actor=LEAD, level=1)
+        self.assertEqual(e.exception.status_code, 403)
+
+    def test_an_administrator_is_never_locked_out(self):
+        """They edit the roster. A desk configured with a typo, or staffed by
+        somebody who has since left, must not lock the ticket system away from
+        the only people who can fix it."""
+        self._set_desk([AGENT])
+        t = self._create("access_request")
+        self.assertEqual(self._send(t["id"], actor=ADMIN, level=4)["approverId"], APPROVER)
+
+    def test_the_requester_is_still_refused(self):
+        self._set_desk([AGENT])
+        t = self._create("access_request")
+        with self.assertRaises(HTTPException) as e:
+            self._send(t["id"], actor=REQUESTER, level=1)
+        self.assertEqual(e.exception.status_code, 403)
+
+    def test_new_tickets_are_announced_to_the_configured_desk(self):
+        self._set_desk([AGENT])
+        self._create("bug")
+        self.assertTrue(self._bells(AGENT), "the configured agent was not notified")
+        self.assertEqual(self._bells(ADMIN), [], "an admin off the desk was still paged")
+
+    def test_my_access_separates_membership_from_permission(self):
+        """Two different questions. Conflating them put the desk queues back in
+        front of every administrator the moment a roster was configured - the
+        opposite of what configuring one is for, and contradicting their own
+        bell, which had correctly gone quiet."""
+        self._set_desk([AGENT])
+        agent = tickets.my_ticket_access(user=self._user(AGENT), db=self.db)
+        self.assertEqual((agent["onDesk"], agent["canAct"]), (True, True))
+
+        outsider = tickets.my_ticket_access(user=self._user(LEAD), db=self.db)
+        self.assertEqual((outsider["onDesk"], outsider["canAct"]), (False, False))
+
+        # The case that prompted this: an admin who was not picked.
+        admin = tickets.my_ticket_access(user=self._user(ADMIN, 4), db=self.db)
+        self.assertFalse(admin["onDesk"], "an off-desk admin was shown the desk queues")
+        self.assertTrue(admin["canAct"], "an admin could not step in to fix a stalled ticket")
+
+    def test_an_unconfigured_desk_still_puts_admins_on_it(self):
+        """With no roster the administrators ARE the desk, so the queues are
+        theirs - hiding them would leave a fresh workspace with no queue at all."""
+        got = tickets.my_ticket_access(user=self._user(ADMIN, 4), db=self.db)
+        self.assertEqual((got["onDesk"], got["canAct"]), (True, True))
+
+    def test_an_off_desk_admin_gets_no_bell_and_no_queue(self):
+        """The two must agree - the bell going quiet while the queue still says
+        "assign these" is what made this visible in the first place."""
+        self._set_desk([AGENT])
+        self._create("bug")
+        self.assertEqual(self._bells(ADMIN), [])
+        self.assertFalse(tickets.my_ticket_access(user=self._user(ADMIN, 4), db=self.db)["onDesk"])
 
 
 class GateBypassTests(_Case):

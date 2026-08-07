@@ -474,6 +474,10 @@ export const api = {
   decideTicketApproval: (id, decision, note) => req(`/task-tickets/${id}/approval`, { method: "POST", body: JSON.stringify({ decision, note }) }),
   // IT Admin routes a parked request to whoever signs it off (backend refuses anyone else).
   requestTicketApproval: (id, approverEmail, note) => req(`/task-tickets/${id}/request-approval`, { method: "POST", body: JSON.stringify({ approver_email: approverEmail, note }) }),
+  // Am I on the service desk? Its own endpoint because the desk roster lives in
+  // the notify settings, which are manager+ only - an agent who is not a manager
+  // could not read their own membership from there.
+  getMyTicketAccess: () => req("/task-tickets/my-access"),
   // Ticket Outlook notification workflow - admin settings + delivery log (manager+)
   getTicketNotifySettings: () => req("/task-tickets/notify/settings"),
   updateTicketNotifySettings: (patch) => req("/task-tickets/notify/settings", { method: "PUT", body: JSON.stringify(patch) }),

@@ -19,8 +19,9 @@ from typing import Optional, Any
 import models
 from database import get_db
 from auth import get_current_user, require_manager
-from routers.task_util import now_iso, gen_id, log_activity, task_notify, admin_emails
-from ticket_notify import notify_ticket_event, get_settings as get_notify_settings, save_settings as save_notify_settings
+from routers.task_util import now_iso, gen_id, log_activity, task_notify
+from ticket_notify import (notify_ticket_event, get_settings as get_notify_settings,
+                           save_settings as save_notify_settings, ticket_agents)
 
 router = APIRouter(tags=["Tickets"], dependencies=[Depends(get_current_user)])
 
@@ -120,14 +121,41 @@ def _type_label(type_: str) -> str:
 
 
 def _it_admins(db: Session) -> list:
-    """The IT Admin pool - every administrator and owner.
+    """The service desk - who new tickets are announced to.
 
-    Tickets land here rather than with the department lead, and deliberately
-    "irrespective of departments": one desk sees everything that comes in,
-    decides what needs approval, and hands the work out. Routing straight to a
-    department lead meant a ticket filed against the wrong department sat with
-    someone who could not act on it and did not know to pass it on."""
-    return [e for e in (admin_emails(db) or []) if e]
+    Chosen in Ticket -> Manage (ticket_agents). Deliberately "irrespective of
+    departments": one desk sees everything that comes in, decides what needs
+    approval, and hands the work out."""
+    return [e for e in (ticket_agents(db) or []) if e]
+
+
+def _on_desk(db: Session, user: dict) -> bool:
+    """Is this person actually ON the service desk roster?
+
+    Membership, nothing else - an administrator who was not picked in Manage is
+    not on the desk. This is what decides whether the desk QUEUES are somebody's
+    work, and it has to agree with who gets the bells: an off-desk admin who
+    stops being notified about new tickets must also stop being shown a queue
+    telling them to assign those tickets."""
+    email = (user.get("email") or "").strip().lower()
+    return email in {e.lower() for e in _it_admins(db)}
+
+
+def _is_agent(db: Session, user: dict) -> bool:
+    """May this person ACT on the desk - route a ticket for approval?
+
+    On the roster, OR an administrator. Administrators are kept in deliberately:
+    they are the people who edit the roster, and a desk configured with a typo
+    (or staffed by someone who has since left) must not lock the ticket system
+    away from the only people who can fix it.
+
+    Deliberately NOT the same question as _on_desk. Permission is "may you step
+    in", membership is "is this your queue" - using one boolean for both put the
+    desk queues back in front of every administrator the moment a roster was
+    configured, which is the opposite of what configuring one is for."""
+    if user.get("level", 1) >= 4:                       # administrator/owner
+        return True
+    return _on_desk(db, user)
 
 
 def _notify_triage(db: Session, t: models.TaskTicket, actor: str,
@@ -707,10 +735,10 @@ def request_approval(ticket_id: str, body: ApprovalRequestBody, background_tasks
     """IT Admin routes a parked request to the person who signs it off."""
     t = _ticket_or_404(db, ticket_id)
     actor = user["email"].lower()
-    # IT Admin only. This is the control itself - if the requester could pick who
+    # Desk only. This is the control itself - if the requester could pick who
     # approves their own request, there is no approval.
-    if actor not in {e.lower() for e in _it_admins(db)}:
-        raise HTTPException(403, "Only an IT Admin can send a ticket for approval.")
+    if not _is_agent(db, user):
+        raise HTTPException(403, "Only a ticket agent can send a ticket for approval.")
     if (t.approval_status or "none") == "none":
         raise HTTPException(409, "This ticket does not require approval.")
     if t.approval_status != "pending":
@@ -865,6 +893,26 @@ def escalate_ticket(ticket_id: str, background_tasks: BackgroundTasks,
     background_tasks.add_task(notify_ticket_event, t.id, "updated", user["email"],
                                update_kind=f"Escalated to {new_p} priority")
     return ticket_to_dict(t)
+
+
+@router.get("/task-tickets/my-access")
+def my_ticket_access(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Is the caller on the service desk? Drives whether the UI offers the desk
+    queues and Send for Approval.
+
+    Its own endpoint because the desk list lives in the notification settings,
+    and those are manager+ only - an agent who is not a manager could not read
+    their own membership from there. Returns booleans rather than the roster:
+    knowing whether YOU are on it is not the same as being handed everyone who
+    is. The backend re-checks on every action regardless; this only decides what
+    to render.
+
+    `onDesk`  - the queues are your work (drives To Route / To Assign).
+    `canAct`  - you may step in on a ticket (drives Send for Approval).
+
+    They differ for an administrator who is not on the roster: they can still
+    unstick a ticket, but the desk's queues are not their inbox."""
+    return {"onDesk": _on_desk(db, user), "canAct": _is_agent(db, user)}
 
 
 # ── Notification settings + delivery log (admin) ──────────────────────────────

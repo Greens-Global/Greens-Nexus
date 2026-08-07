@@ -35,7 +35,8 @@ _SETTINGS_KEY = "ticket_notify_config"
 
 _DEFAULT_SETTINGS = {
     "fromMailbox":      "",     # blank = fall back to graph_mail.DEFAULT_FROM_EMAIL (NEXUS_FROM_EMAIL env var)
-    "ticketAdminEmail": "",     # last-resort recipient when no IT Admin is available to notify
+    "agentEmails":      [],     # the service desk - who new tickets go to (see ticket_agents)
+    "ticketAdminEmail": "",     # last-resort recipient when no agent is available to notify
     "defaultCc":        [],
     "replyTo":           "",
     "autoCloseDays":     5,     # 0 = never auto-close
@@ -115,28 +116,41 @@ def _is_sendable(db: Session, email: str) -> bool:
     return not (emp and emp.status in ("inactive", "offboarded"))
 
 
-def _it_admin_recipients(db: Session) -> list[str]:
-    """The IT Admin desk - every administrator and owner who can be emailed.
+def ticket_agents(db: Session, cfg: dict | None = None) -> list[str]:
+    """The service desk: who new tickets go to for assignment and everything
+    that follows. Chosen in Ticket -> Manage, not derived from anything.
 
-    Triage used to be routed to the ticket's department lead (and backup). That
-    is not how a service desk works: a ticket is filed against the department it
-    is ABOUT, which is rarely the department that resolves it, so requests
-    landed with people who could neither action them nor knew to pass them on -
-    and a department with no lead configured fell through to a single
-    "Ticket Administrator" address as a patch over the same hole.
+    Two earlier answers to "who owns an incoming ticket" were both wrong. The
+    department lead was wrong because a ticket is filed against the department
+    it is ABOUT, which is rarely the one that resolves it. Falling back to every
+    administrator was wrong the other way: running the service desk and holding
+    app-wide admin are different jobs, and tying them meant you had to hand
+    someone administrator - the whole application - to let them triage tickets.
 
-    One desk owns intake, irrespective of department. Matches _it_admins() in
-    routers/tickets.py, which drives the in-app bell - the two channels must
-    never disagree about who owns a ticket."""
-    rows = (db.query(models.NexusRole)
-            .filter(models.NexusRole.role.in_(["administrator", "owner"])).all())
+    An empty list falls back to the administrators rather than nobody, so a
+    workspace that has not configured a desk yet still routes its tickets
+    somewhere a human will see them.
+
+    THE one definition of the desk. routers/tickets.py drives the in-app bell
+    from this same function - the two channels must never disagree about who
+    owns a ticket."""
+    cfg = cfg if cfg is not None else get_settings(db)
+    configured = [(e or "").strip().lower() for e in (cfg.get("agentEmails") or [])]
+    if not configured:
+        configured = [(r.email or "").strip().lower() for r in
+                      db.query(models.NexusRole)
+                        .filter(models.NexusRole.role.in_(["administrator", "owner"])).all()]
     seen, out = set(), []
-    for r in rows:
-        email = (r.email or "").strip().lower()
-        if email and email not in seen and _is_sendable(db, email):
+    for email in configured:
+        if email and email not in seen:
             seen.add(email)
             out.append(email)
     return out
+
+
+def _agent_recipients(db: Session, cfg: dict) -> list[str]:
+    """ticket_agents, minus anyone we must not email (inactive/offboarded)."""
+    return [e for e in ticket_agents(db, cfg) if _is_sendable(db, e)]
 
 
 def _recipients_for(db: Session, t: models.TaskTicket, event_type: str, cfg: dict) -> list[tuple[str, str]]:
@@ -153,20 +167,20 @@ def _recipients_for(db: Session, t: models.TaskTicket, event_type: str, cfg: dic
 
     requester = (t.requester_email or "").strip().lower()
     assignee = (t.assignee_email or "").strip().lower()
-    it_admins = _it_admin_recipients(db)
-    if not it_admins:
-        # Nobody holds administrator/owner, or none of them is sendable. The
-        # configured Ticket Administrator is the last resort so a ticket is
-        # never emailed to nobody, and the gap is logged either way.
+    agents = _agent_recipients(db, cfg)
+    if not agents:
+        # No desk configured, no administrators either, or none of them is
+        # sendable. The configured Ticket Administrator is the last resort so a
+        # ticket is never emailed to nobody, and the gap is logged either way.
         admin = (cfg.get("ticketAdminEmail") or "").strip().lower()
         if admin:
-            it_admins = [admin]
+            agents = [admin]
         log_activity(db, type="notify_gap", actor_email="system", entity_kind="ticket",
                      entity_id=t.id, entity_code=t.code, entity_title=t.subject,
-                     detail=f"No IT Admin available to notify - routed to {'the Ticket Administrator' if admin else 'nobody (Ticket Administrator not configured either)'}")
+                     detail=f"No ticket agent available to notify - routed to {'the Ticket Administrator' if admin else 'nobody (Ticket Administrator not configured either)'}")
 
     def add_it_admins():
-        for email in it_admins:
+        for email in agents:
             add(email, "it_admin")
 
     if event_type in ("created",):
