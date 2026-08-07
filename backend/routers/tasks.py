@@ -392,12 +392,17 @@ def _check_dependency_gate(db: Session, t: models.Task, prev_status: str, prev_c
             raise HTTPException(400, f"Blocked by {name}: start it before completing this task (Start → Finish).")
 
 
-def _asana_push(task_id: str) -> None:
+def _asana_push(task_id: str, actor_email: str = "") -> None:
     """Fire-and-forget outbound Asana sync. Fully guarded - must never affect the
-    task operation that triggered it (runs in a daemon thread on its own session)."""
+    task operation that triggered it (runs in a daemon thread on its own session).
+
+    `actor_email` is the signed-in user who made the change. Asana attributes the
+    system stories a write produces ("X changed Priority to Medium") to whoever
+    owns the token, so without it every field change reads as the shared sync
+    account. This is the boundary that used to drop it."""
     try:
         from asana_sync import on_task_changed
-        on_task_changed(task_id)
+        on_task_changed(task_id, actor_email)
     except Exception:
         pass
 
@@ -650,7 +655,7 @@ def create_task(body: TaskCreate, background_tasks: BackgroundTasks,
     db.commit()
     db.refresh(t)
     fire_task_event(tid, "created")
-    _asana_push(tid)
+    _asana_push(tid, user["email"])
     background_tasks.add_task(notify_task_event, tid, "created", user["email"])
     return task_to_dict(t)
 
@@ -742,10 +747,10 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
     db.commit()
     db.refresh(t)
     fire_task_event(t.id, "updated")
-    _asana_push(t.id)
+    _asana_push(t.id, user["email"])
     if spawned is not None:
         fire_task_event(spawned.id, "created")
-        _asana_push(spawned.id)
+        _asana_push(spawned.id, user["email"])
 
     new_assignee = (t.assignee_email or "").lower()
     if "assignee_email" in data and new_assignee and new_assignee != prev_assignee:

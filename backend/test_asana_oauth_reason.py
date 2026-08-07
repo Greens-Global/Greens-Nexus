@@ -189,5 +189,64 @@ class TokenReasonTests(unittest.TestCase):
             self.assertTrue(why.strip(), "a failure produced an empty reason")
 
 
+class RememberedFailureTests(unittest.TestCase):
+    """The grant records why it last failed, so Account Settings can ask for a
+    reconnect instead of the user being told "comments appear as you" while
+    every one of them says somebody else."""
+
+    def setUp(self):
+        self.db = database.SessionLocal()
+        self.addCleanup(self.db.close)
+        self.db.query(models.AsanaUserToken).delete()
+        self.db.commit()
+        for key, val in (("ASANA_OAUTH_CLIENT_ID", "cid"),
+                         ("ASANA_OAUTH_CLIENT_SECRET", "secret"),
+                         ("NEXUS_API_BASE", "https://dev.example.com")):
+            os.environ[key] = val
+            self.addCleanup(os.environ.pop, key, None)
+
+    def _row(self, **kw):
+        row = models.AsanaUserToken(
+            id=str(uuid.uuid4()), email=ME,
+            access_token_enc=kw.get("access_enc", secret_box.encrypt("tok")),
+            refresh_token_enc=kw.get("refresh_enc", secret_box.encrypt("ref")),
+            expires_at=(datetime.now(timezone.utc)
+                        + timedelta(seconds=kw.get("expires_in", 3600))).isoformat(),
+            created_at="")
+        self.db.add(row)
+        self.db.commit()
+        return row
+
+    def test_a_vault_key_mismatch_is_recorded_on_the_grant(self):
+        """The dev failure: NEXUS_VAULT_KEY was set after the grants were
+        stored, so every one of them became unreadable at once."""
+        self._row(access_enc=Fernet(Fernet.generate_key()).encrypt(b"x").decode())
+        asana_oauth.token_reason(self.db, ME)
+        row = asana_oauth.get_row(self.db, ME)
+        self.assertIn("cannot be decrypted", row.last_error)
+        self.assertTrue(row.last_error_at)
+
+    def test_a_later_success_clears_it(self):
+        """Otherwise Account Settings nags forever about a grant that has since
+        been reconnected."""
+        row = self._row(access_enc=Fernet(Fernet.generate_key()).encrypt(b"x").decode())
+        asana_oauth.token_reason(self.db, ME)
+        self.assertTrue(asana_oauth.get_row(self.db, ME).last_error)
+
+        row.access_token_enc = secret_box.encrypt("good-token")
+        self.db.commit()
+        token, why = asana_oauth.token_reason(self.db, ME)
+        self.assertEqual(token, "good-token")
+        self.assertEqual(asana_oauth.get_row(self.db, ME).last_error, "")
+
+    def test_recording_never_breaks_the_push(self):
+        """This runs on the fire-and-forget comment push - a diagnostic that
+        raised would take the comment down with it."""
+        self._row(refresh_enc="")
+        token, why = asana_oauth.token_reason(self.db, ME)
+        self.assertIsNone(token)
+        self.assertIn("refresh token", why)
+
+
 if __name__ == "__main__":
     unittest.main()
