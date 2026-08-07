@@ -437,6 +437,9 @@ export const api = {
   asanaOauthStatus:     () => req("/asana-oauth/status"),
   asanaOauthStart:      () => req("/asana-oauth/start", { method: "POST" }),
   asanaOauthDisconnect: () => req("/asana-oauth/me", { method: "DELETE" }),
+  // Live check: would a comment posted NOW go out as me, or as the shared
+  // sync account - and if the latter, why. Calls Asana for real.
+  asanaOauthCheck:      () => req("/asana-oauth/check"),
   deleteAsanaWebhooks: () => req("/asana-sync/webhooks", { method: "DELETE", timeoutMs: 60000 }),
   getTaskAutomationRules: () => req("/task-automation-rules"),
   createTaskAutomationRule: (data) => req("/task-automation-rules", { method: "POST", body: JSON.stringify(data) }),
