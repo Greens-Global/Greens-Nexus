@@ -20,6 +20,7 @@ import models
 from database import get_db
 from auth import get_current_user, require_manager
 from routers.task_util import now_iso, gen_id, log_activity, task_notify
+from ticket_code import TICKET_CODE_DIGITS, ticket_no
 from ticket_notify import (notify_ticket_event, get_settings as get_notify_settings,
                            save_settings as save_notify_settings, ticket_agents)
 
@@ -172,7 +173,7 @@ def _notify_triage(db: Session, t: models.TaskTicket, actor: str,
         if em == actor:
             continue   # they raised/approved it themselves; they can already see it
         task_notify(db, kind="ticket_needs_assignment", for_email=em,
-                    title=title, body=f"{t.code} · {t.subject}", nexus_action=tk_action)
+                    title=title, body=f"{ticket_no(t.code)} · {t.subject}", nexus_action=tk_action)
 
 
 class TicketBody(BaseModel):
@@ -228,7 +229,21 @@ class TicketUpdate(BaseModel):
 
 
 def _next_ticket_code(db: Session) -> str:
-    return f"TKT-{db.query(models.TaskTicket).count() + 1:03d}"
+    """One past the highest number issued so far.
+
+    Was `count() + 1`, which is only correct while nothing is ever deleted:
+    delete any ticket and the next one issued reuses a live number, so two
+    tickets share a code and every reference to it becomes ambiguous. Counting
+    what exists answers "how many", not "what comes next".
+
+    Legacy "TKT-nnn" codes are read for their digits too, so the sequence
+    continues past them rather than restarting into numbers already in use."""
+    highest = 0
+    for (code,) in db.query(models.TaskTicket.code).all():
+        digits = "".join(ch for ch in (code or "") if ch.isdigit())
+        if digits:
+            highest = max(highest, int(digits))
+    return f"{highest + 1:0{TICKET_CODE_DIGITS}d}"
 
 
 def _ticket_participants(t: models.TaskTicket) -> set:
@@ -314,7 +329,7 @@ def create_ticket(body: TicketBody, background_tasks: BackgroundTasks,
     tk_action = {"view": "tickets", "label": "View ticket"}
     if t.assignee_email and t.assignee_email != user["email"].lower():
         task_notify(db, kind="ticket_assigned", for_email=t.assignee_email,
-                    title="You were assigned a ticket", body=f"{t.code} · {t.subject}", nexus_action=tk_action)
+                    title="You were assigned a ticket", body=f"{ticket_no(t.code)} · {t.subject}", nexus_action=tk_action)
     elif t.approval_status == "pending":
         # Gated: the IT Admins are told it needs sending for approval, not that
         # it needs assigning. Nobody can action it until it has been approved,
@@ -327,7 +342,7 @@ def create_ticket(body: TicketBody, background_tasks: BackgroundTasks,
     # manager logs it on their behalf; if they raised it themselves they're the actor).
     if t.requester_email and t.requester_email != user["email"].lower():
         task_notify(db, kind="ticket_received", for_email=t.requester_email,
-                    title="We received your ticket", body=f"{t.code} · {t.subject}", nexus_action=tk_action)
+                    title="We received your ticket", body=f"{ticket_no(t.code)} · {t.subject}", nexus_action=tk_action)
     db.commit()
     db.refresh(t)
     background_tasks.add_task(notify_ticket_event, t.id, "created", user["email"])
@@ -464,11 +479,11 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
         _log("status_changed", f"changed status to {t.status}")
         if t.status in ("resolved", "closed") and t.requester_email and t.requester_email != user["email"].lower():
             task_notify(db, kind="ticket_resolved", for_email=t.requester_email,
-                        title=f"Your ticket was {t.status}", body=f"{t.code} · {t.subject}", nexus_action=tk_action)
+                        title=f"Your ticket was {t.status}", body=f"{ticket_no(t.code)} · {t.subject}", nexus_action=tk_action)
         else:
             # keep watchers (and requester/assignee) in the loop on any status move
             _notify_participants(db, t, user["email"], kind="ticket_status",
-                                 title=f"Ticket moved to {t.status}", body=f"{t.code} · {t.subject}")
+                                 title=f"Ticket moved to {t.status}", body=f"{ticket_no(t.code)} · {t.subject}")
     if assignee_changed:
         # Stamped from the actor, never from the payload: the field records WHO
         # handed the ticket over, and a value the caller could set records
@@ -479,7 +494,7 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
                          + (f" by {t.assigned_by_email}" if t.assigned_by_email else ""))
         if t.assignee_email and t.assignee_email != user["email"].lower():
             task_notify(db, kind="ticket_assigned", for_email=t.assignee_email,
-                        title="You were assigned a ticket", body=f"{t.code} · {t.subject}", nexus_action=tk_action)
+                        title="You were assigned a ticket", body=f"{ticket_no(t.code)} · {t.subject}", nexus_action=tk_action)
     if "priority" in data and t.priority != prev_priority:
         _log("priority_changed", f"set priority to {t.priority}")
     # The gate moving is a fact about the ticket, not a side effect to hide: log
@@ -592,7 +607,7 @@ def add_ticket_comment(ticket_id: str, body: TicketCommentBody, background_tasks
     # Internal notes stay with the agents - don't ping the requester.
     _notify_participants(db, t, user["email"], kind="ticket_comment",
                          title="Internal note on a ticket" if internal else "New comment on a ticket",
-                         body=f"{t.code} · {t.subject}",
+                         body=f"{ticket_no(t.code)} · {t.subject}",
                          exclude={(t.requester_email or "").lower()} if internal else None)
     db.commit()
     db.refresh(c)
@@ -762,7 +777,7 @@ def request_approval(ticket_id: str, body: ApprovalRequestBody, background_tasks
     if approver != actor:
         task_notify(db, kind="ticket_needs_approval", for_email=approver,
                     title="A ticket needs your approval",
-                    body=f"{t.code} · {t.subject}", nexus_action=tk_action)
+                    body=f"{ticket_no(t.code)} · {t.subject}", nexus_action=tk_action)
     db.commit()
     db.refresh(t)
     background_tasks.add_task(notify_ticket_event, t.id, "approval_required", user["email"])
@@ -810,7 +825,7 @@ def decide_approval(ticket_id: str, body: ApprovalBody, background_tasks: Backgr
         if t.requester_email and t.requester_email != actor:
             task_notify(db, kind="ticket_approved", for_email=t.requester_email,
                         title="Your request was approved",
-                        body=f"{t.code} · {t.subject}", nexus_action=tk_action)
+                        body=f"{ticket_no(t.code)} · {t.subject}", nexus_action=tk_action)
     else:
         # Rejected requests are closed - nothing downstream should act on them.
         t.status = "closed"
@@ -822,7 +837,7 @@ def decide_approval(ticket_id: str, body: ApprovalBody, background_tasks: Backgr
         if t.requester_email and t.requester_email != actor:
             task_notify(db, kind="ticket_rejected", for_email=t.requester_email,
                         title="Your request was rejected",
-                        body=f"{t.code} · {t.subject} - {note}", nexus_action=tk_action)
+                        body=f"{ticket_no(t.code)} · {t.subject} - {note}", nexus_action=tk_action)
     db.commit()
     db.refresh(t)
     # Approved → the dept head now gets the "needs assignment" email that was
@@ -884,9 +899,9 @@ def escalate_ticket(ticket_id: str, background_tasks: BackgroundTasks,
     log_activity(db, type="escalated", actor_email=user["email"], entity_kind="ticket",
                  entity_id=t.id, entity_code=t.code, entity_title=t.subject, detail=f"escalated to {new_p} priority")
     _notify_participants(db, t, user["email"], kind="ticket_escalated",
-                         title=f"Ticket escalated to {new_p}", body=f"{t.code} · {t.subject}")
+                         title=f"Ticket escalated to {new_p}", body=f"{ticket_no(t.code)} · {t.subject}")
     task_notify(db, kind="ticket_escalated", for_email="admins", title="A ticket was escalated",
-                body=f"{t.code} · {t.subject} → {new_p}",
+                body=f"{ticket_no(t.code)} · {t.subject} → {new_p}",
                 nexus_action={"view": "tickets", "label": "View ticket"})
     db.commit()
     db.refresh(t)
