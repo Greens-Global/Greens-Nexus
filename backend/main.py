@@ -260,6 +260,8 @@ def _run_migrations():
             "ALTER TABLE task_tickets ADD COLUMN approver_email VARCHAR DEFAULT ''",
             "ALTER TABLE task_tickets ADD COLUMN approval_note VARCHAR DEFAULT ''",
             "ALTER TABLE task_tickets ADD COLUMN approval_decided_at VARCHAR DEFAULT ''",
+            # Who handed a ticket to its assignee - TaskTicket.assigned_by_email.
+            "ALTER TABLE task_tickets ADD COLUMN assigned_by_email VARCHAR DEFAULT ''",
             # Documents (DMS) Phase 4: merge-field subject/company for export
             "ALTER TABLE documents ADD COLUMN employee_id VARCHAR DEFAULT ''",
             "ALTER TABLE documents ADD COLUMN entity_id VARCHAR DEFAULT ''",
@@ -496,6 +498,8 @@ def _run_migrations():
         "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS approver_email VARCHAR DEFAULT ''",
         "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS approval_note VARCHAR DEFAULT ''",
         "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS approval_decided_at VARCHAR DEFAULT ''",
+        # Who handed a ticket to its assignee - TaskTicket.assigned_by_email.
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS assigned_by_email TEXT DEFAULT ''",
         # E-Sign multi-document packets: PDFs attached to a template, carried on the envelope
         "ALTER TABLE hr_sign_templates ADD COLUMN IF NOT EXISTS attachments JSONB DEFAULT '[]'::jsonb",
         "ALTER TABLE hr_sign_requests ADD COLUMN IF NOT EXISTS documents JSONB DEFAULT '[]'::jsonb",

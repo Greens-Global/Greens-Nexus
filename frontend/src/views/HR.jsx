@@ -2989,13 +2989,6 @@ function CompanyDepartments({ entity, employees = [], toastOk, toastErr }) {
       toastOk?.(`Renamed “${d.name}” to “${n}” - people already in it follow the new name.`);
     } catch (e) { toastErr(e?.message || 'Could not rename department.'); }
   }
-  async function setOwner(d, field, email) {
-    try {
-      const list = await api.updateCompanyDepartment(entity.id, d.id, { [field]: email });
-      setDepts(list);
-      toastOk?.(email ? `${d.name} tickets now go to ${email}.` : `Cleared ${d.name} ${field === 'lead_email' ? 'lead' : 'backup'}.`);
-    } catch (e) { toastErr(e?.message || 'Could not update department.'); }
-  }
   return (
     <div style={{ overflowY: 'auto', flex: 1, padding: '16px 22px' }}>
       <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 14px' }}>
@@ -3013,11 +3006,11 @@ function CompanyDepartments({ entity, employees = [], toastOk, toastErr }) {
         : depts.length === 0 ? <div style={{ color: 'var(--muted)', fontSize: 13, padding: '10px 0' }}>No departments yet - add the first one above.</div>
         : (
           <div style={{ border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1.4fr 1.4fr 32px', gap: 10, padding: '8px 12px', background: 'var(--paper)', borderBottom: '1px solid var(--line)', fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.3 }}>
-              <span>Department</span><span>Ticket lead</span><span>Backup</span><span />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 32px', gap: 10, padding: '8px 12px', background: 'var(--paper)', borderBottom: '1px solid var(--line)', fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.3 }}>
+              <span>Department</span><span />
             </div>
             {depts.map(d => (
-              <div key={d.id} style={{ display: 'grid', gridTemplateColumns: '1.2fr 1.4fr 1.4fr 32px', gap: 10, padding: '8px 12px', alignItems: 'center', borderBottom: '1px solid var(--line)' }}>
+              <div key={d.id} style={{ display: 'grid', gridTemplateColumns: '1fr 32px', gap: 10, padding: '8px 12px', alignItems: 'center', borderBottom: '1px solid var(--line)' }}>
                 {editId === d.id ? (
                   <input className="form-input" autoFocus value={editName} maxLength={40}
                     onChange={e => setEditName(e.target.value)}
@@ -3035,18 +3028,6 @@ function CompanyDepartments({ entity, employees = [], toastOk, toastErr }) {
                     </button>
                   </span>
                 )}
-                {['lead_email', 'backup_email'].map(fieldKey => {
-                  const current = fieldKey === 'lead_email' ? (d.leadEmail || '') : (d.backupEmail || '');
-                  const unset = fieldKey === 'lead_email' && !current;
-                  return (
-                    <select key={fieldKey} className="form-input" value={current}
-                      onChange={e => setOwner(d, fieldKey, e.target.value)}
-                      style={{ fontSize: 12.5, padding: '5px 8px', ...(unset ? { borderColor: 'hsl(var(--color-amber))' } : null) }}>
-                      <option value="">{fieldKey === 'lead_email' ? '- no lead -' : '- none -'}</option>
-                      {staff.map(p => <option key={p.workEmail} value={p.workEmail.toLowerCase()}>{p.fullName || p.workEmail}</option>)}
-                    </select>
-                  );
-                })}
                 <button onClick={() => remove(d)} title={`Remove ${d.name}`} aria-label={`Remove ${d.name}`}
                   style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'grid', placeItems: 'center', width: 24, height: 24, borderRadius: '50%', padding: 0 }}
                   onMouseOver={e => { e.currentTarget.style.background = 'hsla(var(--color-red),0.14)'; e.currentTarget.style.color = 'hsl(var(--color-red))'; }}

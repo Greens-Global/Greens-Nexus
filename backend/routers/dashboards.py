@@ -186,11 +186,21 @@ def kpis(scope: str = "self", user: dict = Depends(get_current_user), db: Sessio
         def safe(key, fn):
             try:
                 out[key] = int(fn())
-            except Exception:
+            except Exception as e:
+                # Still 0 - one broken count must not take the whole dashboard
+                # down. But it is LOUD now: my_open_tasks read 0 for everyone
+                # for as long as it existed because it filtered on a column that
+                # does not exist, and a silent zero is a believable answer, so
+                # nobody could tell it apart from "you have no tasks".
+                print(f"[dashboards] KPI {key} failed, reporting 0: {type(e).__name__}: {e}")
                 out[key] = 0
 
         M = models
-        safe("open_tasks", lambda: db.query(M.Task).filter(M.Task.status != "Completed").count())
+        # `completed` (the boolean the module actually toggles), not a status
+        # string. Task.status is not_started/in_progress/completed plus each
+        # project's own custom board-column ids, so comparing it against
+        # "Completed" matched nothing and counted done tasks as open.
+        safe("open_tasks", lambda: db.query(M.Task).filter(M.Task.completed == False).count())  # noqa: E712
         safe("pending_requisitions", lambda: db.query(M.Requisition).filter(M.Requisition.status == "pending_manager").count())
         safe("pending_inventory", lambda: db.query(M.ItemCheckout).filter(M.ItemCheckout.status == "pending").count())
         safe("open_purchases", lambda: db.query(M.PurchaseRequest).filter(M.PurchaseRequest.status == "pending").count())
@@ -199,8 +209,14 @@ def kpis(scope: str = "self", user: dict = Depends(get_current_user), db: Sessio
             M.ItemCheckout.status.in_(["approved", "allocated", "pending_receipt"])).count())
         safe("my_assignments", lambda: db.query(M.ItemAssignment).filter(
             M.ItemAssignment.assignee_email == email, M.ItemAssignment.status == "active").count())
+        # Task.assignee does not exist - the column is assignee_email. The
+        # attribute error was caught by safe() and turned into 0, so the hero
+        # card on every dashboard read "0 Open tasks / Assigned to you" for
+        # everyone, forever, while the same person's My Tasks listed plenty.
+        # A KPI that silently degrades to zero is worse than one that errors:
+        # zero is a believable answer.
         safe("my_open_tasks", lambda: db.query(M.Task).filter(
-            M.Task.assignee == email, M.Task.status != "Completed").count())
+            M.Task.assignee_email == email, M.Task.completed == False).count())  # noqa: E712
         safe("unread_notifications", lambda: db.query(M.NexusNotification).filter(
             M.NexusNotification.recipient == email).count())
 

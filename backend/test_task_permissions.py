@@ -29,7 +29,7 @@ from routers.task_util import gen_id, now_iso
 from routers.tasks import (
     bulk_update, edit_comment, delete_comment, add_attachment, delete_attachment,
     create_section, update_section, delete_section,
-    BulkUpdate, CommentUpdate, AttachmentCreate, SectionBody,
+    BulkUpdate, CommentUpdate, CommentCreate, AttachmentCreate, SectionBody,
 )
 
 # level < 3 -> not a manager, so project roles actually apply (is_manager
@@ -218,6 +218,74 @@ class TaskPermissionTests(unittest.TestCase):
         is treated - not something this change should start blocking."""
         out = create_section(SectionBody(project_id="", name="Global"), user=OUTSIDER, db=self.db)
         self.assertEqual(out["name"], "Global")
+
+
+class OrgTaskCommentTests(unittest.TestCase):
+    """Comments on an ORG-visible task (QA audit, Aug 2026).
+
+    Every case above uses a `restricted` project, so "outsider" always failed the
+    project-role check and the tests passed for a reason that had nothing to do
+    with comment ownership. On a task with no project - or one in an org-level
+    project - every signed-in employee IS an editor, and that was the whole guard
+    on deleting a comment. So any colleague could delete anyone's comment from a
+    thread used as the record of who said what, leaving nothing behind to show
+    it happened. Moderation now takes manager+, matching edit_comment, which
+    already treats someone else's words as different in kind from access.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        # Its own create_all: unittest orders classes alphabetically, so this one
+        # runs BEFORE TaskPermissionTests.setUpClass would have made the tables.
+        models.Base.metadata.create_all(bind=database.engine)
+
+    def setUp(self):
+        self.db = database.SessionLocal()
+        self.addCleanup(self.db.close)
+        for m in (models.Task, models.TaskComment, models.TaskProject, models.TaskActivity):
+            self.db.query(m).delete()
+        self.db.commit()
+        # No project at all - the most permissive shape a task can have.
+        self.task = models.Task(id=gen_id(), title="T", code="TASK-9", access_level="org",
+                                project_id="", created_at=now_iso(), modified_at=now_iso())
+        self.db.add(self.task)
+        self.db.commit()
+
+    def _comment(self, author=AUTHOR["email"]):
+        c = models.TaskComment(id=gen_id(), task_id=self.task.id, author_email=author,
+                               body="<p>on the record</p>", created_at=now_iso())
+        self.db.add(c)
+        self.db.commit()
+        return c
+
+    def test_a_colleague_cannot_delete_your_comment_on_an_org_task(self):
+        c = self._comment()
+        with self.assertRaises(HTTPException) as ctx:
+            delete_comment(c.id, user=OUTSIDER, db=self.db)
+        self.assertEqual(ctx.exception.status_code, 403)
+        self.db.rollback()
+        self.assertIsNotNone(self.db.get(models.TaskComment, c.id))
+
+    def test_the_author_can_still_delete_their_own(self):
+        c = self._comment(author=OUTSIDER["email"])
+        delete_comment(c.id, user=OUTSIDER, db=self.db)
+        self.assertIsNone(self.db.get(models.TaskComment, c.id))
+
+    def test_a_manager_can_still_moderate(self):
+        """The capability is narrowed, not removed."""
+        c = self._comment()
+        delete_comment(c.id, user=MANAGER, db=self.db)
+        self.assertIsNone(self.db.get(models.TaskComment, c.id))
+
+    def test_the_comment_body_cannot_carry_an_author(self):
+        """create_comment() takes an author_email so the Asana importer and the
+        inbound-email ingester can attribute a backfilled comment to whoever
+        wrote it - but both call it in-process. On the HTTP body it let any
+        signed-in caller post a comment signed as a colleague. Nothing ever sent
+        it, so the field is gone; pydantic ignores it if an old client still does."""
+        self.assertNotIn("author_email", CommentCreate.model_fields)
+        posted = CommentCreate(**{"body": "hi", "author_email": "someone.else@greensglobal.com"})
+        self.assertFalse(getattr(posted, "author_email", None))
 
 
 if __name__ == "__main__":

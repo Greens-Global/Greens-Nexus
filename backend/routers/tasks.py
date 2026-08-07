@@ -605,8 +605,8 @@ def create_task(body: TaskCreate, background_tasks: BackgroundTasks,
         type=body.type or "task",
         status=body.status or "not_started",
         priority=body.priority or "medium",
-        assignee_email=(body.assignee_email or "").lower(),
-        owner_email=(body.owner_email or "").lower(),
+        assignee_email=(body.assignee_email or "").strip().lower(),
+        owner_email=(body.owner_email or "").strip().lower(),
         follower_emails=body.follower_emails or [],
         liked_by_emails=body.liked_by_emails or [],
         access_level=access_level,
@@ -693,7 +693,10 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
         if field == "completed":
             continue  # handled below
         if field in ("assignee_email", "owner_email"):
-            val = (val or "").lower()
+            # strip() as well as lower(): a padded address is stored verbatim and
+            # then never equals the same person anywhere else, so the task is
+            # assigned to somebody who never sees it in My Tasks.
+            val = (val or "").strip().lower()
         setattr(t, field, val)
 
     # completion handling - keep `completed` (+ its timestamp) and `status` in
@@ -923,7 +926,11 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
 # ── Comments ─────────────────────────────────────────────────────────────────
 class CommentCreate(BaseModel):
     body: str
-    author_email: Optional[str] = None
+    # No author_email. create_comment() accepts one so the Asana importer and the
+    # inbound-email ingester can attribute a backfilled comment to whoever
+    # actually wrote it - but both call that function in-process. Exposing it on
+    # the HTTP body let any signed-in caller post a comment signed as a colleague,
+    # in a thread that is used as a record of who said what. Nothing ever sent it.
 
 
 class CommentUpdate(BaseModel):
@@ -948,7 +955,9 @@ def add_comment(task_id: str, body: CommentCreate, background_tasks: BackgroundT
     # The comment itself and all six of its side effects live in create_comment
     # (routers/task_util.py) - see that docstring for why this endpoint is only
     # a wrapper. `defer` keeps the notification emails off the response path.
-    c = create_comment(db, t, actor_email=user["email"], author_email=body.author_email or "",
+    # author_email is deliberately NOT passed through from the request - it
+    # defaults to the actor. See CommentCreate.
+    c = create_comment(db, t, actor_email=user["email"],
                        body=body.body or "", notify=notify, defer=background_tasks.add_task)
     return comment_to_dict(c)
 
@@ -987,14 +996,24 @@ def edit_comment(comment_id: str, upd: CommentUpdate, user: dict = Depends(get_c
 @router.delete("/comments/{comment_id}", status_code=204)
 def delete_comment(comment_id: str, user: dict = Depends(get_current_user),
                    db: Session = Depends(get_db)):
-    """The author, or a project editor moderating the thread. Previously
-    unguarded entirely - see edit_comment."""
+    """The author, or a manager moderating the thread. Previously unguarded
+    entirely - see edit_comment.
+
+    "Project editor" was too weak a bar. On a task with no project, or one in an
+    org-level project, every signed-in employee is an editor - so anyone could
+    delete a colleague's comment out of a thread that is used as the record of
+    who said what, leaving nothing behind to show it happened. edit_comment
+    already treats rewriting someone's words as different in kind from access
+    and makes the author check absolute; deleting them is not a smaller act.
+    Moderation stays possible, but it takes manager+."""
     c = db.query(models.TaskComment).filter(models.TaskComment.id == comment_id).first()
     if not c:
         raise HTTPException(404, "Comment not found")
     t = db.query(models.Task).filter(models.Task.id == c.task_id).first()
     if (c.author_email or "").lower() != (user["email"] or "").lower():
         require_project_role(db, user, project_for_task(db, t) if t else None, "editor")
+        if user.get("level", 1) < 3:
+            raise HTTPException(403, "Only the author or a manager can delete a comment.")
     if t:
         t.comment_ids = [x for x in (t.comment_ids or []) if x != comment_id]
         t.modified_at = now_iso()   # so a delta fetch (GET /tasks/delta) picks this task up
