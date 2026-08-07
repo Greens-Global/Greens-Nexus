@@ -50,7 +50,6 @@ const HR                  = lazy(() => import("./views/HR"));
 const Documents           = lazy(() => import("./views/Documents"));
 const InvestorRelations   = lazy(() => import("./views/InvestorRelations"));
 const Marketing           = lazy(() => import("./views/Marketing"));
-const PdfEditorModule     = lazy(() => import("./views/PdfEditorModule"));
 const Admin               = lazy(() => import("./views/Admin"));
 const ExternalLinks       = lazy(() => import("./views/ExternalLinks"));
 const ManagerDashboard    = lazy(() => import("./views/ManagerDashboard"));
@@ -261,7 +260,9 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
     case "hr":                 return <HR activeSub={activeSub} onSubChange={onSubChange} />;
     case "documents":          return <Documents activeSub={activeSub} onSubChange={onSubChange} />;
     case "marketing":          return <Marketing activeSub={activeSub} onSubChange={onSubChange} />;
-    case "pdf-editor":         return <PdfEditorModule />;
+    // PDF Editor moved into Documents as a tab (Jul 2026). Keep the old
+    // top-level route working: land on Documents' PDF Editor tab.
+    case "pdf-editor":         return <Documents activeSub="documents-pdf" onSubChange={onSubChange} />;
     case "inventory":          return <InventoryManagement activeSub={activeSub} onSubChange={onSubChange} onNavigate={onNavigate} />;
     case "admin":              return <Admin />;
     case "external-links":     return <ExternalLinks />;
@@ -563,7 +564,7 @@ function MainApp() {
           <main className={`main-content${sidebarCollapsed ? " main-collapsed" : ""}`}>
             {/* PDF Editor is a full-bleed workspace with its own toolbar — hide
                 the Nexus top header so it gets the whole viewport height. */}
-            {!(activeView === 'pdf-editor' && pdfHasDoc) && (
+            {!pdfHasDoc && (
             <TopHeader
               title={viewLabel(activeView)}
               helpKey={activeSub ? `${activeView}:${activeSub}` : activeView}
@@ -584,7 +585,7 @@ function MainApp() {
                 whole canvas. It used to cancel .viewport's padding with negative
                 margins, which only matched ONE of the five breakpoint paddings
                 and so sat off-center at most widths. */}
-            <div className={(activeView === 'tasks' || activeView === 'tickets' || activeView === 'pdf-editor') ? 'viewport viewport-flush'
+            <div className={(activeView === 'tasks' || activeView === 'tickets' || activeView === 'pdf-editor' || pdfHasDoc) ? 'viewport viewport-flush'
               : (activeView === 'dashboard' || activeView === 'manager-dashboard') ? 'viewport viewport-desk'
               : 'viewport'}>
               <ViewErrorBoundary resetKey={`${activeView}/${activeSub}/${viewEpoch}`}>
