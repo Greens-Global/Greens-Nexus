@@ -87,8 +87,13 @@ export const TYPE_FIELDS = {
     // every service catalogue defaults it.
     { key: 'requestedFor', label: 'Requested For (blank = yourself)', type: 'person' },
     { key: 'businessJustification', label: 'Business Justification', type: 'textarea', full: true, req: true },
-    { key: 'requiredBy', label: 'Required By', type: 'date' },
-    { key: 'estimatedCost', label: 'Estimated Cost', type: 'number', prefix: '₹' },
+    // Retired (Aug 2026). A requester guessing a delivery date sets an
+    // expectation nobody agreed to, and guessing a cost produces a number
+    // finance did not price - the SLA date and the actual quote both come from
+    // the people fulfilling it. Kept so tickets that already captured one
+    // still render it.
+    { key: 'requiredBy', label: 'Required By', type: 'date', retired: true },
+    { key: 'estimatedCost', label: 'Estimated Cost', type: 'number', prefix: '₹', retired: true },
     // Optional, and renamed: most requests are software or access and have no
     // physical destination. Required Location made every one of those carry an
     // invented answer.
@@ -142,9 +147,11 @@ export const TYPE_FIELDS = {
     { key: 'application', label: 'Application / System', type: 'text', req: true },
     { key: 'accessType', label: 'Access Level', type: 'radio', options: ['Read', 'Write', 'Admin'], req: true },
     { key: 'user', label: 'Access For (blank = yourself)', type: 'person' },
-    // Prod and UAT are different grants carrying different risk; granting one
-    // when the other was meant is the commonest access mistake there is.
-    { key: 'environment', label: 'Environment', type: 'select', options: ['Production', 'UAT / Staging', 'Development', 'All'] },
+    // Production and Development are different grants carrying different risk;
+    // granting one when the other was meant is the commonest access mistake
+    // there is. (UAT / Staging dropped Aug 2026 - an existing ticket that
+    // captured it keeps its stored value, which still renders as typed.)
+    { key: 'environment', label: 'Environment', type: 'select', options: ['Production', 'Development', 'All'] },
     { key: 'reason', label: 'Business Justification', type: 'textarea', full: true, req: true },
     // Standing access is what audits object to, so the expiry is a first-class
     // question. Blank is allowed - some access genuinely is permanent.
@@ -231,6 +238,24 @@ export const SLA_META = {
   breached: { label: 'SLA breached', color: NX.red, tint: 'rgba(220,38,38,0.14)', Icon: ShieldAlert },
   at_risk:  { label: 'Due soon',     color: NX.amber, tint: 'rgba(217,119,6,0.16)', Icon: Timer },
 };
+
+// ── Ticket numbers ───────────────────────────────────────────────────────────
+// Stored as a plain zero-padded sequence ("000001"); shown as "Ticket #000001".
+// Mirrors backend/ticket_code.py - keep the two in step.
+//
+// normalizeCode also folds legacy "TKT-12" to "000012", so a row written before
+// the change reads identically to one written after it without needing the data
+// migration to have run first.
+export const TICKET_CODE_DIGITS = 6;
+export const normalizeCode = (code) => {
+  const digits = String(code || '').replace(/\D/g, '');
+  return digits ? digits.padStart(TICKET_CODE_DIGITS, '0') : '';
+};
+// Blank stays blank rather than becoming "Ticket #" - a ticket with no number
+// should look like it has none, not like it has an empty one.
+export const ticketNo = (code) => (normalizeCode(code) ? `Ticket #${normalizeCode(code)}` : '');
+// Compact form for tight spots (chips, table cells, option lists): "#000001".
+export const ticketNoShort = (code) => (normalizeCode(code) ? `#${normalizeCode(code)}` : '');
 
 // ── Approvals ────────────────────────────────────────────────────────────────
 // Service and access requests park the moment they're raised, with no approver

@@ -15,6 +15,7 @@ import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 // that opens its create form should wear it, not a generic document.
 import { Ticket, Monitor, Users, BookOpen, ArrowUpRight } from 'lucide-react';
 import { api } from '../api';
+import { ticketNoShort } from '../tickets/ticketMeta';
 import { formatDateTime } from '../lib/datetime';
 
 // The Ticket module's OWN create form, mounted here instead of navigating to
@@ -135,7 +136,7 @@ export default function Support() {
                 const p = pill(t.status);
                 return (
                   <tr key={t.id}>
-                    <td data-th="Ticket" className="mono" style={{ fontWeight: 700 }}>{t.code || '-'}</td>
+                    <td data-th="Ticket" className="mono" style={{ fontWeight: 700 }}>{ticketNoShort(t.code) || '-'}</td>
                     <td>{t.subject}</td>
                     <td data-th="Dept" style={{ color: 'var(--muted)' }}>{deptName(t.departmentId) || '-'}</td>
                     <td data-th="Status"><span className={p.cls}>{p.label}</span></td>

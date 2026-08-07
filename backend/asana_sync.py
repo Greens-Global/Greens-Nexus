@@ -163,6 +163,27 @@ def _unwrap(resp):
     return resp.get("data", resp) if isinstance(resp, dict) else resp
 
 
+def asana_identity(token: str) -> dict:
+    """Who Asana thinks this token belongs to: {"gid", "name", "email"}.
+
+    The one call that answers "whose name will this action appear under",
+    because Asana attributes every write to the token's owner and offers no
+    impersonation parameter. Raises on rejection - the caller wants to know.
+    """
+    return _unwrap(_request("GET", f"{_ASANA_BASE}/users/me",
+                            _headers(token), None)) or {}
+
+
+def asana_task(token: str, task_gid: str) -> dict:
+    """Read one task with this token. Raises if the token's owner cannot reach
+    it - the difference between a grant that is valid and one that can actually
+    comment here, which /users/me cannot tell apart. Checked at the task rather
+    than the workspace because a Guest is a workspace member and still sees only
+    the projects it was added to."""
+    return _unwrap(_request("GET", f"{_ASANA_BASE}/tasks/{task_gid}",
+                            _headers(token), None)) or {}
+
+
 def _asana_post(token, path, body):
     return _unwrap(_request("POST", f"{_ASANA_BASE}{path}", _headers(token), body))
 
@@ -3395,7 +3416,16 @@ def push_comment(db, comment):
     author = comment.author_email or ""
     # asana-sync is the stamp on comments that came FROM Asana; there's no
     # person behind it to attribute to.
-    user_token = asana_oauth.token_for(db, author) if author and author != "asana-sync" else None
+    # token_reason, not token_for: when a comment goes out under the wrong name
+    # the reason has to be recoverable afterwards. Falling back is silent by
+    # design (never lose the comment), which left "why is the service account
+    # posting my comments" answerable only by guessing.
+    if author and author != "asana-sync":
+        user_token, why_not = asana_oauth.token_reason(db, author)
+        if not user_token:
+            print(f"[asana] posting {author}'s comment as the service account: {why_not}")
+    else:
+        user_token = None
     token = user_token or cfg.token
     # An image pasted into the comment is a data: URI in the body, which Asana
     # can neither inline nor fetch. Hosted first so it travels as an attachment

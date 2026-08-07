@@ -24,6 +24,7 @@ import {
   TICKET_RESOLUTION, LINK_TYPES, TICKET_STATUS_META, TICKET_STATUS_ORDER, CLOSED_STATES,
   SLA_TARGET_HOURS, SLA_META, slaState, slaDueFromPriority, isBlankFieldValue, toEmailList,
   label, field, resolutionLabel, linkTypeLabel, APPROVAL_META, intakeFields,
+  ticketNo, ticketNoShort, normalizeCode,
 } from './ticketMeta';
 import {
   TypeFieldInput, TicketTypeIcon, SlaBadge, TicketStatusChip,
@@ -65,7 +66,7 @@ function csvEscape(v) {
 function downloadTicketsCsv(rows, nameOf, companyName, hrDeptName) {
   const headers = ['Code', 'Title', 'Type', 'Company', 'Department', 'State', 'Priority', 'Due Date', 'Requester', 'Assigned To', 'Created Date', 'Resolved At', 'Description'];
   const body = rows.map((t) => [
-    t.code || '', t.subject || '', TICKET_TYPE_META[t.type]?.label || t.type || '',
+    ticketNoShort(t.code) || '', t.subject || '', TICKET_TYPE_META[t.type]?.label || t.type || '',
     companyName(t.companyId) || '', hrDeptName(t.hrDepartmentId) || '',
     TICKET_STATUS_META[t.status]?.label || t.status || '', PRIORITY_META[t.priority]?.label || t.priority || '',
     t.slaDueOn ? fmtDate(t.slaDueOn) : '', t.requesterId ? (nameOf(t.requesterId) || t.requesterId) : '',
@@ -444,7 +445,7 @@ export default function TicketsView() {
       if (typeFilter !== 'all' && (t.type || 'request') !== typeFilter) return false;
       if (slaFilter !== 'all' && slaState(t) !== slaFilter) return false;
       if (q) {
-        const hay = `${t.code} ${t.subject} ${t.description} ${nameOf(t.requesterId) || ''} ${nameOf(t.assigneeId) || ''}`.toLowerCase();
+        const hay = `${t.code} ${normalizeCode(t.code)} ${ticketNoShort(t.code)} ${t.subject} ${t.description} ${nameOf(t.requesterId) || ''} ${nameOf(t.assigneeId) || ''}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
@@ -814,7 +815,7 @@ function TicketRow({ t, nameOf, hrDeptName, companyName, onOpen, checked, onTogg
               {t.linkedTaskId && <Link2 size={13} style={{ color: NX.faint, marginLeft: 6, verticalAlign: 'middle' }} />}
             </div>
             <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 2 }}>
-              {t.code || '-'}{hrDept ? ` · ${hrDept}` : ''}
+              {ticketNoShort(t.code) || '-'}{hrDept ? ` · ${hrDept}` : ''}
             </div>
           </div>
           {t.resolvedAt && <CheckCircle2 size={16} style={{ color: NX.green, flexShrink: 0 }} />}
@@ -858,7 +859,7 @@ function TicketRow({ t, nameOf, hrDeptName, companyName, onOpen, checked, onTogg
           {t.linkedTaskId && <Link2 size={13} style={{ color: NX.faint, marginLeft: 6, verticalAlign: 'middle' }} />}
         </div>
         <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 1 }}>
-          {t.code || '-'}{hrDept ? ` · ${hrDept}` : ''}
+          {ticketNoShort(t.code) || '-'}{hrDept ? ` · ${hrDept}` : ''}
         </div>
       </div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', flex: `0 0 ${colWidths.company}px`, minWidth: 0 }} title={companyName(t.companyId) || ''}>
@@ -1315,20 +1316,6 @@ export function CreateTicketModal({ onClose }) {
         <textarea value={form.description} onChange={(e) => set('description', e.target.value)} rows={3} placeholder="Add detail…" style={{ ...inputStyle, resize: 'vertical', fontFamily: FONT }} />
       </div>
 
-      <div style={field}>
-        <label style={label}>Evidence</label>
-        <RecordUploadButtons showRecord={!NO_RECORDING_TYPES.includes(form.type)}
-          onFile={(f) => { appendDraftFile(f); setAttachments((prev) => [...prev, f]); }}
-          onRecordingChange={onRecChange} />
-        {attachments.length > 0 && (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
-            {attachments.map((f, i) => (
-              <PendingFileChip key={`${f.name}-${i}`} file={f} onRemove={() => setAttachments((prev) => prev.filter((_, idx) => idx !== i))} />
-            ))}
-          </div>
-        )}
-      </div>
-
       {/* Type-specific details - the point of the ticket, so it's prominent. */}
       {typeFieldDefs.length > 0 && (
         <div style={{ border: `1px solid ${NX.border}`, borderRadius: 10, padding: 14, background: NX.surface2, marginTop: 2 }}>
@@ -1347,6 +1334,20 @@ export function CreateTicketModal({ onClose }) {
           </div>
         </div>
       )}
+
+      <div style={field}>
+        <label style={label}>Attachments</label>
+        <RecordUploadButtons showRecord={!NO_RECORDING_TYPES.includes(form.type)}
+          onFile={(f) => { appendDraftFile(f); setAttachments((prev) => [...prev, f]); }}
+          onRecordingChange={onRecChange} />
+        {attachments.length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+            {attachments.map((f, i) => (
+              <PendingFileChip key={`${f.name}-${i}`} file={f} onRemove={() => setAttachments((prev) => prev.filter((_, idx) => idx !== i))} />
+            ))}
+          </div>
+        )}
+      </div>
     </>),
   });
 }
@@ -1446,13 +1447,13 @@ function TicketDrawer({ ticketId, onClose }) {
   const overdue = t.slaDueOn && t.slaDueOn < today() && !CLOSED_STATES.includes(t.status);
 
   const remove = () => {
-    if (!window.confirm(`Delete ticket ${t.code || t.subject}? This cannot be undone.`)) return;
+    if (!window.confirm(`Delete ${ticketNo(t.code) || 'this ticket'}? This cannot be undone.`)) return;
     deleteTicket(t.id).then(onClose).catch((e) => alert(`Could not delete ticket: ${e.message || e}`));
   };
 
   const sel = { ...inputStyle, appearance: 'auto', cursor: 'pointer' };
   return (
-    <Modal title={t.code || 'Ticket'} onClose={onClose} width={620} footer={
+    <Modal title={ticketNo(t.code) || 'Ticket'} onClose={onClose} width={620} footer={
       <>
         {canDelete && (
           <button style={{ ...btn('outline'), color: NX.red, borderColor: NX.border, marginRight: 'auto' }} onClick={remove}><Trash2 size={14} /> Delete</button>
@@ -1832,7 +1833,7 @@ function TicketLinks({ ticket, tickets, onAdd, onRemove, readOnly }) {
                 <span style={{ ...chip(NX.dim, NX.border2), flexShrink: 0 }}>{linkTypeLabel(l.type)}</span>
                 <Link2 size={13} style={{ color: NX.faint, flexShrink: 0 }} />
                 <span style={{ color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {lt ? `${lt.code ? lt.code + ' · ' : ''}${lt.subject}` : l.ticketId}
+                  {lt ? `${ticketNoShort(lt.code) ? ticketNoShort(lt.code) + ' · ' : ''}${lt.subject}` : l.ticketId}
                 </span>
                 {!readOnly && <button onClick={() => onRemove(l.ticketId)} title="Remove link" style={{ ...btn('ghost'), padding: 2, marginLeft: 'auto', color: NX.faint }}><X size={13} /></button>}
               </div>
@@ -1848,7 +1849,7 @@ function TicketLinks({ ticket, tickets, onAdd, onRemove, readOnly }) {
           </select>
           <select value={target} onChange={(e) => setTarget(e.target.value)} style={{ ...inputStyle, appearance: 'auto', flex: 1, minWidth: 160, cursor: 'pointer' }}>
             <option value="">Select a ticket…</option>
-            {options.map((x) => <option key={x.id} value={x.id}>{x.code ? `${x.code} · ` : ''}{x.subject}</option>)}
+            {options.map((x) => <option key={x.id} value={x.id}>{ticketNoShort(x.code) ? `${ticketNoShort(x.code)} · ` : ''}{x.subject}</option>)}
           </select>
           <button onClick={submit} disabled={!target} style={{ ...btn('primary'), opacity: target ? 1 : 0.5 }}>Link</button>
           <button onClick={() => setAdding(false)} style={btn('ghost')}>Cancel</button>
@@ -2190,7 +2191,7 @@ function TicketBoard({ tickets, nameOf, onOpen, onMove }) {
                 style={{ background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, padding: 10, cursor: 'grab', opacity: dragId === t.id ? 0.5 : 1, boxShadow: '0 1px 2px rgba(0,0,0,0.04)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   <TicketTypeIcon type={t.type} size={14} />
-                  <span style={{ fontSize: 10.5, fontWeight: 700, color: NX.faint }}>{t.code}</span>
+                  <span style={{ fontSize: 10.5, fontWeight: 700, color: NX.faint }}>{ticketNoShort(t.code)}</span>
                 </div>
                 <div style={{ marginTop: 6, fontSize: 13, fontWeight: 600, color: NX.ink }}>{t.subject}</div>
                 <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
