@@ -666,16 +666,13 @@
 
   const dz = el('#dropZone');
   if (dz) {
-    dz.querySelector('svg')?.remove();
-    const ps = dz.querySelectorAll('p');
-    // Brand lockup above the tools — the app introduces itself once, here.
-    const brand = document.createElement('div');
-    brand.className = 'welcome-brand';
-    brand.innerHTML =
-      '<span class="brand-name">Nexus <em>PDF Editor</em></span>';
-    dz.insertBefore(brand, dz.firstChild);
-    if (ps[0]) ps[0].textContent = 'What do you want to do?';
-    if (ps[0]) ps[0].className = 'welcome-title';
+    // Rebuilt landing: a standard drag-and-drop / Open dropzone on top, then the
+    // tools grouped into three labeled rows (Edit · Convert · Tools). The old
+    // "Nexus PDF Editor" brand lockup and "What do you want to do?" title are
+    // gone — the Documents module already frames this as the PDF Editor, so a
+    // second title just wasted the vertical space the tiles need.
+    dz.innerHTML = '';
+    dz.classList.add('welcome-landing');
 
     const pickPdfThen = (fn) => { pendingAction = fn; el('#fileInput')?.click(); };
     const expItem = (k) => el(`#exportMenu [data-export="${k}"]`)?.click();
@@ -710,39 +707,123 @@
       });
     };
 
-    const CARDS = [
-      ['Edit PDF',        '#b06ee8', 'M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5ZM15 5l4 4', () => pickPdfThen(() => revealTool('edit', '#textTool'))],
-      ['Organize Pages',  '#4caf7d', 'M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z', () => pickPdfThen(() => revealTool('organize', '#rotateBtn'))],
-      ['Merge PDF',       '#e8734a', 'M2 2h8v12H2zM14 10h8v12h-8zM10 8h4m-2-2v4', () => pickPdfThen(() => revealTool('organize', '#mergeBtn'))],
-      ['OCR (scanned)',   '#7dc243', 'M11 3a8 8 0 1 0 0 16 8 8 0 0 0 0-16zM21 21l-4.35-4.35M8 11h6M11 8v6', () => pickPdfThen(() => revealTool('ocr', '#ocrBtn'))],
-      ['Word → PDF',      '#2b7cd3', 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M8 13l2 5 2-5 2 5 2-5', () => docxPicker && docxPicker.click()],
-      ['Image → PDF',     '#e8b93a', 'M3 3h18v18H3zM8.5 10a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zM21 15l-5-5L5 21', () => window.imageToPdfDialog && window.imageToPdfDialog()],
-      ['PDF → Image',     '#c2588f', 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M9 13a1 1 0 1 0 0-2 1 1 0 0 0 0 2zM20 17l-4-4-7 7', () => pickPdfThen(() => revealExport('image'))],
-      ['PDF → Word',      '#185abd', 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M8 13l2 5 2-5 2 5 2-5', () => pickPdfThen(() => revealExport('word'))],
-      ['PDF → Excel',     '#1d7044', 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M9 12l6 6M15 12l-6 6', () => pickPdfThen(() => revealExport('excel'))],
-      ['Compress PDF',    '#5c9e57', 'M8 3l4 4 4-4M8 21l4-4 4 4M12 7v10', () => pickPdfThen(() => revealTool('export', '#compressBtn'))],
-      ['Sign PDF',        '#5aa2e8', 'M3 17c2.5 0 3-6 5-6s1.5 4 3 4 2-8 4-8 1.5 6 3 6M3 21h18', () => pickPdfThen(() => revealTool('sign', '#signatureBtn'))],
-      ['Protect (password)','#d4506e', 'M4 11h16v10H4zM8 11V7a4 4 0 0 1 8 0v4', () => pickPdfThen(() => revealTool('sign', '#protectBtn'))],
-      ['Fill Form',       '#8c6ed6', 'M3 4h18v16H3zM7 9h10M7 13h6M15 15l2 2 4-4', () => pickPdfThen(() => revealTool('sign', '#formsBtn'))],
-      ['Compare PDFs',    '#5c9e57', 'M4 4h6v16H4zM14 4h6v16h-6', () => pickPdfThen(() => revealTool('sign', '#compareBtn'))],
+    // A direction-picker: click one Convert tile, choose which way to convert.
+    // Simpler than two tiles each; the anchor is the clicked card so the popup
+    // appears right under it.
+    let openConvertMenu = null;
+    const closeConvertMenu = () => { if (openConvertMenu) { openConvertMenu.remove(); openConvertMenu = null; } };
+    document.addEventListener('click', closeConvertMenu);
+    const directionPick = (anchor, options) => {
+      closeConvertMenu();
+      const menu = document.createElement('div');
+      menu.className = 'welcome-dir-menu';
+      for (const [label, fn] of options) {
+        const b = document.createElement('button');
+        b.className = 'welcome-dir-item';
+        b.textContent = label;
+        b.addEventListener('click', (e) => { e.stopPropagation(); closeConvertMenu(); fn(); });
+        menu.appendChild(b);
+      }
+      const r = anchor.getBoundingClientRect();
+      menu.style.left = Math.round(r.left) + 'px';
+      menu.style.top = Math.round(r.bottom + 6) + 'px';
+      menu.style.minWidth = Math.round(r.width) + 'px';
+      document.body.appendChild(menu);
+      openConvertMenu = menu;
+    };
+
+    // SVG path strings (24×24, stroke) keyed for reuse.
+    const IC = {
+      edit:     'M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5ZM15 5l4 4',
+      organize: 'M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z',
+      merge:    'M2 2h8v12H2zM14 10h8v12h-8zM10 8h4m-2-2v4',
+      split:    'M12 3v18M7 8l-4 4 4 4M17 8l4 4-4 4',
+      word:     'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M8 13l2 5 2-5 2 5 2-5',
+      image:    'M3 3h18v18H3zM8.5 10a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zM21 15l-5-5L5 21',
+      excel:    'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M9 12l6 6M15 12l-6 6',
+      ocr:      'M11 3a8 8 0 1 0 0 16 8 8 0 0 0 0-16zM21 21l-4.35-4.35M8 11h6M11 8v6',
+      sign:     'M3 17c2.5 0 3-6 5-6s1.5 4 3 4 2-8 4-8 1.5 6 3 6M3 21h18',
+      protect:  'M4 11h16v10H4zM8 11V7a4 4 0 0 1 8 0v4',
+      compress: 'M8 3l4 4 4-4M8 21l4-4 4 4M12 7v10',
+    };
+
+    // Three simple groups (owner request Aug 2026): Edit · Convert · Tools.
+    // Each card carries a one-line description (pro editors always label what a
+    // tool does). Convert tiles open a direction submenu instead of two one-way
+    // tiles; `isSub` marks those.
+    const ROWS = [
+      { title: 'Edit', cards: [
+        ['Edit PDF',      'Add text, shapes and edits',   '#b06ee8', IC.edit,     () => pickPdfThen(() => revealTool('edit', '#textTool'))],
+        ['Rearrange PDF', 'Reorder, rotate and add pages','#4caf7d', IC.organize, () => pickPdfThen(() => revealTool('organize', '#rotateBtn'))],
+        ['Merge PDF',     'Combine files into one',       '#e8734a', IC.merge,    () => pickPdfThen(() => revealTool('organize', '#mergeBtn'))],
+        ['Split PDF',     'Extract or separate pages',    '#3a97d4', IC.split,    () => pickPdfThen(() => revealTool('organize', '#splitBtn'))],
+      ]},
+      { title: 'Convert', cards: [
+        ['Word ⇄ PDF', 'Convert either direction', '#2b7cd3', IC.word, (card) => directionPick(card, [
+          ['PDF → Word', () => pickPdfThen(() => revealExport('word'))],
+          ['Word → PDF', () => docxPicker && docxPicker.click()],
+        ]), true],
+      ]},
     ];
 
-    const grid = document.createElement('div');
-    grid.className = 'welcome-grid';
-    for (const [label, tint, path, fn] of CARDS) {
-      const c = document.createElement('button');
-      c.className = 'welcome-card';
-      c.innerHTML =
-        `<span class="welcome-card-ic" style="background:${tint}1c;color:${tint}">` +
-        `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="${path}"/></svg></span>` +
-        `<span class="welcome-card-tx">${label}</span>`;
-      c.addEventListener('click', (e) => { e.stopPropagation(); fn(); });
-      grid.appendChild(c);
+    // Two-panel layout the owner preferred, made foolproof with an explicit
+    // "Step 1 / Step 2" framing: LEFT = upload the file (the clear starting
+    // point) with a Recent list; RIGHT = all the tools, grouped. A tool always
+    // opens the picker first if no file is loaded, so the two steps can also be
+    // done in one click.
+    const wrap = document.createElement('div');
+    wrap.className = 'welcome-shell';
+
+    // ── Left column: Step 1 = upload ──
+    const leftCol = document.createElement('div');
+    leftCol.className = 'welcome-left';
+
+    const drop = document.createElement('button');
+    drop.className = 'welcome-drop';
+    drop.type = 'button';
+    drop.innerHTML =
+      '<span class="welcome-drop-ic">' +
+      '<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">' +
+      '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M12 3v13M7 8l5-5 5 5"/></svg></span>' +
+      '<span class="welcome-drop-txt">' +
+      '<span class="welcome-drop-t">Drop your PDF here to get started</span>' +
+      '<span class="welcome-drop-s">or click the button below to browse your files</span>' +
+      '</span>' +
+      '<span class="welcome-drop-btn">Choose File</span>' +
+      '<span class="welcome-drop-hint">Upload a PDF up to 100 MB, or a Word (.docx, .doc) or image (PNG, JPG) file to convert into a PDF.</span>';
+    drop.addEventListener('click', (e) => { e.stopPropagation(); el('#fileInput')?.click(); });
+    leftCol.appendChild(drop);
+    wrap.appendChild(leftCol);
+
+    // ── Right column: Step 2 = pick a tool ──
+    const tools = document.createElement('div');
+    tools.className = 'welcome-tools';
+    for (const row of ROWS) {
+      const section = document.createElement('div');
+      section.className = 'welcome-row';
+      const rhead = document.createElement('div');
+      rhead.className = 'welcome-row-title';
+      rhead.textContent = row.title;
+      section.appendChild(rhead);
+      const grid = document.createElement('div');
+      grid.className = 'welcome-grid';
+      for (const [label, desc, tint, path, fn, isSub] of row.cards) {
+        const c = document.createElement('button');
+        c.className = 'welcome-card';
+        c.innerHTML =
+          `<span class="welcome-card-ic" style="background:${tint};color:#fff">` +
+          `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="${path}"/></svg></span>` +
+          `<span class="welcome-card-body">` +
+          `<span class="welcome-card-tx">${label}${isSub ? ' <span class="welcome-card-caret">▾</span>' : ''}</span>` +
+          `<span class="welcome-card-desc">${desc}</span></span>`;
+        c.addEventListener('click', (e) => { e.stopPropagation(); fn(c); });
+        grid.appendChild(c);
+      }
+      section.appendChild(grid);
+      tools.appendChild(section);
     }
-    // Insert the grid after the title, keep the drop hint at the bottom.
-    const sub = dz.querySelector('.drop-sub');
-    dz.insertBefore(grid, sub || null);
-    if (sub) sub.textContent = 'Tip: you can also drag & drop a PDF anywhere on this window';
+    wrap.appendChild(tools);
+    dz.appendChild(wrap);
 
     // If the picker is cancelled, disarm the landing-card action so a later
     // manual open doesn't unexpectedly fire a stale tool/export.
