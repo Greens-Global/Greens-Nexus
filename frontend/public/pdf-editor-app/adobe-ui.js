@@ -73,7 +73,11 @@
     menu.id = 'shapeMenu';
     const KINDS = [
       ['rect', '▭ Rectangle'], ['square', '□ Square'], ['circle', '◯ Circle / Ellipse'], ['triangle', '△ Triangle'],
-      ['line', '― Line'], ['arrow', '→ Arrow'], ['arrow2', '↔ Double arrow'], ['cloud', '☁ Cloud (revision)'],
+      ['line', '― Line'], ['polyline', '⌇ Polyline (multi-segment)'], ['polygon', '⬠ Polygon (multi-point)'],
+      ['arrow', '→ Arrow'], ['arrow2', '↔ Double arrow'],
+      ['cloud', '☁ Cloud (revision)'], ['callout', '💬 Text callout (arrow + note)'],
+      ['ellipsecallout', '🗨 Speech bubble'],
+      ['count', '① Count (click to tally items)'],
       ['redact', '⬛ Redact (removes content permanently)'],
     ];
     for (const [kind, text] of KINDS) {
@@ -366,9 +370,9 @@
   layersPanel.className = 'layers-panel';
   layersPanel.innerHTML =
     '<div class="layers-head"><span>Layers</span><button class="icon-btn" id="layersClose" title="Close">✕</button></div>' +
-    '<div class="layers-hint">Each layer is one set of markups (e.g. "Option 1"). Click a layer to draw on it; the eye hides it. Hidden layers are not saved into the PDF.</div>' +
-    '<div class="layers-list" id="layersList"></div>' +
-    '<button class="layers-add" id="layersAdd">+ New layer</button>';
+    '<div class="layers-hint">Each layer is one set of markups (e.g. "Layer 2"). Click a layer to draw on it; the eye hides it. Hidden layers are not saved into the PDF.</div>' +
+    '<button class="layers-add" id="layersAdd">+ New layer</button>' +
+    '<div class="layers-list" id="layersList"></div>';
   function toggleLayersPanel(force) {
     const on = force !== undefined ? force : layersPanel.style.display !== 'flex';
     layersPanel.style.display = on ? 'flex' : 'none';
@@ -445,7 +449,8 @@
   layersPanel.querySelector('#layersAdd').addEventListener('click', () => {
     if (!window.pdfLayers) return;
     const n = window.pdfLayers.list().length;
-    window.pdfLayers.add('Option ' + n, LAYER_PALETTE[(n - 1) % LAYER_PALETTE.length]);
+    // "Layer 2", "Layer 3", ... (the next number) - clearer than "Option N".
+    window.pdfLayers.add('Layer ' + (n + 1), LAYER_PALETTE[n % LAYER_PALETTE.length]);
     renderLayers();
   });
   layersPanel.style.display = 'none';
@@ -1066,11 +1071,13 @@
   // Mirror app.js state without touching it: #fileInfo (status bar) is updated
   // on every load — watch it to switch the title and reveal Close.
   const fileInfo = el('#fileInfo');
+  let _everHadDoc = false; // latches true once any document has been opened
   if (fileInfo) {
     const sync = () => {
       const t = fileInfo.textContent || '';
       const name = t.split('|')[0].trim();
       const pages = (t.match(/(\d+)\s*page/) || [])[1];
+      if (name) _everHadDoc = true;
       docTitle.textContent = name || 'No document open';
       docTitle.title = name;
       if (pages) {
@@ -1093,8 +1100,15 @@
         const n = el(s); if (n) n.style.display = name ? 'inline-flex' : 'none';
       }
       // In the portal, hide the whole top bar on the landing state (the tool
-      // grid is self-sufficient); reveal it once a document is open.
-      if (IN_PORTAL) header.style.display = name ? '' : 'none';
+      // grid is self-sufficient); reveal it once a document is open. Once a doc
+      // is open the header MUST stay visible so the user can always Close/Save,
+      // even through transient states (e.g. a conversion briefly re-loading) -
+      // we never hide it while a document is present.
+      if (IN_PORTAL) {
+        // Show once any doc has been opened, and keep it shown through transient
+        // empty states (e.g. a conversion re-loading) so Close/Save never vanish.
+        header.style.display = (name || _everHadDoc) ? '' : 'none';
+      }
       // Window/tab title mirrors the open document, like every desktop app.
       document.title = name ? `${name} — Nexus PDF Editor` : 'Nexus PDF Editor';
       // Landing-page card flow: the PDF just finished loading — run the tool

@@ -385,22 +385,26 @@ function PhotoUpload({ value, onChange, label = 'PHOTO', required = false, hint 
 }
 
 // ── Add Item Modal ─────────────────────────────────────────────────────────────
-function AddItemModal({ onClose, onSave, initial = {}, types = ITEM_TYPES }) {
+// lockedFields: keys carried over from another form (e.g. the Heavy Equipment wizard) that
+// duplicate a value already captured there - shown read-only so the two records can't drift.
+const LOCKED_FIELD_STYLE = { backgroundColor: 'var(--mist)', color: 'var(--muted)', cursor: 'not-allowed' };
+export function AddItemModal({ onClose, onSave, initial = {}, types = ITEM_TYPES, lockedFields = [], onBack }) {
+  const isLocked = (key) => lockedFields.includes(key);
   const [name,          setName]          = useState(initial.name || '');
   const [itemType,      setItemType]      = useState(initial.itemType || 'Tools');
-  const [make,          setMake]          = useState('');
-  const [model,         setModel]         = useState('');
-  const [year,          setYear]          = useState('');
+  const [make,          setMake]          = useState(initial.make || '');
+  const [model,         setModel]         = useState(initial.model || '');
+  const [year,          setYear]          = useState(initial.year || '');
   const [department,    setDepartment]    = useState(initial.department || '');
   // Owner now defaults to the department (Neil: a free-text owner per item just
   // produced 100 unhelpful values - the department is the real owner).
   const [defaultOwner,  setDefaultOwner]  = useState(initial.department || '');
   const [ownershipType, setOwnershipType] = useState(initial.ownershipType || 'transient');
-  const [location,      setLocation]      = useState('');
+  const [location,      setLocation]      = useState(initial.location || '');
   const [photoUrl,      setPhotoUrl]      = useState('');
   const [skipPhoto,     setSkipPhoto]     = useState(false);
   const [pictureRequired, setPictureRequired] = useState(true);
-  const [assetValue,    setAssetValue]    = useState('');
+  const [assetValue,    setAssetValue]    = useState(initial.assetValue != null ? String(initial.assetValue) : '');
   const [assignNow,     setAssignNow]     = useState(false);
   const [aiFill,        setAiFill]        = useState(true);
   const [saving,        setSaving]        = useState(false);
@@ -437,27 +441,42 @@ function AddItemModal({ onClose, onSave, initial = {}, types = ITEM_TYPES }) {
       {/* Wide enough that no label or select option ever truncates (e.g.
           "Temporary (check-out/return)" was getting cut off at 500px) */}
       <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:620, boxShadow:'0 20px 60px rgba(0,0,0,0.3)', margin:'auto' }}>
-        <h3 style={{ fontSize:16, fontWeight:700, marginBottom:20 }}>Add Item</h3>
+        <h3 style={{ fontSize:16, fontWeight:700, marginBottom:20, display:'flex', alignItems:'center', gap:8 }}>
+          {onBack && (
+            <button type="button" onClick={onBack} disabled={saving} aria-label="Back to asset details"
+              title="Back to asset details"
+              style={{ background:'none', border:'none', cursor:'pointer', padding:2, display:'flex', color:'var(--muted)' }}>
+              <ArrowLeft size={18} />
+            </button>
+          )}
+          Add Item
+        </h3>
 
         <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
           <div>
-            <label style={FL}>NAME <span style={{ color:'hsl(var(--color-red))' }}>*</span></label>
-            <input className="form-input" style={{ width:'100%' }} autoFocus value={name} onChange={e => setName(e.target.value)} placeholder="e.g. DeWalt 20V Cordless Drill" />
+            <label style={FL}>NAME <span style={{ color:'hsl(var(--color-red))' }}>*</span>{isLocked('name') && <span style={{ fontWeight:400, textTransform:'none', letterSpacing:0, color:'var(--muted)' }}> · from the asset details</span>}</label>
+            <input className="form-input" style={{ width:'100%', ...(isLocked('name') ? LOCKED_FIELD_STYLE : {}) }} disabled={isLocked('name')} autoFocus={!isLocked('name')} value={name} onChange={e => setName(e.target.value)} placeholder="e.g. DeWalt 20V Cordless Drill" />
           </div>
 
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
             <div>
               <label style={FL}>TYPE <span style={{ color:'hsl(var(--color-red))' }}>*</span></label>
-              <select className="form-input" style={{ width:'100%' }} value={itemType} onChange={e => handleTypeChange(e.target.value)}>
-                {[...new Set([...types, itemType].filter(Boolean))].map(t => <option key={t}>{t}</option>)}
-              </select>
+              <div style={{ position:'relative' }}>
+                <select className="form-input" style={{ width:'100%', appearance:'none', paddingRight:32 }} value={itemType} onChange={e => handleTypeChange(e.target.value)}>
+                  {[...new Set([...types, itemType].filter(Boolean))].map(t => <option key={t}>{t}</option>)}
+                </select>
+                <ChevronDown size={14} style={{ position:'absolute', right:11, top:'50%', transform:'translateY(-50%)', pointerEvents:'none', color:'var(--muted)' }} />
+              </div>
             </div>
             <div>
               <label style={FL}>OWNERSHIP</label>
-              <select className="form-input" style={{ width:'100%' }} value={ownershipType} onChange={e => setOwnershipType(e.target.value)}>
-                <option value="transient">Temporary (check-out/return)</option>
-                <option value="permanent">Permanent (stays assigned)</option>
-              </select>
+              <div style={{ position:'relative' }}>
+                <select className="form-input" style={{ width:'100%', appearance:'none', paddingRight:32 }} value={ownershipType} onChange={e => setOwnershipType(e.target.value)}>
+                  <option value="transient">Temporary (check-out/return)</option>
+                  <option value="permanent">Permanent (stays assigned)</option>
+                </select>
+                <ChevronDown size={14} style={{ position:'absolute', right:11, top:'50%', transform:'translateY(-50%)', pointerEvents:'none', color:'var(--muted)' }} />
+              </div>
             </div>
           </div>
 
@@ -476,23 +495,26 @@ function AddItemModal({ onClose, onSave, initial = {}, types = ITEM_TYPES }) {
 
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 80px', gap:12 }}>
             <div>
-              <label style={FL}>MAKE</label>
-              <input className="form-input" style={{ width:'100%' }} value={make} onChange={e => setMake(e.target.value)} placeholder="e.g. DeWalt" />
+              <label style={FL}>MAKE{isLocked('make') && <span style={{ fontWeight:400, textTransform:'none', letterSpacing:0, color:'var(--muted)' }}> · from the asset details</span>}</label>
+              <input className="form-input" style={{ width:'100%', ...(isLocked('make') ? LOCKED_FIELD_STYLE : {}) }} disabled={isLocked('make')} value={make} onChange={e => setMake(e.target.value)} placeholder="e.g. DeWalt" />
             </div>
             <div>
-              <label style={FL}>MODEL</label>
-              <input className="form-input" style={{ width:'100%' }} value={model} onChange={e => setModel(e.target.value)} placeholder="e.g. DCD777C2" />
+              <label style={FL}>MODEL{isLocked('model') && <span style={{ fontWeight:400, textTransform:'none', letterSpacing:0, color:'var(--muted)' }}> · from the asset details</span>}</label>
+              <input className="form-input" style={{ width:'100%', ...(isLocked('model') ? LOCKED_FIELD_STYLE : {}) }} disabled={isLocked('model')} value={model} onChange={e => setModel(e.target.value)} placeholder="e.g. DCD777C2" />
             </div>
             <div>
-              <label style={FL}>YEAR</label>
-              <input className="form-input" style={{ width:'100%' }} value={year} onChange={e => setYear(e.target.value)} placeholder="2023" />
+              <label style={FL}>YEAR{isLocked('year') && <span style={{ fontWeight:400, textTransform:'none', letterSpacing:0, color:'var(--muted)' }}> · locked</span>}</label>
+              <input className="form-input" style={{ width:'100%', ...(isLocked('year') ? LOCKED_FIELD_STYLE : {}) }} disabled={isLocked('year')} value={year} onChange={e => setYear(e.target.value)} placeholder="2023" />
             </div>
           </div>
 
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
             <div>
-              <label style={FL}>DEPARTMENT <span style={{ color:'hsl(var(--color-red))' }}>*</span></label>
-              <input className="form-input" style={{ width:'100%' }} list="add-item-depts" value={department} onChange={e => handleDeptChange(e.target.value)} placeholder="e.g. Construction" />
+              <label style={FL}>DEPARTMENT <span style={{ color:'hsl(var(--color-red))' }}>*</span>{isLocked('department') && <span style={{ fontWeight:400, textTransform:'none', letterSpacing:0, color:'var(--muted)' }}> · from the asset details</span>}</label>
+              <div style={{ position:'relative' }}>
+                <input className="form-input datalist-input" style={{ width:'100%', paddingRight:32, ...(isLocked('department') ? LOCKED_FIELD_STYLE : {}) }} disabled={isLocked('department')} list="add-item-depts" value={department} onChange={e => handleDeptChange(e.target.value)} placeholder="e.g. Construction" />
+                <ChevronDown size={14} style={{ position:'absolute', right:11, top:'50%', transform:'translateY(-50%)', pointerEvents:'none', color:'var(--muted)' }} />
+              </div>
               <datalist id="add-item-depts">{DEPARTMENTS.filter(d => d !== 'All').map(d => <option key={d} value={d} />)}</datalist>
             </div>
             <div>
@@ -503,8 +525,8 @@ function AddItemModal({ onClose, onSave, initial = {}, types = ITEM_TYPES }) {
 
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
             <div>
-              <label style={FL}>LOCATION <span style={{ color:'hsl(var(--color-red))' }}>*</span></label>
-              <input className="form-input" style={{ width:'100%' }} value={location} onChange={e => setLocation(e.target.value)} placeholder="e.g. GSVC, GSE, Site Office" />
+              <label style={FL}>LOCATION <span style={{ color:'hsl(var(--color-red))' }}>*</span>{isLocked('location') && <span style={{ fontWeight:400, textTransform:'none', letterSpacing:0, color:'var(--muted)' }}> · from the asset details</span>}</label>
+              <input className="form-input" style={{ width:'100%', ...(isLocked('location') ? LOCKED_FIELD_STYLE : {}) }} disabled={isLocked('location')} value={location} onChange={e => setLocation(e.target.value)} placeholder="e.g. GSVC, GSE, Site Office" />
             </div>
             <div>
               <label style={FL}>ASSET VALUE ($)</label>

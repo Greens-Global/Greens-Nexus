@@ -1009,6 +1009,15 @@ export const api = {
   cvPersonalCreate: (body)       => req('/credvault/personal', { method: 'POST', body: JSON.stringify(body) }),
   cvPersonalDelete: (id)         => req(`/credvault/personal/${id}`, { method: 'DELETE' }),
   cvPersonalReveal: (id)         => req(`/credvault/personal/${id}/reveal`, { method: 'POST' }),
+  // SMS/Email OTP (replaces step-up for company vault reveal/share) + Personal Vault password lock
+  cvOtpTargets:     ()           => req('/credvault/otp/targets'),
+  cvOtpRequest:     (channel)    => req('/credvault/otp/request', { method: 'POST', body: JSON.stringify({ channel }) }),
+  cvOtpVerify:      (challengeId, code) => req('/credvault/otp/verify', { method: 'POST', body: JSON.stringify({ challengeId, code }) }),
+  cvPersonalLockStatus: ()       => req('/credvault/personal/lock/status'),
+  cvPersonalLockSetup:  (password) => req('/credvault/personal/lock/setup', { method: 'POST', body: JSON.stringify({ password }) }),
+  cvPersonalLockVerify: (password) => req('/credvault/personal/lock/verify', { method: 'POST', body: JSON.stringify({ password }) }),
+  cvPersonalLockForgot: (channel)  => req('/credvault/personal/lock/forgot', { method: 'POST', body: JSON.stringify({ channel }) }),
+  cvPersonalLockReset:  (challengeId, code, newPassword) => req('/credvault/personal/lock/reset', { method: 'POST', body: JSON.stringify({ challengeId, code, newPassword }) }),
 
   // ── Documents (DMS) - Phase 1: folders + drafts/library, next to E-Sign ──
   getDocFolders:      ()             => req('/documents/folders'),

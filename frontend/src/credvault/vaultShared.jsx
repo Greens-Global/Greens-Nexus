@@ -1,14 +1,15 @@
 /* Credential Vault - shared building blocks and modals.
    1:1 port of the standalone credential-vault-dev app's components, translated
    from Tailwind to the Nexus inline-style idiom + the scoped credvault.css. */
-import React, { useState, useRef, useMemo } from "react";
+import React, { useState, useRef, useMemo, useEffect } from "react";
 import {
   ShieldCheck, Eye, EyeOff, Copy, Check, X, RefreshCw, Users,
   Building2, Calculator, HardHat, Landmark, Server, Activity, Lock,
-  CheckCircle2, XCircle, Settings, Trash2, Upload, Download, Smartphone,
+  CheckCircle2, XCircle, Settings, Trash2, Upload, Download,
   AlertCircle, User, Shuffle, Pencil, MessageCircle, Share2, Bell,
-  ChevronDown,
+  ChevronDown, Mail, KeyRound,
 } from "lucide-react";
+import { api } from "../api";
 
 // ---------- Config ----------
 export const DEPT_ICONS = {
@@ -32,15 +33,6 @@ export const evalStrength = (pwd) => {
   const s = (pwd.length >= 12 ? 1 : 0) + (/[A-Z]/.test(pwd) ? 1 : 0) + (/[0-9]/.test(pwd) ? 1 : 0) + (/[^A-Za-z0-9]/.test(pwd) ? 1 : 0);
   return s >= 3 ? "strong" : s >= 2 ? "fair" : "weak";
 };
-
-// Simulated rotating 6-digit code for the MFA theater modals (as upstream).
-export function getTOTP() {
-  const t = Math.floor(Date.now() / 30000);
-  let h = (t ^ 0x5f3759df) | 0;
-  h = Math.imul(h ^ (h >>> 16), 0x45d9f3b) | 0;
-  h = Math.imul(h ^ (h >>> 16), 0x45d9f3b) | 0;
-  return String(Math.abs(h ^ (h >>> 16)) % 1000000).padStart(6, "0");
-}
 
 export function generatePassword() {
   const chars = "ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$%&*";
@@ -286,88 +278,107 @@ const infoBox = { borderRadius: 12, background: "var(--bg-secondary)", border: "
 const codeInput = { textAlign: "center", fontSize: 19, letterSpacing: "0.4em" };
 
 // ---------- Modals ----------
-export function ReauthModal({ cred, seconds, onClose, onConfirm, maskedPhone }) {
-  const [method, setMethod] = useState(null);
-  const [msaSent, setMsaSent] = useState(false);
-  const [msaNum] = useState(() => 10 + Math.floor(Math.random() * 90));
-  const [smsInput, setSmsInput] = useState("");
-  const [smsSent, setSmsSent] = useState(false);
+// Real, server-verified SMS/Email OTP (Aug 2026) - replaces the old client-side
+// "MFA theater" (ReauthModal / PersonalVaultAuthModal, both deleted) that showed
+// a fake code and never checked it against anything. Gates company credential
+// reveal/share and access-request approval (require_vault_otp on the backend).
+export function VaultOtpModal({ onClose, onVerified, title = "Verify your identity", subtitle = "This is a sensitive action - confirm it's really you." }) {
+  const [targets, setTargets] = useState(null);
+  const [loadErr, setLoadErr] = useState("");
+  const [channel, setChannel] = useState(null);
+  const [challenge, setChallenge] = useState(null);
+  const [code, setCode] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [resendIn, setResendIn] = useState(0);
 
-  const header = (
-    <>
-      <ModalHeader icon={<ShieldCheck size={19} />} tint="sky" title="Confirm it's you" subtitle="Two-factor or multi-factor authentication required." />
-      <div style={{ ...infoBox, fontSize: 13.5, color: "var(--text-primary)" }}>
-        <div style={{ fontWeight: 500 }}>{cred.name}</div>
-        <div style={{ color: "var(--text-secondary)" }}>{cred.dept} · {cred.type}</div>
-      </div>
-    </>
-  );
+  useEffect(() => {
+    api.cvOtpTargets().then(setTargets).catch((e) => setLoadErr(e.message || "Could not load verification options."));
+  }, []);
+  useEffect(() => {
+    if (resendIn <= 0) return;
+    const t = setInterval(() => setResendIn((s) => Math.max(0, s - 1)), 1000);
+    return () => clearInterval(t);
+  }, [resendIn]);
 
-  if (!method) return (
+  async function sendCode(ch) {
+    setBusy(true); setError("");
+    try {
+      const res = await api.cvOtpRequest(ch);
+      setChannel(ch); setChallenge(res); setCode(""); setResendIn(30);
+    } catch (e) { setError(e.message || "Could not send the code."); }
+    setBusy(false);
+  }
+
+  async function verify() {
+    if (code.length !== 6 || !challenge) return;
+    setBusy(true); setError("");
+    try {
+      await api.cvOtpVerify(challenge.challengeId, code);
+      onVerified();
+    } catch (e) { setError(e.message || "Incorrect code."); }
+    setBusy(false);
+  }
+
+  if (loadErr) return (
     <Modal onClose={onClose}>
-      {header}
-      <div style={{ marginTop: 16, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-        {[
-          { key: "msa", icon: <Smartphone size={19} />, l1: "Microsoft", l2: "Authenticator", hint: "Push notification" },
-          { key: "sms", icon: <MessageCircle size={19} />, l1: "SMS", l2: "Authentication", hint: `Code to ${maskedPhone}` },
-        ].map((m) => (
-          <button key={m.key} onClick={() => setMethod(m.key)} className="cv-btn" style={{ flexDirection: "column", padding: "18px 12px", borderWidth: 2, borderRadius: 12, gap: 10 }}>
-            <span style={{ height: 40, width: 40, borderRadius: 12, background: "var(--bg-secondary)", display: "flex", alignItems: "center", justifyContent: "center" }}>{m.icon}</span>
-            <span style={{ textAlign: "center" }}>
-              <span style={{ display: "block", fontSize: 13.5, fontWeight: 600 }}>{m.l1}</span>
-              <span style={{ display: "block", fontSize: 13.5, fontWeight: 600 }}>{m.l2}</span>
-              <span style={{ display: "block", fontSize: 11.5, color: "var(--text-muted)", marginTop: 2 }}>{m.hint}</span>
-            </span>
-          </button>
-        ))}
-      </div>
-      <div style={rowBetween}><button onClick={onClose} className="cv-btn">Cancel</button></div>
+      <ModalHeader icon={<ShieldCheck size={19} />} tint="sky" title={title} subtitle={subtitle} />
+      <div style={{ fontSize: 13, color: "var(--cv-rose)" }}>{loadErr}</div>
+      <div style={rowBetween}><button onClick={onClose} className="cv-btn">Close</button></div>
     </Modal>
   );
 
-  if (method === "msa") return (
+  if (!channel) return (
     <Modal onClose={onClose}>
-      {header}
-      <div style={{ marginTop: 16 }}>
-        {!msaSent ? (
-          <button onClick={() => setMsaSent(true)} className="cv-btn-dark" style={{ width: "100%", justifyContent: "center" }}><Smartphone size={15} /> Send Microsoft Authenticator request</button>
-        ) : (
-          <div style={{ borderRadius: 12, border: "1px solid var(--cv-sky-line)", background: "var(--cv-sky-bg)", padding: 16, textAlign: "center" }}>
-            <div style={{ fontSize: 11, color: "var(--cv-sky)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" }}>Match this number in your app</div>
-            <div style={{ fontSize: 36, fontWeight: 700, color: "var(--cv-sky)", marginTop: 4 }}>{msaNum}</div>
-            <div style={{ fontSize: 11.5, color: "var(--cv-sky)", marginTop: 4 }}>Open Microsoft Authenticator and tap Approve</div>
-          </div>
-        )}
-      </div>
-      <div style={rowBetween}>
-        <button onClick={() => setMethod(null)} className="cv-btn">← Back</button>
-        <button onClick={onConfirm} disabled={!msaSent} className="cv-btn-dark">I approved it</button>
-      </div>
-      <p style={{ marginTop: 12, fontSize: 11.5, color: "var(--text-muted)" }}>Wired to Microsoft Entra ID + Authenticator. Reveal stays open {seconds}s.</p>
+      <ModalHeader icon={<ShieldCheck size={19} />} tint="sky" title={title} subtitle={subtitle} />
+      {!targets ? <div style={{ fontSize: 13, color: "var(--text-secondary)" }}>Loading…</div> : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <button onClick={() => sendCode("email")} disabled={busy} className="cv-btn" style={{ width: "100%", justifyContent: "flex-start", padding: 14, borderRadius: 12, gap: 12 }}>
+            <Mail size={19} style={{ color: "var(--cv-sky)", flexShrink: 0 }} />
+            <span style={{ textAlign: "left" }}>
+              <span style={{ display: "block", fontWeight: 600, fontSize: 13.5 }}>Authenticate via Email</span>
+              <span style={{ display: "block", fontSize: 11.5, color: "var(--text-secondary)" }}>Send a code to {targets.email.masked}</span>
+            </span>
+          </button>
+          <button onClick={() => targets.sms.available && sendCode("sms")} disabled={busy || !targets.sms.available} className="cv-btn"
+            style={{ width: "100%", justifyContent: "flex-start", padding: 14, borderRadius: 12, gap: 12, opacity: targets.sms.available ? 1 : 0.5, cursor: targets.sms.available ? "pointer" : "not-allowed" }}>
+            <MessageCircle size={19} style={{ color: "var(--cv-emerald)", flexShrink: 0 }} />
+            <span style={{ textAlign: "left" }}>
+              <span style={{ display: "block", fontWeight: 600, fontSize: 13.5 }}>Authenticate via SMS</span>
+              <span style={{ display: "block", fontSize: 11.5, color: "var(--text-secondary)" }}>{targets.sms.available ? `Send a code to ${targets.sms.masked}` : "No phone number on file - ask HR to add one"}</span>
+            </span>
+          </button>
+        </div>
+      )}
+      {error && <div style={{ fontSize: 12, color: "var(--cv-rose)", marginTop: 10 }}>{error}</div>}
+      <div style={rowBetween}><button onClick={onClose} className="cv-btn">Cancel</button></div>
     </Modal>
   );
 
   return (
     <Modal onClose={onClose}>
-      {header}
-      <div style={{ marginTop: 16 }}>
-        {!smsSent ? (
-          <button onClick={() => setSmsSent(true)} className="cv-btn-dark cv-btn-emerald" style={{ width: "100%", justifyContent: "center" }}><MessageCircle size={15} /> Send SMS to {maskedPhone}</button>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <div style={{ borderRadius: 12, border: "1px solid var(--cv-emerald-line)", background: "var(--cv-emerald-bg)", padding: "10px 14px", display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "var(--cv-emerald)" }}>
-              <CheckCircle2 size={15} style={{ flexShrink: 0 }} />
-              <span>SMS sent to <strong>{maskedPhone}</strong>. Enter the 6-digit code below.</span>
-            </div>
-            <input value={smsInput} onChange={(e) => setSmsInput(e.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="Enter 6-digit code" maxLength={6} className="cv-ipt cv-mono" style={codeInput} />
-          </div>
-        )}
+      <ModalHeader icon={channel === "sms" ? <MessageCircle size={19} /> : <Mail size={19} />} tint={channel === "sms" ? "emerald" : "sky"}
+        title={channel === "sms" ? "SMS Authentication" : "Email Authentication"} subtitle={title} />
+      <div style={{ borderRadius: 12, background: channel === "sms" ? "var(--cv-emerald-bg)" : "var(--cv-sky-bg)", border: `1px solid ${channel === "sms" ? "var(--cv-emerald-line)" : "var(--cv-sky-line)"}`, padding: "8px 14px", marginBottom: 14, fontSize: 12, color: channel === "sms" ? "var(--cv-emerald)" : "var(--cv-sky)", display: "flex", alignItems: "center", gap: 8 }}>
+        <CheckCircle2 size={15} style={{ flexShrink: 0 }} /> Code sent to {challenge?.target}
       </div>
-      <div style={rowBetween}>
-        <button onClick={() => setMethod(null)} className="cv-btn">← Back</button>
-        <button onClick={onConfirm} disabled={!smsSent || smsInput.length !== 6} className="cv-btn-dark cv-btn-emerald">Verify & Reveal</button>
+      {challenge?.devCode && (
+        <div style={{ ...infoBox, marginBottom: 10, border: "1px solid var(--cv-amber-line)", background: "var(--cv-amber-bg)", color: "var(--cv-amber)" }}>
+          Dev mode - this channel isn't fully configured yet, so nothing was actually sent. Your code: <strong className="cv-mono">{challenge.devCode}</strong>
+        </div>
+      )}
+      <div style={{ ...infoBox, marginBottom: 10 }}>
+        <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: "0 0 8px" }}>Enter the 6-digit code:</p>
+        <input value={code} onChange={(e) => { setCode(e.target.value.replace(/\D/g, "").slice(0, 6)); setError(""); }}
+          placeholder="000 000" maxLength={6} className="cv-ipt cv-mono" style={codeInput} autoFocus
+          onKeyDown={(e) => e.key === "Enter" && code.length === 6 && verify()} />
       </div>
-      <p style={{ marginTop: 12, fontSize: 11.5, color: "var(--text-muted)" }}>Number pulled from the People module. Reveal stays open {seconds}s.</p>
+      {error && <div style={{ fontSize: 12, color: "var(--cv-rose)", marginBottom: 8 }}>{error}</div>}
+      <div style={rowSplit}>
+        <button onClick={() => { setChannel(null); setChallenge(null); setCode(""); setError(""); }} className="cv-btn">← Back</button>
+        <button onClick={() => resendIn === 0 && sendCode(channel)} disabled={resendIn > 0 || busy} className="cv-btn" style={{ fontSize: 12 }}>{resendIn > 0 ? `Resend in ${resendIn}s` : "Resend code"}</button>
+        <button onClick={verify} disabled={code.length !== 6 || busy} className="cv-btn-dark">{busy ? "Verifying…" : "Verify"}</button>
+      </div>
     </Modal>
   );
 }
@@ -605,16 +616,31 @@ export function ManagePanel({ onClose, isAdmin, editMode, onToggleEdit }) {
   );
 }
 
-export function PersonalVaultAuthModal({ userEmail, onClose, onUnlock, isFirstTime, title, subtitle, confirmLabel, maskedPhone }) {
-  const [method, setMethod] = useState(null);
-  const [msaSent, setMsaSent] = useState(false);
-  const [msaNum] = useState(() => 10 + Math.floor(Math.random() * 90));
-  const [totpInput, setTotpInput] = useState("");
-  const [totpError, setTotpError] = useState("");
-  const [smsSent, setSmsSent] = useState(false);
-  const [smsInput, setSmsInput] = useState("");
-  const totp = getTOTP();
-  const secondsLeft = 30 - (Math.floor(Date.now() / 1000) % 30);
+// Personal Vault password: first-time setup, unlock, and OTP-verified "forgot
+// password" reset - a real server-checked password (PBKDF2-hashed), replacing
+// the old fake TOTP/SMS PersonalVaultAuthModal above.
+export function PersonalLockGate({ userEmail, onClose, onUnlocked }) {
+  const [step, setStep] = useState("loading"); // loading|setup|enter|forgot-choose|forgot-verify|new-password
+  const [password, setPassword] = useState("");
+  const [password2, setPassword2] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [targets, setTargets] = useState(null);
+  const [channel, setChannel] = useState(null);
+  const [challenge, setChallenge] = useState(null);
+  const [code, setCode] = useState("");
+  const [resendIn, setResendIn] = useState(0);
+
+  useEffect(() => {
+    api.cvPersonalLockStatus()
+      .then((s) => setStep(s.hasPassword ? "enter" : "setup"))
+      .catch((e) => { setStep("enter"); setError(e.message || "Could not load Personal Vault status."); });
+  }, []);
+  useEffect(() => {
+    if (resendIn <= 0) return;
+    const t = setInterval(() => setResendIn((s) => Math.max(0, s - 1)), 1000);
+    return () => clearInterval(t);
+  }, [resendIn]);
 
   const msaTag = (
     <div style={{ display: "flex", alignItems: "center", gap: 6, borderRadius: 12, background: "var(--cv-blue-bg)", border: "1px solid var(--cv-blue-line)", padding: "8px 12px", marginBottom: 16 }}>
@@ -623,94 +649,165 @@ export function PersonalVaultAuthModal({ userEmail, onClose, onUnlock, isFirstTi
     </div>
   );
 
-  const submitTotp = () => {
-    if (totpInput !== totp) { setTotpError("Incorrect code. Check your Microsoft Authenticator app."); return; }
-    onUnlock();
-  };
+  async function doSetup() {
+    if (password.trim().length < 6) { setError("Password must be at least 6 characters."); return; }
+    if (password !== password2) { setError("Passwords don't match."); return; }
+    setBusy(true); setError("");
+    try { await api.cvPersonalLockSetup(password); onUnlocked(); }
+    catch (e) { setError(e.message || "Could not set the password."); }
+    setBusy(false);
+  }
 
-  if (!method) return (
+  async function doVerify() {
+    if (!password) return;
+    setBusy(true); setError("");
+    try { await api.cvPersonalLockVerify(password); onUnlocked(); }
+    catch (e) { setError(e.message || "Incorrect password."); }
+    setBusy(false);
+  }
+
+  async function sendForgotCode(ch) {
+    setBusy(true); setError("");
+    try {
+      if (!targets) setTargets(await api.cvOtpTargets());
+      const res = await api.cvPersonalLockForgot(ch);
+      setChannel(ch); setChallenge(res); setCode(""); setResendIn(30); setStep("forgot-verify");
+    } catch (e) { setError(e.message || "Could not send the code."); }
+    setBusy(false);
+  }
+
+  async function submitReset() {
+    if (password.trim().length < 6) { setError("Password must be at least 6 characters."); return; }
+    if (password !== password2) { setError("Passwords don't match."); return; }
+    setBusy(true); setError("");
+    try { await api.cvPersonalLockReset(challenge.challengeId, code, password); onUnlocked(); }
+    catch (e) { setError(e.message || "Could not reset the password - the code may be wrong or expired."); }
+    setBusy(false);
+  }
+
+  if (step === "loading") return (
     <Modal onClose={onClose}>
-      <ModalHeader icon={<Lock size={19} />} tint="indigo" title={title || (isFirstTime ? "Activate Personal Vault" : "Unlock Personal Vault")} subtitle={subtitle || "Two-factor or multi-factor authentication required."} />
+      <ModalHeader icon={<Lock size={19} />} tint="indigo" title="Personal Vault" subtitle="Loading…" />
+    </Modal>
+  );
+
+  if (step === "setup") return (
+    <Modal onClose={onClose}>
+      <ModalHeader icon={<Lock size={19} />} tint="indigo" title="Set Up Your Personal Vault Password" subtitle="Choose a password to protect your Personal Vault." />
       {msaTag}
-      {isFirstTime && (
-        <div style={{ borderRadius: 12, background: "var(--cv-amber-bg)", border: "1px solid var(--cv-amber-line)", padding: "10px 14px", marginBottom: 16, fontSize: 12, color: "var(--cv-amber)" }}>
-          Your Personal Vault will be bound to <strong>{userEmail}</strong>. No one else - including Global Admin - can access it.
-        </div>
-      )}
-      <p style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 10 }}>Choose your authentication method:</p>
+      <div style={{ borderRadius: 12, background: "var(--cv-amber-bg)", border: "1px solid var(--cv-amber-line)", padding: "10px 14px", marginBottom: 16, fontSize: 12, color: "var(--cv-amber)" }}>
+        Your Personal Vault will be bound to <strong>{userEmail}</strong>. No one else - including Global Admin - can access it. Don't forget this password: you'll need SMS or Email to reset it.
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <Field label="New password" required>
+          <input type="password" value={password} onChange={(e) => { setPassword(e.target.value); setError(""); }} className="cv-ipt" placeholder="At least 6 characters" autoFocus />
+        </Field>
+        <Field label="Confirm password" required>
+          <input type="password" value={password2} onChange={(e) => { setPassword2(e.target.value); setError(""); }} className="cv-ipt" placeholder="Re-enter password"
+            onKeyDown={(e) => e.key === "Enter" && doSetup()} />
+        </Field>
+      </div>
+      {error && <div style={{ fontSize: 12, color: "var(--cv-rose)", marginTop: 10 }}>{error}</div>}
+      <div style={rowBetween}>
+        <button onClick={onClose} className="cv-btn">Cancel</button>
+        <button onClick={doSetup} disabled={busy} className="cv-btn-dark cv-btn-indigo">{busy ? "Saving…" : "Activate Vault"}</button>
+      </div>
+    </Modal>
+  );
+
+  if (step === "enter") return (
+    <Modal onClose={onClose}>
+      <ModalHeader icon={<Lock size={19} />} tint="indigo" title="Unlock Personal Vault" subtitle="Enter your Personal Vault password." />
+      {msaTag}
+      <Field label="Password" required>
+        <input type="password" value={password} onChange={(e) => { setPassword(e.target.value); setError(""); }} className="cv-ipt" placeholder="Personal Vault password" autoFocus
+          onKeyDown={(e) => e.key === "Enter" && doVerify()} />
+      </Field>
+      {error && <div style={{ fontSize: 12, color: "var(--cv-rose)", marginTop: 10 }}>{error}</div>}
+      <div style={{ marginTop: 10 }}>
+        <button onClick={() => { setStep("forgot-choose"); setPassword(""); setPassword2(""); setError(""); }} style={{ background: "none", border: "none", color: "var(--cv-indigo)", fontSize: 12, cursor: "pointer", padding: 0, fontFamily: "inherit", textDecoration: "underline" }}>
+          Forgot password?
+        </button>
+      </div>
+      <div style={rowBetween}>
+        <button onClick={onClose} className="cv-btn">Cancel</button>
+        <button onClick={doVerify} disabled={!password || busy} className="cv-btn-dark cv-btn-indigo">{busy ? "Checking…" : "Unlock Vault"}</button>
+      </div>
+    </Modal>
+  );
+
+  if (step === "forgot-choose") return (
+    <Modal onClose={onClose}>
+      <ModalHeader icon={<KeyRound size={19} />} tint="indigo" title="Reset Personal Vault Password" subtitle="Verify it's you via SMS or Email, then choose a new password." />
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        <button onClick={() => setMethod("msa")} className="cv-btn" style={{ width: "100%", justifyContent: "flex-start", padding: 14, borderRadius: 12, gap: 12 }}>
-          <Smartphone size={19} style={{ color: "var(--cv-indigo)", flexShrink: 0 }} />
+        <button onClick={() => sendForgotCode("email")} disabled={busy} className="cv-btn" style={{ width: "100%", justifyContent: "flex-start", padding: 14, borderRadius: 12, gap: 12 }}>
+          <Mail size={19} style={{ color: "var(--cv-sky)", flexShrink: 0 }} />
           <span style={{ textAlign: "left" }}>
-            <span style={{ display: "block", fontWeight: 600, fontSize: 13.5 }}>Microsoft Authenticator</span>
-            <span style={{ display: "block", fontSize: 11.5, color: "var(--text-secondary)" }}>Enter the 6-digit code from your authenticator app</span>
+            <span style={{ display: "block", fontWeight: 600, fontSize: 13.5 }}>Authenticate via Email</span>
+            <span style={{ display: "block", fontSize: 11.5, color: "var(--text-secondary)" }}>Send a code to {targets?.email?.masked || userEmail}</span>
           </span>
         </button>
-        <button onClick={() => setMethod("sms")} className="cv-btn" style={{ width: "100%", justifyContent: "flex-start", padding: 14, borderRadius: 12, gap: 12 }}>
+        <button onClick={() => (!targets || targets.sms.available) && sendForgotCode("sms")} disabled={busy || (targets && !targets.sms.available)} className="cv-btn"
+          style={{ width: "100%", justifyContent: "flex-start", padding: 14, borderRadius: 12, gap: 12, opacity: targets && !targets.sms.available ? 0.5 : 1 }}>
           <MessageCircle size={19} style={{ color: "var(--cv-emerald)", flexShrink: 0 }} />
           <span style={{ textAlign: "left" }}>
-            <span style={{ display: "block", fontWeight: 600, fontSize: 13.5 }}>SMS Authentication</span>
-            <span style={{ display: "block", fontSize: 11.5, color: "var(--text-secondary)" }}>Send a verification code to {maskedPhone}</span>
+            <span style={{ display: "block", fontWeight: 600, fontSize: 13.5 }}>Authenticate via SMS</span>
+            <span style={{ display: "block", fontSize: 11.5, color: "var(--text-secondary)" }}>{targets && !targets.sms.available ? "No phone number on file" : `Send a code to ${targets?.sms?.masked || "your phone"}`}</span>
           </span>
         </button>
       </div>
-      <div style={rowBetween}><button onClick={onClose} className="cv-btn">Cancel</button></div>
+      {error && <div style={{ fontSize: 12, color: "var(--cv-rose)", marginTop: 10 }}>{error}</div>}
+      <div style={rowBetween}>
+        <button onClick={() => { setStep("enter"); setError(""); }} className="cv-btn">← Back</button>
+        <button onClick={onClose} className="cv-btn">Cancel</button>
+      </div>
     </Modal>
   );
 
-  if (method === "msa") return (
+  if (step === "forgot-verify") return (
     <Modal onClose={onClose}>
-      <ModalHeader icon={<Smartphone size={19} />} tint="indigo" title="Microsoft Authenticator" subtitle={title || `${isFirstTime ? "Activate" : "Unlock"} Personal Vault`} />
-      {!msaSent ? (<>
-        <div style={{ ...infoBox, marginBottom: 16 }}>
-          <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: "0 0 10px" }}>Open your Microsoft Authenticator app and select the matching number:</p>
-          <div style={{ textAlign: "center", fontSize: 40, fontWeight: 700, color: "var(--cv-indigo)", padding: "6px 0" }}>{msaNum}</div>
+      <ModalHeader icon={channel === "sms" ? <MessageCircle size={19} /> : <Mail size={19} />} tint={channel === "sms" ? "emerald" : "sky"}
+        title={channel === "sms" ? "SMS Authentication" : "Email Authentication"} subtitle="Reset Personal Vault password" />
+      <div style={{ borderRadius: 12, background: channel === "sms" ? "var(--cv-emerald-bg)" : "var(--cv-sky-bg)", border: `1px solid ${channel === "sms" ? "var(--cv-emerald-line)" : "var(--cv-sky-line)"}`, padding: "8px 14px", marginBottom: 14, fontSize: 12, color: channel === "sms" ? "var(--cv-emerald)" : "var(--cv-sky)", display: "flex", alignItems: "center", gap: 8 }}>
+        <CheckCircle2 size={15} style={{ flexShrink: 0 }} /> Code sent to {challenge?.target}
+      </div>
+      {challenge?.devCode && (
+        <div style={{ ...infoBox, marginBottom: 10, border: "1px solid var(--cv-amber-line)", background: "var(--cv-amber-bg)", color: "var(--cv-amber)" }}>
+          Dev mode - this channel isn't fully configured yet, so nothing was actually sent. Your code: <strong className="cv-mono">{challenge.devCode}</strong>
         </div>
-        <div style={rowSplit}>
-          <button onClick={() => setMethod(null)} className="cv-btn">← Back</button>
-          <button onClick={() => setMsaSent(true)} className="cv-btn-dark cv-btn-indigo">Send to Authenticator</button>
-        </div>
-      </>) : (<>
-        <div style={{ ...infoBox, marginBottom: 10 }}>
-          <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: "0 0 8px" }}>Enter the 6-digit code from your Microsoft Authenticator app:</p>
-          <input value={totpInput} onChange={(e) => { setTotpInput(e.target.value.replace(/\D/g, "").slice(0, 6)); setTotpError(""); }} placeholder="000 000" maxLength={6} className="cv-ipt cv-mono" style={codeInput} autoFocus onKeyDown={(e) => e.key === "Enter" && totpInput.length === 6 && submitTotp()} />
-          <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: 8, display: "flex", alignItems: "center", gap: 4 }}><RefreshCw size={12} /> Refreshes in {secondsLeft}s</div>
-          <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 6 }}>Demo hint - your app shows: <span className="cv-mono" style={{ fontWeight: 600 }}>{totp.slice(0, 3)} {totp.slice(3)}</span></div>
-        </div>
-        {totpError && <div style={{ fontSize: 12, color: "var(--cv-rose)", marginBottom: 8 }}>{totpError}</div>}
-        <div style={rowSplit}>
-          <button onClick={() => { setMsaSent(false); setTotpInput(""); setTotpError(""); }} className="cv-btn">← Back</button>
-          <button onClick={submitTotp} disabled={totpInput.length !== 6} className="cv-btn-dark cv-btn-indigo">{confirmLabel || (isFirstTime ? "Activate Vault" : "Unlock Vault")}</button>
-        </div>
-      </>)}
+      )}
+      <div style={{ ...infoBox, marginBottom: 10 }}>
+        <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: "0 0 8px" }}>Enter the 6-digit code:</p>
+        <input value={code} onChange={(e) => { setCode(e.target.value.replace(/\D/g, "").slice(0, 6)); setError(""); }} placeholder="000 000" maxLength={6} className="cv-ipt cv-mono" style={codeInput} autoFocus
+          onKeyDown={(e) => e.key === "Enter" && code.length === 6 && setStep("new-password")} />
+      </div>
+      {error && <div style={{ fontSize: 12, color: "var(--cv-rose)", marginBottom: 8 }}>{error}</div>}
+      <div style={rowSplit}>
+        <button onClick={() => { setStep("forgot-choose"); setChallenge(null); setCode(""); setError(""); }} className="cv-btn">← Back</button>
+        <button onClick={() => resendIn === 0 && sendForgotCode(channel)} disabled={resendIn > 0 || busy} className="cv-btn" style={{ fontSize: 12 }}>{resendIn > 0 ? `Resend in ${resendIn}s` : "Resend code"}</button>
+        <button onClick={() => setStep("new-password")} disabled={code.length !== 6} className="cv-btn-dark cv-btn-indigo">Continue</button>
+      </div>
     </Modal>
   );
 
+  // step === "new-password"
   return (
     <Modal onClose={onClose}>
-      <ModalHeader icon={<MessageCircle size={19} />} tint="emerald" title="SMS Authentication" subtitle={`${isFirstTime ? "Activate" : "Unlock"} Personal Vault`} />
-      {!smsSent ? (<>
-        <div style={{ ...infoBox, marginBottom: 16 }}>
-          <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: 0 }}>A 6-digit verification code will be sent to:</p>
-          <p style={{ fontWeight: 600, fontSize: 15, margin: "6px 0 0", color: "var(--text-primary)" }}>{maskedPhone}</p>
-        </div>
-        <div style={rowSplit}>
-          <button onClick={() => setMethod(null)} className="cv-btn">← Back</button>
-          <button onClick={() => setSmsSent(true)} className="cv-btn-dark cv-btn-emerald">Send SMS Code</button>
-        </div>
-      </>) : (<>
-        <div style={{ borderRadius: 12, background: "var(--cv-emerald-bg)", border: "1px solid var(--cv-emerald-line)", padding: "8px 14px", marginBottom: 14, fontSize: 12, color: "var(--cv-emerald)", display: "flex", alignItems: "center", gap: 8 }}>
-          <CheckCircle2 size={15} style={{ flexShrink: 0 }} /> Code sent to {maskedPhone}
-        </div>
-        <div style={{ ...infoBox, marginBottom: 10 }}>
-          <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: "0 0 8px" }}>Enter the 6-digit code you received via SMS:</p>
-          <input value={smsInput} onChange={(e) => setSmsInput(e.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="000 000" maxLength={6} className="cv-ipt cv-mono" style={codeInput} autoFocus onKeyDown={(e) => e.key === "Enter" && smsInput.length === 6 && onUnlock()} />
-        </div>
-        <div style={rowSplit}>
-          <button onClick={() => { setSmsSent(false); setSmsInput(""); }} className="cv-btn">← Back</button>
-          <button onClick={onUnlock} disabled={smsInput.length !== 6} className="cv-btn-dark cv-btn-emerald">{confirmLabel || (isFirstTime ? "Activate Vault" : "Unlock Vault")}</button>
-        </div>
-      </>)}
+      <ModalHeader icon={<Lock size={19} />} tint="indigo" title="Choose a New Password" subtitle="Verified - set a new Personal Vault password." />
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <Field label="New password" required>
+          <input type="password" value={password} onChange={(e) => { setPassword(e.target.value); setError(""); }} className="cv-ipt" placeholder="At least 6 characters" autoFocus />
+        </Field>
+        <Field label="Confirm password" required>
+          <input type="password" value={password2} onChange={(e) => { setPassword2(e.target.value); setError(""); }} className="cv-ipt" placeholder="Re-enter password"
+            onKeyDown={(e) => e.key === "Enter" && submitReset()} />
+        </Field>
+      </div>
+      {error && <div style={{ fontSize: 12, color: "var(--cv-rose)", marginTop: 10 }}>{error}</div>}
+      <div style={rowBetween}>
+        <button onClick={() => setStep("forgot-verify")} className="cv-btn">← Back</button>
+        <button onClick={submitReset} disabled={busy} className="cv-btn-dark cv-btn-indigo">{busy ? "Saving…" : "Reset Password & Unlock"}</button>
+      </div>
     </Modal>
   );
 }
@@ -792,112 +889,25 @@ export function RequestAccessModal({ cred, userEmail, ownerName, onClose, onSubm
   );
 }
 
-export function ApproveAccessModal({ request: a, onClose, onConfirm, onDeny, maskedPhone }) {
-  const [method, setMethod] = useState(null);
-  const [msaSent, setMsaSent] = useState(false);
-  const [msaNum] = useState(() => 10 + Math.floor(Math.random() * 90));
-  const [totpInput, setTotpInput] = useState("");
-  const [totpError, setTotpError] = useState("");
-  const [smsSent, setSmsSent] = useState(false);
-  const [smsInput, setSmsInput] = useState("");
-  const totp = getTOTP();
-  const secondsLeft = 30 - (Math.floor(Date.now() / 1000) % 30);
-
-  const requestCard = (
-    <div style={{ borderRadius: 12, background: "var(--cv-violet-bg)", border: "1px solid var(--cv-violet-line)", padding: "10px 14px", marginBottom: 16 }}>
-      <div style={{ fontSize: 11.5, color: "var(--cv-violet)", marginBottom: 4, fontWeight: 500 }}>Share Request</div>
-      <div style={{ fontWeight: 600, color: "var(--text-primary)" }}>{a.cred}</div>
-      <div style={{ fontSize: 13, color: "var(--text-secondary)", marginTop: 2 }}><span style={{ fontWeight: 500 }}>{a.requestedBy}</span> wants access · {a.dept} · {a.duration}</div>
-      {a.sharedToEmail && <div style={{ fontSize: 11.5, color: "var(--cv-violet)", marginTop: 4, fontWeight: 500 }}>Recipient: {a.sharedToEmail}</div>}
-    </div>
-  );
-
-  const submitTotp = () => {
-    if (totpInput !== totp) { setTotpError("Incorrect code. Check your Microsoft Authenticator app."); return; }
-    onConfirm(a);
-  };
-
-  if (!method) return (
+// Confirmation details only - the real SMS/Email OTP check happens via
+// VaultOtpModal (require_vault_otp on the backend) once the user hits Approve,
+// same as reveal/share. Replaces the old fake TOTP/SMS chooser.
+export function ApproveAccessModal({ request: a, onClose, onConfirm, onDeny }) {
+  return (
     <Modal onClose={onClose}>
-      <ModalHeader icon={<Share2 size={19} />} tint="violet" title="Approve Access Request" subtitle="Two-factor or multi-factor authentication required." />
-      {requestCard}
-      <p style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 10 }}>Verify your identity to approve:</p>
-      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        <button onClick={() => setMethod("msa")} className="cv-btn" style={{ width: "100%", justifyContent: "flex-start", padding: 14, borderRadius: 12, gap: 12 }}>
-          <Smartphone size={19} style={{ color: "var(--cv-indigo)", flexShrink: 0 }} />
-          <span style={{ textAlign: "left" }}>
-            <span style={{ display: "block", fontWeight: 600, fontSize: 13.5 }}>Microsoft Authenticator</span>
-            <span style={{ display: "block", fontSize: 11.5, color: "var(--text-secondary)" }}>Enter the 6-digit code from your app</span>
-          </span>
-        </button>
-        <button onClick={() => setMethod("sms")} className="cv-btn" style={{ width: "100%", justifyContent: "flex-start", padding: 14, borderRadius: 12, gap: 12 }}>
-          <MessageCircle size={19} style={{ color: "var(--cv-emerald)", flexShrink: 0 }} />
-          <span style={{ textAlign: "left" }}>
-            <span style={{ display: "block", fontWeight: 600, fontSize: 13.5 }}>SMS Authentication</span>
-            <span style={{ display: "block", fontSize: 11.5, color: "var(--text-secondary)" }}>Send a code to {maskedPhone}</span>
-          </span>
-        </button>
+      <ModalHeader icon={<Share2 size={19} />} tint="violet" title="Approve Access Request" subtitle="Approving grants this password to the recipient." />
+      <div style={{ borderRadius: 12, background: "var(--cv-violet-bg)", border: "1px solid var(--cv-violet-line)", padding: "10px 14px", marginBottom: 16 }}>
+        <div style={{ fontSize: 11.5, color: "var(--cv-violet)", marginBottom: 4, fontWeight: 500 }}>Share Request</div>
+        <div style={{ fontWeight: 600, color: "var(--text-primary)" }}>{a.cred}</div>
+        <div style={{ fontSize: 13, color: "var(--text-secondary)", marginTop: 2 }}><span style={{ fontWeight: 500 }}>{a.requestedBy}</span> wants access · {a.dept} · {a.duration}</div>
+        {a.sharedToEmail && <div style={{ fontSize: 11.5, color: "var(--cv-violet)", marginTop: 4, fontWeight: 500 }}>Recipient: {a.sharedToEmail}</div>}
       </div>
+      <p style={{ fontSize: 12, color: "var(--text-secondary)" }}>You'll be asked to verify via SMS or Email before this is approved.</p>
       <div style={rowSplit}>
         <button onClick={() => onDeny(a)} className="cv-btn cv-btn-danger"><XCircle size={15} /> Deny</button>
         <button onClick={onClose} className="cv-btn">Cancel</button>
+        <button onClick={() => onConfirm(a)} className="cv-btn-dark cv-btn-violet"><Share2 size={15} /> Approve Access</button>
       </div>
-    </Modal>
-  );
-
-  if (method === "msa") return (
-    <Modal onClose={onClose}>
-      <ModalHeader icon={<Smartphone size={19} />} tint="indigo" title="Microsoft Authenticator" subtitle={`Approving access to ${a.cred}`} />
-      {!msaSent ? (<>
-        <div style={{ ...infoBox, marginBottom: 16, textAlign: "center" }}>
-          <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: "0 0 10px" }}>Select this number in your Authenticator app:</p>
-          <div style={{ fontSize: 40, fontWeight: 700, color: "var(--cv-indigo)" }}>{msaNum}</div>
-        </div>
-        <div style={rowSplit}>
-          <button onClick={() => setMethod(null)} className="cv-btn">← Back</button>
-          <button onClick={() => setMsaSent(true)} className="cv-btn-dark cv-btn-indigo">Send to Authenticator</button>
-        </div>
-      </>) : (<>
-        <div style={{ ...infoBox, marginBottom: 10 }}>
-          <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: "0 0 8px" }}>Enter the 6-digit code from your app:</p>
-          <input value={totpInput} onChange={(e) => { setTotpInput(e.target.value.replace(/\D/g, "").slice(0, 6)); setTotpError(""); }} placeholder="000 000" maxLength={6} className="cv-ipt cv-mono" style={codeInput} autoFocus onKeyDown={(e) => e.key === "Enter" && totpInput.length === 6 && submitTotp()} />
-          <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: 8, display: "flex", alignItems: "center", gap: 4 }}><RefreshCw size={12} /> Refreshes in {secondsLeft}s</div>
-          <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 6 }}>Demo hint - your app shows: <span className="cv-mono" style={{ fontWeight: 600 }}>{totp.slice(0, 3)} {totp.slice(3)}</span></div>
-        </div>
-        {totpError && <div style={{ fontSize: 12, color: "var(--cv-rose)", marginBottom: 8 }}>{totpError}</div>}
-        <div style={rowSplit}>
-          <button onClick={() => { setMsaSent(false); setTotpInput(""); setTotpError(""); }} className="cv-btn">← Back</button>
-          <button onClick={submitTotp} disabled={totpInput.length !== 6} className="cv-btn-dark cv-btn-violet">Approve Access</button>
-        </div>
-      </>)}
-    </Modal>
-  );
-
-  return (
-    <Modal onClose={onClose}>
-      <ModalHeader icon={<MessageCircle size={19} />} tint="emerald" title="SMS Authentication" subtitle={`Approving access to ${a.cred}`} />
-      {!smsSent ? (<>
-        <div style={{ ...infoBox, marginBottom: 16 }}>
-          <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: 0 }}>A 6-digit code will be sent to:</p>
-          <p style={{ fontWeight: 600, fontSize: 15, margin: "6px 0 0", color: "var(--text-primary)" }}>{maskedPhone}</p>
-        </div>
-        <div style={rowSplit}>
-          <button onClick={() => setMethod(null)} className="cv-btn">← Back</button>
-          <button onClick={() => setSmsSent(true)} className="cv-btn-dark cv-btn-emerald">Send SMS Code</button>
-        </div>
-      </>) : (<>
-        <div style={{ borderRadius: 12, background: "var(--cv-emerald-bg)", border: "1px solid var(--cv-emerald-line)", padding: "8px 14px", marginBottom: 14, fontSize: 12, color: "var(--cv-emerald)", display: "flex", alignItems: "center", gap: 8 }}>
-          <CheckCircle2 size={15} style={{ flexShrink: 0 }} /> Code sent to {maskedPhone}
-        </div>
-        <div style={{ ...infoBox, marginBottom: 10 }}>
-          <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: "0 0 8px" }}>Enter the 6-digit code:</p>
-          <input value={smsInput} onChange={(e) => setSmsInput(e.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="000 000" maxLength={6} className="cv-ipt cv-mono" style={codeInput} autoFocus onKeyDown={(e) => e.key === "Enter" && smsInput.length === 6 && onConfirm(a)} />
-        </div>
-        <div style={rowSplit}>
-          <button onClick={() => { setSmsSent(false); setSmsInput(""); }} className="cv-btn">← Back</button>
-          <button onClick={() => onConfirm(a)} disabled={smsInput.length !== 6} className="cv-btn-dark cv-btn-violet">Approve Access</button>
-        </div>
-      </>)}
     </Modal>
   );
 }

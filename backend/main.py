@@ -748,6 +748,14 @@ def _run_migrations():
         # Same recurring gap CLAUDE.md records; idempotent, so it runs each boot
         # on dev and prod rather than living in a release checklist.
         "ALTER TABLE task_inbound_email ENABLE ROW LEVEL SECURITY",
+        # CredVault SMS/Email OTP + Personal Vault password (Aug 2026): same
+        # create_all-makes-it-with-RLS-OFF gap as above. vault_otp_challenges
+        # holds one-time codes and vault_personal_auth holds password hashes -
+        # both must never be reachable via the public anon key.
+        "ALTER TABLE vault_otp_challenges ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE vault_otp_sessions ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE vault_personal_auth ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE vault_personal_unlock_sessions ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
