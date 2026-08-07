@@ -16,7 +16,6 @@ import { api } from "../api";
 import { formatDate } from "../lib/datetime";
 import { SkeletonBlocks } from "../components/AsyncState";
 import { useRolesDirectory } from "../lib/queries";
-import { ensureStepUp } from "../stepup/StepUp";
 import { useRole } from "../contexts/RoleContext";
 import { useNameResolver } from "../lib/useNameResolver";
 import ModuleTabs from "../components/ModuleTabs";
@@ -26,6 +25,7 @@ import {
   SecretControls, TeamsIcon, MsLogo,
   ConfirmModal, AddModal, EditModal, ImportModal, ManagePanel,
   PersonalAddModal, RequestAccessModal, ApproveAccessModal,
+  VaultOtpModal, PersonalLockGate,
 } from "./vaultShared";
 import "./credvault.css";
 
@@ -38,7 +38,6 @@ export default function CredentialVaultApp() {
   const isAdmin = can("administrator");
   const canWrite = canAccessModule("credvault", "administrator", "editor");
   const nameOf = useNameResolver();
-  const maskedPhone = "••• ••• ••••";
 
   // ── Server data ────────────────────────────────────────────────────────────
   const [allCreds, setAllCreds] = useState([]);
@@ -90,6 +89,8 @@ export default function CredentialVaultApp() {
   const [logTo, setLogTo] = useState("");
   const [vaultMode, setVaultMode] = useState("company");
   const [personalVaultUnlocked, setPersonalVaultUnlocked] = useState(false);
+  const [showPersonalLock, setShowPersonalLock] = useState(false);
+  const [otpGate, setOtpGate] = useState(null); // { run: () => void|Promise } - pending action awaiting SMS/Email OTP
   const [showPersonalAdd, setShowPersonalAdd] = useState(false);
   const [personalRevealed, setPersonalRevealed] = useState({}); // { id: { until, secret } }
   const [personalCopiedId, setPersonalCopiedId] = useState(null);
@@ -264,11 +265,20 @@ export default function CredentialVaultApp() {
   }
 
   // ── Actions (server-backed) ───────────────────────────────────────────────
-  async function requestReveal(c) {
-    // Real, server-enforced step-up MFA before any secret is decrypted. One
-    // verification unlocks a short window (covers a burst of reveals).
-    const up = await ensureStepUp();
-    if (!up.ok) { if (!up.cancelled) flash("Identity check didn’t complete - nothing was revealed.", "info"); return; }
+  // Real, server-enforced SMS/Email OTP before any sensitive action - viewing
+  // or sharing a company secret, or approving a share request. Stages the
+  // action; VaultOtpModal calls afterOtpVerified() once a code is verified,
+  // which runs it and closes the gate. One verification unlocks a short
+  // window (covers a burst of reveals/shares), same as the old step-up.
+  function gateWithOtp(run) { setOtpGate({ run }); }
+  async function afterOtpVerified() {
+    const gate = otpGate;
+    setOtpGate(null);
+    if (gate) await gate.run();
+  }
+
+  function requestReveal(c) { gateWithOtp(() => doRevealCredential(c)); }
+  async function doRevealCredential(c) {
     try {
       const res = await api.cvReveal(c.id);
       if (res.approvalRequired) { flash("Access request sent to a Global Admin.", "info"); refresh().catch(() => {}); return; }
@@ -349,18 +359,20 @@ export default function CredentialVaultApp() {
       flash(`Denied access for ${a.cred}.`, "info");
     } catch (e) { flash(e.message || "Could not deny the request.", "info"); }
   }
-  async function confirmGrant(a) {
+  function confirmGrant(a) {
+    setApprovingRequest(null);
+    gateWithOtp(() => doConfirmGrant(a));
+  }
+  async function doConfirmGrant(a) {
     try {
       await api.cvApproveRequest(a.id);
-      setApprovingRequest(null);
       await refresh();
       const recipient = a.sharedToEmail || a.requestedByEmail;
       flash(`Approved. ${recipient} now has ${a.duration} access to ${a.cred}.`);
     } catch (e) { flash(e.message || "Could not approve the request.", "info"); }
   }
-  async function revealGrant(g) {
-    const up = await ensureStepUp();
-    if (!up.ok) { if (!up.cancelled) flash("Identity check didn’t complete.", "info"); return; }
+  function revealGrant(g) { gateWithOtp(() => doRevealGrant(g)); }
+  async function doRevealGrant(g) {
     try {
       const res = await api.cvGrantReveal(g.id);
       setRevealedGrants((prev) => ({ ...prev, [g.id]: res.secret }));
@@ -368,15 +380,10 @@ export default function CredentialVaultApp() {
     } catch (e) { flash(e.message || "Reveal failed.", "info"); }
   }
 
-  // Personal vault
-  async function handlePersonalVaultToggle() {
+  // Personal vault - password-based lock (PersonalLockGate), not SMS/Email OTP.
+  function handlePersonalVaultToggle() {
     if (vaultMode === "personal" && personalVaultUnlocked) { setVaultMode("company"); return; }
-    if (!personalVaultUnlocked) {
-      const up = await ensureStepUp();
-      if (!up.ok) { if (!up.cancelled) flash("Identity check didn’t complete.", "info"); return; }
-      unlockPersonalVault();
-      return;
-    }
+    if (!personalVaultUnlocked) { setShowPersonalLock(true); return; }
     setVaultMode("personal");
   }
   function unlockPersonalVault() {
@@ -406,12 +413,13 @@ export default function CredentialVaultApp() {
     } catch (e) { flash(e.message || "Could not delete.", "info"); }
   }
   async function revealPersonal(c) {
-    const up = await ensureStepUp();
-    if (!up.ok) { if (!up.cancelled) flash("Identity check didn’t complete.", "info"); return; }
+    // Gated server-side by require_personal_unlock (a fresh Personal Vault
+    // password entry) - no extra client check needed here, the vault UI is
+    // already behind PersonalLockGate at this point.
     try {
       const res = await api.cvPersonalReveal(c.id);
       setPersonalRevealed((r) => ({ ...r, [c.id]: { until: Date.now() + SETTINGS.revealSeconds * 1000, secret: res.secret } }));
-    } catch (e) { flash(e.message || "Reveal failed.", "info"); }
+    } catch (e) { flash(e.message || "Reveal failed - try locking and unlocking the Personal Vault again.", "info"); }
   }
   function copyPersonalSecret(c) {
     const r = personalRevealed[c.id];
@@ -707,7 +715,7 @@ export default function CredentialVaultApp() {
                           <SecretControls c={c} state={st} onReveal={requestReveal} onCopy={copySecret} copiedId={copiedId}
                             onDelete={editMode && mod ? () => setConfirmDel(c) : null}
                             onEdit={editMode && mod ? () => setEditingCred(c) : null}
-                            onRequestAccess={() => setRequestingAccessFor(c)} />
+                            onRequestAccess={() => gateWithOtp(() => setRequestingAccessFor(c))} />
                         </div>
                         <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "0 16px", fontSize: 13.5, color: "var(--text-secondary)", minWidth: 0 }}>
                           <User size={13} style={{ color: "var(--text-muted)", flexShrink: 0 }} />
@@ -751,7 +759,7 @@ export default function CredentialVaultApp() {
                         <SecretControls c={c} state={st} onReveal={requestReveal} onCopy={copySecret} copiedId={copiedId}
                           onDelete={editMode && mod ? () => setConfirmDel(c) : null}
                           onEdit={editMode && mod ? () => setEditingCred(c) : null}
-                          onRequestAccess={() => setRequestingAccessFor(c)} />
+                          onRequestAccess={() => gateWithOtp(() => setRequestingAccessFor(c))} />
                       </div>
                       <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--border-color)", display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 11.5, color: "var(--text-muted)" }}>
                         <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><Users size={11} />{c.sharedWith}</span>
@@ -968,9 +976,11 @@ export default function CredentialVaultApp() {
       )}
 
       {/* ── Modals ── */}
-      {/* Secret reveals + personal-vault unlock now use real Entra step-up MFA
-          (ensureStepUp) at the action point - the old client-side re-auth modals
-          were removed as they enforced nothing server-side. */}
+      {/* Company reveal/share/approve are gated by real SMS/Email OTP
+          (VaultOtpModal, server-verified via require_vault_otp) - staged via
+          gateWithOtp/otpGate and fired the moment a code is verified. Personal
+          Vault unlock uses its own password (PersonalLockGate), with OTP only
+          for the "forgot password" reset path inside that same component. */}
       {confirmDel && <ConfirmModal cred={confirmDel} onClose={() => setConfirmDel(null)} onConfirm={() => deleteCredential(confirmDel)} />}
       {showAdd && <AddModal onClose={() => setShowAdd(false)} onSave={addCredential} depts={depts} userName={nameOf(myEmail)} userEmail={myEmail} people={people} />}
       {editingCred && <EditModal cred={editingCred} onClose={() => setEditingCred(null)} onSave={updateCredential} depts={depts} ownerName={nameOf(editingCred.owner || myEmail)} people={people} />}
@@ -978,7 +988,9 @@ export default function CredentialVaultApp() {
       {showManage && <ManagePanel onClose={() => setShowManage(false)} isAdmin={isAdmin} editMode={editMode} onToggleEdit={() => { setEditMode((v) => !v); setSelectedIds(new Set()); }} />}
       {showPersonalAdd && <PersonalAddModal onClose={() => setShowPersonalAdd(false)} onSave={addPersonalCredential} />}
       {requestingAccessFor && <RequestAccessModal cred={requestingAccessFor} userEmail={myEmail} ownerName={nameOf(requestingAccessFor.owner)} onClose={() => setRequestingAccessFor(null)} onSubmit={requestAccess} />}
-      {approvingRequest && <ApproveAccessModal request={approvingRequest} onClose={() => setApprovingRequest(null)} onConfirm={confirmGrant} onDeny={(a) => { decideRequest(a, "deny"); setApprovingRequest(null); }} maskedPhone={maskedPhone} />}
+      {approvingRequest && <ApproveAccessModal request={approvingRequest} onClose={() => setApprovingRequest(null)} onConfirm={confirmGrant} onDeny={(a) => { decideRequest(a, "deny"); setApprovingRequest(null); }} />}
+      {otpGate && <VaultOtpModal onClose={() => setOtpGate(null)} onVerified={afterOtpVerified} />}
+      {showPersonalLock && <PersonalLockGate userEmail={myEmail} onClose={() => setShowPersonalLock(false)} onUnlocked={() => { setShowPersonalLock(false); unlockPersonalVault(); }} />}
 
       {toast && (
         <div className={`cv-toast${toast.kind === "info" ? " cv-toast-info" : ""}`}>

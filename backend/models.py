@@ -2546,6 +2546,58 @@ class VaultAccessLog(Base):
     created_at  = Column(String, default="", index=True)
 
 
+class VaultOtpChallenge(Base):
+    """A pending SMS/Email one-time code (CredVault-specific, not the Entra
+    step-up module). Used both to gate company-vault reveal/share actions and
+    to verify a Personal Vault password reset. `target` is the phone/email the
+    code was actually sent to, kept for audit - the API only ever returns a
+    masked version of it."""
+    __tablename__ = "vault_otp_challenges"
+    id          = Column(String, primary_key=True)
+    email       = Column(String, default="", index=True)
+    purpose     = Column(String, default="")   # reveal_share | personal_reset
+    channel     = Column(String, default="")   # sms | email
+    target      = Column(String, default="")
+    code_hash   = Column(String, default="")
+    attempts    = Column(Integer, default=0)
+    consumed_at = Column(String, default="")
+    expires_at  = Column(String, default="", index=True)
+    created_at  = Column(String, default="")
+
+
+class VaultOtpSession(Base):
+    """Short-lived proof of a verified SMS/Email OTP - CredVault's own
+    replacement for step-up MFA on company credential reveal/share (personal
+    vault unlock uses VaultPersonalUnlockSession instead, see below)."""
+    __tablename__ = "vault_otp_sessions"
+    id         = Column(String, primary_key=True)
+    email      = Column(String, default="", index=True)
+    purpose    = Column(String, default="")
+    channel    = Column(String, default="")
+    expires_at = Column(String, default="", index=True)
+    created_at = Column(String, default="")
+
+
+class VaultPersonalAuth(Base):
+    """Per-user password that unlocks the Personal Vault. Salted PBKDF2 hash
+    ("salt_hex$hash_hex") - the plaintext is never stored. Reset requires a
+    verified VaultOtpChallenge(purpose='personal_reset')."""
+    __tablename__ = "vault_personal_auth"
+    email         = Column(String, primary_key=True)
+    password_hash = Column(String, default="")
+    updated_at    = Column(String, default="")
+
+
+class VaultPersonalUnlockSession(Base):
+    """Short-lived proof the Personal Vault password was entered correctly -
+    gates the personal-vault reveal endpoint."""
+    __tablename__ = "vault_personal_unlock_sessions"
+    id         = Column(String, primary_key=True)
+    email      = Column(String, default="", index=True)
+    expires_at = Column(String, default="", index=True)
+    created_at = Column(String, default="")
+
+
 class StepUpSession(Base):
     """A short-lived proof that the user completed a FRESH Entra MFA (step-up)
     for the sensitive-data action they're about to take. Created by
