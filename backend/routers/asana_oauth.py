@@ -40,6 +40,11 @@ def status(user: dict = Depends(get_current_user), db: Session = Depends(get_db)
         # mismatch here is the usual reason a first connection attempt fails.
         "redirectUri": asana_oauth.redirect_uri(),
         "connected": bool(row and row.refresh_token_enc),
+        # Set when a push could not use this grant. "Connected" alone is not the
+        # same as working - a grant whose vault key changed still looks connected
+        # while every comment posts as somebody else.
+        "lastError": (row.last_error or "") if row else "",
+        "lastErrorAt": (row.last_error_at or "") if row else "",
         "asanaName": (row.asana_name or "") if row else "",
         "asanaEmail": (row.asana_email or "") if row else "",
         "connectedAt": (row.created_at or "") if row else "",
@@ -64,7 +69,7 @@ def check(user: dict = Depends(get_current_user), db: Session = Depends(get_db))
     email = user["email"]
     token, why = asana_oauth.token_reason(db, email)
     out = {"willPostAsMe": False, "asanaName": "", "asanaEmail": "", "reason": why,
-           "serviceAccountName": ""}
+           "serviceAccountName": "", "partial": False}
 
     # Who the shared token is - the name that shows up instead. Naming it turns
     # "why is Sai posting my comments" into an answered question.
@@ -96,18 +101,39 @@ def check(user: dict = Depends(get_current_user), db: Session = Depends(get_db))
     #
     # A read: proving write access by writing would leave test comments in a
     # real project.
-    link = (db.query(models.AsanaTaskLink)
-              .filter(models.AsanaTaskLink.asana_gid != "")
-              .order_by(models.AsanaTaskLink.last_synced_at.desc()).first())
-    if link:
+    #
+    # A SAMPLE, not one task. Access is per project, so a single probe cannot
+    # tell "this account is locked out" from "this account is not on the one
+    # project that task happens to live in" - and reporting the first as the
+    # second tells somebody their connection is broken when their own project
+    # works fine.
+    links = (db.query(models.AsanaTaskLink)
+               .filter(models.AsanaTaskLink.asana_gid != "")
+               .order_by(models.AsanaTaskLink.last_synced_at.desc()).limit(8).all())
+    reachable, blocked, last_err = 0, 0, ""
+    for link in links:
         try:
             asana_sync.asana_task(token, link.asana_gid)
+            reachable += 1
         except Exception as e:
-            out["reason"] = (f"{me.get('name') or 'your Asana account'} cannot access the tasks this "
-                             f"syncs to, so Asana refuses their comments ({e}). A Guest account only "
-                             f"sees projects it has been added to - add it to the project, or connect "
-                             f"an account that is a full workspace member.")
-            return out
+            blocked += 1
+            last_err = str(e)
+
+    who = me.get("name") or "your Asana account"
+    if links and not reachable:
+        out["reason"] = (f"{who} cannot access any of the tasks this syncs to, so Asana refuses "
+                         f"their comments ({last_err}). A Guest account only sees projects it has "
+                         f"been added to - add it to the project, or connect an account that is a "
+                         f"full workspace member.")
+        return out
+    if blocked:
+        # Partly working: real, and worth saying plainly rather than rounding to
+        # either "fine" or "broken".
+        out.update({"willPostAsMe": True, "partial": True})
+        out["reason"] = (f"{who} can reach {reachable} of {reachable + blocked} recently synced "
+                         f"tasks. Comments on the rest post as the service account - that account "
+                         f"has not been added to those projects.")
+        return out
 
     out.update({"willPostAsMe": True, "reason": ""})
     return out

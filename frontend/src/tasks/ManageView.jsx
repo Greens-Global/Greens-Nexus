@@ -248,7 +248,8 @@ function AsanaSyncPanel({ store }) {
   const [busy, setBusy] = useState('');
   const [msg, setMsg] = useState('');
   const [err, setErr] = useState('');
-  const [dupes, setDupes] = useState(null);   // dry-run result awaiting confirmation
+  const [dupes, setDupes] = useState(null);
+  const [assignees, setAssignees] = useState(null);   // dry-run result awaiting confirmation
   const [orphans, setOrphans] = useState(null); // stranded-row dry run, same shape
   const [teamReport, setTeamReport] = useState([]); // per-team access outcomes from the last pull
   const [importJob, setImportJob] = useState(null); // live "Import All Projects" run, polled
@@ -506,6 +507,15 @@ function AsanaSyncPanel({ store }) {
   // Duplicate cleanup: dry run first (reports the count), then the same button
   // applies it. Merges tasks that all point at one Asana task - see
   // asana_sync.dedupe_tasks.
+  async function checkAssignees() {
+    setBusy('assignees');
+    try {
+      setAssignees(await api.asanaAssigneeCheck());
+    } catch (e) {
+      setAssignees({ reason: e?.message || 'Could not check assignee mapping.', assignees: [] });
+    } finally { setBusy(''); }
+  }
+
   const dedupe = async (apply) => {
     setErr(''); setMsg(''); setBusy('dedupe');
     try {
@@ -686,6 +696,30 @@ function AsanaSyncPanel({ store }) {
           <button onClick={() => run('pull')} disabled={!!busy} style={btn('primary')}><Download size={14} />{busy === 'pull' ? 'Pulling…' : 'Pull ← Asana'}</button>
           {cfg.lastPullAt && <span style={{ fontSize: 11.5, color: NX.faint }}>last pull {fmtDateTime(cfg.lastPullAt)}</span>}
         </div>
+
+        {/* Assignee gets its own check because it is the one field that can fail
+            alone: it is the only one that must be TRANSLATED (Nexus email ->
+            Asana user gid) rather than copied, and every way that translation
+            fails looks the same from outside - the task updates, the assignee
+            does not, and nothing says why. */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginTop: 8 }}>
+          <button onClick={checkAssignees} disabled={!!busy} style={btn('ghost')}>
+            <Users size={14} />{busy === 'assignees' ? 'Checking…' : 'Check assignee mapping'}
+          </button>
+          {assignees && (
+            <span style={{ fontSize: 11.5, color: assignees.reason ? NX.amber : NX.green }}>
+              {assignees.reason
+                || `all ${assignees.assignees.length} assignees resolve · ${assignees.usersWithEmail}/${assignees.usersInWorkspace} workspace users readable`}
+            </span>
+          )}
+        </div>
+        {assignees && assignees.assignees.some((a) => !a.resolved) && (
+          <div style={{ marginTop: 8, fontSize: 12, color: NX.dim, lineHeight: 1.7 }}>
+            {assignees.assignees.filter((a) => !a.resolved).map((a) => (
+              <div key={a.email}>· <strong>{a.email}</strong> has no Asana account in this workspace</div>
+            ))}
+          </div>
+        )}
 
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginTop: 8 }}>
           <button onClick={() => dedupe(!!(dupes && dupes.total))} disabled={!!busy}

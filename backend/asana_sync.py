@@ -104,18 +104,99 @@ def _user_map(cfg):
     if ent and time.time() - ent[0] < _USER_TTL:
         return ent[1]
     out, by_local = {}, {}
+    seen = 0
     try:
         for u in Asana(cfg.token).get(f"/workspaces/{cfg.workspace_gid}/users", opt_fields="email"):
+            seen += 1
             em = (u.get("email") or "").lower()
             if em:
                 out[em] = u["gid"]
                 by_local.setdefault(em.split("@", 1)[0], set()).add(u["gid"])
-    except Exception:
-        pass
+    except Exception as e:
+        # Was silent, and an empty map means EVERY assignee silently fails to
+        # resolve while every other field syncs normally - which reads as
+        # "assignee sync is broken" with nothing anywhere saying why.
+        print(f"[asana] could not list workspace users: {type(e).__name__}: {e}")
+    if seen and not out:
+        # Asana returns email: null for members the token is not allowed to see -
+        # a real and confusing case, because the users ARE there and the request
+        # succeeded. Nothing can be matched on, so no assignee will ever resolve.
+        print(f"[asana] workspace has {seen} users but this token can read none of their "
+              f"emails - assignees cannot be matched. The sync account needs to be a full "
+              f"member of the workspace.")
     for local, gids in by_local.items():
         if len(gids) == 1 and local:
             out.setdefault(local, next(iter(gids)))
     _USER_CACHE[key] = (time.time(), out)
+    return out
+
+
+def assignee_diagnosis(db) -> dict:
+    """Why an assignee is or is not reaching Asana.
+
+    Assignee is the one field that can fail on its own while everything else
+    about a task syncs perfectly, because it is the only one that has to be
+    TRANSLATED - a Nexus work email into an Asana user gid. Every way that
+    translation fails looks identical from the outside: the task updates, the
+    assignee does not, and nothing says why.
+
+    Reads live rather than from the cache: a stale empty map is one of the
+    things worth catching."""
+    cfg = get_config(db)
+    out = {"workspaceGid": (cfg.workspace_gid or "") if cfg else "",
+           "usersInWorkspace": 0, "usersWithEmail": 0, "error": "",
+           "assignees": [], "reason": ""}
+    if not cfg or not cfg.token:
+        out["reason"] = "Asana sync has no token."
+        return out
+    if not cfg.workspace_gid:
+        out["reason"] = ("No Workspace GID is set in Manage -> Asana Sync. Without it the user "
+                         "list cannot be fetched, so no assignee can ever resolve - while every "
+                         "other field keeps syncing normally.")
+        return out
+
+    emails = {}
+    try:
+        for u in Asana(cfg.token).get(f"/workspaces/{cfg.workspace_gid}/users", opt_fields="email"):
+            out["usersInWorkspace"] += 1
+            em = (u.get("email") or "").lower()
+            if em:
+                out["usersWithEmail"] += 1
+                emails[em] = u["gid"]
+    except Exception as e:
+        out["error"] = f"{type(e).__name__}: {e}"
+        out["reason"] = f"Could not list the workspace's users ({out['error']})."
+        return out
+
+    if out["usersInWorkspace"] and not out["usersWithEmail"]:
+        out["reason"] = (f"Asana returned {out['usersInWorkspace']} users but no email addresses - "
+                         f"it hides them from tokens without permission to see them. There is "
+                         f"nothing to match a Nexus email against, so no assignee can resolve. "
+                         f"The sync account needs to be a full member of the workspace.")
+        return out
+
+    # Who is actually assigned on tasks that have an Asana counterpart - the
+    # only ones whose assignee could be pushed at all.
+    linked = {l.nexus_task_id for l in db.query(models.AsanaTaskLink).all()}
+    rows = (db.query(models.Task.assignee_email)
+              .filter(models.Task.assignee_email != "").distinct().all())
+    unresolved = 0
+    for (email,) in rows:
+        e = (email or "").strip().lower()
+        if not e:
+            continue
+        gid = _asana_user_gid(cfg, e)
+        if not gid:
+            unresolved += 1
+        out["assignees"].append({"email": e, "resolved": bool(gid),
+                                 "asanaGid": gid or ""})
+    out["assignees"].sort(key=lambda a: (a["resolved"], a["email"]))
+    out["linkedTasks"] = len(linked)
+    if unresolved:
+        out["reason"] = (f"{unresolved} of {len(out['assignees'])} assignees have no matching "
+                         f"Asana account in this workspace. Their tasks sync every other field "
+                         f"and leave Asana's assignee untouched - matching is on the full email "
+                         f"first, then the local part, so a guest relay address still resolves.")
     return out
 
 
@@ -1014,13 +1095,27 @@ def _push_extras(db, cfg, task, asana_gid, project_gid):
 
 
 # ── OUTBOUND: Nexus task -> Asana ────────────────────────────────────────────
-def push_task(db, task):
+def push_task(db, task, actor_email: str = ""):
     """Create or update the Asana counterpart of a Nexus task (subtasks included
     - see _ancestor_project_gid). Returns the gid or None. Skips when disabled,
-    unmapped, or unchanged since the last sync."""
+    unmapped, or unchanged since the last sync.
+
+    `actor_email` is who made the edit, when that is known. Asana attributes the
+    system stories a write generates ("X changed Priority to Medium") to whoever
+    owns the token, so passing the actor is the only way those read as the person
+    who actually did it rather than as the shared sync account.
+
+    Deliberately blank from the sweep and from system-driven pushes. push_all
+    re-derives what Asana should have from the Nexus rows with no actor attached,
+    and guessing one - from the newest activity row, say - would credit the wrong
+    person whenever several people edited between sweeps. An honest service
+    account beats a confident wrong name, so no actor means the shared token."""
     cfg = get_config(db)
     if not sync_is_on(cfg) or not cfg.token:
         return None
+    # The same rule push_comment and _push_attachments follow - one helper, so
+    # the three cannot disagree about whose name a change appears under.
+    write_token, _is_user = _actor_token(db, cfg, actor_email)
     parent_link = None
     if task.parent_task_id:
         # A subtask can only be created once its parent already has an Asana
@@ -1032,6 +1127,13 @@ def push_task(db, task):
     else:
         apid = _asana_project_for(db, task, cfg)
         if not apid:
+            # Silent before this, and it is total: an unmapped project pushes
+            # NOTHING, so the task looks like it syncs everything except the one
+            # field you happened to be watching. Set the project's Asana GID in
+            # Manage -> Two-way Sync, or a Default project GID for the rest.
+            print(f"[asana] {task.code or task.id} not pushed: its Nexus project "
+                  f"{task.project_id or '(none)'} has no Asana project mapped, and no "
+                  f"Default project GID is set")
             return None
     progress_apid = _ancestor_project_gid(db, task, cfg)
     link = _link_by_nexus(db, task.id)
@@ -1131,7 +1233,7 @@ def push_task(db, task):
         # immutable afterward, so this never appears on the PUT path below.
         fields["resource_subtype"] = "milestone"
     if link and link.asana_gid:
-        _task_write(cfg.token, "PUT", f"/tasks/{link.asana_gid}", fields)
+        _task_write(write_token, "PUT", f"/tasks/{link.asana_gid}", fields)
     else:
         # CREATE PATH - the only place outbound can mint a duplicate, and the
         # one that bit us on dev but never on localhost: gunicorn runs 8 worker
@@ -1144,9 +1246,9 @@ def push_task(db, task):
         _acquire_pull_lock(db)
         link = _link_by_nexus(db, task.id)   # a worker that beat us to the lock may have made it
         if link and link.asana_gid:
-            _task_write(cfg.token, "PUT", f"/tasks/{link.asana_gid}", fields)
+            _task_write(write_token, "PUT", f"/tasks/{link.asana_gid}", fields)
         elif parent_link:
-            created = _task_write(cfg.token, "POST", f"/tasks/{parent_link.asana_gid}/subtasks", fields)
+            created = _task_write(write_token, "POST", f"/tasks/{parent_link.asana_gid}/subtasks", fields)
             gid = (created or {}).get("gid")
             if not gid:
                 return None
@@ -1159,10 +1261,10 @@ def push_task(db, task):
             name_key = (task.title or "").strip().lower()
             existing_gid = _asana_tasks_by_name(cfg, apid).get(name_key)
             if existing_gid:
-                _task_write(cfg.token, "PUT", f"/tasks/{existing_gid}", fields)
+                _task_write(write_token, "PUT", f"/tasks/{existing_gid}", fields)
                 gid = existing_gid
             else:
-                created = _task_write(cfg.token, "POST", "/tasks", {**fields, "projects": [apid]})
+                created = _task_write(write_token, "POST", "/tasks", {**fields, "projects": [apid]})
                 gid = (created or {}).get("gid")
                 if not gid:
                     return None
@@ -1179,8 +1281,12 @@ def push_task(db, task):
     return link.asana_gid
 
 
-def on_task_changed(task_id):
-    """Fire-and-forget outbound push from create_task/update_task. Never raises."""
+def on_task_changed(task_id, actor_email: str = ""):
+    """Fire-and-forget outbound push from create_task/update_task. Never raises.
+
+    `actor_email` is the signed-in user who made the edit. It is known here and
+    was previously dropped at this boundary, which is why every field change
+    reached Asana under the shared sync account."""
     if not is_sync_worker():
         return
     def _run():
@@ -1191,9 +1297,9 @@ def on_task_changed(task_id):
                 return
             t = db.query(models.Task).filter(models.Task.id == task_id).first()
             if t:
-                push_task(db, t)   # push_task itself no-ops a subtask until its parent is linked
-        except Exception:
-            pass
+                push_task(db, t, actor_email)   # push_task itself no-ops a subtask until its parent is linked
+        except Exception as e:
+            print(f"[asana] task {task_id} failed to push: {type(e).__name__}: {e}")
         finally:
             db.close()
     threading.Thread(target=_run, daemon=True).start()
@@ -1646,13 +1752,26 @@ def _task_write(token, method, path, fields):
     try:
         return send(token, path, {"data": fields})
     except ImportError_ as e:
-        if "html_notes" not in str(e) or "html_notes" not in fields:
-            raise
-        plain = dict(fields)
-        plain.pop("html_notes", None)
-        plain["notes"] = _html_to_text(fields.get("html_notes") or "")
-        print(f"[asana] html_notes rejected for {path}; retrying as plain notes ({e})")
-        return send(token, path, {"data": plain})
+        msg = str(e)
+        if "html_notes" in msg and "html_notes" in fields:
+            plain = dict(fields)
+            plain.pop("html_notes", None)
+            plain["notes"] = _html_to_text(fields.get("html_notes") or "")
+            print(f"[asana] html_notes rejected for {path}; retrying as plain notes ({e})")
+            return send(token, path, {"data": plain})
+        # Same degrade-rather-than-lose rule, for the other field Asana refuses
+        # on its own: an assignee who cannot reach the task's project. Asana
+        # rejects the WHOLE request over it, so a task assigned to a guest who
+        # was never added to that project stopped syncing entirely - title,
+        # dates and all - and looked like "assignee sync is broken" because the
+        # assignee was the visible half of what went missing.
+        if "assignee" in msg.lower() and fields.get("assignee"):
+            without = {k: v for k, v in fields.items() if k != "assignee"}
+            print(f"[asana] assignee rejected for {path} ({e}); pushing every other field and "
+                  f"leaving Asana's assignee as-is. The assignee usually needs access to that "
+                  f"project - a Guest only sees projects it has been added to.")
+            return send(token, path, {"data": without})
+        raise
 
 
 def _html_to_text(html):
@@ -3409,9 +3528,13 @@ def push_comment(db, comment):
     if not sync_is_on(cfg) or not cfg.token:
         return
     if db.query(models.AsanaCommentLink).filter(models.AsanaCommentLink.nexus_comment_id == comment.id).first():
-        return   # already synced (came from Asana)
+        return   # already synced (came from Asana) - the normal case, not worth a line
     link = _link_by_nexus(db, comment.task_id)
     if not link or not link.asana_gid:
+        # Said out loud: from the outside this is indistinguishable from a push
+        # that failed, and it is the likeliest reason a comment never appears -
+        # the task itself was never linked, so there is nowhere to put it.
+        print(f"[asana] comment {comment.id} not pushed: task {comment.task_id} has no Asana link")
         return
     author = comment.author_email or ""
     # asana-sync is the stamp on comments that came FROM Asana; there's no
@@ -3482,7 +3605,13 @@ def push_comment(db, comment):
 
 
 def on_comment_added(comment_id):
-    """Fire-and-forget outbound comment push. Never raises."""
+    """Fire-and-forget outbound comment push. Never raises.
+
+    It must not raise - this runs on a daemon thread behind an HTTP response
+    that has already been sent - but "never raises" had become "never says
+    anything": a comment that failed to reach Asana left no trace at all, in the
+    logs or anywhere else, and looked identical to one that was never pushed.
+    Diagnosing it meant guessing. It still swallows; it just says so first."""
     if not is_sync_worker():
         return
     def _run():
@@ -3494,8 +3623,8 @@ def on_comment_added(comment_id):
             c = db.query(models.TaskComment).filter(models.TaskComment.id == comment_id).first()
             if c:
                 push_comment(db, c)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[asana] comment {comment_id} failed to push: {type(e).__name__}: {e}")
         finally:
             db.close()
     threading.Thread(target=_run, daemon=True).start()

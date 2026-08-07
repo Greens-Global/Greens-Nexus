@@ -114,6 +114,17 @@ export default function AccountSettingsModal({ onClose, initialResult = "", init
               </div>
             )}
 
+            {/* Connected is not the same as working. A grant whose vault key
+                changed still reports connected while every comment posts as the
+                shared account - so if a push has already failed, say so here
+                rather than waiting for someone to press Test connection. */}
+            {connected && status.lastError && !check?.willPostAsMe && (
+              <div style={{ display: 'flex', gap: 6, marginTop: 8, fontSize: 12, lineHeight: 1.5, color: 'hsl(var(--color-amber, 38 92% 40%))' }}>
+                <AlertTriangle size={13} style={{ flexShrink: 0, marginTop: 1 }} />
+                <span>Your last comment did not post as you - {status.lastError}</span>
+              </div>
+            )}
+
             {/* "Connected" only means a grant is stored. Posting can still fall
                 back to the shared account - a revoked grant, or one with no
                 access to the project the task lives in - and the fallback is
@@ -127,13 +138,15 @@ export default function AccountSettingsModal({ onClose, initialResult = "", init
                 </button>
                 {check && (
                   <div style={{ display: 'flex', gap: 6, marginTop: 8, fontSize: 12, lineHeight: 1.5,
-                    color: check.willPostAsMe ? 'hsl(var(--color-green, 145 60% 36%))' : 'hsl(var(--color-amber, 38 92% 40%))' }}>
-                    {check.willPostAsMe ? <Check size={13} style={{ flexShrink: 0, marginTop: 1 }} />
+                    color: (check.willPostAsMe && !check.partial) ? 'hsl(var(--color-green, 145 60% 36%))' : 'hsl(var(--color-amber, 38 92% 40%))' }}>
+                    {(check.willPostAsMe && !check.partial) ? <Check size={13} style={{ flexShrink: 0, marginTop: 1 }} />
                                         : <AlertTriangle size={13} style={{ flexShrink: 0, marginTop: 1 }} />}
                     <span>
-                      {check.willPostAsMe
+                      {check.willPostAsMe && !check.partial
                         ? <>Working. Your comments post as <strong>{check.asanaName || check.asanaEmail}</strong>.</>
-                        : <>Your comments are posting as{check.serviceAccountName ? <> <strong>{check.serviceAccountName}</strong></> : ' the shared sync account'} - {check.reason || 'reason unknown'}.</>}
+                        : check.partial
+                          ? <>Partly working - {check.reason}</>
+                          : <>Your comments are posting as{check.serviceAccountName ? <> <strong>{check.serviceAccountName}</strong></> : ' the shared sync account'} - {check.reason || 'reason unknown'}.</>}
                     </span>
                   </div>
                 )}

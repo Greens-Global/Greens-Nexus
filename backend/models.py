@@ -2288,6 +2288,18 @@ class AsanaUserToken(Base):
     asana_user_gid    = Column(String, default="")
     asana_name        = Column(String, default="")   # for the "Connected as ..." line
     asana_email       = Column(String, default="")
+    # Why this grant last failed to produce a token, and when. Written by
+    # token_reason, cleared on the next success.
+    #
+    # A grant can stop working while still looking connected - the vault key
+    # changing out from under it makes every stored token unreadable, which is
+    # exactly what happened on dev. Falling back to the shared account is silent
+    # by design (never lose a comment), so without this the user is told
+    # "comments appear as you" indefinitely while every one of them says
+    # somebody else. Recording it lets Account Settings ask them to reconnect
+    # instead of waiting for someone to read a server log.
+    last_error        = Column(String, default="")
+    last_error_at     = Column(String, default="")
     created_at        = Column(String, default="")
     updated_at        = Column(String, default="")
 

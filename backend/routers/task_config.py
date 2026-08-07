@@ -1115,6 +1115,18 @@ def asana_sync_push_all(db: Session = Depends(get_db)):
         raise HTTPException(400, f"Asana push failed - check the token. ({e})")
 
 
+@router.get("/asana-sync/assignee-check", dependencies=[Depends(require_manager)])
+def asana_sync_assignee_check(db: Session = Depends(get_db)):
+    """Why assignees are or are not reaching Asana.
+
+    Its own check because assignee is the one field that can fail alone: it is
+    the only one that must be TRANSLATED from a Nexus email into an Asana user
+    gid, and every way that translation fails looks the same from outside - the
+    task updates, the assignee does not, and nothing says why."""
+    import asana_sync
+    return asana_sync.assignee_diagnosis(db)
+
+
 @router.post("/asana-sync/dedupe", dependencies=[Depends(require_manager)])
 def asana_sync_dedupe(apply: bool = False, db: Session = Depends(get_db)):
     """Merge Nexus tasks that all point at the same Asana task - the leftovers

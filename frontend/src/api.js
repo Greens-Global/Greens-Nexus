@@ -420,6 +420,10 @@ export const api = {
   asanaSyncPull: () => req("/asana-sync/pull", { method: "POST", timeoutMs: 600000 }),
   asanaSyncPushAll: () => req("/asana-sync/push-all", { method: "POST", timeoutMs: 600000 }),
   asanaSyncDedupe: (apply) => req(`/asana-sync/dedupe?apply=${apply ? "true" : "false"}`, { method: "POST", timeoutMs: 600000 }),
+  // Why assignees are or are not reaching Asana - the one field that can fail
+  // on its own, because it is the only one that must be translated (Nexus email
+  // -> Asana user gid) rather than copied.
+  asanaAssigneeCheck: () => req("/asana-sync/assignee-check"),
   // Walks every project in the workspace - same 10-min ceiling as Pull/Push all.
   // Starts a background job and returns it right away; a whole workspace takes
   // minutes and Azure kills any request at ~230s. Poll asanaSyncImportAllStatus.

@@ -266,6 +266,9 @@ def _run_migrations():
             # (ticket_code.py). Rewrites legacy codes so one format exists;
             # idempotent - after it runs nothing matches TKT-% any more.
             "UPDATE task_tickets SET code = substr('000000' || CAST(CAST(substr(code, 5) AS INTEGER) AS TEXT), -6, 6) WHERE code LIKE 'TKT-%'",
+            # Why a per-user Asana grant last failed - AsanaUserToken.last_error.
+            "ALTER TABLE asana_user_tokens ADD COLUMN last_error VARCHAR DEFAULT ''",
+            "ALTER TABLE asana_user_tokens ADD COLUMN last_error_at VARCHAR DEFAULT ''",
             # Documents (DMS) Phase 4: merge-field subject/company for export
             "ALTER TABLE documents ADD COLUMN employee_id VARCHAR DEFAULT ''",
             "ALTER TABLE documents ADD COLUMN entity_id VARCHAR DEFAULT ''",
@@ -507,6 +510,9 @@ def _run_migrations():
         # Ticket numbers dropped the "TKT-" prefix and widened to 6 digits
         # (ticket_code.py). Idempotent - nothing matches TKT-% afterwards.
         "UPDATE task_tickets SET code = lpad((substring(code from 5))::int::text, 6, '0') WHERE code LIKE 'TKT-%'",
+        # Why a per-user Asana grant last failed - AsanaUserToken.last_error.
+        "ALTER TABLE asana_user_tokens ADD COLUMN IF NOT EXISTS last_error TEXT DEFAULT ''",
+        "ALTER TABLE asana_user_tokens ADD COLUMN IF NOT EXISTS last_error_at TEXT DEFAULT ''",
         # E-Sign multi-document packets: PDFs attached to a template, carried on the envelope
         "ALTER TABLE hr_sign_templates ADD COLUMN IF NOT EXISTS attachments JSONB DEFAULT '[]'::jsonb",
         "ALTER TABLE hr_sign_requests ADD COLUMN IF NOT EXISTS documents JSONB DEFAULT '[]'::jsonb",
