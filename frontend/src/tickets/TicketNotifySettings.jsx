@@ -67,7 +67,11 @@ export default function TicketNotifySettings() {
   const save = async () => {
     setSaving(true); setErr(''); setSaved(false);
     try {
-      const patch = { ...cfg, defaultCc: ccInput.split(',').map((s) => s.trim()).filter(Boolean) };
+      // agentEmails is owned by the Service Desk panel above and deliberately
+      // dropped here: this form holds a whole copy of the config, so saving it
+      // back would revert a roster changed since this copy was loaded.
+      const { agentEmails: _desk, ...rest } = cfg;
+      const patch = { ...rest, defaultCc: ccInput.split(',').map((s) => s.trim()).filter(Boolean) };
       const next = await api.updateTicketNotifySettings(patch);
       setCfg(next);
       setSaved(true);
@@ -97,7 +101,7 @@ export default function TicketNotifySettings() {
             <input value={cfg.fromMailbox || ''} onChange={(e) => set('fromMailbox', e.target.value)}
               placeholder="support@companydomain.com" style={inputStyle} />
           </Field>
-          <Field label="Ticket Administrator" hint="Fallback recipient when a department has no lead/backup configured.">
+          <Field label="Ticket Administrator" hint="Last resort, emailed only when no agent is available to notify.">
             <input value={cfg.ticketAdminEmail || ''} onChange={(e) => set('ticketAdminEmail', e.target.value)}
               placeholder="ticket-admin@companydomain.com" style={inputStyle} />
           </Field>

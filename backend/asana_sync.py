@@ -163,6 +163,27 @@ def _unwrap(resp):
     return resp.get("data", resp) if isinstance(resp, dict) else resp
 
 
+def asana_identity(token: str) -> dict:
+    """Who Asana thinks this token belongs to: {"gid", "name", "email"}.
+
+    The one call that answers "whose name will this action appear under",
+    because Asana attributes every write to the token's owner and offers no
+    impersonation parameter. Raises on rejection - the caller wants to know.
+    """
+    return _unwrap(_request("GET", f"{_ASANA_BASE}/users/me",
+                            _headers(token), None)) or {}
+
+
+def asana_task(token: str, task_gid: str) -> dict:
+    """Read one task with this token. Raises if the token's owner cannot reach
+    it - the difference between a grant that is valid and one that can actually
+    comment here, which /users/me cannot tell apart. Checked at the task rather
+    than the workspace because a Guest is a workspace member and still sees only
+    the projects it was added to."""
+    return _unwrap(_request("GET", f"{_ASANA_BASE}/tasks/{task_gid}",
+                            _headers(token), None)) or {}
+
+
 def _asana_post(token, path, body):
     return _unwrap(_request("POST", f"{_ASANA_BASE}{path}", _headers(token), body))
 
@@ -823,7 +844,8 @@ def _host_data_uri(task_id: str, data_uri: str, name: str) -> str:
     return hosted
 
 
-def _externalize_inline_images(db, task, html: str, comment_id: str = "") -> str:
+def _externalize_inline_images(db, task, html: str, comment_id: str = "",
+                               author: str = "") -> str:
     """Turn `data:` images inside Nexus-authored HTML into hosted attachments.
 
     Two things happen per image: the bytes get a public URL, and a TaskAttachment
@@ -857,12 +879,60 @@ def _externalize_inline_images(db, task, html: str, comment_id: str = "") -> str
         db.add(models.TaskAttachment(
             id=aid, task_id=task.id, name=name,
             size=f"{max(1, round(len(uri) * 3 / 4 / 1024))} KB", kind="image", url=url,
-            added_at=now_iso(), added_by=task.assignee_email or "nexus",
+            # Whoever wrote the thing the image was pasted into. added_by is
+            # what decides which Asana user the file is attributed to
+            # (_push_attachments), so the task's assignee - who may have had
+            # nothing to do with it - is the wrong answer.
+            added_at=now_iso(),
+            added_by=(author or task.created_by or task.assignee_email or "nexus"),
             comment_id=""))   # task-level on purpose - see the docstring
         task.attachment_ids = list(task.attachment_ids or []) + [aid]
         return tag.replace(uri, url)
 
     return _DATA_IMG_TAG_RE.sub(swap, html)
+
+
+def _acquire_attachment_push_lock(db, task_id: str) -> None:
+    """Serialize the attachment push for ONE task across processes.
+
+    _push_attachments reads "does this file have an AsanaAttachmentLink yet",
+    then makes an HTTP round trip, then writes the link. Dev runs 8 gunicorn
+    WORKER PROCESSES; every one of them can be inside that window at once, all
+    read "no link", and all POST - which is how two files mailed in as a reply
+    became eight attachments in Asana. Exactly the failure CLAUDE.md records for
+    task creation, in a code path that never got the same guard.
+
+    Keyed on the TASK, not globally: two different tasks pushing at the same
+    time is fine and should not queue behind each other. Transaction-scoped, so
+    the caller's commit releases it and a killed worker cannot wedge it.
+
+    No-op on SQLite - one process, nothing to serialize."""
+    if db.bind.dialect.name != "postgresql":
+        return
+    key = int(hashlib.sha256(f"asana-att:{task_id}".encode()).hexdigest()[:15], 16)
+    db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": key})
+
+
+def _actor_token(db, cfg, email):
+    """(token, is_user_token) - that person's own Asana grant when they have one.
+
+    The same rule push_comment already uses, lifted out so attachments follow it
+    instead of inventing a second answer. Asana attributes an action to whoever
+    owns the token that performed it and offers no impersonation parameter, so
+    this is the only way an attachment lands under the person who actually added
+    it rather than under the service account.
+
+    "asana-sync" is the stamp on rows that came FROM Asana - there is no person
+    behind it to attribute to."""
+    e = (email or "").strip().lower()
+    if e and e != "asana-sync":
+        try:
+            tok = asana_oauth.token_for(db, e)
+        except Exception:
+            tok = None
+        if tok:
+            return tok, True
+    return cfg.token, False
 
 
 def _push_attachments(db, cfg, task, asana_gid):
@@ -880,7 +950,18 @@ def _push_attachments(db, cfg, task, asana_gid):
     upload is by definition Nexus-origin.
 
     Recorded in AsanaAttachmentLink - the same table the inbound side dedups on -
-    so neither direction re-adds the other's work."""
+    so neither direction re-adds the other's work.
+
+    Each file is posted under the grant of whoever ADDED it (a.added_by), the
+    same way push_comment posts a comment under its author. Asana attributes an
+    action to whoever owns the token and has no impersonation parameter, so
+    without this every attachment in Asana reads as uploaded by the service
+    account - including the ones that arrived by email under a real person's
+    name."""
+    # Before the first read, not after: the whole point is that the "has it been
+    # pushed?" check and the POST that follows are one indivisible step. Whoever
+    # waits here sees the winner's committed link and skips.
+    _acquire_attachment_push_lock(db, task.id)
     rows = db.query(models.TaskAttachment).filter(models.TaskAttachment.task_id == task.id).all()
     for a in rows:
         url = (a.url or "").strip()
@@ -897,12 +978,25 @@ def _push_attachments(db, cfg, task, asana_gid):
             db.flush()
         if not url.lower().startswith(("http://", "https://")):
             continue
+        payload = {"data": {"resource_subtype": "external", "parent": asana_gid,
+                            "url": url, "name": a.name or "attachment"}}
+        token, is_user_token = _actor_token(db, cfg, a.added_by)
         try:
-            created = _asana_post(cfg.token, "/attachments", {"data": {
-                "resource_subtype": "external", "parent": asana_gid,
-                "url": url, "name": a.name or "attachment"}})
-        except Exception:
-            continue
+            created = _asana_post(token, "/attachments", payload)
+        except Exception as e:
+            msg = str(e)
+            # A person's own grant can be revoked, or simply not cover this
+            # project. Same degrade-rather-than-lose rule push_comment follows:
+            # the file still reaches Asana, just under the service account.
+            if is_user_token and ("401" in msg or "403" in msg or "404" in msg):
+                print(f"[asana] {a.added_by}'s Asana grant was rejected ({msg[:120]}); "
+                      f"attaching as the service account")
+                try:
+                    created = _asana_post(cfg.token, "/attachments", payload)
+                except Exception:
+                    continue
+            else:
+                continue
         db.add(models.AsanaAttachmentLink(id=gen_id(), nexus_attachment_id=a.id,
                                           asana_attachment_gid=(created or {}).get("gid") or "",
                                           created_at=now_iso()))
@@ -952,7 +1046,10 @@ def push_task(db, task):
     # Before the digest, deliberately: this can rewrite the description, and a
     # digest taken beforehand would not match what is stored, so every later
     # push would see a phantom change.
-    task.description = _externalize_inline_images(db, task, task.description or "")
+    # A description image belongs to whoever created the task - there is no
+    # per-edit author on a description to do better than that.
+    task.description = _externalize_inline_images(
+        db, task, task.description or "", author=task.created_by or "")
     digest = _task_digest(db, task, assignee=(ae if assignee_sent else ""))
     push_digest = _push_digest(db, task)
     if link and link.last_hash == digest:
@@ -3319,7 +3416,16 @@ def push_comment(db, comment):
     author = comment.author_email or ""
     # asana-sync is the stamp on comments that came FROM Asana; there's no
     # person behind it to attribute to.
-    user_token = asana_oauth.token_for(db, author) if author and author != "asana-sync" else None
+    # token_reason, not token_for: when a comment goes out under the wrong name
+    # the reason has to be recoverable afterwards. Falling back is silent by
+    # design (never lose the comment), which left "why is the service account
+    # posting my comments" answerable only by guessing.
+    if author and author != "asana-sync":
+        user_token, why_not = asana_oauth.token_reason(db, author)
+        if not user_token:
+            print(f"[asana] posting {author}'s comment as the service account: {why_not}")
+    else:
+        user_token = None
     token = user_token or cfg.token
     # An image pasted into the comment is a data: URI in the body, which Asana
     # can neither inline nor fetch. Hosted first so it travels as an attachment
@@ -3327,7 +3433,8 @@ def push_comment(db, comment):
     # parent for an attachment.
     t = db.query(models.Task).filter(models.Task.id == comment.task_id).first()
     if t:
-        fixed = _externalize_inline_images(db, t, comment.body or "", comment_id=comment.id)
+        fixed = _externalize_inline_images(db, t, comment.body or "",
+                                           comment_id=comment.id, author=author)
         if fixed != comment.body:
             comment.body = fixed
             db.flush()

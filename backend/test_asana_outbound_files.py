@@ -77,11 +77,15 @@ class _Base(unittest.TestCase):
         self.db.commit()
 
         self.posted = []
+        # Same calls, with the token - which attachment attribution turns on.
+        self.posted_with_token = []
         self.uploaded = []
         self._real = (asana_sync._asana_post, task_files.data_url_to_storage,
                       task_files.storage_configured)
         asana_sync._asana_post = lambda tok, path, body: (
-            self.posted.append((path, body)) or {"gid": "asana-att-1"})
+            self.posted.append((path, body))
+            or self.posted_with_token.append((tok, path, body))
+            or {"gid": "asana-att-1"})
         task_files.data_url_to_storage = lambda name, uri: (
             self.uploaded.append((name, len(uri))) or HOSTED)
         task_files.storage_configured = lambda: True
@@ -237,3 +241,155 @@ class InlineImagePushTests(_Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AttributionTests(_Base):
+    """Attachments must land under the person who added them, like comments do.
+
+    Asana attributes an action to whoever owns the token that performed it and
+    offers no impersonation parameter. push_comment already posts under the
+    author's own grant; before this, every attachment went under the service
+    token - so a file someone uploaded, or one that arrived by email under their
+    name, showed in Asana as added by "Nexus".
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.grants = {}
+        self._real_token_for = asana_sync.asana_oauth.token_for
+        asana_sync.asana_oauth.token_for = lambda db, email: self.grants.get((email or "").lower())
+        self.addCleanup(self._restore_oauth)
+
+    def _restore_oauth(self):
+        asana_sync.asana_oauth.token_for = self._real_token_for
+
+    def _tokens_used(self):
+        return [tok for tok, path, body in self.posted_with_token]
+
+    def test_a_file_goes_under_the_uploaders_own_grant(self):
+        self.grants["sagar@x"] = "sagar-token"
+        self._attachment("https://sb.test/a.png", name="a.png")
+        asana_sync._push_attachments(self.db, _Cfg(), self.task, "999")
+        self.assertEqual(self._tokens_used(), ["sagar-token"])
+
+    def test_someone_with_no_grant_falls_back_to_the_service_token(self):
+        self._attachment("https://sb.test/a.png")          # no grant registered
+        asana_sync._push_attachments(self.db, _Cfg(), self.task, "999")
+        self.assertEqual(self._tokens_used(), [_Cfg.token])
+
+    def test_a_file_from_asana_is_never_attributed_to_a_person(self):
+        """asana-sync is a stamp, not a human - there is nobody to post as."""
+        self.grants["asana-sync"] = "should-never-be-used"
+        a = self._attachment("https://sb.test/a.png")
+        a.added_by = "asana-sync"
+        self.db.commit()
+        asana_sync._push_attachments(self.db, _Cfg(), self.task, "999")
+        self.assertEqual(self._tokens_used(), [_Cfg.token])
+
+    def test_a_revoked_grant_still_gets_the_file_there(self):
+        """Degrade rather than lose - the same rule push_comment follows."""
+        self.grants["sagar@x"] = "revoked"
+        calls = []
+
+        def post(tok, path, body):
+            calls.append(tok)
+            if tok == "revoked":
+                raise RuntimeError("Asana said no (403 Forbidden)")
+            return {"gid": "att-1"}
+        asana_sync._asana_post = post
+
+        self._attachment("https://sb.test/a.png")
+        asana_sync._push_attachments(self.db, _Cfg(), self.task, "999")
+        self.db.commit()
+        self.assertEqual(calls, ["revoked", _Cfg.token])
+        # And it is recorded, so the next sweep does not try again.
+        self.assertEqual(self.db.query(models.AsanaAttachmentLink).count(), 1)
+
+    def test_an_error_that_is_not_a_permission_problem_is_not_retried(self):
+        self.grants["sagar@x"] = "sagar-token"
+        calls = []
+
+        def post(tok, path, body):
+            calls.append(tok)
+            raise RuntimeError("500 Server Error")
+        asana_sync._asana_post = post
+
+        self._attachment("https://sb.test/a.png")
+        asana_sync._push_attachments(self.db, _Cfg(), self.task, "999")
+        self.assertEqual(calls, ["sagar-token"])   # no service-token retry
+        self.assertEqual(self.db.query(models.AsanaAttachmentLink).count(), 0)
+
+    def test_a_pasted_comment_image_is_credited_to_the_comment_author(self):
+        """Not to the task's assignee, who may have had nothing to do with it -
+        added_by is what decides the Asana user."""
+        self.task.assignee_email = "neil@x"
+        self.db.commit()
+        asana_sync._externalize_inline_images(
+            self.db, self.task, f'<p><img src="{PNG_URI}"></p>',
+            comment_id="c1", author="sagar@x")
+        self.db.commit()
+        self.assertEqual(self.db.query(models.TaskAttachment).one().added_by, "sagar@x")
+
+    def test_a_description_image_falls_back_to_the_task_creator(self):
+        self.task.created_by = "ankush@x"
+        self.task.assignee_email = "neil@x"
+        self.db.commit()
+        asana_sync._externalize_inline_images(
+            self.db, self.task, f'<p><img src="{PNG_URI}"></p>', author="")
+        self.db.commit()
+        self.assertEqual(self.db.query(models.TaskAttachment).one().added_by, "ankush@x")
+
+
+class ConcurrencyGuardTests(unittest.TestCase):
+    """Two files mailed in as a reply became eight attachments in Asana.
+
+    _push_attachments reads "has this been pushed?", makes an HTTP round trip,
+    then writes the link. Dev runs 8 gunicorn WORKER PROCESSES and
+    nexus_attachment_id carries no unique constraint, so all eight can sit
+    inside that window, all read "no link", and all POST.
+    """
+
+    class _FakeDialect:
+        def __init__(self, name):
+            self.name = name
+
+    class _FakeBind:
+        def __init__(self, name):
+            self.dialect = ConcurrencyGuardTests._FakeDialect(name)
+
+    class _FakeDB:
+        def __init__(self, dialect):
+            self.bind = ConcurrencyGuardTests._FakeBind(dialect)
+            self.executed = []
+
+        def execute(self, stmt, params=None):
+            self.executed.append((str(stmt), params))
+
+    def test_it_takes_a_postgres_advisory_lock(self):
+        db = self._FakeDB("postgresql")
+        asana_sync._acquire_attachment_push_lock(db, "task-1")
+        self.assertEqual(len(db.executed), 1)
+        self.assertIn("pg_advisory_xact_lock", db.executed[0][0])
+
+    def test_the_lock_is_per_task_so_tasks_do_not_queue_behind_each_other(self):
+        a, b = self._FakeDB("postgresql"), self._FakeDB("postgresql")
+        asana_sync._acquire_attachment_push_lock(a, "task-1")
+        asana_sync._acquire_attachment_push_lock(b, "task-2")
+        self.assertNotEqual(a.executed[0][1]["key"], b.executed[0][1]["key"])
+
+    def test_the_same_task_always_maps_to_the_same_key(self):
+        a, b = self._FakeDB("postgresql"), self._FakeDB("postgresql")
+        asana_sync._acquire_attachment_push_lock(a, "task-1")
+        asana_sync._acquire_attachment_push_lock(b, "task-1")
+        self.assertEqual(a.executed[0][1]["key"], b.executed[0][1]["key"])
+
+    def test_the_key_fits_in_a_postgres_bigint(self):
+        # pg_advisory_xact_lock takes bigint; an oversized key errors at runtime.
+        db = self._FakeDB("postgresql")
+        asana_sync._acquire_attachment_push_lock(db, "task-1")
+        self.assertLess(db.executed[0][1]["key"], 2 ** 63 - 1)
+
+    def test_sqlite_is_left_alone(self):
+        db = self._FakeDB("sqlite")
+        asana_sync._acquire_attachment_push_lock(db, "task-1")
+        self.assertEqual(db.executed, [])

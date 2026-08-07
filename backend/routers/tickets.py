@@ -5,8 +5,8 @@ payloads and behaviour are unchanged - only the file they live in moved.
 
 Covers: tickets CRUD, per-ticket conversation/attachments/activity, saved ticket
 views, components, ticket-to-ticket links, escalation, the company/department
-lookups used at intake, and the department triage routing that notifies a
-department's lead when an unassigned ticket arrives.
+lookups used at intake, the approval gate, and the triage routing that notifies
+the IT Admin desk when an unassigned ticket arrives.
 
 Ticket conversation/attachments/activity deliberately reuse the task comment and
 attachment tables, keyed by ticket id - same storage, separate router.
@@ -20,7 +20,9 @@ import models
 from database import get_db
 from auth import get_current_user, require_manager
 from routers.task_util import now_iso, gen_id, log_activity, task_notify
-from ticket_notify import notify_ticket_event, get_settings as get_notify_settings, save_settings as save_notify_settings
+from ticket_code import TICKET_CODE_DIGITS, ticket_no
+from ticket_notify import (notify_ticket_event, get_settings as get_notify_settings,
+                           save_settings as save_notify_settings, ticket_agents)
 
 router = APIRouter(tags=["Tickets"], dependencies=[Depends(get_current_user)])
 
@@ -78,6 +80,7 @@ def ticket_to_dict(t: models.TaskTicket) -> dict:
             "type": t.type or "request",
             "status": t.status or "new", "priority": t.priority or "medium",
             "requesterId": _nz(t.requester_email), "assigneeId": _nz(t.assignee_email),
+            "assignedById": _nz(t.assigned_by_email),
             "departmentId": _nz(t.department_id), "companyId": _nz(t.company_id), "hrDepartmentId": _nz(t.hr_department_id),
             "linkedTaskId": _nz(t.linked_task_id),
             "tags": t.tags or [], "images": t.images or [], "watcherIds": t.watcher_emails or [],
@@ -94,9 +97,18 @@ def ticket_to_dict(t: models.TaskTicket) -> dict:
             "createdAt": t.created_at or "", "modifiedAt": t.modified_at or ""}
 
 
-# Which intake field names the approver, per ticket type. A ticket of one of these
-# types whose approver field is filled must be approved before it reaches triage.
-# Mirrors TYPE_FIELDS in frontend/src/tickets/ticketMeta.js - keep the two in step.
+# ── Approval workflow rules ──────────────────────────────────────────────────
+# Which types are gated. Everything else goes straight to the fulfilment queue.
+#
+# These three commit somebody else's money, access or production config, so a
+# second person signs off. A bug report or a question commits nothing, and
+# gating those would only add a step between a user and help.
+APPROVAL_REQUIRED_TYPES = {"service_request", "change_request", "access_request"}
+
+# Legacy: tickets raised before the IT Admin flow captured an approver in a
+# per-type intake field. Nothing writes or reads these now - the fields are
+# retired (ticketMeta.intakeFields) and an IT Admin names the approver instead.
+# Kept only so the historical values on old tickets stay identifiable.
 APPROVER_FIELD_BY_TYPE = {
     "service_request": "approver",
     "change_request":  "approver",
@@ -104,35 +116,64 @@ APPROVER_FIELD_BY_TYPE = {
 }
 
 
-def _notify_triage(db: Session, t: models.TaskTicket, actor: str) -> None:
-    """Tell a department's lead (and backup) that an unassigned ticket is waiting
-    to be handed to an employee. Called at creation for tickets needing no
-    approval, and after an approval is granted for those that do - without this an
-    unassigned ticket notifies nobody who can act on it and simply sits."""
-    if t.assignee_email or not t.hr_department_id:
-        return
-    dept = (db.query(models.HrDepartment)
-            .filter(models.HrDepartment.id == t.hr_department_id).first())
-    if not dept:
+def _type_label(type_: str) -> str:
+    """"access_request" -> "Access Request", for activity-log copy."""
+    return (type_ or "").replace("_", " ").title() or "-"
+
+
+def _it_admins(db: Session) -> list:
+    """The service desk - who new tickets are announced to.
+
+    Chosen in Ticket -> Manage (ticket_agents). Deliberately "irrespective of
+    departments": one desk sees everything that comes in, decides what needs
+    approval, and hands the work out."""
+    return [e for e in (ticket_agents(db) or []) if e]
+
+
+def _on_desk(db: Session, user: dict) -> bool:
+    """Is this person actually ON the service desk roster?
+
+    Membership, nothing else - an administrator who was not picked in Manage is
+    not on the desk. This is what decides whether the desk QUEUES are somebody's
+    work, and it has to agree with who gets the bells: an off-desk admin who
+    stops being notified about new tickets must also stop being shown a queue
+    telling them to assign those tickets."""
+    email = (user.get("email") or "").strip().lower()
+    return email in {e.lower() for e in _it_admins(db)}
+
+
+def _is_agent(db: Session, user: dict) -> bool:
+    """May this person ACT on the desk - route a ticket for approval?
+
+    On the roster, OR an administrator. Administrators are kept in deliberately:
+    they are the people who edit the roster, and a desk configured with a typo
+    (or staffed by someone who has since left) must not lock the ticket system
+    away from the only people who can fix it.
+
+    Deliberately NOT the same question as _on_desk. Permission is "may you step
+    in", membership is "is this your queue" - using one boolean for both put the
+    desk queues back in front of every administrator the moment a roster was
+    configured, which is the opposite of what configuring one is for."""
+    if user.get("level", 1) >= 4:                       # administrator/owner
+        return True
+    return _on_desk(db, user)
+
+
+def _notify_triage(db: Session, t: models.TaskTicket, actor: str,
+                   title: str = "New ticket to assign") -> None:
+    """Tell the IT Admin pool an unassigned ticket is waiting to be handed out.
+
+    Called at creation for tickets needing no approval, and again once an
+    approval is granted - without this an unassigned ticket notifies nobody who
+    can act on it and simply sits."""
+    if t.assignee_email:
         return
     tk_action = {"view": "tickets", "label": "View ticket"}
-    # dict.fromkeys: dedupe (lead may also be the backup) while keeping lead first.
-    for em in dict.fromkeys(e for e in [(dept.lead_email or "").lower(),
-                                        (dept.backup_email or "").lower()] if e):
+    for em in dict.fromkeys(e.lower() for e in _it_admins(db)):
         if em == actor:
             continue   # they raised/approved it themselves; they can already see it
         task_notify(db, kind="ticket_needs_assignment", for_email=em,
-                    title="New ticket to assign",
-                    body=f"{t.code} · {t.subject} ({dept.name})", nexus_action=tk_action)
-
-
-def _approver_for(t: models.TaskTicket) -> str:
-    """The approver named at intake, or "" when this type/ticket needs no approval."""
-    key = APPROVER_FIELD_BY_TYPE.get(t.type or "")
-    if not key:
-        return ""
-    tf = t.type_fields if isinstance(t.type_fields, dict) else {}
-    return str(tf.get(key) or "").strip().lower()
+                    title=title, body=f"{ticket_no(t.code)} · {t.subject}", nexus_action=tk_action)
 
 
 class TicketBody(BaseModel):
@@ -188,7 +229,21 @@ class TicketUpdate(BaseModel):
 
 
 def _next_ticket_code(db: Session) -> str:
-    return f"TKT-{db.query(models.TaskTicket).count() + 1:03d}"
+    """One past the highest number issued so far.
+
+    Was `count() + 1`, which is only correct while nothing is ever deleted:
+    delete any ticket and the next one issued reuses a live number, so two
+    tickets share a code and every reference to it becomes ambiguous. Counting
+    what exists answers "how many", not "what comes next".
+
+    Legacy "TKT-nnn" codes are read for their digits too, so the sequence
+    continues past them rather than restarting into numbers already in use."""
+    highest = 0
+    for (code,) in db.query(models.TaskTicket.code).all():
+        digits = "".join(ch for ch in (code or "") if ch.isdigit())
+        if digits:
+            highest = max(highest, int(digits))
+    return f"{highest + 1:0{TICKET_CODE_DIGITS}d}"
 
 
 def _ticket_participants(t: models.TaskTicket) -> set:
@@ -214,8 +269,23 @@ def _notify_participants(db: Session, t: models.TaskTicket, actor_email: str, ki
 
 
 @router.get("/task-tickets")
-def list_tickets(db: Session = Depends(get_db)):
-    return [ticket_to_dict(t) for t in db.query(models.TaskTicket).all()]
+def list_tickets(mine: bool = False, user: dict = Depends(get_current_user),
+                 db: Session = Depends(get_db)):
+    """`mine=true` narrows to the tickets this person raised or is watching -
+    what the Support page's end-user view needs.
+
+    Scoped server-side rather than filtered in the browser: the unscoped list is
+    the agent queue and carries every ticket in the company, so a client-side
+    filter would still ship all of them to an employee's browser. Default is
+    unchanged, so the Tickets module is unaffected."""
+    q = db.query(models.TaskTicket)
+    rows = q.all()
+    if mine:
+        me = (user.get("email") or "").lower()
+        rows = [t for t in rows
+                if (t.requester_email or "").lower() == me
+                or me in [(w or "").lower() for w in (t.watcher_emails or [])]]
+    return [ticket_to_dict(t) for t in rows]
 
 
 @router.post("/task-tickets", status_code=201)
@@ -226,58 +296,66 @@ def create_ticket(body: TicketBody, background_tasks: BackgroundTasks,
         id=body.id or gen_id(), code=body.code or _next_ticket_code(db), subject=body.subject,
         description=body.description or "", type=body.type or "request",
         status=body.status or "new", priority=body.priority or "medium",
-        requester_email=(body.requester_email or user["email"]).lower(),
-        assignee_email=(body.assignee_email or "").lower(), department_id=body.department_id or "",
-        company_id=body.company_id or "", hr_department_id=body.hr_department_id or "",
+        requester_email=(body.requester_email or user["email"]).strip().lower(),
+        assignee_email=(body.assignee_email or "").strip().lower(), department_id=body.department_id or "",
+        # Resolved from the requester's People record when intake did not send
+        # one - the form no longer asks. Still honours an explicit value so an
+        # agent raising a ticket on someone else's behalf can override it.
+        company_id=(body.company_id or company_for(db, (body.requester_email or user["email"]))),
+        hr_department_id=body.hr_department_id or "",
         linked_task_id=body.linked_task_id or "", tags=body.tags or [], images=body.images or [],
         watcher_emails=body.watcher_emails or [], resolution=body.resolution or "",
         custom_field_values=body.custom_field_values or {}, type_fields=body.type_fields or {}, links=[], task_ids=[],
         component=body.component or "", csat_rating=0, csat_comment="",
         sla_due_on=body.sla_due_on or "", resolved_at="", created_at=now, modified_at=now,
     )
-    # Approval gate - derived from the intake fields, never trusted from the client,
-    # so a caller can't post approval_status="approved" to skip the gate.
-    approver = _approver_for(t)
-    t.approver_email = approver
-    t.approval_status = "pending" if approver else "none"
+    # Approval gate, decided by the TYPE and never trusted from the client, so a
+    # caller cannot post approval_status="approved" to skip it.
+    #
+    # No approver is named here. A gated ticket parks as pending with the
+    # approver still blank: it goes to the IT Admin pool first, and an admin
+    # sends it on to whoever should sign it off (request_approval below). The
+    # requester never chooses their own approver, and neither does the server
+    # guess - the desk that sees the request decides who it needs.
+    t.approver_email = ""
+    t.approval_status = "pending" if (t.type or "") in APPROVAL_REQUIRED_TYPES else "none"
+    if t.approval_status == "pending" and t.assignee_email:
+        # Same rule update_ticket enforces, applied at the door: a request cannot
+        # be born already assigned, or the gate is skippable by whoever files it.
+        raise HTTPException(409, "This request needs approval - it can be assigned once approved.")
     db.add(t)
     log_activity(db, type="created", actor_email=user["email"], entity_kind="ticket",
                  entity_id=t.id, entity_code=t.code, entity_title=t.subject, detail="created this ticket")
     tk_action = {"view": "tickets", "label": "View ticket"}
     if t.assignee_email and t.assignee_email != user["email"].lower():
         task_notify(db, kind="ticket_assigned", for_email=t.assignee_email,
-                    title="You were assigned a ticket", body=f"{t.code} · {t.subject}", nexus_action=tk_action)
-    # Approval gate first: a ticket awaiting approval must NOT reach the department
-    # lead yet - triage is notified only once it's approved (see decide_approval).
-    elif t.approval_status == "pending" and t.approver_email:
-        if t.approver_email != user["email"].lower():
-            task_notify(db, kind="ticket_needs_approval", for_email=t.approver_email,
-                        title="A ticket needs your approval",
-                        body=f"{t.code} · {t.subject}", nexus_action=tk_action)
+                    title="You were assigned a ticket", body=f"{ticket_no(t.code)} · {t.subject}", nexus_action=tk_action)
+    elif t.approval_status == "pending":
+        # Gated: the IT Admins are told it needs sending for approval, not that
+        # it needs assigning. Nobody can action it until it has been approved,
+        # and a queue that says "assign me" about a ticket that cannot be
+        # assigned yet trains people to ignore it.
+        _notify_triage(db, t, user["email"].lower(), title="Ticket needs approval routing")
     else:
         _notify_triage(db, t, user["email"].lower())
     # Intake acknowledgment - let the requester know their request landed (e.g. when a
     # manager logs it on their behalf; if they raised it themselves they're the actor).
     if t.requester_email and t.requester_email != user["email"].lower():
         task_notify(db, kind="ticket_received", for_email=t.requester_email,
-                    title="We received your ticket", body=f"{t.code} · {t.subject}", nexus_action=tk_action)
+                    title="We received your ticket", body=f"{ticket_no(t.code)} · {t.subject}", nexus_action=tk_action)
     db.commit()
     db.refresh(t)
     background_tasks.add_task(notify_ticket_event, t.id, "created", user["email"])
-    # Approval-gated: the approver gets their own "waiting for your approval"
-    # email. (The dept head's copy of "created" is held back until approval -
-    # see _recipients_for in ticket_notify.py - mirroring the in-app gate above.)
-    if t.approval_status == "pending" and t.approver_email:
-        background_tasks.add_task(notify_ticket_event, t.id, "approval_required", user["email"])
+    # No approval email here: a gated ticket has no approver yet, so there is
+    # nobody to send one to. request_approval sends it once an IT Admin names one.
     return ticket_to_dict(t)
 
 
 # Fields left open to whoever is just working a ticket (the assignee, or
 # anyone else without ownership of it) - enough to triage, reassign and close
 # it out, not to rewrite what it is or who it's for. Everyone else (the
-# requester, the ticket's department lead/backup, or a manager+) gets the
-# full field set. Mirrors the drawer's field gating in TicketsView.jsx -
-# keep the two in step.
+# requester, or a manager+) gets the full field set. Mirrors the drawer's field
+# gating in TicketsView.jsx - keep the two in step.
 _WORKING_FIELDS = {"type", "status", "priority", "assignee_email", "hr_department_id", "resolution"}
 # Every field an unrestricted caller may touch, minus reopen_reason (not a
 # column - see TicketUpdate).
@@ -285,16 +363,16 @@ _ALL_TICKET_FIELDS = set(TicketUpdate.model_fields.keys()) - {"reopen_reason"}
 
 
 def _ticket_privileged(db: Session, t: models.TaskTicket, user: dict) -> bool:
-    """Manager+ or the ticket's department lead/backup - full access regardless
-    of ticket state; they own the queue, not just this one ticket."""
-    email = user["email"].lower()
-    if user.get("level", 1) >= 3:                                    # manager+
-        return True
-    if t.hr_department_id:
-        dept = db.query(models.HrDepartment).filter(models.HrDepartment.id == t.hr_department_id).first()
-        if dept and email in {(dept.lead_email or "").lower(), (dept.backup_email or "").lower()}:
-            return True                                              # routes/owns this queue
-    return False
+    """Manager+ - full access regardless of ticket state; they own the queue,
+    not just this one ticket.
+
+    The ticket's department lead/backup used to qualify too. Dropped with the
+    rest of the department-head routing: a ticket is filed against the
+    department it is ABOUT, so that handed silent full edit rights over other
+    people's requests to whoever happened to lead the named department - who is
+    no longer notified about them and never owned them. The IT Admin desk owns
+    tickets, and administrators clear the manager+ bar already."""
+    return user.get("level", 1) >= 3
 
 
 def _ticket_edit_scope(db: Session, t: models.TaskTicket, user: dict) -> set | None:
@@ -303,12 +381,11 @@ def _ticket_edit_scope(db: Session, t: models.TaskTicket, user: dict) -> set | N
 
     Once a ticket is "in_progress" and assigned, it becomes the assignee's to
     work: they get full access EXCEPT company_id - which stays with the
-    requester (pre-lock) or a manager/dept lead, never the working assignee
-    (Jul 28 policy). Everyone else - including the requester - is locked out
-    entirely once locked (Jul 27 policy). Before that point the requester has
-    full access; anyone else gets the working-field subset (self-assign,
-    triage). Manager+/dept lead-backup are unrestricted throughout, including
-    company_id."""
+    requester (pre-lock) or a manager, never the working assignee (Jul 28
+    policy). Everyone else - including the requester - is locked out entirely
+    once locked (Jul 27 policy). Before that point the requester has full
+    access; anyone else gets the working-field subset (self-assign, triage).
+    Manager+ is unrestricted throughout, including company_id."""
     email = user["email"].lower()
     if _ticket_privileged(db, t, user):
         return None
@@ -332,21 +409,64 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
         blocked = sorted(set(data.keys()) - scope)
         if blocked:
             if not scope:
-                raise HTTPException(403, f"This ticket is in progress and assigned to {t.assignee_email or 'someone else'} - only they (or a manager/department lead) can edit it right now.")
+                raise HTTPException(403, f"This ticket is in progress and assigned to {t.assignee_email or 'someone else'} - only they (or a manager) can edit it right now.")
             if blocked == ["company_id"]:
-                raise HTTPException(403, "Only the requester (before the ticket is picked up) or a manager/department lead can change the company on a ticket.")
+                raise HTTPException(403, "Only the requester (before the ticket is picked up) or a manager can change the company on a ticket.")
             raise HTTPException(403, f"You can only update {', '.join(sorted(scope))} on a ticket you're not the requester/owner of - not: {', '.join(blocked)}")
+    # Work does not start before the sign-off. Assigning a ticket that is still
+    # awaiting approval hands someone work the approver has not sanctioned, and
+    # once it is in an assignee's queue it gets done - the gate is then decoration.
+    # "rejected" blocks too: a refused request that gets reopened must not become
+    # workable just because it is no longer closed (the reopen path below sends it
+    # back for a fresh decision).
+    if (data.get("assignee_email") or "") and (t.approval_status or "none") in ("pending", "rejected"):
+        raise HTTPException(409, "This request is awaiting approval - it can be assigned once approved.")
     prev_status, prev_assignee, prev_priority = t.status, (t.assignee_email or ""), t.priority
+    prev_type, prev_approval = (t.type or ""), (t.approval_status or "none")
     prev_due = t.sla_due_on
     for k, v in data.items():
         if k in ("assignee_email",) and v is not None:
-            v = (v or "").lower()
+            # strip() too - a padded address never matches the same person again,
+            # so the ticket is assigned to somebody who never sees it.
+            v = (v or "").strip().lower()
         setattr(t, k, v)
     if data.get("status") in ("resolved", "closed") and not t.resolved_at:
         t.resolved_at = now_iso()
     if data.get("status") not in ("resolved", "closed") and "status" in data:
         t.resolved_at = ""
         t.resolution = ""
+
+    # ── Keep the approval gate in step with the ticket ────────────────────────
+    # The gate is decided by the TYPE, so re-typing a ticket has to re-decide it.
+    # Without this a request raised as a Bug Report (ungated) and then re-typed to
+    # an Access Request kept approval_status "none" - it read as an access request
+    # everywhere while never having been approved by anyone, which is precisely
+    # the thing the gate exists to prevent.
+    if (t.type or "") != prev_type:
+        now_gated = (t.type or "") in APPROVAL_REQUIRED_TYPES
+        if now_gated and prev_approval == "none":
+            t.approval_status = "pending"
+            t.approver_email = ""
+            # Anyone already holding it loses it: they were handed work on a
+            # ticket that had not been through approval.
+            t.assignee_email = ""
+            t.assigned_by_email = ""
+            data.pop("assignee_email", None)   # don't log/notify an assignment that just went away
+        elif not now_gated and prev_approval == "pending":
+            # Re-classified out of the gated types before anyone decided. Clearing
+            # it stops a mis-typed ticket sitting "awaiting approval" forever with
+            # nothing left to approve. A decision already made is history and stays.
+            t.approval_status = "none"
+            t.approver_email = ""
+
+    # A refused request that is reopened goes back for a fresh decision rather
+    # than resuming as though it had been approved. Reopening is a request to
+    # reconsider - it is not itself the reconsideration.
+    if data.get("status") == "reopened" and prev_approval == "rejected":
+        t.approval_status = "pending"
+        t.approver_email = ""
+        t.approval_note = ""
+        t.approval_decided_at = ""
 
     # activity trail + notifications for meaningful changes
     def _log(kind, detail):
@@ -359,18 +479,34 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
         _log("status_changed", f"changed status to {t.status}")
         if t.status in ("resolved", "closed") and t.requester_email and t.requester_email != user["email"].lower():
             task_notify(db, kind="ticket_resolved", for_email=t.requester_email,
-                        title=f"Your ticket was {t.status}", body=f"{t.code} · {t.subject}", nexus_action=tk_action)
+                        title=f"Your ticket was {t.status}", body=f"{ticket_no(t.code)} · {t.subject}", nexus_action=tk_action)
         else:
             # keep watchers (and requester/assignee) in the loop on any status move
             _notify_participants(db, t, user["email"], kind="ticket_status",
-                                 title=f"Ticket moved to {t.status}", body=f"{t.code} · {t.subject}")
+                                 title=f"Ticket moved to {t.status}", body=f"{ticket_no(t.code)} · {t.subject}")
     if assignee_changed:
-        _log("assigned", f"assigned to {t.assignee_email or 'nobody'}")
+        # Stamped from the actor, never from the payload: the field records WHO
+        # handed the ticket over, and a value the caller could set records
+        # nothing. Cleared on unassignment so it never credits someone with an
+        # assignment that no longer exists.
+        t.assigned_by_email = user["email"].lower() if t.assignee_email else ""
+        _log("assigned", f"assigned to {t.assignee_email or 'nobody'}"
+                         + (f" by {t.assigned_by_email}" if t.assigned_by_email else ""))
         if t.assignee_email and t.assignee_email != user["email"].lower():
             task_notify(db, kind="ticket_assigned", for_email=t.assignee_email,
-                        title="You were assigned a ticket", body=f"{t.code} · {t.subject}", nexus_action=tk_action)
+                        title="You were assigned a ticket", body=f"{ticket_no(t.code)} · {t.subject}", nexus_action=tk_action)
     if "priority" in data and t.priority != prev_priority:
         _log("priority_changed", f"set priority to {t.priority}")
+    # The gate moving is a fact about the ticket, not a side effect to hide: log
+    # it, and put a re-gated ticket back in front of the desk that has to route it.
+    if (t.approval_status or "none") != prev_approval:
+        if t.approval_status == "pending":
+            _log("approval_reset",
+                 "sent back for approval - " + ("re-typed as " + _type_label(t.type)
+                                                if (t.type or "") != prev_type else "reopened after being rejected"))
+            _notify_triage(db, t, user["email"].lower(), title="Ticket needs approval routing")
+        elif t.approval_status == "none":
+            _log("approval_cleared", f"no longer needs approval - re-typed as {_type_label(t.type)}")
 
     t.modified_at = now_iso()
     db.commit()
@@ -408,7 +544,7 @@ def delete_ticket(ticket_id: str, user: dict = Depends(get_current_user), db: Se
     # with whoever raised it or owns the queue, never just the assignee.
     is_requester = (t.requester_email or "").lower() == user["email"].lower()
     if not (_ticket_privileged(db, t, user) or is_requester):
-        raise HTTPException(403, "Only the requester, the ticket's department lead, or a manager can delete a ticket")
+        raise HTTPException(403, "Only the requester or a manager can delete a ticket")
     # clean up the ticket's conversation / attachments / activity too
     db.query(models.TaskComment).filter(models.TaskComment.task_id == ticket_id).delete()
     db.query(models.TaskAttachment).filter(models.TaskAttachment.task_id == ticket_id).delete()
@@ -471,7 +607,7 @@ def add_ticket_comment(ticket_id: str, body: TicketCommentBody, background_tasks
     # Internal notes stay with the agents - don't ping the requester.
     _notify_participants(db, t, user["email"], kind="ticket_comment",
                          title="Internal note on a ticket" if internal else "New comment on a ticket",
-                         body=f"{t.code} · {t.subject}",
+                         body=f"{ticket_no(t.code)} · {t.subject}",
                          exclude={(t.requester_email or "").lower()} if internal else None)
     db.commit()
     db.refresh(c)
@@ -535,10 +671,33 @@ def list_ticket_companies(db: Session = Depends(get_db)):
     return [{"id": e.id, "name": e.name} for e in rows]
 
 
+def company_for(db: Session, email: str) -> str:
+    """The HrEntity a person belongs to, from their People record, or "".
+
+    The one answer both the department list and ticket creation use, so the
+    departments someone is offered can never belong to a different company than
+    the one their ticket is filed under."""
+    emp = (db.query(models.NexusEmployee)
+           .filter(models.NexusEmployee.work_email == (email or "").lower()).first())
+    return (emp.company or "") if emp else ""
+
+
 @router.get("/ticket-departments")
-def list_ticket_departments(db: Session = Depends(get_db)):
-    rows = (db.query(models.HrDepartment)
-            .order_by(models.HrDepartment.sort_order, models.HrDepartment.name).all())
+def list_ticket_departments(mine: bool = False, user: dict = Depends(get_current_user),
+                            db: Session = Depends(get_db)):
+    """`mine=true` returns only the departments of the requester's own company.
+
+    Intake no longer asks which company a ticket belongs to - a person works for
+    one, the server knows which, and picking it was a question with exactly one
+    right answer that a requester could still get wrong. Default is unchanged so
+    the agent queue and Manage keep seeing every department."""
+    q = db.query(models.HrDepartment)
+    if mine:
+        company = company_for(db, user.get("email") or "")
+        # No People record -> no company -> no departments to offer. The ticket
+        # is still valid without one; triage routes it.
+        q = q.filter(models.HrDepartment.company_id == (company or "\x00"))
+    rows = q.order_by(models.HrDepartment.sort_order, models.HrDepartment.name).all()
     return [{"id": d.id, "name": d.name, "companyId": d.company_id,
              "leadEmail": d.lead_email or "", "backupEmail": d.backup_email or ""} for d in rows]
 
@@ -573,10 +732,58 @@ def delete_ticket_component(component_id: str, db: Session = Depends(get_db)):
 
 
 # ── Approvals ────────────────────────────────────────────────────────────────
-# Service/change/access requests name an approver at intake. Until that person
-# decides, the ticket is parked: the department lead is NOT notified and it does
-# not appear in the triage queue. Approving releases it to triage; rejecting
-# closes it. The decision is recorded on the ticket and in the activity log.
+# Service and access requests are parked the moment they are raised: pending,
+# with no approver named. They go to the IT Admin pool, an admin sends the
+# ticket to whoever should sign it off (request_approval), and only once that
+# person approves can the ticket be assigned. Rejecting closes it. Every step
+# lands on the ticket and in the activity log.
+#
+# The requester never names their own approver and the server never guesses one.
+class ApprovalRequestBody(BaseModel):
+    approver_email: str
+    note: Optional[str] = ""
+
+
+@router.post("/task-tickets/{ticket_id}/request-approval")
+def request_approval(ticket_id: str, body: ApprovalRequestBody, background_tasks: BackgroundTasks,
+                     user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """IT Admin routes a parked request to the person who signs it off."""
+    t = _ticket_or_404(db, ticket_id)
+    actor = user["email"].lower()
+    # Desk only. This is the control itself - if the requester could pick who
+    # approves their own request, there is no approval.
+    if not _is_agent(db, user):
+        raise HTTPException(403, "Only a ticket agent can send a ticket for approval.")
+    if (t.approval_status or "none") == "none":
+        raise HTTPException(409, "This ticket does not require approval.")
+    if t.approval_status != "pending":
+        raise HTTPException(409, f"This ticket was already {t.approval_status}.")
+
+    approver = (body.approver_email or "").strip().lower()
+    if not approver:
+        raise HTTPException(422, "An approver is required.")
+    if approver == (t.requester_email or "").lower():
+        raise HTTPException(422, "A request cannot be approved by the person who raised it.")
+
+    resent = bool(t.approver_email) and t.approver_email != approver
+    t.approver_email = approver
+    t.modified_at = now_iso()
+    note = (body.note or "").strip()
+    log_activity(db, type="approval_requested", actor_email=user["email"], entity_kind="ticket",
+                 entity_id=t.id, entity_code=t.code, entity_title=t.subject,
+                 detail=("re-routed" if resent else "sent") + f" for approval to {approver}"
+                        + (f": {note}" if note else ""))
+    tk_action = {"view": "tickets", "label": "View ticket"}
+    if approver != actor:
+        task_notify(db, kind="ticket_needs_approval", for_email=approver,
+                    title="A ticket needs your approval",
+                    body=f"{ticket_no(t.code)} · {t.subject}", nexus_action=tk_action)
+    db.commit()
+    db.refresh(t)
+    background_tasks.add_task(notify_ticket_event, t.id, "approval_required", user["email"])
+    return ticket_to_dict(t)
+
+
 class ApprovalBody(BaseModel):
     decision: str                      # approve | reject
     note: Optional[str] = ""
@@ -618,7 +825,7 @@ def decide_approval(ticket_id: str, body: ApprovalBody, background_tasks: Backgr
         if t.requester_email and t.requester_email != actor:
             task_notify(db, kind="ticket_approved", for_email=t.requester_email,
                         title="Your request was approved",
-                        body=f"{t.code} · {t.subject}", nexus_action=tk_action)
+                        body=f"{ticket_no(t.code)} · {t.subject}", nexus_action=tk_action)
     else:
         # Rejected requests are closed - nothing downstream should act on them.
         t.status = "closed"
@@ -630,13 +837,13 @@ def decide_approval(ticket_id: str, body: ApprovalBody, background_tasks: Backgr
         if t.requester_email and t.requester_email != actor:
             task_notify(db, kind="ticket_rejected", for_email=t.requester_email,
                         title="Your request was rejected",
-                        body=f"{t.code} · {t.subject} - {note}", nexus_action=tk_action)
+                        body=f"{ticket_no(t.code)} · {t.subject} - {note}", nexus_action=tk_action)
     db.commit()
     db.refresh(t)
     # Approved → the dept head now gets the "needs assignment" email that was
     # held back at creation while the ticket sat behind the approval gate.
     if decision == "approve":
-        background_tasks.add_task(notify_ticket_event, t.id, "created", actor, only_roles=("dept_head",))
+        background_tasks.add_task(notify_ticket_event, t.id, "created", actor, only_roles=("it_admin",))
     return ticket_to_dict(t)
 
 
@@ -692,15 +899,35 @@ def escalate_ticket(ticket_id: str, background_tasks: BackgroundTasks,
     log_activity(db, type="escalated", actor_email=user["email"], entity_kind="ticket",
                  entity_id=t.id, entity_code=t.code, entity_title=t.subject, detail=f"escalated to {new_p} priority")
     _notify_participants(db, t, user["email"], kind="ticket_escalated",
-                         title=f"Ticket escalated to {new_p}", body=f"{t.code} · {t.subject}")
+                         title=f"Ticket escalated to {new_p}", body=f"{ticket_no(t.code)} · {t.subject}")
     task_notify(db, kind="ticket_escalated", for_email="admins", title="A ticket was escalated",
-                body=f"{t.code} · {t.subject} → {new_p}",
+                body=f"{ticket_no(t.code)} · {t.subject} → {new_p}",
                 nexus_action={"view": "tickets", "label": "View ticket"})
     db.commit()
     db.refresh(t)
     background_tasks.add_task(notify_ticket_event, t.id, "updated", user["email"],
                                update_kind=f"Escalated to {new_p} priority")
     return ticket_to_dict(t)
+
+
+@router.get("/task-tickets/my-access")
+def my_ticket_access(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Is the caller on the service desk? Drives whether the UI offers the desk
+    queues and Send for Approval.
+
+    Its own endpoint because the desk list lives in the notification settings,
+    and those are manager+ only - an agent who is not a manager could not read
+    their own membership from there. Returns booleans rather than the roster:
+    knowing whether YOU are on it is not the same as being handed everyone who
+    is. The backend re-checks on every action regardless; this only decides what
+    to render.
+
+    `onDesk`  - the queues are your work (drives To Route / To Assign).
+    `canAct`  - you may step in on a ticket (drives Send for Approval).
+
+    They differ for an administrator who is not on the roster: they can still
+    unstick a ticket, but the desk's queues are not their inbox."""
+    return {"onDesk": _on_desk(db, user), "canAct": _is_agent(db, user)}
 
 
 # ── Notification settings + delivery log (admin) ──────────────────────────────

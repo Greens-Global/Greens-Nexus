@@ -260,6 +260,12 @@ def _run_migrations():
             "ALTER TABLE task_tickets ADD COLUMN approver_email VARCHAR DEFAULT ''",
             "ALTER TABLE task_tickets ADD COLUMN approval_note VARCHAR DEFAULT ''",
             "ALTER TABLE task_tickets ADD COLUMN approval_decided_at VARCHAR DEFAULT ''",
+            # Who handed a ticket to its assignee - TaskTicket.assigned_by_email.
+            "ALTER TABLE task_tickets ADD COLUMN assigned_by_email VARCHAR DEFAULT ''",
+            # Ticket numbers dropped the "TKT-" prefix and widened to 6 digits
+            # (ticket_code.py). Rewrites legacy codes so one format exists;
+            # idempotent - after it runs nothing matches TKT-% any more.
+            "UPDATE task_tickets SET code = substr('000000' || CAST(CAST(substr(code, 5) AS INTEGER) AS TEXT), -6, 6) WHERE code LIKE 'TKT-%'",
             # Documents (DMS) Phase 4: merge-field subject/company for export
             "ALTER TABLE documents ADD COLUMN employee_id VARCHAR DEFAULT ''",
             "ALTER TABLE documents ADD COLUMN entity_id VARCHAR DEFAULT ''",
@@ -496,6 +502,11 @@ def _run_migrations():
         "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS approver_email VARCHAR DEFAULT ''",
         "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS approval_note VARCHAR DEFAULT ''",
         "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS approval_decided_at VARCHAR DEFAULT ''",
+        # Who handed a ticket to its assignee - TaskTicket.assigned_by_email.
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS assigned_by_email TEXT DEFAULT ''",
+        # Ticket numbers dropped the "TKT-" prefix and widened to 6 digits
+        # (ticket_code.py). Idempotent - nothing matches TKT-% afterwards.
+        "UPDATE task_tickets SET code = lpad((substring(code from 5))::int::text, 6, '0') WHERE code LIKE 'TKT-%'",
         # E-Sign multi-document packets: PDFs attached to a template, carried on the envelope
         "ALTER TABLE hr_sign_templates ADD COLUMN IF NOT EXISTS attachments JSONB DEFAULT '[]'::jsonb",
         "ALTER TABLE hr_sign_requests ADD COLUMN IF NOT EXISTS documents JSONB DEFAULT '[]'::jsonb",
@@ -737,6 +748,14 @@ def _run_migrations():
         # Same recurring gap CLAUDE.md records; idempotent, so it runs each boot
         # on dev and prod rather than living in a release checklist.
         "ALTER TABLE task_inbound_email ENABLE ROW LEVEL SECURITY",
+        # CredVault SMS/Email OTP + Personal Vault password (Aug 2026): same
+        # create_all-makes-it-with-RLS-OFF gap as above. vault_otp_challenges
+        # holds one-time codes and vault_personal_auth holds password hashes -
+        # both must never be reachable via the public anon key.
+        "ALTER TABLE vault_otp_challenges ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE vault_otp_sessions ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE vault_personal_auth ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE vault_personal_unlock_sessions ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

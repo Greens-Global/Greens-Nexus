@@ -2027,7 +2027,10 @@ class TaskTicket(Base):
     subject        = Column(String, nullable=False)
     description    = Column(String, default="")
     type           = Column(String, default="request")   # bug|incident|service_request|task|question|request
-    status         = Column(String, default="new")       # new|open|in_progress|on_hold|resolved|closed|reopened
+    # new|open|in_progress|waiting_user|waiting_vendor|on_hold|resolved|closed|reopened
+    # The two waiting_* states say who the ball is with; on_hold is the team
+    # parking it themselves. See TICKET_STATUS_META (ticketMeta.js).
+    status         = Column(String, default="new")
     priority       = Column(String, default="medium")
     requester_email= Column(String, default="", index=True)
     assignee_email = Column(String, default="", index=True)
@@ -2054,6 +2057,12 @@ class TaskTicket(Base):
     approver_email    = Column(String, default="", index=True)
     approval_note     = Column(String, default="")       # the approver's reason, esp. on reject
     approval_decided_at = Column(String, default="")
+    # Who handed this ticket to its assignee. Stamped by the server from the
+    # actor on the assigning request, never sent by the client - the point of
+    # the field is that it records who actually did it, and a value the caller
+    # can set is not a record of anything. Blank on tickets nobody has
+    # assigned yet, and on those assigned before this existed.
+    assigned_by_email = Column(String, default="", index=True)
     sla_due_on     = Column(String, default="")
     resolved_at    = Column(String, default="")
     created_at     = Column(String, default="")
@@ -2076,7 +2085,7 @@ class TicketEmailLog(Base):
     event_version        = Column(Integer, default=0)     # bumps when the same event_type fires again on this ticket
     idempotency_key       = Column(String, default="", index=True, unique=True)
     recipient            = Column(String, default="")
-    recipient_role       = Column(String, default="")     # requester|dept_head|assignee|ticket_admin
+    recipient_role       = Column(String, default="")     # requester|it_admin|assignee|ticket_admin
     subject              = Column(String, default="")
     status               = Column(String, default="pending")   # pending|sent|failed|retrying
     graph_message_id     = Column(String, default="")
@@ -2535,6 +2544,58 @@ class VaultAccessLog(Base):
     detail      = Column(JSON, nullable=True)                 # [{field,from,to}] for edits
     loc         = Column(String, default="")
     created_at  = Column(String, default="", index=True)
+
+
+class VaultOtpChallenge(Base):
+    """A pending SMS/Email one-time code (CredVault-specific, not the Entra
+    step-up module). Used both to gate company-vault reveal/share actions and
+    to verify a Personal Vault password reset. `target` is the phone/email the
+    code was actually sent to, kept for audit - the API only ever returns a
+    masked version of it."""
+    __tablename__ = "vault_otp_challenges"
+    id          = Column(String, primary_key=True)
+    email       = Column(String, default="", index=True)
+    purpose     = Column(String, default="")   # reveal_share | personal_reset
+    channel     = Column(String, default="")   # sms | email
+    target      = Column(String, default="")
+    code_hash   = Column(String, default="")
+    attempts    = Column(Integer, default=0)
+    consumed_at = Column(String, default="")
+    expires_at  = Column(String, default="", index=True)
+    created_at  = Column(String, default="")
+
+
+class VaultOtpSession(Base):
+    """Short-lived proof of a verified SMS/Email OTP - CredVault's own
+    replacement for step-up MFA on company credential reveal/share (personal
+    vault unlock uses VaultPersonalUnlockSession instead, see below)."""
+    __tablename__ = "vault_otp_sessions"
+    id         = Column(String, primary_key=True)
+    email      = Column(String, default="", index=True)
+    purpose    = Column(String, default="")
+    channel    = Column(String, default="")
+    expires_at = Column(String, default="", index=True)
+    created_at = Column(String, default="")
+
+
+class VaultPersonalAuth(Base):
+    """Per-user password that unlocks the Personal Vault. Salted PBKDF2 hash
+    ("salt_hex$hash_hex") - the plaintext is never stored. Reset requires a
+    verified VaultOtpChallenge(purpose='personal_reset')."""
+    __tablename__ = "vault_personal_auth"
+    email         = Column(String, primary_key=True)
+    password_hash = Column(String, default="")
+    updated_at    = Column(String, default="")
+
+
+class VaultPersonalUnlockSession(Base):
+    """Short-lived proof the Personal Vault password was entered correctly -
+    gates the personal-vault reveal endpoint."""
+    __tablename__ = "vault_personal_unlock_sessions"
+    id         = Column(String, primary_key=True)
+    email      = Column(String, default="", index=True)
+    expires_at = Column(String, default="", index=True)
+    created_at = Column(String, default="")
 
 
 class StepUpSession(Base):

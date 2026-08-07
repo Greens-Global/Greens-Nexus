@@ -198,6 +198,47 @@ def disconnect(db, email: str) -> bool:
     return True
 
 
+def token_reason(db, email: str) -> tuple[str | None, str]:
+    """(token, why-not) - token_for, plus the reason when there isn't one.
+
+    Every "post as the service account instead" decision runs through here, so
+    the reason a comment went out under the wrong name is a value the app can
+    show rather than something only a server log knows. Account Settings
+    promises "comments appear in Asana as <you>"; when that stops being true the
+    user is the last to find out, because falling back is silent by design (it
+    must never lose the comment).
+
+    Reasons are for a person to read, not to branch on."""
+    if not email:
+        return None, "no author on the comment"
+    if not oauth_configured():
+        return None, not_configured_reason() or "Asana OAuth is not configured on this server"
+    try:
+        row = get_row(db, email)
+        if not row:
+            return None, f"{email} has not connected an Asana account"
+        if not row.refresh_token_enc:
+            return None, "the stored grant has no refresh token - reconnect to re-authorize"
+        expires = _parse_iso(row.expires_at)
+        fresh_enough = expires and (expires - datetime.now(timezone.utc)).total_seconds() > _REFRESH_SKEW_SECONDS
+        if fresh_enough and row.access_token_enc:
+            tok = secret_box.decrypt(row.access_token_enc) or None
+            return (tok, "") if tok else (None, "the stored access token decrypted to nothing")
+        payload = refresh(secret_box.decrypt(row.refresh_token_enc))
+        if not payload.get("access_token"):
+            # Silent before this: Asana accepted the refresh but returned no
+            # token, and the caller could not tell that from "never connected".
+            return None, "Asana refused to refresh the grant - it was probably revoked in Asana; reconnect"
+        save_grant(db, email, payload)
+        return payload["access_token"], ""
+    except ValueError as e:
+        # secret_box raises this when the ciphertext does not match the current
+        # NEXUS_VAULT_KEY - the grant is unrecoverable and must be re-made.
+        return None, f"the stored grant cannot be decrypted ({e}); disconnect and reconnect"
+    except Exception as e:   # noqa: BLE001 - see token_for's docstring
+        return None, f"{type(e).__name__}: {e}"
+
+
 def token_for(db, email: str) -> str | None:
     """A usable Asana access token for this Nexus user, or None.
 

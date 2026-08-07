@@ -409,6 +409,9 @@ export const api = {
   deleteTicketView: (id) => req(`/task-ticket-views/${id}`, { method: "DELETE" }),
   getTicketCompanies: () => req("/ticket-companies"),
   getTicketDepartments: () => req("/ticket-departments"),
+  // Only the departments of the caller's own company - what ticket intake
+  // offers now that company is resolved server-side instead of asked for.
+  getMyTicketDepartments: () => req("/ticket-departments?mine=true"),
   asanaListProjects: (data) => req("/task-asana-projects", { method: "POST", body: JSON.stringify(data), timeoutMs: 60000 }),
   asanaImport: (data) => req("/task-asana-import", { method: "POST", body: JSON.stringify(data), timeoutMs: 600000 }),
   getAsanaSyncConfig: () => req("/asana-sync/config"),
@@ -434,6 +437,9 @@ export const api = {
   asanaOauthStatus:     () => req("/asana-oauth/status"),
   asanaOauthStart:      () => req("/asana-oauth/start", { method: "POST" }),
   asanaOauthDisconnect: () => req("/asana-oauth/me", { method: "DELETE" }),
+  // Live check: would a comment posted NOW go out as me, or as the shared
+  // sync account - and if the latter, why. Calls Asana for real.
+  asanaOauthCheck:      () => req("/asana-oauth/check"),
   deleteAsanaWebhooks: () => req("/asana-sync/webhooks", { method: "DELETE", timeoutMs: 60000 }),
   getTaskAutomationRules: () => req("/task-automation-rules"),
   createTaskAutomationRule: (data) => req("/task-automation-rules", { method: "POST", body: JSON.stringify(data) }),
@@ -451,6 +457,10 @@ export const api = {
   deleteTaskCustomField: (id) => req(`/task-custom-fields/${id}`, { method: "DELETE" }),
   // Tickets
   getTaskTickets: () => req("/task-tickets"),
+  // The requester's own tickets, scoped server-side - the Support page's list.
+  // The unscoped call above is the agent queue and carries every ticket in the
+  // company, so filtering in the browser would still ship them all.
+  getMyTickets: () => req("/task-tickets?mine=true"),
   createTaskTicket: (data) => req("/task-tickets", { method: "POST", body: JSON.stringify(data) }),
   updateTaskTicket: (id, data) => req(`/task-tickets/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
   deleteTaskTicket: (id) => req(`/task-tickets/${id}`, { method: "DELETE" }),
@@ -465,6 +475,12 @@ export const api = {
   removeTicketLink: (id, targetId) => req(`/task-tickets/${id}/links/${targetId}`, { method: "DELETE" }),
   escalateTicket: (id) => req(`/task-tickets/${id}/escalate`, { method: "POST" }),
   decideTicketApproval: (id, decision, note) => req(`/task-tickets/${id}/approval`, { method: "POST", body: JSON.stringify({ decision, note }) }),
+  // IT Admin routes a parked request to whoever signs it off (backend refuses anyone else).
+  requestTicketApproval: (id, approverEmail, note) => req(`/task-tickets/${id}/request-approval`, { method: "POST", body: JSON.stringify({ approver_email: approverEmail, note }) }),
+  // Am I on the service desk? Its own endpoint because the desk roster lives in
+  // the notify settings, which are manager+ only - an agent who is not a manager
+  // could not read their own membership from there.
+  getMyTicketAccess: () => req("/task-tickets/my-access"),
   // Ticket Outlook notification workflow - admin settings + delivery log (manager+)
   getTicketNotifySettings: () => req("/task-tickets/notify/settings"),
   updateTicketNotifySettings: (patch) => req("/task-tickets/notify/settings", { method: "PUT", body: JSON.stringify(patch) }),
@@ -993,6 +1009,15 @@ export const api = {
   cvPersonalCreate: (body)       => req('/credvault/personal', { method: 'POST', body: JSON.stringify(body) }),
   cvPersonalDelete: (id)         => req(`/credvault/personal/${id}`, { method: 'DELETE' }),
   cvPersonalReveal: (id)         => req(`/credvault/personal/${id}/reveal`, { method: 'POST' }),
+  // SMS/Email OTP (replaces step-up for company vault reveal/share) + Personal Vault password lock
+  cvOtpTargets:     ()           => req('/credvault/otp/targets'),
+  cvOtpRequest:     (channel)    => req('/credvault/otp/request', { method: 'POST', body: JSON.stringify({ channel }) }),
+  cvOtpVerify:      (challengeId, code) => req('/credvault/otp/verify', { method: 'POST', body: JSON.stringify({ challengeId, code }) }),
+  cvPersonalLockStatus: ()       => req('/credvault/personal/lock/status'),
+  cvPersonalLockSetup:  (password) => req('/credvault/personal/lock/setup', { method: 'POST', body: JSON.stringify({ password }) }),
+  cvPersonalLockVerify: (password) => req('/credvault/personal/lock/verify', { method: 'POST', body: JSON.stringify({ password }) }),
+  cvPersonalLockForgot: (channel)  => req('/credvault/personal/lock/forgot', { method: 'POST', body: JSON.stringify({ channel }) }),
+  cvPersonalLockReset:  (challengeId, code, newPassword) => req('/credvault/personal/lock/reset', { method: 'POST', body: JSON.stringify({ challengeId, code, newPassword }) }),
 
   // ── Documents (DMS) - Phase 1: folders + drafts/library, next to E-Sign ──
   getDocFolders:      ()             => req('/documents/folders'),
