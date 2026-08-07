@@ -856,6 +856,7 @@ export default function App() {
       )}
       {equipmentItemModal && (
         <AddItemModal
+          types={['Equipment', 'Vehicles']}
           initial={{
             name: equipmentItemModal.patch.name || '',
             itemType: equipmentItemModal.patch.kind === 'vehicle' ? 'Vehicles' : 'Equipment',
@@ -868,7 +869,7 @@ export default function App() {
           // here so the item and asset records can't drift apart; fix typos back on the asset
           // side. Department/Location stay editable (Item Management's version can legitimately
           // differ, e.g. an item's storage location vs. the equipment's home base).
-          lockedFields={['name', 'make', 'model', 'year']}
+          lockedFields={['name', 'itemType', 'make', 'model', 'year']}
           onBack={() => {
             const staged = equipmentItemModal;
             setEquipmentItemModal(null);

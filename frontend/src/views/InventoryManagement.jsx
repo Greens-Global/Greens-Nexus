@@ -460,9 +460,9 @@ export function AddItemModal({ onClose, onSave, initial = {}, types = ITEM_TYPES
 
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
             <div>
-              <label style={FL}>TYPE <span style={{ color:'hsl(var(--color-red))' }}>*</span></label>
+              <label style={FL}>TYPE <span style={{ color:'hsl(var(--color-red))' }}>*</span>{isLocked('itemType') && <span style={{ fontWeight:400, textTransform:'none', letterSpacing:0, color:'var(--muted)' }}> · from the asset details</span>}</label>
               <div style={{ position:'relative' }}>
-                <select className="form-input" style={{ width:'100%', appearance:'none', paddingRight:32 }} value={itemType} onChange={e => handleTypeChange(e.target.value)}>
+                <select className="form-input" style={{ width:'100%', appearance:'none', paddingRight:32, ...(isLocked('itemType') ? LOCKED_FIELD_STYLE : {}) }} disabled={isLocked('itemType')} value={itemType} onChange={e => handleTypeChange(e.target.value)}>
                   {[...new Set([...types, itemType].filter(Boolean))].map(t => <option key={t}>{t}</option>)}
                 </select>
                 <ChevronDown size={14} style={{ position:'absolute', right:11, top:'50%', transform:'translateY(-50%)', pointerEvents:'none', color:'var(--muted)' }} />
