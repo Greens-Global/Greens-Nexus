@@ -39,6 +39,8 @@ import { ManagePage } from './components/manage/ManagePage.jsx';
 
 import { exportAssetCsvAsFile, exportAssetPdf } from './lib/csvExport.js';
 import { useSession } from './lib/session.js';
+import { api } from '../api.js';
+import { AddItemModal } from '../views/InventoryManagement.jsx';
 
 const cityRegion = (p) => (p.city || '') + (p.state ? ', ' + p.state : '');
 
@@ -59,6 +61,7 @@ export default function App() {
   const [pendingNav, setPendingNav] = useState(null);     // navigation to run after that dialog resolves
   const [filters, setFilters] = useState({});             // per-tab search text, keyed by tab (or shared group)
   const [modal, setModal] = useState(null);                // the currently-open record/asset/timeline modal, if any
+  const [equipmentItemModal, setEquipmentItemModal] = useState(null); // staged Heavy Equipment asset awaiting its paired Item Management entry
   const [lastManageVisit, setLastManageVisit] = useState(() => { try { return localStorage.getItem('nexus_manage_seen') || ''; } catch { return ''; } });
   const [highlight, setHighlight] = useState(null);        // deep-link target set by "Go to" from the Activity Log
   const [typeFilter, setTypeFilter] = useState('');
@@ -831,7 +834,60 @@ export default function App() {
         />
       )}
       {modal?.type === 'property' && (
-        <AddAssetModal row={modal.id ? findAsset(modal.id) : null} properties={visibleProperties} onSave={(patch, reason, linkOptions) => saveAsset(modal.id, patch, reason, linkOptions)} onDelete={() => deleteAsset(modal.id)} onClose={() => setModal(null)} />
+        <AddAssetModal
+          row={modal.id ? findAsset(modal.id) : null}
+          draft={modal.id ? null : modal.draft}
+          properties={visibleProperties}
+          onSave={(patch, reason, linkOptions, meta) => {
+            // New Heavy Equipment or Vehicle asset from the guided wizard (not CSV bulk-import,
+            // which has no sensible per-row Item Management pairing): don't persist yet - stage
+            // it and collect the paired Item Management entry first. Neither side saves unless
+            // that second modal is completed (see equipmentItemModal below).
+            if (!modal.id && (patch.kind === 'equipment' || patch.kind === 'vehicle') && meta?.guided) {
+              setModal(null);
+              setEquipmentItemModal({ patch, reason, linkOptions });
+              return;
+            }
+            saveAsset(modal.id, patch, reason, linkOptions);
+          }}
+          onDelete={() => deleteAsset(modal.id)}
+          onClose={() => setModal(null)}
+        />
+      )}
+      {equipmentItemModal && (
+        <AddItemModal
+          initial={{
+            name: equipmentItemModal.patch.name || '',
+            itemType: equipmentItemModal.patch.kind === 'vehicle' ? 'Vehicles' : 'Equipment',
+            make: equipmentItemModal.patch.make || '',
+            model: equipmentItemModal.patch.model || '',
+            year: equipmentItemModal.patch.yearBuilt || '',
+            location: equipmentItemModal.patch.address || '',
+          }}
+          // These duplicate values already captured on the equipment/vehicle form - lock them
+          // here so the item and asset records can't drift apart; fix typos back on the asset
+          // side. Department/Location stay editable (Item Management's version can legitimately
+          // differ, e.g. an item's storage location vs. the equipment's home base).
+          lockedFields={['name', 'make', 'model', 'year']}
+          onBack={() => {
+            const staged = equipmentItemModal;
+            setEquipmentItemModal(null);
+            setModal({ type: 'property', id: null, draft: staged.patch });
+          }}
+          onSave={(itemData) => api.createItem(itemData).then((createdItem) => {
+            const staged = equipmentItemModal;
+            saveAsset(null, {
+              ...staged.patch,
+              snapshot: [
+                ...(staged.patch.snapshot || []),
+                { group: 'Item Management', fields: [
+                  { label: 'Linked item serial', value: createdItem?.serial_number || '' },
+                ] },
+              ],
+            }, staged.reason, staged.linkOptions);
+          })}
+          onClose={() => setEquipmentItemModal(null)}
+        />
       )}
       {modal?.type === 'plist' && (
         <SimpleRowModal
