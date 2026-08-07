@@ -409,6 +409,9 @@ export const api = {
   deleteTicketView: (id) => req(`/task-ticket-views/${id}`, { method: "DELETE" }),
   getTicketCompanies: () => req("/ticket-companies"),
   getTicketDepartments: () => req("/ticket-departments"),
+  // Only the departments of the caller's own company - what ticket intake
+  // offers now that company is resolved server-side instead of asked for.
+  getMyTicketDepartments: () => req("/ticket-departments?mine=true"),
   asanaListProjects: (data) => req("/task-asana-projects", { method: "POST", body: JSON.stringify(data), timeoutMs: 60000 }),
   asanaImport: (data) => req("/task-asana-import", { method: "POST", body: JSON.stringify(data), timeoutMs: 600000 }),
   getAsanaSyncConfig: () => req("/asana-sync/config"),
@@ -451,6 +454,10 @@ export const api = {
   deleteTaskCustomField: (id) => req(`/task-custom-fields/${id}`, { method: "DELETE" }),
   // Tickets
   getTaskTickets: () => req("/task-tickets"),
+  // The requester's own tickets, scoped server-side - the Support page's list.
+  // The unscoped call above is the agent queue and carries every ticket in the
+  // company, so filtering in the browser would still ship them all.
+  getMyTickets: () => req("/task-tickets?mine=true"),
   createTaskTicket: (data) => req("/task-tickets", { method: "POST", body: JSON.stringify(data) }),
   updateTaskTicket: (id, data) => req(`/task-tickets/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
   deleteTaskTicket: (id) => req(`/task-tickets/${id}`, { method: "DELETE" }),
@@ -465,6 +472,8 @@ export const api = {
   removeTicketLink: (id, targetId) => req(`/task-tickets/${id}/links/${targetId}`, { method: "DELETE" }),
   escalateTicket: (id) => req(`/task-tickets/${id}/escalate`, { method: "POST" }),
   decideTicketApproval: (id, decision, note) => req(`/task-tickets/${id}/approval`, { method: "POST", body: JSON.stringify({ decision, note }) }),
+  // IT Admin routes a parked request to whoever signs it off (backend refuses anyone else).
+  requestTicketApproval: (id, approverEmail, note) => req(`/task-tickets/${id}/request-approval`, { method: "POST", body: JSON.stringify({ approver_email: approverEmail, note }) }),
   // Ticket Outlook notification workflow - admin settings + delivery log (manager+)
   getTicketNotifySettings: () => req("/task-tickets/notify/settings"),
   updateTicketNotifySettings: (patch) => req("/task-tickets/notify/settings", { method: "PUT", body: JSON.stringify(patch) }),

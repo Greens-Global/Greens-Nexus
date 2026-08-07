@@ -197,12 +197,13 @@ def created_email_requester(*, t: dict, base_url: str, logo_url: str) -> tuple[s
     return subject, html
 
 
-def created_email_dept_head(*, t: dict, base_url: str, logo_url: str) -> tuple[str, str]:
+def created_email_triage(*, t: dict, base_url: str, logo_url: str) -> tuple[str, str]:
+    """The IT Admin desk's copy: a ticket has landed and needs handing out."""
     subject = _ticket_subject(t)
     html = ticket_email_html(
         ticket_code=t["code"], ticket_subject=t["subject"], status=t["status"],
         heading="A new ticket needs to be assigned",
-        intro="This ticket was raised against your department and is waiting for someone to be assigned to it.",
+        intro="This ticket has been raised and is waiting for someone to be assigned to it.",
         rows=[
             ("Description", t.get("description") or "-"),
             ("Department", t.get("departmentName") or "-"),

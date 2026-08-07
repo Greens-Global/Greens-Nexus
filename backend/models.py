@@ -2027,7 +2027,10 @@ class TaskTicket(Base):
     subject        = Column(String, nullable=False)
     description    = Column(String, default="")
     type           = Column(String, default="request")   # bug|incident|service_request|task|question|request
-    status         = Column(String, default="new")       # new|open|in_progress|on_hold|resolved|closed|reopened
+    # new|open|in_progress|waiting_user|waiting_vendor|on_hold|resolved|closed|reopened
+    # The two waiting_* states say who the ball is with; on_hold is the team
+    # parking it themselves. See TICKET_STATUS_META (ticketMeta.js).
+    status         = Column(String, default="new")
     priority       = Column(String, default="medium")
     requester_email= Column(String, default="", index=True)
     assignee_email = Column(String, default="", index=True)
@@ -2054,6 +2057,12 @@ class TaskTicket(Base):
     approver_email    = Column(String, default="", index=True)
     approval_note     = Column(String, default="")       # the approver's reason, esp. on reject
     approval_decided_at = Column(String, default="")
+    # Who handed this ticket to its assignee. Stamped by the server from the
+    # actor on the assigning request, never sent by the client - the point of
+    # the field is that it records who actually did it, and a value the caller
+    # can set is not a record of anything. Blank on tickets nobody has
+    # assigned yet, and on those assigned before this existed.
+    assigned_by_email = Column(String, default="", index=True)
     sla_due_on     = Column(String, default="")
     resolved_at    = Column(String, default="")
     created_at     = Column(String, default="")
@@ -2076,7 +2085,7 @@ class TicketEmailLog(Base):
     event_version        = Column(Integer, default=0)     # bumps when the same event_type fires again on this ticket
     idempotency_key       = Column(String, default="", index=True, unique=True)
     recipient            = Column(String, default="")
-    recipient_role       = Column(String, default="")     # requester|dept_head|assignee|ticket_admin
+    recipient_role       = Column(String, default="")     # requester|it_admin|assignee|ticket_admin
     subject              = Column(String, default="")
     status               = Column(String, default="pending")   # pending|sent|failed|retrying
     graph_message_id     = Column(String, default="")

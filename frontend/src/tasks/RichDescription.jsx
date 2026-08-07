@@ -123,14 +123,24 @@ export default function RichDescription({
   // Re-sync when the task changes under us (drawer switching tasks, or a pull
   // landing new content). Guarded on equality so it doesn't stomp typing.
   useEffect(() => {
-    if (!editor) return;
+    // isDestroyed, not just truthiness. TipTap tears the schema down on destroy,
+    // so getHTML() on a dead editor throws "Cannot read properties of null
+    // (reading 'cached')" - which took out the whole view through
+    // ViewErrorBoundary. React's StrictMode remount runs this effect again after
+    // the cleanup has already destroyed it, so the window is not hypothetical:
+    // it is every mount in development.
+    if (!editor || editor.isDestroyed) return;
     const next = value || '';
     if (next !== editor.getHTML()) editor.commands.setContent(next, { emitUpdate: false });
   }, [value, editor]);
 
   const insertImage = useCallback((file) => {
     const reader = new FileReader();
-    reader.onload = () => editor?.chain().focus().setImage({ src: String(reader.result) }).run();
+    // Fires after the read completes, which can be after the modal closed.
+    reader.onload = () => {
+      if (!editor || editor.isDestroyed) return;
+      editor.chain().focus().setImage({ src: String(reader.result) }).run();
+    };
     reader.readAsDataURL(file);
   }, [editor]);
 
@@ -138,6 +148,7 @@ export default function RichDescription({
     // Asana parity: the file lands on the task AND, when it's an image, embeds
     // inline where the cursor is.
     const saved = await onAttachFile?.(file).catch(() => null);
+    if (!editor || editor.isDestroyed) return;   // the upload outlived the editor
     if (file.type.startsWith('image/')) {
       if (saved?.url) editor?.chain().focus().setImage({ src: saved.url }).run();
       else insertImage(file);

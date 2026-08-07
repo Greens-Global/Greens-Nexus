@@ -22,7 +22,7 @@ import {
   fmtDate, today, requiredHint, TICKET_TYPE_META, TICKET_TYPE_ORDER, TYPE_FIELDS, NO_RECORDING_TYPES,
   TICKET_RESOLUTION, LINK_TYPES, TICKET_STATUS_META, TICKET_STATUS_ORDER, CLOSED_STATES,
   SLA_TARGET_HOURS, SLA_META, slaState, slaDueFromPriority, isBlankFieldValue, toEmailList,
-  label, field, resolutionLabel, linkTypeLabel, APPROVAL_META,
+  label, field, resolutionLabel, linkTypeLabel, APPROVAL_META, intakeFields,
 } from './ticketMeta';
 import {
   TypeFieldInput, TicketTypeIcon, SlaBadge, TicketStatusChip,
@@ -276,6 +276,8 @@ export default function TicketsView() {
   const { tickets, ticketViews = [], createTicketView, deleteTicketView,
     myEmail, nameOf, updateTicket, deleteTicket } = useTasks();
   const people = usePeople();
+  const { can } = useRole();
+  const itAdmin = can('administrator');
   const isMobile = useIsMobile();
   // HR departments carry the triage lead/backup; used for the Triage scope and the
   // department filter. Loaded here rather than in context - tickets are the only
@@ -286,27 +288,31 @@ export default function TicketsView() {
   const [companies, setCompanies] = useState([]);
   useEffect(() => { api.getTicketCompanies().then(setCompanies).catch(() => setCompanies([])); }, []);
   const companyName = (id) => companies.find((c) => c.id === id)?.name || '';
-  const myDeptIds = useMemo(() => {
-    const me = (myEmail || '').toLowerCase();
-    // Guard the empty case: without it, "" matches every department whose lead is
-    // unset, so a signed-out/loading user appears to lead the whole company.
-    if (!me) return new Set();
-    return new Set(hrDepts.filter((d) => (d.leadEmail || '').toLowerCase() === me
-      || (d.backupEmail || '').toLowerCase() === me).map((d) => d.id));
-  }, [hrDepts, myEmail]);
   const hrDeptName = (id) => hrDepts.find((d) => d.id === id)?.name || '';
   // Badge on the Triage tab - counts the whole queue, not the filtered view, so it
-  // doesn't shrink as you narrow other filters.
-  const triageCount = useMemo(() => tickets.filter(
-    (t) => !t.assigneeId && myDeptIds.has(t.hrDepartmentId || '')).length, [tickets, myDeptIds]);
+  // doesn't shrink as you narrow other filters. The queue belongs to the IT Admin
+  // desk, irrespective of department: it used to be scoped to the departments you
+  // lead, which put a ticket in front of whoever it was ABOUT rather than whoever
+  // resolves it. Requests still awaiting approval are excluded - they can't be
+  // assigned yet and live in To Route.
+  const triageCount = useMemo(() => (itAdmin
+    ? tickets.filter((t) => !t.assigneeId && t.approvalStatus !== 'pending'
+        && !CLOSED_STATES.includes(t.status)).length
+    : 0), [tickets, itAdmin]);
   // Requests parked on my approval - same reasoning: count the queue, not the view.
   const approvalCount = useMemo(() => {
     const me = (myEmail || '').toLowerCase();
-    if (!me) return 0;   // same guard as myDeptIds - "" must not match "no approver"
+    if (!me) return 0;   // "" must never match "no approver named yet"
     return tickets.filter((t) => t.approvalStatus === 'pending'
       && (t.approverId || '').toLowerCase() === me).length;
   }, [tickets, myEmail]);
-  const [scope, setScope] = useState('all');   // all | mine (requester) | assigned | triage
+  // The IT Admin desk's own queue: gated requests that have landed but not yet
+  // been sent to anyone. Without a tab these live only in the bell, and a bell
+  // that has been dismissed is not a queue.
+  const routeCount = useMemo(() => (itAdmin
+    ? tickets.filter((t) => t.approvalStatus === 'pending' && !t.approverId).length
+    : 0), [tickets, itAdmin]);
+  const [scope, setScope] = useState('all');   // all | mine (requester) | assigned | triage | approve | route
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [priorityFilter, setPriorityFilter] = useState('all');
@@ -395,12 +401,15 @@ export default function TicketsView() {
     return tickets.filter((t) => {
       if (scope === 'mine' && (t.requesterId || '').toLowerCase() !== me) return false;
       if (scope === 'assigned' && (t.assigneeId || '').toLowerCase() !== me) return false;
-      // Triage queue: unassigned tickets for departments I lead or back up - the
-      // work a department lead is notified about and expected to hand out.
-      if (scope === 'triage' && ((t.assigneeId || '') || !myDeptIds.has(t.hrDepartmentId || ''))) return false;
+      // Triage queue: everything unassigned and approved - the work the IT Admin
+      // desk is notified about and expected to hand out.
+      if (scope === 'triage' && ((t.assigneeId || '') || t.approvalStatus === 'pending'
+        || CLOSED_STATES.includes(t.status))) return false;
       // Approval queue: requests parked on my decision.
       if (scope === 'approve' && !(t.approvalStatus === 'pending'
         && (t.approverId || '').toLowerCase() === me)) return false;
+      // Routing queue (IT Admin): gated requests nobody has been asked to sign off yet.
+      if (scope === 'route' && !(t.approvalStatus === 'pending' && !t.approverId)) return false;
       if (hrDeptFilter !== 'all' && (t.hrDepartmentId || '') !== hrDeptFilter) return false;
       if (statusFilter !== 'all' && t.status !== statusFilter) return false;
       if (priorityFilter !== 'all' && t.priority !== priorityFilter) return false;
@@ -412,7 +421,7 @@ export default function TicketsView() {
       }
       return true;
     });
-  }, [tickets, scope, myEmail, search, statusFilter, priorityFilter, typeFilter, slaFilter, nameOf, myDeptIds, hrDeptFilter, approvalCount]);
+  }, [tickets, scope, myEmail, search, statusFilter, priorityFilter, typeFilter, slaFilter, nameOf, hrDeptFilter, approvalCount]);
 
   // List-view sort - applied before grouping so it holds within each bucket too.
   const sortedVisible = useMemo(() => {
@@ -489,7 +498,8 @@ export default function TicketsView() {
       {isMobile && (
         <div className="scroll-tabs" style={{ display: 'flex', alignItems: 'center', gap: 2, background: NX.border2, borderRadius: 9, padding: 2, margin: '0 12px 8px', overflowX: 'auto' }}>
           {[['all', 'All'], ['mine', 'Mine'], ['assigned', 'Assigned'],
-            ...(myDeptIds.size > 0 ? [['triage', `To Assign${triageCount ? ` (${triageCount})` : ''}`]] : []),
+            ...(routeCount > 0 ? [['route', `To Route (${routeCount})`]] : []),
+            ...(itAdmin ? [['triage', `To Assign${triageCount ? ` (${triageCount})` : ''}`]] : []),
             ...(approvalCount > 0 ? [['approve', `To Approve (${approvalCount})`]] : [])].map(([k, lab]) => (
             <button key={k} onClick={() => setScope(k)} style={{ ...toggleBtn(scope === k), whiteSpace: 'nowrap' }}>{lab}</button>
           ))}
@@ -504,7 +514,8 @@ export default function TicketsView() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
             <div className="scroll-tabs" style={{ display: 'flex', alignItems: 'center', gap: 2, background: NX.border2, borderRadius: 9, padding: 2, margin: '8px 0', overflowX: 'auto', flexShrink: 1, minWidth: 0 }}>
               {[['all', 'All'], ['mine', 'My Requests'], ['assigned', 'Assigned to Me'],
-                ...(myDeptIds.size > 0 ? [['triage', `To Assign${triageCount ? ` (${triageCount})` : ''}`]] : []),
+                ...(routeCount > 0 ? [['route', `To Route (${routeCount})`]] : []),
+                ...(itAdmin ? [['triage', `To Assign${triageCount ? ` (${triageCount})` : ''}`]] : []),
                 ...(approvalCount > 0 ? [['approve', `To Approve (${approvalCount})`]] : [])].map(([k, lab]) => (
                 <button key={k} onClick={() => setScope(k)} style={{ ...toggleBtn(scope === k), whiteSpace: 'nowrap' }}>{lab}</button>
               ))}
@@ -561,7 +572,7 @@ export default function TicketsView() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14, padding: '14px 24px 0', background: NX.canvas }}>
             {tile('Open', 'rgba(9,152,195,0.14)', '#0998c3', openCount, 'not yet resolved',
               () => { setScope('all'); setStatusFilter('all'); setSlaFilter('all'); }, scope === 'all' && statusFilter === 'all' && slaFilter === 'all' && false)}
-            {myDeptIds.size > 0 && tile('To assign', 'rgba(217,119,6,0.15)', NX.amber, triageCount, 'waiting for triage',
+            {itAdmin && tile('To assign', 'rgba(217,119,6,0.15)', NX.amber, triageCount, 'waiting for triage',
               () => setScope('triage'), scope === 'triage')}
             {tile('SLA breached', 'rgba(220,38,38,0.12)', NX.red, breachedCount, 'past their target',
               () => { setSlaFilter(slaFilter === 'breached' ? 'all' : 'breached'); }, slaFilter === 'breached')}
@@ -674,7 +685,7 @@ export default function TicketsView() {
       )}
 
       {creating && <CreateTicketModal onClose={() => setCreating(false)} />}
-      {openId && <TicketDrawer ticketId={openId} onClose={() => setOpenId(null)} myDeptIds={myDeptIds} />}
+      {openId && <TicketDrawer ticketId={openId} onClose={() => setOpenId(null)} />}
     </div>
   );
 }
@@ -959,7 +970,7 @@ export function CreateTicketModal({ onClose }) {
   const [allDepts, setAllDepts] = useState([]);
   useEffect(() => {
     api.getTicketCompanies().then(setCompanies).catch(() => setCompanies([]));
-    api.getTicketDepartments().then(setAllDepts).catch(() => setAllDepts([]));
+    api.getMyTicketDepartments().then(setAllDepts).catch(() => setAllDepts([]));
   }, []);
   // A draft stashed during a screen recording (recordingDraft.js) seeds the
   // form when it reopens - possibly after the user navigated to another view
@@ -969,7 +980,7 @@ export function CreateTicketModal({ onClose }) {
   const seed = seedRef.current;
   const [form, setForm] = useState(seed?.form || {
     subject: '', description: '', type: 'bug', priority: 'medium', status: 'new',
-    requesterId: myEmail || null, companyId: '', hrDepartmentId: '',
+    requesterId: myEmail || null, hrDepartmentId: '',
   });
   const [tf, setTf] = useState(seed?.tf || {});   // per-type field values (keyed by field key)
   const [step, setStep] = useState(seed ? 2 : 1);        // 1 = routing (company/dept/type), 2 = details
@@ -977,21 +988,23 @@ export function CreateTicketModal({ onClose }) {
   const [busy, setBusy] = useState(false);
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
   const setTfVal = (k, v) => setTf((p) => ({ ...p, [k]: v }));
-  const typeFieldDefs = useMemo(() => TYPE_FIELDS[form.type] || [], [form.type]);
-  // Departments are scoped to the chosen company.
-  const deptOptions = useMemo(
-    () => (form.companyId ? allDepts.filter((d) => d.companyId === form.companyId) : []),
-    [form.companyId, allDepts]);
+  // intakeFields, not TYPE_FIELDS: retired fields stay in the definitions so
+  // tickets that already captured one still render it, but nobody is asked
+  // for them again.
+  const typeFieldDefs = useMemo(() => intakeFields(form.type), [form.type]);
+  // Already scoped server-side to the requester's own company
+  // (/ticket-departments?mine=true), so there is nothing to filter here - and
+  // nothing that could offer a department belonging to another company.
+  const deptOptions = allDepts;
 
   // ── Step 1 validation ──
   // Department is only demanded when the chosen company actually has departments -
   // requiring a choice with nothing to choose from would be an inescapable form.
   const missingStep1 = useMemo(() => {
     const out = new Set();
-    if (!form.companyId) out.add('companyId');
     if (deptOptions.length > 0 && !form.hrDepartmentId) out.add('hrDepartmentId');
     return out;
-  }, [form.companyId, form.hrDepartmentId, deptOptions]);
+  }, [form.hrDepartmentId, deptOptions]);
 
   // ── Step 2 validation ──
   // Recomputed each render, so red marks clear as soon as a field is filled. Only
@@ -1067,7 +1080,7 @@ export function CreateTicketModal({ onClose }) {
       const created = await createTicket({
         subject: form.subject.trim(), description: form.description, type: form.type, priority: form.priority, status: form.status,
         // Requester defaults to the current user; SLA due date is derived from priority.
-        requesterId: form.requesterId || '', companyId: form.companyId || '', hrDepartmentId: form.hrDepartmentId || '',
+        requesterId: form.requesterId || '', hrDepartmentId: form.hrDepartmentId || '',
         slaDueOn: slaDueFromPriority(form.priority),
         typeFields,
       });
@@ -1131,7 +1144,6 @@ export function CreateTicketModal({ onClose }) {
   // ── Step 1: who the ticket is for and what kind it is. Everything downstream
   // (which intake fields to ask) depends on Type, so it's settled up front. ──
   if (step === 1) {
-    const companyName = companies.find((c) => c.id === form.companyId)?.name;
     return shell(isMobile ? 'New Ticket' : 'New Ticket · Step 1 of 2', {
       footer: (
         <>
@@ -1148,27 +1160,21 @@ export function CreateTicketModal({ onClose }) {
         <div style={{ fontSize: 12.5, color: NX.dim, marginBottom: 14 }}>
           Where does this ticket belong, and what kind is it? The next step asks for details specific to the type you pick.
         </div>
-        <div style={field}>
-          <label style={label}>Company <span style={{ color: NX.red }}>*</span></label>
-          <select autoFocus value={form.companyId}
-            onChange={(e) => setForm((f) => ({ ...f, companyId: e.target.value, hrDepartmentId: '' }))}
-            style={{ ...sel, ...errStyle('companyId', missingStep1) }}>
-            <option value="">Select company</option>
-            {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
-          {showErrors && missingStep1.has('companyId') && <div style={requiredHint}>Required</div>}
-        </div>
+        {/* No Company picker. A requester works for exactly one, the server
+            knows which (tickets.company_for), and asking was a question with a
+            single right answer they could still get wrong. The departments
+            offered below are already that company's. */}
         <div style={field}>
           <label style={label}>Department {deptOptions.length > 0 && <span style={{ color: NX.red }}>*</span>}</label>
-          <select value={form.hrDepartmentId} onChange={(e) => set('hrDepartmentId', e.target.value)}
-            style={{ ...sel, ...errStyle('hrDepartmentId', missingStep1) }} disabled={!form.companyId}>
-            <option value="">{form.companyId ? 'Select department' : 'Select a company first'}</option>
+          <select autoFocus value={form.hrDepartmentId} onChange={(e) => set('hrDepartmentId', e.target.value)}
+            style={{ ...sel, ...errStyle('hrDepartmentId', missingStep1) }}>
+            <option value="">{deptOptions.length ? 'Select department' : 'No departments to choose from'}</option>
             {deptOptions.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
           </select>
           {showErrors && missingStep1.has('hrDepartmentId') && <div style={requiredHint}>Required</div>}
-          {form.companyId && deptOptions.length === 0 && (
+          {deptOptions.length === 0 && (
             <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>
-              No departments set up for {companyName || 'this company'} - you can continue without one.
+              No departments set up for your company - you can continue without one.
             </div>
           )}
         </div>
@@ -1233,8 +1239,7 @@ export function CreateTicketModal({ onClose }) {
         <TicketTypeIcon type={form.type} size={14} />
         <span style={{ fontSize: 12.5, fontWeight: 700, color: NX.ink }}>{TICKET_TYPE_META[form.type].label}</span>
         <span style={{ fontSize: 12.5, color: NX.dim }}>
-          {companies.find((c) => c.id === form.companyId)?.name || '-'}
-          {form.hrDepartmentId ? ` · ${deptOptions.find((d) => d.id === form.hrDepartmentId)?.name || ''}` : ''}
+          {deptOptions.find((d) => d.id === form.hrDepartmentId)?.name || 'No department'}
         </span>
         <button type="button" onClick={() => { setStep(1); setShowErrors(false); }}
           style={{ ...btn('ghost'), marginLeft: 'auto', padding: '2px 6px', fontSize: 12, color: NX.blue, fontWeight: 600 }}>Change</button>
@@ -1313,7 +1318,7 @@ function readOnlyFieldValue(f, value, nameOf) {
   return String(value);
 }
 
-function TicketDrawer({ ticketId, onClose, myDeptIds }) {
+function TicketDrawer({ ticketId, onClose }) {
   const { tickets, tasks, projects = [],
     addTicketLink, removeTicketLink, escalateTicket, createTask, myEmail, nameOf, updateTicket, deleteTicket,
     refresh } = useTasks();
@@ -1328,23 +1333,27 @@ function TicketDrawer({ ticketId, onClose, myDeptIds }) {
   const [allDepts, setAllDepts] = useState([]);
   useEffect(() => {
     api.getTicketCompanies().then(setCompanies).catch(() => setCompanies([]));
-    api.getTicketDepartments().then(setAllDepts).catch(() => setAllDepts([]));
+    api.getMyTicketDepartments().then(setAllDepts).catch(() => setAllDepts([]));
   }, []);
   const t = tickets.find((x) => x.id === ticketId);
+  // Live fields always; a retired one only when this ticket actually holds an
+  // answer for it. Rendering retired fields unconditionally would give new
+  // tickets permanently empty rows for questions nobody was asked.
+  const shownTypeFields = (TYPE_FIELDS[t?.type] || []).filter(
+    (f) => !f.retired || !isBlankFieldValue(t?.typeFields?.[f.key]));
   if (!t) return null;
 
   // Before a ticket is "in_progress" (with an assignee), the requester has
   // full edit access and anyone else can triage/self-assign it (working
   // fields only). Once it's in_progress and assigned, it becomes the
   // assignee's to work - everyone else, including the requester, is locked
-  // out until it moves to another status. Manager+/dept lead-backup are
-  // unrestricted throughout. Mirrors _ticket_edit_scope in
+  // out until it moves to another status. Manager+ is unrestricted throughout.
+  // Mirrors _ticket_edit_scope in
   // backend/routers/tickets.py, which enforces the same split server-side (this
   // is UI convenience, not the security boundary - that's the backend check).
   const isRequester = (t.requesterId || '').toLowerCase() === (myEmail || '').toLowerCase();
   const isAssignee = (t.assigneeId || '').toLowerCase() === (myEmail || '').toLowerCase();
-  const isDeptOwner = t.hrDepartmentId ? (myDeptIds || new Set()).has(t.hrDepartmentId) : false;
-  const privileged = myLevel >= 3 || isDeptOwner;
+  const privileged = myLevel >= 3;
   const locked = t.status === 'in_progress' && !!t.assigneeId;
   const fullAccess = privileged || (locked ? isAssignee : isRequester);
   // The always-open "working fields" (type/status/priority/assignee/department/
@@ -1352,8 +1361,8 @@ function TicketDrawer({ ticketId, onClose, myDeptIds }) {
   const canWorking = privileged || (locked ? isAssignee : true);
   // Company is carved out of fullAccess: the assignee can work everything else
   // about a locked ticket, but never reassign which company it belongs to -
-  // that stays with the requester (pre-lock) or a manager/dept lead. Mirrors
-  // the company_id carve-out in _ticket_edit_scope.
+  // that stays with the requester (pre-lock) or a manager. Mirrors the
+  // company_id carve-out in _ticket_edit_scope.
   const canEditCompany = privileged || (!locked && isRequester);
   // Delete stays with whoever raised it or owns the queue - never just the
   // assignee, and not affected by the in_progress lock. Mirrors delete_ticket.
@@ -1484,8 +1493,21 @@ function TicketDrawer({ ticketId, onClose, myDeptIds }) {
         </div>
         <div style={field}>
           <label style={label}>Assign To</label>
-          <PersonSelect value={t.assigneeId || null} people={people} onChange={(v) => patch({ assigneeId: v || '' })} disabled={!canWorking} />
+          {/* Locked until the request is approved - the backend refuses it anyway,
+              so showing an open picker would only produce a 409 the user can't act on. */}
+          <PersonSelect value={t.assigneeId || null} people={people} onChange={(v) => patch({ assigneeId: v || '' })}
+            disabled={!canWorking || t.approvalStatus === 'pending'}
+            placeholder={t.approvalStatus === 'pending' ? 'Awaiting approval' : 'Unassigned'} />
         </div>
+        {t.assignedById && (
+          <div style={field}>
+            <label style={label}>Assigned By</label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 34 }}>
+              <Avatar email={t.assignedById} name={nameOf(t.assignedById)} size={22} />
+              <span style={{ fontSize: 13, color: NX.ink }}>{nameOf(t.assignedById)}</span>
+            </div>
+          </div>
+        )}
         <div style={field}>
           <label style={label}>Company</label>
           {canEditCompany ? (
@@ -1528,11 +1550,11 @@ function TicketDrawer({ ticketId, onClose, myDeptIds }) {
         )}
       </div>
 
-      {(TYPE_FIELDS[t.type] || []).length > 0 && (
+      {shownTypeFields.length > 0 && (
         <div style={field}>
           <label style={label}>{TICKET_TYPE_META[t.type]?.label} Details</label>
           <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
-            {TYPE_FIELDS[t.type].map((f) => (
+            {shownTypeFields.map((f) => (
               <div key={f.key} style={{ gridColumn: (f.full || f.type === 'textarea' || f.type === 'checklist') ? '1 / -1' : 'auto' }}>
                 <div style={{ ...label, fontSize: 11 }}>{f.label}</div>
                 {fullAccess ? (
@@ -1582,17 +1604,35 @@ function ApprovalChip({ ticket }) {
   return <span style={chip(meta.color, meta.tint)}>{meta.label}</span>;
 }
 
-// The decision panel. Only the named approver (or an admin) sees the buttons;
-// everyone else sees who it's waiting on, or what was decided and why.
+// The approval panel, in two acts.
+//
+// 1. A parked request arrives with no approver: an IT Admin picks who signs it
+//    off and sends it. Nobody else can - a requester who chooses their own
+//    approver has not been approved by anyone.
+// 2. Once routed, the named approver (or an admin) sees the decision buttons;
+//    everyone else sees who it's waiting on, or what was decided and why.
 function ApprovalPanel({ ticket: t, myEmail, nameOf, onDecided }) {
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState('');
   const [err, setErr] = useState('');
+  const [approver, setApprover] = useState(null);
+  const { can } = useRole();
+  const people = usePeople();
   const status = t.approvalStatus || 'none';
   if (status === 'none') return null;
 
   const meta = APPROVAL_META[status];
   const mine = (t.approverId || '').toLowerCase() === (myEmail || '').toLowerCase();
+  const itAdmin = can('administrator');
+  // Not yet routed. The IT Admin's step, not the approver's.
+  const needsRouting = status === 'pending' && !t.approverId;
+
+  const sendForApproval = async () => {
+    if (!approver) { setErr('Choose who should approve this.'); return; }
+    setErr(''); setBusy('send');
+    try { await api.requestTicketApproval(t.id, approver, note.trim()); await onDecided?.(); }
+    catch (e) { setErr(e.message || String(e)); } finally { setBusy(''); }
+  };
 
   const decide = async (decision) => {
     // The backend requires a reason to reject; ask here rather than fail the call.
@@ -1618,11 +1658,33 @@ function ApprovalPanel({ ticket: t, myEmail, nameOf, onDecided }) {
         {t.approvalDecidedAt && <span style={{ fontSize: 11.5, color: NX.faint, marginLeft: 'auto' }}>{fmtDate(t.approvalDecidedAt)}</span>}
       </div>
 
-      {status === 'pending' ? (
+      {needsRouting ? (
+        itAdmin ? (
+          <>
+            <div style={{ fontSize: 12, color: NX.dim, marginBottom: 8 }}>
+              This request needs approval before it can be assigned. Choose who signs it off.
+            </div>
+            <div style={{ marginBottom: 8 }}>
+              <PersonSelect value={approver} people={people.filter((p) => (p.email || '').toLowerCase() !== (t.requesterId || '').toLowerCase())}
+                onChange={setApprover} placeholder="Select approver" />
+            </div>
+            <input value={note} onChange={(e) => setNote(e.target.value)}
+              placeholder="Note for the approver (optional)"
+              style={{ ...inputStyle, marginBottom: 8 }} />
+            <button onClick={sendForApproval} disabled={!!busy} style={btn('primary')}>
+              <Send size={14} /> {busy === 'send' ? 'Sending…' : 'Send for Approval'}
+            </button>
+          </>
+        ) : (
+          <div style={{ fontSize: 12.5, color: NX.dim }}>
+            Waiting for IT to send this for approval. It can't be worked on until it's approved.
+          </div>
+        )
+      ) : status === 'pending' ? (
         mine ? (
           <>
             <div style={{ fontSize: 12, color: NX.dim, marginBottom: 8 }}>
-              Approving releases this ticket to the department for assignment. Rejecting closes it.
+              Approving releases this ticket for assignment. Rejecting closes it.
             </div>
             <input value={note} onChange={(e) => setNote(e.target.value)}
               placeholder="Reason (required to reject, optional to approve)"

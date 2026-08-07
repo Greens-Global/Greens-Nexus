@@ -10,7 +10,7 @@ export const today = () => new Date().toISOString().slice(0, 10);
 
 // ── Ticket issue types ───────────────────────────────────────────────────────
 export const TICKET_TYPE_META = {
-  bug:             { label: 'Bug',             icon: Bug,           color: NX.red },
+  bug:             { label: 'Bug Report',      icon: Bug,           color: NX.red },
   incident:        { label: 'Incident',        icon: AlertOctagon,  color: NX.amber },
   service_request: { label: 'Service Request', icon: Wrench,        color: NX.blue },
   feature_request: { label: 'Feature Request', icon: Lightbulb,     color: NX.green },
@@ -19,19 +19,26 @@ export const TICKET_TYPE_META = {
   change_request:  { label: 'Change Request',  icon: RefreshCw,     color: NX.amber },
   access_request:  { label: 'Access Request',  icon: KeyRound,      color: NX.teal },
   request:         { label: 'Request',         icon: Ticket,        color: NX.blue },
+  other:           { label: 'Other',           icon: Ticket,        color: NX.dim },
 };
-// Selectable types at intake. `task` and `request` are deliberately absent -
-// they still appear in TICKET_TYPE_META/TYPE_FIELDS so existing tickets of those
-// types keep rendering, but neither can be raised any more. `task` asked the
-// requester for assignee/project/sprint/estimate, which duplicated the Task
-// module and contradicted triage routing (tickets arrive unassigned; the
-// department lead assigns them). Escalate a ticket into a task instead.
-export const TICKET_TYPE_ORDER = ['bug', 'incident', 'service_request', 'feature_request', 'question', 'change_request', 'access_request'];
+// Selectable types at intake, in the order a requester sees them. Everything
+// NOT in this list still lives in TICKET_TYPE_META/TYPE_FIELDS so tickets
+// already raised as one keep rendering with their own label, icon and answers -
+// retiring a type must never turn existing tickets into blanks.
+//
+// Narrowed to four (Aug 2026). Incident/Feature Request/Question/Change Request
+// asked a requester to classify their own problem into distinctions only the
+// people triaging them can draw, and a wrong pick routes the ticket wrong.
+// `task` and `request` were already absent: `task` asked for
+// assignee/project/sprint/estimate, duplicating the Task module and
+// contradicting triage routing (tickets arrive unassigned; the department lead
+// assigns them). Escalate a ticket into a task instead.
+export const TICKET_TYPE_ORDER = ['service_request', 'access_request', 'bug', 'other'];
 
 // Screen recording is for showing a reproducible problem (bugs, incidents) -
 // feature and service requests are asks, not something to demonstrate on
 // screen, so the Record option is hidden for them (Upload still works).
-export const NO_RECORDING_TYPES = ['feature_request', 'service_request'];
+export const NO_RECORDING_TYPES = ['feature_request', 'service_request', 'access_request', 'other'];
 
 // Per-type intake fields - the extra questions each ticket type asks, on top of
 // the common ones: Company, Department and Type (wizard step 1), then Priority,
@@ -41,15 +48,23 @@ export const NO_RECORDING_TYPES = ['feature_request', 'service_request'];
 //              person · multiperson · project · multiselect · checklist. `req`
 //              marks required (shown with *), `full` spans both grid columns.
 export const TYPE_FIELDS = {
+  // WHAT broke -> HOW BADLY -> WHAT HAPPENED -> WHERE. Severity sits second
+  // because it is the field triage sorts on; it was last and optional, so the
+  // queue had nothing to sort by. Environment (browser/OS) follows the
+  // reproduction steps rather than preceding them - it qualifies the report, it
+  // is not what the report is about.
   bug: [
     { key: 'module', label: 'Application / Module', type: 'text', req: true },
-    { key: 'browser', label: 'Browser', type: 'select', options: ['Chrome', 'Firefox', 'Safari', 'Edge', 'Other'] },
-    { key: 'os', label: 'OS', type: 'select', options: ['Windows', 'macOS', 'Linux', 'iOS', 'Android', 'Other'] },
+    { key: 'severity', label: 'Severity', type: 'radio', options: ['Minor', 'Major', 'Critical', 'Blocker'], req: true },
     { key: 'stepsToReproduce', label: 'Steps to Reproduce', type: 'textarea', full: true, req: true, placeholder: '1.\n2.\n3.' },
     { key: 'expectedResult', label: 'Expected Result', type: 'textarea', req: true },
     { key: 'actualResult', label: 'Actual Result', type: 'textarea', req: true },
+    // Whether it reproduces is the difference between "fix it now" and "watch
+    // it", and it is the first thing an engineer asks the reporter.
+    { key: 'reproducibility', label: 'How Often', type: 'radio', options: ['Always', 'Sometimes', 'Saw It Once'] },
+    { key: 'browser', label: 'Browser', type: 'select', options: ['Chrome', 'Firefox', 'Safari', 'Edge', 'Other'] },
+    { key: 'os', label: 'OS', type: 'select', options: ['Windows', 'macOS', 'Linux', 'iOS', 'Android', 'Other'] },
     { key: 'errorMessage', label: 'Error Message', type: 'textarea', full: true },
-    { key: 'severity', label: 'Severity', type: 'radio', options: ['Minor', 'Major', 'Critical', 'Blocker'] },
   ],
   incident: [
     { key: 'affectedService', label: 'Affected Service', type: 'text', req: true },
@@ -62,16 +77,27 @@ export const TYPE_FIELDS = {
     { key: 'workaroundAvailable', label: 'Workaround Available?', type: 'radio', options: ['Yes', 'No'] },
     { key: 'workaroundDetail', label: 'Workaround (if yes)', type: 'textarea', full: true },
   ],
+  // WHAT -> FOR WHOM -> WHY -> WHEN -> COST -> WHERE. Service Category was
+  // already removed: step 1's department says which function fulfils it.
   service_request: [
-    // Service Category removed - the department chosen in step 1 already says
-    // which function this goes to (IT / Facilities / …); asking again duplicated it.
     { key: 'requestedService', label: 'Requested Service', type: 'text', req: true, placeholder: 'e.g. CCTV Installation' },
-    { key: 'requestedFor', label: 'Requested For', type: 'radio', options: ['Myself', 'Another User'], req: true },
-    { key: 'location', label: 'Location', type: 'text', req: true },
-    { key: 'requiredBy', label: 'Required By', type: 'date' },
+    // A person, not a Myself/Another User radio. The radio had no follow-up
+    // field, so "Another User" produced a request with no way to say WHO it was
+    // for and fulfilment had to go and ask. Blank means the requester, the way
+    // every service catalogue defaults it.
+    { key: 'requestedFor', label: 'Requested For (blank = yourself)', type: 'person' },
     { key: 'businessJustification', label: 'Business Justification', type: 'textarea', full: true, req: true },
-    { key: 'approver', label: 'Approver', type: 'person' },
+    { key: 'requiredBy', label: 'Required By', type: 'date' },
     { key: 'estimatedCost', label: 'Estimated Cost', type: 'number', prefix: '₹' },
+    // Optional, and renamed: most requests are software or access and have no
+    // physical destination. Required Location made every one of those carry an
+    // invented answer.
+    { key: 'location', label: 'Delivery Location', type: 'text' },
+    // Retired: a requester nominating their own approver is a control weakness
+    // an auditor would flag. Approval belongs to the workflow, derived from the
+    // requester's department and manager. Kept here so tickets that already
+    // captured one still show it.
+    { key: 'approver', label: 'Approver', type: 'person', retired: true },
   ],
   feature_request: [
     { key: 'module', label: 'Module', type: 'text', req: true },
@@ -108,14 +134,27 @@ export const TYPE_FIELDS = {
     { key: 'rollbackPlan', label: 'Rollback Plan', type: 'textarea', full: true, req: true },
     { key: 'approver', label: 'Approver', type: 'person', req: true },
   ],
+  // WHAT system -> WHAT LEVEL -> FOR WHOM -> WHICH environment -> WHY -> UNTIL
+  // WHEN. Every field here is something an access reviewer reads back during a
+  // quarterly recertification, which is why the justification is required and
+  // the expiry is asked for plainly.
   access_request: [
-    { key: 'application', label: 'Application', type: 'text', req: true },
-    { key: 'accessType', label: 'Access Type', type: 'radio', options: ['Read', 'Write', 'Admin'], req: true },
-    { key: 'user', label: 'User', type: 'person', req: true },
-    { key: 'managerApproval', label: 'Manager Approval', type: 'person', req: true },
-    { key: 'startDate', label: 'Start Date', type: 'date', req: true },
-    { key: 'endDate', label: 'End Date', type: 'date' },
-    { key: 'reason', label: 'Reason', type: 'textarea', full: true, req: true },
+    { key: 'application', label: 'Application / System', type: 'text', req: true },
+    { key: 'accessType', label: 'Access Level', type: 'radio', options: ['Read', 'Write', 'Admin'], req: true },
+    { key: 'user', label: 'Access For (blank = yourself)', type: 'person' },
+    // Prod and UAT are different grants carrying different risk; granting one
+    // when the other was meant is the commonest access mistake there is.
+    { key: 'environment', label: 'Environment', type: 'select', options: ['Production', 'UAT / Staging', 'Development', 'All'] },
+    { key: 'reason', label: 'Business Justification', type: 'textarea', full: true, req: true },
+    // Standing access is what audits object to, so the expiry is a first-class
+    // question. Blank is allowed - some access genuinely is permanent.
+    { key: 'endDate', label: 'Access Until (blank = permanent)', type: 'date' },
+    // Retired: self-nominated approval is not approval - same reason as the
+    // service-request approver.
+    { key: 'managerApproval', label: 'Manager Approval', type: 'person', retired: true },
+    // Retired: access starts when it is granted. A required start date was a
+    // question with no useful answer, and every requester typed today.
+    { key: 'startDate', label: 'Start Date', type: 'date', retired: true },
   ],
   request: [
     { key: 'businessJustification', label: 'Business Justification', type: 'textarea', full: true },
@@ -158,12 +197,21 @@ export const TICKET_STATUS_META = {
   new:         { label: 'New',         color: NX.blue,   tint: 'rgba(37,99,235,0.15)' },
   open:        { label: 'Open',        color: NX.purple, tint: 'rgba(124,58,237,0.15)' },
   in_progress: { label: 'In progress', color: NX.amber,  tint: 'rgba(217,119,6,0.16)' },
+  // Waiting states are separate from On hold because they answer "waiting on
+  // WHOM", and that is the difference between a clock that should keep running
+  // and one that should not: SLA pauses while the ball is in someone else's
+  // court. Rolling all three into On hold hid which tickets the team could
+  // actually move.
+  waiting_user:   { label: 'Waiting for user',   color: NX.blue, tint: 'rgba(37,99,235,0.12)' },
+  waiting_vendor: { label: 'Waiting for vendor', color: NX.dim,  tint: NX.border2 },
   on_hold:     { label: 'On hold',     color: NX.dim,    tint: NX.border2 },
   resolved:    { label: 'Resolved',    color: NX.green,  tint: 'rgba(22,163,74,0.15)' },
   closed:      { label: 'Closed',      color: NX.faint,  tint: NX.border2 },
   reopened:    { label: 'Reopened',    color: NX.red,    tint: 'rgba(220,38,38,0.15)' },
 };
-export const TICKET_STATUS_ORDER = ['new', 'open', 'in_progress', 'on_hold', 'resolved', 'closed', 'reopened'];
+// Lifecycle order - drives the status picker and the board columns, so it reads
+// the way a ticket actually travels.
+export const TICKET_STATUS_ORDER = ['new', 'open', 'in_progress', 'waiting_user', 'waiting_vendor', 'on_hold', 'resolved', 'closed', 'reopened'];
 export const CLOSED_STATES = ['resolved', 'closed'];
 
 // ── SLA policy - default resolution targets (hours) per priority. Used to
@@ -185,10 +233,14 @@ export const SLA_META = {
 };
 
 // ── Approvals ────────────────────────────────────────────────────────────────
-// Service/change/access requests name an approver at intake. Until they decide,
-// the ticket is parked: the department lead isn't notified and it stays out of
-// the triage queue. Keep this map in step with APPROVER_FIELD_BY_TYPE in
-// backend/routers/tickets.py - the backend derives the approver, never the client.
+// Service and access requests park the moment they're raised, with no approver
+// named. They go to the IT Admin pool, an admin sends the ticket on to whoever
+// signs it off, and only once approved can it be assigned. The client never
+// picks the approver at intake - see ApprovalPanel in TicketsView.jsx.
+//
+// Legacy: the retired intake fields old tickets captured an approver in. Kept
+// so those values stay identifiable; nothing writes them. Mirrors
+// APPROVER_FIELD_BY_TYPE in backend/routers/tickets.py.
 export const APPROVER_FIELD_BY_TYPE = {
   service_request: 'approver',
   change_request: 'approver',
@@ -207,3 +259,10 @@ export const field = { marginBottom: 14 };
 
 // Inline "Required" note shown under a field after a failed submit.
 export const requiredHint = { fontSize: 11.5, color: NX.red, marginTop: 4, fontWeight: 600 };
+
+
+// The fields INTAKE asks for. A retired field stays in TYPE_FIELDS so a ticket
+// that already captured one still displays it - the detail panel renders from
+// these definitions, so deleting an entry would hide the answer rather than
+// merely stop collecting it - but it is never asked for again.
+export const intakeFields = (type) => (TYPE_FIELDS[type] || []).filter((f) => !f.retired);
