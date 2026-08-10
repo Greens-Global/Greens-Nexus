@@ -84,10 +84,19 @@ def _browse_token(user: dict, db) -> str | None:
 
 @router.get("/status")
 def status(user: dict = Depends(get_current_user)):
-    """Deliberately does NOT 503 - the UI asks this to decide what to render."""
+    """Deliberately does NOT 503 - the UI asks this to decide what to render.
+
+    `service.canRefresh` is the piece worth watching: false means the SHARED
+    service token will expire (~30 days) and take every server-mediated surface
+    down with a 401 until a human pastes a new one. Reporting it here makes that
+    visible NOW rather than discovered as an outage, which is exactly how it was
+    discovered the first time. It is separate from `oauth`, which covers this
+    caller's own connection.
+    """
     import egnyte_oauth
     from database import SessionLocal
     out = {"configured": svc.configured(),
+           "service": {"canRefresh": svc.can_refresh(), "expiresAt": svc.token_expires_at()},
            "oauth": {"enabled": egnyte_oauth.oauth_configured(), "connected": False,
                      "egnyteUsername": "", "mustConnect": False}}
     if out["oauth"]["enabled"]:
@@ -337,7 +346,6 @@ def property_documents(site: str, user: dict = Depends(get_current_user)):
 import uuid as _uuid
 
 from sqlalchemy.orm import Session
-from fastapi import Body
 
 import egnyte_wiring as wiring
 from auth import require_manager, require_module_grant
