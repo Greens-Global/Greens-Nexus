@@ -24,8 +24,48 @@ from ticket_code import TICKET_CODE_DIGITS, ticket_no
 from ticket_notify import (notify_ticket_event, get_settings as get_notify_settings,
                            save_settings as save_notify_settings, ticket_agents)
 
-router = APIRouter(tags=["Tickets"],
-                   dependencies=[Depends(get_current_user), Depends(require_any_module_grant("tasks", "tickets"))])
+router = APIRouter(tags=["Tickets"], dependencies=[Depends(get_current_user)])
+
+# The service desk - working the queue, editing anyone's ticket, running the
+# desk's settings - is grant-driven like every other module (503f052).
+#
+# It is NOT the whole router, though, and that is the distinction this file has
+# to keep. Support is a company-wide self-service surface: raising a ticket,
+# reading your own, and filling in the form that submits one. An Access Group
+# decides who WORKS the queue, not who may ASK for help - a help desk an
+# employee cannot file a ticket with is the one thing it must never be. Put
+# behind the whole router, the grant 403'd /task-tickets?mine=true ("You don't
+# have access to this screen" on the Support page) and /ticket-departments ("No
+# departments to choose from" in the submit form) for every employee without a
+# tasks or tickets grant.
+#
+# So: agent endpoints carry `require_ticket_desk` explicitly, and the
+# requester-facing ones stay open to any signed-in user and are SCOPED
+# server-side instead - see list_tickets and _require_ticket_participant. Scoped,
+# not trusted: `mine=true` decided in the browser would be one query parameter
+# away from the whole company's queue.
+require_ticket_desk = require_any_module_grant("tasks", "tickets")
+
+
+def _has_desk_grant(user: dict, db: Session) -> bool:
+    """Whether this caller may see the desk side. The dependency form raises;
+    this is the boolean the scoped endpoints branch on."""
+    from auth import _grants_for, _LEVELS, _MODULE_LEVEL_RANK
+    if user.get("level", 0) >= _LEVELS["administrator"]:
+        return True
+    grants = _grants_for(user.get("email") or "", db)
+    return any(grants.get(m, 0) >= _MODULE_LEVEL_RANK["viewer"] for m in ("tasks", "tickets"))
+
+
+def _require_ticket_participant(db: Session, user: dict, t) -> None:
+    """A ticket's own requester/watchers/assignee may read and comment on it
+    without any module grant - it is their support request. Everyone else needs
+    the desk grant."""
+    if _has_desk_grant(user, db):
+        return
+    if (user.get("email") or "").lower() in _ticket_participants(t):
+        return
+    raise HTTPException(403, "You don't have access to this ticket")
 
 
 def _nz(v):
@@ -49,7 +89,7 @@ def saved_view_to_dict(s: models.TaskSavedView) -> dict:
 
 # ── Saved TICKET views (same table, scope='ticket'; filters hold the ticket
 #    filter set: {scope,status,priority,type,component,sla,search,groupBy,view}) ──
-@router.get("/task-ticket-views")
+@router.get("/task-ticket-views", dependencies=[Depends(require_ticket_desk)])
 def list_ticket_views(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     rows = (db.query(models.TaskSavedView)
             .filter(models.TaskSavedView.owner_email == user["email"].lower(),
@@ -57,7 +97,7 @@ def list_ticket_views(user: dict = Depends(get_current_user), db: Session = Depe
     return [saved_view_to_dict(s) for s in rows]
 
 
-@router.post("/task-ticket-views", status_code=201)
+@router.post("/task-ticket-views", status_code=201, dependencies=[Depends(require_ticket_desk)])
 def create_ticket_view(body: SavedViewBody, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     s = models.TaskSavedView(id=body.id or gen_id(), owner_email=user["email"].lower(), name=body.name,
                              view=body.view or "list", filters=body.filters or {}, sort=body.sort or {},
@@ -68,7 +108,7 @@ def create_ticket_view(body: SavedViewBody, user: dict = Depends(get_current_use
     return saved_view_to_dict(s)
 
 
-@router.delete("/task-ticket-views/{view_id}", status_code=204)
+@router.delete("/task-ticket-views/{view_id}", status_code=204, dependencies=[Depends(require_ticket_desk)])
 def delete_ticket_view(view_id: str, db: Session = Depends(get_db)):
     db.query(models.TaskSavedView).filter(models.TaskSavedView.id == view_id).delete()
     db.commit()
@@ -279,9 +319,11 @@ def list_tickets(mine: bool = False, user: dict = Depends(get_current_user),
     the agent queue and carries every ticket in the company, so a client-side
     filter would still ship all of them to an employee's browser. Default is
     unchanged, so the Tickets module is unaffected."""
-    q = db.query(models.TaskTicket)
-    rows = q.all()
-    if mine:
+    rows = db.query(models.TaskTicket).all()
+    # Without the desk grant the scope is forced, not requested: the unscoped
+    # list IS the agent queue, so honouring `mine` only when asked would leave
+    # the whole company's tickets one query parameter away from any employee.
+    if mine or not _has_desk_grant(user, db):
         me = (user.get("email") or "").lower()
         rows = [t for t in rows
                 if (t.requester_email or "").lower() == me
@@ -293,6 +335,12 @@ def list_tickets(mine: bool = False, user: dict = Depends(get_current_user),
 def create_ticket(body: TicketBody, background_tasks: BackgroundTasks,
                   user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     now = now_iso()
+    # Anyone signed in may raise a ticket - that is the whole point of a help
+    # desk. Raising one ON SOMEONE ELSE'S BEHALF is a desk action, though, so
+    # without the grant the requester is forced to the caller rather than taken
+    # from the payload.
+    if body.requester_email and not _has_desk_grant(user, db):
+        body.requester_email = user["email"]
     t = models.TaskTicket(
         id=body.id or gen_id(), code=body.code or _next_ticket_code(db), subject=body.subject,
         description=body.description or "", type=body.type or "request",
@@ -397,7 +445,7 @@ def _ticket_edit_scope(db: Session, t: models.TaskTicket, user: dict) -> set | N
     return _WORKING_FIELDS
 
 
-@router.patch("/task-tickets/{ticket_id}")
+@router.patch("/task-tickets/{ticket_id}", dependencies=[Depends(require_ticket_desk)])
 def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: BackgroundTasks,
                   user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     t = db.query(models.TaskTicket).filter(models.TaskTicket.id == ticket_id).first()
@@ -538,7 +586,7 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
     return ticket_to_dict(t)
 
 
-@router.delete("/task-tickets/{ticket_id}", status_code=204)
+@router.delete("/task-tickets/{ticket_id}", status_code=204, dependencies=[Depends(require_ticket_desk)])
 def delete_ticket(ticket_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     t = _ticket_or_404(db, ticket_id)
     # Independent of the in_progress/assignee edit lock above - deleting stays
@@ -589,7 +637,10 @@ class TicketAttachmentBody(BaseModel):
 
 
 @router.get("/task-tickets/{ticket_id}/comments")
-def list_ticket_comments(ticket_id: str, db: Session = Depends(get_db)):
+def list_ticket_comments(ticket_id: str, user: dict = Depends(get_current_user),
+                         db: Session = Depends(get_db)):
+    # Their own support request is readable without a desk grant.
+    _require_ticket_participant(db, user, _ticket_or_404(db, ticket_id))
     rows = db.query(models.TaskComment).filter(models.TaskComment.task_id == ticket_id).order_by(models.TaskComment.created_at).all()
     return [_tcomment(c) for c in rows]
 
@@ -598,7 +649,11 @@ def list_ticket_comments(ticket_id: str, db: Session = Depends(get_db)):
 def add_ticket_comment(ticket_id: str, body: TicketCommentBody, background_tasks: BackgroundTasks,
                        user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     t = _ticket_or_404(db, ticket_id)
-    internal = bool(body.internal)
+    # Replying on your own ticket needs no grant; an internal note does, since
+    # those are the desk talking among themselves and are hidden from the
+    # requester.
+    _require_ticket_participant(db, user, t)
+    internal = bool(body.internal) and _has_desk_grant(user, db)
     c = models.TaskComment(id=gen_id(), task_id=ticket_id, author_email=user["email"], body=body.body or "",
                            internal=internal, created_at=now_iso())
     db.add(c)
@@ -620,14 +675,16 @@ def add_ticket_comment(ticket_id: str, body: TicketCommentBody, background_tasks
     return _tcomment(c)
 
 
-@router.delete("/task-tickets/comments/{comment_id}", status_code=204)
+@router.delete("/task-tickets/comments/{comment_id}", status_code=204, dependencies=[Depends(require_ticket_desk)])
 def delete_ticket_comment(comment_id: str, db: Session = Depends(get_db)):
     db.query(models.TaskComment).filter(models.TaskComment.id == comment_id).delete()
     db.commit()
 
 
 @router.get("/task-tickets/{ticket_id}/attachments")
-def list_ticket_attachments(ticket_id: str, db: Session = Depends(get_db)):
+def list_ticket_attachments(ticket_id: str, user: dict = Depends(get_current_user),
+                            db: Session = Depends(get_db)):
+    _require_ticket_participant(db, user, _ticket_or_404(db, ticket_id))
     rows = db.query(models.TaskAttachment).filter(models.TaskAttachment.task_id == ticket_id).all()
     return [_tattachment(a) for a in rows]
 
@@ -636,6 +693,7 @@ def list_ticket_attachments(ticket_id: str, db: Session = Depends(get_db)):
 def add_ticket_attachment(ticket_id: str, body: TicketAttachmentBody, background_tasks: BackgroundTasks,
                           user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     t = _ticket_or_404(db, ticket_id)
+    _require_ticket_participant(db, user, t)
     a = models.TaskAttachment(id=gen_id(), task_id=ticket_id, name=body.name, size=body.size or "",
                               kind=body.kind or "other", url=body.url or "", added_at=now_iso(), added_by=user["email"])
     db.add(a)
@@ -649,14 +707,16 @@ def add_ticket_attachment(ticket_id: str, body: TicketAttachmentBody, background
     return _tattachment(a)
 
 
-@router.delete("/task-tickets/attachments/{attachment_id}", status_code=204)
+@router.delete("/task-tickets/attachments/{attachment_id}", status_code=204, dependencies=[Depends(require_ticket_desk)])
 def delete_ticket_attachment(attachment_id: str, db: Session = Depends(get_db)):
     db.query(models.TaskAttachment).filter(models.TaskAttachment.id == attachment_id).delete()
     db.commit()
 
 
 @router.get("/task-tickets/{ticket_id}/activity")
-def list_ticket_activity(ticket_id: str, db: Session = Depends(get_db)):
+def list_ticket_activity(ticket_id: str, user: dict = Depends(get_current_user),
+                         db: Session = Depends(get_db)):
+    _require_ticket_participant(db, user, _ticket_or_404(db, ticket_id))
     rows = (db.query(models.TaskActivity)
             .filter(models.TaskActivity.entity_kind == "ticket", models.TaskActivity.entity_id == ticket_id)
             .order_by(models.TaskActivity.at.desc()).all())
@@ -715,7 +775,7 @@ def list_ticket_components(db: Session = Depends(get_db)):
     return [{"id": c.id, "name": c.name} for c in db.query(models.TaskTicketComponent).order_by(models.TaskTicketComponent.name).all()]
 
 
-@router.post("/task-ticket-components", status_code=201)
+@router.post("/task-ticket-components", status_code=201, dependencies=[Depends(require_ticket_desk)])
 def create_ticket_component(body: ComponentBody, db: Session = Depends(get_db)):
     if not (body.name or "").strip():
         raise HTTPException(422, "Component name is required")
@@ -726,7 +786,7 @@ def create_ticket_component(body: ComponentBody, db: Session = Depends(get_db)):
     return {"id": c.id, "name": c.name}
 
 
-@router.delete("/task-ticket-components/{component_id}", status_code=204)
+@router.delete("/task-ticket-components/{component_id}", status_code=204, dependencies=[Depends(require_ticket_desk)])
 def delete_ticket_component(component_id: str, db: Session = Depends(get_db)):
     db.query(models.TaskTicketComponent).filter(models.TaskTicketComponent.id == component_id).delete()
     db.commit()
@@ -745,7 +805,7 @@ class ApprovalRequestBody(BaseModel):
     note: Optional[str] = ""
 
 
-@router.post("/task-tickets/{ticket_id}/request-approval")
+@router.post("/task-tickets/{ticket_id}/request-approval", dependencies=[Depends(require_ticket_desk)])
 def request_approval(ticket_id: str, body: ApprovalRequestBody, background_tasks: BackgroundTasks,
                      user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """IT Admin routes a parked request to the person who signs it off."""
@@ -790,7 +850,7 @@ class ApprovalBody(BaseModel):
     note: Optional[str] = ""
 
 
-@router.post("/task-tickets/{ticket_id}/approval")
+@router.post("/task-tickets/{ticket_id}/approval", dependencies=[Depends(require_ticket_desk)])
 def decide_approval(ticket_id: str, body: ApprovalBody, background_tasks: BackgroundTasks,
                     user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     t = _ticket_or_404(db, ticket_id)
@@ -857,7 +917,7 @@ class TicketLinkBody(BaseModel):
     type: Optional[str] = "relates"
 
 
-@router.post("/task-tickets/{ticket_id}/links", status_code=201)
+@router.post("/task-tickets/{ticket_id}/links", status_code=201, dependencies=[Depends(require_ticket_desk)])
 def add_ticket_link(ticket_id: str, body: TicketLinkBody, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     t = _ticket_or_404(db, ticket_id)
     if body.ticket_id == ticket_id:
@@ -873,7 +933,7 @@ def add_ticket_link(ticket_id: str, body: TicketLinkBody, user: dict = Depends(g
     return ticket_to_dict(t)
 
 
-@router.delete("/task-tickets/{ticket_id}/links/{target_id}")
+@router.delete("/task-tickets/{ticket_id}/links/{target_id}", dependencies=[Depends(require_ticket_desk)])
 def remove_ticket_link(ticket_id: str, target_id: str, db: Session = Depends(get_db)):
     t = _ticket_or_404(db, ticket_id)
     t.links = [l for l in (t.links or []) if l.get("ticketId") != target_id]
@@ -889,7 +949,7 @@ def remove_ticket_link(ticket_id: str, target_id: str, db: Session = Depends(get
 _PRIORITY_LADDER = ["low", "medium", "high", "urgent"]
 
 
-@router.post("/task-tickets/{ticket_id}/escalate")
+@router.post("/task-tickets/{ticket_id}/escalate", dependencies=[Depends(require_ticket_desk)])
 def escalate_ticket(ticket_id: str, background_tasks: BackgroundTasks,
                     user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     t = _ticket_or_404(db, ticket_id)
@@ -932,17 +992,17 @@ def my_ticket_access(user: dict = Depends(get_current_user), db: Session = Depen
 
 
 # ── Notification settings + delivery log (admin) ──────────────────────────────
-@router.get("/task-tickets/notify/settings")
+@router.get("/task-tickets/notify/settings", dependencies=[Depends(require_ticket_desk)])
 def get_ticket_notify_settings(user: dict = Depends(require_manager), db: Session = Depends(get_db)):
     return get_notify_settings(db)
 
 
-@router.put("/task-tickets/notify/settings")
+@router.put("/task-tickets/notify/settings", dependencies=[Depends(require_ticket_desk)])
 def put_ticket_notify_settings(patch: dict, user: dict = Depends(require_manager), db: Session = Depends(get_db)):
     return save_notify_settings(db, patch, user["email"])
 
 
-@router.get("/task-tickets/notify/log")
+@router.get("/task-tickets/notify/log", dependencies=[Depends(require_ticket_desk)])
 def get_ticket_notify_log(ticket_id: str = "", status: str = "", limit: int = 200,
                           user: dict = Depends(require_manager), db: Session = Depends(get_db)):
     q = db.query(models.TicketEmailLog)

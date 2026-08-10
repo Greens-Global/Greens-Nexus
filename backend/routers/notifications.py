@@ -226,8 +226,7 @@ def _alert_html(subject: str, message: str) -> str:
   <table align="center" width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#ffffff;border-radius:14px;border:1px solid #e5e7eb;border-collapse:separate;overflow:hidden">
     <tr>
       <td style="background:#0f3d2e;padding:18px 28px">
-        <span style="color:#ffffff;font-size:16px;font-weight:700;letter-spacing:4px">NEXUS</span>
-        <span style="color:#9fd6b8;font-size:11px;letter-spacing:1.5px;float:right;line-height:24px">GREENS GLOBAL</span>
+        <span style="color:#ffffff;font-size:16px;font-weight:700;letter-spacing:3px">GREENS GLOBAL</span>
       </td>
     </tr>
     <tr>

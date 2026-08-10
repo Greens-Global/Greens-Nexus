@@ -2263,6 +2263,13 @@ class AsanaTaskLink(Base):
     # bumped modified_at and logged another "Updated from Asana" - 288 phantom
     # activity entries per task per day at the inbound poll.
     last_inbound_hash = Column(String, default="")
+    # Asana's `due_at` (date AND time) as of the last pull, or "" when the task
+    # has only a plain date. Nexus tasks carry a date alone, so pushing our
+    # `due_on` back to a task that had a due TIME silently deleted the time -
+    # the two fields are mutually exclusive in Asana, and writing one clears the
+    # other. Recording what Asana holds lets the push leave the date alone when
+    # it hasn't actually changed on the Nexus side. See push_task.
+    last_due_at = Column(String, default="")
 
 
 class AsanaCommentLink(Base):

@@ -98,6 +98,10 @@ export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId
     setDraft(''); setCommentOpenId(null);
   };
 
+  // Creates a custom STATUS, which is what a board column is here. The control
+  // said "Add Section" and Asana sections are a real, different thing that also
+  // syncs (Task.section_id) - so the label was claiming to be something it
+  // wasn't. Renamed to "Add Column"; the internals keep the older names.
   const createSection = () => {
     if (!sectionName.trim()) return;
     const color = SECTION_PALETTE[store.customStatuses.length % SECTION_PALETTE.length];
@@ -225,7 +229,7 @@ export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId
         <div style={{ display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0 }}>
           <WipMenu limit={limit} onSet={(v) => setLimit(status, v)} />
           {customStatusIds.has(status) && (
-            <button onClick={() => deleteSection(status)} title="Delete Section" style={{ ...btn('ghost'), padding: 4, color: NX.faint }}><Trash2 size={14} /></button>
+            <button onClick={() => deleteSection(status)} title="Delete Column" style={{ ...btn('ghost'), padding: 4, color: NX.faint }}><Trash2 size={14} /></button>
           )}
           <button onClick={() => setAddIn(status)} title="Add Task" style={{ ...btn('ghost'), padding: 4, color: NX.faint }}><Plus size={15} /></button>
           {swimlane === 'none' && (
@@ -354,14 +358,14 @@ function AddSectionColumn({ addingSection, setAddingSection, sectionName, setSec
       {addingSection ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <input autoFocus value={sectionName} onChange={(e) => setSectionName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') createSection(); if (e.key === 'Escape') { setAddingSection(false); setSectionName(''); } }}
-            placeholder="Section name" style={{ ...inputStyle, padding: '6px 8px', fontSize: 13 }} />
+            placeholder="Column name" style={{ ...inputStyle, padding: '6px 8px', fontSize: 13 }} />
           <div style={{ display: 'flex', gap: 6 }}>
             <button onClick={createSection} disabled={!sectionName.trim()} style={{ ...btn('primary'), fontSize: 12, opacity: sectionName.trim() ? 1 : 0.4 }}>Add</button>
             <button onClick={() => { setAddingSection(false); setSectionName(''); }} style={{ ...btn('ghost'), fontSize: 12 }}>Cancel</button>
           </div>
         </div>
       ) : (
-        <button onClick={() => setAddingSection(true)} style={{ ...btn('ghost'), justifyContent: 'flex-start', color: NX.faint, padding: '8px 8px' }}><Plus size={15} />Add Section</button>
+        <button onClick={() => setAddingSection(true)} style={{ ...btn('ghost'), justifyContent: 'flex-start', color: NX.faint, padding: '8px 8px' }}><Plus size={15} />Add Column</button>
       )}
     </div>
   );

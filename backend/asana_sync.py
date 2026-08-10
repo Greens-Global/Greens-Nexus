@@ -21,8 +21,9 @@ field), tags (find-or-create workspace tags by name), milestone flag
 immutable after), followers (outbound additive via addFollowers, matching the
 dependencies pattern - never removes an Asana-side follower removed on the
 Nexus side), comments, attachments (inbound only), subtasks, dependencies
-(best-effort), project-level access (member_emails / TaskTeam), and project
-name/description (kept refreshed from Asana on every pull).
+(best-effort), project-level access (inbound only - member_emails /
+member_roles / TaskTeam), and project name/description (kept refreshed from
+Asana on every pull).
 
 Outbound is fire-and-forget from create_task/update_task via on_task_changed():
 it runs in a daemon thread on its own DB session and swallows all errors, so a
@@ -145,7 +146,7 @@ def assignee_diagnosis(db) -> dict:
     cfg = get_config(db)
     out = {"workspaceGid": (cfg.workspace_gid or "") if cfg else "",
            "usersInWorkspace": 0, "usersWithEmail": 0, "error": "",
-           "assignees": [], "reason": ""}
+           "assignees": [], "reason": "", "workspaces": []}
     if not cfg or not cfg.token:
         out["reason"] = "Asana sync has no token."
         return out
@@ -165,7 +166,25 @@ def assignee_diagnosis(db) -> dict:
                 emails[em] = u["gid"]
     except Exception as e:
         out["error"] = f"{type(e).__name__}: {e}"
-        out["reason"] = f"Could not list the workspace's users ({out['error']})."
+        # Name the workspaces this token CAN see. The commonest way this field
+        # goes wrong is a PROJECT gid pasted into it: Asana shows no workspace id
+        # in its UI and the ids in its URLs are project ids, the two look
+        # identical, nothing validates it, and the only symptom is that
+        # assignees quietly stop resolving while every other field syncs.
+        # "Not a recognized ID" is true and useless on its own; the right value
+        # is one call away.
+        try:
+            out["workspaces"] = [{"gid": w["gid"], "name": w.get("name") or ""}
+                                 for w in Asana(cfg.token).get("/workspaces", opt_fields="name")]
+        except Exception:
+            pass
+        if out["workspaces"]:
+            options = ", ".join(f"{w['name']} ({w['gid']})" for w in out["workspaces"])
+            out["reason"] = (f"The Workspace GID {cfg.workspace_gid!r} is not a workspace this "
+                             f"token can see - a project GID pasted here looks the same and is "
+                             f"the usual cause. Use: {options}.")
+        else:
+            out["reason"] = f"Could not list the workspace's users ({out['error']})."
         return out
 
     if out["usersInWorkspace"] and not out["usersWithEmail"]:
@@ -1226,6 +1245,19 @@ def push_task(db, task, actor_email: str = ""):
     custom_fields.update(_outbound_custom_fields(db, cfg, task, apid or progress_apid))
     if custom_fields:
         fields["custom_fields"] = custom_fields
+    # Asana's due_on and due_at are mutually exclusive: writing the date clears
+    # the time. A Nexus task only ever holds a date, so every push to a task
+    # someone had scheduled for "Friday 5pm" in Asana quietly demoted it to
+    # "Friday" - and an unrelated edit, a title change, was enough to trigger
+    # it. When Asana holds a time whose DATE still matches ours, the date is not
+    # what changed, so it is left out of the payload entirely and the time
+    # survives. A real date change in Nexus still goes through, and dropping the
+    # time along with it is the right answer there.
+    #
+    # Last, after the start_on rules above - they read fields["due_on"], and
+    # removing it any earlier would break them.
+    if link and link.last_due_at and link.last_due_at[:10] == (task.due_on or "")[:10]:
+        fields.pop("due_on", None)
     is_new = not (link and link.asana_gid) and not parent_link
     is_new_subtask = not (link and link.asana_gid) and bool(parent_link)
     if (is_new or is_new_subtask) and task.is_milestone:
@@ -1939,6 +1971,14 @@ def _apply_inbound(db, at, nexus_project_id, counts, parent_task_id="", email_ma
         t = db.query(models.Task).filter(models.Task.id == link.nexus_task_id).first()
         if not t:
             return None
+        # Recorded on EVERY pass, not only when the digest moved. A due time can
+        # be added or changed in Asana without moving anything the digest covers
+        # - due_on stays the same date - so gating this behind the digest would
+        # leave it stale exactly when it matters. Guarded so an unchanged value
+        # doesn't dirty the row and turn every pull into a write.
+        _due_at = at.get("due_at") or ""
+        if (link.last_due_at or "") != _due_at:
+            link.last_due_at = _due_at
         # Compare Asana-now against Asana-at-last-apply. Comparing it against
         # last_hash (the NEXUS-side digest) meant every pull re-applied every
         # task whenever the Asana project had no Task Progress/Priority custom
@@ -2351,6 +2391,84 @@ _STORY_OPT_FIELDS = "type,resource_subtype,text,html_text,created_at,created_by.
 _ADOPT_WINDOW_SECONDS = 24 * 60 * 60
 
 
+_STAMP_RE = re.compile(r"^\s*\[Asana\s*[·-]\s*[^\]]*\]\s*")
+# The same stamp as it appears in a COMMENT body, where it is a paragraph of
+# HTML rather than a bare prefix (see the inbound comment branch).
+_HTML_STAMP_RE = re.compile(r"^\s*<p>\s*<em>\s*\[Asana\s*[·-][^\]]*\]\s*</em>\s*</p>\s*", re.I)
+
+
+def _strip_inbound_stamp(html):
+    """Drop the leading "[Asana - Name]" paragraph Nexus adds to a comment whose
+    Asana author has no Nexus account. Inbound-only decoration - it must never
+    travel back out."""
+    return _HTML_STAMP_RE.sub("", html or "")
+
+
+def _story_detail(text, author_name, author_email):
+    """The activity line for an Asana system story, phrased the way Nexus's own
+    activity entries are.
+
+    Every activity surface already renders the actor's avatar and name before
+    the detail, which is why the native entries read "created this task" rather
+    than "Sagar created this task". An Asana story arrived carrying the name
+    TWICE on top of that - once in an unconditional "[Asana - Name]" stamp and
+    again inside Asana's own sentence ("Urmi Gor assigned to Neil Kadakia") - so
+    a resolved person's name appeared three times in one line.
+
+    So: drop Asana's leading actor name when it is the same person the row is
+    already attributed to, and keep the stamp only when we could NOT resolve
+    them, which is the rule the comment path already follows. An unresolvable
+    author still needs the stamp - it is the only place their name appears."""
+    body = (text or "").strip()
+    name = (author_name or "").strip()
+    if name and body.lower().startswith(name.lower() + " "):
+        stripped = body[len(name):].lstrip()
+        if stripped:            # never reduce the line to nothing
+            body = stripped
+    return body if author_email else f"[Asana · {name or 'Asana'}] {body}"
+
+
+def _comment_plain(html):
+    """A comment body reduced to comparable plain text.
+
+    Whitespace is collapsed because the same words survive an HTML round trip
+    with different line breaks, and the "[Asana · Name]" stamp is dropped
+    because Nexus adds it and Asana's own copy never carries it - leaving it in
+    would make every stamped comment read as permanently edited and rewrite
+    itself on each pull."""
+    return re.sub(r"\s+", " ", _STAMP_RE.sub("", _html_to_text(html or ""))).strip()
+
+
+def _apply_comment_edit(db, asana, link, story, text, stamp, nexus_task_id, asana_gid):
+    """Bring a Nexus comment back in line with its Asana story after the story
+    was edited in Asana. No-op when the text is unchanged, which is the case
+    for nearly every story on nearly every pull.
+
+    Inbound wins here, deliberately: this only runs when Asana's text differs
+    from what Nexus holds, and the outbound half (push_comment_edit) has
+    already re-sent anything edited on the Nexus side, so the copies converge
+    rather than fight. `edited_at` is stamped with now rather than an Asana
+    timestamp because a story carries no edited-at of its own."""
+    if not text:
+        return
+    c = db.query(models.TaskComment).filter(
+        models.TaskComment.id == link.nexus_comment_id).first()
+    if not c:
+        return
+    if _comment_plain(c.body) == re.sub(r"\s+", " ", text).strip():
+        return
+    rich = _mentions_from_asana(_from_asana_html({"html_notes": story.get("html_text") or ""}),
+                                get_config(db), db)
+    rich = _rewrite_asana_images(db, asana, rich, nexus_task_id, asana_gid)
+    plain = "".join(f"<p>{escape(line)}</p>" for line in text.split("\n") if line.strip())
+    c.body = f"{stamp}{rich or plain}"
+    c.edited_at = now_iso()
+    t = db.query(models.Task).filter(models.Task.id == nexus_task_id).first()
+    if t:
+        t.modified_at = now_iso()   # so a delta fetch picks the task up
+    db.flush()
+
+
 def _adopt_pushed_comment(db, nexus_task_id, story_text, story_at):
     """The Nexus comment this Asana story was created FROM, if it looks like one
     of ours that lost its link - else None.
@@ -2419,8 +2537,20 @@ def _pull_stories(db, asana, asana_gid, nexus_task_id, counts):
         text = (s.get("text") or "").strip()
         is_comment = s.get("type") == "comment" or s.get("resource_subtype") == "comment_added"
         if is_comment:
-            if db.query(models.AsanaCommentLink).filter(
-                    models.AsanaCommentLink.asana_story_gid == sgid).first():
+            # The "[Asana · Name]" stamp is only needed when the author CAN'T be
+            # resolved (an Asana account with no Nexus counterpart, or no email
+            # on the story); with a real author_email the name would be shown
+            # twice. Computed here because the edit path below needs it too.
+            stamp = "" if author_email else f'<p><em>[Asana · {escape(author_name)}]</em></p>'
+            known = (db.query(models.AsanaCommentLink)
+                     .filter(models.AsanaCommentLink.asana_story_gid == sgid).first())
+            if known:
+                # Was an unconditional `continue`, which made comments
+                # create-only inbound: a comment corrected in Asana kept its
+                # original wording in Nexus forever. The text comparison is
+                # plain-text and costs no HTTP, so the overwhelmingly common
+                # "nothing changed" case is as cheap as the skip it replaces.
+                _apply_comment_edit(db, asana, known, s, text, stamp, nexus_task_id, asana_gid)
                 continue
             if not text:
                 continue
@@ -2452,11 +2582,8 @@ def _pull_stories(db, asana, asana_gid, nexus_task_id, counts):
             # Attribute the comment to the real person. author_email is already
             # resolved through the directory above and was already used for
             # activity rows - comments just hardcoded "asana-sync", which is why
-            # they showed up authored by a placeholder. The "[Asana - Name]"
-            # stamp is only needed when the author CAN'T be resolved (an Asana
-            # account with no Nexus counterpart, or no email on the story); with
-            # a real author_email the name would be shown twice.
-            stamp = "" if author_email else f'<p><em>[Asana · {escape(author_name)}]</em></p>'
+            # they showed up authored by a placeholder. `stamp` is computed at
+            # the top of this branch, where the edit path can share it.
             body = f"{stamp}{rich or plain}"
             db.add(models.TaskComment(id=cid, task_id=nexus_task_id,
                                       author_email=author_email or "asana-sync",
@@ -2484,7 +2611,7 @@ def _pull_stories(db, asana, asana_gid, nexus_task_id, counts):
             id=aid, entity_kind="task", entity_id=nexus_task_id, entity_code=t.code or "",
             entity_title=t.title or "", type=f"asana_{s.get('resource_subtype') or 'story'}",
             actor_email=author_email or "asana-sync", at=at_ts,
-            detail=f"[Asana · {author_name}] {text}"))
+            detail=_story_detail(text, author_name, author_email)))
         t.activity_ids = list(t.activity_ids or []) + [aid]
         db.add(models.AsanaActivityLink(id=gen_id(), nexus_activity_id=aid, nexus_task_id=nexus_task_id,
                                         asana_story_gid=sgid, created_at=now_iso()))
@@ -2882,6 +3009,13 @@ def _sync_project_access(db, asana, cfg, project_gid, nexus_project_id, extra_te
       longer needed and no longer offered in the UI; still honored for any value
       already saved, so an existing config keeps working.
 
+    A user's `access_level` is carried into the project's own `member_roles`
+    map, not just into `member_emails`. Only the team branch used to set a role;
+    a user arrived with none, and while visible_project_ids let them SEE the
+    project, task_util.project_role_for found no member_roles entry and returned
+    None on a restricted project - so somebody shared into Asana as admin or
+    editor was view-only in Nexus and got a 403 on their first edit.
+
     One-way and additive only, same as the rest of this module - someone
     removed from the Asana side keeps whatever Nexus access they already have
     (mirrors unlink_deleted_task's "Asana deletion doesn't delete the Nexus
@@ -2907,7 +3041,8 @@ def _sync_project_access(db, asana, cfg, project_gid, nexus_project_id, extra_te
     project = db.query(models.TaskProject).filter(models.TaskProject.id == nexus_project_id).first()
     if not project:
         return
-    wanted = set()
+    from routers.task_util import PROJECT_ROLE_RANK
+    wanted = {}            # email -> Nexus role from Asana's access_level ("" = unrecognized)
     granted_gids = set()   # Asana team gids already handled from the membership list
     try:
         # One call, both kinds of member. `member` is a union - resource_type
@@ -2920,7 +3055,11 @@ def _sync_project_access(db, asana, cfg, project_gid, nexus_project_id, extra_te
             if kind == "user":
                 em = _map_email(m.get("email"), None, db)
                 if em:
-                    wanted.add(em)
+                    role = _ACCESS_LEVEL_TO_ROLE.get((row.get("access_level") or "").lower(), "")
+                    # Asana can list the same person more than once (a direct
+                    # share plus an inherited one) - the strongest wins.
+                    if PROJECT_ROLE_RANK.get(role, 0) >= PROJECT_ROLE_RANK.get(wanted.get(em, ""), 0):
+                        wanted[em] = role
             elif kind == "team" and m.get("gid"):
                 tname = (m.get("name") or "").strip()
                 if not tname:
@@ -2987,8 +3126,66 @@ def _sync_project_access(db, asana, cfg, project_gid, nexus_project_id, extra_te
         nt = _ensure_team(db, nexus_project_id, name)
         nt.member_emails = sorted(set(nt.member_emails or []) | set(roster))
         _say(f"{name}: granted, {len(roster)} member(s)")
-    if wanted - set(project.member_emails or []):
-        project.member_emails = sorted(set(project.member_emails or []) | wanted)
+    if set(wanted) - set(project.member_emails or []):
+        project.member_emails = sorted(set(project.member_emails or []) | set(wanted))
+    # Upgrade-only, for the same reason nothing else here removes: a role
+    # someone was given in the Nexus Share panel is never lowered by what Asana
+    # says, and an access_level Asana reports that we don't recognize leaves the
+    # existing role alone rather than guessing (matching the team branch above).
+    roles = dict(project.member_roles or {})
+    upgraded = 0
+    for em, role in wanted.items():
+        if role and PROJECT_ROLE_RANK.get(role, 0) > PROJECT_ROLE_RANK.get(roles.get(em, ""), 0):
+            roles[em] = role
+            upgraded += 1
+    if upgraded:
+        project.member_roles = roles   # new dict - a JSON column mutated in place isn't seen as dirty
+        _say(f"{upgraded} member(s) granted their Asana access level directly on this project")
+
+
+def sync_access_now(db, project_gids=()):
+    """Refresh Asana's project-level access into Nexus for `project_gids` (every
+    mapped project when empty), WITHOUT the task pull that normally carries it.
+
+    _sync_project_access otherwise runs only on a full pull sweep
+    (_FULL_SWEEP_MIN, every 30 min per project) or a manual Pull, because it
+    rides inside pull()'s `if is_full:` branch. A webhook saying "someone was
+    just added to this project" therefore left that person waiting up to half an
+    hour for access Asana had already granted them. This is the cheap path for
+    that one question - a few membership calls per project, no task listing.
+
+    Reuses pull's locks for one reason: _ensure_team is a find-or-create by
+    name, so this racing an in-flight pull across gunicorn workers is exactly
+    how a team ends up in Nexus twice.
+
+    Returns the same report lines the pull collects. One project failing against
+    Asana is reported, not raised - the rest still sync."""
+    cfg = get_config(db)
+    if not sync_is_on(cfg) or not cfg.token:
+        return []
+    asana = Asana(cfg.token)
+    wanted = {g for g in (project_gids or ()) if g}
+    report = []
+    with _PULL_LOCK:
+        for pm in db.query(models.AsanaProjectMap).all():
+            if not pm.asana_project_gid or not pm.nexus_project_id:
+                continue
+            if wanted and pm.asana_project_gid not in wanted:
+                continue
+            lines = []
+            try:
+                _acquire_pull_lock(db)
+                _sync_project_access(db, asana, cfg, pm.asana_project_gid, pm.nexus_project_id,
+                                     pm.extra_team_names, report=lines)
+                db.commit()   # also releases the transaction-scoped advisory lock
+            except Exception as e:
+                db.rollback()
+                lines.append(f"access refresh failed ({str(e)[:120]})")
+            proj = db.query(models.TaskProject).filter(
+                models.TaskProject.id == pm.nexus_project_id).first()
+            pname = proj.name if proj else pm.nexus_project_id
+            report += [f"{pname} - {line}" for line in lines]
+    return report
 
 
 # Shared field list for the top-level task list AND the recursive subtask
@@ -2996,7 +3193,7 @@ def _sync_project_access(db, asana, cfg, project_gid, nexus_project_id, extra_te
 # _sync_task_dependencies need. One list, used by every inbound path (Pull,
 # webhook, one-shot Import) - a field added here reaches all three at once,
 # which is the only way "no detail gets missed" stays true as this grows.
-_TASK_OPT_FIELDS = ("name,notes,html_notes,start_on,due_on,completed,assignee.email,modified_at,"
+_TASK_OPT_FIELDS = ("name,notes,html_notes,start_on,due_on,due_at,completed,assignee.email,modified_at,"
                    "custom_fields.gid,custom_fields.name,custom_fields.resource_subtype,"
                    "custom_fields.is_formula_field,custom_fields.display_value,"
                    "custom_fields.enum_value.name,custom_fields.multi_enum_values.name,"
@@ -3604,6 +3801,90 @@ def push_comment(db, comment):
     db.commit()
 
 
+def push_comment_edit(db, comment):
+    """Update the Asana story a Nexus comment already owns, after its body was
+    edited. Returns True if Asana took it.
+
+    push_comment cannot do this - it returns the moment a link exists, which is
+    what keeps a comment that came FROM Asana from being echoed back. So a
+    correction typed in Nexus stayed in Nexus and the two systems disagreed
+    permanently about what was said, with the Asana copy being the one most of
+    the workspace reads.
+
+    Only the body goes out. The story keeps whatever author Asana recorded when
+    it was created, because Asana attributes a story to the token that wrote it
+    and re-attributing an edit to the editor would be a lie about who said it.
+
+    PUT /stories/{gid} only accepts a story the token is allowed to edit -
+    Asana refuses to edit another user's story - so this fails for a comment
+    that was posted under someone else's grant. That failure is logged and
+    swallowed: an un-updated Asana copy is the status quo, and losing the Nexus
+    edit over it would be worse."""
+    cfg = get_config(db)
+    if not sync_is_on(cfg) or not cfg.token:
+        return False
+    link = (db.query(models.AsanaCommentLink)
+            .filter(models.AsanaCommentLink.nexus_comment_id == comment.id).first())
+    if not link or not link.asana_story_gid:
+        return False
+    author = comment.author_email or ""
+    token = None
+    if author and author != "asana-sync":
+        token, _why = asana_oauth.token_reason(db, author)
+    token = token or cfg.token
+    # Never send our own inbound scaffolding back. A comment pulled from an
+    # Asana account with no Nexus counterpart carries an "[Asana - Name]" stamp
+    # in its BODY - that is a Nexus-side label for a Nexus-side gap, and Asana
+    # already knows who wrote the story. Pushing it would put the marker in
+    # Asana, where the next pull would read it as part of the text and stamp the
+    # stamp. Today the author-only rule on edits means nobody can reach such a
+    # comment (its author is "asana-sync", which is nobody's address), so this
+    # is a guard rather than a live bug - but that is an unrelated rule holding
+    # an unrelated invariant up, and it should not be what protects Asana.
+    body = _strip_inbound_stamp(comment.body or "")
+    body_html = _to_asana_html(body, cfg)
+    payload = {"html_text": body_html} if body_html else {"text": _html_to_text(body)}
+    try:
+        _asana_put(token, f"/stories/{link.asana_story_gid}", {"data": payload})
+        return True
+    except ImportError_ as e:
+        msg = str(e)
+        if "html_text" in msg and "html_text" in payload:
+            try:
+                _asana_put(token, f"/stories/{link.asana_story_gid}",
+                           {"data": {"text": _html_to_text(comment.body or "")}})
+                return True
+            except Exception as e2:
+                print(f"[asana] comment {comment.id} edit not sent: {e2}")
+                return False
+        print(f"[asana] comment {comment.id} edit not sent: {msg[:160]}")
+        return False
+    except Exception as e:
+        print(f"[asana] comment {comment.id} edit not sent: {type(e).__name__}: {e}")
+        return False
+
+
+def on_comment_edited(comment_id):
+    """Fire-and-forget outbound push of a comment EDIT. Never raises. Same
+    daemon-thread shape and same is_sync_worker gate as on_comment_added."""
+    if not is_sync_worker():
+        return
+    def _run():
+        db = SessionLocal()
+        try:
+            cfg = get_config(db)
+            if not sync_is_on(cfg):
+                return
+            c = db.query(models.TaskComment).filter(models.TaskComment.id == comment_id).first()
+            if c:
+                push_comment_edit(db, c)
+        except Exception as e:
+            print(f"[asana] comment {comment_id} edit failed to push: {type(e).__name__}: {e}")
+        finally:
+            db.close()
+    threading.Thread(target=_run, daemon=True).start()
+
+
 def on_comment_added(comment_id):
     """Fire-and-forget outbound comment push. Never raises.
 
@@ -3689,6 +3970,62 @@ def trigger_pull_async():
                 cfg = get_config(db)
                 if sync_is_on(cfg) and cfg.token:
                     pull(db)
+            finally:
+                db.close()
+        except Exception:
+            pass
+    threading.Thread(target=_run, daemon=True).start()
+
+
+# Membership events, as Asana labels them. The `*_membership` resource types are
+# what the memberships API emits when someone is added to or removed from a
+# project or a team; a project can also report the change on itself as a
+# `changed` event naming the field. Both shapes are accepted - matching only one
+# would leave half the grants waiting for the 30-minute full sweep, which is the
+# whole thing this exists to avoid.
+_MEMBERSHIP_RESOURCE_TYPES = {"project_membership", "team_membership", "membership"}
+_MEMBERSHIP_FIELDS = {"members", "followers", "team"}
+
+
+def _membership_event_gids(events):
+    """Which projects' access changed in a webhook batch.
+
+    None  - nothing membership-related happened; do no work.
+    []    - membership changed but Asana named no project (it does not always
+            carry the parent), so every mapped project has to be refreshed. A
+            grant we can't place is still a grant.
+    [gid] - refresh exactly these."""
+    gids, unplaced = [], False
+    for ev in events or []:
+        res = ev.get("resource") or {}
+        rtype = res.get("resource_type")
+        if not (rtype in _MEMBERSHIP_RESOURCE_TYPES
+                or (rtype == "project" and (ev.get("field") or "") in _MEMBERSHIP_FIELDS)):
+            continue
+        gid = next((n.get("gid") for n in (ev.get("parent") or {}, res)
+                    if n.get("resource_type") == "project" and n.get("gid")), "")
+        if gid:
+            if gid not in gids:
+                gids.append(gid)
+        else:
+            unplaced = True
+    if unplaced:
+        return []
+    return gids or None
+
+
+def trigger_access_sync_async(events):
+    """Refresh project access for any membership change in a webhook batch, in
+    the background (used by the webhook receiver). A no-op for the ordinary
+    task events that make up nearly every batch. Never raises."""
+    gids = _membership_event_gids(events)
+    if gids is None:
+        return
+    def _run():
+        try:
+            db = SessionLocal()
+            try:
+                sync_access_now(db, gids)
             finally:
                 db.close()
         except Exception:

@@ -333,6 +333,10 @@ export function TasksProvider({ children }) {
     createTemplate: mk(api.createTaskTemplate, setTemplates),
     deleteTemplate: mkDel(api.deleteTaskTemplate, setTemplates),
     createCustomField: mk(api.createTaskCustomField, setCustomFields),
+    // Editing was never wired up, so fixing a field's name meant deleting and
+    // recreating it - and task values are keyed by field id, so every value
+    // already captured was orphaned by the rename.
+    updateCustomField: mkUpd(api.updateTaskCustomField, setCustomFields),
     deleteCustomField: mkDel(api.deleteTaskCustomField, setCustomFields),
     // A merge deletes rows and rewrites the survivor's scope, so the list is
     // re-read rather than patched in place.

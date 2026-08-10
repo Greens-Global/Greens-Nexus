@@ -10,6 +10,20 @@ import AccountSettingsModal from "./AccountSettingsModal";
 import { useMsal }        from "@azure/msal-react";
 import { BFF_MODE, bffLogout } from "../bffAuth";
 import { useRole, ROLES, MODULES } from "../contexts/RoleContext";
+import { api } from "../api";
+
+// Header search reaches into the Task module's content, not just the module
+// list, so typing a task's title finds the task. Grouped by kind the way Asana's
+// own search is - a flat list of mixed things forces the reader to work out what
+// each row IS before deciding whether it is the one they want.
+const SEARCH_GROUPS = [
+  { key: 'tasks',      label: 'Tasks' },
+  { key: 'projects',   label: 'Projects' },
+  { key: 'people',     label: 'People' },
+  { key: 'portfolios', label: 'Portfolios' },
+  { key: 'teams',      label: 'Teams' },
+];
+const EMPTY_HITS = { tasks: [], projects: [], people: [], portfolios: [], teams: [] };
 
 export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle, canGoBack, onBack, onNavigate, prevLabel, onOpenAdmin, helpKey, helpLabel }) {
   const { instance, accounts } = useMsal();
@@ -117,6 +131,49 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchQuery, myRole, myGrantedModules]);
 
+  // Content search, debounced so a fast typist makes one call rather than one
+  // per keystroke. Failures fall back to an empty result set: the module
+  // matches above are computed locally and must keep working if the API is down.
+  const [hits, setHits] = useState(EMPTY_HITS);
+  useEffect(() => {
+    const term = searchQuery.trim();
+    if (term.length < 2) { setHits(EMPTY_HITS); return undefined; }
+    let live = true;
+    const id = setTimeout(() => {
+      api.searchTaskModule(term)
+        .then((r) => { if (live) setHits({ ...EMPTY_HITS, ...r }); })
+        .catch(() => { if (live) setHits(EMPTY_HITS); });
+    }, 180);
+    return () => { live = false; clearTimeout(id); };
+  }, [searchQuery]);
+
+  const hitCount = SEARCH_GROUPS.reduce((n, g) => n + (hits[g.key]?.length || 0), 0);
+
+  // Every result closes the popover, then routes by what it is. Tasks and
+  // people go through window events (nexus:open-task / nexus:tasks-person)
+  // because the Task module owns the drawer and the workspace - the header
+  // only says WHAT was picked, never how to render it.
+  function openHit(kind, item) {
+    setSearchQuery(''); setSearchOpen(false);
+    const toTasks = (sub) => window.dispatchEvent(
+      new CustomEvent('nexus:navigate', { detail: { view: 'tasks', sub } }));
+    if (kind === 'tasks') {
+      toTasks('mine');
+      setTimeout(() => window.dispatchEvent(
+        new CustomEvent('nexus:open-task', { detail: { taskId: item.id } })), 0);
+    } else if (kind === 'people') {
+      toTasks('home');
+      setTimeout(() => window.dispatchEvent(
+        new CustomEvent('nexus:tasks-person', { detail: { email: item.email, name: item.name } })), 0);
+    } else if (kind === 'projects') {
+      toTasks('projects');
+    } else if (kind === 'portfolios') {
+      toTasks('portfolios');
+    } else if (kind === 'teams') {
+      toTasks('teams');
+    }
+  }
+
   useEffect(() => {
     function handleClick(e) {
       if (dropRef.current && !dropRef.current.contains(e.target)) setOpen(false);
@@ -128,7 +185,12 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
 
   function handleSearchKey(e) {
     if (e.key === 'Escape') { setSearchQuery(''); setSearchOpen(false); }
-    if (e.key === 'Enter' && searchResults.length > 0) {
+    if (e.key !== 'Enter') return;
+    // Content beats a page: someone typing a task's title wants the task, and
+    // the module list is the fallback it always was.
+    const group = SEARCH_GROUPS.find((g) => hits[g.key]?.length);
+    if (group) { openHit(group.key, hits[group.key][0]); return; }
+    if (searchResults.length > 0) {
       onNavigate(searchResults[0].id);
       setSearchQuery(''); setSearchOpen(false);
     }
@@ -154,7 +216,7 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
     <div className="search-bar">
       <Search style={{ width: 14, height: 14, flexShrink: 0 }} />
       <input
-        placeholder="Search Nexus…"
+        placeholder="Search tasks, projects, people…"
         value={searchQuery}
         onChange={e => { setSearchQuery(e.target.value); setSearchOpen(true); }}
         onFocus={() => setSearchOpen(true)}
@@ -165,36 +227,72 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
     </div>
   );
 
+  const panelStyle = {
+    position: 'absolute', top: 'calc(100% + 6px)', left: 0, right: 0,
+    background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10,
+    boxShadow: '0 8px 28px rgba(0,0,0,0.15)', zIndex: 500, overflow: 'hidden',
+  };
+  const rowStyle = {
+    width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px',
+    background: 'transparent', border: 'none', cursor: 'pointer',
+    fontFamily: 'Inter,sans-serif', fontSize: 13, color: 'var(--ink)', textAlign: 'left',
+  };
+  const headingStyle = {
+    padding: '7px 14px 4px', fontSize: 10.5, fontWeight: 700, letterSpacing: '.07em',
+    textTransform: 'uppercase', color: 'var(--muted)', background: 'var(--mist)',
+  };
+  const subStyle = { fontSize: 11.5, color: 'var(--muted)' };
+  const hover = (on) => (e) => (e.currentTarget.style.background = on ? 'var(--mist)' : 'transparent');
+
   const searchResultsDropdown = (
     <>
-      {searchOpen && searchResults.length > 0 && (
-        <div style={{
-          position: 'absolute', top: 'calc(100% + 6px)', left: 0, right: 0,
-          background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10,
-          boxShadow: '0 8px 28px rgba(0,0,0,0.15)', zIndex: 500, overflow: 'hidden',
-        }}>
-          {searchResults.map((m, i) => (
-            <button key={m.id} onClick={() => goTo(m.id)}
-              style={{
-                width: '100%', display: 'flex', alignItems: 'center', gap: 10,
-                padding: '9px 14px', background: i === 0 ? 'var(--mist)' : 'transparent',
-                border: 'none', cursor: 'pointer', fontFamily: 'Inter,sans-serif',
-                fontSize: 13, color: 'var(--ink)', textAlign: 'left',
-                borderTop: i > 0 ? '1px solid var(--line)' : 'none',
-              }}>
-              <LayoutDashboard size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />
-              <span style={{ fontWeight: 500 }}>{m.label}</span>
-            </button>
-          ))}
+      {searchOpen && (searchResults.length > 0 || hitCount > 0) && (
+        <div style={{ ...panelStyle, maxHeight: '70vh', overflowY: 'auto' }}>
+          {SEARCH_GROUPS.map((g) => (hits[g.key]?.length ? (
+            <div key={g.key}>
+              <div style={headingStyle}>{g.label}</div>
+              {hits[g.key].map((item) => (
+                <button key={item.id || item.email} onClick={() => openHit(g.key, item)}
+                  style={rowStyle} onMouseEnter={hover(true)} onMouseLeave={hover(false)}>
+                  {g.key === 'tasks' ? (
+                    <>
+                      <Check size={13} style={{ color: item.completed ? 'var(--ok, #16a34a)' : 'var(--muted)', flexShrink: 0 }} />
+                      <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                        textDecoration: item.completed ? 'line-through' : 'none' }}>{item.title}</span>
+                      {item.projectName && <span style={{ ...subStyle, flexShrink: 0 }}>{item.projectName}</span>}
+                    </>
+                  ) : g.key === 'people' ? (
+                    <>
+                      <User size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+                      <span style={{ fontWeight: 500 }}>{item.name}</span>
+                      <span style={{ ...subStyle, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.email}</span>
+                    </>
+                  ) : (
+                    <>
+                      <LayoutDashboard size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+                      <span style={{ fontWeight: 500 }}>{item.name}</span>
+                    </>
+                  )}
+                </button>
+              ))}
+            </div>
+          ) : null))}
+          {searchResults.length > 0 && (
+            <div>
+              <div style={headingStyle}>Pages</div>
+              {searchResults.map((m) => (
+                <button key={m.id} onClick={() => goTo(m.id)} style={rowStyle}
+                  onMouseEnter={hover(true)} onMouseLeave={hover(false)}>
+                  <LayoutDashboard size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+                  <span style={{ fontWeight: 500 }}>{m.label}</span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
-      {searchOpen && searchQuery.trim() && searchResults.length === 0 && (
-        <div style={{
-          position: 'absolute', top: 'calc(100% + 6px)', left: 0, right: 0,
-          background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10,
-          boxShadow: '0 8px 28px rgba(0,0,0,0.15)', zIndex: 500, padding: '12px 14px',
-          fontSize: 13, color: 'var(--muted)', textAlign: 'center',
-        }}>
+      {searchOpen && searchQuery.trim().length >= 2 && searchResults.length === 0 && hitCount === 0 && (
+        <div style={{ ...panelStyle, padding: '12px 14px', fontSize: 13, color: 'var(--muted)', textAlign: 'center' }}>
           No results for "{searchQuery}"
         </div>
       )}

@@ -6,7 +6,9 @@ Flow:
   - Registration handshake: Asana POSTs an X-Hook-Secret header; we store it and
     echo it back (200) so Asana activates the webhook.
   - Events: Asana POSTs {events:[...]} signed with X-Hook-Signature. We verify the
-    HMAC against our stored secret(s) and, if valid, kick off a background pull.
+    HMAC against our stored secret(s) and, if valid, kick off a background pull -
+    plus a project-access refresh when the batch mentions membership, which the
+    pull would otherwise only pick up on its 30-minute full sweep.
 """
 import json
 
@@ -43,6 +45,12 @@ async def asana_webhook(request: Request, db: Session = Depends(get_db)):
         resource = ev.get("resource") or {}
         if ev.get("action") == "deleted" and resource.get("resource_type") == "task":
             asana_sync.unlink_deleted_task(db, resource.get("gid", ""))
+
+    # Membership changes carry no task, so the pull below never notices one: it
+    # only refreshes access on its 30-minute FULL sweep. Sync it off the event
+    # instead, so someone added to a project in Asana can open it in Nexus now
+    # rather than up to half an hour later. A no-op for ordinary task events.
+    asana_sync.trigger_access_sync_async(events)
 
     asana_sync.trigger_pull_async()
     return {"ok": True}

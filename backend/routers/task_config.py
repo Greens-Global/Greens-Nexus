@@ -1137,6 +1137,28 @@ def asana_sync_dedupe(apply: bool = False, db: Session = Depends(get_db)):
     return asana_sync.dedupe_tasks(db, apply=apply)
 
 
+@router.get("/asana-sync/workspaces", dependencies=[Depends(require_manager)])
+def asana_sync_workspaces(db: Session = Depends(get_db)):
+    """The workspaces this token can see, so the Workspace GID can be picked
+    instead of typed.
+
+    Asana does not show a workspace id anywhere in its UI, and the ids in its
+    URLs (app.asana.com/0/<project>/<task>) are PROJECT ids - which is exactly
+    how a project gid ends up pasted into this field. It reads as valid, nothing
+    validates it, and the only symptom is that assignees quietly stop resolving
+    while every other field syncs normally."""
+    import asana_sync
+    from asana_import import Asana, ImportError_
+    cfg = asana_sync.get_config(db)
+    if not cfg.token:
+        raise HTTPException(400, "Save the sync token first.")
+    try:
+        return [{"gid": w["gid"], "name": w.get("name") or w["gid"]}
+                for w in Asana(cfg.token).get("/workspaces", opt_fields="name")]
+    except ImportError_ as e:
+        raise HTTPException(400, f"Could not list workspaces - check the token. ({e})")
+
+
 @router.get("/asana-sync/asana-projects", dependencies=[Depends(require_manager)])
 def asana_sync_asana_projects(db: Session = Depends(get_db)):
     """List Asana projects using the STORED sync token (so the mapping UI can offer
