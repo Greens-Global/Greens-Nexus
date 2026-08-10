@@ -204,30 +204,43 @@ def fill(template: str, ctx: dict) -> str:
     return out
 
 
-def _match_last_segment(path: str) -> str | None:
-    """Fix up the LAST segment of `path` against the real folder names in its
-    parent, because tenant folders carry suffixes/variants the template can't
-    know. Exact (case-insensitive) -> prefix -> substring; None when the parent
-    lists fine but nothing matches (a genuinely missing person folder)."""
+def _fold(s: str) -> str:
+    """Comparison key: lowercase, punctuation dropped, whitespace collapsed -
+    so "GGCon Pvt Ltd." (the HR entity name) matches the real Egnyte folder
+    "GGCon Pvt. Ltd (India)" instead of failing on a dot."""
+    out = "".join(c for c in (s or "").lower() if c not in ".,'’")
+    return " ".join(out.split())
+
+
+def _match_path(path: str) -> str | None:
+    """Resolve `path` against what actually exists, matching EVERY segment
+    (not just the person at the end) - real folder names carry punctuation,
+    legal suffixes and per-person suffixes the template can't know
+    ("GGCon Pvt. Ltd (India)", "Aarav Mehta - 1982"). Per segment: exact
+    folded match -> folded prefix -> folded substring, first hit wins. None
+    when some segment matches nothing (a genuinely missing folder)."""
     from services import egnyte as svc
-    p = svc.norm(path)
-    parent, _, want = p.rpartition("/")
-    want_l = want.lower()
-    if not parent or not want_l:
-        return p
-    try:
-        names = [f["name"] for f in svc.list_folder(parent)["folders"]]
-    except svc.EgnyteError:
-        return None
-    for matches in (
-        lambda n: n.lower() == want_l,
-        lambda n: n.lower().startswith(want_l),
-        lambda n: want_l in n.lower(),
-    ):
-        for n in names:
-            if matches(n):
-                return svc.norm(f"{parent}/{n}")
-    return None
+    segs = [s for s in svc.norm(path).split("/") if s]
+    cur = ""
+    for seg in segs:
+        try:
+            names = [f["name"] for f in svc.list_folder(cur or "/")["folders"]]
+        except svc.EgnyteError:
+            return None
+        want = _fold(seg)
+        hit = None
+        for matches in (
+            lambda n: _fold(n) == want,
+            lambda n: _fold(n).startswith(want),
+            lambda n: want in _fold(n),
+        ):
+            hit = next((n for n in names if matches(n)), None)
+            if hit:
+                break
+        if not hit:
+            return None
+        cur = f"{cur}/{hit}"
+    return svc.norm(cur)
 
 
 def resolve_person_folder(slot: str, emp, db) -> dict:
@@ -237,7 +250,12 @@ def resolve_person_folder(slot: str, emp, db) -> dict:
              "proposed": str} - folder None means nothing exists in Egnyte yet;
     `proposed` is the filled template for a create-it flow or error message.
     An explicit per-person override is trusted verbatim (the manager pointed at
-    a real folder; re-matching it could only un-fix what they fixed)."""
+    a real folder; re-matching it could only un-fix what they fixed).
+
+    people.my-documents additionally inherits a people.person-folder override:
+    pointing a person's FOLDER at the right place in the Wiring tab is one
+    action, and their My Documents follows it (person folder + the template's
+    subfolder tail) instead of needing a second override."""
     email = (getattr(emp, "work_email", "") or "").lower()
     override = raw_value(slot, email)
     if override:
@@ -245,19 +263,29 @@ def resolve_person_folder(slot: str, emp, db) -> dict:
 
     template, _src = effective(slot)
     ctx = _person_context(emp, db)
+
+    if slot == "people.my-documents":
+        pf_override = raw_value("people.person-folder", email)
+        if pf_override:
+            tail = fill(template.split("{person}", 1)[1], ctx) if "{person}" in template else ""
+            folder = pf_override.rstrip("/") + tail
+            return {"folder": folder, "source": "override", "proposed": folder}
+
     filled = fill(template, ctx)
     if "{" in filled or not ctx["person"]:
         # a placeholder had no value (no company set, no name) - unresolvable
         return {"folder": None, "source": "template", "proposed": filled}
 
-    # For my-documents the person segment is not last (".../{person}/Contractor
-    # Documents") - match the PERSON segment, then re-append what follows.
-    person_prefix = fill(template.split("{person}")[0] + "{person}", ctx) if "{person}" in template else filled
-    suffix = filled[len(person_prefix):]
-    matched = _match_last_segment(person_prefix)
+    matched = _match_path(filled)
+    if matched is None and "{bucket}" in template:
+        # Nexus employment_type and the tenant's filing don't always agree
+        # (a Full-Time hire filed under Contractors). Try the other bucket
+        # before giving up - reality in Egnyte wins over the HR field.
+        other = "Employees" if ctx["bucket"] == "Contractors" else "Contractors"
+        matched = _match_path(fill(template, {**ctx, "bucket": other}))
     if matched is None:
         return {"folder": None, "source": "template", "proposed": filled}
-    return {"folder": matched + suffix, "source": "template", "proposed": filled}
+    return {"folder": matched, "source": "template", "proposed": filled}
 
 
 def now_iso() -> str:
