@@ -2964,3 +2964,27 @@ class EgnyteWiring(Base):
     updated_by = Column(String, default="")
     updated_at = Column(String, default="")
     __table_args__ = (UniqueConstraint("slot", "scope_id", name="ux_egnyte_wiring_slot_scope"),)
+
+
+class EgnyteFolderGroup(Base):
+    """A rule-based Egnyte wiring for a COHORT of people (Visesh, Aug 10:
+    "create me a folder group for people who are working from the US and have
+    biweekly salary" - no per-person clicking). `rule` is a list of
+    {field, value} conditions, ANDed, over egnyte_wiring.RULE_FIELDS; `prompt`
+    keeps the plain-English ask it was parsed from (by the Claude API) so the
+    card can show intent, not JSON. `path` is the group's PARENT folder in
+    Egnyte - each matching person resolves to <path>/<their name> inside it,
+    current and future matches alike (membership is evaluated at resolution
+    time, never materialized). Beats the template and loses to a per-person
+    override; first enabled group (newest first) wins when several match."""
+    __tablename__ = "egnyte_folder_groups"
+    id         = Column(String, primary_key=True)
+    name       = Column(String, nullable=False)
+    prompt     = Column(String, default="")
+    rule       = Column(JSON, default=list)
+    path       = Column(String, nullable=False)
+    enabled    = Column(Integer, default=1)
+    created_by = Column(String, default="")
+    created_at = Column(String, default="")
+    updated_by = Column(String, default="")
+    updated_at = Column(String, default="")

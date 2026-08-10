@@ -243,6 +243,120 @@ def _match_path(path: str) -> str | None:
     return svc.norm(cur)
 
 
+# ── folder groups (rule-based cohort wiring) ────────────────────────────────
+# RULE_FIELDS is the closed vocabulary a rule may use - the AI parser is told
+# exactly these and nothing else, so a prompt can only ever produce conditions
+# the matcher below actually understands.
+RULE_FIELDS = {
+    "entity_country":  "Country of the person's employing legal entity (hr_entities.country): US, IN, ...",
+    "company":         "Employing legal entity, by name (hr_entities.name)",
+    "department":      "Department name on the person",
+    "division":        "Functional division on the person",
+    "employment_type": "full_time | part_time | contractor | intern",
+    "status":          "onboarding | active | inactive",
+    "location":        "Person's location field (substring match)",
+    "pay_type":        "hourly (paid on the biweekly cycle - 'biweekly salary') | fixed (monthly salary)",
+    "pay_currency":    "USD | INR (payroll currency)",
+}
+
+
+def _rule_context(db) -> dict:
+    """Prefetched lookups one rule evaluation sweep needs - entities by id and
+    payroll rows by email - so matching 60 people is 2 queries, not 120."""
+    from models import HrEntity
+    ents = {e.id: e for e in db.query(HrEntity).all()}
+    pay = {}
+    try:
+        from models import PayrollRate
+        pay = {(r.employee_email or "").lower(): r for r in db.query(PayrollRate).all()}
+    except Exception:
+        pass
+    return {"entities": ents, "payroll": pay}
+
+
+def person_matches(emp, rule: list, rctx: dict) -> bool:
+    """Does this employee satisfy EVERY condition of `rule`?
+    Comparisons are folded (case/punctuation-insensitive); unknown fields fail
+    closed so a malformed rule matches nobody rather than everybody."""
+    ent = rctx["entities"].get(emp.company or "")
+    pay = rctx["payroll"].get((emp.work_email or "").lower())
+    for cond in (rule or []):
+        field = (cond.get("field") or "").strip()
+        want = _fold(str(cond.get("value") or ""))
+        if not field or not want:
+            return False
+        if field == "entity_country":
+            got = _fold(getattr(ent, "country", "") or "")
+        elif field == "company":
+            got = _fold(getattr(ent, "name", "") or "")
+        elif field == "department":
+            got = _fold(emp.department or "")
+        elif field == "division":
+            got = _fold(getattr(emp, "division", "") or "")
+        elif field == "employment_type":
+            got = _fold(emp.employment_type or "")
+        elif field == "status":
+            got = _fold(emp.status or "active")
+        elif field == "location":
+            if want not in _fold(emp.location or ""):
+                return False
+            continue
+        elif field == "pay_type":
+            got = _fold(getattr(pay, "pay_type", "") or "")
+        elif field == "pay_currency":
+            got = _fold(getattr(pay, "currency", "") or "")
+        else:
+            return False
+        if got != want:
+            return False
+    return True
+
+
+def _groups(db) -> list:
+    """Enabled folder groups, newest first (cached alongside the wirings)."""
+    got = cache.egnyte_wirings.get("groups")
+    if got is not None:
+        return got
+    from models import EgnyteFolderGroup
+    try:
+        rows = (db.query(EgnyteFolderGroup)
+                .filter(EgnyteFolderGroup.enabled == 1)
+                .order_by(EgnyteFolderGroup.created_at.desc()).all())
+        rows = [{"id": r.id, "name": r.name, "rule": r.rule or [], "path": r.path} for r in rows]
+    except Exception:
+        return []
+    cache.egnyte_wirings.set("groups", rows)
+    return rows
+
+
+def group_for_person(emp, db) -> dict | None:
+    groups = _groups(db)
+    if not groups:
+        return None
+    rctx = _rule_context(db)
+    for g in groups:
+        if g["rule"] and person_matches(emp, g["rule"], rctx):
+            return g
+    return None
+
+
+def people_matching(rule: list, db) -> list:
+    """Every current (non-offboarded, mailboxed) employee the rule matches."""
+    from models import NexusEmployee
+    if not rule:
+        return []
+    rctx = _rule_context(db)
+    rows = (db.query(NexusEmployee)
+            .filter(NexusEmployee.status != "offboarded")
+            .filter(NexusEmployee.work_email != "").all())
+    return [e for e in rows if person_matches(e, rule, rctx)]
+
+
+def person_label(emp) -> str:
+    return (getattr(emp, "display_name", "") or "").strip() \
+        or f"{(emp.first_name or '').strip()} {(emp.last_name or '').strip()}".strip()
+
+
 def resolve_person_folder(slot: str, emp, db) -> dict:
     """Resolve a person-scoped slot for one employee.
 
@@ -270,6 +384,18 @@ def resolve_person_folder(slot: str, emp, db) -> dict:
             tail = fill(template.split("{person}", 1)[1], ctx) if "{person}" in template else ""
             folder = pf_override.rstrip("/") + tail
             return {"folder": folder, "source": "override", "proposed": folder}
+
+    # Folder group: a rule-matched cohort parent beats the template. The person
+    # is a SUBFOLDER of the group's folder (matched by name, same folding as
+    # everywhere); my-documents keeps its template tail under that.
+    grp = group_for_person(emp, db) if ctx["person"] else None
+    if grp:
+        tail = fill(template.split("{person}", 1)[1], ctx) if "{person}" in template else ""
+        proposed = f"{grp['path'].rstrip('/')}/{ctx['person']}{tail}"
+        matched = _match_path(f"{grp['path'].rstrip('/')}/{ctx['person']}")
+        if matched:
+            return {"folder": matched + tail, "source": "group", "proposed": proposed}
+        return {"folder": None, "source": "group", "proposed": proposed}
 
     filled = fill(template, ctx)
     if "{" in filled or not ctx["person"]:
@@ -303,19 +429,26 @@ def provision_person_folder(emp, db) -> str:
     if existing["folder"]:
         folder = existing["folder"]
     else:
-        template, _src = effective("people.person-folder")
         ctx = _person_context(emp, db)
-        filled = fill(template, ctx)
-        if "{" in filled or not ctx["person"]:
-            raise ValueError("This person is missing a company or name in People, so there is no wired location to create the folder in.")
-        parent_t, _, leaf = filled.rpartition("/")
-        parent = _match_path(parent_t)
-        if parent is None and "{bucket}" in template:
-            other = "Employees" if ctx["bucket"] == "Contractors" else "Contractors"
-            parent = _match_path(fill(template, {**ctx, "bucket": other}).rpartition("/")[0])
-        if parent is None:
-            raise ValueError(f"The parent folder for this person ({parent_t}) does not exist in Egnyte yet - create the entity's HR folders there first.")
-        folder = svc.norm(f"{parent}/{leaf}")
+        if not ctx["person"]:
+            raise ValueError("This person has no name in People, so there is no folder to create.")
+        grp = group_for_person(emp, db)
+        if grp:
+            # The group's path was verified to exist when the group was saved.
+            folder = svc.norm(f"{grp['path']}/{ctx['person']}")
+        else:
+            template, _src = effective("people.person-folder")
+            filled = fill(template, ctx)
+            if "{" in filled:
+                raise ValueError("This person is missing a company or name in People, so there is no wired location to create the folder in.")
+            parent_t, _, leaf = filled.rpartition("/")
+            parent = _match_path(parent_t)
+            if parent is None and "{bucket}" in template:
+                other = "Employees" if ctx["bucket"] == "Contractors" else "Contractors"
+                parent = _match_path(fill(template, {**ctx, "bucket": other}).rpartition("/")[0])
+            if parent is None:
+                raise ValueError(f"The parent folder for this person ({parent_t}) does not exist in Egnyte yet - create the entity's HR folders there first.")
+            folder = svc.norm(f"{parent}/{leaf}")
         svc.create_folder(folder)
     for sub in ("Contractor Documents", "Confidential"):
         try:

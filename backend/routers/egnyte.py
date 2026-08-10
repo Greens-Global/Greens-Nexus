@@ -446,3 +446,260 @@ def person_folder_provision(email: str, user: dict = Depends(_require_hr_edit),
     except svc.EgnyteError as exc:
         raise HTTPException(exc.status, str(exc))
     return _person_payload(email, emp, db)
+
+
+# ── folder groups (Aug 10 - "create me a folder group for people who are
+# working from the US and have biweekly salary"). A plain-English prompt is
+# parsed by the Claude API into a closed-vocabulary rule (egnyte_wiring
+# RULE_FIELDS - the model can only produce conditions the matcher
+# understands), previewed with the people it matches, attached to a real
+# Egnyte folder, and saved. Membership is evaluated at resolution time, so a
+# new hire who fits the rule is wired the day they appear - nobody clicks
+# per-person overrides. Manager+ like the rest of the wiring.
+
+import json as _json
+import os as _os
+
+import httpx as _httpx
+
+_AI_MODEL = _os.getenv("NEXUS_AI_MODEL", "claude-opus-4-8")
+_ANTHROPIC_API_KEY = _os.getenv("ANTHROPIC_API_KEY", "")
+
+
+def _grounding(db) -> dict:
+    """Real values from THIS company's data, given to the model so it maps
+    words onto rows that exist instead of inventing labels."""
+    from models import HrEntity, NexusEmployee
+    ents = db.query(HrEntity).all()
+    emps = db.query(NexusEmployee).filter(NexusEmployee.status != "offboarded").all()
+    return {
+        "entities": [{"name": e.name, "country": e.country or ""} for e in ents],
+        "departments": sorted({e.department for e in emps if e.department}),
+        "divisions": sorted({(getattr(e, "division", "") or "") for e in emps} - {""}),
+    }
+
+
+def _ai_parse_rule(prompt: str, grounding: dict) -> dict:
+    """Prompt -> {name, conditions[], notes}. Raises HTTPException with a
+    human message on any failure - the UI shows it verbatim."""
+    if not _ANTHROPIC_API_KEY:
+        raise HTTPException(503, "AI parsing is not configured (ANTHROPIC_API_KEY is not set on this environment).")
+    fields_doc = "\n".join(f"- {k}: {v}" for k, v in wiring.RULE_FIELDS.items())
+    ask = (
+        "You translate a manager's plain-English description of a group of employees into a "
+        "STRICT JSON rule for an internal HR system.\n\n"
+        "ALLOWED FIELDS (a condition may use ONLY these; all conditions are ANDed):\n"
+        f"{fields_doc}\n\n"
+        "REAL DATA in this company (map words onto these, never invent values):\n"
+        f"Legal entities: {_json.dumps(grounding['entities'])}\n"
+        f"Departments: {_json.dumps(grounding['departments'])}\n"
+        f"Divisions: {_json.dumps(grounding['divisions'])}\n\n"
+        "Mapping hints: 'working in/from the US' -> entity_country US; 'India team' -> entity_country IN; "
+        "'biweekly salary/pay' -> pay_type hourly; 'monthly salary/fixed salary' -> pay_type fixed; "
+        "'contractors' -> employment_type contractor.\n\n"
+        f"MANAGER'S DESCRIPTION: {prompt}\n\n"
+        'Answer with ONLY this JSON (no fences, no prose): {"name": "<short Title Case group name>", '
+        '"conditions": [{"field": "<allowed field>", "value": "<value>"}], '
+        '"notes": "<anything in the description you could NOT map, else empty string>"}'
+    )
+    try:
+        with _httpx.Client(timeout=60) as client:
+            r = client.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={"x-api-key": _ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01",
+                         "content-type": "application/json"},
+                json={"model": _AI_MODEL, "max_tokens": 500,
+                      "messages": [{"role": "user", "content": ask}]},
+            )
+            r.raise_for_status()
+        text = "".join(b.get("text", "") for b in r.json().get("content", []) if b.get("type") == "text").strip()
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(502, "The AI service could not be reached - try again in a moment.")
+    if text.startswith("```"):
+        text = text.strip("`").removeprefix("json").strip()
+    try:
+        parsed = _json.loads(text)
+    except Exception:
+        raise HTTPException(502, "The AI answer could not be understood - try rephrasing the description.")
+    conditions, dropped = [], []
+    for c in (parsed.get("conditions") or []):
+        f, v = (c.get("field") or "").strip(), str(c.get("value") or "").strip()
+        if f in wiring.RULE_FIELDS and v:
+            conditions.append({"field": f, "value": v})
+        elif f or v:
+            dropped.append(f or v)
+    notes = (parsed.get("notes") or "").strip()
+    if dropped:
+        notes = (notes + " " if notes else "") + f"Ignored unmappable condition(s): {', '.join(dropped)}."
+    if not conditions:
+        raise HTTPException(400, "Nothing in that description mapped to people data - try naming a country, company, department, pay cycle, or employment type.")
+    return {"name": (parsed.get("name") or "").strip() or "New Folder Group",
+            "conditions": conditions, "notes": notes}
+
+
+def _suggest_folders(rule: list, db) -> list:
+    """Existing HR parent folders that plausibly host this cohort - the
+    entities the rule points at, their Human Resources buckets. Best effort,
+    capped, and only ever REAL folders (walked, not constructed)."""
+    from models import HrEntity
+    want_country = next((c["value"] for c in rule if c["field"] == "entity_country"), "")
+    want_company = next((c["value"] for c in rule if c["field"] == "company"), "")
+    ents = db.query(HrEntity).all()
+    fold = wiring._fold
+    cands = [e for e in ents
+             if (not want_country or fold(e.country or "") == fold(want_country))
+             and (not want_company or fold(want_company) in fold(e.name or ""))]
+    out = []
+    try:
+        roots = svc.list_folder("/Shared/#Entities")["folders"]
+    except svc.EgnyteError:
+        return out
+    by_fold = {fold(f["name"]): f for f in roots}
+    for e in cands[:5]:
+        ename = fold(e.name or "")
+        hit = by_fold.get(ename) or next(
+            (f for k, f in by_fold.items() if ename and ename in k), None)
+        if not hit:
+            continue
+        try:
+            hr = next((f for f in svc.list_folder(hit["path"])["folders"]
+                       if fold(f["name"]) in ("human resources", "hr")), None)
+            if not hr:
+                continue
+            for sub in svc.list_folder(hr["path"])["folders"]:
+                if fold(sub["name"]) in ("contractors", "employees"):
+                    out.append(sub["path"])
+        except svc.EgnyteError:
+            continue
+        if len(out) >= 4:
+            break
+    return out[:4]
+
+
+class GroupDraftIn(BaseModel):
+    prompt: str
+
+
+class GroupIn(BaseModel):
+    name: str
+    prompt: str = ""
+    rule: list
+    path: str
+
+
+def _ser_group(row, count=None) -> dict:
+    return {"id": row.id, "name": row.name, "prompt": row.prompt or "",
+            "rule": row.rule or [], "path": row.path, "enabled": bool(row.enabled),
+            "createdBy": row.created_by, "createdAt": row.created_at,
+            **({"memberCount": count} if count is not None else {})}
+
+
+@router.post("/folder-groups/draft")
+def folder_group_draft(body: GroupDraftIn, user: dict = Depends(require_manager),
+                       db: Session = Depends(get_db)):
+    _guard()
+    prompt = (body.prompt or "").strip()
+    if len(prompt) < 8:
+        raise HTTPException(400, "Describe the group in a sentence - who is it for?")
+    parsed = _ai_parse_rule(prompt, _grounding(db))
+    members = wiring.people_matching(parsed["conditions"], db)
+    return {
+        "name": parsed["name"],
+        "rule": parsed["conditions"],
+        "notes": parsed["notes"],
+        "members": [{"email": (m.work_email or "").lower(), "name": wiring.person_label(m)} for m in members],
+        "folderSuggestions": _suggest_folders(parsed["conditions"], db),
+    }
+
+
+@router.get("/folder-groups")
+def folder_groups_list(user: dict = Depends(require_manager), db: Session = Depends(get_db)):
+    from models import EgnyteFolderGroup
+    rows = db.query(EgnyteFolderGroup).order_by(EgnyteFolderGroup.created_at.desc()).all()
+    return {"groups": [_ser_group(r, len(wiring.people_matching(r.rule or [], db))) for r in rows]}
+
+
+@router.post("/folder-groups")
+def folder_group_create(body: GroupIn, user: dict = Depends(require_manager),
+                        db: Session = Depends(get_db)):
+    _guard()
+    from models import EgnyteFolderGroup
+    name = (body.name or "").strip()
+    path = svc.norm((body.path or "").strip())
+    rule = [c for c in (body.rule or [])
+            if isinstance(c, dict) and (c.get("field") or "") in wiring.RULE_FIELDS and str(c.get("value") or "").strip()]
+    if not name:
+        raise HTTPException(400, "Give the group a name")
+    if not rule:
+        raise HTTPException(400, "The group needs at least one condition")
+    if path in ("", "/", "/Shared"):
+        raise HTTPException(400, "Pick the group's folder first")
+    try:
+        svc.list_folder(path)
+    except svc.EgnyteError as exc:
+        raise HTTPException(400, "That folder does not exist in Egnyte" if exc.status == 404 else str(exc))
+    row = EgnyteFolderGroup(id=_uuid.uuid4().hex, name=name, prompt=(body.prompt or "").strip(),
+                            rule=rule, path=path, enabled=1,
+                            created_by=user["email"], created_at=wiring.now_iso(),
+                            updated_by=user["email"], updated_at=wiring.now_iso())
+    db.add(row)
+    db.commit()
+    return _ser_group(row, len(wiring.people_matching(rule, db)))
+
+
+@router.delete("/folder-groups/{gid}")
+def folder_group_delete(gid: str, user: dict = Depends(require_manager),
+                        db: Session = Depends(get_db)):
+    from models import EgnyteFolderGroup
+    n = db.query(EgnyteFolderGroup).filter(EgnyteFolderGroup.id == gid).delete()
+    db.commit()
+    if not n:
+        raise HTTPException(404, "No such folder group")
+    return {"ok": True}
+
+
+@router.post("/folder-groups/{gid}/sync")
+def folder_group_sync(gid: str, user: dict = Depends(require_manager),
+                      db: Session = Depends(get_db)):
+    """Make Egnyte match the rule: every matching person gets a subfolder in
+    the group folder (found by folded name-match, created with the standard
+    Contractor Documents + Confidential set when missing). One folder listing,
+    not one walk per person."""
+    _guard()
+    from models import EgnyteFolderGroup
+    row = db.query(EgnyteFolderGroup).filter(EgnyteFolderGroup.id == gid).first()
+    if not row:
+        raise HTTPException(404, "No such folder group")
+    members = wiring.people_matching(row.rule or [], db)
+    try:
+        children = svc.list_folder(row.path)["folders"]
+    except svc.EgnyteError as exc:
+        raise HTTPException(exc.status, f"Could not open the group folder: {exc}")
+    fold = wiring._fold
+    by_fold = [(fold(f["name"]), f["name"]) for f in children]
+    existing, created, errors = [], [], []
+    for m in members:
+        label = wiring.person_label(m)
+        want = fold(label)
+        if not want:
+            continue
+        hit = next((n for k, n in by_fold if k == want), None) \
+            or next((n for k, n in by_fold if k.startswith(want)), None) \
+            or next((n for k, n in by_fold if want in k), None)
+        if hit:
+            existing.append({"name": label, "folder": f"{row.path}/{hit}"})
+            continue
+        target = svc.norm(f"{row.path}/{label}")
+        try:
+            svc.create_folder(target)
+            for sub in ("Contractor Documents", "Confidential"):
+                try:
+                    svc.create_folder(f"{target}/{sub}")
+                except svc.EgnyteError:
+                    pass
+            created.append({"name": label, "folder": target})
+        except svc.EgnyteError as exc:
+            errors.append({"name": label, "error": str(exc)})
+    return {"members": len(members), "created": created, "existing": existing, "errors": errors}

@@ -117,6 +117,7 @@ _WATCHED = {
     "NexusGroupMember": (module_grants,),
     "NexusSetting":     (settings_config,),
     "EgnyteWiring":     (egnyte_wirings,),
+    "EgnyteFolderGroup": (egnyte_wirings,),
     "ItemType":         (item_types,),
     "NexusRole":        (role_holders,),
 }
