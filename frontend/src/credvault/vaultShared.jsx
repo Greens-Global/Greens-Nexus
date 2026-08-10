@@ -286,7 +286,7 @@ function SmsConsent({ checked, onChange }) {
       <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)}
         style={{ marginTop: 2, flexShrink: 0, cursor: "pointer" }} />
       <span style={{ fontSize: 10.5, lineHeight: 1.45, color: "var(--text-secondary)" }}>
-        I agree to receive SMS text messages from <strong>Greens Global</strong> at the mobile number on file, including account alerts, two-factor authentication codes, and appointment reminders. Msg &amp; data rates may apply. Reply <strong>STOP</strong> to opt out or <strong>HELP</strong> for help at any time. Consent is not a condition of employment or any purchase.
+        I agree to receive SMS text messages from <strong>Greens Global</strong> at the mobile number on file, including account alerts, two-factor authentication codes, and appointment reminders. <strong>Message frequency may vary.</strong> Msg &amp; data rates may apply. Reply <strong>STOP</strong> to opt out or <strong>HELP</strong> for help at any time. Consent is not a condition of employment or any purchase. View our <a href="/privacy" target="_blank" rel="noopener noreferrer" style={{ color: "var(--text-secondary)", textDecoration: "underline" }}><strong>Privacy Policy</strong></a>.
       </span>
     </label>
   );
