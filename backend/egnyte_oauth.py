@@ -7,16 +7,32 @@ run on their own token and Egnyte's folder permissions are the boundary. A
 person with no Egnyte account (or none of the folders shared to them) sees
 nothing, which is the correct answer.
 
-Egnyte's OAuth is the standard authorization-code flow on a slightly unusual
-endpoint - /puboauth/token serves BOTH the browser authorize redirect (GET)
-and the code exchange (POST). Access tokens are long-lived and there is no
-refresh token: a revoked/expired grant surfaces as a 401 on use, and the fix
-is reconnecting.
+Egnyte's OAuth is the standard authorization-code flow. The browser goes to
+/puboauth/authorize (GET) and the code is exchanged at /puboauth/token (POST).
+
+  CORRECTION (Aug 11): this file used to say /puboauth/token served BOTH, and
+  built the browser redirect against it. It does not, and connecting therefore
+  failed for everyone, every time, since the feature shipped - the browser
+  landed on Egnyte showing raw JSON: "Incorrect request type GET for resource
+  owner flow". Verified against the live tenant: /puboauth/authorize with no
+  client_id answers REQUIRED_PARAMS_MISSING, so it is a real browser endpoint.
+
+THE APP REGISTRATION MUST BE THE RIGHT KIND, and this is not something code can
+work around. An Egnyte API key is registered for ONE flow. Ours is registered
+for the resource-owner (username/password) flow, which is what the shared
+SERVICE token uses and which has no browser step at all - so /authorize refuses
+it with that same "for resource owner flow" message even when the URL is right.
+Per-user OAuth needs a SEPARATE key registered for the authorization-code flow.
+Distinguishing the cases: an unknown key answers "No valid app info found for
+api key", so the resource-owner message means Egnyte found the app and rejected
+the FLOW, not the key.
 
 Setup (deployment, once):
   - Register an API key at https://developers.egnyte.com (or the domain's
-    Developer console) with redirect URI  {public_base()}/egnyte-oauth/callback
-  - Set EGNYTE_OAUTH_CLIENT_ID / EGNYTE_OAUTH_CLIENT_SECRET.
+    Developer console) for the AUTHORIZATION-CODE flow - not resource owner -
+    with redirect URI  {public_base()}/egnyte-oauth/callback
+  - Set EGNYTE_OAUTH_CLIENT_ID / EGNYTE_OAUTH_CLIENT_SECRET to THAT key, which
+    is not the same key as EGNYTE_API_KEY unless one app is registered for both.
 Until then oauth_configured() is False and everything behaves exactly as
 before (shared service token, module gated at supervisor).
 """
@@ -77,6 +93,9 @@ def not_configured_reason() -> str:
 
 
 def authorize_url(state: str) -> str:
+    """/puboauth/AUTHORIZE - see the correction in the module docstring. Sending
+    a browser to /puboauth/token instead is what made connecting fail for
+    everyone since this shipped."""
     q = urllib.parse.urlencode({
         "client_id": _client_id(),
         "redirect_uri": redirect_uri(),
@@ -84,7 +103,49 @@ def authorize_url(state: str) -> str:
         "state": state,
         "response_type": "code",
     })
-    return f"{_domain_base()}/puboauth/token?{q}"
+    return f"{_domain_base()}/puboauth/authorize?{q}"
+
+
+def preflight_error(state: str = "preflight") -> str:
+    """Ask Egnyte whether it will accept this authorize request AT ALL, and turn
+    a refusal into something a person can act on. "" means go ahead.
+
+    Worth the extra round trip because the failure it catches is otherwise
+    invisible: the browser leaves Nexus, lands on Egnyte, and shows raw JSON
+    ("Incorrect request type GET for resource owner flow") with no way back and
+    nothing naming the actual problem - which is a misregistered app, not
+    anything the user did. Better to never send them.
+
+    A GET here has no side effects: the authorize endpoint only renders a
+    sign-in page until the user actually approves.
+    """
+    try:
+        req = urllib.request.Request(
+            authorize_url(state), method="GET",
+            headers={"Accept": "application/json, text/html", "User-Agent": "Nexus-preflight"},
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            status, body = resp.status, resp.read(500).decode(errors="ignore")
+    except urllib.error.HTTPError as e:
+        status, body = e.code, e.read(500).decode(errors="ignore")
+    except Exception:      # noqa: BLE001 - a network blip must not block connecting
+        return ""
+
+    if status < 400:
+        return ""
+    low = body.lower()
+    if "resource owner" in low:
+        return ("This Egnyte app is registered for the resource-owner (username and password) "
+                "flow, which has no browser sign-in step, so connecting can never complete. "
+                "Connecting needs a SEPARATE Egnyte API key registered for the "
+                "authorization-code flow, set as EGNYTE_OAUTH_CLIENT_ID / "
+                "EGNYTE_OAUTH_CLIENT_SECRET.")
+    if "no valid app info" in low:
+        return "Egnyte does not recognize EGNYTE_OAUTH_CLIENT_ID. Check the key on the server."
+    if "redirect" in low:
+        return ("Egnyte rejected the redirect URI. Register this exact URI on the Egnyte app: "
+                f"{redirect_uri()}")
+    return f"Egnyte refused the connection request (HTTP {status}). {body[:160]}"
 
 
 def exchange_code(code: str) -> dict:

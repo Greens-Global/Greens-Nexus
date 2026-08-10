@@ -39,6 +39,12 @@ def status(user: dict = Depends(get_current_user), db: Session = Depends(get_db)
 def start(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     if not egnyte_oauth.oauth_configured():
         return {"url": "", "error": egnyte_oauth.not_configured_reason()}
+    # Check Egnyte will accept the request before sending the browser away - a
+    # misregistered app otherwise strands the user on an Egnyte error page.
+    # Runs before issue_state so a refusal leaves no orphan state row.
+    problem = egnyte_oauth.preflight_error()
+    if problem:
+        return {"url": "", "error": problem}
     state = egnyte_oauth.issue_state(db, user["email"])
     return {"url": egnyte_oauth.authorize_url(state), "error": ""}
 
