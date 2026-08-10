@@ -5,7 +5,7 @@
 // and no copy: every listing, byte and search result comes from Egnyte on
 // demand, and every row links back there.
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ChevronRight, FolderPlus, HardDrive, RefreshCw, Search, X } from 'lucide-react';
+import { Check, ChevronRight, FolderPlus, HardDrive, RefreshCw, Search, X } from 'lucide-react';
 import { api } from '../api';
 import {
   canPreview, crumbsFor, downloadEgnyteFile, egnyteErrorMessage, isNotConnected,
@@ -23,6 +23,10 @@ export default function EgnyteFolderBrowser({
   canWrite = false,
   rootLabel = 'Egnyte',
   showUpload = true,
+  // Pick mode: when set, the browser doubles as a folder PICKER - a "Use This
+  // Folder" action appears and calls onPick(path) with the folder on screen.
+  // Used by the Wiring tab; a plain browse mount is unchanged.
+  onPick = null,
 }) {
   const [path, setPath] = useState(normPath(initialPath));
   const [data, setData] = useState(null);
@@ -158,6 +162,11 @@ export default function EgnyteFolderBrowser({
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+          {onPick && (
+            <button type="button" className="primary-btn" onClick={() => onPick(path)} disabled={loading} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <Check size={13} /> Use This Folder
+            </button>
+          )}
           <OpenInEgnyte url={folderUrl} label="Open in Egnyte" />
           <button type="button" className="secondary-btn" title="Refresh" onClick={() => load(path)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <RefreshCw size={13} /> Refresh

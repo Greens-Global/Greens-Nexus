@@ -12,17 +12,20 @@
 // even when Egnyte is unconfigured, precisely so this screen can render an
 // explained empty state instead of a wall of failed requests.
 import { useState } from 'react';
-import { Building2, FolderOpen } from 'lucide-react';
+import { Building2, Cable, FolderOpen } from 'lucide-react';
 import ModuleTabs from '../components/ModuleTabs';
 import { useRole } from '../contexts/RoleContext';
 import { useEgnyteStatus } from './lib';
 import EgnyteFolderBrowser from './EgnyteFolderBrowser';
 import EgnytePropertyDocs from './EgnytePropertyDocs';
+import EgnyteWiring from './EgnyteWiring';
 import { BODY, CARD, HEADING, Loading, NotConnected } from './ui';
 
 const TABS = [
   { key: 'browse',   label: 'Browse Files',       Icon: FolderOpen },
   { key: 'property', label: 'Property Documents', Icon: Building2 },
+  // Manager+ only (mirrors require_manager on /egnyte/wiring) - filtered below.
+  { key: 'wiring',   label: 'Wiring',             Icon: Cable, minRole: 'manager' },
 ];
 
 export default function EgnyteApp({ activeSub, onSubChange }) {
@@ -31,7 +34,8 @@ export default function EgnyteApp({ activeSub, onSubChange }) {
   const canWrite = can('supervisor');
   const { loading, configured, error, recheck } = useEgnyteStatus();
 
-  const sub = TABS.some(t => t.key === activeSub) ? activeSub : 'browse';
+  const tabs = TABS.filter(t => !t.minRole || can(t.minRole));
+  const sub = tabs.some(t => t.key === activeSub) ? activeSub : 'browse';
   const [site, setSite] = useState('');
   const [submittedSite, setSubmittedSite] = useState('');
   // Set when a property subfolder is opened from the property tab, so the Browse
@@ -44,12 +48,14 @@ export default function EgnyteApp({ activeSub, onSubChange }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14, minWidth: 0 }}>
-      <ModuleTabs tabs={TABS} active={sub} onChange={goTo} />
+      <ModuleTabs tabs={tabs} active={sub} onChange={goTo} />
 
       {loading ? (
         <Loading label="Checking the Egnyte connection…" />
       ) : !configured ? (
         <NotConnected error={error} onRetry={recheck} />
+      ) : sub === 'wiring' ? (
+        <EgnyteWiring />
       ) : sub === 'property' ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0 }}>
           <div style={{ ...CARD, padding: 14 }}>

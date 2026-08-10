@@ -71,7 +71,9 @@ def _project_folder(db, project) -> str:
             resolved = egnyte_svc.resolve_property_folder(name)
             if resolved:
                 return resolved
-    root = (os.getenv("EGNYTE_CONSTRUCTION_ROOT", "").strip()
+    from egnyte_wiring import raw_value
+    root = ((raw_value("construction.root") or "").strip()
+            or os.getenv("EGNYTE_CONSTRUCTION_ROOT", "").strip()
             or egnyte_svc.create_root()
             or "/Shared")
     return egnyte_svc.norm(f"{root}/{project.name}")

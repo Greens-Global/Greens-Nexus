@@ -1087,6 +1087,13 @@ export const api = {
     fd.append('file', file);
     return req('/egnyte/upload', { method: 'POST', body: fd });
   },
+  // ── Egnyte wiring registry (manager+ edits surface->folder mappings in UI) ──
+  egnyteWiring:      ()                       => req('/egnyte/wiring'),
+  egnyteWiringSet:   (slot, path, scopeId='') => req(`/egnyte/wiring/${encodeURIComponent(slot)}`, { method: 'PUT', body: JSON.stringify({ path, scope_id: scopeId }) }),
+  egnyteWiringReset: (slot, scopeId='')       => req(`/egnyte/wiring/${encodeURIComponent(slot)}?scope_id=${encodeURIComponent(scopeId)}`, { method: 'DELETE' }),
+  egnytePersonDocs:  (email)                  => req(`/egnyte/person/${encodeURIComponent(email)}`),
+  myhrEgnyteDocs:    ()                       => req('/myhr/egnyte-documents'),
+  myhrEgnyteFile:    (path)                   => reqBlob(`/myhr/egnyte-documents/file?path=${encodeURIComponent(path)}`),
   // ── Step-up MFA (fresh verification before sensitive data) ──
   stepupConfig:  ()      => req('/stepup/config'),
   stepupStatus:  ()      => req('/stepup/status'),

@@ -3,6 +3,7 @@ import {
   User, Phone, Mail, Heart, Briefcase, Building2, CalendarDays, MapPin, Network,
   FileText, Download, CalendarOff, Plus, Loader2, Pencil, Check, X, BadgeCheck,
   Clock, Banknote, MessageSquarePlus, Package, ArrowRight, TrendingUp, Hourglass,
+  HardDrive,
 } from 'lucide-react';
 import { api } from '../api';
 import { SkeletonBlocks } from '../components/AsyncState';
@@ -210,6 +211,10 @@ export default function MyHR() {
   const [leaveFilter, setLeaveFilter] = useState('all');
   const [docQuery, setDocQuery] = useState('');
   const [stubQuery, setStubQuery] = useState('');
+  // Files HR filed in my wired Egnyte folder (people.my-documents). null =
+  // not available (no wiring / no folder / Egnyte off) - the card hides.
+  const [egnyteDocs, setEgnyteDocs] = useState(null);
+  const [egnyteQuery, setEgnyteQuery] = useState('');
   const [assetFilter, setAssetFilter] = useState('all');
   const [askFilter, setAskFilter] = useState('all');
 
@@ -222,6 +227,7 @@ export default function MyHR() {
     api.myPaystubs().then(setStubs).catch(() => {});
     api.myAssets().then(setAssets).catch(() => setAssets({ assignments: [], checkouts: [] }));
     api.myHrRequests().then(setAsks).catch(() => {});
+    api.myhrEgnyteDocs().then(d => setEgnyteDocs(d?.available ? (d.files || []) : null)).catch(() => {});
   }, []);
 
   // Hours follow the selected range.
@@ -254,6 +260,20 @@ export default function MyHR() {
   };
   const download = openUrl('doc', api.myHrDocDownload);
   const downloadStub = openUrl('stub', api.myPaystubDownload);
+  // Egnyte files stream through /myhr (server checks the path is in MY wired
+  // folder), so this saves the blob rather than opening a signed URL.
+  const downloadEgnyte = async (f) => {
+    setBusy(p => ({ ...p, ['egn' + f.path]: true }));
+    try {
+      const blob = await api.myhrEgnyteFile(f.path);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = f.name || 'download';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+    } catch (e) { flash(e?.message || 'Could not download', false); }
+    finally { setBusy(p => ({ ...p, ['egn' + f.path]: false })); }
+  };
 
   const submitLeave = async () => {
     if (!loForm.start_date || !loForm.end_date) return;
@@ -533,6 +553,31 @@ export default function MyHR() {
                   </div>
                 ))}
               </div>
+
+              {egnyteDocs !== null && (
+                <div className="dash-card">
+                  {cardHead('My files', 'Invoices, hiring documents and payment proofs HR filed for you',
+                    egnyteDocs.length > 3 ? (
+                      <input className="form-input" placeholder="Search…" value={egnyteQuery} onChange={e => setEgnyteQuery(e.target.value)}
+                        style={{ fontSize: 12, padding: '5px 10px', height: 'auto', width: 130 }} />
+                    ) : <HardDrive size={15} style={{ color: 'var(--muted)' }} />)}
+                  {egnyteDocs.length === 0 ? (
+                    <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '14px 0', textAlign: 'center' }}>Nothing filed yet - documents will appear here as HR adds them.</div>
+                  ) : egnyteDocs.filter(f => !egnyteQuery || (f.name || '').toLowerCase().includes(egnyteQuery.toLowerCase())).map(f => (
+                    <div key={f.path} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', borderBottom: '1px solid var(--line)' }}>
+                      <HardDrive size={15} style={{ color: 'hsl(var(--color-purple))', flexShrink: 0 }} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</div>
+                        <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{f.size ? `${Math.max(1, Math.round(f.size / 1024))} KB` : 'File'}</div>
+                      </div>
+                      <button className="secondary-btn" onClick={() => downloadEgnyte(f)} disabled={!!busy['egn' + f.path]}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, padding: '5px 12px', flexShrink: 0 }}>
+                        {busy['egn' + f.path] ? <Loader2 size={12} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Download size={12} />} Download
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
 
               <div className="dash-card">
                 {cardHead('My paystubs', 'Uploaded by HR each pay period',

@@ -233,18 +233,21 @@ _SITE_PREFIXES = ("greens ", "gs ")
 
 
 def property_roots() -> list[str]:
-    """Roots to search, highest priority first. EGNYTE_PROPERTIES_ROOTS takes a
-    comma-separated list; the older singular EGNYTE_PROPERTIES_ROOT still works
-    and pins resolution to exactly one root."""
-    raw = (os.getenv("EGNYTE_PROPERTIES_ROOTS", "").strip()
-           or os.getenv("EGNYTE_PROPERTIES_ROOT", "").strip())
+    """Roots to search, highest priority first. The wiring registry (Egnyte
+    module - Wiring tab, slot property.roots) wins over the env vars, which win
+    over the defaults - see egnyte_wiring.effective for the full order.
+    EGNYTE_PROPERTIES_ROOTS takes a comma-separated list; the older singular
+    EGNYTE_PROPERTIES_ROOT still works and pins resolution to exactly one root."""
+    from egnyte_wiring import effective
+    raw, _src = effective("property.roots")
     if raw:
         return [norm(p) for p in raw.split(",") if p.strip()]
     return [norm(p) for p in _DEFAULT_ROOTS]
 
 
 def plans_subfolders() -> list[str]:
-    raw = os.getenv("EGNYTE_PLANS_SUBFOLDER", "").strip()
+    from egnyte_wiring import effective
+    raw, _src = effective("property.plans-subfolders")
     if raw:
         return [s.strip() for s in raw.split(",") if s.strip()]
     return list(_DEFAULT_PLANS_SUBFOLDERS)
@@ -281,7 +284,9 @@ def create_root() -> str:
     costume of a documents one, and a mis-named entity there is not something
     Nexus should be able to do. New properties get a working folder under asset
     management, which is what that root is for."""
-    explicit = os.getenv("EGNYTE_CREATE_ROOT", "").strip()
+    from egnyte_wiring import raw_value
+    wired = raw_value("property.create-root") or ""
+    explicit = wired.strip() or os.getenv("EGNYTE_CREATE_ROOT", "").strip()
     return norm(explicit) if explicit else property_roots()[-1]
 
 

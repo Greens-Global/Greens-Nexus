@@ -1,4 +1,4 @@
-from sqlalchemy import BigInteger, Boolean, Column, Float, Integer, JSON, String, Text
+from sqlalchemy import BigInteger, Boolean, Column, Float, Integer, JSON, String, Text, UniqueConstraint
 from database import Base
 
 
@@ -2940,3 +2940,27 @@ from construction_models import (  # noqa: E402,F401  (import for side effect: t
     ConstructionWeeklyReport, ConstructionMilestone, ConstructionRfi,
     ConstructionSubmittal, ConstructionActivity,
 )
+
+
+class EgnyteWiring(Base):
+    """One row = one Egnyte "wiring": a named slot (a Nexus surface that reads
+    or writes Egnyte) bound to a folder path or path template. Edited from the
+    Egnyte module's Wiring tab (manager+), so re-pointing a surface is a UI act,
+    not a deploy or an env-var change (Neil, Aug 6 call - "give you that wiring"
+    must not mean "ask Visesh").
+
+    scope_id = '' is the slot's default/template row; a non-empty scope_id (a
+    person's work email, a property site name) overrides the template for that
+    one record, and an exact override always wins. Templates may carry
+    {entity} {bucket} {person} {email} {property} placeholders - resolution and
+    the registry of known slots live in egnyte_wiring.py. No row at all means
+    the slot falls back to its legacy env var / hardcoded default, so an empty
+    table changes nothing."""
+    __tablename__ = "egnyte_wirings"
+    id         = Column(String, primary_key=True)
+    slot       = Column(String, nullable=False, index=True)
+    scope_id   = Column(String, default="")
+    path       = Column(String, nullable=False)
+    updated_by = Column(String, default="")
+    updated_at = Column(String, default="")
+    __table_args__ = (UniqueConstraint("slot", "scope_id", name="ux_egnyte_wiring_slot_scope"),)

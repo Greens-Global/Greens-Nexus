@@ -22,6 +22,7 @@ import ModuleTabs from '../components/ModuleTabs';
 import RolesAccess, { LevelPill, ModuleLevelPill, TierBadge } from './RolesAccess';
 import { capabilityText } from '../lib/moduleCapabilities';
 import PersonHover from '../components/PersonHoverCard';
+import EgnytePersonFolder from '../egnyte/EgnytePersonFolder';
 import { takePendingPerson } from '../lib/personNav';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { TaskChecklist, punchTime } from '../components/WorkLogDrawer';
@@ -1609,6 +1610,15 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
         {tab === 'documents' && (
           <>
             <DocumentsSection employeeId={e.id} toastOk={toastOk} toastErr={toastErr} />
+            {/* The person's wired Egnyte folder (Neil, Aug 6): hiring package,
+                invoices, payment proofs live in Egnyte, not as Nexus uploads.
+                Resolution + re-pointing happen in Egnyte - Wiring. */}
+            {e.workEmail && (
+              <div style={{ marginTop: 18 }}>
+                <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--ink)', marginBottom: 8 }}>Egnyte Folder</div>
+                <EgnytePersonFolder email={e.workEmail} personName={fullName(e)} />
+              </div>
+            )}
             <MailboxExportSection employee={e} toastOk={toastOk} toastErr={toastErr} />
           </>
         )}

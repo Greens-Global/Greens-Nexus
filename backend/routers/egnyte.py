@@ -253,3 +253,119 @@ def property_documents(site: str, user: dict = Depends(get_current_user)):
         d["webUrl"] = svc.web_url(d["path"])
     payload["plans"] = listing
     return payload
+
+
+# ── wiring registry (Aug 10 - Neil's "give you that wiring", minus the you) ──
+# Manager+ edits which Egnyte folder each Nexus surface reads/writes, from the
+# module's Wiring tab, so re-pointing a surface never needs a deploy or an env
+# change. Slots and resolution live in egnyte_wiring.py.
+
+import uuid as _uuid
+
+from sqlalchemy.orm import Session
+from fastapi import Body
+
+import egnyte_wiring as wiring
+from auth import require_manager, require_module_grant
+from database import get_db
+
+_require_hr_read = require_module_grant("hr", "viewer")
+
+
+@router.get("/wiring")
+def wiring_list(user: dict = Depends(require_manager), db: Session = Depends(get_db)):
+    """Every known slot with its effective value + where it came from, plus any
+    per-record overrides. The UI renders exactly this - there is no slot that
+    exists only in the database."""
+    from models import EgnyteWiring
+    rows = db.query(EgnyteWiring).all()
+    by_slot: dict[str, list] = {}
+    for r in rows:
+        by_slot.setdefault(r.slot, []).append(r)
+    out = []
+    for spec in wiring.KNOWN_SLOTS:
+        path, source = wiring.effective(spec["slot"])
+        out.append({
+            **{k: spec[k] for k in ("slot", "group", "label", "description", "kind",
+                                    "placeholders", "overrides")},
+            "default": spec["default"],
+            "effective": {"path": path, "source": source},
+            "overrideRows": [
+                {"scopeId": r.scope_id, "path": r.path,
+                 "updatedBy": r.updated_by, "updatedAt": r.updated_at}
+                for r in by_slot.get(spec["slot"], []) if r.scope_id
+            ],
+            "customized": any(not r.scope_id for r in by_slot.get(spec["slot"], [])),
+        })
+    return {"slots": out}
+
+
+class WiringIn(BaseModel):
+    path: str
+    scope_id: str = ""
+
+
+@router.put("/wiring/{slot}")
+def wiring_set(slot: str, body: WiringIn, user: dict = Depends(require_manager),
+               db: Session = Depends(get_db)):
+    from models import EgnyteWiring
+    spec = wiring.known_slot(slot)
+    if not spec:
+        raise HTTPException(404, "Unknown wiring slot")
+    path = (body.path or "").strip()
+    if not path or len(path) > 800:
+        raise HTTPException(400, "path is required (use DELETE to reset to the default)")
+    scope = (body.scope_id or "").strip().lower()
+    if scope and spec["overrides"] is None:
+        raise HTTPException(400, "This slot does not take per-record overrides")
+    row = (db.query(EgnyteWiring)
+           .filter(EgnyteWiring.slot == slot, EgnyteWiring.scope_id == scope)
+           .with_for_update().first())
+    if row is None:
+        row = EgnyteWiring(id=_uuid.uuid4().hex, slot=slot, scope_id=scope, path=path)
+        db.add(row)
+    row.path = path
+    row.updated_by = user["email"]
+    row.updated_at = wiring.now_iso()
+    db.commit()
+    return {"ok": True}
+
+
+@router.delete("/wiring/{slot}")
+def wiring_reset(slot: str, scope_id: str = "", user: dict = Depends(require_manager),
+                 db: Session = Depends(get_db)):
+    """Remove a stored wiring - the slot falls back to env var / default."""
+    from models import EgnyteWiring
+    if not wiring.known_slot(slot):
+        raise HTTPException(404, "Unknown wiring slot")
+    scope = (scope_id or "").strip().lower()
+    (db.query(EgnyteWiring)
+     .filter(EgnyteWiring.slot == slot, EgnyteWiring.scope_id == scope)
+     .delete())
+    db.commit()
+    return {"ok": True}
+
+
+@router.get("/person/{email}")
+def person_folder(email: str, user: dict = Depends(_require_hr_read),
+                  db: Session = Depends(get_db)):
+    """Resolve a person's wired Egnyte folder for the HR person card. HR-gated
+    (same grant as the card itself) because the person folder contains the
+    Confidential subfolder - the employee-safe view is /myhr/egnyte-documents."""
+    _guard()
+    from sqlalchemy import func as _f
+    from models import NexusEmployee
+    emp = (db.query(NexusEmployee)
+           .filter(_f.lower(NexusEmployee.work_email) == email.lower()).first())
+    if not emp:
+        raise HTTPException(404, "No HR record for that email")
+    res = wiring.resolve_person_folder("people.person-folder", emp, db)
+    folder = res["folder"]
+    return {
+        "email": email.lower(),
+        "folder": folder,
+        "webUrl": svc.web_url(folder) if folder else None,
+        "missing": folder is None,
+        "proposed": res["proposed"],
+        "source": res["source"],
+    }
