@@ -2,33 +2,59 @@
 //
 // Resolution happens server-side through the wiring registry (slot
 // people.person-folder): template -> real-folder name matching -> per-person
-// override. This panel just renders the outcome: the folder browser pinned to
-// the person's folder, or an explained empty state when nothing is wired yet.
+// override. This panel renders the outcome AND gives HR the two person-level
+// acts as plain buttons - no Wiring tab, no placeholders (Visesh, Aug 10:
+// "too hard for a normal HR user"):
+//   - Create Folder: provisions the standard set (person folder + Contractor
+//     Documents + Confidential) under the wired location.
+//   - Choose Existing Folder: a visual picker; the choice is stored as this
+//     person's override, and My Documents follows it automatically.
 //
-// HR-only by construction: the backend endpoint carries the hr module grant,
+// HR-only by construction: the backend endpoints carry the hr module grant,
 // and this folder includes the Confidential subfolder - the employee-facing
 // counterpart (My HR) uses the separate people.my-documents wiring.
-import { useEffect, useState } from 'react';
-import { FolderX, HardDrive } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import { FolderPlus, FolderSearch, FolderX, HardDrive, Loader2 } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import EgnyteFolderBrowser from './EgnyteFolderBrowser';
-import { BODY, CARD, HEADING, Loading, OpenInEgnyte } from './ui';
+import FolderPickModal from './EgnyteFolderPick';
+import { BODY, CARD, HEADING, Loading, Notice, OpenInEgnyte } from './ui';
 
 export default function EgnytePersonFolder({ email, personName = '' }) {
   const { can } = useRole();
   // Mirrors require_level(2) on the Egnyte write routes.
   const canWrite = can('supervisor');
   const [state, setState] = useState({ loading: true });
+  const [picking, setPicking] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
 
-  useEffect(() => {
-    let gone = false;
+  const load = useCallback(() => {
     setState({ loading: true });
     api.egnytePersonDocs(email)
-      .then(d => { if (!gone) setState({ loading: false, ...d }); })
-      .catch(err => { if (!gone) setState({ loading: false, error: err?.message || 'Could not resolve the Egnyte folder.', status: err?.status }); });
-    return () => { gone = true; };
+      .then(d => setState({ loading: false, ...d }))
+      .catch(err => setState({ loading: false, error: err?.message || 'Could not resolve the Egnyte folder.', status: err?.status }));
   }, [email]);
+  useEffect(load, [load]);
+
+  const provision = async () => {
+    setBusy(true);
+    setError('');
+    try { setState({ loading: false, ...(await api.egnytePersonProvision(email)) }); }
+    catch (e) { setError(e?.message || 'Could not create the folder.'); }
+    finally { setBusy(false); }
+  };
+
+  const point = async (path) => {
+    setPicking(false);
+    if (!path) return;
+    setBusy(true);
+    setError('');
+    try { setState({ loading: false, ...(await api.egnytePersonPoint(email, path)) }); }
+    catch (e) { setError(e?.message || 'Could not save that folder.'); }
+    finally { setBusy(false); }
+  };
 
   if (state.loading) return <Loading label="Finding the Egnyte folder…" />;
 
@@ -44,18 +70,38 @@ export default function EgnytePersonFolder({ email, personName = '' }) {
     );
   }
 
+  const pickerModal = picking && (
+    <FolderPickModal
+      title={`Folder for ${personName || email}`}
+      hint='Browse to the folder where this person&apos;s documents live, then press "Use This Folder".'
+      onPick={point}
+      onClose={() => setPicking(false)}
+    />
+  );
+
   if (state.missing) {
     return (
-      <div style={{ ...CARD, padding: 16, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 8 }}>
+      <div style={{ ...CARD, padding: 16, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 10 }}>
         <div style={{ ...HEADING, fontSize: 13.5, display: 'flex', alignItems: 'center', gap: 8 }}>
           <FolderX size={16} /> No Egnyte Folder Yet
         </div>
         <div style={{ ...BODY, fontSize: 12.5 }}>
-          Nothing in Egnyte matches {personName || email} under the wired location
-          {state.proposed ? <> (looked for <code style={{ fontSize: 11.5 }}>{state.proposed}</code>)</> : null}.
-          Create the folder in Egnyte, or point this person at an existing folder from
-          Egnyte&nbsp;- Wiring&nbsp;- "Person folder" overrides.
+          {personName || email} has no documents folder in Egnyte yet. Create one in the standard
+          location, or choose a folder that already exists.
         </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <button type="button" className="primary-btn" disabled={busy} onClick={provision} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            {busy ? <Loader2 size={13} style={{ animation: 'spin 0.7s linear infinite' }} /> : <FolderPlus size={13} />} Create Folder
+          </button>
+          <button type="button" className="secondary-btn" disabled={busy} onClick={() => setPicking(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <FolderSearch size={13} /> Choose Existing Folder
+          </button>
+        </div>
+        <div style={{ ...BODY, fontSize: 11.5, color: 'var(--wk-faint)' }}>
+          Create Folder makes the person folder plus "Contractor Documents" and "Confidential" inside it.
+        </div>
+        {error && <Notice tone="error" onDismiss={() => setError('')}>{error}</Notice>}
+        {pickerModal}
       </div>
     );
   }
@@ -67,9 +113,16 @@ export default function EgnytePersonFolder({ email, personName = '' }) {
           <HardDrive size={13} style={{ flexShrink: 0 }} />
           <span style={{ fontFamily: 'ui-monospace, monospace', fontSize: 11.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{state.folder}</span>
         </div>
-        <OpenInEgnyte url={state.webUrl} label="Open in Egnyte" />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+          <button type="button" className="secondary-btn" disabled={busy} onClick={() => setPicking(true)} title="Point this person at a different Egnyte folder" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <FolderSearch size={13} /> Change
+          </button>
+          <OpenInEgnyte url={state.webUrl} label="Open in Egnyte" />
+        </div>
       </div>
+      {error && <Notice tone="error" onDismiss={() => setError('')}>{error}</Notice>}
       <EgnyteFolderBrowser initialPath={state.folder} canWrite={canWrite} rootLabel={personName || 'Person folder'} />
+      {pickerModal}
     </div>
   );
 }

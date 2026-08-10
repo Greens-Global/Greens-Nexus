@@ -369,3 +369,80 @@ def person_folder(email: str, user: dict = Depends(_require_hr_read),
         "proposed": res["proposed"],
         "source": res["source"],
     }
+
+
+# ── person-card actions (Aug 10 - "too hard for a normal HR user"): pointing a
+# person at a folder and creating their folder set are ONE-CLICK acts on the
+# People card, hr-editor gated. The Wiring tab stays the admin backstage for
+# templates; nothing here requires understanding a placeholder.
+
+_require_hr_edit = require_module_grant("hr", "editor")
+
+
+class PersonFolderIn(BaseModel):
+    path: str
+
+
+def _emp_or_404(email: str, db: Session):
+    from sqlalchemy import func as _f
+    from models import NexusEmployee
+    emp = (db.query(NexusEmployee)
+           .filter(_f.lower(NexusEmployee.work_email) == email.lower()).first())
+    if not emp:
+        raise HTTPException(404, "No HR record for that email")
+    return emp
+
+
+def _person_payload(email: str, emp, db):
+    res = wiring.resolve_person_folder("people.person-folder", emp, db)
+    folder = res["folder"]
+    return {"email": email.lower(), "folder": folder,
+            "webUrl": svc.web_url(folder) if folder else None,
+            "missing": folder is None, "proposed": res["proposed"], "source": res["source"]}
+
+
+@router.put("/person/{email}/folder")
+def person_folder_point(email: str, body: PersonFolderIn,
+                        user: dict = Depends(_require_hr_edit), db: Session = Depends(get_db)):
+    """Point this person at an EXISTING Egnyte folder (stored as the per-person
+    override on people.person-folder; My Documents follows automatically). The
+    folder must really exist - a typo would silently point the card at nothing."""
+    _guard()
+    from models import EgnyteWiring
+    emp = _emp_or_404(email, db)
+    path = svc.norm((body.path or "").strip())
+    if not path:
+        raise HTTPException(400, "Pick a folder first")
+    try:
+        svc.list_folder(path)
+    except svc.EgnyteError as exc:
+        raise HTTPException(400, "That folder does not exist in Egnyte" if exc.status == 404 else str(exc))
+    scope = email.lower()
+    row = (db.query(EgnyteWiring)
+           .filter(EgnyteWiring.slot == "people.person-folder", EgnyteWiring.scope_id == scope)
+           .with_for_update().first())
+    if row is None:
+        row = EgnyteWiring(id=_uuid.uuid4().hex, slot="people.person-folder", scope_id=scope, path=path)
+        db.add(row)
+    row.path = path
+    row.updated_by = user["email"]
+    row.updated_at = wiring.now_iso()
+    db.commit()
+    return _person_payload(email, emp, db)
+
+
+@router.post("/person/{email}/provision")
+def person_folder_provision(email: str, user: dict = Depends(_require_hr_edit),
+                            db: Session = Depends(get_db)):
+    """Create the person's standard folder set (person folder + Contractor
+    Documents + Confidential) under the wired location. Idempotent - an
+    existing folder just gains any missing subfolders."""
+    _guard()
+    emp = _emp_or_404(email, db)
+    try:
+        wiring.provision_person_folder(emp, db)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    except svc.EgnyteError as exc:
+        raise HTTPException(exc.status, str(exc))
+    return _person_payload(email, emp, db)

@@ -1092,6 +1092,8 @@ export const api = {
   egnyteWiringSet:   (slot, path, scopeId='') => req(`/egnyte/wiring/${encodeURIComponent(slot)}`, { method: 'PUT', body: JSON.stringify({ path, scope_id: scopeId }) }),
   egnyteWiringReset: (slot, scopeId='')       => req(`/egnyte/wiring/${encodeURIComponent(slot)}?scope_id=${encodeURIComponent(scopeId)}`, { method: 'DELETE' }),
   egnytePersonDocs:  (email)                  => req(`/egnyte/person/${encodeURIComponent(email)}`),
+  egnytePersonPoint: (email, path)            => req(`/egnyte/person/${encodeURIComponent(email)}/folder`, { method: 'PUT', body: JSON.stringify({ path }) }),
+  egnytePersonProvision: (email)              => req(`/egnyte/person/${encodeURIComponent(email)}/provision`, { method: 'POST' }),
   myhrEgnyteDocs:    ()                       => req('/myhr/egnyte-documents'),
   myhrEgnyteFile:    (path)                   => reqBlob(`/myhr/egnyte-documents/file?path=${encodeURIComponent(path)}`),
   // ── Step-up MFA (fresh verification before sensitive data) ──

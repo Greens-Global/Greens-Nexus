@@ -288,5 +288,42 @@ def resolve_person_folder(slot: str, emp, db) -> dict:
     return {"folder": matched, "source": "template", "proposed": filled}
 
 
+def provision_person_folder(emp, db) -> str:
+    """Create the person's standard Egnyte folder set (Neil's taxonomy: the
+    person folder plus "Contractor Documents" and "Confidential") under the
+    wired location, and return the created/existing folder path.
+
+    The PARENT (entity/HR/bucket) must already exist - it is matched with the
+    same folded per-segment logic as resolution, so punctuation drift doesn't
+    block creation. Only the person leaf and its two subfolders are created:
+    a person card must never be able to invent an entity register entry.
+    Raises ValueError with a human message when the parent can't be found."""
+    from services import egnyte as svc
+    existing = resolve_person_folder("people.person-folder", emp, db)
+    if existing["folder"]:
+        folder = existing["folder"]
+    else:
+        template, _src = effective("people.person-folder")
+        ctx = _person_context(emp, db)
+        filled = fill(template, ctx)
+        if "{" in filled or not ctx["person"]:
+            raise ValueError("This person is missing a company or name in People, so there is no wired location to create the folder in.")
+        parent_t, _, leaf = filled.rpartition("/")
+        parent = _match_path(parent_t)
+        if parent is None and "{bucket}" in template:
+            other = "Employees" if ctx["bucket"] == "Contractors" else "Contractors"
+            parent = _match_path(fill(template, {**ctx, "bucket": other}).rpartition("/")[0])
+        if parent is None:
+            raise ValueError(f"The parent folder for this person ({parent_t}) does not exist in Egnyte yet - create the entity's HR folders there first.")
+        folder = svc.norm(f"{parent}/{leaf}")
+        svc.create_folder(folder)
+    for sub in ("Contractor Documents", "Confidential"):
+        try:
+            svc.create_folder(f"{folder}/{sub}")
+        except svc.EgnyteError:
+            pass    # subfolder is a nicety; the person folder is the point
+    return folder
+
+
 def now_iso() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
