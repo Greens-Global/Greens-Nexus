@@ -149,7 +149,7 @@ export default function ProjectsView({ onNavigate }) {
       {cards.length === 0 ? (
         <EmptyState icon={FolderKanban} title={search.trim() ? 'No Projects Match Your Search' : 'No Projects Yet'} hint={search.trim() ? undefined : 'Create your first project to group tasks and track progress.'} />
       ) : (
-        <div className="nx-gutter" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(280px, 100%), 1fr))', gap: 14, padding: 16 }}>
+        <div className="nx-gutter" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(280px, 100%), 1fr))', gap: 14, padding: '16px 16px 76px' }}>
           {cards.map(({ project: p, stats }) => {
             const pf = p.portfolioId ? portfolioById(p.portfolioId) : null;
             const dcolor = p.color || NX.blue;
