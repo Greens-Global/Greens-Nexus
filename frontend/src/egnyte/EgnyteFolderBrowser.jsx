@@ -15,7 +15,7 @@ import EgnyteListing from './EgnyteList';
 import EgnytePreview from './EgnytePreview';
 import EgnyteUpload from './EgnyteUpload';
 import {
-  BODY, CARD, ELLIPSIS, Loading, NotConnected, Notice, OpenInEgnyte, ProblemNote, Spinner,
+  BODY, CARD, ConnectRequired, ELLIPSIS, Loading, NotConnected, Notice, OpenInEgnyte, ProblemNote, Spinner,
 } from './ui';
 
 export default function EgnyteFolderBrowser({
@@ -33,6 +33,9 @@ export default function EgnyteFolderBrowser({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [notConnected, setNotConnected] = useState(false);
+  // 428 from the API: OAuth is on and this person hasn't connected their own
+  // Egnyte account - every browse surface renders the same connect prompt.
+  const [connectRequired, setConnectRequired] = useState(false);
   const [downloading, setDownloading] = useState('');
   const [rowError, setRowError] = useState('');
   // The file open in the Nexus viewer, or null. Held here rather than in the
@@ -71,6 +74,7 @@ export default function EgnyteFolderBrowser({
       .catch(err => {
         setData(null);
         setNotConnected(isNotConnected(err));
+        setConnectRequired(err?.status === 428);
         setError(egnyteErrorMessage(err, 'Could not open that folder.'));
       })
       .finally(() => setLoading(false));
@@ -131,6 +135,7 @@ export default function EgnyteFolderBrowser({
   };
 
   if (notConnected) return <NotConnected error="" />;
+  if (connectRequired) return <ConnectRequired />;
 
   const crumbs = crumbsFor(path);
 

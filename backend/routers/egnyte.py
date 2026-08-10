@@ -63,18 +63,19 @@ def _browse_token(user: dict, db) -> str | None:
     """Which Egnyte identity this request browses as (Aug 10: "anybody in here
     would only be able to see what they actually have access to").
 
-    Connected -> the caller's OWN token; Egnyte's folder permissions decide
-    everything from here, Nexus adds nothing. Not connected -> privileged users
-    keep the shared service view (exactly the pre-OAuth behavior); everyone
-    else is told to connect. Also closes the old gap where these endpoints
-    accepted ANY signed-in user while only the UI pretended supervisor+."""
+    With OAuth configured, connecting is REQUIRED for everyone - Global Admin
+    included (Visesh: an unconnected friend could still see everything through
+    the privileged fallback, which defeated the point). Connected -> the
+    caller's OWN token; Egnyte's folder permissions decide everything from
+    here, Nexus adds nothing. Without OAuth configured, the old shared-token
+    behavior stays, gated to supervisor+/egnyte/hr grants - which also closes
+    the old gap where these endpoints accepted ANY signed-in user while only
+    the UI pretended supervisor+."""
     import egnyte_oauth
     if egnyte_oauth.oauth_configured():
         tok = egnyte_oauth.token_for(db, user["email"])
         if tok:
             return tok
-        if _is_privileged(user, db):
-            return None
         raise HTTPException(428, "Connect your Egnyte account to browse files - open Egnyte and press Connect.")
     if _is_privileged(user, db):
         return None
@@ -96,7 +97,9 @@ def status(user: dict = Depends(get_current_user)):
             connected = bool(row and row.access_token_enc)
             out["oauth"]["connected"] = connected
             out["oauth"]["egnyteUsername"] = (row.egnyte_username or "") if row else ""
-            out["oauth"]["mustConnect"] = not connected and not _is_privileged(user, _db)
+            # Strict: with OAuth on, browsing requires a personal connection -
+            # no privileged shared-view fallback.
+            out["oauth"]["mustConnect"] = not connected
         finally:
             _db.close()
     return out
