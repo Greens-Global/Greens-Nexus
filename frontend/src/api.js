@@ -350,6 +350,11 @@ export const api = {
   // everything (no deletions), so this serves both the mount load and every
   // repeated refresh through one path. See TasksContext's sinceRef.
   getTasksDelta: (since = '') => req(`/tasks/delta${since ? `?since=${encodeURIComponent(since)}` : ''}`),
+  // Header search: tasks, projects, portfolios, teams and people in one call,
+  // already scoped to what the caller may see.
+  searchTaskModule: (q, limit = 6) => req(`/tasks/search?q=${encodeURIComponent(q)}&limit=${limit}`),
+  // A person's page: who they are, the work they hold, their projects and teams.
+  getPersonProfile: (email) => req(`/tasks/people/${encodeURIComponent(email)}`),
   createTask: (data) => req("/tasks", { method: "POST", body: JSON.stringify(data) }),
   updateTask: (id, data) => req(`/tasks/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
   deleteTask: (id) => req(`/tasks/${id}`, { method: "DELETE" }),

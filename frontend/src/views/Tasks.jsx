@@ -22,6 +22,9 @@ import { useRole } from '../contexts/RoleContext';
 import { NX, FONT } from '../tasks/theme';
 import ModuleTabs from '../components/ModuleTabs';
 import GuidedTour from '../components/GuidedTour';
+import TaskDetailDrawer from '../tasks/TaskDetailDrawer';
+import PersonView from '../tasks/PersonView';
+import { EMPTY_FILTER } from '../tasks/lib';
 import { buildTaskTourSteps } from '../tasks/taskTourSteps';
 
 // Remembered per person, not per browser: on a shared machine the second
@@ -70,6 +73,9 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
   const isMobile = useIsMobile();
   const [tour, setTour] = useState(false);
   const [projectId, setProjectId] = useState(null);
+  const [searchTaskId, setSearchTaskId] = useState(null);   // task opened from header search
+  const [person, setPerson] = useState(null);               // { email, name } from header search
+  const [personTasks, setPersonTasks] = useState(false);    // their page -> the full workspace
   // Where a project drill-in should return to - the sub the user was on when
   // they entered ('home' from the Home widgets, 'projects' from Projects).
   const [returnSub, setReturnSub] = useState('projects');
@@ -91,6 +97,27 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
     // and re-offering it on their next visit would be nagging.
     try { localStorage.setItem(tourSeenKey(myEmail), new Date().toISOString()); } catch { /* private mode */ }
   };
+
+  // Header search lands here. The drawer is hosted at THIS level rather than
+  // inside a sub-view so a result opens the same way from every tab - and this
+  // component already sits inside TasksProvider, which the drawer needs.
+  // `nexus:tasks-person` is the person result, and it opens a real page for
+  // them (PersonView) rather than the task workspace filtered by assignee -
+  // that answered "their tasks" and nothing else, with no name, role or teams.
+  useEffect(() => {
+    const openTask = (e) => { const id = e.detail?.taskId; if (id) setSearchTaskId(id); };
+    const openPerson = (e) => {
+      const email = e.detail?.email;
+      if (email) { setPerson({ email, name: e.detail?.name || email }); setPersonTasks(false); }
+    };
+    window.addEventListener('nexus:open-task', openTask);
+    window.addEventListener('nexus:tasks-person', openPerson);
+    return () => {
+      window.removeEventListener('nexus:open-task', openTask);
+      window.removeEventListener('nexus:tasks-person', openPerson);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const onManage = sub === 'manage';
 
@@ -165,8 +192,28 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
       {/* data-tour tracks the active tab, so the guided tour can spotlight
           "this whole screen" without every sub-view needing its own hook. */}
       <div style={{ flex: 1, minHeight: 0 }} data-tour={`task-screen-${sub}`}>
-        <SubView sub={sub} projectId={projectId} returnTo={returnSub} onNavigate={subNavigate} onExitManage={() => go('home')} />
+        {person && personTasks ? (
+          /* "View all tasks" from the person page - the workspace is the right
+             home for filtering and bulk edits, seeded with their assignee filter. */
+          <TasksWorkspace
+            title={`Tasks · ${person.name}`}
+            initialFilters={{ ...EMPTY_FILTER, assigneeIds: [person.email] }}
+            onBack={() => setPersonTasks(false)}
+          />
+        ) : person ? (
+          <PersonView
+            email={person.email}
+            name={person.name}
+            onBack={() => { setPerson(null); go('home'); }}
+            onViewAllTasks={() => setPersonTasks(true)}
+            onOpenProject={(id) => { setPerson(null); subNavigate({ projectId: id }); }}
+          />
+        ) : (
+          <SubView sub={sub} projectId={projectId} returnTo={returnSub} onNavigate={subNavigate} onExitManage={() => go('home')} />
+        )}
       </div>
+      {/* A task opened from header search - hosted here so it works from any tab. */}
+      {searchTaskId && <TaskDetailDrawer taskId={searchTaskId} onClose={() => setSearchTaskId(null)} />}
       {/* Create moved into the navbar on mobile (see the Create menu above); the
           My Tasks / workspace screens still create via their MobileTaskBar +. */}
       <ReportBugButton bottom={isMobile && hasMobileBar ? 84 : undefined} />

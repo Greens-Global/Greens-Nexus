@@ -354,6 +354,35 @@ def _run_migrations():
             "ALTER TABLE asana_task_links ADD COLUMN last_push_hash VARCHAR DEFAULT ''",
             # Asana-side digest, so a pull only re-applies genuinely changed tasks.
             "ALTER TABLE asana_task_links ADD COLUMN last_inbound_hash VARCHAR DEFAULT ''",
+            # Asana's due date-and-time, so pushing our date-only due_on back
+            # stops deleting the time (the two fields are mutually exclusive).
+            "ALTER TABLE asana_task_links ADD COLUMN last_due_at VARCHAR DEFAULT ''",
+            # Repair for tasks whose status says "completed" while the flag says
+            # otherwise. create_task and bulk_update used to write the two
+            # independently (see routers/tasks._resolve_completed), and such a
+            # row renders with no strikethrough AND keeps drawing "overdue"
+            # emails, because task_notify's due scan filters on the flag.
+            # Idempotent - a no-op once there is nothing left to fix.
+            "UPDATE tasks SET completed = 1, "
+            "completed_at = CASE WHEN COALESCE(completed_at, '') = '' "
+            "THEN COALESCE(NULLIF(modified_at, ''), created_at) ELSE completed_at END "
+            "WHERE status = 'completed' AND COALESCE(completed, 0) = 0",
+            # Activity lines pulled from Asana carried the actor's name up to
+            # three times: the avatar+name every activity surface already
+            # renders, an unconditional "[Asana - Name]" stamp, and Asana's own
+            # sentence ("Urmi Gor assigned to Neil"). Strips the stamp and the
+            # duplicated leading name, leaving the verb-first phrasing Nexus's
+            # native entries use. Only where the actor RESOLVED - for an
+            # unresolvable one the stamp is their only attribution. Idempotent:
+            # the LIKE stops matching once a row is clean.
+            "UPDATE task_activity SET detail = CASE "
+            "WHEN substr(detail, instr(detail, '] ') + 2) LIKE "
+            "     substr(detail, 10, instr(detail, '] ') - 10) || ' %' "
+            "THEN substr(detail, instr(detail, '] ') + 2 + "
+            "     length(substr(detail, 10, instr(detail, '] ') - 10)) + 1) "
+            "ELSE substr(detail, instr(detail, '] ') + 2) END "
+            "WHERE detail LIKE '[Asana ·%] %' "
+            "AND COALESCE(actor_email, '') NOT IN ('', 'asana-sync')",
             # An emailed reply is matched back to its task by threading header
             # when the signed reply address didn't survive the round trip - the
             # lookup is per inbound message, so it needs the index.
@@ -716,6 +745,26 @@ def _run_migrations():
         "ALTER TABLE asana_task_links ADD COLUMN IF NOT EXISTS last_push_hash VARCHAR DEFAULT ''",
         # Asana-side digest, so a pull only re-applies genuinely changed tasks.
         "ALTER TABLE asana_task_links ADD COLUMN IF NOT EXISTS last_inbound_hash VARCHAR DEFAULT ''",
+        # Asana's due date-and-time, so pushing our date-only due_on back
+        # stops deleting the time (the two fields are mutually exclusive).
+        "ALTER TABLE asana_task_links ADD COLUMN IF NOT EXISTS last_due_at VARCHAR DEFAULT ''",
+        # Repair for tasks whose status says "completed" while the flag says
+        # otherwise - see the SQLite list above for why they exist and why this
+        # is safe to re-run on every boot.
+        "UPDATE tasks SET completed = true, "
+        "completed_at = CASE WHEN COALESCE(completed_at, '') = '' "
+        "THEN COALESCE(NULLIF(modified_at, ''), created_at) ELSE completed_at END "
+        "WHERE status = 'completed' AND completed IS NOT TRUE",
+        # Strips the "[Asana - Name]" stamp and the duplicated leading name from
+        # inbound activity lines - see the SQLite list above for the reasoning.
+        "UPDATE task_activity SET detail = CASE "
+        "WHEN substring(detail from position('] ' in detail) + 2) LIKE "
+        "     substring(detail from 10 for position('] ' in detail) - 10) || ' %' "
+        "THEN substring(detail from position('] ' in detail) + 2 + "
+        "     length(substring(detail from 10 for position('] ' in detail) - 10)) + 1) "
+        "ELSE substring(detail from position('] ' in detail) + 2) END "
+        "WHERE detail LIKE '[Asana ·%] %' "
+        "AND COALESCE(actor_email, '') NOT IN ('', 'asana-sync')",
         # KB taxonomy/search/related-articles (industry-standard KB feature batch).
         "ALTER TABLE kb_documents ADD COLUMN IF NOT EXISTS tags VARCHAR DEFAULT ''",
         "ALTER TABLE kb_documents ADD COLUMN IF NOT EXISTS related_ids VARCHAR DEFAULT ''",

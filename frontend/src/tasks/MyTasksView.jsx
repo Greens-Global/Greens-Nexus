@@ -280,7 +280,10 @@ export default function MyTasksView() {
                 })}
               </div>
             </div>
-            <button onClick={() => openCreate({ assigneeId: myEmail })} style={{ ...btn('ghost'), padding: '12px 16px', color: NX.faint }}><Plus size={15} /> Add Section</button>
+            {/* Said "Add Section" and opened the Create Task modal. There are no
+                sections on this screen - the groups above come from the group-by
+                control - so it is what it always was: a new task assigned to me. */}
+            <button onClick={() => openCreate({ assigneeId: myEmail })} style={{ ...btn('ghost'), padding: '12px 16px', color: NX.faint }}><Plus size={15} /> Add Task</button>
           </div>
         ) : view === 'calendar' ? (
           <CalendarView tasks={mine} onOpen={setOpenId} onCreate={(iso) => openCreate({ assigneeId: myEmail, dueOn: iso })} />

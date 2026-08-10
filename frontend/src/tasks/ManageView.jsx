@@ -358,7 +358,29 @@ function AsanaSyncPanel({ store }) {
     try { await api.setAsanaProjectMap({ maps }); setMsg(`Saved ${maps.length} project mapping(s).`); load(); }
     catch (e) { setErr(e.message || String(e)); } finally { setBusy(''); }
   };
+  // "Push all" writes Nexus's current rows over the real Asana workspace, and
+  // it is the one control here that can destroy work nobody can get back: an
+  // Asana edit made since this backend last pulled is overwritten, and any
+  // queued deletions drain to Asana in the same run. It is also available from
+  // a local backend, deliberately, so a laptop pointed at a database holding
+  // the shared token can overwrite production in a single click with no idea
+  // that is what it is doing. So: say which workspace, say how much, and say
+  // when this instance is not the one that owns the sync.
+  const confirmPush = () => {
+    const ws = (workspaces || []).find((w) => w.gid === cfg.workspaceGid);
+    const target = ws ? `"${ws.name}" (${ws.gid})` : (cfg.workspaceGid || 'the configured workspace');
+    const mapped = Object.values(map).filter((g) => g && g.trim()).length;
+    return window.confirm(
+      `Push every task in ${mapped} mapped project(s) to Asana workspace ${target}.\n\n`
+      + 'This overwrites the Asana copy with what Nexus holds now, including any '
+      + 'change made in Asana since this backend last pulled, and sends any pending '
+      + 'deletions.\n'
+      + (hookEnv.isSyncWorker ? '' : '\nThis backend does not run background sync, so its data '
+         + 'is probably older than Asana\'s. If this is your local machine, pull first or cancel.\n')
+      + '\nContinue?');
+  };
   const run = async (which) => {
+    if (which === 'push' && !confirmPush()) return;
     setErr(''); setMsg(''); setBusy(which);
     try {
       const res = which === 'pull' ? await api.asanaSyncPull() : await api.asanaSyncPushAll();
@@ -1083,8 +1105,9 @@ const FIELD_TYPES = [
 const OPTION_TYPES = ['select', 'multiselect'];
 
 function FieldsTab({ store }) {
-  const { customFields, createCustomField, deleteCustomField, projects = [] } = store;
+  const { customFields, createCustomField, updateCustomField, deleteCustomField, projects = [] } = store;
   const [adding, setAdding] = useState(false);
+  const [editing, setEditing] = useState(null);
   const projectName = (id) => projects.find((p) => p.id === id)?.name || '';
 
   return (
@@ -1119,10 +1142,13 @@ function FieldsTab({ store }) {
           {f.required && <span style={chip(NX.red, 'rgba(220,38,38,0.12)')}>Required</span>}
           {f.readOnly && <span title="Calculated in Asana - imported but never pushed back" style={chip(NX.dim, NX.border2)}>Read-only</span>}
           <span style={chip(NX.dim, NX.border2)}>{FIELD_TYPES.find((t) => t.value === f.type)?.label || f.type}</span>
+          <IconButton icon={Pencil} title="Edit Field" onClick={() => setEditing(f)} />
           <IconButton icon={Trash2} title="Delete Field" danger onClick={() => { if (confirm(`Delete field "${f.name}"?`)) deleteCustomField(f.id); }} />
         </RowCard>
       ))}
       {adding && <FieldModal projects={projects} onClose={() => setAdding(false)} onSave={async (d) => { await createCustomField(d); setAdding(false); }} />}
+      {editing && <FieldModal projects={projects} field={editing} onClose={() => setEditing(null)}
+        onSave={async (d) => { await updateCustomField(editing.id, d); setEditing(null); }} />}
     </div>
   );
 }
@@ -1130,15 +1156,25 @@ function FieldsTab({ store }) {
 const FIELD_OPTION_COLORS = ['#2563eb', '#0d9488', '#16a34a', '#7c3aed', '#d97706',
   '#dc2626', '#db2777', '#0891b2', '#4f46e5', '#475569'];
 
-function FieldModal({ projects = [], onClose, onSave }) {
-  const [name, setName] = useState('');
-  const [description, setDescription] = useState('');
-  const [type, setType] = useState('text');
-  const [options, setOptions] = useState([{ label: '', color: FIELD_OPTION_COLORS[0] }]);
+// `field` set = editing that field; absent = creating a new one. The TYPE is
+// not editable on an existing field: values already stored are in that type's
+// shape, and switching, say, select to number would leave every captured value
+// unreadable. Renaming and rescoping - the reasons anyone opens this - are safe
+// because a task's values are keyed by field id, not by name.
+function FieldModal({ projects = [], field = null, onClose, onSave }) {
+  const [name, setName] = useState(field?.name || '');
+  const [description, setDescription] = useState(field?.description || '');
+  const [type, setType] = useState(field?.type || 'text');
+  const [options, setOptions] = useState(() => {
+    const existing = (field?.options || []).map((o) => (typeof o === 'string'
+      ? { label: o, color: FIELD_OPTION_COLORS[0] }
+      : { label: o.label || o.id || '', color: o.color || FIELD_OPTION_COLORS[0] }));
+    return existing.length ? existing : [{ label: '', color: FIELD_OPTION_COLORS[0] }];
+  });
   // Empty = the field applies to every project, which is how every field
   // behaved before scoping existed.
-  const [projectIds, setProjectIds] = useState([]);
-  const [required, setRequired] = useState(false);
+  const [projectIds, setProjectIds] = useState(field?.projectIds || []);
+  const [required, setRequired] = useState(!!field?.required);
 
   const setOpt = (i, patch) => setOptions((prev) => prev.map((o, idx) => (idx === i ? { ...o, ...patch } : o)));
   const toggleProject = (id) => setProjectIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
@@ -1152,18 +1188,20 @@ function FieldModal({ projects = [], onClose, onSave }) {
   };
 
   return (
-    <Modal title="New Custom Field" onClose={onClose} footer={
+    <Modal title={field ? 'Edit Custom Field' : 'New Custom Field'} onClose={onClose} footer={
       <>
         <button style={btn('ghost')} onClick={onClose}>Cancel</button>
-        <button style={btn('primary')} onClick={save}>Add Field</button>
+        <button style={btn('primary')} onClick={save}>{field ? 'Save Field' : 'Add Field'}</button>
       </>
     }>
       <Field label="Name"><input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Story points" style={inputStyle} /></Field>
       <Field label="Description"><input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Optional" style={inputStyle} /></Field>
       <Field label="Type">
-        <select value={type} onChange={(e) => setType(e.target.value)} style={selectStyle}>
+        <select value={type} onChange={(e) => setType(e.target.value)} disabled={!!field}
+          style={{ ...selectStyle, opacity: field ? 0.6 : 1, cursor: field ? 'not-allowed' : 'pointer' }}>
           {FIELD_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
         </select>
+        {field && <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>Type cannot change once tasks hold values in it.</div>}
       </Field>
       {OPTION_TYPES.includes(type) && (
         <div>

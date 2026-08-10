@@ -575,6 +575,117 @@ class FullFidelityInboundTests(unittest.TestCase):
         self.assertEqual(self.counts["comments"], 1)
         self.assertEqual(self.counts["activities"], 1)
 
+    def test_a_system_story_reads_like_a_native_activity_entry(self):
+        """Reported from the running app: one line showed the same person three
+        times - the avatar+name every activity surface renders, an unconditional
+        "[Asana - Name]" stamp, and Asana's own sentence which also names them.
+        Native entries are verb-first ("completed this task") for exactly this
+        reason."""
+        tid = asana_sync._apply_inbound(self.db, self._task("g1", "T"), "proj-1", self.counts)
+        _FakeAsana.stories["g1"] = [
+            {"gid": "s1", "type": "system", "resource_subtype": "assigned",
+             "text": "Urmi Gor assigned to Neil Kadakia", "created_at": "2026-07-20T11:47:00Z",
+             "created_by": {"name": "Urmi Gor", "email": "urmi.gor@greensglobal.com"}},
+        ]
+
+        asana_sync._pull_stories(self.db, _FakeAsana(), "g1", tid, self.counts)
+
+        act = self.db.query(models.TaskActivity).filter_by(type="asana_assigned").one()
+        self.assertEqual(act.detail, "assigned to Neil Kadakia")
+        self.assertEqual(act.actor_email, "urmi.gor@greensglobal.com")
+
+    def test_an_unresolvable_author_keeps_the_stamp(self):
+        """It is the only place their name appears - the row falls back to the
+        asana-sync actor, which has no avatar or real name behind it."""
+        tid = asana_sync._apply_inbound(self.db, self._task("g1", "T"), "proj-1", self.counts)
+        _FakeAsana.stories["g1"] = [
+            {"gid": "s1", "type": "system", "resource_subtype": "added",
+             "text": "Outside Person added a file", "created_at": "2026-07-20T11:47:00Z",
+             "created_by": {"name": "Outside Person"}},          # no email
+        ]
+
+        asana_sync._pull_stories(self.db, _FakeAsana(), "g1", tid, self.counts)
+
+        act = self.db.query(models.TaskActivity).filter_by(type="asana_added").one()
+        self.assertIn("[Asana", act.detail)
+        self.assertIn("Outside Person", act.detail)
+
+    def test_a_story_that_does_not_open_with_the_actor_is_left_alone(self):
+        tid = asana_sync._apply_inbound(self.db, self._task("g1", "T"), "proj-1", self.counts)
+        _FakeAsana.stories["g1"] = [
+            {"gid": "s1", "type": "system", "resource_subtype": "added_to_project",
+             "text": "added this task to #General", "created_at": "2026-07-20T11:48:00Z",
+             "created_by": {"name": "Urmi Gor", "email": "urmi.gor@greensglobal.com"}},
+        ]
+
+        asana_sync._pull_stories(self.db, _FakeAsana(), "g1", tid, self.counts)
+
+        self.assertEqual(self.db.query(models.TaskActivity).filter_by(type="asana_added_to_project").one().detail,
+                         "added this task to #General")
+
+    def test_a_name_that_merely_prefixes_the_sentence_is_not_stripped(self):
+        """"Bob" must not eat the start of "Bobby reopened this"."""
+        self.assertEqual(
+            asana_sync._story_detail("Bobby reopened this", "Bob", "bob@greensglobal.com"),
+            "Bobby reopened this")
+
+    def test_a_story_that_is_only_the_actors_name_is_not_emptied(self):
+        self.assertEqual(asana_sync._story_detail("Urmi Gor", "Urmi Gor", "u@greensglobal.com"),
+                         "Urmi Gor")
+
+    def test_an_edited_asana_comment_updates_the_nexus_copy(self):
+        """Comments were create-only inbound: a story that already had a link
+        was skipped outright, so a comment corrected in Asana kept its original
+        wording in Nexus forever and the two disagreed permanently."""
+        tid = asana_sync._apply_inbound(self.db, self._task("g1", "T"), "proj-1", self.counts)
+        story = {"gid": "s1", "type": "comment", "text": "frist draft",
+                 "created_at": "2026-07-02T10:00:00Z",
+                 "created_by": {"name": "Sagar", "email": "sagar@greensglobal.com"}}
+        _FakeAsana.stories["g1"] = [story]
+        asana_sync._pull_stories(self.db, _FakeAsana(), "g1", tid, self.counts)
+
+        _FakeAsana.stories["g1"] = [{**story, "text": "first draft"}]
+        asana_sync._pull_stories(self.db, _FakeAsana(), "g1", tid, self.counts)
+
+        c = self.db.query(models.TaskComment).filter_by(task_id=tid).one()   # still ONE comment
+        self.assertIn("first draft", c.body)
+        self.assertNotIn("frist", c.body)
+        self.assertTrue(c.edited_at)
+
+    def test_an_unedited_comment_is_left_alone_on_every_pull(self):
+        """The edit check runs on every story of every pull, so the unchanged
+        case has to be free and must not keep stamping edited_at."""
+        tid = asana_sync._apply_inbound(self.db, self._task("g1", "T"), "proj-1", self.counts)
+        _FakeAsana.stories["g1"] = [
+            {"gid": "s1", "type": "comment", "text": "hello", "created_at": "2026-07-02T10:00:00Z",
+             "created_by": {"name": "Sagar", "email": "sagar@greensglobal.com"}},
+        ]
+
+        for _ in range(3):
+            asana_sync._pull_stories(self.db, _FakeAsana(), "g1", tid, self.counts)
+
+        c = self.db.query(models.TaskComment).filter_by(task_id=tid).one()
+        self.assertEqual(c.edited_at, "")
+
+    def test_a_stamped_comment_does_not_look_permanently_edited(self):
+        """An unresolvable author gets an "[Asana - Name]" stamp that Asana's
+        own copy never carries. Comparing bodies naively would see a difference
+        on every pull and rewrite the comment forever."""
+        tid = asana_sync._apply_inbound(self.db, self._task("g1", "T"), "proj-1", self.counts)
+        _FakeAsana.stories["g1"] = [
+            {"gid": "s1", "type": "comment", "text": "hello", "created_at": "2026-07-02T10:00:00Z",
+             "created_by": {"name": "Outside Person"}},   # no email -> stamped
+        ]
+
+        asana_sync._pull_stories(self.db, _FakeAsana(), "g1", tid, self.counts)
+        c = self.db.query(models.TaskComment).filter_by(task_id=tid).one()
+        self.assertIn("[Asana", c.body)
+        for _ in range(3):
+            asana_sync._pull_stories(self.db, _FakeAsana(), "g1", tid, self.counts)
+
+        self.db.refresh(c)
+        self.assertEqual(c.edited_at, "")
+
     def test_a_pulled_comment_is_attributed_to_the_real_person(self):
         """Comments used to be stored with a hardcoded author_email of
         "asana-sync" and the real name stamped into the BODY, so every inbound
@@ -1029,6 +1140,172 @@ class ProjectAccessTests(unittest.TestCase):
         teams = self.db.query(models.TaskTeam).filter_by(name="IT").all()
         self.assertEqual(len(teams), 1)
         self.assertEqual(teams[0].project_ids, ["p1", "p2"])
+
+
+class DueTimePreservationTests(unittest.TestCase):
+    """Asana's due_on and due_at are mutually exclusive - writing the date
+    clears the time. A Nexus task holds a date alone, so every outbound push
+    used to demote "Friday 5pm" to "Friday", and an unrelated edit (a rename)
+    was enough to do it. The link now records what Asana holds so the push can
+    leave the date out when the date is not what changed."""
+
+    @classmethod
+    def setUpClass(cls):
+        models.Base.metadata.create_all(bind=database.engine)
+
+    def setUp(self):
+        self.db = database.SessionLocal()
+        for table in (models.AsanaTaskLink, models.Task, models.AsanaProjectMap,
+                      models.AsanaSyncConfig):
+            self.db.query(table).delete()
+        self.db.add(models.AsanaSyncConfig(id="singleton", enabled=True, token="tok"))
+        self.db.add(models.AsanaProjectMap(id="m1", nexus_project_id="proj-1",
+                                           asana_project_gid="A1", extra_team_names=[]))
+        self.db.commit()
+        self.sent = []
+
+    def tearDown(self):
+        self.db.close()
+
+    def _linked(self, due_on, last_due_at):
+        t = models.Task(id=gen_id(), title="T", code="TASK-1", status="not_started",
+                        priority="medium", project_id="proj-1", due_on=due_on,
+                        created_at=now_iso(), modified_at=now_iso())
+        self.db.add(t)
+        self.db.flush()
+        self.db.add(models.AsanaTaskLink(id=gen_id(), nexus_task_id=t.id, asana_gid="g1",
+                                         last_due_at=last_due_at))
+        self.db.commit()
+        return t
+
+    def _push(self, task):
+        def _write(token, method, path, fields):
+            self.sent.append(fields)
+            return {"gid": "g1"}
+        with mock.patch.object(asana_sync, "_task_write", _write), \
+             mock.patch.object(asana_sync, "_push_extras", lambda *a, **k: None), \
+             mock.patch.object(asana_sync, "_asana_user_gid", lambda *a, **k: None):
+            asana_sync.push_task(self.db, task)
+        return self.sent[-1] if self.sent else {}
+
+    def test_a_due_time_in_asana_survives_an_unrelated_push(self):
+        t = self._linked("2026-09-04", "2026-09-04T17:00:00.000Z")
+
+        fields = self._push(t)
+
+        self.assertNotIn("due_on", fields, "sending due_on here deletes Asana's 5pm")
+
+    def test_a_real_date_change_still_goes_out(self):
+        t = self._linked("2026-09-11", "2026-09-04T17:00:00.000Z")
+
+        fields = self._push(t)
+
+        self.assertEqual(fields.get("due_on"), "2026-09-11")
+
+    def test_a_task_with_no_asana_time_is_unaffected(self):
+        t = self._linked("2026-09-04", "")
+
+        fields = self._push(t)
+
+        self.assertEqual(fields.get("due_on"), "2026-09-04")
+
+    def test_clearing_the_date_in_nexus_still_clears_it_in_asana(self):
+        t = self._linked("", "2026-09-04T17:00:00.000Z")
+
+        fields = self._push(t)
+
+        self.assertIsNone(fields.get("due_on", "missing"))
+
+    def test_the_pull_records_asanas_due_time_even_when_nothing_else_moved(self):
+        """A time added to an existing date changes nothing the inbound digest
+        covers, so recording it has to happen outside that gate."""
+        counts = {"created": 0, "updated": 0, "comments": 0, "activities": 0,
+                  "attachments": 0, "deleted": 0}
+        at = {"gid": "g9", "name": "T", "notes": "", "completed": False, "due_on": "2026-09-04",
+              "memberships": [], "dependencies": [], "dependents": [], "tags": [],
+              "followers": [], "custom_fields": []}
+        asana_sync._apply_inbound(self.db, at, "proj-1", counts)
+
+        asana_sync._apply_inbound(self.db, {**at, "due_at": "2026-09-04T17:00:00.000Z"},
+                                  "proj-1", counts)
+
+        link = self.db.query(models.AsanaTaskLink).filter_by(asana_gid="g9").one()
+        self.assertEqual(link.last_due_at, "2026-09-04T17:00:00.000Z")
+
+
+class OutboundCleanlinessTests(unittest.TestCase):
+    """What LEAVES Nexus must carry no Nexus-side scaffolding.
+
+    Comments used to go out with a "[Nexus - someone@...]" prefix stamped into
+    the text - the only way to record authorship while everything posted as the
+    shared service account. Real per-user grants replaced it, and the body is
+    sent verbatim now. The mirror-image marker is the inbound "[Asana - Name]"
+    stamp, which labels a Nexus-side gap and must not travel back out either.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        models.Base.metadata.create_all(bind=database.engine)
+
+    def setUp(self):
+        self.db = database.SessionLocal()
+        for table in (models.AsanaCommentLink, models.AsanaTaskLink, models.TaskComment,
+                      models.Task, models.AsanaSyncConfig):
+            self.db.query(table).delete()
+        self.db.add(models.AsanaSyncConfig(id="singleton", enabled=True, token="tok"))
+        self.db.commit()
+        self.posted = []
+
+    def tearDown(self):
+        self.db.close()
+
+    def _comment(self, body):
+        t = models.Task(id=gen_id(), title="T", code="TASK-1", created_at=now_iso())
+        self.db.add(t)
+        self.db.flush()
+        self.db.add(models.AsanaTaskLink(id=gen_id(), nexus_task_id=t.id, asana_gid="g1"))
+        c = models.TaskComment(id=gen_id(), task_id=t.id, author_email="sagar@greensglobal.com",
+                               body=body, created_at=now_iso())
+        self.db.add(c)
+        self.db.commit()
+        return c
+
+    def test_a_comment_is_posted_verbatim_with_no_authorship_prefix(self):
+        """It used to carry "[Nexus - someone@...]" stamped into the text."""
+        c = self._comment("<p>the actual comment</p>")
+
+        def _post(token, path, body):
+            self.posted.append(body["data"])
+            return {"gid": "s1"}
+        with mock.patch.object(asana_sync, "_asana_post", _post), \
+             mock.patch.object(asana_sync.asana_oauth, "token_reason", lambda *a: (None, "")):
+            asana_sync.push_comment(self.db, c)
+
+        sent = self.posted[-1].get("html_text", "") + self.posted[-1].get("text", "")
+        self.assertIn("the actual comment", sent)
+        self.assertNotIn("[Nexus", sent)
+        self.assertNotIn("sagar@greensglobal.com", sent)
+
+    def test_the_inbound_asana_stamp_is_stripped_before_pushing_an_edit(self):
+        body = '<p><em>[Asana · Kyle Goldfarb]</em></p><p>the actual comment</p>'
+
+        self.assertEqual(asana_sync._strip_inbound_stamp(body), '<p>the actual comment</p>')
+
+    def test_an_ordinary_comment_body_is_untouched(self):
+        for body in ('<p>hello</p>',
+                     '<p>mentions [Asana · X] mid-sentence</p>',   # not the leading stamp
+                     ''):
+            self.assertEqual(asana_sync._strip_inbound_stamp(body), body)
+
+    def test_nexus_activity_is_never_pushed_to_asana(self):
+        """Asana's system stories become Nexus activity, one way. Nexus's own
+        log would be noise in Asana, so there is exactly one outbound story
+        call and it belongs to comments."""
+        import inspect
+        src = inspect.getsource(asana_sync)
+        posts = [ln for ln in src.splitlines()
+                 if "_asana_post(" in ln and "/stories" in ln]
+        self.assertEqual(len(posts), 1, f"unexpected outbound story writer: {posts}")
 
 
 class MembershipEventTests(unittest.TestCase):

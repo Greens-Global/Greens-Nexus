@@ -124,7 +124,7 @@ export default function TaskNotifySettings() {
           <Field label="Reply-to address">
             <input value={cfg.replyTo || ''} onChange={(e) => set('replyTo', e.target.value)} placeholder="tasks@companydomain.com" style={inputStyle} />
           </Field>
-          <Field label="Company logo URL" hint="Shown in the email header. Blank uses the default Nexus branding.">
+          <Field label="Company logo URL" hint="Shown in the email header. Blank uses the Greens Global wordmark.">
             <input value={cfg.logoUrl || ''} onChange={(e) => set('logoUrl', e.target.value)} placeholder="https://…/logo.png" style={inputStyle} />
           </Field>
           <Field label="Due-soon reminder (days before due date)" hint="0 disables due-soon reminders entirely (overdue reminders are controlled separately below).">

@@ -197,11 +197,11 @@ def project_for_task(db: Session, task: Task):
 
 def project_role_for(db: Session, email: str, project) -> str | None:
     """The highest Share-panel role `email` holds on `project`: project owner,
-    else the best of an explicit member_roles entry or any TaskTeam (scoped to
-    this project) they belong to, else "editor" for an org-visible project -
-    preserving the pre-Share-panel behavior where anyone could act on an
-    org-wide project's tasks. None means no access at all (a restricted
-    project this email isn't granted on)."""
+    else the best of an explicit member_roles entry, a bare member_emails entry
+    (editor - see below), or any TaskTeam scoped to this project, else "editor"
+    for an org-visible project - preserving the pre-Share-panel behavior where
+    anyone could act on an org-wide project's tasks. None means no access at all
+    (a restricted project this email isn't granted on)."""
     if not project:
         return "editor"   # no project at all (a standalone task) - unrestricted, as before
     email = (email or "").lower()
@@ -209,6 +209,23 @@ def project_role_for(db: Session, email: str, project) -> str | None:
         return "owner"
     role = (project.member_roles or {}).get(email)
     best_rank = PROJECT_ROLE_RANK.get(role, 0)
+    # Listed on the Share panel with no explicit role means EDITOR - which is
+    # exactly what that panel has always shown for such a person (its role
+    # picker renders `memberRoles[email] || 'editor'`). Only member_roles and
+    # teams used to count here, so anyone holding a bare member_emails entry
+    # read as "Editor" on screen and resolved to no role at all in the API:
+    # they could open the project and were refused on their first edit with
+    # "You need at least editor access", while the panel plainly said they had
+    # it. A bare entry arrives that way from the Asana sync and from any grant
+    # predating the role map, so this is most of a synced project's roster.
+    #
+    # Not a widening of who has access - member_emails is only ever written by
+    # an explicit Share-panel grant or by Asana's own membership list, both
+    # deliberate. It settles what a grant already there MEANS, in favour of the
+    # answer the UI has been giving. An explicit viewer/commenter still wins,
+    # because it is read above and this never lowers a rank.
+    if not role and email in [m.lower() for m in (project.member_emails or [])]:
+        role, best_rank = "editor", PROJECT_ROLE_RANK["editor"]
     for t in db.query(TaskTeam).all():
         if project.id in team_project_ids(t) and email in [m.lower() for m in (t.member_emails or [])]:
             r = PROJECT_ROLE_RANK.get(t.access_role or "editor", 0)
@@ -231,6 +248,35 @@ def require_project_role(db: Session, user: dict, project, min_role: str) -> Non
     if PROJECT_ROLE_RANK.get(role, 0) < PROJECT_ROLE_RANK[min_role]:
         name = f'"{project.name}"' if project else "this project"
         raise HTTPException(403, f"You need at least {min_role} access to {name}.")
+
+
+def require_task_role(db: Session, user: dict, task, min_role: str) -> None:
+    """require_project_role for a check about ONE task, where the person the
+    task is assigned to always counts.
+
+    visible_project_ids already lets an assignee SEE a project through the work
+    they hold in it, but project_role_for gave them no role - so somebody handed
+    a task in a project they are not a member of could open it, watch it sit in
+    My Tasks, and be refused when they tried to tick it complete. Being given
+    the work is the grant.
+
+    Scoped to that one task, never to the project: `min_role` is capped at
+    editor here, so this cannot stand in for owner-level project settings, and
+    every other task in the project still answers to project_role_for.
+
+    Deleting counts too (decided Aug 2026). One consequence to keep in mind if
+    this is ever revisited: delete_task cascades to SUBTASKS, so an assignee
+    removing their own task also removes children that may belong to other
+    people - the only place this grant reaches beyond the one task it is
+    scoped to."""
+    if is_manager(user):
+        return
+    email = (user.get("email") or "").lower()
+    if (task is not None and email
+            and (task.assignee_email or "").lower() == email
+            and PROJECT_ROLE_RANK[min_role] <= PROJECT_ROLE_RANK["editor"]):
+        return
+    require_project_role(db, user, project_for_task(db, task) if task is not None else None, min_role)
 
 
 def can_comment(db: Session, email: str, project) -> bool:

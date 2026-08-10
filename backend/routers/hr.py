@@ -1579,8 +1579,7 @@ def _welcome_html(emp: NexusEmployee, upn: str) -> str:
   <table align="center" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:16px;border:1px solid #e5e7eb;border-collapse:separate;overflow:hidden">
     <tr>
       <td style="background:#0f3d2e;padding:34px 36px 30px;text-align:center">
-        <div style="color:#ffffff;font-size:18px;font-weight:700;letter-spacing:6px">NEXUS</div>
-        <div style="color:#9fd6b8;font-size:11px;letter-spacing:2px;margin-top:4px">GREENS GLOBAL</div>
+        <div style="color:#ffffff;font-size:18px;font-weight:700;letter-spacing:4px">GREENS GLOBAL</div>
         <div style="color:#ffffff;font-size:26px;font-weight:800;margin-top:22px;line-height:1.3">Welcome aboard, {first}! 🎉</div>
         <div style="color:#cde9d9;font-size:14px;margin-top:8px">We're genuinely glad you're here.</div>
       </td>

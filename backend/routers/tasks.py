@@ -21,7 +21,7 @@ from auth import get_current_user, require_manager
 from routers.task_util import (
     now_iso, gen_id, fire_task_event, task_notify, log_activity,
     is_manager, visible_project_ids, task_is_visible,
-    project_for_task, require_project_role, create_comment,
+    project_for_task, require_project_role, require_task_role, create_comment,
 )
 from task_notify import notify_task_event
 from task_files import data_url_to_storage
@@ -357,6 +357,42 @@ def _require_tasks_exist(db: Session, ids: list) -> None:
         raise HTTPException(422, f"Unknown task id(s): {', '.join(missing[:5])}.")
 
 
+def _sync_reciprocal_dependencies(db: Session, t: models.Task, data: dict) -> None:
+    """Keep the other end of a dependency pointing back.
+
+    blocked_by_ids and blocking_ids are two views of one edge, and only the
+    first is authoritative - _check_dependency_gate reads blocked_by_ids, so
+    that side alone decides whether a task may start or finish. blocking_ids is
+    what the drawer's "Blocking" panel lists.
+
+    The reciprocal used to be written by the browser, as a SECOND request right
+    after this one (TaskDetailDrawer's addDep/removeDep). Any other route to the
+    same edge - the bulk endpoint, a script, or simply that second call failing
+    - left the graph one-sided and the panel under-reporting. Doing it here puts
+    both ends in the same transaction, and the client's now-redundant second
+    call is idempotent against it.
+
+    Only edges this payload actually changed are touched, so a task that merely
+    had its title edited never rewrites its neighbours."""
+    for field, mirror in (("blocked_by_ids", "blocking_ids"),
+                          ("blocking_ids", "blocked_by_ids")):
+        if field not in data:
+            continue
+        now = {i for i in (getattr(t, field) or []) if i}
+        # The pre-patch value is gone from `t` by the time this runs, so the
+        # other end is the source of truth for what the edge used to be: every
+        # task whose mirror list still names this one.
+        was = {row.id for row in db.query(models.Task).all()
+               if t.id in (getattr(row, mirror) or [])}
+        for other in db.query(models.Task).filter(
+                models.Task.id.in_((now | was) - {t.id})).all():
+            cur = [i for i in (getattr(other, mirror) or []) if i]
+            want = sorted(set(cur) | {t.id}) if other.id in now else [i for i in cur if i != t.id]
+            if want != cur:
+                setattr(other, mirror, want)
+                other.modified_at = now_iso()
+
+
 def _check_dependency_gate(db: Session, t: models.Task, prev_status: str, prev_completed: bool,
                             new_status: str, new_completed: bool) -> None:
     """Enforce blockedBy relationship types before a status/completion change lands.
@@ -435,6 +471,56 @@ def _asana_push_deleted() -> None:
         on_task_deleted()
     except Exception:
         pass
+
+
+def _asana_push_comment_edit(comment_id: str) -> None:
+    """Fire-and-forget outbound push of an edited comment body. Fully guarded -
+    the edit is already committed and must never fail on the sync."""
+    try:
+        from asana_sync import on_comment_edited
+        on_comment_edited(comment_id)
+    except Exception:
+        pass
+
+
+# ── Completion: `status` and `completed` are one fact in two columns ─────────
+# They must never disagree. A task whose status is "completed" while its
+# `completed` flag is False renders with an empty circle and no strikethrough
+# while sitting in the Completed group - and, worse, task_notify's due scan
+# filters on `completed`, so it keeps sending "this task is overdue" about work
+# that is finished.
+#
+# update_task got this right and was the only one that did. create_task hardcoded
+# completed=False next to whatever status it was handed, and bulk_update wrote
+# `status` through a plain setattr. Both were reachable from the UI: the
+# "+ Add task…" row inside a group inherits that group's status, so adding a task
+# under the Completed heading created exactly this state, as did the multi-select
+# Status dropdown. One rule, three callers, no room to drift.
+
+def _resolve_completed(data: dict, prev_completed: bool) -> bool:
+    """What `completed` should become, given a payload and the current value.
+
+    A status set to anything OTHER than completed, with no explicit `completed`
+    in the same payload, means the task is being reopened - otherwise the flag
+    stuck True and list/board views kept the task parked in Completed."""
+    if "status" in data and data["status"] != "completed" and "completed" not in data:
+        return False
+    return bool(data.get("completed", prev_completed)) or (data.get("status") == "completed")
+
+
+def _apply_completion(t: models.Task, new_completed: bool, prev_completed: bool) -> None:
+    """Land `completed` on the task and drag `status` and `completed_at` with it."""
+    if new_completed == prev_completed:
+        return
+    t.completed = new_completed
+    if new_completed:
+        t.completed_at = now_iso()
+        if t.status != "completed":
+            t.status = "completed"
+    else:
+        t.completed_at = ""
+        if t.status == "completed":
+            t.status = "not_started"
 
 
 # ── Recurrence: occurrence generation ────────────────────────────────────────
@@ -556,6 +642,171 @@ def list_tasks(user: dict = Depends(get_current_user), db: Session = Depends(get
     return [task_to_dict(t) for t in rows if task_is_visible(t, user["email"], visible_projects)]
 
 
+@router.get("/search")
+def search_everything(q: str = "", limit: int = 6,
+                      user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """One query, results grouped by what they are - the shape Asana's own
+    search offers, and the shape people expect from a magnifier in a header.
+
+    The header's search used to match MODULE NAMES only, so typing the title of
+    a task you were looking at returned nothing at all.
+
+    Visibility is the same rule the task list applies (task_is_visible against
+    visible_project_ids), so search can never surface a task someone cannot
+    already open. People come from the curated Nexus directory, never a
+    M365/GAL-derived list (CLAUDE.md).
+
+    Ranking is deliberately dumb and predictable: a prefix match sorts above a
+    match anywhere, then alphabetical. Anything cleverer here is a scoring
+    system nobody can explain when it puts the wrong row first."""
+    term = (q or "").strip().lower()
+    if len(term) < 2:
+        return {"tasks": [], "projects": [], "portfolios": [], "teams": [], "people": []}
+    limit = max(1, min(limit, 20))
+
+    def rank(text: str) -> tuple:
+        t = (text or "").lower()
+        return (0 if t.startswith(term) else 1, t)
+
+    def top(rows, text_of):
+        return sorted(rows, key=lambda r: rank(text_of(r)))[:limit]
+
+    manager = is_manager(user)
+    visible = None if manager else visible_project_ids(db, user["email"])
+
+    tasks = [t for t in db.query(models.Task).all()
+             if (term in (t.title or "").lower() or term in (t.code or "").lower())
+             and (manager or task_is_visible(t, user["email"], visible))]
+    project_names = {p.id: p.name for p in db.query(models.TaskProject).all()}
+    projects = [p for p in db.query(models.TaskProject).all()
+                if term in (p.name or "").lower() and not p.archived
+                and (manager or p.id in visible)]
+    portfolios = [p for p in db.query(models.TaskPortfolio).all() if term in (p.name or "").lower()]
+    teams = [t for t in db.query(models.TaskTeam).all() if term in (t.name or "").lower()]
+
+    people = []
+    for e in db.query(models.NexusEmployee).all():
+        if (e.status or "") in ("inactive", "offboarded"):
+            continue
+        name = f"{e.first_name or ''} {e.last_name or ''}".strip()
+        if term in name.lower() or term in (e.work_email or "").lower():
+            # jobTitle, not "title" - a task's title is also `title`, and one
+            # dict key meaning two different things across the same response is
+            # how a renderer ends up printing someone's job where their name goes.
+            people.append({"email": e.work_email, "name": name or e.work_email,
+                           "jobTitle": e.job_title or ""})
+
+    return {
+        "tasks": [{"id": t.id, "code": t.code or "", "title": t.title,
+                   "completed": bool(t.completed), "assigneeId": _nz(t.assignee_email),
+                   "projectId": _nz(t.project_id),
+                   "projectName": project_names.get(t.project_id or "", "")}
+                  for t in top(tasks, lambda t: t.title)],
+        "projects": [{"id": p.id, "name": p.name, "color": p.color or ""}
+                     for p in top(projects, lambda p: p.name)],
+        "portfolios": [{"id": p.id, "name": p.name} for p in top(portfolios, lambda p: p.name)],
+        "teams": [{"id": t.id, "name": t.name, "color": t.color or ""}
+                  for t in top(teams, lambda t: t.name)],
+        "people": top(people, lambda p: p["name"]),
+    }
+
+
+@router.get("/people/{email}")
+def person_profile(email: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Everything one person's page shows, in one call: who they are, the work
+    they hold, and where they belong.
+
+    Four task buckets, matching how people actually ask about a colleague:
+    everything they hold (`assigned`), what YOU gave them (`assignedByYou`),
+    what they handed out (`created` - they made it, somebody else holds it),
+    and where the two of you overlap (`collaboratingWithYou`). Two of those are
+    relative to the VIEWER, which is the point: "what did I give this person"
+    is a different question from "what are they doing", and a page that only
+    answered the second made you go and work the first out by eye.
+
+    All four go through the same visibility rule as the task list, so this page
+    can never become a way to read work you could not otherwise open.
+
+    The person comes from the curated Nexus directory (nexus_employees), never
+    a M365/GAL list - CLAUDE.md. An address with no directory row still gets a
+    page: Asana guests sync in as collaborators long before HR has a record,
+    and their work is real even when their profile is thin."""
+    email = (email or "").strip().lower()
+    if not email:
+        raise HTTPException(404, "Person not found")
+    emp = db.query(models.NexusEmployee).filter(
+        models.NexusEmployee.work_email == email).first()
+
+    manager = is_manager(user)
+    visible = None if manager else visible_project_ids(db, user["email"])
+    rows = [t for t in db.query(models.Task).all()
+            if manager or task_is_visible(t, user["email"], visible)]
+    project_names = {p.id: p.name for p in db.query(models.TaskProject).all()}
+
+    def shape(t):
+        return {"id": t.id, "code": t.code or "", "title": t.title,
+                "completed": bool(t.completed), "status": t.status,
+                "dueOn": _nz(t.due_on), "assigneeId": _nz(t.assignee_email),
+                "projectId": _nz(t.project_id),
+                "projectName": project_names.get(t.project_id or "", "")}
+
+    def newest(items, limit=25):
+        # Open work first, then nearest due date - a page that opened on
+        # something finished last March would bury what the person is on now.
+        return [shape(t) for t in sorted(
+            items, key=lambda t: (bool(t.completed), t.due_on or "9999", t.title.lower()))[:limit]]
+
+    me = (user.get("email") or "").strip().lower()
+
+    def on_it(t, who):
+        """Everyone a task visibly involves - its assignee and its followers."""
+        return who and (who == (t.assignee_email or "").lower()
+                        or who in [f.lower() for f in (t.follower_emails or [])])
+
+    assigned = [t for t in rows if (t.assignee_email or "").lower() == email]
+    assigned_by_you = [t for t in assigned if (t.created_by or "").lower() == me]
+    created = [t for t in rows if (t.created_by or "").lower() == email
+               and (t.assignee_email or "").lower() != email]
+    # Both of you on the same task. Empty on your OWN page, where "collaborating
+    # with you" would otherwise match every task you touch and mean nothing.
+    collaborating = ([] if me == email else
+                     [t for t in rows if on_it(t, email) and on_it(t, me)])
+
+    today = date.today().isoformat()
+    open_assigned = [t for t in assigned if not t.completed]
+    projects = [p for p in db.query(models.TaskProject).all()
+                if (manager or p.id in visible) and not p.archived
+                and (email in [m.lower() for m in (p.member_emails or [])]
+                     or (p.owner_email or "").lower() == email
+                     or p.id in {t.project_id for t in assigned if t.project_id})]
+    teams = [t for t in db.query(models.TaskTeam).all()
+             if email in [m.lower() for m in (t.member_emails or [])]]
+
+    return {
+        "person": {
+            "email": email,
+            "name": (f"{emp.first_name or ''} {emp.last_name or ''}".strip() or email) if emp else email,
+            "displayName": (emp.display_name or "") if emp else "",
+            "jobTitle": (emp.job_title or "") if emp else "",
+            "department": (emp.department or "") if emp else "",
+            "location": (emp.location or "") if emp else "",
+            "photoUrl": (emp.photo_url or "") if emp else "",
+            "identityType": (emp.identity_type or "internal") if emp else "external",
+            "status": (emp.status or "active") if emp else "",
+            "inDirectory": bool(emp),
+        },
+        "stats": {
+            "open": len(open_assigned),
+            "completed": len([t for t in assigned if t.completed]),
+            "overdue": len([t for t in open_assigned if t.due_on and t.due_on[:10] < today]),
+        },
+        "tasks": {"assigned": newest(assigned), "assignedByYou": newest(assigned_by_you),
+                  "created": newest(created), "collaboratingWithYou": newest(collaborating)},
+        "projects": [{"id": p.id, "name": p.name, "color": p.color or ""} for p in projects],
+        "teams": [{"id": t.id, "name": t.name, "color": t.color or ""} for t in teams],
+    }
+
+
 @router.get("/delta")
 def list_tasks_delta(since: str = "", user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """Incremental fetch for TasksContext's mount load + repeated refresh
@@ -632,8 +883,13 @@ def create_task(body: TaskCreate, background_tasks: BackgroundTasks,
         recurrence=body.recurrence,
         is_milestone=bool(body.is_milestone),
         approval_status=body.approval_status or "none",
-        completed=False,
-        completed_at="",
+        # Not hardcoded False any more: a task created straight INTO the
+        # Completed group (the "+ Add task…" row inherits its group's status)
+        # arrived with status "completed" and this flag off, so it showed no
+        # strikethrough and kept drawing overdue emails. TaskCreate has no
+        # `completed` field, so status is the only thing that can say so here.
+        completed=(body.status == "completed"),
+        completed_at=(now if body.status == "completed" else ""),
         comment_ids=[], attachment_ids=[], activity_ids=[],
         created_at=now, modified_at=now, created_by=user["email"],
     )
@@ -669,7 +925,8 @@ _MODIFIED_FIELD_LABELS = {"title": "Title changed", "description": "Description 
 def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks,
                 user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     t = _get_task(db, task_id)
-    require_project_role(db, user, project_for_task(db, t), "editor")
+    # The assignee counts on their OWN task - see require_task_role.
+    require_task_role(db, user, t, "editor")
     data = upd.model_dump(exclude_unset=True)
     validate_task_payload(db, data, task_id=task_id)
     if "custom_field_values" in data:
@@ -681,17 +938,10 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
     modified_kinds = [label for field, label in _MODIFIED_FIELD_LABELS.items() if field in data]
 
     new_status = data.get("status", prev_status)
-    # `completed` and `status` are two independent columns for one user-facing
-    # concept, so a caller changing just one has to imply the other: an explicit
-    # `completed` (or status == "completed") sets completed True as before, but a
-    # status set to anything ELSE with no explicit `completed` field now clears
-    # it too - otherwise reopening a task (status -> in_progress) left the
-    # `completed` bool stuck True, so list/board views kept it parked in their
-    # Completed bucket even though its status read "In Progress".
-    if "status" in data and data["status"] != "completed" and "completed" not in data:
-        new_completed = False
-    else:
-        new_completed = bool(data.get("completed", prev_completed)) or (data.get("status") == "completed")
+    # See _resolve_completed: `completed` and `status` are two columns for one
+    # user-facing concept, and this rule is now shared with create and bulk so
+    # the three cannot disagree about what "done" means.
+    new_completed = _resolve_completed(data, prev_completed)
     _check_dependency_gate(db, t, prev_status, prev_completed, new_status, new_completed)
 
     for field, val in data.items():
@@ -704,18 +954,11 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
             val = (val or "").strip().lower()
         setattr(t, field, val)
 
-    # completion handling - keep `completed` (+ its timestamp) and `status` in
-    # sync regardless of which one the caller actually sent.
-    if new_completed != prev_completed:
-        t.completed = new_completed
-        if new_completed:
-            t.completed_at = now_iso()
-            if t.status != "completed":
-                t.status = "completed"
-        else:
-            t.completed_at = ""
-            if t.status == "completed":
-                t.status = "not_started"
+    # Keeps `completed`, its timestamp and `status` in step regardless of which
+    # one the caller actually sent.
+    _apply_completion(t, new_completed, prev_completed)
+
+    _sync_reciprocal_dependencies(db, t, data)
 
     t.modified_at = now_iso()
 
@@ -769,7 +1012,10 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
 def delete_task(task_id: str, background_tasks: BackgroundTasks,
                 user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     t = _get_task(db, task_id)
-    require_project_role(db, user, project_for_task(db, t), "editor")
+    # The assignee counts on their own task here too. Note this cascade takes
+    # the task's SUBTASKS with it (below), which may be assigned to other
+    # people - deleting your own task can therefore remove someone else's.
+    require_task_role(db, user, t, "editor")
     # Captured before the row is gone - notify_task_event("deleted") runs in
     # the background AFTER this response, by which point db.delete(t) below
     # has already removed it, so there'd be nothing left to look up.
@@ -853,7 +1099,7 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
     # All-or-nothing on purpose - a partial apply would leave the caller with no
     # way to tell which ids were silently skipped.
     for t in rows:
-        require_project_role(db, user, project_for_task(db, t), "editor")
+        require_task_role(db, user, t, "editor")
     if "status" in patch or "completed" in patch:
         for t in rows:
             prev_status, prev_completed = t.status, bool(t.completed)
@@ -864,16 +1110,21 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
     # actually changed rather than restating the new value for every row.
     before = {t.id: (t.status, bool(t.completed), (t.assignee_email or "").lower()) for t in rows}
     for t in rows:
+        prev_status, prev_completed, _ = before[t.id]
+        # Decided BEFORE the loop writes anything, from the payload and the
+        # previous value - the same call update_task makes. `status` used to
+        # fall through to the setattr below, so bulk-setting it to "completed"
+        # left the flag off (no strikethrough, still emailed as overdue), and
+        # bulk-setting it to anything else left a completed task stuck in the
+        # Completed bucket. Which of the two won even depended on dict order.
+        new_completed = _resolve_completed(patch, prev_completed)
         for k, v in patch.items():
+            if k == "completed":
+                continue    # handled by _apply_completion below
             if k == "assignee_email":
                 v = (v or "").lower()
-            if k == "completed":
-                t.completed = bool(v)
-                t.completed_at = now_iso() if v else ""
-                if v:
-                    t.status = "completed"
-                continue
             setattr(t, k, v)
+        _apply_completion(t, new_completed, prev_completed)
         t.modified_at = now_iso()
 
     # Activity + notifications. Bulk previously did NEITHER: reassigning fifty
@@ -945,6 +1196,11 @@ class CommentUpdate(BaseModel):
 
 @router.get("/{task_id}/comments")
 def list_comments(task_id: str, db: Session = Depends(get_db)):
+    # 404 rather than an empty list for a task that isn't there: "no comments"
+    # and "no such task" are different answers, and returning the first for the
+    # second made a drawer left open on a deleted task look merely empty. POST
+    # and PATCH on the same id already 404.
+    _get_task(db, task_id)
     rows = db.query(models.TaskComment).filter(models.TaskComment.task_id == task_id).all()
     return [comment_to_dict(c) for c in rows]
 
@@ -956,7 +1212,7 @@ def add_comment(task_id: str, body: CommentCreate, background_tasks: BackgroundT
     # backfill historical comments without pinging assignees/followers. Defaults
     # to true, so normal in-app commenting is unchanged.
     t = _get_task(db, task_id)
-    require_project_role(db, user, project_for_task(db, t), "commenter")
+    require_task_role(db, user, t, "commenter")
     # The comment itself and all six of its side effects live in create_comment
     # (routers/task_util.py) - see that docstring for why this endpoint is only
     # a wrapper. `defer` keeps the notification emails off the response path.
@@ -995,6 +1251,11 @@ def edit_comment(comment_id: str, upd: CommentUpdate, user: dict = Depends(get_c
     db.commit()
     db.refresh(c)
     fire_task_event(c.task_id, "comment")
+    # A corrected comment has to reach Asana too, or the copy most of the
+    # workspace reads keeps the wrong text forever. Only on a body change -
+    # pinning is a Nexus-only notion with no Asana counterpart.
+    if upd.body is not None:
+        _asana_push_comment_edit(comment_id)
     return comment_to_dict(c)
 
 
@@ -1050,7 +1311,7 @@ def add_attachment(task_id: str, body: AttachmentCreate, user: dict = Depends(ge
     # while composing a comment (see AttachmentCreate.comment_id), so requiring
     # editor here would 403 exactly the people that flow exists for. Matches
     # add_comment's own threshold.
-    require_project_role(db, user, project_for_task(db, t), "commenter")
+    require_task_role(db, user, t, "commenter")
     # An attachment tagged with a comment from a DIFFERENT task is incoherent:
     # the comment view groups by comment id within one task, so the file would
     # simply never render, while the row claims an association that isn't real.
@@ -1117,8 +1378,16 @@ def global_activity(limit: int = 500, db: Session = Depends(get_db)):
 
 @router.get("/{task_id}/activity")
 def task_activity(task_id: str, db: Session = Depends(get_db)):
+    # "Created from Asana" / "Updated from Asana" are the sync's own bookkeeping,
+    # logged once per inbound apply. On a task's own timeline they say nothing a
+    # reader wants: the very next row is the real story ("changed the due date to
+    # Aug 22", by the person who did it), so the marker just doubles the length
+    # of the list with a robot's name against every entry. Still written, and
+    # still shown in the workspace-wide feed (GET /tasks/activity), where "where
+    # did this change come from" is the actual question being asked.
     rows = (db.query(models.TaskActivity)
-            .filter(models.TaskActivity.entity_id == task_id)
+            .filter(models.TaskActivity.entity_id == task_id,
+                    models.TaskActivity.type != "synced_from_asana")
             .order_by(models.TaskActivity.at.desc()).all())
     return [activity_to_dict(a) for a in rows]
 
@@ -1127,7 +1396,12 @@ def task_activity(task_id: str, db: Session = Depends(get_db)):
 class SectionBody(BaseModel):
     id: Optional[str] = None
     project_id: Optional[str] = ""
-    name: str
+    # Optional so a PATCH can send only what it changes - a drag-to-reorder
+    # carries a position and no name, and a required `name` here rejected it
+    # with "name Field required" for a field it was not touching. Create still
+    # demands one (guarded in create_section), so a nameless section is
+    # impossible either way. Same shape RuleBody already uses.
+    name: Optional[str] = None
     position: Optional[int] = 0
 
 
@@ -1154,8 +1428,10 @@ def _require_section_editor(db: Session, user: dict, project_id: str) -> None:
 def create_section(body: SectionBody, user: dict = Depends(get_current_user),
                    db: Session = Depends(get_db)):
     _require_section_editor(db, user, body.project_id or "")
+    if not (body.name or "").strip():
+        raise HTTPException(422, "A section needs a name.")
     s = models.TaskSection(id=body.id or gen_id(), project_id=body.project_id or "",
-                           name=body.name, position=body.position or 0, created_at=now_iso())
+                           name=body.name.strip(), position=body.position or 0, created_at=now_iso())
     db.add(s)
     db.commit()
     db.refresh(s)
