@@ -73,7 +73,7 @@ export default function EgnytePersonFolder({ email, personName = '' }) {
   const pickerModal = picking && (
     <FolderPickModal
       title={`Folder for ${personName || email}`}
-      hint='Browse to the folder where this person&apos;s documents live, then press "Use This Folder".'
+      hint='Browse to the folder where this person&apos;s documents live - or paste its path or Egnyte link - then press "Use This Folder".'
       onPick={point}
       onClose={() => setPicking(false)}
     />
