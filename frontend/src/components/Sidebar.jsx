@@ -25,11 +25,12 @@ export const NAV = [
   { view: "manager-dashboard", code: "MGR", label: "Manager Dashboard",  icon: UserCheck,    minRole: 'supervisor' },
   { view: "locations", code: "LOC",         label: "Locations",          icon: MapPin,       minRole: 'supervisor' },
   { divider: true },
-  // Tasks + Knowledge Base are baseline: employees work their own tasks and the
-  // KB is the LMS - assigned courses/SOPs must be reachable by everyone.
-  // Manage/author actions inside stay role-gated (KB admin ops are level 3+).
-  { view: "tasks", code: "TSK",             label: "Tasks",               icon: CheckSquare },
-  { view: "tickets", code: "TKT",           label: "Tickets",             icon: TicketToken },
+  // Tasks + Tickets are grant-driven like every other module (Aug 10): they
+  // only appear when an Access Group / job role grants them (most job roles
+  // carry tasks:*). Knowledge Base stays baseline - it is the LMS and assigned
+  // courses/SOPs must be reachable by everyone; KB admin ops are level 3+.
+  { view: "tasks", code: "TSK",             label: "Tasks",               icon: CheckSquare,  minRole: 'supervisor' },
+  { view: "tickets", code: "TKT",           label: "Tickets",             icon: TicketToken,  minRole: 'supervisor' },
   { view: "sop", code: "KB", label: "Knowledge Base", icon: BookOpen },
   { divider: true },
   {

@@ -18,13 +18,14 @@ from typing import Optional, Any
 
 import models
 from database import get_db
-from auth import get_current_user, require_manager
+from auth import get_current_user, require_manager, require_any_module_grant
 from routers.task_util import now_iso, gen_id, log_activity, task_notify
 from ticket_code import TICKET_CODE_DIGITS, ticket_no
 from ticket_notify import (notify_ticket_event, get_settings as get_notify_settings,
                            save_settings as save_notify_settings, ticket_agents)
 
-router = APIRouter(tags=["Tickets"], dependencies=[Depends(get_current_user)])
+router = APIRouter(tags=["Tickets"],
+                   dependencies=[Depends(get_current_user), Depends(require_any_module_grant("tasks", "tickets"))])
 
 
 def _nz(v):

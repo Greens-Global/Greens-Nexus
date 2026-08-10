@@ -16,10 +16,11 @@ from datetime import datetime, timezone
 import httpx
 import models
 from database import get_db, SessionLocal
-from auth import get_current_user, require_level, require_manager
+from auth import get_current_user, require_level, require_manager, require_any_module_grant
 from routers.task_util import now_iso, gen_id
 
-router = APIRouter(tags=["Tasks"], dependencies=[Depends(get_current_user)])
+router = APIRouter(tags=["Tasks"],
+                   dependencies=[Depends(get_current_user), Depends(require_any_module_grant("tasks", "tickets"))])
 
 
 def _nz(v):

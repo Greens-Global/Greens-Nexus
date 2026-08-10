@@ -17,7 +17,7 @@ from pydantic import BaseModel
 from typing import Optional, Any
 import models
 from database import get_db
-from auth import get_current_user, require_manager
+from auth import get_current_user, require_manager, require_any_module_grant
 from routers.task_util import (
     now_iso, gen_id, fire_task_event, task_notify, log_activity,
     is_manager, visible_project_ids, task_is_visible,
@@ -28,7 +28,8 @@ from task_files import data_url_to_storage
 # Values are stored in the shape each field declares - see that function.
 from routers.task_config import coerce_custom_field_values
 
-router = APIRouter(prefix="/tasks", tags=["Tasks"], dependencies=[Depends(get_current_user)])
+router = APIRouter(prefix="/tasks", tags=["Tasks"],
+                   dependencies=[Depends(get_current_user), Depends(require_any_module_grant("tasks", "tickets"))])
 
 
 # ── Serialisers (snake → export runtime camelCase; email used as person id) ──
