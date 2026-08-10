@@ -229,7 +229,7 @@ export default function MyTasksView() {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, borderBottom: `1px solid ${NX.border}`, padding: '0 24px', flexWrap: 'wrap', background: NX.surface }}>
         {/* Segmented view switcher - same control as the project workspace's
             (consistency overwrite, Jul 28: no more underline tabs here) */}
-        <div className="scroll-tabs" style={{ display: 'flex', alignItems: 'center', gap: 2, background: NX.border2, borderRadius: 9, padding: 2, margin: '8px 0', overflowX: 'auto', flexShrink: 0 }}>
+        <div data-tour="task-views" className="scroll-tabs" style={{ display: 'flex', alignItems: 'center', gap: 2, background: NX.border2, borderRadius: 9, padding: 2, margin: '8px 0', overflowX: 'auto', flexShrink: 0 }}>
           {VIEW_TABS.map((tb) => (
             <button key={tb.key} onClick={() => switchView(tb.key)} title={tb.label} style={{
               ...btn('ghost'), padding: '6px 10px', borderRadius: 7, whiteSpace: 'nowrap',

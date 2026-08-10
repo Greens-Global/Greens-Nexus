@@ -424,6 +424,9 @@ export const api = {
   // on its own, because it is the only one that must be translated (Nexus email
   // -> Asana user gid) rather than copied.
   asanaAssigneeCheck: () => req("/asana-sync/assignee-check"),
+  // Asana shows no workspace id in its UI and the ids in its URLs are PROJECT
+  // ids - so offer a picker rather than have one pasted into the wrong field.
+  asanaWorkspaces:    () => req("/asana-sync/workspaces"),
   // Walks every project in the workspace - same 10-min ceiling as Pull/Push all.
   // Starts a background job and returns it right away; a whole workspace takes
   // minutes and Azure kills any request at ~230s. Poll asanaSyncImportAllStatus.

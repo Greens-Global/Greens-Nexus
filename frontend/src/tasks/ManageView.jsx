@@ -80,7 +80,7 @@ export default function ManageView() {
   return (
     <div style={{ fontFamily: FONT, color: NX.ink, display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%' }}>
       {/* Sub-tab strip - underline tabs, horizontally scrollable on mobile */}
-      <div className="scroll-tabs" style={{ display: 'flex', alignItems: 'center', gap: 2, padding: '0 16px', borderBottom: `1px solid ${NX.border}`, background: NX.surface, overflowX: 'auto' }}>
+      <div data-tour="task-manage-tabs" className="scroll-tabs" style={{ display: 'flex', alignItems: 'center', gap: 2, padding: '0 16px', borderBottom: `1px solid ${NX.border}`, background: NX.surface, overflowX: 'auto' }}>
         {SUBTABS.map((t) => {
           const active = tab === t.key;
           return (
@@ -249,7 +249,8 @@ function AsanaSyncPanel({ store }) {
   const [msg, setMsg] = useState('');
   const [err, setErr] = useState('');
   const [dupes, setDupes] = useState(null);
-  const [assignees, setAssignees] = useState(null);   // dry-run result awaiting confirmation
+  const [assignees, setAssignees] = useState(null);
+  const [workspaces, setWorkspaces] = useState(null);   // dry-run result awaiting confirmation
   const [orphans, setOrphans] = useState(null); // stranded-row dry run, same shape
   const [teamReport, setTeamReport] = useState([]); // per-team access outcomes from the last pull
   const [importJob, setImportJob] = useState(null); // live "Import All Projects" run, polled
@@ -507,6 +508,15 @@ function AsanaSyncPanel({ store }) {
   // Duplicate cleanup: dry run first (reports the count), then the same button
   // applies it. Merges tasks that all point at one Asana task - see
   // asana_sync.dedupe_tasks.
+  async function loadWorkspaces() {
+    setBusy('loadws');
+    try {
+      setWorkspaces(await api.asanaWorkspaces());
+    } catch (e) {
+      alert(e?.message || 'Could not list workspaces.');
+    } finally { setBusy(''); }
+  }
+
   async function checkAssignees() {
     setBusy('assignees');
     try {
@@ -648,7 +658,31 @@ function AsanaSyncPanel({ store }) {
         </Field>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           <Field label="Workspace GID (for assignee sync)">
-            <input value={cfg.workspaceGid || ''} onChange={(e) => setCfg((p) => ({ ...p, workspaceGid: e.target.value }))} onBlur={(e) => saveConfig({ workspace_gid: e.target.value })} placeholder="120…" style={inputStyle} />
+            {/* A picker, because Asana shows no workspace id anywhere in its UI
+                and the ids in its URLs (app.asana.com/0/<project>/<task>) are
+                PROJECT ids - which is how a project gid ends up here. It reads
+                as valid, nothing validates it, and the only symptom is that
+                assignees quietly stop resolving while everything else syncs. */}
+            {workspaces && workspaces.length > 0 ? (
+              <select value={cfg.workspaceGid || ''}
+                onChange={(e) => { setCfg((p) => ({ ...p, workspaceGid: e.target.value })); saveConfig({ workspace_gid: e.target.value }); }}
+                style={selectStyle}>
+                <option value="">Select workspace</option>
+                {workspaces.map((w) => <option key={w.gid} value={w.gid}>{w.name} ({w.gid})</option>)}
+                {/* Keep whatever is stored visible even when it is not a real
+                    workspace - otherwise a wrong value silently reads as blank. */}
+                {cfg.workspaceGid && !workspaces.some((w) => w.gid === cfg.workspaceGid) && (
+                  <option value={cfg.workspaceGid}>{cfg.workspaceGid} - not a workspace this token can see</option>
+                )}
+              </select>
+            ) : (
+              <input value={cfg.workspaceGid || ''} onChange={(e) => setCfg((p) => ({ ...p, workspaceGid: e.target.value }))} onBlur={(e) => saveConfig({ workspace_gid: e.target.value })} placeholder="120…" style={inputStyle} />
+            )}
+            <button onClick={loadWorkspaces} disabled={!cfg.hasToken || !!busy}
+              title={cfg.hasToken ? '' : 'Save a token first'}
+              style={{ ...btn('ghost'), padding: '3px 8px', fontSize: 12, color: NX.blue, marginTop: 4 }}>
+              {busy === 'loadws' ? 'Loading…' : (workspaces ? 'Reload workspaces' : 'Find my workspace')}
+            </button>
           </Field>
           <Field label="Default project GID (unmapped tasks)">
             <input value={cfg.defaultProjectGid || ''} onChange={(e) => setCfg((p) => ({ ...p, defaultProjectGid: e.target.value }))} onBlur={(e) => saveConfig({ default_project_gid: e.target.value })} placeholder="Optional" style={inputStyle} />

@@ -236,3 +236,80 @@ class TaskWriteDegradeTests(unittest.TestCase):
 
         with self.assertRaises(self.ImportError_):
             asana_sync._task_write("tok", "PUT", "/tasks/1", {"name": "x"})
+
+
+class AssigneeDiagnosisTests(unittest.TestCase):
+    """Why assignees are or are not reaching Asana.
+
+    Assignee is the only field that must be TRANSLATED - a Nexus email into an
+    Asana user gid - rather than copied, so it is the only one that can fail on
+    its own while everything else about a task syncs perfectly. Every way that
+    translation fails looks identical from outside.
+    """
+
+    def setUp(self):
+        self.db = database.SessionLocal()
+        self.addCleanup(self.db.close)
+        for m in (models.Task, models.AsanaTaskLink, models.AsanaSyncConfig):
+            self.db.query(m).delete()
+        self.db.commit()
+        asana_sync._USER_CACHE.clear()
+        self.addCleanup(asana_sync._USER_CACHE.clear)
+
+    def _cfg(self, workspace_gid="ws-1"):
+        self.db.add(models.AsanaSyncConfig(id="singleton", token="tok", enabled=True,
+                                           workspace_gid=workspace_gid))
+        self.db.commit()
+
+    def test_a_missing_workspace_gid_is_named_as_the_cause(self):
+        """The map is empty without it, so NOTHING resolves - while every other
+        field keeps syncing, which is what makes it look like assignee sync
+        specifically is broken."""
+        self._cfg(workspace_gid="")
+        out = asana_sync.assignee_diagnosis(self.db)
+        self.assertIn("No Workspace GID", out["reason"])
+
+    def test_a_project_gid_in_the_workspace_field_suggests_the_real_one(self):
+        """The actual dev failure. Asana shows no workspace id in its UI and the
+        ids in its URLs are PROJECT ids, so a project gid ends up pasted here.
+        Asana's "Not a recognized ID" is true and useless on its own."""
+        self._cfg(workspace_gid="1217276612205811")
+
+        class _Asana:
+            def __init__(self, _tok):
+                pass
+
+            def get(self, path, **kw):
+                if "/workspaces/" in path:
+                    raise RuntimeError("HTTP 404 - workspace: Not a recognized ID")
+                return [{"gid": "413144745704203", "name": "Greens Global"}]
+
+        original = asana_sync.Asana
+        asana_sync.Asana = _Asana
+        self.addCleanup(setattr, asana_sync, "Asana", original)
+
+        out = asana_sync.assignee_diagnosis(self.db)
+        self.assertIn("413144745704203", out["reason"])
+        self.assertIn("Greens Global", out["reason"])
+        self.assertIn("project GID", out["reason"])
+        self.assertEqual(out["workspaces"], [{"gid": "413144745704203", "name": "Greens Global"}])
+
+    def test_users_without_readable_emails_are_called_out(self):
+        """Asana hides emails from tokens without permission. The request
+        succeeds and the users are there - there is just nothing to match on."""
+        self._cfg()
+
+        class _Asana:
+            def __init__(self, _tok):
+                pass
+
+            def get(self, path, **kw):
+                return [{"gid": "1"}, {"gid": "2"}]      # no email field
+
+        original = asana_sync.Asana
+        asana_sync.Asana = _Asana
+        self.addCleanup(setattr, asana_sync, "Asana", original)
+
+        out = asana_sync.assignee_diagnosis(self.db)
+        self.assertEqual((out["usersInWorkspace"], out["usersWithEmail"]), (2, 0))
+        self.assertIn("no email addresses", out["reason"])

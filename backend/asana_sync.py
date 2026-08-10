@@ -21,8 +21,9 @@ field), tags (find-or-create workspace tags by name), milestone flag
 immutable after), followers (outbound additive via addFollowers, matching the
 dependencies pattern - never removes an Asana-side follower removed on the
 Nexus side), comments, attachments (inbound only), subtasks, dependencies
-(best-effort), project-level access (member_emails / TaskTeam), and project
-name/description (kept refreshed from Asana on every pull).
+(best-effort), project-level access (inbound only - member_emails /
+member_roles / TaskTeam), and project name/description (kept refreshed from
+Asana on every pull).
 
 Outbound is fire-and-forget from create_task/update_task via on_task_changed():
 it runs in a daemon thread on its own DB session and swallows all errors, so a
@@ -145,7 +146,7 @@ def assignee_diagnosis(db) -> dict:
     cfg = get_config(db)
     out = {"workspaceGid": (cfg.workspace_gid or "") if cfg else "",
            "usersInWorkspace": 0, "usersWithEmail": 0, "error": "",
-           "assignees": [], "reason": ""}
+           "assignees": [], "reason": "", "workspaces": []}
     if not cfg or not cfg.token:
         out["reason"] = "Asana sync has no token."
         return out
@@ -165,7 +166,25 @@ def assignee_diagnosis(db) -> dict:
                 emails[em] = u["gid"]
     except Exception as e:
         out["error"] = f"{type(e).__name__}: {e}"
-        out["reason"] = f"Could not list the workspace's users ({out['error']})."
+        # Name the workspaces this token CAN see. The commonest way this field
+        # goes wrong is a PROJECT gid pasted into it: Asana shows no workspace id
+        # in its UI and the ids in its URLs are project ids, the two look
+        # identical, nothing validates it, and the only symptom is that
+        # assignees quietly stop resolving while every other field syncs.
+        # "Not a recognized ID" is true and useless on its own; the right value
+        # is one call away.
+        try:
+            out["workspaces"] = [{"gid": w["gid"], "name": w.get("name") or ""}
+                                 for w in Asana(cfg.token).get("/workspaces", opt_fields="name")]
+        except Exception:
+            pass
+        if out["workspaces"]:
+            options = ", ".join(f"{w['name']} ({w['gid']})" for w in out["workspaces"])
+            out["reason"] = (f"The Workspace GID {cfg.workspace_gid!r} is not a workspace this "
+                             f"token can see - a project GID pasted here looks the same and is "
+                             f"the usual cause. Use: {options}.")
+        else:
+            out["reason"] = f"Could not list the workspace's users ({out['error']})."
         return out
 
     if out["usersInWorkspace"] and not out["usersWithEmail"]:
@@ -2882,6 +2901,13 @@ def _sync_project_access(db, asana, cfg, project_gid, nexus_project_id, extra_te
       longer needed and no longer offered in the UI; still honored for any value
       already saved, so an existing config keeps working.
 
+    A user's `access_level` is carried into the project's own `member_roles`
+    map, not just into `member_emails`. Only the team branch used to set a role;
+    a user arrived with none, and while visible_project_ids let them SEE the
+    project, task_util.project_role_for found no member_roles entry and returned
+    None on a restricted project - so somebody shared into Asana as admin or
+    editor was view-only in Nexus and got a 403 on their first edit.
+
     One-way and additive only, same as the rest of this module - someone
     removed from the Asana side keeps whatever Nexus access they already have
     (mirrors unlink_deleted_task's "Asana deletion doesn't delete the Nexus
@@ -2907,7 +2933,8 @@ def _sync_project_access(db, asana, cfg, project_gid, nexus_project_id, extra_te
     project = db.query(models.TaskProject).filter(models.TaskProject.id == nexus_project_id).first()
     if not project:
         return
-    wanted = set()
+    from routers.task_util import PROJECT_ROLE_RANK
+    wanted = {}            # email -> Nexus role from Asana's access_level ("" = unrecognized)
     granted_gids = set()   # Asana team gids already handled from the membership list
     try:
         # One call, both kinds of member. `member` is a union - resource_type
@@ -2920,7 +2947,11 @@ def _sync_project_access(db, asana, cfg, project_gid, nexus_project_id, extra_te
             if kind == "user":
                 em = _map_email(m.get("email"), None, db)
                 if em:
-                    wanted.add(em)
+                    role = _ACCESS_LEVEL_TO_ROLE.get((row.get("access_level") or "").lower(), "")
+                    # Asana can list the same person more than once (a direct
+                    # share plus an inherited one) - the strongest wins.
+                    if PROJECT_ROLE_RANK.get(role, 0) >= PROJECT_ROLE_RANK.get(wanted.get(em, ""), 0):
+                        wanted[em] = role
             elif kind == "team" and m.get("gid"):
                 tname = (m.get("name") or "").strip()
                 if not tname:
@@ -2987,8 +3018,66 @@ def _sync_project_access(db, asana, cfg, project_gid, nexus_project_id, extra_te
         nt = _ensure_team(db, nexus_project_id, name)
         nt.member_emails = sorted(set(nt.member_emails or []) | set(roster))
         _say(f"{name}: granted, {len(roster)} member(s)")
-    if wanted - set(project.member_emails or []):
-        project.member_emails = sorted(set(project.member_emails or []) | wanted)
+    if set(wanted) - set(project.member_emails or []):
+        project.member_emails = sorted(set(project.member_emails or []) | set(wanted))
+    # Upgrade-only, for the same reason nothing else here removes: a role
+    # someone was given in the Nexus Share panel is never lowered by what Asana
+    # says, and an access_level Asana reports that we don't recognize leaves the
+    # existing role alone rather than guessing (matching the team branch above).
+    roles = dict(project.member_roles or {})
+    upgraded = 0
+    for em, role in wanted.items():
+        if role and PROJECT_ROLE_RANK.get(role, 0) > PROJECT_ROLE_RANK.get(roles.get(em, ""), 0):
+            roles[em] = role
+            upgraded += 1
+    if upgraded:
+        project.member_roles = roles   # new dict - a JSON column mutated in place isn't seen as dirty
+        _say(f"{upgraded} member(s) granted their Asana access level directly on this project")
+
+
+def sync_access_now(db, project_gids=()):
+    """Refresh Asana's project-level access into Nexus for `project_gids` (every
+    mapped project when empty), WITHOUT the task pull that normally carries it.
+
+    _sync_project_access otherwise runs only on a full pull sweep
+    (_FULL_SWEEP_MIN, every 30 min per project) or a manual Pull, because it
+    rides inside pull()'s `if is_full:` branch. A webhook saying "someone was
+    just added to this project" therefore left that person waiting up to half an
+    hour for access Asana had already granted them. This is the cheap path for
+    that one question - a few membership calls per project, no task listing.
+
+    Reuses pull's locks for one reason: _ensure_team is a find-or-create by
+    name, so this racing an in-flight pull across gunicorn workers is exactly
+    how a team ends up in Nexus twice.
+
+    Returns the same report lines the pull collects. One project failing against
+    Asana is reported, not raised - the rest still sync."""
+    cfg = get_config(db)
+    if not sync_is_on(cfg) or not cfg.token:
+        return []
+    asana = Asana(cfg.token)
+    wanted = {g for g in (project_gids or ()) if g}
+    report = []
+    with _PULL_LOCK:
+        for pm in db.query(models.AsanaProjectMap).all():
+            if not pm.asana_project_gid or not pm.nexus_project_id:
+                continue
+            if wanted and pm.asana_project_gid not in wanted:
+                continue
+            lines = []
+            try:
+                _acquire_pull_lock(db)
+                _sync_project_access(db, asana, cfg, pm.asana_project_gid, pm.nexus_project_id,
+                                     pm.extra_team_names, report=lines)
+                db.commit()   # also releases the transaction-scoped advisory lock
+            except Exception as e:
+                db.rollback()
+                lines.append(f"access refresh failed ({str(e)[:120]})")
+            proj = db.query(models.TaskProject).filter(
+                models.TaskProject.id == pm.nexus_project_id).first()
+            pname = proj.name if proj else pm.nexus_project_id
+            report += [f"{pname} - {line}" for line in lines]
+    return report
 
 
 # Shared field list for the top-level task list AND the recursive subtask
@@ -3689,6 +3778,62 @@ def trigger_pull_async():
                 cfg = get_config(db)
                 if sync_is_on(cfg) and cfg.token:
                     pull(db)
+            finally:
+                db.close()
+        except Exception:
+            pass
+    threading.Thread(target=_run, daemon=True).start()
+
+
+# Membership events, as Asana labels them. The `*_membership` resource types are
+# what the memberships API emits when someone is added to or removed from a
+# project or a team; a project can also report the change on itself as a
+# `changed` event naming the field. Both shapes are accepted - matching only one
+# would leave half the grants waiting for the 30-minute full sweep, which is the
+# whole thing this exists to avoid.
+_MEMBERSHIP_RESOURCE_TYPES = {"project_membership", "team_membership", "membership"}
+_MEMBERSHIP_FIELDS = {"members", "followers", "team"}
+
+
+def _membership_event_gids(events):
+    """Which projects' access changed in a webhook batch.
+
+    None  - nothing membership-related happened; do no work.
+    []    - membership changed but Asana named no project (it does not always
+            carry the parent), so every mapped project has to be refreshed. A
+            grant we can't place is still a grant.
+    [gid] - refresh exactly these."""
+    gids, unplaced = [], False
+    for ev in events or []:
+        res = ev.get("resource") or {}
+        rtype = res.get("resource_type")
+        if not (rtype in _MEMBERSHIP_RESOURCE_TYPES
+                or (rtype == "project" and (ev.get("field") or "") in _MEMBERSHIP_FIELDS)):
+            continue
+        gid = next((n.get("gid") for n in (ev.get("parent") or {}, res)
+                    if n.get("resource_type") == "project" and n.get("gid")), "")
+        if gid:
+            if gid not in gids:
+                gids.append(gid)
+        else:
+            unplaced = True
+    if unplaced:
+        return []
+    return gids or None
+
+
+def trigger_access_sync_async(events):
+    """Refresh project access for any membership change in a webhook batch, in
+    the background (used by the webhook receiver). A no-op for the ordinary
+    task events that make up nearly every batch. Never raises."""
+    gids = _membership_event_gids(events)
+    if gids is None:
+        return
+    def _run():
+        try:
+            db = SessionLocal()
+            try:
+                sync_access_now(db, gids)
             finally:
                 db.close()
         except Exception:

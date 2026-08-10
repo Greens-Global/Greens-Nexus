@@ -11,6 +11,7 @@ import re
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 from sqlalchemy import text
 
@@ -876,7 +877,8 @@ class ProjectAccessTests(unittest.TestCase):
 
     def setUp(self):
         self.db = database.SessionLocal()
-        for m in (models.TaskTeam, models.TaskProject, models.AsanaSyncConfig):
+        for m in (models.TaskTeam, models.TaskProject, models.AsanaSyncConfig,
+                  models.AsanaProjectMap):
             self.db.query(m).delete()
         self.db.add(models.AsanaSyncConfig(id="singleton", enabled=True, token="tok",
                                            workspace_gid=""))
@@ -936,6 +938,45 @@ class ProjectAccessTests(unittest.TestCase):
         project = self.db.get(models.TaskProject, "p1")
         self.assertIn("sagar@greensglobal.com", project.member_emails or [])
 
+    def test_a_users_access_level_becomes_their_share_panel_role(self):
+        """The bug this pins: a user arrived in member_emails with no
+        member_roles entry, so project_role_for returned None on a restricted
+        project - an Asana admin could see the project and got a 403 on their
+        first edit."""
+        from routers.task_util import project_role_for
+        project = self.db.get(models.TaskProject, "p1")
+        project.access_level = "restricted"
+        self.db.commit()
+
+        asana_sync._sync_project_access(self.db, self._asana([self.USER_ROW]), self.cfg,
+                                        "A1", "p1", report=[])
+
+        project = self.db.get(models.TaskProject, "p1")
+        self.assertEqual((project.member_roles or {}).get("sagar@greensglobal.com"), "owner")
+        self.assertEqual(project_role_for(self.db, "sagar@greensglobal.com", project), "owner")
+
+    def test_a_role_held_in_nexus_is_never_downgraded_by_asana(self):
+        project = self.db.get(models.TaskProject, "p1")
+        project.member_roles = {"sagar@greensglobal.com": "owner"}
+        self.db.commit()
+        viewer_row = {**self.USER_ROW, "access_level": "viewer"}
+
+        asana_sync._sync_project_access(self.db, self._asana([viewer_row]), self.cfg,
+                                        "A1", "p1", report=[])
+
+        self.assertEqual(self.db.get(models.TaskProject, "p1").member_roles["sagar@greensglobal.com"],
+                         "owner")
+
+    def test_an_unrecognized_access_level_grants_membership_but_no_role(self):
+        odd_row = {**self.USER_ROW, "access_level": "something_new"}
+
+        asana_sync._sync_project_access(self.db, self._asana([odd_row]), self.cfg,
+                                        "A1", "p1", report=[])
+
+        project = self.db.get(models.TaskProject, "p1")
+        self.assertIn("sagar@greensglobal.com", project.member_emails or [])
+        self.assertNotIn("sagar@greensglobal.com", project.member_roles or {})
+
     def test_a_team_with_no_resolvable_members_is_reported_not_silently_skipped(self):
         rep = []
         asana_sync._sync_project_access(self.db, self._asana([self.TEAM_ROW], team_users=()),
@@ -943,6 +984,39 @@ class ProjectAccessTests(unittest.TestCase):
 
         self.assertIsNone(self.db.query(models.TaskTeam).filter_by(name="IT").first())
         self.assertTrue(any("returned no members" in l for l in rep))
+
+    def test_sync_access_now_refreshes_only_the_named_project(self):
+        """The webhook path: refresh access for the project the event names,
+        without pulling its tasks."""
+        self.db.add(models.TaskProject(id="p2", name="Other", member_emails=[]))
+        self.db.add(models.AsanaProjectMap(id="m1", nexus_project_id="p1", asana_project_gid="A1",
+                                           extra_team_names=[]))
+        self.db.add(models.AsanaProjectMap(id="m2", nexus_project_id="p2", asana_project_gid="A2",
+                                           extra_team_names=[]))
+        self.db.commit()
+        fake = self._asana([self.USER_ROW])
+
+        with mock.patch.object(asana_sync, "Asana", lambda token: fake):
+            report = asana_sync.sync_access_now(self.db, ["A1"])
+
+        self.assertIn("sagar@greensglobal.com", self.db.get(models.TaskProject, "p1").member_emails)
+        self.assertEqual(self.db.get(models.TaskProject, "p2").member_emails, [])
+        self.assertTrue(any(l.startswith("Shared Project - ") for l in report))
+
+    def test_sync_access_now_with_no_gids_covers_every_mapped_project(self):
+        self.db.add(models.TaskProject(id="p2", name="Other", member_emails=[]))
+        self.db.add(models.AsanaProjectMap(id="m1", nexus_project_id="p1", asana_project_gid="A1",
+                                           extra_team_names=[]))
+        self.db.add(models.AsanaProjectMap(id="m2", nexus_project_id="p2", asana_project_gid="A2",
+                                           extra_team_names=[]))
+        self.db.commit()
+        fake = self._asana([self.USER_ROW])
+
+        with mock.patch.object(asana_sync, "Asana", lambda token: fake):
+            asana_sync.sync_access_now(self.db)
+
+        for pid in ("p1", "p2"):
+            self.assertIn("sagar@greensglobal.com", self.db.get(models.TaskProject, pid).member_emails)
 
     def test_same_team_shared_into_two_projects_stays_one_team(self):
         self.db.add(models.TaskProject(id="p2", name="Second", member_emails=[]))
@@ -955,6 +1029,46 @@ class ProjectAccessTests(unittest.TestCase):
         teams = self.db.query(models.TaskTeam).filter_by(name="IT").all()
         self.assertEqual(len(teams), 1)
         self.assertEqual(teams[0].project_ids, ["p1", "p2"])
+
+
+class MembershipEventTests(unittest.TestCase):
+    """_membership_event_gids - which webhook batches are about access.
+
+    A membership change carries no task, so the pull the webhook kicks off never
+    sees it: access only rides along on a full sweep, up to 30 minutes later.
+    These pin the shapes that must short-circuit that wait."""
+
+    TASK_EVENT = {"action": "changed", "resource": {"gid": "T9", "resource_type": "task"},
+                  "parent": {"gid": "A1", "resource_type": "project"}}
+
+    def test_ordinary_task_events_are_not_membership_events(self):
+        self.assertIsNone(asana_sync._membership_event_gids([self.TASK_EVENT]))
+        self.assertIsNone(asana_sync._membership_event_gids([]))
+
+    def test_a_project_membership_event_names_its_project(self):
+        ev = {"action": "added", "resource": {"gid": "PM1", "resource_type": "project_membership"},
+              "parent": {"gid": "A1", "resource_type": "project"}}
+
+        self.assertEqual(asana_sync._membership_event_gids([ev, self.TASK_EVENT]), ["A1"])
+
+    def test_a_project_reporting_the_change_on_itself_is_matched_too(self):
+        ev = {"action": "changed", "field": "members",
+              "resource": {"gid": "A1", "resource_type": "project"}}
+
+        self.assertEqual(asana_sync._membership_event_gids([ev]), ["A1"])
+
+    def test_the_same_project_twice_in_one_batch_is_refreshed_once(self):
+        ev = {"action": "added", "resource": {"gid": "PM1", "resource_type": "project_membership"},
+              "parent": {"gid": "A1", "resource_type": "project"}}
+
+        self.assertEqual(asana_sync._membership_event_gids([ev, dict(ev)]), ["A1"])
+
+    def test_a_membership_event_naming_no_project_refreshes_them_all(self):
+        """Empty list, not None - a grant we can't place is still a grant, and
+        waiting for the full sweep is the outcome this exists to prevent."""
+        ev = {"action": "added", "resource": {"gid": "TM1", "resource_type": "team_membership"}}
+
+        self.assertEqual(asana_sync._membership_event_gids([ev]), [])
 
 
 class RichDescriptionTests(unittest.TestCase):
