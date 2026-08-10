@@ -18,19 +18,19 @@ import { formatDate as usFormatDate } from '../lib/datetime';
 // UI can decide what to render instead of discovering the 503 through a failed
 // browse. Unconfigured is a first-class, explained state, not an error banner.
 export function useEgnyteStatus() {
-  const [state, setState] = useState({ loading: true, configured: false, error: '' });
+  const [state, setState] = useState({ loading: true, configured: false, error: '', oauth: null });
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let alive = true;
     api.egnyteStatus()
-      .then(r => alive && setState({ loading: false, configured: !!r?.configured, error: '' }))
-      .catch(err => alive && setState({ loading: false, configured: false, error: egnyteErrorMessage(err, 'Could not reach the Egnyte service.') }));
+      .then(r => alive && setState({ loading: false, configured: !!r?.configured, error: '', oauth: r?.oauth || null }))
+      .catch(err => alive && setState({ loading: false, configured: false, error: egnyteErrorMessage(err, 'Could not reach the Egnyte service.'), oauth: null }));
     return () => { alive = false; };
   }, [attempt]);
 
   const recheck = useCallback(() => {
-    setState({ loading: true, configured: false, error: '' });
+    setState({ loading: true, configured: false, error: '', oauth: null });
     setAttempt(a => a + 1);
   }, []);
 

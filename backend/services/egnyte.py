@@ -48,12 +48,18 @@ def configured() -> bool:
     return bool(os.getenv("EGNYTE_DOMAIN", "").strip() and os.getenv("EGNYTE_TOKEN", "").strip())
 
 
-def _auth() -> tuple[str, dict[str, str]]:
+def _auth(token: str | None = None) -> tuple[str, dict[str, str]]:
     """Returns (base_url, headers). EGNYTE_DOMAIN normally holds a bare domain
     (e.g. cloud.greensglobal.com, or `greensglobal` which gets .egnyte.com
     appended) and always resolves to https://. An explicit http:// or https://
     prefix is honored as-is - that only matters for pointing at a local mock
-    during testing; no real deployment sets it that way."""
+    during testing; no real deployment sets it that way.
+
+    `token` (Aug 10): a per-USER OAuth token - when given, the call runs as
+    that person and Egnyte's own folder permissions decide what they can see
+    or touch. None = the shared service token, for server-mediated surfaces
+    (property resolution, person-docs, e-sign archival, construction, folder
+    groups) that are scoped and gated in Nexus instead."""
     dom = os.getenv("EGNYTE_DOMAIN", "").strip().rstrip("/")
     if dom.startswith(("http://", "https://")):
         base_url = dom
@@ -61,7 +67,7 @@ def _auth() -> tuple[str, dict[str, str]]:
         if "." not in dom:
             dom = f"{dom}.egnyte.com"
         base_url = f"https://{dom}"
-    return base_url, {"Authorization": f"Bearer {os.getenv('EGNYTE_TOKEN', '').strip()}"}
+    return base_url, {"Authorization": f"Bearer {token or os.getenv('EGNYTE_TOKEN', '').strip()}"}
 
 
 def norm(path: str) -> str:
@@ -98,9 +104,9 @@ def _raise(resp: httpx.Response, what: str) -> None:
 
 # ── read ─────────────────────────────────────────────────────────────────────
 
-def list_folder(path: str = "") -> dict[str, Any]:
+def list_folder(path: str = "", token: str | None = None) -> dict[str, Any]:
     """Folder listing. Returns folders + files with the fields the UI needs."""
-    base, headers = _auth()
+    base, headers = _auth(token)
     target = norm(path)
     resp = httpx.get(f"{base}{_FS}{_url_path(target)}", headers=headers, timeout=TIMEOUT_META)
     _raise(resp, "Could not browse Egnyte")
@@ -125,20 +131,20 @@ def list_folder(path: str = "") -> dict[str, Any]:
     }
 
 
-def read_file(path: str) -> bytes:
+def read_file(path: str, token: str | None = None) -> bytes:
     """Raw bytes. Deliberately NOT extension-filtered - that is a per-caller
     policy (the DMS importer only accepts docx/pdf/txt; a property Documents tab
     must show and download whatever is actually in the folder)."""
-    base, headers = _auth()
+    base, headers = _auth(token)
     resp = httpx.get(f"{base}{_FS_CONTENT}{_url_path(path)}", headers=headers, timeout=TIMEOUT_BYTES)
     _raise(resp, "Could not fetch file from Egnyte")
     return resp.content
 
 
-def search(query: str, folder: str = "", limit: int = 20) -> list[dict[str, Any]]:
+def search(query: str, folder: str = "", limit: int = 20, token: str | None = None) -> list[dict[str, Any]]:
     """Full-text search, optionally scoped to a folder. Backs the Ctrl+K
     federation ("Temecula HVAC warranty") without Nexus indexing anything."""
-    base, headers = _auth()
+    base, headers = _auth(token)
     payload: dict[str, Any] = {"query": query, "limit": max(1, min(limit, 100))}
     if folder:
         payload["folder"] = norm(folder)
@@ -158,14 +164,14 @@ def search(query: str, folder: str = "", limit: int = 20) -> list[dict[str, Any]
 
 # ── write ────────────────────────────────────────────────────────────────────
 
-def upload_file(path: str, content: bytes) -> dict[str, Any]:
+def upload_file(path: str, content: bytes, token: str | None = None) -> dict[str, Any]:
     """Write bytes to an EXACT Egnyte path (folder + filename).
 
     This is the half that did not exist before, and it is the whole point of the
     owner's ask: uploading at the right folder level rather than dropping files
     into a generic bucket and re-filing them by hand. The caller resolves the
     folder (see folder_for_property) and passes a full destination path."""
-    base, headers = _auth()
+    base, headers = _auth(token)
     target = norm(path)
     resp = httpx.post(
         f"{base}{_FS_CONTENT}{_url_path(target)}",
@@ -181,10 +187,10 @@ def upload_file(path: str, content: bytes) -> dict[str, Any]:
     }
 
 
-def create_folder(path: str) -> dict[str, Any]:
+def create_folder(path: str, token: str | None = None) -> dict[str, Any]:
     """Idempotent: Egnyte answers 403/405 when the folder already exists, which
     is success for our purposes - the caller wanted it to exist."""
-    base, headers = _auth()
+    base, headers = _auth(token)
     target = norm(path)
     resp = httpx.post(f"{base}{_FS}{_url_path(target)}", headers=headers,
                       json={"action": "add_folder"}, timeout=TIMEOUT_META)

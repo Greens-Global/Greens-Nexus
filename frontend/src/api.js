@@ -1098,6 +1098,10 @@ export const api = {
   egnyteFolderGroupCreate: (body)   => req('/egnyte/folder-groups', { method: 'POST', body: JSON.stringify(body) }),
   egnyteFolderGroupDelete: (id)     => req(`/egnyte/folder-groups/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   egnyteFolderGroupSync:   (id)     => req(`/egnyte/folder-groups/${encodeURIComponent(id)}/sync`, { method: 'POST', timeoutMs: 120000 }),
+  // Per-user Egnyte connection - browse with YOUR OWN Egnyte permissions.
+  egnyteOauthStart:      () => req('/egnyte-oauth/start', { method: 'POST' }),
+  egnyteOauthStatus:     () => req('/egnyte-oauth/status'),
+  egnyteOauthDisconnect: () => req('/egnyte-oauth/me', { method: 'DELETE' }),
   egnytePersonProvision: (email)              => req(`/egnyte/person/${encodeURIComponent(email)}/provision`, { method: 'POST' }),
   myhrEgnyteDocs:    ()                       => req('/myhr/egnyte-documents'),
   myhrEgnyteFile:    (path)                   => reqBlob(`/myhr/egnyte-documents/file?path=${encodeURIComponent(path)}`),

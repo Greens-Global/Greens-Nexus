@@ -19,6 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, R
 from pydantic import BaseModel
 
 from auth import get_current_user, require_level
+from database import get_db
 from services import egnyte as svc
 
 router = APIRouter(prefix="/egnyte", tags=["Egnyte"])
@@ -48,17 +49,66 @@ def _call(fn, *args, **kwargs):
         raise HTTPException(exc.status, str(exc))
 
 
+def _is_privileged(user: dict, db) -> bool:
+    """May browse with the SHARED service token: supervisor+ (the module's
+    original gate) or an egnyte/hr Access-Group grant (the person card and the
+    pickers live behind those)."""
+    from auth import _module_level
+    return (user["level"] >= 2
+            or _module_level(user["email"], "egnyte", db) >= 1
+            or _module_level(user["email"], "hr", db) >= 1)
+
+
+def _browse_token(user: dict, db) -> str | None:
+    """Which Egnyte identity this request browses as (Aug 10: "anybody in here
+    would only be able to see what they actually have access to").
+
+    Connected -> the caller's OWN token; Egnyte's folder permissions decide
+    everything from here, Nexus adds nothing. Not connected -> privileged users
+    keep the shared service view (exactly the pre-OAuth behavior); everyone
+    else is told to connect. Also closes the old gap where these endpoints
+    accepted ANY signed-in user while only the UI pretended supervisor+."""
+    import egnyte_oauth
+    if egnyte_oauth.oauth_configured():
+        tok = egnyte_oauth.token_for(db, user["email"])
+        if tok:
+            return tok
+        if _is_privileged(user, db):
+            return None
+        raise HTTPException(428, "Connect your Egnyte account to browse files - open Egnyte and press Connect.")
+    if _is_privileged(user, db):
+        return None
+    raise HTTPException(403, "You don't have access to this screen")
+
+
 @router.get("/status")
 def status(user: dict = Depends(get_current_user)):
     """Deliberately does NOT 503 - the UI asks this to decide what to render."""
-    return {"configured": svc.configured()}
+    import egnyte_oauth
+    from database import SessionLocal
+    out = {"configured": svc.configured(),
+           "oauth": {"enabled": egnyte_oauth.oauth_configured(), "connected": False,
+                     "egnyteUsername": "", "mustConnect": False}}
+    if out["oauth"]["enabled"]:
+        _db = SessionLocal()
+        try:
+            row = egnyte_oauth.get_row(_db, user["email"])
+            connected = bool(row and row.access_token_enc)
+            out["oauth"]["connected"] = connected
+            out["oauth"]["egnyteUsername"] = (row.egnyte_username or "") if row else ""
+            out["oauth"]["mustConnect"] = not connected and not _is_privileged(user, _db)
+        finally:
+            _db.close()
+    return out
 
 
 # ── browse / read ────────────────────────────────────────────────────────────
 
 @router.get("/folder")
-def list_folder(path: str = "", user: dict = Depends(get_current_user)):
-    data = _call(svc.list_folder, path)
+def list_folder(path: str = "", user: dict = Depends(get_current_user),
+                db=Depends(get_db)):
+    tok = _browse_token(user, db)
+    data = _call(svc.list_folder, path, token=tok)
     for f in data["files"]:
         f["webUrl"] = svc.web_url(f["path"])
     for d in data["folders"]:
@@ -94,7 +144,8 @@ def preview_type(name: str) -> str | None:
 
 
 @router.get("/file")
-def get_file(path: str, inline: bool = False, user: dict = Depends(get_current_user)):
+def get_file(path: str, inline: bool = False, user: dict = Depends(get_current_user),
+             db=Depends(get_db)):
     """Streams whatever is at `path`. Unlike the DMS importer this is NOT
     extension-filtered - a property Documents tab must serve what is actually in
     the folder, not only what the importer can convert.
@@ -104,7 +155,7 @@ def get_file(path: str, inline: bool = False, user: dict = Depends(get_current_u
     only for the allowlist above; anything else is served back as a download
     regardless, so asking for inline can never turn a file into script.
     """
-    content = _call(svc.read_file, path)
+    content = _call(svc.read_file, path, token=_browse_token(user, db))
     name = svc.norm(path).rsplit("/", 1)[-1] or "download"
     kind = preview_type(name) if inline else None
     disposition = "inline" if kind else "attachment"
@@ -122,11 +173,12 @@ def get_file(path: str, inline: bool = False, user: dict = Depends(get_current_u
 
 
 @router.get("/search")
-def search(q: str, folder: str = "", limit: int = 20, user: dict = Depends(get_current_user)):
+def search(q: str, folder: str = "", limit: int = 20, user: dict = Depends(get_current_user),
+           db=Depends(get_db)):
     """Backs Ctrl+K federation. Nexus indexes nothing - Egnyte does the search."""
     if not (q or "").strip():
         return {"results": []}
-    results = _call(svc.search, q.strip(), folder, limit)
+    results = _call(svc.search, q.strip(), folder, limit, token=_browse_token(user, db))
     for r in results:
         r["webUrl"] = svc.web_url(r["path"])
     return {"results": results}
@@ -155,7 +207,25 @@ async def upload(
     if not name:
         raise HTTPException(400, "File has no name")
     dest = svc.norm(f"{svc.norm(folder)}/{name}")
-    result = _call(svc.upload_file, dest, raw)
+
+    # This endpoint is async (UploadFile.read), so BOTH the token lookup and
+    # the Egnyte HTTP call go through to_thread - a sync call here blocks the
+    # whole worker for the upload's duration (the Aug 2 freeze class).
+    # Connected users write as THEMSELVES: Egnyte's audit shows the real
+    # person and its permissions bound what they can touch.
+    import asyncio
+    import egnyte_oauth as _eo
+    from database import SessionLocal as _SL
+
+    def _do_upload():
+        _db = _SL()
+        try:
+            _tok = _eo.token_for(_db, user["email"])
+        finally:
+            _db.close()
+        return _call(svc.upload_file, dest, raw, token=_tok)
+
+    result = await asyncio.to_thread(_do_upload)
     result["webUrl"] = svc.web_url(dest)
     result["uploadedBy"] = user["email"]
     return result
@@ -166,12 +236,13 @@ class FolderIn(BaseModel):
 
 
 @router.post("/folder")
-def make_folder(body: FolderIn, user: dict = Depends(require_writer)):
+def make_folder(body: FolderIn, user: dict = Depends(require_writer), db=Depends(get_db)):
     """Idempotent - 'already exists' is success, because the caller wanted it to
     exist. Lets a property's folder be provisioned on first use."""
     if not (body.path or "").strip():
         raise HTTPException(400, "path is required")
-    return _call(svc.create_folder, body.path)
+    import egnyte_oauth as _eo
+    return _call(svc.create_folder, body.path, token=_eo.token_for(db, user["email"]))
 
 
 # ── property convenience ─────────────────────────────────────────────────────

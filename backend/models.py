@@ -2988,3 +2988,33 @@ class EgnyteFolderGroup(Base):
     created_at = Column(String, default="")
     updated_by = Column(String, default="")
     updated_at = Column(String, default="")
+
+
+class EgnyteUserToken(Base):
+    """One Nexus user's own Egnyte OAuth grant (Aug 10: "anybody in here would
+    only be able to see what they actually have access to in Egnyte"). When a
+    person has connected, every Egnyte browse/read/search/write they make runs
+    on THEIR token, so Egnyte's own folder permissions decide what they see -
+    Nexus holds no permission logic to drift. Tokens are Fernet-encrypted at
+    rest (secret_box, NEXUS_VAULT_KEY). Egnyte access tokens are long-lived
+    (no refresh token); a revoked one surfaces as a 401 and the user
+    reconnects. See egnyte_oauth.py."""
+    __tablename__ = "egnyte_user_tokens"
+    id               = Column(String, primary_key=True)
+    email            = Column(String, nullable=False, unique=True)
+    access_token_enc = Column(String, default="")
+    egnyte_username  = Column(String, default="")
+    egnyte_name      = Column(String, default="")
+    last_error       = Column(String, default="")
+    last_error_at    = Column(String, default="")
+    created_at       = Column(String, default="")
+    updated_at       = Column(String, default="")
+
+
+class EgnyteOAuthState(Base):
+    """Single-use state rows binding an Egnyte OAuth callback to the Nexus user
+    who started it - same shape and reasoning as AsanaOAuthState."""
+    __tablename__ = "egnyte_oauth_states"
+    id         = Column(String, primary_key=True)
+    email      = Column(String, nullable=False)
+    created_at = Column(String, default="")
