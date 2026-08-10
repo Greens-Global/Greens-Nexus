@@ -2,7 +2,9 @@
 // Egnyte module - small presentational pieces shared by the browser, the
 // property panel and the module shell. Inline styles on --wk-* tokens, matching
 // the Work OS idiom used across the app.
-import { AlertTriangle, CloudOff, ExternalLink, Loader2 } from 'lucide-react';
+import { useState } from 'react';
+import { AlertTriangle, CloudOff, ExternalLink, Link2, Loader2 } from 'lucide-react';
+import { api } from '../api';
 
 export const CARD = {
   background: 'var(--wk-card)',
@@ -123,6 +125,38 @@ export function ProblemNote({ message, onRetry }) {
       <AlertTriangle size={24} style={{ color: 'var(--wk-orange)', marginBottom: 10 }} />
       <div style={{ ...BODY, maxWidth: 380, margin: '0 auto' }}>{message}</div>
       {onRetry && <button className="secondary-btn" style={{ marginTop: 14 }} onClick={onRetry}>Try Again</button>}
+    </div>
+  );
+}
+
+// The API answered 428: per-user Egnyte OAuth is on and this person hasn't
+// connected. Rendered by EVERY browse surface (module, person card, pickers)
+// so "connect first" looks the same everywhere and is one click away.
+export function ConnectRequired() {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const connect = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      const { url, error: err } = await api.egnyteOauthStart();
+      if (url) { window.location.assign(url); return; }
+      setError(err || 'Could not start the Egnyte connection.');
+    } catch (e) { setError(e?.message || 'Could not start the Egnyte connection.'); }
+    setBusy(false);
+  };
+  return (
+    <div style={{ ...CARD, padding: '28px 20px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
+      <Link2 size={26} style={{ color: 'var(--wk-dim)' }} />
+      <div style={{ ...HEADING, fontSize: 14.5 }}>Connect Your Egnyte Account</div>
+      <div style={{ ...BODY, maxWidth: 420 }}>
+        Files here are shown with your own Egnyte permissions - connect your Egnyte account
+        once and you will see exactly the folders you have access to.
+      </div>
+      <button type="button" className="primary-btn" disabled={busy} onClick={connect} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+        {busy ? <Loader2 size={13} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Link2 size={13} />} Connect Egnyte
+      </button>
+      {error && <div style={{ ...BODY, fontSize: 12, color: 'var(--wk-red)' }}>{error}</div>}
     </div>
   );
 }

@@ -21,6 +21,7 @@ from routers import task_projects, task_config  # Task Module (Jul 2026)
 from routers import tickets as tickets_router    # Ticket Module - split out of task_config (Jul 2026)
 from routers import asana_webhook  # Asana two-way sync - public webhook receiver
 from routers import asana_oauth as asana_oauth_router  # Per-user Asana connection (Account Settings)
+from routers import egnyte_oauth as egnyte_oauth_router  # Per-user Egnyte connection (browse as yourself)
 from routers import construction  # Construction module - jobsite daily logs, media, weekly reports
 from routers import jobroles  # Roles & Access redesign (Jul 2026)
 from routers import access_scopes  # row-level scopes for external users (Jul 2026)
@@ -293,6 +294,8 @@ def _run_migrations():
             "ALTER TABLE nexus_employees ADD COLUMN identity_type VARCHAR DEFAULT 'internal'",
             "ALTER TABLE nexus_employees ADD COLUMN display_name VARCHAR DEFAULT ''",
             "ALTER TABLE nexus_employees ADD COLUMN designation VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_employees ADD COLUMN deleted_at VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_employees ADD COLUMN deleted_by VARCHAR DEFAULT ''",
             "ALTER TABLE asana_import_jobs ADD COLUMN cancel_requested BOOLEAN DEFAULT 0",
             "ALTER TABLE asana_project_map ADD COLUMN last_pull_at VARCHAR DEFAULT ''",
             "ALTER TABLE asana_project_map ADD COLUMN last_full_pull_at VARCHAR DEFAULT ''",
@@ -517,6 +520,9 @@ def _run_migrations():
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS display_name VARCHAR DEFAULT ''",
         # Charmi Aug 4: formal designation, kept distinct from job_title
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS designation VARCHAR DEFAULT ''",
+        # Soft delete for "Remove from Nexus" - see the NexusEmployee model.
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS deleted_at VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS deleted_by VARCHAR DEFAULT ''",
         "ALTER TABLE asana_import_jobs ADD COLUMN IF NOT EXISTS cancel_requested BOOLEAN DEFAULT FALSE",
         "ALTER TABLE asana_project_map ADD COLUMN IF NOT EXISTS last_pull_at VARCHAR DEFAULT ''",
         "ALTER TABLE asana_project_map ADD COLUMN IF NOT EXISTS last_full_pull_at VARCHAR DEFAULT ''",
@@ -1196,6 +1202,8 @@ app.include_router(asana_webhook.router)  # Asana two-way sync: public webhook r
 app.include_router(asana_oauth_router.router)         # Per-user Asana connection (signed-in user, own grant only)
 app.include_router(construction.router)  # Construction: projects, daily logs, jobsite media
 app.include_router(asana_oauth_router.public_router)  # OAuth callback - Asana redirects a browser here, no bearer token
+app.include_router(egnyte_oauth_router.router)        # Per-user Egnyte connection (browse with YOUR OWN Egnyte permissions)
+app.include_router(egnyte_oauth_router.public_router) # OAuth callback - Egnyte redirects a browser here, no bearer token
 app.include_router(policy.router)         # Sign-in company-policy & monitoring acknowledgment
 app.include_router(investor_relations.router)  # Investor Relations: funds/investors/commitments/calls/distributions
 app.include_router(stepup.router)         # Step-up MFA for sensitive data (vault reveals / payroll / confidential HR)

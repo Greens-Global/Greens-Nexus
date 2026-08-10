@@ -599,10 +599,14 @@ def create_template(body: TemplateIn, user: dict = Depends(require_hr_write), db
     if body.kind not in _TEMPLATE_KINDS:
         raise HTTPException(400, f"kind must be one of {_TEMPLATE_KINDS}")
     now = _now_iso()
+    # Blank folder falls back to the wired default (Egnyte module - Wiring tab,
+    # slot esign.default-folder), so templates archive somewhere sane without
+    # every author retyping the path.
+    from egnyte_wiring import effective as _wired
     row = HrSignTemplate(id=str(uuid.uuid4()), name=body.name.strip(), kind=body.kind or "custom",
                          entity_id=body.entity_id or "", body=body.body or [], roles=body.roles or [],
                          attachments=_clean_attachments(body.attachments),
-                         egnyte_folder=(body.egnyte_folder or "").strip(),
+                         egnyte_folder=(body.egnyte_folder or "").strip() or _wired("esign.default-folder")[0],
                          status=body.status or "active", created_by=user["email"],
                          created_at=now, updated_at=now)
     db.add(row); db.commit(); db.refresh(row)

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { ChevronLeft, ChevronRight, ChevronDown, ChevronUp, ArrowRight, Pencil, Plus, X, Loader2, CheckCircle, Download, AlertTriangle, MapPin, PlayCircle, Info } from 'lucide-react';
 import { api } from '../api';
+import { formatDate } from '../lib/datetime';
 import { dialog } from '../ui/dialog';
 import { useWorkSites } from '../lib/queries';
 import { ensureStepUp, isStepUpRequired, StepUpNeeded } from '../stepup/StepUp';
@@ -39,11 +40,20 @@ const segReasons = (s) => {
   return out;
 };
 
+// Snap any instant onto the pay-period series: the boundary Sunday at-or-before
+// it, computed ENTIRELY in UTC. pStart is always one of these UTC instants.
+const snapPeriodUTC = (t) => new Date(ANCHOR + Math.floor((t - ANCHOR) / (14 * DAY)) * 14 * DAY);
+
 function periodStartFor(date) {
-  const sun = new Date(date); sun.setHours(0, 0, 0, 0);
-  sun.setDate(sun.getDate() - sun.getDay());                   // Sunday of this week
-  const idx = Math.floor((sun.getTime() - ANCHOR) / (14 * DAY));
-  return new Date(ANCHOR + idx * 14 * DAY);
+  // The viewer's local CALENDAR date, re-expressed as a UTC midnight, then a
+  // pure-UTC snap. The old version mixed a LOCAL-midnight Sunday into division
+  // against the UTC anchor: the viewer's offset made the quotient fractional,
+  // the floor drifted a whole period, and every arrow press re-derived through
+  // the same broken round-trip - back skipped the previous period entirely and
+  // forward re-floored onto the SAME period, so it looked dead (Beth, Aug 10:
+  // could never reach Aug 3-7 to fix a missed clock-out).
+  const d = new Date(date);
+  return snapPeriodUTC(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
 }
 
 // Location cell - the punch's work site + an at-site/off-site pin (SwipeClock "Loc").
@@ -225,15 +235,20 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
     setBusy(false);
   }
 
-  // Hourly nav MUST stay Sunday-anchored (SwipeClock parity). periodStartFor re-aligns
-  // even if pStart drifted off-Sunday from a prior fixed employee's month snap.
-  const shift = (n) => setPStart(periodStartFor(new Date(pStart.getTime() + n * 14 * DAY)));
+  // Hourly nav MUST stay Sunday-anchored (SwipeClock parity). Step in whole
+  // periods on the UTC series - snapPeriodUTC first, so a pStart left
+  // off-series by a fixed employee's month snap re-aligns. Never route the
+  // step through periodStartFor: that reads the LOCAL calendar, and a UTC
+  // boundary lands on Saturday for US viewers, re-flooring a period back.
+  const shift = (n) => setPStart(new Date(snapPeriodUTC(pStart.getTime()).getTime() + n * 14 * DAY));
   const isFixed = data?.payType === 'fixed';   // monthly salary employee (not hourly)
   const cur = data?.currency || 'USD';         // $ or ₹
   const fmtM = (n) => money(n, cur);
   // Fixed employees navigate by MONTH; the backend reads `start` as a month anchor.
   const shiftMonth = (n) => { const base = data?.periodStart ? new Date(data.periodStart + 'T00:00') : pStart; setPStart(new Date(base.getFullYear(), base.getMonth() + n, 15)); };
-  const label = `${pStart.toLocaleDateString([], { month: 'numeric', day: 'numeric', year: 'numeric' })} – ${new Date(pStart.getTime() + 13 * DAY).toLocaleDateString([], { month: 'numeric', day: 'numeric', year: 'numeric' })}`;
+  // Format from the ISO strings, not the UTC instants - toLocaleDateString on a
+  // UTC midnight shows the previous (Saturday) date to any viewer west of UTC.
+  const label = `${formatDate(start)} – ${formatDate(end)}`;
   // The period as the employee sees it - a month for fixed, the bi-weekly range for hourly.
   const periodLabel = isFixed && data?.periodStart
     ? new Date(data.periodStart + 'T00:00').toLocaleDateString([], { month: 'long', year: 'numeric' })

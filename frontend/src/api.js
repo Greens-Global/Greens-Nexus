@@ -786,6 +786,10 @@ export const api = {
   createEmployee: (data)     => req('/hr/employees', { method: 'POST', body: JSON.stringify(data) }),
   updateEmployee: (id, data) => req(`/hr/employees/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteEmployee: (id)       => req(`/hr/employees/${id}`, { method: 'DELETE' }),
+  // "Remove from Nexus" is reversible: the record is hidden, not destroyed.
+  // These two back the Deleted filter in the directory and the Restore action.
+  getDeletedEmployees: ()    => req('/hr/employees?deleted=true'),
+  restoreEmployee: (id)      => req(`/hr/employees/${id}/restore`, { method: 'POST' }),
 
   // HR - companies/entities & work sites (Section A foundation)
   getEntities:    ()         => cachedGet('/hr/entities', 120_000),
@@ -1095,6 +1099,24 @@ export const api = {
     fd.append('file', file);
     return req('/egnyte/upload', { method: 'POST', body: fd });
   },
+  // ── Egnyte wiring registry (manager+ edits surface->folder mappings in UI) ──
+  egnyteWiring:      ()                       => req('/egnyte/wiring'),
+  egnyteWiringSet:   (slot, path, scopeId='') => req(`/egnyte/wiring/${encodeURIComponent(slot)}`, { method: 'PUT', body: JSON.stringify({ path, scope_id: scopeId }) }),
+  egnyteWiringReset: (slot, scopeId='')       => req(`/egnyte/wiring/${encodeURIComponent(slot)}?scope_id=${encodeURIComponent(scopeId)}`, { method: 'DELETE' }),
+  egnytePersonDocs:  (email)                  => req(`/egnyte/person/${encodeURIComponent(email)}`),
+  egnytePersonPoint: (email, path)            => req(`/egnyte/person/${encodeURIComponent(email)}/folder`, { method: 'PUT', body: JSON.stringify({ path }) }),
+  egnyteFolderGroups:      ()       => req('/egnyte/folder-groups'),
+  egnyteFolderGroupDraft:  (prompt) => req('/egnyte/folder-groups/draft', { method: 'POST', body: JSON.stringify({ prompt }), timeoutMs: 90000 }),
+  egnyteFolderGroupCreate: (body)   => req('/egnyte/folder-groups', { method: 'POST', body: JSON.stringify(body) }),
+  egnyteFolderGroupDelete: (id)     => req(`/egnyte/folder-groups/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  egnyteFolderGroupSync:   (id)     => req(`/egnyte/folder-groups/${encodeURIComponent(id)}/sync`, { method: 'POST', timeoutMs: 120000 }),
+  // Per-user Egnyte connection - browse with YOUR OWN Egnyte permissions.
+  egnyteOauthStart:      () => req('/egnyte-oauth/start', { method: 'POST' }),
+  egnyteOauthStatus:     () => req('/egnyte-oauth/status'),
+  egnyteOauthDisconnect: () => req('/egnyte-oauth/me', { method: 'DELETE' }),
+  egnytePersonProvision: (email)              => req(`/egnyte/person/${encodeURIComponent(email)}/provision`, { method: 'POST' }),
+  myhrEgnyteDocs:    ()                       => req('/myhr/egnyte-documents'),
+  myhrEgnyteFile:    (path)                   => reqBlob(`/myhr/egnyte-documents/file?path=${encodeURIComponent(path)}`),
   // ── Step-up MFA (fresh verification before sensitive data) ──
   stepupConfig:  ()      => req('/stepup/config'),
   stepupStatus:  ()      => req('/stepup/status'),

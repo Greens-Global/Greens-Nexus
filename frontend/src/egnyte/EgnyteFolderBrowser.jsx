@@ -5,7 +5,7 @@
 // and no copy: every listing, byte and search result comes from Egnyte on
 // demand, and every row links back there.
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ChevronRight, FolderPlus, HardDrive, RefreshCw, Search, X } from 'lucide-react';
+import { Check, ChevronRight, FolderPlus, HardDrive, RefreshCw, Search, X } from 'lucide-react';
 import { api } from '../api';
 import {
   canPreview, crumbsFor, downloadEgnyteFile, egnyteErrorMessage, isNotConnected,
@@ -15,7 +15,7 @@ import EgnyteListing from './EgnyteList';
 import EgnytePreview from './EgnytePreview';
 import EgnyteUpload from './EgnyteUpload';
 import {
-  BODY, CARD, ELLIPSIS, Loading, NotConnected, Notice, OpenInEgnyte, ProblemNote, Spinner,
+  BODY, CARD, ConnectRequired, ELLIPSIS, Loading, NotConnected, Notice, OpenInEgnyte, ProblemNote, Spinner,
 } from './ui';
 
 export default function EgnyteFolderBrowser({
@@ -23,12 +23,19 @@ export default function EgnyteFolderBrowser({
   canWrite = false,
   rootLabel = 'Egnyte',
   showUpload = true,
+  // Pick mode: when set, the browser doubles as a folder PICKER - a "Use This
+  // Folder" action appears and calls onPick(path) with the folder on screen.
+  // Used by the Wiring tab; a plain browse mount is unchanged.
+  onPick = null,
 }) {
   const [path, setPath] = useState(normPath(initialPath));
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [notConnected, setNotConnected] = useState(false);
+  // 428 from the API: OAuth is on and this person hasn't connected their own
+  // Egnyte account - every browse surface renders the same connect prompt.
+  const [connectRequired, setConnectRequired] = useState(false);
   const [downloading, setDownloading] = useState('');
   const [rowError, setRowError] = useState('');
   // The file open in the Nexus viewer, or null. Held here rather than in the
@@ -67,6 +74,7 @@ export default function EgnyteFolderBrowser({
       .catch(err => {
         setData(null);
         setNotConnected(isNotConnected(err));
+        setConnectRequired(err?.status === 428);
         setError(egnyteErrorMessage(err, 'Could not open that folder.'));
       })
       .finally(() => setLoading(false));
@@ -127,6 +135,7 @@ export default function EgnyteFolderBrowser({
   };
 
   if (notConnected) return <NotConnected error="" />;
+  if (connectRequired) return <ConnectRequired />;
 
   const crumbs = crumbsFor(path);
 
@@ -158,6 +167,11 @@ export default function EgnyteFolderBrowser({
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+          {onPick && (
+            <button type="button" className="primary-btn" onClick={() => onPick(path)} disabled={loading} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <Check size={13} /> Use This Folder
+            </button>
+          )}
           <OpenInEgnyte url={folderUrl} label="Open in Egnyte" />
           <button type="button" className="secondary-btn" title="Refresh" onClick={() => load(path)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <RefreshCw size={13} /> Refresh

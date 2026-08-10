@@ -114,7 +114,7 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
 
   // Restricted view IDs that need at minimum supervisor role
   const RESTRICTED_MIN_SUPERVISOR = new Set([
-    'manager-dashboard','tasks','sop','it','ops','operations','development',
+    'manager-dashboard','tasks','tickets','sop','it','ops','operations','development',
     'property-asset','accounting','investor-relations','hr','marketing','external-links',
   ]);
 

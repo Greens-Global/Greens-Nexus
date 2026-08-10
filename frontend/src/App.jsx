@@ -81,9 +81,14 @@ const viewLabel = (view) => VIEW_LABELS[view] || LABEL_OVERRIDES[view]
 const VIEW_MIN_ROLES = {
   'manager-dashboard':  'supervisor',
   'locations':          'supervisor',   // team locations map - managers/HR only
-  // tasks / sop / external-links are baseline (all employees): own tasks, the
-  // KB/LMS with assigned courses, and plain links. Admin actions inside each
-  // stay role-gated server-side.
+  // sop / external-links are baseline (all employees): the KB/LMS with
+  // assigned courses, and plain links. Admin actions inside each stay
+  // role-gated server-side.
+  // tasks / tickets are grant-driven (Aug 10): visible + usable only via an
+  // Access Group / job role grant, mirrored server-side by
+  // require_any_module_grant("tasks", "tickets") on the task-family routers.
+  'tasks':              'supervisor',
+  'tickets':            'supervisor',
   'it':                 'supervisor',
   // 'ops' (Construction) is deliberately absent - see the note on its NAV entry
   // in Sidebar.jsx. Leaving it here would show workers the nav item and then an

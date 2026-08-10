@@ -344,3 +344,62 @@ def download_my_document(rid: str, user: dict = Depends(get_current_user), db: S
     _log(db, rid, "downloaded", f"by {user['email']} (self-service)")
     db.commit()
     return {"url": f"{_SUPABASE_URL}/storage/v1{resp.json()['signedURL']}", "expiresIn": 300}
+
+
+# ── my Egnyte documents (Aug 10 - Neil's "wire Contractor Documents to their
+# My Documents"). Read-only: the employee sees and downloads what HR filed in
+# their WIRED subfolder (people.my-documents), never the person folder root -
+# the Confidential folder beside it (Aadhaar/PAN) must stay HR-only. Download
+# goes through here rather than /egnyte/file so the server checks the path is
+# inside the caller's own resolved folder.
+
+@router.get("/egnyte-documents")
+def my_egnyte_documents(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    import egnyte_wiring as wiring
+    from services import egnyte as svc
+    if not svc.configured():
+        return {"available": False}
+    try:
+        emp = _me(db, user["email"])
+    except HTTPException:
+        return {"available": False}
+    res = wiring.resolve_person_folder("people.my-documents", emp, db)
+    if not res["folder"]:
+        return {"available": False}
+    try:
+        listing = svc.list_folder(res["folder"])
+    except svc.EgnyteError:
+        return {"available": False}     # wired folder not created yet - show nothing
+    return {
+        "available": True,
+        "folder": res["folder"],
+        "files": [
+            {"name": f["name"], "path": f["path"], "size": f.get("size"),
+             "lastModified": f.get("last_modified") or f.get("lastModified")}
+            for f in listing["files"]
+        ],
+    }
+
+
+@router.get("/egnyte-documents/file")
+def my_egnyte_document_file(path: str, user: dict = Depends(get_current_user),
+                            db: Session = Depends(get_db)):
+    import egnyte_wiring as wiring
+    from services import egnyte as svc
+    from fastapi import Response
+    if not svc.configured():
+        raise HTTPException(503, "Egnyte is not connected")
+    emp = _me(db, user["email"])
+    res = wiring.resolve_person_folder("people.my-documents", emp, db)
+    folder = res["folder"]
+    want = svc.norm(path)
+    if not folder or not want.startswith(svc.norm(folder) + "/"):
+        raise HTTPException(403, "That file is not in your documents folder")
+    content = svc.read_file(want)
+    name = want.rsplit("/", 1)[-1] or "download"
+    return Response(
+        content=content,
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{name}"',
+                 "X-Content-Type-Options": "nosniff"},
+    )

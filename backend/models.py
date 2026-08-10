@@ -1,4 +1,4 @@
-from sqlalchemy import BigInteger, Boolean, Column, Float, Integer, JSON, String, Text
+from sqlalchemy import BigInteger, Boolean, Column, Float, Integer, JSON, String, Text, UniqueConstraint
 from database import Base
 
 
@@ -573,6 +573,14 @@ class NexusEmployee(Base):
     division        = Column(String, default="")               # functional division head-tag; org chart inherits down the tree (Phase 5)
     identity_type   = Column(String, default="internal")        # internal (MS365 staff) | guest (Entra B2B partner) | external (non-MS365, HR-record only)
     display_name    = Column(String, default="")               # Entra/Teams displayName verbatim - first+last drops middle names ("Sagar Kumar Shoundik" -> "Sagar Shoundik"), so people read as a different person than Teams shows. Refreshed by sync-m365; falls back to first+last when empty.
+    # Soft delete (Aug 11). "Remove from Nexus" used to DROP the row, taking pay,
+    # compliance, personal details and the whole status history with it and
+    # leaving nothing to restore. The row now stays and is hidden instead: empty
+    # = live, an ISO timestamp = removed. Every query in the app excludes these
+    # automatically (see the do_orm_execute hook in database.py) - do NOT rely on
+    # each call site remembering to filter.
+    deleted_at      = Column(String, default="")
+    deleted_by      = Column(String, default="")
 
 
 class HrRemovedIdentity(Base):
@@ -2947,3 +2955,81 @@ from construction_models import (  # noqa: E402,F401  (import for side effect: t
     ConstructionWeeklyReport, ConstructionMilestone, ConstructionRfi,
     ConstructionSubmittal, ConstructionActivity,
 )
+
+
+class EgnyteWiring(Base):
+    """One row = one Egnyte "wiring": a named slot (a Nexus surface that reads
+    or writes Egnyte) bound to a folder path or path template. Edited from the
+    Egnyte module's Wiring tab (manager+), so re-pointing a surface is a UI act,
+    not a deploy or an env-var change (Neil, Aug 6 call - "give you that wiring"
+    must not mean "ask Visesh").
+
+    scope_id = '' is the slot's default/template row; a non-empty scope_id (a
+    person's work email, a property site name) overrides the template for that
+    one record, and an exact override always wins. Templates may carry
+    {entity} {bucket} {person} {email} {property} placeholders - resolution and
+    the registry of known slots live in egnyte_wiring.py. No row at all means
+    the slot falls back to its legacy env var / hardcoded default, so an empty
+    table changes nothing."""
+    __tablename__ = "egnyte_wirings"
+    id         = Column(String, primary_key=True)
+    slot       = Column(String, nullable=False, index=True)
+    scope_id   = Column(String, default="")
+    path       = Column(String, nullable=False)
+    updated_by = Column(String, default="")
+    updated_at = Column(String, default="")
+    __table_args__ = (UniqueConstraint("slot", "scope_id", name="ux_egnyte_wiring_slot_scope"),)
+
+
+class EgnyteFolderGroup(Base):
+    """A rule-based Egnyte wiring for a COHORT of people (Visesh, Aug 10:
+    "create me a folder group for people who are working from the US and have
+    biweekly salary" - no per-person clicking). `rule` is a list of
+    {field, value} conditions, ANDed, over egnyte_wiring.RULE_FIELDS; `prompt`
+    keeps the plain-English ask it was parsed from (by the Claude API) so the
+    card can show intent, not JSON. `path` is the group's PARENT folder in
+    Egnyte - each matching person resolves to <path>/<their name> inside it,
+    current and future matches alike (membership is evaluated at resolution
+    time, never materialized). Beats the template and loses to a per-person
+    override; first enabled group (newest first) wins when several match."""
+    __tablename__ = "egnyte_folder_groups"
+    id         = Column(String, primary_key=True)
+    name       = Column(String, nullable=False)
+    prompt     = Column(String, default="")
+    rule       = Column(JSON, default=list)
+    path       = Column(String, nullable=False)
+    enabled    = Column(Integer, default=1)
+    created_by = Column(String, default="")
+    created_at = Column(String, default="")
+    updated_by = Column(String, default="")
+    updated_at = Column(String, default="")
+
+
+class EgnyteUserToken(Base):
+    """One Nexus user's own Egnyte OAuth grant (Aug 10: "anybody in here would
+    only be able to see what they actually have access to in Egnyte"). When a
+    person has connected, every Egnyte browse/read/search/write they make runs
+    on THEIR token, so Egnyte's own folder permissions decide what they see -
+    Nexus holds no permission logic to drift. Tokens are Fernet-encrypted at
+    rest (secret_box, NEXUS_VAULT_KEY). Egnyte access tokens are long-lived
+    (no refresh token); a revoked one surfaces as a 401 and the user
+    reconnects. See egnyte_oauth.py."""
+    __tablename__ = "egnyte_user_tokens"
+    id               = Column(String, primary_key=True)
+    email            = Column(String, nullable=False, unique=True)
+    access_token_enc = Column(String, default="")
+    egnyte_username  = Column(String, default="")
+    egnyte_name      = Column(String, default="")
+    last_error       = Column(String, default="")
+    last_error_at    = Column(String, default="")
+    created_at       = Column(String, default="")
+    updated_at       = Column(String, default="")
+
+
+class EgnyteOAuthState(Base):
+    """Single-use state rows binding an Egnyte OAuth callback to the Nexus user
+    who started it - same shape and reasoning as AsanaOAuthState."""
+    __tablename__ = "egnyte_oauth_states"
+    id         = Column(String, primary_key=True)
+    email      = Column(String, nullable=False)
+    created_at = Column(String, default="")

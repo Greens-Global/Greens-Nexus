@@ -6,7 +6,7 @@ import {
   ChevronLeft, Network, CalendarOff, UserPlus, Pencil, FileText,
   CheckCircle, XCircle, ChevronRight, History, CalendarDays, Camera,
   Building2, Trash2, MapPinned, Wallet, Landmark, Lock, Contact, Heart,
-  ShieldCheck, Shield, AlertTriangle, Clock, ArrowUpRight,
+  ShieldCheck, Shield, AlertTriangle, Clock, ArrowUpRight, RotateCcw,
 } from 'lucide-react';
 import { api } from '../api';
 import { formatDate } from '../lib/datetime';
@@ -22,6 +22,7 @@ import ModuleTabs from '../components/ModuleTabs';
 import RolesAccess, { LevelPill, ModuleLevelPill, TierBadge } from './RolesAccess';
 import { capabilityText } from '../lib/moduleCapabilities';
 import PersonHover from '../components/PersonHoverCard';
+import EgnytePersonFolder from '../egnyte/EgnytePersonFolder';
 import { takePendingPerson } from '../lib/personNav';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { TaskChecklist, punchTime } from '../components/WorkLogDrawer';
@@ -41,6 +42,13 @@ const STATUS_META = {
   inactive:   { label: 'Inactive',   bg: 'hsla(var(--color-orange),0.12)', fg: 'hsl(var(--color-orange))' },
   offboarded: { label: 'Left',       bg: 'var(--mist)',                    fg: 'var(--muted)' },
 };
+
+// The status dropdown's "Deleted" entry. Deliberately NOT a STATUS_META member:
+// removal is orthogonal to employment status (a removed person keeps whatever
+// status they had, so it can be restored unchanged), and it selects a different
+// LIST rather than filtering the current one. The sentinel cannot collide with a
+// real status value.
+const DELETED_F = '__deleted__';
 
 const FL = { fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 6, letterSpacing: '.04em' };
 
@@ -1379,7 +1387,9 @@ function EmployeeAccess({ email, identityType = 'internal', toastOk, toastErr, o
   );
 }
 
-function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, isAdmin = false, onEdit, onBack, isMobile, toastOk, toastErr, onEmployeeUpdated, onRemoved }) {
+function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, isAdmin = false, onEdit, onBack, isMobile, toastOk, toastErr, onEmployeeUpdated, onRemoved, onRestored }) {
+  // Removed from Nexus (soft delete) - the record is intact and restorable.
+  const isRemoved = !!e.deletedAt;
   const [provisionOpen, setProvisionOpen] = useState(false);
   const [photoOpen, setPhotoOpen] = useState(false);
   const [compOpen, setCompOpen] = useState(false);
@@ -1390,17 +1400,29 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
   const [pushBusy, setPushBusy] = useState(false);
   const [tab, setTab] = useState('overview');
   const [payReload, setPayReload] = useState(0);   // bump to refetch PayTab after an edit
-  // Nexus-only removal - separate from offboarding (which deprovisions M365). Hard-
-  // deletes the Nexus record via the DELETE endpoint, which makes NO Graph calls.
+  const [restoreBusy, setRestoreBusy] = useState(false);
+  // Nexus-only removal - separate from offboarding (which deprovisions M365).
+  // REVERSIBLE since Aug 11: the record is hidden, not destroyed, and the copy
+  // says so. It used to warn that history would be deleted, which was true and
+  // is the reason nobody dared use it.
   async function removeFromNexus() {
     if (!await dialog.confirm(
-      `Remove ${fullName(e)} from Nexus? This deletes their Nexus record and history. It does NOT change or deprovision their Microsoft 365 account - use "Change status -> Left" for a full offboarding.`,
+      `Remove ${fullName(e)} from Nexus? They disappear from the directory and everywhere else in Nexus, but nothing is deleted - you can restore them any time from the Deleted filter. It does NOT change or deprovision their Microsoft 365 account - use "Change status -> Left" for a full offboarding.`,
       { title: 'Remove from Nexus only', confirmText: 'Remove from Nexus', danger: true })) return;
     try {
       await api.deleteEmployee(e.id);
-      toastOk(`${fullName(e)} removed from Nexus. Microsoft 365 was not changed.`);
+      toastOk(`${fullName(e)} removed from Nexus. Restore them any time from the Deleted filter.`);
       onRemoved?.(e.id);
     } catch (err) { toastErr(err?.message || 'Could not remove from Nexus.'); }
+  }
+  async function restoreToNexus() {
+    setRestoreBusy(true);
+    try {
+      const restored = await api.restoreEmployee(e.id);
+      toastOk(`${fullName(e)} restored to Nexus.`);
+      onRestored?.(restored);
+    } catch (err) { toastErr(err?.message || 'Could not restore this person.'); }
+    setRestoreBusy(false);
   }
   const sm = STATUS_META[e.status] || STATUS_META.active;
   // Case-insensitive email match - manager_email is stored lowercased server-side
@@ -1455,6 +1477,24 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
             {[e.jobTitle, e.employeeCode].filter(Boolean).join(' · ')}
           </div>
         </div>
+        {/* A removed person is read-only: Restore is the only way forward, so
+            editing, status changes and provisioning are all withheld rather
+            than left live on a record that is not currently in the company. */}
+        {isRemoved ? (
+          <>
+            <span style={{ padding: '3px 11px', borderRadius: 20, fontSize: 11.5, fontWeight: 700, background: 'hsla(var(--color-red),0.12)', color: 'hsl(var(--color-red))' }}>
+              Removed
+            </span>
+            {isAdmin && (
+              <button className="primary-btn" onClick={restoreToNexus} disabled={restoreBusy}
+                title="Put this person back into Nexus with their full record"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+                <RotateCcw size={13} /> {restoreBusy ? 'Restoring…' : 'Restore to Nexus'}
+              </button>
+            )}
+          </>
+        ) : (
+        <>
         <button onClick={() => setStatusOpen(true)} title="Change status (with reason)"
           style={{ padding: '3px 11px', borderRadius: 20, fontSize: 11.5, fontWeight: 700, background: sm.bg, color: sm.fg, border: 'none', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
           {sm.label} <Pencil size={10} />
@@ -1504,7 +1544,16 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
             )}
           </>
         )}
+        </>
+        )}
       </div>
+      {isRemoved && (
+        <div style={{ marginTop: 10, padding: '10px 12px', borderRadius: 8, background: 'hsla(var(--color-red),0.08)', border: '1px solid hsla(var(--color-red),0.25)', fontSize: 12.5, color: 'var(--ink)', lineHeight: 1.55 }}>
+          Removed from Nexus{e.deletedBy ? ` by ${e.deletedBy}` : ''}
+          {e.deletedAt ? ` on ${formatDate(e.deletedAt)}` : ''}. Their record is kept in full and
+          nothing was deleted. Their Microsoft 365 account was never changed.
+        </div>
+      )}
       {/* Stat cards - all derived from the loaded record, no extra fetch */}
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 16 }}>
         <StatCard label="Tenure" value={fmtTenure(e.startDate) || '-'} sub={e.startDate ? `since ${formatDate(e.startDate)}` : 'no start date'} />
@@ -1609,6 +1658,15 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
         {tab === 'documents' && (
           <>
             <DocumentsSection employeeId={e.id} toastOk={toastOk} toastErr={toastErr} />
+            {/* The person's wired Egnyte folder (Neil, Aug 6): hiring package,
+                invoices, payment proofs live in Egnyte, not as Nexus uploads.
+                Resolution + re-pointing happen in Egnyte - Wiring. */}
+            {e.workEmail && (
+              <div style={{ marginTop: 18 }}>
+                <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--ink)', marginBottom: 8 }}>Egnyte Folder</div>
+                <EgnytePersonFolder email={e.workEmail} personName={fullName(e)} />
+              </div>
+            )}
             <MailboxExportSection employee={e} toastOk={toastOk} toastErr={toastErr} />
           </>
         )}
@@ -4203,6 +4261,10 @@ export default function HR({ activeSub, onSubChange }) {
   const [deptF,     setDeptF]     = useState('All');
   const [companyF,  setCompanyF]  = useState('All');
   const [statusF,   setStatusF]   = useState('All');
+  // DELETED_F is a view, not a status: a removed person keeps whatever status
+  // they had, so it cannot live in STATUS_META alongside active/onboarding.
+  const [deletedEmployees, setDeletedEmployees] = useState([]);
+  const [deletedLoading, setDeletedLoading] = useState(false);
   const [selectedId, setSelectedId] = useState(null);
   const [formOpen,  setFormOpen]  = useState(false);
   const [editing,   setEditing]   = useState(null);
@@ -4289,6 +4351,18 @@ export default function HR({ activeSub, onSubChange }) {
       .catch(err => setError(err?.message || 'Could not load employees.'))
       .finally(() => setLoading(false));
   }
+  // Removed people are a SEPARATE list, fetched only when the Deleted filter is
+  // chosen. They are deliberately not folded into `employees`: everything else
+  // on this screen (counts, org chart, manager lookups, pickers) treats that
+  // array as "the people who work here", and a removed person appearing there
+  // would be the exact leak the server-side global filter exists to prevent.
+  function loadDeleted() {
+    setDeletedLoading(true);
+    api.getDeletedEmployees()
+      .then(rows => { setDeletedEmployees(rows); setError(''); })
+      .catch(err => setError(err?.message || 'Could not load removed people.'))
+      .finally(() => setDeletedLoading(false));
+  }
   const loadEntities = () => api.getEntities().then(setEntities).catch(() => setEntities([]));
   const loadSites = () => api.getWorkSites().then(setSites).catch(() => setSites([]));
   useEffect(load, []);
@@ -4302,16 +4376,19 @@ export default function HR({ activeSub, onSubChange }) {
     return [...new Set(src.map(e => (e.department || '').trim()).filter(Boolean))].sort();
   }, [employees, companyF]);
 
-  const filtered = useMemo(() => employees.filter(e => {
+  const showingDeleted = statusF === DELETED_F;
+  const filtered = useMemo(() => (showingDeleted ? deletedEmployees : employees).filter(e => {
     if (companyF !== 'All' && e.company !== companyF) return false;
     if (deptF !== 'All' && e.department !== deptF) return false;
-    if (statusF !== 'All' && e.status !== statusF) return false;
+    // Skipped while showing removed people - they keep their old status, so
+    // matching on it here would filter the list down to nothing.
+    if (!showingDeleted && statusF !== 'All' && e.status !== statusF) return false;
     if (search.trim()) {
       const q = search.trim().toLowerCase();
       return [fullName(e), e.workEmail, e.employeeCode, e.jobTitle, e.department].some(v => (v || '').toLowerCase().includes(q));
     }
     return true;
-  }), [employees, companyF, deptF, statusF, search]);
+  }), [employees, deletedEmployees, showingDeleted, companyF, deptF, statusF, search]);
 
   // Pagination over the FILTERED list, so search/filters always reach the whole
   // directory - a match "on page 10" simply becomes page 1 of the results.
@@ -4323,7 +4400,8 @@ export default function HR({ activeSub, onSubChange }) {
   const paged = useMemo(() => filtered.slice((curPage - 1) * PAGE_SIZE, curPage * PAGE_SIZE),
     [filtered, curPage]);
 
-  const selected = employees.find(e => e.id === selectedId) || null;
+  const selected = (showingDeleted ? deletedEmployees : employees)
+    .find(e => e.id === selectedId) || null;
   const counts = useMemo(() => ({
     total: employees.length,
     active: employees.filter(e => e.status === 'active').length,
@@ -4331,8 +4409,16 @@ export default function HR({ activeSub, onSubChange }) {
     depts: new Set(employees.filter(e => e.department).map(e => e.department)).size,
   }), [employees]);
 
-  const onRemovedFromNexus = (id) => {   // Nexus-only removal: drop from the list and close the profile
+  const onRemovedFromNexus = (id) => {   // Nexus-only removal: drop from the live list and close the profile
     setEmployees(prev => prev.filter(e => e.id !== id));
+    setDeletedEmployees([]);             // stale now; refetched when Deleted is opened
+    setSelectedId(null);
+  };
+  const onRestoredToNexus = (restored) => {
+    setDeletedEmployees(prev => prev.filter(e => e.id !== restored.id));
+    setEmployees(prev => prev.some(e => e.id === restored.id)
+      ? prev
+      : [...prev, restored].sort((a, b) => fullName(a).localeCompare(fullName(b))));
     setSelectedId(null);
   };
   const onSaved = saved => {
@@ -4448,7 +4534,7 @@ export default function HR({ activeSub, onSubChange }) {
           </button>
           <EmployeeDetail key={selected.id} e={selected} employees={employees} isMobile={isMobile}
             companyName={entityName(selected.company)} canSeeComp={canSeeComp} isAdmin={isAdmin}
-            toastOk={toastOk} toastErr={toastErr} onEmployeeUpdated={onSaved} onRemoved={onRemovedFromNexus}
+            toastOk={toastOk} toastErr={toastErr} onEmployeeUpdated={onSaved} onRemoved={onRemovedFromNexus} onRestored={onRestoredToNexus}
             onEdit={emp => { setEditing(emp); setFormOpen(true); }}
             onBack={() => setSelectedId(null)} />
           </>
@@ -4475,17 +4561,34 @@ export default function HR({ activeSub, onSubChange }) {
                   <option value="All">All departments</option>
                   {deptChoices.map(d => <option key={d}>{d}</option>)}
                 </select>
-                <select className="form-input" value={statusF} onChange={e => setStatusF(e.target.value)} style={{ width: 135, padding: '7px 10px', fontSize: 13.5, height: 38 }}>
+                {/* Choosing Deleted fetches that list here rather than in an
+                    effect - the dropdown is the only way into the view, so the
+                    fetch belongs to the action that causes it. */}
+                <select className="form-input" value={statusF}
+                  onChange={e => {
+                    const next = e.target.value;
+                    setStatusF(next);
+                    setSelectedId(null);
+                    if (next === DELETED_F) loadDeleted();
+                  }}
+                  style={{ width: 135, padding: '7px 10px', fontSize: 13.5, height: 38 }}>
                   <option value="All">All statuses</option>
                   {Object.entries(STATUS_META).map(([v, m]) => <option key={v} value={v}>{m.label}</option>)}
+                  <option value={DELETED_F}>Deleted</option>
                 </select>
               </div>
             </div>
-            {loading ? (
+            {(loading || (showingDeleted && deletedLoading)) ? (
               <div style={{ display: 'flex', justifyContent: 'center', padding: '48px 0' }}>
                 <Loader2 size={26} style={{ animation: 'spin 0.8s linear infinite', color: 'var(--muted)' }} />
               </div>
-            ) : employees.length === 0 ? (
+            ) : showingDeleted && deletedEmployees.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '56px 20px', color: 'var(--muted)' }}>
+                <Trash2 size={30} style={{ opacity: .25, display: 'block', margin: '0 auto 10px' }} />
+                <div style={{ fontSize: 14, fontWeight: 600 }}>Nobody has been removed.</div>
+                <div style={{ fontSize: 12.5, marginTop: 4 }}>People removed from Nexus land here, and can be restored with their full record.</div>
+              </div>
+            ) : !showingDeleted && employees.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '56px 20px', color: 'var(--muted)' }}>
                 <Users size={32} style={{ opacity: .25, display: 'block', margin: '0 auto 10px' }} />
                 <div style={{ fontSize: 14, fontWeight: 600 }}>No employees yet.</div>
@@ -4580,7 +4683,7 @@ export default function HR({ activeSub, onSubChange }) {
                   {selected ? (
                     <EmployeeDetail key={selected.id} e={selected} employees={employees} isMobile={isMobile}
                       companyName={entityName(selected.company)} canSeeComp={canSeeComp} isAdmin={isAdmin}
-                      toastOk={toastOk} toastErr={toastErr} onEmployeeUpdated={onSaved} onRemoved={onRemovedFromNexus}
+                      toastOk={toastOk} toastErr={toastErr} onEmployeeUpdated={onSaved} onRemoved={onRemovedFromNexus} onRestored={onRestoredToNexus}
                       onEdit={emp => { setEditing(emp); setFormOpen(true); }}
                       onBack={() => setSelectedId(null)} />
                   ) : (
