@@ -502,6 +502,10 @@ def _ai_parse_rule(prompt: str, grounding: dict) -> dict:
         '"conditions": [{"field": "<allowed field>", "value": "<value>"}], '
         '"notes": "<anything in the description you could NOT map, else empty string>"}'
     )
+    # Errors here are 503/424, NEVER 502: Cloudflare replaces an origin 502
+    # with its own branded HTML error page, so the UI showed a bare "API error
+    # 502" instead of the real reason (Aug 10). The details below surface
+    # verbatim in the UI and the true upstream error is printed to the logs.
     try:
         with _httpx.Client(timeout=60) as client:
             r = client.post(
@@ -511,18 +515,22 @@ def _ai_parse_rule(prompt: str, grounding: dict) -> dict:
                 json={"model": _AI_MODEL, "max_tokens": 500,
                       "messages": [{"role": "user", "content": ask}]},
             )
-            r.raise_for_status()
+        if r.status_code != 200:
+            snippet = (r.text or "")[:200]
+            print(f"[egnyte-groups] AI call failed: HTTP {r.status_code}: {snippet}")
+            raise HTTPException(424, f"The AI service answered {r.status_code}: {snippet}")
         text = "".join(b.get("text", "") for b in r.json().get("content", []) if b.get("type") == "text").strip()
     except HTTPException:
         raise
-    except Exception:
-        raise HTTPException(502, "The AI service could not be reached - try again in a moment.")
+    except Exception as e:  # noqa: BLE001
+        print(f"[egnyte-groups] AI call failed: {type(e).__name__}: {e}")
+        raise HTTPException(503, f"The AI service could not be reached ({type(e).__name__}) - try again in a moment.")
     if text.startswith("```"):
         text = text.strip("`").removeprefix("json").strip()
     try:
         parsed = _json.loads(text)
     except Exception:
-        raise HTTPException(502, "The AI answer could not be understood - try rephrasing the description.")
+        raise HTTPException(424, "The AI answer could not be understood - try rephrasing the description.")
     conditions, dropped = [], []
     for c in (parsed.get("conditions") or []):
         f, v = (c.get("field") or "").strip(), str(c.get("value") or "").strip()
