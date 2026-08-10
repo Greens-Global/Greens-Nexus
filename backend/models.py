@@ -573,6 +573,14 @@ class NexusEmployee(Base):
     division        = Column(String, default="")               # functional division head-tag; org chart inherits down the tree (Phase 5)
     identity_type   = Column(String, default="internal")        # internal (MS365 staff) | guest (Entra B2B partner) | external (non-MS365, HR-record only)
     display_name    = Column(String, default="")               # Entra/Teams displayName verbatim - first+last drops middle names ("Sagar Kumar Shoundik" -> "Sagar Shoundik"), so people read as a different person than Teams shows. Refreshed by sync-m365; falls back to first+last when empty.
+    # Soft delete (Aug 11). "Remove from Nexus" used to DROP the row, taking pay,
+    # compliance, personal details and the whole status history with it and
+    # leaving nothing to restore. The row now stays and is hidden instead: empty
+    # = live, an ISO timestamp = removed. Every query in the app excludes these
+    # automatically (see the do_orm_execute hook in database.py) - do NOT rely on
+    # each call site remembering to filter.
+    deleted_at      = Column(String, default="")
+    deleted_by      = Column(String, default="")
 
 
 class HrRemovedIdentity(Base):

@@ -778,6 +778,10 @@ export const api = {
   createEmployee: (data)     => req('/hr/employees', { method: 'POST', body: JSON.stringify(data) }),
   updateEmployee: (id, data) => req(`/hr/employees/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteEmployee: (id)       => req(`/hr/employees/${id}`, { method: 'DELETE' }),
+  // "Remove from Nexus" is reversible: the record is hidden, not destroyed.
+  // These two back the Deleted filter in the directory and the Restore action.
+  getDeletedEmployees: ()    => req('/hr/employees?deleted=true'),
+  restoreEmployee: (id)      => req(`/hr/employees/${id}/restore`, { method: 'POST' }),
 
   // HR - companies/entities & work sites (Section A foundation)
   getEntities:    ()         => cachedGet('/hr/entities', 120_000),

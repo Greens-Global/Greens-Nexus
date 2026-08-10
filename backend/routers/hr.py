@@ -5,6 +5,7 @@ import uuid
 import httpx
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, BackgroundTasks
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
@@ -126,12 +127,22 @@ def _serialize(e: NexusEmployee) -> dict:
         "asanaId":        e.asana_id,
         "createdAt":      e.created_at,
         "updatedAt":      e.updated_at,
+        "deletedAt":      e.deleted_at or "",
+        "deletedBy":      e.deleted_by or "",
     }
 
 
 @router.get("/employees")
-def list_employees(user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
-    rows = db.query(NexusEmployee).order_by(NexusEmployee.first_name, NexusEmployee.last_name).all()
+def list_employees(deleted: bool = False, user: dict = Depends(require_hr_read),
+                   db: Session = Depends(get_db)):
+    """`deleted=true` returns the removed people INSTEAD of the live ones - the
+    Deleted filter in the directory. Live listings need no filtering of their
+    own: the session hides removed rows globally (database.py)."""
+    q = db.query(NexusEmployee)
+    if deleted:
+        q = (q.execution_options(include_deleted=True)
+              .filter(NexusEmployee.deleted_at != "", NexusEmployee.deleted_at.isnot(None)))
+    rows = q.order_by(NexusEmployee.first_name, NexusEmployee.last_name).all()
     return [_serialize(e) for e in rows]
 
 
@@ -215,22 +226,73 @@ def update_employee(eid: str, body: EmployeeUpdate, user: dict = Depends(require
 
 @router.delete("/employees/{eid}")
 def delete_employee(eid: str, user: dict = Depends(require_hr_delete), db: Session = Depends(get_db)):
-    row = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
+    """Remove from Nexus - REVERSIBLE.
+
+    This used to DROP the row, which took pay, compliance, personal details and
+    the entire status history with it: "remove" and "destroy every record we
+    hold about this person" were the same button, and a misclick was
+    unrecoverable. The row is now marked instead, disappears from every screen
+    (the session hides it globally - database.py), and comes back intact through
+    /employees/{eid}/restore.
+
+    Still Nexus-only: NO Graph call, the Microsoft 365 account is untouched.
+    """
+    row = (db.query(NexusEmployee).execution_options(include_deleted=True)
+             .filter(NexusEmployee.id == eid).first())
     if not row:
         return {"ok": True}
-    # Tombstone the identity so the M365 sync won't re-create this person from Entra.
-    # Nexus-only removal: NO Graph call here, the Microsoft 365 account is untouched.
+    if row.deleted_at:
+        return {"ok": True, "alreadyRemoved": True}
+
+    now = datetime.now(timezone.utc).isoformat()
+    # Tombstone the identity so the M365 sync won't re-create this person from
+    # Entra while they are removed. Restore deletes it again.
     if row.work_email or row.m365_id:
         db.add(HrRemovedIdentity(
             id=str(uuid.uuid4()),
             work_email=(row.work_email or "").lower(),
             m365_id=row.m365_id or "",
             removed_by=user["email"],
-            removed_at=datetime.now(timezone.utc).isoformat(),
+            removed_at=now,
         ))
-    db.delete(row)
+    row.deleted_at = now
+    row.deleted_by = user["email"]
+    row.updated_at = now
     db.commit()
     return {"ok": True}
+
+
+@router.post("/employees/{eid}/restore")
+def restore_employee(eid: str, user: dict = Depends(require_hr_delete), db: Session = Depends(get_db)):
+    """Put a removed person back, exactly as they were.
+
+    Clearing the tombstone matters as much as clearing the mark: leaving it
+    would let the M365 sync keep treating this person as deliberately removed
+    and skip them forever, so they would be back in the directory but silently
+    frozen out of every future Entra refresh.
+    """
+    row = (db.query(NexusEmployee).execution_options(include_deleted=True)
+             .filter(NexusEmployee.id == eid).first())
+    if not row:
+        raise HTTPException(404, "That person no longer exists in Nexus")
+    if not row.deleted_at:
+        return {"ok": True, **_serialize(row)}
+
+    q = db.query(HrRemovedIdentity)
+    conds = []
+    if row.work_email:
+        conds.append(HrRemovedIdentity.work_email == row.work_email.lower())
+    if row.m365_id:
+        conds.append(HrRemovedIdentity.m365_id == row.m365_id)
+    if conds:
+        q.filter(or_(*conds)).delete(synchronize_session=False)
+
+    row.deleted_at = ""
+    row.deleted_by = ""
+    row.updated_at = datetime.now(timezone.utc).isoformat()
+    db.commit()
+    db.refresh(row)
+    return {"ok": True, **_serialize(row)}
 
 
 # ── Hiring pipeline (Phase 2) ─────────────────────────────────────────────────

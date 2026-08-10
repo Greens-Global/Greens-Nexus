@@ -294,6 +294,8 @@ def _run_migrations():
             "ALTER TABLE nexus_employees ADD COLUMN identity_type VARCHAR DEFAULT 'internal'",
             "ALTER TABLE nexus_employees ADD COLUMN display_name VARCHAR DEFAULT ''",
             "ALTER TABLE nexus_employees ADD COLUMN designation VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_employees ADD COLUMN deleted_at VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_employees ADD COLUMN deleted_by VARCHAR DEFAULT ''",
             "ALTER TABLE asana_import_jobs ADD COLUMN cancel_requested BOOLEAN DEFAULT 0",
             "ALTER TABLE asana_project_map ADD COLUMN last_pull_at VARCHAR DEFAULT ''",
             "ALTER TABLE asana_project_map ADD COLUMN last_full_pull_at VARCHAR DEFAULT ''",
@@ -489,6 +491,9 @@ def _run_migrations():
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS display_name VARCHAR DEFAULT ''",
         # Charmi Aug 4: formal designation, kept distinct from job_title
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS designation VARCHAR DEFAULT ''",
+        # Soft delete for "Remove from Nexus" - see the NexusEmployee model.
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS deleted_at VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS deleted_by VARCHAR DEFAULT ''",
         "ALTER TABLE asana_import_jobs ADD COLUMN IF NOT EXISTS cancel_requested BOOLEAN DEFAULT FALSE",
         "ALTER TABLE asana_project_map ADD COLUMN IF NOT EXISTS last_pull_at VARCHAR DEFAULT ''",
         "ALTER TABLE asana_project_map ADD COLUMN IF NOT EXISTS last_full_pull_at VARCHAR DEFAULT ''",
