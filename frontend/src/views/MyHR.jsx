@@ -265,7 +265,7 @@ export default function MyHR() {
   const downloadEgnyte = async (f) => {
     setBusy(p => ({ ...p, ['egn' + f.path]: true }));
     try {
-      const blob = await api.myhrEgnyteFile(f.path);
+      const { blob } = await api.myhrEgnyteFile(f.path);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url; a.download = f.name || 'download';
