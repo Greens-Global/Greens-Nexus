@@ -277,6 +277,21 @@ const rowSplit = { display: "flex", justifyContent: "space-between", gap: 8, mar
 const infoBox = { borderRadius: 12, background: "var(--bg-secondary)", border: "1px solid var(--border-color)", padding: "10px 14px", fontSize: 12, color: "var(--text-secondary)" };
 const codeInput = { textAlign: "center", fontSize: 19, letterSpacing: "0.4em" };
 
+// Standalone SMS consent checkbox (unchecked by default) - required before the
+// SMS OTP channel can be used. Carrier/TCPA compliance: separate from the
+// "Authenticate via SMS" action itself, not implied by clicking it.
+function SmsConsent({ checked, onChange }) {
+  return (
+    <label style={{ display: "flex", alignItems: "flex-start", gap: 7, padding: "8px 10px", borderRadius: 10, background: "var(--bg-secondary)", border: "1px solid var(--border-color)", cursor: "pointer" }}>
+      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)}
+        style={{ marginTop: 2, flexShrink: 0, cursor: "pointer" }} />
+      <span style={{ fontSize: 10.5, lineHeight: 1.45, color: "var(--text-secondary)" }}>
+        I agree to receive SMS text messages from <strong>Greens Global</strong> at the mobile number on file, including account alerts, two-factor authentication codes, and appointment reminders. Msg &amp; data rates may apply. Reply <strong>STOP</strong> to opt out or <strong>HELP</strong> for help at any time. Consent is not a condition of employment or any purchase.
+      </span>
+    </label>
+  );
+}
+
 // ---------- Modals ----------
 // Real, server-verified SMS/Email OTP (Aug 2026) - replaces the old client-side
 // "MFA theater" (ReauthModal / PersonalVaultAuthModal, both deleted) that showed
@@ -291,6 +306,7 @@ export function VaultOtpModal({ onClose, onVerified, title = "Verify your identi
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [resendIn, setResendIn] = useState(0);
+  const [smsConsent, setSmsConsent] = useState(false);
 
   useEffect(() => {
     api.cvOtpTargets().then(setTargets).catch((e) => setLoadErr(e.message || "Could not load verification options."));
@@ -340,7 +356,7 @@ export function VaultOtpModal({ onClose, onVerified, title = "Verify your identi
               <span style={{ display: "block", fontSize: 11.5, color: "var(--text-secondary)" }}>Send a code to {targets.email.masked}</span>
             </span>
           </button>
-          <button onClick={() => targets.sms.available && sendCode("sms")} disabled={busy || !targets.sms.available} className="cv-btn"
+          <button onClick={() => targets.sms.available && smsConsent && sendCode("sms")} disabled={busy || !targets.sms.available || !smsConsent} className="cv-btn"
             style={{ width: "100%", justifyContent: "flex-start", padding: 14, borderRadius: 12, gap: 12, opacity: targets.sms.available ? 1 : 0.5, cursor: targets.sms.available ? "pointer" : "not-allowed" }}>
             <MessageCircle size={19} style={{ color: "var(--cv-emerald)", flexShrink: 0 }} />
             <span style={{ textAlign: "left" }}>
@@ -348,6 +364,7 @@ export function VaultOtpModal({ onClose, onVerified, title = "Verify your identi
               <span style={{ display: "block", fontSize: 11.5, color: "var(--text-secondary)" }}>{targets.sms.available ? `Send a code to ${targets.sms.masked}` : "No phone number on file - ask HR to add one"}</span>
             </span>
           </button>
+          {targets.sms.available && <SmsConsent checked={smsConsent} onChange={setSmsConsent} />}
         </div>
       )}
       {error && <div style={{ fontSize: 12, color: "var(--cv-rose)", marginTop: 10 }}>{error}</div>}
@@ -630,6 +647,7 @@ export function PersonalLockGate({ userEmail, onClose, onUnlocked }) {
   const [challenge, setChallenge] = useState(null);
   const [code, setCode] = useState("");
   const [resendIn, setResendIn] = useState(0);
+  const [smsConsent, setSmsConsent] = useState(false);
 
   useEffect(() => {
     api.cvPersonalLockStatus()
@@ -747,7 +765,7 @@ export function PersonalLockGate({ userEmail, onClose, onUnlocked }) {
             <span style={{ display: "block", fontSize: 11.5, color: "var(--text-secondary)" }}>Send a code to {targets?.email?.masked || userEmail}</span>
           </span>
         </button>
-        <button onClick={() => (!targets || targets.sms.available) && sendForgotCode("sms")} disabled={busy || (targets && !targets.sms.available)} className="cv-btn"
+        <button onClick={() => (!targets || targets.sms.available) && smsConsent && sendForgotCode("sms")} disabled={busy || (targets && !targets.sms.available) || !smsConsent} className="cv-btn"
           style={{ width: "100%", justifyContent: "flex-start", padding: 14, borderRadius: 12, gap: 12, opacity: targets && !targets.sms.available ? 0.5 : 1 }}>
           <MessageCircle size={19} style={{ color: "var(--cv-emerald)", flexShrink: 0 }} />
           <span style={{ textAlign: "left" }}>
@@ -755,6 +773,7 @@ export function PersonalLockGate({ userEmail, onClose, onUnlocked }) {
             <span style={{ display: "block", fontSize: 11.5, color: "var(--text-secondary)" }}>{targets && !targets.sms.available ? "No phone number on file" : `Send a code to ${targets?.sms?.masked || "your phone"}`}</span>
           </span>
         </button>
+        {(!targets || targets.sms.available) && <SmsConsent checked={smsConsent} onChange={setSmsConsent} />}
       </div>
       {error && <div style={{ fontSize: 12, color: "var(--cv-rose)", marginTop: 10 }}>{error}</div>}
       <div style={rowBetween}>
