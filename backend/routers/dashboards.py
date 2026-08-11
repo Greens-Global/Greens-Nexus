@@ -1,11 +1,14 @@
 """Customizable dashboards: saveable drag-and-drop widget layouts (personal +
 manager-published department templates) and a single KPI aggregate endpoint the
 widgets read from. Kept separate from the legacy /dashboard/summary router."""
+import re
 import uuid
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import func
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -245,3 +248,77 @@ def kpis(scope: str = "self", user: dict = Depends(get_current_user), db: Sessio
 
     out = cache.dashboard_kpis.get_or_load((email, team), _compute)
     return {"kpis": out, "at": _now()}
+
+
+# ── My Agenda (Outlook calendar via Graph) ────────────────────────────────────
+
+# Per (email, window) for a couple of minutes so a dashboard remount doesn't
+# hit Graph again - an agenda is glanceable, not realtime.
+_agenda_cache = cache.TTLCache("dashboard_agenda", ttl=120)
+
+_TZ_OK = re.compile(r"^[A-Za-z0-9_+\-/ ]{1,64}$")
+_ISO_OK = re.compile(r"^[0-9T:.+\-Z]{10,40}$")
+
+
+@router.get("/agenda")
+def agenda(start: str = "", end: str = "", tz: str = "UTC",
+           user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """The caller's OWN Outlook agenda for a day window, read with the app's
+    Graph credential (same registration the HR provisioning/interview flows
+    use). Only for M365 staff: the People directory's identity_type must be
+    'internal' - guests and external HR-record-only people have no mailbox in
+    the tenant, so for them (and when Graph/consent is unavailable) this
+    returns {available: false} and the widget stays quiet instead of erroring."""
+    email = user["email"].lower()
+    emp = (db.query(models.NexusEmployee)
+           .filter(func.lower(models.NexusEmployee.work_email) == email).first())
+    if not emp or (emp.identity_type or "internal") != "internal":
+        return {"available": False, "reason": "not_m365"}
+
+    # The client sends its local day window; defaults cover a headless call.
+    if not _ISO_OK.match(start or ""):
+        start = datetime.now(timezone.utc).strftime("%Y-%m-%dT00:00:00")
+    if not _ISO_OK.match(end or ""):
+        end = (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%dT23:59:59")
+    if not _TZ_OK.match(tz or ""):
+        tz = "UTC"
+
+    def _load() -> dict:
+        from routers.hr import _graph_token, _GRAPH
+        try:
+            token = _graph_token()
+        except Exception:
+            return {"available": False, "reason": "not_configured"}
+        try:
+            r = httpx.get(
+                f"{_GRAPH}/users/{email}/calendarView",
+                params={"startDateTime": start, "endDateTime": end,
+                        "$orderby": "start/dateTime", "$top": "15",
+                        "$select": "subject,start,end,location,isAllDay,isCancelled,onlineMeeting,webLink"},
+                headers={"Authorization": f"Bearer {token}",
+                         # Times come back already in the user's zone - no
+                         # client-side UTC conversion to get wrong.
+                         "Prefer": f'outlook.timezone="{tz}"'},
+                timeout=15,
+            )
+        except Exception:
+            return {"available": False, "reason": "graph_unreachable"}
+        if r.status_code == 403:
+            # App consent missing: needs Calendars.Read (application) in Entra.
+            return {"available": False, "reason": "no_consent"}
+        if not r.is_success:
+            # 404 = no mailbox behind this account (unlicensed/shared identity).
+            return {"available": False, "reason": "no_mailbox"}
+        events = [{
+            "subject": ev.get("subject") or "(No subject)",
+            "start": (ev.get("start") or {}).get("dateTime", ""),
+            "end": (ev.get("end") or {}).get("dateTime", ""),
+            "isAllDay": bool(ev.get("isAllDay")),
+            "location": ((ev.get("location") or {}).get("displayName") or ""),
+            "joinUrl": ((ev.get("onlineMeeting") or {}).get("joinUrl") or ""),
+            "webLink": ev.get("webLink") or "",
+        } for ev in r.json().get("value", []) if not ev.get("isCancelled")]
+        return {"available": True, "events": events}
+
+    out = _agenda_cache.get_or_load((email, start, end, tz), _load)
+    return {**out, "at": _now()}

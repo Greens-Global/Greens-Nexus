@@ -14,6 +14,8 @@ const DEFAULTS = {
     { i: 'd7', type: 'notifications', x: 0, y: 3, w: 6, h: 5 },
     { i: 'd8', type: 'links',         x: 6, y: 4, w: 3, h: 4 },
     { i: 'd9', type: 'kpi-bar',       x: 9, y: 4, w: 3, h: 4 },
+    // My Agenda (Outlook). Shows a quiet explainer for non-M365 accounts.
+    { i: 'd10', type: 'agenda',       x: 0, y: 8, w: 6, h: 4 },
   ],
   'manager-dashboard': [
     { i: 'm1', type: 'team-attendance', x: 0, y: 0, w: 3, h: 2 },

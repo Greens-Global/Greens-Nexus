@@ -945,6 +945,8 @@ export const api = {
   dashSetDefault: (id)         => req(`/dashboards/views/${id}/default`, { method: 'PUT' }),
   dashDeleteView: (id)         => req(`/dashboards/views/${id}`, { method: 'DELETE' }),
   dashKpis:       (scope = 'self') => req(`/dashboards/kpis?scope=${encodeURIComponent(scope)}`),
+  // The caller's own Outlook agenda (M365 staff only - {available:false} otherwise)
+  dashAgenda:     (start, end, tz) => req(`/dashboards/agenda?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}&tz=${encodeURIComponent(tz)}`),
 
   // ── My HR (employee self-service - own record only) ──
   myHrProfile:     ()      => req('/myhr/profile'),
