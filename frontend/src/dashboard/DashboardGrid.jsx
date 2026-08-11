@@ -7,7 +7,11 @@ import { GripVertical, X, Settings2 } from 'lucide-react';
 // column (read-only order), so it's usable on phones.
 
 export const COLS = 12;
-const ROW_H = 92;      // px per row unit (gutter included via card inset)
+// px per row unit (gutter included via card inset). 72 puts a 2-row stat tile
+// at ~144px - the height of DeskHome's stat cards - so grid tiles carry Home's
+// compact proportions instead of ballooning (92 made every card ~28% taller
+// than its Home counterpart; Visesh, Aug 12).
+const ROW_H = 72;
 const GAP = 14;
 const MOBILE_BP = 700;
 const MIN_W = 2, MIN_H = 2, MAX_H = 8;

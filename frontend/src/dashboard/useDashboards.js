@@ -12,16 +12,16 @@ const DEFAULTS = {
     // Row 1 mirrors Home's stat board exactly - the page greeting renders above
     // the grid (DeskGreeting in CustomDashboard), so no clock/greeting card here.
     // hero: the one solid-gradient focal tile, same as Home's Open Tasks card.
-    { i: 'd3', type: 'kpi',           x: 0, y: 0, w: 3, h: 3, config: { metric: 'my_open_tasks', hero: true } },
-    { i: 'd4', type: 'kpi',           x: 3, y: 0, w: 3, h: 3, config: { metric: 'my_checkouts' } },
-    { i: 'd5', type: 'kpi',           x: 6, y: 0, w: 3, h: 3, config: { metric: 'my_assignments' } },
-    { i: 'd6', type: 'kpi',           x: 9, y: 0, w: 3, h: 3, config: { metric: 'unread_notifications' } },
-    { i: 'd7', type: 'notifications', x: 0, y: 3, w: 6, h: 5 },
-    { i: 'd9', type: 'kpi-bar',       x: 6, y: 3, w: 3, h: 5 },
-    { i: 'd2', type: 'quick-actions', x: 9, y: 3, w: 3, h: 5 },
+    { i: 'd3', type: 'kpi',           x: 0, y: 0, w: 3, h: 2, config: { metric: 'my_open_tasks', hero: true } },
+    { i: 'd4', type: 'kpi',           x: 3, y: 0, w: 3, h: 2, config: { metric: 'my_checkouts' } },
+    { i: 'd5', type: 'kpi',           x: 6, y: 0, w: 3, h: 2, config: { metric: 'my_assignments' } },
+    { i: 'd6', type: 'kpi',           x: 9, y: 0, w: 3, h: 2, config: { metric: 'unread_notifications' } },
+    { i: 'd7', type: 'notifications', x: 0, y: 2, w: 6, h: 5 },
+    { i: 'd9', type: 'kpi-bar',       x: 6, y: 2, w: 3, h: 5 },
+    { i: 'd2', type: 'quick-actions', x: 9, y: 2, w: 3, h: 5 },
     // My Agenda (Outlook). Shows a quiet explainer for non-M365 accounts.
-    { i: 'd10', type: 'agenda',       x: 0, y: 8, w: 6, h: 4 },
-    { i: 'd8', type: 'links',         x: 6, y: 8, w: 3, h: 4 },
+    { i: 'd10', type: 'agenda',       x: 0, y: 7, w: 6, h: 4 },
+    { i: 'd8', type: 'links',         x: 6, y: 7, w: 3, h: 4 },
   ],
   'manager-dashboard': [
     { i: 'm1', type: 'team-attendance', x: 0, y: 0, w: 3, h: 2 },
