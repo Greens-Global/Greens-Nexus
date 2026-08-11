@@ -2015,6 +2015,7 @@ def _apply_inbound(db, at, nexus_project_id, counts, parent_task_id="", email_ma
             # per update_task's own convention), so a "Done" Task Progress
             # forces completed=True here too rather than leaving them to
             # disagree.
+            prev_completed = bool(t.completed)
             t.completed = bool(at.get("completed")) or mapped_status == "completed"
             if t.completed:
                 t.status = "completed"
@@ -2022,8 +2023,20 @@ def _apply_inbound(db, at, nexus_project_id, counts, parent_task_id="", email_ma
             elif t.status == "completed":
                 t.status = "not_started"
                 t.completed_at = ""
-            if mapped_status and mapped_status != "completed" and not t.completed:
+            # "recurring" is Nexus-local state Asana cannot express: outbound
+            # reports it as "in progress" (no closer label exists), so applying
+            # that label BACK would silently un-recur the task within one pull
+            # cycle of someone setting it (found via Miranda, Aug 12). Asana
+            # never wins over a recurring status; completion still does above.
+            if (mapped_status and mapped_status != "completed" and not t.completed
+                    and t.status != "recurring"):
                 t.status = mapped_status
+            # Completing in ASANA must roll a recurring series forward exactly
+            # like completing in Nexus does - this path used to skip the spawn,
+            # so a series completed from the Asana side simply died.
+            if t.completed and not prev_completed:
+                from routers.tasks import _spawn_next_occurrence
+                _spawn_next_occurrence(db, t, {"email": t.assignee_email or "asana-sync"})
             if mapped_priority:
                 t.priority = mapped_priority
             # Sections are a top-level-task concept in both systems; a subtask
