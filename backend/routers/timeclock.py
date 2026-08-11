@@ -778,6 +778,31 @@ def unfinalize_timecard(body: FinalizeIn, user: dict = Depends(require_administr
     return {"unfinalized": True}
 
 
+def _display_name(db: Session, email: str) -> str:
+    emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == (email or "").lower()).first()
+    if emp and (emp.first_name or emp.last_name):
+        return f"{emp.first_name or ''} {emp.last_name or ''}".strip()
+    return (email or "").split("@")[0].replace(".", " ").title()
+
+
+def _notify_timecard_change(db: Session, *, employee_email: str, actor_email: str,
+                            body: str, ref_id: str = "") -> None:
+    """Oversight for DIRECT timecard edits (Visesh, Aug 11): a punch changed
+    without going through a request/approval must still be seen by someone
+    OTHER than the person who changed it. Target the employee's approver
+    (manager); when the actor IS that approver - or no manager is on file -
+    broadcast to all managers instead (recipient=''), which reaches HR and
+    the global admins, so an edit is never visible only to its author."""
+    emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == employee_email).first()
+    mgr = (emp.manager_email or "").strip().lower() if emp else ""
+    recipient = mgr if (mgr and mgr != (actor_email or "").lower()) else ""
+    db.add(NexusNotification(
+        id=str(uuid.uuid4()), type="custom_alert", recipient=recipient,
+        title="Timecard edited", body=body, ref_id=ref_id, item_name="",
+        requested_by=actor_email, action=json.dumps({"view": "hr", "sub": "hr-time"}),
+        actioned=False, read_by="", created_at=_now_iso()))
+
+
 @router.patch("/punches/{punch_id}")
 def adjust_punch(punch_id: str, body: PunchAdjust,
                  user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
@@ -827,6 +852,15 @@ def adjust_punch(punch_id: str, body: PunchAdjust,
                    + (f": {body.adjust_note.strip()[:200]}" if body.adjust_note else ".")
                    + " - open your timecard to review.",
                    ref_id=row.id, action={"view": "timeclock", "sub": "timecard"})
+    # And the oversight side (Visesh, Aug 11): the approver/HR/global admins
+    # hear about EVERY direct edit, not just the person it happened to.
+    what = "voided" if body.void else ("restored" if body.void is not None else "edited")
+    _notify_timecard_change(
+        db, employee_email=row.employee_email, actor_email=user["email"],
+        body=f"{_display_name(db, user['email'])} {what} {_display_name(db, row.employee_email)}'s "
+             f"{row.kind.replace('_', ' ')} punch on {row.local_date}"
+             + (f": {body.adjust_note.strip()[:200]}" if body.adjust_note else "."),
+        ref_id=row.id)
     db.commit()
     return _serialize(row)
 
@@ -859,6 +893,20 @@ def manager_add_punch(body: ManagerPunchIn, user: dict = Depends(require_team_wr
                     note=(body.note or "").strip()[:300], source="manual",
                     created_by=user["email"], created_at=now)
     db.add(row)
+    # Same transparency pair as adjust_punch (Visesh, Aug 11): the employee
+    # learns a punch appeared on their card, and the approver/HR/global admins
+    # learn who put it there.
+    if row.employee_email != user["email"]:
+        _hr_notify(db, row.employee_email, "Punch added to your timecard",
+                   f"A {row.kind.replace('_', ' ')} punch on {row.local_date} was added to your "
+                   "timecard by a manager - open your timecard to review.",
+                   ref_id=row.id, action={"view": "timeclock", "sub": "timecard"})
+    _notify_timecard_change(
+        db, employee_email=row.employee_email, actor_email=user["email"],
+        body=f"{_display_name(db, user['email'])} added a {row.kind.replace('_', ' ')} punch on "
+             f"{row.local_date} to {_display_name(db, row.employee_email)}'s timecard"
+             + (f": {(body.note or '').strip()[:200]}" if (body.note or "").strip() else "."),
+        ref_id=row.id)
     db.commit()
     return _serialize(row)
 
