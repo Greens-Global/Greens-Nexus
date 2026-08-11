@@ -217,9 +217,11 @@ export function TasksProvider({ children }) {
   // Completing a task celebrates (unicorn + green sweep) and holds the store
   // update briefly so the row visibly turns green BEFORE it jumps to the
   // Completed bucket. Un-completing is instant and silent. The pending set
-  // guards double-clicks during the hold. A task whose status is Recurring
-  // never completes - its due date rolls forward a week instead (the whole
-  // point of a recurring task is that it comes back).
+  // guards double-clicks during the hold. Recurring tasks complete like any
+  // other - the SERVER spawns the next occurrence per the actual recurrence
+  // rule (daily/weekly/monthly, until/count) and it arrives on the next
+  // refetch. The old client-side "roll dueOn +7 days" shortcut fought that
+  // generator, hardcoded weekly, and left no completion history (Aug 12).
   const pendingComplete = useRef(new Set());
   const toggleComplete = useCallback((t) => {
     if (t.completed) return updateTask(t.id, { completed: false });
@@ -229,17 +231,14 @@ export function TasksProvider({ children }) {
     return new Promise((resolve) => {
       setTimeout(() => {
         pendingComplete.current.delete(t.id);
-        if (t.status === 'recurring' && t.dueOn) {
-          const today = new Date().toISOString().slice(0, 10);
-          const base = new Date(`${t.dueOn > today ? t.dueOn : today}T00:00:00`);
-          base.setDate(base.getDate() + 7);
-          const next = base.toISOString().slice(0, 10);
-          offerUndo(`Recurring - rolled to ${next}`, () => updateTask(t.id, { dueOn: t.dueOn }).catch(() => {}));
-          resolve(updateTask(t.id, { dueOn: next }).catch(() => {}));
-        } else {
-          offerUndo(`Completed "${(t.title || '').slice(0, 40)}"`, () => updateTask(t.id, { completed: false }).catch(() => {}));
-          resolve(updateTask(t.id, { completed: true }).catch(() => {}));
-        }
+        const recurring = t.status === 'recurring' || !!t.recurrence?.freq;
+        offerUndo(
+          recurring
+            ? `Completed "${(t.title || '').slice(0, 40)}" - next occurrence created`
+            : `Completed "${(t.title || '').slice(0, 40)}"`,
+          () => updateTask(t.id, { completed: false }).catch(() => {}),
+        );
+        resolve(updateTask(t.id, { completed: true }).catch(() => {}));
       }, 550);
     });
   }, [updateTask, offerUndo]);
