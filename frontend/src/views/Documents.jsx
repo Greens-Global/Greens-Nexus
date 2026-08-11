@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
-import { FileSignature, LayoutDashboard, Folder, LayoutTemplate } from 'lucide-react';
+import { FileSignature, LayoutDashboard, Folder, LayoutTemplate, FileText } from 'lucide-react';
 import { api } from '../api';
 import { useEntities } from '../lib/queries';
 import ESign from '../components/ESign';
+import PdfEditorModule from './PdfEditorModule';
 import DocumentsDashboard from '../components/DocumentsDashboard';
 import DocumentsBrowser from '../components/DocumentsBrowser';
 import DocumentTemplates from '../components/DocumentTemplates';
@@ -25,6 +26,7 @@ const TABS = [
   { key: 'documents-browse', label: 'My Documents', Icon: Folder },
   { key: 'documents-templates', label: 'Templates', Icon: LayoutTemplate },
   { key: 'documents-esign', label: 'E-Sign', Icon: FileSignature },
+  { key: 'documents-pdf', label: 'PDF Editor', Icon: FileText },
 ];
 
 export default function Documents({ activeSub, onSubChange }) {
@@ -41,6 +43,16 @@ export default function Documents({ activeSub, onSubChange }) {
   // the same result twice in a row still re-triggers (nonce always bumps).
   const [openDocSignal, setOpenDocSignal] = useState(null);
   const [openTemplateSignal, setOpenTemplateSignal] = useState(null);
+
+  // When a PDF is open in the PDF Editor tab, the editor goes full-bleed
+  // (App.jsx hides the Nexus header). Hide Documents' own title + tab strip too
+  // so the editor gets the whole viewport, matching its old standalone mode.
+  const [pdfFullBleed, setPdfFullBleed] = useState(false);
+  useEffect(() => {
+    const onDocState = (e) => setPdfFullBleed(!!(e.detail && e.detail.hasDoc));
+    window.addEventListener('nexus:pdf-doc-state', onDocState);
+    return () => window.removeEventListener('nexus:pdf-doc-state', onDocState);
+  }, []);
 
   const [employees, setEmployees] = useState([]);
   const { data: entities = [] } = useEntities();
@@ -78,6 +90,7 @@ export default function Documents({ activeSub, onSubChange }) {
 
   return (
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
+      {!pdfFullBleed && (
       <div className="view-header" style={{ marginBottom: 18, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
         <div className="view-title-group">
           <h2>Documents</h2>
@@ -88,11 +101,12 @@ export default function Documents({ activeSub, onSubChange }) {
           onOpenTemplate={(id) => { onSubChange?.('documents-templates'); setOpenTemplateSignal({ id, nonce: Date.now() }); }}
           onGoToEsignRequests={() => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'documents', sub: 'documents-esign-requests' } }))} />
       </div>
+      )}
 
       {/* Tabs */}
       {/* Desktop: tabs render centered in the top header; phones keep the
           in-page strip (ModuleTabs handles both) */}
-      <ModuleTabs tabs={TABS} active={sub} onChange={onSubChange} />
+      {!pdfFullBleed && <ModuleTabs tabs={TABS} active={sub} onChange={onSubChange} />}
 
       {sub === 'documents-dashboard' && (
         <DocumentsDashboard
@@ -122,6 +136,8 @@ export default function Documents({ activeSub, onSubChange }) {
             if (docId) api.updateDocument(docId, { signRequestId: sent.id, status: 'final' }).catch(toastErr);
           }} />
       )}
+
+      {sub === 'documents-pdf' && <PdfEditorModule />}
 
       {toast && (
         <div style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', background: toast.kind === 'error' ? 'hsl(var(--color-red))' : 'hsl(var(--color-green))', color: '#fff', borderRadius: 10, padding: '10px 18px', fontSize: 13, fontWeight: 600, zIndex: 1300, boxShadow: 'var(--shadow-lg)', maxWidth: '90vw' }}>

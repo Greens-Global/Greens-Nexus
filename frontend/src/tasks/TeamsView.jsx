@@ -82,7 +82,7 @@ export default function TeamsView({ onNavigate }) {
         <div style={{ fontSize: 13, color: NX.dim }}>Teams group members and their work within a project.</div>
       </div>
 
-      <div className="nx-scroll nx-gutter" style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: 16 }}>
+      <div className="nx-scroll nx-gutter" style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: '16px 16px 76px' }}>
         {/* Member request inbox */}
         {pending.length > 0 && (
           <div style={{ background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 12, marginBottom: 18 }}>
@@ -409,7 +409,7 @@ function TeamDetail({ team, teamProjects, onBack, onEdit, onNavigate }) {
       </div>
 
       {/* Body */}
-      <div className="nx-scroll nx-gutter" style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: '20px' }}>
+      <div className="nx-scroll nx-gutter" style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: '20px 20px 76px' }}>
         {tab === 'overview' && <TeamOverviewTab team={team} teamProjects={teamProjects} onSeeMembers={() => setTab('members')} onNavigate={onNavigate} />}
         {tab === 'members' && <TeamMembersTab team={team} />}
         {tab === 'work' && <TeamWorkTab teamProjects={teamProjects} tasks={tasks} onNavigate={onNavigate} />}

@@ -1,5 +1,5 @@
 """HTML email templates for the Task Notification workflow (Jul 2026) - same
-shell and visual language as ticket_mail_templates.py (dark-green NEXUS
+shell and visual language as ticket_mail_templates.py (dark-green Greens Global
 header, inline styles only since email clients ignore <style> sheets), so
 task emails look like they come from the same system. Per-event functions
 below just supply the heading/rows/CTA; nobody building a new notification
@@ -49,7 +49,7 @@ def task_email_html(*, task_title: str, status: str, heading: str,
     logo_block = (
         f"<img src='{escape(logo_url)}' alt='Company logo' height='28' style='display:block' />"
         if logo_url else
-        "<span style='color:#ffffff;font-size:16px;font-weight:700;letter-spacing:4px'>NEXUS</span>"
+        "<span style='color:#ffffff;font-size:16px;font-weight:700;letter-spacing:3px'>GREENS GLOBAL</span>"
     )
     secondary_html = ""
     if secondary_ctas:
@@ -80,7 +80,7 @@ def task_email_html(*, task_title: str, status: str, heading: str,
     </tr>
     <tr>
       <td style="padding:4px 28px 28px;text-align:center">
-        <a href="{escape(cta_url)}" style="display:inline-block;background:#0f3d2e;color:#ffffff;text-decoration:none;
+        <a href="{escape(cta_url)}" style="display:inline-block;background:#248f4b;color:#ffffff;text-decoration:none;
           font-size:13.5px;font-weight:700;padding:11px 28px;border-radius:8px">{escape(cta_label)}</a>
         {secondary_html}
         {note_html}
@@ -113,11 +113,12 @@ def _common_rows(t: dict) -> list[tuple[str, str]]:
 
 # ── Per-event builders - each returns (subject, html) ────────────────────────
 
-# The product name, per the WHITE-LABEL constraint. Kept here rather than
-# imported from the ticket templates: the two modules format their subjects
-# differently on purpose, and sharing a symbol would invite someone to
-# "align" them again.
-COMPANY_NAME = "Nexus"
+# What the RECIPIENT should recognise, which is the company - not the internal
+# product name. Most people who get one of these do not think of the tool as
+# "Nexus" at all. Kept here rather than imported from the ticket templates: the
+# two modules format their subjects differently on purpose, and sharing a symbol
+# would invite someone to "align" them again.
+COMPANY_NAME = "Greens Global"
 
 
 def _task_subject(t: dict, state: str) -> str:

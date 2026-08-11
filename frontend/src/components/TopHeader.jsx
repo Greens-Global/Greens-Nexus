@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useMemo, lazy, Suspense } from "react";
-import { Menu, Moon, Sun, Search, LogOut, Settings, User, ArrowLeft, Shield, Activity, Check, ChevronDown, LayoutDashboard, Palette, Camera, Clock, Sparkles, X, UserCog, DoorOpen } from "lucide-react";
+import { Menu, Search, LogOut, Settings, User, ArrowLeft, Shield, Activity, Check, ChevronDown, LayoutDashboard, Camera, Clock, Sparkles, X, UserCog, DoorOpen } from "lucide-react";
 import ScreenshotsAdmin from "./ScreenshotsAdmin";
 const Changelog = lazy(() => import("../tasks/ChangelogView"));
 import NotificationBell from "./NotificationBell";
@@ -7,11 +7,27 @@ import PageHelp from "./PageHelp";
 import { useHeaderTabs } from "./ModuleTabs";
 import ActAsModal from "./ActAsModal";
 import AccountSettingsModal from "./AccountSettingsModal";
+import MyProfileModal from "./MyProfileModal";
 import { useMsal }        from "@azure/msal-react";
 import { BFF_MODE, bffLogout } from "../bffAuth";
 import { useRole, ROLES, MODULES } from "../contexts/RoleContext";
+import { usePersonPhoto } from "../lib/peoplePhotos";
+import { api } from "../api";
 
-export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle, canGoBack, onBack, onNavigate, prevLabel, onOpenAdmin, helpKey, helpLabel }) {
+// Header search reaches into the Task module's content, not just the module
+// list, so typing a task's title finds the task. Grouped by kind the way Asana's
+// own search is - a flat list of mixed things forces the reader to work out what
+// each row IS before deciding whether it is the one they want.
+const SEARCH_GROUPS = [
+  { key: 'tasks',      label: 'Tasks' },
+  { key: 'projects',   label: 'Projects' },
+  { key: 'people',     label: 'People' },
+  { key: 'portfolios', label: 'Portfolios' },
+  { key: 'teams',      label: 'Teams' },
+];
+const EMPTY_HITS = { tasks: [], projects: [], people: [], portfolios: [], teams: [] };
+
+export default function TopHeader({ title, theme, onThemeToggle, sidebarPinned, onSidebarPinnedChange, onMobileToggle, canGoBack, onBack, onNavigate, prevLabel, onOpenAdmin, helpKey, helpLabel }) {
   const { instance, accounts } = useMsal();
   const { myRole, can, myGrantedModules, actingAs, startActAs, stopActAs } = useRole();
   // Module tab strip published by the active module (<ModuleTabs>). When
@@ -24,6 +40,7 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
   const canActAs = (can?.('manager') ?? false) || !!myGrantedModules?.has?.('act-as');
   const [actAsModalOpen, setActAsModalOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [myProfileOpen, setMyProfileOpen] = useState(false);
   // Coming back from Asana's consent screen: the OAuth callback redirects here
   // with ?asana=connected|denied|error so the outcome isn't lost across the
   // full page navigation. Reopen Account Settings on it, then strip the params
@@ -48,8 +65,22 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
   const name     = account?.name ?? "User";
   const email    = account?.username ?? "";
   const initials = name.split(" ").map(n => n[0]).slice(0, 2).join("").toUpperCase();
+  // The person's own photo from the Nexus People directory - the same picture
+  // their avatar shows everywhere else in the app. '' while it loads, and for
+  // anyone HR hasn't given a photo, so the initials stay the fallback.
+  const photo    = usePersonPhoto(email);
   const roleMeta = ROLES[myRole] ?? ROLES.employee;
   const isAdmin  = can?.('administrator') ?? false;
+  // What Teams shows under your name is your job title, not an access level -
+  // "Global Admin" there is meaningless to a colleague who just wants to know
+  // what you do. Nexus's own permission tier stays visible as the badge in the
+  // dropdown card below; this only replaces the compact pill's subtitle, and
+  // falls back to the access-level label for anyone with no HR record yet
+  // (e.g. local dev's NEXUS_DEV_EMAIL) rather than showing blank.
+  const [myTitle, setMyTitle] = useState('');
+  useEffect(() => {
+    api.myHrProfile().then(p => setMyTitle(p.jobTitle || '')).catch(() => {});
+  }, []);
 
   const [open,         setOpen]         = useState(false);
   const [shotsOpen,    setShotsOpen]    = useState(false);   // Admin → Screenshots gallery
@@ -100,7 +131,7 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
 
   // Restricted view IDs that need at minimum supervisor role
   const RESTRICTED_MIN_SUPERVISOR = new Set([
-    'manager-dashboard','tasks','sop','it','ops','operations','development',
+    'manager-dashboard','tasks','tickets','sop','it','ops','operations','development',
     'property-asset','accounting','investor-relations','hr','marketing','external-links',
   ]);
 
@@ -117,6 +148,49 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchQuery, myRole, myGrantedModules]);
 
+  // Content search, debounced so a fast typist makes one call rather than one
+  // per keystroke. Failures fall back to an empty result set: the module
+  // matches above are computed locally and must keep working if the API is down.
+  const [hits, setHits] = useState(EMPTY_HITS);
+  useEffect(() => {
+    const term = searchQuery.trim();
+    if (term.length < 2) { setHits(EMPTY_HITS); return undefined; }
+    let live = true;
+    const id = setTimeout(() => {
+      api.searchTaskModule(term)
+        .then((r) => { if (live) setHits({ ...EMPTY_HITS, ...r }); })
+        .catch(() => { if (live) setHits(EMPTY_HITS); });
+    }, 180);
+    return () => { live = false; clearTimeout(id); };
+  }, [searchQuery]);
+
+  const hitCount = SEARCH_GROUPS.reduce((n, g) => n + (hits[g.key]?.length || 0), 0);
+
+  // Every result closes the popover, then routes by what it is. Tasks and
+  // people go through window events (nexus:open-task / nexus:tasks-person)
+  // because the Task module owns the drawer and the workspace - the header
+  // only says WHAT was picked, never how to render it.
+  function openHit(kind, item) {
+    setSearchQuery(''); setSearchOpen(false);
+    const toTasks = (sub) => window.dispatchEvent(
+      new CustomEvent('nexus:navigate', { detail: { view: 'tasks', sub } }));
+    if (kind === 'tasks') {
+      toTasks('mine');
+      setTimeout(() => window.dispatchEvent(
+        new CustomEvent('nexus:open-task', { detail: { taskId: item.id } })), 0);
+    } else if (kind === 'people') {
+      toTasks('home');
+      setTimeout(() => window.dispatchEvent(
+        new CustomEvent('nexus:tasks-person', { detail: { email: item.email, name: item.name } })), 0);
+    } else if (kind === 'projects') {
+      toTasks('projects');
+    } else if (kind === 'portfolios') {
+      toTasks('portfolios');
+    } else if (kind === 'teams') {
+      toTasks('teams');
+    }
+  }
+
   useEffect(() => {
     function handleClick(e) {
       if (dropRef.current && !dropRef.current.contains(e.target)) setOpen(false);
@@ -128,7 +202,12 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
 
   function handleSearchKey(e) {
     if (e.key === 'Escape') { setSearchQuery(''); setSearchOpen(false); }
-    if (e.key === 'Enter' && searchResults.length > 0) {
+    if (e.key !== 'Enter') return;
+    // Content beats a page: someone typing a task's title wants the task, and
+    // the module list is the fallback it always was.
+    const group = SEARCH_GROUPS.find((g) => hits[g.key]?.length);
+    if (group) { openHit(group.key, hits[group.key][0]); return; }
+    if (searchResults.length > 0) {
       onNavigate(searchResults[0].id);
       setSearchQuery(''); setSearchOpen(false);
     }
@@ -154,7 +233,7 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
     <div className="search-bar">
       <Search style={{ width: 14, height: 14, flexShrink: 0 }} />
       <input
-        placeholder="Search Nexus…"
+        placeholder="Search tasks, projects, people…"
         value={searchQuery}
         onChange={e => { setSearchQuery(e.target.value); setSearchOpen(true); }}
         onFocus={() => setSearchOpen(true)}
@@ -165,36 +244,72 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
     </div>
   );
 
+  const panelStyle = {
+    position: 'absolute', top: 'calc(100% + 6px)', left: 0, right: 0,
+    background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10,
+    boxShadow: '0 8px 28px rgba(0,0,0,0.15)', zIndex: 500, overflow: 'hidden',
+  };
+  const rowStyle = {
+    width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px',
+    background: 'transparent', border: 'none', cursor: 'pointer',
+    fontFamily: 'Inter,sans-serif', fontSize: 13, color: 'var(--ink)', textAlign: 'left',
+  };
+  const headingStyle = {
+    padding: '7px 14px 4px', fontSize: 10.5, fontWeight: 700, letterSpacing: '.07em',
+    textTransform: 'uppercase', color: 'var(--muted)', background: 'var(--mist)',
+  };
+  const subStyle = { fontSize: 11.5, color: 'var(--muted)' };
+  const hover = (on) => (e) => (e.currentTarget.style.background = on ? 'var(--mist)' : 'transparent');
+
   const searchResultsDropdown = (
     <>
-      {searchOpen && searchResults.length > 0 && (
-        <div style={{
-          position: 'absolute', top: 'calc(100% + 6px)', left: 0, right: 0,
-          background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10,
-          boxShadow: '0 8px 28px rgba(0,0,0,0.15)', zIndex: 500, overflow: 'hidden',
-        }}>
-          {searchResults.map((m, i) => (
-            <button key={m.id} onClick={() => goTo(m.id)}
-              style={{
-                width: '100%', display: 'flex', alignItems: 'center', gap: 10,
-                padding: '9px 14px', background: i === 0 ? 'var(--mist)' : 'transparent',
-                border: 'none', cursor: 'pointer', fontFamily: 'Inter,sans-serif',
-                fontSize: 13, color: 'var(--ink)', textAlign: 'left',
-                borderTop: i > 0 ? '1px solid var(--line)' : 'none',
-              }}>
-              <LayoutDashboard size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />
-              <span style={{ fontWeight: 500 }}>{m.label}</span>
-            </button>
-          ))}
+      {searchOpen && (searchResults.length > 0 || hitCount > 0) && (
+        <div style={{ ...panelStyle, maxHeight: '70vh', overflowY: 'auto' }}>
+          {SEARCH_GROUPS.map((g) => (hits[g.key]?.length ? (
+            <div key={g.key}>
+              <div style={headingStyle}>{g.label}</div>
+              {hits[g.key].map((item) => (
+                <button key={item.id || item.email} onClick={() => openHit(g.key, item)}
+                  style={rowStyle} onMouseEnter={hover(true)} onMouseLeave={hover(false)}>
+                  {g.key === 'tasks' ? (
+                    <>
+                      <Check size={13} style={{ color: item.completed ? 'var(--ok, #16a34a)' : 'var(--muted)', flexShrink: 0 }} />
+                      <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                        textDecoration: item.completed ? 'line-through' : 'none' }}>{item.title}</span>
+                      {item.projectName && <span style={{ ...subStyle, flexShrink: 0 }}>{item.projectName}</span>}
+                    </>
+                  ) : g.key === 'people' ? (
+                    <>
+                      <User size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+                      <span style={{ fontWeight: 500 }}>{item.name}</span>
+                      <span style={{ ...subStyle, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.email}</span>
+                    </>
+                  ) : (
+                    <>
+                      <LayoutDashboard size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+                      <span style={{ fontWeight: 500 }}>{item.name}</span>
+                    </>
+                  )}
+                </button>
+              ))}
+            </div>
+          ) : null))}
+          {searchResults.length > 0 && (
+            <div>
+              <div style={headingStyle}>Pages</div>
+              {searchResults.map((m) => (
+                <button key={m.id} onClick={() => goTo(m.id)} style={rowStyle}
+                  onMouseEnter={hover(true)} onMouseLeave={hover(false)}>
+                  <LayoutDashboard size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+                  <span style={{ fontWeight: 500 }}>{m.label}</span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
-      {searchOpen && searchQuery.trim() && searchResults.length === 0 && (
-        <div style={{
-          position: 'absolute', top: 'calc(100% + 6px)', left: 0, right: 0,
-          background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10,
-          boxShadow: '0 8px 28px rgba(0,0,0,0.15)', zIndex: 500, padding: '12px 14px',
-          fontSize: 13, color: 'var(--muted)', textAlign: 'center',
-        }}>
+      {searchOpen && searchQuery.trim().length >= 2 && searchResults.length === 0 && hitCount === 0 && (
+        <div style={{ ...panelStyle, padding: '12px 14px', fontSize: 13, color: 'var(--muted)', textAlign: 'center' }}>
           No results for "{searchQuery}"
         </div>
       )}
@@ -286,10 +401,14 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
         {/* User profile pill */}
         <div className="header-user-wrap" ref={dropRef}>
           <button className="header-user-pill" onClick={() => setOpen(o => !o)}>
-            <div className="header-avatar">{initials}</div>
+            <div className="header-avatar">
+              {photo
+                ? <img src={photo} alt="" style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover', display: 'block' }} />
+                : initials}
+            </div>
             <div className="header-user-info">
               <span className="header-user-name">{name.split(" ")[0]}</span>
-              <span className="header-user-role">{roleMeta.label}</span>
+              <span className="header-user-role">{myTitle || roleMeta.label}</span>
             </div>
             <ChevronDown size={13} style={{ color: 'var(--muted)', flexShrink: 0, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }} />
           </button>
@@ -300,12 +419,14 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
               {/* ── Profile card ─────────────────────────────────── */}
               <div style={{ padding: '14px 14px 10px', display: 'flex', alignItems: 'center', gap: 12 }}>
                 <div style={{
-                  width: 42, height: 42, borderRadius: '50%', flexShrink: 0,
+                  width: 42, height: 42, borderRadius: '50%', flexShrink: 0, overflow: 'hidden',
                   background: `hsl(${roleMeta.color})`,
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   fontSize: 15, fontWeight: 700, color: '#fff', letterSpacing: '.02em',
                 }}>
-                  {initials}
+                  {photo
+                    ? <img src={photo} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                    : initials}
                 </div>
                 <div style={{ minWidth: 0, flex: 1 }}>
                   <div style={{ fontWeight: 700, fontSize: 13.5, color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -314,6 +435,11 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
                   <div style={{ fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: 1 }}>
                     {email}
                   </div>
+                  {myTitle && (
+                    <div style={{ fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: 1 }}>
+                      {myTitle}
+                    </div>
+                  )}
                   <div style={{ marginTop: 5, display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 10, background: roleMeta.bg }}>
                     <Shield size={10} style={{ color: `hsl(${roleMeta.color})`, flexShrink: 0 }} />
                     <span style={{ fontSize: 10.5, fontWeight: 700, color: `hsl(${roleMeta.color})`, letterSpacing: '.03em' }}>
@@ -325,34 +451,18 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
 
               <div className="hud-divider" />
 
-              <button className="hud-item">
+              <button className="hud-item" onClick={() => { setOpen(false); setMyProfileOpen(true); }}>
                 <User size={14} /> My Profile
               </button>
               <button className="hud-item" onClick={() => { setOpen(false); setSettingsOpen(true); }}>
                 <Settings size={14} /> Account Settings
               </button>
               <button className="hud-item" onClick={() => { setOpen(false); setChangelogOpen(true); }}>
-                <Sparkles size={14} /> What's new
+                <Sparkles size={14} /> What's New
               </button>
-              {/* Dark mode + Help live here now (Neil: clear the top bar, esp. mobile) */}
-              <button className="hud-item" onClick={onThemeToggle}>
-                {theme === "dark" ? <Sun size={14} /> : <Moon size={14} />} {theme === "dark" ? "Light mode" : "Dark mode"}
-              </button>
-              {/* Work OS visual theme - cobalt (default) or warm sand */}
-              <div style={{ padding: '6px 12px 2px', fontSize: 10, fontWeight: 700, letterSpacing: '.06em', color: 'var(--muted)', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 5 }}>
-                <Palette size={11} /> Theme
-              </div>
-              {[['cobalt', 'Cobalt'], ['warm', 'Warm sand']].map(([key, label]) => (
-                <button key={key} className="hud-item" onClick={() => setWkTheme(key)}>
-                  <span aria-hidden="true" style={{
-                    width: 13, height: 13, borderRadius: 4, flexShrink: 0,
-                    background: key === 'cobalt' ? '#2b45e1' : '#f5ead0',
-                    border: key === 'warm' ? '1px solid #ddd5c2' : '1px solid transparent',
-                  }} />
-                  {label}
-                  {wkTheme === key && <Check size={13} style={{ marginLeft: 'auto', color: 'var(--ink)' }} />}
-                </button>
-              ))}
+              {/* Dark Mode + Theme moved into My Profile (Neil: group appearance
+                  settings with the rest of "your" settings instead of loose in
+                  the top-level menu). Help stays here. */}
               {helpKey && <PageHelp pageKey={helpKey} label={helpLabel} variant="row" onActivate={() => setOpen(false)} />}
 
               {/* Act As (Jul 2026): visible to Manager/IT Admin/Global Admin (or an
@@ -452,6 +562,13 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
         initialResult={asanaResult.result}
         initialReason={asanaResult.reason}
       />
+    )}
+
+    {myProfileOpen && (
+      <MyProfileModal onClose={() => setMyProfileOpen(false)}
+        theme={theme} onThemeToggle={onThemeToggle}
+        wkTheme={wkTheme} setWkTheme={setWkTheme}
+        sidebarPinned={sidebarPinned} onSidebarPinnedChange={onSidebarPinnedChange} />
     )}
     </>
   );

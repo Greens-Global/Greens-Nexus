@@ -18,6 +18,8 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
 import asana_oauth
+import asana_sync
+import models
 from app_url import app_url
 from auth import get_current_user
 from database import get_db
@@ -38,10 +40,103 @@ def status(user: dict = Depends(get_current_user), db: Session = Depends(get_db)
         # mismatch here is the usual reason a first connection attempt fails.
         "redirectUri": asana_oauth.redirect_uri(),
         "connected": bool(row and row.refresh_token_enc),
+        # Set when a push could not use this grant. "Connected" alone is not the
+        # same as working - a grant whose vault key changed still looks connected
+        # while every comment posts as somebody else.
+        "lastError": (row.last_error or "") if row else "",
+        "lastErrorAt": (row.last_error_at or "") if row else "",
         "asanaName": (row.asana_name or "") if row else "",
         "asanaEmail": (row.asana_email or "") if row else "",
         "connectedAt": (row.created_at or "") if row else "",
     }
+
+
+@router.get("/check")
+def check(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Would a comment posted right now go out as this person, or as the
+    service account - and if the latter, why?
+
+    Exists because the fallback is deliberately silent: losing a comment is
+    worse than posting it under the wrong name, so every failure degrades
+    instead of raising. That is right for the comment and useless for the
+    person, who is told "comments appear as you" and then sees somebody else's
+    name in Asana with nothing to explain it.
+
+    Does the real thing rather than inspecting state: takes the same token
+    push_comment would take and calls Asana with it. A grant can be perfectly
+    valid and still be rejected by the project the task lives in, and only an
+    actual request finds that out."""
+    email = user["email"]
+    token, why = asana_oauth.token_reason(db, email)
+    out = {"willPostAsMe": False, "asanaName": "", "asanaEmail": "", "reason": why,
+           "serviceAccountName": "", "partial": False}
+
+    # Who the shared token is - the name that shows up instead. Naming it turns
+    # "why is Sai posting my comments" into an answered question.
+    try:
+        cfg = asana_sync.get_config(db)
+        if cfg and cfg.token:
+            me = asana_sync.asana_identity(cfg.token)
+            out["serviceAccountName"] = me.get("name") or ""
+    except Exception:
+        pass
+
+    if not token:
+        return out
+    try:
+        me = asana_sync.asana_identity(token)
+    except Exception as e:
+        out["reason"] = f"Asana rejected your grant ({e}) - disconnect and reconnect"
+        return out
+    out.update({"asanaName": me.get("name") or "", "asanaEmail": me.get("email") or ""})
+
+    # A valid grant is not the same as a usable one: Asana refuses writes on a
+    # task the token's owner cannot reach, and /users/me succeeds regardless.
+    #
+    # Probed against a REAL synced task, not the workspace. A guest account is
+    # a workspace member and would pass a workspace check while still being
+    # unable to touch the task a comment is actually posted to - so a
+    # workspace-level probe reports "working" about a connection that falls back
+    # on every comment, which is the same blindness this endpoint exists to end.
+    #
+    # A read: proving write access by writing would leave test comments in a
+    # real project.
+    #
+    # A SAMPLE, not one task. Access is per project, so a single probe cannot
+    # tell "this account is locked out" from "this account is not on the one
+    # project that task happens to live in" - and reporting the first as the
+    # second tells somebody their connection is broken when their own project
+    # works fine.
+    links = (db.query(models.AsanaTaskLink)
+               .filter(models.AsanaTaskLink.asana_gid != "")
+               .order_by(models.AsanaTaskLink.last_synced_at.desc()).limit(8).all())
+    reachable, blocked, last_err = 0, 0, ""
+    for link in links:
+        try:
+            asana_sync.asana_task(token, link.asana_gid)
+            reachable += 1
+        except Exception as e:
+            blocked += 1
+            last_err = str(e)
+
+    who = me.get("name") or "your Asana account"
+    if links and not reachable:
+        out["reason"] = (f"{who} cannot access any of the tasks this syncs to, so Asana refuses "
+                         f"their comments ({last_err}). A Guest account only sees projects it has "
+                         f"been added to - add it to the project, or connect an account that is a "
+                         f"full workspace member.")
+        return out
+    if blocked:
+        # Partly working: real, and worth saying plainly rather than rounding to
+        # either "fine" or "broken".
+        out.update({"willPostAsMe": True, "partial": True})
+        out["reason"] = (f"{who} can reach {reachable} of {reachable + blocked} recently synced "
+                         f"tasks. Comments on the rest post as the service account - that account "
+                         f"has not been added to those projects.")
+        return out
+
+    out.update({"willPostAsMe": True, "reason": ""})
+    return out
 
 
 @router.post("/start")

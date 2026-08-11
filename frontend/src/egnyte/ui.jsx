@@ -2,7 +2,10 @@
 // Egnyte module - small presentational pieces shared by the browser, the
 // property panel and the module shell. Inline styles on --wk-* tokens, matching
 // the Work OS idiom used across the app.
-import { AlertTriangle, CloudOff, ExternalLink, Loader2 } from 'lucide-react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { AlertTriangle, CloudOff, ExternalLink, Link2, Loader2 } from 'lucide-react';
+import { api } from '../api';
 
 export const CARD = {
   background: 'var(--wk-card)',
@@ -123,6 +126,142 @@ export function ProblemNote({ message, onRetry }) {
       <AlertTriangle size={24} style={{ color: 'var(--wk-orange)', marginBottom: 10 }} />
       <div style={{ ...BODY, maxWidth: 380, margin: '0 auto' }}>{message}</div>
       {onRetry && <button className="secondary-btn" style={{ marginTop: 14 }} onClick={onRetry}>Try Again</button>}
+    </div>
+  );
+}
+
+// Floating action menu, anchored to the element that opened it (a row's "⋯").
+// Portal to body so no card or scroll container can clip it; closes on outside
+// click, Escape, scroll and resize - a stale-positioned menu is worse than a
+// closed one. Items: {label, icon, onClick, danger, disabled, hint}, or
+// 'divider'.
+export function EgnyteMenu({ anchorRect, items, onClose, align = 'right' }) {
+  const ref = useRef(null);
+  const [pos, setPos] = useState(null);
+
+  useLayoutEffect(() => {
+    if (!anchorRect || !ref.current) return;
+    const w = ref.current.offsetWidth || 230;
+    const h = ref.current.offsetHeight || 200;
+    // align 'right': menu's right edge under the anchor (the "⋯" button).
+    // align 'left': menu opens rightward from the point - the right-click case.
+    let left = align === 'left' ? anchorRect.left : anchorRect.right - w;
+    left = Math.max(8, Math.min(left, window.innerWidth - w - 8));
+    let top = anchorRect.bottom + 4;
+    if (top + h > window.innerHeight - 8) top = Math.max(8, anchorRect.top - h - 4);
+    setPos({ left, top });
+  }, [anchorRect, align]);
+
+  useEffect(() => {
+    const close = (e) => { if (!ref.current?.contains(e.target)) onClose(); };
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    // Capture phase so a click that also does something else still closes us.
+    document.addEventListener('mousedown', close, true);
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('scroll', onClose, true);
+    window.addEventListener('resize', onClose);
+    return () => {
+      document.removeEventListener('mousedown', close, true);
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('scroll', onClose, true);
+      window.removeEventListener('resize', onClose);
+    };
+  }, [onClose]);
+
+  return createPortal(
+    <div
+      ref={ref}
+      className="egx-menu"
+      role="menu"
+      style={{
+        position: 'fixed', zIndex: 6000, minWidth: 210, maxWidth: 280,
+        left: pos?.left ?? -9999, top: pos?.top ?? -9999,
+        background: 'var(--wk-card)', border: '1px solid var(--wk-line2)',
+        borderRadius: 10, boxShadow: '0 12px 32px rgba(29,33,57,.16)',
+        padding: 5, visibility: pos ? 'visible' : 'hidden',
+      }}
+    >
+      {items.filter(Boolean).map((it, i) => it === 'divider' ? (
+        <div key={`d${i}`} style={{ height: 1, background: 'var(--wk-line2)', margin: '5px 4px' }} />
+      ) : (
+        <button
+          key={it.label}
+          type="button"
+          role="menuitem"
+          disabled={it.disabled}
+          onClick={() => { onClose(); it.onClick?.(); }}
+          className="egx-menu-item"
+          style={{
+            display: 'flex', alignItems: 'center', gap: 9, width: '100%',
+            padding: '7px 9px', borderRadius: 7, border: 'none', background: 'none',
+            cursor: it.disabled ? 'default' : 'pointer', fontFamily: 'inherit',
+            fontSize: 13, textAlign: 'left', opacity: it.disabled ? 0.45 : 1,
+            color: it.danger ? 'var(--wk-red)' : 'var(--wk-ink)',
+          }}
+        >
+          {it.icon}
+          <span style={{ flex: 1, minWidth: 0, ...ELLIPSIS }}>{it.label}</span>
+          {it.hint && <span style={{ fontSize: 11, color: 'var(--wk-faint)', flexShrink: 0 }}>{it.hint}</span>}
+        </button>
+      ))}
+    </div>,
+    document.body,
+  );
+}
+
+// Small centered dialog for the browser's confirm/rename moments. Deliberately
+// tiny - the full-viewport sheet belongs to the file viewer only.
+export function EgnyteDialog({ title, children, footer, onClose, width = 420 }) {
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose?.(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+  return createPortal(
+    <div
+      className="egx-overlay"
+      onMouseDown={e => { if (e.target === e.currentTarget) onClose?.(); }}
+      style={{ position: 'fixed', inset: 0, zIndex: 6500, background: 'rgba(15,18,24,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+    >
+      <div className="egx-pop" role="dialog" aria-modal="true" aria-label={title}
+        style={{ ...CARD, width: `min(${width}px, 100%)`, padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={{ ...HEADING, fontSize: 14.5 }}>{title}</div>
+        <div style={{ ...BODY, fontSize: 13 }}>{children}</div>
+        {footer && <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>{footer}</div>}
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+// The API answered 428: per-user Egnyte OAuth is on and this person hasn't
+// connected. Rendered by EVERY browse surface (module, person card, pickers)
+// so "connect first" looks the same everywhere and is one click away.
+export function ConnectRequired() {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const connect = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      const { url, error: err } = await api.egnyteOauthStart();
+      if (url) { window.location.assign(url); return; }
+      setError(err || 'Could not start the Egnyte connection.');
+    } catch (e) { setError(e?.message || 'Could not start the Egnyte connection.'); }
+    setBusy(false);
+  };
+  return (
+    <div style={{ ...CARD, padding: '28px 20px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
+      <Link2 size={26} style={{ color: 'var(--wk-dim)' }} />
+      <div style={{ ...HEADING, fontSize: 14.5 }}>Connect Your Egnyte Account</div>
+      <div style={{ ...BODY, maxWidth: 420 }}>
+        Files here are shown with your own Egnyte permissions - connect your Egnyte account
+        once and you will see exactly the folders you have access to.
+      </div>
+      <button type="button" className="primary-btn" disabled={busy} onClick={connect} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+        {busy ? <Loader2 size={13} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Link2 size={13} />} Connect Egnyte
+      </button>
+      {error && <div style={{ ...BODY, fontSize: 12, color: 'var(--wk-red)' }}>{error}</div>}
     </div>
   );
 }

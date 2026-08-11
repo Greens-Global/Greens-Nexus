@@ -12,6 +12,7 @@ import { api }              from '../api';
 import TimeAdmin            from '../components/TimeAdmin';
 import { navigate }         from './widgets.jsx';
 import { formatDateTime }   from '../lib/datetime';
+import { pollWhileVisible } from '../lib/pollWhileVisible';
 
 const Card = ({ title, sub, action, children }) => (
   <div className="dash-card" style={{ height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column' }}>
@@ -629,6 +630,96 @@ export function ProjectsPanel() {
           </div>
         ))}
       </div>
+    </Card>
+  );
+}
+
+// ── My Agenda - the signed-in user's Outlook calendar (M365 staff only) ──────
+// The backend reads the caller's own mailbox with the app Graph credential and
+// answers {available:false} for guests/external people (no mailbox in the
+// tenant) or while consent is missing - the card then explains itself quietly
+// instead of erroring. Times arrive already in the tz we pass, so no
+// client-side conversion happens here.
+const AGENDA_REFRESH_MS = 5 * 60_000;
+const agendaDay = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const agendaTime = (s) => {
+  const m = /T(\d{2}):(\d{2})/.exec(s || '');
+  if (!m) return '';
+  const h = +m[1];
+  return `${((h + 11) % 12) + 1}:${m[2]} ${h < 12 ? 'AM' : 'PM'}`;
+};
+
+export function AgendaPanel() {
+  const [state, setState] = useState({ loading: true, available: true, events: [] });
+  useEffect(() => {
+    let alive = true;
+    const load = () => {
+      const today = new Date();
+      const tomorrow = new Date(today); tomorrow.setDate(today.getDate() + 1);
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+      api.dashAgenda(`${agendaDay(today)}T00:00:00`, `${agendaDay(tomorrow)}T23:59:59`, tz)
+        .then((r) => { if (alive) setState({ loading: false, available: !!r.available, events: r.events || [] }); })
+        .catch(() => { if (alive) setState((s) => ({ ...s, loading: false })); });
+    };
+    load();
+    const stop = pollWhileVisible(load, AGENDA_REFRESH_MS);
+    return () => { alive = false; stop(); };
+  }, []);
+
+  const todayKey = agendaDay(new Date());
+  const dayLabel = (iso) => ((iso || '').slice(0, 10) === todayKey ? 'Today' : 'Tomorrow');
+  // Group the window's events under Today / Tomorrow headers.
+  const groups = [];
+  for (const ev of state.events) {
+    const label = dayLabel(ev.start);
+    const g = groups[groups.length - 1];
+    if (g && g.label === label) g.events.push(ev);
+    else groups.push({ label, events: [ev] });
+  }
+
+  return (
+    <Card title="My Agenda" sub="From your Outlook calendar">
+      {state.loading ? (
+        <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '24px 4px', textAlign: 'center' }}>Loading your agenda…</div>
+      ) : !state.available ? (
+        <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '24px 8px', textAlign: 'center', lineHeight: 1.5 }}>
+          Your agenda isn't connected - this card shows the Outlook calendar of Microsoft 365 accounts.
+        </div>
+      ) : state.events.length === 0 ? (
+        <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '24px 4px', textAlign: 'center' }}>Nothing scheduled - enjoy the quiet.</div>
+      ) : (
+        <div>
+          {groups.map((g) => (
+            <div key={g.label}>
+              <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--muted)', padding: '6px 2px 2px' }}>{g.label}</div>
+              {g.events.map((ev, i) => (
+                <div key={`${ev.start}-${i}`} className="task-row" style={{ alignItems: 'flex-start', gap: 10, cursor: ev.webLink ? 'pointer' : 'default' }}
+                  onClick={() => { if (ev.webLink) window.open(ev.webLink, '_blank', 'noopener,noreferrer'); }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', fontVariantNumeric: 'tabular-nums', flexShrink: 0, minWidth: 62, paddingTop: 1 }}>
+                    {ev.isAllDay ? 'All day' : agendaTime(ev.start)}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div className="task-title" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{ev.subject}</div>
+                    {(ev.location || ev.joinUrl) && (
+                      <div className="task-dept" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {ev.joinUrl ? (
+                          <a href={ev.joinUrl} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}
+                            style={{ color: 'hsl(var(--color-blue))', fontWeight: 600, textDecoration: 'none' }}>
+                            Join Teams Meeting
+                          </a>
+                        ) : ev.location}
+                      </div>
+                    )}
+                  </div>
+                  {!ev.isAllDay && ev.end && (
+                    <div style={{ fontSize: 11.5, color: 'var(--muted)', flexShrink: 0, paddingTop: 2 }}>until {agendaTime(ev.end)}</div>
+                  )}
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
     </Card>
   );
 }

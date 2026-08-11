@@ -6,7 +6,7 @@ import {
   ChevronLeft, Network, CalendarOff, UserPlus, Pencil, FileText,
   CheckCircle, XCircle, ChevronRight, History, CalendarDays, Camera,
   Building2, Trash2, MapPinned, Wallet, Landmark, Lock, Contact, Heart,
-  ShieldCheck, Shield, AlertTriangle, Clock, ArrowUpRight,
+  ShieldCheck, Shield, AlertTriangle, Clock, ArrowUpRight, RotateCcw,
 } from 'lucide-react';
 import { api } from '../api';
 import { formatDate } from '../lib/datetime';
@@ -19,9 +19,12 @@ import { ensureStepUp, isStepUpRequired, StepUpNeeded } from '../stepup/StepUp';
 import { useRole, MODULES, MODULE_LEVELS, ROLES } from '../contexts/RoleContext';
 import TimeAdmin from '../components/TimeAdmin';
 import ModuleTabs from '../components/ModuleTabs';
+import PhotoEditorModal from '../components/PhotoEditorModal';
 import RolesAccess, { LevelPill, ModuleLevelPill, TierBadge } from './RolesAccess';
 import { capabilityText } from '../lib/moduleCapabilities';
 import PersonHover from '../components/PersonHoverCard';
+import EgnytePersonFolder from '../egnyte/EgnytePersonFolder';
+import InvestorChart from '../components/InvestorChart';
 import { takePendingPerson } from '../lib/personNav';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { TaskChecklist, punchTime } from '../components/WorkLogDrawer';
@@ -41,6 +44,13 @@ const STATUS_META = {
   inactive:   { label: 'Inactive',   bg: 'hsla(var(--color-orange),0.12)', fg: 'hsl(var(--color-orange))' },
   offboarded: { label: 'Left',       bg: 'var(--mist)',                    fg: 'var(--muted)' },
 };
+
+// The status dropdown's "Deleted" entry. Deliberately NOT a STATUS_META member:
+// removal is orthogonal to employment status (a removed person keeps whatever
+// status they had, so it can be restored unchanged), and it selects a different
+// LIST rather than filtering the current one. The sentinel cannot collide with a
+// real status value.
+const DELETED_F = '__deleted__';
 
 const FL = { fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 6, letterSpacing: '.04em' };
 
@@ -834,159 +844,9 @@ function ProvisionModal({ employee: e, onClose, onDone, toastErr }) {
   );
 }
 
-// ── Profile photo editor - view, re-crop (pan + zoom slider, thirds grid),
-//    or choose a new photo; exports a 512px square JPEG via canvas ────────────
-function PhotoEditorModal({ employee: e, onClose, onSaved, toastOk, toastErr }) {
-  const STAGE = 280;
-  const [imgSrc, setImgSrc]   = useState(e.photoUrl || '');
-  const [isRemote, setIsRemote] = useState(!!e.photoUrl);
-  const [nat, setNat]         = useState(null);          // { w, h } natural size
-  const [zoom, setZoom]       = useState(1);
-  const [off, setOff]         = useState({ x: 0, y: 0 });
-  const [busy, setBusy]       = useState(false);
-  const imgRef  = useState({ current: null })[0];
-  const dragRef = useState({ current: null })[0];
-
-  const baseScale = nat ? STAGE / Math.min(nat.w, nat.h) : 1;
-  const scale = baseScale * zoom;
-
-  const clamp = (o, z = zoom) => {
-    if (!nat) return o;
-    const s = baseScale * z;
-    return {
-      x: Math.min(0, Math.max(STAGE - nat.w * s, o.x)),
-      y: Math.min(0, Math.max(STAGE - nat.h * s, o.y)),
-    };
-  };
-
-  function onImgLoad(ev) {
-    const w = ev.target.naturalWidth, h = ev.target.naturalHeight;
-    setNat({ w, h });
-    const s = STAGE / Math.min(w, h);
-    setZoom(1);
-    setOff({ x: (STAGE - w * s) / 2, y: (STAGE - h * s) / 2 });
-  }
-
-  function pickFile(file) {
-    if (!file) return;
-    if (imgSrc && !isRemote) URL.revokeObjectURL(imgSrc);
-    setImgSrc(URL.createObjectURL(file));
-    setIsRemote(false);
-    setNat(null);
-  }
-
-  // Ctrl+V a screenshot/snip anywhere in the modal → same cropper flow as a
-  // chosen file.
-  function handlePaste(ev) {
-    const list = ev.clipboardData?.items || [];
-    for (const it of list) {
-      if (it.type && it.type.startsWith('image/')) {
-        const blob = it.getAsFile();
-        if (blob) {
-          ev.preventDefault();
-          pickFile(blob.name ? blob : new File([blob], `paste-${Date.now()}.png`, { type: blob.type || 'image/png' }));
-          return;
-        }
-      }
-    }
-  }
-
-  function onZoom(z) {
-    // Keep the stage centre fixed while zooming
-    if (!nat) { setZoom(z); return; }
-    const sOld = baseScale * zoom, sNew = baseScale * z;
-    const cx = (STAGE / 2 - off.x) / sOld, cy = (STAGE / 2 - off.y) / sOld;
-    setZoom(z);
-    setOff(clamp({ x: STAGE / 2 - cx * sNew, y: STAGE / 2 - cy * sNew }, z));
-  }
-
-  async function save() {
-    if (!imgSrc || !nat || busy) return;
-    setBusy(true);
-    try {
-      const blob = await new Promise((resolve, reject) => {
-        const canvas = document.createElement('canvas');
-        canvas.width = canvas.height = 512;
-        const ctx = canvas.getContext('2d');
-        const src = STAGE / scale;
-        try {
-          ctx.drawImage(imgRef.current, -off.x / scale, -off.y / scale, src, src, 0, 0, 512, 512);
-        } catch (err) { reject(err); return; }
-        canvas.toBlob(b => b ? resolve(b) : reject(new Error('Could not read the image - pick the file again.')), 'image/jpeg', 0.9);
-      });
-      const form = new FormData();
-      form.append('file', blob, 'avatar.jpg');
-      const updated = await api.uploadEmployeePhoto(e.id, form);
-      onSaved(updated);
-      toastOk('Profile photo updated.');
-      onClose();
-    } catch (err) {
-      toastErr(err?.message || 'Could not save the photo - try choosing the file again.');
-      setBusy(false);
-    }
-  }
-
-  const gridLine = (pos, vertical) => (
-    <div style={{ position: 'absolute', background: 'rgba(255,255,255,0.55)', pointerEvents: 'none',
-      ...(vertical ? { left: pos, top: 0, bottom: 0, width: 1 } : { top: pos, left: 0, right: 0, height: 1 }) }} />
-  );
-
-  return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1250, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
-      onClick={ev => ev.target === ev.currentTarget && !busy && onClose()}>
-      <div onPaste={handlePaste} tabIndex={0} style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 380, display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', outline: 'none' }}>
-        <div style={{ padding: '16px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
-          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>Profile Photo</h3>
-          <button onClick={onClose} disabled={busy} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
-        </div>
-        <div style={{ padding: 22, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14 }}>
-          {imgSrc ? (
-            <div
-              onPointerDown={ev => { ev.currentTarget.setPointerCapture(ev.pointerId); dragRef.current = { x: ev.clientX - off.x, y: ev.clientY - off.y }; }}
-              onPointerMove={ev => { if (dragRef.current) setOff(clamp({ x: ev.clientX - dragRef.current.x, y: ev.clientY - dragRef.current.y })); }}
-              onPointerUp={() => { dragRef.current = null; }}
-              style={{ position: 'relative', width: STAGE, height: STAGE, borderRadius: 14, overflow: 'hidden', background: 'var(--mist)', cursor: 'grab', touchAction: 'none', flexShrink: 0 }}>
-              <img ref={el => { imgRef.current = el; }} src={imgSrc} alt="" draggable={false}
-                crossOrigin={isRemote ? 'anonymous' : undefined} onLoad={onImgLoad}
-                style={{ position: 'absolute', left: off.x, top: off.y, width: nat ? nat.w * scale : 'auto', height: nat ? nat.h * scale : 'auto', maxWidth: 'none', userSelect: 'none' }} />
-              {/* Rule-of-thirds grid */}
-              {gridLine(STAGE / 3, true)}{gridLine((STAGE / 3) * 2, true)}
-              {gridLine(STAGE / 3, false)}{gridLine((STAGE / 3) * 2, false)}
-              <div style={{ position: 'absolute', inset: 0, border: '1px solid rgba(255,255,255,0.4)', borderRadius: 14, pointerEvents: 'none' }} />
-            </div>
-          ) : (
-            <div style={{ width: STAGE, height: STAGE, borderRadius: 14, border: '1.5px dashed var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted)', fontSize: 13 }}>
-              No photo yet - choose one below
-            </div>
-          )}
-          {/* Zoom slider */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, width: STAGE }}>
-            <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700 }}>−</span>
-            <input type="range" min="1" max="3" step="0.01" value={zoom} disabled={!nat}
-              onChange={ev => onZoom(Number(ev.target.value))}
-              style={{ flex: 1, accentColor: 'var(--pine)' }} />
-            <span style={{ fontSize: 13, color: 'var(--muted)', fontWeight: 700 }}>+</span>
-          </div>
-          <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>Drag to reposition · slide to zoom · Ctrl+V to paste a screenshot</div>
-        </div>
-        <div style={{ padding: '14px 22px', borderTop: '1px solid var(--line)', display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
-          <label className="secondary-btn" style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
-            <Camera size={13} /> {imgSrc ? 'Change photo' : 'Choose photo'}
-            <input type="file" accept="image/jpeg,image/png,image/webp" hidden
-              onChange={ev => { pickFile(ev.target.files?.[0]); ev.target.value = ''; }} />
-          </label>
-          <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
-            <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
-            <button className="primary-btn" onClick={save} disabled={!nat || busy}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (!nat || busy) ? 0.6 : 1 }}>
-              {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} Save photo
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
+// Profile photo editor now lives in components/PhotoEditorModal.jsx (shared
+// with TopHeader -> MyProfileModal's self-service flow, which needs it
+// without pulling this whole view into the always-loaded header bundle).
 
 // ── Profile detail pane ───────────────────────────────────────────────────────
 // Whole-month tenure from a start date, e.g. "2y 3m". Null if unknown/future.
@@ -1379,7 +1239,9 @@ function EmployeeAccess({ email, identityType = 'internal', toastOk, toastErr, o
   );
 }
 
-function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, isAdmin = false, onEdit, onBack, isMobile, toastOk, toastErr, onEmployeeUpdated, onRemoved }) {
+function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, isAdmin = false, onEdit, onBack, isMobile, toastOk, toastErr, onEmployeeUpdated, onRemoved, onRestored }) {
+  // Removed from Nexus (soft delete) - the record is intact and restorable.
+  const isRemoved = !!e.deletedAt;
   const [provisionOpen, setProvisionOpen] = useState(false);
   const [photoOpen, setPhotoOpen] = useState(false);
   const [compOpen, setCompOpen] = useState(false);
@@ -1390,17 +1252,29 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
   const [pushBusy, setPushBusy] = useState(false);
   const [tab, setTab] = useState('overview');
   const [payReload, setPayReload] = useState(0);   // bump to refetch PayTab after an edit
-  // Nexus-only removal - separate from offboarding (which deprovisions M365). Hard-
-  // deletes the Nexus record via the DELETE endpoint, which makes NO Graph calls.
+  const [restoreBusy, setRestoreBusy] = useState(false);
+  // Nexus-only removal - separate from offboarding (which deprovisions M365).
+  // REVERSIBLE since Aug 11: the record is hidden, not destroyed, and the copy
+  // says so. It used to warn that history would be deleted, which was true and
+  // is the reason nobody dared use it.
   async function removeFromNexus() {
     if (!await dialog.confirm(
-      `Remove ${fullName(e)} from Nexus? This deletes their Nexus record and history. It does NOT change or deprovision their Microsoft 365 account - use "Change status -> Left" for a full offboarding.`,
+      `Remove ${fullName(e)} from Nexus? They disappear from the directory and everywhere else in Nexus, but nothing is deleted - you can restore them any time from the Deleted filter. It does NOT change or deprovision their Microsoft 365 account - use "Change status -> Left" for a full offboarding.`,
       { title: 'Remove from Nexus only', confirmText: 'Remove from Nexus', danger: true })) return;
     try {
       await api.deleteEmployee(e.id);
-      toastOk(`${fullName(e)} removed from Nexus. Microsoft 365 was not changed.`);
+      toastOk(`${fullName(e)} removed from Nexus. Restore them any time from the Deleted filter.`);
       onRemoved?.(e.id);
     } catch (err) { toastErr(err?.message || 'Could not remove from Nexus.'); }
+  }
+  async function restoreToNexus() {
+    setRestoreBusy(true);
+    try {
+      const restored = await api.restoreEmployee(e.id);
+      toastOk(`${fullName(e)} restored to Nexus.`);
+      onRestored?.(restored);
+    } catch (err) { toastErr(err?.message || 'Could not restore this person.'); }
+    setRestoreBusy(false);
   }
   const sm = STATUS_META[e.status] || STATUS_META.active;
   // Case-insensitive email match - manager_email is stored lowercased server-side
@@ -1455,6 +1329,24 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
             {[e.jobTitle, e.employeeCode].filter(Boolean).join(' · ')}
           </div>
         </div>
+        {/* A removed person is read-only: Restore is the only way forward, so
+            editing, status changes and provisioning are all withheld rather
+            than left live on a record that is not currently in the company. */}
+        {isRemoved ? (
+          <>
+            <span style={{ padding: '3px 11px', borderRadius: 20, fontSize: 11.5, fontWeight: 700, background: 'hsla(var(--color-red),0.12)', color: 'hsl(var(--color-red))' }}>
+              Removed
+            </span>
+            {isAdmin && (
+              <button className="primary-btn" onClick={restoreToNexus} disabled={restoreBusy}
+                title="Put this person back into Nexus with their full record"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+                <RotateCcw size={13} /> {restoreBusy ? 'Restoring…' : 'Restore to Nexus'}
+              </button>
+            )}
+          </>
+        ) : (
+        <>
         <button onClick={() => setStatusOpen(true)} title="Change status (with reason)"
           style={{ padding: '3px 11px', borderRadius: 20, fontSize: 11.5, fontWeight: 700, background: sm.bg, color: sm.fg, border: 'none', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
           {sm.label} <Pencil size={10} />
@@ -1504,7 +1396,16 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
             )}
           </>
         )}
+        </>
+        )}
       </div>
+      {isRemoved && (
+        <div style={{ marginTop: 10, padding: '10px 12px', borderRadius: 8, background: 'hsla(var(--color-red),0.08)', border: '1px solid hsla(var(--color-red),0.25)', fontSize: 12.5, color: 'var(--ink)', lineHeight: 1.55 }}>
+          Removed from Nexus{e.deletedBy ? ` by ${e.deletedBy}` : ''}
+          {e.deletedAt ? ` on ${formatDate(e.deletedAt)}` : ''}. Their record is kept in full and
+          nothing was deleted. Their Microsoft 365 account was never changed.
+        </div>
+      )}
       {/* Stat cards - all derived from the loaded record, no extra fetch */}
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 16 }}>
         <StatCard label="Tenure" value={fmtTenure(e.startDate) || '-'} sub={e.startDate ? `since ${formatDate(e.startDate)}` : 'no start date'} />
@@ -1609,6 +1510,15 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
         {tab === 'documents' && (
           <>
             <DocumentsSection employeeId={e.id} toastOk={toastOk} toastErr={toastErr} />
+            {/* The person's wired Egnyte folder (Neil, Aug 6): hiring package,
+                invoices, payment proofs live in Egnyte, not as Nexus uploads.
+                Resolution + re-pointing happen in Egnyte - Wiring. */}
+            {e.workEmail && (
+              <div style={{ marginTop: 18 }}>
+                <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--ink)', marginBottom: 8 }}>Egnyte Folder</div>
+                <EgnytePersonFolder email={e.workEmail} personName={fullName(e)} />
+              </div>
+            )}
             <MailboxExportSection employee={e} toastOk={toastOk} toastErr={toastErr} />
           </>
         )}
@@ -2050,12 +1960,28 @@ const divColorFor = (name, names) => {
 // edge and doubles as the collapse toggle. data-orgcard lets the canvas tell a
 // card press from a pan; data-email lets drop resolve the target across the
 // zoom transform.
-function OrgNodeCard({ e, kids, isCollapsed, onToggle, onSelect, dnd, entityName, highlight, divName, divColor, isHead, dim }) {
+function OrgNodeCard({ e, kids, isCollapsed, onToggle, onSelect, dnd, entityName, highlight, divName, divColor, isHead, dim, onUnlink = null }) {
   const email = (e.workEmail || '').toLowerCase();
   const isTarget = dnd.overKey === email && dnd.draggingId && dnd.draggingId !== e.id;
   const isDragging = dnd.draggingId === e.id;
   return (
     <div data-orgcard="1" data-email={email} style={{ position: 'relative', paddingBottom: kids > 0 ? 12 : 0 }}>
+      {/* × = take this person out of the reporting line (Visesh, Aug 11) - the
+          direct alternative to dragging them into open space. Outside the
+          overflow-hidden card so it can sit on the corner. */}
+      {onUnlink && !isDragging && (
+        <button
+          title="Remove from the reporting line"
+          aria-label={`Remove ${fullName(e)} from the reporting line`}
+          onPointerDown={ev => ev.stopPropagation()}
+          onClick={ev => { ev.stopPropagation(); onUnlink(e); }}
+          style={{ position: 'absolute', top: -7, right: -7, zIndex: 2, width: 20, height: 20, borderRadius: '50%',
+            border: '1.5px solid var(--line)', background: 'var(--card)', color: 'var(--muted)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 0,
+            boxShadow: 'var(--shadow-sm)' }}>
+          <X size={11} />
+        </button>
+      )}
       <div
         onPointerDown={ev => dnd.onCardPointerDown(ev, e)}
         style={{
@@ -2111,7 +2037,8 @@ function OrgTreeNode({ e, ctx }) {
         onToggle={ctx.toggle} onSelect={ctx.setSelected} dnd={ctx.dnd}
         entityName={ctx.entityName} highlight={ctx.isHighlight(e)}
         divName={div} divColor={ctx.divColor(div)} isHead={!!(e.division || '').trim()}
-        dim={ctx.activeDiv && div !== ctx.activeDiv} />
+        dim={ctx.activeDiv && div !== ctx.activeDiv}
+        onUnlink={e.managerEmail ? ctx.onUnlink : null} />
       {open && (
         <>
           <div style={{ width: 2, height: 18, background: 'var(--line)' }} />
@@ -2243,6 +2170,9 @@ function OrgSidePanel({ e, people, entities, entityName, descendants, divisionNa
 }
 
 function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr }) {
+  // Two charts, one tab (Neil, Aug 11): the reporting tree, and the investor
+  // book grouped by relationship owner - investors don't report to anyone.
+  const [chartMode, setChartMode] = useState('org');   // 'org' | 'investors'
   const [draggingId, setDraggingId] = useState(null);
   const [overKey, setOverKey] = useState(null); // target workEmail, or '__none__' for the clear zone
   const [selected, setSelected] = useState(null);        // side-panel person
@@ -2338,10 +2268,27 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
         if (Math.hypot(m.clientX - start.x, m.clientY - start.y) < 6) return;
         st.dragging = true; setDraggingId(st.person.id);
       }
+      st.last = { x: m.clientX, y: m.clientY };
       const el = document.elementFromPoint(m.clientX, m.clientY);
       const detach = el && el.closest ? el.closest('[data-detach]') : null;
       const card = el && el.closest ? el.closest('[data-email]') : null;
-      const em = card && card.getAttribute('data-email');
+      let em = card && card.getAttribute('data-email');
+      // Forgiving drops (Visesh, Aug 11): a drop doesn't have to land ON a
+      // card - snap to the nearest card within reach, so "put them roughly
+      // there" works. Excludes the dragged person's own card.
+      if (!detach && (!em || em === (st.person.workEmail || '').toLowerCase())) {
+        let best = null, bestD = 130;   // screen px reach
+        for (const node of document.querySelectorAll('[data-email]')) {
+          const ne = node.getAttribute('data-email');
+          if (!ne || ne === (st.person.workEmail || '').toLowerCase()) continue;
+          const r = node.getBoundingClientRect();
+          const dx = Math.max(r.left - m.clientX, 0, m.clientX - r.right);
+          const dy = Math.max(r.top - m.clientY, 0, m.clientY - r.bottom);
+          const d = Math.hypot(dx, dy);
+          if (d < bestD) { bestD = d; best = ne; }
+        }
+        em = best;
+      }
       st.target = detach ? '__none__'
         : (em && em !== (st.person.workEmail || '').toLowerCase()) ? em : null;
       setOverKey(st.target);
@@ -2353,7 +2300,19 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
       const st = dragRef.current; dragRef.current = null;
       setDragGhost(null);
       if (st && st.dragging) {
-        if (st.target) drop(st.target, st.person); else { setDraggingId(null); setOverKey(null); }
+        if (st.target) {
+          drop(st.target, st.person);
+        } else {
+          // Dropped in open space, beyond snapping reach of any card: that IS
+          // the gesture for "take them out of the reporting line" - but only
+          // inside the chart canvas, so releasing over the toolbar is a no-op.
+          const c = canvasRef.current && st.last
+            ? canvasRef.current.getBoundingClientRect() : null;
+          const inCanvas = c && st.last.x >= c.left && st.last.x <= c.right
+            && st.last.y >= c.top && st.last.y <= c.bottom;
+          if (inCanvas && st.person.managerEmail) drop('__none__', st.person);
+          else { setDraggingId(null); setOverKey(null); }
+        }
       } else if (st) {
         setSelected(st.person);    // no meaningful movement → treat as a tap
       }
@@ -2438,6 +2397,7 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
     visChildren, collapsedSet, toggle, setSelected, dnd, entityName,
     isHighlight: (e) => !!q && fullName(e).toLowerCase().includes(q),
     divisionOf, divColor, activeDiv,
+    onUnlink: (person) => drop('__none__', person),
   };
 
   // ── Pan & zoom canvas - the chart never overflows the page; you pan/zoom
@@ -2518,6 +2478,24 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
   );
   return (
     <div>
+      {/* Org ⇄ Investors switch */}
+      <div style={{ display: 'inline-flex', gap: 2, background: 'var(--mist)', borderRadius: 10, padding: 3, marginBottom: 14 }}>
+        {[['org', 'Organization', Network], ['investors', 'Investors', Briefcase]].map(([key, label, Icon]) => (
+          <button key={key} onClick={() => setChartMode(key)}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 8, border: 'none', cursor: 'pointer',
+              fontFamily: 'Inter,sans-serif', fontSize: 12.5, fontWeight: 700,
+              background: chartMode === key ? 'var(--card)' : 'transparent',
+              color: chartMode === key ? 'var(--ink)' : 'var(--muted)',
+              boxShadow: chartMode === key ? 'var(--shadow-sm)' : 'none' }}>
+            <Icon size={13} /> {label}
+          </button>
+        ))}
+      </div>
+
+      {chartMode === 'investors' ? (
+        <InvestorChart employees={employees} toastOk={toastOk} toastErr={toastErr} />
+      ) : (
+      <>
       {/* Toolbar: expand controls · full-width search · filters + count (People-tab style) */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
         <button className="secondary-btn" style={{ fontSize: 12, flex: '0 0 auto' }}
@@ -2610,7 +2588,7 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
           ))}
         </div>
         <span style={{ position: 'absolute', left: 14, bottom: 14, fontSize: 10.5, color: 'var(--muted)', pointerEvents: 'none' }}>
-          Drag the canvas to move around · tap a card for details · drag a card onto someone to re-assign
+          Drag a card near someone to re-assign · drop in open space (or press ×) to remove the reporting line · tap for details
         </span>
       </div>
 
@@ -2649,6 +2627,8 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
           onClose={() => setSelected(null)} onSelect={setSelected}
           onSaved={saved => { onUpdated(saved); setSelected(saved); }}
           toastOk={toastOk} toastErr={toastErr} />
+      )}
+      </>
       )}
     </div>
   );
@@ -2989,13 +2969,6 @@ function CompanyDepartments({ entity, employees = [], toastOk, toastErr }) {
       toastOk?.(`Renamed “${d.name}” to “${n}” - people already in it follow the new name.`);
     } catch (e) { toastErr(e?.message || 'Could not rename department.'); }
   }
-  async function setOwner(d, field, email) {
-    try {
-      const list = await api.updateCompanyDepartment(entity.id, d.id, { [field]: email });
-      setDepts(list);
-      toastOk?.(email ? `${d.name} tickets now go to ${email}.` : `Cleared ${d.name} ${field === 'lead_email' ? 'lead' : 'backup'}.`);
-    } catch (e) { toastErr(e?.message || 'Could not update department.'); }
-  }
   return (
     <div style={{ overflowY: 'auto', flex: 1, padding: '16px 22px' }}>
       <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 14px' }}>
@@ -3013,11 +2986,11 @@ function CompanyDepartments({ entity, employees = [], toastOk, toastErr }) {
         : depts.length === 0 ? <div style={{ color: 'var(--muted)', fontSize: 13, padding: '10px 0' }}>No departments yet - add the first one above.</div>
         : (
           <div style={{ border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1.4fr 1.4fr 32px', gap: 10, padding: '8px 12px', background: 'var(--paper)', borderBottom: '1px solid var(--line)', fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.3 }}>
-              <span>Department</span><span>Ticket lead</span><span>Backup</span><span />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 32px', gap: 10, padding: '8px 12px', background: 'var(--paper)', borderBottom: '1px solid var(--line)', fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.3 }}>
+              <span>Department</span><span />
             </div>
             {depts.map(d => (
-              <div key={d.id} style={{ display: 'grid', gridTemplateColumns: '1.2fr 1.4fr 1.4fr 32px', gap: 10, padding: '8px 12px', alignItems: 'center', borderBottom: '1px solid var(--line)' }}>
+              <div key={d.id} style={{ display: 'grid', gridTemplateColumns: '1fr 32px', gap: 10, padding: '8px 12px', alignItems: 'center', borderBottom: '1px solid var(--line)' }}>
                 {editId === d.id ? (
                   <input className="form-input" autoFocus value={editName} maxLength={40}
                     onChange={e => setEditName(e.target.value)}
@@ -3035,18 +3008,6 @@ function CompanyDepartments({ entity, employees = [], toastOk, toastErr }) {
                     </button>
                   </span>
                 )}
-                {['lead_email', 'backup_email'].map(fieldKey => {
-                  const current = fieldKey === 'lead_email' ? (d.leadEmail || '') : (d.backupEmail || '');
-                  const unset = fieldKey === 'lead_email' && !current;
-                  return (
-                    <select key={fieldKey} className="form-input" value={current}
-                      onChange={e => setOwner(d, fieldKey, e.target.value)}
-                      style={{ fontSize: 12.5, padding: '5px 8px', ...(unset ? { borderColor: 'hsl(var(--color-amber))' } : null) }}>
-                      <option value="">{fieldKey === 'lead_email' ? '- no lead -' : '- none -'}</option>
-                      {staff.map(p => <option key={p.workEmail} value={p.workEmail.toLowerCase()}>{p.fullName || p.workEmail}</option>)}
-                    </select>
-                  );
-                })}
                 <button onClick={() => remove(d)} title={`Remove ${d.name}`} aria-label={`Remove ${d.name}`}
                   style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'grid', placeItems: 'center', width: 24, height: 24, borderRadius: '50%', padding: 0 }}
                   onMouseOver={e => { e.currentTarget.style.background = 'hsla(var(--color-red),0.14)'; e.currentTarget.style.color = 'hsl(var(--color-red))'; }}
@@ -4222,6 +4183,10 @@ export default function HR({ activeSub, onSubChange }) {
   const [deptF,     setDeptF]     = useState('All');
   const [companyF,  setCompanyF]  = useState('All');
   const [statusF,   setStatusF]   = useState('All');
+  // DELETED_F is a view, not a status: a removed person keeps whatever status
+  // they had, so it cannot live in STATUS_META alongside active/onboarding.
+  const [deletedEmployees, setDeletedEmployees] = useState([]);
+  const [deletedLoading, setDeletedLoading] = useState(false);
   const [selectedId, setSelectedId] = useState(null);
   const [formOpen,  setFormOpen]  = useState(false);
   const [editing,   setEditing]   = useState(null);
@@ -4308,6 +4273,18 @@ export default function HR({ activeSub, onSubChange }) {
       .catch(err => setError(err?.message || 'Could not load employees.'))
       .finally(() => setLoading(false));
   }
+  // Removed people are a SEPARATE list, fetched only when the Deleted filter is
+  // chosen. They are deliberately not folded into `employees`: everything else
+  // on this screen (counts, org chart, manager lookups, pickers) treats that
+  // array as "the people who work here", and a removed person appearing there
+  // would be the exact leak the server-side global filter exists to prevent.
+  function loadDeleted() {
+    setDeletedLoading(true);
+    api.getDeletedEmployees()
+      .then(rows => { setDeletedEmployees(rows); setError(''); })
+      .catch(err => setError(err?.message || 'Could not load removed people.'))
+      .finally(() => setDeletedLoading(false));
+  }
   const loadEntities = () => api.getEntities().then(setEntities).catch(() => setEntities([]));
   const loadSites = () => api.getWorkSites().then(setSites).catch(() => setSites([]));
   useEffect(load, []);
@@ -4321,16 +4298,19 @@ export default function HR({ activeSub, onSubChange }) {
     return [...new Set(src.map(e => (e.department || '').trim()).filter(Boolean))].sort();
   }, [employees, companyF]);
 
-  const filtered = useMemo(() => employees.filter(e => {
+  const showingDeleted = statusF === DELETED_F;
+  const filtered = useMemo(() => (showingDeleted ? deletedEmployees : employees).filter(e => {
     if (companyF !== 'All' && e.company !== companyF) return false;
     if (deptF !== 'All' && e.department !== deptF) return false;
-    if (statusF !== 'All' && e.status !== statusF) return false;
+    // Skipped while showing removed people - they keep their old status, so
+    // matching on it here would filter the list down to nothing.
+    if (!showingDeleted && statusF !== 'All' && e.status !== statusF) return false;
     if (search.trim()) {
       const q = search.trim().toLowerCase();
       return [fullName(e), e.workEmail, e.employeeCode, e.jobTitle, e.department].some(v => (v || '').toLowerCase().includes(q));
     }
     return true;
-  }), [employees, companyF, deptF, statusF, search]);
+  }), [employees, deletedEmployees, showingDeleted, companyF, deptF, statusF, search]);
 
   // Pagination over the FILTERED list, so search/filters always reach the whole
   // directory - a match "on page 10" simply becomes page 1 of the results.
@@ -4342,7 +4322,8 @@ export default function HR({ activeSub, onSubChange }) {
   const paged = useMemo(() => filtered.slice((curPage - 1) * PAGE_SIZE, curPage * PAGE_SIZE),
     [filtered, curPage]);
 
-  const selected = employees.find(e => e.id === selectedId) || null;
+  const selected = (showingDeleted ? deletedEmployees : employees)
+    .find(e => e.id === selectedId) || null;
   const counts = useMemo(() => ({
     total: employees.length,
     active: employees.filter(e => e.status === 'active').length,
@@ -4350,8 +4331,16 @@ export default function HR({ activeSub, onSubChange }) {
     depts: new Set(employees.filter(e => e.department).map(e => e.department)).size,
   }), [employees]);
 
-  const onRemovedFromNexus = (id) => {   // Nexus-only removal: drop from the list and close the profile
+  const onRemovedFromNexus = (id) => {   // Nexus-only removal: drop from the live list and close the profile
     setEmployees(prev => prev.filter(e => e.id !== id));
+    setDeletedEmployees([]);             // stale now; refetched when Deleted is opened
+    setSelectedId(null);
+  };
+  const onRestoredToNexus = (restored) => {
+    setDeletedEmployees(prev => prev.filter(e => e.id !== restored.id));
+    setEmployees(prev => prev.some(e => e.id === restored.id)
+      ? prev
+      : [...prev, restored].sort((a, b) => fullName(a).localeCompare(fullName(b))));
     setSelectedId(null);
   };
   const onSaved = saved => {
@@ -4467,7 +4456,7 @@ export default function HR({ activeSub, onSubChange }) {
           </button>
           <EmployeeDetail key={selected.id} e={selected} employees={employees} isMobile={isMobile}
             companyName={entityName(selected.company)} canSeeComp={canSeeComp} isAdmin={isAdmin}
-            toastOk={toastOk} toastErr={toastErr} onEmployeeUpdated={onSaved} onRemoved={onRemovedFromNexus}
+            toastOk={toastOk} toastErr={toastErr} onEmployeeUpdated={onSaved} onRemoved={onRemovedFromNexus} onRestored={onRestoredToNexus}
             onEdit={emp => { setEditing(emp); setFormOpen(true); }}
             onBack={() => setSelectedId(null)} />
           </>
@@ -4494,17 +4483,34 @@ export default function HR({ activeSub, onSubChange }) {
                   <option value="All">All departments</option>
                   {deptChoices.map(d => <option key={d}>{d}</option>)}
                 </select>
-                <select className="form-input" value={statusF} onChange={e => setStatusF(e.target.value)} style={{ width: 135, padding: '7px 10px', fontSize: 13.5, height: 38 }}>
+                {/* Choosing Deleted fetches that list here rather than in an
+                    effect - the dropdown is the only way into the view, so the
+                    fetch belongs to the action that causes it. */}
+                <select className="form-input" value={statusF}
+                  onChange={e => {
+                    const next = e.target.value;
+                    setStatusF(next);
+                    setSelectedId(null);
+                    if (next === DELETED_F) loadDeleted();
+                  }}
+                  style={{ width: 135, padding: '7px 10px', fontSize: 13.5, height: 38 }}>
                   <option value="All">All statuses</option>
                   {Object.entries(STATUS_META).map(([v, m]) => <option key={v} value={v}>{m.label}</option>)}
+                  <option value={DELETED_F}>Deleted</option>
                 </select>
               </div>
             </div>
-            {loading ? (
+            {(loading || (showingDeleted && deletedLoading)) ? (
               <div style={{ display: 'flex', justifyContent: 'center', padding: '48px 0' }}>
                 <Loader2 size={26} style={{ animation: 'spin 0.8s linear infinite', color: 'var(--muted)' }} />
               </div>
-            ) : employees.length === 0 ? (
+            ) : showingDeleted && deletedEmployees.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '56px 20px', color: 'var(--muted)' }}>
+                <Trash2 size={30} style={{ opacity: .25, display: 'block', margin: '0 auto 10px' }} />
+                <div style={{ fontSize: 14, fontWeight: 600 }}>Nobody has been removed.</div>
+                <div style={{ fontSize: 12.5, marginTop: 4 }}>People removed from Nexus land here, and can be restored with their full record.</div>
+              </div>
+            ) : !showingDeleted && employees.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '56px 20px', color: 'var(--muted)' }}>
                 <Users size={32} style={{ opacity: .25, display: 'block', margin: '0 auto 10px' }} />
                 <div style={{ fontSize: 14, fontWeight: 600 }}>No employees yet.</div>
@@ -4599,7 +4605,7 @@ export default function HR({ activeSub, onSubChange }) {
                   {selected ? (
                     <EmployeeDetail key={selected.id} e={selected} employees={employees} isMobile={isMobile}
                       companyName={entityName(selected.company)} canSeeComp={canSeeComp} isAdmin={isAdmin}
-                      toastOk={toastOk} toastErr={toastErr} onEmployeeUpdated={onSaved} onRemoved={onRemovedFromNexus}
+                      toastOk={toastOk} toastErr={toastErr} onEmployeeUpdated={onSaved} onRemoved={onRemovedFromNexus} onRestored={onRestoredToNexus}
                       onEdit={emp => { setEditing(emp); setFormOpen(true); }}
                       onBack={() => setSelectedId(null)} />
                   ) : (

@@ -29,7 +29,8 @@ const VIEW_KINDS = [
 ];
 const GROUPS = ['status', 'priority', 'assignee', 'project', 'none'];
 
-export default function TasksWorkspace({ lockedProjectId = null, mine = false, title = 'Tasks', onBack }) {
+export default function TasksWorkspace({ lockedProjectId = null, mine = false, title = 'Tasks', onBack,
+                                         initialFilters = null }) {
   const store = useTasks();
   const { tasks, nameOf, projectName, teamName, projectById, toggleComplete, bulkUpdate, deleteTask, myEmail, teams } = store;
   // Owned here so the Hide / + Column controls can live in the toolbar above
@@ -48,7 +49,9 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
   const [view, setView] = useState('list');
   const [group, setGroup] = useState('status');
   const [search, setSearch] = useState('');
-  const [filters, setFilters] = useState(EMPTY_FILTER);
+  // Seeded, not forced: header search opens "everything assigned to X" through
+  // this, and the user can then clear or widen it like any other filter.
+  const [filters, setFilters] = useState(initialFilters || EMPTY_FILTER);
   const [sort, setSort] = useState({ key: 'manual', dir: 'asc' });
   const [selected, setSelected] = useState(new Set());
   const [openId, setOpenId] = useState(taskIdFromUrl);
@@ -212,7 +215,8 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
           <span style={{ fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap' }}>{selected.size} selected</span>
           <select onChange={(e) => { if (e.target.value) { bulkUpdate([...selected], { status: e.target.value }); clearSel(); } }} defaultValue="" style={selStyle}>
             <option value="" disabled>Status…</option>
-            {store.statusOrder.map((s) => <option key={s} value={s} style={{ color: NX.ink }}>{store.statusMeta[s]?.label || s}</option>)}
+            {/* Scoped to the project in view - see richlist's groupCtx note. */}
+            {(store.statusOrderFor ? store.statusOrderFor(lockedProjectId) : store.statusOrder).map((s) => <option key={s} value={s} style={{ color: NX.ink }}>{store.statusMeta[s]?.label || s}</option>)}
           </select>
           <select onChange={(e) => { if (e.target.value) { bulkUpdate([...selected], { priority: e.target.value }); clearSel(); } }} defaultValue="" style={selStyle}>
             <option value="" disabled>Priority…</option>

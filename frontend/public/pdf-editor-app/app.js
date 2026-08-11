@@ -514,6 +514,9 @@
         dom.sizePicker.addEventListener('input', () => {
             dom.sizeValue.textContent = dom.sizePicker.value;
             updateSizePresetActive();
+            // If a shape/line is selected, change ITS border thickness live so
+            // the size picker doubles as a "manage border width" control.
+            applyStrokeWidthToSelection(parseInt(dom.sizePicker.value, 10));
             if (fabricCanvas && fabricCanvas.isDrawingMode) {
                 if (state.activeTool === 'eraser') {
                     // Eraser uses 2× size for better coverage
@@ -535,6 +538,7 @@
                 dom.sizePicker.value = size;
                 dom.sizeValue.textContent = size;
                 updateSizePresetActive();
+                applyStrokeWidthToSelection(size);
                 if (fabricCanvas && fabricCanvas.isDrawingMode) {
                     fabricCanvas.freeDrawingBrush.width = size;
                 }
@@ -566,8 +570,18 @@
         });
 
         // Sidebar toggle
+        const syncSidebarReopen = () => {
+            const btn = document.getElementById('sidebarReopen');
+            if (btn) btn.classList.toggle('show', dom.sidebar.classList.contains('collapsed'));
+        };
         dom.toggleSidebar.addEventListener('click', () => {
             dom.sidebar.classList.toggle('collapsed');
+            syncSidebarReopen();
+        });
+        // Floating reopen tab (visible only while collapsed) brings Pages back.
+        document.getElementById('sidebarReopen')?.addEventListener('click', () => {
+            dom.sidebar.classList.remove('collapsed');
+            syncSidebarReopen();
         });
 
         // Sidebar resize
@@ -727,6 +741,17 @@
         }
 
         const ctrl = e.ctrlKey || e.metaKey;
+
+        // Polyline/polygon: Enter finishes, Escape cancels the in-progress shape.
+        if (polyKind) {
+            if (e.key === 'Enter') { e.preventDefault(); polyFinish(); return; }
+            if (e.key === 'Escape') { e.preventDefault(); polyCancel(); return; }
+        }
+        // Measurement: Enter finishes, Escape cancels the in-progress measurement.
+        if (measureKind) {
+            if (e.key === 'Enter') { e.preventDefault(); measureFinish(); return; }
+            if (e.key === 'Escape') { e.preventDefault(); measureCancel(); return; }
+        }
 
         if (e.key === 'F1' || (ctrl && e.key === '/')) {
             e.preventDefault();
@@ -961,6 +986,20 @@
         fabricCanvas.on('mouse:down', handleShapeStart);
         fabricCanvas.on('mouse:move', handleShapeMove);
         fabricCanvas.on('mouse:up', handleShapeEnd);
+
+        // Multi-click markups (polyline / polygon): click to add points,
+        // double-click to finish. Uses its own click/move handlers.
+        fabricCanvas.on('mouse:down', polyAddPoint);
+        fabricCanvas.on('mouse:move', polyMove);
+        fabricCanvas.on('mouse:dblclick', polyFinish);
+
+        // Count tool: each click drops a numbered marker.
+        fabricCanvas.on('mouse:down', handleCountClick);
+
+        // Measurement / dimension tools (calibrate, length, perimeter, area).
+        fabricCanvas.on('mouse:down', handleMeasureClick);
+        fabricCanvas.on('mouse:move', handleMeasureMove);
+        fabricCanvas.on('mouse:dblclick', measureFinish);
 
         // Text-snap highlight / underline / strikethrough
         fabricCanvas.on('mouse:down', handleHilightStart);
@@ -1317,6 +1356,10 @@
 
     function goToPage(num) {
         if (num < 1 || num > state.totalPages) return;
+        // In continuous-scroll mode, scroll to the page and stay in scroll mode
+        // (what a user expects from clicking a thumbnail). Only fall back to the
+        // single-page renderer when scroll mode isn't active.
+        if (window.isScrollMode && window.isScrollMode() && window.scrollToScrollPage(num)) return;
         saveCurrentAnnotations();
         renderPage(num);
     }
@@ -1445,6 +1488,8 @@
 
         // Reset modes
         clearEraserCursor();
+        // Remove edit-text guide boxes unless we're (re)entering that tool.
+        if (state.activeTool !== 'edittext') clearEditTextGuides();
         fabricCanvas.isDrawingMode = false;
         fabricCanvas.selection = true;
         fabricCanvas.defaultCursor = 'default';
@@ -1568,7 +1613,7 @@
                 break;
 
             case 'edittext':
-                setStatus('Edit Text: click directly on a line of text — it opens in place with the formatting bar (font, size, bold...)');
+                setStatus('Edit Text: click any highlighted block to edit it - font, size and style are kept');
                 fabricCanvas.defaultCursor = 'text';
                 fabricCanvas.selection = false;
                 fabricCanvas.forEachObject((obj) => {
@@ -1581,6 +1626,8 @@
                         obj.evented = false;
                     }
                 });
+                // Outline every editable text block so the user sees what's editable.
+                showEditTextGuides();
                 break;
         }
     }
@@ -1633,6 +1680,263 @@
         for (let i = nx; i > 0; i--) d += `A ${sx / 2} ${r} 0 0 1 ${(i - 1) * sx} ${h} `;
         for (let i = ny; i > 0; i--) d += `A ${r} ${sy / 2} 0 0 1 0 ${(i - 1) * sy} `;
         return d + 'Z';
+    }
+
+    // ── Multi-click markups: polyline & polygon ────────────────────────────────
+    // Unlike drag shapes, these collect points on each click and finish on
+    // double-click (or Enter/Escape). polyKind is set when such a tool is armed.
+    let polyPts = [];          // committed points [{x,y}, ...]
+    let polyPreview = null;     // live fabric object being previewed
+    let polyKind = null;        // 'polyline' | 'polygon' while collecting
+
+    function polyStyleBase() {
+        const sw = parseInt(dom.sizePicker.value, 10) || 2;
+        return {
+            fill: polyKind === 'polygon' ? 'transparent' : '',
+            stroke: dom.colorPicker.value,
+            strokeWidth: sw,
+            strokeDashArray: shapeDash(sw),
+            strokeLineJoin: 'round',
+            strokeLineCap: shapeStyle === 'dotted' ? 'round' : 'butt',
+            selectable: false,
+            objectCaching: false,
+        };
+    }
+    function polyRedraw(livePt) {
+        if (polyPreview) { _isRestoring = true; fabricCanvas.remove(polyPreview); _isRestoring = false; polyPreview = null; }
+        const pts = livePt ? [...polyPts, livePt] : [...polyPts];
+        if (pts.length < 2) return;
+        const base = polyStyleBase();
+        polyPreview = (polyKind === 'polygon')
+            ? new fabric.Polygon(pts, base)
+            : new fabric.Polyline(pts, { ...base, fill: '' });
+        _isRestoring = true;
+        fabricCanvas.add(polyPreview);
+        _isRestoring = false;
+        fabricCanvas.renderAll();
+    }
+    function polyAddPoint(opt) {
+        if (state.activeTool !== 'shape' || (shapeKind !== 'polyline' && shapeKind !== 'polygon')) return;
+        if (opt.target && !polyKind) return; // clicking an existing object, not drawing
+        polyKind = shapeKind;
+        const p = fabricCanvas.getPointer(opt.e);
+        polyPts.push({ x: p.x, y: p.y });
+        if (polyPts.length === 1) setStatus('Click to add points - double-click (or Enter) to finish, Esc to cancel');
+        polyRedraw();
+    }
+    function polyMove(opt) {
+        if (!polyKind || !polyPts.length) return;
+        const p = fabricCanvas.getPointer(opt.e);
+        polyRedraw({ x: p.x, y: p.y });
+    }
+    function polyFinish() {
+        if (!polyKind) return;
+        if (polyPreview) { _isRestoring = true; fabricCanvas.remove(polyPreview); _isRestoring = false; polyPreview = null; }
+        const need = polyKind === 'polygon' ? 3 : 2;
+        if (polyPts.length >= need) {
+            const base = polyStyleBase();
+            base.selectable = true;
+            const final = (polyKind === 'polygon')
+                ? new fabric.Polygon(polyPts, base)
+                : new fabric.Polyline(polyPts, { ...base, fill: '' });
+            fabricCanvas.add(final);
+            final.setCoords();
+            saveAnnotationState();
+            saveCurrentAnnotations();
+        }
+        polyPts = []; polyKind = null;
+        fabricCanvas.renderAll();
+        setStatus('Ready');
+    }
+    function polyCancel() {
+        if (polyPreview) { _isRestoring = true; fabricCanvas.remove(polyPreview); _isRestoring = false; polyPreview = null; }
+        polyPts = []; polyKind = null;
+        fabricCanvas.renderAll();
+    }
+
+    // ── Count tool ─────────────────────────────────────────────────────────────
+    // When the 'count' shape kind is active, each click drops a numbered marker.
+    // The number auto-increments across clicks so you can tally items on a plan.
+    // The count is per current session/page; markers carry _countMark so a live
+    // total can be read from the canvas.
+    let countNext = 1;
+    function countNextNumber() {
+        // Resume numbering after the highest existing count marker on this page.
+        let max = 0;
+        if (fabricCanvas) fabricCanvas.forEachObject((o) => { if (o._countMark && o._countNum > max) max = o._countNum; });
+        return max + 1;
+    }
+    function handleCountClick(opt) {
+        if (state.activeTool !== 'shape' || shapeKind !== 'count') return;
+        if (opt.target && opt.target._countMark) return; // don't stack on an existing marker
+        const p = fabricCanvas.getPointer(opt.e);
+        const color = dom.colorPicker.value;
+        const n = countNextNumber();
+        const R = Math.max(10, (parseInt(dom.sizePicker.value, 10) || 2) * 4);
+        const circle = new fabric.Circle({ radius: R, left: 0, top: 0, originX: 'center', originY: 'center',
+            fill: color, stroke: '#ffffff', strokeWidth: 2 });
+        const label = new fabric.Text(String(n), { left: 0, top: 0, originX: 'center', originY: 'center',
+            fontSize: R, fill: '#ffffff', fontWeight: 'bold', fontFamily: 'sans-serif' });
+        const grp = new fabric.Group([circle, label], { left: p.x, top: p.y, originX: 'center', originY: 'center' });
+        grp._countMark = true; grp._countNum = n;
+        fabricCanvas.add(grp);
+        grp.setCoords();
+        saveAnnotationState();
+        saveCurrentAnnotations();
+        setStatus('Count: ' + n + ' marked - click to add the next, or switch tools to stop');
+    }
+
+    // ── Measurement / Dimension (Bluebeam-style, with scale calibration) ────────
+    // measureScale = real-world units per PAGE pixel (i.e. at zoom 1). Set once by
+    // calibrating against a known distance; then length/area/perimeter read out in
+    // real units. Stored per-document; persists until re-calibrated or a new doc.
+    let measureScale = null;   // number (units per page-pixel) | null = uncalibrated
+    let measureUnit = 'ft';    // display unit label
+    let measurePts = [];       // active measurement points (canvas px)
+    let measurePreview = null; // live fabric preview
+    let measureKind = null;    // 'mlength' | 'mperim' | 'marea' while collecting
+    let pendingCalib = null;   // {p1, p2} awaiting the real-length prompt
+
+    // Canvas px -> page px (undo the zoom) so measurements are zoom-independent.
+    const toPagePx = (d) => d / (state.zoom || 1);
+
+    function fmtMeasure(pagePixels, kind) {
+        if (!measureScale) return '(set scale first)';
+        if (kind === 'area') {
+            const val = pagePixels * measureScale * measureScale; // px^2 -> unit^2
+            return val.toFixed(2) + ' ' + measureUnit + '²';
+        }
+        const val = pagePixels * measureScale;
+        return val.toFixed(2) + ' ' + measureUnit;
+    }
+
+    function measureStyleBase() {
+        const sw = parseInt(dom.sizePicker.value, 10) || 2;
+        return { stroke: dom.colorPicker.value, strokeWidth: sw, fill: 'transparent',
+                 selectable: false, objectCaching: false };
+    }
+
+    // Distance between consecutive points, in canvas px.
+    function polyLenPx(pts, close) {
+        let d = 0;
+        for (let i = 1; i < pts.length; i++) d += Math.hypot(pts[i].x - pts[i-1].x, pts[i].y - pts[i-1].y);
+        if (close && pts.length > 2) d += Math.hypot(pts[0].x - pts[pts.length-1].x, pts[0].y - pts[pts.length-1].y);
+        return d;
+    }
+    // Shoelace area in canvas px^2.
+    function polyAreaPx(pts) {
+        let a = 0;
+        for (let i = 0; i < pts.length; i++) {
+            const j = (i + 1) % pts.length;
+            a += pts[i].x * pts[j].y - pts[j].x * pts[i].y;
+        }
+        return Math.abs(a) / 2;
+    }
+
+    function measureLabel(text, x, y) {
+        return new fabric.Text(text, { left: x, top: y, fontSize: 14, fill: '#ffffff',
+            backgroundColor: 'rgba(0,0,0,0.72)', fontFamily: 'sans-serif', padding: 3,
+            originX: 'center', originY: 'center', selectable: false });
+    }
+
+    function measureRedraw(livePt) {
+        if (measurePreview) { _isRestoring = true; fabricCanvas.remove(measurePreview); _isRestoring = false; measurePreview = null; }
+        const pts = livePt ? [...measurePts, livePt] : [...measurePts];
+        if (pts.length < 2) return;
+        const base = measureStyleBase();
+        const shape = (measureKind === 'marea')
+            ? new fabric.Polygon(pts, { ...base, fill: 'rgba(76,110,245,0.12)' })
+            : new fabric.Polyline(pts, { ...base, fill: '' });
+        _isRestoring = true; fabricCanvas.add(shape); measurePreview = shape; _isRestoring = false;
+        fabricCanvas.renderAll();
+    }
+
+    function handleMeasureClick(opt) {
+        if (state.activeTool !== 'shape') return;
+        if (!['mlength', 'mperim', 'marea', 'mcalibrate'].includes(shapeKind)) return;
+        const p = fabricCanvas.getPointer(opt.e);
+
+        if (shapeKind === 'mcalibrate') {
+            // Two clicks define a known distance, then prompt for its real length.
+            measurePts.push({ x: p.x, y: p.y });
+            measureRedraw();
+            if (measurePts.length === 2) {
+                const px = polyLenPx(measurePts, false);
+                if (measurePreview) { _isRestoring = true; fabricCanvas.remove(measurePreview); _isRestoring = false; measurePreview = null; }
+                measurePts = [];
+                const ans = window.prompt('Calibrate scale:\nYou drew a line. Enter its REAL length and unit, e.g. "10 ft" or "5 m":', '10 ft');
+                if (ans) {
+                    const m = ans.trim().match(/^([\d.]+)\s*([a-zA-Z"']+)?$/);
+                    if (m) {
+                        const realLen = parseFloat(m[1]);
+                        measureUnit = m[2] || measureUnit;
+                        measureScale = realLen / toPagePx(px);  // units per page-pixel
+                        setStatus('Scale set: 1 page-pixel = ' + measureScale.toFixed(4) + ' ' + measureUnit + '. Now use Length/Area/Perimeter.');
+                        showToast('Scale calibrated - measurements will show in ' + measureUnit);
+                    } else { showToast('Could not read that - try like "10 ft"'); }
+                }
+                fabricCanvas.renderAll();
+            } else {
+                setStatus('Calibrate: click the second end of a KNOWN distance');
+            }
+            return;
+        }
+
+        // Measurement tools need a scale first.
+        if (!measureScale) {
+            showToast('Set the scale first: pick "Calibrate scale" and draw a known distance');
+            setStatus('Measurement needs a scale - use "Calibrate scale" first');
+            return;
+        }
+        measureKind = (shapeKind === 'mlength') ? 'mlength' : (shapeKind === 'marea' ? 'marea' : 'mperim');
+        measurePts.push({ x: p.x, y: p.y });
+        measureRedraw();
+        if (measureKind === 'mlength' && measurePts.length === 2) measureFinish();
+        else setStatus('Click to add points - double-click (or Enter) to finish, Esc to cancel');
+    }
+    function handleMeasureMove(opt) {
+        if (!measureKind || !measurePts.length) return;
+        const p = fabricCanvas.getPointer(opt.e);
+        measureRedraw({ x: p.x, y: p.y });
+    }
+    function measureFinish() {
+        if (!measureKind) return;
+        if (measurePreview) { _isRestoring = true; fabricCanvas.remove(measurePreview); _isRestoring = false; measurePreview = null; }
+        const pts = measurePts;
+        const need = measureKind === 'marea' ? 3 : 2;
+        if (pts.length >= need) {
+            const base = measureStyleBase(); base.selectable = true;
+            let label, cx, cy;
+            if (measureKind === 'mlength') {
+                const shape = new fabric.Line([pts[0].x, pts[0].y, pts[1].x, pts[1].y], base);
+                fabricCanvas.add(shape);
+                label = fmtMeasure(toPagePx(polyLenPx(pts, false)), 'len');
+                cx = (pts[0].x + pts[1].x) / 2; cy = (pts[0].y + pts[1].y) / 2 - 12;
+            } else if (measureKind === 'mperim') {
+                const shape = new fabric.Polyline(pts, { ...base, fill: '' });
+                fabricCanvas.add(shape);
+                label = 'Perimeter: ' + fmtMeasure(toPagePx(polyLenPx(pts, true)), 'len');
+                cx = pts[0].x; cy = pts[0].y - 14;
+            } else { // marea
+                const shape = new fabric.Polygon(pts, { ...base, fill: 'rgba(76,110,245,0.12)' });
+                fabricCanvas.add(shape);
+                const areaUnit2 = toPagePx(toPagePx(polyAreaPx(pts))); // px^2 -> page px^2
+                label = 'Area: ' + fmtMeasure(areaUnit2, 'area');
+                cx = pts.reduce((s,p)=>s+p.x,0)/pts.length; cy = pts.reduce((s,p)=>s+p.y,0)/pts.length;
+            }
+            const lbl = measureLabel(label, cx, cy);
+            lbl.selectable = true;
+            fabricCanvas.add(lbl);
+            saveAnnotationState(); saveCurrentAnnotations();
+        }
+        measurePts = []; measureKind = null;
+        fabricCanvas.renderAll();
+        setStatus('Ready');
+    }
+    function measureCancel() {
+        if (measurePreview) { _isRestoring = true; fabricCanvas.remove(measurePreview); _isRestoring = false; measurePreview = null; }
+        measurePts = []; measureKind = null;
+        fabricCanvas.renderAll();
     }
 
     let dragKind = 'rect'; // kind locked at mousedown — menu changes mid-drag can't corrupt it
@@ -1694,6 +1998,12 @@
 
     function handleShapeStart(opt) {
         if (state.activeTool !== 'shape') return;
+        // Polyline/polygon are multi-click (handled by polyAddPoint), not drag.
+        if (shapeKind === 'polyline' || shapeKind === 'polygon') return;
+        // Count is click-to-drop (handled by handleCountClick), not drag.
+        if (shapeKind === 'count') return;
+        // Measurement tools are click-based (handled by handleMeasureClick).
+        if (['mcalibrate', 'mlength', 'mperim', 'marea'].includes(shapeKind)) return;
         if (opt.target) return;
 
         dragKind = shapeKind;
@@ -1706,10 +2016,26 @@
             selectable: false,
             strokeDashArray: shapeDash(sw),
             strokeLineCap: shapeStyle === 'dotted' ? 'round' : 'butt',
+            // Keep the border a constant visual thickness when the shape is
+            // resized (without this, scaling a shape also fattens its outline).
+            strokeUniform: true,
         };
         if (dragKind === 'line' || dragKind === 'arrow' || dragKind === 'arrow2') {
             currentShape = new fabric.Line(
                 [shapeStartPoint.x, shapeStartPoint.y, shapeStartPoint.x, shapeStartPoint.y], base);
+        } else if (dragKind === 'ellipsecallout') {
+            // Speech bubble: live-preview as the actual ellipse body so the user
+            // sees the bubble forming; tail + text are added on mouseup.
+            currentShape = new fabric.Ellipse({ left: shapeStartPoint.x, top: shapeStartPoint.y, rx: 0, ry: 0,
+                ...base, fill: 'rgba(255,255,255,0.85)' });
+            setStatus('Drag to size the speech bubble - release to add text');
+        } else if (dragKind === 'callout') {
+            // Text callout: live-preview as a rounded note box (not a plain
+            // square) so it's clear you're drawing a callout; leader line + text
+            // are added on mouseup.
+            currentShape = new fabric.Rect({ left: shapeStartPoint.x, top: shapeStartPoint.y, width: 0, height: 0,
+                rx: 6, ry: 6, ...base, fill: 'rgba(255,255,255,0.85)' });
+            setStatus('Drag to size the note box - release to add text');
         } else if (dragKind === 'circle') {
             currentShape = new fabric.Ellipse({ left: shapeStartPoint.x, top: shapeStartPoint.y, rx: 0, ry: 0, ...base });
         } else if (dragKind === 'triangle') {
@@ -1757,7 +2083,7 @@
             _isRestoring = false;
         } else if (dragKind === 'line') {
             currentShape.set({ x2: pointer.x, y2: pointer.y });
-        } else if (dragKind === 'circle') {
+        } else if (dragKind === 'circle' || dragKind === 'ellipsecallout') {
             currentShape.set({
                 left: width >= 0 ? shapeStartPoint.x : pointer.x,
                 top: height >= 0 ? shapeStartPoint.y : pointer.y,
@@ -1816,6 +2142,52 @@
             _isRestoring = true;
             fabricCanvas.add(currentShape);
             _isRestoring = false;
+        } else if (dragKind === 'callout' || dragKind === 'ellipsecallout') {
+            // Build a callout from THREE SEPARATE objects (not grouped): a note
+            // body, a leader line, and editable text. Kept separate so the user
+            // can select the leader line ON ITS OWN and drag its endpoints to
+            // change its length/angle freely - impossible inside a locked group.
+            const r = currentShape.getBoundingRect(true, true);
+            fabricCanvas.remove(currentShape);
+            const bw = Math.max(r.width, 90), bh = Math.max(r.height, 44);
+            const bx = r.left, by = r.top;
+            const body = (dragKind === 'ellipsecallout')
+                ? new fabric.Ellipse({ left: bx + bw / 2, top: by + bh / 2, originX: 'center', originY: 'center',
+                    rx: bw / 2, ry: bh / 2, fill: '#ffffff', stroke, strokeWidth, strokeUniform: true })
+                : new fabric.Rect({ left: bx, top: by, width: bw, height: bh, rx: 4, ry: 4,
+                    fill: '#ffffff', stroke, strokeWidth, strokeUniform: true });
+            // Leader line: it must START on the body's edge (touch it), then
+            // point out below-left to what it's referring to.
+            let x1, y1;
+            if (dragKind === 'ellipsecallout') {
+                // A point ON the ellipse perimeter in the lower-left direction,
+                // so the line visibly connects to the bubble (the box corner
+                // would float outside the curve).
+                const cx = bx + bw / 2, cy = by + bh / 2, rx = bw / 2, ry = bh / 2;
+                const ang = Math.PI * 0.72; // ~130deg → lower-left of the ellipse
+                x1 = cx + rx * Math.cos(ang);
+                y1 = cy + ry * Math.sin(ang);
+            } else {
+                x1 = bx + bw * 0.15; y1 = by + bh; // bottom edge of the rect
+            }
+            const x2 = bx - Math.min(60, bw * 0.6), y2 = by + bh + Math.min(50, bh);
+            const tail = new fabric.Line([x1, y1, x2, y2], { stroke, strokeWidth, strokeUniform: true });
+            tail._calloutTail = true;
+            const txt = new fabric.Textbox('', {
+                left: bx + 10, top: by + 8, width: bw - 20, fontSize: Math.max(12, strokeWidth * 6),
+                fill: stroke, fontFamily: 'sans-serif', editable: true, splitByGrapheme: false,
+            });
+            _isRestoring = true;
+            fabricCanvas.add(body);
+            fabricCanvas.add(tail);
+            fabricCanvas.add(txt);
+            _isRestoring = false;
+            body.setCoords(); tail.setCoords(); txt.setCoords();
+            // Put the cursor straight into the empty note so the user can type.
+            fabricCanvas.setActiveObject(txt);
+            txt.enterEditing();
+            currentShape = body; // the drag-end handler finalizes on this
+            setStatus('Type your note - click the leader line alone to drag its ends and change its length');
         }
 
         currentShape.set({ selectable: true });
@@ -4476,6 +4848,77 @@
         }
     }
 
+    // ── Edit-text guide boxes ──────────────────────────────────────────────────
+    // When the Edit Text tool is active, outline every editable text block with a
+    // dashed box so the user can SEE what is editable and click any block - no
+    // guessing. Boxes are non-exporting overlays; cleared when leaving the tool.
+    let _editTextGuides = [];
+    async function showEditTextGuides() {
+        clearEditTextGuides();
+        if (!state.pdfDoc || !fabricCanvas) return;
+        if (!_textItemsCache) await buildTextItemsCache(state.currentPage);
+        if (!_textItemsCache || state.activeTool !== 'edittext') return;
+
+        // pdf.js splits text into many small word/glyph fragments. Boxing each
+        // one looks like confetti (a box per word). Instead, MERGE fragments that
+        // sit on the same line (same baseline y, within a small tolerance) into
+        // ONE box spanning the whole line - clean, readable outlines like a
+        // proper editor. Fragments separated by a large horizontal gap (e.g.
+        // table columns) stay as separate boxes on the same line.
+        const rows = [];
+        for (const entry of _textItemsCache) {
+            const b = entry.bbox;
+            const tol = Math.max(4, b.height * 0.5);
+            let row = rows.find(r => Math.abs(r.cy - (b.top + b.height / 2)) < tol);
+            if (!row) { row = { cy: b.top + b.height / 2, segs: [] }; rows.push(row); }
+            row.segs.push({ left: b.left, right: b.left + b.width, top: b.top, bottom: b.top + b.height, h: b.height });
+        }
+
+        for (const row of rows) {
+            row.segs.sort((a, b) => a.left - b.left);
+            // Merge segments into runs; break a run where a big gap (a table
+            // cell boundary) appears, so columns don't join into one wide box.
+            let run = null;
+            const runs = [];
+            for (const s of row.segs) {
+                const gap = run ? s.left - run.right : 0;
+                if (run && gap <= s.h * 2.2) {
+                    run.right = Math.max(run.right, s.right);
+                    run.top = Math.min(run.top, s.top);
+                    run.bottom = Math.max(run.bottom, s.bottom);
+                } else {
+                    run = { left: s.left, right: s.right, top: s.top, bottom: s.bottom };
+                    runs.push(run);
+                }
+            }
+            for (const r of runs) {
+                const box = new fabric.Rect({
+                    left: r.left - 2, top: r.top - 2, width: (r.right - r.left) + 4, height: (r.bottom - r.top) + 4,
+                    fill: 'rgba(120,140,240,0.035)', stroke: 'rgba(120,145,235,0.5)', strokeWidth: 1,
+                    strokeDashArray: [4, 3], rx: 3, ry: 3,
+                    selectable: false, evented: false, excludeFromExport: true, _editTextGuide: true,
+                    hoverCursor: 'text',
+                });
+                _isRestoring = true;
+                fabricCanvas.add(box);
+                _isRestoring = false;
+                _editTextGuides.push(box);
+            }
+        }
+        fabricCanvas.renderAll();
+        if (_editTextGuides.length) setStatus('Edit Text: click any highlighted line to edit it - font, size and style are kept');
+    }
+    function clearEditTextGuides() {
+        if (!fabricCanvas || !_editTextGuides.length) { _editTextGuides = []; return; }
+        _isRestoring = true;
+        _editTextGuides.forEach(b => fabricCanvas.remove(b));
+        _isRestoring = false;
+        _editTextGuides = [];
+        fabricCanvas.renderAll();
+    }
+    window.showEditTextGuides = showEditTextGuides;
+    window.clearEditTextGuides = clearEditTextGuides;
+
     // ── Edit Text Tool (explicit tool mode click) ──
     function handleEditTextClick(opt) {
         if (state.activeTool !== 'edittext') return;
@@ -4556,8 +4999,12 @@
         // In Fabric IText, 'top' is the bounding-box top (above the ascender).
         // The visual baseline in Fabric sits at roughly: top + fontSize * 0.86
         // So to align Fabric baseline with the PDF baseline:
-        //   fabricTop = baseline - fontSize * 0.86
-        const fabricTop  = Math.round(baseline - fontSizePx * 0.86);
+        //   fabricTop = baseline - fontSize * ASCENT_RATIO
+        // Fabric renders an IText from its top, so we place the top one ascent
+        // above the PDF baseline. 0.92 lines the edit box up with the original
+        // glyphs; a smaller value made the box sit slightly LOW so the text
+        // dropped and the user had to nudge it back up.
+        const fabricTop  = Math.round(baseline - fontSizePx * 0.92);
         const fabricLeft = Math.round(bbox.left);
 
         // ── Cover rect: perfectly aligned with the visual text area ──
@@ -5556,7 +6003,11 @@
 
         setStatus('Searching...');
 
-        for (let pageNum = 1; pageNum <= state.totalPages; pageNum++) {
+        // Search every page in the document. Use the PDF's own page count
+        // (pdfDoc.numPages) rather than state.totalPages, which can lag behind
+        // the loaded document and would silently limit the scan to fewer pages.
+        const pageCount = (state.pdfDoc && state.pdfDoc.numPages) || state.totalPages;
+        for (let pageNum = 1; pageNum <= pageCount; pageNum++) {
             const page = await state.pdfDoc.getPage(pageNum);
             const textContent = await page.getTextContent();
             if (gen !== _searchGen) return; // a newer search superseded us
@@ -5745,9 +6196,14 @@
             // (workers/wasm can't always load from inside it).
             const tessBase = new URL('libs/tesseract/', location.href).href
                 .replace('app.asar/', 'app.asar.unpacked/');
+            // corePath must be the DIRECTORY: the worker appends
+            // "/tesseract-core-simd.wasm.js" or "/tesseract-core.wasm.js" to it
+            // itself (based on SIMD detection). Passing the full .js filename made
+            // it build ".../tesseract-core-simd.wasm.js/tesseract-core-simd.wasm.js"
+            // → 404 → OCR silently stalled at "Initializing" in the browser.
             const worker = await Tesseract.createWorker({
                 workerPath: tessBase + 'worker.min.js',
-                corePath: tessBase + 'tesseract-core-simd.wasm.js',
+                corePath: tessBase,
                 langPath: tessBase,
                 gzip: true,
                 logger: (m) => {
@@ -6625,21 +7081,42 @@
                 const d = Math.abs(c - midY);
                 if (d < bestDist) { bestDist = d; centeredPage = el.page; }
             }
-            if (centeredPage !== state.currentPage) {
+            if (!settling && centeredPage !== state.currentPage) {
                 state.currentPage = centeredPage;
                 dom.pageInput.value = centeredPage;
                 if (typeof updateActiveThumbnail === 'function') updateActiveThumbnail(centeredPage);
             }
         };
-        _scrollOnScroll = onScroll;
-        scroller.addEventListener('scroll', onScroll, { passive: true });
-        // initial render + jump to current page
-        setTimeout(() => {
-            const cur = _scrollEls[state.currentPage - 1];
+        // While we're programmatically jumping to the target page, ignore the
+        // scroll handler's "centered page" updates - otherwise it overwrites
+        // state.currentPage (often to page 1 at the top) mid-jump, which yanked
+        // the user back to the first page when re-entering scroll mode.
+        let settling = true;
+        const guardedOnScroll = () => { if (settling) return; onScroll(); };
+        _scrollOnScroll = guardedOnScroll;
+        scroller.addEventListener('scroll', guardedOnScroll, { passive: true });
+
+        // Jump to the page the user was on, then keep re-asserting it briefly
+        // while the estimated wrappers settle to their real sizes.
+        const targetPage = state.currentPage;
+        const jumpToTarget = () => {
+            const cur = _scrollEls[targetPage - 1];
             if (cur) scroller.scrollTop = cur.wrap.offsetTop;
-            onScroll();
-        }, 50);
-        // also render immediately in case layout is instant
+        };
+        setTimeout(() => {
+            jumpToTarget();
+            // Re-assert a few times as pages render and heights correct.
+            let n = 0;
+            const reassert = setInterval(() => {
+                jumpToTarget();
+                if (++n >= 4) {
+                    clearInterval(reassert);
+                    settling = false;   // hand control back to the scroll handler
+                    onScroll();
+                }
+            }, 60);
+        }, 30);
+        // Render whatever is initially in view (doesn't move currentPage yet).
         onScroll();
     }
     let _scrollOnScroll = null;
@@ -6714,6 +7191,19 @@
     window.isScrollMode = () => _scrollOn;
     // Re-render scroll pages when zoom changes while scrolling
     window.rerenderScrollForZoom = () => { if (_scrollOn) { destroyScrollView(); buildScrollView(); } };
+    // Scroll the continuous view to a given page (1-based), staying in scroll
+    // mode. Used by thumbnail clicks / page-number jumps so navigating doesn't
+    // yank the user out of continuous scroll. Returns false if not applicable.
+    window.scrollToScrollPage = (n) => {
+        if (!_scrollOn) return false;
+        const el = _scrollEls[n - 1];
+        if (!el) return false;
+        state.currentPage = n;
+        el.wrap.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        renderScrollPage(n - 1); // make sure the target is drawn, not just estimated
+        updateThumbnailActive();
+        return true;
+    };
 
     // Auto-return to continuous scroll: while editing a single page, the user
     // can still scroll within that (possibly tall) page. Only when they scroll
@@ -6772,6 +7262,9 @@
     }
 
     function applyBrushColor() {
+        // Live-recolor a selected shape's border so the color picker manages the
+        // border of an existing shape, not just new drawing.
+        applyStrokeColorToSelection(dom.colorPicker.value);
         if (!fabricCanvas || !fabricCanvas.isDrawingMode) return;
         const opacity = parseInt(dom.opacityPicker.value, 10) / 100;
         if (state.activeTool === 'highlight') {
@@ -6779,6 +7272,31 @@
         } else {
             fabricCanvas.freeDrawingBrush.color = hexToRgba(dom.colorPicker.value, opacity);
         }
+    }
+
+    // ── Manage the border of a SELECTED shape (width + color) ───────────────────
+    // Only strokeable shapes (lines/rects/ellipses/paths/polylines) are touched;
+    // text objects are left alone so recoloring text still works via its own bar.
+    function _strokeableSelection() {
+        if (!fabricCanvas) return [];
+        const act = fabricCanvas.getActiveObjects ? fabricCanvas.getActiveObjects() : [];
+        const list = act.length ? act : (fabricCanvas.getActiveObject() ? [fabricCanvas.getActiveObject()] : []);
+        return list.filter(o => o && o.stroke !== undefined && o.stroke !== null &&
+            !['i-text', 'text', 'textbox'].includes(o.type) && !o._editTextGuide);
+    }
+    function applyStrokeWidthToSelection(w) {
+        const sel = _strokeableSelection();
+        if (!sel.length) return;
+        sel.forEach(o => { o.set({ strokeWidth: w, strokeUniform: true }); o.setCoords(); });
+        fabricCanvas.requestRenderAll();
+        saveAnnotationState(); saveCurrentAnnotations();
+    }
+    function applyStrokeColorToSelection(color) {
+        const sel = _strokeableSelection();
+        if (!sel.length) return;
+        sel.forEach(o => o.set({ stroke: color }));
+        fabricCanvas.requestRenderAll();
+        saveAnnotationState(); saveCurrentAnnotations();
     }
 
     function hexToRgba(hex, alpha) {
@@ -8075,8 +8593,8 @@ Replacement:`;
             const pdfFile = new File([bytes], (file.name || 'document').replace(/\.docx?$/i, '') + '.pdf',
                 { type: 'application/pdf' });
             await loadPDF(pdfFile);
-            setStatus('Word converted to PDF — click "Save PDF" (top right) to save it');
-            showToast('Converted — click "Save PDF" (top right) to save it');
+            setStatus('Word converted to PDF — click "Download" (top left) to save it');
+            showToast('Converted — click "Download" to save the PDF');
         } catch (err) {
             console.error(err);
             setStatus('Word conversion failed: ' + err.message);

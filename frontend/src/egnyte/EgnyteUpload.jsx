@@ -11,8 +11,15 @@ import { api } from '../api';
 import { egnyteErrorMessage, filesFromPaste } from './lib';
 import { BODY, Notice, Spinner } from './ui';
 
-export default function EgnyteUpload({ folder, canWrite, onUploaded, compact = false }) {
+export default function EgnyteUpload({ folder, canWrite, onUploaded, compact = false, triggerRef }) {
   const inputRef = useRef(null);
+  // Lets the browser's toolbar (Create > Upload Files, the upload icon) open
+  // this strip's file picker without owning a second upload implementation.
+  useEffect(() => {
+    if (!triggerRef) return undefined;
+    triggerRef.current = () => inputRef.current?.click();
+    return () => { triggerRef.current = null; };
+  }, [triggerRef]);
   const [dragging, setDragging] = useState(false);
   const [busy, setBusy] = useState(null);      // { done, total }
   const [error, setError] = useState('');
@@ -87,11 +94,11 @@ export default function EgnyteUpload({ folder, canWrite, onUploaded, compact = f
         tabIndex={0}
         onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); inputRef.current?.click(); } }}
         style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
-          padding: compact ? '14px 12px' : '20px 16px',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 9,
+          padding: compact ? '7px 12px' : '9px 14px',
           borderRadius: 'var(--wk-r)',
-          border: `2px dashed ${dragging ? 'var(--wk-brand)' : 'var(--wk-line)'}`,
-          background: dragging ? 'var(--wk-brand-tint)' : 'var(--wk-hover)',
+          border: `1px dashed ${dragging ? 'var(--wk-brand)' : 'var(--wk-line)'}`,
+          background: dragging ? 'var(--wk-brand-tint)' : 'transparent',
           cursor: uploading ? 'default' : 'pointer',
           textAlign: 'center',
           transition: 'border-color .15s, background .15s',
@@ -104,17 +111,12 @@ export default function EgnyteUpload({ folder, canWrite, onUploaded, compact = f
           style={{ display: 'none' }}
           onChange={e => { send(e.target.files); e.target.value = ''; }}
         />
-        {uploading ? <Spinner size={16} /> : <Upload size={16} style={{ color: 'var(--wk-dim)', flexShrink: 0 }} />}
-        <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--wk-ink)' }}>
-            {uploading ? `Uploading ${busy.done + 1} of ${busy.total}…` : 'Upload File'}
-          </div>
-          {!uploading && (
-            <div style={{ ...BODY, fontSize: 11.5, marginTop: 2 }}>
-              Drop files here or click to choose, or press Ctrl+V to paste from the clipboard.
-            </div>
-          )}
-        </div>
+        {uploading ? <Spinner size={14} /> : <Upload size={14} style={{ color: dragging ? 'var(--wk-brand)' : 'var(--wk-dim)', flexShrink: 0 }} />}
+        <span style={{ ...BODY, fontSize: 12.5, minWidth: 0, color: dragging ? 'var(--wk-brand)' : 'var(--wk-dim)' }}>
+          {uploading
+            ? <strong style={{ color: 'var(--wk-ink)', fontWeight: 600 }}>Uploading {busy.done + 1} of {busy.total}…</strong>
+            : <><strong style={{ color: 'var(--wk-ink)', fontWeight: 600 }}>Upload to this folder</strong> - drop files, click to choose, or press Ctrl+V to paste.</>}
+        </span>
       </div>
 
       {(error || done) && (

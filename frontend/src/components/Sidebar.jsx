@@ -13,8 +13,9 @@ import {
   FlaskConical,
   KeyRound,
   Briefcase, FileSignature, ArrowDownToLine, ArrowUpFromLine,
-  HardDrive, FolderOpen, Ticket, MapPin,
+  HardDrive, FolderOpen, MapPin, ClipboardList,
 } from "lucide-react";
+import TicketToken from "./icons/TicketToken";
 
 // Exported: MobileMenu mirrors this exact order/grouping on phones
 export const NAV = [
@@ -24,11 +25,12 @@ export const NAV = [
   { view: "manager-dashboard", code: "MGR", label: "Manager Dashboard",  icon: UserCheck,    minRole: 'supervisor' },
   { view: "locations", code: "LOC",         label: "Locations",          icon: MapPin,       minRole: 'supervisor' },
   { divider: true },
-  // Tasks + Knowledge Base are baseline: employees work their own tasks and the
-  // KB is the LMS - assigned courses/SOPs must be reachable by everyone.
-  // Manage/author actions inside stay role-gated (KB admin ops are level 3+).
-  { view: "tasks", code: "TSK",             label: "Tasks",               icon: CheckSquare },
-  { view: "tickets", code: "TKT",           label: "Tickets",             icon: Ticket },
+  // Tasks + Tickets are grant-driven like every other module (Aug 10): they
+  // only appear when an Access Group / job role grants them (most job roles
+  // carry tasks:*). Knowledge Base stays baseline - it is the LMS and assigned
+  // courses/SOPs must be reachable by everyone; KB admin ops are level 3+.
+  { view: "tasks", code: "TSK",             label: "Tasks",               icon: CheckSquare,  minRole: 'supervisor' },
+  { view: "tickets", code: "TKT",           label: "Tickets",             icon: TicketToken,  minRole: 'supervisor' },
   { view: "sop", code: "KB", label: "Knowledge Base", icon: BookOpen },
   { divider: true },
   {
@@ -39,10 +41,18 @@ export const NAV = [
     ],
   },
   {
-    view: "ops", code: "CON", label: "Construction", icon: null, minRole: 'supervisor',
+    // No minRole: the people this module exists for are construction workers,
+    // the lowest-privileged users in Nexus. The filter below only ever admits
+    // `administrator` or an explicit `ops` group grant, so ANY minRole here hid
+    // the module from the entire field crew. Access is enforced per jobsite
+    // instead - the API's _may_read/_may_log gate on the project's
+    // worker_emails, so a worker who is on no project sees an empty list rather
+    // than a wall. VIEW_MIN_ROLES in App.jsx must stay in step with this.
+    view: "ops", code: "CON", label: "Construction", icon: null,
     svgPath: "M756-120 537-339l84-84 219 219-84 84Zm-552 0-84-84 276-276-68-68-28 28-51-51v82l-28 28-121-121 28-28h82l-50-50 142-142q20-20 43-29t47-9q24 0 47 9t43 29l-92 92 50 50-28 28 68 68 90-90q-4-11-6.5-23t-2.5-24q0-59 40.5-99.5T701-841q15 0 28.5 3t27.5 9l-99 99 72 72 99-99q7 14 9.5 27.5T841-701q0 59-40.5 99.5T701-561q-12 0-24-2t-23-7L204-120Z",
     sub: [
       { subview: "ops-dashboard", label: "Project Dashboard", icon: LayoutDashboard },
+      { subview: "ops-activity",  label: "Site Activity",     icon: ClipboardList },
       { subview: "ops-cubby",     label: "Cubby Integration", icon: FileText },
     ],
   },
@@ -54,15 +64,8 @@ export const NAV = [
       { subview: "site-staff", label: "Site Staff & Scheduling",icon: Calendar },
     ],
   },
-  {
-    view: "development", code: "DEV", label: "Development", icon: null, minRole: 'supervisor',
-    svgPath: "M42-120v-112q0-33 17-62t47-44q51-26 115-44t141-18q77 0 141 18t115 44q30 15 47 44t17 62v112H42Zm80-80h480v-32q0-11-5.5-20T582-266q-36-18-92.5-36T362-320q-71 0-127.5 18T142-266q-9 5-14.5 14t-5.5 20v32Zm240-240q-66 0-113-47t-47-113h-10q-9 0-14.5-5.5T172-620q0-9 5.5-14.5T192-640h10q0-45 22-81t58-57v38q0 9 5.5 14.5T302-720q9 0 14.5-5.5T322-740v-54q9-3 19-4.5t21-1.5q11 0 21 1.5t19 4.5v54q0 9 5.5 14.5T422-720q9 0 14.5-5.5T442-740v-38q36 21 58 57t22 81h10q9 0 14.5-5.5T552-620q0 9-5.5 14.5T532-600h-10q0 66-47 113t-113 47Zm0-80q33 0 56.5-23.5T442-600H282q0 33 23.5 56.5T362-520Zm300 160-6-30q-6-2-11.5-4.5T634-402l-28 10-20-36 22-20v-24l-22-20 20-36 28 10q4-4 10-7t12-5l6-30h40l6 30q6 2 12 5t10 7l28-10 20 36-22 20v24l22 20-20 36-28-10q-5 5-10.5 7.5T708-390l-6 30h-40Zm20-70q12 0 21-9t9-21q0-12-9-21t-21-9q-12 0-21 9t-9 21q0 12 9 21t21 9Zm72-130-8-42q-9-3-16.5-7.5T716-620l-42 14-28-48 34-30q-2-5-2-8v-16q0-3 2-8l-34-30 28-48 42 14q6-6 13.5-10.5T746-798l8-42h56l8 42q9 3 16.5 7.5T848-780l42-14 28 48-34 30q2 5 2 8v16q0 3-2 8l34 30-28 48-42-14q-6 6-13.5 10.5T818-602l-8 42h-56Zm28-90q21 0 35.5-14.5T832-700q0-21-14.5-35.5T782-750q-21 0-35.5 14.5T732-700q0 21 14.5 35.5T782-650ZM362-200Z",
-    sub: [
-      { subview: "dev-permits", label: "Permit Status",    icon: FileText },
-      { subview: "dev-plans",   label: "Project Plans",    icon: FileText },
-      { subview: "dev-details", label: "Property Details", icon: FileText },
-    ],
-  },
+  // Development was removed from the nav (Neil, Aug 11) - the module isn't
+  // being built right now. The view itself still resolves for direct links.
   { view: "inventory", code: "ITM", label: "Item Management", icon: Package },
   {
     view: "property-asset", code: "AST", label: "Asset Management", icon: Home, minRole: 'supervisor',
@@ -131,7 +134,6 @@ export const NAV = [
       { subview: "property", label: "Property Documents", icon: Home },
     ],
   },
-  { view: "pdf-editor", code: "PDF", label: "PDF Editor", icon: FileText },
   { divider: true },
   { view: "support", code: "SUP",        label: "Support",        icon: HelpCircle },
   { view: "external-links", code: "EXT", label: "External Links", icon: ExternalLink },

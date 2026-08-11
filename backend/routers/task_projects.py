@@ -13,12 +13,13 @@ from pydantic import BaseModel
 from typing import Optional
 import models
 from database import get_db
-from auth import get_current_user, require_manager
+from auth import get_current_user, require_manager, require_any_module_grant
 from routers.task_util import (now_iso, gen_id, task_notify, is_manager, visible_project_ids,
                                require_project_role, team_project_ids)
 from routers.hr import _ensure_departments
 
-router = APIRouter(tags=["Tasks"], dependencies=[Depends(get_current_user)])
+router = APIRouter(tags=["Tasks"],
+                   dependencies=[Depends(get_current_user), Depends(require_any_module_grant("tasks", "tickets"))])
 
 
 def _nz(v):

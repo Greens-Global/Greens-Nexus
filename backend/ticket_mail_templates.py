@@ -10,6 +10,8 @@ notification should hand-roll HTML.
 """
 from html import escape
 
+from ticket_code import ticket_no
+
 TICKET_STATUS_META = {
     "new":         {"label": "New",         "color": "#2563eb"},
     "open":        {"label": "Open",        "color": "#7c3aed"},
@@ -53,7 +55,7 @@ def ticket_email_html(*, ticket_code: str, ticket_subject: str, status: str, hea
     logo_block = (
         f"<img src='{escape(logo_url)}' alt='Company logo' height='28' style='display:block' />"
         if logo_url else
-        "<span style='color:#ffffff;font-size:16px;font-weight:700;letter-spacing:4px'>NEXUS</span>"
+        "<span style='color:#ffffff;font-size:16px;font-weight:700;letter-spacing:3px'>GREENS GLOBAL</span>"
     )
     secondary_html = ""
     if secondary_ctas:
@@ -84,7 +86,7 @@ def ticket_email_html(*, ticket_code: str, ticket_subject: str, status: str, hea
     <tr>
       <td style="padding:26px 28px 8px">
         <div style="font-size:11.5px;color:#9ca3af;font-weight:700;letter-spacing:.04em;text-transform:uppercase;margin-bottom:6px">
-          Ticket {escape(ticket_code or '')}
+          {escape(ticket_no(ticket_code))}
         </div>
         <h2 style="margin:0 0 10px;font-size:19px;color:#111827;line-height:1.35">{escape(ticket_subject or '')}</h2>
         {_status_badge(status)}
@@ -165,7 +167,11 @@ def _ticket_url(base_url: str, ticket_id: str) -> str:
 
 # ── Per-event builders - each returns (subject, html) ────────────────────────
 
-COMPANY_NAME = "Nexus"
+# Fallback for a ticket carrying no company of its own (see _ticket_subject).
+# Ours, not the internal product name - a recipient recognises the company, and
+# most of them never think of the tool as "Nexus". Kept separate from the task
+# templates' own COMPANY_NAME because the two subject shapes differ on purpose.
+COMPANY_NAME = "Greens Global"
 
 
 def _ticket_subject(t: dict) -> str:
@@ -174,7 +180,7 @@ def _ticket_subject(t: dict) -> str:
     triggered the email - the event/heading lives in the email body instead."""
     company = t.get("companyName") or COMPANY_NAME
     status_label = TICKET_STATUS_META.get(t["status"], {}).get("label", t["status"])
-    return f'{t["code"]} - {company} ("{t["subject"]}") - {status_label}'
+    return f'{ticket_no(t["code"])} - {company} ("{t["subject"]}") - {status_label}'
 
 
 def created_email_requester(*, t: dict, base_url: str, logo_url: str) -> tuple[str, str]:
@@ -197,12 +203,13 @@ def created_email_requester(*, t: dict, base_url: str, logo_url: str) -> tuple[s
     return subject, html
 
 
-def created_email_dept_head(*, t: dict, base_url: str, logo_url: str) -> tuple[str, str]:
+def created_email_triage(*, t: dict, base_url: str, logo_url: str) -> tuple[str, str]:
+    """The IT Admin desk's copy: a ticket has landed and needs handing out."""
     subject = _ticket_subject(t)
     html = ticket_email_html(
         ticket_code=t["code"], ticket_subject=t["subject"], status=t["status"],
         heading="A new ticket needs to be assigned",
-        intro="This ticket was raised against your department and is waiting for someone to be assigned to it.",
+        intro="This ticket has been raised and is waiting for someone to be assigned to it.",
         rows=[
             ("Description", t.get("description") or "-"),
             ("Department", t.get("departmentName") or "-"),

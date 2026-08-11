@@ -350,6 +350,11 @@ export const api = {
   // everything (no deletions), so this serves both the mount load and every
   // repeated refresh through one path. See TasksContext's sinceRef.
   getTasksDelta: (since = '') => req(`/tasks/delta${since ? `?since=${encodeURIComponent(since)}` : ''}`),
+  // Header search: tasks, projects, portfolios, teams and people in one call,
+  // already scoped to what the caller may see.
+  searchTaskModule: (q, limit = 6) => req(`/tasks/search?q=${encodeURIComponent(q)}&limit=${limit}`),
+  // A person's page: who they are, the work they hold, their projects and teams.
+  getPersonProfile: (email) => req(`/tasks/people/${encodeURIComponent(email)}`),
   createTask: (data) => req("/tasks", { method: "POST", body: JSON.stringify(data) }),
   updateTask: (id, data) => req(`/tasks/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
   deleteTask: (id) => req(`/tasks/${id}`, { method: "DELETE" }),
@@ -409,6 +414,9 @@ export const api = {
   deleteTicketView: (id) => req(`/task-ticket-views/${id}`, { method: "DELETE" }),
   getTicketCompanies: () => req("/ticket-companies"),
   getTicketDepartments: () => req("/ticket-departments"),
+  // Only the departments of the caller's own company - what ticket intake
+  // offers now that company is resolved server-side instead of asked for.
+  getMyTicketDepartments: () => req("/ticket-departments?mine=true"),
   asanaListProjects: (data) => req("/task-asana-projects", { method: "POST", body: JSON.stringify(data), timeoutMs: 60000 }),
   asanaImport: (data) => req("/task-asana-import", { method: "POST", body: JSON.stringify(data), timeoutMs: 600000 }),
   getAsanaSyncConfig: () => req("/asana-sync/config"),
@@ -417,6 +425,13 @@ export const api = {
   asanaSyncPull: () => req("/asana-sync/pull", { method: "POST", timeoutMs: 600000 }),
   asanaSyncPushAll: () => req("/asana-sync/push-all", { method: "POST", timeoutMs: 600000 }),
   asanaSyncDedupe: (apply) => req(`/asana-sync/dedupe?apply=${apply ? "true" : "false"}`, { method: "POST", timeoutMs: 600000 }),
+  // Why assignees are or are not reaching Asana - the one field that can fail
+  // on its own, because it is the only one that must be translated (Nexus email
+  // -> Asana user gid) rather than copied.
+  asanaAssigneeCheck: () => req("/asana-sync/assignee-check"),
+  // Asana shows no workspace id in its UI and the ids in its URLs are PROJECT
+  // ids - so offer a picker rather than have one pasted into the wrong field.
+  asanaWorkspaces:    () => req("/asana-sync/workspaces"),
   // Walks every project in the workspace - same 10-min ceiling as Pull/Push all.
   // Starts a background job and returns it right away; a whole workspace takes
   // minutes and Azure kills any request at ~230s. Poll asanaSyncImportAllStatus.
@@ -434,6 +449,9 @@ export const api = {
   asanaOauthStatus:     () => req("/asana-oauth/status"),
   asanaOauthStart:      () => req("/asana-oauth/start", { method: "POST" }),
   asanaOauthDisconnect: () => req("/asana-oauth/me", { method: "DELETE" }),
+  // Live check: would a comment posted NOW go out as me, or as the shared
+  // sync account - and if the latter, why. Calls Asana for real.
+  asanaOauthCheck:      () => req("/asana-oauth/check"),
   deleteAsanaWebhooks: () => req("/asana-sync/webhooks", { method: "DELETE", timeoutMs: 60000 }),
   getTaskAutomationRules: () => req("/task-automation-rules"),
   createTaskAutomationRule: (data) => req("/task-automation-rules", { method: "POST", body: JSON.stringify(data) }),
@@ -451,6 +469,10 @@ export const api = {
   deleteTaskCustomField: (id) => req(`/task-custom-fields/${id}`, { method: "DELETE" }),
   // Tickets
   getTaskTickets: () => req("/task-tickets"),
+  // The requester's own tickets, scoped server-side - the Support page's list.
+  // The unscoped call above is the agent queue and carries every ticket in the
+  // company, so filtering in the browser would still ship them all.
+  getMyTickets: () => req("/task-tickets?mine=true"),
   createTaskTicket: (data) => req("/task-tickets", { method: "POST", body: JSON.stringify(data) }),
   updateTaskTicket: (id, data) => req(`/task-tickets/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
   deleteTaskTicket: (id) => req(`/task-tickets/${id}`, { method: "DELETE" }),
@@ -465,6 +487,12 @@ export const api = {
   removeTicketLink: (id, targetId) => req(`/task-tickets/${id}/links/${targetId}`, { method: "DELETE" }),
   escalateTicket: (id) => req(`/task-tickets/${id}/escalate`, { method: "POST" }),
   decideTicketApproval: (id, decision, note) => req(`/task-tickets/${id}/approval`, { method: "POST", body: JSON.stringify({ decision, note }) }),
+  // IT Admin routes a parked request to whoever signs it off (backend refuses anyone else).
+  requestTicketApproval: (id, approverEmail, note) => req(`/task-tickets/${id}/request-approval`, { method: "POST", body: JSON.stringify({ approver_email: approverEmail, note }) }),
+  // Am I on the service desk? Its own endpoint because the desk roster lives in
+  // the notify settings, which are manager+ only - an agent who is not a manager
+  // could not read their own membership from there.
+  getMyTicketAccess: () => req("/task-tickets/my-access"),
   // Ticket Outlook notification workflow - admin settings + delivery log (manager+)
   getTicketNotifySettings: () => req("/task-tickets/notify/settings"),
   updateTicketNotifySettings: (patch) => req("/task-tickets/notify/settings", { method: "PUT", body: JSON.stringify(patch) }),
@@ -473,6 +501,10 @@ export const api = {
   getTaskNotifySettings: () => req("/tasks/notify/settings"),
   updateTaskNotifySettings: (patch) => req("/tasks/notify/settings", { method: "PUT", body: JSON.stringify(patch) }),
   getTaskNotifyLog: (params = {}) => req(`/tasks/notify/log?${new URLSearchParams(params).toString()}`),
+  // Replies mailed back to a task notification (manager+). The drain normally
+  // runs itself every minute on the deployed API; this triggers one pass now.
+  getTaskInboundLog: (params = {}) => req(`/tasks/inbound/log?${new URLSearchParams(params).toString()}`),
+  drainTaskInbox: () => req("/tasks/inbound/drain", { method: "POST" }),
   // Ticket components / categories
   getTicketComponents: () => req("/task-ticket-components"),
   addTicketComponent: (data) => req("/task-ticket-components", { method: "POST", body: JSON.stringify(data) }),
@@ -754,6 +786,10 @@ export const api = {
   createEmployee: (data)     => req('/hr/employees', { method: 'POST', body: JSON.stringify(data) }),
   updateEmployee: (id, data) => req(`/hr/employees/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteEmployee: (id)       => req(`/hr/employees/${id}`, { method: 'DELETE' }),
+  // "Remove from Nexus" is reversible: the record is hidden, not destroyed.
+  // These two back the Deleted filter in the directory and the Restore action.
+  getDeletedEmployees: ()    => req('/hr/employees?deleted=true'),
+  restoreEmployee: (id)      => req(`/hr/employees/${id}/restore`, { method: 'POST' }),
 
   // HR - companies/entities & work sites (Section A foundation)
   getEntities:    ()         => cachedGet('/hr/entities', 120_000),
@@ -891,6 +927,7 @@ export const api = {
   timeOffCreate:     (data)      => req('/timeclock/timeoff', { method: 'POST', body: JSON.stringify(data) }),
   timeOffMine:       ()          => req('/timeclock/timeoff/mine'),
   timeOffList:       (status)    => req(`/timeclock/timeoff?status=${status || ''}`),
+  timeOffOnBehalf:   (data)      => req('/timeclock/timeoff/on-behalf', { method: 'POST', body: JSON.stringify(data) }),
   timeOffDecide:     (id, data)  => req(`/timeclock/timeoff/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   timeApprove:       (data)      => req('/timeclock/approvals', { method: 'POST', body: JSON.stringify(data) }),
   timeApprovalRevoke: (id)       => req(`/timeclock/approvals/${id}`, { method: 'PATCH' }),
@@ -909,11 +946,15 @@ export const api = {
   dashSetDefault: (id)         => req(`/dashboards/views/${id}/default`, { method: 'PUT' }),
   dashDeleteView: (id)         => req(`/dashboards/views/${id}`, { method: 'DELETE' }),
   dashKpis:       (scope = 'self') => req(`/dashboards/kpis?scope=${encodeURIComponent(scope)}`),
+  // The caller's own Outlook agenda (M365 staff only - {available:false} otherwise)
+  dashAgenda:     (start, end, tz) => req(`/dashboards/agenda?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}&tz=${encodeURIComponent(tz)}`),
 
   // ── My HR (employee self-service - own record only) ──
   myHrProfile:     ()      => req('/myhr/profile'),
   personCard:      (q)     => req(`/myhr/person?q=${encodeURIComponent(q)}`),
   myHrProfileSave: (body)  => req('/myhr/profile', { method: 'PUT', body: JSON.stringify(body) }),
+  myHrPhotoUpload: (form)  => req('/myhr/profile/photo', { method: 'POST', body: form }),
+  myHrPhotoRemove: ()      => req('/myhr/profile/photo', { method: 'DELETE' }),
   myHrDocs:        ()      => req('/myhr/documents'),
   myHrDocDownload: (rid)   => req(`/myhr/documents/${rid}/download`),
   myPaystubs:      ()      => req('/myhr/paystubs'),
@@ -989,6 +1030,15 @@ export const api = {
   cvPersonalCreate: (body)       => req('/credvault/personal', { method: 'POST', body: JSON.stringify(body) }),
   cvPersonalDelete: (id)         => req(`/credvault/personal/${id}`, { method: 'DELETE' }),
   cvPersonalReveal: (id)         => req(`/credvault/personal/${id}/reveal`, { method: 'POST' }),
+  // SMS/Email OTP (replaces step-up for company vault reveal/share) + Personal Vault password lock
+  cvOtpTargets:     ()           => req('/credvault/otp/targets'),
+  cvOtpRequest:     (channel)    => req('/credvault/otp/request', { method: 'POST', body: JSON.stringify({ channel }) }),
+  cvOtpVerify:      (challengeId, code) => req('/credvault/otp/verify', { method: 'POST', body: JSON.stringify({ challengeId, code }) }),
+  cvPersonalLockStatus: ()       => req('/credvault/personal/lock/status'),
+  cvPersonalLockSetup:  (password) => req('/credvault/personal/lock/setup', { method: 'POST', body: JSON.stringify({ password }) }),
+  cvPersonalLockVerify: (password) => req('/credvault/personal/lock/verify', { method: 'POST', body: JSON.stringify({ password }) }),
+  cvPersonalLockForgot: (channel)  => req('/credvault/personal/lock/forgot', { method: 'POST', body: JSON.stringify({ channel }) }),
+  cvPersonalLockReset:  (challengeId, code, newPassword) => req('/credvault/personal/lock/reset', { method: 'POST', body: JSON.stringify({ challengeId, code, newPassword }) }),
 
   // ── Documents (DMS) - Phase 1: folders + drafts/library, next to E-Sign ──
   getDocFolders:      ()             => req('/documents/folders'),
@@ -1046,7 +1096,10 @@ export const api = {
   egnyteFilePreview: (path)               => reqBlob(`/egnyte/file?path=${encodeURIComponent(path)}&inline=true`),
   egnyteSearch:      (q, folder = '')     => req(`/egnyte/search?q=${encodeURIComponent(q)}&folder=${encodeURIComponent(folder)}`),
   egnyteCreateFolder:(path)               => req('/egnyte/folder', { method: 'POST', body: JSON.stringify({ path }) }),
-  egnyteProperty:    (site)               => req(`/egnyte/property/${encodeURIComponent(site)}`),
+  egnyteMove:        (path, destination)  => req('/egnyte/fs/move', { method: 'POST', body: JSON.stringify({ path, destination }) }),
+  egnyteCopy:        (path, destination)  => req('/egnyte/fs/copy', { method: 'POST', body: JSON.stringify({ path, destination }) }),
+  egnyteDelete:      (path)               => req('/egnyte/fs/delete', { method: 'POST', body: JSON.stringify({ path }) }),
+  egnyteDescribe:    (path, description)  => req('/egnyte/fs/describe', { method: 'POST', body: JSON.stringify({ path, description }) }),
   // multipart: let the browser set the boundary, never set Content-Type by hand
   egnyteUpload:      (folder, file) => {
     const fd = new FormData();
@@ -1054,6 +1107,26 @@ export const api = {
     fd.append('file', file);
     return req('/egnyte/upload', { method: 'POST', body: fd });
   },
+  // ── Egnyte wiring registry (manager+ edits surface->folder mappings in UI) ──
+  egnyteWiring:      ()                       => req('/egnyte/wiring'),
+  egnyteWiringSet:   (slot, path, scopeId='') => req(`/egnyte/wiring/${encodeURIComponent(slot)}`, { method: 'PUT', body: JSON.stringify({ path, scope_id: scopeId }) }),
+  egnyteWiringReset: (slot, scopeId='')       => req(`/egnyte/wiring/${encodeURIComponent(slot)}?scope_id=${encodeURIComponent(scopeId)}`, { method: 'DELETE' }),
+  egnytePersonDocs:  (email)                  => req(`/egnyte/person/${encodeURIComponent(email)}`),
+  egnytePersonPoint: (email, path)            => req(`/egnyte/person/${encodeURIComponent(email)}/folder`, { method: 'PUT', body: JSON.stringify({ path }) }),
+  egnyteFolderGroups:      ()       => req('/egnyte/folder-groups'),
+  egnyteFolderGroupOptions:()       => req('/egnyte/folder-groups/options'),
+  egnyteFolderGroupPreview:(rule)   => req('/egnyte/folder-groups/preview', { method: 'POST', body: JSON.stringify({ rule }) }),
+  egnyteFolderGroupDraft:  (prompt) => req('/egnyte/folder-groups/draft', { method: 'POST', body: JSON.stringify({ prompt }), timeoutMs: 90000 }),
+  egnyteFolderGroupCreate: (body)   => req('/egnyte/folder-groups', { method: 'POST', body: JSON.stringify(body) }),
+  egnyteFolderGroupDelete: (id)     => req(`/egnyte/folder-groups/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  egnyteFolderGroupSync:   (id)     => req(`/egnyte/folder-groups/${encodeURIComponent(id)}/sync`, { method: 'POST', timeoutMs: 120000 }),
+  // Per-user Egnyte connection - browse with YOUR OWN Egnyte permissions.
+  egnyteOauthStart:      () => req('/egnyte-oauth/start', { method: 'POST' }),
+  egnyteOauthStatus:     () => req('/egnyte-oauth/status'),
+  egnyteOauthDisconnect: () => req('/egnyte-oauth/me', { method: 'DELETE' }),
+  egnytePersonProvision: (email)              => req(`/egnyte/person/${encodeURIComponent(email)}/provision`, { method: 'POST' }),
+  myhrEgnyteDocs:    ()                       => req('/myhr/egnyte-documents'),
+  myhrEgnyteFile:    (path)                   => reqBlob(`/myhr/egnyte-documents/file?path=${encodeURIComponent(path)}`),
   // ── Step-up MFA (fresh verification before sensitive data) ──
   stepupConfig:  ()      => req('/stepup/config'),
   stepupStatus:  ()      => req('/stepup/status'),
@@ -1110,6 +1183,45 @@ export const api = {
   revokeIrPortalAccess: (investorId, fundId) => req(`/investor-relations/portal-access/${investorId}/${fundId}`, { method: "DELETE" }),
   getIrPortalMyDeals:   ()       => req("/investor-relations/portal/my-deals"),
   getIrPortalDeal:      (fundId) => req(`/investor-relations/portal/deals/${fundId}`),
+
+  // ── Construction module ────────────────────────────────────────────────────
+  // Media bytes are NOT in this list on purpose: the browser uploads straight to
+  // Supabase and only the resulting path is registered through
+  // createConstructionMedia. Routing a 100 MB clip through the API would hold it
+  // in a gunicorn worker's memory for the length of a jobsite LTE upload.
+  // One-time repair, not a sync step. Asana's "Task Progress" is usually a
+  // PER-PROJECT field, so each project's "Waiting" arrived with its own option
+  // gid and minted its own row. Idempotent - a no-op once merged.
+  dedupeTaskCustomStatuses: () => req("/tasks/meta/custom-statuses/dedupe", { method: "POST" }),
+
+  getConstructionOverview: () => req("/construction/overview"),
+  getConstructionProjects: () => req("/construction/projects"),
+  createConstructionProject: (data) => req("/construction/projects", { method: "POST", body: JSON.stringify(data) }),
+  updateConstructionProject: (id, data) => req(`/construction/projects/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  getConstructionReviewQueue: () => req("/construction/review-queue"),
+  getConstructionReports: (projectId) => req(`/construction/projects/${projectId}/reports`),
+  generateConstructionReport: (projectId, data) => req(`/construction/projects/${projectId}/reports/generate`, { method: "POST", body: JSON.stringify(data) }),
+  updateConstructionReport: (reportId, data) => req(`/construction/reports/${reportId}`, { method: "PATCH", body: JSON.stringify(data) }),
+  publishConstructionReport: (reportId) => req(`/construction/reports/${reportId}/publish`, { method: "POST" }),
+  // reqBlob, not a plain link: the endpoint is bearer-authenticated, and an
+  // <a href> carries no Authorization header - it would just 401.
+  exportConstructionReportPdf: (reportId) => reqBlob(`/construction/reports/${reportId}/pdf`),
+  getConstructionLogs:  (projectId) => req(`/construction/projects/${projectId}/logs`),
+  startConstructionLog: (projectId, data) => req(`/construction/projects/${projectId}/logs`, { method: "POST", body: JSON.stringify(data) }),
+  updateConstructionLog: (logId, data) => req(`/construction/logs/${logId}`, { method: "PATCH", body: JSON.stringify(data) }),
+  submitConstructionLog: (logId) => req(`/construction/logs/${logId}/submit`, { method: "POST" }),
+  reviewConstructionLog: (logId, data) => req(`/construction/logs/${logId}/review`, { method: "POST", body: JSON.stringify(data) }),
+  getConstructionMedia: (logId) => req(`/construction/logs/${logId}/media`),
+  createConstructionMedia: (logId, data) => req(`/construction/logs/${logId}/media`, { method: "POST", body: JSON.stringify(data) }),
+  deleteConstructionMedia: (mediaId) => req(`/construction/media/${mediaId}`, { method: "DELETE" }),
+  // Milestones, RFIs and submittals share one set of endpoints - `kind` is one
+  // of 'milestones' | 'rfis' | 'submittals'. Namespaced under /register/ so the
+  // wildcard segment cannot shadow /projects/{id}/reports or /reports/{id};
+  // route matching is registration-ordered and that would break silently.
+  getConstructionRegister: (projectId, kind) => req(`/construction/projects/${projectId}/register/${kind}`),
+  createConstructionRegisterItem: (projectId, kind, data) => req(`/construction/projects/${projectId}/register/${kind}`, { method: "POST", body: JSON.stringify(data) }),
+  updateConstructionRegisterItem: (kind, id, data) => req(`/construction/register/${kind}/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  deleteConstructionRegisterItem: (kind, id) => req(`/construction/register/${kind}/${id}`, { method: "DELETE" }),
 
   // IT / UniFi network dashboard. These previously lived in IT.jsx as direct
   // fetches to VITE_API_BASE with a self-acquired MSAL Bearer token, which broke

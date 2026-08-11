@@ -86,6 +86,42 @@ class Base(DeclarativeBase):
     pass
 
 
+# ── soft-deleted people are hidden everywhere, automatically ─────────────────
+# "Remove from Nexus" (Aug 11) stops dropping the nexus_employees row and marks
+# it instead, so it can be restored with pay, compliance and history intact.
+#
+# WHY THIS IS A GLOBAL HOOK rather than a filter on each query. NexusEmployee is
+# read from 64 places across 31 modules - the directory, org chart, people
+# pickers, approver lists, notifications, timeclock, tickets, e-sign, Asana
+# sync. Relying on every one of those to remember `.filter(deleted_at == "")`
+# guarantees a leak: a removed person keeps appearing in a picker somewhere, and
+# whoever adds the 65th query has no way to know the rule exists. Most of those
+# files also belong to other developers, who should not have to take a change
+# for this. Same reasoning the cache already uses above: ride the session so no
+# caller has to remember.
+#
+# Escape hatch: .execution_options(include_deleted=True) - used by the HR
+# Deleted filter and the restore endpoint, which are the only places that
+# legitimately need to SEE a removed person.
+@event.listens_for(SessionLocal, "do_orm_execute")
+def _hide_soft_deleted(state):
+    if not state.is_select or state.is_column_load or state.is_relationship_load:
+        return
+    if state.execution_options.get("include_deleted", False):
+        return
+    from sqlalchemy.orm import with_loader_criteria   # local: models imports us
+    from models import NexusEmployee
+    state.statement = state.statement.options(
+        with_loader_criteria(
+            NexusEmployee,
+            # NULL as well as "" - a row that existed before the column was
+            # added reads back NULL on databases that do not backfill.
+            lambda cls: (cls.deleted_at == "") | (cls.deleted_at.is_(None)),
+            include_aliases=True,
+        )
+    )
+
+
 def get_db():
     db = SessionLocal()
     try:

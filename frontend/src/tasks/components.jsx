@@ -1,36 +1,16 @@
 // Task Module - shared UI atoms (inline-styled to match the export's light theme).
 import { useEffect, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Check, ChevronDown, ChevronLeft, ChevronRight, Plus } from 'lucide-react';
+import { X, Check, ChevronDown, ChevronLeft, ChevronRight, Plus,
+  ListTree, MessageSquare, Paperclip } from 'lucide-react';
 import { api } from '../api';
 import { NX, FONT, colorForKey, initialsOf, statusChip, priorityChip, btn, chip, STATUS_META, input as inputStyle } from './theme';
 import { fmtDate, teamInProject, teamProjectIds } from './lib';
 import { rootZoom } from '../lib/utils';
 import { useTasks } from './TasksContext';
 import PersonHover from '../components/PersonHoverCard';
-
-// People profile photos, fetched once per session and shared by every Avatar.
-// Module-scope cache + subscriber set so avatars that mounted before the
-// directory arrived re-render when it does.
-let _photoMap = null;
-let _photoPromise = null;
-const _photoSubs = new Set();
-function usePhotoMap() {
-  const [, force] = useState(0);
-  useEffect(() => {
-    if (_photoMap) return undefined;
-    if (!_photoPromise) {
-      _photoPromise = api.getPeopleDirectory().then((rows) => {
-        _photoMap = {};
-        for (const r of rows || []) if (r.email) _photoMap[r.email.toLowerCase()] = r.photoUrl || '';
-        _photoSubs.forEach((f) => f((x) => x + 1));
-      }).catch(() => { _photoMap = {}; });
-    }
-    _photoSubs.add(force);
-    return () => _photoSubs.delete(force);
-  }, []);
-  return _photoMap || {};
-}
+// Photos live in lib/peoplePhotos so the header avatar shares this one cache.
+import { usePhotoMap } from '../lib/peoplePhotos';
 
 // `card={false}` opts a call site out of the hover card - for avatars that are
 // already inside an interactive row (menu items, pickers), where a second click
@@ -716,5 +696,44 @@ export function PersonMultiSelect({ value, onChange, people, placeholder = 'Sele
         </div>
       )}
     </div>
+  );
+}
+
+// ── Task count badges ────────────────────────────────────────────────────────
+// Subtasks, comments and attachments as icon + count, shown only when there is
+// something to show. Shared so every list speaks the same badge language: the
+// Task List had these and My Tasks did not, so the same task looked emptier
+// depending on which screen you opened it from.
+//
+// A count of zero renders nothing rather than a "0" - a row of zeroes is noise
+// on the majority of tasks, and their absence is already the answer.
+export function TaskCountBadges({ t, store, size = 12 }) {
+  const subs = (t.subtaskIds || [])
+    .map((id) => store?.taskById?.[id] || store?.tasks?.find((x) => x.id === id))
+    .filter(Boolean);
+  const subsDone = subs.filter((s) => s.completed).length;
+  const comments = (t.commentIds || []).length;
+  const files = (t.attachmentIds || []).length;
+  if (!subs.length && !comments && !files) return null;
+
+  const badge = { display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, color: NX.faint, flexShrink: 0 };
+  return (
+    <>
+      {subs.length > 0 && (
+        <span title={`${subsDone}/${subs.length} subtasks done`} style={{ ...badge, gap: 4 }}>
+          <ListTree size={size} />{subsDone}/{subs.length}
+        </span>
+      )}
+      {comments > 0 && (
+        <span title={`${comments} comment${comments === 1 ? '' : 's'}`} style={badge}>
+          <MessageSquare size={size} />{comments}
+        </span>
+      )}
+      {files > 0 && (
+        <span title={`${files} attachment${files === 1 ? '' : 's'}`} style={badge}>
+          <Paperclip size={size} />{files}
+        </span>
+      )}
+    </>
   );
 }

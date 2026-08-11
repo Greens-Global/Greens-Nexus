@@ -16,10 +16,11 @@
 //
 // Nothing here is cached or copied. The blob lives as long as the modal does.
 import { useEffect, useRef, useState } from 'react';
-import { Download, FileQuestion, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Download, FileQuestion, X } from 'lucide-react';
 import {
-  MAX_TEXT_PREVIEW_BYTES, downloadEgnyteFile, egnyteErrorMessage,
-  fetchEgnytePreview, formatBytes, isShortcut, previewKindFor,
+  MAX_SHEET_PREVIEW_BYTES, MAX_TEXT_PREVIEW_BYTES, downloadEgnyteFile,
+  egnyteErrorMessage, fetchEgnytePreview, formatBytes, isShortcut, officeAppFor,
+  previewKindFor,
 } from './lib';
 import { BODY, ELLIPSIS, HEADING, Loading, OpenInEgnyte, ProblemNote } from './ui';
 
@@ -38,15 +39,19 @@ const SHEET = {
   overflow: 'hidden',
 };
 
-function Unsupported({ name, size }) {
+function Unsupported({ name, size, reason }) {
   return (
     <div style={{ padding: '48px 24px', textAlign: 'center' }}>
       <FileQuestion size={30} style={{ color: 'var(--wk-faint)', marginBottom: 12 }} />
-      <div style={{ ...HEADING, fontSize: 14.5, marginBottom: 6 }}>No Preview For This Type</div>
+      <div style={{ ...HEADING, fontSize: 14.5, marginBottom: 6 }}>No Preview For This File</div>
       <div style={{ ...BODY, maxWidth: 420, margin: '0 auto' }}>
-        Nexus previews PDFs, images and text files. {isShortcut(name)
-          ? 'This is an Egnyte shortcut, which points at another file rather than holding one.'
-          : 'Office documents and everything else open in Egnyte, or download and open locally.'}
+        {reason || (
+          <>
+            Nexus previews PDFs, images, spreadsheets and text files. {isShortcut(name)
+              ? 'This is an Egnyte shortcut, which points at another file rather than holding one.'
+              : 'Word and PowerPoint documents open in Egnyte, or download and open locally.'}
+          </>
+        )}
       </div>
       {size > 0 && (
         <div style={{ ...BODY, fontSize: 12, marginTop: 8, color: 'var(--wk-faint)' }}>{formatBytes(size)}</div>
@@ -55,19 +60,92 @@ function Unsupported({ name, size }) {
   );
 }
 
-export default function EgnytePreview({ file, onClose }) {
+// Spreadsheet viewer: sheet tabs + a plain read-only table. Rows/columns are
+// capped - this answers "what is in this file?", not "edit it here".
+const SHEET_MAX_ROWS = 600;
+const SHEET_MAX_COLS = 60;
+
+function buildSheet(wb, XLSX, active) {
+  const names = wb.SheetNames || [];
+  const ws = wb.Sheets[names[active]] || {};
+  let rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: '' });
+  const truncated = rows.length > SHEET_MAX_ROWS;
+  rows = rows.slice(0, SHEET_MAX_ROWS).map(r => r.slice(0, SHEET_MAX_COLS));
+  return { names, active, rows, truncated };
+}
+
+function SheetTable({ sheet, onPick }) {
+  if (!sheet) return null;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100%' }}>
+      {sheet.names.length > 1 && (
+        <div className="scroll-tabs" style={{ display: 'flex', gap: 2, padding: '8px 10px 0', overflowX: 'auto', flexShrink: 0 }}>
+          {sheet.names.map((n, i) => (
+            <button key={n} type="button" onClick={() => onPick(i)}
+              style={{
+                border: 'none', cursor: 'pointer', padding: '5px 11px', borderRadius: '7px 7px 0 0',
+                fontFamily: 'inherit', fontSize: 12, fontWeight: i === sheet.active ? 700 : 500, whiteSpace: 'nowrap',
+                background: i === sheet.active ? 'var(--wk-hover)' : 'transparent',
+                color: i === sheet.active ? 'var(--wk-ink)' : 'var(--wk-dim)',
+              }}>
+              {n}
+            </button>
+          ))}
+        </div>
+      )}
+      <div style={{ flex: 1, overflow: 'auto', padding: 10 }}>
+        <table style={{ borderCollapse: 'collapse', fontSize: 12, color: 'var(--wk-ink)' }}>
+          <tbody>
+            {sheet.rows.map((row, ri) => (
+              <tr key={ri}>
+                {row.map((cell, ci) => (
+                  <td key={ci} style={{
+                    border: '1px solid var(--wk-line2)', padding: '4px 9px', whiteSpace: 'nowrap',
+                    maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis',
+                    fontWeight: ri === 0 ? 600 : 400,
+                    background: ri === 0 ? 'var(--wk-hover)' : 'transparent',
+                  }}>
+                    {String(cell ?? '')}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {(sheet.truncated) && (
+          <div style={{ ...BODY, fontSize: 11.5, color: 'var(--wk-faint)', padding: '8px 2px' }}>
+            Showing the first {SHEET_MAX_ROWS} rows - download the file for everything.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default function EgnytePreview({ file, onClose, onNav = null, navIndex = -1, navCount = 0 }) {
   const [state, setState] = useState({ loading: true, url: '', text: '', error: '' });
+  const [sheet, setSheet] = useState(null);   // {names, active, rows, truncated}
   const [downloading, setDownloading] = useState(false);
   const urlRef = useRef('');
+  const wbRef = useRef(null);
 
   const kind = previewKindFor(file?.name);
   const tooBigForText = kind === 'text' && Number(file?.size) > MAX_TEXT_PREVIEW_BYTES;
-  const renderable = !!kind && !tooBigForText && !isShortcut(file?.name || '');
+  const tooBigSheet = kind === 'sheet' && Number(file?.size) > MAX_SHEET_PREVIEW_BYTES;
+  const renderable = !!kind && !tooBigForText && !tooBigSheet && !isShortcut(file?.name || '');
 
-  // Escape closes, and the page behind must not scroll while a full-height sheet
-  // is over it - on iOS especially, that scroll goes to the wrong element.
+  const hasPrev = !!onNav && navIndex > 0;
+  const hasNext = !!onNav && navIndex >= 0 && navIndex < navCount - 1;
+
+  // Escape closes, the arrow keys walk the folder, and the page behind must not
+  // scroll while a full-height sheet is over it - on iOS especially, that
+  // scroll goes to the wrong element.
   useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape') onClose?.(); };
+    const onKey = (e) => {
+      if (e.key === 'Escape') onClose?.();
+      if (e.key === 'ArrowLeft' && hasPrev) onNav(-1);
+      if (e.key === 'ArrowRight' && hasNext) onNav(1);
+    };
     window.addEventListener('keydown', onKey);
     const prev = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
@@ -75,18 +153,30 @@ export default function EgnytePreview({ file, onClose }) {
       window.removeEventListener('keydown', onKey);
       document.body.style.overflow = prev;
     };
-  }, [onClose]);
+  }, [onClose, onNav, hasPrev, hasNext]);
 
   useEffect(() => {
-    if (!file?.path || !renderable) { setState({ loading: false, url: '', text: '', error: '' }); return undefined; }
+    if (!file?.path || !renderable) { setState({ loading: false, url: '', text: '', error: '' }); setSheet(null); return undefined; }
     let alive = true;
     setState({ loading: true, url: '', text: '', error: '' });
+    setSheet(null);
 
     fetchEgnytePreview(file.path)
       .then(async (blob) => {
         if (!alive) return;
         if (kind === 'text') {
           setState({ loading: false, url: '', text: await blob.text(), error: '' });
+          return;
+        }
+        if (kind === 'sheet') {
+          // SheetJS lazy-loads (same chunk the item importer uses); cells are
+          // rendered as React text, never injected HTML.
+          const XLSX = await import('xlsx');
+          const wb = XLSX.read(await blob.arrayBuffer());
+          if (!alive) return;
+          wbRef.current = { wb, XLSX };
+          setSheet(buildSheet(wb, XLSX, 0));
+          setState({ loading: false, url: '', text: '', error: '' });
           return;
         }
         const url = URL.createObjectURL(blob);
@@ -100,11 +190,16 @@ export default function EgnytePreview({ file, onClose }) {
 
     return () => {
       alive = false;
+      wbRef.current = null;
       // Revoking on unmount is what keeps this from leaking a copy of every file
       // the user looked at for the rest of the session.
       if (urlRef.current) { URL.revokeObjectURL(urlRef.current); urlRef.current = ''; }
     };
   }, [file?.path, file?.name, kind, renderable]);
+
+  const pickSheet = (i) => {
+    if (wbRef.current) setSheet(buildSheet(wbRef.current.wb, wbRef.current.XLSX, i));
+  };
 
   if (!file) return null;
 
@@ -122,6 +217,7 @@ export default function EgnytePreview({ file, onClose }) {
   return (
     <div
       role="presentation"
+      className="egx-overlay"
       onMouseDown={e => { if (e.target === e.currentTarget) onClose?.(); }}
       style={{
         position: 'fixed', inset: 0, zIndex: 1200, background: 'rgba(15,18,24,.55)',
@@ -129,13 +225,35 @@ export default function EgnytePreview({ file, onClose }) {
         backdropFilter: 'blur(2px)',
       }}
     >
-      <div role="dialog" aria-modal="true" aria-label={file.name} style={SHEET}>
+      <div role="dialog" aria-modal="true" aria-label={file.name} className="egx-pop" style={{ ...SHEET, position: 'relative' }}>
+
+        {hasPrev && (
+          <button type="button" className="egx-navbtn" style={{ left: 12 }} title="Previous file (←)" aria-label="Previous file" onClick={() => onNav(-1)}>
+            <ChevronLeft size={19} />
+          </button>
+        )}
+        {hasNext && (
+          <button type="button" className="egx-navbtn" style={{ right: 12 }} title="Next file (→)" aria-label="Next file" onClick={() => onNav(1)}>
+            <ChevronRight size={19} />
+          </button>
+        )}
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 12px', borderBottom: '1px solid var(--wk-line2)', flexShrink: 0, minWidth: 0 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ ...HEADING, fontSize: 14, ...ELLIPSIS }} title={file.name}>{file.name}</div>
             <div style={{ ...BODY, fontSize: 11.5, color: 'var(--wk-faint)', ...ELLIPSIS }} title={file.path}>{file.path}</div>
           </div>
+          {onNav && navIndex >= 0 && navCount > 1 && (
+            <span style={{ ...BODY, fontSize: 12, color: 'var(--wk-faint)', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>
+              {navIndex + 1} of {navCount}
+            </span>
+          )}
+          {officeAppFor(file.name) && file.webUrl && (
+            <a href={file.webUrl} target="_blank" rel="noopener noreferrer" className="primary-btn"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0, textDecoration: 'none' }}>
+              Edit in {officeAppFor(file.name)} Online
+            </a>
+          )}
           <OpenInEgnyte url={file.webUrl} label="Open in Egnyte" />
           <button type="button" className="secondary-btn" disabled={downloading} onClick={download}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
@@ -149,7 +267,15 @@ export default function EgnytePreview({ file, onClose }) {
 
         <div style={{ flex: 1, minHeight: 0, overflow: 'auto', background: kind === 'image' ? 'var(--wk-hover)' : 'var(--wk-card)' }}>
           {!renderable ? (
-            <Unsupported name={file.name} size={file.size} />
+            <Unsupported
+              name={file.name}
+              size={file.size}
+              reason={tooBigSheet
+                ? 'This spreadsheet is too large to preview here - download it and open it locally.'
+                : (officeAppFor(file.name) && file.webUrl
+                  ? `Press "Edit in ${officeAppFor(file.name)} Online" above - it opens straight into the editor with your Egnyte permissions.`
+                  : undefined)}
+            />
           ) : state.loading ? (
             <Loading label="Opening file…" />
           ) : state.error ? (
@@ -177,6 +303,8 @@ export default function EgnytePreview({ file, onClose }) {
             <div style={{ minHeight: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
               <img src={state.url} alt={file.name} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', display: 'block' }} />
             </div>
+          ) : kind === 'sheet' ? (
+            <SheetTable sheet={sheet} onPick={pickSheet} />
           ) : (
             <pre style={{ margin: 0, padding: 16, fontFamily: 'ui-monospace, monospace', fontSize: 12.5, lineHeight: 1.6, color: 'var(--wk-ink)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
               {state.text}

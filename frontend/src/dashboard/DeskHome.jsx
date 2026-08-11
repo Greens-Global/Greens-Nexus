@@ -12,7 +12,7 @@ row.
 FORM: category standard played straight at full fidelity (user's canon call,
 Jul 28); craft bar monday.com.
 */
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useMsal } from '@azure/msal-react';
 import {
   ArrowUpRight, BookOpen, CheckCircle2, CheckSquare, ChevronRight,
@@ -20,6 +20,9 @@ import {
 } from 'lucide-react';
 import { useRole } from '../contexts/RoleContext';
 import { api } from '../api';
+// The same composer the customizable dashboard's Quick Actions widget uses -
+// it brings its own TasksProvider, so the modal works outside the Tasks view.
+const QuickActionModal = lazy(() => import('./QuickActionModals.jsx'));
 
 const reduceMotion = () =>
   typeof window !== 'undefined' &&
@@ -103,6 +106,9 @@ export default function DeskHome({ kpis = {}, notifications = [], markRead }) {
   const [status, setStatus] = useState(null);
   const [sigs, setSigs] = useState([]);
   const [teamKpis, setTeamKpis] = useState(null);
+  // Which quick-action composer is open, if any. Null renders nothing and the
+  // chunk is never fetched.
+  const [composing, setComposing] = useState(null);
   useEffect(() => {
     api.timeStatus().then(setStatus).catch(() => {});
     api.mySignatures().then(r => setSigs(Array.isArray(r) ? r : (r?.requests || r?.items || []))).catch(() => {});
@@ -283,7 +289,10 @@ export default function DeskHome({ kpis = {}, notifications = [], markRead }) {
               <span className="dk-chip dk-chip--orange"><Package /></span> Request an item
               <ChevronRight size={14} className="dk-key-arrow" />
             </button>
-            <button className="dk-key" onClick={() => navTo('tasks')}>
+            {/* Opens the composer here rather than navigating to the Tasks
+                module: a quick action that dumps you on another screen to find
+                the button yourself is not quick. */}
+            <button className="dk-key" onClick={() => setComposing('task')}>
               <span className="dk-chip dk-chip--blue"><CheckSquare /></span> New task
               <ChevronRight size={14} className="dk-key-arrow" />
             </button>
@@ -299,6 +308,15 @@ export default function DeskHome({ kpis = {}, notifications = [], markRead }) {
           </div>
         </div>
       </div>
+
+      {/* No fallback: the composer is a modal, and a spinner overlay flashing
+          in front of the dashboard for one frame is worse than it appearing a
+          beat later. */}
+      {composing && (
+        <Suspense fallback={null}>
+          <QuickActionModal kind={composing} onClose={() => setComposing(null)} />
+        </Suspense>
+      )}
     </div>
   );
 }

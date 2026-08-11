@@ -13,8 +13,8 @@ import { pollWhileVisible } from '../lib/pollWhileVisible';
 // Live clock state (from the person's latest punch): drives the pin/avatar ring.
 const CLOCK = {
   working:  { color: '#16a34a', label: 'Working' },
-  on_break: { color: '#d97706', label: 'On break' },
-  off:      { color: '#94a3b8', label: 'Not clocked in' },
+  on_break: { color: '#d97706', label: 'On Break' },
+  off:      { color: '#94a3b8', label: 'Not Clocked In' },
 };
 const clockOf = (p) => CLOCK[p.status] || (p.clockedIn ? CLOCK.working : CLOCK.off);
 const fmtAcc = (m) => m >= 1000 ? `±${(m / 1000).toFixed(m >= 10000 ? 0 : 1)}km` : `±${m}m`;
@@ -22,8 +22,8 @@ const fmtAcc = (m) => m >= 1000 ? `±${(m / 1000).toFixed(m >= 10000 ? 0 : 1)}km
 // judge by ACCURACY, not geo_status - a punch reads "no_location" whenever there's
 // no geofenced site to compare against, even with a pin-perfect phone GPS fix.
 function locStatus(p) {
-  if (p.geoStatus === 'in_fence') return { color: '#16a34a', label: `On site${p.workSiteName ? ` · ${p.workSiteName}` : ''}` };
-  if (p.geoStatus === 'out_of_fence') return { color: '#d97706', label: `Off site${p.workSiteName ? ` · ${p.workSiteName}` : ''}` };
+  if (p.geoStatus === 'in_fence') return { color: '#16a34a', label: `On Site${p.workSiteName ? ` · ${p.workSiteName}` : ''}` };
+  if (p.geoStatus === 'out_of_fence') return { color: '#d97706', label: `Off Site${p.workSiteName ? ` · ${p.workSiteName}` : ''}` };
   const a = p.accuracyM || 0;
   if (a > 0 && a <= 100) return { color: '#2563eb', label: `GPS ${fmtAcc(a)}` };       // precise phone/GPS fix
   if (a > 0 && a <= 1000) return { color: '#64748b', label: `Approx. ${fmtAcc(a)}` };
@@ -176,28 +176,28 @@ export default function Locations({ toastErr }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', margin: '4px 0 12px' }}>
         <span style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
           <Search size={14} style={{ position: 'absolute', left: 8, color: 'var(--muted)' }} />
-          <input placeholder="Search people" value={f.q} onChange={e => setF(s => ({ ...s, q: e.target.value }))}
+          <input placeholder="Search People" value={f.q} onChange={e => setF(s => ({ ...s, q: e.target.value }))}
             style={{ ...selStyle, paddingLeft: 26, maxWidth: 190 }} />
         </span>
         <select value={f.company} onChange={e => setF(s => ({ ...s, company: e.target.value }))} style={selStyle}>
-          <option value="">All companies</option>
+          <option value="">All Companies</option>
           {companies.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
         </select>
         <select value={f.department} onChange={e => setF(s => ({ ...s, department: e.target.value }))} style={selStyle}>
-          <option value="">All departments</option>
+          <option value="">All Departments</option>
           {departments.map(d => <option key={d} value={d}>{d}</option>)}
         </select>
         <select value={f.country} onChange={e => setF(s => ({ ...s, country: e.target.value }))} style={selStyle}>
-          <option value="">All countries</option>
+          <option value="">All Countries</option>
           {countries.map(c => <option key={c} value={c}>{c}</option>)}
         </select>
         <select value={f.geo} onChange={e => setF(s => ({ ...s, geo: e.target.value }))} style={selStyle}>
-          <option value="">Any site status</option>
-          <option value="on">On site</option>
-          <option value="off">Off site</option>
+          <option value="">Any Site Status</option>
+          <option value="on">On Site</option>
+          <option value="off">Off Site</option>
         </select>
         <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12.5, fontWeight: 600, color: 'var(--muted)', cursor: 'pointer' }}>
-          <input type="checkbox" checked={f.clockedIn} onChange={e => setF(s => ({ ...s, clockedIn: e.target.checked }))} /> Clocked in now
+          <input type="checkbox" checked={f.clockedIn} onChange={e => setF(s => ({ ...s, clockedIn: e.target.checked }))} /> Clocked In Now
         </label>
         {activeFilters ? <button className="secondary-btn" onClick={clearFilters} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 4 }}><X size={12} /> Clear</button> : null}
         <div style={{ flex: 1 }} />

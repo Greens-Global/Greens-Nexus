@@ -14,6 +14,8 @@ import { api } from "../api";
 export default function AccountSettingsModal({ onClose, initialResult = "", initialReason = "" }) {
   const [status, setStatus] = useState(null);
   const [busy, setBusy] = useState("");
+  // Result of the live "would this actually post as me" probe. Null until asked.
+  const [check, setCheck] = useState(null);
   const [error, setError] = useState(initialReason || "");
   // "connected" | "denied" | "error" - set when we've just come back from
   // Asana's consent screen, so the outcome is visible rather than silent.
@@ -39,10 +41,20 @@ export default function AccountSettingsModal({ onClose, initialResult = "", init
     } finally { setBusy(""); }
   }
 
+  async function runCheck() {
+    setBusy("check"); setError(""); setCheck(null);
+    try {
+      setCheck(await api.asanaOauthCheck());
+    } catch (e) {
+      setError(e?.message || "Couldn't test the Asana connection.");
+    } finally { setBusy(""); }
+  }
+
   async function disconnect() {
     setBusy("disconnect"); setError(""); setResult("");
     try {
       await api.asanaOauthDisconnect();
+      setCheck(null);
       load();
     } catch (e) {
       setError(e?.message || "Couldn't disconnect.");
@@ -99,6 +111,45 @@ export default function AccountSettingsModal({ onClose, initialResult = "", init
             {connected && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 10, fontSize: 12, color: 'hsl(var(--color-green, 145 60% 36%))' }}>
                 <Check size={13} /> Connected{status.asanaEmail ? ` as ${status.asanaEmail}` : ''}
+              </div>
+            )}
+
+            {/* Connected is not the same as working. A grant whose vault key
+                changed still reports connected while every comment posts as the
+                shared account - so if a push has already failed, say so here
+                rather than waiting for someone to press Test connection. */}
+            {connected && status.lastError && !check?.willPostAsMe && (
+              <div style={{ display: 'flex', gap: 6, marginTop: 8, fontSize: 12, lineHeight: 1.5, color: 'hsl(var(--color-amber, 38 92% 40%))' }}>
+                <AlertTriangle size={13} style={{ flexShrink: 0, marginTop: 1 }} />
+                <span>Your last comment did not post as you - {status.lastError}</span>
+              </div>
+            )}
+
+            {/* "Connected" only means a grant is stored. Posting can still fall
+                back to the shared account - a revoked grant, or one with no
+                access to the project the task lives in - and the fallback is
+                deliberately silent so a comment is never lost. This asks Asana
+                what would actually happen. */}
+            {connected && (
+              <div style={{ marginTop: 10 }}>
+                <button onClick={runCheck} disabled={!!busy}
+                  style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '5px 10px', fontSize: 12, fontWeight: 600, cursor: busy ? 'default' : 'pointer', color: 'var(--ink)', fontFamily: 'inherit' }}>
+                  {busy === 'check' ? 'Checking…' : 'Test connection'}
+                </button>
+                {check && (
+                  <div style={{ display: 'flex', gap: 6, marginTop: 8, fontSize: 12, lineHeight: 1.5,
+                    color: (check.willPostAsMe && !check.partial) ? 'hsl(var(--color-green, 145 60% 36%))' : 'hsl(var(--color-amber, 38 92% 40%))' }}>
+                    {(check.willPostAsMe && !check.partial) ? <Check size={13} style={{ flexShrink: 0, marginTop: 1 }} />
+                                        : <AlertTriangle size={13} style={{ flexShrink: 0, marginTop: 1 }} />}
+                    <span>
+                      {check.willPostAsMe && !check.partial
+                        ? <>Working. Your comments post as <strong>{check.asanaName || check.asanaEmail}</strong>.</>
+                        : check.partial
+                          ? <>Partly working - {check.reason}</>
+                          : <>Your comments are posting as{check.serviceAccountName ? <> <strong>{check.serviceAccountName}</strong></> : ' the shared sync account'} - {check.reason || 'reason unknown'}.</>}
+                    </span>
+                  </div>
+                )}
               </div>
             )}
 

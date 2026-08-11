@@ -21,7 +21,6 @@ completed, commented, follower_added, modified, deleted.
 """
 import asyncio
 import json
-import os
 import uuid
 from datetime import datetime, timezone, date
 
@@ -31,9 +30,11 @@ import models
 from database import SessionLocal
 import graph_mail
 import task_mail_templates as tmpl
+from app_url import app_url
+from task_inbound_parse import reply_address, reply_mailbox
 from routers.task_util import log_activity
 
-_APP_URL = os.getenv("NEXUS_APP_URL", "")   # e.g. https://nexus.greensglobal.com - no trailing slash
+_APP_URL = app_url()   # NEXUS_APP_URL override, else derived per environment - see app_url.py
 _SETTINGS_KEY = "task_notify_config"
 
 _DEFAULT_SETTINGS = {
@@ -41,6 +42,13 @@ _DEFAULT_SETTINGS = {
     "defaultCc":   [],
     "replyTo":     "",
     "logoUrl":     "",
+    # Replying to a notification posts a comment on the task (task_inbound.py).
+    # Off by default: it needs a mailbox the app can READ, which is a separate
+    # Graph grant (Mail.ReadWrite) from the one that sends. `inboundMailbox`
+    # falls back to replyTo - they are normally the same address, and the reply
+    # address people actually see is a signed sub-address of it.
+    "inboundEnabled": False,
+    "inboundMailbox": "",
     "dueSoonDays": 2,      # remind this many days before due_on; 0 = due-date reminders off
     "overdueRepeatDays": 3,   # re-remind an overdue task every N days until done/reassigned; 0 = only once
     "enabledEvents": {
@@ -212,7 +220,8 @@ def _send_one(db: Session, *, task_id: str, task_code: str, event_type: str, ide
     cc = [e for e in (cfg.get("defaultCc") or []) if e and e.lower() != recipient]
     try:
         result = graph_mail.send_mail(from_email=from_email, to=[recipient], cc=cc,
-                                       subject=subject, html=html, reply_to=cfg.get("replyTo") or "")
+                                       subject=subject, html=html,
+                                       reply_to=reply_address(reply_mailbox(cfg), task_id))
         row.status = "sent"
         row.graph_message_id = result.get("messageId", "")
         row.conversation_id = result.get("conversationId", "")
@@ -425,7 +434,8 @@ def _retry_failed_once(db: Session) -> None:
             subject, html = _rebuild_email(row.event_type, ctx, row.recipient_role, cfg)
             html = row.html or html
             result = graph_mail.send_mail(from_email=from_email, to=[row.recipient], cc=cc,
-                                           subject=row.subject or subject, html=html, reply_to=cfg.get("replyTo") or "")
+                                           subject=row.subject or subject, html=html,
+                                           reply_to=reply_address(reply_mailbox(cfg), row.task_id))
             row.status = "sent"
             row.graph_message_id = result.get("messageId", "")
             row.conversation_id = result.get("conversationId", "")

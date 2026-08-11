@@ -16,10 +16,11 @@ from datetime import datetime, timezone
 import httpx
 import models
 from database import get_db, SessionLocal
-from auth import get_current_user, require_level, require_manager
+from auth import get_current_user, require_level, require_manager, require_any_module_grant
 from routers.task_util import now_iso, gen_id
 
-router = APIRouter(tags=["Tasks"], dependencies=[Depends(get_current_user)])
+router = APIRouter(tags=["Tasks"],
+                   dependencies=[Depends(get_current_user), Depends(require_any_module_grant("tasks", "tickets"))])
 
 
 def _nz(v):
@@ -1115,6 +1116,18 @@ def asana_sync_push_all(db: Session = Depends(get_db)):
         raise HTTPException(400, f"Asana push failed - check the token. ({e})")
 
 
+@router.get("/asana-sync/assignee-check", dependencies=[Depends(require_manager)])
+def asana_sync_assignee_check(db: Session = Depends(get_db)):
+    """Why assignees are or are not reaching Asana.
+
+    Its own check because assignee is the one field that can fail alone: it is
+    the only one that must be TRANSLATED from a Nexus email into an Asana user
+    gid, and every way that translation fails looks the same from outside - the
+    task updates, the assignee does not, and nothing says why."""
+    import asana_sync
+    return asana_sync.assignee_diagnosis(db)
+
+
 @router.post("/asana-sync/dedupe", dependencies=[Depends(require_manager)])
 def asana_sync_dedupe(apply: bool = False, db: Session = Depends(get_db)):
     """Merge Nexus tasks that all point at the same Asana task - the leftovers
@@ -1122,6 +1135,28 @@ def asana_sync_dedupe(apply: bool = False, db: Session = Depends(get_db)):
     had already linked (see asana_sync.dedupe_tasks). Defaults to a dry run."""
     import asana_sync
     return asana_sync.dedupe_tasks(db, apply=apply)
+
+
+@router.get("/asana-sync/workspaces", dependencies=[Depends(require_manager)])
+def asana_sync_workspaces(db: Session = Depends(get_db)):
+    """The workspaces this token can see, so the Workspace GID can be picked
+    instead of typed.
+
+    Asana does not show a workspace id anywhere in its UI, and the ids in its
+    URLs (app.asana.com/0/<project>/<task>) are PROJECT ids - which is exactly
+    how a project gid ends up pasted into this field. It reads as valid, nothing
+    validates it, and the only symptom is that assignees quietly stop resolving
+    while every other field syncs normally."""
+    import asana_sync
+    from asana_import import Asana, ImportError_
+    cfg = asana_sync.get_config(db)
+    if not cfg.token:
+        raise HTTPException(400, "Save the sync token first.")
+    try:
+        return [{"gid": w["gid"], "name": w.get("name") or w["gid"]}
+                for w in Asana(cfg.token).get("/workspaces", opt_fields="name")]
+    except ImportError_ as e:
+        raise HTTPException(400, f"Could not list workspaces - check the token. ({e})")
 
 
 @router.get("/asana-sync/asana-projects", dependencies=[Depends(require_manager)])

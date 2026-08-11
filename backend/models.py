@@ -1,4 +1,4 @@
-from sqlalchemy import BigInteger, Boolean, Column, Float, Integer, JSON, String, Text
+from sqlalchemy import BigInteger, Boolean, Column, Float, Integer, JSON, String, Text, UniqueConstraint
 from database import Base
 
 
@@ -573,6 +573,14 @@ class NexusEmployee(Base):
     division        = Column(String, default="")               # functional division head-tag; org chart inherits down the tree (Phase 5)
     identity_type   = Column(String, default="internal")        # internal (MS365 staff) | guest (Entra B2B partner) | external (non-MS365, HR-record only)
     display_name    = Column(String, default="")               # Entra/Teams displayName verbatim - first+last drops middle names ("Sagar Kumar Shoundik" -> "Sagar Shoundik"), so people read as a different person than Teams shows. Refreshed by sync-m365; falls back to first+last when empty.
+    # Soft delete (Aug 11). "Remove from Nexus" used to DROP the row, taking pay,
+    # compliance, personal details and the whole status history with it and
+    # leaving nothing to restore. The row now stays and is hidden instead: empty
+    # = live, an ISO timestamp = removed. Every query in the app excludes these
+    # automatically (see the do_orm_execute hook in database.py) - do NOT rely on
+    # each call site remembering to filter.
+    deleted_at      = Column(String, default="")
+    deleted_by      = Column(String, default="")
 
 
 class HrRemovedIdentity(Base):
@@ -1512,6 +1520,7 @@ class TimeOffRequest(Base):
     decided_at     = Column(String, default="")
     decide_note    = Column(String, default="")
     created_at     = Column(String, default="")
+    requested_by   = Column(String, default="")         # who FILED it, when not the employee (manager+ on-behalf, Neil Aug 11)
 
 
 class DashboardView(Base):
@@ -1838,6 +1847,14 @@ class TaskCustomStatus(Base):
     # "Deferred", anything a project invents) become custom statuses on exactly
     # the projects that use them, rather than being dropped on the way in.
     asana_option_gid = Column(String, default="", index=True)
+    # Every Asana enum option this one status fronts. Asana's "Task Progress" is
+    # usually a PER-PROJECT custom field, so "Waiting" on two projects is two
+    # different option gids - keying identity on a single gid therefore minted a
+    # second "Waiting" row per project (Sagar, Aug 4: "single Waiting status
+    # should be used for both projects"). Matching on the LABEL and collecting
+    # the gids here gives one row scoped to many projects, while still letting a
+    # rename in Asana be recognised rather than orphaned.
+    asana_option_gids = Column(JSON, default=list)
 
 
 class TaskComment(Base):
@@ -2019,7 +2036,10 @@ class TaskTicket(Base):
     subject        = Column(String, nullable=False)
     description    = Column(String, default="")
     type           = Column(String, default="request")   # bug|incident|service_request|task|question|request
-    status         = Column(String, default="new")       # new|open|in_progress|on_hold|resolved|closed|reopened
+    # new|open|in_progress|waiting_user|waiting_vendor|on_hold|resolved|closed|reopened
+    # The two waiting_* states say who the ball is with; on_hold is the team
+    # parking it themselves. See TICKET_STATUS_META (ticketMeta.js).
+    status         = Column(String, default="new")
     priority       = Column(String, default="medium")
     requester_email= Column(String, default="", index=True)
     assignee_email = Column(String, default="", index=True)
@@ -2046,6 +2066,12 @@ class TaskTicket(Base):
     approver_email    = Column(String, default="", index=True)
     approval_note     = Column(String, default="")       # the approver's reason, esp. on reject
     approval_decided_at = Column(String, default="")
+    # Who handed this ticket to its assignee. Stamped by the server from the
+    # actor on the assigning request, never sent by the client - the point of
+    # the field is that it records who actually did it, and a value the caller
+    # can set is not a record of anything. Blank on tickets nobody has
+    # assigned yet, and on those assigned before this existed.
+    assigned_by_email = Column(String, default="", index=True)
     sla_due_on     = Column(String, default="")
     resolved_at    = Column(String, default="")
     created_at     = Column(String, default="")
@@ -2068,7 +2094,7 @@ class TicketEmailLog(Base):
     event_version        = Column(Integer, default=0)     # bumps when the same event_type fires again on this ticket
     idempotency_key       = Column(String, default="", index=True, unique=True)
     recipient            = Column(String, default="")
-    recipient_role       = Column(String, default="")     # requester|dept_head|assignee|ticket_admin
+    recipient_role       = Column(String, default="")     # requester|it_admin|assignee|ticket_admin
     subject              = Column(String, default="")
     status               = Column(String, default="pending")   # pending|sent|failed|retrying
     graph_message_id     = Column(String, default="")
@@ -2238,6 +2264,13 @@ class AsanaTaskLink(Base):
     # bumped modified_at and logged another "Updated from Asana" - 288 phantom
     # activity entries per task per day at the inbound poll.
     last_inbound_hash = Column(String, default="")
+    # Asana's `due_at` (date AND time) as of the last pull, or "" when the task
+    # has only a plain date. Nexus tasks carry a date alone, so pushing our
+    # `due_on` back to a task that had a due TIME silently deleted the time -
+    # the two fields are mutually exclusive in Asana, and writing one clears the
+    # other. Recording what Asana holds lets the push leave the date alone when
+    # it hasn't actually changed on the Nexus side. See push_task.
+    last_due_at = Column(String, default="")
 
 
 class AsanaCommentLink(Base):
@@ -2271,6 +2304,18 @@ class AsanaUserToken(Base):
     asana_user_gid    = Column(String, default="")
     asana_name        = Column(String, default="")   # for the "Connected as ..." line
     asana_email       = Column(String, default="")
+    # Why this grant last failed to produce a token, and when. Written by
+    # token_reason, cleared on the next success.
+    #
+    # A grant can stop working while still looking connected - the vault key
+    # changing out from under it makes every stored token unreadable, which is
+    # exactly what happened on dev. Falling back to the shared account is silent
+    # by design (never lose a comment), so without this the user is told
+    # "comments appear as you" indefinitely while every one of them says
+    # somebody else. Recording it lets Account Settings ask them to reconnect
+    # instead of waiting for someone to read a server log.
+    last_error        = Column(String, default="")
+    last_error_at     = Column(String, default="")
     created_at        = Column(String, default="")
     updated_at        = Column(String, default="")
 
@@ -2529,6 +2574,58 @@ class VaultAccessLog(Base):
     created_at  = Column(String, default="", index=True)
 
 
+class VaultOtpChallenge(Base):
+    """A pending SMS/Email one-time code (CredVault-specific, not the Entra
+    step-up module). Used both to gate company-vault reveal/share actions and
+    to verify a Personal Vault password reset. `target` is the phone/email the
+    code was actually sent to, kept for audit - the API only ever returns a
+    masked version of it."""
+    __tablename__ = "vault_otp_challenges"
+    id          = Column(String, primary_key=True)
+    email       = Column(String, default="", index=True)
+    purpose     = Column(String, default="")   # reveal_share | personal_reset
+    channel     = Column(String, default="")   # sms | email
+    target      = Column(String, default="")
+    code_hash   = Column(String, default="")
+    attempts    = Column(Integer, default=0)
+    consumed_at = Column(String, default="")
+    expires_at  = Column(String, default="", index=True)
+    created_at  = Column(String, default="")
+
+
+class VaultOtpSession(Base):
+    """Short-lived proof of a verified SMS/Email OTP - CredVault's own
+    replacement for step-up MFA on company credential reveal/share (personal
+    vault unlock uses VaultPersonalUnlockSession instead, see below)."""
+    __tablename__ = "vault_otp_sessions"
+    id         = Column(String, primary_key=True)
+    email      = Column(String, default="", index=True)
+    purpose    = Column(String, default="")
+    channel    = Column(String, default="")
+    expires_at = Column(String, default="", index=True)
+    created_at = Column(String, default="")
+
+
+class VaultPersonalAuth(Base):
+    """Per-user password that unlocks the Personal Vault. Salted PBKDF2 hash
+    ("salt_hex$hash_hex") - the plaintext is never stored. Reset requires a
+    verified VaultOtpChallenge(purpose='personal_reset')."""
+    __tablename__ = "vault_personal_auth"
+    email         = Column(String, primary_key=True)
+    password_hash = Column(String, default="")
+    updated_at    = Column(String, default="")
+
+
+class VaultPersonalUnlockSession(Base):
+    """Short-lived proof the Personal Vault password was entered correctly -
+    gates the personal-vault reveal endpoint."""
+    __tablename__ = "vault_personal_unlock_sessions"
+    id         = Column(String, primary_key=True)
+    email      = Column(String, default="", index=True)
+    expires_at = Column(String, default="", index=True)
+    created_at = Column(String, default="")
+
+
 class StepUpSession(Base):
     """A short-lived proof that the user completed a FRESH Entra MFA (step-up)
     for the sensitive-data action they're about to take. Created by
@@ -2775,6 +2872,39 @@ class AsanaImportJob(Base):
     done_gids    = Column(JSON, default=list)
     attempts     = Column(Integer, default=1)
 
+class TaskInboundEmail(Base):
+    """One message the task mailbox handed us, and what became of it (Task
+    Inbound Email, Aug 2026 - the reply half of TaskEmailLog above).
+
+    Written for EVERY message the drain looks at, not just the ones that became
+    comments. A reply that resolved to no task, came from an address nobody
+    recognises, or was an out-of-office is the case someone will ask about
+    ("I replied and nothing happened"), and without a row the answer is a
+    shrug - the message itself is already marked read and filed away.
+
+    `internet_message_id` is unique and is the idempotency guard: the drain
+    marks a message read only after the comment is committed, so a crash in
+    between means the next pass sees it again, and this constraint is what
+    stops that from posting the comment twice."""
+    __tablename__ = "task_inbound_email"
+    id                  = Column(String, primary_key=True)
+    internet_message_id = Column(String, default="", index=True, unique=True)
+    graph_message_id    = Column(String, default="")
+    conversation_id     = Column(String, default="")
+    from_email          = Column(String, default="", index=True)
+    subject             = Column(String, default="")
+    task_id             = Column(String, default="", index=True)
+    comment_id          = Column(String, default="")
+    matched_by          = Column(String, default="")   # address | headers | conversation
+    status              = Column(String, default="")   # posted | rejected | ignored | failed
+    # Why it was refused, or which of its files could not be filed - a posted
+    # reply with a skipped attachment carries both a comment and a reason.
+    reason              = Column(String, default="")
+    attachment_count    = Column(Integer, default=0)   # files actually filed (see task_inbound)
+    received_at         = Column(String, default="")
+    processed_at        = Column(String, default="")
+
+
 
 class ServerSession(Base):
     """Backend-For-Frontend login session. The browser holds ONLY the opaque id
@@ -2815,3 +2945,92 @@ class M365SyncRun(Base):
     push_failed  = Column(Integer, default=0)
     pull_summary = Column(String, default="")         # JSON dict from the pull phase
     errors       = Column(String, default="")         # JSON [{email, error}], capped
+
+
+# Construction Module (Aug 2026) - jobsite daily logs, media, AI pipeline,
+# weekly reports. Defined in its own module (it shares nothing with the tables
+# above and models.py is long enough); imported here so its tables register on
+# the same Base and create_all picks them up on startup.
+from construction_models import (  # noqa: E402,F401  (import for side effect: table registration)
+    ConstructionProject, ConstructionDailyLog, ConstructionMedia, ConstructionAIJob,
+    ConstructionWeeklyReport, ConstructionMilestone, ConstructionRfi,
+    ConstructionSubmittal, ConstructionActivity,
+)
+
+
+class EgnyteWiring(Base):
+    """One row = one Egnyte "wiring": a named slot (a Nexus surface that reads
+    or writes Egnyte) bound to a folder path or path template. Edited from the
+    Egnyte module's Wiring tab (manager+), so re-pointing a surface is a UI act,
+    not a deploy or an env-var change (Neil, Aug 6 call - "give you that wiring"
+    must not mean "ask Visesh").
+
+    scope_id = '' is the slot's default/template row; a non-empty scope_id (a
+    person's work email, a property site name) overrides the template for that
+    one record, and an exact override always wins. Templates may carry
+    {entity} {bucket} {person} {email} {property} placeholders - resolution and
+    the registry of known slots live in egnyte_wiring.py. No row at all means
+    the slot falls back to its legacy env var / hardcoded default, so an empty
+    table changes nothing."""
+    __tablename__ = "egnyte_wirings"
+    id         = Column(String, primary_key=True)
+    slot       = Column(String, nullable=False, index=True)
+    scope_id   = Column(String, default="")
+    path       = Column(String, nullable=False)
+    updated_by = Column(String, default="")
+    updated_at = Column(String, default="")
+    __table_args__ = (UniqueConstraint("slot", "scope_id", name="ux_egnyte_wiring_slot_scope"),)
+
+
+class EgnyteFolderGroup(Base):
+    """A rule-based Egnyte wiring for a COHORT of people (Visesh, Aug 10:
+    "create me a folder group for people who are working from the US and have
+    biweekly salary" - no per-person clicking). `rule` is a list of
+    {field, value} conditions, ANDed, over egnyte_wiring.RULE_FIELDS; `prompt`
+    keeps the plain-English ask it was parsed from (by the Claude API) so the
+    card can show intent, not JSON. `path` is the group's PARENT folder in
+    Egnyte - each matching person resolves to <path>/<their name> inside it,
+    current and future matches alike (membership is evaluated at resolution
+    time, never materialized). Beats the template and loses to a per-person
+    override; first enabled group (newest first) wins when several match."""
+    __tablename__ = "egnyte_folder_groups"
+    id         = Column(String, primary_key=True)
+    name       = Column(String, nullable=False)
+    prompt     = Column(String, default="")
+    rule       = Column(JSON, default=list)
+    path       = Column(String, nullable=False)
+    enabled    = Column(Integer, default=1)
+    created_by = Column(String, default="")
+    created_at = Column(String, default="")
+    updated_by = Column(String, default="")
+    updated_at = Column(String, default="")
+
+
+class EgnyteUserToken(Base):
+    """One Nexus user's own Egnyte OAuth grant (Aug 10: "anybody in here would
+    only be able to see what they actually have access to in Egnyte"). When a
+    person has connected, every Egnyte browse/read/search/write they make runs
+    on THEIR token, so Egnyte's own folder permissions decide what they see -
+    Nexus holds no permission logic to drift. Tokens are Fernet-encrypted at
+    rest (secret_box, NEXUS_VAULT_KEY). Egnyte access tokens are long-lived
+    (no refresh token); a revoked one surfaces as a 401 and the user
+    reconnects. See egnyte_oauth.py."""
+    __tablename__ = "egnyte_user_tokens"
+    id               = Column(String, primary_key=True)
+    email            = Column(String, nullable=False, unique=True)
+    access_token_enc = Column(String, default="")
+    egnyte_username  = Column(String, default="")
+    egnyte_name      = Column(String, default="")
+    last_error       = Column(String, default="")
+    last_error_at    = Column(String, default="")
+    created_at       = Column(String, default="")
+    updated_at       = Column(String, default="")
+
+
+class EgnyteOAuthState(Base):
+    """Single-use state rows binding an Egnyte OAuth callback to the Nexus user
+    who started it - same shape and reasoning as AsanaOAuthState."""
+    __tablename__ = "egnyte_oauth_states"
+    id         = Column(String, primary_key=True)
+    email      = Column(String, nullable=False)
+    created_at = Column(String, default="")

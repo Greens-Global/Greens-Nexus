@@ -3,7 +3,7 @@
 // project. Ported from the export's ProjectsPage/ProjectOverview into the Nexus
 // inline-style idiom.
 import { useMemo, useState } from 'react';
-import { Plus, Search, FolderKanban, AlertTriangle, Pencil, Trash2, Archive, Globe, Lock } from 'lucide-react';
+import { Plus, Search, FolderKanban, AlertTriangle, Pencil, Trash2, Archive, Globe, Lock, LayoutGrid, List } from 'lucide-react';
 import { api } from '../api';
 import { useTasks } from './TasksContext';
 import { taskStats, teamInProject, teamProjectIds } from './lib';
@@ -46,6 +46,21 @@ function projectStatusFor(stats) {
   return (stats.completed > 0 || stats.inProgress > 0) ? 'in_progress' : 'not_started';
 }
 
+// Grid or list, remembered per browser like the board's WIP limits. Cards are
+// the better browse when there are a dozen projects; past that the list wins,
+// because comparing rollups down a column is what people actually come here to
+// do and a 4-across grid makes that a scavenger hunt.
+const VIEW_KEY = 'nexus.projects.view';
+const VIEW_TABS = [
+  { key: 'grid', icon: LayoutGrid, label: 'Grid' },
+  { key: 'list', icon: List, label: 'List' },
+];
+// One template for the header and every row, so the columns cannot drift apart.
+// Teams and Owner are the first to go on a narrow screen - the name, how far
+// along it is, and its status are what the row is for.
+const LIST_COLS = '1fr auto';   // mobile: name + actions on one line, rollup beneath
+const LIST_COLS_WIDE = 'minmax(0,2.4fr) minmax(0,1.3fr) 190px 150px 118px 64px';
+
 export default function ProjectsView({ onNavigate }) {
   const isMobile = useIsMobile();
   const store = useTasks();
@@ -58,6 +73,13 @@ export default function ProjectsView({ onNavigate }) {
   const [showArchived, setShowArchived] = useState(false);
   const [editing, setEditing] = useState(null);    // form object | null
   const [deleting, setDeleting] = useState(null);  // { project, mapped, alsoAsana, busy, err } | null
+  const [view, setView] = useState(() => {
+    try { return localStorage.getItem(VIEW_KEY) === 'list' ? 'list' : 'grid'; } catch { return 'grid'; }
+  });
+  const switchView = (v) => {
+    setView(v);
+    try { localStorage.setItem(VIEW_KEY, v); } catch { /* private mode - the choice just doesn't stick */ }
+  };
 
   // Rollups per project: count / done / progress / overdue, from live tasks.
   const cards = useMemo(() => {
@@ -141,6 +163,20 @@ export default function ProjectsView({ onNavigate }) {
             <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} style={{ cursor: 'pointer' }} />
             {isMobile ? 'Archived' : 'Show archived'}
           </label>
+          {/* Same segmented control the task views use, so the two screens do
+              not each invent their own switcher. */}
+          <div className="scroll-tabs" style={{ display: 'flex', alignItems: 'center', gap: 2, background: NX.border2, borderRadius: 9, padding: 2, marginLeft: 'auto', flexShrink: 0 }}>
+            {VIEW_TABS.map((tb) => (
+              <button key={tb.key} onClick={() => switchView(tb.key)} title={`${tb.label} View`}
+                aria-pressed={view === tb.key}
+                style={{
+                  ...btn('ghost'), padding: isMobile ? '5px 8px' : '6px 10px', borderRadius: 7, whiteSpace: 'nowrap',
+                  background: view === tb.key ? NX.surface : 'transparent',
+                  color: view === tb.key ? NX.ink : NX.dim,
+                  boxShadow: view === tb.key ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
+                }}><tb.icon size={15} />{!isMobile && ` ${tb.label}`}</button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -148,8 +184,13 @@ export default function ProjectsView({ onNavigate }) {
       <div className="nx-scroll" style={{ flex: 1, minHeight: 0, overflow: 'auto', background: NX.canvas }}>
       {cards.length === 0 ? (
         <EmptyState icon={FolderKanban} title={search.trim() ? 'No Projects Match Your Search' : 'No Projects Yet'} hint={search.trim() ? undefined : 'Create your first project to group tasks and track progress.'} />
+      ) : view === 'list' ? (
+        <ProjectList
+          cards={cards} isMobile={isMobile} nameOf={nameOf} portfolioById={portfolioById}
+          onOpen={setOpenId} onEdit={startEdit} onDelete={remove}
+        />
       ) : (
-        <div className="nx-gutter" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(280px, 100%), 1fr))', gap: 14, padding: 16 }}>
+        <div className="nx-gutter" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(280px, 100%), 1fr))', gap: 14, padding: '16px 16px 76px' }}>
           {cards.map(({ project: p, stats }) => {
             const pf = p.portfolioId ? portfolioById(p.portfolioId) : null;
             const dcolor = p.color || NX.blue;
@@ -264,6 +305,128 @@ export default function ProjectsView({ onNavigate }) {
 // Permanent delete. For a synced project the Asana copy is the only place the
 // work still exists afterwards, so the choice is spelled out rather than buried
 // in a checkbox label: keep it (the default - re-import later) or delete it too.
+/** Projects as rows. Same data the card carries and the same click target -
+ *  only the shape differs, so nothing has to be learned twice. Sorting is
+ *  inherited from `cards` (archived last, then by name), matching the grid. */
+export function ProjectList({ cards, isMobile, nameOf, portfolioById, onOpen, onEdit, onDelete }) {
+  const cols = isMobile ? LIST_COLS : LIST_COLS_WIDE;
+  const cell = { minWidth: 0, display: 'flex', alignItems: 'center', gap: 8 };
+  return (
+    <div className="nx-gutter" style={{ padding: isMobile ? 12 : 16 }}>
+      <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
+        {!isMobile && (
+          <div style={{
+            display: 'grid', gridTemplateColumns: cols, gap: 12, alignItems: 'center',
+            padding: '9px 16px', borderBottom: `1px solid ${NX.border}`, background: NX.surface2,
+            fontSize: 11.5, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', color: NX.faint,
+          }}>
+            <div>Project</div><div>Teams</div><div>Progress</div><div>Owner</div><div>Status</div><div />
+          </div>
+        )}
+        {cards.map(({ project: p, stats }) => {
+          const pf = p.portfolioId ? portfolioById(p.portfolioId) : null;
+          const dcolor = p.color || NX.blue;
+          const meta = PROJECT_STATUS_META[projectStatusFor(stats)];
+          return (
+            <div key={p.id} onClick={() => onOpen(p.id)} className="stack-table-row"
+              style={{
+                display: 'grid', gridTemplateColumns: cols, gap: isMobile ? 6 : 12, alignItems: 'center',
+                padding: isMobile ? '11px 12px' : '10px 16px', borderBottom: `1px solid ${NX.border2}`,
+                cursor: 'pointer', opacity: p.archived ? 0.62 : 1,
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = NX.hover)}
+              onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}>
+
+              {/* Name - the color rides the icon tile exactly as on the card */}
+              <div style={cell}>
+                <span style={{
+                  width: 26, height: 26, borderRadius: 8, flexShrink: 0,
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                  background: `${dcolor}1f`, color: dcolor,
+                }}><FolderKanban size={14} /></span>
+                <span title={p.name} style={{ minWidth: 0, fontSize: 13.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+                {p.archived && <span style={{ ...chip(NX.faint, NX.border2), flexShrink: 0 }}><Archive size={11} />Archived</span>}
+                {pf && !isMobile && <span style={{ ...chip(NX.purple, `${NX.purple}1a`), flexShrink: 0 }}>{pf.name}</span>}
+              </div>
+
+              {/* Everything below collapses into the name column on mobile, where
+                  a six-column grid would be six columns of ellipsis. */}
+              {!isMobile && (
+                <>
+                  <div style={{ ...cell, gap: 5, flexWrap: 'nowrap', overflow: 'hidden' }}>
+                    {p.teams.length > 0
+                      ? p.teams.slice(0, 2).map((t) => (
+                          <span key={t.id} style={{ ...chip(t.color || NX.blue, `${t.color || NX.blue}1a`), flexShrink: 0 }}>{t.name}</span>
+                        ))
+                      : p.hrDepartmentName
+                        ? <span style={{ ...chip(dcolor, `${dcolor}1a`), flexShrink: 0 }}>{p.hrDepartmentName}</span>
+                        : <span style={{ fontSize: 12, color: NX.faint }}>-</span>}
+                    {p.teams.length > 2 && (
+                      <span title={p.teams.map((t) => t.name).join(', ')} style={{ ...chip(NX.dim, NX.border2), flexShrink: 0 }}>+{p.teams.length - 2}</span>
+                    )}
+                  </div>
+
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 11.5, color: NX.dim, marginBottom: 4 }}>
+                      <span>{stats.completed}/{stats.total} done</span>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                        {stats.overdue > 0 && <span title={`${stats.overdue} overdue`} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, color: NX.red, fontWeight: 600 }}><AlertTriangle size={11} />{stats.overdue}</span>}
+                        <span style={{ fontWeight: 700, color: NX.ink }}>{stats.pct}%</span>
+                      </span>
+                    </div>
+                    <div style={{ height: 5, borderRadius: 999, background: NX.border2, overflow: 'hidden' }}>
+                      <div style={{ height: '100%', width: `${stats.pct}%`, borderRadius: 999, background: NX.green }} />
+                    </div>
+                  </div>
+
+                  <div style={cell}>
+                    {p.ownerId ? (
+                      <>
+                        <Avatar email={p.ownerId} name={nameOf(p.ownerId)} size={22} />
+                        <span style={{ fontSize: 12, color: NX.dim, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nameOf(p.ownerId)}</span>
+                      </>
+                    ) : <span style={{ fontSize: 12, color: NX.faint }}>No owner</span>}
+                  </div>
+
+                  <div style={cell}><span style={chip(meta.color, meta.tint)}>{meta.label}</span></div>
+                </>
+              )}
+
+              {/* Mobile keeps a compact rollup + status under the name instead of
+                  dropping them entirely - they are why the row is being read. */}
+              {isMobile && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 34, gridColumn: '1 / -1' }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 11.5, color: NX.dim, marginBottom: 4 }}>
+                      <span>{stats.completed}/{stats.total} done</span>
+                      {stats.overdue > 0 && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, color: NX.red, fontWeight: 600 }}><AlertTriangle size={11} />{stats.overdue}</span>}
+                      <span style={{ fontWeight: 700, color: NX.ink, marginLeft: 'auto' }}>{stats.pct}%</span>
+                    </div>
+                    <div style={{ height: 5, borderRadius: 999, background: NX.border2, overflow: 'hidden' }}>
+                      <div style={{ height: '100%', width: `${stats.pct}%`, borderRadius: 999, background: NX.green }} />
+                    </div>
+                  </div>
+                  <span style={{ ...chip(meta.color, meta.tint), flexShrink: 0 }}>{meta.label}</span>
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: 2, justifyContent: 'flex-end',
+                // Pinned beside the name on mobile; without this the rollup's
+                // full-width span pushes it onto a third row of its own.
+                ...(isMobile ? { gridRow: 1, gridColumn: 2 } : null) }}
+                onClick={(e) => e.stopPropagation()}>
+                <button title="Edit Project" onClick={() => onEdit(p)} style={{ ...btn('ghost'), padding: 5, borderRadius: 7 }}><Pencil size={13} /></button>
+                <button title="Delete Project" onClick={() => onDelete(p)} style={{ ...btn('ghost'), padding: 5, color: NX.red, borderRadius: 7 }}><Trash2 size={13} /></button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+
 function DeleteProjectModal({ state, setState, onConfirm, onClose }) {
   const { project, mapped, alsoAsana, busy, err } = state;
   const set = (patch) => setState((d) => ({ ...d, ...patch }));

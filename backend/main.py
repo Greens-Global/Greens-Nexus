@@ -21,6 +21,8 @@ from routers import task_projects, task_config  # Task Module (Jul 2026)
 from routers import tickets as tickets_router    # Ticket Module - split out of task_config (Jul 2026)
 from routers import asana_webhook  # Asana two-way sync - public webhook receiver
 from routers import asana_oauth as asana_oauth_router  # Per-user Asana connection (Account Settings)
+from routers import egnyte_oauth as egnyte_oauth_router  # Per-user Egnyte connection (browse as yourself)
+from routers import construction  # Construction module - jobsite daily logs, media, weekly reports
 from routers import jobroles  # Roles & Access redesign (Jul 2026)
 from routers import access_scopes  # row-level scopes for external users (Jul 2026)
 from routers import qa  # Testing module - dev-only via NEXUS_QA_MODULE env (Jul 2026)
@@ -259,6 +261,15 @@ def _run_migrations():
             "ALTER TABLE task_tickets ADD COLUMN approver_email VARCHAR DEFAULT ''",
             "ALTER TABLE task_tickets ADD COLUMN approval_note VARCHAR DEFAULT ''",
             "ALTER TABLE task_tickets ADD COLUMN approval_decided_at VARCHAR DEFAULT ''",
+            # Who handed a ticket to its assignee - TaskTicket.assigned_by_email.
+            "ALTER TABLE task_tickets ADD COLUMN assigned_by_email VARCHAR DEFAULT ''",
+            # Ticket numbers dropped the "TKT-" prefix and widened to 6 digits
+            # (ticket_code.py). Rewrites legacy codes so one format exists;
+            # idempotent - after it runs nothing matches TKT-% any more.
+            "UPDATE task_tickets SET code = substr('000000' || CAST(CAST(substr(code, 5) AS INTEGER) AS TEXT), -6, 6) WHERE code LIKE 'TKT-%'",
+            # Why a per-user Asana grant last failed - AsanaUserToken.last_error.
+            "ALTER TABLE asana_user_tokens ADD COLUMN last_error VARCHAR DEFAULT ''",
+            "ALTER TABLE asana_user_tokens ADD COLUMN last_error_at VARCHAR DEFAULT ''",
             # Documents (DMS) Phase 4: merge-field subject/company for export
             "ALTER TABLE documents ADD COLUMN employee_id VARCHAR DEFAULT ''",
             "ALTER TABLE documents ADD COLUMN entity_id VARCHAR DEFAULT ''",
@@ -283,6 +294,8 @@ def _run_migrations():
             "ALTER TABLE nexus_employees ADD COLUMN identity_type VARCHAR DEFAULT 'internal'",
             "ALTER TABLE nexus_employees ADD COLUMN display_name VARCHAR DEFAULT ''",
             "ALTER TABLE nexus_employees ADD COLUMN designation VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_employees ADD COLUMN deleted_at VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_employees ADD COLUMN deleted_by VARCHAR DEFAULT ''",
             "ALTER TABLE asana_import_jobs ADD COLUMN cancel_requested BOOLEAN DEFAULT 0",
             "ALTER TABLE asana_project_map ADD COLUMN last_pull_at VARCHAR DEFAULT ''",
             "ALTER TABLE asana_project_map ADD COLUMN last_full_pull_at VARCHAR DEFAULT ''",
@@ -312,6 +325,7 @@ def _run_migrations():
             # already had. Empty = every project, so existing statuses are
             # unchanged until someone narrows one.
             "ALTER TABLE task_custom_statuses ADD COLUMN project_ids JSON DEFAULT '[]'",
+            "ALTER TABLE task_custom_statuses ADD COLUMN asana_option_gids JSON DEFAULT '[]'",
             # Setup-only Asana PAT; blank falls back to the service token.
             "ALTER TABLE asana_sync_config ADD COLUMN setup_token VARCHAR DEFAULT ''",
             "UPDATE task_teams SET project_ids = json_array(project_id) "
@@ -343,6 +357,42 @@ def _run_migrations():
             "ALTER TABLE asana_task_links ADD COLUMN last_push_hash VARCHAR DEFAULT ''",
             # Asana-side digest, so a pull only re-applies genuinely changed tasks.
             "ALTER TABLE asana_task_links ADD COLUMN last_inbound_hash VARCHAR DEFAULT ''",
+            # Asana's due date-and-time, so pushing our date-only due_on back
+            # stops deleting the time (the two fields are mutually exclusive).
+            "ALTER TABLE asana_task_links ADD COLUMN last_due_at VARCHAR DEFAULT ''",
+            # Repair for tasks whose status says "completed" while the flag says
+            # otherwise. create_task and bulk_update used to write the two
+            # independently (see routers/tasks._resolve_completed), and such a
+            # row renders with no strikethrough AND keeps drawing "overdue"
+            # emails, because task_notify's due scan filters on the flag.
+            # Idempotent - a no-op once there is nothing left to fix.
+            "UPDATE tasks SET completed = 1, "
+            "completed_at = CASE WHEN COALESCE(completed_at, '') = '' "
+            "THEN COALESCE(NULLIF(modified_at, ''), created_at) ELSE completed_at END "
+            "WHERE status = 'completed' AND COALESCE(completed, 0) = 0",
+            # Activity lines pulled from Asana carried the actor's name up to
+            # three times: the avatar+name every activity surface already
+            # renders, an unconditional "[Asana - Name]" stamp, and Asana's own
+            # sentence ("Urmi Gor assigned to Neil"). Strips the stamp and the
+            # duplicated leading name, leaving the verb-first phrasing Nexus's
+            # native entries use. Only where the actor RESOLVED - for an
+            # unresolvable one the stamp is their only attribution. Idempotent:
+            # the LIKE stops matching once a row is clean.
+            "UPDATE task_activity SET detail = CASE "
+            "WHEN substr(detail, instr(detail, '] ') + 2) LIKE "
+            "     substr(detail, 10, instr(detail, '] ') - 10) || ' %' "
+            "THEN substr(detail, instr(detail, '] ') + 2 + "
+            "     length(substr(detail, 10, instr(detail, '] ') - 10)) + 1) "
+            "ELSE substr(detail, instr(detail, '] ') + 2) END "
+            "WHERE detail LIKE '[Asana ·%] %' "
+            "AND COALESCE(actor_email, '') NOT IN ('', 'asana-sync')",
+            # An emailed reply is matched back to its task by threading header
+            # when the signed reply address didn't survive the round trip - the
+            # lookup is per inbound message, so it needs the index.
+            "CREATE INDEX IF NOT EXISTS ix_task_email_log_imid ON task_email_log (internet_message_id)",
+            "CREATE INDEX IF NOT EXISTS ix_task_email_log_conv ON task_email_log (conversation_id)",
+            # time_off_requests: manager+ files on behalf (Neil, Aug 11)
+            "ALTER TABLE time_off_requests ADD COLUMN requested_by VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -472,6 +522,9 @@ def _run_migrations():
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS display_name VARCHAR DEFAULT ''",
         # Charmi Aug 4: formal designation, kept distinct from job_title
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS designation VARCHAR DEFAULT ''",
+        # Soft delete for "Remove from Nexus" - see the NexusEmployee model.
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS deleted_at VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS deleted_by VARCHAR DEFAULT ''",
         "ALTER TABLE asana_import_jobs ADD COLUMN IF NOT EXISTS cancel_requested BOOLEAN DEFAULT FALSE",
         "ALTER TABLE asana_project_map ADD COLUMN IF NOT EXISTS last_pull_at VARCHAR DEFAULT ''",
         "ALTER TABLE asana_project_map ADD COLUMN IF NOT EXISTS last_full_pull_at VARCHAR DEFAULT ''",
@@ -489,6 +542,14 @@ def _run_migrations():
         "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS approver_email VARCHAR DEFAULT ''",
         "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS approval_note VARCHAR DEFAULT ''",
         "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS approval_decided_at VARCHAR DEFAULT ''",
+        # Who handed a ticket to its assignee - TaskTicket.assigned_by_email.
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS assigned_by_email TEXT DEFAULT ''",
+        # Ticket numbers dropped the "TKT-" prefix and widened to 6 digits
+        # (ticket_code.py). Idempotent - nothing matches TKT-% afterwards.
+        "UPDATE task_tickets SET code = lpad((substring(code from 5))::int::text, 6, '0') WHERE code LIKE 'TKT-%'",
+        # Why a per-user Asana grant last failed - AsanaUserToken.last_error.
+        "ALTER TABLE asana_user_tokens ADD COLUMN IF NOT EXISTS last_error TEXT DEFAULT ''",
+        "ALTER TABLE asana_user_tokens ADD COLUMN IF NOT EXISTS last_error_at TEXT DEFAULT ''",
         # E-Sign multi-document packets: PDFs attached to a template, carried on the envelope
         "ALTER TABLE hr_sign_templates ADD COLUMN IF NOT EXISTS attachments JSONB DEFAULT '[]'::jsonb",
         "ALTER TABLE hr_sign_requests ADD COLUMN IF NOT EXISTS documents JSONB DEFAULT '[]'::jsonb",
@@ -662,6 +723,7 @@ def _run_migrations():
         # Custom statuses get the same per-project scoping custom fields already
         # had. Empty = every project, so existing statuses are unchanged.
         "ALTER TABLE task_custom_statuses ADD COLUMN IF NOT EXISTS project_ids JSONB DEFAULT '[]'::jsonb",
+        "ALTER TABLE task_custom_statuses ADD COLUMN IF NOT EXISTS asana_option_gids JSONB DEFAULT '[]'::jsonb",
         # Setup-only Asana PAT; blank falls back to the service token.
         "ALTER TABLE asana_sync_config ADD COLUMN IF NOT EXISTS setup_token VARCHAR DEFAULT ''",
         "UPDATE task_teams SET project_ids = jsonb_build_array(project_id) "
@@ -691,10 +753,75 @@ def _run_migrations():
         "ALTER TABLE asana_task_links ADD COLUMN IF NOT EXISTS last_push_hash VARCHAR DEFAULT ''",
         # Asana-side digest, so a pull only re-applies genuinely changed tasks.
         "ALTER TABLE asana_task_links ADD COLUMN IF NOT EXISTS last_inbound_hash VARCHAR DEFAULT ''",
+        # Asana's due date-and-time, so pushing our date-only due_on back
+        # stops deleting the time (the two fields are mutually exclusive).
+        "ALTER TABLE asana_task_links ADD COLUMN IF NOT EXISTS last_due_at VARCHAR DEFAULT ''",
+        # Repair for tasks whose status says "completed" while the flag says
+        # otherwise - see the SQLite list above for why they exist and why this
+        # is safe to re-run on every boot.
+        "UPDATE tasks SET completed = true, "
+        "completed_at = CASE WHEN COALESCE(completed_at, '') = '' "
+        "THEN COALESCE(NULLIF(modified_at, ''), created_at) ELSE completed_at END "
+        "WHERE status = 'completed' AND completed IS NOT TRUE",
+        # Strips the "[Asana - Name]" stamp and the duplicated leading name from
+        # inbound activity lines - see the SQLite list above for the reasoning.
+        "UPDATE task_activity SET detail = CASE "
+        "WHEN substring(detail from position('] ' in detail) + 2) LIKE "
+        "     substring(detail from 10 for position('] ' in detail) - 10) || ' %' "
+        "THEN substring(detail from position('] ' in detail) + 2 + "
+        "     length(substring(detail from 10 for position('] ' in detail) - 10)) + 1) "
+        "ELSE substring(detail from position('] ' in detail) + 2) END "
+        "WHERE detail LIKE '[Asana ·%] %' "
+        "AND COALESCE(actor_email, '') NOT IN ('', 'asana-sync')",
         # KB taxonomy/search/related-articles (industry-standard KB feature batch).
         "ALTER TABLE kb_documents ADD COLUMN IF NOT EXISTS tags VARCHAR DEFAULT ''",
         "ALTER TABLE kb_documents ADD COLUMN IF NOT EXISTS related_ids VARCHAR DEFAULT ''",
         "ALTER TABLE kb_documents ADD COLUMN IF NOT EXISTS content_text TEXT DEFAULT ''",
+        # Construction module: RLS on every table create_all made.
+        #
+        # This is here rather than in a release checklist because a checklist is
+        # exactly what the recurring gap in CLAUDE.md is - `create_all` builds a
+        # new table with RLS OFF, and the backend never notices because it
+        # connects via the privileged DATABASE_URL and bypasses RLS entirely.
+        # The only thing RLS locks out is the public anon key, so a table that
+        # misses this step is silently world-readable to anyone holding it.
+        # ENABLE ROW LEVEL SECURITY is idempotent, so running it every boot on
+        # both dev and prod costs nothing and cannot be forgotten.
+        #
+        # No policies are added on purpose: RLS with zero policies denies all
+        # anon access, which is what every one of these tables wants. Nothing
+        # reads them except this API. Daily logs carry GPS traces and jobsite
+        # photos, and reports carry contract values.
+        "ALTER TABLE construction_projects ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE construction_daily_logs ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE construction_media ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE construction_ai_jobs ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE construction_weekly_reports ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE construction_milestones ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE construction_rfis ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE construction_submittals ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE construction_activity ENABLE ROW LEVEL SECURITY",
+        # An emailed reply is matched back to its task by threading header when
+        # the signed reply address didn't survive the round trip - the lookup is
+        # per inbound message, so it needs the index.
+        "CREATE INDEX IF NOT EXISTS ix_task_email_log_imid ON task_email_log (internet_message_id)",
+        "CREATE INDEX IF NOT EXISTS ix_task_email_log_conv ON task_email_log (conversation_id)",
+        # Task module: create_all makes this table with RLS OFF, and it holds
+        # the sender and subject of every reply mailed to the task mailbox.
+        # Same recurring gap CLAUDE.md records; idempotent, so it runs each boot
+        # on dev and prod rather than living in a release checklist.
+        "ALTER TABLE task_inbound_email ENABLE ROW LEVEL SECURITY",
+        # CredVault SMS/Email OTP + Personal Vault password (Aug 2026): same
+        # create_all-makes-it-with-RLS-OFF gap as above. vault_otp_challenges
+        # holds one-time codes and vault_personal_auth holds password hashes -
+        # both must never be reachable via the public anon key.
+        "ALTER TABLE vault_otp_challenges ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE vault_otp_sessions ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE vault_personal_auth ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE vault_personal_unlock_sessions ENABLE ROW LEVEL SECURITY",
+        # time_off_requests: manager+ can file on behalf of an employee (Neil, Aug 11);
+        # who filed it is recorded so the request never looks self-submitted.
+        "ALTER TABLE time_off_requests ADD COLUMN IF NOT EXISTS requested_by VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -834,6 +961,50 @@ async def lifespan(app: FastAPI):
             _tasks.append(_a.create_task(teams_post_loop()))
         except Exception as e:
             print(f"[startup] teams post queue skipped: {e}")
+        # These two keep their own is_sync_worker() gate INSIDE the leader's job
+        # set, and the two gates answer different questions. Leader election stops
+        # several web instances doing the same work twice; is_sync_worker stops a
+        # developer's laptop doing it at all - and a laptop is exactly where the
+        # leader check does not help, since on SQLite there is no lease and the
+        # jobs simply run (see leader.py). A mailbox message read on a laptop is a
+        # message the deployed API never sees.
+        try:
+            from asana_sync import is_sync_worker as _is_sync_worker
+            if _is_sync_worker():
+                from task_inbound import task_inbound_loop
+                _tasks.append(_a.create_task(task_inbound_loop()))
+            else:
+                print("[startup] task inbound email drain skipped (not the sync worker)")
+        except Exception as e:
+            print(f"[startup] task inbound email drain skipped: {e}")
+        try:
+            from asana_sync import is_sync_worker as _is_sync_worker
+            if _is_sync_worker():
+                from construction_worker import construction_sweep_loop
+                _tasks.append(_a.create_task(construction_sweep_loop()))
+            else:
+                print("[startup] construction Egnyte sweep skipped (not the sync worker)")
+        except Exception as e:
+            print(f"[startup] construction sweep skipped: {e}")
+        # Nightly Nexus -> M365 writeback (Neil, Aug 11). Sync-worker gated for
+        # the same reason as the inbound mail drain: a Graph PATCH from a
+        # laptop is a REAL write to the live directory with local dev data.
+        try:
+            from asana_sync import is_sync_worker as _is_sync_worker2
+            if _is_sync_worker2():
+                from reminders import m365_pushback_loop
+                _tasks.append(_a.create_task(m365_pushback_loop()))
+            else:
+                print("[startup] nightly M365 writeback skipped (not the sync worker)")
+        except Exception as e:
+            print(f"[startup] nightly M365 writeback skipped: {e}")
+        try:
+            # One-shot: drains task attachments inlined as data: URLs into
+            # Supabase Storage (5.7 GB of the prod DB), then exits. Idempotent.
+            from task_files import attachment_migration_loop
+            _tasks.append(_a.create_task(attachment_migration_loop()))
+        except Exception as e:
+            print(f"[startup] attachment backlog migration skipped: {e}")
         print(f"[startup] background jobs started ({len(_tasks)} loops)")
         return _tasks
     try:
@@ -1046,7 +1217,10 @@ app.include_router(tickets_router.router) # Ticket Module: tickets, conversation
 app.include_router(credvault.router)      # Credential Vault: encrypted company/personal secrets ("credvault" grant)
 app.include_router(asana_webhook.router)  # Asana two-way sync: public webhook receiver (verified by HMAC)
 app.include_router(asana_oauth_router.router)         # Per-user Asana connection (signed-in user, own grant only)
+app.include_router(construction.router)  # Construction: projects, daily logs, jobsite media
 app.include_router(asana_oauth_router.public_router)  # OAuth callback - Asana redirects a browser here, no bearer token
+app.include_router(egnyte_oauth_router.router)        # Per-user Egnyte connection (browse with YOUR OWN Egnyte permissions)
+app.include_router(egnyte_oauth_router.public_router) # OAuth callback - Egnyte redirects a browser here, no bearer token
 app.include_router(policy.router)         # Sign-in company-policy & monitoring acknowledgment
 app.include_router(investor_relations.router)  # Investor Relations: funds/investors/commitments/calls/distributions
 app.include_router(stepup.router)         # Step-up MFA for sensitive data (vault reveals / payroll / confidential HR)

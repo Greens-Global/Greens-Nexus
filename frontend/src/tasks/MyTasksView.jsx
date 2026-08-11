@@ -7,7 +7,7 @@ import { ChevronDown, Lock, Globe, Plus, List as ListIcon, Columns3, Calendar as
 import { useTasks } from './TasksContext';
 import { EMPTY_FILTER, matchesFilter, sortTasks, groupTasks, groupAddDefaults, taskIdFromUrl } from './lib';
 import { NX, FONT, btn, CONTROL_H, CONTROL_FS, input as inputStyle, colorForKey } from './theme';
-import { Avatar, EmptyState, useClickOutside, useIsMobile, DateField } from './components';
+import { Avatar, EmptyState, useClickOutside, useIsMobile, DateField, TaskCountBadges } from './components';
 import { ProductivityBar, MobileFilters } from './productivity';
 import MobileTaskBar from './MobileTaskBar';
 import CreateTaskModal from './CreateTaskModal';
@@ -98,6 +98,10 @@ function TaskRow({ t, people, projects, store, onOpen }) {
         <button onClick={(e) => { e.stopPropagation(); store.toggleComplete(t); }} style={{ ...btn('ghost'), padding: 0, color: t.completed ? NX.green : NX.faint }}>{t.completed ? <CheckCircle2 size={17} /> : <Circle size={17} />}</button>
         <span title={store.statusMeta?.[t.status]?.label || t.status} style={{ width: 9, height: 9, borderRadius: 3, background: store.statusMeta?.[t.status]?.color || NX.faint, flexShrink: 0 }} />
         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500, color: t.completed ? NX.faint : NX.ink, textDecoration: t.completed ? 'line-through' : 'none' }}>{t.title}</span>
+        {/* Same badges the Task List shows. Without them the same task looked
+            emptier here than there, which is the kind of difference that reads
+            as data missing rather than as a different screen. */}
+        <TaskCountBadges t={t} store={store} />
       </div>
       <DateField value={t.dueOn || ''} onChange={(v) => store.updateTask(t.id, { dueOn: v })} color={dueColor(t.dueOn, t.completed)}
         title="Due Date" style={{ fontSize: 12, fontWeight: 600, padding: '3px 10px', borderRadius: 12, background: dueBg, width: 'fit-content' }} />
@@ -213,9 +217,9 @@ export default function MyTasksView() {
       {/* Header - white band over the gray canvas (same anatomy as the project
           workspace; the agreed world is cards on canvas, never a white page). */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: isMobile ? '12px 12px 8px' : '18px 24px 12px', flexWrap: 'wrap', background: NX.surface }}>
-        {!isMobile && <Avatar email={myEmail} name={nameOf(myEmail)} size={32} />}
-        {/* No chevron: the title never opened a menu - a decorative dropdown
-            affordance is a lie (owner flag, Jul 28) */}
+        {/* No avatar: you already know whose tasks these are, and no chevron -
+            the title never opened a menu, so a decorative dropdown affordance
+            is a lie (owner flag, Jul 28) */}
         <div style={{ fontSize: isMobile ? 19 : 22, fontWeight: 700 }}>My Tasks</div>
         {!isMobile && <button style={{ ...btn('primary'), marginLeft: 'auto' }} onClick={() => openCreate({ assigneeId: myEmail })}><Plus size={15} /> New Task</button>}
       </div>
@@ -225,7 +229,7 @@ export default function MyTasksView() {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, borderBottom: `1px solid ${NX.border}`, padding: '0 24px', flexWrap: 'wrap', background: NX.surface }}>
         {/* Segmented view switcher - same control as the project workspace's
             (consistency overwrite, Jul 28: no more underline tabs here) */}
-        <div className="scroll-tabs" style={{ display: 'flex', alignItems: 'center', gap: 2, background: NX.border2, borderRadius: 9, padding: 2, margin: '8px 0', overflowX: 'auto', flexShrink: 0 }}>
+        <div data-tour="task-views" className="scroll-tabs" style={{ display: 'flex', alignItems: 'center', gap: 2, background: NX.border2, borderRadius: 9, padding: 2, margin: '8px 0', overflowX: 'auto', flexShrink: 0 }}>
           {VIEW_TABS.map((tb) => (
             <button key={tb.key} onClick={() => switchView(tb.key)} title={tb.label} style={{
               ...btn('ghost'), padding: '6px 10px', borderRadius: 7, whiteSpace: 'nowrap',
@@ -246,7 +250,7 @@ export default function MyTasksView() {
       )}
 
       {/* Body */}
-      <div className="nx-scroll nx-gutter" style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: view === 'list' ? 16 : 0, paddingBottom: isMobile ? 88 : undefined }}>
+      <div className="nx-scroll nx-gutter" style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: view === 'list' ? 16 : 0, paddingBottom: isMobile ? 88 : 76 }}>
         {view === 'list' ? (
           <div className={isMobile ? 'nx-edge-card' : undefined} style={{ border: `1px solid ${NX.border}`, borderRadius: 12, overflow: 'hidden', background: NX.surface }}>
             {/* Fixed-width columns (Due date/Collaborators/Projects/Visibility) don't
@@ -276,7 +280,10 @@ export default function MyTasksView() {
                 })}
               </div>
             </div>
-            <button onClick={() => openCreate({ assigneeId: myEmail })} style={{ ...btn('ghost'), padding: '12px 16px', color: NX.faint }}><Plus size={15} /> Add Section</button>
+            {/* Said "Add Section" and opened the Create Task modal. There are no
+                sections on this screen - the groups above come from the group-by
+                control - so it is what it always was: a new task assigned to me. */}
+            <button onClick={() => openCreate({ assigneeId: myEmail })} style={{ ...btn('ghost'), padding: '12px 16px', color: NX.faint }}><Plus size={15} /> Add Task</button>
           </div>
         ) : view === 'calendar' ? (
           <CalendarView tasks={mine} onOpen={setOpenId} onCreate={(iso) => openCreate({ assigneeId: myEmail, dueOn: iso })} />

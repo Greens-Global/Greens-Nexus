@@ -6,8 +6,8 @@
 // the URL like other Nexus modules. See docs/Task-Module-Migration-Plan.md.
 // Tickets used to live here behind a Task | Ticket toggle - it's now its own
 // top-level module (views/Tickets.jsx), so this file is Task-only.
-import { useState } from 'react';
-import { Home, CheckCircle2, FolderKanban, Briefcase, Users, Settings, X } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Home, CheckCircle2, FolderKanban, Briefcase, Users, Settings, X, PlayCircle } from 'lucide-react';
 import TasksWorkspace from '../tasks/TasksWorkspace';
 import HomeView from '../tasks/HomeView';
 import MyTasksView from '../tasks/MyTasksView';
@@ -21,6 +21,16 @@ import { useIsMobile } from '../tasks/components';
 import { useRole } from '../contexts/RoleContext';
 import { NX, FONT } from '../tasks/theme';
 import ModuleTabs from '../components/ModuleTabs';
+import GuidedTour from '../components/GuidedTour';
+import TaskDetailDrawer from '../tasks/TaskDetailDrawer';
+import PersonView from '../tasks/PersonView';
+import { EMPTY_FILTER } from '../tasks/lib';
+import { buildTaskTourSteps } from '../tasks/taskTourSteps';
+
+// Remembered per person, not per browser: on a shared machine the second
+// person to sign in has not seen the tour, and inheriting somebody else's
+// "already seen" would silently skip it for them.
+const tourSeenKey = (email) => `nexus.taskTour.seen.${(email || 'anon').toLowerCase()}`;
 
 // Module tabs - matches the export's NexusModuleTabs exactly (no "All tasks").
 const MODULE_TABS = [
@@ -53,7 +63,7 @@ function SubView({ sub, projectId, returnTo, onNavigate, onExitManage }) {
 }
 
 export default function Tasks({ activeSub, onSubChange, onNavigate }) {
-  const { can } = useRole();
+  const { can, myEmail } = useRole();
   // The Manage tab is an admin surface - restricted to manage access
   // (Manager / IT Admin / Global Admin). Others can neither open it nor land on
   // it via a stale URL/sub.
@@ -61,11 +71,53 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
   const requested = ALL_SUBS.includes(activeSub) ? activeSub : DEFAULT_SUB;
   const sub = (requested === 'manage' && !canManage) ? DEFAULT_SUB : requested;
   const isMobile = useIsMobile();
+  const [tour, setTour] = useState(false);
   const [projectId, setProjectId] = useState(null);
+  const [searchTaskId, setSearchTaskId] = useState(null);   // task opened from header search
+  const [person, setPerson] = useState(null);               // { email, name } from header search
+  const [personTasks, setPersonTasks] = useState(false);    // their page -> the full workspace
   // Where a project drill-in should return to - the sub the user was on when
   // they entered ('home' from the Home widgets, 'projects' from Projects).
   const [returnSub, setReturnSub] = useState('projects');
   const go = (key) => (onSubChange ? onSubChange(key) : undefined);
+
+  // First visit runs the tour on its own; after that it is the button only.
+  // Held until myEmail resolves, otherwise the flag is written against 'anon'
+  // and the real person is marked as having seen a tour they never got.
+  useEffect(() => {
+    if (!myEmail) return;
+    let seen = true;
+    try { seen = !!localStorage.getItem(tourSeenKey(myEmail)); } catch { /* private mode */ }
+    if (!seen) setTour(true);
+  }, [myEmail]);
+
+  const closeTour = () => {
+    setTour(false);
+    // Written on close, not on finish: someone who dismisses it has decided,
+    // and re-offering it on their next visit would be nagging.
+    try { localStorage.setItem(tourSeenKey(myEmail), new Date().toISOString()); } catch { /* private mode */ }
+  };
+
+  // Header search lands here. The drawer is hosted at THIS level rather than
+  // inside a sub-view so a result opens the same way from every tab - and this
+  // component already sits inside TasksProvider, which the drawer needs.
+  // `nexus:tasks-person` is the person result, and it opens a real page for
+  // them (PersonView) rather than the task workspace filtered by assignee -
+  // that answered "their tasks" and nothing else, with no name, role or teams.
+  useEffect(() => {
+    const openTask = (e) => { const id = e.detail?.taskId; if (id) setSearchTaskId(id); };
+    const openPerson = (e) => {
+      const email = e.detail?.email;
+      if (email) { setPerson({ email, name: e.detail?.name || email }); setPersonTasks(false); }
+    };
+    window.addEventListener('nexus:open-task', openTask);
+    window.addEventListener('nexus:tasks-person', openPerson);
+    return () => {
+      window.removeEventListener('nexus:open-task', openTask);
+      window.removeEventListener('nexus:tasks-person', openPerson);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const onManage = sub === 'manage';
 
@@ -98,13 +150,21 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
           {/* Navbar Create menu. On mobile it's shown on the screens that don't
               have their own MobileTaskBar + (My Tasks / workspace keep the bar's +). */}
-          {!onManage && (!isMobile || !hasMobileBar) && <CreateMenu onNavigate={go} taskDefaults={taskDefaults} />}
+          {!onManage && (!isMobile || !hasMobileBar) && (
+            <span data-tour="task-create"><CreateMenu onNavigate={go} taskDefaults={taskDefaults} /></span>
+          )}
+          {!onManage && (
+            <button onClick={() => setTour(true)} title="A guided walkthrough of the Task module - nothing is changed while it runs."
+              className="secondary-btn nx-iconbtn" style={{ fontFamily: FONT }}>
+              <PlayCircle size={14} /> <span className="nx-btn-label">Tour</span>
+            </button>
+          )}
           {onManage ? (
             <button className="primary-btn nx-iconbtn" onClick={() => go('home')} title="Exit" style={{ fontFamily: FONT }}>
               <X size={14} /> <span className="nx-btn-label">Exit</span>
             </button>
           ) : canManage ? (
-            <button className="secondary-btn nx-iconbtn" onClick={() => go('manage')} title="Manage" style={{ fontFamily: FONT }}>
+            <button data-tour="task-manage" className="secondary-btn nx-iconbtn" onClick={() => go('manage')} title="Manage" style={{ fontFamily: FONT }}>
               <Settings size={14} /> <span className="nx-btn-label">Manage</span>
             </button>
           ) : null}
@@ -116,10 +176,12 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
           'tasks' (a drilled-in project task list) highlights Projects,
           matching the old strip. */}
       {!onManage && (
-        <ModuleTabs
-          tabs={MODULE_TABS.map(({ key, label, icon }) => ({ key, label, Icon: icon }))}
-          active={sub === 'tasks' ? 'projects' : sub}
-          onChange={go} />
+        <div data-tour="task-tabs">
+          <ModuleTabs
+            tabs={MODULE_TABS.map(({ key, label, icon }) => ({ key, label, Icon: icon }))}
+            active={sub === 'tasks' ? 'projects' : sub}
+            onChange={go} />
+        </div>
       )}
 
       {/* No overflow here - every sub-view owns its own header + scrolling
@@ -127,12 +189,39 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
           wrapper here double-nests scroll containers, which on some
           viewport sizes breaks height:100% propagation and clips content
           instead of letting the sub-view's own body scroll. */}
-      <div style={{ flex: 1, minHeight: 0 }}>
-        <SubView sub={sub} projectId={projectId} returnTo={returnSub} onNavigate={subNavigate} onExitManage={() => go('home')} />
+      {/* data-tour tracks the active tab, so the guided tour can spotlight
+          "this whole screen" without every sub-view needing its own hook. */}
+      <div style={{ flex: 1, minHeight: 0 }} data-tour={`task-screen-${sub}`}>
+        {person && personTasks ? (
+          /* "View all tasks" from the person page - the workspace is the right
+             home for filtering and bulk edits, seeded with their assignee filter. */
+          <TasksWorkspace
+            title={`Tasks · ${person.name}`}
+            initialFilters={{ ...EMPTY_FILTER, assigneeIds: [person.email] }}
+            onBack={() => setPersonTasks(false)}
+          />
+        ) : person ? (
+          <PersonView
+            email={person.email}
+            name={person.name}
+            onBack={() => { setPerson(null); go('home'); }}
+            onViewAllTasks={() => setPersonTasks(true)}
+            onOpenProject={(id) => { setPerson(null); subNavigate({ projectId: id }); }}
+          />
+        ) : (
+          <SubView sub={sub} projectId={projectId} returnTo={returnSub} onNavigate={subNavigate} onExitManage={() => go('home')} />
+        )}
       </div>
+      {/* A task opened from header search - hosted here so it works from any tab. */}
+      {searchTaskId && <TaskDetailDrawer taskId={searchTaskId} onClose={() => setSearchTaskId(null)} />}
       {/* Create moved into the navbar on mobile (see the Create menu above); the
           My Tasks / workspace screens still create via their MobileTaskBar +. */}
       <ReportBugButton bottom={isMobile && hasMobileBar ? 84 : undefined} />
+      {tour && (
+        <GuidedTour
+          steps={buildTaskTourSteps({ go, canManage, isMobile })}
+          onClose={closeTour} />
+      )}
     </div>
   );
 }

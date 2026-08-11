@@ -99,6 +99,7 @@ class TTLCache:
 people_directory = TTLCache("people_directory", ttl=60)    # /myhr/directory - every picker app-wide
 module_grants    = TTLCache("module_grants",    ttl=120)   # auth._module_level - per grant-gated request
 settings_config  = TTLCache("settings_config",  ttl=60)    # NexusSetting-backed configs (branding)
+egnyte_wirings   = TTLCache("egnyte_wirings",   ttl=60)    # egnyte_wiring.py - whole registry in one entry
 item_types       = TTLCache("item_types",       ttl=300)   # /items/types - manager-curated, near-static
 role_holders     = TTLCache("role_holders",     ttl=120)   # /items/approvers + /allocators pickers
 dashboard_kpis   = TTLCache("dashboard_kpis",   ttl=20)    # /dashboards/kpis - per (email,team); a dozen COUNT
@@ -115,6 +116,8 @@ _WATCHED = {
     "NexusGroup":       (module_grants,),
     "NexusGroupMember": (module_grants,),
     "NexusSetting":     (settings_config,),
+    "EgnyteWiring":     (egnyte_wirings,),
+    "EgnyteFolderGroup": (egnyte_wirings,),
     "ItemType":         (item_types,),
     "NexusRole":        (role_holders,),
 }

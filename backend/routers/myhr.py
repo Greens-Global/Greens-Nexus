@@ -22,7 +22,8 @@ from auth import get_current_user
 from models import (NexusEmployee, HrEntity, HrSignRequest, HrSignParty, HrDocument,
                     HrSelfRequest, ItemAssignment, ItemCheckout,
                     NexusGroup, NexusGroupMember, NexusNotification)
-from routers.hr import _SUPABASE_URL, _storage_headers, _DOC_BUCKET
+from routers.hr import (_SUPABASE_URL, _storage_headers, _DOC_BUCKET,
+                        _AVATAR_BUCKET, _IMAGE_TYPES, _MAX_AVATAR_BYTES)
 from routers.esign import _log
 
 router = APIRouter(prefix="/myhr", tags=["My HR"], dependencies=[Depends(get_current_user)])
@@ -92,6 +93,45 @@ def save_profile(body: ProfileIn, user: dict = Depends(get_current_user), db: Se
             emergency["phone"] = body.emergency_phone.strip()[:50]
         personal["emergency"] = emergency
         e.personal = personal
+    e.updated_at = _now()
+    db.commit()
+    return _profile_dict(e, db)
+
+
+# ── My profile photo - every employee can add/change/remove their own,
+#    without the "hr" Access Group grant hr.py's admin upload_photo needs
+#    (Neil: "My Profile" in the header dropdown was a dead button - no
+#    self-service path to a photo existed at all). ─────────────────────────
+
+@router.post("/profile/photo")
+async def upload_my_photo(file: UploadFile = File(...),
+                          user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    e = _me(db, user["email"])
+    ext = _IMAGE_TYPES.get(file.content_type or "")
+    if not ext:
+        raise HTTPException(400, "Photo must be JPEG, PNG, WebP or GIF")
+    data = await file.read()
+    if len(data) > _MAX_AVATAR_BYTES:
+        raise HTTPException(400, "Photo must be under 5 MB")
+    path = f"{e.id}/{uuid.uuid4()}.{ext}"
+    resp = httpx.post(
+        f"{_SUPABASE_URL}/storage/v1/object/{_AVATAR_BUCKET}/{path}",
+        headers={**_storage_headers(), "Content-Type": file.content_type,
+                 "cache-control": "max-age=31536000"},
+        content=data, timeout=60,
+    )
+    if not resp.is_success:
+        raise HTTPException(502, f"Storage upload failed: {resp.text[:200]}")
+    e.photo_url = f"{_SUPABASE_URL}/storage/v1/object/public/{_AVATAR_BUCKET}/{path}"
+    e.updated_at = _now()
+    db.commit()
+    return _profile_dict(e, db)
+
+
+@router.delete("/profile/photo")
+def remove_my_photo(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    e = _me(db, user["email"])
+    e.photo_url = ""
     e.updated_at = _now()
     db.commit()
     return _profile_dict(e, db)
@@ -344,3 +384,62 @@ def download_my_document(rid: str, user: dict = Depends(get_current_user), db: S
     _log(db, rid, "downloaded", f"by {user['email']} (self-service)")
     db.commit()
     return {"url": f"{_SUPABASE_URL}/storage/v1{resp.json()['signedURL']}", "expiresIn": 300}
+
+
+# ── my Egnyte documents (Aug 10 - Neil's "wire Contractor Documents to their
+# My Documents"). Read-only: the employee sees and downloads what HR filed in
+# their WIRED subfolder (people.my-documents), never the person folder root -
+# the Confidential folder beside it (Aadhaar/PAN) must stay HR-only. Download
+# goes through here rather than /egnyte/file so the server checks the path is
+# inside the caller's own resolved folder.
+
+@router.get("/egnyte-documents")
+def my_egnyte_documents(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    import egnyte_wiring as wiring
+    from services import egnyte as svc
+    if not svc.configured():
+        return {"available": False}
+    try:
+        emp = _me(db, user["email"])
+    except HTTPException:
+        return {"available": False}
+    res = wiring.resolve_person_folder("people.my-documents", emp, db)
+    if not res["folder"]:
+        return {"available": False}
+    try:
+        listing = svc.list_folder(res["folder"])
+    except svc.EgnyteError:
+        return {"available": False}     # wired folder not created yet - show nothing
+    return {
+        "available": True,
+        "folder": res["folder"],
+        "files": [
+            {"name": f["name"], "path": f["path"], "size": f.get("size"),
+             "lastModified": f.get("last_modified") or f.get("lastModified")}
+            for f in listing["files"]
+        ],
+    }
+
+
+@router.get("/egnyte-documents/file")
+def my_egnyte_document_file(path: str, user: dict = Depends(get_current_user),
+                            db: Session = Depends(get_db)):
+    import egnyte_wiring as wiring
+    from services import egnyte as svc
+    from fastapi import Response
+    if not svc.configured():
+        raise HTTPException(503, "Egnyte is not connected")
+    emp = _me(db, user["email"])
+    res = wiring.resolve_person_folder("people.my-documents", emp, db)
+    folder = res["folder"]
+    want = svc.norm(path)
+    if not folder or not want.startswith(svc.norm(folder) + "/"):
+        raise HTTPException(403, "That file is not in your documents folder")
+    content = svc.read_file(want)
+    name = want.rsplit("/", 1)[-1] or "download"
+    return Response(
+        content=content,
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{name}"',
+                 "X-Content-Type-Options": "nosniff"},
+    )

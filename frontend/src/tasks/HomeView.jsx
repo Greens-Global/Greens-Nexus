@@ -452,7 +452,7 @@ export default function HomeView({ onNavigate }) {
   };
 
   return (
-    <div className="nx-page" style={{ padding: 24, fontFamily: FONT, color: NX.ink, height: '100%', overflow: 'auto' }}>
+    <div className="nx-page" style={{ padding: '24px 24px 76px', fontFamily: FONT, color: NX.ink, height: '100%', overflow: 'auto' }}>
       {/* Desktop: workload counts left, range · stats · Customize right. Mobile:
           the range button takes the full first line so stats + Customize wrap. */}
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: isMobile ? 12 : 20 }}>

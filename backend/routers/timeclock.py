@@ -257,6 +257,9 @@ class PunchIn(BaseModel):
     accuracy_m: Optional[int] = 0
     tz_offset_min: Optional[int] = 0
     note: Optional[str] = ""
+    # When the punch BUTTON was pressed, for punches gated behind the
+    # beginning/end-of-day message (see the punch endpoint) - "" = record now.
+    clicked_at: Optional[str] = ""
 
 
 @router.get("/status")
@@ -317,6 +320,23 @@ def punch(body: PunchIn, request: Request,
     if body.kind not in allowed:
         raise HTTPException(409, f"Can't punch '{body.kind}' right now - allowed: {', '.join(allowed)}")
     now = _now_iso()
+    # The BOD/EOD message gate opens BEFORE the punch is sent, so the minutes
+    # spent writing the day message used to fall outside the recorded time
+    # (Visesh, Aug 11: that time should count - the person is already working).
+    # The client stamps the moment the button was PRESSED and the punch records
+    # at that stamp. Bounded hard: only backward, at most 15 minutes, and never
+    # at/before the previous punch - so it can credit a form, not rewrite a day.
+    at = now
+    if (body.clicked_at or "").strip():
+        t = _parse_iso(body.clicked_at)
+        if t:
+            t = t if t.tzinfo else t.replace(tzinfo=timezone.utc)
+            prev_at = _parse_iso(last.at) if last else None
+            if prev_at is not None and prev_at.tzinfo is None:
+                prev_at = prev_at.replace(tzinfo=timezone.utc)
+            delta = (datetime.now(timezone.utc) - t).total_seconds()
+            if 0 <= delta <= 15 * 60 and (prev_at is None or t > prev_at):
+                at = body.clicked_at.strip()[:19]
     # Jul 24: the daily acknowledge-at-clock-in gate was removed by management
     # decision - screen capture is initiated by the employee's own share action
     # (browser picker + persistent OS sharing indicator), and standing disclosure
@@ -332,8 +352,8 @@ def punch(body: PunchIn, request: Request,
     if not (body.lat or "").strip():
         geo = {"geo_status": "no_location", "work_site_id": "", "work_site_name": "", "distance_m": 0}
     ip, ua = _client_meta(request)
-    row = TimePunch(id=str(uuid.uuid4()), employee_email=email, kind=body.kind, at=now,
-                    local_date=_local_date(now, body.tz_offset_min or 0),
+    row = TimePunch(id=str(uuid.uuid4()), employee_email=email, kind=body.kind, at=at,
+                    local_date=_local_date(at, body.tz_offset_min or 0),
                     tz_offset_min=body.tz_offset_min or 0,
                     lat=(body.lat or "").strip()[:24], lng=(body.lng or "").strip()[:24],
                     accuracy_m=max(0, int(body.accuracy_m or 0)),
@@ -778,6 +798,31 @@ def unfinalize_timecard(body: FinalizeIn, user: dict = Depends(require_administr
     return {"unfinalized": True}
 
 
+def _display_name(db: Session, email: str) -> str:
+    emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == (email or "").lower()).first()
+    if emp and (emp.first_name or emp.last_name):
+        return f"{emp.first_name or ''} {emp.last_name or ''}".strip()
+    return (email or "").split("@")[0].replace(".", " ").title()
+
+
+def _notify_timecard_change(db: Session, *, employee_email: str, actor_email: str,
+                            body: str, ref_id: str = "") -> None:
+    """Oversight for DIRECT timecard edits (Visesh, Aug 11): a punch changed
+    without going through a request/approval must still be seen by someone
+    OTHER than the person who changed it. Target the employee's approver
+    (manager); when the actor IS that approver - or no manager is on file -
+    broadcast to all managers instead (recipient=''), which reaches HR and
+    the global admins, so an edit is never visible only to its author."""
+    emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == employee_email).first()
+    mgr = (emp.manager_email or "").strip().lower() if emp else ""
+    recipient = mgr if (mgr and mgr != (actor_email or "").lower()) else ""
+    db.add(NexusNotification(
+        id=str(uuid.uuid4()), type="custom_alert", recipient=recipient,
+        title="Timecard edited", body=body, ref_id=ref_id, item_name="",
+        requested_by=actor_email, action=json.dumps({"view": "hr", "sub": "hr-time"}),
+        actioned=False, read_by="", created_at=_now_iso()))
+
+
 @router.patch("/punches/{punch_id}")
 def adjust_punch(punch_id: str, body: PunchAdjust,
                  user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
@@ -827,6 +872,15 @@ def adjust_punch(punch_id: str, body: PunchAdjust,
                    + (f": {body.adjust_note.strip()[:200]}" if body.adjust_note else ".")
                    + " - open your timecard to review.",
                    ref_id=row.id, action={"view": "timeclock", "sub": "timecard"})
+    # And the oversight side (Visesh, Aug 11): the approver/HR/global admins
+    # hear about EVERY direct edit, not just the person it happened to.
+    what = "voided" if body.void else ("restored" if body.void is not None else "edited")
+    _notify_timecard_change(
+        db, employee_email=row.employee_email, actor_email=user["email"],
+        body=f"{_display_name(db, user['email'])} {what} {_display_name(db, row.employee_email)}'s "
+             f"{row.kind.replace('_', ' ')} punch on {row.local_date}"
+             + (f": {body.adjust_note.strip()[:200]}" if body.adjust_note else "."),
+        ref_id=row.id)
     db.commit()
     return _serialize(row)
 
@@ -859,6 +913,20 @@ def manager_add_punch(body: ManagerPunchIn, user: dict = Depends(require_team_wr
                     note=(body.note or "").strip()[:300], source="manual",
                     created_by=user["email"], created_at=now)
     db.add(row)
+    # Same transparency pair as adjust_punch (Visesh, Aug 11): the employee
+    # learns a punch appeared on their card, and the approver/HR/global admins
+    # learn who put it there.
+    if row.employee_email != user["email"]:
+        _hr_notify(db, row.employee_email, "Punch added to your timecard",
+                   f"A {row.kind.replace('_', ' ')} punch on {row.local_date} was added to your "
+                   "timecard by a manager - open your timecard to review.",
+                   ref_id=row.id, action={"view": "timeclock", "sub": "timecard"})
+    _notify_timecard_change(
+        db, employee_email=row.employee_email, actor_email=user["email"],
+        body=f"{_display_name(db, user['email'])} added a {row.kind.replace('_', ' ')} punch on "
+             f"{row.local_date} to {_display_name(db, row.employee_email)}'s timecard"
+             + (f": {(body.note or '').strip()[:200]}" if (body.note or "").strip() else "."),
+        ref_id=row.id)
     db.commit()
     return _serialize(row)
 
@@ -3383,7 +3451,9 @@ def _ser_timeoff(r: TimeOffRequest, names: dict = None) -> dict:
             "type": r.type, "startDate": r.start_date, "endDate": r.end_date,
             "note": r.note or "", "status": r.status, "approver": r.approver or "",
             "decidedAt": r.decided_at or "", "decideNote": r.decide_note or "",
-            "createdAt": r.created_at}
+            "createdAt": r.created_at,
+            "requestedBy": getattr(r, "requested_by", "") or "",
+            "requestedByName": (names or {}).get(getattr(r, "requested_by", "") or "", "")}
 
 
 class TimeOffIn(BaseModel):
@@ -3414,6 +3484,57 @@ def request_timeoff(body: TimeOffIn, user: dict = Depends(get_current_user),
     if emp and emp.manager_email:
         _hr_notify(db, emp.manager_email, "Time-off request",
                    f"{emp.first_name} {emp.last_name} requested {body.type} "
+                   f"{body.start_date} → {body.end_date}.",
+                   ref_id=row.id, action={"view": "hr", "sub": "hr-time"})
+    db.commit()
+    return _ser_timeoff(row)
+
+
+class TimeOffOnBehalfIn(TimeOffIn):
+    employee_email: str
+
+
+@router.post("/timeoff/on-behalf")
+def request_timeoff_on_behalf(body: TimeOffOnBehalfIn, user: dict = Depends(require_team_write),
+                              db: Session = Depends(get_db)):
+    """Manager+ files a time-off request FOR an employee (Neil, Aug 11) -
+    deliberately NOT Act As, which stays Global Admin only. The request is a
+    normal pending request in the employee's name; requested_by records who
+    filed it, the employee is told, and the approval flow is unchanged (the
+    filing manager can approve it themselves right after, on the record)."""
+    if body.type not in TIMEOFF_TYPES:
+        raise HTTPException(400, f"type must be one of {TIMEOFF_TYPES}")
+    try:
+        s = datetime.strptime(body.start_date, "%Y-%m-%d")
+        e = datetime.strptime(body.end_date, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(400, "Dates must be YYYY-MM-DD")
+    if e < s:
+        raise HTTPException(400, "End date is before the start date")
+    target = (body.employee_email or "").strip().lower()
+    if not target:
+        raise HTTPException(400, "Pick the employee first")
+    emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == target).first()
+    if not emp:
+        raise HTTPException(404, "No employee with that email")
+    scope = _visible_emails(db, user)
+    if scope is not None and target not in scope:
+        raise HTTPException(403, "You can only file requests for your own team.")
+    now = _now_iso()
+    row = TimeOffRequest(id=str(uuid.uuid4()), employee_email=target, type=body.type,
+                         start_date=body.start_date, end_date=body.end_date,
+                         note=(body.note or "").strip()[:400], created_at=now,
+                         requested_by=user["email"])
+    db.add(row)
+    filer = _display_name(db, user["email"])
+    if target != user["email"]:
+        _hr_notify(db, target, "Time-off request filed for you",
+                   f"{filer} requested {body.type} time off {body.start_date} → {body.end_date} "
+                   "on your behalf - you'll hear once it's decided.",
+                   ref_id=row.id, action={"view": "timeclock", "sub": ""})
+    if emp.manager_email and emp.manager_email.strip().lower() != user["email"]:
+        _hr_notify(db, emp.manager_email, "Time-off request",
+                   f"{filer} filed a {body.type} request for {emp.first_name} {emp.last_name}: "
                    f"{body.start_date} → {body.end_date}.",
                    ref_id=row.id, action={"view": "hr", "sub": "hr-time"})
     db.commit()

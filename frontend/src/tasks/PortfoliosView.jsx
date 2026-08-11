@@ -82,7 +82,7 @@ export default function PortfoliosView({ onNavigate }) {
       </div>
 
       {/* Body - table with expandable rows (Portfolio | Tasks | Progress | Projects) */}
-      <div className="nx-scroll nx-gutter" style={{ flex: 1, minHeight: 0, overflow: 'auto', background: NX.canvas, padding: 16 }}>
+      <div className="nx-scroll nx-gutter" style={{ flex: 1, minHeight: 0, overflow: 'auto', background: NX.canvas, padding: '16px 16px 76px' }}>
         {visible.length === 0 ? (
           <EmptyState icon={Briefcase} title="No Portfolios Yet" hint="Group projects into a portfolio to track their combined progress." />
         ) : (
@@ -337,7 +337,7 @@ function PortfolioDetail({ pf, store, rollup, people, onBack, onNavigate, onEdit
       </div>
 
       {/* Body */}
-      <div className="nx-scroll nx-gutter" style={{ flex: 1, minHeight: 0, overflow: 'auto', background: NX.canvas, padding: 16 }}>
+      <div className="nx-scroll nx-gutter" style={{ flex: 1, minHeight: 0, overflow: 'auto', background: NX.canvas, padding: '16px 16px 76px' }}>
         {ids.length === 0 ? (
           <div style={{ ...card, padding: 40, textAlign: 'center' }}>
             <FolderKanban size={30} style={{ color: NX.faint, marginBottom: 10 }} />

@@ -385,22 +385,26 @@ function PhotoUpload({ value, onChange, label = 'PHOTO', required = false, hint 
 }
 
 // ── Add Item Modal ─────────────────────────────────────────────────────────────
-function AddItemModal({ onClose, onSave, initial = {}, types = ITEM_TYPES }) {
+// lockedFields: keys carried over from another form (e.g. the Heavy Equipment wizard) that
+// duplicate a value already captured there - shown read-only so the two records can't drift.
+const LOCKED_FIELD_STYLE = { backgroundColor: 'var(--mist)', color: 'var(--muted)', cursor: 'not-allowed' };
+export function AddItemModal({ onClose, onSave, initial = {}, types = ITEM_TYPES, lockedFields = [], onBack }) {
+  const isLocked = (key) => lockedFields.includes(key);
   const [name,          setName]          = useState(initial.name || '');
   const [itemType,      setItemType]      = useState(initial.itemType || 'Tools');
-  const [make,          setMake]          = useState('');
-  const [model,         setModel]         = useState('');
-  const [year,          setYear]          = useState('');
+  const [make,          setMake]          = useState(initial.make || '');
+  const [model,         setModel]         = useState(initial.model || '');
+  const [year,          setYear]          = useState(initial.year || '');
   const [department,    setDepartment]    = useState(initial.department || '');
   // Owner now defaults to the department (Neil: a free-text owner per item just
   // produced 100 unhelpful values - the department is the real owner).
   const [defaultOwner,  setDefaultOwner]  = useState(initial.department || '');
   const [ownershipType, setOwnershipType] = useState(initial.ownershipType || 'transient');
-  const [location,      setLocation]      = useState('');
+  const [location,      setLocation]      = useState(initial.location || '');
   const [photoUrl,      setPhotoUrl]      = useState('');
   const [skipPhoto,     setSkipPhoto]     = useState(false);
   const [pictureRequired, setPictureRequired] = useState(true);
-  const [assetValue,    setAssetValue]    = useState('');
+  const [assetValue,    setAssetValue]    = useState(initial.assetValue != null ? String(initial.assetValue) : '');
   const [assignNow,     setAssignNow]     = useState(false);
   const [aiFill,        setAiFill]        = useState(true);
   const [saving,        setSaving]        = useState(false);
@@ -437,27 +441,42 @@ function AddItemModal({ onClose, onSave, initial = {}, types = ITEM_TYPES }) {
       {/* Wide enough that no label or select option ever truncates (e.g.
           "Temporary (check-out/return)" was getting cut off at 500px) */}
       <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:620, boxShadow:'0 20px 60px rgba(0,0,0,0.3)', margin:'auto' }}>
-        <h3 style={{ fontSize:16, fontWeight:700, marginBottom:20 }}>Add Item</h3>
+        <h3 style={{ fontSize:16, fontWeight:700, marginBottom:20, display:'flex', alignItems:'center', gap:8 }}>
+          {onBack && (
+            <button type="button" onClick={onBack} disabled={saving} aria-label="Back to asset details"
+              title="Back to asset details"
+              style={{ background:'none', border:'none', cursor:'pointer', padding:2, display:'flex', color:'var(--muted)' }}>
+              <ArrowLeft size={18} />
+            </button>
+          )}
+          Add Item
+        </h3>
 
         <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
           <div>
-            <label style={FL}>NAME <span style={{ color:'hsl(var(--color-red))' }}>*</span></label>
-            <input className="form-input" style={{ width:'100%' }} autoFocus value={name} onChange={e => setName(e.target.value)} placeholder="e.g. DeWalt 20V Cordless Drill" />
+            <label style={FL}>NAME <span style={{ color:'hsl(var(--color-red))' }}>*</span>{isLocked('name') && <span style={{ fontWeight:400, textTransform:'none', letterSpacing:0, color:'var(--muted)' }}> · from the asset details</span>}</label>
+            <input className="form-input" style={{ width:'100%', ...(isLocked('name') ? LOCKED_FIELD_STYLE : {}) }} disabled={isLocked('name')} autoFocus={!isLocked('name')} value={name} onChange={e => setName(e.target.value)} placeholder="e.g. DeWalt 20V Cordless Drill" />
           </div>
 
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
             <div>
-              <label style={FL}>TYPE <span style={{ color:'hsl(var(--color-red))' }}>*</span></label>
-              <select className="form-input" style={{ width:'100%' }} value={itemType} onChange={e => handleTypeChange(e.target.value)}>
-                {[...new Set([...types, itemType].filter(Boolean))].map(t => <option key={t}>{t}</option>)}
-              </select>
+              <label style={FL}>TYPE <span style={{ color:'hsl(var(--color-red))' }}>*</span>{isLocked('itemType') && <span style={{ fontWeight:400, textTransform:'none', letterSpacing:0, color:'var(--muted)' }}> · from the asset details</span>}</label>
+              <div style={{ position:'relative' }}>
+                <select className="form-input" style={{ width:'100%', appearance:'none', paddingRight:32, ...(isLocked('itemType') ? LOCKED_FIELD_STYLE : {}) }} disabled={isLocked('itemType')} value={itemType} onChange={e => handleTypeChange(e.target.value)}>
+                  {[...new Set([...types, itemType].filter(Boolean))].map(t => <option key={t}>{t}</option>)}
+                </select>
+                <ChevronDown size={14} style={{ position:'absolute', right:11, top:'50%', transform:'translateY(-50%)', pointerEvents:'none', color:'var(--muted)' }} />
+              </div>
             </div>
             <div>
               <label style={FL}>OWNERSHIP</label>
-              <select className="form-input" style={{ width:'100%' }} value={ownershipType} onChange={e => setOwnershipType(e.target.value)}>
-                <option value="transient">Temporary (check-out/return)</option>
-                <option value="permanent">Permanent (stays assigned)</option>
-              </select>
+              <div style={{ position:'relative' }}>
+                <select className="form-input" style={{ width:'100%', appearance:'none', paddingRight:32 }} value={ownershipType} onChange={e => setOwnershipType(e.target.value)}>
+                  <option value="transient">Temporary (check-out/return)</option>
+                  <option value="permanent">Permanent (stays assigned)</option>
+                </select>
+                <ChevronDown size={14} style={{ position:'absolute', right:11, top:'50%', transform:'translateY(-50%)', pointerEvents:'none', color:'var(--muted)' }} />
+              </div>
             </div>
           </div>
 
@@ -476,23 +495,26 @@ function AddItemModal({ onClose, onSave, initial = {}, types = ITEM_TYPES }) {
 
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 80px', gap:12 }}>
             <div>
-              <label style={FL}>MAKE</label>
-              <input className="form-input" style={{ width:'100%' }} value={make} onChange={e => setMake(e.target.value)} placeholder="e.g. DeWalt" />
+              <label style={FL}>MAKE{isLocked('make') && <span style={{ fontWeight:400, textTransform:'none', letterSpacing:0, color:'var(--muted)' }}> · from the asset details</span>}</label>
+              <input className="form-input" style={{ width:'100%', ...(isLocked('make') ? LOCKED_FIELD_STYLE : {}) }} disabled={isLocked('make')} value={make} onChange={e => setMake(e.target.value)} placeholder="e.g. DeWalt" />
             </div>
             <div>
-              <label style={FL}>MODEL</label>
-              <input className="form-input" style={{ width:'100%' }} value={model} onChange={e => setModel(e.target.value)} placeholder="e.g. DCD777C2" />
+              <label style={FL}>MODEL{isLocked('model') && <span style={{ fontWeight:400, textTransform:'none', letterSpacing:0, color:'var(--muted)' }}> · from the asset details</span>}</label>
+              <input className="form-input" style={{ width:'100%', ...(isLocked('model') ? LOCKED_FIELD_STYLE : {}) }} disabled={isLocked('model')} value={model} onChange={e => setModel(e.target.value)} placeholder="e.g. DCD777C2" />
             </div>
             <div>
-              <label style={FL}>YEAR</label>
-              <input className="form-input" style={{ width:'100%' }} value={year} onChange={e => setYear(e.target.value)} placeholder="2023" />
+              <label style={FL}>YEAR{isLocked('year') && <span style={{ fontWeight:400, textTransform:'none', letterSpacing:0, color:'var(--muted)' }}> · locked</span>}</label>
+              <input className="form-input" style={{ width:'100%', ...(isLocked('year') ? LOCKED_FIELD_STYLE : {}) }} disabled={isLocked('year')} value={year} onChange={e => setYear(e.target.value)} placeholder="2023" />
             </div>
           </div>
 
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
             <div>
-              <label style={FL}>DEPARTMENT <span style={{ color:'hsl(var(--color-red))' }}>*</span></label>
-              <input className="form-input" style={{ width:'100%' }} list="add-item-depts" value={department} onChange={e => handleDeptChange(e.target.value)} placeholder="e.g. Construction" />
+              <label style={FL}>DEPARTMENT <span style={{ color:'hsl(var(--color-red))' }}>*</span>{isLocked('department') && <span style={{ fontWeight:400, textTransform:'none', letterSpacing:0, color:'var(--muted)' }}> · from the asset details</span>}</label>
+              <div style={{ position:'relative' }}>
+                <input className="form-input datalist-input" style={{ width:'100%', paddingRight:32, ...(isLocked('department') ? LOCKED_FIELD_STYLE : {}) }} disabled={isLocked('department')} list="add-item-depts" value={department} onChange={e => handleDeptChange(e.target.value)} placeholder="e.g. Construction" />
+                <ChevronDown size={14} style={{ position:'absolute', right:11, top:'50%', transform:'translateY(-50%)', pointerEvents:'none', color:'var(--muted)' }} />
+              </div>
               <datalist id="add-item-depts">{DEPARTMENTS.filter(d => d !== 'All').map(d => <option key={d} value={d} />)}</datalist>
             </div>
             <div>
@@ -503,8 +525,8 @@ function AddItemModal({ onClose, onSave, initial = {}, types = ITEM_TYPES }) {
 
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
             <div>
-              <label style={FL}>LOCATION <span style={{ color:'hsl(var(--color-red))' }}>*</span></label>
-              <input className="form-input" style={{ width:'100%' }} value={location} onChange={e => setLocation(e.target.value)} placeholder="e.g. GSVC, GSE, Site Office" />
+              <label style={FL}>LOCATION <span style={{ color:'hsl(var(--color-red))' }}>*</span>{isLocked('location') && <span style={{ fontWeight:400, textTransform:'none', letterSpacing:0, color:'var(--muted)' }}> · from the asset details</span>}</label>
+              <input className="form-input" style={{ width:'100%', ...(isLocked('location') ? LOCKED_FIELD_STYLE : {}) }} disabled={isLocked('location')} value={location} onChange={e => setLocation(e.target.value)} placeholder="e.g. GSVC, GSE, Site Office" />
             </div>
             <div>
               <label style={FL}>ASSET VALUE ($)</label>
@@ -3075,7 +3097,7 @@ const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, 
 });
 
 // ── Item Photo Grid (shared by employee + manager catalog) ────────────────────
-const ItemPhotoGrid = memo(function ItemPhotoGrid({ items, checkouts, itemsLoading, itemsError, refreshItems, onAddToCart, inCart, emptyLabel }) {
+const ItemPhotoGrid = memo(function ItemPhotoGrid({ items, checkouts, itemsLoading, itemsError, refreshItems, onAddToCart, onRemoveFromCart, inCart, emptyLabel }) {
   const [lightbox, setLightbox] = useState(null);
   const isMobile = useIsMobile(); // phones get the minimal (amazon-style) tiles
 
@@ -3149,10 +3171,10 @@ const ItemPhotoGrid = memo(function ItemPhotoGrid({ items, checkouts, itemsLoadi
                     ? <img src={item.photoUrl} alt={item.name} loading="lazy" decoding="async" style={{ width:'100%', height:'100%', objectFit:'cover' }} />
                     : <tm.Icon size={34} color={tm.color} />}
                   {canAdd && (
-                    <button onClick={e => { e.stopPropagation(); onAddToCart(item); }} disabled={alreadyInCart}
-                      aria-label={alreadyInCart ? 'In cart' : 'Add to cart'}
-                      style={{ position:'absolute', right:8, bottom:8, width:34, height:34, borderRadius:'50%', border:'none', background:'hsl(var(--color-green))', color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', boxShadow:'0 2px 10px rgba(0,0,0,0.25)', cursor:'pointer' }}>
-                      {alreadyInCart ? <CheckCircle size={16} /> : <Plus size={16} />}
+                    <button onClick={e => { e.stopPropagation(); alreadyInCart ? onRemoveFromCart?.(item.id) : onAddToCart(item); }}
+                      aria-label={alreadyInCart ? 'Remove from cart' : 'Add to cart'}
+                      style={{ position:'absolute', right:8, bottom:8, width:34, height:34, borderRadius:'50%', border:'none', background: alreadyInCart ? 'hsl(var(--color-red))' : 'hsl(var(--color-green))', color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', boxShadow:'0 2px 10px rgba(0,0,0,0.25)', cursor:'pointer' }}>
+                      {alreadyInCart ? <X size={16} /> : <Plus size={16} />}
                     </button>
                   )}
                   {(hasPending || !isAvailable) && (
@@ -3228,10 +3250,10 @@ const ItemPhotoGrid = memo(function ItemPhotoGrid({ items, checkouts, itemsLoadi
               {/* Action */}
               <div style={{ padding:'0 12px 12px' }}>
                 {canAdd ? (
-                  <button onClick={() => onAddToCart(item)} disabled={alreadyInCart}
+                  <button onClick={() => alreadyInCart ? onRemoveFromCart?.(item.id) : onAddToCart(item)}
                     className={alreadyInCart ? 'secondary-btn' : 'primary-btn'}
                     style={{ width:'100%', fontSize:12.5, padding:'7px 0', display:'flex', alignItems:'center', justifyContent:'center', gap:6 }}>
-                    {alreadyInCart ? <><CheckCircle size={12} /> In cart</> : <><Plus size={12} /> Add to cart</>}
+                    {alreadyInCart ? <><X size={12} /> Remove from cart</> : <><Plus size={12} /> Add to cart</>}
                   </button>
                 ) : hasPending ? (
                   <div style={{ textAlign:'center', fontSize:11.5, color:'hsl(var(--color-orange))', fontWeight:600 }}>Under review</div>
@@ -3434,6 +3456,13 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
     const entry = cart.find(c => c.id === cartId);
     setCart(prev => prev.filter(c => c.id !== cartId));
     if (entry) api.removeItemFromCart(entry.item.id).catch(() => {});
+  }
+  // Catalog cards only know the item, not its cart row id - resolve it here so
+  // the "In cart" pill on the card can double as a remove button (Pranshu: it
+  // was just a disabled label before, no way back off the cart from the card).
+  function removeFromCartByItemId(itemId) {
+    const entry = cart.find(c => c.item.id === itemId);
+    if (entry) removeFromCart(entry.id);
   }
 
   function handleDaysChange(cartId, days) {
@@ -3666,7 +3695,7 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
             <ItemPhotoGrid
               items={filteredItems} checkouts={checkouts}
               itemsLoading={itemsLoading} itemsError={itemsError}
-              refreshItems={refreshItems} onAddToCart={addToCart} inCart={inCart}
+              refreshItems={refreshItems} onAddToCart={addToCart} onRemoveFromCart={removeFromCartByItemId} inCart={inCart}
               emptyLabel={search || typeFilter !== 'All' || locationFilter !== 'All' ? 'No items match your search.' : 'No items available.'}
             />
           ) : (
@@ -3716,10 +3745,10 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
                           <td style={{ padding:'8px 14px' }}><StatusBadge status={hasPending ? 'under_review' : displayStatus(item)} item={item} /></td>
                           <td style={{ padding:'8px 14px' }}>
                             {canAdd && (
-                              <button onClick={() => addToCart(item)} disabled={alreadyInCart}
+                              <button onClick={() => alreadyInCart ? removeFromCartByItemId(item.id) : addToCart(item)}
                                 className={alreadyInCart ? 'secondary-btn' : 'primary-btn'}
                                 style={{ fontSize:12, padding:'5px 12px', display:'inline-flex', alignItems:'center', gap:5 }}>
-                                {alreadyInCart ? <><CheckCircle size={11} /> In cart</> : <><Plus size={11} /> Add</>}
+                                {alreadyInCart ? <><X size={11} /> Remove</> : <><Plus size={11} /> Add</>}
                               </button>
                             )}
                           </td>
@@ -3859,7 +3888,7 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
 });
 
 // ── Manager Catalog Tab ───────────────────────────────────────────────────────
-const ManagerCatalogTab = memo(function ManagerCatalogTab({ items, itemsLoading, itemsError, deptFilter, typeFilter, ownershipFilter = 'All', locationFilter = 'All', modelFilter = 'All', search, searchValue, onSearchChange, refreshItems, onAddToCart, inCart, checkouts, userEmail, userName, onReturn, onCancel, onSelfAllocate, filterControls }) {
+const ManagerCatalogTab = memo(function ManagerCatalogTab({ items, itemsLoading, itemsError, deptFilter, typeFilter, ownershipFilter = 'All', locationFilter = 'All', modelFilter = 'All', search, searchValue, onSearchChange, refreshItems, onAddToCart, onRemoveFromCart, inCart, checkouts, userEmail, userName, onReturn, onCancel, onSelfAllocate, filterControls }) {
   // Desktop defaults to the list/table; phones default to tiles but can now
   // switch to the (scrollable) list in portrait too (Neil, Jun 16).
   const [viewMode, setViewMode] = useState(() => window.matchMedia('(max-width: 640px)').matches ? 'tile' : 'list');
@@ -3922,6 +3951,7 @@ const ManagerCatalogTab = memo(function ManagerCatalogTab({ items, itemsLoading,
           itemsError={itemsError}
           refreshItems={refreshItems}
           onAddToCart={onAddToCart}
+          onRemoveFromCart={onRemoveFromCart}
           inCart={inCart}
           emptyLabel="No items match your filters."
         />
@@ -3973,10 +4003,10 @@ const ManagerCatalogTab = memo(function ManagerCatalogTab({ items, itemsLoading,
                       <td style={{ padding:'8px 14px' }}><StatusBadge status={hasPending ? 'under_review' : displayStatus(item)} item={item} /></td>
                       <td style={{ padding:'8px 14px' }}>
                         {canAdd && (
-                          <button onClick={() => onAddToCart(item)} disabled={alreadyInCart}
+                          <button onClick={() => alreadyInCart ? onRemoveFromCart?.(item.id) : onAddToCart(item)}
                             className={alreadyInCart ? 'secondary-btn' : 'primary-btn'}
                             style={{ fontSize:12, padding:'5px 12px', display:'inline-flex', alignItems:'center', gap:5 }}>
-                            {alreadyInCart ? <><CheckCircle size={11} /> In Cart</> : <><Plus size={11} /> Add</>}
+                            {alreadyInCart ? <><X size={11} /> Remove</> : <><Plus size={11} /> Add</>}
                           </button>
                         )}
                       </td>
@@ -5420,7 +5450,7 @@ const ManageCard = memo(function ManageCard({ item, isSelected, highlight, onTog
   );
 });
 
-const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, itemsError, deptFilter, typeFilter, ownershipFilter = 'All', locationFilter = 'All', modelFilter = 'All', search, searchValue, onSearchChange, refreshItems, canDelete, onAdd, onEdit, onDelete, onImport, onExport, onExportAllPdf, onReport, checkouts, toast, onAssign, onDetails, onShowDeleted, onManageCustomFields, onManageTypes, itemTypes = ITEM_TYPES, filterControls, kpiStrip, highlightId, onHighlightDone }) {
+const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, itemsError, deptFilter, typeFilter, ownershipFilter = 'All', locationFilter = 'All', modelFilter = 'All', cardFilter = null, search, searchValue, onSearchChange, refreshItems, canDelete, onAdd, onEdit, onDelete, onImport, onExport, onExportAllPdf, onReport, checkouts, toast, onAssign, onDetails, onShowDeleted, onManageCustomFields, onManageTypes, itemTypes = ITEM_TYPES, filterControls, kpiStrip, highlightId, onHighlightDone }) {
   const [photoPreview,       setPhotoPreview]       = useState(null);
   const [exportMenu,         setExportMenu]         = useState(false); // Export ▾ dropdown
   const [manageMenu,         setManageMenu]         = useState(false); // Manage ▾ dropdown (admin extras)
@@ -5448,8 +5478,16 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
     const mO = ownershipFilter === 'All' || (i.ownershipType || 'transient') === ownershipFilter;
     const mL = locationFilter === 'All' || i.location === locationFilter;
     const mM = modelFilter === 'All' || cleanField(i.model) === modelFilter;
-    return mS && mD && mT && mO && mL && mM;
-  }), [items, search, deptFilter, typeFilter, ownershipFilter, locationFilter, modelFilter]);
+    // The KPI tile bucket (see kpiStrip above) - a lifecycle-status narrower
+    // on top of the dropdown filters, matching the same counts the tiles show.
+    const mC = !cardFilter
+      || (cardFilter === 'available'            && i.status === 'available' && i.ownershipType !== 'permanent')
+      || (cardFilter === 'unassigned'           && displayStatus(i) === 'unassigned')
+      || (cardFilter === 'location_assigned'    && displayStatus(i) === 'location_assigned')
+      || (cardFilter === 'permanently_assigned' && i.status === 'permanently_assigned')
+      || (cardFilter === 'checked_out'          && i.status === 'checked_out');
+    return mS && mD && mT && mO && mL && mM && mC;
+  }), [items, search, deptFilter, typeFilter, ownershipFilter, locationFilter, modelFilter, cardFilter]);
 
   const sorted = useMemo(() => [...filtered].sort((a, b) => {
     let av, bv;
@@ -5493,7 +5531,7 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = 0;
     setScrollTop(0);
-  }, [search, deptFilter, typeFilter, ownershipFilter, locationFilter, modelFilter, sortCol, sortDir]);
+  }, [search, deptFilter, typeFilter, ownershipFilter, locationFilter, modelFilter, cardFilter, sortCol, sortDir]);
   const vStart = Math.max(0, Math.floor(scrollTop / ROW_H) - OVERSCAN);
   const vEnd   = Math.min(sorted.length, vStart + Math.ceil(viewportH / ROW_H) + OVERSCAN * 2);
   const vSlice = sorted.slice(vStart, vEnd);
@@ -7747,6 +7785,13 @@ export default function InventoryManagement({ activeSub }) {
     // P4: on failure, restore the row and tell the user rather than swallowing it.
     if (entry) api.removeItemFromCart(entry.item.id).catch(err => { setCart(prev => prev.some(c => c.id === cartId) ? prev : [...prev, entry]); toast(err?.message || 'Could not remove item from cart.', 'error'); });
   }
+  // Catalog cards only know the item, not its cart row id - resolve it here so
+  // the "In cart" pill on the card can double as a remove button (Pranshu: it
+  // was just a disabled label before, no way back off the cart from the card).
+  function removeFromCartByItemId(itemId) {
+    const entry = cart.find(c => c.item.id === itemId);
+    if (entry) removeFromCart(entry.id);
+  }
   function handleDaysChange(cartId, days) {
     setCart(prev => prev.map(c => c.id === cartId ? { ...c, days } : c));
   }
@@ -7836,11 +7881,17 @@ export default function InventoryManagement({ activeSub }) {
   const [ownershipFilter, setOwnershipFilter] = useState('transient');
   const [locationFilter, setLocationFilter] = useState('All');
   const [modelFilter,    setModelFilter]    = useState('All');
+  // Which KPI tile (Manage tab) is narrowing the list, if any - clicking a tile
+  // toggles it on/off; it's a bucket on top of the dropdown filters, not a
+  // replacement for them (Neil: cards were dead placeholders, make them act
+  // like the filter chips everywhere else in the app).
+  const [cardFilter,    setCardFilter]      = useState(null);
   // Reset the ownership default when moving between the employee (Catalog) and
   // manager (Manage) views - Temporary-only vs All.
   useEffect(() => {
     if (mainTab === 'catalog')     setOwnershipFilter('transient');
     else if (mainTab === 'manage') setOwnershipFilter('All');
+    setCardFilter(null);
   }, [mainTab]);
   // Type filter auto-populates from the data so imported types (e.g. "IP Camera")
   // appear alongside the built-in ones; "Other" stays last.
@@ -8212,7 +8263,7 @@ export default function InventoryManagement({ activeSub }) {
           items={items} itemsLoading={itemsLoading} itemsError={itemsError}
           deptFilter={deptFilter} typeFilter={typeFilter} ownershipFilter={ownershipFilter} locationFilter={locationFilter} modelFilter={modelFilter} search={deferredSearch}
           searchValue={search} onSearchChange={setSearch}
-          refreshItems={refreshItems} onAddToCart={addToCart} inCart={inCart}
+          refreshItems={refreshItems} onAddToCart={addToCart} onRemoveFromCart={removeFromCartByItemId} inCart={inCart}
           checkouts={checkouts} userEmail={userEmail} userName={userName}
           onReturn={openReturn} onCancel={cancelCo}
           onSelfAllocate={selfAllocate}
@@ -8235,25 +8286,40 @@ export default function InventoryManagement({ activeSub }) {
           onManageTypes={() => setTypesOpen(true)} itemTypes={itemTypes}
           highlightId={highlightItemId} onHighlightDone={() => setHighlightItemId(null)}
           filterControls={filterSelects}
+          cardFilter={cardFilter}
           kpiStrip={
             <div className="kpi-grid" style={{ gridTemplateColumns:'repeat(auto-fit, minmax(104px, 1fr))', gap:8, margin:'0 0 16px' }}>
               {/* Tiles now cover every lifecycle bucket so the counts reconcile against
                   Total items (P4): available-to-checkout + unassigned-permanent +
-                  assigned-to-location + assigned-to-person + checked-out (+ retired). */}
+                  assigned-to-location + assigned-to-person + checked-out (+ retired).
+                  Clicking a tile narrows the table below to that bucket (on top of the
+                  dropdown filters, same idea as the checkout status chips) - clicking the
+                  active tile again, or Total/Items Value, clears back to the full set. */}
               {[
-                { label:'Available to check out', value: deptItems.filter(i => i.status === 'available' && i.ownershipType !== 'permanent').length, color:'card-green'  },
-                { label:'Unassigned permanent',   value: deptItems.filter(i => displayStatus(i) === 'unassigned').length, color:'card-purple' },
-                { label:'Assigned · location',    value: deptItems.filter(i => displayStatus(i) === 'location_assigned').length, color:'card-blue' },
-                { label:'Assigned · person',      value: deptItems.filter(i => i.status === 'permanently_assigned').length, color:'card-blue' },
-                { label:'Checked out', value: deptItems.filter(i => i.status === 'checked_out').length,  color:'card-orange' },
-                { label:'Total Items', value: deptItems.length,                                          color:'card-blue'   },
-                { label:'Items Value', value: fmtMoney(deptItems.reduce((s, i) => s + (Number(i.assetValue) || 0), 0)), color:'card-blue' },
-              ].map(({ label, value, color }) => (
-                <div key={label} className={`kpi-card ${color}`} style={{ padding:'8px 11px' }}>
-                  <div className="kpi-label" style={{ fontSize:10.5 }}>{label}</div>
-                  <div className="kpi-value" style={{ fontSize:18, lineHeight:1.1 }}>{value}</div>
-                </div>
-              ))}
+                { key:'available',            label:'Available to check out', value: deptItems.filter(i => i.status === 'available' && i.ownershipType !== 'permanent').length, color:'card-green'  },
+                { key:'unassigned',           label:'Unassigned permanent',   value: deptItems.filter(i => displayStatus(i) === 'unassigned').length, color:'card-purple' },
+                { key:'location_assigned',    label:'Assigned · location',    value: deptItems.filter(i => displayStatus(i) === 'location_assigned').length, color:'card-blue' },
+                { key:'permanently_assigned', label:'Assigned · person',      value: deptItems.filter(i => i.status === 'permanently_assigned').length, color:'card-blue' },
+                { key:'checked_out',          label:'Checked out', value: deptItems.filter(i => i.status === 'checked_out').length,  color:'card-orange' },
+                { key:null,                   label:'Total Items', value: deptItems.length,                                          color:'card-blue'   },
+                { key:null,                   label:'Items Value', value: fmtMoney(deptItems.reduce((s, i) => s + (Number(i.assetValue) || 0), 0)), color:'card-blue' },
+              ].map(({ key, label, value, color }) => {
+                const active = key && cardFilter === key;
+                return (
+                  <div key={label} className={`kpi-card ${color}`} role="button" tabIndex={0}
+                    aria-pressed={active}
+                    onClick={() => setCardFilter(prev => (!key || prev === key) ? null : key)}
+                    onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setCardFilter(prev => (!key || prev === key) ? null : key); } }}
+                    style={{
+                      padding:'8px 11px', cursor:'pointer',
+                      outline: active ? '2px solid var(--pine)' : 'none', outlineOffset: -2,
+                      background: active ? 'hsla(var(--color-green),0.08)' : undefined,
+                    }}>
+                    <div className="kpi-label" style={{ fontSize:10.5 }}>{label}</div>
+                    <div className="kpi-value" style={{ fontSize:18, lineHeight:1.1 }}>{value}</div>
+                  </div>
+                );
+              })}
             </div>
           }
         />

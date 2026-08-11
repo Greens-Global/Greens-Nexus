@@ -18,19 +18,19 @@ import { formatDate as usFormatDate } from '../lib/datetime';
 // UI can decide what to render instead of discovering the 503 through a failed
 // browse. Unconfigured is a first-class, explained state, not an error banner.
 export function useEgnyteStatus() {
-  const [state, setState] = useState({ loading: true, configured: false, error: '' });
+  const [state, setState] = useState({ loading: true, configured: false, error: '', oauth: null });
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let alive = true;
     api.egnyteStatus()
-      .then(r => alive && setState({ loading: false, configured: !!r?.configured, error: '' }))
-      .catch(err => alive && setState({ loading: false, configured: false, error: egnyteErrorMessage(err, 'Could not reach the Egnyte service.') }));
+      .then(r => alive && setState({ loading: false, configured: !!r?.configured, error: '', oauth: r?.oauth || null }))
+      .catch(err => alive && setState({ loading: false, configured: false, error: egnyteErrorMessage(err, 'Could not reach the Egnyte service.'), oauth: null }));
     return () => { alive = false; };
   }, [attempt]);
 
   const recheck = useCallback(() => {
-    setState({ loading: true, configured: false, error: '' });
+    setState({ loading: true, configured: false, error: '', oauth: null });
     setAttempt(a => a + 1);
   }, []);
 
@@ -51,6 +51,78 @@ export function normPath(path) {
 export function crumbsFor(path) {
   const segs = normPath(path).split('/').filter(Boolean);
   return segs.map((name, i) => ({ name, path: `/${segs.slice(0, i + 1).join('/')}` }));
+}
+
+// ── listing cache ────────────────────────────────────────────────────────────
+//
+// Every Egnyte listing is a live round-trip, and the tree + the contents pane
+// ask for the same folders constantly (expand a node, then click it; go back
+// up; hover). One shared session cache with a short TTL plus in-flight dedupe
+// makes all of that instant after the first fetch, without ever holding a
+// listing long enough to feel stale. Mutations (upload, new folder) invalidate
+// their folder so the next read is live.
+const FOLDER_TTL_MS = 5 * 60 * 1000;
+const FOLDER_CACHE_MAX = 500;
+const _folderCache = new Map();      // path -> { t, data }
+const _folderInflight = new Map();   // path -> Promise
+
+export function getFolderCached(path, { force = false } = {}) {
+  const key = normPath(path);
+  if (!force) {
+    const hit = _folderCache.get(key);
+    if (hit && Date.now() - hit.t < FOLDER_TTL_MS) return Promise.resolve(hit.data);
+    const inflight = _folderInflight.get(key);
+    if (inflight) return inflight;
+  }
+  const p = api.egnyteFolder(key)
+    .then(d => {
+      if (_folderCache.size >= FOLDER_CACHE_MAX) _folderCache.delete(_folderCache.keys().next().value);
+      _folderCache.set(key, { t: Date.now(), data: d });
+      _folderInflight.delete(key);
+      return d;
+    })
+    .catch(err => { _folderInflight.delete(key); throw err; });
+  _folderInflight.set(key, p);
+  return p;
+}
+
+export function invalidateFolder(path) {
+  _folderCache.delete(normPath(path));
+}
+
+// Fire-and-forget warm-up - hovering a folder row or tree node fetches its
+// listing so the click that follows lands on the cache.
+export function prefetchFolder(path) {
+  getFolderCached(path).catch(() => {});
+}
+
+// The "feels like Egnyte" trick: whenever a listing arrives, quietly fetch the
+// listings of the folders it shows, so the next click is already cached.
+// Concurrency-capped (Egnyte rate-limits per user) and skipping anything
+// cached or in flight, so the queue costs at most one burst per new folder.
+const PREFETCH_CONCURRENCY = 2;
+const _prefetchQueue = [];
+let _prefetchActive = 0;
+
+function _pumpPrefetch() {
+  while (_prefetchActive < PREFETCH_CONCURRENCY && _prefetchQueue.length) {
+    const path = _prefetchQueue.shift();
+    _prefetchActive += 1;
+    getFolderCached(path)
+      .catch(() => {})
+      .finally(() => { _prefetchActive -= 1; _pumpPrefetch(); });
+  }
+}
+
+export function prefetchChildren(listing, cap = 24) {
+  for (const f of (listing?.folders || []).slice(0, cap)) {
+    const key = normPath(f.path);
+    const hit = _folderCache.get(key);
+    if (hit && Date.now() - hit.t < FOLDER_TTL_MS) continue;
+    if (_folderInflight.has(key) || _prefetchQueue.includes(key)) continue;
+    _prefetchQueue.push(key);
+  }
+  _pumpPrefetch();
 }
 
 export function parentOf(path) {
@@ -135,11 +207,19 @@ const PREVIEW_BY_EXT = {
   pdf: 'pdf',
   png: 'image', jpg: 'image', jpeg: 'image', gif: 'image', webp: 'image',
   txt: 'text', log: 'text', csv: 'text', md: 'text', markdown: 'text',
+  // Spreadsheets parse CLIENT-side (SheetJS, same dynamic import the item
+  // importer uses) and render as a plain table - no server change, and the
+  // server's inline allowlist stays untouched because the bytes arrive as a
+  // download that the viewer reads programmatically.
+  xlsx: 'sheet', xls: 'sheet',
 };
 
 // Text is read into memory to render, so cap it. Past this a file is a download,
 // not something anyone is reading in a modal.
 export const MAX_TEXT_PREVIEW_BYTES = 400 * 1024;
+
+// Spreadsheets are parsed in memory too; a workbook past this is a download.
+export const MAX_SHEET_PREVIEW_BYTES = 10 * 1024 * 1024;
 
 export function previewKindFor(name = '') {
   const ext = name.includes('.') ? name.split('.').pop().toLowerCase() : '';
@@ -151,6 +231,20 @@ export const canPreview = (file) => !!previewKindFor(file?.name);
 // Egnyte shortcuts are pointers, not documents - previewing one shows bytes that
 // mean nothing. They open in Egnyte instead.
 export const isShortcut = (name = '') => name.toLowerCase().endsWith('.egnyte_d');
+
+// Office documents edit in Egnyte's own Office Online integration - the file's
+// webUrl (navigate/file/<groupId>) opens straight into Egnyte's viewer with
+// Edit one click away, honoring the person's Egnyte permissions.
+const OFFICE_APP_BY_EXT = {
+  xlsx: 'Excel', xls: 'Excel', xlsm: 'Excel',
+  docx: 'Word', doc: 'Word',
+  pptx: 'PowerPoint', ppt: 'PowerPoint',
+};
+
+export function officeAppFor(name = '') {
+  const ext = name.includes('.') ? name.split('.').pop().toLowerCase() : '';
+  return OFFICE_APP_BY_EXT[ext] || null;
+}
 
 export async function fetchEgnytePreview(path) {
   const { blob } = await api.egnyteFilePreview(path);

@@ -50,7 +50,6 @@ const HR                  = lazy(() => import("./views/HR"));
 const Documents           = lazy(() => import("./views/Documents"));
 const InvestorRelations   = lazy(() => import("./views/InvestorRelations"));
 const Marketing           = lazy(() => import("./views/Marketing"));
-const PdfEditorModule     = lazy(() => import("./views/PdfEditorModule"));
 const Admin               = lazy(() => import("./views/Admin"));
 const ExternalLinks       = lazy(() => import("./views/ExternalLinks"));
 const ManagerDashboard    = lazy(() => import("./views/ManagerDashboard"));
@@ -82,11 +81,18 @@ const viewLabel = (view) => VIEW_LABELS[view] || LABEL_OVERRIDES[view]
 const VIEW_MIN_ROLES = {
   'manager-dashboard':  'supervisor',
   'locations':          'supervisor',   // team locations map - managers/HR only
-  // tasks / sop / external-links are baseline (all employees): own tasks, the
-  // KB/LMS with assigned courses, and plain links. Admin actions inside each
-  // stay role-gated server-side.
+  // sop / external-links are baseline (all employees): the KB/LMS with
+  // assigned courses, and plain links. Admin actions inside each stay
+  // role-gated server-side.
+  // tasks / tickets are grant-driven (Aug 10): visible + usable only via an
+  // Access Group / job role grant, mirrored server-side by
+  // require_any_module_grant("tasks", "tickets") on the task-family routers.
+  'tasks':              'supervisor',
+  'tickets':            'supervisor',
   'it':                 'supervisor',
-  'ops':                'supervisor',
+  // 'ops' (Construction) is deliberately absent - see the note on its NAV entry
+  // in Sidebar.jsx. Leaving it here would show workers the nav item and then an
+  // "Access Restricted" panel, which is worse than hiding it outright.
   'operations':         'supervisor',
   'development':        'supervisor',
   'property-asset':     'supervisor',
@@ -209,6 +215,35 @@ function RoleGate({ children }) {
   return children;
 }
 
+// Warms the Task module once the app is idle after boot: its code chunk AND its
+// data (see tasks/taskStore). Tasks is the heaviest module here and the one
+// people open most, and it used to open on a cold fifteen-request wait EVERY
+// time - including every hop between Tasks and Tickets. Idle so it never
+// competes with the screen the user actually landed on, and only for people who
+// can open it at all: the module is grant-driven, so warming it for anyone else
+// would just be a handful of 403s.
+function TaskPrefetch() {
+  const { can, myGrantedModules } = useRole();
+  const mayOpenTasks = can('administrator')
+    || myGrantedModules.has('tasks') || myGrantedModules.has('tickets');
+  useEffect(() => {
+    if (!mayOpenTasks) return undefined;
+    let cancelled = false;
+    const warm = () => {
+      if (cancelled) return;
+      import('./views/Tasks').catch(() => {});
+      import('./tasks/taskStore').then(m => m.prefetchTaskData()).catch(() => {});
+    };
+    const idle = typeof window.requestIdleCallback === 'function';
+    const id = idle ? window.requestIdleCallback(warm, { timeout: 4000 }) : setTimeout(warm, 2500);
+    return () => {
+      cancelled = true;
+      if (idle) window.cancelIdleCallback?.(id); else clearTimeout(id);
+    };
+  }, [mayOpenTasks]);
+  return null;
+}
+
 // Enforces access at render time - sits inside RoleProvider so it can call
 // useRole(). Even if navigate() is called externally (nexus:navigate event,
 // notification links, dev tools), the actual view content is never shown
@@ -259,7 +294,9 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
     case "hr":                 return <HR activeSub={activeSub} onSubChange={onSubChange} />;
     case "documents":          return <Documents activeSub={activeSub} onSubChange={onSubChange} />;
     case "marketing":          return <Marketing activeSub={activeSub} onSubChange={onSubChange} />;
-    case "pdf-editor":         return <PdfEditorModule />;
+    // PDF Editor moved into Documents as a tab (Jul 2026). Keep the old
+    // top-level route working: land on Documents' PDF Editor tab.
+    case "pdf-editor":         return <Documents activeSub="documents-pdf" onSubChange={onSubChange} />;
     case "inventory":          return <InventoryManagement activeSub={activeSub} onSubChange={onSubChange} onNavigate={onNavigate} />;
     case "admin":              return <Admin />;
     case "external-links":     return <ExternalLinks />;
@@ -282,8 +319,12 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
 // The Item Management view keeps its internal id 'inventory' everywhere, but the
 // address bar reads /itemmanagement (Neil, Jun 16). Old /inventory links still
 // resolve to the same view so nothing breaks.
-const PATH_TO_VIEW = { itemmanagement: 'inventory', inventory: 'inventory' };
-const VIEW_TO_PATH = { inventory: 'itemmanagement' };
+// Same idea for 'ops': the module is labelled "Construction" everywhere in the
+// UI (Sidebar, MODULES) but the internal view id stayed 'ops' from before the
+// rename, so the address bar read /ops instead of /construction. Old /ops
+// links still resolve to the same view so nothing breaks.
+const PATH_TO_VIEW = { itemmanagement: 'inventory', inventory: 'inventory', construction: 'ops', ops: 'ops' };
+const VIEW_TO_PATH = { inventory: 'itemmanagement', ops: 'construction' };
 
 function parsePath() {
   const segs = window.location.pathname.split('/').filter(Boolean);
@@ -369,6 +410,11 @@ function MainApp() {
   const [sidebarOpen,      setSidebarOpen]      = useState(false);
   const [mobileMenuOpen,   setMobileMenuOpen]   = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem("gg-sidebar-collapsed") === "true");
+  // "Keep sidebar open" preference (My Profile -> Appearance): when pinned, the
+  // click-outside auto-collapse below is skipped entirely, so the sidebar stays
+  // exactly as the user left it instead of snapping shut the moment they click
+  // into the page content.
+  const [sidebarPinned,   setSidebarPinned]   = useState(() => localStorage.getItem("gg-sidebar-pinned") === "true");
   // "Back" used to keep its own in-memory stack, separate from the real
   // browser history that the address-bar effect below already maintains via
   // pushState/popstate. The two diverged the moment anything touched real
@@ -423,7 +469,7 @@ function MainApp() {
   // With 'click' the target's own handler runs first (bubbles to document last),
   // then the sidebar collapses: one click does both.
   useEffect(() => {
-    if (sidebarCollapsed) return;
+    if (sidebarCollapsed || sidebarPinned) return;
     const handleClickOutside = (e) => {
       // Expanding re-renders the sidebar and can replace the clicked node
       // (chevron icon swap) before this handler runs - a detached target fails
@@ -438,7 +484,7 @@ function MainApp() {
     // bubble to document and immediately collapse it again.
     const arm = setTimeout(() => document.addEventListener('click', handleClickOutside), 0);
     return () => { clearTimeout(arm); document.removeEventListener('click', handleClickOutside); };
-  }, [sidebarCollapsed]);
+  }, [sidebarCollapsed, sidebarPinned]);
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
@@ -452,6 +498,13 @@ function MainApp() {
   useEffect(() => {
     localStorage.setItem("gg-sidebar-collapsed", sidebarCollapsed);
   }, [sidebarCollapsed]);
+
+  useEffect(() => {
+    localStorage.setItem("gg-sidebar-pinned", sidebarPinned);
+    // Pinning is "keep it open every time" - turning it on should actually
+    // open the sidebar, not just stop it from auto-closing later.
+    if (sidebarPinned) setSidebarCollapsed(false);
+  }, [sidebarPinned]);
 
   function navigate(view, sub = null) {
     setActiveView(view);
@@ -526,6 +579,7 @@ function MainApp() {
         <TimeclockWidget />
         <GlobalSearch onNavigate={navigate} />
         <PullToRefresh />
+        <TaskPrefetch />
         {backendDown && (
           <div style={{
             position: 'fixed', top: 0, left: 0, right: 0, zIndex: 9999,
@@ -561,13 +615,15 @@ function MainApp() {
           <main className={`main-content${sidebarCollapsed ? " main-collapsed" : ""}`}>
             {/* PDF Editor is a full-bleed workspace with its own toolbar — hide
                 the Nexus top header so it gets the whole viewport height. */}
-            {!(activeView === 'pdf-editor' && pdfHasDoc) && (
+            {!pdfHasDoc && (
             <TopHeader
               title={viewLabel(activeView)}
               helpKey={activeSub ? `${activeView}:${activeSub}` : activeView}
               helpLabel={viewLabel(activeView)}
               theme={theme}
               onThemeToggle={() => setTheme(t => t === "dark" ? "light" : "dark")}
+              sidebarPinned={sidebarPinned}
+              onSidebarPinnedChange={setSidebarPinned}
               onMobileToggle={() => setMobileMenuOpen(true)}
               canGoBack={canGoBack}
               onBack={goBack}
@@ -582,7 +638,7 @@ function MainApp() {
                 whole canvas. It used to cancel .viewport's padding with negative
                 margins, which only matched ONE of the five breakpoint paddings
                 and so sat off-center at most widths. */}
-            <div className={(activeView === 'tasks' || activeView === 'tickets' || activeView === 'pdf-editor') ? 'viewport viewport-flush'
+            <div className={(activeView === 'tasks' || activeView === 'tickets' || activeView === 'pdf-editor' || pdfHasDoc) ? 'viewport viewport-flush'
               : (activeView === 'dashboard' || activeView === 'manager-dashboard') ? 'viewport viewport-desk'
               : 'viewport'}>
               <ViewErrorBoundary resetKey={`${activeView}/${activeSub}/${viewEpoch}`}>

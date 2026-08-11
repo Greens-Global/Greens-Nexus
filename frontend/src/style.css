@@ -734,6 +734,10 @@ input[type="number"] { -moz-appearance: textfield; }
 /* Native widget accents (checkboxes, radios, date-picker highlights) in brand. */
 input[type="checkbox"], input[type="radio"], input[type="range"], progress { accent-color: var(--wk-brand); }
 ::-webkit-calendar-picker-indicator { opacity: .55; cursor: pointer; }
+/* Datalist inputs (e.g. Add Item's Department field) draw their own native list
+   indicator, which looks inconsistent with the kit chevron used on real <select>s -
+   hide it here so callers can overlay a matching ChevronDown icon instead. */
+.datalist-input::-webkit-calendar-picker-indicator { display: none; }
 /* Chrome 135+ customizable <select>: the OPEN dropdown list becomes a kit
    popover (white card, rounded, cobalt selection) instead of the OS-drawn menu.
    Everything inside @supports so other browsers keep the classic native list. */
@@ -2584,7 +2588,7 @@ button, [role="button"], select { touch-action: manipulation; }
   .nx-primary-bar { padding: 0 12px !important; }
   .nx-module-tabs { padding: 0 12px !important; }
   .nx-module-tab { padding: 10px 9px !important; font-size: 13px !important; gap: 6px !important; }
-  .nx-page { padding: 16px !important; }
+  .nx-page { padding: 16px 16px 76px !important; }
 }
 
 /* Phones - icon-only Create/Manage, compact navbar, full-bleed cards. */
@@ -2608,7 +2612,7 @@ button, [role="button"], select { touch-action: manipulation; }
      goes to 0 so a card spans the full viewport width; vertical padding stays so
      the first card doesn't collide with the header and the last clears the
      floating mobile bar. */
-  .nx-page { padding: 10px 0 !important; }
+  .nx-page { padding: 10px 0 70px !important; }
   .nx-card-grid { gap: 10px !important; }
 
   /* Page bodies across both modules (My Tasks, Projects, Portfolios, Teams,
@@ -3473,35 +3477,35 @@ button, [role="button"], select { touch-action: manipulation; }
 .pdf-editor-head {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 11px;
   flex: 0 0 auto;
-  padding: 22px 32px 16px;
+  padding: 12px 24px;
   border-bottom: 1px solid var(--wk-line2);
   background: var(--wk-card);
 }
 .pdf-editor-head h1 {
   margin: 0;
   font-family: var(--wk-font);
-  font-size: 21px;
+  font-size: 16px;
   font-weight: 700;
   letter-spacing: -0.02em;
   color: var(--wk-ink);
 }
 .pdf-editor-head p {
-  margin: 2px 0 0;
+  margin: 1px 0 0;
   font-family: var(--wk-font);
-  font-size: 13.5px;
+  font-size: 12.5px;
   color: var(--wk-dim);
-  line-height: 1.5;
+  line-height: 1.4;
 }
 .pdf-editor-head-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
-  flex: 0 0 36px;
-  border-radius: 9px;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  border-radius: 8px;
   /* equipment/tools read purple-brand in the icon-chip system (DESIGN.md) */
   background: var(--wk-brand-tint);
   color: var(--wk-brand);
@@ -3514,11 +3518,16 @@ button, [role="button"], select { touch-action: manipulation; }
 
 .pdf-editor-module {
   width: 100%;
-  /* viewport-flush is already `height: calc(100vh - 56px)`; filling it means the
-     module never has to know the header's height itself. */
-  height: 100%;
-  min-height: 0;      /* so it can shrink inside the flex column instead of overflowing */
+  /* Now lives as a tab INSIDE Documents (not a flush top-level view), so it can't
+     rely on a `viewport-flush` parent to be tall. Size to the space left below the
+     Nexus top header (56px) and the Documents title + tab strip (~150px) so the
+     editor's toolbar and canvas always get real height. Once a doc is open,
+     `.has-doc` takes the whole viewport (App.jsx hides the header). */
+  height: calc(100vh - 206px);
+  min-height: 420px;  /* never collapse to a sliver on short windows */
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
   /* Behind the iframe while it loads - follow the Nexus theme rather than
      hardcoding the engine's dark canvas, which flashed dark in light mode. */
   background: var(--wk-bg);
@@ -3532,14 +3541,192 @@ button, [role="button"], select { touch-action: manipulation; }
 }
 .pdf-editor-module iframe {
   width: 100%;
-  height: 100%;
+  flex: 1 1 auto;   /* fill the space the head leaves in the flex column */
+  min-height: 0;
   border: none;
   display: block;
 }
 
 /* ── Egnyte module ───────────────────────────────────────────────────────────
-   Row hover only. Everything else in src/egnyte/ is inline-styled on the --wk-*
-   tokens like the rest of the Work OS surfaces; hover is the one thing inline
-   styles cannot express without re-rendering on every mouse move. */
+   Hover, the two-pane layout, and the listing grid. Everything else in
+   src/egnyte/ is inline-styled on the --wk-* tokens like the rest of the Work
+   OS surfaces; what lives here is exactly what inline styles cannot express:
+   hover/focus states and container-responsive layout. */
 .egnyte-row { border-radius: 7px; }
 .egnyte-row:hover { background: var(--wk-hover); }
+
+/* Two panes: tree left, contents right. Media queries, NOT container queries:
+   container-type containment plus the sticky tree pane sent Chrome's layout
+   into a multi-second loop that froze the whole tab (Aug 11) - the module is
+   the only tree mount, so viewport breakpoints cover every real case. */
+.egx-layout {
+  display: grid;
+  grid-template-columns: var(--egx-tree-w, 252px) 10px minmax(0, 1fr);
+  gap: 2px;
+  align-items: start;
+}
+/* Deliberately NOT sticky and NOT self-scrolling: sticky + max-height:100vh +
+   inner overflow inside this grid kept driving Chrome's layout into multi-
+   second stalls (Aug 11, same class as the container-query freeze). The tree
+   scrolls with the page, which every file manager survives. */
+.egx-tree-pane { min-width: 0; }
+/* Drag handle between the panes: a quiet 2px line that answers hover/drag. */
+.egx-divider {
+  cursor: col-resize;
+  align-self: stretch;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  padding: 0 4px;
+  touch-action: none;
+}
+.egx-divider::before {
+  content: '';
+  width: 2px;
+  border-radius: 2px;
+  background: transparent;
+  transition: background .12s;
+}
+.egx-divider:hover::before,
+.egx-divider.is-dragging::before,
+.egx-divider:focus-visible::before { background: var(--wk-brand); }
+.egx-divider:focus-visible { outline: none; }
+@media (max-width: 1023px) {
+  .egx-layout { grid-template-columns: minmax(0, 1fr); }
+  .egx-tree-pane, .egx-divider { display: none; }
+}
+
+/* Tree rows */
+.egx-tree-row { display: flex; align-items: center; border-radius: 6px; min-width: 0; }
+.egx-tree-row:hover { background: var(--wk-hover); }
+.egx-tree-row.is-active { background: color-mix(in srgb, var(--wk-brand) 10%, transparent); }
+
+/* Listing grid: name stretches, modified/size fixed. Collapses to name-only
+   in narrow containers (modal picker, phones). */
+.egx-cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 168px 64px;
+  gap: 10px;
+  align-items: center;
+}
+@media (max-width: 719px) {
+  .egx-cols { grid-template-columns: minmax(0, 1fr); }
+  .egx-col-meta { display: none; }
+}
+
+/* Row actions reveal on hover/focus; always visible where there is no hover. */
+.egx-actions { opacity: 0; transition: opacity .12s; }
+.egnyte-row:hover .egx-actions,
+.egnyte-row:focus-within .egx-actions { opacity: 1; }
+@media (hover: none) { .egx-actions { opacity: 1; } }
+
+/* Selection checkboxes mirror the actions reveal, but a checked row keeps its
+   checkbox (and its tint) so a selection is never invisible. */
+.egx-check { opacity: 0; transition: opacity .12s; }
+.egnyte-row:hover .egx-check,
+.egnyte-row:focus-within .egx-check,
+.egnyte-row.is-selected .egx-check { opacity: 1; }
+@media (hover: none) { .egx-check { opacity: 1; } }
+.egnyte-row.is-selected { background: color-mix(in srgb, var(--wk-brand) 7%, transparent); }
+.egnyte-row.is-selected:hover { background: color-mix(in srgb, var(--wk-brand) 11%, transparent); }
+
+/* Interaction feedback - press states and hover transitions. */
+.egnyte-row { transition: background .12s; }
+.egnyte-row:active { background: color-mix(in srgb, var(--wk-brand) 9%, transparent); }
+.egx-tree-row { transition: background .12s; }
+.egx-tree-row:active { background: color-mix(in srgb, var(--wk-brand) 9%, transparent); }
+.egx-menu-item { transition: background .1s; }
+.egx-menu-item:hover:not(:disabled) { background: var(--wk-hover); }
+.egx-bm-remove { opacity: 0; transition: opacity .12s; }
+.egx-tree-row:hover .egx-bm-remove,
+.egx-tree-row:focus-within .egx-bm-remove { opacity: 1; }
+@media (hover: none) { .egx-bm-remove { opacity: 1; } }
+
+/* Motion: one vocabulary - menus and dialogs pop, revealed lists slide in.
+   All of it sits behind prefers-reduced-motion. */
+@media (prefers-reduced-motion: no-preference) {
+  .egx-menu { animation: egxPop .14s cubic-bezier(.16, 1, .3, 1); transform-origin: top right; }
+  .egx-pop { animation: egxPop .16s cubic-bezier(.16, 1, .3, 1); }
+  .egx-overlay { animation: egxFade .15s ease; }
+  .egx-tree-kids { animation: egxReveal .16s ease-out; }
+  .egx-selbar { animation: egxReveal .15s ease-out; }
+}
+@keyframes egxPop { from { opacity: 0; transform: scale(.97) translateY(-4px); } }
+@keyframes egxFade { from { opacity: 0; } }
+@keyframes egxReveal { from { opacity: 0; transform: translateY(-4px); } }
+
+/* Header search: quiet pill at rest, alive on focus. */
+.egx-search input.form-input {
+  height: 36px;
+  border-radius: 10px;
+  background: var(--wk-hover);
+  border-color: transparent;
+  transition: background .15s, border-color .15s, box-shadow .15s;
+}
+.egx-search input.form-input:hover { background: color-mix(in srgb, var(--wk-hover) 60%, var(--wk-card)); border-color: var(--wk-line2); }
+.egx-search input.form-input:focus {
+  background: var(--wk-card);
+  border-color: var(--wk-brand);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--wk-brand) 14%, transparent);
+  outline: none;
+}
+
+/* Toolbar icon buttons (Egnyte-style verb strip above the listing). Always
+   visible; disabled means "select something first", not "hidden feature". */
+.egx-toolbtn {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--wk-card);
+  color: var(--wk-dim);
+  border: 1px solid var(--wk-line2);
+  border-radius: 7px;
+  cursor: pointer;
+  transition: background .12s, color .12s, border-color .12s;
+}
+.egx-toolbtn:hover:not(:disabled) { background: var(--wk-hover); color: var(--wk-ink); border-color: var(--wk-line); }
+.egx-toolbtn:active:not(:disabled) { background: color-mix(in srgb, var(--wk-brand) 10%, transparent); }
+.egx-toolbtn:disabled { opacity: .4; cursor: default; }
+.egx-toolbtn.is-on { color: var(--wk-brand); border-color: color-mix(in srgb, var(--wk-brand) 40%, transparent); }
+.egx-toolbtn.is-danger:hover:not(:disabled) { color: var(--wk-red); background: color-mix(in srgb, var(--wk-red) 8%, transparent); border-color: color-mix(in srgb, var(--wk-red) 30%, transparent); }
+
+/* Quiet-destructive button (Disconnect): tinted red so it reads alive but not
+   alarming - the visual weight of a secondary action with a clear consequence. */
+.egx-danger-btn {
+  background: color-mix(in srgb, var(--wk-red) 10%, transparent);
+  color: var(--wk-red);
+  border: 1px solid color-mix(in srgb, var(--wk-red) 22%, transparent);
+  border-radius: 6px;
+  padding: 6px 14px;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .15s, border-color .15s;
+}
+.egx-danger-btn:hover { background: color-mix(in srgb, var(--wk-red) 16%, transparent); }
+.egx-danger-btn:disabled { opacity: .55; cursor: default; }
+
+/* Preview prev/next arrows */
+.egx-navbtn {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 3;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--wk-card);
+  color: var(--wk-ink);
+  border: 1px solid var(--wk-line);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .18);
+  cursor: pointer;
+  transition: box-shadow .15s, border-color .15s;
+}
+.egx-navbtn:hover { box-shadow: 0 6px 18px rgba(0, 0, 0, .26); border-color: var(--wk-brand); }
+.egx-navbtn:focus-visible { outline: 2px solid var(--wk-brand); outline-offset: 2px; }

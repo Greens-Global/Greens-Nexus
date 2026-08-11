@@ -6,12 +6,16 @@ has no impersonation parameter. The old workaround stamped the author's email
 into the comment TEXT (`[Nexus - someone@...]`); this replaces that with a real
 per-user grant.
 
-Scope is deliberately COMMENTS ONLY. push_comment is the one outbound write
-where the acting user is already in scope (comment.author_email). Task field
-edits keep using the service token: on_task_changed carries only a task id
-across its thread boundary, Task has no modified_by column, and several module
-caches in asana_sync are keyed on (cfg.token, ...) - making those per-actor is a
-separate, much larger change.
+Covers comments AND task field edits. A comment carries its author
+(comment.author_email); a field edit carries the signed-in user, threaded from
+update_task through _asana_push -> on_task_changed -> push_task, which is the
+boundary that used to drop it and made every "X changed Priority" story read as
+the service account.
+
+The background sweep deliberately passes NO actor, so it writes as the service
+account. push_all re-derives what Asana should have from the Nexus rows with
+nobody attached, and guessing an actor would credit the wrong person whenever
+several people edited between sweeps.
 
 Setup (deployment, once):
   - Register an app in Asana (https://app.asana.com/0/my-apps).
@@ -196,6 +200,77 @@ def disconnect(db, email: str) -> bool:
     db.delete(row)
     db.commit()
     return True
+
+
+def _remember(db, row, why: str) -> None:
+    """Record on the grant why it could not produce a token, or clear it on
+    success. Best-effort: this runs on the fire-and-forget comment push, where a
+    failure to write a diagnostic must never take the comment down with it."""
+    if row is None:
+        return
+    try:
+        if (row.last_error or "") == (why or ""):
+            return                      # unchanged - don't write on every push
+        row.last_error = why or ""
+        row.last_error_at = now_iso() if why else ""
+        db.commit()
+    except Exception:
+        db.rollback()
+
+
+def token_reason(db, email: str) -> tuple[str | None, str]:
+    """(token, why-not) - token_for, plus the reason when there isn't one.
+
+    Every "post as the service account instead" decision runs through here, so
+    the reason a comment went out under the wrong name is a value the app can
+    show rather than something only a server log knows. Account Settings
+    promises "comments appear in Asana as <you>"; when that stops being true the
+    user is the last to find out, because falling back is silent by design (it
+    must never lose the comment).
+
+    Reasons are for a person to read, not to branch on."""
+    if not email:
+        return None, "no author on the comment"
+    if not oauth_configured():
+        return None, not_configured_reason() or "Asana OAuth is not configured on this server"
+    try:
+        row = get_row(db, email)
+        if not row:
+            return None, f"{email} has not connected an Asana account"
+        if not row.refresh_token_enc:
+            why = "the stored grant has no refresh token - reconnect to re-authorize"
+            _remember(db, row, why)
+            return None, why
+        expires = _parse_iso(row.expires_at)
+        fresh_enough = expires and (expires - datetime.now(timezone.utc)).total_seconds() > _REFRESH_SKEW_SECONDS
+        if fresh_enough and row.access_token_enc:
+            tok = secret_box.decrypt(row.access_token_enc) or None
+            if tok:
+                _remember(db, row, "")
+                return tok, ""
+            why = "the stored access token decrypted to nothing"
+            _remember(db, row, why)
+            return None, why
+        payload = refresh(secret_box.decrypt(row.refresh_token_enc))
+        if not payload.get("access_token"):
+            # Silent before this: Asana accepted the refresh but returned no
+            # token, and the caller could not tell that from "never connected".
+            why = "Asana refused to refresh the grant - it was probably revoked in Asana; reconnect"
+            _remember(db, row, why)
+            return None, why
+        save_grant(db, email, payload)
+        _remember(db, get_row(db, email), "")
+        return payload["access_token"], ""
+    except ValueError as e:
+        # secret_box raises this when the ciphertext does not match the current
+        # NEXUS_VAULT_KEY - the grant is unrecoverable and must be re-made.
+        why = f"the stored grant cannot be decrypted ({e}); disconnect and reconnect"
+        _remember(db, get_row(db, email), why)
+        return None, why
+    except Exception as e:   # noqa: BLE001 - see token_for's docstring
+        why = f"{type(e).__name__}: {e}"
+        _remember(db, get_row(db, email), why)
+        return None, why
 
 
 def token_for(db, email: str) -> str | None:

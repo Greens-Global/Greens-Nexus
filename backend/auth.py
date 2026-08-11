@@ -72,6 +72,14 @@ def _role_for(email: str, db: Session) -> tuple[str, int]:
     return role, level
 
 
+def level_for(email: str, db: Session) -> int:
+    """This email's role level, for code acting on someone's behalf outside a
+    request - the inbound-email ingester has an address, not a signed-in user,
+    and still has to apply the same manager bypass every endpoint does. Reads
+    through the same cache as get_current_user."""
+    return _role_for((email or "").lower(), db)[1]
+
+
 def invalidate_role_cache(email: str | None = None) -> None:
     """Call after assigning/changing a role so the new value takes effect immediately."""
     if email:
@@ -291,6 +299,28 @@ def require_module_grant(module_id: str, min_module_level: str = "viewer", bypas
 
     def _check(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
         if user["level"] >= blevel or _module_level(user["email"], module_id, db) >= threshold:
+            return user
+        raise HTTPException(status_code=403, detail="You don't have access to this screen")
+    return _check
+
+
+def require_any_module_grant(*module_ids: str, min_module_level: str = "viewer", bypass_level: str = "administrator"):
+    """Like require_module_grant, but admits a grant on ANY of `module_ids`.
+
+    Exists for the Tasks/Tickets family: both screens share one data provider
+    (TasksContext loads tasks, tickets, teams, views, components together), so
+    the API boundary is drawn at the family - either grant opens the shared
+    endpoints, and which SCREEN the user can open stays per-module in the UI
+    (Sidebar NAV + App's VIEW_MIN_ROLES). A user with neither grant is blocked
+    here too, so UI hiding is still not the only boundary."""
+    threshold = _MODULE_LEVEL_RANK[min_module_level]
+    blevel = _LEVELS[bypass_level]
+
+    def _check(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+        if user["level"] >= blevel:
+            return user
+        grants = _grants_for(user["email"], db)
+        if any(grants.get(mid, 0) >= threshold for mid in module_ids):
             return user
         raise HTTPException(status_code=403, detail="You don't have access to this screen")
     return _check

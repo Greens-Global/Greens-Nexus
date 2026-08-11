@@ -375,6 +375,7 @@ header.toolbar {
     flex: 1;
     overflow: hidden;
     min-height: 0;
+    position: relative; /* anchor for the floating sidebar-reopen tab */
 }
 
 .main-container.with-paint-bar {
@@ -434,6 +435,32 @@ header.toolbar {
 .sidebar.collapsed + .sidebar-resize-handle {
     display: none;
 }
+
+/* Floating reopen tab - only shown when the Pages sidebar is collapsed, so the
+   panel can always be brought back. */
+.sidebar-reopen {
+    display: none;
+    position: absolute;
+    left: 0;
+    /* Pinned near the top, level with where the page content starts, so it's
+       easy to find at a glance rather than floating in the middle. */
+    top: 12px;
+    z-index: 20;
+    width: 24px;
+    height: 40px;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+    border-left: none;
+    border-radius: 0 10px 10px 0;
+    cursor: pointer;
+    box-shadow: 2px 0 8px rgba(0,0,0,0.12);
+    transition: color 0.15s, background 0.15s;
+}
+.sidebar-reopen.show { display: inline-flex; }
+.sidebar-reopen:hover { color: var(--accent); background: var(--bg-hover); }
 
 .sidebar-header {
     display: flex;
@@ -2672,48 +2699,229 @@ html[data-theme="light"] {
 .ctx-history-btn:hover:not(:disabled) { background: var(--bg-hover); }
 .ctx-history-btn:disabled { opacity: 0.35; cursor: default; }
 
-/* ── Landing page tool grid (iLovePDF-style) ─────────────────────────────── */
-.welcome-title {
-    font-size: 20px;
+/* ── Landing page: two-panel start screen (upload first, then tools) ──────── */
+/* LEFT = Step 1 upload panel + recent files; RIGHT = Step 2 grouped tool cards.
+   Top-aligned and scrollable so it fills a desktop viewport and never clips. */
+.drop-zone.welcome-landing,
+.drop-zone:has(.welcome-shell) {
+    justify-content: flex-start;
+    overflow-y: auto;
+    padding: clamp(16px, 2vw, 28px);
+    background: var(--bg-primary);
+    gap: 0;
+}
+.welcome-shell {
+    display: flex;
+    flex-direction: column;
+    gap: clamp(14px, 1.4vw, 20px);
+    width: 100%;
+    max-width: 1600px;
+    /* Pin to the top (only horizontally centered) so the content sits just
+       under the header instead of floating in the middle of a tall frame. */
+    margin: 0 auto;
+}
+
+/* Small numbered step chip. width:fit-content + align-self stops it stretching
+   to full width when it's a flex child of a stretched column (the Step 2 bug). */
+.welcome-step {
+    display: inline-flex;
+    align-self: flex-start;
+    width: fit-content;
+    padding: 3px 12px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--accent) 15%, transparent);
+    color: var(--accent);
+    font-size: 11px;
     font-weight: 800;
-    color: var(--text-primary);
-    margin-bottom: 4px;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    margin-bottom: 7px;
 }
-.welcome-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
-    gap: 12px;
-    width: min(860px, 86%);
-    margin: 24px auto 14px;
-}
-.welcome-card {
+/* Inside the centered upload panel the chip should stay centered. */
+.welcome-drop .welcome-step { align-self: center; }
+
+/* Left column */
+.welcome-left { display: flex; flex-direction: column; gap: 16px; min-width: 0; width: 100%; }
+/* ── Upload dropzone: a clean, centered, vertically-stacked panel ──
+   icon → title → subtitle → button → format hint, generously spaced.
+   Full-width band; content centered like a classic drop area. */
+.welcome-drop {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 10px;
-    padding: 18px 10px 14px;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: 14px;
+    justify-content: center;
+    gap: 0;
+    width: 100%;
+    padding: clamp(16px, 1.6vw, 22px) 24px;
+    background:
+        radial-gradient(120% 100% at 50% 0%, color-mix(in srgb, var(--accent) 7%, transparent), transparent 70%),
+        var(--bg-secondary);
+    border: 2px dashed color-mix(in srgb, var(--accent) 38%, var(--border));
+    border-radius: 16px;
+    color: var(--text-secondary);
     cursor: pointer;
-    color: var(--text-primary);
-    transition: transform 0.13s, border-color 0.15s, box-shadow 0.15s;
+    text-align: center;
+    transition: border-color 0.16s, box-shadow 0.16s, transform 0.16s;
 }
-.welcome-card:hover {
-    transform: translateY(-3px);
-    border-color: var(--accent);
-    box-shadow: 0 8px 20px rgba(0,0,0,0.25);
-}
-.welcome-card:active { transform: translateY(-1px) scale(0.99); }
-.welcome-card-ic {
+
+/* No "Step 1" pill in this clean layout — hide it if present in markup. */
+.welcome-drop .welcome-step { display: none; }
+
+.welcome-drop-ic {
+    flex: none;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 46px;
-    height: 46px;
-    border-radius: 12px;
+    width: 52px;
+    height: 52px;
+    margin: 0 0 11px;
+    border-radius: 15px;
+    background: color-mix(in srgb, var(--accent) 14%, var(--bg-primary));
+    color: var(--accent);
 }
-.welcome-card-tx { font-size: 12.5px; font-weight: 700; text-align: center; }
+.welcome-drop-ic svg { width: 26px; height: 26px; }
+
+.welcome-drop-txt {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 5px;
+}
+.welcome-drop-t { margin: 0; font-size: 19px; font-weight: 800; color: var(--text-primary); letter-spacing: -0.3px; }
+.welcome-drop-s { font-size: 13.5px; }
+
+.welcome-drop-btn {
+    margin: 14px 0 0;
+    padding: 12px 38px;
+    border-radius: 12px;
+    /* Slightly darker at the bottom for depth, so the primary action pops
+       against the tinted panel instead of blending into the accent wash. */
+    background: linear-gradient(180deg,
+        color-mix(in srgb, var(--accent) 92%, #fff) 0%,
+        var(--accent) 55%,
+        color-mix(in srgb, var(--accent) 82%, #000) 100%);
+    color: #fff;
+    font-size: 15.5px;
+    font-weight: 800;
+    letter-spacing: 0.1px;
+    box-shadow: 0 8px 22px color-mix(in srgb, var(--accent) 48%, transparent);
+    transition: transform 0.14s, box-shadow 0.14s, filter 0.14s;
+}
+
+.welcome-drop-hint {
+    margin: 12px 0 0;
+    font-size: 12.5px;
+    color: var(--text-secondary);
+    opacity: 0.7;
+    max-width: none;
+    white-space: nowrap;
+}
+
+.welcome-drop:hover,
+.drop-zone.drag-over .welcome-drop {
+    border-color: var(--accent);
+    box-shadow: 0 16px 40px color-mix(in srgb, var(--accent) 24%, transparent);
+    transform: translateY(-1px);
+}
+.drop-zone.drag-over .welcome-drop { border-style: solid; transform: scale(1.01); }
+.welcome-drop:hover .welcome-drop-btn {
+    transform: translateY(-1px);
+    filter: brightness(1.05);
+    box-shadow: 0 12px 30px color-mix(in srgb, var(--accent) 56%, transparent);
+}
+
+.welcome-tools { display: flex; flex-direction: column; gap: clamp(14px, 1.4vw, 18px); min-width: 0; }
+.welcome-step2 { display: flex; flex-direction: column; margin-bottom: 0; }
+.welcome-step2-t { font-size: 19px; font-weight: 800; color: var(--text-primary); letter-spacing: -0.2px; }
+.welcome-row { width: 100%; }
+.welcome-row-title {
+    font-size: 11.5px; font-weight: 800; letter-spacing: 0.8px; text-transform: uppercase;
+    color: var(--text-secondary); margin: 0 2px 8px;
+}
+.welcome-grid {
+    display: grid;
+    /* Responsive: fills the desktop width so cards spread horizontally and the
+       whole set fits without scrolling. Auto-fits by a min card width, so wide
+       screens get 3-4 columns, narrow ones 2, phones 1. */
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    gap: clamp(10px, 1vw, 14px);
+    width: 100%;
+}
+.welcome-card {
+    display: flex; flex-direction: row; align-items: center; gap: 13px;
+    padding: 12px 14px;
+    background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 12px;
+    cursor: pointer; color: var(--text-primary); text-align: left;
+    transition: transform 0.13s, border-color 0.15s, box-shadow 0.15s;
+}
+.welcome-card:hover {
+    transform: translateY(-2px);
+    border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+    box-shadow: 0 12px 26px rgba(0,0,0,0.16);
+}
+.welcome-card:active { transform: translateY(0) scale(0.995); }
+.welcome-card-ic {
+    flex: none; display: inline-flex; align-items: center; justify-content: center;
+    width: 42px; height: 42px; border-radius: 11px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+}
+.welcome-card-body { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.welcome-card-tx { font-size: 14px; font-weight: 700; display: inline-flex; align-items: center; gap: 5px; line-height: 1.2; }
+.welcome-card-desc { font-size: 11.5px; color: var(--text-secondary); line-height: 1.3; }
+.welcome-card-caret { font-size: 10px; opacity: 0.5; }
+
+/* Stack the two panels on narrow widths (phones, split editor) */
+@media (max-width: 860px) {
+    .welcome-shell { grid-template-columns: 1fr; }
+    .welcome-drop { padding: 26px 18px; }
+    .welcome-drop-ic { width: 64px; height: 64px; }
+}
+/* When the whole landing is cramped (narrow iframe / phone), one card per row. */
+@media (max-width: 560px) {
+    .welcome-grid { grid-template-columns: 1fr; }
+}
+
+/* Dark mode: the near-black bg swallowed the dashed panel + faint glow, so
+   Step 1 didn't read as the primary action. Give it a solid surface, a clearer
+   border, and a stronger accent wash so it pops. */
+:root[data-theme="dark"] .welcome-drop,
+[data-theme="dark"] .welcome-drop {
+    background:
+        radial-gradient(120% 90% at 50% 0%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 70%),
+        var(--bg-secondary);
+    border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+}
+:root[data-theme="dark"] .welcome-drop-ic,
+[data-theme="dark"] .welcome-drop-ic {
+    background: color-mix(in srgb, var(--accent) 26%, var(--bg-secondary));
+}
+
+/* Convert direction picker (PDF→Word vs Word→PDF) */
+.welcome-dir-menu {
+    position: fixed;
+    z-index: 4000;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    box-shadow: 0 12px 30px rgba(0,0,0,0.28);
+    padding: 5px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.welcome-dir-item {
+    text-align: left;
+    padding: 9px 14px;
+    border-radius: 7px;
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--text-primary);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.welcome-dir-item:hover { background: var(--bg-hover); color: var(--accent); }
 
 /* ── Recent files row on the landing page ────────────────────────────────── */
 .welcome-recents {
@@ -2848,8 +3056,14 @@ html[data-theme="light"] {
     flex-direction: column;
     background: var(--bg-secondary);
     border-left: 1px solid var(--border);
+    /* Bound the panel to its container so the list scrolls and the
+       "+ New layer" button stays pinned/visible at the bottom. */
+    height: 100%;
+    max-height: 100%;
+    overflow: hidden;
 }
 .layers-head {
+    flex-shrink: 0;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -2859,6 +3073,7 @@ html[data-theme="light"] {
     border-bottom: 1px solid var(--border);
 }
 .layers-hint {
+    flex-shrink: 0;
     padding: 10px 14px;
     font-size: 11px;
     color: var(--text-secondary);
@@ -2903,18 +3118,22 @@ html[data-theme="light"] {
 .layer-eye.on { color: var(--accent); }
 .layer-eye:hover, .layer-del:hover { background: var(--bg-hover); color: var(--text-primary); }
 .layer-del:hover { color: #e53935; }
+/* Primary "add" action, pinned at the top under the description so it's the
+   first, most obvious thing - the list scrolls below it. */
 .layers-add {
+    flex-shrink: 0;
     margin: 10px;
-    padding: 9px;
+    padding: 10px;
     border-radius: 9px;
-    border: 1px dashed var(--border);
-    background: transparent;
-    color: var(--text-primary);
-    font-size: 12.5px;
+    border: none;
+    background: var(--accent);
+    color: #fff;
+    font-size: 13px;
     font-weight: 700;
     cursor: pointer;
+    transition: filter 0.14s;
 }
-.layers-add:hover { border-color: var(--accent); background: var(--bg-hover); }
+.layers-add:hover { filter: brightness(1.06); }
 
 /* ── Paint-bar custom colour swatch (rainbow ring, opens the OS picker) ──── */
 .swatch-custom {
