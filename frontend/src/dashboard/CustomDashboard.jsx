@@ -6,7 +6,7 @@ import { useNotifications } from '../contexts/NotificationContext';
 import { useDashboards } from './useDashboards';
 import { WIDGETS } from './widgets.jsx';
 import DashboardGrid from './DashboardGrid';
-import DeskHome from './DeskHome';
+import DeskHome, { DeskGreeting } from './DeskHome';
 import { WidgetGallery, ConfigModal } from './WidgetGallery';
 
 // Small, reliable name dialog (replaces window.prompt, which wouldn't let the
@@ -269,6 +269,22 @@ export default function CustomDashboard({ target }) {
         /* The Operations Desk home - the designed default. Saved views and
            Customize keep the widget grid untouched below. */
         <DeskHome kpis={d.kpis} notifications={notifications} markRead={markRead} />
+      ) : target === 'dashboard' ? (
+        /* Saved views + Customize keep the page greeting - it belongs to the
+           Dashboard, not to a layout, so picking a custom view (or saving one
+           as default) can never make "Good morning" disappear. */
+        <>
+          <div style={{ margin: '2px 0 18px' }}><DeskGreeting /></div>
+          <DashboardGrid
+            layout={d.layout}
+            editing={d.editing}
+            onLayoutChange={d.setLayout}
+            renderWidget={renderWidget}
+            onRemove={d.removeWidget}
+            onConfigure={(it) => WIDGETS[it.type]?.configurable ? setConfigItem(it) : null}
+            limitsFor={(it) => WIDGETS[it.type]?.limits}
+          />
+        </>
       ) : (
         <DashboardGrid
           layout={d.layout}
