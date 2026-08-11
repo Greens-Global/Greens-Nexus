@@ -481,10 +481,17 @@ def _push_digest(db, t):
     # push had previously skipped stayed skipped permanently - which is exactly
     # the state the data:-URL bug left behind. With the linked flag in here, a
     # backlog of unpushed attachments reads as a difference and gets sent.
-    att_ids = sorted(
-        f"{a.id}:{1 if db.query(models.AsanaAttachmentLink).filter(models.AsanaAttachmentLink.nexus_attachment_id == a.id).first() else 0}"
-        for a in db.query(models.TaskAttachment).filter(
-            models.TaskAttachment.task_id == t.id).all())
+    # IDs ONLY - never full rows. TaskAttachment.url holds the actual bytes as
+    # a data: URI (megabytes per row), and this digest runs for EVERY task on
+    # EVERY 10-minute sweep on the sync worker. Loading whole rows here pulled
+    # the attachment table's content out of Postgres over and over - the
+    # single biggest driver of the Supabase egress blowout (255GB/250GB cap
+    # hit Aug 11, org restricted, both sites 503ing).
+    att_id_list = [aid for (aid,) in db.query(models.TaskAttachment.id).filter(
+        models.TaskAttachment.task_id == t.id).all()]
+    linked_ids = {aid for (aid,) in db.query(models.AsanaAttachmentLink.nexus_attachment_id).filter(
+        models.AsanaAttachmentLink.nexus_attachment_id.in_(att_id_list)).all()} if att_id_list else set()
+    att_ids = sorted(f"{aid}:{1 if aid in linked_ids else 0}" for aid in att_id_list)
     raw = "\x1f".join([
         ",".join(sorted((x or "").strip().lower() for x in (t.tags or []))),
         ",".join(sorted((e or "").lower() for e in (t.follower_emails or []))),
@@ -2124,7 +2131,7 @@ def delete_nexus_task(db, task, actor="asana-sync", detail="Deleted in Asana"):
     # longer exists.
     comment_ids = [c.id for c in db.query(models.TaskComment).filter(
         models.TaskComment.task_id.in_(ids)).all()]
-    attachment_ids = [a.id for a in db.query(models.TaskAttachment).filter(
+    attachment_ids = [aid for (aid,) in db.query(models.TaskAttachment.id).filter(
         models.TaskAttachment.task_id.in_(ids)).all()]
     if comment_ids:
         db.query(models.AsanaCommentLink).filter(
