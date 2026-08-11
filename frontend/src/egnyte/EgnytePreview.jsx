@@ -16,7 +16,7 @@
 //
 // Nothing here is cached or copied. The blob lives as long as the modal does.
 import { useEffect, useRef, useState } from 'react';
-import { Download, FileQuestion, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Download, FileQuestion, X } from 'lucide-react';
 import {
   MAX_TEXT_PREVIEW_BYTES, downloadEgnyteFile, egnyteErrorMessage,
   fetchEgnytePreview, formatBytes, isShortcut, previewKindFor,
@@ -55,7 +55,7 @@ function Unsupported({ name, size }) {
   );
 }
 
-export default function EgnytePreview({ file, onClose }) {
+export default function EgnytePreview({ file, onClose, onNav = null, navIndex = -1, navCount = 0 }) {
   const [state, setState] = useState({ loading: true, url: '', text: '', error: '' });
   const [downloading, setDownloading] = useState(false);
   const urlRef = useRef('');
@@ -64,10 +64,18 @@ export default function EgnytePreview({ file, onClose }) {
   const tooBigForText = kind === 'text' && Number(file?.size) > MAX_TEXT_PREVIEW_BYTES;
   const renderable = !!kind && !tooBigForText && !isShortcut(file?.name || '');
 
-  // Escape closes, and the page behind must not scroll while a full-height sheet
-  // is over it - on iOS especially, that scroll goes to the wrong element.
+  const hasPrev = !!onNav && navIndex > 0;
+  const hasNext = !!onNav && navIndex >= 0 && navIndex < navCount - 1;
+
+  // Escape closes, the arrow keys walk the folder, and the page behind must not
+  // scroll while a full-height sheet is over it - on iOS especially, that
+  // scroll goes to the wrong element.
   useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape') onClose?.(); };
+    const onKey = (e) => {
+      if (e.key === 'Escape') onClose?.();
+      if (e.key === 'ArrowLeft' && hasPrev) onNav(-1);
+      if (e.key === 'ArrowRight' && hasNext) onNav(1);
+    };
     window.addEventListener('keydown', onKey);
     const prev = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
@@ -75,7 +83,7 @@ export default function EgnytePreview({ file, onClose }) {
       window.removeEventListener('keydown', onKey);
       document.body.style.overflow = prev;
     };
-  }, [onClose]);
+  }, [onClose, onNav, hasPrev, hasNext]);
 
   useEffect(() => {
     if (!file?.path || !renderable) { setState({ loading: false, url: '', text: '', error: '' }); return undefined; }
@@ -129,13 +137,29 @@ export default function EgnytePreview({ file, onClose }) {
         backdropFilter: 'blur(2px)',
       }}
     >
-      <div role="dialog" aria-modal="true" aria-label={file.name} style={SHEET}>
+      <div role="dialog" aria-modal="true" aria-label={file.name} style={{ ...SHEET, position: 'relative' }}>
+
+        {hasPrev && (
+          <button type="button" className="egx-navbtn" style={{ left: 12 }} title="Previous file (←)" aria-label="Previous file" onClick={() => onNav(-1)}>
+            <ChevronLeft size={19} />
+          </button>
+        )}
+        {hasNext && (
+          <button type="button" className="egx-navbtn" style={{ right: 12 }} title="Next file (→)" aria-label="Next file" onClick={() => onNav(1)}>
+            <ChevronRight size={19} />
+          </button>
+        )}
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 12px', borderBottom: '1px solid var(--wk-line2)', flexShrink: 0, minWidth: 0 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ ...HEADING, fontSize: 14, ...ELLIPSIS }} title={file.name}>{file.name}</div>
             <div style={{ ...BODY, fontSize: 11.5, color: 'var(--wk-faint)', ...ELLIPSIS }} title={file.path}>{file.path}</div>
           </div>
+          {onNav && navIndex >= 0 && navCount > 1 && (
+            <span style={{ ...BODY, fontSize: 12, color: 'var(--wk-faint)', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>
+              {navIndex + 1} of {navCount}
+            </span>
+          )}
           <OpenInEgnyte url={file.webUrl} label="Open in Egnyte" />
           <button type="button" className="secondary-btn" disabled={downloading} onClick={download}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>

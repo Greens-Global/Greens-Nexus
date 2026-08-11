@@ -130,7 +130,7 @@ export default function EgnyteApp({ activeSub, onSubChange }) {
           <ConnectStrip oauth={oauth} onChanged={recheck} />
           {oauth?.mustConnect
             ? null
-            : <EgnyteFolderBrowser canWrite={canWrite} />}
+            : <EgnyteFolderBrowser canWrite={canWrite} showTree rootLabel="All files" />}
         </div>
       )}
     </div>

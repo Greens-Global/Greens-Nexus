@@ -3548,8 +3548,77 @@ button, [role="button"], select { touch-action: manipulation; }
 }
 
 /* ── Egnyte module ───────────────────────────────────────────────────────────
-   Row hover only. Everything else in src/egnyte/ is inline-styled on the --wk-*
-   tokens like the rest of the Work OS surfaces; hover is the one thing inline
-   styles cannot express without re-rendering on every mouse move. */
+   Hover, the two-pane layout, and the listing grid. Everything else in
+   src/egnyte/ is inline-styled on the --wk-* tokens like the rest of the Work
+   OS surfaces; what lives here is exactly what inline styles cannot express:
+   hover/focus states and container-responsive layout. */
 .egnyte-row { border-radius: 7px; }
 .egnyte-row:hover { background: var(--wk-hover); }
+
+/* Two panes: tree left, contents right. Container queries (not media queries)
+   so the same browser collapses to one pane inside a narrow modal or person
+   card as well as on a phone. */
+.egx-wrap { container-type: inline-size; }
+.egx-layout {
+  display: grid;
+  grid-template-columns: 252px minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+.egx-tree-pane {
+  position: sticky;
+  top: 76px;
+  max-height: calc(100vh - 130px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+@container (max-width: 819px) {
+  .egx-layout { grid-template-columns: minmax(0, 1fr); }
+  .egx-tree-pane { display: none; }
+}
+
+/* Tree rows */
+.egx-tree-row { display: flex; align-items: center; border-radius: 6px; min-width: 0; }
+.egx-tree-row:hover { background: var(--wk-hover); }
+.egx-tree-row.is-active { background: color-mix(in srgb, var(--wk-brand) 10%, transparent); }
+
+/* Listing grid: name stretches, modified/size fixed. Collapses to name-only
+   in narrow containers (modal picker, phones). */
+.egx-cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 168px 64px;
+  gap: 10px;
+  align-items: center;
+}
+@container (max-width: 619px) {
+  .egx-cols { grid-template-columns: minmax(0, 1fr); }
+  .egx-col-meta { display: none; }
+}
+
+/* Row actions reveal on hover/focus; always visible where there is no hover. */
+.egx-actions { opacity: 0; transition: opacity .12s; }
+.egnyte-row:hover .egx-actions,
+.egnyte-row:focus-within .egx-actions { opacity: 1; }
+@media (hover: none) { .egx-actions { opacity: 1; } }
+
+/* Preview prev/next arrows */
+.egx-navbtn {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 3;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--wk-card);
+  color: var(--wk-ink);
+  border: 1px solid var(--wk-line);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .18);
+  cursor: pointer;
+  transition: box-shadow .15s, border-color .15s;
+}
+.egx-navbtn:hover { box-shadow: 0 6px 18px rgba(0, 0, 0, .26); border-color: var(--wk-brand); }
+.egx-navbtn:focus-visible { outline: 2px solid var(--wk-brand); outline-offset: 2px; }

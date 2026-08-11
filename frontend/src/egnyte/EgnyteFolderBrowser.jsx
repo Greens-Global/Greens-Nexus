@@ -1,18 +1,25 @@
 // Egnyte module - the folder browser.
 //
-// Breadcrumb down into a folder, click a file to pull it, upload straight into
-// whatever folder is open, and search without leaving it. Nexus holds no index
-// and no copy: every listing, byte and search result comes from Egnyte on
-// demand, and every row links back there.
+// Desktop file-manager shape: a lazy folder tree on the left, the open folder's
+// contents on the right, one toolbar carrying breadcrumb, search and actions.
+// Click a file and it opens in the Nexus viewer with arrow navigation through
+// the folder's other files. Nexus holds no index and no copy: every listing,
+// byte and search result comes from Egnyte on demand, and every row links back.
+//
+// The tree is opt-in (showTree) because this component also mounts inside the
+// wiring folder picker and the HR person card, where a whole-domain tree is
+// either cramped or the wrong scope. The .egx-* layout classes respond to the
+// CONTAINER, so the same markup collapses to a single pane in narrow homes.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Check, ChevronRight, FolderPlus, HardDrive, RefreshCw, Search, X } from 'lucide-react';
 import { api } from '../api';
 import {
-  canPreview, crumbsFor, downloadEgnyteFile, egnyteErrorMessage, isNotConnected,
+  crumbsFor, downloadEgnyteFile, egnyteErrorMessage, isNotConnected,
   isShortcut, normPath,
 } from './lib';
 import EgnyteListing from './EgnyteList';
 import EgnytePreview from './EgnytePreview';
+import EgnyteTree from './EgnyteTree';
 import EgnyteUpload from './EgnyteUpload';
 import {
   BODY, CARD, ConnectRequired, ELLIPSIS, Loading, NotConnected, Notice, OpenInEgnyte, ProblemNote, Spinner,
@@ -23,6 +30,7 @@ export default function EgnyteFolderBrowser({
   canWrite = false,
   rootLabel = 'Egnyte',
   showUpload = true,
+  showTree = false,
   // Pick mode: when set, the browser doubles as a folder PICKER - a "Use This
   // Folder" action appears and calls onPick(path) with the folder on screen.
   // Used by the Wiring tab; a plain browse mount is unchanged.
@@ -39,8 +47,11 @@ export default function EgnyteFolderBrowser({
   const [downloading, setDownloading] = useState('');
   const [rowError, setRowError] = useState('');
   // The file open in the Nexus viewer, or null. Held here rather than in the
-  // listing so a search result and a folder row open the same viewer.
+  // listing so a search result and a folder row open the same viewer, and so
+  // the arrows can walk the same list the person is looking at.
   const [preview, setPreview] = useState(null);
+  // Bumped when a folder is created so the tree refetches that node.
+  const [treeSync, setTreeSync] = useState({ path: '', seq: 0 });
 
   // Folder web URLs only ever arrive on the PARENT's listing, so remember them
   // as the user descends. That makes "Open in Egnyte" work for the folder you
@@ -87,6 +98,7 @@ export default function EgnyteFolderBrowser({
     setResults(null);
     setSearchTerm('');
     setQuery('');
+    setNewFolderOpen(false);
     load(p);
   };
 
@@ -102,10 +114,10 @@ export default function EgnyteFolderBrowser({
     }
   };
 
-  // Search results are files too: view the ones Nexus can render, download the
-  // rest. Without this a hit found by search was a download-only dead end.
+  // Search results are files too: they open in the same viewer, and shortcuts
+  // (which hold no content) fall back to download.
   const openResult = (r) => {
-    if (canPreview(r) && !isShortcut(r.name)) setPreview(r);
+    if (!isShortcut(r.name)) setPreview(r);
     else download(r);
   };
 
@@ -129,7 +141,12 @@ export default function EgnyteFolderBrowser({
     setCreating(true);
     setRowError('');
     api.egnyteCreateFolder(`${path}/${name}`)
-      .then(() => { setNewFolderOpen(false); setNewFolderName(''); load(path); })
+      .then(() => {
+        setNewFolderOpen(false);
+        setNewFolderName('');
+        setTreeSync(s => ({ path, seq: s.seq + 1 }));
+        load(path);
+      })
       .catch(err => setRowError(egnyteErrorMessage(err, 'Could not create that folder.')))
       .finally(() => setCreating(false));
   };
@@ -139,90 +156,105 @@ export default function EgnyteFolderBrowser({
 
   const crumbs = crumbsFor(path);
 
-  return (
+  // What the arrows walk: the files the person is currently looking at, in the
+  // order shown. Shortcuts are skipped - the viewer has nothing to show for a
+  // pointer.
+  const navList = (results ?? data?.files ?? []).filter(f => !isShortcut(f.name));
+  const navIndex = preview ? navList.findIndex(f => f.path === preview.path) : -1;
+  const navTo = (delta) => {
+    const next = navList[navIndex + delta];
+    if (next) setPreview(next);
+  };
+
+  const listingPane = (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0 }}>
 
-      {/* ── Breadcrumb + folder-level actions ── */}
-      <div style={{ ...CARD, padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', minWidth: 0 }}>
-        <div className="scroll-tabs" style={{ display: 'flex', alignItems: 'center', gap: 3, flex: '1 1 240px', minWidth: 0, overflowX: 'auto', padding: '2px 0' }}>
-          <button
-            type="button"
-            onClick={() => openFolder('')}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', fontFamily: 'inherit', fontSize: 13, fontWeight: path ? 500 : 700, color: path ? 'var(--wk-dim)' : 'var(--wk-ink)', whiteSpace: 'nowrap' }}
-          >
-            <HardDrive size={14} /> {rootLabel}
-          </button>
-          {crumbs.map((c, i) => (
-            <span key={c.path} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, minWidth: 0 }}>
-              <ChevronRight size={12} style={{ color: 'var(--wk-faint)', flexShrink: 0 }} />
+      {/* ── Toolbar: breadcrumb · search · actions ── */}
+      <div style={{ ...CARD, minWidth: 0 }}>
+        <div style={{ padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', minWidth: 0 }}>
+          <div className="scroll-tabs" style={{ display: 'flex', alignItems: 'center', gap: 2, flex: '1 1 220px', minWidth: 0, overflowX: 'auto', padding: '2px 0' }}>
+            <button
+              type="button"
+              onClick={() => openFolder('')}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer', padding: '3px 5px', borderRadius: 6, fontFamily: 'inherit', fontSize: 13, fontWeight: path ? 500 : 700, color: path ? 'var(--wk-dim)' : 'var(--wk-ink)', whiteSpace: 'nowrap' }}
+            >
+              <HardDrive size={14} /> {rootLabel}
+            </button>
+            {crumbs.map((c, i) => (
+              <span key={c.path} style={{ display: 'inline-flex', alignItems: 'center', gap: 2, minWidth: 0 }}>
+                <ChevronRight size={12} style={{ color: 'var(--wk-faint)', flexShrink: 0 }} />
+                <button
+                  type="button"
+                  onClick={() => openFolder(c.path)}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '3px 5px', borderRadius: 6, fontFamily: 'inherit', fontSize: 13, fontWeight: i === crumbs.length - 1 ? 700 : 500, color: i === crumbs.length - 1 ? 'var(--wk-ink)' : 'var(--wk-dim)', whiteSpace: 'nowrap', maxWidth: 200, ...ELLIPSIS }}
+                >
+                  {c.name}
+                </button>
+              </span>
+            ))}
+          </div>
+
+          <form onSubmit={runSearch} style={{ position: 'relative', flex: '0 1 280px', minWidth: 150 }}>
+            {searching
+              ? <Spinner size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--wk-faint)' }} />
+              : <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--wk-faint)', pointerEvents: 'none' }} />}
+            <input
+              className="form-input"
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              placeholder={path ? `Search in ${crumbs[crumbs.length - 1]?.name || 'this folder'}` : 'Search all of Egnyte'}
+              title="Press Enter to search"
+              style={{ width: '100%', paddingLeft: 30, paddingRight: (query || results) ? 30 : 10 }}
+            />
+            {(query || results) && (
               <button
                 type="button"
-                onClick={() => openFolder(c.path)}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', fontFamily: 'inherit', fontSize: 13, fontWeight: i === crumbs.length - 1 ? 700 : 500, color: i === crumbs.length - 1 ? 'var(--wk-ink)' : 'var(--wk-dim)', whiteSpace: 'nowrap', maxWidth: 200, ...ELLIPSIS }}
+                onClick={clearSearch}
+                title="Clear search"
+                aria-label="Clear search"
+                style={{ position: 'absolute', right: 4, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--wk-faint)', padding: 5, display: 'inline-flex' }}
               >
-                {c.name}
+                <X size={14} />
               </button>
-            </span>
-          ))}
-        </div>
+            )}
+          </form>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-          {onPick && (
-            <button type="button" className="primary-btn" onClick={() => onPick(path)} disabled={loading} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              <Check size={13} /> Use This Folder
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+            {onPick && (
+              <button type="button" className="primary-btn" onClick={() => onPick(path)} disabled={loading} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <Check size={13} /> Use This Folder
+              </button>
+            )}
+            <OpenInEgnyte url={folderUrl} label="Open in Egnyte" />
+            <button type="button" className="secondary-btn" title="Refresh" aria-label="Refresh" onClick={() => load(path)} style={{ display: 'inline-flex', alignItems: 'center', padding: 7 }}>
+              <RefreshCw size={14} />
             </button>
-          )}
-          <OpenInEgnyte url={folderUrl} label="Open in Egnyte" />
-          <button type="button" className="secondary-btn" title="Refresh" onClick={() => load(path)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            <RefreshCw size={13} /> Refresh
-          </button>
-          {canWrite && (
-            <button type="button" className="secondary-btn" onClick={() => setNewFolderOpen(o => !o)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              <FolderPlus size={13} /> New Folder
+            {canWrite && (
+              <button type="button" className="secondary-btn" onClick={() => setNewFolderOpen(o => !o)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <FolderPlus size={13} /> New Folder
+              </button>
+            )}
+          </div>
+        </div>
+
+        {newFolderOpen && canWrite && (
+          <div style={{ padding: '10px 12px', borderTop: '1px solid var(--wk-line2)', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <input
+              className="form-input"
+              autoFocus
+              placeholder="New folder name"
+              value={newFolderName}
+              onChange={e => setNewFolderName(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') createFolder(); if (e.key === 'Escape') setNewFolderOpen(false); }}
+              style={{ flex: '1 1 200px', minWidth: 0 }}
+            />
+            <button type="button" className="primary-btn" disabled={creating || !newFolderName.trim()} onClick={createFolder}>
+              {creating ? 'Creating…' : 'Create Folder'}
             </button>
-          )}
-        </div>
-      </div>
-
-      {newFolderOpen && canWrite && (
-        <div style={{ ...CARD, padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <input
-            className="form-input"
-            autoFocus
-            placeholder="New folder name"
-            value={newFolderName}
-            onChange={e => setNewFolderName(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') createFolder(); if (e.key === 'Escape') setNewFolderOpen(false); }}
-            style={{ flex: '1 1 200px', minWidth: 0 }}
-          />
-          <button type="button" className="primary-btn" disabled={creating || !newFolderName.trim()} onClick={createFolder}>
-            {creating ? 'Creating…' : 'Create Folder'}
-          </button>
-          <button type="button" className="secondary-btn" onClick={() => { setNewFolderOpen(false); setNewFolderName(''); }}>Cancel</button>
-        </div>
-      )}
-
-      {/* ── Search, scoped to the folder on screen ── */}
-      <form onSubmit={runSearch} style={{ ...CARD, padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-        <div style={{ position: 'relative', flex: '1 1 220px', minWidth: 0 }}>
-          <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--wk-faint)', pointerEvents: 'none' }} />
-          <input
-            className="form-input"
-            value={query}
-            onChange={e => setQuery(e.target.value)}
-            placeholder={path ? `Search inside ${crumbs[crumbs.length - 1]?.name || 'this folder'}` : 'Search all of Egnyte'}
-            style={{ width: '100%', paddingLeft: 30 }}
-          />
-        </div>
-        <button type="submit" className="secondary-btn" disabled={searching || !query.trim()} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          {searching ? <Spinner size={13} /> : <Search size={13} />} Search
-        </button>
-        {results && (
-          <button type="button" className="secondary-btn" onClick={clearSearch} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            <X size={13} /> Clear
-          </button>
+            <button type="button" className="secondary-btn" onClick={() => { setNewFolderOpen(false); setNewFolderName(''); }}>Cancel</button>
+          </div>
         )}
-      </form>
+      </div>
 
       {rowError && <Notice tone="error" onDismiss={() => setRowError('')}>{rowError}</Notice>}
 
@@ -235,17 +267,22 @@ export default function EgnyteFolderBrowser({
       <div style={{ ...CARD, padding: 6, minWidth: 0 }}>
         {results ? (
           <>
-            <div style={{ ...BODY, fontSize: 12, padding: '6px 8px 8px' }}>
-              {results.length
-                ? `${results.length} result${results.length === 1 ? '' : 's'} for "${searchTerm}"${path ? ' in this folder' : ''}.`
-                : `No results for "${searchTerm}"${path ? ' in this folder' : ''}.`}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px 8px', borderBottom: '1px solid var(--wk-line2)', marginBottom: 2 }}>
+              <span style={{ ...BODY, fontSize: 12, flex: 1, minWidth: 0 }}>
+                {results.length
+                  ? `${results.length} result${results.length === 1 ? '' : 's'} for "${searchTerm}"${path ? ' in this folder' : ''}.`
+                  : `No results for "${searchTerm}"${path ? ' in this folder' : ''}.`}
+              </span>
+              <button type="button" onClick={clearSearch} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--wk-brand)', fontSize: 12, fontWeight: 600, padding: '2px 4px', flexShrink: 0 }}>
+                Clear
+              </button>
             </div>
             {results.map(r => (
               <div key={r.path} className="egnyte-row" style={{ display: 'flex', alignItems: 'flex-start', gap: 4, minWidth: 0, padding: '4px 0' }}>
                 <button
                   type="button"
                   onClick={() => openResult(r)}
-                  title={canPreview(r) && !isShortcut(r.name) ? `View ${r.name}` : `Download ${r.name}`}
+                  title={!isShortcut(r.name) ? `View ${r.name}` : `Download ${r.name}`}
                   style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2, background: 'none', border: 'none', textAlign: 'left', cursor: 'pointer', padding: '6px 8px', fontFamily: 'inherit', color: 'var(--wk-ink)' }}
                 >
                   <span style={{ fontSize: 13.5, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
@@ -276,7 +313,7 @@ export default function EgnyteFolderBrowser({
             onPreview={setPreview}
             downloadingPath={downloading}
             emptyLabel="This folder is empty."
-            emptyHint={canWrite ? 'Drop a file above to add the first one.' : undefined}
+            emptyHint={canWrite ? 'Drop a file here to add the first one.' : undefined}
           />
         )}
       </div>
@@ -284,8 +321,29 @@ export default function EgnyteFolderBrowser({
       <div style={{ ...BODY, fontSize: 11.5, color: 'var(--wk-faint)' }}>
         Files stay in Egnyte. Nexus reads and writes them in place, so there is never a second copy to keep in sync.
       </div>
+    </div>
+  );
 
-      {preview && <EgnytePreview file={preview} onClose={() => setPreview(null)} />}
+  return (
+    <div className="egx-wrap" style={{ minWidth: 0 }}>
+      {showTree ? (
+        <div className="egx-layout">
+          <aside className="egx-tree-pane" style={{ ...CARD, padding: '8px 6px', minWidth: 0 }}>
+            <EgnyteTree currentPath={path} onSelect={openFolder} refreshSignal={treeSync} rootLabel={rootLabel} />
+          </aside>
+          {listingPane}
+        </div>
+      ) : listingPane}
+
+      {preview && (
+        <EgnytePreview
+          file={preview}
+          onClose={() => setPreview(null)}
+          onNav={navIndex >= 0 && navList.length > 1 ? navTo : null}
+          navIndex={navIndex}
+          navCount={navList.length}
+        />
+      )}
     </div>
   );
 }
