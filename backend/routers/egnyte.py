@@ -122,7 +122,9 @@ def list_folder(path: str = "", user: dict = Depends(get_current_user),
     tok = _browse_token(user, db)
     data = _call(svc.list_folder, path, token=tok)
     for f in data["files"]:
-        f["webUrl"] = svc.web_url(f["path"])
+        # navigate/file opens the file itself (viewer + Office Online Edit);
+        # the folder-style path link cannot address a file.
+        f["webUrl"] = svc.file_web_url(f.get("groupId", "")) or svc.web_url(f["path"])
     for d in data["folders"]:
         d["webUrl"] = svc.web_url(d["path"])
     return data
@@ -192,7 +194,8 @@ def search(q: str, folder: str = "", limit: int = 20, user: dict = Depends(get_c
         return {"results": []}
     results = _call(svc.search, q.strip(), folder, limit, token=_browse_token(user, db))
     for r in results:
-        r["webUrl"] = svc.web_url(r["path"])
+        r["webUrl"] = (svc.web_url(r["path"]) if r.get("isFolder")
+                       else svc.file_web_url(r.get("groupId", "")) or svc.web_url(r["path"]))
     return {"results": results}
 
 

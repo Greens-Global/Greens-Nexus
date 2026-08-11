@@ -324,6 +324,10 @@ def list_folder(path: str = "", token: str | None = None) -> dict[str, Any]:
                 "path": f.get("path", ""),
                 "size": f.get("size", 0),
                 "entryId": f.get("entry_id", ""),
+                # Stable file identity across versions - what the Egnyte web
+                # app's /navigate/file/<id> deep link keys on (verified live
+                # Aug 11; entry_id there 404s). Powers file_web_url below.
+                "groupId": f.get("group_id", ""),
                 "modified": f.get("last_modified", ""),
                 "uploadedBy": f.get("uploaded_by", ""),
             }
@@ -364,6 +368,7 @@ def search(query: str, folder: str = "", limit: int = 20, token: str | None = No
             "path": r.get("path", ""),
             "snippet": r.get("snippet", ""),
             "size": r.get("size", 0),
+            "groupId": r.get("group_id", ""),
             "modified": r.get("last_modified", ""),
             "uploadedBy": r.get("uploaded_by", ""),
             "isFolder": bool(r.get("is_folder")),
@@ -441,6 +446,18 @@ def web_url(path: str) -> str:
     permissions, versions and sharing."""
     base, _ = _auth()
     return f"{base}/app/index.do#storage/files/1{norm(path)}"
+
+
+def file_web_url(group_id: str) -> str:
+    """Deep link that opens a FILE directly in Egnyte's full-screen viewer,
+    with Edit (Office Online) one click away - verified live Aug 11. Keys on
+    group_id (stable across versions); the folder-style path link above cannot
+    address a file ("Unable to load folder"). "" when the id is missing so
+    callers can fall back."""
+    if not (group_id or "").strip():
+        return ""
+    base, _ = _auth()
+    return f"{base}/navigate/file/{group_id.strip()}"
 
 
 # ── folder resolution ────────────────────────────────────────────────────────

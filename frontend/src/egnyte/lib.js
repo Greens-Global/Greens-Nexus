@@ -232,6 +232,20 @@ export const canPreview = (file) => !!previewKindFor(file?.name);
 // mean nothing. They open in Egnyte instead.
 export const isShortcut = (name = '') => name.toLowerCase().endsWith('.egnyte_d');
 
+// Office documents edit in Egnyte's own Office Online integration - the file's
+// webUrl (navigate/file/<groupId>) opens straight into Egnyte's viewer with
+// Edit one click away, honoring the person's Egnyte permissions.
+const OFFICE_APP_BY_EXT = {
+  xlsx: 'Excel', xls: 'Excel', xlsm: 'Excel',
+  docx: 'Word', doc: 'Word',
+  pptx: 'PowerPoint', ppt: 'PowerPoint',
+};
+
+export function officeAppFor(name = '') {
+  const ext = name.includes('.') ? name.split('.').pop().toLowerCase() : '';
+  return OFFICE_APP_BY_EXT[ext] || null;
+}
+
 export async function fetchEgnytePreview(path) {
   const { blob } = await api.egnyteFilePreview(path);
   return blob;

@@ -19,8 +19,8 @@ import {
 import { api } from '../api';
 import {
   canPreview, crumbsFor, downloadEgnyteFile, egnyteErrorMessage, getFolderCached,
-  invalidateFolder, isNotConnected, isShortcut, normPath, prefetchChildren,
-  prefetchFolder,
+  invalidateFolder, isNotConnected, isShortcut, normPath, officeAppFor,
+  prefetchChildren, prefetchFolder,
 } from './lib';
 import FolderPickModal from './EgnyteFolderPick';
 import EgnyteListing from './EgnyteList';
@@ -315,6 +315,13 @@ export default function EgnyteFolderBrowser({
           ? { label: 'View', icon: <Eye size={14} />, onClick: () => setPreview(item) }
           : null),
       !isFolder && { label: 'Download', icon: <Download size={14} />, onClick: () => download(item) },
+      // Office documents edit in Egnyte's Office Online - same behavior as
+      // Egnyte's own "Edit in Excel/Word for the Web" (Visesh, Aug 11).
+      !isFolder && officeAppFor(item.name) && item.webUrl && {
+        label: `Edit in ${officeAppFor(item.name)} Online`,
+        icon: <PenLine size={14} />,
+        onClick: () => window.open(item.webUrl, '_blank', 'noopener'),
+      },
       isFolder && {
         label: isBookmarked(item.path) ? 'Remove bookmark' : 'Add bookmark',
         icon: <Bookmark size={14} />,

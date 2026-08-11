@@ -19,7 +19,8 @@ import { useEffect, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, Download, FileQuestion, X } from 'lucide-react';
 import {
   MAX_SHEET_PREVIEW_BYTES, MAX_TEXT_PREVIEW_BYTES, downloadEgnyteFile,
-  egnyteErrorMessage, fetchEgnytePreview, formatBytes, isShortcut, previewKindFor,
+  egnyteErrorMessage, fetchEgnytePreview, formatBytes, isShortcut, officeAppFor,
+  previewKindFor,
 } from './lib';
 import { BODY, ELLIPSIS, HEADING, Loading, OpenInEgnyte, ProblemNote } from './ui';
 
@@ -247,6 +248,12 @@ export default function EgnytePreview({ file, onClose, onNav = null, navIndex = 
               {navIndex + 1} of {navCount}
             </span>
           )}
+          {officeAppFor(file.name) && file.webUrl && (
+            <a href={file.webUrl} target="_blank" rel="noopener noreferrer" className="primary-btn"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0, textDecoration: 'none' }}>
+              Edit in {officeAppFor(file.name)} Online
+            </a>
+          )}
           <OpenInEgnyte url={file.webUrl} label="Open in Egnyte" />
           <button type="button" className="secondary-btn" disabled={downloading} onClick={download}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
@@ -263,7 +270,11 @@ export default function EgnytePreview({ file, onClose, onNav = null, navIndex = 
             <Unsupported
               name={file.name}
               size={file.size}
-              reason={tooBigSheet ? 'This spreadsheet is too large to preview here - download it and open it locally.' : undefined}
+              reason={tooBigSheet
+                ? 'This spreadsheet is too large to preview here - download it and open it locally.'
+                : (officeAppFor(file.name) && file.webUrl
+                  ? `Press "Edit in ${officeAppFor(file.name)} Online" above - it opens straight into the editor with your Egnyte permissions.`
+                  : undefined)}
             />
           ) : state.loading ? (
             <Loading label="Opening file…" />
