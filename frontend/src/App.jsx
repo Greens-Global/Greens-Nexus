@@ -215,6 +215,35 @@ function RoleGate({ children }) {
   return children;
 }
 
+// Warms the Task module once the app is idle after boot: its code chunk AND its
+// data (see tasks/taskStore). Tasks is the heaviest module here and the one
+// people open most, and it used to open on a cold fifteen-request wait EVERY
+// time - including every hop between Tasks and Tickets. Idle so it never
+// competes with the screen the user actually landed on, and only for people who
+// can open it at all: the module is grant-driven, so warming it for anyone else
+// would just be a handful of 403s.
+function TaskPrefetch() {
+  const { can, myGrantedModules } = useRole();
+  const mayOpenTasks = can('administrator')
+    || myGrantedModules.has('tasks') || myGrantedModules.has('tickets');
+  useEffect(() => {
+    if (!mayOpenTasks) return undefined;
+    let cancelled = false;
+    const warm = () => {
+      if (cancelled) return;
+      import('./views/Tasks').catch(() => {});
+      import('./tasks/taskStore').then(m => m.prefetchTaskData()).catch(() => {});
+    };
+    const idle = typeof window.requestIdleCallback === 'function';
+    const id = idle ? window.requestIdleCallback(warm, { timeout: 4000 }) : setTimeout(warm, 2500);
+    return () => {
+      cancelled = true;
+      if (idle) window.cancelIdleCallback?.(id); else clearTimeout(id);
+    };
+  }, [mayOpenTasks]);
+  return null;
+}
+
 // Enforces access at render time - sits inside RoleProvider so it can call
 // useRole(). Even if navigate() is called externally (nexus:navigate event,
 // notification links, dev tools), the actual view content is never shown
@@ -534,6 +563,7 @@ function MainApp() {
         <TimeclockWidget />
         <GlobalSearch onNavigate={navigate} />
         <PullToRefresh />
+        <TaskPrefetch />
         {backendDown && (
           <div style={{
             position: 'fixed', top: 0, left: 0, right: 0, zIndex: 9999,

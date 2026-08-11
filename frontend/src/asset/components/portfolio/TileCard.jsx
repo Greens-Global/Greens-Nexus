@@ -25,11 +25,11 @@ const photoPill = {
  * the card, with stats aggregated (summed) across every member, plus a stacked-card visual
  * effect (two faux card edges peeking out behind it) and a "N parcels" badge.
  *
- * Title sizing: the card title's font-size shrinks in steps as the name gets longer, so long
- * asset names don't wrap awkwardly in the fixed-height photo header - but even with the
- * shrinking steps, very long names can still overflow at the smallest step, so `textOverflow:
- * 'ellipsis'` is required here too (earlier versions clipped with no ellipsis at all - a real
- * user-reported bug, not decoration; keep both the shrink steps AND the ellipsis).
+ * Title sizing: the card title's font-size shrinks in steps as the name gets longer, and the
+ * title may WRAP to a second line (Neil, Aug 11: the name must not get cut off - with the
+ * sidebar open the cards narrow enough that a single nowrap line ellipsized real names).
+ * The fit effect below then shrinks the font until the text fits within its two lines; the
+ * line-clamp's own ellipsis stays as the last resort for pathological names at the 10px floor.
  */
 export function TileCard({ pr: property, openProperty, secondaries = [] }) {
   const isGroup = secondaries.length > 0;
@@ -89,9 +89,10 @@ export function TileCard({ pr: property, openProperty, secondaries = [] }) {
 
   // The char-count size above is a good first guess, but the title shares its row with the
   // status badge, so the real space available depends on card width AND badge width (a long
-  // "Stabilized - Renovation" pill leaves much less room than "Stabilized"). Rather than let it
-  // clip to "…", shrink the font until the title actually fits its box - Neil's "resize down a
-  // bit if needed". Re-fits whenever the card resizes (responsive column count).
+  // "Stabilized - Renovation" pill leaves much less room than "Stabilized"). The title wraps
+  // to at most two lines; if it STILL overflows (scrollHeight beyond the clamped box), shrink
+  // the font until the two lines hold it - Neil's "resize down a bit if needed". Re-fits
+  // whenever the card resizes (responsive column count, sidebar opening/closing).
   const titleRef = useRef(null);
   useLayoutEffect(() => {
     const el = titleRef.current;
@@ -101,7 +102,7 @@ export function TileCard({ pr: property, openProperty, secondaries = [] }) {
       el.style.fontSize = titleFontSize; // reset to the char-count base, then shrink to fit
       let px = parseFloat(getComputedStyle(el).fontSize);
       let guard = 0;
-      while (el.scrollWidth > el.clientWidth + 1 && px > 10 && guard++ < 40) {
+      while (el.scrollHeight > el.clientHeight + 1 && px > 10 && guard++ < 40) {
         px -= 0.5;
         el.style.fontSize = px + 'px';
       }
@@ -175,7 +176,10 @@ export function TileCard({ pr: property, openProperty, secondaries = [] }) {
                 style={{
                   fontSize: titleFontSize, fontWeight: 800, fontFamily: "'Plus Jakarta Sans', sans-serif",
                   color: '#fff', margin: 0, lineHeight: 1.16, textShadow: '0 1px 3px rgba(0,0,0,.5)',
-                  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                  // Wrap up to two lines rather than ellipsize one - the clamp's own "…" only
+                  // appears if a name overflows two lines even at the fit-loop's 10px floor.
+                  overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2,
+                  WebkitBoxOrient: 'vertical', overflowWrap: 'anywhere',
                 }}
               >
                 {title}
