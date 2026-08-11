@@ -281,7 +281,7 @@ export default function CustomDashboard({ target }) {
         />
       )}
 
-      {gallery && <WidgetGallery target={target} can={can} onAdd={d.addWidget} onClose={() => setGallery(false)} />}
+      {gallery && <WidgetGallery target={target} can={can} layout={d.layout} onAdd={d.addWidget} onClose={() => setGallery(false)} />}
       {configItem && <ConfigModal item={configItem} onSave={(cfg) => d.updateWidgetConfig(configItem.i, cfg)} onClose={() => setConfigItem(null)} />}
       {nameModal && <NameModal {...nameModal} onClose={() => setNameModal(null)} />}
     </div>

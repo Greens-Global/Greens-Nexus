@@ -33,7 +33,6 @@ export function navigate(view, sub) {
 }
 
 const C = (name) => `hsl(var(--color-${name}))`;
-const CA = (name, a = 0.12) => `hsla(var(--color-${name}),${a})`;
 
 // Every KPI the /dashboards/kpis endpoint can return, with how to present it.
 export const KPI_CATALOG = {
@@ -153,12 +152,12 @@ function ShortcutWidget({ config }) {
   const color = t.color || 'blue';
   return (
     <div className="dash-card" onClick={() => navigate(t.view, t.sub)}
-      style={{ height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, textAlign: 'center', cursor: 'pointer' }}>
-      <div style={{ width: 46, height: 46, borderRadius: 13, background: CA(color), color: C(color), display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <Layers size={22} />
-      </div>
-      <div style={{ fontSize: 14.5, fontWeight: 600, color: 'var(--ink)' }}>{labelFor(t)}</div>
-      <div className="kpi-delta" style={{ color: C(color), fontWeight: 600 }}>Open <ArrowRight size={12} /></div>
+      style={{ height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 9, textAlign: 'center', cursor: 'pointer' }}>
+      <span className={`dk-chip dk-chip--${color}`} style={{ width: 44, height: 44, borderRadius: 12 }}>
+        <Layers size={20} />
+      </span>
+      <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--wk-ink)' }}>{labelFor(t)}</div>
+      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--wk-brand)', fontSize: 12.5, fontWeight: 600 }}>Open <ArrowRight size={12} /></div>
     </div>
   );
 }
@@ -316,15 +315,19 @@ function ClockWidget() {
   const displayName = accounts[0]?.name ?? accounts[0]?.username ?? '';
   const firstName = displayName.split(' ')[0];
   const greet = firstName ? `${greetWord}, ${firstName}` : greetWord;
+  // The DeskHome greeting anatomy - name line, big tabular numeral, quiet date,
+  // green session-language link - so this card reads as Home's hero in the grid.
   return (
     <div className="dash-card" onClick={() => navigate('timeclock')}
-      style={{ height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 4, cursor: 'pointer' }}>
-      <div style={{ fontSize: 13, color: 'var(--muted)', fontWeight: 500 }}>{greet}</div>
-      <div style={{ fontSize: 32, fontWeight: 700, letterSpacing: '-.02em', color: 'var(--ink)' }}>
+      style={{ height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 3, cursor: 'pointer' }}>
+      <div style={{ fontSize: 13.5, color: 'var(--wk-dim)', fontWeight: 600 }}>{greet}</div>
+      <div style={{ fontSize: 30, fontWeight: 800, letterSpacing: '-.02em', lineHeight: 1.1, color: 'var(--wk-ink)', fontVariantNumeric: 'tabular-nums' }}>
         {formatTime(now)}
       </div>
-      <div style={{ fontSize: 13, color: 'var(--muted)' }}>{now.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}</div>
-      <div className="kpi-delta" style={{ color: 'var(--wk-brand)', fontWeight: 600, marginTop: 8 }}><Clock size={12} /> Open Time Clock <ArrowRight size={12} /></div>
+      <div style={{ fontSize: 12.5, color: 'var(--wk-faint)' }}>{now.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}</div>
+      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--wk-green)', fontSize: 12.5, fontWeight: 600, marginTop: 9 }}>
+        <Clock size={13} /> Open Time Clock <ArrowRight size={12} />
+      </div>
     </div>
   );
 }

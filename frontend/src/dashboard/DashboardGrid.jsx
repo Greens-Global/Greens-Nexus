@@ -75,7 +75,7 @@ export default function DashboardGrid({ layout, editing, onLayoutChange, renderW
   if (mobile) {
     const ordered = [...layout].sort((a, b) => (a.y - b.y) || (a.x - b.x));
     return (
-      <div ref={ref} style={{ display: 'flex', flexDirection: 'column', gap: GAP }}>
+      <div ref={ref} className="dash-grid" style={{ display: 'flex', flexDirection: 'column', gap: GAP }}>
         {ordered.map(it => (
           <div key={it.i} style={{ height: it.h * ROW_H, minHeight: 150 }}>
             <Card it={it} editing={editing} onRemove={onRemove} onConfigure={onConfigure}
@@ -88,7 +88,7 @@ export default function DashboardGrid({ layout, editing, onLayoutChange, renderW
 
   // ── Desktop: absolute-positioned grid ──
   return (
-    <div ref={ref} style={{ position: 'relative', width: '100%',
+    <div ref={ref} className="dash-grid" style={{ position: 'relative', width: '100%',
       height: maxRow * ROW_H, minHeight: '68vh',
       transition: drag ? 'none' : 'height 0.15s',
       // Edit mode: a soft dot at every grid intersection reads as "snap points"
@@ -133,7 +133,7 @@ function Card({ it, editing, onRemove, onConfigure, renderWidget, startDrag, dra
         {renderWidget(it)}
       </div>
       {editing && (
-        <div style={{ position: 'absolute', inset: 0, borderRadius: 16, pointerEvents: 'none',
+        <div style={{ position: 'absolute', inset: 0, borderRadius: 'var(--wk-r)', pointerEvents: 'none',
           boxShadow: 'inset 0 0 0 1.5px hsla(var(--color-blue),0.35)' }} />
       )}
       {editing && (
