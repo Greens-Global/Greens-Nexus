@@ -80,6 +80,21 @@ export default function EgnyteFolderBrowser({
   const [searchTerm, setSearchTerm] = useState('');
   const [results, setResults] = useState(null);
   const [searching, setSearching] = useState(false);
+  const searchRef = useRef(null);
+
+  // "/" focuses search from anywhere in the browser - unless the person is
+  // already typing somewhere.
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey) return;
+      const el = document.activeElement;
+      if (el?.tagName === 'INPUT' || el?.tagName === 'TEXTAREA' || el?.tagName === 'SELECT' || el?.isContentEditable) return;
+      e.preventDefault();
+      searchRef.current?.focus();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   const [newFolderOpen, setNewFolderOpen] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
@@ -402,7 +417,7 @@ export default function EgnyteFolderBrowser({
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', padding: '2px 14px 11px', minWidth: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0, flexShrink: 1 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0, flex: '1 1 0' }}>
             <span style={{ fontSize: 17, fontWeight: 700, color: 'var(--wk-ink)', letterSpacing: '-.01em', maxWidth: 320, ...ELLIPSIS }}>
               {path ? crumbs[crumbs.length - 1]?.name : rootLabel}
             </span>
@@ -413,38 +428,44 @@ export default function EgnyteFolderBrowser({
             )}
           </div>
 
-          <form onSubmit={runSearch} style={{ position: 'relative', flex: '1 1 220px', minWidth: 150, maxWidth: 420 }}>
+          {/* Centered: the title zone and the right zone flex equally, so the
+              search sits in the middle of the card on wide screens and wraps
+              to its own full-width line on narrow ones. */}
+          <form className="egx-search" onSubmit={runSearch} style={{ position: 'relative', flex: '0 1 480px', minWidth: 180 }}>
             {searching
-              ? <Spinner size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--wk-faint)' }} />
-              : <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--wk-faint)', pointerEvents: 'none' }} />}
+              ? <Spinner size={14} style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: 'var(--wk-faint)' }} />
+              : <Search size={14} style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: 'var(--wk-faint)', pointerEvents: 'none' }} />}
             <input
+              ref={searchRef}
               className="form-input"
               value={query}
               onChange={e => setQuery(e.target.value)}
               placeholder={path ? `Search in ${crumbs[crumbs.length - 1]?.name || 'this folder'}` : 'Search all of Egnyte'}
               title="Press Enter to search"
-              style={{ width: '100%', paddingLeft: 30, paddingRight: (query || results) ? 30 : 10 }}
+              style={{ width: '100%', paddingLeft: 32, paddingRight: (query || results) ? 32 : 40 }}
             />
-            {(query || results) && (
+            {(query || results) ? (
               <button
                 type="button"
                 onClick={clearSearch}
                 title="Clear search"
                 aria-label="Clear search"
-                style={{ position: 'absolute', right: 4, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--wk-faint)', padding: 5, display: 'inline-flex' }}
+                style={{ position: 'absolute', right: 5, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--wk-faint)', padding: 5, display: 'inline-flex' }}
               >
                 <X size={14} />
               </button>
+            ) : (
+              <kbd style={{ position: 'absolute', right: 9, top: '50%', transform: 'translateY(-50%)', fontFamily: 'inherit', fontSize: 11, fontWeight: 600, color: 'var(--wk-faint)', background: 'var(--wk-card)', border: '1px solid var(--wk-line2)', borderRadius: 5, padding: '1px 6px', pointerEvents: 'none' }}>/</kbd>
             )}
           </form>
 
-          {onPick && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, marginLeft: 'auto' }}>
-              <button type="button" className="primary-btn" onClick={() => onPick(path)} disabled={loading} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end', flex: '1 1 0', minWidth: 0 }}>
+            {onPick && (
+              <button type="button" className="primary-btn" onClick={() => onPick(path)} disabled={loading} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
                 <Check size={13} /> Use This Folder
               </button>
-            </div>
-          )}
+            )}
+          </div>
         </div>
 
         {/* ── Action toolbar, Egnyte-style: Create + always-visible verbs that

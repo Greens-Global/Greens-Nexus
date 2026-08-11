@@ -3655,6 +3655,22 @@ button, [role="button"], select { touch-action: manipulation; }
 @keyframes egxFade { from { opacity: 0; } }
 @keyframes egxReveal { from { opacity: 0; transform: translateY(-4px); } }
 
+/* Header search: quiet pill at rest, alive on focus. */
+.egx-search input.form-input {
+  height: 36px;
+  border-radius: 10px;
+  background: var(--wk-hover);
+  border-color: transparent;
+  transition: background .15s, border-color .15s, box-shadow .15s;
+}
+.egx-search input.form-input:hover { background: color-mix(in srgb, var(--wk-hover) 60%, var(--wk-card)); border-color: var(--wk-line2); }
+.egx-search input.form-input:focus {
+  background: var(--wk-card);
+  border-color: var(--wk-brand);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--wk-brand) 14%, transparent);
+  outline: none;
+}
+
 /* Toolbar icon buttons (Egnyte-style verb strip above the listing). Always
    visible; disabled means "select something first", not "hidden feature". */
 .egx-toolbtn {
