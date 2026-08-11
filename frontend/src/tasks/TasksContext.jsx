@@ -11,6 +11,7 @@ import { useNameResolver } from '../lib/useNameResolver';
 import { STATUS_META, STATUS_ORDER, NX } from './theme';
 import { celebrateCompletion } from './celebrate';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
+import { loadTaskData, taskSnapshot, rememberTaskData, FIRST_PAINT } from './taskStore';
 
 const Ctx = createContext(null);
 
@@ -65,52 +66,56 @@ export function TasksProvider({ children }) {
   const { myEmail } = useRole();
   const nameOf = useNameResolver();
 
-  const [tasks, setTasks] = useState([]);
-  const [projects, setProjects] = useState([]);
-  const [portfolios, setPortfolios] = useState([]);
-  const [teams, setTeams] = useState([]);
-  const [tickets, setTickets] = useState([]);
-  const [ticketComponents, setTicketComponents] = useState([]);
-  const [savedViews, setSavedViews] = useState([]);
-  const [ticketViews, setTicketViews] = useState([]);
-  const [rules, setRules] = useState([]);
-  const [templates, setTemplates] = useState([]);
-  const [customFields, setCustomFields] = useState([]);
-  const [customStatuses, setCustomStatuses] = useState([]);
+  // Seed from the module-scope cache (taskStore): a prefetch at boot, or an
+  // earlier visit, means this mount opens with the data already in hand and
+  // never shows a spinner - the refresh below then streams over the top.
+  const seed = taskSnapshot();
+  const [tasks, setTasks] = useState(seed?.tasks?.tasks || []);
+  const [projects, setProjects] = useState(seed?.projects || []);
+  const [portfolios, setPortfolios] = useState(seed?.portfolios || []);
+  const [teams, setTeams] = useState(seed?.teams || []);
+  const [tickets, setTickets] = useState(seed?.tickets || []);
+  const [ticketComponents, setTicketComponents] = useState(seed?.ticketComponents || []);
+  const [savedViews, setSavedViews] = useState(seed?.savedViews || []);
+  const [ticketViews, setTicketViews] = useState(seed?.ticketViews || []);
+  const [rules, setRules] = useState(seed?.rules || []);
+  const [templates, setTemplates] = useState(seed?.templates || []);
+  const [customFields, setCustomFields] = useState(seed?.customFields || []);
+  const [customStatuses, setCustomStatuses] = useState(seed?.customStatuses || []);
   const [notifications, setNotifications] = useState([]);
-  const [memberRequests, setMemberRequests] = useState([]);
-  const [intakeForms, setIntakeForms] = useState([]);
-  const [changelog, setChangelog] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [memberRequests, setMemberRequests] = useState(seed?.memberRequests || []);
+  const [intakeForms, setIntakeForms] = useState(seed?.intakeForms || []);
+  const [changelog, setChangelog] = useState(seed?.changelog || []);
+  const [loading, setLoading] = useState(!seed);
   const commentCache = useRef({});   // taskId -> comment[]
   // Last server timestamp a task fetch is known-good as of - see refetchTasks.
   // A ref, not state: read inside a stable useCallback, must not itself
   // trigger a re-render when it changes.
-  const sinceRef = useRef('');
+  const sinceRef = useRef(seed?.tasks?.serverTime || '');
 
+  // Where each collection lands. Keyed by the same names taskStore uses, so a
+  // new collection needs one line there and one here.
+  const applyRef = useRef(null);
+  if (!applyRef.current) {
+    applyRef.current = {
+      tasks: (v) => { setTasks(v?.tasks || []); sinceRef.current = v?.serverTime || ''; },
+      projects: setProjects, portfolios: setPortfolios, teams: setTeams,
+      tickets: setTickets, ticketComponents: setTicketComponents,
+      savedViews: setSavedViews, ticketViews: setTicketViews, rules: setRules,
+      templates: setTemplates, customFields: setCustomFields, customStatuses: setCustomStatuses,
+      memberRequests: setMemberRequests, intakeForms: setIntakeForms, changelog: setChangelog,
+    };
+  }
+
+  // The collections stream in one by one rather than landing together, so the
+  // screen paints as soon as the three the first view needs are in instead of
+  // waiting on the slowest of fifteen calls.
   const loadCore = useCallback(async () => {
-    const [t, p, pf, d, tk, tc, sv, r, tpl, cf, cs, mr, intk, chl, tvw] = await Promise.all([
-      api.getTasksDelta('').catch(() => ({ tasks: [], serverTime: '' })),
-      api.getTaskProjects().catch(() => []),
-      api.getTaskPortfolios().catch(() => []),
-      api.getTaskTeams().catch(() => []),
-      api.getTaskTickets().catch(() => []),
-      api.getTicketComponents().catch(() => []),
-      api.getTaskSavedViews().catch(() => []),
-      api.getTaskAutomationRules().catch(() => []),
-      api.getTaskTemplates().catch(() => []),
-      api.getTaskCustomFields().catch(() => []),
-      api.getTaskCustomStatuses().catch(() => []),
-      api.getTaskMemberRequests().catch(() => []),
-      api.getTaskIntakeForms().catch(() => []),
-      api.getTaskChangelog().catch(() => []),
-      api.getTicketViews().catch(() => []),
-    ]);
-    setTasks(t?.tasks || []); sinceRef.current = t?.serverTime || '';
-    setProjects(p || []); setPortfolios(pf || []); setTeams(d || []);
-    setTickets(tk || []); setTicketComponents(tc || []); setSavedViews(sv || []); setRules(r || []); setTemplates(tpl || []);
-    setCustomFields(cf || []); setCustomStatuses(cs || []); setMemberRequests(mr || []);
-    setIntakeForms(intk || []); setChangelog(chl || []); setTicketViews(tvw || []);
+    let firstPaintLeft = FIRST_PAINT.length;
+    await loadTaskData((key, value) => {
+      applyRef.current[key]?.(value);
+      if (FIRST_PAINT.includes(key) && --firstPaintLeft === 0) setLoading(false);
+    });
     setLoading(false);
   }, []);
 
@@ -119,6 +124,18 @@ export function TasksProvider({ children }) {
   }, []);
 
   useEffect(() => { loadCore(); loadNotifications(); }, [loadCore, loadNotifications]);
+
+  // Keep the module-scope cache in step with what's on screen, so the next
+  // mount (Tasks -> Tickets, or a return trip from another module) starts from
+  // the edits made in this session rather than the values as first fetched.
+  useEffect(() => {
+    rememberTaskData({
+      tasks: { tasks, serverTime: sinceRef.current },
+      projects, portfolios, teams, tickets, ticketComponents, savedViews, ticketViews,
+      rules, templates, customFields, customStatuses, memberRequests, intakeForms, changelog,
+    });
+  }, [tasks, projects, portfolios, teams, tickets, ticketComponents, savedViews, ticketViews,
+    rules, templates, customFields, customStatuses, memberRequests, intakeForms, changelog]);
 
   // Realtime: refetch tasks (+notifications) on a task_events ping; 45s poll
   // fallback. Incremental (GET /tasks/delta) rather than a full replace - the
