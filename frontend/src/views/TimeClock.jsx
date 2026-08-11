@@ -294,15 +294,22 @@ export default function TimeClock() {
     setToBusy(false);
   }
 
+  // The moment the punch button was PRESSED. The day-message gate opens before
+  // the punch is sent, and the minutes spent writing that message are work -
+  // the server backdates the punch to this stamp (bounded to 15 minutes).
+  const gateClickRef = useRef('');
+
   async function doPunch(kind) {
     if (busy) return;
     // Login/break prompts come FIRST - the punch happens only after the message
     // is sent or explicitly acknowledged (see BodModal's ack-to-skip).
     // Every punch prompts for its message; the "already sent" checkbox lets a
     // repeat punch skip. (BOD gates punch-in, EOD gates checkout, break gates.)
-    if (kind === 'in') { setBodMode('bod-gate'); return; }
-    if (kind === 'break_start') { setBodMode('break-gate'); return; }
-    if (kind === 'out') { setBodMode('eod-gate'); return; }
+    if (kind === 'in' || kind === 'break_start' || kind === 'out') {
+      gateClickRef.current = new Date().toISOString().slice(0, 19);
+      setBodMode(kind === 'in' ? 'bod-gate' : kind === 'break_start' ? 'break-gate' : 'eod-gate');
+      return;
+    }
     await actualPunch(kind);
   }
 
@@ -348,7 +355,9 @@ export default function TimeClock() {
     try {
       const r = await api.timePunch({
         kind, ...(pos || {}), tz_offset_min: new Date().getTimezoneOffset(),
+        ...(gateClickRef.current ? { clicked_at: gateClickRef.current } : {}),
       });
+      gateClickRef.current = '';
       const p = r.punch;
       const where = p.geoStatus === 'in_fence' ? ` at ${p.workSiteName}`
         : p.geoStatus === 'out_of_fence' ? ` - ${p.distanceM}m from ${p.workSiteName || 'the nearest site'}, flagged for review`
@@ -837,7 +846,7 @@ export default function TimeClock() {
           : bodMode === 'eod-gate' ? () => { bodMarker('eod'); proceed(); }
           : proceed;
         return <BodModal mode={modalMode} required onSent={proceed} onSkip={onSkip}
-          onClose={() => setBodMode(null)}
+          onClose={() => { gateClickRef.current = ''; setBodMode(null); }}
           toastOk={t => toast(true, t)} toastErr={t => toast(false, t)} />;
       })()}
 

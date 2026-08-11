@@ -257,6 +257,9 @@ class PunchIn(BaseModel):
     accuracy_m: Optional[int] = 0
     tz_offset_min: Optional[int] = 0
     note: Optional[str] = ""
+    # When the punch BUTTON was pressed, for punches gated behind the
+    # beginning/end-of-day message (see the punch endpoint) - "" = record now.
+    clicked_at: Optional[str] = ""
 
 
 @router.get("/status")
@@ -317,6 +320,23 @@ def punch(body: PunchIn, request: Request,
     if body.kind not in allowed:
         raise HTTPException(409, f"Can't punch '{body.kind}' right now - allowed: {', '.join(allowed)}")
     now = _now_iso()
+    # The BOD/EOD message gate opens BEFORE the punch is sent, so the minutes
+    # spent writing the day message used to fall outside the recorded time
+    # (Visesh, Aug 11: that time should count - the person is already working).
+    # The client stamps the moment the button was PRESSED and the punch records
+    # at that stamp. Bounded hard: only backward, at most 15 minutes, and never
+    # at/before the previous punch - so it can credit a form, not rewrite a day.
+    at = now
+    if (body.clicked_at or "").strip():
+        t = _parse_iso(body.clicked_at)
+        if t:
+            t = t if t.tzinfo else t.replace(tzinfo=timezone.utc)
+            prev_at = _parse_iso(last.at) if last else None
+            if prev_at is not None and prev_at.tzinfo is None:
+                prev_at = prev_at.replace(tzinfo=timezone.utc)
+            delta = (datetime.now(timezone.utc) - t).total_seconds()
+            if 0 <= delta <= 15 * 60 and (prev_at is None or t > prev_at):
+                at = body.clicked_at.strip()[:19]
     # Jul 24: the daily acknowledge-at-clock-in gate was removed by management
     # decision - screen capture is initiated by the employee's own share action
     # (browser picker + persistent OS sharing indicator), and standing disclosure
@@ -332,8 +352,8 @@ def punch(body: PunchIn, request: Request,
     if not (body.lat or "").strip():
         geo = {"geo_status": "no_location", "work_site_id": "", "work_site_name": "", "distance_m": 0}
     ip, ua = _client_meta(request)
-    row = TimePunch(id=str(uuid.uuid4()), employee_email=email, kind=body.kind, at=now,
-                    local_date=_local_date(now, body.tz_offset_min or 0),
+    row = TimePunch(id=str(uuid.uuid4()), employee_email=email, kind=body.kind, at=at,
+                    local_date=_local_date(at, body.tz_offset_min or 0),
                     tz_offset_min=body.tz_offset_min or 0,
                     lat=(body.lat or "").strip()[:24], lng=(body.lng or "").strip()[:24],
                     accuracy_m=max(0, int(body.accuracy_m or 0)),
