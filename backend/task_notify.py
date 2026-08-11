@@ -21,7 +21,6 @@ completed, commented, follower_added, modified, deleted.
 """
 import asyncio
 import json
-import os
 import uuid
 from datetime import datetime, timezone, date
 
@@ -31,10 +30,11 @@ import models
 from database import SessionLocal
 import graph_mail
 import task_mail_templates as tmpl
+from app_url import app_url
 from task_inbound_parse import reply_address, reply_mailbox
 from routers.task_util import log_activity
 
-_APP_URL = os.getenv("NEXUS_APP_URL", "")   # e.g. https://nexus.greensglobal.com - no trailing slash
+_APP_URL = app_url()   # NEXUS_APP_URL override, else derived per environment - see app_url.py
 _SETTINGS_KEY = "task_notify_config"
 
 _DEFAULT_SETTINGS = {
