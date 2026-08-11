@@ -10,6 +10,7 @@ import AccountSettingsModal from "./AccountSettingsModal";
 import { useMsal }        from "@azure/msal-react";
 import { BFF_MODE, bffLogout } from "../bffAuth";
 import { useRole, ROLES, MODULES } from "../contexts/RoleContext";
+import { usePersonPhoto } from "../lib/peoplePhotos";
 import { api } from "../api";
 
 // Header search reaches into the Task module's content, not just the module
@@ -62,6 +63,10 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
   const name     = account?.name ?? "User";
   const email    = account?.username ?? "";
   const initials = name.split(" ").map(n => n[0]).slice(0, 2).join("").toUpperCase();
+  // The person's own photo from the Nexus People directory - the same picture
+  // their avatar shows everywhere else in the app. '' while it loads, and for
+  // anyone HR hasn't given a photo, so the initials stay the fallback.
+  const photo    = usePersonPhoto(email);
   const roleMeta = ROLES[myRole] ?? ROLES.employee;
   const isAdmin  = can?.('administrator') ?? false;
 
@@ -384,7 +389,11 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
         {/* User profile pill */}
         <div className="header-user-wrap" ref={dropRef}>
           <button className="header-user-pill" onClick={() => setOpen(o => !o)}>
-            <div className="header-avatar">{initials}</div>
+            <div className="header-avatar">
+              {photo
+                ? <img src={photo} alt="" style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover', display: 'block' }} />
+                : initials}
+            </div>
             <div className="header-user-info">
               <span className="header-user-name">{name.split(" ")[0]}</span>
               <span className="header-user-role">{roleMeta.label}</span>
@@ -398,12 +407,14 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
               {/* ── Profile card ─────────────────────────────────── */}
               <div style={{ padding: '14px 14px 10px', display: 'flex', alignItems: 'center', gap: 12 }}>
                 <div style={{
-                  width: 42, height: 42, borderRadius: '50%', flexShrink: 0,
+                  width: 42, height: 42, borderRadius: '50%', flexShrink: 0, overflow: 'hidden',
                   background: `hsl(${roleMeta.color})`,
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   fontSize: 15, fontWeight: 700, color: '#fff', letterSpacing: '.02em',
                 }}>
-                  {initials}
+                  {photo
+                    ? <img src={photo} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                    : initials}
                 </div>
                 <div style={{ minWidth: 0, flex: 1 }}>
                   <div style={{ fontWeight: 700, fontSize: 13.5, color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -430,17 +441,17 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
                 <Settings size={14} /> Account Settings
               </button>
               <button className="hud-item" onClick={() => { setOpen(false); setChangelogOpen(true); }}>
-                <Sparkles size={14} /> What's new
+                <Sparkles size={14} /> What's New
               </button>
-              {/* Dark mode + Help live here now (Neil: clear the top bar, esp. mobile) */}
+              {/* Dark Mode + Help live here now (Neil: clear the top bar, esp. mobile) */}
               <button className="hud-item" onClick={onThemeToggle}>
-                {theme === "dark" ? <Sun size={14} /> : <Moon size={14} />} {theme === "dark" ? "Light mode" : "Dark mode"}
+                {theme === "dark" ? <Sun size={14} /> : <Moon size={14} />} {theme === "dark" ? "Light Mode" : "Dark Mode"}
               </button>
               {/* Work OS visual theme - cobalt (default) or warm sand */}
               <div style={{ padding: '6px 12px 2px', fontSize: 10, fontWeight: 700, letterSpacing: '.06em', color: 'var(--muted)', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 5 }}>
                 <Palette size={11} /> Theme
               </div>
-              {[['cobalt', 'Cobalt'], ['warm', 'Warm sand']].map(([key, label]) => (
+              {[['cobalt', 'Cobalt'], ['warm', 'Warm Sand']].map(([key, label]) => (
                 <button key={key} className="hud-item" onClick={() => setWkTheme(key)}>
                   <span aria-hidden="true" style={{
                     width: 13, height: 13, borderRadius: 4, flexShrink: 0,
