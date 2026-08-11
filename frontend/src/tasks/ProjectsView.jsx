@@ -190,7 +190,7 @@ export default function ProjectsView({ onNavigate }) {
           onOpen={setOpenId} onEdit={startEdit} onDelete={remove}
         />
       ) : (
-        <div className="nx-gutter" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(280px, 100%), 1fr))', gap: 14, padding: 16 }}>
+        <div className="nx-gutter" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(280px, 100%), 1fr))', gap: 14, padding: '16px 16px 76px' }}>
           {cards.map(({ project: p, stats }) => {
             const pf = p.portfolioId ? portfolioById(p.portfolioId) : null;
             const dcolor = p.color || NX.blue;

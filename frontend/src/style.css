@@ -2588,7 +2588,7 @@ button, [role="button"], select { touch-action: manipulation; }
   .nx-primary-bar { padding: 0 12px !important; }
   .nx-module-tabs { padding: 0 12px !important; }
   .nx-module-tab { padding: 10px 9px !important; font-size: 13px !important; gap: 6px !important; }
-  .nx-page { padding: 16px !important; }
+  .nx-page { padding: 16px 16px 76px !important; }
 }
 
 /* Phones - icon-only Create/Manage, compact navbar, full-bleed cards. */
@@ -2612,7 +2612,7 @@ button, [role="button"], select { touch-action: manipulation; }
      goes to 0 so a card spans the full viewport width; vertical padding stays so
      the first card doesn't collide with the header and the last clears the
      floating mobile bar. */
-  .nx-page { padding: 10px 0 !important; }
+  .nx-page { padding: 10px 0 70px !important; }
   .nx-card-grid { gap: 10px !important; }
 
   /* Page bodies across both modules (My Tasks, Projects, Portfolios, Teams,
