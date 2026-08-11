@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useMemo, lazy, Suspense } from "react";
-import { Menu, Moon, Sun, Search, LogOut, Settings, User, ArrowLeft, Shield, Activity, Check, ChevronDown, LayoutDashboard, Palette, Camera, Clock, Sparkles, X, UserCog, DoorOpen } from "lucide-react";
+import { Menu, Search, LogOut, Settings, User, ArrowLeft, Shield, Activity, Check, ChevronDown, LayoutDashboard, Camera, Clock, Sparkles, X, UserCog, DoorOpen } from "lucide-react";
 import ScreenshotsAdmin from "./ScreenshotsAdmin";
 const Changelog = lazy(() => import("../tasks/ChangelogView"));
 import NotificationBell from "./NotificationBell";
@@ -7,6 +7,7 @@ import PageHelp from "./PageHelp";
 import { useHeaderTabs } from "./ModuleTabs";
 import ActAsModal from "./ActAsModal";
 import AccountSettingsModal from "./AccountSettingsModal";
+import MyProfileModal from "./MyProfileModal";
 import { useMsal }        from "@azure/msal-react";
 import { BFF_MODE, bffLogout } from "../bffAuth";
 import { useRole, ROLES, MODULES } from "../contexts/RoleContext";
@@ -26,7 +27,7 @@ const SEARCH_GROUPS = [
 ];
 const EMPTY_HITS = { tasks: [], projects: [], people: [], portfolios: [], teams: [] };
 
-export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle, canGoBack, onBack, onNavigate, prevLabel, onOpenAdmin, helpKey, helpLabel }) {
+export default function TopHeader({ title, theme, onThemeToggle, sidebarPinned, onSidebarPinnedChange, onMobileToggle, canGoBack, onBack, onNavigate, prevLabel, onOpenAdmin, helpKey, helpLabel }) {
   const { instance, accounts } = useMsal();
   const { myRole, can, myGrantedModules, actingAs, startActAs, stopActAs } = useRole();
   // Module tab strip published by the active module (<ModuleTabs>). When
@@ -39,6 +40,7 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
   const canActAs = (can?.('manager') ?? false) || !!myGrantedModules?.has?.('act-as');
   const [actAsModalOpen, setActAsModalOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [myProfileOpen, setMyProfileOpen] = useState(false);
   // Coming back from Asana's consent screen: the OAuth callback redirects here
   // with ?asana=connected|denied|error so the outcome isn't lost across the
   // full page navigation. Reopen Account Settings on it, then strip the params
@@ -69,6 +71,16 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
   const photo    = usePersonPhoto(email);
   const roleMeta = ROLES[myRole] ?? ROLES.employee;
   const isAdmin  = can?.('administrator') ?? false;
+  // What Teams shows under your name is your job title, not an access level -
+  // "Global Admin" there is meaningless to a colleague who just wants to know
+  // what you do. Nexus's own permission tier stays visible as the badge in the
+  // dropdown card below; this only replaces the compact pill's subtitle, and
+  // falls back to the access-level label for anyone with no HR record yet
+  // (e.g. local dev's NEXUS_DEV_EMAIL) rather than showing blank.
+  const [myTitle, setMyTitle] = useState('');
+  useEffect(() => {
+    api.myHrProfile().then(p => setMyTitle(p.jobTitle || '')).catch(() => {});
+  }, []);
 
   const [open,         setOpen]         = useState(false);
   const [shotsOpen,    setShotsOpen]    = useState(false);   // Admin → Screenshots gallery
@@ -396,7 +408,7 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
             </div>
             <div className="header-user-info">
               <span className="header-user-name">{name.split(" ")[0]}</span>
-              <span className="header-user-role">{roleMeta.label}</span>
+              <span className="header-user-role">{myTitle || roleMeta.label}</span>
             </div>
             <ChevronDown size={13} style={{ color: 'var(--muted)', flexShrink: 0, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }} />
           </button>
@@ -423,6 +435,11 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
                   <div style={{ fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: 1 }}>
                     {email}
                   </div>
+                  {myTitle && (
+                    <div style={{ fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: 1 }}>
+                      {myTitle}
+                    </div>
+                  )}
                   <div style={{ marginTop: 5, display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 10, background: roleMeta.bg }}>
                     <Shield size={10} style={{ color: `hsl(${roleMeta.color})`, flexShrink: 0 }} />
                     <span style={{ fontSize: 10.5, fontWeight: 700, color: `hsl(${roleMeta.color})`, letterSpacing: '.03em' }}>
@@ -434,7 +451,7 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
 
               <div className="hud-divider" />
 
-              <button className="hud-item">
+              <button className="hud-item" onClick={() => { setOpen(false); setMyProfileOpen(true); }}>
                 <User size={14} /> My Profile
               </button>
               <button className="hud-item" onClick={() => { setOpen(false); setSettingsOpen(true); }}>
@@ -443,25 +460,9 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
               <button className="hud-item" onClick={() => { setOpen(false); setChangelogOpen(true); }}>
                 <Sparkles size={14} /> What's New
               </button>
-              {/* Dark Mode + Help live here now (Neil: clear the top bar, esp. mobile) */}
-              <button className="hud-item" onClick={onThemeToggle}>
-                {theme === "dark" ? <Sun size={14} /> : <Moon size={14} />} {theme === "dark" ? "Light Mode" : "Dark Mode"}
-              </button>
-              {/* Work OS visual theme - cobalt (default) or warm sand */}
-              <div style={{ padding: '6px 12px 2px', fontSize: 10, fontWeight: 700, letterSpacing: '.06em', color: 'var(--muted)', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 5 }}>
-                <Palette size={11} /> Theme
-              </div>
-              {[['cobalt', 'Cobalt'], ['warm', 'Warm Sand']].map(([key, label]) => (
-                <button key={key} className="hud-item" onClick={() => setWkTheme(key)}>
-                  <span aria-hidden="true" style={{
-                    width: 13, height: 13, borderRadius: 4, flexShrink: 0,
-                    background: key === 'cobalt' ? '#2b45e1' : '#f5ead0',
-                    border: key === 'warm' ? '1px solid #ddd5c2' : '1px solid transparent',
-                  }} />
-                  {label}
-                  {wkTheme === key && <Check size={13} style={{ marginLeft: 'auto', color: 'var(--ink)' }} />}
-                </button>
-              ))}
+              {/* Dark Mode + Theme moved into My Profile (Neil: group appearance
+                  settings with the rest of "your" settings instead of loose in
+                  the top-level menu). Help stays here. */}
               {helpKey && <PageHelp pageKey={helpKey} label={helpLabel} variant="row" onActivate={() => setOpen(false)} />}
 
               {/* Act As (Jul 2026): visible to Manager/IT Admin/Global Admin (or an
@@ -561,6 +562,13 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
         initialResult={asanaResult.result}
         initialReason={asanaResult.reason}
       />
+    )}
+
+    {myProfileOpen && (
+      <MyProfileModal onClose={() => setMyProfileOpen(false)}
+        theme={theme} onThemeToggle={onThemeToggle}
+        wkTheme={wkTheme} setWkTheme={setWkTheme}
+        sidebarPinned={sidebarPinned} onSidebarPinnedChange={onSidebarPinnedChange} />
     )}
     </>
   );

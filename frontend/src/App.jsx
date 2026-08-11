@@ -319,8 +319,12 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
 // The Item Management view keeps its internal id 'inventory' everywhere, but the
 // address bar reads /itemmanagement (Neil, Jun 16). Old /inventory links still
 // resolve to the same view so nothing breaks.
-const PATH_TO_VIEW = { itemmanagement: 'inventory', inventory: 'inventory' };
-const VIEW_TO_PATH = { inventory: 'itemmanagement' };
+// Same idea for 'ops': the module is labelled "Construction" everywhere in the
+// UI (Sidebar, MODULES) but the internal view id stayed 'ops' from before the
+// rename, so the address bar read /ops instead of /construction. Old /ops
+// links still resolve to the same view so nothing breaks.
+const PATH_TO_VIEW = { itemmanagement: 'inventory', inventory: 'inventory', construction: 'ops', ops: 'ops' };
+const VIEW_TO_PATH = { inventory: 'itemmanagement', ops: 'construction' };
 
 function parsePath() {
   const segs = window.location.pathname.split('/').filter(Boolean);
@@ -406,6 +410,11 @@ function MainApp() {
   const [sidebarOpen,      setSidebarOpen]      = useState(false);
   const [mobileMenuOpen,   setMobileMenuOpen]   = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem("gg-sidebar-collapsed") === "true");
+  // "Keep sidebar open" preference (My Profile -> Appearance): when pinned, the
+  // click-outside auto-collapse below is skipped entirely, so the sidebar stays
+  // exactly as the user left it instead of snapping shut the moment they click
+  // into the page content.
+  const [sidebarPinned,   setSidebarPinned]   = useState(() => localStorage.getItem("gg-sidebar-pinned") === "true");
   // "Back" used to keep its own in-memory stack, separate from the real
   // browser history that the address-bar effect below already maintains via
   // pushState/popstate. The two diverged the moment anything touched real
@@ -460,7 +469,7 @@ function MainApp() {
   // With 'click' the target's own handler runs first (bubbles to document last),
   // then the sidebar collapses: one click does both.
   useEffect(() => {
-    if (sidebarCollapsed) return;
+    if (sidebarCollapsed || sidebarPinned) return;
     const handleClickOutside = (e) => {
       // Expanding re-renders the sidebar and can replace the clicked node
       // (chevron icon swap) before this handler runs - a detached target fails
@@ -475,7 +484,7 @@ function MainApp() {
     // bubble to document and immediately collapse it again.
     const arm = setTimeout(() => document.addEventListener('click', handleClickOutside), 0);
     return () => { clearTimeout(arm); document.removeEventListener('click', handleClickOutside); };
-  }, [sidebarCollapsed]);
+  }, [sidebarCollapsed, sidebarPinned]);
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
@@ -489,6 +498,13 @@ function MainApp() {
   useEffect(() => {
     localStorage.setItem("gg-sidebar-collapsed", sidebarCollapsed);
   }, [sidebarCollapsed]);
+
+  useEffect(() => {
+    localStorage.setItem("gg-sidebar-pinned", sidebarPinned);
+    // Pinning is "keep it open every time" - turning it on should actually
+    // open the sidebar, not just stop it from auto-closing later.
+    if (sidebarPinned) setSidebarCollapsed(false);
+  }, [sidebarPinned]);
 
   function navigate(view, sub = null) {
     setActiveView(view);
@@ -606,6 +622,8 @@ function MainApp() {
               helpLabel={viewLabel(activeView)}
               theme={theme}
               onThemeToggle={() => setTheme(t => t === "dark" ? "light" : "dark")}
+              sidebarPinned={sidebarPinned}
+              onSidebarPinnedChange={setSidebarPinned}
               onMobileToggle={() => setMobileMenuOpen(true)}
               canGoBack={canGoBack}
               onBack={goBack}
