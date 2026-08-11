@@ -59,6 +59,8 @@ const TYPE_META = {
   kb_course_assigned:   { icon: HelpCircle,  label: 'Training assigned',    color: 'var(--color-blue)'   },
   kb_course_overdue:    { icon: AlertCircle, label: 'Training overdue',      color: 'var(--color-red)'    },
   kb_course_recert:     { icon: RotateCcw,   label: 'Recertification due',   color: 'var(--color-orange)' },
+  time_missed_out:      { icon: Clock,       label: 'Missing clock-out',    color: 'var(--color-orange)' },
+  time_overtime:        { icon: Clock,       label: 'Overtime',             color: 'var(--color-orange)' },
 };
 
 // Short stage labels/colors for chips on cards and the lifecycle "trail" strip
@@ -135,6 +137,12 @@ export function destinationFor(n) {
       // Land on the Requisition Log (status/steps live there), not the blank
       // New Request form (Jun 16).
       return ['purchase', 'log'];
+    case 'time_missed_out':
+    case 'time_overtime':
+      // Straight to the punch card so a missed clock-out can be fixed (or the
+      // week reviewed) right away - explicit rather than relying on n.action,
+      // which older rows sent before this case existed may not carry.
+      return ['timeclock', null];
     default:
       return n.action?.view ? [n.action.view, n.action.sub] : null;
   }
