@@ -1097,6 +1097,7 @@ export const api = {
   egnyteMove:        (path, destination)  => req('/egnyte/fs/move', { method: 'POST', body: JSON.stringify({ path, destination }) }),
   egnyteCopy:        (path, destination)  => req('/egnyte/fs/copy', { method: 'POST', body: JSON.stringify({ path, destination }) }),
   egnyteDelete:      (path)               => req('/egnyte/fs/delete', { method: 'POST', body: JSON.stringify({ path }) }),
+  egnyteDescribe:    (path, description)  => req('/egnyte/fs/describe', { method: 'POST', body: JSON.stringify({ path, description }) }),
   // multipart: let the browser set the boundary, never set Content-Type by hand
   egnyteUpload:      (folder, file) => {
     const fd = new FormData();

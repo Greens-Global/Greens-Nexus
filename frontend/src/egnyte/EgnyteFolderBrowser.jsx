@@ -12,9 +12,9 @@
 // CONTAINER, so the same markup collapses to a single pane in narrow homes.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Bookmark, Check, ChevronRight, Copy, Download, ExternalLink, Eye, FolderInput,
-  FolderPlus, HardDrive, Info, Link2, MoreVertical, PenLine, RefreshCw, Search,
-  Trash2, Upload, X,
+  AlignLeft, Bookmark, Check, ChevronRight, Copy, Download, ExternalLink, Eye,
+  FolderInput, FolderPlus, HardDrive, Info, Link2, MoreVertical, PenLine,
+  RefreshCw, Search, Trash2, Upload, X,
 } from 'lucide-react';
 import { api } from '../api';
 import {
@@ -136,6 +136,10 @@ export default function EgnyteFolderBrowser({
   const [renameName, setRenameName] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(null);   // [paths]
   const [details, setDetails] = useState(null);        // {item, isFolder}
+  const [descEdit, setDescEdit] = useState(null);      // {path, name}
+  const [descText, setDescText] = useState('');
+  const [descLoading, setDescLoading] = useState(false);
+  const [descSaving, setDescSaving] = useState(false);
   const [destPick, setDestPick] = useState(null);      // {mode: 'move'|'copy', paths}
   const [bulkBusy, setBulkBusy] = useState('');
   const [bookmarks, setBookmarks] = useState(loadBookmarks);
@@ -305,6 +309,36 @@ export default function EgnyteFolderBrowser({
     if (item.webUrl) navigator.clipboard?.writeText(item.webUrl).catch(() => {});
   };
 
+  // The description is a Folder Options field, so it lives on the folder's OWN
+  // listing - prefill from the cache (instant for the open folder, one fetch
+  // for a row's folder).
+  const openDescEdit = (item) => {
+    setDescEdit({ path: item.path, name: item.name });
+    setDescText('');
+    setDescLoading(true);
+    getFolderCached(item.path)
+      .then(d => setDescText(d?.description || ''))
+      .catch(() => {})
+      .finally(() => setDescLoading(false));
+  };
+
+  const saveDesc = async () => {
+    if (!descEdit || descSaving) return;
+    setDescSaving(true);
+    setRowError('');
+    try {
+      await api.egnyteDescribe(descEdit.path, descText.trim());
+      invalidateFolder(descEdit.path);
+      const editedCurrent = normPath(descEdit.path) === normPath(path);
+      setDescEdit(null);
+      if (editedCurrent) load(path, { force: true });
+    } catch (err) {
+      setRowError(egnyteErrorMessage(err, 'Could not update the folder description.'));
+    } finally {
+      setDescSaving(false);
+    }
+  };
+
   // The "⋯" menu for one row. Write verbs appear only with write access; the
   // caller's own Egnyte permissions still decide server-side, and a refusal
   // surfaces as the row error.
@@ -332,6 +366,7 @@ export default function EgnyteFolderBrowser({
       { label: 'Details', icon: <Info size={14} />, onClick: () => setDetails({ item, isFolder }) },
       'divider',
       write && { label: 'Rename', icon: <PenLine size={14} />, onClick: () => { setRenameTarget(item); setRenameName(item.name); } },
+      write && isFolder && { label: 'Edit description', icon: <AlignLeft size={14} />, onClick: () => openDescEdit(item) },
       write && { label: 'Move to…', icon: <FolderInput size={14} />, onClick: () => setDestPick({ mode: 'move', paths: [item.path] }) },
       write && { label: 'Copy to…', icon: <Copy size={14} />, onClick: () => setDestPick({ mode: 'copy', paths: [item.path] }) },
       write && 'divider',
@@ -477,6 +512,13 @@ export default function EgnyteFolderBrowser({
             )}
           </div>
         </div>
+
+        {/* Folder description - same field Egnyte shows under the folder name. */}
+        {!results && !loading && data?.description && (
+          <div style={{ padding: '0 14px 11px', fontSize: 12.5, color: 'var(--wk-dim)', lineHeight: 1.5, maxWidth: 760, wordBreak: 'break-word' }}>
+            {data.description}
+          </div>
+        )}
 
         {/* ── Action toolbar, Egnyte-style: Create + always-visible verbs that
             light up with the selection. Not rendered in pick mode. ── */}
@@ -738,6 +780,35 @@ export default function EgnyteFolderBrowser({
             onKeyDown={e => { if (e.key === 'Enter') doRename(); }}
             style={{ width: '100%' }}
           />
+        </EgnyteDialog>
+      )}
+
+      {descEdit && (
+        <EgnyteDialog
+          title={`Describe ${descEdit.name}`}
+          onClose={() => setDescEdit(null)}
+          footer={
+            <>
+              <button type="button" className="secondary-btn" onClick={() => setDescEdit(null)}>Cancel</button>
+              <button type="button" className="primary-btn" disabled={descSaving || descLoading} onClick={saveDesc}>
+                {descSaving ? 'Saving…' : 'Save'}
+              </button>
+            </>
+          }
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div>Shown under the folder's name here and in Egnyte. Leave it empty to remove the description.</div>
+            <textarea
+              className="form-input"
+              rows={3}
+              autoFocus
+              value={descText}
+              placeholder={descLoading ? 'Loading…' : 'Add a description'}
+              disabled={descLoading}
+              onChange={e => setDescText(e.target.value)}
+              style={{ width: '100%', resize: 'vertical', fontFamily: 'inherit' }}
+            />
+          </div>
         </EgnyteDialog>
       )}
 

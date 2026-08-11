@@ -291,6 +291,22 @@ def fs_copy(body: FsActionIn, user: dict = Depends(require_writer), db=Depends(g
     return _call(svc.copy_item, path, dest, token=_browse_token(user, db))
 
 
+class DescribeIn(BaseModel):
+    path: str
+    description: str = ""
+
+
+@router.post("/fs/describe")
+def fs_describe(body: DescribeIn, user: dict = Depends(require_writer), db=Depends(get_db)):
+    """Set (or clear, with "") a folder's description - Egnyte's own Folder
+    Options field, so it shows identically in both UIs."""
+    path = (body.path or "").strip()
+    if not path:
+        raise HTTPException(400, "path is required")
+    return _call(svc.set_folder_description, path, (body.description or "").strip(),
+                 token=_browse_token(user, db))
+
+
 @router.post("/fs/delete")
 def fs_delete(body: FsActionIn, user: dict = Depends(require_writer), db=Depends(get_db)):
     """POST rather than DELETE-with-query so the path travels in the body like

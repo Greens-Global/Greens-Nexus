@@ -67,7 +67,7 @@ export default function EgnyteDetails({ item, isFolder, onClose, onDownload }) {
     if (!isFolder) return undefined;
     let alive = true;
     getFolderCached(item.path)
-      .then(d => { if (alive) setCounts({ folders: d?.folders?.length || 0, files: d?.files?.length || 0 }); })
+      .then(d => { if (alive) setCounts({ folders: d?.folders?.length || 0, files: d?.files?.length || 0, description: d?.description || '' }); })
       .catch(() => { if (alive) setCounts('error'); });
     return () => { alive = false; };
   }, [isFolder, item.path]);
@@ -114,6 +114,9 @@ export default function EgnyteDetails({ item, isFolder, onClose, onDownload }) {
 
         <div style={{ display: 'grid', gridTemplateColumns: '92px 1fr', columnGap: 12, rowGap: 9, alignItems: 'start' }}>
           <DetailRow label="Type">{typeLabel(item, isFolder)}</DetailRow>
+          {isFolder && counts?.description && (
+            <DetailRow label="Description">{counts.description}</DetailRow>
+          )}
           <DetailRow label="Location">
             <span style={{ minWidth: 0, wordBreak: 'break-all' }}>{location}</span>
           </DetailRow>

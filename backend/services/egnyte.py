@@ -314,6 +314,10 @@ def list_folder(path: str = "", token: str | None = None) -> dict[str, Any]:
     data = resp.json()
     return {
         "path": data.get("path", target),
+        # The folder's own description (Egnyte's "Add a description" feature) -
+        # a Folder Options field, so it rides on the folder's OWN object, not
+        # on the child rows of the parent's listing.
+        "description": data.get("folder_description", ""),
         "folders": [
             {
                 "name": f.get("name", ""),
@@ -422,6 +426,17 @@ def create_folder(path: str, token: str | None = None) -> dict[str, Any]:
         return {"path": target, "created": False, "existed": True}
     _raise(resp, "Could not create Egnyte folder")
     return {"path": target, "created": True, "existed": False}
+
+
+def set_folder_description(path: str, description: str, token: str | None = None) -> dict[str, Any]:
+    """Folder Options PATCH - the same field Egnyte's own "Add a description"
+    writes, so a description set in Nexus shows in Egnyte and vice versa.
+    Empty string clears it."""
+    target = norm(path)
+    resp = _send("PATCH", f"{base_url()}{_FS}{_url_path(target)}", token,
+                 json={"folder_description": description or ""}, timeout=TIMEOUT_META)
+    _raise(resp, "Could not update the folder description")
+    return {"path": target, "description": description or ""}
 
 
 def move_item(path: str, destination: str, token: str | None = None) -> dict[str, Any]:
