@@ -223,16 +223,16 @@ async def upload(
     # This endpoint is async (UploadFile.read), so BOTH the token lookup and
     # the Egnyte HTTP call go through to_thread - a sync call here blocks the
     # whole worker for the upload's duration (the Aug 2 freeze class).
-    # Connected users write as THEMSELVES: Egnyte's audit shows the real
-    # person and its permissions bound what they can touch.
+    # Same token rule as browsing: with OAuth on, writes happen as the
+    # CONNECTED user (Egnyte's audit shows the real person and its permissions
+    # bound what they can touch) - never silently as the service account.
     import asyncio
-    import egnyte_oauth as _eo
     from database import SessionLocal as _SL
 
     def _do_upload():
         _db = _SL()
         try:
-            _tok = _eo.token_for(_db, user["email"])
+            _tok = _browse_token(user, _db)
         finally:
             _db.close()
         return _call(svc.upload_file, dest, raw, token=_tok)
@@ -253,89 +253,7 @@ def make_folder(body: FolderIn, user: dict = Depends(require_writer), db=Depends
     exist. Lets a property's folder be provisioned on first use."""
     if not (body.path or "").strip():
         raise HTTPException(400, "path is required")
-    import egnyte_oauth as _eo
-    return _call(svc.create_folder, body.path, token=_eo.token_for(db, user["email"]))
-
-
-# ── property convenience ─────────────────────────────────────────────────────
-
-@router.get("/property/{site}")
-def property_documents(site: str, user: dict = Depends(get_current_user)):
-    """Everything a property card needs in ONE call: the resolved folder paths
-    plus the plans listing.
-
-    Resolution LISTS and MATCHES rather than constructing a path from a prefix,
-    across both roots in priority order (see services/egnyte.py). A property
-    resolves to its ENTITY folder under /Shared/#Entities when one exists, and
-    falls back to /Shared/--Asset Management for the sites that live only there.
-
-    `missing: true` (rather than a 404) when nothing matches anywhere - that is
-    the normal state for a new property and the UI should offer to create it,
-    which needs a proposed path, so one is returned alongside.
-    """
-    _guard()
-    try:
-        folder = svc.resolve_property_folder(site)
-    except svc.EgnyteError as exc:
-        raise HTTPException(exc.status, str(exc))
-
-    if not folder:
-        # Propose where it WOULD go. Returning nulls here left the UI's Create
-        # Folder button wired to an empty path, so it silently did nothing.
-        proposed = svc.folder_for_property(site)
-        return {"site": site, "folder": proposed, "plansFolder": svc.plans_folder(proposed),
-                "webUrl": None, "plansWebUrl": None, "missing": True,
-                "plans": {"folders": [], "files": []}, "sections": []}
-
-    # One listing serves both jobs: it names the subfolders AND decides which of
-    # them holds the documents. Asking Egnyte twice for the same folder to
-    # answer two questions about it would just be a slower way to be wrong.
-    top: dict | None = None
-    try:
-        top = svc.list_folder(folder)
-    except svc.EgnyteError as exc:
-        if exc.status != 404:
-            raise HTTPException(exc.status, str(exc))
-
-    children = top["folders"] if top else []
-    plans = svc.plans_folder(folder, [f["name"] for f in children] if top else None)
-    payload = {
-        "site": site,
-        "folder": folder,
-        "plansFolder": plans,
-        "webUrl": svc.web_url(folder),
-        "plansWebUrl": svc.web_url(plans),
-        "missing": False,
-        "plans": {"folders": [], "files": []},
-        # The property folder's own subfolders - Financials/Lease/Legal/... on an
-        # entity, HVAC/Electrical/Plumbing/... on an asset-management folder.
-        # Read live from Egnyte rather than hardcoded, so a folder added there
-        # shows up in Nexus without a deploy.
-        "sections": [
-            {"name": f["name"], "path": f["path"], "webUrl": svc.web_url(f["path"])}
-            for f in children
-        ],
-    }
-
-    # plans == folder when the property folder uses neither documents-subfolder
-    # name; that listing is already in hand, so reuse it rather than re-fetch.
-    if svc.norm(plans) == svc.norm(folder):
-        if top is None:
-            return payload
-        listing = top
-    else:
-        try:
-            listing = svc.list_folder(plans)
-        except svc.EgnyteError as exc:
-            if exc.status != 404:
-                raise HTTPException(exc.status, str(exc))
-            return payload
-    for f in listing["files"]:
-        f["webUrl"] = svc.web_url(f["path"])
-    for d in listing["folders"]:
-        d["webUrl"] = svc.web_url(d["path"])
-    payload["plans"] = listing
-    return payload
+    return _call(svc.create_folder, body.path, token=_browse_token(user, db))
 
 
 # ── wiring registry (Aug 10 - Neil's "give you that wiring", minus the you) ──
