@@ -3451,7 +3451,9 @@ def _ser_timeoff(r: TimeOffRequest, names: dict = None) -> dict:
             "type": r.type, "startDate": r.start_date, "endDate": r.end_date,
             "note": r.note or "", "status": r.status, "approver": r.approver or "",
             "decidedAt": r.decided_at or "", "decideNote": r.decide_note or "",
-            "createdAt": r.created_at}
+            "createdAt": r.created_at,
+            "requestedBy": getattr(r, "requested_by", "") or "",
+            "requestedByName": (names or {}).get(getattr(r, "requested_by", "") or "", "")}
 
 
 class TimeOffIn(BaseModel):
@@ -3482,6 +3484,57 @@ def request_timeoff(body: TimeOffIn, user: dict = Depends(get_current_user),
     if emp and emp.manager_email:
         _hr_notify(db, emp.manager_email, "Time-off request",
                    f"{emp.first_name} {emp.last_name} requested {body.type} "
+                   f"{body.start_date} → {body.end_date}.",
+                   ref_id=row.id, action={"view": "hr", "sub": "hr-time"})
+    db.commit()
+    return _ser_timeoff(row)
+
+
+class TimeOffOnBehalfIn(TimeOffIn):
+    employee_email: str
+
+
+@router.post("/timeoff/on-behalf")
+def request_timeoff_on_behalf(body: TimeOffOnBehalfIn, user: dict = Depends(require_team_write),
+                              db: Session = Depends(get_db)):
+    """Manager+ files a time-off request FOR an employee (Neil, Aug 11) -
+    deliberately NOT Act As, which stays Global Admin only. The request is a
+    normal pending request in the employee's name; requested_by records who
+    filed it, the employee is told, and the approval flow is unchanged (the
+    filing manager can approve it themselves right after, on the record)."""
+    if body.type not in TIMEOFF_TYPES:
+        raise HTTPException(400, f"type must be one of {TIMEOFF_TYPES}")
+    try:
+        s = datetime.strptime(body.start_date, "%Y-%m-%d")
+        e = datetime.strptime(body.end_date, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(400, "Dates must be YYYY-MM-DD")
+    if e < s:
+        raise HTTPException(400, "End date is before the start date")
+    target = (body.employee_email or "").strip().lower()
+    if not target:
+        raise HTTPException(400, "Pick the employee first")
+    emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == target).first()
+    if not emp:
+        raise HTTPException(404, "No employee with that email")
+    scope = _visible_emails(db, user)
+    if scope is not None and target not in scope:
+        raise HTTPException(403, "You can only file requests for your own team.")
+    now = _now_iso()
+    row = TimeOffRequest(id=str(uuid.uuid4()), employee_email=target, type=body.type,
+                         start_date=body.start_date, end_date=body.end_date,
+                         note=(body.note or "").strip()[:400], created_at=now,
+                         requested_by=user["email"])
+    db.add(row)
+    filer = _display_name(db, user["email"])
+    if target != user["email"]:
+        _hr_notify(db, target, "Time-off request filed for you",
+                   f"{filer} requested {body.type} time off {body.start_date} → {body.end_date} "
+                   "on your behalf - you'll hear once it's decided.",
+                   ref_id=row.id, action={"view": "timeclock", "sub": ""})
+    if emp.manager_email and emp.manager_email.strip().lower() != user["email"]:
+        _hr_notify(db, emp.manager_email, "Time-off request",
+                   f"{filer} filed a {body.type} request for {emp.first_name} {emp.last_name}: "
                    f"{body.start_date} → {body.end_date}.",
                    ref_id=row.id, action={"view": "hr", "sub": "hr-time"})
     db.commit()

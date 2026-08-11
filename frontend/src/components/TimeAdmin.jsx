@@ -235,6 +235,25 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
     catch (e) { toastErr(e?.message || 'Could not revoke.'); }
   }
 
+  // Manager+ files a time-off request FOR an employee (Neil, Aug 11) - the
+  // sanctioned path, so nobody needs Act As (Global Admin only) for this.
+  const [obo, setObo] = useState(null);   // {email, type, start, end, note} | null
+  const [oboBusy, setOboBusy] = useState(false);
+  async function saveObo() {
+    if (oboBusy) return;
+    if (!obo.email) { toastErr('Pick the employee.'); return; }
+    if (!obo.start || !obo.end) { toastErr('Pick the start and end dates.'); return; }
+    setOboBusy(true);
+    try {
+      await api.timeOffOnBehalf({ employee_email: obo.email, type: obo.type,
+        start_date: obo.start, end_date: obo.end, note: obo.note });
+      toastOk('Request filed - the employee has been notified.');
+      setObo(null);
+      loadTimeoff();
+    } catch (e) { toastErr(e?.message || 'Could not file the request.'); }
+    setOboBusy(false);
+  }
+
   async function decideTimeoff(id, status) {
     let note = '';
     if (status === 'rejected') {
@@ -648,6 +667,13 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
 
       {/* Time-off register - requests table, pending rows carry the decisions */}
       {view === 'timeoff' && (
+        <>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 10 }}>
+          <button className="primary-btn" onClick={() => setObo({ email: '', type: 'vacation', start: '', end: '', note: '' })}
+            style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px' }}>
+            <Plus size={13} /> Request on Behalf
+          </button>
+        </div>
         <div style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, overflow: 'hidden', boxShadow: 'var(--wk-shadow)' }}>
           <div style={{ display: 'grid', gridTemplateColumns: '200px 110px 1fr 70px 160px 170px', gap: 10, padding: '10px 14px', background: 'var(--wk-hover)', fontSize: 12.5, fontWeight: 500, color: 'var(--wk-dim)' }}>
             <span>Requested by</span><span>Type</span><span>Period</span><span>Days</span><span>Approver</span><span style={{ textAlign: 'right' }}>Status</span>
@@ -663,7 +689,12 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
               <div key={r.id} style={{ display: 'grid', gridTemplateColumns: '200px 110px 1fr 70px 160px 170px', gap: 10, alignItems: 'center', padding: '10px 14px', borderBottom: '1px solid var(--line)', background: r.status === 'pending' ? 'rgba(251,191,36,0.05)' : 'transparent' }}>
                 <span style={{ fontSize: 12.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name || r.email}</span>
                 <span style={{ fontSize: 12, textTransform: 'capitalize' }}>{r.type}</span>
-                <span style={{ fontSize: 12, color: 'var(--muted)' }} title={r.note}>{r.startDate} → {r.endDate}{r.note ? ' · “' + r.note + '”' : ''}</span>
+                <span style={{ fontSize: 12, color: 'var(--muted)' }} title={r.note}>
+                  {r.startDate} → {r.endDate}{r.note ? ' · “' + r.note + '”' : ''}
+                  {r.requestedBy && r.requestedBy !== r.email && (
+                    <span style={{ fontStyle: 'italic' }}> · filed by {r.requestedByName || r.requestedBy.split('@')[0].replace(/\./g, ' ')}</span>
+                  )}
+                </span>
                 <span style={{ fontSize: 12, fontWeight: 700 }}>{isNaN(days) ? '-' : days}</span>
                 <span style={{ fontSize: 11.5, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.approver || '-'}</span>
                 <span style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
@@ -683,6 +714,7 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
           })}
           {timeoff.length > 150 && <div style={{ padding: '8px 16px', fontSize: 12, color: 'var(--muted)', textAlign: 'center' }}>Showing 150 of {timeoff.length} - filter to narrow down.</div>}
         </div>
+        </>
       )}
 
       {/* Screenshots - disclosed-monitoring, manager-scoped team gallery.
@@ -885,6 +917,50 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
               <button className="secondary-btn" onClick={() => setEdit(null)}>Cancel</button>
               <button className="primary-btn" onClick={saveEdit} disabled={busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                 {busy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={13} />} Save
+              </button>
+            </div>
+          </div>
+        </div>
+      , document.body)}
+
+      {/* Request-on-behalf modal (Neil, Aug 11): a normal pending request in the
+          employee's name, stamped with who filed it; the employee is notified. */}
+      {obo && createPortal(
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+          onClick={e => e.target === e.currentTarget && setObo(null)}>
+          <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 430, boxShadow: 'var(--shadow-lg)' }}>
+            <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span className="wkc-chip"><CalendarOff size={14} /></span>
+              <h3 style={{ margin: 0, fontSize: 14.5, fontWeight: 700, flex: 1 }}>Request Time Off on Behalf</h3>
+              <button onClick={() => setObo(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}><X size={16} /></button>
+            </div>
+            <div style={{ padding: '16px 20px', display: 'grid', gap: 10 }}>
+              <div><label style={FL}>Employee</label>
+                <select className="form-input" value={obo.email} onChange={e => setObo(p => ({ ...p, email: e.target.value }))} style={{ width: '100%' }}>
+                  <option value="">Choose…</option>
+                  {(rows || []).map(r => <option key={r.email} value={r.email}>{r.name || r.email}</option>)}
+                </select></div>
+              <div><label style={FL}>Type</label>
+                <select className="form-input" value={obo.type} onChange={e => setObo(p => ({ ...p, type: e.target.value }))} style={{ width: '100%' }}>
+                  {['vacation', 'sick', 'personal', 'unpaid', 'other'].map(t => <option key={t} value={t}>{t[0].toUpperCase() + t.slice(1)}</option>)}
+                </select></div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div><label style={FL}>First day</label>
+                  <input className="form-input" type="date" value={obo.start} onChange={e => setObo(p => ({ ...p, start: e.target.value }))} style={{ width: '100%' }} /></div>
+                <div><label style={FL}>Last day</label>
+                  <input className="form-input" type="date" value={obo.end} onChange={e => setObo(p => ({ ...p, end: e.target.value }))} style={{ width: '100%' }} /></div>
+              </div>
+              <div><label style={FL}>Note</label>
+                <input className="form-input" placeholder="e.g. called in sick this morning" value={obo.note}
+                  onChange={e => setObo(p => ({ ...p, note: e.target.value }))} style={{ width: '100%' }} /></div>
+              <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                Filed as a normal pending request in their name - they get a notification, and it still needs an approval.
+              </div>
+            </div>
+            <div style={{ padding: '12px 20px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button className="secondary-btn" onClick={() => setObo(null)}>Cancel</button>
+              <button className="primary-btn" onClick={saveObo} disabled={oboBusy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                {oboBusy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={13} />} File Request
               </button>
             </div>
           </div>
