@@ -986,6 +986,18 @@ async def lifespan(app: FastAPI):
                 print("[startup] construction Egnyte sweep skipped (not the sync worker)")
         except Exception as e:
             print(f"[startup] construction sweep skipped: {e}")
+        # Nightly Nexus -> M365 writeback (Neil, Aug 11). Sync-worker gated for
+        # the same reason as the inbound mail drain: a Graph PATCH from a
+        # laptop is a REAL write to the live directory with local dev data.
+        try:
+            from asana_sync import is_sync_worker as _is_sync_worker2
+            if _is_sync_worker2():
+                from reminders import m365_pushback_loop
+                _tasks.append(_a.create_task(m365_pushback_loop()))
+            else:
+                print("[startup] nightly M365 writeback skipped (not the sync worker)")
+        except Exception as e:
+            print(f"[startup] nightly M365 writeback skipped: {e}")
         try:
             # One-shot: drains task attachments inlined as data: URLs into
             # Supabase Storage (5.7 GB of the prod DB), then exits. Idempotent.
