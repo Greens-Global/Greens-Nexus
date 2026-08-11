@@ -1091,6 +1091,9 @@ export const api = {
   egnyteFilePreview: (path)               => reqBlob(`/egnyte/file?path=${encodeURIComponent(path)}&inline=true`),
   egnyteSearch:      (q, folder = '')     => req(`/egnyte/search?q=${encodeURIComponent(q)}&folder=${encodeURIComponent(folder)}`),
   egnyteCreateFolder:(path)               => req('/egnyte/folder', { method: 'POST', body: JSON.stringify({ path }) }),
+  egnyteMove:        (path, destination)  => req('/egnyte/fs/move', { method: 'POST', body: JSON.stringify({ path, destination }) }),
+  egnyteCopy:        (path, destination)  => req('/egnyte/fs/copy', { method: 'POST', body: JSON.stringify({ path, destination }) }),
+  egnyteDelete:      (path)               => req('/egnyte/fs/delete', { method: 'POST', body: JSON.stringify({ path }) }),
   // multipart: let the browser set the boundary, never set Content-Type by hand
   egnyteUpload:      (folder, file) => {
     const fd = new FormData();

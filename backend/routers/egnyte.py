@@ -256,6 +256,46 @@ def make_folder(body: FolderIn, user: dict = Depends(require_writer), db=Depends
     return _call(svc.create_folder, body.path, token=_browse_token(user, db))
 
 
+# ── file-manager verbs (Aug 11 - Egnyte parity in the browser) ───────────────
+# All run on the CALLER'S token (once OAuth is on), so Egnyte's own folder
+# permissions are the real boundary; the Nexus gate mirrors upload's
+# supervisor+ floor. Deletes land in Egnyte's Trash, restorable there.
+
+class FsActionIn(BaseModel):
+    path: str
+    destination: str = ""
+
+
+def _fs_args(body: FsActionIn, need_destination: bool = True):
+    path = (body.path or "").strip()
+    if not path:
+        raise HTTPException(400, "path is required")
+    dest = (body.destination or "").strip()
+    if need_destination and not dest:
+        raise HTTPException(400, "destination is required")
+    return path, dest
+
+
+@router.post("/fs/move")
+def fs_move(body: FsActionIn, user: dict = Depends(require_writer), db=Depends(get_db)):
+    path, dest = _fs_args(body)
+    return _call(svc.move_item, path, dest, token=_browse_token(user, db))
+
+
+@router.post("/fs/copy")
+def fs_copy(body: FsActionIn, user: dict = Depends(require_writer), db=Depends(get_db)):
+    path, dest = _fs_args(body)
+    return _call(svc.copy_item, path, dest, token=_browse_token(user, db))
+
+
+@router.post("/fs/delete")
+def fs_delete(body: FsActionIn, user: dict = Depends(require_writer), db=Depends(get_db)):
+    """POST rather than DELETE-with-query so the path travels in the body like
+    the other fs verbs and never fights URL encoding of '#' folder names."""
+    path, _ = _fs_args(body, need_destination=False)
+    return _call(svc.delete_item, path, token=_browse_token(user, db))
+
+
 # ── wiring registry (Aug 10 - Neil's "give you that wiring", minus the you) ──
 # Manager+ edits which Egnyte folder each Nexus surface reads/writes, from the
 # module's Wiring tab, so re-pointing a surface never needs a deploy or an env

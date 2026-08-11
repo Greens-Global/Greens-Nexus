@@ -3,19 +3,24 @@
 // One listing component shared by every Egnyte surface, so a file row looks and
 // behaves the same wherever content shows up. Clicking a folder descends;
 // clicking a file opens the Nexus viewer (which explains itself for types it
-// cannot render, with Download one click away). Row actions - download and the
-// Egnyte deep link - reveal on hover so a full folder reads as a clean table,
-// not a wall of icons; on touch they stay visible because there is no hover.
+// cannot render, with Download one click away). Row actions - download, the
+// Egnyte deep link and the "⋯" menu - reveal on hover so a full folder reads as
+// a clean table; on touch they stay visible because there is no hover.
+//
+// Selection is the parent's state: rows render checkboxes only when the parent
+// passes the selection props, so the pick-a-folder modal and the person card
+// stay checkbox-free.
 //
 // Columns (Modified / Size) live in the .egx-cols grid and drop out on narrow
-// containers via the container query in style.css.
-import { Download, File, FileArchive, FileAudio, FileImage, FileSpreadsheet, FileText, FileVideo, Folder, Link2 } from 'lucide-react';
+// viewports via the media query in style.css.
+import { Download, File, FileArchive, FileAudio, FileImage, FileSpreadsheet, FileText, FileVideo, Folder, Link2, MoreVertical } from 'lucide-react';
 import { formatBytes, formatWhen, isShortcut } from './lib';
 import { ELLIPSIS, EmptyFolder, OpenInEgnyte, Spinner } from './ui';
 
 const ICON_BTN = {
   background: 'none', border: 'none', cursor: 'pointer', padding: 5,
   display: 'inline-flex', alignItems: 'center', color: 'var(--wk-faint)', flexShrink: 0,
+  borderRadius: 6,
 };
 
 // Type recognition at a glance - the same trick every serious file manager
@@ -39,7 +44,7 @@ const FILE_VISUALS = [
 const VISUAL_BY_EXT = new Map();
 for (const v of FILE_VISUALS) for (const e of v.exts) VISUAL_BY_EXT.set(e, v);
 
-export function FileIcon({ name = '', size = 16 }) {
+export function FileIcon({ name = '', size = 17 }) {
   if (isShortcut(name)) return <Link2 size={size} style={{ color: 'var(--wk-faint)', flexShrink: 0 }} />;
   const ext = name.includes('.') ? name.split('.').pop().toLowerCase() : '';
   const v = VISUAL_BY_EXT.get(ext);
@@ -47,32 +52,42 @@ export function FileIcon({ name = '', size = 16 }) {
   return <Icon size={size} style={{ color: v?.color || 'var(--wk-faint)', flexShrink: 0 }} />;
 }
 
-export function FolderIcon({ size = 16 }) {
+export function FolderIcon({ size = 17 }) {
   return <Folder size={size} fill={FOLDER_FILL} style={{ color: FOLDER_EDGE, flexShrink: 0 }} />;
 }
 
 const CELL_META = { fontSize: 12, color: 'var(--wk-faint)', ...ELLIPSIS };
 
-// Actions column width: two icon slots. Fixed so the header caption row and
-// every file/folder row agree on where the grid ends.
-const ACTIONS_W = 62;
+// Actions column width: three icon slots (download · open · menu). Fixed so
+// the caption row and every row agree on where the grid ends.
+const ACTIONS_W = 92;
 
-function Row({ gridChildren, actions, onClick, onHover, title }) {
+const CHECK = {
+  width: 15, height: 15, accentColor: 'var(--wk-brand)', cursor: 'pointer',
+  margin: 0, flexShrink: 0,
+};
+
+function Row({ gridChildren, actions, onClick, onHover, title, checked, onCheck }) {
   return (
-    <div className="egnyte-row" style={{ display: 'flex', alignItems: 'center', minWidth: 0 }} onMouseEnter={onHover}>
+    <div className={`egnyte-row${checked ? ' is-selected' : ''}`} style={{ display: 'flex', alignItems: 'center', minWidth: 0 }} onMouseEnter={onHover}>
+      {onCheck && (
+        <span className="egx-check" style={{ display: 'inline-flex', paddingLeft: 10, flexShrink: 0 }}>
+          <input type="checkbox" checked={checked} onChange={onCheck} onClick={e => e.stopPropagation()} style={CHECK} aria-label="Select item" />
+        </span>
+      )}
       <button
         type="button"
         className="egx-cols"
         onClick={onClick}
         title={title}
         style={{
-          flex: 1, minWidth: 0, padding: '8px 10px', border: 'none', background: 'none',
+          flex: 1, minWidth: 0, padding: '10px 10px', border: 'none', background: 'none',
           textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit', color: 'var(--wk-ink)',
         }}
       >
         {gridChildren}
       </button>
-      <div className="egx-actions" style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 2, width: ACTIONS_W, paddingRight: 6, flexShrink: 0 }}>
+      <div className="egx-actions" style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 1, width: ACTIONS_W, paddingRight: 6, flexShrink: 0 }}>
         {actions}
       </div>
     </div>
@@ -86,16 +101,41 @@ export default function EgnyteListing({
   onHoverFolder,
   onDownload,
   onPreview,
+  onMenu,                 // (item, isFolder, anchorRect) - opens the row menu
+  selected,               // Set of paths, or undefined for no selection UI
+  onToggleSelect,         // (path) => void
+  onToggleAll,            // () => void
   downloadingPath = '',
   emptyLabel = 'This folder is empty.',
   emptyHint,
 }) {
   if (!folders.length && !files.length) return <EmptyFolder label={emptyLabel} hint={emptyHint} />;
 
+  const selectable = !!selected && !!onToggleSelect;
+  const total = folders.length + files.length;
+  const allChecked = selectable && total > 0 && selected.size >= total;
+
+  const menuBtn = (item, isFolder) => onMenu && (
+    <button
+      type="button"
+      style={ICON_BTN}
+      title="More actions"
+      aria-label={`Actions for ${item.name}`}
+      onClick={e => { e.stopPropagation(); onMenu(item, isFolder, e.currentTarget.getBoundingClientRect()); }}
+    >
+      <MoreVertical size={15} />
+    </button>
+  );
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
       {/* Column captions - same grid as the rows so they cannot drift. */}
       <div style={{ display: 'flex', alignItems: 'center', minWidth: 0, borderBottom: '1px solid var(--wk-line2)', marginBottom: 2 }}>
+        {selectable && (
+          <span style={{ display: 'inline-flex', paddingLeft: 10, flexShrink: 0 }}>
+            <input type="checkbox" checked={allChecked} onChange={onToggleAll} style={CHECK} aria-label="Select all" />
+          </span>
+        )}
         <div className="egx-cols" style={{ flex: 1, minWidth: 0, padding: '4px 10px 7px' }}>
           <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--wk-faint)' }}>Name</span>
           <span className="egx-col-meta" style={{ fontSize: 11, fontWeight: 600, color: 'var(--wk-faint)' }}>Modified</span>
@@ -110,17 +150,24 @@ export default function EgnyteListing({
           title={f.path}
           onClick={() => onOpenFolder?.(f.path, f.webUrl)}
           onHover={onHoverFolder ? () => onHoverFolder(f.path) : undefined}
+          checked={selectable ? selected.has(f.path) : false}
+          onCheck={selectable ? () => onToggleSelect(f.path) : undefined}
           gridChildren={
             <>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
                 <FolderIcon />
-                <span style={{ fontSize: 13.5, fontWeight: 600, ...ELLIPSIS }}>{f.name}</span>
+                <span style={{ fontSize: 14, fontWeight: 600, ...ELLIPSIS }}>{f.name}</span>
               </span>
               <span className="egx-col-meta" style={CELL_META}>{formatWhen(f.modified) || ''}</span>
               <span className="egx-col-meta" style={CELL_META} />
             </>
           }
-          actions={<OpenInEgnyte url={f.webUrl} iconOnly />}
+          actions={
+            <>
+              <OpenInEgnyte url={f.webUrl} iconOnly />
+              {menuBtn(f, true)}
+            </>
+          }
         />
       ))}
 
@@ -136,11 +183,13 @@ export default function EgnyteListing({
             key={`f:${f.path}`}
             title={opensViewer ? `View ${f.name}` : `Download ${f.name}`}
             onClick={() => { if (busy) return; if (opensViewer) onPreview(f); else onDownload?.(f); }}
+            checked={selectable ? selected.has(f.path) : false}
+            onCheck={selectable ? () => onToggleSelect(f.path) : undefined}
             gridChildren={
               <>
-                <span style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
-                  {busy ? <Spinner size={16} /> : <FileIcon name={f.name} />}
-                  <span style={{ fontSize: 13.5, ...ELLIPSIS }}>{f.name}</span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                  {busy ? <Spinner size={17} /> : <FileIcon name={f.name} />}
+                  <span style={{ fontSize: 14, ...ELLIPSIS }}>{f.name}</span>
                 </span>
                 <span className="egx-col-meta" style={CELL_META}>
                   {[formatWhen(f.modified), f.uploadedBy].filter(Boolean).join(' · ')}
@@ -160,6 +209,7 @@ export default function EgnyteListing({
                   <Download size={14} />
                 </button>
                 <OpenInEgnyte url={f.webUrl} iconOnly />
+                {menuBtn(f, false)}
               </>
             }
           />

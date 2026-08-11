@@ -407,6 +407,32 @@ def create_folder(path: str, token: str | None = None) -> dict[str, Any]:
     return {"path": target, "created": True, "existed": False}
 
 
+def move_item(path: str, destination: str, token: str | None = None) -> dict[str, Any]:
+    """Move (or rename - same verb, destination carries the new name) a file or
+    folder. Destination is the FULL new path including the item's name."""
+    src, dest = norm(path), norm(destination)
+    resp = _send("POST", f"{base_url()}{_FS}{_url_path(src)}", token,
+                 json={"action": "move", "destination": dest}, timeout=TIMEOUT_META)
+    _raise(resp, "Could not move that item in Egnyte")
+    return {"path": dest, "from": src}
+
+
+def copy_item(path: str, destination: str, token: str | None = None) -> dict[str, Any]:
+    resp = _send("POST", f"{base_url()}{_FS}{_url_path(norm(path))}", token,
+                 json={"action": "copy", "destination": norm(destination)}, timeout=TIMEOUT_META)
+    _raise(resp, "Could not copy that item in Egnyte")
+    return {"path": norm(destination), "from": norm(path)}
+
+
+def delete_item(path: str, token: str | None = None) -> dict[str, Any]:
+    """Delete a file or folder. Egnyte moves it to its own Trash, where it can
+    be restored from the Egnyte UI - this is not a hard destroy."""
+    target = norm(path)
+    resp = _send("DELETE", f"{base_url()}{_FS}{_url_path(target)}", token, timeout=TIMEOUT_META)
+    _raise(resp, "Could not delete that item in Egnyte")
+    return {"path": target, "deleted": True}
+
+
 # ── linking ──────────────────────────────────────────────────────────────────
 
 def web_url(path: str) -> str:

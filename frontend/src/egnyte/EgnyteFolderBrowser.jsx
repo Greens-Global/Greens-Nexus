@@ -11,20 +11,34 @@
 // either cramped or the wrong scope. The .egx-* layout classes respond to the
 // CONTAINER, so the same markup collapses to a single pane in narrow homes.
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Check, ChevronRight, FolderPlus, HardDrive, RefreshCw, Search, X } from 'lucide-react';
+import {
+  Bookmark, Check, ChevronRight, Copy, Download, ExternalLink, Eye, FolderInput,
+  FolderPlus, HardDrive, Link2, PenLine, RefreshCw, Search, Trash2, X,
+} from 'lucide-react';
 import { api } from '../api';
 import {
-  crumbsFor, downloadEgnyteFile, egnyteErrorMessage, getFolderCached,
+  canPreview, crumbsFor, downloadEgnyteFile, egnyteErrorMessage, getFolderCached,
   invalidateFolder, isNotConnected, isShortcut, normPath, prefetchChildren,
   prefetchFolder,
 } from './lib';
+import FolderPickModal from './EgnyteFolderPick';
 import EgnyteListing from './EgnyteList';
 import EgnytePreview from './EgnytePreview';
 import EgnyteTree from './EgnyteTree';
 import EgnyteUpload from './EgnyteUpload';
 import {
-  BODY, CARD, ConnectRequired, ELLIPSIS, Loading, NotConnected, Notice, OpenInEgnyte, ProblemNote, Spinner,
+  BODY, CARD, ConnectRequired, EgnyteDialog, EgnyteMenu, ELLIPSIS, Loading,
+  NotConnected, Notice, OpenInEgnyte, ProblemNote, Spinner,
 } from './ui';
+
+const BOOKMARKS_KEY = 'egx-bookmarks';
+
+function loadBookmarks() {
+  try {
+    const v = JSON.parse(localStorage.getItem(BOOKMARKS_KEY) || '[]');
+    return Array.isArray(v) ? v.filter(b => b && b.path) : [];
+  } catch { return []; }
+}
 
 export default function EgnyteFolderBrowser({
   initialPath = '',
@@ -96,12 +110,35 @@ export default function EgnyteFolderBrowser({
 
   useEffect(() => { load(initialPath); }, [load, initialPath]);
 
+  // ── selection, bookmarks, row-menu, file-manager verbs (Aug 11) ──
+  const [selected, setSelected] = useState(() => new Set());
+  const [menu, setMenu] = useState(null);              // {item, isFolder, rect}
+  const [renameTarget, setRenameTarget] = useState(null);
+  const [renameName, setRenameName] = useState('');
+  const [confirmDelete, setConfirmDelete] = useState(null);   // [paths]
+  const [destPick, setDestPick] = useState(null);      // {mode: 'move'|'copy', paths}
+  const [bulkBusy, setBulkBusy] = useState('');
+  const [bookmarks, setBookmarks] = useState(loadBookmarks);
+
+  const saveBookmarks = (next) => {
+    setBookmarks(next);
+    try { localStorage.setItem(BOOKMARKS_KEY, JSON.stringify(next)); } catch { /* private mode */ }
+  };
+  const isBookmarked = (p) => bookmarks.some(b => normPath(b.path) === normPath(p));
+  const toggleBookmark = (p, name) => {
+    const key = normPath(p);
+    saveBookmarks(isBookmarked(key)
+      ? bookmarks.filter(b => normPath(b.path) !== key)
+      : [...bookmarks, { path: key, name: name || key.split('/').pop() }]);
+  };
+
   const openFolder = (p, url) => {
     if (url) webUrls.current.set(normPath(p), url);
     setResults(null);
     setSearchTerm('');
     setQuery('');
     setNewFolderOpen(false);
+    setSelected(new Set());
     load(p);
   };
 
@@ -153,6 +190,128 @@ export default function EgnyteFolderBrowser({
       })
       .catch(err => setRowError(egnyteErrorMessage(err, 'Could not create that folder.')))
       .finally(() => setCreating(false));
+  };
+
+  // After any mutation: drop the cached listing, refresh the pane and the tree
+  // node, clear the selection - the screen must show what Egnyte now holds.
+  const afterMutate = () => {
+    invalidateFolder(path);
+    setTreeSync(s => ({ path, seq: s.seq + 1 }));
+    setSelected(new Set());
+    load(path, { force: true });
+  };
+
+  const allItems = [...(data?.folders || []), ...(data?.files || [])];
+  const toggleSelect = (p) => setSelected(prev => {
+    const n = new Set(prev);
+    if (n.has(p)) n.delete(p); else n.add(p);
+    return n;
+  });
+  const toggleAll = () => setSelected(prev => (
+    prev.size >= allItems.length ? new Set() : new Set(allItems.map(i => i.path))
+  ));
+
+  const parentOfPath = (p) => normPath(p).slice(0, normPath(p).lastIndexOf('/')) || '/';
+  const nameOfPath = (p) => normPath(p).split('/').pop();
+
+  const doRename = async () => {
+    const nn = renameName.trim();
+    if (!nn || !renameTarget) return;
+    setBulkBusy('Renaming…');
+    setRowError('');
+    try {
+      await api.egnyteMove(renameTarget.path, `${parentOfPath(renameTarget.path)}/${nn}`);
+      setRenameTarget(null);
+      afterMutate();
+    } catch (err) {
+      setRowError(egnyteErrorMessage(err, `Could not rename ${renameTarget.name}.`));
+    } finally {
+      setBulkBusy('');
+    }
+  };
+
+  const doDelete = async () => {
+    const paths = confirmDelete || [];
+    setConfirmDelete(null);
+    setBulkBusy(`Deleting ${paths.length} item${paths.length === 1 ? '' : 's'}…`);
+    setRowError('');
+    try {
+      for (const p of paths) await api.egnyteDelete(p);
+      afterMutate();
+    } catch (err) {
+      setRowError(egnyteErrorMessage(err, 'Could not delete some of the items.'));
+      afterMutate();
+    } finally {
+      setBulkBusy('');
+    }
+  };
+
+  const doMoveCopy = async (destFolder) => {
+    const { mode, paths } = destPick || {};
+    setDestPick(null);
+    if (!paths?.length) return;
+    const verb = mode === 'move' ? 'Moving' : 'Copying';
+    setBulkBusy(`${verb} ${paths.length} item${paths.length === 1 ? '' : 's'}…`);
+    setRowError('');
+    const call = mode === 'move' ? api.egnyteMove : api.egnyteCopy;
+    try {
+      for (const p of paths) {
+        await call(p, `${normPath(destFolder)}/${nameOfPath(p)}`);
+        invalidateFolder(parentOfPath(p));
+      }
+      invalidateFolder(destFolder);
+      afterMutate();
+    } catch (err) {
+      setRowError(egnyteErrorMessage(err, `Could not ${mode} some of the items.`));
+      afterMutate();
+    } finally {
+      setBulkBusy('');
+    }
+  };
+
+  const downloadSelected = async () => {
+    const files = allItems.filter(i => selected.has(i.path) && !(data?.folders || []).some(f => f.path === i.path));
+    setBulkBusy(`Downloading ${files.length} file${files.length === 1 ? '' : 's'}…`);
+    try {
+      for (const f of files) await downloadEgnyteFile(f.path, f.name);
+    } catch (err) {
+      setRowError(egnyteErrorMessage(err, 'Could not download some of the files.'));
+    } finally {
+      setBulkBusy('');
+    }
+  };
+
+  const copyEgnyteLink = (item) => {
+    if (item.webUrl) navigator.clipboard?.writeText(item.webUrl).catch(() => {});
+  };
+
+  // The "⋯" menu for one row. Write verbs appear only with write access; the
+  // caller's own Egnyte permissions still decide server-side, and a refusal
+  // surfaces as the row error.
+  const menuItems = (item, isFolder) => {
+    const write = canWrite;
+    return [
+      isFolder
+        ? { label: 'Open', icon: <FolderInput size={14} />, onClick: () => openFolder(item.path, item.webUrl) }
+        : (canPreview(item) && !isShortcut(item.name)
+          ? { label: 'View', icon: <Eye size={14} />, onClick: () => setPreview(item) }
+          : null),
+      !isFolder && { label: 'Download', icon: <Download size={14} />, onClick: () => download(item) },
+      isFolder && {
+        label: isBookmarked(item.path) ? 'Remove bookmark' : 'Add bookmark',
+        icon: <Bookmark size={14} />,
+        onClick: () => toggleBookmark(item.path, item.name),
+      },
+      'divider',
+      write && { label: 'Rename', icon: <PenLine size={14} />, onClick: () => { setRenameTarget(item); setRenameName(item.name); } },
+      write && { label: 'Move to…', icon: <FolderInput size={14} />, onClick: () => setDestPick({ mode: 'move', paths: [item.path] }) },
+      write && { label: 'Copy to…', icon: <Copy size={14} />, onClick: () => setDestPick({ mode: 'copy', paths: [item.path] }) },
+      write && 'divider',
+      item.webUrl && { label: 'Copy Egnyte link', icon: <Link2 size={14} />, onClick: () => copyEgnyteLink(item) },
+      item.webUrl && { label: 'Open in Egnyte', icon: <ExternalLink size={14} />, onClick: () => window.open(item.webUrl, '_blank', 'noopener') },
+      write && 'divider',
+      write && { label: 'Delete', icon: <Trash2 size={14} />, danger: true, onClick: () => setConfirmDelete([item.path]) },
+    ];
   };
 
   // ── resizable tree pane ──
@@ -311,6 +470,43 @@ export default function EgnyteFolderBrowser({
 
       {rowError && <Notice tone="error" onDismiss={() => setRowError('')}>{rowError}</Notice>}
 
+      {bulkBusy && (
+        <div style={{ ...CARD, padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 9, fontSize: 12.5, color: 'var(--wk-dim)' }}>
+          <Spinner size={14} /> {bulkBusy}
+        </div>
+      )}
+
+      {/* ── Selection action bar - appears when anything is checked ── */}
+      {!bulkBusy && selected.size > 0 && (
+        <div className="egx-selbar" style={{ ...CARD, padding: '7px 12px', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--wk-ink)', marginRight: 6 }}>
+            {selected.size} selected
+          </span>
+          <button type="button" className="secondary-btn" onClick={downloadSelected}
+            disabled={![...selected].some(p => (data?.files || []).some(f => f.path === p))}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <Download size={13} /> Download
+          </button>
+          {canWrite && (
+            <>
+              <button type="button" className="secondary-btn" onClick={() => setDestPick({ mode: 'move', paths: [...selected] })} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <FolderInput size={13} /> Move
+              </button>
+              <button type="button" className="secondary-btn" onClick={() => setDestPick({ mode: 'copy', paths: [...selected] })} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <Copy size={13} /> Copy
+              </button>
+              <button type="button" className="egx-danger-btn" onClick={() => setConfirmDelete([...selected])} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <Trash2 size={13} /> Delete
+              </button>
+            </>
+          )}
+          <button type="button" onClick={() => setSelected(new Set())} title="Clear selection" aria-label="Clear selection"
+            style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--wk-dim)', padding: 5, display: 'inline-flex', borderRadius: 6 }}>
+            <X size={15} />
+          </button>
+        </div>
+      )}
+
       {/* ── Upload into the folder currently being viewed ── */}
       {showUpload && !results && (
         <EgnyteUpload folder={path} canWrite={canWrite} onUploaded={() => { invalidateFolder(path); load(path, { force: true }); }} />
@@ -365,6 +561,10 @@ export default function EgnyteFolderBrowser({
             onHoverFolder={prefetchFolder}
             onDownload={download}
             onPreview={setPreview}
+            onMenu={onPick ? undefined : (item, isFolder, rect) => setMenu({ item, isFolder, rect })}
+            selected={onPick ? undefined : selected}
+            onToggleSelect={onPick ? undefined : toggleSelect}
+            onToggleAll={onPick ? undefined : toggleAll}
             downloadingPath={downloading}
             emptyLabel="This folder is empty."
             emptyHint={canWrite ? 'Drop a file here to add the first one.' : undefined}
@@ -383,7 +583,14 @@ export default function EgnyteFolderBrowser({
       {showTree ? (
         <div className="egx-layout" style={{ '--egx-tree-w': `${treeW}px` }}>
           <aside className="egx-tree-pane" style={{ ...CARD, padding: '8px 6px', minWidth: 0 }}>
-            <EgnyteTree currentPath={path} onSelect={openFolder} refreshSignal={treeSync} rootLabel={rootLabel} />
+            <EgnyteTree
+              currentPath={path}
+              onSelect={openFolder}
+              refreshSignal={treeSync}
+              rootLabel={rootLabel}
+              bookmarks={bookmarks}
+              onRemoveBookmark={(p) => toggleBookmark(p)}
+            />
           </aside>
           <div
             className={`egx-divider${draggingPane ? ' is-dragging' : ''}`}
@@ -409,6 +616,67 @@ export default function EgnyteFolderBrowser({
           onNav={navIndex >= 0 && navList.length > 1 ? navTo : null}
           navIndex={navIndex}
           navCount={navList.length}
+        />
+      )}
+
+      {menu && (
+        <EgnyteMenu
+          anchorRect={menu.rect}
+          items={menuItems(menu.item, menu.isFolder)}
+          onClose={() => setMenu(null)}
+        />
+      )}
+
+      {renameTarget && (
+        <EgnyteDialog
+          title={`Rename ${renameTarget.name}`}
+          onClose={() => setRenameTarget(null)}
+          footer={
+            <>
+              <button type="button" className="secondary-btn" onClick={() => setRenameTarget(null)}>Cancel</button>
+              <button type="button" className="primary-btn" disabled={!renameName.trim() || renameName.trim() === renameTarget.name} onClick={doRename}>
+                Rename
+              </button>
+            </>
+          }
+        >
+          <input
+            className="form-input"
+            autoFocus
+            value={renameName}
+            onChange={e => setRenameName(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') doRename(); }}
+            style={{ width: '100%' }}
+          />
+        </EgnyteDialog>
+      )}
+
+      {confirmDelete && (
+        <EgnyteDialog
+          title={`Delete ${confirmDelete.length === 1 ? nameOfPath(confirmDelete[0]) : `${confirmDelete.length} items`}?`}
+          onClose={() => setConfirmDelete(null)}
+          footer={
+            <>
+              <button type="button" className="secondary-btn" onClick={() => setConfirmDelete(null)}>Cancel</button>
+              <button type="button" className="egx-danger-btn" onClick={doDelete} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <Trash2 size={13} /> Delete
+              </button>
+            </>
+          }
+        >
+          {confirmDelete.length === 1
+            ? 'It moves to Egnyte\'s Trash and can be restored from the Egnyte app.'
+            : `These ${confirmDelete.length} items move to Egnyte's Trash and can be restored from the Egnyte app.`}
+        </EgnyteDialog>
+      )}
+
+      {destPick && (
+        <FolderPickModal
+          startPath={path}
+          title={destPick.mode === 'move' ? 'Move To' : 'Copy To'}
+          hint={`Browse to the destination folder, then press "Use This Folder" to ${destPick.mode} ${destPick.paths.length === 1 ? nameOfPath(destPick.paths[0]) : `${destPick.paths.length} items`} there.`}
+          onPick={doMoveCopy}
+          onClose={() => setDestPick(null)}
         />
       )}
     </div>

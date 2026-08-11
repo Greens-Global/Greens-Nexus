@@ -5,31 +5,35 @@
 // the mount. Selecting a node hands the path to the browser; expanding it never
 // navigates, so the two gestures stay independent exactly like every desktop
 // file manager users already know.
+//
+// Bookmarks (Aug 11, Egnyte-parity): a pinned section above the tree. The
+// browser owns the list (localStorage) and passes it down; here they are just
+// rows that navigate, with a remove control on hover.
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ChevronRight, Folder, HardDrive } from 'lucide-react';
+import { Bookmark, ChevronRight, Folder, HardDrive, X } from 'lucide-react';
 import { crumbsFor, getFolderCached, invalidateFolder, normPath, prefetchChildren, prefetchFolder } from './lib';
 import { ELLIPSIS, Spinner } from './ui';
 
 const FOLDER_FILL = '#fdb64c';
 const FOLDER_EDGE = '#ec9d29';
 
-function TreeRow({ depth, active, hasChildren, expanded, loading, label, icon, onToggle, onSelect, onHover, title }) {
+function TreeRow({ depth, active, hasChildren, expanded, loading, label, icon, onToggle, onSelect, onHover, title, trailing }) {
   return (
-    <div className={`egx-tree-row${active ? ' is-active' : ''}`} style={{ paddingLeft: depth * 14 }} onMouseEnter={onHover}>
+    <div className={`egx-tree-row${active ? ' is-active' : ''}`} style={{ paddingLeft: depth * 15 }} onMouseEnter={onHover}>
       {hasChildren ? (
         <button
           type="button"
           aria-label={expanded ? `Collapse ${label}` : `Expand ${label}`}
           aria-expanded={expanded}
           onClick={onToggle}
-          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 3, display: 'inline-flex', alignItems: 'center', color: 'var(--wk-faint)', flexShrink: 0 }}
+          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, display: 'inline-flex', alignItems: 'center', color: 'var(--wk-faint)', flexShrink: 0 }}
         >
           {loading
-            ? <Spinner size={12} />
-            : <ChevronRight size={13} style={{ transform: expanded ? 'rotate(90deg)' : 'none', transition: 'transform .12s' }} />}
+            ? <Spinner size={13} />
+            : <ChevronRight size={14} style={{ transform: expanded ? 'rotate(90deg)' : 'none', transition: 'transform .15s ease' }} />}
         </button>
       ) : (
-        <span style={{ width: 19, flexShrink: 0 }} />
+        <span style={{ width: 22, flexShrink: 0 }} />
       )}
       <button
         type="button"
@@ -37,20 +41,21 @@ function TreeRow({ depth, active, hasChildren, expanded, loading, label, icon, o
         onClick={onSelect}
         title={title || label}
         style={{
-          flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 7,
-          background: 'none', border: 'none', cursor: 'pointer', padding: '5px 6px 5px 0',
-          fontFamily: 'inherit', fontSize: 13, fontWeight: active ? 700 : 500,
+          flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 8,
+          background: 'none', border: 'none', cursor: 'pointer', padding: '7px 6px 7px 0',
+          fontFamily: 'inherit', fontSize: 13.5, fontWeight: active ? 700 : 500,
           color: active ? 'var(--wk-brand)' : 'var(--wk-ink)', textAlign: 'left',
         }}
       >
         {icon}
         <span style={ELLIPSIS}>{label}</span>
       </button>
+      {trailing}
     </div>
   );
 }
 
-export default function EgnyteTree({ currentPath = '', onSelect, refreshSignal, rootLabel = 'All files' }) {
+export default function EgnyteTree({ currentPath = '', onSelect, refreshSignal, rootLabel = 'All files', bookmarks = [], onRemoveBookmark }) {
   // path -> array of {name, path, webUrl} once loaded; 'error' when the fetch
   // failed (rendered as a quiet retry row, never as a blank hole).
   const [children, setChildren] = useState(() => new Map());
@@ -100,8 +105,8 @@ export default function EgnyteTree({ currentPath = '', onSelect, refreshSignal, 
     chain.forEach(p => { if (!children.has(p)) loadChildren(p); });
   }, [currentPath, children, loadChildren]);
 
-  // The browser bumps this after a folder is created so the affected node
-  // refetches instead of showing a stale list.
+  // The browser bumps this after a folder is created/moved/deleted so the
+  // affected node refetches instead of showing a stale list.
   const lastSeq = useRef(0);
   useEffect(() => {
     if (!refreshSignal?.seq || refreshSignal.seq === lastSeq.current) return;
@@ -132,7 +137,7 @@ export default function EgnyteTree({ currentPath = '', onSelect, refreshSignal, 
           type="button"
           key={`err:${path}`}
           onClick={() => loadChildren(path)}
-          style={{ marginLeft: depth * 14 + 19, background: 'none', border: 'none', cursor: 'pointer', padding: '4px 6px', fontFamily: 'inherit', fontSize: 12, color: 'var(--wk-faint)', textAlign: 'left' }}
+          style={{ marginLeft: depth * 15 + 22, background: 'none', border: 'none', cursor: 'pointer', padding: '4px 6px', fontFamily: 'inherit', fontSize: 12, color: 'var(--wk-faint)', textAlign: 'left' }}
         >
           Could not load - retry
         </button>
@@ -156,12 +161,12 @@ export default function EgnyteTree({ currentPath = '', onSelect, refreshSignal, 
             loading={loadingPaths.has(node.path)}
             label={node.name}
             title={node.path}
-            icon={<Folder size={15} fill={FOLDER_FILL} style={{ color: FOLDER_EDGE, flexShrink: 0 }} />}
+            icon={<Folder size={16} fill={FOLDER_FILL} style={{ color: FOLDER_EDGE, flexShrink: 0 }} />}
             onToggle={() => toggle(node.path)}
             onSelect={() => onSelect?.(node.path, node.webUrl)}
             onHover={() => prefetchFolder(node.path)}
           />
-          {open && renderLevel(node.path, depth + 1)}
+          {open && <div className="egx-tree-kids">{renderLevel(node.path, depth + 1)}</div>}
         </div>
       );
     });
@@ -171,6 +176,42 @@ export default function EgnyteTree({ currentPath = '', onSelect, refreshSignal, 
 
   return (
     <nav aria-label="Egnyte folders" style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+      {bookmarks.length > 0 && (
+        <>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '5px 6px 4px', color: 'var(--wk-dim)', fontSize: 11.5, fontWeight: 600 }}>
+            <Bookmark size={13} /> Bookmarks
+          </div>
+          {bookmarks.map(b => (
+            <TreeRow
+              key={`bm:${b.path}`}
+              depth={0}
+              active={normPath(currentPath) === normPath(b.path)}
+              hasChildren={false}
+              expanded={false}
+              loading={false}
+              label={b.name}
+              title={b.path}
+              icon={<Folder size={16} fill={FOLDER_FILL} style={{ color: FOLDER_EDGE, flexShrink: 0 }} />}
+              onSelect={() => onSelect?.(b.path, '')}
+              onHover={() => prefetchFolder(b.path)}
+              trailing={onRemoveBookmark && (
+                <button
+                  type="button"
+                  className="egx-bm-remove"
+                  title={`Remove bookmark ${b.name}`}
+                  aria-label={`Remove bookmark ${b.name}`}
+                  onClick={e => { e.stopPropagation(); onRemoveBookmark(b.path); }}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--wk-faint)', padding: 4, display: 'inline-flex', flexShrink: 0, borderRadius: 5 }}
+                >
+                  <X size={13} />
+                </button>
+              )}
+            />
+          ))}
+          <div style={{ height: 1, background: 'var(--wk-line2)', margin: '6px 4px' }} />
+        </>
+      )}
+
       <TreeRow
         depth={0}
         active={!normPath(currentPath)}
@@ -178,11 +219,11 @@ export default function EgnyteTree({ currentPath = '', onSelect, refreshSignal, 
         expanded
         loading={false}
         label={rootLabel}
-        icon={<HardDrive size={15} style={{ color: 'var(--wk-dim)', flexShrink: 0 }} />}
+        icon={<HardDrive size={16} style={{ color: 'var(--wk-dim)', flexShrink: 0 }} />}
         onSelect={() => onSelect?.('', '')}
       />
       {rootLoading && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 6px 8px 19px', color: 'var(--wk-faint)', fontSize: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 6px 8px 22px', color: 'var(--wk-faint)', fontSize: 12 }}>
           <Spinner size={13} /> Loading folders…
         </div>
       )}

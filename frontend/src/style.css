@@ -3622,6 +3622,41 @@ button, [role="button"], select { touch-action: manipulation; }
 .egnyte-row:focus-within .egx-actions { opacity: 1; }
 @media (hover: none) { .egx-actions { opacity: 1; } }
 
+/* Selection checkboxes mirror the actions reveal, but a checked row keeps its
+   checkbox (and its tint) so a selection is never invisible. */
+.egx-check { opacity: 0; transition: opacity .12s; }
+.egnyte-row:hover .egx-check,
+.egnyte-row:focus-within .egx-check,
+.egnyte-row.is-selected .egx-check { opacity: 1; }
+@media (hover: none) { .egx-check { opacity: 1; } }
+.egnyte-row.is-selected { background: color-mix(in srgb, var(--wk-brand) 7%, transparent); }
+.egnyte-row.is-selected:hover { background: color-mix(in srgb, var(--wk-brand) 11%, transparent); }
+
+/* Interaction feedback - press states and hover transitions. */
+.egnyte-row { transition: background .12s; }
+.egnyte-row:active { background: color-mix(in srgb, var(--wk-brand) 9%, transparent); }
+.egx-tree-row { transition: background .12s; }
+.egx-tree-row:active { background: color-mix(in srgb, var(--wk-brand) 9%, transparent); }
+.egx-menu-item { transition: background .1s; }
+.egx-menu-item:hover:not(:disabled) { background: var(--wk-hover); }
+.egx-bm-remove { opacity: 0; transition: opacity .12s; }
+.egx-tree-row:hover .egx-bm-remove,
+.egx-tree-row:focus-within .egx-bm-remove { opacity: 1; }
+@media (hover: none) { .egx-bm-remove { opacity: 1; } }
+
+/* Motion: one vocabulary - menus and dialogs pop, revealed lists slide in.
+   All of it sits behind prefers-reduced-motion. */
+@media (prefers-reduced-motion: no-preference) {
+  .egx-menu { animation: egxPop .14s cubic-bezier(.16, 1, .3, 1); transform-origin: top right; }
+  .egx-pop { animation: egxPop .16s cubic-bezier(.16, 1, .3, 1); }
+  .egx-overlay { animation: egxFade .15s ease; }
+  .egx-tree-kids { animation: egxReveal .16s ease-out; }
+  .egx-selbar { animation: egxReveal .15s ease-out; }
+}
+@keyframes egxPop { from { opacity: 0; transform: scale(.97) translateY(-4px); } }
+@keyframes egxFade { from { opacity: 0; } }
+@keyframes egxReveal { from { opacity: 0; transform: translateY(-4px); } }
+
 /* Quiet-destructive button (Disconnect): tinted red so it reads alive but not
    alarming - the visual weight of a secondary action with a clear consequence. */
 .egx-danger-btn {

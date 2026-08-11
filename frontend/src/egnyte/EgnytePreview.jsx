@@ -130,6 +130,7 @@ export default function EgnytePreview({ file, onClose, onNav = null, navIndex = 
   return (
     <div
       role="presentation"
+      className="egx-overlay"
       onMouseDown={e => { if (e.target === e.currentTarget) onClose?.(); }}
       style={{
         position: 'fixed', inset: 0, zIndex: 1200, background: 'rgba(15,18,24,.55)',
@@ -137,7 +138,7 @@ export default function EgnytePreview({ file, onClose, onNav = null, navIndex = 
         backdropFilter: 'blur(2px)',
       }}
     >
-      <div role="dialog" aria-modal="true" aria-label={file.name} style={{ ...SHEET, position: 'relative' }}>
+      <div role="dialog" aria-modal="true" aria-label={file.name} className="egx-pop" style={{ ...SHEET, position: 'relative' }}>
 
         {hasPrev && (
           <button type="button" className="egx-navbtn" style={{ left: 12 }} title="Previous file (←)" aria-label="Previous file" onClick={() => onNav(-1)}>
