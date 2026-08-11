@@ -130,7 +130,11 @@ function KpiBarWidget({ config, kpis }) {
   const max = Math.max(1, ...rows.map(r => r.v));
   return (
     <DashCard title="At a Glance">
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12, height: '100%', justifyContent: 'center' }}>
+      {/* Top-aligned, natural height - height:100% + justify center inside the
+          card's scroll container CLIPPED the first rows whenever content ran
+          taller than the card (flexbox centers overflow off the top, where
+          scrolling can't reach). Same fix in Quick Actions. */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         {rows.map(r => (
           <div key={r.m} onClick={() => r.meta.nav && navigate(r.meta.nav.view, r.meta.nav.sub)} style={{ cursor: r.meta.nav ? 'pointer' : 'default' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, marginBottom: 4 }}>
@@ -207,7 +211,7 @@ function QuickActionsWidget() {
   // Same row anatomy as DeskHome's quick actions - icon chip, label, chevron.
   return (
     <DashCard title="Quick Actions" sub={note || undefined}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, height: '100%', justifyContent: 'center' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
         {ACTIONS.map(a => (
           <button key={a.label} className="dk-key"
             onClick={() => a.act ? setModal(a.act) : navigate(a.view, a.sub)}>
@@ -342,7 +346,7 @@ export const WIDGETS = {
   'kpi-bar':     { title: 'KPI Bar Chart',   cat: 'Metrics',   icon: BarChart3,    size: { w: 4, h: 3 }, limits: { minW: 3, minH: 3, maxW: 6, maxH: 5 }, render: KpiBarWidget },
   shortcut:      { title: 'Shortcut Tile',   cat: 'Navigation', icon: Layers,      size: { w: 3, h: 2 }, limits: STAT_LIMITS, render: ShortcutWidget,     configurable: 'shortcut' },
   links:         { title: 'Quick Links',     cat: 'Navigation', icon: ExternalLink, size: { w: 3, h: 4 }, limits: { minW: 2, minH: 3, maxW: 4, maxH: 6 }, render: LinksWidget },
-  'quick-actions': { title: 'Quick Actions', cat: 'Navigation', icon: Zap,         size: { w: 3, h: 4 }, limits: { minW: 3, minH: 2, maxW: 6, maxH: 5 }, render: QuickActionsWidget },
+  'quick-actions': { title: 'Quick Actions', cat: 'Navigation', icon: Zap,         size: { w: 3, h: 4 }, limits: { minW: 3, minH: 2, maxW: 6, maxH: 6 }, render: QuickActionsWidget },
   notifications: { title: 'Notifications',   cat: 'Live',      icon: Bell,         size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 6 }, render: NotificationsWidget },
   agenda:        { title: 'My Agenda',       cat: 'Live',      icon: CalendarDays, size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 7 }, render: AgendaPanel },
   clock:         { title: 'Clock & Greeting', cat: 'Utility',  icon: Clock,        size: { w: 3, h: 3 }, limits: { minW: 2, minH: 2, maxW: 4, maxH: 4 }, render: ClockWidget },

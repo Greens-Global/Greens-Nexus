@@ -18,10 +18,12 @@ const DEFAULTS = {
     { i: 'd6', type: 'kpi',           x: 9, y: 0, w: 3, h: 2, config: { metric: 'unread_notifications' } },
     { i: 'd7', type: 'notifications', x: 0, y: 2, w: 6, h: 5 },
     { i: 'd9', type: 'kpi-bar',       x: 6, y: 2, w: 3, h: 5 },
-    { i: 'd2', type: 'quick-actions', x: 9, y: 2, w: 3, h: 5 },
+    // h6: all six action rows fit without a scrollbar at the 72px row unit.
+    { i: 'd2', type: 'quick-actions', x: 9, y: 2, w: 3, h: 6 },
     // My Agenda (Outlook). Shows a quiet explainer for non-M365 accounts.
     { i: 'd10', type: 'agenda',       x: 0, y: 7, w: 6, h: 4 },
-    { i: 'd8', type: 'links',         x: 6, y: 7, w: 3, h: 4 },
+    // h5: six link rows + header need ~260px - at h4 the last row clipped.
+    { i: 'd8', type: 'links',         x: 6, y: 7, w: 3, h: 5 },
   ],
   'manager-dashboard': [
     { i: 'm1', type: 'team-attendance', x: 0, y: 0, w: 3, h: 2 },
