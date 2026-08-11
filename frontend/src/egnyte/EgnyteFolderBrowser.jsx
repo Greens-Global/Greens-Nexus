@@ -15,7 +15,8 @@ import { Check, ChevronRight, FolderPlus, HardDrive, RefreshCw, Search, X } from
 import { api } from '../api';
 import {
   crumbsFor, downloadEgnyteFile, egnyteErrorMessage, getFolderCached,
-  invalidateFolder, isNotConnected, isShortcut, normPath, prefetchFolder,
+  invalidateFolder, isNotConnected, isShortcut, normPath, prefetchChildren,
+  prefetchFolder,
 } from './lib';
 import EgnyteListing from './EgnyteList';
 import EgnytePreview from './EgnytePreview';
@@ -81,6 +82,8 @@ export default function EgnyteFolderBrowser({
         setPath(next);
         setFolderUrl(webUrls.current.get(next) || '');
         for (const f of d?.folders || []) if (f.webUrl) webUrls.current.set(normPath(f.path), f.webUrl);
+        // Warm the folders now on screen so the next click opens instantly.
+        prefetchChildren(d);
       })
       .catch(err => {
         setData(null);

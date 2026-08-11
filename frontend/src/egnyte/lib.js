@@ -61,8 +61,8 @@ export function crumbsFor(path) {
 // makes all of that instant after the first fetch, without ever holding a
 // listing long enough to feel stale. Mutations (upload, new folder) invalidate
 // their folder so the next read is live.
-const FOLDER_TTL_MS = 60 * 1000;
-const FOLDER_CACHE_MAX = 300;
+const FOLDER_TTL_MS = 5 * 60 * 1000;
+const FOLDER_CACHE_MAX = 500;
 const _folderCache = new Map();      // path -> { t, data }
 const _folderInflight = new Map();   // path -> Promise
 
@@ -94,6 +94,35 @@ export function invalidateFolder(path) {
 // listing so the click that follows lands on the cache.
 export function prefetchFolder(path) {
   getFolderCached(path).catch(() => {});
+}
+
+// The "feels like Egnyte" trick: whenever a listing arrives, quietly fetch the
+// listings of the folders it shows, so the next click is already cached.
+// Concurrency-capped (Egnyte rate-limits per user) and skipping anything
+// cached or in flight, so the queue costs at most one burst per new folder.
+const PREFETCH_CONCURRENCY = 2;
+const _prefetchQueue = [];
+let _prefetchActive = 0;
+
+function _pumpPrefetch() {
+  while (_prefetchActive < PREFETCH_CONCURRENCY && _prefetchQueue.length) {
+    const path = _prefetchQueue.shift();
+    _prefetchActive += 1;
+    getFolderCached(path)
+      .catch(() => {})
+      .finally(() => { _prefetchActive -= 1; _pumpPrefetch(); });
+  }
+}
+
+export function prefetchChildren(listing, cap = 24) {
+  for (const f of (listing?.folders || []).slice(0, cap)) {
+    const key = normPath(f.path);
+    const hit = _folderCache.get(key);
+    if (hit && Date.now() - hit.t < FOLDER_TTL_MS) continue;
+    if (_folderInflight.has(key) || _prefetchQueue.includes(key)) continue;
+    _prefetchQueue.push(key);
+  }
+  _pumpPrefetch();
 }
 
 export function parentOf(path) {

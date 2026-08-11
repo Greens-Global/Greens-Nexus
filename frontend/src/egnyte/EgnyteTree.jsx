@@ -7,7 +7,7 @@
 // file manager users already know.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ChevronRight, Folder, HardDrive } from 'lucide-react';
-import { crumbsFor, getFolderCached, invalidateFolder, normPath, prefetchFolder } from './lib';
+import { crumbsFor, getFolderCached, invalidateFolder, normPath, prefetchChildren, prefetchFolder } from './lib';
 import { ELLIPSIS, Spinner } from './ui';
 
 const FOLDER_FILL = '#fdb64c';
@@ -68,6 +68,9 @@ export default function EgnyteTree({ currentPath = '', onSelect, refreshSignal, 
         setChildren(prev => new Map(prev).set(key, (d?.folders || []).map(f => ({
           name: f.name, path: normPath(f.path), webUrl: f.webUrl || '',
         }))));
+        // Expanding a node warms its children, so the next expand or open is
+        // instant - the "no delay" feel is this line.
+        prefetchChildren(d, 16);
       })
       .catch(() => {
         setChildren(prev => new Map(prev).set(key, 'error'));

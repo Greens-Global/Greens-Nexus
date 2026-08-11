@@ -3555,10 +3555,10 @@ button, [role="button"], select { touch-action: manipulation; }
 .egnyte-row { border-radius: 7px; }
 .egnyte-row:hover { background: var(--wk-hover); }
 
-/* Two panes: tree left, contents right. Container queries (not media queries)
-   so the same browser collapses to one pane inside a narrow modal or person
-   card as well as on a phone. */
-.egx-wrap { container-type: inline-size; }
+/* Two panes: tree left, contents right. Media queries, NOT container queries:
+   container-type containment plus the sticky tree pane sent Chrome's layout
+   into a multi-second loop that froze the whole tab (Aug 11) - the module is
+   the only tree mount, so viewport breakpoints cover every real case. */
 .egx-layout {
   display: grid;
   grid-template-columns: var(--egx-tree-w, 252px) 10px minmax(0, 1fr);
@@ -3593,7 +3593,7 @@ button, [role="button"], select { touch-action: manipulation; }
 .egx-divider.is-dragging::before,
 .egx-divider:focus-visible::before { background: var(--wk-brand); }
 .egx-divider:focus-visible { outline: none; }
-@container (max-width: 819px) {
+@media (max-width: 1023px) {
   .egx-layout { grid-template-columns: minmax(0, 1fr); }
   .egx-tree-pane, .egx-divider { display: none; }
 }
@@ -3611,7 +3611,7 @@ button, [role="button"], select { touch-action: manipulation; }
   gap: 10px;
   align-items: center;
 }
-@container (max-width: 619px) {
+@media (max-width: 719px) {
   .egx-cols { grid-template-columns: minmax(0, 1fr); }
   .egx-col-meta { display: none; }
 }
