@@ -13,8 +13,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Bookmark, Check, ChevronRight, Copy, Download, ExternalLink, Eye, FolderInput,
-  FolderPlus, HardDrive, Link2, MoreVertical, PenLine, RefreshCw, Search, Trash2,
-  Upload, X,
+  FolderPlus, HardDrive, Info, Link2, MoreVertical, PenLine, RefreshCw, Search,
+  Trash2, Upload, X,
 } from 'lucide-react';
 import { api } from '../api';
 import {
@@ -22,6 +22,7 @@ import {
   invalidateFolder, isNotConnected, isShortcut, normPath, officeAppFor,
   prefetchChildren, prefetchFolder,
 } from './lib';
+import EgnyteDetails from './EgnyteDetails';
 import FolderPickModal from './EgnyteFolderPick';
 import EgnyteListing from './EgnyteList';
 import EgnytePreview from './EgnytePreview';
@@ -134,6 +135,7 @@ export default function EgnyteFolderBrowser({
   const [renameTarget, setRenameTarget] = useState(null);
   const [renameName, setRenameName] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(null);   // [paths]
+  const [details, setDetails] = useState(null);        // {item, isFolder}
   const [destPick, setDestPick] = useState(null);      // {mode: 'move'|'copy', paths}
   const [bulkBusy, setBulkBusy] = useState('');
   const [bookmarks, setBookmarks] = useState(loadBookmarks);
@@ -327,6 +329,7 @@ export default function EgnyteFolderBrowser({
         icon: <Bookmark size={14} />,
         onClick: () => toggleBookmark(item.path, item.name),
       },
+      { label: 'Details', icon: <Info size={14} />, onClick: () => setDetails({ item, isFolder }) },
       'divider',
       write && { label: 'Rename', icon: <PenLine size={14} />, onClick: () => { setRenameTarget(item); setRenameName(item.name); } },
       write && { label: 'Move to…', icon: <FolderInput size={14} />, onClick: () => setDestPick({ mode: 'move', paths: [item.path] }) },
@@ -702,6 +705,15 @@ export default function EgnyteFolderBrowser({
             { label: 'Folder', icon: <FolderPlus size={14} />, onClick: () => setNewFolderOpen(true) },
             { label: 'Upload files', icon: <Upload size={14} />, onClick: () => uploadTrigger.current?.() },
           ]}
+        />
+      )}
+
+      {details && (
+        <EgnyteDetails
+          item={details.item}
+          isFolder={details.isFolder}
+          onClose={() => setDetails(null)}
+          onDownload={details.isFolder || isShortcut(details.item.name || '') ? undefined : download}
         />
       )}
 

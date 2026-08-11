@@ -315,7 +315,14 @@ def list_folder(path: str = "", token: str | None = None) -> dict[str, Any]:
     return {
         "path": data.get("path", target),
         "folders": [
-            {"name": f.get("name", ""), "path": f.get("path", "")}
+            {
+                "name": f.get("name", ""),
+                "path": f.get("path", ""),
+                # Egnyte sends folder mtimes as epoch MILLISECONDS (files get
+                # RFC-1123 strings); the frontend date helpers take both, so
+                # pass it through as-is. 0/missing -> "" so the UI shows blank.
+                "modified": f.get("lastModified") or "",
+            }
             for f in (data.get("folders") or [])
         ],
         "files": [
@@ -330,6 +337,11 @@ def list_folder(path: str = "", token: str | None = None) -> dict[str, Any]:
                 "groupId": f.get("group_id", ""),
                 "modified": f.get("last_modified", ""),
                 "uploadedBy": f.get("uploaded_by", ""),
+                # First-upload time (epoch ms) and version count - the listing
+                # already carries them; the Details dialog shows them.
+                "uploaded": f.get("uploaded") or "",
+                "versions": f.get("num_versions", 0),
+                "locked": bool(f.get("locked")),
             }
             for f in (data.get("files") or [])
         ],
