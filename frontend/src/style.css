@@ -3565,13 +3565,11 @@ button, [role="button"], select { touch-action: manipulation; }
   gap: 2px;
   align-items: start;
 }
-.egx-tree-pane {
-  position: sticky;
-  top: 76px;
-  max-height: calc(100vh - 130px);
-  overflow-y: auto;
-  overscroll-behavior: contain;
-}
+/* Deliberately NOT sticky and NOT self-scrolling: sticky + max-height:100vh +
+   inner overflow inside this grid kept driving Chrome's layout into multi-
+   second stalls (Aug 11, same class as the container-query freeze). The tree
+   scrolls with the page, which every file manager survives. */
+.egx-tree-pane { min-width: 0; }
 /* Drag handle between the panes: a quiet 2px line that answers hover/drag. */
 .egx-divider {
   cursor: col-resize;
