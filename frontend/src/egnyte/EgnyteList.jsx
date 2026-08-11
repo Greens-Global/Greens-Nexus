@@ -57,9 +57,9 @@ const CELL_META = { fontSize: 12, color: 'var(--wk-faint)', ...ELLIPSIS };
 // every file/folder row agree on where the grid ends.
 const ACTIONS_W = 62;
 
-function Row({ gridChildren, actions, onClick, title }) {
+function Row({ gridChildren, actions, onClick, onHover, title }) {
   return (
-    <div className="egnyte-row" style={{ display: 'flex', alignItems: 'center', minWidth: 0 }}>
+    <div className="egnyte-row" style={{ display: 'flex', alignItems: 'center', minWidth: 0 }} onMouseEnter={onHover}>
       <button
         type="button"
         className="egx-cols"
@@ -83,6 +83,7 @@ export default function EgnyteListing({
   folders = [],
   files = [],
   onOpenFolder,
+  onHoverFolder,
   onDownload,
   onPreview,
   downloadingPath = '',
@@ -108,6 +109,7 @@ export default function EgnyteListing({
           key={`d:${f.path}`}
           title={f.path}
           onClick={() => onOpenFolder?.(f.path, f.webUrl)}
+          onHover={onHoverFolder ? () => onHoverFolder(f.path) : undefined}
           gridChildren={
             <>
               <span style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>

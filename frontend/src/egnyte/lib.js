@@ -53,6 +53,49 @@ export function crumbsFor(path) {
   return segs.map((name, i) => ({ name, path: `/${segs.slice(0, i + 1).join('/')}` }));
 }
 
+// ── listing cache ────────────────────────────────────────────────────────────
+//
+// Every Egnyte listing is a live round-trip, and the tree + the contents pane
+// ask for the same folders constantly (expand a node, then click it; go back
+// up; hover). One shared session cache with a short TTL plus in-flight dedupe
+// makes all of that instant after the first fetch, without ever holding a
+// listing long enough to feel stale. Mutations (upload, new folder) invalidate
+// their folder so the next read is live.
+const FOLDER_TTL_MS = 60 * 1000;
+const FOLDER_CACHE_MAX = 300;
+const _folderCache = new Map();      // path -> { t, data }
+const _folderInflight = new Map();   // path -> Promise
+
+export function getFolderCached(path, { force = false } = {}) {
+  const key = normPath(path);
+  if (!force) {
+    const hit = _folderCache.get(key);
+    if (hit && Date.now() - hit.t < FOLDER_TTL_MS) return Promise.resolve(hit.data);
+    const inflight = _folderInflight.get(key);
+    if (inflight) return inflight;
+  }
+  const p = api.egnyteFolder(key)
+    .then(d => {
+      if (_folderCache.size >= FOLDER_CACHE_MAX) _folderCache.delete(_folderCache.keys().next().value);
+      _folderCache.set(key, { t: Date.now(), data: d });
+      _folderInflight.delete(key);
+      return d;
+    })
+    .catch(err => { _folderInflight.delete(key); throw err; });
+  _folderInflight.set(key, p);
+  return p;
+}
+
+export function invalidateFolder(path) {
+  _folderCache.delete(normPath(path));
+}
+
+// Fire-and-forget warm-up - hovering a folder row or tree node fetches its
+// listing so the click that follows lands on the cache.
+export function prefetchFolder(path) {
+  getFolderCached(path).catch(() => {});
+}
+
 export function parentOf(path) {
   const segs = normPath(path).split('/').filter(Boolean);
   segs.pop();

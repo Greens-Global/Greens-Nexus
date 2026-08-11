@@ -14,8 +14,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Check, ChevronRight, FolderPlus, HardDrive, RefreshCw, Search, X } from 'lucide-react';
 import { api } from '../api';
 import {
-  crumbsFor, downloadEgnyteFile, egnyteErrorMessage, isNotConnected,
-  isShortcut, normPath,
+  crumbsFor, downloadEgnyteFile, egnyteErrorMessage, getFolderCached,
+  invalidateFolder, isNotConnected, isShortcut, normPath, prefetchFolder,
 } from './lib';
 import EgnyteListing from './EgnyteList';
 import EgnytePreview from './EgnytePreview';
@@ -69,13 +69,13 @@ export default function EgnyteFolderBrowser({
   const [newFolderName, setNewFolderName] = useState('');
   const [creating, setCreating] = useState(false);
 
-  const load = useCallback((target) => {
+  const load = useCallback((target, { force = false } = {}) => {
     const next = normPath(target);
     setLoading(true);
     setError('');
     setNotConnected(false);
     setRowError('');
-    api.egnyteFolder(next)
+    getFolderCached(next, { force })
       .then(d => {
         setData(d);
         setPath(next);
@@ -144,11 +144,45 @@ export default function EgnyteFolderBrowser({
       .then(() => {
         setNewFolderOpen(false);
         setNewFolderName('');
+        invalidateFolder(path);
         setTreeSync(s => ({ path, seq: s.seq + 1 }));
-        load(path);
+        load(path, { force: true });
       })
       .catch(err => setRowError(egnyteErrorMessage(err, 'Could not create that folder.')))
       .finally(() => setCreating(false));
+  };
+
+  // ── resizable tree pane ──
+  const [treeW, setTreeW] = useState(() => {
+    const saved = Number(localStorage.getItem('egx-tree-w'));
+    return saved >= 180 && saved <= 440 ? saved : 252;
+  });
+  const [draggingPane, setDraggingPane] = useState(false);
+  const dragStart = useRef({ x: 0, w: 252 });
+  const clampW = (w) => Math.min(440, Math.max(180, Math.round(w)));
+  const startPaneDrag = (e) => {
+    e.preventDefault();
+    dragStart.current = { x: e.clientX, w: treeW };
+    setDraggingPane(true);
+    const prevSelect = document.body.style.userSelect;
+    document.body.style.userSelect = 'none';
+    const onMove = (ev) => setTreeW(clampW(dragStart.current.w + (ev.clientX - dragStart.current.x)));
+    const onUp = (ev) => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      document.body.style.userSelect = prevSelect;
+      setDraggingPane(false);
+      localStorage.setItem('egx-tree-w', String(clampW(dragStart.current.w + (ev.clientX - dragStart.current.x))));
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  };
+  const nudgePane = (delta) => {
+    setTreeW(w => {
+      const next = clampW(w + delta);
+      localStorage.setItem('egx-tree-w', String(next));
+      return next;
+    });
   };
 
   if (notConnected) return <NotConnected error="" />;
@@ -169,32 +203,52 @@ export default function EgnyteFolderBrowser({
   const listingPane = (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0 }}>
 
-      {/* ── Toolbar: breadcrumb · search · actions ── */}
+      {/* ── Header: breadcrumb trail on top, then folder title · search · actions ── */}
       <div style={{ ...CARD, minWidth: 0 }}>
-        <div style={{ padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', minWidth: 0 }}>
-          <div className="scroll-tabs" style={{ display: 'flex', alignItems: 'center', gap: 2, flex: '1 1 220px', minWidth: 0, overflowX: 'auto', padding: '2px 0' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 14px 0', minWidth: 0 }}>
+          <div className="scroll-tabs" style={{ display: 'flex', alignItems: 'center', gap: 1, flex: 1, minWidth: 0, overflowX: 'auto' }}>
             <button
               type="button"
               onClick={() => openFolder('')}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer', padding: '3px 5px', borderRadius: 6, fontFamily: 'inherit', fontSize: 13, fontWeight: path ? 500 : 700, color: path ? 'var(--wk-dim)' : 'var(--wk-ink)', whiteSpace: 'nowrap' }}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', borderRadius: 5, fontFamily: 'inherit', fontSize: 12, fontWeight: 500, color: 'var(--wk-dim)', whiteSpace: 'nowrap' }}
             >
-              <HardDrive size={14} /> {rootLabel}
+              <HardDrive size={12} /> {rootLabel}
             </button>
             {crumbs.map((c, i) => (
-              <span key={c.path} style={{ display: 'inline-flex', alignItems: 'center', gap: 2, minWidth: 0 }}>
-                <ChevronRight size={12} style={{ color: 'var(--wk-faint)', flexShrink: 0 }} />
+              <span key={c.path} style={{ display: 'inline-flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
+                <ChevronRight size={11} style={{ color: 'var(--wk-faint)', flexShrink: 0 }} />
                 <button
                   type="button"
                   onClick={() => openFolder(c.path)}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '3px 5px', borderRadius: 6, fontFamily: 'inherit', fontSize: 13, fontWeight: i === crumbs.length - 1 ? 700 : 500, color: i === crumbs.length - 1 ? 'var(--wk-ink)' : 'var(--wk-dim)', whiteSpace: 'nowrap', maxWidth: 200, ...ELLIPSIS }}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', borderRadius: 5, fontFamily: 'inherit', fontSize: 12, fontWeight: i === crumbs.length - 1 ? 600 : 500, color: i === crumbs.length - 1 ? 'var(--wk-ink)' : 'var(--wk-dim)', whiteSpace: 'nowrap', maxWidth: 180, ...ELLIPSIS }}
                 >
                   {c.name}
                 </button>
               </span>
             ))}
           </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0 }}>
+            <OpenInEgnyte url={folderUrl} label="Open in Egnyte" />
+            <button type="button" title="Refresh" aria-label="Refresh" onClick={() => load(path, { force: true })}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--wk-dim)', padding: 6, borderRadius: 6, display: 'inline-flex' }}>
+              <RefreshCw size={14} style={loading ? { animation: 'spin 1s linear infinite' } : undefined} />
+            </button>
+          </div>
+        </div>
 
-          <form onSubmit={runSearch} style={{ position: 'relative', flex: '0 1 280px', minWidth: 150 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', padding: '2px 14px 11px', minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0, flexShrink: 1 }}>
+            <span style={{ fontSize: 17, fontWeight: 700, color: 'var(--wk-ink)', letterSpacing: '-.01em', maxWidth: 320, ...ELLIPSIS }}>
+              {path ? crumbs[crumbs.length - 1]?.name : rootLabel}
+            </span>
+            {!loading && !error && !results && (
+              <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--wk-dim)', background: 'var(--wk-hover)', borderRadius: 10, padding: '2px 9px', whiteSpace: 'nowrap' }}>
+                {(data?.folders?.length || 0) + (data?.files?.length || 0)} items
+              </span>
+            )}
+          </div>
+
+          <form onSubmit={runSearch} style={{ position: 'relative', flex: '1 1 220px', minWidth: 150, maxWidth: 420 }}>
             {searching
               ? <Spinner size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--wk-faint)' }} />
               : <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--wk-faint)', pointerEvents: 'none' }} />}
@@ -219,18 +273,14 @@ export default function EgnyteFolderBrowser({
             )}
           </form>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, marginLeft: 'auto' }}>
             {onPick && (
               <button type="button" className="primary-btn" onClick={() => onPick(path)} disabled={loading} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                 <Check size={13} /> Use This Folder
               </button>
             )}
-            <OpenInEgnyte url={folderUrl} label="Open in Egnyte" />
-            <button type="button" className="secondary-btn" title="Refresh" aria-label="Refresh" onClick={() => load(path)} style={{ display: 'inline-flex', alignItems: 'center', padding: 7 }}>
-              <RefreshCw size={14} />
-            </button>
             {canWrite && (
-              <button type="button" className="secondary-btn" onClick={() => setNewFolderOpen(o => !o)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <button type="button" className={onPick ? 'secondary-btn' : 'primary-btn'} onClick={() => setNewFolderOpen(o => !o)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                 <FolderPlus size={13} /> New Folder
               </button>
             )}
@@ -260,7 +310,7 @@ export default function EgnyteFolderBrowser({
 
       {/* ── Upload into the folder currently being viewed ── */}
       {showUpload && !results && (
-        <EgnyteUpload folder={path} canWrite={canWrite} onUploaded={() => load(path)} />
+        <EgnyteUpload folder={path} canWrite={canWrite} onUploaded={() => { invalidateFolder(path); load(path, { force: true }); }} />
       )}
 
       {/* ── Listing or search results ── */}
@@ -309,6 +359,7 @@ export default function EgnyteFolderBrowser({
             folders={data?.folders || []}
             files={data?.files || []}
             onOpenFolder={openFolder}
+            onHoverFolder={prefetchFolder}
             onDownload={download}
             onPreview={setPreview}
             downloadingPath={downloading}
@@ -327,10 +378,23 @@ export default function EgnyteFolderBrowser({
   return (
     <div className="egx-wrap" style={{ minWidth: 0 }}>
       {showTree ? (
-        <div className="egx-layout">
+        <div className="egx-layout" style={{ '--egx-tree-w': `${treeW}px` }}>
           <aside className="egx-tree-pane" style={{ ...CARD, padding: '8px 6px', minWidth: 0 }}>
             <EgnyteTree currentPath={path} onSelect={openFolder} refreshSignal={treeSync} rootLabel={rootLabel} />
           </aside>
+          <div
+            className={`egx-divider${draggingPane ? ' is-dragging' : ''}`}
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize the folder tree"
+            tabIndex={0}
+            title="Drag to resize"
+            onPointerDown={startPaneDrag}
+            onKeyDown={e => {
+              if (e.key === 'ArrowLeft') { e.preventDefault(); nudgePane(-16); }
+              if (e.key === 'ArrowRight') { e.preventDefault(); nudgePane(16); }
+            }}
+          />
           {listingPane}
         </div>
       ) : listingPane}

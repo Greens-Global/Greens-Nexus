@@ -7,16 +7,15 @@
 // file manager users already know.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ChevronRight, Folder, HardDrive } from 'lucide-react';
-import { api } from '../api';
-import { crumbsFor, normPath } from './lib';
+import { crumbsFor, getFolderCached, invalidateFolder, normPath, prefetchFolder } from './lib';
 import { ELLIPSIS, Spinner } from './ui';
 
 const FOLDER_FILL = '#fdb64c';
 const FOLDER_EDGE = '#ec9d29';
 
-function TreeRow({ depth, active, hasChildren, expanded, loading, label, icon, onToggle, onSelect, title }) {
+function TreeRow({ depth, active, hasChildren, expanded, loading, label, icon, onToggle, onSelect, onHover, title }) {
   return (
-    <div className={`egx-tree-row${active ? ' is-active' : ''}`} style={{ paddingLeft: depth * 14 }}>
+    <div className={`egx-tree-row${active ? ' is-active' : ''}`} style={{ paddingLeft: depth * 14 }} onMouseEnter={onHover}>
       {hasChildren ? (
         <button
           type="button"
@@ -64,7 +63,7 @@ export default function EgnyteTree({ currentPath = '', onSelect, refreshSignal, 
     if (inFlight.current.has(key)) return;
     inFlight.current.add(key);
     setLoadingPaths(prev => new Set(prev).add(key));
-    api.egnyteFolder(key)
+    getFolderCached(key)
       .then(d => {
         setChildren(prev => new Map(prev).set(key, (d?.folders || []).map(f => ({
           name: f.name, path: normPath(f.path), webUrl: f.webUrl || '',
@@ -105,6 +104,7 @@ export default function EgnyteTree({ currentPath = '', onSelect, refreshSignal, 
     if (!refreshSignal?.seq || refreshSignal.seq === lastSeq.current) return;
     lastSeq.current = refreshSignal.seq;
     const key = normPath(refreshSignal.path);
+    invalidateFolder(key);
     if (children.has(key)) loadChildren(key);
   }, [refreshSignal, children, loadChildren]);
 
@@ -156,6 +156,7 @@ export default function EgnyteTree({ currentPath = '', onSelect, refreshSignal, 
             icon={<Folder size={15} fill={FOLDER_FILL} style={{ color: FOLDER_EDGE, flexShrink: 0 }} />}
             onToggle={() => toggle(node.path)}
             onSelect={() => onSelect?.(node.path, node.webUrl)}
+            onHover={() => prefetchFolder(node.path)}
           />
           {open && renderLevel(node.path, depth + 1)}
         </div>

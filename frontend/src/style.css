@@ -3561,8 +3561,8 @@ button, [role="button"], select { touch-action: manipulation; }
 .egx-wrap { container-type: inline-size; }
 .egx-layout {
   display: grid;
-  grid-template-columns: 252px minmax(0, 1fr);
-  gap: 14px;
+  grid-template-columns: var(--egx-tree-w, 252px) 10px minmax(0, 1fr);
+  gap: 2px;
   align-items: start;
 }
 .egx-tree-pane {
@@ -3572,9 +3572,30 @@ button, [role="button"], select { touch-action: manipulation; }
   overflow-y: auto;
   overscroll-behavior: contain;
 }
+/* Drag handle between the panes: a quiet 2px line that answers hover/drag. */
+.egx-divider {
+  cursor: col-resize;
+  align-self: stretch;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  padding: 0 4px;
+  touch-action: none;
+}
+.egx-divider::before {
+  content: '';
+  width: 2px;
+  border-radius: 2px;
+  background: transparent;
+  transition: background .12s;
+}
+.egx-divider:hover::before,
+.egx-divider.is-dragging::before,
+.egx-divider:focus-visible::before { background: var(--wk-brand); }
+.egx-divider:focus-visible { outline: none; }
 @container (max-width: 819px) {
   .egx-layout { grid-template-columns: minmax(0, 1fr); }
-  .egx-tree-pane { display: none; }
+  .egx-tree-pane, .egx-divider { display: none; }
 }
 
 /* Tree rows */
@@ -3600,6 +3621,23 @@ button, [role="button"], select { touch-action: manipulation; }
 .egnyte-row:hover .egx-actions,
 .egnyte-row:focus-within .egx-actions { opacity: 1; }
 @media (hover: none) { .egx-actions { opacity: 1; } }
+
+/* Quiet-destructive button (Disconnect): tinted red so it reads alive but not
+   alarming - the visual weight of a secondary action with a clear consequence. */
+.egx-danger-btn {
+  background: color-mix(in srgb, var(--wk-red) 10%, transparent);
+  color: var(--wk-red);
+  border: 1px solid color-mix(in srgb, var(--wk-red) 22%, transparent);
+  border-radius: 6px;
+  padding: 6px 14px;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .15s, border-color .15s;
+}
+.egx-danger-btn:hover { background: color-mix(in srgb, var(--wk-red) 16%, transparent); }
+.egx-danger-btn:disabled { opacity: .55; cursor: default; }
 
 /* Preview prev/next arrows */
 .egx-navbtn {
