@@ -228,6 +228,7 @@ export default function InvestorChart({ employees = [], toastOk, toastErr }) {
             display: 'flex', alignItems: 'flex-start', gap: 56, padding: 4, width: 'max-content' }}>
             {owners.map(([ownerEmail, list]) => {
               const ownerName = nameOf(employees, ownerEmail);
+              const ownerEmp = (employees || []).find(e => (e.workEmail || '').toLowerCase() === ownerEmail);
               const isTarget = overOwner === ownerEmail && draggingId;
               return (
                 <div key={ownerEmail} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
@@ -237,7 +238,9 @@ export default function InvestorChart({ employees = [], toastOk, toastErr }) {
                       background: isTarget ? 'hsla(var(--color-green),0.08)' : 'var(--mist)',
                       border: `1.5px solid ${isTarget ? 'hsl(var(--color-green))' : 'var(--line)'}`,
                       borderRadius: 14, boxShadow: 'var(--shadow-sm)', userSelect: 'none' }}>
-                    <InitialsAvatar name={ownerName} size={40} />
+                    {ownerEmp?.photoUrl
+                      ? <img src={ownerEmp.photoUrl} alt="" style={{ width: 40, height: 40, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
+                      : <InitialsAvatar name={ownerName} size={40} />}
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontWeight: 800, fontSize: 13, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ownerName}</div>
                       <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>Relationship owner · {list.length} investor{list.length === 1 ? '' : 's'}</div>
