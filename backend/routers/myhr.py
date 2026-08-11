@@ -22,7 +22,8 @@ from auth import get_current_user
 from models import (NexusEmployee, HrEntity, HrSignRequest, HrSignParty, HrDocument,
                     HrSelfRequest, ItemAssignment, ItemCheckout,
                     NexusGroup, NexusGroupMember, NexusNotification)
-from routers.hr import _SUPABASE_URL, _storage_headers, _DOC_BUCKET
+from routers.hr import (_SUPABASE_URL, _storage_headers, _DOC_BUCKET,
+                        _AVATAR_BUCKET, _IMAGE_TYPES, _MAX_AVATAR_BYTES)
 from routers.esign import _log
 
 router = APIRouter(prefix="/myhr", tags=["My HR"], dependencies=[Depends(get_current_user)])
@@ -92,6 +93,45 @@ def save_profile(body: ProfileIn, user: dict = Depends(get_current_user), db: Se
             emergency["phone"] = body.emergency_phone.strip()[:50]
         personal["emergency"] = emergency
         e.personal = personal
+    e.updated_at = _now()
+    db.commit()
+    return _profile_dict(e, db)
+
+
+# ── My profile photo - every employee can add/change/remove their own,
+#    without the "hr" Access Group grant hr.py's admin upload_photo needs
+#    (Neil: "My Profile" in the header dropdown was a dead button - no
+#    self-service path to a photo existed at all). ─────────────────────────
+
+@router.post("/profile/photo")
+async def upload_my_photo(file: UploadFile = File(...),
+                          user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    e = _me(db, user["email"])
+    ext = _IMAGE_TYPES.get(file.content_type or "")
+    if not ext:
+        raise HTTPException(400, "Photo must be JPEG, PNG, WebP or GIF")
+    data = await file.read()
+    if len(data) > _MAX_AVATAR_BYTES:
+        raise HTTPException(400, "Photo must be under 5 MB")
+    path = f"{e.id}/{uuid.uuid4()}.{ext}"
+    resp = httpx.post(
+        f"{_SUPABASE_URL}/storage/v1/object/{_AVATAR_BUCKET}/{path}",
+        headers={**_storage_headers(), "Content-Type": file.content_type,
+                 "cache-control": "max-age=31536000"},
+        content=data, timeout=60,
+    )
+    if not resp.is_success:
+        raise HTTPException(502, f"Storage upload failed: {resp.text[:200]}")
+    e.photo_url = f"{_SUPABASE_URL}/storage/v1/object/public/{_AVATAR_BUCKET}/{path}"
+    e.updated_at = _now()
+    db.commit()
+    return _profile_dict(e, db)
+
+
+@router.delete("/profile/photo")
+def remove_my_photo(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    e = _me(db, user["email"])
+    e.photo_url = ""
     e.updated_at = _now()
     db.commit()
     return _profile_dict(e, db)

@@ -80,7 +80,7 @@ def task_email_html(*, task_title: str, status: str, heading: str,
     </tr>
     <tr>
       <td style="padding:4px 28px 28px;text-align:center">
-        <a href="{escape(cta_url)}" style="display:inline-block;background:#0f3d2e;color:#ffffff;text-decoration:none;
+        <a href="{escape(cta_url)}" style="display:inline-block;background:#248f4b;color:#ffffff;text-decoration:none;
           font-size:13.5px;font-weight:700;padding:11px 28px;border-radius:8px">{escape(cta_label)}</a>
         {secondary_html}
         {note_html}

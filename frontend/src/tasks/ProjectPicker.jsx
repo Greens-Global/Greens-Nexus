@@ -40,7 +40,11 @@ export function myProjectIds(projects, teams, myEmail) {
   return mine;
 }
 
-const byName = (a, b) => (a.name || '').localeCompare(b.name || '', 'en', { sensitivity: 'base' });
+// numeric:true so number-led names (street addresses - "26382 Palisades Drive",
+// "910 S. ECR") sort by their numeric value (910 before 26382) instead of
+// character-by-character, where "9" > "2" put 910 after 26382/29960 and read
+// as broken alphabetical order even though a plain string sort was correct.
+const byName = (a, b) => (a.name || '').localeCompare(b.name || '', 'en', { sensitivity: 'base', numeric: true });
 
 export default function ProjectPicker({
   projects = [], teams = [], myEmail = '', value = '', onChange, onCreateNew,

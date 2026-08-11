@@ -93,7 +93,7 @@ function bundleSummary(allowed) {
   return parts.join('  ·  ') || 'No access yet';
 }
 
-const TABS = [['people', 'People', User], ['jobroles', 'Job roles', Shield], ['groups', 'Groups', Users], ['audit', 'Audit', LayoutGrid]];
+const TABS = [['people', 'People', User], ['jobroles', 'Roles', Shield], ['groups', 'Groups', Users], ['audit', 'Audit', LayoutGrid]];
 
 export default function RolesAccess({ embedded = false }) {
   const { can } = useRole();

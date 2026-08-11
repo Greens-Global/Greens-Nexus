@@ -953,6 +953,8 @@ export const api = {
   myHrProfile:     ()      => req('/myhr/profile'),
   personCard:      (q)     => req(`/myhr/person?q=${encodeURIComponent(q)}`),
   myHrProfileSave: (body)  => req('/myhr/profile', { method: 'PUT', body: JSON.stringify(body) }),
+  myHrPhotoUpload: (form)  => req('/myhr/profile/photo', { method: 'POST', body: form }),
+  myHrPhotoRemove: ()      => req('/myhr/profile/photo', { method: 'DELETE' }),
   myHrDocs:        ()      => req('/myhr/documents'),
   myHrDocDownload: (rid)   => req(`/myhr/documents/${rid}/download`),
   myPaystubs:      ()      => req('/myhr/paystubs'),

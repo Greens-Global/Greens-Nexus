@@ -10,6 +10,7 @@ import {
   ChevronDown, Mail, KeyRound,
 } from "lucide-react";
 import { api } from "../api";
+import { usePeopleDirectory } from "../lib/queries";
 
 // ---------- Config ----------
 export const DEPT_ICONS = {
@@ -858,6 +859,66 @@ export function PersonalAddModal({ onClose, onSave }) {
   );
 }
 
+// Searchable + scrollable employee picker - the curated Nexus People list
+// (getPeopleDirectory), never M365/GAL-derived (see CLAUDE.md). Typing filters
+// by name or email; the field still accepts a free-typed address for people
+// not in the directory.
+function EmployeePicker({ value, onChange, onEnter, error, placeholder, autoFocus }) {
+  const { data: people } = usePeopleDirectory();
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  const q = value.trim().toLowerCase();
+  const matches = useMemo(() => {
+    const list = people || [];
+    if (!q) return list;
+    return list.filter((p) => p.name?.toLowerCase().includes(q) || p.email?.toLowerCase().includes(q));
+  }, [people, q]);
+
+  return (
+    <div style={{ position: "relative" }} ref={ref}>
+      <input value={value}
+        onChange={(e) => { onChange(e.target.value); setOpen(true); }}
+        onFocus={() => setOpen(true)}
+        onKeyDown={(e) => { if (e.key === "Enter") onEnter?.(); if (e.key === "Escape") setOpen(false); }}
+        placeholder={placeholder} autoFocus={autoFocus}
+        className={`cv-ipt${error ? " cv-ipt-error" : ""}`} autoComplete="off" />
+      {open && matches.length > 0 && (
+        <div style={{ position: "absolute", left: 0, right: 0, top: "calc(100% + 6px)", zIndex: 30,
+          background: "var(--bg-card)", border: "1px solid var(--border-color)", borderRadius: 12,
+          boxShadow: "0 10px 30px rgba(0,0,0,.14)", padding: 6, maxHeight: 240, overflowY: "auto" }}>
+          {matches.slice(0, 50).map((p) => (
+            <button key={p.email} type="button" onClick={() => { onChange(p.email); setOpen(false); }}
+              className="cv-row-hover"
+              style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left",
+                border: "none", background: "none", padding: "7px 8px", borderRadius: 8, cursor: "pointer", fontFamily: "inherit" }}>
+              {p.photoUrl ? (
+                <img src={p.photoUrl} alt="" style={{ width: 24, height: 24, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }} />
+              ) : (
+                <div style={{ width: 24, height: 24, borderRadius: "50%", background: "var(--cv-violet-bg)", color: "var(--cv-violet)",
+                  display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 600, flexShrink: 0 }}>
+                  {(p.name || p.email || "?")[0].toUpperCase()}
+                </div>
+              )}
+              <span style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: 500, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</div>
+                <div style={{ fontSize: 11.5, color: "var(--text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.email}</div>
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function RequestAccessModal({ cred, userEmail, ownerName, onClose, onSubmit }) {
   const [duration, setDuration] = useState("4h");
   const [recipientEmail, setRecipientEmail] = useState("");
@@ -876,10 +937,9 @@ export function RequestAccessModal({ cred, userEmail, ownerName, onClose, onSubm
     <Modal onClose={onClose}>
       <ModalHeader icon={<Share2 size={19} />} tint="violet" title="Share Access" subtitle={`${cred.name} · ${cred.dept}`} />
       <div style={{ marginBottom: 16 }}>
-        <span className="cv-label">Share with (email address) <span style={{ color: "var(--cv-rose)" }}>*</span></span>
-        <input value={recipientEmail} onChange={(e) => { setRecipientEmail(e.target.value); setEmailError(""); }}
-          placeholder="colleague@greensglobal.com" autoFocus onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
-          className={`cv-ipt${emailError ? " cv-ipt-error" : ""}`} />
+        <span className="cv-label">Share with <span style={{ color: "var(--cv-rose)" }}>*</span></span>
+        <EmployeePicker value={recipientEmail} onChange={(v) => { setRecipientEmail(v); setEmailError(""); }}
+          onEnter={handleSubmit} error={emailError} placeholder="Search by name or email…" autoFocus />
         {emailError && <p style={{ fontSize: 12, color: "var(--cv-rose)", margin: "4px 0 0" }}>{emailError}</p>}
       </div>
       <div style={{ ...infoBox, marginBottom: 16 }}>
