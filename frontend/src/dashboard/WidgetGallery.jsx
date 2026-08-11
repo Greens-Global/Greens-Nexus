@@ -32,6 +32,12 @@ function ConfigFields({ type, config, onChange }) {
           <option value="">Pick a metric…</option>
           {Object.entries(KPI_CATALOG).map(([k, m]) => <option key={k} value={k}>{m.label}</option>)}
         </select>
+        {/* Home keeps ONE solid focal tile (the Open Tasks hero); this makes that
+            look available to any KPI tile the user wants to spotlight. */}
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, fontSize: 12.5, color: 'var(--ink)', cursor: 'pointer' }}>
+          <input type="checkbox" checked={!!config.hero} onChange={e => onChange({ hero: e.target.checked })} />
+          Hero style - the solid color card, like Home's open tasks tile
+        </label>
       </div>
     );
   }
@@ -49,7 +55,7 @@ function ConfigFields({ type, config, onChange }) {
   return <p style={{ fontSize: 12.5, color: 'var(--muted)' }}>This widget has no options.</p>;
 }
 
-export function WidgetGallery({ target, can, onAdd, onClose }) {
+export function WidgetGallery({ target, can, onAdd, onClose, layout = [] }) {
   const [picking, setPicking] = useState(null);   // { type, config }
 
   const entries = Object.entries(WIDGETS).filter(([, def]) => {
@@ -58,6 +64,11 @@ export function WidgetGallery({ target, can, onAdd, onClose }) {
     return true;
   });
   const cats = [...new Set(entries.map(([, d]) => d.cat))];
+  // Which widget types are already on the view - the double-My-Agenda trap was
+  // adding a widget the default layout already carried, with nothing saying so.
+  // Adding a second copy stays allowed (two KPI tiles with different metrics is
+  // legitimate); the badge just makes it a choice instead of a surprise.
+  const onView = new Set(layout.map(it => it.type));
 
   if (picking) {
     const def = WIDGETS[picking.type];
@@ -85,16 +96,23 @@ export function WidgetGallery({ target, can, onAdd, onClose }) {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 10 }}>
               {entries.filter(([, d]) => d.cat === cat).map(([type, def]) => {
                 const Icon = def.icon;
+                const added = onView.has(type);
                 return (
                   <button key={type} onClick={() => {
                       if (def.configurable) setPicking({ type, config: def.configurable === 'kpi' ? { metric: 'open_tasks' } : { ...SHORTCUT_TARGETS[0] } });
                       else { onAdd(type); onClose(); }
                     }}
-                    style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 12px', border: '1px solid var(--line)', borderRadius: 10, background: 'var(--card)', cursor: 'pointer', textAlign: 'left', fontFamily: 'Inter,sans-serif' }}
+                    title={added ? 'Already on this view - click to add another copy' : undefined}
+                    style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 12px', border: '1px solid var(--line)', borderRadius: 10, background: 'var(--card)', cursor: 'pointer', textAlign: 'left', fontFamily: 'var(--wk-font)' }}
                     onMouseEnter={e => e.currentTarget.style.borderColor = 'hsl(var(--color-blue))'}
                     onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--line)'}>
                     <div style={{ width: 32, height: 32, borderRadius: 9, background: 'var(--mist)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Icon size={16} /></div>
-                    <span style={{ fontSize: 12.5, fontWeight: 600 }}>{def.title}</span>
+                    <span style={{ fontSize: 12.5, fontWeight: 600, flex: 1, minWidth: 0 }}>{def.title}</span>
+                    {added && (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10.5, fontWeight: 700, color: 'var(--wk-green, #00a25b)', background: 'var(--wk-green-bg, rgba(0,162,91,.1))', borderRadius: 999, padding: '2px 7px', flexShrink: 0 }}>
+                        <Check size={10} /> Added
+                      </span>
+                    )}
                   </button>
                 );
               })}

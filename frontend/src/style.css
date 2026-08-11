@@ -3730,3 +3730,27 @@ button, [role="button"], select { touch-action: manipulation; }
 }
 .egx-navbtn:hover { box-shadow: 0 6px 18px rgba(0, 0, 0, .26); border-color: var(--wk-brand); }
 .egx-navbtn:focus-visible { outline: 2px solid var(--wk-brand); outline-offset: 2px; }
+
+/* ── Customize grid speaks the DeskHome card language ────────────────────────
+   Scoped under .dash-grid so the legacy Overview/SOP screens keep their own
+   .dash-card look until those modules migrate to the wk world. Same chrome as
+   .dk-card / .dk-stat: white card, 1px wk-line2 border, wk radius + shadow,
+   Figtree type, hover lift. */
+.dash-grid { font-family: var(--wk-font); }
+.dash-grid .dash-card {
+  background: var(--wk-card);
+  border: 1px solid var(--wk-line2);
+  border-radius: var(--wk-r);
+  box-shadow: var(--wk-shadow);
+  transition: box-shadow .15s ease, border-color .15s ease;
+}
+.dash-grid .dash-card:hover { box-shadow: var(--wk-shadow-hov); border-color: var(--wk-line); }
+[data-theme="dark"] .dash-grid .dash-card { background: var(--card); border-color: var(--line); box-shadow: none; }
+.dash-grid .dash-card-title {
+  font-family: var(--wk-font);
+  font-size: 15px; font-weight: 700; letter-spacing: -.01em;
+  color: var(--wk-ink);
+}
+[data-theme="dark"] .dash-grid .dash-card-title { color: var(--ink); }
+.dash-grid .dash-card-sub { font-size: 12px; color: var(--wk-faint); }
+[data-theme="dark"] .dash-grid .dash-card-sub { color: var(--text-muted); }

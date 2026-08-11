@@ -62,9 +62,74 @@ export function crumbsFor(path) {
 // listing long enough to feel stale. Mutations (upload, new folder) invalidate
 // their folder so the next read is live.
 const FOLDER_TTL_MS = 5 * 60 * 1000;
+// Under this age a listing is served with NO network at all; past it the cached
+// copy still paints instantly while a background refresh trues it up (stale-
+// while-revalidate). Native-Egnyte feel: a click never waits on a round-trip
+// the cache can answer.
+export const FOLDER_FRESH_MS = 30 * 1000;
 const FOLDER_CACHE_MAX = 500;
 const _folderCache = new Map();      // path -> { t, data }
 const _folderInflight = new Map();   // path -> Promise
+
+// ── persistence ──────────────────────────────────────────────────────────────
+// The in-memory cache dies with the tab's JS context, so every module open or
+// page reload used to start cold - one round-trip per folder all over again.
+// Mirror the newest listings into sessionStorage (per-tab, gone on tab close:
+// listings are permission-filtered per signed-in user, so they must not outlive
+// the tab the way localStorage would) and hydrate on module load. Failures are
+// swallowed everywhere: private mode or a full quota just means cold starts.
+const PERSIST_KEY = 'egx-folders-v1';
+const PERSIST_MAX_ENTRIES = 150;
+const PERSIST_MAX_CHARS = 2_500_000;
+let _persistTimer = 0;
+
+function _persistSoon() {
+  clearTimeout(_persistTimer);
+  _persistTimer = setTimeout(() => {
+    try {
+      const entries = [..._folderCache.entries()]
+        .sort((a, b) => b[1].t - a[1].t)
+        .slice(0, PERSIST_MAX_ENTRIES);
+      let json = JSON.stringify(entries);
+      while (json.length > PERSIST_MAX_CHARS && entries.length > 10) {
+        entries.length = Math.floor(entries.length / 2);
+        json = JSON.stringify(entries);
+      }
+      sessionStorage.setItem(PERSIST_KEY, json);
+    } catch { /* private mode / quota - cold starts, nothing worse */ }
+  }, 800);
+}
+
+(function _hydrate() {
+  try {
+    const raw = sessionStorage.getItem(PERSIST_KEY);
+    if (!raw) return;
+    for (const [key, entry] of JSON.parse(raw)) {
+      if (entry && entry.data && typeof entry.t === 'number') _folderCache.set(key, entry);
+    }
+  } catch { /* corrupt blob - ignore, it rewrites itself */ }
+})();
+
+// A cached listing of ANY age, or null - the instant-paint path. `age` lets the
+// caller decide whether a background revalidate is worth a request.
+export function peekFolder(path) {
+  const hit = _folderCache.get(normPath(path));
+  return hit ? { data: hit.data, age: Date.now() - hit.t } : null;
+}
+
+// Rewrite a cached listing in place (optimistic mutations: a rename/delete/
+// create paints before Egnyte confirms). Keeps the entry's timestamp AGED so
+// the next SWR read still revalidates against the real listing.
+export function mutateFolderCache(path, fn) {
+  const key = normPath(path);
+  const hit = _folderCache.get(key);
+  if (!hit) return;
+  const next = fn(hit.data);
+  if (next) {
+    _folderCache.set(key, { t: Math.min(hit.t, Date.now() - FOLDER_FRESH_MS), data: next });
+    _persistSoon();
+  }
+}
 
 export function getFolderCached(path, { force = false } = {}) {
   const key = normPath(path);
@@ -79,6 +144,7 @@ export function getFolderCached(path, { force = false } = {}) {
       if (_folderCache.size >= FOLDER_CACHE_MAX) _folderCache.delete(_folderCache.keys().next().value);
       _folderCache.set(key, { t: Date.now(), data: d });
       _folderInflight.delete(key);
+      _persistSoon();
       return d;
     })
     .catch(err => { _folderInflight.delete(key); throw err; });
@@ -88,6 +154,7 @@ export function getFolderCached(path, { force = false } = {}) {
 
 export function invalidateFolder(path) {
   _folderCache.delete(normPath(path));
+  _persistSoon();
 }
 
 // Fire-and-forget warm-up - hovering a folder row or tree node fetches its
@@ -100,7 +167,7 @@ export function prefetchFolder(path) {
 // listings of the folders it shows, so the next click is already cached.
 // Concurrency-capped (Egnyte rate-limits per user) and skipping anything
 // cached or in flight, so the queue costs at most one burst per new folder.
-const PREFETCH_CONCURRENCY = 2;
+const PREFETCH_CONCURRENCY = 3;
 const _prefetchQueue = [];
 let _prefetchActive = 0;
 

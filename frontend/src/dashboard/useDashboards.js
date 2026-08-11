@@ -3,19 +3,27 @@ import { api } from '../api';
 import { WIDGETS, clampToLimits } from './widgets.jsx';
 
 // Sensible starting layouts so a brand-new user never sees an empty screen.
+// The dashboard default mirrors the designed Home (DeskHome) top to bottom -
+// greeting + the same three stat tiles across the top, the attention feed wide
+// left with the pulse/actions column on the right, agenda below - so entering
+// Customize reads as "Home, now editable", not a different product.
 const DEFAULTS = {
   dashboard: [
-    { i: 'd1', type: 'clock',         x: 0, y: 0, w: 3, h: 3 },
-    { i: 'd2', type: 'quick-actions', x: 3, y: 0, w: 3, h: 3 },
-    { i: 'd3', type: 'kpi',           x: 6, y: 0, w: 3, h: 2, config: { metric: 'my_open_tasks' } },
-    { i: 'd4', type: 'kpi',           x: 9, y: 0, w: 3, h: 2, config: { metric: 'my_checkouts' } },
-    { i: 'd5', type: 'kpi',           x: 6, y: 2, w: 3, h: 2, config: { metric: 'my_assignments' } },
-    { i: 'd6', type: 'kpi',           x: 9, y: 2, w: 3, h: 2, config: { metric: 'unread_notifications' } },
-    { i: 'd7', type: 'notifications', x: 0, y: 3, w: 6, h: 5 },
-    { i: 'd8', type: 'links',         x: 6, y: 4, w: 3, h: 4 },
-    { i: 'd9', type: 'kpi-bar',       x: 9, y: 4, w: 3, h: 4 },
+    // Row 1 mirrors Home's stat board exactly - the page greeting renders above
+    // the grid (DeskGreeting in CustomDashboard), so no clock/greeting card here.
+    // hero: the one solid-gradient focal tile, same as Home's Open Tasks card.
+    { i: 'd3', type: 'kpi',           x: 0, y: 0, w: 3, h: 2, config: { metric: 'my_open_tasks', hero: true } },
+    { i: 'd4', type: 'kpi',           x: 3, y: 0, w: 3, h: 2, config: { metric: 'my_checkouts' } },
+    { i: 'd5', type: 'kpi',           x: 6, y: 0, w: 3, h: 2, config: { metric: 'my_assignments' } },
+    { i: 'd6', type: 'kpi',           x: 9, y: 0, w: 3, h: 2, config: { metric: 'unread_notifications' } },
+    { i: 'd7', type: 'notifications', x: 0, y: 2, w: 6, h: 5 },
+    { i: 'd9', type: 'kpi-bar',       x: 6, y: 2, w: 3, h: 5 },
+    // h6: all six action rows fit without a scrollbar at the 72px row unit.
+    { i: 'd2', type: 'quick-actions', x: 9, y: 2, w: 3, h: 6 },
     // My Agenda (Outlook). Shows a quiet explainer for non-M365 accounts.
-    { i: 'd10', type: 'agenda',       x: 0, y: 8, w: 6, h: 4 },
+    { i: 'd10', type: 'agenda',       x: 0, y: 7, w: 6, h: 4 },
+    // h5: six link rows + header need ~260px - at h4 the last row clipped.
+    { i: 'd8', type: 'links',         x: 6, y: 7, w: 3, h: 5 },
   ],
   'manager-dashboard': [
     { i: 'm1', type: 'team-attendance', x: 0, y: 0, w: 3, h: 2 },

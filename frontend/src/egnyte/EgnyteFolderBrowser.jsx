@@ -18,9 +18,9 @@ import {
 } from 'lucide-react';
 import { api } from '../api';
 import {
-  canPreview, crumbsFor, downloadEgnyteFile, egnyteErrorMessage, getFolderCached,
-  invalidateFolder, isNotConnected, isShortcut, normPath, officeAppFor,
-  prefetchChildren, prefetchFolder,
+  canPreview, crumbsFor, downloadEgnyteFile, egnyteErrorMessage, FOLDER_FRESH_MS,
+  getFolderCached, invalidateFolder, isNotConnected, isShortcut, mutateFolderCache,
+  normPath, officeAppFor, peekFolder, prefetchChildren, prefetchFolder,
 } from './lib';
 import EgnyteDetails from './EgnyteDetails';
 import FolderPickModal from './EgnyteFolderPick';
@@ -101,28 +101,58 @@ export default function EgnyteFolderBrowser({
   const [newFolderName, setNewFolderName] = useState('');
   const [creating, setCreating] = useState(false);
 
-  const load = useCallback((target, { force = false } = {}) => {
+  // The folder the pane is showing RIGHT NOW - background revalidations check
+  // it before applying, so a slow refresh can't repaint a folder already left.
+  const pathRef = useRef(normPath(initialPath));
+
+  const load = useCallback((target, { force = false, silent = false } = {}) => {
     const next = normPath(target);
-    setLoading(true);
+    pathRef.current = next;
     setError('');
     setNotConnected(false);
     setRowError('');
+    const apply = (d) => {
+      if (pathRef.current !== next) return;
+      setData(d);
+      setPath(next);
+      setFolderUrl(webUrls.current.get(next) || '');
+      for (const f of d?.folders || []) if (f.webUrl) webUrls.current.set(normPath(f.path), f.webUrl);
+      // Warm the folders now on screen so the next click opens instantly.
+      prefetchChildren(d);
+    };
+    // Stale-while-revalidate: any cached copy paints the pane IMMEDIATELY (the
+    // click never waits), and unless it is fresh enough to trust outright, a
+    // silent refetch trues it up behind the paint. This is the single biggest
+    // piece of the "as fast as Egnyte itself" feel.
+    const hit = !force && peekFolder(next);
+    if (hit) {
+      apply(hit.data);
+      setLoading(false);
+      if (hit.age < FOLDER_FRESH_MS) return;
+      getFolderCached(next, { force: true }).then(apply).catch(err => {
+        // Keep the stale paint for transient failures - but a 428 means the
+        // person's Egnyte connection lapsed, and browsing a cached ghost of
+        // the tenant would hide that until some deeper click breaks. Show the
+        // connect screen instead.
+        if (err?.status === 428 && pathRef.current === next) {
+          setData(null);
+          setConnectRequired(true);
+          setError(egnyteErrorMessage(err, 'Could not open that folder.'));
+        }
+      });
+      return;
+    }
+    setLoading(!silent);
     getFolderCached(next, { force })
-      .then(d => {
-        setData(d);
-        setPath(next);
-        setFolderUrl(webUrls.current.get(next) || '');
-        for (const f of d?.folders || []) if (f.webUrl) webUrls.current.set(normPath(f.path), f.webUrl);
-        // Warm the folders now on screen so the next click opens instantly.
-        prefetchChildren(d);
-      })
+      .then(apply)
       .catch(err => {
+        if (pathRef.current !== next) return;
         setData(null);
         setNotConnected(isNotConnected(err));
         setConnectRequired(err?.status === 428);
         setError(egnyteErrorMessage(err, 'Could not open that folder.'));
       })
-      .finally(() => setLoading(false));
+      .finally(() => { if (pathRef.current === next) setLoading(false); });
   }, []);
 
   useEffect(() => { load(initialPath); }, [load, initialPath]);
@@ -199,30 +229,41 @@ export default function EgnyteFolderBrowser({
 
   const clearSearch = () => { setResults(null); setSearchTerm(''); setQuery(''); };
 
+  // Optimistic UI: mutations paint the expected result IMMEDIATELY (both the
+  // on-screen listing and the shared cache, so navigating away and back shows
+  // the same picture), then the server call runs and a SILENT force refresh
+  // reconciles with what Egnyte actually holds. On failure the refresh itself
+  // restores the truth - the optimistic paint can never outlive the round-trip.
+  const applyOptimistic = (fn) => {
+    setData(d => (d ? fn(d) : d));
+    mutateFolderCache(path, fn);
+  };
+
   const createFolder = () => {
     const name = newFolderName.trim();
     if (!name) return;
     setCreating(true);
     setRowError('');
+    const newPath = `${normPath(path)}/${name}`;
     api.egnyteCreateFolder(`${path}/${name}`)
       .then(() => {
         setNewFolderOpen(false);
         setNewFolderName('');
-        invalidateFolder(path);
+        applyOptimistic(d => ({ ...d, folders: [...(d.folders || []), { name, path: newPath, webUrl: '' }] }));
         setTreeSync(s => ({ path, seq: s.seq + 1 }));
-        load(path, { force: true });
+        load(path, { force: true, silent: true });
       })
       .catch(err => setRowError(egnyteErrorMessage(err, 'Could not create that folder.')))
       .finally(() => setCreating(false));
   };
 
-  // After any mutation: drop the cached listing, refresh the pane and the tree
-  // node, clear the selection - the screen must show what Egnyte now holds.
+  // After any mutation: refresh the pane (silently - the optimistic paint is
+  // already on screen) and the tree node, clear the selection.
   const afterMutate = () => {
     invalidateFolder(path);
     setTreeSync(s => ({ path, seq: s.seq + 1 }));
     setSelected(new Set());
-    load(path, { force: true });
+    load(path, { force: true, silent: true });
   };
 
   const allItems = [...(data?.folders || []), ...(data?.files || [])];
@@ -238,17 +279,34 @@ export default function EgnyteFolderBrowser({
   const parentOfPath = (p) => normPath(p).slice(0, normPath(p).lastIndexOf('/')) || '/';
   const nameOfPath = (p) => normPath(p).split('/').pop();
 
+  // Remove rows from a listing - shared by the optimistic delete and move.
+  const withoutPaths = (paths) => (d) => {
+    const gone = new Set(paths.map(normPath));
+    return {
+      ...d,
+      folders: (d.folders || []).filter(f => !gone.has(normPath(f.path))),
+      files: (d.files || []).filter(f => !gone.has(normPath(f.path))),
+    };
+  };
+
   const doRename = async () => {
     const nn = renameName.trim();
     if (!nn || !renameTarget) return;
+    const target = renameTarget;
+    const newPath = `${parentOfPath(target.path)}/${nn}`;
+    // Paint the new name in place and close the dialog before the round-trip.
+    setRenameTarget(null);
+    const renameRow = (rows) => (rows || []).map(r =>
+      normPath(r.path) === normPath(target.path) ? { ...r, name: nn, path: newPath } : r);
+    applyOptimistic(d => ({ ...d, folders: renameRow(d.folders), files: renameRow(d.files) }));
     setBulkBusy('Renaming…');
     setRowError('');
     try {
-      await api.egnyteMove(renameTarget.path, `${parentOfPath(renameTarget.path)}/${nn}`);
-      setRenameTarget(null);
+      await api.egnyteMove(target.path, newPath);
       afterMutate();
     } catch (err) {
-      setRowError(egnyteErrorMessage(err, `Could not rename ${renameTarget.name}.`));
+      setRowError(egnyteErrorMessage(err, `Could not rename ${target.name}.`));
+      afterMutate();   // the silent refresh restores the real name
     } finally {
       setBulkBusy('');
     }
@@ -257,6 +315,10 @@ export default function EgnyteFolderBrowser({
   const doDelete = async () => {
     const paths = confirmDelete || [];
     setConfirmDelete(null);
+    // Rows vanish immediately - Egnyte's own UI does the same; the silent
+    // reconcile below brings anything back that the server refused to delete.
+    applyOptimistic(withoutPaths(paths));
+    setSelected(new Set());
     setBulkBusy(`Deleting ${paths.length} item${paths.length === 1 ? '' : 's'}…`);
     setRowError('');
     try {
@@ -275,6 +337,8 @@ export default function EgnyteFolderBrowser({
     setDestPick(null);
     if (!paths?.length) return;
     const verb = mode === 'move' ? 'Moving' : 'Copying';
+    // Moves leave this folder now; copies change nothing on screen here.
+    if (mode === 'move') { applyOptimistic(withoutPaths(paths)); setSelected(new Set()); }
     setBulkBusy(`${verb} ${paths.length} item${paths.length === 1 ? '' : 's'}…`);
     setRowError('');
     const call = mode === 'move' ? api.egnyteMove : api.egnyteCopy;
@@ -618,7 +682,7 @@ export default function EgnyteFolderBrowser({
 
       {/* ── Upload into the folder currently being viewed ── */}
       {showUpload && !results && (
-        <EgnyteUpload folder={path} canWrite={canWrite} triggerRef={uploadTrigger} onUploaded={() => { invalidateFolder(path); load(path, { force: true }); }} />
+        <EgnyteUpload folder={path} canWrite={canWrite} triggerRef={uploadTrigger} onUploaded={() => { invalidateFolder(path); load(path, { force: true, silent: true }); }} />
       )}
 
       {/* ── Listing or search results ── */}

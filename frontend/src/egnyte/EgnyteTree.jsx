@@ -11,7 +11,7 @@
 // rows that navigate, with a remove control on hover.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Bookmark, ChevronRight, Folder, HardDrive, X } from 'lucide-react';
-import { crumbsFor, getFolderCached, invalidateFolder, normPath, prefetchChildren, prefetchFolder } from './lib';
+import { crumbsFor, FOLDER_FRESH_MS, getFolderCached, invalidateFolder, normPath, peekFolder, prefetchChildren, prefetchFolder } from './lib';
 import { ELLIPSIS, Spinner } from './ui';
 
 const FOLDER_FILL = '#fdb64c';
@@ -72,13 +72,28 @@ export default function EgnyteTree({ currentPath = '', onSelect, refreshSignal, 
   const loadChildren = useCallback((path) => {
     const key = normPath(path);
     if (inFlight.current.has(key)) return;
+    const setFrom = (d) => setChildren(prev => new Map(prev).set(key, (d?.folders || []).map(f => ({
+      name: f.name, path: normPath(f.path), webUrl: f.webUrl || '',
+    }))));
+    // Stale-while-revalidate, same as the contents pane: any cached listing
+    // expands the node instantly (no spinner row), and only a stale one costs
+    // a background refresh.
+    const hit = peekFolder(key);
+    if (hit) {
+      setFrom(hit.data);
+      if (hit.age < FOLDER_FRESH_MS) return;
+      inFlight.current.add(key);
+      getFolderCached(key, { force: true })
+        .then(setFrom)
+        .catch(() => { /* keep the stale rows */ })
+        .finally(() => inFlight.current.delete(key));
+      return;
+    }
     inFlight.current.add(key);
     setLoadingPaths(prev => new Set(prev).add(key));
     getFolderCached(key)
       .then(d => {
-        setChildren(prev => new Map(prev).set(key, (d?.folders || []).map(f => ({
-          name: f.name, path: normPath(f.path), webUrl: f.webUrl || '',
-        }))));
+        setFrom(d);
         // Expanding a node warms its children, so the next expand or open is
         // instant - the "no delay" feel is this line.
         prefetchChildren(d, 16);

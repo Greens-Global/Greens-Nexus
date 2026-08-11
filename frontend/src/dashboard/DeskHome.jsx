@@ -93,16 +93,64 @@ function Stat({ i, label, value, sub, chip, Icon, onGo, hero }) {
   );
 }
 
-export default function DeskHome({ kpis = {}, notifications = [], markRead }) {
+// The greeting + session header, on its own so the Dashboard page can wear it
+// over EVERY layout - the designed Home below it AND saved custom-view grids
+// (saving a default view used to swallow the greeting with the rest of Home;
+// Visesh, Aug 12). `summary` is an optional node after the date line - Home
+// passes its attention-count sentence, grid views just get the date.
+export function DeskGreeting({ summary = null }) {
   const { accounts } = useMsal();
-  const { can, actingAs } = useRole();
+  const { actingAs } = useRole();
   const now = useNow();
   // While acting as someone, the greeting greets THEM - this whole screen is
   // their day, and "Good evening, Visesh" on Pranshu's dashboard read wrong.
   const firstName = ((actingAs?.targetName || accounts[0]?.name) ?? 'there').split(' ')[0];
+  const [status, setStatus] = useState(null);
+  useEffect(() => { api.timeStatus().then(setStatus).catch(() => {}); }, []);
 
-  // Live extras: session state, pending signatures, team KPIs (managers).
-  // All read-only, all existing endpoints, all safe to fail quietly.
+  const last = status?.lastPunch;
+  const clockedIn = !!(last && last.kind !== 'out');
+  const elapsed = clockedIn && last?.at
+    ? Math.max(0, Math.floor((now.getTime() - new Date(last.at + 'Z').getTime()) / 1000))
+    : 0;
+
+  const hour = now.getHours();
+  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+  const dateLine = new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric' }).format(now);
+
+  return (
+    <div className="dk-head dk-rise" style={{ '--i': 0 }}>
+      <div className="dk-head-left">
+        <h1>{greeting}, {firstName}!</h1>
+        <div className="dk-head-sub">{dateLine}{summary && <> · {summary}</>}</div>
+      </div>
+      <div className="dk-head-right">
+        <button
+          className={`dk-session-chip${clockedIn ? ' dk-session-chip--on' : ''}`}
+          onClick={() => navTo('timeclock')}
+          title="Open time clock"
+        >
+          <span className={`dk-dot ${clockedIn ? 'dk-dot--up' : 'dk-dot--off'}`} />
+          {clockedIn ? <>Clocked in · <b>{fmtElapsed(elapsed)}</b></> : 'Clocked out · Open time clock'}
+        </button>
+        <div className="dk-zones">
+          <span>California <b>{fmtZone(now, 'America/Los_Angeles')}</b></span>
+          <span className="dk-zone-sep" />
+          <span>India <b>{fmtZone(now, 'Asia/Kolkata')}</b></span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function DeskHome({ kpis = {}, notifications = [], markRead }) {
+  const { can } = useRole();
+  const now = useNow();
+
+  // Live extras: session state (the My-hours strip), pending signatures, team
+  // KPIs (managers). All read-only, all existing endpoints, all safe to fail
+  // quietly. DeskGreeting fetches timeStatus for its own chip - the endpoint is
+  // a cheap single-row read, so the duplicate call beats threading state through.
   const [status, setStatus] = useState(null);
   const [sigs, setSigs] = useState([]);
   const [teamKpis, setTeamKpis] = useState(null);
@@ -120,10 +168,6 @@ export default function DeskHome({ kpis = {}, notifications = [], markRead }) {
   const elapsed = clockedIn && last?.at
     ? Math.max(0, Math.floor((now.getTime() - new Date(last.at + 'Z').getTime()) / 1000))
     : 0;
-
-  const hour = now.getHours();
-  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
-  const dateLine = new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric' }).format(now);
 
   const unread = notifications.filter(n => !n.read);
   const actionable = unread.filter(n => n.action && !n.actioned).slice(0, 6);
@@ -171,27 +215,7 @@ export default function DeskHome({ kpis = {}, notifications = [], markRead }) {
   return (
     <div className="dk-home">
       {/* ── Greeting + session ── */}
-      <div className="dk-head dk-rise" style={{ '--i': 0 }}>
-        <div className="dk-head-left">
-          <h1>{greeting}, {firstName}!</h1>
-          <div className="dk-head-sub">{dateLine} · {summary}</div>
-        </div>
-        <div className="dk-head-right">
-          <button
-            className={`dk-session-chip${clockedIn ? ' dk-session-chip--on' : ''}`}
-            onClick={() => navTo('timeclock')}
-            title="Open time clock"
-          >
-            <span className={`dk-dot ${clockedIn ? 'dk-dot--up' : 'dk-dot--off'}`} />
-            {clockedIn ? <>Clocked in · <b>{fmtElapsed(elapsed)}</b></> : 'Clocked out · Open time clock'}
-          </button>
-          <div className="dk-zones">
-            <span>California <b>{fmtZone(now, 'America/Los_Angeles')}</b></span>
-            <span className="dk-zone-sep" />
-            <span>India <b>{fmtZone(now, 'Asia/Kolkata')}</b></span>
-          </div>
-        </div>
-      </div>
+      <DeskGreeting summary={summary} />
 
       {/* ── Stat cards ── */}
       <div className="dk-board">
