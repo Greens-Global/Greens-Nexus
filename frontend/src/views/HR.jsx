@@ -23,6 +23,7 @@ import RolesAccess, { LevelPill, ModuleLevelPill, TierBadge } from './RolesAcces
 import { capabilityText } from '../lib/moduleCapabilities';
 import PersonHover from '../components/PersonHoverCard';
 import EgnytePersonFolder from '../egnyte/EgnytePersonFolder';
+import InvestorChart from '../components/InvestorChart';
 import { takePendingPerson } from '../lib/personNav';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { TaskChecklist, punchTime } from '../components/WorkLogDrawer';
@@ -2301,6 +2302,9 @@ function OrgSidePanel({ e, people, entities, entityName, descendants, divisionNa
 }
 
 function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr }) {
+  // Two charts, one tab (Neil, Aug 11): the reporting tree, and the investor
+  // book grouped by relationship owner - investors don't report to anyone.
+  const [chartMode, setChartMode] = useState('org');   // 'org' | 'investors'
   const [draggingId, setDraggingId] = useState(null);
   const [overKey, setOverKey] = useState(null); // target workEmail, or '__none__' for the clear zone
   const [selected, setSelected] = useState(null);        // side-panel person
@@ -2576,6 +2580,24 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
   );
   return (
     <div>
+      {/* Org ⇄ Investors switch */}
+      <div style={{ display: 'inline-flex', gap: 2, background: 'var(--mist)', borderRadius: 10, padding: 3, marginBottom: 14 }}>
+        {[['org', 'Organization', Network], ['investors', 'Investors', Briefcase]].map(([key, label, Icon]) => (
+          <button key={key} onClick={() => setChartMode(key)}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 8, border: 'none', cursor: 'pointer',
+              fontFamily: 'Inter,sans-serif', fontSize: 12.5, fontWeight: 700,
+              background: chartMode === key ? 'var(--card)' : 'transparent',
+              color: chartMode === key ? 'var(--ink)' : 'var(--muted)',
+              boxShadow: chartMode === key ? 'var(--shadow-sm)' : 'none' }}>
+            <Icon size={13} /> {label}
+          </button>
+        ))}
+      </div>
+
+      {chartMode === 'investors' ? (
+        <InvestorChart employees={employees} toastOk={toastOk} toastErr={toastErr} />
+      ) : (
+      <>
       {/* Toolbar: expand controls · full-width search · filters + count (People-tab style) */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
         <button className="secondary-btn" style={{ fontSize: 12, flex: '0 0 auto' }}
@@ -2707,6 +2729,8 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
           onClose={() => setSelected(null)} onSelect={setSelected}
           onSaved={saved => { onUpdated(saved); setSelected(saved); }}
           toastOk={toastOk} toastErr={toastErr} />
+      )}
+      </>
       )}
     </div>
   );
