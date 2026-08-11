@@ -13,7 +13,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Bookmark, Check, ChevronRight, Copy, Download, ExternalLink, Eye, FolderInput,
-  FolderPlus, HardDrive, Link2, PenLine, RefreshCw, Search, Trash2, X,
+  FolderPlus, HardDrive, Link2, MoreVertical, PenLine, RefreshCw, Search, Trash2,
+  Upload, X,
 } from 'lucide-react';
 import { api } from '../api';
 import {
@@ -112,7 +113,9 @@ export default function EgnyteFolderBrowser({
 
   // ── selection, bookmarks, row-menu, file-manager verbs (Aug 11) ──
   const [selected, setSelected] = useState(() => new Set());
-  const [menu, setMenu] = useState(null);              // {item, isFolder, rect}
+  const [menu, setMenu] = useState(null);              // {item, isFolder, rect, align}
+  const [createMenu, setCreateMenu] = useState(null);  // anchor rect for the Create dropdown
+  const uploadTrigger = useRef(null);
   const [renameTarget, setRenameTarget] = useState(null);
   const [renameName, setRenameName] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(null);   // [paths]
@@ -288,11 +291,11 @@ export default function EgnyteFolderBrowser({
   // The "⋯" menu for one row. Write verbs appear only with write access; the
   // caller's own Egnyte permissions still decide server-side, and a refusal
   // surfaces as the row error.
-  const menuItems = (item, isFolder) => {
+  const menuItems = (item, isFolder, { skipOpen = false } = {}) => {
     const write = canWrite;
     return [
       isFolder
-        ? { label: 'Open', icon: <FolderInput size={14} />, onClick: () => openFolder(item.path, item.webUrl) }
+        ? (skipOpen ? null : { label: 'Open', icon: <FolderInput size={14} />, onClick: () => openFolder(item.path, item.webUrl) })
         : (canPreview(item) && !isShortcut(item.name)
           ? { label: 'View', icon: <Eye size={14} />, onClick: () => setPreview(item) }
           : null),
@@ -435,19 +438,83 @@ export default function EgnyteFolderBrowser({
             )}
           </form>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, marginLeft: 'auto' }}>
-            {onPick && (
+          {onPick && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, marginLeft: 'auto' }}>
               <button type="button" className="primary-btn" onClick={() => onPick(path)} disabled={loading} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                 <Check size={13} /> Use This Folder
               </button>
-            )}
+            </div>
+          )}
+        </div>
+
+        {/* ── Action toolbar, Egnyte-style: Create + always-visible verbs that
+            light up with the selection. Not rendered in pick mode. ── */}
+        {!onPick && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', padding: '9px 12px', borderTop: '1px solid var(--wk-line2)' }}>
             {canWrite && (
-              <button type="button" className={onPick ? 'secondary-btn' : 'primary-btn'} onClick={() => setNewFolderOpen(o => !o)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                <FolderPlus size={13} /> New Folder
+              <button
+                type="button"
+                className="primary-btn"
+                onClick={e => setCreateMenu(e.currentTarget.getBoundingClientRect())}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+              >
+                <FolderPlus size={14} /> Create <ChevronRight size={13} style={{ transform: 'rotate(90deg)' }} />
               </button>
             )}
+            {canWrite && (
+              <button type="button" className="egx-toolbtn" title="Upload files to this folder" aria-label="Upload files"
+                onClick={() => uploadTrigger.current?.()}>
+                <Upload size={15} />
+              </button>
+            )}
+            <button type="button" className="egx-toolbtn" title={selected.size ? 'Download selected files' : 'Select files to download'} aria-label="Download selected"
+              disabled={![...selected].some(p => (data?.files || []).some(f => f.path === p))}
+              onClick={downloadSelected}>
+              <Download size={15} />
+            </button>
+            {canWrite && (
+              <>
+                <button type="button" className="egx-toolbtn" title={selected.size ? 'Move selected' : 'Select items to move'} aria-label="Move selected"
+                  disabled={!selected.size} onClick={() => setDestPick({ mode: 'move', paths: [...selected] })}>
+                  <FolderInput size={15} />
+                </button>
+                <button type="button" className="egx-toolbtn" title={selected.size ? 'Copy selected' : 'Select items to copy'} aria-label="Copy selected"
+                  disabled={!selected.size} onClick={() => setDestPick({ mode: 'copy', paths: [...selected] })}>
+                  <Copy size={15} />
+                </button>
+                <button type="button" className="egx-toolbtn is-danger" title={selected.size ? 'Delete selected' : 'Select items to delete'} aria-label="Delete selected"
+                  disabled={!selected.size} onClick={() => setConfirmDelete([...selected])}>
+                  <Trash2 size={15} />
+                </button>
+              </>
+            )}
+            <button type="button" className={`egx-toolbtn${path && isBookmarked(path) ? ' is-on' : ''}`}
+              title={!path ? 'Open a folder to bookmark it' : (isBookmarked(path) ? 'Remove bookmark' : 'Bookmark this folder')}
+              aria-label="Bookmark this folder"
+              disabled={!path}
+              onClick={() => toggleBookmark(path, crumbs[crumbs.length - 1]?.name)}>
+              <Bookmark size={15} fill={path && isBookmarked(path) ? 'currentColor' : 'none'} />
+            </button>
+            <button type="button" className="egx-toolbtn" title="Folder actions" aria-label="Folder actions"
+              disabled={!path}
+              onClick={e => setMenu({
+                item: { name: crumbs[crumbs.length - 1]?.name || '', path, webUrl: folderUrl },
+                isFolder: true, skipOpen: true,
+                rect: e.currentTarget.getBoundingClientRect(),
+              })}>
+              <MoreVertical size={15} />
+            </button>
+            {selected.size > 0 && (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginLeft: 'auto', fontSize: 12.5, fontWeight: 600, color: 'var(--wk-ink)' }}>
+                {selected.size} selected
+                <button type="button" onClick={() => setSelected(new Set())} title="Clear selection" aria-label="Clear selection"
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--wk-dim)', padding: 4, display: 'inline-flex', borderRadius: 5 }}>
+                  <X size={14} />
+                </button>
+              </span>
+            )}
           </div>
-        </div>
+        )}
 
         {newFolderOpen && canWrite && (
           <div style={{ padding: '10px 12px', borderTop: '1px solid var(--wk-line2)', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -476,40 +543,9 @@ export default function EgnyteFolderBrowser({
         </div>
       )}
 
-      {/* ── Selection action bar - appears when anything is checked ── */}
-      {!bulkBusy && selected.size > 0 && (
-        <div className="egx-selbar" style={{ ...CARD, padding: '7px 12px', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--wk-ink)', marginRight: 6 }}>
-            {selected.size} selected
-          </span>
-          <button type="button" className="secondary-btn" onClick={downloadSelected}
-            disabled={![...selected].some(p => (data?.files || []).some(f => f.path === p))}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            <Download size={13} /> Download
-          </button>
-          {canWrite && (
-            <>
-              <button type="button" className="secondary-btn" onClick={() => setDestPick({ mode: 'move', paths: [...selected] })} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                <FolderInput size={13} /> Move
-              </button>
-              <button type="button" className="secondary-btn" onClick={() => setDestPick({ mode: 'copy', paths: [...selected] })} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                <Copy size={13} /> Copy
-              </button>
-              <button type="button" className="egx-danger-btn" onClick={() => setConfirmDelete([...selected])} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                <Trash2 size={13} /> Delete
-              </button>
-            </>
-          )}
-          <button type="button" onClick={() => setSelected(new Set())} title="Clear selection" aria-label="Clear selection"
-            style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--wk-dim)', padding: 5, display: 'inline-flex', borderRadius: 6 }}>
-            <X size={15} />
-          </button>
-        </div>
-      )}
-
       {/* ── Upload into the folder currently being viewed ── */}
       {showUpload && !results && (
-        <EgnyteUpload folder={path} canWrite={canWrite} onUploaded={() => { invalidateFolder(path); load(path, { force: true }); }} />
+        <EgnyteUpload folder={path} canWrite={canWrite} triggerRef={uploadTrigger} onUploaded={() => { invalidateFolder(path); load(path, { force: true }); }} />
       )}
 
       {/* ── Listing or search results ── */}
@@ -561,7 +597,7 @@ export default function EgnyteFolderBrowser({
             onHoverFolder={prefetchFolder}
             onDownload={download}
             onPreview={setPreview}
-            onMenu={onPick ? undefined : (item, isFolder, rect) => setMenu({ item, isFolder, rect })}
+            onMenu={onPick ? undefined : (item, isFolder, rect, align) => setMenu({ item, isFolder, rect, align })}
             selected={onPick ? undefined : selected}
             onToggleSelect={onPick ? undefined : toggleSelect}
             onToggleAll={onPick ? undefined : toggleAll}
@@ -590,6 +626,7 @@ export default function EgnyteFolderBrowser({
               rootLabel={rootLabel}
               bookmarks={bookmarks}
               onRemoveBookmark={(p) => toggleBookmark(p)}
+              onNodeMenu={(node, rect) => setMenu({ item: node, isFolder: true, rect, align: 'left' })}
             />
           </aside>
           <div
@@ -622,8 +659,21 @@ export default function EgnyteFolderBrowser({
       {menu && (
         <EgnyteMenu
           anchorRect={menu.rect}
-          items={menuItems(menu.item, menu.isFolder)}
+          align={menu.align || 'right'}
+          items={menuItems(menu.item, menu.isFolder, { skipOpen: !!menu.skipOpen })}
           onClose={() => setMenu(null)}
+        />
+      )}
+
+      {createMenu && (
+        <EgnyteMenu
+          anchorRect={createMenu}
+          align="left"
+          onClose={() => setCreateMenu(null)}
+          items={[
+            { label: 'Folder', icon: <FolderPlus size={14} />, onClick: () => setNewFolderOpen(true) },
+            { label: 'Upload files', icon: <Upload size={14} />, onClick: () => uploadTrigger.current?.() },
+          ]}
         />
       )}
 

@@ -17,9 +17,9 @@ import { ELLIPSIS, Spinner } from './ui';
 const FOLDER_FILL = '#fdb64c';
 const FOLDER_EDGE = '#ec9d29';
 
-function TreeRow({ depth, active, hasChildren, expanded, loading, label, icon, onToggle, onSelect, onHover, title, trailing }) {
+function TreeRow({ depth, active, hasChildren, expanded, loading, label, icon, onToggle, onSelect, onHover, onContext, title, trailing }) {
   return (
-    <div className={`egx-tree-row${active ? ' is-active' : ''}`} style={{ paddingLeft: depth * 15 }} onMouseEnter={onHover}>
+    <div className={`egx-tree-row${active ? ' is-active' : ''}`} style={{ paddingLeft: depth * 15 }} onMouseEnter={onHover} onContextMenu={onContext}>
       {hasChildren ? (
         <button
           type="button"
@@ -55,7 +55,13 @@ function TreeRow({ depth, active, hasChildren, expanded, loading, label, icon, o
   );
 }
 
-export default function EgnyteTree({ currentPath = '', onSelect, refreshSignal, rootLabel = 'All files', bookmarks = [], onRemoveBookmark }) {
+export default function EgnyteTree({ currentPath = '', onSelect, refreshSignal, rootLabel = 'All files', bookmarks = [], onRemoveBookmark, onNodeMenu }) {
+  // Right-click on a folder node opens the same actions menu the listing rows
+  // use, at the cursor.
+  const contextFor = (node) => onNodeMenu && ((e) => {
+    e.preventDefault();
+    onNodeMenu(node, { left: e.clientX, right: e.clientX, top: e.clientY, bottom: e.clientY });
+  });
   // path -> array of {name, path, webUrl} once loaded; 'error' when the fetch
   // failed (rendered as a quiet retry row, never as a blank hole).
   const [children, setChildren] = useState(() => new Map());
@@ -165,6 +171,7 @@ export default function EgnyteTree({ currentPath = '', onSelect, refreshSignal, 
             onToggle={() => toggle(node.path)}
             onSelect={() => onSelect?.(node.path, node.webUrl)}
             onHover={() => prefetchFolder(node.path)}
+            onContext={contextFor(node)}
           />
           {open && <div className="egx-tree-kids">{renderLevel(node.path, depth + 1)}</div>}
         </div>
@@ -194,6 +201,7 @@ export default function EgnyteTree({ currentPath = '', onSelect, refreshSignal, 
               icon={<Folder size={16} fill={FOLDER_FILL} style={{ color: FOLDER_EDGE, flexShrink: 0 }} />}
               onSelect={() => onSelect?.(b.path, '')}
               onHover={() => prefetchFolder(b.path)}
+              onContext={contextFor({ name: b.name, path: b.path, webUrl: '' })}
               trailing={onRemoveBookmark && (
                 <button
                   type="button"

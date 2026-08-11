@@ -67,9 +67,9 @@ const CHECK = {
   margin: 0, flexShrink: 0,
 };
 
-function Row({ gridChildren, actions, onClick, onHover, title, checked, onCheck }) {
+function Row({ gridChildren, actions, onClick, onHover, onContext, title, checked, onCheck }) {
   return (
-    <div className={`egnyte-row${checked ? ' is-selected' : ''}`} style={{ display: 'flex', alignItems: 'center', minWidth: 0 }} onMouseEnter={onHover}>
+    <div className={`egnyte-row${checked ? ' is-selected' : ''}`} style={{ display: 'flex', alignItems: 'center', minWidth: 0 }} onMouseEnter={onHover} onContextMenu={onContext}>
       {onCheck && (
         <span className="egx-check" style={{ display: 'inline-flex', paddingLeft: 10, flexShrink: 0 }}>
           <input type="checkbox" checked={checked} onChange={onCheck} onClick={e => e.stopPropagation()} style={CHECK} aria-label="Select item" />
@@ -127,6 +127,13 @@ export default function EgnyteListing({
     </button>
   );
 
+  // Right-click opens the same menu at the cursor - the native file-manager
+  // gesture. The zero-size rect anchors it; align 'left' opens it rightward.
+  const contextFor = (item, isFolder) => onMenu && ((e) => {
+    e.preventDefault();
+    onMenu(item, isFolder, { left: e.clientX, right: e.clientX, top: e.clientY, bottom: e.clientY }, 'left');
+  });
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
       {/* Column captions - same grid as the rows so they cannot drift. */}
@@ -150,6 +157,7 @@ export default function EgnyteListing({
           title={f.path}
           onClick={() => onOpenFolder?.(f.path, f.webUrl)}
           onHover={onHoverFolder ? () => onHoverFolder(f.path) : undefined}
+          onContext={contextFor(f, true)}
           checked={selectable ? selected.has(f.path) : false}
           onCheck={selectable ? () => onToggleSelect(f.path) : undefined}
           gridChildren={
@@ -183,6 +191,7 @@ export default function EgnyteListing({
             key={`f:${f.path}`}
             title={opensViewer ? `View ${f.name}` : `Download ${f.name}`}
             onClick={() => { if (busy) return; if (opensViewer) onPreview(f); else onDownload?.(f); }}
+            onContext={contextFor(f, false)}
             checked={selectable ? selected.has(f.path) : false}
             onCheck={selectable ? () => onToggleSelect(f.path) : undefined}
             gridChildren={

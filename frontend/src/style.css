@@ -3655,6 +3655,27 @@ button, [role="button"], select { touch-action: manipulation; }
 @keyframes egxFade { from { opacity: 0; } }
 @keyframes egxReveal { from { opacity: 0; transform: translateY(-4px); } }
 
+/* Toolbar icon buttons (Egnyte-style verb strip above the listing). Always
+   visible; disabled means "select something first", not "hidden feature". */
+.egx-toolbtn {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--wk-card);
+  color: var(--wk-dim);
+  border: 1px solid var(--wk-line2);
+  border-radius: 7px;
+  cursor: pointer;
+  transition: background .12s, color .12s, border-color .12s;
+}
+.egx-toolbtn:hover:not(:disabled) { background: var(--wk-hover); color: var(--wk-ink); border-color: var(--wk-line); }
+.egx-toolbtn:active:not(:disabled) { background: color-mix(in srgb, var(--wk-brand) 10%, transparent); }
+.egx-toolbtn:disabled { opacity: .4; cursor: default; }
+.egx-toolbtn.is-on { color: var(--wk-brand); border-color: color-mix(in srgb, var(--wk-brand) 40%, transparent); }
+.egx-toolbtn.is-danger:hover:not(:disabled) { color: var(--wk-red); background: color-mix(in srgb, var(--wk-red) 8%, transparent); border-color: color-mix(in srgb, var(--wk-red) 30%, transparent); }
+
 /* Quiet-destructive button (Disconnect): tinted red so it reads alive but not
    alarming - the visual weight of a secondary action with a clear consequence. */
 .egx-danger-btn {

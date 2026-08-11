@@ -11,8 +11,15 @@ import { api } from '../api';
 import { egnyteErrorMessage, filesFromPaste } from './lib';
 import { BODY, Notice, Spinner } from './ui';
 
-export default function EgnyteUpload({ folder, canWrite, onUploaded, compact = false }) {
+export default function EgnyteUpload({ folder, canWrite, onUploaded, compact = false, triggerRef }) {
   const inputRef = useRef(null);
+  // Lets the browser's toolbar (Create > Upload Files, the upload icon) open
+  // this strip's file picker without owning a second upload implementation.
+  useEffect(() => {
+    if (!triggerRef) return undefined;
+    triggerRef.current = () => inputRef.current?.click();
+    return () => { triggerRef.current = null; };
+  }, [triggerRef]);
   const [dragging, setDragging] = useState(false);
   const [busy, setBusy] = useState(null);      // { done, total }
   const [error, setError] = useState('');

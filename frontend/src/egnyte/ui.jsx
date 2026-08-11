@@ -135,7 +135,7 @@ export function ProblemNote({ message, onRetry }) {
 // click, Escape, scroll and resize - a stale-positioned menu is worse than a
 // closed one. Items: {label, icon, onClick, danger, disabled, hint}, or
 // 'divider'.
-export function EgnyteMenu({ anchorRect, items, onClose }) {
+export function EgnyteMenu({ anchorRect, items, onClose, align = 'right' }) {
   const ref = useRef(null);
   const [pos, setPos] = useState(null);
 
@@ -143,12 +143,14 @@ export function EgnyteMenu({ anchorRect, items, onClose }) {
     if (!anchorRect || !ref.current) return;
     const w = ref.current.offsetWidth || 230;
     const h = ref.current.offsetHeight || 200;
-    let left = Math.min(anchorRect.right - w, window.innerWidth - w - 8);
-    left = Math.max(8, left);
+    // align 'right': menu's right edge under the anchor (the "⋯" button).
+    // align 'left': menu opens rightward from the point - the right-click case.
+    let left = align === 'left' ? anchorRect.left : anchorRect.right - w;
+    left = Math.max(8, Math.min(left, window.innerWidth - w - 8));
     let top = anchorRect.bottom + 4;
     if (top + h > window.innerHeight - 8) top = Math.max(8, anchorRect.top - h - 4);
     setPos({ left, top });
-  }, [anchorRect]);
+  }, [anchorRect, align]);
 
   useEffect(() => {
     const close = (e) => { if (!ref.current?.contains(e.target)) onClose(); };
