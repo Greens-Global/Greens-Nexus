@@ -207,11 +207,19 @@ const PREVIEW_BY_EXT = {
   pdf: 'pdf',
   png: 'image', jpg: 'image', jpeg: 'image', gif: 'image', webp: 'image',
   txt: 'text', log: 'text', csv: 'text', md: 'text', markdown: 'text',
+  // Spreadsheets parse CLIENT-side (SheetJS, same dynamic import the item
+  // importer uses) and render as a plain table - no server change, and the
+  // server's inline allowlist stays untouched because the bytes arrive as a
+  // download that the viewer reads programmatically.
+  xlsx: 'sheet', xls: 'sheet',
 };
 
 // Text is read into memory to render, so cap it. Past this a file is a download,
 // not something anyone is reading in a modal.
 export const MAX_TEXT_PREVIEW_BYTES = 400 * 1024;
+
+// Spreadsheets are parsed in memory too; a workbook past this is a download.
+export const MAX_SHEET_PREVIEW_BYTES = 10 * 1024 * 1024;
 
 export function previewKindFor(name = '') {
   const ext = name.includes('.') ? name.split('.').pop().toLowerCase() : '';

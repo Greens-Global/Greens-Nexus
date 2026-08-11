@@ -644,6 +644,46 @@ def _ser_group(row, count=None) -> dict:
             **({"memberCount": count} if count is not None else {})}
 
 
+@router.get("/folder-groups/options")
+def folder_group_options(user: dict = Depends(require_manager), db: Session = Depends(get_db)):
+    """Dropdown vocabulary for the no-AI rule builder: every field the matcher
+    understands, with value choices drawn from THIS company's real data - so
+    the builder can only produce conditions that can actually match someone."""
+    g = _grounding(db)
+    countries = sorted({(e.get("country") or "").strip().upper() for e in g["entities"]} - {""})
+    return {"values": {
+        "entity_country": countries,
+        "company": sorted(e["name"] for e in g["entities"] if e.get("name")),
+        "department": g["departments"],
+        "division": g["divisions"],
+        "employment_type": ["full_time", "part_time", "contractor", "intern"],
+        "status": ["onboarding", "active", "inactive"],
+        "pay_type": ["hourly", "fixed"],
+        "pay_currency": ["USD", "INR"],
+    }}
+
+
+class GroupPreviewIn(BaseModel):
+    rule: list
+
+
+@router.post("/folder-groups/preview")
+def folder_group_preview(body: GroupPreviewIn, user: dict = Depends(require_manager),
+                         db: Session = Depends(get_db)):
+    """Who a rule matches, without any AI in the loop - the dropdown builder's
+    live preview. Same membership evaluation the saved group will use."""
+    rule = [c for c in (body.rule or [])
+            if isinstance(c, dict) and (c.get("field") or "") in wiring.RULE_FIELDS and str(c.get("value") or "").strip()]
+    if not rule:
+        raise HTTPException(400, "Add at least one condition")
+    members = wiring.people_matching(rule, db)
+    return {
+        "rule": rule,
+        "members": [{"email": (m.work_email or "").lower(), "name": wiring.person_label(m)} for m in members],
+        "folderSuggestions": _suggest_folders(rule, db),
+    }
+
+
 @router.post("/folder-groups/draft")
 def folder_group_draft(body: GroupDraftIn, user: dict = Depends(require_manager),
                        db: Session = Depends(get_db)):

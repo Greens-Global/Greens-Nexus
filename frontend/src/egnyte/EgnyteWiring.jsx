@@ -333,16 +333,67 @@ function RuleChips({ rule }) {
   );
 }
 
-// The AI prompt + draft-review flow lives in a dialog now, so the page itself
-// stays a readable list. Every person who matches the rule - today or hired
-// later - gets their documents folder inside the group's folder automatically.
+// Value labels for the dropdowns - raw stored values stay what the matcher
+// expects; only the display is humanized.
+const OPTION_LABELS = {
+  hourly: 'Biweekly (hourly)', fixed: 'Monthly (fixed)',
+  full_time: 'Full-time', part_time: 'Part-time', contractor: 'Contractor', intern: 'Intern',
+  onboarding: 'Onboarding', active: 'Active', inactive: 'Inactive',
+};
+const optionLabel = (v) => OPTION_LABELS[v] || v;
+
+// Dropdown-first group builder (Visesh, Aug 11: no AI required). Conditions
+// come from RULE_FIELDS via /folder-groups/options, values from THIS company's
+// data, membership previews live through /folder-groups/preview - all plain
+// code. "Describe it in words" stays available as an optional AI assist that
+// just fills the same dropdowns.
 function FolderGroupDialog({ onClose, onSaved }) {
+  const [options, setOptions] = useState(null);      // field -> [values]
+  const [conds, setConds] = useState([{ field: 'entity_country', value: '' }]);
+  const [name, setName] = useState('');
+  const [path, setPath] = useState('');
+  const [members, setMembers] = useState(null);
+  const [suggestions, setSuggestions] = useState([]);
+  const [previewing, setPreviewing] = useState(false);
+  const [aiOpen, setAiOpen] = useState(false);
   const [prompt, setPrompt] = useState('');
   const [drafting, setDrafting] = useState(false);
-  const [draft, setDraft] = useState(null);
   const [saving, setSaving] = useState(false);
   const [picking, setPicking] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    api.egnyteFolderGroupOptions().then(d => setOptions(d?.values || {})).catch(() => setOptions({}));
+  }, []);
+
+  const validConds = conds.filter(c => c.field && String(c.value || '').trim());
+  const condsKey = JSON.stringify(validConds);
+
+  // Live "who matches" preview, debounced so dropdown fiddling doesn't spam.
+  useEffect(() => {
+    if (!validConds.length) { setMembers(null); setSuggestions([]); return undefined; }
+    const t = setTimeout(() => {
+      setPreviewing(true);
+      api.egnyteFolderGroupPreview(validConds)
+        .then(d => {
+          setMembers(d?.members || []);
+          setSuggestions(d?.folderSuggestions || []);
+          setPath(p => p || d?.folderSuggestions?.[0] || '');
+        })
+        .catch(() => {})
+        .finally(() => setPreviewing(false));
+    }, 450);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [condsKey]);
+
+  const setCond = (i, patch) => setConds(cs => cs.map((c, j) => (j === i ? { ...c, ...patch } : c)));
+  const removeCond = (i) => setConds(cs => (cs.length > 1 ? cs.filter((_, j) => j !== i) : [{ field: cs[0].field, value: '' }]));
+  const addCond = () => {
+    const used = new Set(conds.map(c => c.field));
+    const next = Object.keys(FIELD_LABELS).find(f => !used.has(f)) || 'department';
+    setConds(cs => [...cs, { field: next, value: '' }]);
+  };
 
   const makeDraft = async (e) => {
     e?.preventDefault();
@@ -350,9 +401,16 @@ function FolderGroupDialog({ onClose, onSaved }) {
     setError('');
     try {
       const d = await api.egnyteFolderGroupDraft(prompt.trim());
-      setDraft({ ...d, path: d.folderSuggestions?.[0] || '' });
+      // The AI just fills the same builder - the human still sees and can
+      // change every condition before anything saves.
+      setConds(d.rule?.length ? d.rule : conds);
+      if (d.name && !name.trim()) setName(d.name);
+      if (d.folderSuggestions?.length) { setSuggestions(d.folderSuggestions); setPath(p => p || d.folderSuggestions[0]); }
+      setMembers(d.members || []);
+      if (d.notes) setError(d.notes);
+      setAiOpen(false);
     } catch (err) {
-      setError(err?.message || 'Could not understand that - try rephrasing.');
+      setError(err?.message || 'Could not understand that - try rephrasing, or use the dropdowns.');
     } finally {
       setDrafting(false);
     }
@@ -362,7 +420,7 @@ function FolderGroupDialog({ onClose, onSaved }) {
     setSaving(true);
     setError('');
     try {
-      await api.egnyteFolderGroupCreate({ name: draft.name, prompt: prompt.trim(), rule: draft.rule, path: draft.path });
+      await api.egnyteFolderGroupCreate({ name: name.trim(), prompt: prompt.trim(), rule: validConds, path });
       onSaved();
     } catch (err) {
       setError(err?.message || 'Could not save the group.');
@@ -371,83 +429,149 @@ function FolderGroupDialog({ onClose, onSaved }) {
     }
   };
 
+  const valueChoices = (field) => options?.[field] || [];
+  const freeText = (field) => field === 'location' || !valueChoices(field).length;
+
   return (
-    <EgnyteDialog title="New Folder Group" onClose={onClose} width={640}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+    <EgnyteDialog title="New Folder Group" onClose={onClose} width={680}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         <div style={{ ...BODY, fontSize: 12.5 }}>
-          Describe who the group is for, in plain words. Everyone who matches - now or hired later -
+          Pick who the group is for. Everyone who matches every condition - now or hired later -
           automatically gets their documents folder inside the group&apos;s folder.
         </div>
-        <form onSubmit={makeDraft} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <input
-            className="form-input"
-            autoFocus
-            value={prompt}
-            onChange={e => setPrompt(e.target.value)}
-            placeholder="For example: people working from the US with biweekly salary"
-            style={{ flex: '1 1 300px', minWidth: 0 }}
-          />
-          <button type="submit" className="primary-btn" disabled={drafting || prompt.trim().length < 8} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            {drafting ? <Loader2 size={13} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Sparkles size={13} />}
-            {drafting ? 'Thinking…' : 'Create With AI'}
-          </button>
-        </form>
 
-        {draft && (
-          <div style={{ borderTop: '1px solid var(--wk-line2)', paddingTop: 10, display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <label style={{ ...BODY, fontSize: 12.5, fontWeight: 600, color: 'var(--wk-ink)' }}>Group name</label>
-              <input className="form-input" value={draft.name} onChange={e => setDraft(d => ({ ...d, name: e.target.value }))} style={{ flex: '1 1 220px', minWidth: 0 }} />
-            </div>
-            <RuleChips rule={draft.rule} />
-            {draft.notes && <div style={{ ...BODY, fontSize: 12, color: 'var(--wk-faint)' }}>{draft.notes}</div>}
-            <div style={{ ...BODY, fontSize: 12.5 }}>
-              <Users size={12} style={{ verticalAlign: -2, marginRight: 5 }} />
-              <strong style={{ color: 'var(--wk-ink)' }}>{draft.members.length} {draft.members.length === 1 ? 'person matches' : 'people match'} right now</strong>
-              {draft.members.length > 0 && (
-                <span> - {draft.members.slice(0, 10).map(m => m.name).join(', ')}{draft.members.length > 10 ? ` +${draft.members.length - 10} more` : ''}</span>
-              )}
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <div style={{ ...BODY, fontSize: 12.5, fontWeight: 600, color: 'var(--wk-ink)' }}>Group folder</div>
-              {(draft.folderSuggestions || []).length > 0 && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                  {draft.folderSuggestions.map(p => (
-                    <button key={p} type="button" onClick={() => setDraft(d => ({ ...d, path: p }))}
-                      style={{ fontFamily: 'ui-monospace, monospace', fontSize: 11.5, padding: '4px 9px', borderRadius: 8, cursor: 'pointer', border: draft.path === p ? '1.5px solid var(--wk-brand, #16a34a)' : '1px solid var(--wk-line2, rgba(0,0,0,0.12))', background: draft.path === p ? 'var(--wk-brand-tint, rgba(22,163,74,0.08))' : 'transparent', color: 'var(--wk-ink)' }}>
-                      {p}
-                    </button>
-                  ))}
-                </div>
-              )}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        {/* ── conditions ── */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {conds.map((c, i) => (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <span style={{ ...BODY, fontSize: 12, width: 34, textAlign: 'right', color: 'var(--wk-faint)', flexShrink: 0 }}>
+                {i === 0 ? 'Where' : 'and'}
+              </span>
+              <select
+                className="form-input"
+                value={c.field}
+                onChange={e => setCond(i, { field: e.target.value, value: '' })}
+                style={{ flex: '0 1 170px', minWidth: 130 }}
+              >
+                {Object.entries(FIELD_LABELS).map(([f, label]) => <option key={f} value={f}>{label}</option>)}
+              </select>
+              <span style={{ ...BODY, fontSize: 12, color: 'var(--wk-faint)' }}>is</span>
+              {freeText(c.field) ? (
                 <input
                   className="form-input"
-                  value={draft.path}
-                  onChange={e => setDraft(d => ({ ...d, path: e.target.value }))}
-                  placeholder="/Shared/… - pick a suggestion, browse, or paste"
-                  style={{ flex: '1 1 260px', minWidth: 0, fontFamily: 'ui-monospace, monospace', fontSize: 12 }}
+                  value={c.value}
+                  onChange={e => setCond(i, { value: e.target.value })}
+                  placeholder={c.field === 'location' ? 'Part of the location, e.g. Temecula' : 'Value'}
+                  style={{ flex: '1 1 180px', minWidth: 120 }}
                 />
-                <button type="button" className="secondary-btn" onClick={() => setPicking(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                  <FolderSearch size={13} /> Browse…
-                </button>
-              </div>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <button type="button" className="primary-btn" disabled={saving || !draft.name.trim() || !draft.path.trim()} onClick={save}>
-                {saving ? 'Saving…' : 'Save Group'}
+              ) : (
+                <select
+                  className="form-input"
+                  value={c.value}
+                  onChange={e => setCond(i, { value: e.target.value })}
+                  style={{ flex: '1 1 180px', minWidth: 120 }}
+                >
+                  <option value="">Choose…</option>
+                  {valueChoices(c.field).map(v => <option key={v} value={v}>{optionLabel(v)}</option>)}
+                </select>
+              )}
+              <button type="button" onClick={() => removeCond(i)} title="Remove condition" aria-label="Remove condition"
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--wk-faint)', padding: 4, display: 'inline-flex', borderRadius: 5 }}>
+                <X size={14} />
               </button>
-              <button type="button" className="secondary-btn" onClick={() => setDraft(null)}>Discard</button>
             </div>
+          ))}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <button type="button" className="secondary-btn" onClick={addCond} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <Plus size={13} /> Add Condition
+            </button>
+            <button type="button" onClick={() => setAiOpen(o => !o)}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--wk-brand)', fontSize: 12.5, fontWeight: 600, padding: 4, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+              <Sparkles size={13} /> Or describe it in words
+            </button>
           </div>
-        )}
+          {aiOpen && (
+            <form onSubmit={makeDraft} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <input
+                className="form-input"
+                autoFocus
+                value={prompt}
+                onChange={e => setPrompt(e.target.value)}
+                placeholder="For example: contractors in the India office"
+                style={{ flex: '1 1 280px', minWidth: 0 }}
+              />
+              <button type="submit" className="secondary-btn" disabled={drafting || prompt.trim().length < 8} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                {drafting ? <Loader2 size={13} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Sparkles size={13} />}
+                {drafting ? 'Thinking…' : 'Fill the Dropdowns'}
+              </button>
+            </form>
+          )}
+        </div>
+
+        {/* ── live membership preview ── */}
+        <div style={{ ...BODY, fontSize: 12.5, minHeight: 18 }}>
+          {previewing ? (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Loader2 size={12} style={{ animation: 'spin 0.7s linear infinite' }} /> Checking who matches…</span>
+          ) : members === null ? (
+            <span style={{ color: 'var(--wk-faint)' }}>Pick at least one condition to see who matches.</span>
+          ) : (
+            <>
+              <Users size={12} style={{ verticalAlign: -2, marginRight: 5 }} />
+              <strong style={{ color: 'var(--wk-ink)' }}>{members.length} {members.length === 1 ? 'person matches' : 'people match'} right now</strong>
+              {members.length > 0 && (
+                <span> - {members.slice(0, 10).map(m => m.name).join(', ')}{members.length > 10 ? ` +${members.length - 10} more` : ''}</span>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* ── name + folder ── */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <label style={{ ...BODY, fontSize: 12.5, fontWeight: 600, color: 'var(--wk-ink)' }}>Group name</label>
+          <input className="form-input" value={name} onChange={e => setName(e.target.value)}
+            placeholder={validConds.length ? validConds.map(condLabel).join(' · ') : 'e.g. US Biweekly Team'}
+            style={{ flex: '1 1 220px', minWidth: 0 }} />
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div style={{ ...BODY, fontSize: 12.5, fontWeight: 600, color: 'var(--wk-ink)' }}>Group folder <span style={{ fontWeight: 400, color: 'var(--wk-faint)' }}>- each person gets their subfolder inside it</span></div>
+          {suggestions.length > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              {suggestions.map(p => (
+                <button key={p} type="button" onClick={() => setPath(p)}
+                  style={{ fontFamily: 'ui-monospace, monospace', fontSize: 11.5, padding: '4px 9px', borderRadius: 8, cursor: 'pointer', border: path === p ? '1.5px solid var(--wk-brand, #16a34a)' : '1px solid var(--wk-line2, rgba(0,0,0,0.12))', background: path === p ? 'var(--wk-brand-tint, rgba(22,163,74,0.08))' : 'transparent', color: 'var(--wk-ink)' }}>
+                  {p}
+                </button>
+              ))}
+            </div>
+          )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <input
+              className="form-input"
+              value={path}
+              onChange={e => setPath(e.target.value)}
+              placeholder="/Shared/… - pick a suggestion, browse, or paste"
+              style={{ flex: '1 1 260px', minWidth: 0, fontFamily: 'ui-monospace, monospace', fontSize: 12 }}
+            />
+            <button type="button" className="secondary-btn" onClick={() => setPicking(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <FolderSearch size={13} /> Browse…
+            </button>
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button type="button" className="primary-btn" disabled={saving || !validConds.length || !name.trim() || !path.trim()} onClick={save}>
+            {saving ? 'Saving…' : 'Save Group'}
+          </button>
+          <button type="button" className="secondary-btn" onClick={onClose}>Cancel</button>
+        </div>
+
         {error && <Notice tone="error" onDismiss={() => setError('')}>{error}</Notice>}
       </div>
-      {picking && draft && (
+      {picking && (
         <FolderPickModal
-          title={`Folder for ${draft.name || 'the group'}`}
-          startPath={draft.path || ''}
-          onPick={(p) => { setDraft(d => ({ ...d, path: p })); setPicking(false); }}
+          title={`Folder for ${name || 'the group'}`}
+          startPath={path || ''}
+          onPick={(p) => { setPath(p); setPicking(false); }}
           onClose={() => setPicking(false)}
         />
       )}
