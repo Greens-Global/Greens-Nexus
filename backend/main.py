@@ -391,6 +391,8 @@ def _run_migrations():
             # lookup is per inbound message, so it needs the index.
             "CREATE INDEX IF NOT EXISTS ix_task_email_log_imid ON task_email_log (internet_message_id)",
             "CREATE INDEX IF NOT EXISTS ix_task_email_log_conv ON task_email_log (conversation_id)",
+            # time_off_requests: manager+ files on behalf (Neil, Aug 11)
+            "ALTER TABLE time_off_requests ADD COLUMN requested_by VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -817,6 +819,9 @@ def _run_migrations():
         "ALTER TABLE vault_otp_sessions ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE vault_personal_auth ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE vault_personal_unlock_sessions ENABLE ROW LEVEL SECURITY",
+        # time_off_requests: manager+ can file on behalf of an employee (Neil, Aug 11);
+        # who filed it is recorded so the request never looks self-submitted.
+        "ALTER TABLE time_off_requests ADD COLUMN IF NOT EXISTS requested_by VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -981,6 +986,18 @@ async def lifespan(app: FastAPI):
                 print("[startup] construction Egnyte sweep skipped (not the sync worker)")
         except Exception as e:
             print(f"[startup] construction sweep skipped: {e}")
+        # Nightly Nexus -> M365 writeback (Neil, Aug 11). Sync-worker gated for
+        # the same reason as the inbound mail drain: a Graph PATCH from a
+        # laptop is a REAL write to the live directory with local dev data.
+        try:
+            from asana_sync import is_sync_worker as _is_sync_worker2
+            if _is_sync_worker2():
+                from reminders import m365_pushback_loop
+                _tasks.append(_a.create_task(m365_pushback_loop()))
+            else:
+                print("[startup] nightly M365 writeback skipped (not the sync worker)")
+        except Exception as e:
+            print(f"[startup] nightly M365 writeback skipped: {e}")
         try:
             # One-shot: drains task attachments inlined as data: URLs into
             # Supabase Storage (5.7 GB of the prod DB), then exits. Idempotent.

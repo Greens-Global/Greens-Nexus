@@ -402,3 +402,58 @@ async def reminders_loop():
         if nxt <= now:
             nxt += timedelta(days=1)
         await asyncio.sleep((nxt - now).total_seconds())
+
+
+# ── Nightly Nexus -> M365 writeback (Neil, Aug 11) ───────────────────────────
+# HR updated roles in Nexus and forgot the per-person "Push to M365" click, so
+# the two directories drifted apart for weeks. This job makes the push
+# automatic: once a night, every linked person's profile is written back to
+# Entra. The writeback is idempotent (Graph PATCH of the same values is a
+# no-op), so re-running never hurts; a person who fails is logged and skipped,
+# never allowed to stop the rest of the run.
+_PUSHBACK_HOUR_UTC = 2   # ~7pm PT / 7:30am IST next day - end of the US workday
+
+
+def run_m365_pushback() -> dict:
+    from database import SessionLocal
+    from models import NexusEmployee
+    from routers.hr import _graph_token, _graph_writeback, _graph_set_manager
+    db = SessionLocal()
+    pushed = failed = 0
+    try:
+        emps = (db.query(NexusEmployee)
+                .filter(NexusEmployee.status != "offboarded").all())
+        targets = [e for e in emps if (e.m365_id or "").strip()]
+        if not targets:
+            return {"pushed": 0, "failed": 0}
+        token = _graph_token()
+        for emp in targets:
+            try:
+                _graph_writeback(token, emp, db)
+                try:
+                    _graph_set_manager(token, emp)
+                except Exception:   # noqa: BLE001 - manager edge is best-effort
+                    pass
+                pushed += 1
+            except Exception as e:  # noqa: BLE001 - one bad record must not stop the rest
+                failed += 1
+                print(f"[m365-pushback] {emp.work_email}: {type(e).__name__}: {str(e)[:200]}")
+        print(f"[m365-pushback] nightly writeback done - {pushed} pushed, {failed} failed")
+        return {"pushed": pushed, "failed": failed}
+    finally:
+        db.close()
+
+
+async def m365_pushback_loop():
+    """Strictly scheduled - NO boot run. A deploy at 2pm must not fire an
+    'end of day' push mid-afternoon; the writeback belongs to its window."""
+    while True:
+        now = datetime.now(timezone.utc)
+        nxt = now.replace(hour=_PUSHBACK_HOUR_UTC, minute=10, second=0, microsecond=0)
+        if nxt <= now:
+            nxt += timedelta(days=1)
+        await asyncio.sleep((nxt - now).total_seconds())
+        try:
+            await asyncio.to_thread(run_m365_pushback)
+        except Exception as e:
+            print(f"[m365-pushback] loop error: {type(e).__name__}: {e}")

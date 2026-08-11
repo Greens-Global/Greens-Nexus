@@ -24,6 +24,7 @@ import RolesAccess, { LevelPill, ModuleLevelPill, TierBadge } from './RolesAcces
 import { capabilityText } from '../lib/moduleCapabilities';
 import PersonHover from '../components/PersonHoverCard';
 import EgnytePersonFolder from '../egnyte/EgnytePersonFolder';
+import InvestorChart from '../components/InvestorChart';
 import { takePendingPerson } from '../lib/personNav';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { TaskChecklist, punchTime } from '../components/WorkLogDrawer';
@@ -1959,12 +1960,28 @@ const divColorFor = (name, names) => {
 // edge and doubles as the collapse toggle. data-orgcard lets the canvas tell a
 // card press from a pan; data-email lets drop resolve the target across the
 // zoom transform.
-function OrgNodeCard({ e, kids, isCollapsed, onToggle, onSelect, dnd, entityName, highlight, divName, divColor, isHead, dim }) {
+function OrgNodeCard({ e, kids, isCollapsed, onToggle, onSelect, dnd, entityName, highlight, divName, divColor, isHead, dim, onUnlink = null }) {
   const email = (e.workEmail || '').toLowerCase();
   const isTarget = dnd.overKey === email && dnd.draggingId && dnd.draggingId !== e.id;
   const isDragging = dnd.draggingId === e.id;
   return (
     <div data-orgcard="1" data-email={email} style={{ position: 'relative', paddingBottom: kids > 0 ? 12 : 0 }}>
+      {/* × = take this person out of the reporting line (Visesh, Aug 11) - the
+          direct alternative to dragging them into open space. Outside the
+          overflow-hidden card so it can sit on the corner. */}
+      {onUnlink && !isDragging && (
+        <button
+          title="Remove from the reporting line"
+          aria-label={`Remove ${fullName(e)} from the reporting line`}
+          onPointerDown={ev => ev.stopPropagation()}
+          onClick={ev => { ev.stopPropagation(); onUnlink(e); }}
+          style={{ position: 'absolute', top: -7, right: -7, zIndex: 2, width: 20, height: 20, borderRadius: '50%',
+            border: '1.5px solid var(--line)', background: 'var(--card)', color: 'var(--muted)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 0,
+            boxShadow: 'var(--shadow-sm)' }}>
+          <X size={11} />
+        </button>
+      )}
       <div
         onPointerDown={ev => dnd.onCardPointerDown(ev, e)}
         style={{
@@ -2020,7 +2037,8 @@ function OrgTreeNode({ e, ctx }) {
         onToggle={ctx.toggle} onSelect={ctx.setSelected} dnd={ctx.dnd}
         entityName={ctx.entityName} highlight={ctx.isHighlight(e)}
         divName={div} divColor={ctx.divColor(div)} isHead={!!(e.division || '').trim()}
-        dim={ctx.activeDiv && div !== ctx.activeDiv} />
+        dim={ctx.activeDiv && div !== ctx.activeDiv}
+        onUnlink={e.managerEmail ? ctx.onUnlink : null} />
       {open && (
         <>
           <div style={{ width: 2, height: 18, background: 'var(--line)' }} />
@@ -2152,6 +2170,9 @@ function OrgSidePanel({ e, people, entities, entityName, descendants, divisionNa
 }
 
 function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr }) {
+  // Two charts, one tab (Neil, Aug 11): the reporting tree, and the investor
+  // book grouped by relationship owner - investors don't report to anyone.
+  const [chartMode, setChartMode] = useState('org');   // 'org' | 'investors'
   const [draggingId, setDraggingId] = useState(null);
   const [overKey, setOverKey] = useState(null); // target workEmail, or '__none__' for the clear zone
   const [selected, setSelected] = useState(null);        // side-panel person
@@ -2247,10 +2268,27 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
         if (Math.hypot(m.clientX - start.x, m.clientY - start.y) < 6) return;
         st.dragging = true; setDraggingId(st.person.id);
       }
+      st.last = { x: m.clientX, y: m.clientY };
       const el = document.elementFromPoint(m.clientX, m.clientY);
       const detach = el && el.closest ? el.closest('[data-detach]') : null;
       const card = el && el.closest ? el.closest('[data-email]') : null;
-      const em = card && card.getAttribute('data-email');
+      let em = card && card.getAttribute('data-email');
+      // Forgiving drops (Visesh, Aug 11): a drop doesn't have to land ON a
+      // card - snap to the nearest card within reach, so "put them roughly
+      // there" works. Excludes the dragged person's own card.
+      if (!detach && (!em || em === (st.person.workEmail || '').toLowerCase())) {
+        let best = null, bestD = 130;   // screen px reach
+        for (const node of document.querySelectorAll('[data-email]')) {
+          const ne = node.getAttribute('data-email');
+          if (!ne || ne === (st.person.workEmail || '').toLowerCase()) continue;
+          const r = node.getBoundingClientRect();
+          const dx = Math.max(r.left - m.clientX, 0, m.clientX - r.right);
+          const dy = Math.max(r.top - m.clientY, 0, m.clientY - r.bottom);
+          const d = Math.hypot(dx, dy);
+          if (d < bestD) { bestD = d; best = ne; }
+        }
+        em = best;
+      }
       st.target = detach ? '__none__'
         : (em && em !== (st.person.workEmail || '').toLowerCase()) ? em : null;
       setOverKey(st.target);
@@ -2262,7 +2300,19 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
       const st = dragRef.current; dragRef.current = null;
       setDragGhost(null);
       if (st && st.dragging) {
-        if (st.target) drop(st.target, st.person); else { setDraggingId(null); setOverKey(null); }
+        if (st.target) {
+          drop(st.target, st.person);
+        } else {
+          // Dropped in open space, beyond snapping reach of any card: that IS
+          // the gesture for "take them out of the reporting line" - but only
+          // inside the chart canvas, so releasing over the toolbar is a no-op.
+          const c = canvasRef.current && st.last
+            ? canvasRef.current.getBoundingClientRect() : null;
+          const inCanvas = c && st.last.x >= c.left && st.last.x <= c.right
+            && st.last.y >= c.top && st.last.y <= c.bottom;
+          if (inCanvas && st.person.managerEmail) drop('__none__', st.person);
+          else { setDraggingId(null); setOverKey(null); }
+        }
       } else if (st) {
         setSelected(st.person);    // no meaningful movement → treat as a tap
       }
@@ -2347,6 +2397,7 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
     visChildren, collapsedSet, toggle, setSelected, dnd, entityName,
     isHighlight: (e) => !!q && fullName(e).toLowerCase().includes(q),
     divisionOf, divColor, activeDiv,
+    onUnlink: (person) => drop('__none__', person),
   };
 
   // ── Pan & zoom canvas - the chart never overflows the page; you pan/zoom
@@ -2427,6 +2478,24 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
   );
   return (
     <div>
+      {/* Org ⇄ Investors switch */}
+      <div style={{ display: 'inline-flex', gap: 2, background: 'var(--mist)', borderRadius: 10, padding: 3, marginBottom: 14 }}>
+        {[['org', 'Organization', Network], ['investors', 'Investors', Briefcase]].map(([key, label, Icon]) => (
+          <button key={key} onClick={() => setChartMode(key)}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 8, border: 'none', cursor: 'pointer',
+              fontFamily: 'Inter,sans-serif', fontSize: 12.5, fontWeight: 700,
+              background: chartMode === key ? 'var(--card)' : 'transparent',
+              color: chartMode === key ? 'var(--ink)' : 'var(--muted)',
+              boxShadow: chartMode === key ? 'var(--shadow-sm)' : 'none' }}>
+            <Icon size={13} /> {label}
+          </button>
+        ))}
+      </div>
+
+      {chartMode === 'investors' ? (
+        <InvestorChart employees={employees} toastOk={toastOk} toastErr={toastErr} />
+      ) : (
+      <>
       {/* Toolbar: expand controls · full-width search · filters + count (People-tab style) */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
         <button className="secondary-btn" style={{ fontSize: 12, flex: '0 0 auto' }}
@@ -2519,7 +2588,7 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
           ))}
         </div>
         <span style={{ position: 'absolute', left: 14, bottom: 14, fontSize: 10.5, color: 'var(--muted)', pointerEvents: 'none' }}>
-          Drag the canvas to move around · tap a card for details · drag a card onto someone to re-assign
+          Drag a card near someone to re-assign · drop in open space (or press ×) to remove the reporting line · tap for details
         </span>
       </div>
 
@@ -2558,6 +2627,8 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
           onClose={() => setSelected(null)} onSelect={setSelected}
           onSaved={saved => { onUpdated(saved); setSelected(saved); }}
           toastOk={toastOk} toastErr={toastErr} />
+      )}
+      </>
       )}
     </div>
   );

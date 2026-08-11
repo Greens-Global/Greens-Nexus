@@ -1520,6 +1520,7 @@ class TimeOffRequest(Base):
     decided_at     = Column(String, default="")
     decide_note    = Column(String, default="")
     created_at     = Column(String, default="")
+    requested_by   = Column(String, default="")         # who FILED it, when not the employee (manager+ on-behalf, Neil Aug 11)
 
 
 class DashboardView(Base):
