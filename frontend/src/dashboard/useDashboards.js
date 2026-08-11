@@ -10,7 +10,8 @@ import { WIDGETS, clampToLimits } from './widgets.jsx';
 const DEFAULTS = {
   dashboard: [
     { i: 'd1', type: 'clock',         x: 0, y: 0, w: 3, h: 3 },
-    { i: 'd3', type: 'kpi',           x: 3, y: 0, w: 3, h: 3, config: { metric: 'my_open_tasks' } },
+    // hero: the one solid-gradient focal tile, same as Home's Open Tasks card.
+    { i: 'd3', type: 'kpi',           x: 3, y: 0, w: 3, h: 3, config: { metric: 'my_open_tasks', hero: true } },
     { i: 'd4', type: 'kpi',           x: 6, y: 0, w: 3, h: 3, config: { metric: 'my_checkouts' } },
     { i: 'd5', type: 'kpi',           x: 9, y: 0, w: 3, h: 3, config: { metric: 'my_assignments' } },
     { i: 'd7', type: 'notifications', x: 0, y: 3, w: 6, h: 5 },

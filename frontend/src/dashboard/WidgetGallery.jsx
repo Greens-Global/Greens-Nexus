@@ -32,6 +32,12 @@ function ConfigFields({ type, config, onChange }) {
           <option value="">Pick a metric…</option>
           {Object.entries(KPI_CATALOG).map(([k, m]) => <option key={k} value={k}>{m.label}</option>)}
         </select>
+        {/* Home keeps ONE solid focal tile (the Open Tasks hero); this makes that
+            look available to any KPI tile the user wants to spotlight. */}
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, fontSize: 12.5, color: 'var(--ink)', cursor: 'pointer' }}>
+          <input type="checkbox" checked={!!config.hero} onChange={e => onChange({ hero: e.target.checked })} />
+          Hero style - the solid color card, like Home's open tasks tile
+        </label>
       </div>
     );
   }

@@ -95,11 +95,11 @@ function DashCard({ title, sub, action, children, onClick, style }) {
 // Stat tile - the DeskHome dk-stat anatomy (tinted icon chip top-left, hover
 // arrow top-right, big tabular numeral) so Home and the custom grid read as
 // ONE design world. The old corner watercolor blob is gone on purpose.
-function StatCard({ label, value, color, Icon, nav, hint }) {
+function StatCard({ label, value, color, Icon, nav, hint, hero }) {
   const go = () => nav && navigate(nav.view, nav.sub);
   const I = Icon || BarChart3;
   return (
-    <div className="dk-stat" onClick={nav ? go : undefined} role={nav ? 'button' : undefined}
+    <div className={`dk-stat${hero ? ' dk-stat--hero' : ''}`} onClick={nav ? go : undefined} role={nav ? 'button' : undefined}
       style={{ height: '100%', boxSizing: 'border-box', cursor: nav ? 'pointer' : 'default', justifyContent: 'center' }}>
       <span className="dk-stat-top">
         <span className={`dk-chip dk-chip--${color}`}><I /></span>
@@ -115,7 +115,7 @@ function StatCard({ label, value, color, Icon, nav, hint }) {
 // ── Widgets ───────────────────────────────────────────────────────────────────
 function KpiWidget({ config, kpis }) {
   const meta = KPI_CATALOG[config?.metric] || { label: 'Metric', color: 'blue', Icon: BarChart3 };
-  return <StatCard label={meta.label} value={kpis?.[config?.metric] ?? 0} color={meta.color} Icon={meta.Icon} nav={meta.nav} hint={meta.hint} />;
+  return <StatCard label={meta.label} value={kpis?.[config?.metric] ?? 0} color={meta.color} Icon={meta.Icon} nav={meta.nav} hint={meta.hint} hero={!!config?.hero} />;
 }
 
 function TeamStatWidget({ config, kpis }) {
