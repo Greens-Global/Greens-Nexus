@@ -37,11 +37,6 @@ export const SUBMENUS = {
     { sub: 'reputation', label: 'Reputation Management' },
     { sub: 'site-staff', label: 'Site Staff & Scheduling' },
   ],
-  development: [
-    { sub: 'dev-permits', label: 'Permit Status' },
-    { sub: 'dev-plans',   label: 'Project Plans' },
-    { sub: 'dev-details', label: 'Property Details' },
-  ],
   accounting: [
     { sub: 'transactions',   label: 'Transactions' },
     { sub: 'invoices',       label: 'Invoices' },
