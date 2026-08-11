@@ -9,29 +9,8 @@ import { fmtDate, teamInProject, teamProjectIds } from './lib';
 import { rootZoom } from '../lib/utils';
 import { useTasks } from './TasksContext';
 import PersonHover from '../components/PersonHoverCard';
-
-// People profile photos, fetched once per session and shared by every Avatar.
-// Module-scope cache + subscriber set so avatars that mounted before the
-// directory arrived re-render when it does.
-let _photoMap = null;
-let _photoPromise = null;
-const _photoSubs = new Set();
-function usePhotoMap() {
-  const [, force] = useState(0);
-  useEffect(() => {
-    if (_photoMap) return undefined;
-    if (!_photoPromise) {
-      _photoPromise = api.getPeopleDirectory().then((rows) => {
-        _photoMap = {};
-        for (const r of rows || []) if (r.email) _photoMap[r.email.toLowerCase()] = r.photoUrl || '';
-        _photoSubs.forEach((f) => f((x) => x + 1));
-      }).catch(() => { _photoMap = {}; });
-    }
-    _photoSubs.add(force);
-    return () => _photoSubs.delete(force);
-  }, []);
-  return _photoMap || {};
-}
+// Photos live in lib/peoplePhotos so the header avatar shares this one cache.
+import { usePhotoMap } from '../lib/peoplePhotos';
 
 // `card={false}` opts a call site out of the hover card - for avatars that are
 // already inside an interactive row (menu items, pickers), where a second click

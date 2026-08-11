@@ -217,9 +217,9 @@ export default function MyTasksView() {
       {/* Header - white band over the gray canvas (same anatomy as the project
           workspace; the agreed world is cards on canvas, never a white page). */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: isMobile ? '12px 12px 8px' : '18px 24px 12px', flexWrap: 'wrap', background: NX.surface }}>
-        {!isMobile && <Avatar email={myEmail} name={nameOf(myEmail)} size={32} />}
-        {/* No chevron: the title never opened a menu - a decorative dropdown
-            affordance is a lie (owner flag, Jul 28) */}
+        {/* No avatar: you already know whose tasks these are, and no chevron -
+            the title never opened a menu, so a decorative dropdown affordance
+            is a lie (owner flag, Jul 28) */}
         <div style={{ fontSize: isMobile ? 19 : 22, fontWeight: 700 }}>My Tasks</div>
         {!isMobile && <button style={{ ...btn('primary'), marginLeft: 'auto' }} onClick={() => openCreate({ assigneeId: myEmail })}><Plus size={15} /> New Task</button>}
       </div>
