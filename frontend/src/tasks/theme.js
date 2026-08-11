@@ -38,7 +38,12 @@ export const STATUS_META = {
   in_progress: { label: 'In Progress', color: '#fdab3d', tint: 'rgba(253,171,61,0.18)' },
   completed:   { label: 'Completed',   color: '#00c875', tint: 'rgba(0,200,117,0.16)' },
 };
-export const STATUS_ORDER = ['not_started', 'in_progress', 'completed', 'recurring'];
+// Completed stays LAST: list groups render in this order and hand out the
+// incremental row budget group-by-group, so anything sorted after the (ever-
+// growing) Completed bucket gets starved off-screen - the Recurring section
+// was unreachable in real workspaces until it moved above Completed (Miranda,
+// Aug 12). Board columns and status sorts share this order on purpose.
+export const STATUS_ORDER = ['not_started', 'in_progress', 'recurring', 'completed'];
 
 export const PRIORITY_META = {
   low:    { label: 'Low',    color: '#579bfc', tint: 'rgba(87,155,252,0.16)' },
