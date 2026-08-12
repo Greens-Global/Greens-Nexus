@@ -1,7 +1,8 @@
 # Greens Nexus Agent (desktop)
 
-A **headless** background companion to the Nexus Time Clock. While an employee is
-**clocked in**, per the disclosed monitoring policy it records:
+A background companion to the Nexus Time Clock with a **visible system-tray
+indicator**. While an employee is **clocked in**, per the disclosed monitoring
+policy it records:
 
 - the **foreground app + window title** every few seconds → the **Activity Log**
   (`avatar → Admin → Insights / Activity`), and
@@ -17,11 +18,14 @@ capture uses.
 This is a **disclosed, consent-gated** time-and-attendance tracker for
 company-owned devices. It is **not covert**:
 
+- It shows a **system-tray icon whenever it runs**, which turns **green with the
+  tooltip "Nexus Monitoring Active"** the moment it is actually capturing. The
+  employee can always see whether monitoring is on.
 - It keeps its **real name** ("Greens Nexus Agent") — it appears in **Task
   Manager**, the **Startup** list, **Installed Programs**, and writes a plain-text
   log to `C:\ProgramData\Greens Nexus Agent\agent.log`.
-- It does **nothing** to disguise its process, block Task Manager, or resist being
-  stopped.
+- It does **nothing** to disguise its process, block Task Manager, hide the tray
+  icon, or resist being stopped by an admin.
 - It records **only while the employee is clocked in and not on break** (enforced
   server-side on every upload), and collects window titles + screenshots +
   activity % — **never keystroke content**.
@@ -29,23 +33,33 @@ company-owned devices. It is **not covert**:
   disclosure agreement.** Do not deploy without that consent on file. (macOS also
   forces its own one-time "Screen Recording" permission prompt.)
 
-## No tray, no window — how it runs
+## How it runs (tray, resilience, session)
 
-Earlier builds sat in the system tray. This build has **no tray icon and no
-window**: it runs as an auto-start background process in the signed-in user's
-session and registers itself in **Startup** (`app.setLoginItemSettings`) so it
-comes back on every login.
+- **Visible tray indicator**: a tray icon is present whenever the agent runs —
+  **green + "Nexus Monitoring Active"** while capturing, gray/"off shift"
+  otherwise. Its menu opens the Time Clock and the local log and states it is a
+  company-managed application. This is the disclosed, always-visible signal.
+- **Auto-start at login**: registers itself in **Startup**
+  (`app.setLoginItemSettings`) so it returns on every login.
+- **Crash auto-restart**: an unhandled fault relaunches the agent so a live shift
+  keeps reporting, with a **1-per-minute back-off** so a persistent fault surfaces
+  honestly as "agent offline" on the dashboard instead of thrashing.
+- **Offline queue + resume**: if the network drops, captured frames spool to
+  `C:\ProgramData\Greens Nexus Agent\spool\` and upload on a later heartbeat
+  (bounded to 500 frames / 24h). Note the server re-gates uploads on the *current*
+  clock state, so a queued frame lands only if flushed while the employee is still
+  clocked in — the queue covers mid-shift blips, not outages spanning clock-out.
 
 ### "Can it be a Windows service?"
 
 A classic **session-0 Windows service cannot see the user's desktop** — Windows
 session isolation means it can neither read the foreground window (`active-win`)
 nor capture the screen (`desktopCapturer`). So the *capturing* part must run in
-the **interactive user session**, which is what this login-start background
-process does. If you want service-grade "always relaunch it": pair this with a
-session-0 watchdog (Windows service or scheduled task) that ensures the user-
-session agent is registered and running — the watchdog supervises, the
-user-session process captures. The agent itself is unchanged either way.
+the **interactive user session**, which is what this login-start process does. The
+built-in crash auto-restart covers in-session faults; for belt-and-suspenders
+"always running", pair it with a session-0 watchdog (Windows service or scheduled
+task) that re-launches the user-session agent — the watchdog supervises, the
+user-session process captures.
 
 ## How it works
 
@@ -76,7 +90,7 @@ cd desktop-agent
 npm install
 npm start                 # dev run (uses DEV API by default)
 
-npm run dist:win          # build the Windows NSIS installer  → dist/
+npm run dist:win          # build the Windows per-machine MSI  → dist/
 npm run dist:mac          # build the macOS dmg               → dist/
 ```
 
@@ -95,6 +109,28 @@ NEXUS_API_BASE=https://<prod-api-host> npm run dist:win
    the `NEXUS_AGENT_TOKEN` environment variable.
 3. Launch the agent (the installer can do this post-install). It self-heals: if
    the token appears after launch, the next heartbeat picks it up.
+
+## Deploy as a managed app (why standard users can't uninstall it)
+
+The "employees can't turn it off or remove it" requirement is satisfied by
+**device management, not by the app fighting the user** — the app never hides or
+resists being stopped. The mechanism:
+
+1. Devices are **company-owned and enrolled in Intune** (or another MDM). The
+   employee signs in with a **standard (non-admin)** account.
+2. Ship the **per-machine MSI** (`npm run dist:win`) as a **required** app in
+   Intune, assigned to the device group. It installs under `Program Files`.
+3. A per-machine MSI can only be removed by an administrator, and Intune re-installs
+   it if it's tampered with. A standard user therefore **cannot uninstall or
+   modify it** — enforced by the OS + MDM, on hardware the company owns.
+4. Push the **device token** via an Intune configuration/script (or bake per-device
+   provisioning into your enrollment step) to
+   `C:\ProgramData\Greens Nexus Agent\device-token.txt`.
+
+This only holds on **company-owned, managed** machines. On a personal device the
+employee has admin and none of this applies — do not deploy there. Keep the
+signed monitoring disclosure on file for every enrolled employee, and clear
+cross-border monitoring with HR/legal for staff outside the US.
 
 ## Before you ship to staff
 

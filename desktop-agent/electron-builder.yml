@@ -15,25 +15,26 @@ files:
 asarUnpack:
   - node_modules/active-win/**
 
-# Windows — NSIS installer. Point win.certificateFile / CSC_LINK at your code
-# signing cert before distributing, or installs show SmartScreen warnings.
+# Windows — per-machine MSI, for deployment as a MANAGED company application via
+# Intune (or another MDM). A per-machine MSI installs under Program Files and can
+# only be removed by an admin, so a standard employee (no local admin on a
+# company-owned, managed device) cannot uninstall it. That enforcement comes from
+# the device being company-managed - NOT from the app hiding or resisting the user.
+# Point win.certificateFile / CSC_LINK at your code-signing cert before
+# distributing, or installs show SmartScreen warnings.
 win:
   target:
-    - nsis
+    - msi
   # icon: build/icon.ico          # add a 256x256 .ico here before shipping
-nsis:
+msi:
+  perMachine: true                # Program Files install; standard user can't remove
   oneClick: false
-  perMachine: false               # per-user install → no admin prompt
-  allowToChangeInstallationDirectory: false
-  createDesktopShortcut: false
-  # CRITICAL for silent deploys: do NOT auto-launch after a /S install. The
-  # install command writes the device token AFTER the installer returns, then
-  # launches the agent itself. If NSIS launched first, the agent would boot with
-  # no token, think it's interactive, and pop a Microsoft sign-in (AADSTS9002327).
-  runAfterFinish: false
-  # Launch at login so capture "just works" once installed:
-  # (users can still remove it from Startup; the agent only captures while
-  # clocked in, and never covertly beyond the consent you've collected.)
+  runAfterFinish: false           # Intune (or the install command) provisions the
+                                  # device token AFTER install, then starts the agent;
+                                  # launching first would boot it with no token.
+  # upgradeCode: keep STABLE across versions so Intune upgrades in place instead of
+  # installing side-by-side. Generate one GUID once and pin it here before shipping:
+  # upgradeCode: "PUT-A-STABLE-GUID-HERE"
 
 # macOS — dmg. Requires an Apple Developer ID cert + notarization to run
 # without Gatekeeper blocking. Screen Recording permission is prompted once
