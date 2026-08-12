@@ -214,12 +214,24 @@ def _day_summaries(punches: list, round_min: int = 0) -> dict:
             if open_in is None:
                 flag(d, "out_without_in")
             else:
+                span = (t - open_in).total_seconds()
+                # Forgotten clock-out: an in that only meets an out a full max-shift
+                # later is a missed punch, not real time. Do NOT count the bridged
+                # span (mirrors _compute_timecard) - else approve/finalize would lock
+                # in a phantom 25h/71h total. Flag the in as missing-out, drop this
+                # out as an orphan.
+                if span > _MAX_SHIFT_MIN * 60:
+                    flag(open_in_date, "missing_out")
+                    open_in = None
+                    open_brk = 0.0
+                    last_out[d] = p.at
+                    continue
                 # A closed pair spanning 12+ hours is almost always a forgotten
                 # punch-out (Jul 27: a Sat 02:31 in / Mon 20:59 out landed 66h on
                 # Saturday). Flag it so the timesheet and approver see it loudly.
-                if (t - open_in).total_seconds() >= 12 * 3600:
+                if span >= 12 * 3600:
                     flag(open_in_date, "unusually_long")
-                worked[open_in_date] = worked.get(open_in_date, 0.0) + (t - open_in).total_seconds() / 60
+                worked[open_in_date] = worked.get(open_in_date, 0.0) + span / 60
                 brk[open_in_date] = brk.get(open_in_date, 0.0) + open_brk
                 open_in = None
             last_out[d] = p.at
@@ -531,12 +543,83 @@ def _guard_not_finalized(db: Session, email: str, d_start: str, d_end: str = "")
         raise HTTPException(403, "This pay period is finalized and locked. Ask HR to unlock it before changing time records.")
 
 
+# ── Punch exceptions (SwipeClock "missing punch" model) ──────────────────────
+# A period can't be cleanly signed off while any of these are open. `missing_out`
+# / `out_without_in` corrupt the paired total, so they BLOCK approve + finalize;
+# `unusually_long` is a loud warning that still pays (a real long shift).
+_EXCEPTION_LABELS = {
+    "missing_out":     "No clock-out - open shift, needs an out time",
+    "out_without_in":  "Clock-out with no matching clock-in",
+    "unusually_long":  "Unusually long shift (over 12h) - check for a missed punch",
+}
+_BLOCKING_EXCEPTIONS = ("missing_out", "out_without_in")
+
+
+def _period_exceptions(db: Session, email: str, start: str, end: str) -> list:
+    """[{date, type, label, blocking}] for a period - the SwipeClock 'missing
+    punch' exceptions, derived from the same paired-shift flags approve/finalize
+    already compute. Only days within [start, end] are reported (the extra fetched
+    day just lends its out-punch to an overnight shift)."""
+    _end_nx = (date.fromisoformat(end) + timedelta(days=1)).isoformat() if end else end
+    summ = _day_summaries(_live_punches(db, email, start, _end_nx), _round_min(db))
+    out = []
+    for d in sorted(summ):
+        if end and d > end:
+            continue
+        for f in sorted(summ[d].get("flags", [])):
+            if f in _EXCEPTION_LABELS:
+                out.append({"date": d, "type": f, "label": _EXCEPTION_LABELS[f],
+                            "blocking": f in _BLOCKING_EXCEPTIONS})
+    return out
+
+
+def _blocking_exceptions(db: Session, email: str, start: str, end: str) -> list:
+    return [e for e in _period_exceptions(db, email, start, end) if e["blocking"]]
+
+
+def _exceptions_409(exc: list):
+    n = len(exc)
+    days = ", ".join(sorted({e["date"] for e in exc}))
+    raise HTTPException(409, {
+        "code": "unresolved_exceptions",
+        "message": (f"{n} unresolved punch exception{'s' if n != 1 else ''} "
+                    f"({days}) must be fixed before sign-off. Add the missing "
+                    f"clock-out(s) on the timesheet, or override to sign off anyway."),
+        "exceptions": exc})
+
+
+@router.get("/exceptions")
+def list_exceptions(start: str, end: str, user: dict = Depends(require_team_write),
+                    db: Session = Depends(get_db)):
+    """SwipeClock 'Show Missing Only': every unresolved punch exception across the
+    manager's team for a period, so they get fixed before payroll runs. Team-scoped
+    (a manager sees their reports; an admin sees everyone with punches in range)."""
+    scope = _visible_emails(db, user)
+    _hi = (date.fromisoformat(end) + timedelta(days=2)).isoformat()
+    q = (db.query(TimePunch.employee_email)
+         .filter(TimePunch.voided == 0, TimePunch.at >= start, TimePunch.at < _hi)
+         .distinct())
+    if scope is not None:
+        q = q.filter(TimePunch.employee_email.in_(scope))
+    out = []
+    for (em,) in q.all():
+        exc = _period_exceptions(db, em, start, end)
+        if exc:
+            out.append({"email": em, "exceptions": exc,
+                        "blocking": sum(1 for e in exc if e["blocking"])})
+    out.sort(key=lambda r: (-r["blocking"], r["email"]))
+    return out
+
+
 class ApprovalIn(BaseModel):
     email: str
     start: str = ""
     end: str = ""
     days: Optional[List[str]] = None     # per-day mode: approve these dates
     note: Optional[str] = ""
+    # SwipeClock parity: unresolved missing/unmatched punches block sign-off.
+    # An approver can knowingly override (their sign-off is on record either way).
+    allow_exceptions: bool = False
 
 
 @router.post("/approvals")
@@ -551,6 +634,19 @@ def approve_timecard(body: ApprovalIn, user: dict = Depends(require_team_write),
             _guard_not_finalized(db, email, _d)
     elif body.start and body.end:
         _guard_not_finalized(db, email, body.start, body.end)
+    # SwipeClock parity: a period with unresolved missing/unmatched punches can't
+    # be approved until fixed (or explicitly overridden). Same paired-shift flags
+    # the timesheet shows - so the approver never locks in a corrupted total.
+    if not body.allow_exceptions:
+        if body.days:
+            exc = [e for _d in sorted({d for d in body.days if d})
+                   for e in _blocking_exceptions(db, email, _d, _d)]
+        elif body.start and body.end:
+            exc = _blocking_exceptions(db, email, body.start, body.end)
+        else:
+            exc = []
+        if exc:
+            _exceptions_409(exc)
     now = _now_iso()
 
     # ── Per-day mode: one approval row per date; re-approving a changed day
@@ -710,6 +806,7 @@ class FinalizeIn(BaseModel):
     email: str
     start: str
     end: str
+    allow_exceptions: bool = False   # override unresolved missing/unmatched punches
 
 
 @router.post("/finalize")
@@ -723,6 +820,12 @@ def finalize_timecard(body: FinalizeIn, user: dict = Depends(require_administrat
         raise HTTPException(400, "start and end are required")
     if _finalized_row(db, email, body.start, body.end):
         raise HTTPException(409, "Already finalized for this period")
+    # SwipeClock parity: unresolved missing/unmatched punches block finalize -
+    # payroll can't lock a period that still has a phantom or dangling shift.
+    if not body.allow_exceptions:
+        exc = _blocking_exceptions(db, email, body.start, body.end)
+        if exc:
+            _exceptions_409(exc)
     _end_nx = (date.fromisoformat(body.end) + timedelta(days=1)).isoformat()
     # Freeze the pay rate + OT rule as of finalize, so a later change can't
     # re-price this locked, paid period (see _compute_timecard).
