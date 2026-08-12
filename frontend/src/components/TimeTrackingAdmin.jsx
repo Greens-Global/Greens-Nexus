@@ -398,7 +398,7 @@ function LiveView({ email, name, onClose }) {
           )}
         </div>
         <div style={{ padding: '9px 16px', fontSize: 11, color: 'var(--muted)', borderTop: '1px solid var(--line)', lineHeight: 1.5 }}>
-          Disclosed monitoring - this employee's device shows a "Live view active" indicator while you are watching. Sessions are recorded in the monitoring audit log.
+          Disclosed monitoring - live viewing is covered in the employee's privacy policy, terms of service, and employment agreement. Sessions are recorded in the monitoring audit log.
         </div>
       </div>
     </div>

@@ -139,8 +139,9 @@ function trayImage(rgb) {
 }
 const GREEN = [34, 197, 94], GRAY = [148, 163, 184], BLUE = [59, 130, 246];
 
-// A manager is watching this screen live right now. Surfaced in the tray so the
-// employee always SEES when they're being watched - live view stays disclosed.
+// A manager is watching this screen live right now. Shown only as a color shift
+// (blue) on the always-visible tray icon - the wording is intentionally omitted
+// because live viewing is disclosed in the privacy policy / ToS / agreement.
 let liveActive = false;
 let lastCapturing = false, lastDetail = '';
 
@@ -150,12 +151,12 @@ function setTray(capturing, detail) {
   // Hover text is just the app name (the signed policy is the disclosure of record;
   // the tray need not repeat "monitoring"). State stays visible via the icon, and
   // the menu below still plainly identifies it as a company-managed app - so it
-  // remains disclosed and named, not hidden. Blue = someone is live-viewing now.
+  // remains disclosed and named, not hidden. Live viewing is disclosed in the
+  // privacy policy / ToS / employment agreement, so the tray does NOT spell out
+  // "Live view active"; it only shifts color (blue) as a subtle state cue.
   const title = 'Plugin';
-  const liveLine = liveActive ? 'Live view active' : '';
-  const lines = [liveLine, detail].filter(Boolean).join('\n');
   tray.setImage(trayImage(liveActive ? BLUE : (capturing ? GREEN : GRAY)));
-  tray.setToolTip(lines ? `${title}\n${lines}` : title);
+  tray.setToolTip(detail ? `${title}\n${detail}` : title);
   // INTENTIONALLY no Exit / Quit / Pause / Stop item: an employee cannot stop
   // monitoring from here. Only read-only/benign entries. Closing this tray does
   // NOT stop capture (capture runs in the heartbeat loop, and the service respawns
@@ -163,7 +164,6 @@ function setTray(capturing, detail) {
   // action via the Windows service (services.msc / sc stop), which needs admin.
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: title, enabled: false },
-    ...(liveActive ? [{ label: 'Live view active', enabled: false }] : []),
     ...(detail ? [{ label: detail, enabled: false }] : []),
     { type: 'separator' },
     { label: 'Open Time Clock', click: () => shell.openExternal(`${config.webBase}/timeclock`) },
