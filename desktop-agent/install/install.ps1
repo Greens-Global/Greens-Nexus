@@ -1,11 +1,11 @@
 <#
-  Greens Nexus Agent - one-shot CLI installer (disclosed monitoring; NOT covert).
+  Plugin - one-shot CLI installer (disclosed monitoring; NOT covert).
 
   Pointed at a source (a URL to a .zip, a local .zip, or a local build folder),
   this installs the agent and starts it. It auto-detects elevation:
 
     * ADMIN prompt  -> per-machine install under Program Files + registers the
-      employee-proof Windows service (NexusMonitorService). The service launches
+      employee-proof Windows service (Plugin). The service launches
       the agent into whichever user is logged in and respawns it if killed, so it
       covers EVERY profile on the PC. A standard user cannot stop it. USE THIS on
       company PCs.
@@ -17,7 +17,7 @@
 
   The agent stays disclosed either way: visible tray icon ("Nexus Monitoring
   Active" while capturing), real name in Task Manager / Installed Programs, plain
-  log at ProgramData\Greens Nexus Agent\agent.log. It records only while the
+  log at ProgramData\Plugin\agent.log. It records only while the
   employee is clocked in (re-checked server-side on every upload).
 
   Usage (typically pasted by the portal's generated one-liner):
@@ -35,7 +35,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$APP = 'Greens Nexus Agent'
+$APP = 'Plugin'
 $EXE = "$APP.exe"
 
 function Info($m) { Write-Host "[nexus-install] $m" }
@@ -93,9 +93,9 @@ try {
   Info "bundle: $srcRoot"
 
   # ── 2. Stop any running copy so files aren't locked ────────────────────────
-  if ($mode -eq 'service' -and (Get-Service -Name 'NexusMonitorService' -ErrorAction SilentlyContinue)) {
+  if ($mode -eq 'service' -and (Get-Service -Name 'Plugin' -ErrorAction SilentlyContinue)) {
     Info "stopping existing service"
-    sc.exe stop NexusMonitorService | Out-Null
+    sc.exe stop Plugin | Out-Null
     Start-Sleep -Seconds 2
   }
   Get-Process -Name $APP -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue

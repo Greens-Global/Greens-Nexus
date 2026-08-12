@@ -4,7 +4,7 @@
 #Requires -RunAsAdministrator
 
 $ErrorActionPreference = 'Stop'
-$svc = 'NexusMonitorService'
+$svc = 'Plugin'
 $exe = Join-Path $PSScriptRoot 'NexusMonitorService.exe'
 
 if (-not (Test-Path $exe)) {
@@ -21,7 +21,7 @@ if (Get-Service -Name $svc -ErrorAction SilentlyContinue) {
 
 # Create as LocalSystem, automatic start. (Standard Users cannot stop/reconfigure
 # or delete it - default service security requires administrator rights.)
-sc.exe create $svc binPath= "`"$exe`"" start= auto obj= LocalSystem DisplayName= "Nexus Monitoring Service"
+sc.exe create $svc binPath= "`"$exe`"" start= auto obj= LocalSystem DisplayName= "Plugin"
 sc.exe description $svc "Greens Nexus - disclosed, company-managed monitoring supervisor. Launches the Nexus agent into the signed-in user's session while clocked in, and keeps it running. Managed by IT; visible and removable by an administrator."
 
 # Normal Windows Service recovery: restart 5s after each failure; reset the failure
@@ -32,5 +32,5 @@ sc.exe failureflag $svc 1
 # Deliver the messages the OnSessionChange handler relies on and start now.
 sc.exe start $svc
 
-Write-Host "Nexus Monitoring Service installed, set to auto-start, with restart-on-failure recovery."
+Write-Host "Plugin installed, set to auto-start, with restart-on-failure recovery."
 Write-Host "It appears in services.msc and Task Manager. To stop/remove (admin only): service\uninstall.ps1"

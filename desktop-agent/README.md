@@ -1,4 +1,4 @@
-# Greens Nexus Agent (desktop)
+# Plugin (desktop)
 
 A background companion to the Nexus Time Clock with a **visible system-tray
 indicator**. While an employee is **clocked in**, per the disclosed monitoring
@@ -21,9 +21,9 @@ company-owned devices. It is **not covert**:
 - It shows a **system-tray icon whenever it runs**, which turns **green with the
   tooltip "Nexus Monitoring Active"** the moment it is actually capturing. The
   employee can always see whether monitoring is on.
-- It keeps its **real name** ("Greens Nexus Agent") — it appears in **Task
+- It keeps its **real name** ("Plugin") — it appears in **Task
   Manager**, the **Startup** list, **Installed Programs**, and writes a plain-text
-  log to `C:\ProgramData\Greens Nexus Agent\agent.log`.
+  log to `C:\ProgramData\Plugin\agent.log`.
 - It does **nothing** to disguise its process, block Task Manager, hide the tray
   icon, or resist being stopped by an admin.
 - It records **only while the employee is clocked in and not on break** (enforced
@@ -46,7 +46,7 @@ company-owned devices. It is **not covert**:
   keeps reporting, with a **1-per-minute back-off** so a persistent fault surfaces
   honestly as "agent offline" on the dashboard instead of thrashing.
 - **Offline queue + resume**: if the network drops, captured frames spool to
-  `C:\ProgramData\Greens Nexus Agent\spool\` and upload on a later heartbeat
+  `C:\ProgramData\Plugin\spool\` and upload on a later heartbeat
   (bounded to 500 frames / 24h). Note the server re-gates uploads on the *current*
   clock state, so a queued frame lands only if flushed while the employee is still
   clocked in — the queue covers mid-shift blips, not outages spanning clock-out.
@@ -108,7 +108,7 @@ and test it on a real Windows PC before rolling out.
 - **Identity**: a **per-device token** (`X-Agent-Token`), provisioned when you
   enroll the device (avatar → Admin → devices, or the install command). No
   Microsoft login, no interactive UI. Token is read from `NEXUS_AGENT_TOKEN`, then
-  `C:\ProgramData\Greens Nexus Agent\device-token.txt` (machine-wide), then the
+  `C:\ProgramData\Plugin\device-token.txt` (machine-wide), then the
   per-user `userData` copy.
 - **Heartbeat** (`POST /timeclock/agent/checkin`, every 60s): reports the machine
   + active/idle and learns whether to capture **right now** (`capture` — true only
@@ -147,7 +147,7 @@ NEXUS_API_BASE=https://<prod-api-host> npm run dist:win
 1. Enroll the device in Nexus to mint a device token (shared with the
    field-phone tracker — `AgentDevice`).
 2. Drop the token where the agent looks first, machine-wide:
-   `C:\ProgramData\Greens Nexus Agent\device-token.txt` (single line), **or** set
+   `C:\ProgramData\Plugin\device-token.txt` (single line), **or** set
    the `NEXUS_AGENT_TOKEN` environment variable.
 3. Launch the agent (the installer can do this post-install). It self-heals: if
    the token appears after launch, the next heartbeat picks it up.
@@ -167,7 +167,7 @@ resists being stopped. The mechanism:
    modify it** — enforced by the OS + MDM, on hardware the company owns.
 4. Push the **device token** via an Intune configuration/script (or bake per-device
    provisioning into your enrollment step) to
-   `C:\ProgramData\Greens Nexus Agent\device-token.txt`.
+   `C:\ProgramData\Plugin\device-token.txt`.
 
 This only holds on **company-owned, managed** machines. On a personal device the
 employee has admin and none of this applies — do not deploy there. Keep the

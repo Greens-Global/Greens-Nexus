@@ -1,4 +1,4 @@
-// ── Greens Nexus Agent — time & activity tracker with a visible indicator ─────
+// ── Plugin — time & activity tracker with a visible indicator ─────
 // A background companion to the Nexus Time Clock. While the employee is CLOCKED
 // IN it records, per the disclosed monitoring policy:
 //   • the foreground app + window title (→ the Activity Log), and
@@ -7,7 +7,7 @@
 // system already exposes, authenticating with a per-device token.
 //
 // It is DISCLOSED, not covert. A system-tray icon is always visible while the
-// agent runs and turns green with the tooltip "Nexus Monitoring Active" whenever
+// agent runs and turns green with the tooltip "Plugin - Monitoring active" whenever
 // it is actually capturing; the process appears in Task Manager, Startup, and
 // Installed Programs under its real name. Nothing here hides the process, blocks
 // Task Manager, or resists being stopped. "Standard users can't uninstall it"
@@ -32,7 +32,7 @@ const { startPairServer } = require('./pairserver');
 const { captureAllScreens } = require('./capture');
 
 // ── Discoverable log (for the employee / IT to inspect) ───────────────────────
-const LOG_DIR = path.join(process.env.PROGRAMDATA || app.getPath('userData'), 'Greens Nexus Agent');
+const LOG_DIR = path.join(process.env.PROGRAMDATA || app.getPath('userData'), 'Plugin');
 const LOG_FILE = path.join(LOG_DIR, 'agent.log');
 function log(msg) {
   const line = `${new Date().toISOString()}  ${msg}\n`;
@@ -121,7 +121,7 @@ function markCapturing(canCapture) {
 
 // ── Visible tray indicator ────────────────────────────────────────────────────
 // A circle rendered from a raw bitmap - no binary asset to ship. Green while
-// actually capturing ("Nexus Monitoring Active"), gray otherwise. The menu points
+// actually capturing, gray otherwise; hover text is just "Plugin". The menu points
 // to the Time Clock and the local log, and states plainly that it's company-run.
 let tray = null;
 function trayImage(rgb) {
@@ -140,7 +140,11 @@ const GREEN = [34, 197, 94], GRAY = [148, 163, 184];
 
 function setTray(capturing, detail) {
   if (!tray) return;
-  const title = capturing ? 'Nexus Monitoring Active' : 'Nexus Agent - not capturing (off shift)';
+  // Hover text is just the app name (the signed policy is the disclosure of record;
+  // the tray need not repeat "monitoring"). State stays visible via the green/gray
+  // icon, and the menu below still plainly identifies it as a company-managed app -
+  // so it remains disclosed and named, not hidden.
+  const title = 'Plugin';
   tray.setImage(trayImage(capturing ? GREEN : GRAY));
   tray.setToolTip(detail ? `${title}\n${detail}` : title);
   // INTENTIONALLY no Exit / Quit / Pause / Stop item: an employee cannot stop
@@ -162,7 +166,7 @@ function setTray(capturing, detail) {
 // ── Device token (identity) ───────────────────────────────────────────────────
 const TOKEN_FILE = path.join(app.getPath('userData'), 'device-token.txt');
 const MACHINE_TOKEN_FILE = path.join(
-  process.env.PROGRAMDATA || 'C:\\ProgramData', 'Greens Nexus Agent', 'device-token.txt');
+  process.env.PROGRAMDATA || 'C:\\ProgramData', 'Plugin', 'device-token.txt');
 function readDeviceToken() {
   if (process.env.NEXUS_AGENT_TOKEN) return process.env.NEXUS_AGENT_TOKEN.trim();
   for (const f of [MACHINE_TOKEN_FILE, TOKEN_FILE]) {
@@ -278,7 +282,7 @@ async function tick() {
 function registerLoginStart() {
   try {
     if (process.platform === 'win32' || process.platform === 'darwin') {
-      app.setLoginItemSettings({ openAtLogin: true, name: 'Greens Nexus Agent', args: ['--background'] });
+      app.setLoginItemSettings({ openAtLogin: true, name: 'Plugin', args: ['--background'] });
     }
   } catch (e) { log(`could not register login start: ${e.message || e}`); }
 }
@@ -288,7 +292,7 @@ if (!app.requestSingleInstanceLock()) { app.quit(); }
 
 app.whenReady().then(() => {
   if (process.platform === 'darwin' && app.dock) app.dock.hide();   // no dock icon
-  log(`Greens Nexus Agent starting — host ${os.hostname()}, user ${os.userInfo().username}`
+  log(`Plugin starting — host ${os.hostname()}, user ${os.userInfo().username}`
     + (SERVICE_MANAGED ? ' [service-managed]' : ''));
   // Under the service, the SERVICE owns startup - don't also add a login item
   // (avoids a second, unmanaged copy the employee could later toggle off).

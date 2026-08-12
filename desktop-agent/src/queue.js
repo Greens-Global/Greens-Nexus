@@ -13,7 +13,7 @@ const path = require('path');
 const { app } = require('electron');
 
 const DIR = path.join(process.env.PROGRAMDATA || app.getPath('userData'),
-  'Greens Nexus Agent', 'spool');
+  'Plugin', 'spool');
 const MAX_ITEMS = 500;                 // oldest dropped past this
 const MAX_AGE_MS = 24 * 3600 * 1000;   // and anything older than a day
 

@@ -4,7 +4,7 @@
 #Requires -RunAsAdministrator
 
 $ErrorActionPreference = 'Continue'
-$svc = 'NexusMonitorService'
+$svc = 'Plugin'
 
 if (-not (Get-Service -Name $svc -ErrorAction SilentlyContinue)) {
   Write-Host "Service '$svc' is not installed - nothing to do."

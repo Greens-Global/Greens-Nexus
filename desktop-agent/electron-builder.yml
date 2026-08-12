@@ -1,5 +1,5 @@
-appId: com.greensglobal.nexus.agent
-productName: Greens Nexus Agent
+appId: com.greensglobal.plugin
+productName: Plugin
 copyright: Greens Global
 
 directories:

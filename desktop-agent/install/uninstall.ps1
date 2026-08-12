@@ -1,8 +1,8 @@
 <#
-  Greens Nexus Agent - uninstaller. Removes the agent from THIS PC.
+  Plugin - uninstaller. Removes the agent from THIS PC.
 
   Auto-detects elevation:
-    * ADMIN  -> also removes the machine-wide NexusMonitorService and the
+    * ADMIN  -> also removes the machine-wide Plugin and the
       Program Files install (the employee-proof service install).
     * NORMAL -> removes the per-user install (LOCALAPPDATA + Startup entry).
 
@@ -11,18 +11,18 @@
   an admin should click Revoke in Nexus -> Admin -> Monitoring -> Company Computers.
 #>
 $ErrorActionPreference = 'SilentlyContinue'
-$APP = 'Greens Nexus Agent'
+$APP = 'Plugin'
 
 $isAdmin = ([Security.Principal.WindowsPrincipal] `
   [Security.Principal.WindowsIdentity]::GetCurrent()
 ).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 
 # 1. Stop + remove the supervisor service (machine install; needs admin).
-if (Get-Service -Name 'NexusMonitorService' -ErrorAction SilentlyContinue) {
+if (Get-Service -Name 'Plugin' -ErrorAction SilentlyContinue) {
   if ($isAdmin) {
-    sc.exe stop NexusMonitorService | Out-Null
+    sc.exe stop Plugin | Out-Null
     Start-Sleep -Seconds 2
-    sc.exe delete NexusMonitorService | Out-Null
+    sc.exe delete Plugin | Out-Null
     Write-Host "Removed the NexusMonitorService."
   } else {
     Write-Host "A machine-wide service is installed - re-run this AS ADMINISTRATOR to remove it."
@@ -51,5 +51,5 @@ foreach ($p in $paths) {
 if ($isAdmin) { [Environment]::SetEnvironmentVariable('NEXUS_AGENT_EXE', $null, 'Machine') }
 
 Write-Host ""
-Write-Host "Greens Nexus Agent removed from this PC."
+Write-Host "Plugin removed from this PC."
 Write-Host "(To also kill its server token, an admin should click Revoke in Nexus.)"

@@ -33,9 +33,9 @@ using System.Threading;
 
 namespace GreensNexus
 {
-    public class NexusMonitorService : ServiceBase
+    public class Plugin : ServiceBase
     {
-        internal const string SvcName = "NexusMonitorService";
+        internal const string SvcName = "Plugin";
         const int CheckIntervalMs = 12000;   // re-check the active session / respawn cadence
 
         Thread _worker;
@@ -44,7 +44,7 @@ namespace GreensNexus
         readonly Dictionary<uint, int> _agentPidBySession = new Dictionary<uint, int>();
         readonly object _gate = new object();
 
-        public NexusMonitorService()
+        public Plugin()
         {
             ServiceName = SvcName;
             CanHandleSessionChangeEvent = true;   // get logon/unlock events
@@ -53,7 +53,7 @@ namespace GreensNexus
             AutoLog = true;
         }
 
-        static void Main() { Run(new NexusMonitorService()); }
+        static void Main() { Run(new Plugin()); }
 
         protected override void OnStart(string[] args)
         {
@@ -142,9 +142,9 @@ namespace GreensNexus
             var candidates = new[]
             {
                 Environment.GetEnvironmentVariable("NEXUS_AGENT_EXE"),
-                Path.Combine(dir, "Greens Nexus Agent.exe"),
-                Path.Combine(parent, "Greens Nexus Agent.exe"),
-                @"C:\Program Files\Greens Nexus Agent\Greens Nexus Agent.exe",
+                Path.Combine(dir, "Plugin.exe"),
+                Path.Combine(parent, "Plugin.exe"),
+                @"C:\Program Files\Plugin\Plugin.exe",
             };
             foreach (var c in candidates)
                 if (!string.IsNullOrEmpty(c) && File.Exists(c)) return c;

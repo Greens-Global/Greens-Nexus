@@ -1888,21 +1888,21 @@ def agent_install_command(user: dict = Depends(require_administrator)):
 # Uninstaller script, served so the uninstall one-liner can fetch it (mirrors
 # desktop-agent/install/uninstall.ps1 - keep them in sync). No secrets inside, so
 # it's public; it only removes local files/service on the machine that runs it.
-_UNINSTALL_PS1 = r'''# Greens Nexus Agent - uninstaller (served by the Nexus API).
-# Elevated: also removes the machine-wide NexusMonitorService + Program Files
+_UNINSTALL_PS1 = r'''# Plugin - uninstaller (served by the Nexus API).
+# Elevated: also removes the machine-wide Plugin + Program Files
 # install. Normal: removes the per-user install + Startup entry. Local only -
 # revoke the device token separately in Nexus -> Admin -> Monitoring.
 $ErrorActionPreference = 'SilentlyContinue'
-$APP = 'Greens Nexus Agent'
+$APP = 'Plugin'
 $isAdmin = ([Security.Principal.WindowsPrincipal] `
   [Security.Principal.WindowsIdentity]::GetCurrent()
 ).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 
-if (Get-Service -Name 'NexusMonitorService' -ErrorAction SilentlyContinue) {
+if (Get-Service -Name 'Plugin' -ErrorAction SilentlyContinue) {
   if ($isAdmin) {
-    sc.exe stop NexusMonitorService | Out-Null
+    sc.exe stop Plugin | Out-Null
     Start-Sleep -Seconds 2
-    sc.exe delete NexusMonitorService | Out-Null
+    sc.exe delete Plugin | Out-Null
     Write-Host "Removed the NexusMonitorService."
   } else {
     Write-Host "A machine-wide service is installed - re-run AS ADMINISTRATOR to remove it."
@@ -1923,7 +1923,7 @@ foreach ($p in $paths) { if (Test-Path $p) { Remove-Item $p -Recurse -Force; Wri
 if ($isAdmin) { [Environment]::SetEnvironmentVariable('NEXUS_AGENT_EXE', $null, 'Machine') }
 
 Write-Host ""
-Write-Host "Greens Nexus Agent removed from this PC."
+Write-Host "Plugin removed from this PC."
 '''
 
 
