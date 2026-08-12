@@ -1316,6 +1316,7 @@ class TimeScreenshot(Base):
     # new frames land in the dedicated private 'time-monitoring' bucket. Reads
     # sign per-row against this so a migration in flight still resolves both.
     bucket         = Column(String, default="")
+    session_id     = Column(String, default="")         # clock session (in-punch id) at capture
     idle_sec       = Column(Integer, default=0)         # seconds since last input at capture
     active_view    = Column(String, default="")         # Nexus view/path when captured
     created_at     = Column(String, default="")
@@ -1387,6 +1388,25 @@ class AgentDevice(Base):
     created_by     = Column(String, default="")
     created_at     = Column(String, default="")
     last_seen_at   = Column(String, default="")
+    # Shared-PC support: the device is a permanent PC identity; the CURRENT
+    # employee is whoever clocked in via the website (bound at clock-in, cleared at
+    # clock-out). Screenshots + heartbeat attribute to `active_email`, NOT the
+    # enroll-time `employee_email`, so two people can share one enrolled machine.
+    active_email      = Column(String, default="")   # employee clocked in on this PC now
+    active_session_id = Column(String, default="")   # their in-punch id = the clock session
+
+
+class AgentPairing(Base):
+    """Short-lived nonce binding a browser clock-in to the physical device. The
+    website mints it for the logged-in employee; the LOCAL AGENT claims it by
+    authenticating with its own device token - so the device_id is proven by the
+    agent, never trusted from the browser. Consumed once, at clock-in."""
+    __tablename__ = "agent_pairings"
+    nonce          = Column(String, primary_key=True)   # random, unguessable
+    employee_email = Column(String, nullable=False, index=True)
+    device_id      = Column(String, default="")         # set when the agent claims it
+    created_at     = Column(String, default="")
+    used           = Column(Integer, default=0)
 
 
 class Shift(Base):

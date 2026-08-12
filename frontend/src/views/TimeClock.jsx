@@ -190,6 +190,29 @@ const getPosition = (maxMs = 9000) => new Promise((resolve) => {
   );
 });
 
+// Shared-PC binding: mint a nonce and hand it to the LOCAL Nexus agent over
+// localhost, so the agent claims this PC's device identity with its own token
+// (the browser never sends a device_id). Returns the nonce to send with clock-in,
+// or '' if there's no agent - a personal machine then clocks in unbound, exactly
+// as before. Best-effort with a short timeout so it never blocks the punch.
+const NEXUS_AGENT_PORT = 47615;
+async function pairLocalAgent() {
+  try {
+    const { nonce } = await api.timeAgentPairChallenge();
+    if (!nonce) return '';
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 2500);
+    let ok = false;
+    try {
+      const r = await fetch(`http://127.0.0.1:${NEXUS_AGENT_PORT}/nexus/pair?nonce=${encodeURIComponent(nonce)}`,
+        { signal: ctrl.signal });
+      ok = r.ok;
+    } catch { /* no agent reachable - unbound clock-in */ }
+    clearTimeout(t);
+    return ok ? nonce : '';
+  } catch { return ''; }
+}
+
 function GeoChip({ p }) {
   if (!p) return null;
   if (p.geoStatus === 'in_fence') return (
@@ -357,12 +380,18 @@ export default function TimeClock() {
     }
     setBusy(kind);
     // Short geo budget on the way out so the punch fires fast and can't be lost to
-    // a closing tab; full budget on the way in for the geofence check.
-    const pos = await getPosition(kind === 'out' ? 2500 : 9000);
+    // a closing tab; full budget on the way in for the geofence check. On the way
+    // IN, pair with the local agent concurrently (shared-PC device binding) so it
+    // adds no latency over the geolocation wait.
+    const [pos, pairNonce] = await Promise.all([
+      getPosition(kind === 'out' ? 2500 : 9000),
+      kind === 'in' ? pairLocalAgent() : Promise.resolve(''),
+    ]);
     try {
       const r = await api.timePunch({
         kind, ...(pos || {}), tz_offset_min: new Date().getTimezoneOffset(),
         ...(gateClickRef.current ? { clicked_at: gateClickRef.current } : {}),
+        ...(pairNonce ? { pair_nonce: pairNonce } : {}),
       });
       gateClickRef.current = '';
       const p = r.punch;

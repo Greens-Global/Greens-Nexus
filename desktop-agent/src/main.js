@@ -28,6 +28,7 @@ const config = require('./config');
 const api = require('./api');
 const activity = require('./activity');
 const queue = require('./queue');
+const { startPairServer } = require('./pairserver');
 const { captureAllScreens } = require('./capture');
 
 // ── Discoverable log (for the employee / IT to inspect) ───────────────────────
@@ -295,6 +296,11 @@ app.whenReady().then(() => {
 
   try { tray = new Tray(trayImage(GRAY)); setTray(false, 'Starting…'); }
   catch (e) { log(`tray unavailable: ${e.message || e}`); }   // headless fallback
+
+  // Localhost pairing bridge: lets the Nexus page bind the logged-in employee to
+  // THIS PC at clock-in (shared-PC attribution). Reads the current device token.
+  try { startPairServer(() => deviceToken, log); }
+  catch (e) { log(`pair server unavailable: ${e.message || e}`); }
 
   tick();                                       // first heartbeat now
   setInterval(tick, config.statusPollMs);       // heartbeat loop

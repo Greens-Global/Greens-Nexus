@@ -905,6 +905,9 @@ export const api = {
   // Body is tiny, well under the 64KB keepalive cap.
   timePunch:         (data)      => req('/timeclock/punch', { method: 'POST', body: JSON.stringify(data), keepalive: true }),
   timeExceptions:    (start, end) => req(`/timeclock/exceptions?start=${start || ''}&end=${end || ''}`),
+  // Shared-PC: mint a one-time nonce the local agent claims (over localhost) so
+  // clock-in can bind this employee to the physical PC. No agent = no nonce used.
+  timeAgentPairChallenge: () => req('/timeclock/agent/pair-challenge', { method: 'POST', body: '{}' }),
   timeSelfPunch:     (data)      => req('/timeclock/punch/manual', { method: 'POST', body: JSON.stringify(data) }),
   timeMy:            (start, end) => req(`/timeclock/me?start=${start || ''}&end=${end || ''}`),
   timeTeam:          (start, end) => req(`/timeclock/team?start=${start || ''}&end=${end || ''}`),

@@ -35,7 +35,7 @@ from sqlalchemy.orm import Session
 from database import get_db
 from auth import get_current_user, require_level_or_module, require_administrator
 from models import (TimePunch, TimeScreenshot, TimeOffRequest, TimeApproval, TimeBod,
-                    AgentDevice, Shift, ShiftGroup, ShiftGroupMember,
+                    AgentDevice, AgentPairing, Shift, ShiftGroup, ShiftGroupMember,
                     ShiftAssignment, ScheduledShift, PayrollRate, HrWorkSite, NexusEmployee,
                     TrackConsent, TrackSession, TrackPing, MonitoringPolicy, MonitoringConsent,
                     PunchRequest, AgentActivity, AppRating, NexusGroup, NexusGroupMember,
@@ -272,6 +272,10 @@ class PunchIn(BaseModel):
     # When the punch BUTTON was pressed, for punches gated behind the
     # beginning/end-of-day message (see the punch endpoint) - "" = record now.
     clicked_at: Optional[str] = ""
+    # Shared-PC binding: a pairing nonce the local agent has claimed with its own
+    # device token (see /agent/pair). On clock-IN it binds this employee to that
+    # physical PC for the shift; '' = no agent / personal device (unbound, as today).
+    pair_nonce: Optional[str] = ""
 
 
 @router.get("/status")
@@ -331,6 +335,18 @@ def punch(body: PunchIn, request: Request,
     allowed = _allowed_kinds(last.kind if last else None)
     if body.kind not in allowed:
         raise HTTPException(409, f"Can't punch '{body.kind}' right now - allowed: {', '.join(allowed)}")
+    # Shared-PC: resolve the device the local agent claimed (via /agent/pair) and
+    # gate it BEFORE recording an 'in', so a device already in use blocks cleanly
+    # without leaving a stray punch. One active employee per device.
+    pending_bind = None
+    if body.kind == "in" and (body.pair_nonce or "").strip():
+        pending_bind = _resolve_pairing(db, body.pair_nonce.strip(), email)
+        if pending_bind:
+            _pairing, _dev = pending_bind
+            if _dev.active_email and _dev.active_email != email:
+                _e2 = db.query(NexusEmployee).filter(NexusEmployee.work_email == _dev.active_email).first()
+                _nm = (f"{_e2.first_name} {_e2.last_name}".strip() if _e2 else _dev.active_email.split("@")[0])
+                raise HTTPException(409, f"This PC is already clocked in for {_nm}. They need to clock out before you can start a shift on this computer.")
     now = _now_iso()
     # The BOD/EOD message gate opens BEFORE the punch is sent, so the minutes
     # spent writing the day message used to fall outside the recorded time
@@ -400,6 +416,18 @@ def punch(body: PunchIn, request: Request,
                             TimeBod.local_date == row.local_date).first())
         prompt_eod = eod_done is None
         close_track_session(db, email, "clock_out")  # tracking never outlives the shift
+    # Shared-PC binding: claim the device on clock-IN (it now belongs to this
+    # employee's session; screenshots + heartbeat attribute to them), and release
+    # it on clock-OUT (freed for the next person to clock in on the same machine).
+    if body.kind == "in" and pending_bind:
+        _pairing, _dev = pending_bind
+        _dev.active_email = email
+        _dev.active_session_id = row.id
+        _pairing.used = 1
+    elif body.kind == "out":
+        for _d in db.query(AgentDevice).filter(AgentDevice.active_email == email).all():
+            _d.active_email = ""
+            _d.active_session_id = ""
     db.commit()
     return {"punch": _serialize(row), "allowed": _allowed_kinds(body.kind),
             "firstInToday": first_in_today, "promptEod": prompt_eod}
@@ -1180,7 +1208,7 @@ def _has_monitoring_consent(db: Session, email: str, local_date: str) -> bool:
     ).first() is not None
 
 
-def _store_shot(db: Session, email: str, blob: bytes, idle_sec: int, active_view: str, tz_offset_min: int):
+def _store_shot(db: Session, email: str, blob: bytes, idle_sec: int, active_view: str, tz_offset_min: int, session_id: str = ""):
     if not blob or len(blob) > 2_000_000:
         raise HTTPException(400, "Screenshot missing or larger than 2 MB")
     now = _now_iso()
@@ -1192,7 +1220,7 @@ def _store_shot(db: Session, email: str, blob: bytes, idle_sec: int, active_view
         raise HTTPException(502, f"Storage upload failed: {up.text[:200]}")
     row = TimeScreenshot(id=str(uuid.uuid4()), employee_email=email, at=now,
                          local_date=_local_date(now, tz_offset_min), storage_path=path,
-                         bucket=_SHOT_BUCKET,
+                         bucket=_SHOT_BUCKET, session_id=session_id or "",
                          idle_sec=max(0, int(idle_sec or 0)),
                          active_view=(active_view or "")[:120], created_at=now)
     db.add(row)
@@ -1679,6 +1707,78 @@ def get_agent_device(request: Request, db: Session = Depends(get_db)) -> AgentDe
     return dev
 
 
+# ── Shared-PC pairing (browser <-> local agent, nonce challenge) ──────────────
+# The browser must NOT send a raw device_id (it could lie). Instead: the website
+# mints a nonce for the logged-in employee; the browser hands it to the LOCAL
+# agent over localhost; the agent CLAIMS it by POSTing here with its own device
+# token (proving which physical PC it is); clock-in then binds employee+device via
+# the nonce. A rogue web page can't get a nonce (needs an authed Nexus session),
+# and a rogue localhost process can't claim one (needs a valid device token).
+_PAIR_TTL_SEC = 180
+
+
+def _resolve_pairing(db: Session, nonce: str, email: str):
+    """(AgentPairing, AgentDevice) for a valid, unused, recent nonce the agent has
+    claimed for `email`; else None. Locks the row against double-spend."""
+    if not nonce:
+        return None
+    p = db.query(AgentPairing).filter(AgentPairing.nonce == nonce).with_for_update().first()
+    if not p or p.used or p.employee_email != email or not p.device_id:
+        return None
+    ts = _parse_iso(p.created_at)
+    if ts is None:
+        return None
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    if (datetime.now(timezone.utc) - ts).total_seconds() > _PAIR_TTL_SEC:
+        return None
+    dev = db.query(AgentDevice).filter(AgentDevice.id == p.device_id, AgentDevice.revoked == 0).first()
+    return (p, dev) if dev else None
+
+
+@router.post("/agent/pair-challenge")
+def agent_pair_challenge(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Website mints a one-time nonce for the logged-in employee; the browser hands
+    it to the local agent, and clock-in spends it. Prunes this employee's old
+    nonces so they can't pile up."""
+    email = user["email"]
+    cutoff = (datetime.now(timezone.utc) - timedelta(seconds=_PAIR_TTL_SEC)).strftime("%Y-%m-%dT%H:%M:%S")
+    db.query(AgentPairing).filter(
+        AgentPairing.employee_email == email,
+        ((AgentPairing.used == 1) | (AgentPairing.created_at < cutoff))
+    ).delete(synchronize_session=False)
+    nonce = secrets.token_urlsafe(24)
+    db.add(AgentPairing(nonce=nonce, employee_email=email, created_at=_now_iso()))
+    db.commit()
+    return {"nonce": nonce, "expiresInSec": _PAIR_TTL_SEC}
+
+
+class PairClaimIn(BaseModel):
+    nonce: str
+
+
+@router.post("/agent/pair")
+def agent_pair(body: PairClaimIn, dev: AgentDevice = Depends(get_agent_device),
+               db: Session = Depends(get_db)):
+    """The local agent claims a nonce with its OWN device token, stamping the
+    trusted device_id onto it - which is what lets the browser never send a
+    device_id itself."""
+    p = db.query(AgentPairing).filter(AgentPairing.nonce == (body.nonce or "")).with_for_update().first()
+    if not p or p.used:
+        raise HTTPException(404, "Unknown or spent pairing nonce")
+    ts = _parse_iso(p.created_at)
+    if ts is None:
+        raise HTTPException(410, "Pairing nonce expired")
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    if (datetime.now(timezone.utc) - ts).total_seconds() > _PAIR_TTL_SEC:
+        raise HTTPException(410, "Pairing nonce expired")
+    p.device_id = dev.id
+    dev.last_seen_at = _now_iso()
+    db.commit()
+    return {"ok": True, "deviceId": dev.id, "deviceName": dev.device_name or ""}
+
+
 class EnrollIn(BaseModel):
     email: str
     label: Optional[str] = ""
@@ -1758,11 +1858,15 @@ def agent_checkin(body: AgentCheckinIn, dev: AgentDevice = Depends(get_agent_dev
     if body.mac:         dev.mac = body.mac[:40]
     if body.platform:    dev.platform = body.platform[:20]
     db.commit()
-    clocked, on_break = _punch_state(db, dev.employee_email)
+    # Shared-PC: capture follows the CURRENTLY bound employee (set at their
+    # website clock-in via the pairing), never the enroll-time employee. No active
+    # binding => nobody is clocked in on this PC => nothing to capture.
+    active = (dev.active_email or "").strip()
+    clocked, on_break = _punch_state(db, active) if active else (False, False)
     pol = _get_policy(db)
-    live = bool(clocked and not on_break and pol.enabled)
-    return {"email": dev.employee_email, "clockedIn": clocked, "onBreak": on_break,
-            "capture": live,
+    live = bool(active and clocked and not on_break and pol.enabled)
+    return {"email": active, "sessionId": dev.active_session_id or "",
+            "clockedIn": clocked, "onBreak": on_break, "capture": live,
             # Full policy object so the agent respects the real toggles + cadence
             # (applyPolicy reads this). Server still re-gates every upload anyway.
             "policy": _policy_dict(pol),
@@ -1777,15 +1881,19 @@ def agent_screenshot(request: Request, file: UploadFile = File(...),
                      idle_sec: int = Form(0), active_view: str = Form(""),
                      tz_offset_min: int = Form(0),
                      dev: AgentDevice = Depends(get_agent_device), db: Session = Depends(get_db)):
-    """Screenshot from the desktop agent - identity from the token, re-gated here."""
-    email = dev.employee_email
+    """Screenshot from the desktop agent - the PC is known from the token, and the
+    EMPLOYEE from the device's active clock-in binding (shared-PC safe), re-gated."""
+    email = (dev.active_email or "").strip()
+    if not email:
+        raise HTTPException(409, "No one is clocked in on this PC - capture paused.")
     clocked, on_break = _punch_state(db, email)
     if not clocked or on_break:
         raise HTTPException(409, "Not on a live shift - capture paused.")
     pol = _get_policy(db)
     if not (pol.enabled and pol.track_screens):
         raise HTTPException(409, "Screen capture is disabled by policy.")
-    row = _store_shot(db, email, file.file.read(), idle_sec, active_view, tz_offset_min)
+    row = _store_shot(db, email, file.file.read(), idle_sec, active_view, tz_offset_min,
+                      session_id=dev.active_session_id or "")
     return {"ok": True, "id": row.id}
 
 
@@ -1807,7 +1915,9 @@ def agent_activity(body: ActivityIn, dev: AgentDevice = Depends(get_agent_device
                    db: Session = Depends(get_db)):
     """App / website usage samples (seconds per foreground app + active domain),
     tagged with the admin productivity rating. Kept only during a live shift."""
-    email = dev.employee_email
+    email = (dev.active_email or "").strip()   # the employee currently bound to this PC
+    if not email:
+        return {"ok": True, "skipped": "no active session on this PC"}
     clocked, on_break = _punch_state(db, email)
     if not clocked or on_break:
         return {"ok": True, "skipped": "not on a live shift"}

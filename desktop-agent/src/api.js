@@ -44,4 +44,17 @@ async function agentPostActivity(token, body) {
   return r.json();
 }
 
-module.exports = { agentCheckin, agentUploadShot, agentPostActivity };
+// Claim a browser-supplied pairing nonce with THIS device's token, so the backend
+// can bind the logged-in employee to this physical PC at clock-in. The browser
+// never learns/sends the device_id itself - the agent proves it here.
+async function agentPair(token, nonce) {
+  const r = await fetch(`${config.apiBase}/timeclock/agent/pair`, {
+    method: 'POST',
+    headers: { 'X-Agent-Token': token, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ nonce: nonce || '' }),
+  });
+  if (!r.ok) throw new Error(`pair ${r.status}`);
+  return r.json();
+}
+
+module.exports = { agentCheckin, agentUploadShot, agentPostActivity, agentPair };
