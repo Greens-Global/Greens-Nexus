@@ -54,6 +54,7 @@ def _run_migrations():
             "ALTER TABLE payroll_rates ADD COLUMN full_day_hours FLOAT DEFAULT 8",
             "ALTER TABLE agent_activity ADD COLUMN domain VARCHAR DEFAULT ''",
             "ALTER TABLE agent_activity ADD COLUMN category VARCHAR DEFAULT ''",
+            "ALTER TABLE time_screenshots ADD COLUMN bucket VARCHAR DEFAULT ''",
             "ALTER TABLE items ADD COLUMN picture_required BOOLEAN DEFAULT 1",
             "ALTER TABLE items ADD COLUMN asset_value FLOAT DEFAULT 0",
             "UPDATE items SET status = 'available' WHERE ownership_type = 'permanent' AND COALESCE(assigned_to_email, '') = '' AND status = 'permanently_assigned'",
@@ -411,6 +412,7 @@ def _run_migrations():
         "ALTER TABLE payroll_rates ADD COLUMN IF NOT EXISTS full_day_hours FLOAT DEFAULT 8",
         "ALTER TABLE agent_activity ADD COLUMN IF NOT EXISTS domain VARCHAR DEFAULT ''",
         "ALTER TABLE agent_activity ADD COLUMN IF NOT EXISTS category VARCHAR DEFAULT ''",
+        "ALTER TABLE time_screenshots ADD COLUMN IF NOT EXISTS bucket VARCHAR DEFAULT ''",
         "ALTER TABLE requisitions ADD COLUMN IF NOT EXISTS employee_email VARCHAR DEFAULT ''",
         "ALTER TABLE nexus_notifications ADD COLUMN IF NOT EXISTS read_by VARCHAR DEFAULT ''",
         # inventory_requests: return-flow columns added after initial table creation
@@ -977,6 +979,19 @@ async def lifespan(app: FastAPI):
                 print("[startup] task inbound email drain skipped (not the sync worker)")
         except Exception as e:
             print(f"[startup] task inbound email drain skipped: {e}")
+        # One-time: relocate work-monitoring screenshots hr-docs -> time-monitoring
+        # bucket. Sync-worker gated (touches live storage with the service key; a
+        # laptop must never run it) + its own pg advisory lock inside. Self-idles
+        # once every frame is moved, so it's safe to leave wired across deploys.
+        try:
+            from asana_sync import is_sync_worker as _is_sync_worker3
+            if _is_sync_worker3():
+                from screenshot_migrate import screenshot_migration_loop
+                _tasks.append(_a.create_task(screenshot_migration_loop()))
+            else:
+                print("[startup] screenshot bucket migration skipped (not the sync worker)")
+        except Exception as e:
+            print(f"[startup] screenshot bucket migration skipped: {e}")
         try:
             from asana_sync import is_sync_worker as _is_sync_worker
             if _is_sync_worker():

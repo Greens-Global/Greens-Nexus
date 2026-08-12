@@ -40,7 +40,7 @@ from models import (TimePunch, TimeScreenshot, TimeOffRequest, TimeApproval, Tim
                     TrackConsent, TrackSession, TrackPing, MonitoringPolicy, MonitoringConsent,
                     PunchRequest, AgentActivity, AppRating, NexusGroup, NexusGroupMember,
                     NexusSetting, NexusNotification)
-from routers.hr import _hr_notify, _storage_headers, _SUPABASE_URL, _DOC_BUCKET, sync_comp_from_rate
+from routers.hr import _hr_notify, _storage_headers, _SUPABASE_URL, _DOC_BUCKET, _SHOT_BUCKET, sync_comp_from_rate
 from routers.esign import _client_meta
 from routers.stepup import require_stepup
 
@@ -1185,13 +1185,14 @@ def _store_shot(db: Session, email: str, blob: bytes, idle_sec: int, active_view
         raise HTTPException(400, "Screenshot missing or larger than 2 MB")
     now = _now_iso()
     path = f"timeclock/{email}/{_local_date(now, tz_offset_min)}/{now.replace(':', '-')}-{uuid.uuid4().hex[:6]}.jpg"
-    up = httpx.post(f"{_SUPABASE_URL}/storage/v1/object/{_DOC_BUCKET}/{path}",
+    up = httpx.post(f"{_SUPABASE_URL}/storage/v1/object/{_SHOT_BUCKET}/{path}",
                     headers={**_storage_headers(), "Content-Type": "image/jpeg"},
                     content=blob, timeout=30)
     if not up.is_success:
         raise HTTPException(502, f"Storage upload failed: {up.text[:200]}")
     row = TimeScreenshot(id=str(uuid.uuid4()), employee_email=email, at=now,
                          local_date=_local_date(now, tz_offset_min), storage_path=path,
+                         bucket=_SHOT_BUCKET,
                          idle_sec=max(0, int(idle_sec or 0)),
                          active_view=(active_view or "")[:120], created_at=now)
     db.add(row)
@@ -3322,9 +3323,9 @@ def set_payroll_rate(body: RateIn, user: dict = Depends(require_team_write),
 # composition bar via TimeScreenshot.idle_sec.
 
 
-def _signed_url(path: str) -> str:
+def _signed_url(path: str, bucket: str = "") -> str:
     try:
-        r = httpx.post(f"{_SUPABASE_URL}/storage/v1/object/sign/{_DOC_BUCKET}/{path}",
+        r = httpx.post(f"{_SUPABASE_URL}/storage/v1/object/sign/{bucket or _DOC_BUCKET}/{path}",
                        headers=_storage_headers(), json={"expiresIn": 3600}, timeout=20)
         if r.is_success:
             return f"{_SUPABASE_URL}/storage/v1{r.json().get('signedURL', '')}"
@@ -3333,15 +3334,15 @@ def _signed_url(path: str) -> str:
     return ""
 
 
-def _signed_urls(paths: list) -> dict:
-    """Bulk-sign in ONE Supabase call (path -> full URL). The per-frame loop was
-    one HTTP round-trip per screenshot, so opening a person's day of frames took
-    10s+; this collapses it to a single request."""
+def _signed_urls(paths: list, bucket: str = "") -> dict:
+    """Bulk-sign ONE bucket's paths in a single Supabase call (path -> full URL).
+    The per-frame loop was one HTTP round-trip per screenshot, so opening a day of
+    frames took 10s+; this collapses it to one request."""
     out = {}
     if not paths:
         return out
     try:
-        r = httpx.post(f"{_SUPABASE_URL}/storage/v1/object/sign/{_DOC_BUCKET}",
+        r = httpx.post(f"{_SUPABASE_URL}/storage/v1/object/sign/{bucket or _DOC_BUCKET}",
                        headers=_storage_headers(),
                        json={"expiresIn": 3600, "paths": paths}, timeout=30)
         if r.is_success:
@@ -3351,6 +3352,20 @@ def _signed_urls(paths: list) -> dict:
     except Exception:
         pass
     return out
+
+
+def _sign_shot_rows(rows: list) -> dict:
+    """Signed URLs for a set of TimeScreenshot rows, signing each against its OWN
+    bucket - so a gallery spanning the hr-docs -> time-monitoring migration (some
+    rows on each) resolves correctly. Paths carry a uuid so they never collide
+    across buckets. One sign call per bucket (at most two)."""
+    by_bucket = {}
+    for s in rows:
+        by_bucket.setdefault(s.bucket or _DOC_BUCKET, []).append(s.storage_path)
+    urls = {}
+    for bucket, paths in by_bucket.items():
+        urls.update(_signed_urls(paths, bucket))
+    return urls
 
 
 # Desktop-agent installer hosting (/agent/download-url, /agent/upload-url,
@@ -3375,7 +3390,7 @@ def list_screenshots(date: str = "", email: str = "",
             for em, n in sorted(counts.items())]}
     rows = q.filter(TimeScreenshot.employee_email == email.strip().lower()) \
             .order_by(TimeScreenshot.at).all()
-    urls = _signed_urls([s.storage_path for s in rows])   # one call, not one per frame
+    urls = _sign_shot_rows(rows)   # per-bucket signing (handles the migration in flight)
     return {"date": day, "email": email, "shots": [
         {"id": s.id, "at": s.at, "idleSec": s.idle_sec or 0, "activeView": s.active_view or "",
          "url": urls.get(s.storage_path, "")} for s in rows]}
@@ -3407,7 +3422,7 @@ def team_screenshots(date: str = "", email: str = "",
     if visible is not None and tgt not in visible:
         raise HTTPException(403, "That employee isn't on your team.")
     rows = q.filter(TimeScreenshot.employee_email == tgt).order_by(TimeScreenshot.at).all()
-    urls = _signed_urls([s.storage_path for s in rows])   # one call, not one per frame
+    urls = _sign_shot_rows(rows)   # per-bucket signing (handles the migration in flight)
     return {"date": day, "email": tgt, "shots": [
         {"id": s.id, "at": s.at, "idleSec": s.idle_sec or 0, "activeView": s.active_view or "",
          "url": urls.get(s.storage_path, "")} for s in rows]}

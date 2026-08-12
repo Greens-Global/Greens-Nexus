@@ -661,6 +661,9 @@ from models import HrDocument, HrProvisionRun, HrProvisionStep
 _SUPABASE_URL         = os.getenv("SUPABASE_URL", "")
 _SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
 _DOC_BUCKET    = "hr-docs"
+# Work-monitoring screenshots live in their OWN private bucket, not with HR
+# paperwork - different data class, retention, access, egress, and blast radius.
+_SHOT_BUCKET   = "time-monitoring"
 _DOC_KINDS     = ("resume", "id", "contract", "certificate", "other")
 _MAX_DOC_BYTES = 15 * 1024 * 1024
 

@@ -1311,7 +1311,11 @@ class TimeScreenshot(Base):
     employee_email = Column(String, nullable=False, index=True)
     at             = Column(String, nullable=False)     # UTC ISO
     local_date     = Column(String, default="")
-    storage_path   = Column(String, default="")         # hr-docs path
+    storage_path   = Column(String, default="")         # object key within `bucket`
+    # Which storage bucket the object lives in. '' = legacy hr-docs (pre-split);
+    # new frames land in the dedicated private 'time-monitoring' bucket. Reads
+    # sign per-row against this so a migration in flight still resolves both.
+    bucket         = Column(String, default="")
     idle_sec       = Column(Integer, default=0)         # seconds since last input at capture
     active_view    = Column(String, default="")         # Nexus view/path when captured
     created_at     = Column(String, default="")
