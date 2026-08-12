@@ -398,10 +398,12 @@ export default function TimeClock() {
   // someone clocked in 12+ hours "still working, or forgot to punch out?" -
   // last.at alone isn't the session start when the newest punch is a break.
   const [longAckAt, setLongAckAt] = useState(() => Number(localStorage.getItem('nexus:longShiftAck') || 0));
-  let sessionInAt = null;
+  let sessionInAt = null, sessionDay = '';
   if (clockedIn) {
-    Object.values(days).forEach(d => (d.punches || []).forEach(p => {
-      if (p.kind === 'in' && !p.voided && (!sessionInAt || p.at > sessionInAt)) sessionInAt = p.at;
+    // Track the DAY KEY of the session's in-punch too: a segment (and its break
+    // allowance) belongs to the day the shift STARTED, not the wall-clock day.
+    Object.entries(days).forEach(([dk, d]) => (d.punches || []).forEach(p => {
+      if (p.kind === 'in' && !p.voided && (!sessionInAt || p.at > sessionInAt)) { sessionInAt = p.at; sessionDay = dk; }
     }));
     if (!sessionInAt && last?.kind === 'in') sessionInAt = last.at;
   }
@@ -412,9 +414,13 @@ export default function TimeClock() {
   const todayKey = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
   const todayData = days[todayKey];
   const weekTotal = Object.values(days).reduce((a, d) => a + d.workedMin, 0);
-  // Daily break allowance: 1 hour. Used = completed breaks today + the live open one.
+  // Daily break allowance: 1 hour. Count against the SHIFT's day (the in-punch's
+  // date), not the wall-clock day - otherwise a night shift's allowance silently
+  // resets at midnight mid-shift and stops warning. Falls back to today when not
+  // clocked in (nothing open to attribute the meter to).
+  const breakData = (clockedIn && sessionDay && days[sessionDay]) || todayData;
   const BREAK_ALLOWANCE_MIN = 60;
-  const breakUsedMin = (todayData?.breakMin || 0) + gapBreakFromPunches(todayData?.punches) + (onBreak ? Math.floor(sinceSec / 60) : 0);
+  const breakUsedMin = (breakData?.breakMin || 0) + gapBreakFromPunches(breakData?.punches) + (onBreak ? Math.floor(sinceSec / 60) : 0);
   const breakLeftMin = BREAK_ALLOWANCE_MIN - breakUsedMin;
 
   // ── Current pay period (the Clock tab's mini summary). The Time Sheet tab is the
