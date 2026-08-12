@@ -1205,7 +1205,7 @@ function AttachmentsTab({ task, refresh }) {
                   <Paperclip size={13} style={{ color: NX.dim }} />
                   <span style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: NX.dim }}>{u.name}</span>
                   <span style={{ width: 90, height: 4, borderRadius: 2, background: NX.border2, overflow: 'hidden' }}>
-                    <span style={{ display: 'block', height: '100%', width: `${Math.round(u.pct * 100)}%`, background: NX.primary, transition: 'width .15s linear' }} />
+                    <span style={{ display: 'block', height: '100%', width: '100%', background: NX.primary, transformOrigin: 'left', transform: `scaleX(${u.pct})`, transition: 'transform .15s linear' }} />
                   </span>
                   <span style={{ color: NX.faint, minWidth: 32, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{Math.round(u.pct * 100)}%</span>
                 </div>
