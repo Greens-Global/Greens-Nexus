@@ -8,22 +8,13 @@ import { api } from '../api';
 import { useTasks } from './TasksContext';
 import { usePeople, PersonSelect, DateField } from './components';
 import { BottomSheet } from './MobileTaskBar';
-import { filesFromPaste } from './lib';
+import { filesFromPaste, uploadTaskAttachment } from './lib';
 import { NX, FONT, btn, input as inputStyle } from './theme';
 
 const fieldLabel = { display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: NX.dim, marginBottom: 5 };
-const MAX_INLINE = 2 * 1024 * 1024; // 2 MB - larger files store a link-less record (matches CreateTaskModal)
 
-// Upload one file as a task attachment (inline data URL for small files).
-async function uploadAttachment(taskId, f) {
-  const size = `${Math.max(1, Math.round(f.size / 1024))} KB`;
-  const kind = f.type.startsWith('image/') ? 'image' : 'doc';
-  const send = (url) => api.addTaskAttachment(taskId, { name: f.name, size, kind, url: url || '' }).catch(() => {});
-  if (f.size <= MAX_INLINE) {
-    return new Promise((res) => { const r = new FileReader(); r.onload = () => res(send(typeof r.result === 'string' ? r.result : '')); r.onerror = () => res(send('')); r.readAsDataURL(f); });
-  }
-  return send('');
-}
+// Upload one file as a task attachment (real storage upload - shared path).
+const uploadAttachment = (taskId, f) => uploadTaskAttachment(taskId, f).catch(() => {});
 
 export default function QuickCreateTask({ defaults = {}, onClose, onFullDetails }) {
   const store = useTasks();

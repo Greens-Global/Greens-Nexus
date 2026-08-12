@@ -9,7 +9,7 @@ import { useTasks } from './TasksContext';
 import { Modal, PersonSelect, usePeople, DateField, useIsMobile } from './components';
 import { ProjectCreateModal } from './ProjectsView';
 import { CustomFieldInput } from './TaskDetailDrawer';
-import { filesFromPaste, teamInProject, fieldsForProject } from './lib';
+import { filesFromPaste, teamInProject, fieldsForProject, uploadTaskAttachment } from './lib';
 import ProjectPicker from './ProjectPicker';
 import RichDescription from './RichDescription';
 import { NX, FONT, input, btn, STATUS_META, PRIORITY_META, STATUS_ORDER, PRIORITY_ORDER } from './theme';
@@ -17,7 +17,6 @@ import { NX, FONT, input, btn, STATUS_META, PRIORITY_META, STATUS_ORDER, PRIORIT
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const label = { fontSize: 12, fontWeight: 600, color: NX.dim, marginBottom: 5, display: 'block' };
 const field = { marginBottom: 0 };
-const MAX_INLINE = 2 * 1024 * 1024;
 
 export default function CreateTaskModal({ onClose, defaults = {}, taskId, lockedProjectId = '' }) {
   const store = useTasks();
@@ -103,13 +102,7 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
     ...f, recurFreq: v,
     status: v !== 'none' ? 'recurring' : (f.status === 'recurring' ? 'not_started' : f.status),
   }));
-  const uploadAttachment = async (parentId, f) => {
-    const size = `${Math.max(1, Math.round(f.size / 1024))} KB`;
-    const kind = f.type.startsWith('image/') ? 'image' : 'doc';
-    const send = (url) => api.addTaskAttachment(parentId, { name: f.name, size, kind, url: url || '' }).catch(() => {});
-    if (f.size <= MAX_INLINE) return new Promise((res) => { const r = new FileReader(); r.onload = () => res(send(typeof r.result === 'string' ? r.result : '')); r.onerror = () => res(send('')); r.readAsDataURL(f); });
-    return send('');
-  };
+  const uploadAttachment = (parentId, f) => uploadTaskAttachment(parentId, f).catch(() => {});
 
   // Required on CREATE: Task Name, Assignee, Due Date, Project (a locked project
   // already satisfies the last). Editing is NOT gated - the rule is about what a

@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Diamond, File, FileImage, FileText, Paperclip, Search, AlertTriangle, Download } from 'lucide-react';
 import { api } from '../../api';
 import { NX, FONT, btn, input as inputStyle, STATUS_META } from '../theme';
-import { Avatar, EmptyState } from '../components';
+import { Avatar, EmptyState, AttachmentViewer } from '../components';
 import { fmtDate } from '../lib';
 
 const DAY = 86400000;
@@ -135,6 +135,7 @@ function iconFor(kind) {
 export function FilesView({ tasks, onOpen, nameOf }) {
   const [rows, setRows] = useState(null);
   const [query, setQuery] = useState('');
+  const [view, setView] = useState(null);   // attachment open in the in-app viewer
   useEffect(() => {
     let alive = true;
     const withAtt = tasks.filter((t) => (t.attachmentIds || []).length);
@@ -164,23 +165,34 @@ export function FilesView({ tasks, onOpen, nameOf }) {
         : files.length === 0 ? <EmptyState icon={Paperclip} title="No Attachments Yet" hint="Files attached to any task show up here." />
           : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12 }}>
-              {files.slice(0, 200).map(({ a, t }) => (
+              {files.slice(0, 200).map(({ a, t }) => {
+                const href = a.dataUrl || a.url;
+                return (
                 <div key={a.id} style={{ display: 'flex', flexDirection: 'column', gap: 8, border: `1px solid ${NX.border}`, borderRadius: 12, background: NX.surface, padding: 14 }}>
                   <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
                     {iconFor(a.kind)}
-                    {(a.dataUrl || a.url) && <a href={a.dataUrl || a.url} download={a.name} title="Download" style={{ color: NX.faint }}><Download size={14} /></a>}
+                    {href && <a href={href} download={a.name} title="Download" style={{ color: NX.faint }}><Download size={14} /></a>}
                   </div>
-                  <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13, fontWeight: 600, color: NX.ink }} title={a.name}>{a.name}</div>
+                  {href ? (
+                    // Opens the in-app viewer - never a new tab.
+                    <button type="button" onClick={() => setView({ ...a, url: href })} title={`View ${a.name}`}
+                      style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13, fontWeight: 600, color: NX.ink, background: 'none', border: 'none', padding: 0, cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit' }}>{a.name}</button>
+                  ) : (
+                    <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13, fontWeight: 600, color: NX.faint, textDecoration: 'line-through' }}
+                      title="This file failed to upload and isn't available">{a.name}</div>
+                  )}
                   <div style={{ fontSize: 11, color: NX.faint }}>{a.size}{a.addedAt ? ` · ${fmtDate(a.addedAt)}` : ''}</div>
                   <button onClick={() => onOpen(t.id)} title={t.title} style={{ display: 'block', width: '100%', textAlign: 'left', marginTop: 2, border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 12, color: NX.blue, padding: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {t.title}
                   </button>
                   {a.addedBy && <div style={{ fontSize: 11, color: NX.faint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nameOf?.(a.addedBy) || a.addedBy}</div>}
                 </div>
-              ))}
+                );
+              })}
               {files.length > 200 && <div style={{ gridColumn: '1 / -1', padding: '6px 2px', fontSize: 12, color: NX.faint }}>Showing 200 of {files.length} files - search to narrow down.</div>}
             </div>
           )}
+      {view && <AttachmentViewer att={view} onClose={() => setView(null)} />}
     </div>
   );
 }

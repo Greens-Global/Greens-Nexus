@@ -18,7 +18,7 @@ import { fmtDate as fmtDateRaw, fmtDateTime, filesFromPaste, parseImportedAuthor
 // Drawer shows an em-dash for an unset date rather than an empty cell.
 const fmtDate = (iso) => (iso ? fmtDateRaw(iso) : '-');
 import { NX, FONT, btn, input as inputStyle, STATUS_META, STATUS_ORDER, PRIORITY_META, PRIORITY_ORDER } from './theme';
-import { Avatar, PersonSelect, PersonMultiSelect, usePeople, useIsMobile, DateField } from './components';
+import { Avatar, PersonSelect, PersonMultiSelect, usePeople, useIsMobile, DateField, AttachmentViewer } from './components';
 import RichDescription, { isEmptyDoc } from './RichDescription';
 
 const DEP_TYPES = { FS: 'Finish → Start', SS: 'Start → Start', FF: 'Finish → Finish', SF: 'Start → Finish' };
@@ -911,20 +911,10 @@ function DescriptionInput({ task, value, onCommit, refresh }) {
 
   // "+ → Attach file" puts the file on the TASK (so it shows in Attachments and
   // syncs to Asana) and hands the stored URL back so the editor can embed it.
-  // Mirrors AttachmentsTab's small-file inline / large-file metadata-only split.
   const attach = async (file) => {
-    const size = `${Math.max(1, Math.round(file.size / 1024))} KB`;
-    const kind = file.type.startsWith('image/') ? 'image' : 'doc';
-    const url = await new Promise((resolve) => {
-      if (file.size > MAX_INLINE) { resolve(''); return; }
-      const r = new FileReader();
-      r.onload = () => resolve(typeof r.result === 'string' ? r.result : '');
-      r.onerror = () => resolve('');
-      r.readAsDataURL(file);
-    });
-    await api.addTaskAttachment(task.id, { name: file.name, size, kind, url }).catch(() => {});
+    const row = await uploadTaskAttachment(task.id, file).catch(() => null);
     refresh?.();
-    return { url, name: file.name };
+    return { url: row?.url || '', name: file.name };
   };
 
   return (
@@ -1108,10 +1098,10 @@ function CommentItem({ c, nameOf, mine, attachments = [], onPin, onEdit, onDelet
 // tab uses); anything else renders as a named card with a Download link,
 // matching Asana's own comment-attachment layout.
 function CommentAttachments({ items }) {
-  // A file over the inline limit is stored as metadata only, with no url (see
-  // uploadTaskAttachment) - so `href` has to be conditional. Rendering the card
-  // as a dead link was this component's own bug; the task-level Attachments
-  // list and the Files view already guard the same way.
+  const [view, setView] = useState(null);   // attachment open in the in-app viewer
+  // A row without a url is a failed/legacy upload (see uploadTaskAttachment) -
+  // it renders as a dead card, never a broken link. Everything stored opens the
+  // in-app viewer (images/videos/PDFs inline, other types a download card).
   const card = (a, body) => {
     const href = a.dataUrl || a.url;
     const style = {
@@ -1120,8 +1110,9 @@ function CommentAttachments({ items }) {
       opacity: href ? 1 : 0.65,
     };
     return href
-      ? <a key={a.id} href={href} download={a.name} style={style}>{body}</a>
-      : <div key={a.id} style={style} title="This file was too large to store inline">{body}</div>;
+      ? <button key={a.id} type="button" onClick={() => setView({ ...a, url: href })} title={`View ${a.name}`}
+          style={{ ...style, background: 'none', cursor: 'pointer', font: 'inherit', textAlign: 'left', color: 'inherit' }}>{body}</button>
+      : <div key={a.id} style={style} title="This file failed to upload and isn't available - remove it and re-attach">{body}</div>;
   };
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
@@ -1129,10 +1120,11 @@ function CommentAttachments({ items }) {
         const href = a.dataUrl || a.url;
         if (a.kind === 'image' && href) {
           return (
-            <a key={a.id} href={href} target="_blank" rel="noreferrer" title={a.name}>
+            <button key={a.id} type="button" onClick={() => setView({ ...a, url: href })} title={`View ${a.name}`}
+              style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', alignSelf: 'flex-start' }}>
               <img src={href} alt={a.name}
                 style={{ display: 'block', maxWidth: 320, maxHeight: 240, borderRadius: 10, border: `1px solid ${NX.border}`, objectFit: 'cover' }} />
-            </a>
+            </button>
           );
         }
         return card(a, (
@@ -1141,12 +1133,13 @@ function CommentAttachments({ items }) {
             <div style={{ minWidth: 0, flex: 1 }}>
               <div style={{ fontSize: 12.5, fontWeight: 600, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name}</div>
               <div style={{ fontSize: 11, color: NX.faint, display: 'flex', alignItems: 'center', gap: 4 }}>
-                {href ? <><Download size={10} /> Download</> : 'Not stored'}
+                {href ? <><Download size={10} /> View or download</> : 'Not stored'}
               </div>
             </div>
           </>
         ));
       })}
+      {view && <AttachmentViewer att={view} onClose={() => setView(null)} />}
     </div>
   );
 }
@@ -1174,9 +1167,9 @@ function ActivityTab({ taskId, nameOf }) {
 }
 
 // ── Attachments ─────────────────────────────────────────────────────────────
-const MAX_INLINE = 2 * 1024 * 1024;
 function AttachmentsTab({ task, refresh }) {
   const [rows, setRows] = useState(null);
+  const [view, setView] = useState(null);   // attachment open in the in-app viewer
   const fileRef = useRef(null);
   const reload = () => api.getTaskAttachments(task.id).then(setRows).catch(() => setRows([]));
   useEffect(() => { reload(); /* eslint-disable-next-line */ }, [task.id]);
@@ -1195,17 +1188,37 @@ function AttachmentsTab({ task, refresh }) {
         : rows.length === 0 ? <div style={{ color: NX.faint, fontSize: 13, textAlign: 'center', padding: 20 }}>No attachments yet.</div>
           : (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              {rows.map((a) => (
-                <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8, border: `1px solid ${NX.border}`, borderRadius: 10, padding: '6px 10px', fontSize: 12 }}>
-                  {a.kind === 'image' && (a.dataUrl || a.url) ? <img src={a.dataUrl || a.url} alt={a.name} style={{ width: 32, height: 32, borderRadius: 6, objectFit: 'cover' }} /> : <Paperclip size={13} style={{ color: NX.dim }} />}
-                  <span style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name}</span>
-                  <span style={{ color: NX.faint }}>{a.size}</span>
-                  {(a.dataUrl || a.url) && <a href={a.dataUrl || a.url} download={a.name} title="Download" style={{ color: NX.faint, display: 'flex' }}><Download size={13} /></a>}
-                  <button onClick={() => del(a)} title="Remove" style={{ ...btn('ghost'), padding: 3, color: NX.faint }}><X size={13} /></button>
-                </div>
-              ))}
+              {rows.map((a) => {
+                const href = a.dataUrl || a.url;
+                const thumb = a.kind === 'image' && href
+                  ? <img src={href} alt={a.name} style={{ width: 32, height: 32, borderRadius: 6, objectFit: 'cover' }} />
+                  : <Paperclip size={13} style={{ color: NX.dim }} />;
+                return (
+                  <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8, border: `1px solid ${NX.border}`, borderRadius: 10, padding: '6px 10px', fontSize: 12 }}>
+                    {href ? (
+                      // Opens the IN-APP viewer (images/videos/PDFs render
+                      // inline; other types get a download card) - never a new tab.
+                      <button type="button" onClick={() => setView({ ...a, url: href })} title={`View ${a.name}`}
+                        style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, color: 'inherit', background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit' }}>
+                        {thumb}
+                        <span style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name}</span>
+                      </button>
+                    ) : (
+                      <span title="This file failed to upload and isn't available - remove it and re-attach"
+                        style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, color: NX.faint }}>
+                        {thumb}
+                        <span style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textDecoration: 'line-through' }}>{a.name}</span>
+                      </span>
+                    )}
+                    <span style={{ color: NX.faint }}>{a.size}</span>
+                    {href && <a href={href} download={a.name} title="Download" style={{ color: NX.faint, display: 'flex' }}><Download size={13} /></a>}
+                    <button onClick={() => del(a)} title="Remove" style={{ ...btn('ghost'), padding: 3, color: NX.faint }}><X size={13} /></button>
+                  </div>
+                );
+              })}
             </div>
           )}
+      {view && <AttachmentViewer att={view} onClose={() => setView(null)} />}
     </div>
   );
 }

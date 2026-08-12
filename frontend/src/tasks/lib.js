@@ -2,6 +2,7 @@
 // Operates on the runtime task shape (email used as person id).
 import { PRIORITY_ORDER, PRIORITY_META, STATUS_ORDER, STATUS_META } from './theme';
 import { api } from '../api';
+import { supabase } from '../lib/supabase';
 import { formatDate as usFormatDate, formatDateTime as usFormatDateTime } from '../lib/datetime';
 
 export const EMPTY_FILTER = {
@@ -254,26 +255,54 @@ export function filesFromPaste(e) {
   return out;
 }
 
-// Shared by the task-level Attachments tab and the comment composers' own
-// attach button - one File-to-TaskAttachment upload path instead of two
-// copies of the size-check/FileReader/base64 logic drifting apart. `extra` is
-// spread into the create body; the comment composers pass { comment_id } so
-// the attachment shows up inline under that comment instead of only in the
-// flat task-level list.
-const ATTACHMENT_MAX_INLINE = 2 * 1024 * 1024;
-export function uploadTaskAttachment(taskId, file, extra = {}) {
+// Shared by every attach entry point (Attachments tab, comment composers,
+// create modal, quick-create sheet, description "+ Attach file") - one
+// File-to-TaskAttachment upload path instead of copies drifting apart.
+// `extra` is spread into the create body; the comment composers pass
+// { comment_id } so the attachment shows up inline under that comment instead
+// of only in the flat task-level list.
+// Bytes go browser -> Supabase Storage (`task-files` bucket, public, immutable
+// cache), same as tickets' uploadTicketEvidence - works for any size up to the
+// cap, unlike the old inline-data-URL scheme which silently recorded anything
+// over 2 MB as a link-less row nobody could ever open. The data-URL branch
+// survives only as the no-storage-creds local-dev fallback. A failed upload
+// still records the row (url '') so the attempt isn't silently lost; renderers
+// show those struck through.
+const ATTACHMENT_MAX_INLINE = 2 * 1024 * 1024;   // local-dev fallback only
+const ATTACHMENT_MAX_BYTES = 25 * 1024 * 1024;
+export function attachmentKindOf(file) {
+  if (file.type.startsWith('image/')) return 'image';
+  if (file.type.startsWith('video/')) return 'video';
+  return 'doc';
+}
+async function storeTaskFile(file) {
+  if (!supabase) {
+    if (file.size > ATTACHMENT_MAX_INLINE) return '';
+    return new Promise((resolve) => {
+      const r = new FileReader();
+      r.onload = () => resolve(typeof r.result === 'string' ? r.result : '');
+      r.onerror = () => resolve('');
+      r.readAsDataURL(file);
+    });
+  }
+  if (file.size > ATTACHMENT_MAX_BYTES) throw new Error('file is larger than 25 MB');
+  const ext = (file.name.split('.').pop() || 'dat').toLowerCase();
+  const path = `tasks/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+  const { data, error } = await supabase.storage.from('task-files')
+    .upload(path, file, { contentType: file.type || 'application/octet-stream', upsert: false, cacheControl: '31536000' });
+  if (error || !data) throw new Error(error?.message || 'upload failed');
+  return supabase.storage.from('task-files').getPublicUrl(data.path).data.publicUrl;
+}
+export async function uploadTaskAttachment(taskId, file, extra = {}) {
   const size = `${Math.max(1, Math.round(file.size / 1024))} KB`;
-  const kind = file.type.startsWith('image/') ? 'image' : 'doc';
-  // Backend AttachmentCreate stores a single `url` (Supabase link, or an inline
-  // data URL for small files). Reads expose it as `a.url`.
-  const send = (dataUrl) => api.addTaskAttachment(taskId, { name: file.name, size, kind, url: dataUrl || '', ...extra });
-  if (file.size > ATTACHMENT_MAX_INLINE) return send(undefined);
-  return new Promise((resolve) => {
-    const r = new FileReader();
-    r.onload = () => resolve(send(typeof r.result === 'string' ? r.result : undefined));
-    r.onerror = () => resolve(send(undefined));
-    r.readAsDataURL(file);
-  });
+  const kind = attachmentKindOf(file);
+  let url = '';
+  try {
+    url = await storeTaskFile(file);
+  } catch (e) {
+    alert(`"${file.name}" couldn't be stored: ${e?.message || 'upload failed'}. Remove the attachment and try again.`);
+  }
+  return api.addTaskAttachment(taskId, { name: file.name, size, kind, url, ...extra });
 }
 
 // ── Dates ────────────────────────────────────────────────────────────────────
