@@ -64,6 +64,7 @@ function AgentInstall() {
   const [people, setPeople] = useState([]);
   const [copied, setCopied] = useState(false);
   const [copiedU, setCopiedU] = useState(false);
+  const [savedId, setSavedId] = useState('');   // device id that just saved its owner
 
   const loadDevices = useCallback(() => {
     api.timeAgentDevices()
@@ -90,7 +91,11 @@ function AgentInstall() {
   async function assign(id, email) {
     // Optimistic: reflect the pick immediately, reconcile from the server.
     setDevices(ds => ds && ds.map(d => d.id === id ? { ...d, email, name: (people.find(p => p.email === email) || {}).name || '' } : d));
-    try { await api.timeAgentAssignDevice(id, email); } finally { loadDevices(); }
+    try {
+      await api.timeAgentAssignDevice(id, email);
+      setSavedId(id);
+      setTimeout(() => setSavedId(cur => (cur === id ? '' : cur)), 2200);
+    } finally { loadDevices(); }
   }
 
   function copyTo(text, setter) {
@@ -210,6 +215,11 @@ function AgentInstall() {
                 <option value="">Unassigned (shared)</option>
                 {people.map(p => <option key={p.email} value={p.email}>{p.name}</option>)}
               </select>
+              {savedId === d.id && (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, fontWeight: 700, color: 'hsl(var(--color-green))' }}>
+                  <Check size={12} /> Saved
+                </span>
+              )}
             </div>
             <button onClick={() => revoke(d.id)} title="Revoke this computer's token (disable it, keep the PC)"
               style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, cursor: 'pointer', color: '#b91c1c', padding: '3px 8px', display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11.5, flexShrink: 0 }}>
