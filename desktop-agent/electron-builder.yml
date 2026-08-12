@@ -36,16 +36,15 @@ asarUnpack:
 win:
   target:
     - msi
-  # icon: build/icon.ico          # add a 256x256 .ico here before shipping
+  icon: build/icon.ico            # cobalt N tile; MSI target fails to link without one
 msi:
   perMachine: true                # Program Files install; standard user can't remove
   oneClick: false
   runAfterFinish: false           # Intune (or the install command) provisions the
                                   # device token AFTER install, then starts the agent;
                                   # launching first would boot it with no token.
-  # upgradeCode: keep STABLE across versions so Intune upgrades in place instead of
-  # installing side-by-side. Generate one GUID once and pin it here before shipping:
-  # upgradeCode: "PUT-A-STABLE-GUID-HERE"
+  # STABLE across versions so Intune upgrades in place instead of side-by-side.
+  upgradeCode: "fd7e1521-5786-4bf1-99eb-ac30a1f91e88"
 
 # macOS — dmg. Requires an Apple Developer ID cert + notarization to run
 # without Gatekeeper blocking. Screen Recording permission is prompted once
