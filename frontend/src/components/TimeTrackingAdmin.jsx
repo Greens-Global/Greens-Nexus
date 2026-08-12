@@ -11,20 +11,24 @@ function relSeen(secs) {
   return `${Math.round(secs / 86400)}d ago`;
 }
 
-// Live status light for an enrolled PC. Capturing => green with a glowing pulse;
-// online-but-off-shift => steady green; offline (off/asleep/killed/uninstalled) => gray.
+// Shared status light. `pulse` gives it a glowing, breathing ring in its own
+// color (via currentColor in the nexusDotPulse keyframe); static otherwise.
+function Dot({ color, pulse, dim, title }) {
+  return (
+    <span title={title} aria-label={title} style={{
+      width: 10, height: 10, borderRadius: '50%', flexShrink: 0,
+      background: color, color, opacity: dim ? 0.5 : 1,
+      animation: pulse ? 'nexusDotPulse 1.5s ease-out infinite' : 'none',
+    }} />
+  );
+}
+
+// Enrolled-PC light: live (online or capturing) => green glow; offline => gray.
 function StatusDot({ online, capturing, secs }) {
   const title = capturing ? 'Capturing now'
     : online ? 'Online (not on shift)'
     : `Offline - last seen ${relSeen(secs)}`;
-  return (
-    <span title={title} aria-label={title} style={{
-      width: 10, height: 10, borderRadius: '50%', flexShrink: 0,
-      background: online ? 'hsl(var(--color-green))' : 'var(--muted)',
-      opacity: online ? 1 : 0.45,
-      animation: capturing ? 'nexusDotPulse 1.5s ease-out infinite' : 'none',
-    }} />
-  );
+  return <Dot color={online ? 'hsl(var(--color-green))' : 'var(--muted)'} pulse={online} dim={!online} title={title} />;
 }
 
 // ── Monitoring policy (admin) ─────────────────────────────────────────────────
@@ -177,11 +181,6 @@ function AgentInstall() {
       </>)}
 
       {/* Enrolled computers */}
-      <style>{`@keyframes nexusDotPulse {
-        0% { box-shadow: 0 0 0 0 hsla(var(--color-green),0.55); }
-        70% { box-shadow: 0 0 0 6px hsla(var(--color-green),0); }
-        100% { box-shadow: 0 0 0 0 hsla(var(--color-green),0); }
-      }`}</style>
       <div style={{ marginTop: 18, borderTop: '1px solid var(--line)', paddingTop: 14 }}>
         <div style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 8 }}>
           Enrolled computers
@@ -237,13 +236,16 @@ function AgentInstall() {
 }
 
 // ── Live coverage (who's clocked in + how they're captured) ───────────────────
+// pulse = the dot glows in motion. Everything live glows; a red "not captured"
+// gap ALSO glows because it means someone is clocked in and NOT being captured -
+// the alert worth the eye. Only exempt / screens-off sit as a steady, quiet dot.
 const COV_META = {
-  agent:       { label: 'Desktop agent', fg: 'hsl(var(--color-green))',  bg: 'hsla(var(--color-green),0.12)' },
-  browser:     { label: 'Chrome share',  fg: 'hsl(var(--color-blue))',   bg: 'hsla(var(--color-blue),0.12)' },
-  on_break:    { label: 'On break',      fg: 'hsl(var(--color-orange))', bg: 'hsla(var(--color-orange),0.12)' },
-  exempt:      { label: 'Exempt',        fg: 'var(--muted)',             bg: 'var(--mist)' },
-  screens_off: { label: 'Screens off',   fg: 'var(--muted)',             bg: 'var(--mist)' },
-  gap:         { label: 'Not captured',  fg: 'hsl(var(--color-red))',    bg: 'hsla(var(--color-red),0.12)' },
+  agent:       { label: 'Desktop agent', fg: 'hsl(var(--color-green))',  bg: 'hsla(var(--color-green),0.12)',  pulse: true },
+  browser:     { label: 'Chrome share',  fg: 'hsl(var(--color-blue))',   bg: 'hsla(var(--color-blue),0.12)',   pulse: true },
+  on_break:    { label: 'On break',      fg: 'hsl(var(--color-orange))', bg: 'hsla(var(--color-orange),0.12)', pulse: true },
+  gap:         { label: 'Not captured',  fg: 'hsl(var(--color-red))',    bg: 'hsla(var(--color-red),0.12)',    pulse: true },
+  exempt:      { label: 'Exempt',        fg: 'var(--muted)',             bg: 'var(--mist)',                    pulse: false },
+  screens_off: { label: 'Screens off',   fg: 'var(--muted)',             bg: 'var(--mist)',                    pulse: false },
 };
 
 function LiveCoverage() {
@@ -291,6 +293,7 @@ function LiveCoverage() {
           : (p.status === 'gap' ? 'no frames yet' : '');
         return (
           <div key={p.email} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--line)' }}>
+            <Dot color={m.fg} pulse={m.pulse} dim={!m.pulse} title={m.label} />
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 12.5, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</div>
               <div style={{ fontSize: 11, color: 'var(--muted)' }}>
@@ -307,10 +310,17 @@ function LiveCoverage() {
   );
 }
 
+const MON_SUBTABS = [
+  { id: 'coverage',  label: 'Coverage' },
+  { id: 'policy',    label: 'Policy' },
+  { id: 'computers', label: 'Computers' },
+];
+
 export default function TimeTrackingAdmin() {
   const [policy, setPolicy] = useState(null);
   const [policyMsg, setPolicyMsg] = useState(null);   // {ok, text}
   const [savingPolicy, setSavingPolicy] = useState(false);
+  const [sub, setSub] = useState('coverage');
   useEffect(() => { api.timeMonitoringPolicy().then(setPolicy).catch(() => setPolicy(null)); }, []);
 
   async function savePolicy() {
@@ -335,8 +345,30 @@ export default function TimeTrackingAdmin() {
 
   return (
     <div style={{ fontFamily: 'Inter,sans-serif', maxWidth: 640, margin: '0 auto' }}>
-      <LiveCoverage />
-      <div style={{ border: '1px solid var(--line)', borderRadius: 14, padding: '16px 18px', background: 'var(--card)', marginTop: 16 }}>
+      <style>{`@keyframes nexusDotPulse {
+        0% { box-shadow: 0 0 0 0 currentColor; }
+        70% { box-shadow: 0 0 0 5px transparent; }
+        100% { box-shadow: 0 0 0 0 transparent; }
+      }`}</style>
+
+      {/* Sub-tabs so the monitoring screen isn't one long scroll. */}
+      <div className="scroll-tabs" style={{ display: 'flex', gap: 4, marginBottom: 16, borderBottom: '1px solid var(--line)' }}>
+        {MON_SUBTABS.map(t => (
+          <button key={t.id} onClick={() => setSub(t.id)}
+            style={{ padding: '8px 14px', border: 'none', background: 'none', cursor: 'pointer',
+              fontFamily: 'Inter, sans-serif', fontSize: 13, fontWeight: sub === t.id ? 700 : 500,
+              color: sub === t.id ? 'hsl(var(--color-green))' : 'var(--muted)',
+              borderBottom: sub === t.id ? '2px solid hsl(var(--color-green))' : '2px solid transparent',
+              marginBottom: -1 }}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {sub === 'coverage' && <LiveCoverage />}
+
+      {sub === 'policy' && (
+      <div style={{ border: '1px solid var(--line)', borderRadius: 14, padding: '16px 18px', background: 'var(--card)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
           <ShieldCheck size={16} style={{ color: 'hsl(var(--color-green))' }} />
           <span style={{ fontSize: 13.5, fontWeight: 800 }}>Monitoring Policy</span>
@@ -384,7 +416,9 @@ export default function TimeTrackingAdmin() {
           </div>
         </>)}
       </div>
-      <AgentInstall />
+      )}
+
+      {sub === 'computers' && <AgentInstall />}
     </div>
   );
 }
