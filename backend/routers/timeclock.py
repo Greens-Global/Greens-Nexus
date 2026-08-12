@@ -2439,6 +2439,14 @@ _DAY_OT_MIN  = 8 * 60    # CA: over 8h/day is overtime
 _DAY_DT_MIN  = 12 * 60   # CA: over 12h/day is double-time
 _OT_MULT = 1.5
 _DT_MULT = 2.0
+# A single stint longer than this is treated as a forgotten clock-out, not real
+# worked time: the pairing closes the open in-punch as a missing-out (unpaid,
+# flagged) instead of bridging it to a far-later out and paying a phantom
+# 25h/71h segment (which also inflated CA double-time). 16h is well beyond any
+# real shift - CA already forces double-time past 12h - so nothing legitimate
+# trips it, while every missed-punch case does. Matches SwipeClock, which shows
+# the same as a missing punch rather than paying it.
+_MAX_SHIFT_MIN = 16 * 60
 
 
 def _ot_split(day_minutes: list, rule: str) -> list:
@@ -2944,6 +2952,17 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
                 brk += (t - open_break).total_seconds() / 60
                 open_break = None
             if open_in is not None:
+                # Forgotten clock-out guard: an in that only meets an out more than
+                # a full max-shift later is a missed punch, not a real stint. Pairing
+                # it would bridge to a far-later stint's out and pay a phantom
+                # 25h/71h segment (with bogus CA double-time). Close the in as a
+                # missing-out (unpaid, flagged) and drop this out as an orphan -
+                # SwipeClock behavior - so the manager fixes it instead of paying it.
+                if (t - open_in).total_seconds() / 60 > _MAX_SHIFT_MIN:
+                    _flush_missing()
+                    open_in = None
+                    sflags, brk = set(), 0.0
+                    continue
                 if p.adjusted_by:
                     sflags.add("adjusted")
                 mins = int(round((t - open_in).total_seconds() / 60 - brk))
