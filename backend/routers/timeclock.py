@@ -2297,6 +2297,10 @@ def insights(email: str = "", start: str = "", end: str = "", tz: int = 0,
     if end:   q = q.filter(AgentActivity.local_date <= end)
     rows = q.all()
     ratings = {r.key: r.rating for r in db.query(AppRating).all()}
+    # Rate each row LIVE against the current classification (domain wins over app),
+    # so tagging an app/site recolors its history immediately - not frozen at capture.
+    def _rate(r):
+        return (r.domain and ratings.get(r.domain)) or ratings.get((r.app or "").lower()) or "neutral"
     apps, sites = {}, {}
     cats = {"productive": 0, "neutral": 0, "unproductive": 0}
     hourly = [[0, 0] for _ in range(24)]   # [activeSec, totalSec] per LOCAL hour
@@ -2309,7 +2313,8 @@ def insights(email: str = "", start: str = "", end: str = "", tz: int = 0,
         apps[r.app or "Unknown"] = apps.get(r.app or "Unknown", 0) + sec
         if r.domain:
             sites[r.domain] = sites.get(r.domain, 0) + sec
-        cat = r.category if r.category in cats else "neutral"
+        cat = _rate(r)
+        if cat not in cats: cat = "neutral"
         cats[cat] += sec
         t = _parse_iso(r.at)
         if t is not None:
@@ -2337,7 +2342,7 @@ def insights(email: str = "", start: str = "", end: str = "", tz: int = 0,
         "byMember": by_member if not em else [],
         "log": [{"at": r.at, "name": names.get(r.employee_email, r.employee_email), "app": r.app,
                  "title": r.title, "domain": r.domain, "seconds": r.seconds, "activePct": r.active_pct,
-                 "category": r.category} for r in sorted(rows, key=lambda r: r.at, reverse=True)[:80]],
+                 "category": _rate(r)} for r in sorted(rows, key=lambda r: r.at, reverse=True)[:80]],
     }
 
 
