@@ -23,7 +23,7 @@ if (Get-Service -Name 'Plugin' -ErrorAction SilentlyContinue) {
     sc.exe stop Plugin | Out-Null
     Start-Sleep -Seconds 2
     sc.exe delete Plugin | Out-Null
-    Write-Host "Removed the NexusMonitorService."
+    Write-Host "Removed the Plugin service."
   } else {
     Write-Host "A machine-wide service is installed - re-run this AS ADMINISTRATOR to remove it."
   }
