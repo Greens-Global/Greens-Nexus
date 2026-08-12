@@ -9,12 +9,13 @@ import ImageLightbox from './ImageLightbox';
 
 const localTime = (iso) => iso ? new Date(iso + 'Z').toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
 
-export default function ScreenshotsAdmin({ onClose, embedded = false, initialEmail = '', initialDate = '' }) {
+export default function ScreenshotsAdmin({ onClose, onBack, embedded = false, initialEmail = '', initialDate = '' }) {
   const [date, setDate] = useState(() => initialDate || new Date().toISOString().slice(0, 10));
   const [people, setPeople] = useState(null);
   const [who, setWho] = useState(null);       // {email, name}
   const [shots, setShots] = useState(null);
   const [viewIdx, setViewIdx] = useState(null);   // open lightbox at this shot index
+  const [deepLinked, setDeepLinked] = useState(false);   // arrived straight to a person (from Coverage)
 
   const loadPeople = useCallback(() => {
     setPeople(null); setWho(null); setShots(null); setViewIdx(null);
@@ -34,7 +35,14 @@ export default function ScreenshotsAdmin({ onClose, embedded = false, initialEma
     if (!initialEmail || who || people === null) return;
     const p = (people || []).find(x => (x.email || '').toLowerCase() === initialEmail.toLowerCase());
     setWho(p || { email: initialEmail, name: initialEmail });
+    setDeepLinked(true);
   }, [initialEmail, people, who]);
+
+  // Back: from a Coverage deep-link, return to Coverage; otherwise to the people list.
+  const goBack = () => {
+    if (deepLinked && onBack) { setDeepLinked(false); onBack(); }
+    else setWho(null);
+  };
 
   const body = (
       <div style={embedded
@@ -42,7 +50,7 @@ export default function ScreenshotsAdmin({ onClose, embedded = false, initialEma
         : { background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 900, maxHeight: 'min(92dvh, 760px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
         <div style={{ padding: embedded ? '0 0 12px' : '14px 20px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
           {who && (
-            <button onClick={() => setWho(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 2 }}>
+            <button onClick={goBack} title={deepLinked ? 'Back to Coverage' : 'Back'} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 2 }}>
               <ChevronLeft size={17} />
             </button>
           )}

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { ShieldCheck, Loader2, Check, MonitorSmartphone, Copy, Ban, TriangleAlert, Trash2, Activity, ChevronDown } from 'lucide-react';
 import { api } from '../api';
 import { Avatar } from '../tasks/components';
+import ScreenshotsAdmin from './ScreenshotsAdmin';
 
 // Human "last seen" from a seconds delta.
 function relSeen(secs) {
@@ -261,7 +262,7 @@ const COV_META = {
   screens_off: { label: 'Screens off',   fg: 'var(--muted)',             bg: 'var(--mist)',                    pulse: false },
 };
 
-function LiveCoverage() {
+function LiveCoverage({ onOpenPerson }) {
   const [data, setData] = useState(null);   // {people,...} | null loading | false error
   const load = useCallback(() => {
     api.timeMonitoringCoverage().then(setData).catch(() => setData(false));
@@ -310,7 +311,7 @@ function LiveCoverage() {
             <Avatar email={p.email} name={p.name} size={26} card={false} />
             <div style={{ flex: 1, minWidth: 0 }}>
               <button
-                onClick={() => window.dispatchEvent(new CustomEvent('nexus:open-screenshots', { detail: { email: p.email, date: new Date().toISOString().slice(0, 10) } }))}
+                onClick={() => onOpenPerson?.(p.email)}
                 title="View today's screenshots"
                 style={{ display: 'block', maxWidth: '100%', background: 'none', border: 'none', padding: 0, cursor: 'pointer', textAlign: 'left',
                   fontFamily: 'Inter, sans-serif', fontSize: 12.5, fontWeight: 600, color: 'var(--ink)', textDecoration: 'underline', textDecorationColor: 'var(--line)', textUnderlineOffset: 2,
@@ -332,16 +333,19 @@ function LiveCoverage() {
 }
 
 const MON_SUBTABS = [
-  { id: 'coverage',  label: 'Coverage' },
-  { id: 'policy',    label: 'Policy' },
-  { id: 'computers', label: 'Computers' },
+  { id: 'coverage',    label: 'Coverage' },
+  { id: 'policy',      label: 'Policy' },
+  { id: 'computers',   label: 'Computers' },
+  { id: 'screenshots', label: 'Screenshots' },
 ];
 
-export default function TimeTrackingAdmin() {
+export default function TimeTrackingAdmin({ initialSub = 'coverage' }) {
   const [policy, setPolicy] = useState(null);
   const [policyMsg, setPolicyMsg] = useState(null);   // {ok, text}
   const [savingPolicy, setSavingPolicy] = useState(false);
-  const [sub, setSub] = useState('coverage');
+  const [sub, setSub] = useState(initialSub);
+  const [shotReq, setShotReq] = useState({ email: '', date: '' });   // Coverage -> Screenshots deep-link
+  useEffect(() => { if (initialSub) setSub(initialSub); }, [initialSub]);
   useEffect(() => { api.timeMonitoringPolicy().then(setPolicy).catch(() => setPolicy(null)); }, []);
 
   async function savePolicy() {
@@ -386,7 +390,11 @@ export default function TimeTrackingAdmin() {
         ))}
       </div>
 
-      {sub === 'coverage' && <LiveCoverage />}
+      {sub === 'coverage' && <LiveCoverage onOpenPerson={(email) => { setShotReq({ email, date: new Date().toISOString().slice(0, 10) }); setSub('screenshots'); }} />}
+
+      {sub === 'screenshots' && (
+        <ScreenshotsAdmin embedded initialEmail={shotReq.email} initialDate={shotReq.date} onBack={() => setSub('coverage')} />
+      )}
 
       {sub === 'policy' && (
       <div style={{ border: '1px solid var(--line)', borderRadius: 14, padding: '16px 18px', background: 'var(--card)' }}>
