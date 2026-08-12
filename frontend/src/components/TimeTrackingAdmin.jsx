@@ -3,6 +3,7 @@ import { ShieldCheck, Loader2, Check, MonitorSmartphone, Copy, Ban, TriangleAler
 import { api } from '../api';
 import { Avatar } from '../tasks/components';
 import ScreenshotsAdmin from './ScreenshotsAdmin';
+import TimeInsights from './TimeInsights';
 
 // Human "last seen" from a seconds delta.
 function relSeen(secs) {
@@ -334,10 +335,33 @@ function LiveCoverage({ onOpenPerson }) {
 
 const MON_SUBTABS = [
   { id: 'coverage',    label: 'Coverage' },
+  { id: 'activity',    label: 'Activity' },
   { id: 'policy',      label: 'Policy' },
   { id: 'computers',   label: 'Computers' },
   { id: 'screenshots', label: 'Screenshots' },
 ];
+
+// Activity/Insights (apps, sites, active vs idle, productivity) for a chosen day.
+function ActivityInsights() {
+  const [day, setDay] = useState(() => new Date().toISOString().slice(0, 10));
+  const [people, setPeople] = useState([]);
+  useEffect(() => {
+    api.getPeopleDirectory()
+      .then(rows => setPeople((rows || []).map(u => ({ email: (u.email || '').toLowerCase(), name: u.name || u.display_name || u.email })).filter(p => p.email)))
+      .catch(() => setPeople([]));
+  }, []);
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+        <Activity size={16} style={{ color: 'hsl(var(--color-purple))' }} />
+        <span style={{ fontSize: 13.5, fontWeight: 800 }}>Activity &amp; Insights</span>
+        <div style={{ flex: 1 }} />
+        <input className="form-input" type="date" value={day} onChange={e => setDay(e.target.value)} style={{ fontSize: 12, width: 150 }} />
+      </div>
+      <TimeInsights start={day} end={day} people={people} />
+    </div>
+  );
+}
 
 export default function TimeTrackingAdmin({ initialSub = 'coverage' }) {
   const [policy, setPolicy] = useState(null);
@@ -396,6 +420,8 @@ export default function TimeTrackingAdmin({ initialSub = 'coverage' }) {
       </div>
 
       {sub === 'coverage' && <LiveCoverage onOpenPerson={(email) => { setShotReq({ email, date: new Date().toISOString().slice(0, 10) }); setSub('screenshots'); }} />}
+
+      {sub === 'activity' && <ActivityInsights />}
 
       {sub === 'screenshots' && (
         <ScreenshotsAdmin embedded initialEmail={shotReq.email} initialDate={shotReq.date} onBack={() => { setShotReq({ email: '', date: '' }); setSub('coverage'); }} />
