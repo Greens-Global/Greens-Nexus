@@ -1260,7 +1260,9 @@ async def upload_photo(eid: str, file: UploadFile = File(...),
 # (#EXT# accounts) and every other vanity/partner domain (e.g. Z#Incentives)
 # stay out of HR entirely. (Neil, Jun 27)
 # aaravconstruction.com added Jul 16 (Visesh) - their staff are part of Nexus.
-_COMPANY_DOMAINS = ("greensglobal.com", "greensstorage.com", "aaravconstruction.com")
+# scmedicenter.com added Aug 12 (Visesh) - SC Medi Center staff are part of Nexus.
+_COMPANY_DOMAINS = ("greensglobal.com", "greensstorage.com", "aaravconstruction.com",
+                    "scmedicenter.com")
 
 
 def _primary_addr(g: dict) -> str:
