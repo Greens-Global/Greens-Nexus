@@ -27,9 +27,10 @@
 [CmdletBinding()]
 param(
   [Parameter(Mandatory = $true)] [string] $Source,
-  [string] $Token   = '',
-  [string] $ApiBase = '',
-  [string] $WebBase = '',
+  [string] $Token     = '',
+  [string] $EnrollKey = '',
+  [string] $ApiBase   = '',
+  [string] $WebBase   = '',
   [switch] $Force
 )
 
@@ -116,9 +117,31 @@ try {
     Info "device token written to $tokenFile"
   } elseif (Test-Path $tokenFile) {
     Info "keeping existing device token at $tokenFile"
+  } elseif ($EnrollKey) {
+    # This PC has no Nexus login, so trade the shared enrollment key for this
+    # machine's own device token (once, here at install time). All profiles then
+    # read this one machine-wide token = one device row per PC.
+    $api = $ApiBase.TrimEnd('/')
+    if (-not $api) { $api = 'https://greens-nexus-api-dev-a6fad4brawevg8de.westus2-01.azurewebsites.net' }
+    try {
+      $mac = ((Get-CimInstance Win32_NetworkAdapter -Filter 'PhysicalAdapter=1' -ErrorAction SilentlyContinue |
+               Where-Object { $_.MACAddress } | Select-Object -First 1).MACAddress)
+    } catch { $mac = '' }
+    $payload = @{ enroll_key = $EnrollKey; hostname = $env:COMPUTERNAME; mac = $mac;
+                  platform = 'windows'; device_user = $env:USERNAME } | ConvertTo-Json -Compress
+    Info "enrolling this PC with Nexus"
+    try {
+      $resp = Invoke-RestMethod -Method Post -Uri "$api/timeclock/agent/self-enroll" `
+                -ContentType 'application/json' -Body $payload -TimeoutSec 30
+      Set-Content -Path $tokenFile -Value ([string]$resp.token) -Encoding Ascii -NoNewline
+      Info "enrolled (device $($resp.deviceId)); token written to $tokenFile"
+    } catch {
+      Info "WARNING: self-enroll failed: $($_.Exception.Message)"
+      Info "The agent will run but stay unauthenticated until a token lands at $tokenFile"
+    }
   } else {
-    Info "WARNING: no -Token given and none on disk. The agent will run but stay"
-    Info "unauthenticated until a token lands at $tokenFile"
+    Info "WARNING: no -Token/-EnrollKey given and none on disk. The agent will run"
+    Info "but stay unauthenticated until a token lands at $tokenFile"
   }
 
   $agentExe = Join-Path $installDir $EXE

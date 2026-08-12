@@ -1811,53 +1811,86 @@ _AGENT_BUNDLE_URL  = os.getenv("NEXUS_AGENT_BUNDLE_URL", "")
 _AGENT_API_BASE    = os.getenv("NEXUS_AGENT_API_BASE",
     "https://greens-nexus-api-dev-a6fad4brawevg8de.westus2-01.azurewebsites.net")
 _AGENT_WEB_BASE    = os.getenv("NEXUS_AGENT_WEB_BASE", "https://dev.nexus.greensglobal.com")
+# Shared enrollment secret. One value the install one-liner carries on EVERY PC;
+# each machine trades it for its own device token at install time (self-enroll).
+# Rotate/revoke by changing this env var. If unset, self-enroll is disabled.
+_AGENT_ENROLL_KEY  = os.getenv("NEXUS_AGENT_ENROLL_KEY", "")
 
 
-class InstallCmdIn(BaseModel):
-    email: str
-    label: Optional[str] = ""
-
-
-@router.post("/agent/install-command")
-def agent_install_command(body: InstallCmdIn, user: dict = Depends(require_administrator),
-                          db: Session = Depends(get_db)):
-    """Mint a per-PC device token AND return a ready-to-paste Windows one-liner
-    that downloads the installer + agent bundle and installs the DISCLOSED agent
-    (visible tray icon; nothing covert). Run it in an ELEVATED prompt for the
-    employee-proof service that covers every profile on the PC; a normal prompt
-    does a removable per-user install. One command == one enrolled PC; who gets
+@router.get("/agent/install-command")
+def agent_install_command(user: dict = Depends(require_administrator)):
+    """Return the ONE reusable Windows one-liner used on every PC (like Flowace's
+    silent command). It downloads the installer + agent bundle and installs the
+    DISCLOSED agent (visible tray icon; nothing covert), carrying the shared
+    enrollment key - each machine self-enrolls its own device identity on install.
+    Run it in an ELEVATED prompt for the employee-proof service that covers every
+    profile on the PC; a normal prompt does a removable per-user install. Who gets
     attributed is decided by whoever clocks in on the website (shared-PC pairing)."""
-    email = body.email.strip().lower()
-    if "@" not in email:
-        raise HTTPException(400, "A valid employee email is required")
-    raw = secrets.token_urlsafe(32)
-    now = _now_iso()
-    dev = AgentDevice(id=str(uuid.uuid4()), employee_email=email, token_hash=_hash_token(raw),
-                      label=(body.label or "").strip()[:120], created_by=user["email"], created_at=now)
-    db.add(dev)
-    db.commit()
-
-    configured = bool(_AGENT_INSTALL_URL and _AGENT_BUNDLE_URL)
-    install_url = _AGENT_INSTALL_URL or "<host-install.ps1>"
-    bundle_url  = _AGENT_BUNDLE_URL or "<host-agent-bundle.zip>"
-    # Fetch install.ps1 to a temp file, run it with the token + targets baked in,
-    # then clean up. Single-quoted PS literals; the token is url-safe base64 so it
-    # carries no quote characters to escape.
+    configured = bool(_AGENT_INSTALL_URL and _AGENT_BUNDLE_URL and _AGENT_ENROLL_KEY)
+    install_url = _AGENT_INSTALL_URL or "<set NEXUS_AGENT_INSTALL_URL>"
+    bundle_url  = _AGENT_BUNDLE_URL or "<set NEXUS_AGENT_BUNDLE_URL>"
+    enroll_key  = _AGENT_ENROLL_KEY or "<set NEXUS_AGENT_ENROLL_KEY>"
+    # Fetch install.ps1 to a temp file, run it with the shared key + targets, clean
+    # up. Single-quoted PS literals; the key/urls carry no quote chars to escape.
     inner = (
         "$p=Join-Path $env:TEMP 'nexus-install.ps1'; "
         f"Invoke-WebRequest -UseBasicParsing '{install_url}' -OutFile $p; "
-        f"& $p -Source '{bundle_url}' -Token '{raw}' "
+        f"& $p -Source '{bundle_url}' -EnrollKey '{enroll_key}' "
         f"-ApiBase '{_AGENT_API_BASE}' -WebBase '{_AGENT_WEB_BASE}'; "
         "Remove-Item $p -Force"
     )
     command = f'powershell -NoProfile -ExecutionPolicy Bypass -Command "{inner}"'
     return {
-        "deviceId": dev.id, "email": email, "configured": configured,
-        "command": command, "token": raw,
-        "note": ("Run in an elevated (admin) Command Prompt / PowerShell to install the "
-                 "employee-proof service that covers all profiles; a normal prompt installs "
-                 "per-user for the current profile only."),
+        "configured": configured, "command": command,
+        "note": ("Same command on every PC. Run in an elevated (admin) Command Prompt / "
+                 "PowerShell to install the employee-proof service that covers all profiles; "
+                 "a normal prompt installs per-user for the current profile only."),
     }
+
+
+class SelfEnrollIn(BaseModel):
+    enroll_key: str
+    hostname: Optional[str] = ""
+    mac: Optional[str] = ""
+    platform: Optional[str] = ""
+    device_user: Optional[str] = ""
+
+
+@router.post("/agent/self-enroll")
+def agent_self_enroll(body: SelfEnrollIn, db: Session = Depends(get_db)):
+    """Trade the shared enrollment key for THIS machine's own device token. Called
+    by install.ps1 once per PC at install time (no Nexus login on the box). Gated
+    only by the shared key - by design, since the target has no user identity;
+    identity is bound later at website clock-in. Idempotent per MAC so a reinstall
+    rotates the token onto the existing PC row instead of piling up duplicates."""
+    if not _AGENT_ENROLL_KEY:
+        raise HTTPException(503, "Self-enrollment is not enabled")
+    if not body.enroll_key or not secrets.compare_digest(body.enroll_key.strip(), _AGENT_ENROLL_KEY):
+        raise HTTPException(403, "Invalid enrollment key")
+    raw = secrets.token_urlsafe(32)
+    now = _now_iso()
+    mac = (body.mac or "").strip().lower()
+    dev = None
+    if mac:
+        dev = (db.query(AgentDevice)
+               .filter(AgentDevice.mac == mac, AgentDevice.revoked == 0)
+               .order_by(AgentDevice.created_at.desc()).first())
+    if dev:
+        dev.token_hash = _hash_token(raw)     # reinstall on a known PC -> rotate token
+        dev.device_name = (body.hostname or dev.device_name or "")[:120]
+        dev.device_user = (body.device_user or dev.device_user or "")[:120]
+        dev.platform = (body.platform or dev.platform or "")[:60]
+        dev.last_seen_at = now
+    else:
+        dev = AgentDevice(id=str(uuid.uuid4()), employee_email="",   # no owner: shared PC
+                          token_hash=_hash_token(raw), label="Self-enrolled PC",
+                          device_name=(body.hostname or "")[:120],
+                          device_user=(body.device_user or "")[:120],
+                          mac=mac[:120], platform=(body.platform or "")[:60],
+                          created_by="self-enroll", created_at=now, last_seen_at=now)
+        db.add(dev)
+    db.commit()
+    return {"deviceId": dev.id, "token": raw}
 
 
 @router.get("/agent/devices")
