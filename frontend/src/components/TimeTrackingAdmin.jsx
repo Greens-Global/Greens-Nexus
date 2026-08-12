@@ -101,8 +101,10 @@ function AgentInstall() {
           </button>
         </div>
         <p style={{ margin: '9px 0 0', fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.5 }}>
-          Run it in an <b>elevated</b> (Administrator) PowerShell or Command Prompt to install the employee-proof
+          Run it in an <b>elevated</b> (Administrator) <b>Command Prompt</b> to install the employee-proof
           service that covers every profile on the PC. A normal prompt does a removable per-user install.
+          (Pasting into a live PowerShell session mangles it - use Command Prompt, or download install.ps1 and
+          run it directly.)
         </p>
       </>)}
 

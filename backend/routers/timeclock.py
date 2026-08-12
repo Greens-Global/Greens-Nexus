@@ -1842,9 +1842,11 @@ def agent_install_command(user: dict = Depends(require_administrator)):
     command = f'powershell -NoProfile -ExecutionPolicy Bypass -Command "{inner}"'
     return {
         "configured": configured, "command": command,
-        "note": ("Same command on every PC. Run in an elevated (admin) Command Prompt / "
-                 "PowerShell to install the employee-proof service that covers all profiles; "
-                 "a normal prompt installs per-user for the current profile only."),
+        "note": ("Same command on every PC. Run it in an elevated (admin) Command Prompt "
+                 "(cmd) - elevated installs the employee-proof service covering every "
+                 "profile; a normal prompt installs per-user for the current profile only. "
+                 "(In a live PowerShell session, download install.ps1 and run it directly "
+                 "instead - the wrapped form is written for cmd.)"),
     }
 
 
