@@ -320,6 +320,9 @@ def my_status(tz_offset_min: int = 0, user: dict = Depends(get_current_user), db
             "consentRequired": False,
             "textVersion": _MONITORING_TEXT_VERSION,
             "text": _MONITORING_NOTICE,
+            # A live desktop agent is covering this PC, so the browser can skip its
+            # own screen share (no getDisplayMedia picker) - the agent captures.
+            "agentActive": _agent_active_for(db, email),
         })(_is_monitoring_exempt(db, email)),
     }
 
@@ -1199,6 +1202,25 @@ def _is_monitoring_exempt(db: Session, email: str) -> bool:
         return False
     return db.query(NexusGroup.id).filter(
         NexusGroup.id.in_(gids), NexusGroup.monitoring_exempt == 1).first() is not None
+
+
+_AGENT_FRESH_SEC = 180   # heartbeat is 60s; tolerate ~2 missed beats
+
+
+def _agent_active_for(db: Session, email: str) -> bool:
+    """True when a live desktop agent covers this person: a non-revoked device
+    assigned to them (owner) or currently bound to them (active_email) that has
+    checked in within the last few minutes. The browser reads this to skip its own
+    screen share (the agent captures instead) - detection is server-side because
+    Chrome's private-network policy blocks any browser->127.0.0.1 probe."""
+    if not email:
+        return False
+    cutoff = (datetime.now(timezone.utc) - timedelta(seconds=_AGENT_FRESH_SEC)).strftime("%Y-%m-%dT%H:%M:%S")
+    q = (db.query(AgentDevice.id)
+         .filter(AgentDevice.revoked == 0,
+                 (AgentDevice.employee_email == email) | (AgentDevice.active_email == email),
+                 AgentDevice.last_seen_at >= cutoff))
+    return db.query(q.exists()).scalar()
 
 
 def _has_monitoring_consent(db: Session, email: str, local_date: str) -> bool:
