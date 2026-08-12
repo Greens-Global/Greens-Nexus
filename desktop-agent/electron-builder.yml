@@ -10,6 +10,17 @@ files:
   - src/**/*
   - package.json
 
+# Ship the supervisor service (built exe) + its admin install/uninstall scripts
+# alongside the agent, so IT installs the service from the same package. Build the
+# service first: `dotnet build service -c Release`, copy the exe into `service/`,
+# then `npm run dist:win`. Lands in the install dir under resources\service\.
+extraResources:
+  - from: service
+    to: service
+    filter:
+      - "NexusMonitorService.exe"
+      - "*.ps1"
+
 # active-win ships native helper binaries that must live outside the asar
 # archive to be executable at runtime.
 asarUnpack:

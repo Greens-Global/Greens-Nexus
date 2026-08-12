@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Nexus Monitor Service - supervisor that launches the agent into the user
+       session. Targets .NET Framework 4.8, which ships in-box on Windows 10/11,
+       so no runtime needs installing on employee PCs.
+       Build:  dotnet build -c Release   ->  bin\Release\net48\NexusMonitorService.exe -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <AssemblyName>NexusMonitorService</AssemblyName>
+    <RootNamespace>GreensNexus</RootNamespace>
+    <LangVersion>latest</LangVersion>
+    <Company>Greens Global</Company>
+    <Product>Nexus Monitor Service</Product>
+    <UseWindowsForms>false</UseWindowsForms>
+    <Nullable>disable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="System.ServiceProcess" />
+  </ItemGroup>
+
+</Project>

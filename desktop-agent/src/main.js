@@ -44,12 +44,25 @@ function log(msg) {
   } catch { /* logging is best-effort */ }
 }
 
+// ── Service-managed mode ──────────────────────────────────────────────────────
+// On company PCs the Nexus Monitor Service (a privileged Windows service standard
+// users can't stop) launches this agent into the interactive user session and
+// respawns it if it exits - that's what enforces "only IT can stop monitoring",
+// through normal Windows service permissions, with nothing hidden. In that mode
+// the agent hands lifecycle to the service: it does NOT self-register at login
+// (the service owns startup) and on a crash it just exits so the SERVICE restarts
+// it. Run standalone (dev) without the flag and it self-manages as before.
+const SERVICE_MANAGED = process.argv.includes('--service-managed')
+  || process.env.NEXUS_SERVICE_MANAGED === '1';
+
 // ── Crash auto-restart ────────────────────────────────────────────────────────
 // A hard crash relaunches the agent so a live shift keeps reporting - but a fast
 // crash LOOP backs off (relaunch at most once per minute) so a persistent fault
 // surfaces honestly as "agent offline" on the dashboard instead of thrashing.
+// Under the service, we exit instead and let the service's recovery respawn us.
 const RELAUNCH_STAMP = path.join(LOG_DIR, 'last-relaunch');
 function relaunchAfterCrash() {
+  if (SERVICE_MANAGED) { app.exit(1); return; }   // the service respawns us
   try {
     const prev = Number(fs.readFileSync(RELAUNCH_STAMP, 'utf8')) || 0;
     if (Date.now() - prev < 60_000) { app.exit(1); return; }
@@ -129,6 +142,11 @@ function setTray(capturing, detail) {
   const title = capturing ? 'Nexus Monitoring Active' : 'Nexus Agent - not capturing (off shift)';
   tray.setImage(trayImage(capturing ? GREEN : GRAY));
   tray.setToolTip(detail ? `${title}\n${detail}` : title);
+  // INTENTIONALLY no Exit / Quit / Pause / Stop item: an employee cannot stop
+  // monitoring from here. Only read-only/benign entries. Closing this tray does
+  // NOT stop capture (capture runs in the heartbeat loop, and the service respawns
+  // the process anyway). Do not add a quit/stop action - stopping is an IT-admin
+  // action via the Windows service (services.msc / sc stop), which needs admin.
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: title, enabled: false },
     ...(detail ? [{ label: detail, enabled: false }] : []),
@@ -269,8 +287,11 @@ if (!app.requestSingleInstanceLock()) { app.quit(); }
 
 app.whenReady().then(() => {
   if (process.platform === 'darwin' && app.dock) app.dock.hide();   // no dock icon
-  log(`Greens Nexus Agent starting — host ${os.hostname()}, user ${os.userInfo().username}`);
-  registerLoginStart();
+  log(`Greens Nexus Agent starting — host ${os.hostname()}, user ${os.userInfo().username}`
+    + (SERVICE_MANAGED ? ' [service-managed]' : ''));
+  // Under the service, the SERVICE owns startup - don't also add a login item
+  // (avoids a second, unmanaged copy the employee could later toggle off).
+  if (!SERVICE_MANAGED) registerLoginStart();
 
   try { tray = new Tray(trayImage(GRAY)); setTray(false, 'Starting…'); }
   catch (e) { log(`tray unavailable: ${e.message || e}`); }   // headless fallback

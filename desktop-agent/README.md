@@ -39,8 +39,9 @@ company-owned devices. It is **not covert**:
   **green + "Nexus Monitoring Active"** while capturing, gray/"off shift"
   otherwise. Its menu opens the Time Clock and the local log and states it is a
   company-managed application. This is the disclosed, always-visible signal.
-- **Auto-start at login**: registers itself in **Startup**
-  (`app.setLoginItemSettings`) so it returns on every login.
+- **Auto-start**: on company PCs the **Windows Service** (see below) launches and
+  supervises it. Run standalone/dev without `--service-managed` and it instead
+  registers itself in **Startup** (`app.setLoginItemSettings`).
 - **Crash auto-restart**: an unhandled fault relaunches the agent so a live shift
   keeps reporting, with a **1-per-minute back-off** so a persistent fault surfaces
   honestly as "agent offline" on the dashboard instead of thrashing.
@@ -50,16 +51,57 @@ company-owned devices. It is **not covert**:
   clock state, so a queued frame lands only if flushed while the employee is still
   clocked in — the queue covers mid-shift blips, not outages spanning clock-out.
 
-### "Can it be a Windows service?"
+## Windows Service model (company PCs, no MDM) — `service/`
 
-A classic **session-0 Windows service cannot see the user's desktop** — Windows
-session isolation means it can neither read the foreground window (`active-win`)
-nor capture the screen (`desktopCapturer`). So the *capturing* part must run in
-the **interactive user session**, which is what this login-start process does. The
-built-in crash auto-restart covers in-session faults; for belt-and-suspenders
-"always running", pair it with a session-0 watchdog (Windows service or scheduled
-task) that re-launches the user-session agent — the watchdog supervises, the
-user-session process captures.
+For company-owned PCs that are **not** Intune/MDM-managed, where you need
+monitoring an employee cannot switch off, use the **Nexus Monitor Service**
+(`service/NexusMonitorService.cs`). This is the disclosed, non-malware way to get
+"only IT can stop it", using nothing but normal Windows service permissions.
+
+**Why a service *and* a session process.** A session-0 Windows service cannot see
+a user's desktop — session isolation means it can neither read the foreground
+window (`active-win`) nor capture the screen (`desktopCapturer`). So the service
+**launches the agent into the interactive user session** (`WTSQueryUserToken` +
+`CreateProcessAsUser` onto `winsta0\default`) and **respawns it if it exits**. The
+service is the protected, always-present part; the agent is what captures.
+
+**What enforces "only IT can stop it" (normal Windows permissions):**
+
+- The service runs as **LocalSystem, automatic start**. Registering, stopping,
+  reconfiguring, or deleting a service **requires administrator rights** — a
+  **Standard User account** simply cannot (`sc stop` / `services.msc` return access
+  denied). Employees run as Standard Users; IT holds the admin account.
+- The **tray has no Exit / Quit / Pause / Stop** item, and closing the tray does
+  **not** stop capture (capture runs in the heartbeat loop). If an employee ends
+  the agent process in Task Manager, the service **relaunches it** within ~12s and
+  the Nexus **heartbeat** flags the gap as offline in the meantime.
+- **Recovery**: `install.ps1` sets standard SCM restart-on-failure, so the service
+  itself comes back after a crash.
+
+**What it deliberately does NOT do** (so it stays legitimate, not stalkerware): no
+process hiding, no Task Manager blocking, no antivirus evasion, no boot/WMI/
+mutual-respawn persistence tricks. Both the service and the agent are **visible and
+named** in Task Manager and services.msc, and an **IT admin can always stop or
+uninstall** them the normal way (`uninstall.ps1`). It only holds on **company-owned
+devices** where employees lack admin — not personal machines.
+
+**Build + install (IT admin, once per image):**
+
+```powershell
+# 1. Build the service (needs the .NET SDK; net48 runtime is already on Win10/11)
+dotnet build service -c Release
+copy service\bin\Release\net48\NexusMonitorService.exe service\
+
+# 2. Build + install the agent MSI (per-machine, Program Files) as before
+npm run dist:win                       # ships service\ into resources\service\
+
+# 3. Register the service (elevated)
+powershell -ExecutionPolicy Bypass -File "<install-dir>\resources\service\install.ps1"
+```
+
+Uninstall (IT admin): `resources\service\uninstall.ps1`, then remove the agent from
+Apps &amp; features. `NOTE:` the service is native Win32 session-launch code — build
+and test it on a real Windows PC before rolling out.
 
 ## How it works
 
