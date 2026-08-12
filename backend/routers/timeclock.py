@@ -1992,6 +1992,15 @@ def _punch_state(db: Session, email: str):
     return bool(last and last.kind != "out"), bool(last and last.kind == "break_start")
 
 
+def _agent_subject(dev) -> str:
+    """The employee this agent's capture belongs to. Prefer the live clock-in
+    binding (active_email, shared-PC pairing). But that pairing runs a browser->
+    127.0.0.1 call Chrome blocks on unmanaged devices, so fall back to the PC's
+    ASSIGNED OWNER (employee_email). One-person-one-PC works off the owner alone;
+    a shared PC still uses the live binding whenever pairing succeeded."""
+    return (dev.active_email or "").strip() or (dev.employee_email or "").strip()
+
+
 class AgentCheckinIn(BaseModel):
     device_name: Optional[str] = ""
     device_user: Optional[str] = ""
@@ -2011,10 +2020,9 @@ def agent_checkin(body: AgentCheckinIn, dev: AgentDevice = Depends(get_agent_dev
     if body.mac:         dev.mac = body.mac[:40]
     if body.platform:    dev.platform = body.platform[:20]
     db.commit()
-    # Shared-PC: capture follows the CURRENTLY bound employee (set at their
-    # website clock-in via the pairing), never the enroll-time employee. No active
-    # binding => nobody is clocked in on this PC => nothing to capture.
-    active = (dev.active_email or "").strip()
+    # Capture follows the bound employee (pairing) or, when pairing can't run,
+    # the PC's assigned owner (see _agent_subject). No subject => nobody to capture.
+    active = _agent_subject(dev)
     clocked, on_break = _punch_state(db, active) if active else (False, False)
     pol = _get_policy(db)
     live = bool(active and clocked and not on_break and pol.enabled)
@@ -2036,7 +2044,7 @@ def agent_screenshot(request: Request, file: UploadFile = File(...),
                      dev: AgentDevice = Depends(get_agent_device), db: Session = Depends(get_db)):
     """Screenshot from the desktop agent - the PC is known from the token, and the
     EMPLOYEE from the device's active clock-in binding (shared-PC safe), re-gated."""
-    email = (dev.active_email or "").strip()
+    email = _agent_subject(dev)
     if not email:
         raise HTTPException(409, "No one is clocked in on this PC - capture paused.")
     clocked, on_break = _punch_state(db, email)
@@ -2068,7 +2076,7 @@ def agent_activity(body: ActivityIn, dev: AgentDevice = Depends(get_agent_device
                    db: Session = Depends(get_db)):
     """App / website usage samples (seconds per foreground app + active domain),
     tagged with the admin productivity rating. Kept only during a live shift."""
-    email = (dev.active_email or "").strip()   # the employee currently bound to this PC
+    email = _agent_subject(dev)   # bound employee, or the assigned owner if unpaired
     if not email:
         return {"ok": True, "skipped": "no active session on this PC"}
     clocked, on_break = _punch_state(db, email)
