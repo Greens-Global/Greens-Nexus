@@ -2192,7 +2192,10 @@ def agent_checkin(body: AgentCheckinIn, dev: AgentDevice = Depends(get_agent_dev
     active = _agent_subject(dev)
     clocked, on_break = _punch_state(db, active) if active else (False, False)
     pol = _get_policy(db)
-    live = bool(active and clocked and not on_break and pol.enabled)
+    # Monitoring-exempt people (leadership) are never captured - by the AGENT too,
+    # not just the browser path. Same exemption, one source of truth.
+    exempt = _is_monitoring_exempt(db, active) if active else False
+    live = bool(active and clocked and not on_break and pol.enabled and not exempt)
     return {"email": active, "sessionId": dev.active_session_id or "",
             "clockedIn": clocked, "onBreak": on_break, "capture": live,
             # Full policy object so the agent respects the real toggles + cadence
@@ -2214,6 +2217,8 @@ def agent_screenshot(request: Request, file: UploadFile = File(...),
     email = _agent_subject(dev)
     if not email:
         raise HTTPException(409, "No one is clocked in on this PC - capture paused.")
+    if _is_monitoring_exempt(db, email):
+        raise HTTPException(409, "This person is exempt from monitoring - capture off.")
     clocked, on_break = _punch_state(db, email)
     if not clocked or on_break:
         raise HTTPException(409, "Not on a live shift - capture paused.")
@@ -2246,6 +2251,8 @@ def agent_activity(body: ActivityIn, dev: AgentDevice = Depends(get_agent_device
     email = _agent_subject(dev)   # bound employee, or the assigned owner if unpaired
     if not email:
         return {"ok": True, "skipped": "no active session on this PC"}
+    if _is_monitoring_exempt(db, email):
+        return {"ok": True, "skipped": "monitoring-exempt"}
     clocked, on_break = _punch_state(db, email)
     if not clocked or on_break:
         return {"ok": True, "skipped": "not on a live shift"}
