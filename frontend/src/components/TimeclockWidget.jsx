@@ -5,6 +5,24 @@ import { editGuard } from '../asset/lib/editGuard.js';
 import BodModal from './BodModal';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 
+// Is the Nexus desktop agent running on THIS PC? It exposes a side-effect-free
+// liveness probe on 127.0.0.1 (CORS-locked to the Nexus origin). When it answers,
+// the agent captures every monitor natively, so the browser must NOT also demand
+// a screen share - that would be double capture plus a nagging picker every punch.
+// A refused connection (no agent) rejects in milliseconds; the timeout only caps
+// a hung probe, so this adds no real latency to a punch on an agent-less device.
+const AGENT_PING_PORT = 47615;
+async function localAgentPresent() {
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 1200);
+    const r = await fetch(`http://127.0.0.1:${AGENT_PING_PORT}/nexus/ping`, { signal: ctrl.signal });
+    clearTimeout(t);
+    const j = r.ok ? await r.json().catch(() => null) : null;
+    return j?.agent === 'greens-nexus';
+  } catch { return false; }
+}
+
 // ── Global mini-timer - lives on EVERY screen while clocked in ────────────────
 // A floating pill with a live HH:MM:SS stopwatch, a quick punch-out, and the
 // work-session screen capture engine. Capture is consent-per-shift: the user
@@ -150,6 +168,9 @@ export default function TimeclockWidget() {
         // a phone. Never block a field worker's punch on a share they physically
         // cannot perform; the punch records normally (monitoring simply n/a here).
         if (!navigator.mediaDevices?.getDisplayMedia) return true;
+        // Desktop agent installed on this PC? Then it captures every monitor
+        // natively - skip the browser share entirely (no picker, no double capture).
+        if (await localAgentPresent()) return true;
         await startRef.current?.();
         return streamsRef.current.length > 0;
       },
