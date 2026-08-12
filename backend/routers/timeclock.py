@@ -1938,13 +1938,16 @@ def _live_ice_servers() -> list:
         headers={"Authorization": f"Bearer {_CF_TURN_API_TOKEN}"},
         json={"ttl": _LIVE_ICE_TTL_SEC}, timeout=10.0)
     r.raise_for_status()
-    ice = (r.json() or {}).get("iceServers") or {}
-    # Cloudflare returns a single object; RTCPeerConnection wants a list. Always
-    # include a public STUN too so a direct path is tried before the relay.
-    servers = [{"urls": "stun:stun.cloudflare.com:3478"}]
-    if ice:
-        servers.append(ice)
-    return servers
+    ice = (r.json() or {}).get("iceServers")
+    # Cloudflare returns iceServers as a LIST of entries (each a urls array +
+    # username/credential), already including a STUN url - pass it straight to
+    # RTCPeerConnection. Tolerate a single-object shape too, and fall back to a
+    # bare public STUN only if the response is unexpectedly empty.
+    if isinstance(ice, list) and ice:
+        return ice
+    if isinstance(ice, dict) and ice:
+        return [ice]
+    return [{"urls": "stun:stun.cloudflare.com:3478"}]
 
 
 @router.get("/agent/install-command")
