@@ -373,7 +373,7 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
           base) instead of floating pills that merged into the content. */}
       <div className="scroll-tabs" style={{ display: 'flex', gap: 2, marginBottom: 18, borderBottom: '1px solid var(--wk-line)' }}>
         {[['payroll', 'Payroll', Banknote], ['attendance', 'Attendance', CalendarDays],
-          ['insights', 'Insights', Activity], ['requests', 'Punch requests', Inbox, punchReqs.length],
+          ['requests', 'Punch requests', Inbox, punchReqs.length],
           ['exceptions', 'Missing punches', AlertTriangle, exBlocking],
           ['screenshots', 'Screenshots', Camera], ['shifts', 'Shifts', CalendarClock],
           ['timeoff', 'Time off', CalendarOff, pendingCount]].map(([key, label, Icon, badge]) => {
