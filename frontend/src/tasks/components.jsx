@@ -2,7 +2,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Check, ChevronDown, ChevronLeft, ChevronRight, Plus,
-  ListTree, MessageSquare, Paperclip } from 'lucide-react';
+  ListTree, MessageSquare, Paperclip, Download } from 'lucide-react';
 import { api } from '../api';
 import { NX, FONT, colorForKey, initialsOf, statusChip, priorityChip, btn, chip, STATUS_META, input as inputStyle } from './theme';
 import { fmtDate, teamInProject, teamProjectIds } from './lib';
@@ -735,5 +735,53 @@ export function TaskCountBadges({ t, store, size = 12 }) {
         </span>
       )}
     </>
+  );
+}
+
+// ── Attachment viewer ────────────────────────────────────────────────────────
+// In-app viewer (ported from the tickets module): images, videos and PDFs open
+// over the drawer instead of a new tab; files with no inline renderer (docx,
+// xlsx…) get a clean download card rather than a broken embed. Escape is
+// captured so it closes the viewer without also closing the drawer underneath.
+// Older rows only carry kind image/doc, so the renderer also sniffs the file
+// extension to give videos and PDFs their proper treatment.
+export function AttachmentViewer({ att, onClose }) {
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); onClose(); } };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [onClose]);
+  if (!att) return null;
+  const probe = `${att.name || ''} ${att.url || ''}`;
+  const isPdf = /\.pdf($|\?)/i.test(probe);
+  const isVideo = att.kind === 'video' || /\.(mp4|webm|mov|m4v)($|\?)/i.test(probe);
+  const isImage = att.kind === 'image' || /\.(png|jpe?g|gif|webp|svg)($|\?)/i.test(probe);
+  const body = isImage ? (
+    <img src={att.url} alt={att.name} style={{ maxWidth: '92vw', maxHeight: '78vh', objectFit: 'contain', borderRadius: 8 }} />
+  ) : isVideo ? (
+    <video src={att.url} controls autoPlay style={{ maxWidth: '92vw', maxHeight: '78vh', borderRadius: 8, background: '#000' }} />
+  ) : isPdf ? (
+    <iframe src={att.url} title={att.name} style={{ width: '92vw', height: '78vh', border: 'none', borderRadius: 8, background: '#fff' }} />
+  ) : (
+    <div onClick={(e) => e.stopPropagation()} style={{ background: NX.surface, borderRadius: 14, padding: '34px 44px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, maxWidth: '86vw' }}>
+      <Paperclip size={30} style={{ color: NX.faint }} />
+      <div style={{ fontSize: 14.5, fontWeight: 700, color: NX.ink, maxWidth: 340, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.name}</div>
+      <div style={{ fontSize: 12.5, color: NX.dim }}>No inline preview for this file type.</div>
+      <a href={att.url} download={att.name} style={{ ...btn('primary'), textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+        <Download size={14} /> Download
+      </a>
+    </div>
+  );
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 5500, background: 'rgba(9,14,11,0.88)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, fontFamily: FONT }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ position: 'absolute', top: 0, left: 0, right: 0, display: 'flex', alignItems: 'center', gap: 12, padding: '13px 20px', color: '#fff' }}>
+        <span style={{ fontSize: 13.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.name}</span>
+        <span style={{ fontSize: 12, opacity: 0.65 }}>{att.size}</span>
+        <span style={{ flex: 1 }} />
+        {att.url && <a href={att.url} download={att.name} title="Download" style={{ color: '#fff', opacity: 0.8, display: 'flex' }}><Download size={16} /></a>}
+        <button onClick={onClose} aria-label="Close viewer" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#fff', display: 'flex', padding: 4 }}><X size={19} /></button>
+      </div>
+      <div onClick={(e) => e.stopPropagation()}>{body}</div>
+    </div>
   );
 }
