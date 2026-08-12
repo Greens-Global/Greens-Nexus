@@ -1,7 +1,31 @@
 import { useState, useEffect, useCallback } from 'react';
-import { ShieldCheck, Loader2, Check, MonitorSmartphone, Copy, Ban, TriangleAlert } from 'lucide-react';
+import { ShieldCheck, Loader2, Check, MonitorSmartphone, Copy, Ban, TriangleAlert, Trash2 } from 'lucide-react';
 import { api } from '../api';
-import { formatDate } from '../lib/datetime';
+
+// Human "last seen" from a seconds delta.
+function relSeen(secs) {
+  if (secs == null) return 'never';
+  if (secs < 60) return 'just now';
+  if (secs < 3600) return `${Math.round(secs / 60)}m ago`;
+  if (secs < 86400) return `${Math.round(secs / 3600)}h ago`;
+  return `${Math.round(secs / 86400)}d ago`;
+}
+
+// Live status light for an enrolled PC. Capturing => green with a glowing pulse;
+// online-but-off-shift => steady green; offline (off/asleep/killed/uninstalled) => gray.
+function StatusDot({ online, capturing, secs }) {
+  const title = capturing ? 'Capturing now'
+    : online ? 'Online (not on shift)'
+    : `Offline - last seen ${relSeen(secs)}`;
+  return (
+    <span title={title} aria-label={title} style={{
+      width: 10, height: 10, borderRadius: '50%', flexShrink: 0,
+      background: online ? 'hsl(var(--color-green))' : 'var(--muted)',
+      opacity: online ? 1 : 0.45,
+      animation: capturing ? 'nexusDotPulse 1.5s ease-out infinite' : 'none',
+    }} />
+  );
+}
 
 // ── Monitoring policy (admin) ─────────────────────────────────────────────────
 // Central control of what Nexus records while people are clocked in. Capture
@@ -49,11 +73,19 @@ function AgentInstall() {
   useEffect(() => {
     api.timeAgentInstallCommand().then(setInfo).catch(() => setInfo(false));
     loadDevices();
+    // Refresh the roster so the status dots track live (heartbeat is every 60s).
+    const iv = setInterval(loadDevices, 20000);
     // Curated Nexus People list for the "assign owner" picker (never M365/GAL).
     api.getPeopleDirectory()
       .then(rows => setPeople((rows || []).map(u => ({ email: (u.email || '').toLowerCase(), name: u.name || u.display_name || u.email })).filter(p => p.email)))
       .catch(() => setPeople([]));
+    return () => clearInterval(iv);
   }, [loadDevices]);
+
+  async function remove(id, label) {
+    if (!window.confirm(`Remove ${label || 'this computer'} from the list?\n\nThis deletes its Nexus record. If the agent is still installed, uninstall it on the PC separately.`)) return;
+    try { await api.timeAgentDeleteDevice(id); loadDevices(); } catch { /* stays listed; retry */ }
+  }
 
   async function assign(id, email) {
     // Optimistic: reflect the pick immediately, reconcile from the server.
@@ -140,6 +172,11 @@ function AgentInstall() {
       </>)}
 
       {/* Enrolled computers */}
+      <style>{`@keyframes nexusDotPulse {
+        0% { box-shadow: 0 0 0 0 hsla(var(--color-green),0.55); }
+        70% { box-shadow: 0 0 0 6px hsla(var(--color-green),0); }
+        100% { box-shadow: 0 0 0 0 hsla(var(--color-green),0); }
+      }`}</style>
       <div style={{ marginTop: 18, borderTop: '1px solid var(--line)', paddingTop: 14 }}>
         <div style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 8 }}>
           Enrolled computers
@@ -150,13 +187,19 @@ function AgentInstall() {
           <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No computers enrolled yet.</div>
         ) : devices.map(d => (
           <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', borderBottom: '1px solid var(--line)', flexWrap: 'wrap' }}>
-            <div style={{ flex: 1, minWidth: 160 }}>
-              <div style={{ fontSize: 12.5, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {d.deviceName || d.label || 'Unnamed PC'}
+            <div style={{ flex: 1, minWidth: 170 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                <StatusDot online={d.online} capturing={d.capturing} secs={d.secondsSinceSeen} />
+                <span style={{ fontSize: 12.5, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {d.deviceName || d.label || 'Unnamed PC'}
+                </span>
               </div>
-              <div style={{ fontSize: 11, color: 'var(--muted)' }}>
-                {[d.platform, d.deviceUser].filter(Boolean).join(' · ') || 'company PC'}
-                {d.activeName && <> · <span style={{ color: 'hsl(var(--color-green))', fontWeight: 700 }}>{d.activeName} clocked in</span></>}
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                <span style={{ color: d.online ? 'hsl(var(--color-green))' : 'var(--muted)', fontWeight: 700 }}>
+                  {d.capturing ? 'Capturing' : d.online ? 'Online' : `Offline · ${relSeen(d.secondsSinceSeen)}`}
+                </span>
+                {' · '}{[d.platform, d.deviceUser].filter(Boolean).join(' · ') || 'company PC'}
+                {d.activeName && !d.capturing && <> · <span style={{ fontWeight: 700 }}>{d.activeName}</span></>}
               </div>
             </div>
             {/* Assign this PC to a Nexus person (its owner). */}
@@ -168,12 +211,13 @@ function AgentInstall() {
                 {people.map(p => <option key={p.email} value={p.email}>{p.name}</option>)}
               </select>
             </div>
-            <span style={{ fontSize: 11, color: 'var(--muted)', flexShrink: 0 }}>
-              {d.lastSeen ? `seen ${formatDate(d.lastSeen + 'Z', '-')}` : 'never seen'}
-            </span>
-            <button onClick={() => revoke(d.id)} title="Revoke this computer's token"
+            <button onClick={() => revoke(d.id)} title="Revoke this computer's token (disable it, keep the PC)"
               style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, cursor: 'pointer', color: '#b91c1c', padding: '3px 8px', display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11.5, flexShrink: 0 }}>
               <Ban size={12} /> Revoke
+            </button>
+            <button onClick={() => remove(d.id, d.deviceName)} title="Remove this entry (after uninstalling / decommissioning)"
+              style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, cursor: 'pointer', color: 'var(--muted)', padding: '4px 7px', display: 'inline-flex', alignItems: 'center', flexShrink: 0 }}>
+              <Trash2 size={13} />
             </button>
           </div>
         ))}

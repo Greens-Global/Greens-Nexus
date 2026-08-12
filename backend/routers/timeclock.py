@@ -1991,18 +1991,37 @@ def agent_devices(user: dict = Depends(require_administrator), db: Session = Dep
         if not email:
             return ""
         return names.get(email) or email.split("@")[0].replace(".", " ").title()
-    return {"devices": [{
-        "id": d.id,
-        # Assigned owner: which Nexus person this PC belongs to (admin-set). Empty
-        # for a shared/unassigned PC.
-        "email": d.employee_email, "name": _nm(d.employee_email),
-        # Who is clocked in on this PC right now (bound at clock-in via pairing),
-        # distinct from the assigned owner - a shared PC's current user changes.
-        "activeEmail": d.active_email or "", "activeName": _nm(d.active_email),
-        "label": d.label or "", "deviceName": d.device_name or "", "deviceUser": d.device_user or "",
-        "mac": d.mac or "", "platform": d.platform or "", "revoked": bool(d.revoked),
-        "lastSeen": d.last_seen_at or "", "createdAt": d.created_at or "",
-    } for d in rows]}
+    # Live status: online = heartbeat within 150s (agent beats every 60s);
+    # capturing = online AND the subject (bound user or assigned owner) is on a live
+    # shift with screen capture enabled. Offline => powered off, asleep, killed, or
+    # uninstalled (indistinguishable from here, so we just report "offline").
+    pol = _get_policy(db)
+    cap_on = bool(pol.enabled and pol.track_screens)
+    now = datetime.now(timezone.utc)
+    online_cutoff = (now - timedelta(seconds=150)).strftime("%Y-%m-%dT%H:%M:%S")
+    out = []
+    for d in rows:
+        _ts = _parse_iso(d.last_seen_at) if d.last_seen_at else None
+        secs = int((now - _ts).total_seconds()) if _ts else None
+        online = bool(d.last_seen_at and d.last_seen_at >= online_cutoff)
+        subject = (d.active_email or d.employee_email or "").strip()
+        capturing = False
+        if online and cap_on and subject:
+            _clocked, _brk = _punch_state(db, subject)
+            capturing = bool(_clocked and not _brk)
+        out.append({
+            "id": d.id,
+            # Assigned owner: which Nexus person this PC belongs to (admin-set).
+            "email": d.employee_email, "name": _nm(d.employee_email),
+            # Who is clocked in on this PC right now (pairing binding).
+            "activeEmail": d.active_email or "", "activeName": _nm(d.active_email),
+            "label": d.label or "", "deviceName": d.device_name or "", "deviceUser": d.device_user or "",
+            "mac": d.mac or "", "platform": d.platform or "", "revoked": bool(d.revoked),
+            "lastSeen": d.last_seen_at or "", "createdAt": d.created_at or "",
+            # Live status for the admin dot: online/offline + actively capturing.
+            "online": online, "capturing": capturing, "secondsSinceSeen": secs,
+        })
+    return {"devices": out}
 
 
 class AssignDeviceIn(BaseModel):
@@ -2038,6 +2057,20 @@ def agent_revoke(device_id: str, user: dict = Depends(require_administrator), db
     if not dev:
         raise HTTPException(404, "Device not found")
     dev.revoked = 1
+    db.commit()
+    return {"ok": True}
+
+
+@router.delete("/agent/devices/{device_id}")
+def agent_delete_device(device_id: str, user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
+    """Hard-delete an enrolled computer's record - for cleaning up a PC that's been
+    uninstalled/decommissioned. Distinct from revoke (which just kills the token):
+    this removes the row entirely. If the agent is somehow still installed, its next
+    checkin 401s (token gone) and it can re-enroll only via the shared key."""
+    dev = db.query(AgentDevice).filter(AgentDevice.id == device_id).first()
+    if not dev:
+        raise HTTPException(404, "Device not found")
+    db.delete(dev)
     db.commit()
     return {"ok": True}
 
