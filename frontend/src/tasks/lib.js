@@ -2,7 +2,7 @@
 // Operates on the runtime task shape (email used as person id).
 import { PRIORITY_ORDER, PRIORITY_META, STATUS_ORDER, STATUS_META } from './theme';
 import { api } from '../api';
-import { supabase } from '../lib/supabase';
+import { supabase, supabaseUrl, supabaseAnonKey } from '../lib/supabase';
 import { formatDate as usFormatDate, formatDateTime as usFormatDateTime } from '../lib/datetime';
 
 export const EMPTY_FILTER = {
@@ -275,7 +275,7 @@ export function attachmentKindOf(file) {
   if (file.type.startsWith('video/')) return 'video';
   return 'doc';
 }
-async function storeTaskFile(file) {
+async function storeTaskFile(file, onProgress) {
   if (!supabase) {
     if (file.size > ATTACHMENT_MAX_INLINE) return '';
     return new Promise((resolve) => {
@@ -288,17 +288,36 @@ async function storeTaskFile(file) {
   if (file.size > ATTACHMENT_MAX_BYTES) throw new Error('file is larger than 25 MB');
   const ext = (file.name.split('.').pop() || 'dat').toLowerCase();
   const path = `tasks/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
-  const { data, error } = await supabase.storage.from('task-files')
-    .upload(path, file, { contentType: file.type || 'application/octet-stream', upsert: false, cacheControl: '31536000' });
-  if (error || !data) throw new Error(error?.message || 'upload failed');
-  return supabase.storage.from('task-files').getPublicUrl(data.path).data.publicUrl;
+  // XHR instead of supabase.storage.upload solely for upload.onprogress -
+  // supabase-js exposes no progress events, and a 20 MB video otherwise looks
+  // frozen. Same endpoint, same anon-key auth, same immutable-cache header the
+  // client would have sent.
+  await new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `${supabaseUrl}/storage/v1/object/task-files/${path}`);
+    xhr.setRequestHeader('authorization', `Bearer ${supabaseAnonKey}`);
+    xhr.setRequestHeader('apikey', supabaseAnonKey);
+    xhr.setRequestHeader('x-upsert', 'false');
+    xhr.setRequestHeader('content-type', file.type || 'application/octet-stream');
+    xhr.setRequestHeader('cache-control', 'max-age=31536000');
+    xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress?.(e.loaded / e.total); };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) return resolve();
+      let msg = `upload failed (${xhr.status})`;
+      try { msg = JSON.parse(xhr.responseText).message || msg; } catch { /* not JSON */ }
+      reject(new Error(msg));
+    };
+    xhr.onerror = () => reject(new Error('upload failed'));
+    xhr.send(file);
+  });
+  return supabase.storage.from('task-files').getPublicUrl(path).data.publicUrl;
 }
-export async function uploadTaskAttachment(taskId, file, extra = {}) {
+export async function uploadTaskAttachment(taskId, file, extra = {}, onProgress) {
   const size = `${Math.max(1, Math.round(file.size / 1024))} KB`;
   const kind = attachmentKindOf(file);
   let url = '';
   try {
-    url = await storeTaskFile(file);
+    url = await storeTaskFile(file, onProgress);
   } catch (e) {
     alert(`"${file.name}" couldn't be stored: ${e?.message || 'upload failed'}. Remove the attachment and try again.`);
   }
