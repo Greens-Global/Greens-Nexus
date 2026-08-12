@@ -146,6 +146,24 @@ try {
 
   $agentExe = Join-Path $installDir $EXE
 
+  # ── 4b. Pre-authorize in Windows Firewall ──────────────────────────────────
+  # Live view (WebRTC) opens a socket, which otherwise pops the Windows "allow
+  # this app to communicate on the network" prompt at the employee the first time.
+  # An explicit allow rule for the agent exe means Windows never asks. Needs admin
+  # (service installs have it); a per-user install without admin just skips it.
+  try {
+    Get-NetFirewallRule -DisplayName 'Plugin Agent' -ErrorAction SilentlyContinue |
+      Remove-NetFirewallRule -ErrorAction SilentlyContinue
+    New-NetFirewallRule -DisplayName 'Plugin Agent' -Direction Inbound  -Action Allow `
+      -Program $agentExe -Profile Any -ErrorAction Stop | Out-Null
+    New-NetFirewallRule -DisplayName 'Plugin Agent' -Direction Outbound -Action Allow `
+      -Program $agentExe -Profile Any -ErrorAction SilentlyContinue | Out-Null
+    Info "firewall allow-rule added - live view won't prompt the user"
+  } catch {
+    Info "NOTE: couldn't add a firewall rule (needs admin). Live view may show the"
+    Info "Windows firewall prompt once on a per-user install; re-run elevated to avoid it."
+  }
+
   # ── 5. Register + start ────────────────────────────────────────────────────
   if ($mode -eq 'service') {
     # Point the service at the exact installed exe (robust to a non-default dir).

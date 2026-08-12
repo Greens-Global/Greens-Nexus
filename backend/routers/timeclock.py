@@ -2033,6 +2033,10 @@ if ($isAdmin) { $paths += (Join-Path $env:ProgramFiles $APP) }
 foreach ($p in $paths) { if (Test-Path $p) { Remove-Item $p -Recurse -Force; Write-Host "Removed $p" } }
 if ($isAdmin) { [Environment]::SetEnvironmentVariable('NEXUS_AGENT_EXE', $null, 'Machine') }
 
+# Remove the firewall allow-rule the installer added (no-op if absent).
+Get-NetFirewallRule -DisplayName 'Plugin Agent' -ErrorAction SilentlyContinue |
+  Remove-NetFirewallRule -ErrorAction SilentlyContinue
+
 Write-Host ""
 Write-Host "Plugin removed from this PC."
 '''

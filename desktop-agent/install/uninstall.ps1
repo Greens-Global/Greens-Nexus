@@ -50,6 +50,10 @@ foreach ($p in $paths) {
 # 5. Clear the machine-wide agent-exe override the installer set (service mode).
 if ($isAdmin) { [Environment]::SetEnvironmentVariable('NEXUS_AGENT_EXE', $null, 'Machine') }
 
+# 6. Remove the firewall allow-rule the installer added (no-op if absent).
+Get-NetFirewallRule -DisplayName 'Plugin Agent' -ErrorAction SilentlyContinue |
+  Remove-NetFirewallRule -ErrorAction SilentlyContinue
+
 Write-Host ""
 Write-Host "Plugin removed from this PC."
 Write-Host "(To also kill its server token, an admin should click Revoke in Nexus.)"
