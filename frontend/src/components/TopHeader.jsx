@@ -497,14 +497,8 @@ export default function TopHeader({ title, theme, onThemeToggle, sidebarPinned, 
                     style={{ color: 'hsl(var(--color-purple))' }}>
                     <Activity size={14} /> Audit Logs
                   </button>
-                  <button className="hud-item" onClick={() => { setOpen(false); onOpenAdmin?.('screenshots'); }}
-                    style={{ color: 'hsl(var(--color-purple))' }}>
-                    <Camera size={14} /> Screenshots
-                  </button>
-                  <button className="hud-item" onClick={() => { setOpen(false); onOpenAdmin?.('timetracking'); }}
-                    style={{ color: 'hsl(var(--color-purple))' }}>
-                    <Clock size={14} /> Employee Tracking
-                  </button>
+                  {/* Screenshots + Employee Tracking moved to the Employee Tracking
+                      sidebar module (IT Admin / Global Admin only). */}
                 </>
               )}
 

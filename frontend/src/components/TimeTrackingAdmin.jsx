@@ -363,7 +363,7 @@ function ActivityInsights() {
   );
 }
 
-export default function TimeTrackingAdmin({ initialSub = 'coverage' }) {
+export default function TimeTrackingAdmin({ initialSub = 'coverage', module = false }) {
   const [policy, setPolicy] = useState(null);
   const [policyMsg, setPolicyMsg] = useState(null);   // {ok, text}
   const [savingPolicy, setSavingPolicy] = useState(false);
@@ -398,7 +398,18 @@ export default function TimeTrackingAdmin({ initialSub = 'coverage' }) {
   }
 
   return (
-    <div style={{ fontFamily: 'Inter,sans-serif', maxWidth: 640, margin: '0 auto' }}>
+    <div style={{ fontFamily: 'Inter,sans-serif', maxWidth: module ? 1180 : 640, margin: '0 auto', padding: module ? '4px 24px 32px' : 0 }}>
+      {module && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '4px 0 16px' }}>
+          <span style={{ width: 34, height: 34, borderRadius: 10, background: 'hsla(var(--color-purple),0.12)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <Activity size={17} style={{ color: 'hsl(var(--color-purple))' }} />
+          </span>
+          <div>
+            <div style={{ fontSize: 17, fontWeight: 800, color: 'var(--ink)' }}>Employee Tracking</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)' }}>Disclosed monitoring - coverage, activity, screenshots, and company computers</div>
+          </div>
+        </div>
+      )}
       <style>{`@keyframes nexusDotPulse {
         0% { box-shadow: 0 0 0 0 currentColor; }
         70% { box-shadow: 0 0 0 5px transparent; }

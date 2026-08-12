@@ -6,7 +6,6 @@ import { useRole } from '../contexts/RoleContext';
 import { api } from '../api';
 import { useNameResolver } from '../lib/useNameResolver';
 import Admin from '../views/Admin';
-import TimeTrackingAdmin from './TimeTrackingAdmin';
 import { applyBrandAccent } from '../lib/brandAccent';
 import { formatDateTime } from '../lib/datetime';
 
@@ -407,17 +406,10 @@ function BrandingSettings() {
 
 export default function AdminPanel({ open, initialTab = 'audit', onClose }) {
   const { can } = useRole();
-  // "screenshots" from the avatar menu maps to the Employee Tracking tab's
-  // Screenshots sub-tab (Screenshots lives under Employee Tracking, not top-level).
-  const _mapTab = (t) => (t === 'screenshots' ? 'timetracking' : t);
-  const [tab, setTab] = useState(_mapTab(initialTab));
-  const [monSub, setMonSub] = useState(initialTab === 'screenshots' ? 'screenshots' : 'coverage');
+  const [tab, setTab] = useState(initialTab);
   const panelRef = useRef(null);
 
-  useEffect(() => {
-    setTab(_mapTab(initialTab));
-    setMonSub(initialTab === 'screenshots' ? 'screenshots' : 'coverage');
-  }, [initialTab]);
+  useEffect(() => { setTab(initialTab); }, [initialTab]);
 
   // Close on ESC
   useEffect(() => {
@@ -435,14 +427,11 @@ export default function AdminPanel({ open, initialTab = 'audit', onClose }) {
 
   if (!can('administrator')) return null;
 
-  // Access Manager retired (Jul 2026) - roles/job-roles/groups moved to
-  // People → Roles & Access, and per-person access is set on the employee card.
-  // Drawer tabs mirror the avatar-menu ADMIN items. Screenshots lives as a sub-tab
-  // under Employee Tracking; Branding retired from here.
+  // Roles & Access + Audit Logs. Employee Tracking (with Screenshots) is now its
+  // own sidebar module; Branding retired from here.
   const tabs = [
-    { id: 'access',       icon: <Shield size={14} />,   label: 'Roles & Access' },
-    { id: 'audit',        icon: <Activity size={14} />, label: 'Audit Logs' },
-    { id: 'timetracking', icon: <Clock size={14} />,    label: 'Employee Tracking' },
+    { id: 'access', icon: <Shield size={14} />,   label: 'Roles & Access' },
+    { id: 'audit',  icon: <Activity size={14} />, label: 'Audit Logs' },
   ];
 
   return (
@@ -526,7 +515,6 @@ export default function AdminPanel({ open, initialTab = 'audit', onClose }) {
             </div>
           )}
           {tab === 'audit'  && <AuditLogs />}
-          {tab === 'timetracking' && <TimeTrackingAdmin initialSub={monSub} />}
         </div>
       </div>
     </>
