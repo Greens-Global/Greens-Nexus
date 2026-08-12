@@ -615,8 +615,21 @@ export const api = {
 
   // External Links
   getExternalLinks: () => req("/external-links"),
+  getExternalLinksMeta: () => req("/external-links/meta"),
   createExternalLink: (data) => req("/external-links", { method: "POST", body: JSON.stringify(data) }),
+  updateExternalLink: (id, data) => req(`/external-links/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  deleteExternalLink: (id) => req(`/external-links/${id}`, { method: "DELETE" }),
   clickExternalLink: (id) => req(`/external-links/${id}/click`, { method: "PATCH" }),
+  reorderExternalLinks: (entries) => req("/external-links/reorder", { method: "PATCH", body: JSON.stringify(entries) }),
+  importExternalLinks: (rows) => req("/external-links/import", { method: "POST", body: JSON.stringify({ rows }) }),
+
+  // Personal Links - private, owner-scoped shortcuts (never shared/admin-visible)
+  getPersonalLinks: () => req("/personal-links"),
+  createPersonalLink: (data) => req("/personal-links", { method: "POST", body: JSON.stringify(data) }),
+  updatePersonalLink: (id, data) => req(`/personal-links/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  deletePersonalLink: (id) => req(`/personal-links/${id}`, { method: "DELETE" }),
+  clickPersonalLink: (id) => req(`/personal-links/${id}/click`, { method: "PATCH" }),
+  reorderPersonalLinks: (entries) => req("/personal-links/reorder", { method: "PATCH", body: JSON.stringify(entries) }),
 
   // Nexus Roles
   getMyRole:    ()                    => cachedGet('/roles/me'),

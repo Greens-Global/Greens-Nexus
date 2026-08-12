@@ -143,6 +143,43 @@ class ExternalLink(Base):
     category = Column(String, nullable=False)
     description = Column(String, default="")
     clicks = Column(Integer, default=0)
+    # Directory rebuild (Aug 2026, sourced from start.greensglobal.com): "" =
+    # shown to every department (company-wide app); a named department scopes
+    # the tile to that department's filtered view. `icon` is a lucide-react
+    # icon key resolved client-side, not a URL. sort_order is admin drag-order
+    # within a category; is_pinned floats a tile into "Pinned" regardless of
+    # department/category filters.
+    department = Column(String, default="")
+    icon = Column(String, default="Link2")
+    sort_order = Column(Integer, default=0)
+    is_pinned = Column(Boolean, default=False)
+    created_by = Column(String, default="")
+    created_at = Column(String, default="")
+    updated_at = Column(String, default="")
+    # Company filter (Aug 12) - HrEntity.id, same "" = every company / a named
+    # id scopes it convention as department above. Free-standing from
+    # department on purpose: a link can be company-wide but department-
+    # specific (e.g. Accounting at Greens India) or vice versa.
+    company = Column(String, default="")
+
+
+class PersonalLink(Base):
+    """Personal Links (Aug 2026) - an employee's own day-to-day shortcuts,
+    separate from the curated ExternalLink directory above. Private by
+    construction: every query filters on owner_email, so one person's rows
+    are never visible to another regardless of role - there is no "shared"
+    or admin-visible mode for this table."""
+    __tablename__ = "personal_links"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    owner_email = Column(String, nullable=False, index=True)
+    name = Column(String, nullable=False)
+    url = Column(String, nullable=False)
+    description = Column(String, default="")
+    icon = Column(String, default="Link2")
+    sort_order = Column(Integer, default=0)
+    clicks = Column(Integer, default=0)
+    created_at = Column(String, default="")
+    updated_at = Column(String, default="")
 
 
 class AccountingTrx(Base):
