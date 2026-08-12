@@ -21,7 +21,7 @@ import os
 from datetime import datetime, timedelta, timezone
 
 from database import SessionLocal
-from models import TimeScreenshot
+from models import TimeScreenshot, AgentActivity
 from sqlalchemy import text
 
 from routers.hr import _DOC_BUCKET, _SHOT_BUCKET
@@ -73,6 +73,28 @@ def _sweep_batch(days: int) -> int:
         db.close()
 
 
+def _purge_activity(days: int) -> int:
+    """Bulk-delete agent_activity rows older than `days` (DB rows only, no storage).
+    These accumulate fast at scale (~1 row per app-segment per minute per person),
+    so without this the table grows unbounded."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%S")
+    db = SessionLocal()
+    is_pg = db.bind.dialect.name == "postgresql"
+    try:
+        if is_pg and not db.execute(text("SELECT pg_try_advisory_lock(:k)"), {"k": _LOCK_KEY + 1}).scalar():
+            return 0
+        try:
+            n = db.query(AgentActivity).filter(AgentActivity.at < cutoff).delete(synchronize_session=False)
+            db.commit()
+            return int(n or 0)
+        finally:
+            if is_pg:
+                db.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": _LOCK_KEY + 1})
+                db.commit()
+    finally:
+        db.close()
+
+
 async def screenshot_retention_loop():
     await asyncio.sleep(300)   # let startup (and the bucket migration) settle
     while True:
@@ -84,6 +106,12 @@ async def screenshot_retention_loop():
             n = await asyncio.to_thread(_sweep_batch, days)
             if n > 0:
                 print(f"[shot-retention] deleted {n} frames older than {days}d")
+            # Once the screenshot backlog is drained, purge expired activity rows too
+            # (one bulk DB delete per cycle).
+            if n <= 0:
+                a = await asyncio.to_thread(_purge_activity, days)
+                if a:
+                    print(f"[shot-retention] deleted {a} activity rows older than {days}d")
             # Full batch => likely more expired; drain quickly. Otherwise daily-ish.
             await asyncio.sleep(5 if n >= _BATCH else 6 * 3600)
         except Exception as e:
