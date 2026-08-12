@@ -1409,6 +1409,33 @@ class AgentPairing(Base):
     used           = Column(Integer, default=0)
 
 
+class LiveSession(Base):
+    """One on-demand live-screen-share session (Discord-style). An admin viewer
+    requests to watch a clocked-in employee; the desktop agent on that PC answers
+    with a WebRTC screen stream. This row is BOTH the signaling mailbox (offer/
+    answer SDP passed through it, since the browser can't reach the agent over
+    localhost) AND the audit record of who watched whom, when. Media itself flows
+    peer-to-peer over WebRTC (relayed by Cloudflare TURN) - never through here.
+    States: requested -> offering -> connected -> ended (or 'error')."""
+    __tablename__ = "live_view_sessions"
+    id             = Column(String, primary_key=True)   # uuid
+    device_id      = Column(String, index=True, default="")
+    employee_email = Column(String, index=True, nullable=False)   # who is watched
+    viewer_email   = Column(String, index=True, nullable=False)   # the admin watching
+    state          = Column(String, default="requested")
+    offer_sdp      = Column(Text, default="")   # agent -> viewer (WebRTC offer)
+    answer_sdp     = Column(Text, default="")   # viewer -> agent (WebRTC answer)
+    fps            = Column(Integer, default=30)
+    created_at     = Column(String, default="")
+    updated_at     = Column(String, default="")   # last change to state/sdp
+    # Each side stamps its own poll so a one-sided disconnect (viewer closes the
+    # tab, or the agent dies) is detected: alive only while BOTH are fresh.
+    viewer_seen    = Column(String, default="")
+    agent_seen     = Column(String, default="")
+    ended_at       = Column(String, default="")
+    ended_reason   = Column(String, default="")
+
+
 class Shift(Base):
     """A reusable shift preset: a short code (e.g. GSV), start/end time, colour
     and grace window. Placed onto an employee+date in the schedule grid, or

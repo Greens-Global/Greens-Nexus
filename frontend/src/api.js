@@ -993,6 +993,13 @@ export const api = {
   timeAgentDeleteDevice: (id)    => req(`/timeclock/agent/devices/${id}`, { method: 'DELETE' }),
   // Live coverage roster: who's clocked in + how they're captured (agent/browser/gap).
   timeMonitoringCoverage: ()     => req('/timeclock/monitoring/coverage'),
+  // Live screen view (on-demand WebRTC). request returns a session + TURN creds
+  // when the person is clocked in with an online agent; poll for the agent's offer;
+  // answer with the browser's SDP; ping keeps it alive; end closes it.
+  timeLiveRequest:   (email, fps) => req('/timeclock/live/request', { method: 'POST', body: JSON.stringify({ email, fps: fps || 30 }) }),
+  timeLivePoll:      (id)        => req(`/timeclock/live/${id}`),
+  timeLiveAnswer:    (id, sdp)   => req(`/timeclock/live/${id}/answer`, { method: 'POST', body: JSON.stringify({ sdp }) }),
+  timeLiveEnd:       (id)        => req(`/timeclock/live/${id}/end`, { method: 'POST', body: '{}' }),
   // Field-worker location tracking (manager/HR views; device pings use X-Agent-Token from the native app, not these)
   trackLive:         ()            => req('/timeclock/track/live'),
   trackPath:         (email, date) => req(`/timeclock/track/path?email=${encodeURIComponent(email)}&date=${date}`),

@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
-import { ShieldCheck, Loader2, Check, MonitorSmartphone, Copy, Ban, TriangleAlert, Trash2, Activity, ChevronDown } from 'lucide-react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { ShieldCheck, Loader2, Check, MonitorSmartphone, Copy, Ban, TriangleAlert, Trash2, Activity, ChevronDown, Video, X, Radio } from 'lucide-react';
 import { api } from '../api';
 import { Avatar } from '../tasks/components';
 import ScreenshotsAdmin from './ScreenshotsAdmin';
@@ -263,7 +263,150 @@ const COV_META = {
   screens_off: { label: 'Screens off',   fg: 'var(--muted)',             bg: 'var(--mist)',                    pulse: false },
 };
 
+// Wait for ICE gathering to finish so the single answer SDP carries every
+// candidate (non-trickle) - matches the agent side.
+function waitIceGathering(pc) {
+  if (pc.iceGatheringState === 'complete') return Promise.resolve();
+  return new Promise((resolve) => {
+    const check = () => { if (pc.iceGatheringState === 'complete') { pc.removeEventListener('icegatheringstatechange', check); resolve(); } };
+    pc.addEventListener('icegatheringstatechange', check);
+    setTimeout(resolve, 3000);
+  });
+}
+
+// Real-time screen view of one clocked-in employee (Discord-style). The browser
+// is the WebRTC ANSWERER: we ask the server to start a session, the agent posts an
+// offer, we answer, and media flows peer-to-peer over Cloudflare TURN. States:
+// connecting -> live (video) -> break (frozen last frame + label) / offline.
+// Disclosure: the employee's tray shows "Live view active" the whole time.
+function LiveView({ email, name, onClose }) {
+  const videoRef = useRef(null);
+  const [status, setStatus] = useState('connecting');   // connecting|live|break|offline|error
+  const [fps, setFps] = useState(30);
+
+  useEffect(() => {
+    let cancelled = false;
+    let pc = null;
+    let sid = null;
+    let timer = null;
+    let answered = false;
+
+    const clearTimer = () => { if (timer) { clearTimeout(timer); timer = null; } };
+    const closePc = () => { try { if (pc) pc.close(); } catch (_) { /* ignore */ } pc = null; answered = false; };
+
+    async function begin() {
+      if (cancelled) return;
+      let res;
+      try { res = await api.timeLiveRequest(email, fps); }
+      catch (_) { if (!cancelled) { setStatus('error'); } return; }
+      if (cancelled) return;
+      if (!res || !res.ok) {
+        setStatus(res && res.subjectState === 'on_break' ? 'break' : 'offline');
+        timer = setTimeout(begin, 4000);   // retry so it goes live when they return
+        return;
+      }
+      sid = res.sessionId;
+      setFps(res.fps || 30);
+      pc = new RTCPeerConnection({ iceServers: res.iceServers || [] });
+      pc.ontrack = (e) => {
+        if (cancelled) return;
+        if (videoRef.current && e.streams && e.streams[0]) videoRef.current.srcObject = e.streams[0];
+        setStatus('live');
+      };
+      poll();
+    }
+
+    async function poll() {
+      if (cancelled || !sid) return;
+      let r;
+      try { r = await api.timeLivePoll(sid); }
+      catch (_) { timer = setTimeout(poll, 1500); return; }
+      if (cancelled) return;
+      if (r.state === 'ended') {
+        closePc();
+        const reason = r.endedReason || '';
+        // Keep the last video frame on screen; overlay the reason. subject_on_break
+        // -> "On break"; anything else (subject_offline, agent_lost) -> offline.
+        setStatus(reason.indexOf('on_break') >= 0 ? 'break' : 'offline');
+        sid = null;
+        timer = setTimeout(begin, 4000);
+        return;
+      }
+      if (r.offerSdp && pc && !answered && pc.signalingState === 'stable') {
+        answered = true;
+        try {
+          await pc.setRemoteDescription({ type: 'offer', sdp: r.offerSdp });
+          const ans = await pc.createAnswer();
+          await pc.setLocalDescription(ans);
+          await waitIceGathering(pc);
+          if (!cancelled) await api.timeLiveAnswer(sid, pc.localDescription.sdp);
+        } catch (_) { answered = false; }
+      }
+      timer = setTimeout(poll, 1500);
+    }
+
+    begin();
+    return () => {
+      cancelled = true;
+      clearTimer();
+      closePc();
+      if (sid) api.timeLiveEnd(sid).catch(() => {});
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [email]);
+
+  const overlay = status === 'break'
+    ? { text: 'On break', sub: 'Screen paused while this person is on break.', color: 'hsl(var(--color-orange))' }
+    : status === 'offline'
+      ? { text: 'Offline', sub: 'This person is not clocked in, or their agent is not reachable.', color: 'var(--muted)' }
+      : status === 'error'
+        ? { text: 'Could not connect', sub: 'Live view is unavailable right now.', color: 'hsl(var(--color-red))' }
+        : status === 'connecting'
+          ? { text: 'Connecting…', sub: 'Waiting for the screen stream.', color: 'var(--muted)' }
+          : null;
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 1300, background: 'rgba(15,23,42,0.72)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 980, boxShadow: 'var(--shadow-lg, 0 20px 60px rgba(0,0,0,0.4))', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', borderBottom: '1px solid var(--line)' }}>
+          <Avatar email={email} name={name} size={28} card={false} />
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 13.5, fontWeight: 800, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</div>
+            <div style={{ fontSize: 11, color: 'var(--muted)' }}>Live screen view · {fps}fps</div>
+          </div>
+          <div style={{ flex: 1 }} />
+          {status === 'live' && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 800, color: 'hsl(var(--color-red))', background: 'hsla(var(--color-red),0.1)', padding: '3px 10px', borderRadius: 999 }}>
+              <Radio size={12} /> LIVE
+            </span>
+          )}
+          <button onClick={onClose} title="Close" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 30, height: 30, borderRadius: 8, border: '1px solid var(--line)', background: 'var(--card)', cursor: 'pointer', color: 'var(--muted)' }}>
+            <X size={16} />
+          </button>
+        </div>
+        <div style={{ position: 'relative', background: '#0b1220', aspectRatio: '16 / 9', width: '100%' }}>
+          <video ref={videoRef} autoPlay muted playsInline
+            style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block', filter: status === 'break' ? 'grayscale(0.6) brightness(0.7)' : 'none' }} />
+          {overlay && (
+            <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 6, textAlign: 'center', padding: 24 }}>
+              {status === 'connecting'
+                ? <Loader2 size={26} style={{ color: '#cbd5e1', animation: 'spin 1s linear infinite' }} />
+                : <MonitorSmartphone size={26} style={{ color: overlay.color }} />}
+              <div style={{ fontSize: 15, fontWeight: 800, color: '#e2e8f0' }}>{overlay.text}</div>
+              <div style={{ fontSize: 12, color: '#94a3b8', maxWidth: 360, lineHeight: 1.5 }}>{overlay.sub}</div>
+            </div>
+          )}
+        </div>
+        <div style={{ padding: '9px 16px', fontSize: 11, color: 'var(--muted)', borderTop: '1px solid var(--line)', lineHeight: 1.5 }}>
+          Disclosed monitoring - this employee's device shows a "Live view active" indicator while you are watching. Sessions are recorded in the monitoring audit log.
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function LiveCoverage({ onOpenPerson }) {
+  const [watch, setWatch] = useState(null);   // {email,name} being live-viewed, or null
   const [data, setData] = useState(null);   // {people,...} | null loading | false error
   const load = useCallback(() => {
     api.timeMonitoringCoverage().then(setData).catch(() => setData(false));
@@ -323,12 +466,23 @@ function LiveCoverage({ onOpenPerson }) {
                 {[p.deviceName, frame].filter(Boolean).join(' · ') || (p.onBreak ? 'on break' : '')}
               </div>
             </div>
+            {p.canWatchLive && (
+              <button
+                onClick={() => setWatch({ email: p.email, name: p.name })}
+                title="Watch this screen live"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, flexShrink: 0, fontFamily: 'Inter, sans-serif', fontSize: 11, fontWeight: 700,
+                  color: 'hsl(var(--color-blue))', background: 'hsla(var(--color-blue),0.1)', border: '1px solid hsla(var(--color-blue),0.25)',
+                  padding: '3px 10px', borderRadius: 999, cursor: 'pointer' }}>
+                <Video size={12} /> Watch live
+              </button>
+            )}
             <span style={{ fontSize: 11, fontWeight: 800, color: m.fg, background: m.bg, padding: '3px 10px', borderRadius: 999, flexShrink: 0 }}>
               {m.label}
             </span>
           </div>
         );
       })}
+      {watch && <LiveView email={watch.email} name={watch.name} onClose={() => setWatch(null)} />}
     </div>
   );
 }

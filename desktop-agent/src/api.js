@@ -57,4 +57,41 @@ async function agentPair(token, nonce) {
   return r.json();
 }
 
-module.exports = { agentCheckin, agentUploadShot, agentPostActivity, agentPair };
+// ── Live screen view (WebRTC signaling relay) ─────────────────────────────────
+// The browser can't reach this agent over localhost, so the offer/answer pass
+// through the server's LiveSession mailbox. Media itself never touches these.
+
+// Is a manager waiting to watch this PC right now? Returns {session:{id,fps,
+// iceServers}} to answer, or {session:null}. The server re-gates the live shift.
+async function agentLivePending(token) {
+  const r = await fetch(`${config.apiBase}/timeclock/agent/live/pending`, {
+    headers: { 'X-Agent-Token': token },
+  });
+  if (!r.ok) throw new Error(`live pending ${r.status}`);
+  return r.json();
+}
+
+// Post this PC's WebRTC offer (screen stream) for the viewer to answer.
+async function agentLiveOffer(token, id, sdp) {
+  const r = await fetch(`${config.apiBase}/timeclock/agent/live/${id}/offer`, {
+    method: 'POST',
+    headers: { 'X-Agent-Token': token, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sdp }),
+  });
+  if (!r.ok) throw new Error(`live offer ${r.status}`);
+  return r.json();
+}
+
+// Poll for the viewer's answer + the end signal (also our keepalive).
+async function agentLivePoll(token, id) {
+  const r = await fetch(`${config.apiBase}/timeclock/agent/live/${id}`, {
+    headers: { 'X-Agent-Token': token },
+  });
+  if (!r.ok) throw new Error(`live poll ${r.status}`);
+  return r.json();
+}
+
+module.exports = {
+  agentCheckin, agentUploadShot, agentPostActivity, agentPair,
+  agentLivePending, agentLiveOffer, agentLivePoll,
+};

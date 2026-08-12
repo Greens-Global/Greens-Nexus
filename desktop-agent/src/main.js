@@ -30,6 +30,7 @@ const activity = require('./activity');
 const queue = require('./queue');
 const { startPairServer } = require('./pairserver');
 const { captureAllScreens } = require('./capture');
+const live = require('./live');
 
 // ── Discoverable log (for the employee / IT to inspect) ───────────────────────
 const LOG_DIR = path.join(process.env.PROGRAMDATA || app.getPath('userData'), 'Plugin');
@@ -136,17 +137,25 @@ function trayImage(rgb) {
   }
   return nativeImage.createFromBitmap(buf, { width: w, height: h });
 }
-const GREEN = [34, 197, 94], GRAY = [148, 163, 184];
+const GREEN = [34, 197, 94], GRAY = [148, 163, 184], BLUE = [59, 130, 246];
+
+// A manager is watching this screen live right now. Surfaced in the tray so the
+// employee always SEES when they're being watched - live view stays disclosed.
+let liveActive = false;
+let lastCapturing = false, lastDetail = '';
 
 function setTray(capturing, detail) {
   if (!tray) return;
+  lastCapturing = capturing; lastDetail = detail || '';
   // Hover text is just the app name (the signed policy is the disclosure of record;
-  // the tray need not repeat "monitoring"). State stays visible via the green/gray
-  // icon, and the menu below still plainly identifies it as a company-managed app -
-  // so it remains disclosed and named, not hidden.
+  // the tray need not repeat "monitoring"). State stays visible via the icon, and
+  // the menu below still plainly identifies it as a company-managed app - so it
+  // remains disclosed and named, not hidden. Blue = someone is live-viewing now.
   const title = 'Plugin';
-  tray.setImage(trayImage(capturing ? GREEN : GRAY));
-  tray.setToolTip(detail ? `${title}\n${detail}` : title);
+  const liveLine = liveActive ? 'Live view active' : '';
+  const lines = [liveLine, detail].filter(Boolean).join('\n');
+  tray.setImage(trayImage(liveActive ? BLUE : (capturing ? GREEN : GRAY)));
+  tray.setToolTip(lines ? `${title}\n${lines}` : title);
   // INTENTIONALLY no Exit / Quit / Pause / Stop item: an employee cannot stop
   // monitoring from here. Only read-only/benign entries. Closing this tray does
   // NOT stop capture (capture runs in the heartbeat loop, and the service respawns
@@ -154,6 +163,7 @@ function setTray(capturing, detail) {
   // action via the Windows service (services.msc / sc stop), which needs admin.
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: title, enabled: false },
+    ...(liveActive ? [{ label: 'Live view active', enabled: false }] : []),
     ...(detail ? [{ label: detail, enabled: false }] : []),
     { type: 'separator' },
     { label: 'Open Time Clock', click: () => shell.openExternal(`${config.webBase}/timeclock`) },
@@ -215,6 +225,7 @@ async function flushQueue() {
 // ── Heartbeat + capture loop ──────────────────────────────────────────────────
 let ticking = false;
 let lastEmail = '';
+let clockedIn = false;   // last-known clock state; gates the live-view pending poll
 
 async function tick() {
   if (ticking) return;
@@ -241,6 +252,11 @@ async function tick() {
       if (r.email && r.email !== lastEmail) { lastEmail = r.email; log(`checked in as ${r.email}`); }
       capture = !!r.capture;                 // server clears this off-shift / on break / policy-off
       applyPolicy(r.policy);
+      // Live view only exists while clocked in; the fast pending-poll below is
+      // gated on this. If the shift ended mid-view, the server also ends the
+      // session and the agent tears it down on its own poll - this is a backstop.
+      clockedIn = !!r.clockedIn;
+      if (!clockedIn && live.isLive()) live.stopSession('clocked-out');
     }
 
     // Window-activity report (titles when trackWindows; active % when trackInput).
@@ -306,9 +322,21 @@ app.whenReady().then(() => {
   try { startPairServer(() => deviceToken, log); }
   catch (e) { log(`pair server unavailable: ${e.message || e}`); }
 
+  // Live screen view: when live, flip the tray to "Live view active" (disclosure).
+  live.init({
+    getToken: () => deviceToken,
+    log,
+    onLiveChange: (on) => { liveActive = on; setTray(lastCapturing, lastDetail); },
+  });
+
   tick();                                       // first heartbeat now
   setInterval(tick, config.statusPollMs);       // heartbeat loop
   powerMonitor.on('resume', tick);              // re-sync promptly on wake
+
+  // Fast poll for a manager's live-view request - but ONLY while clocked in, so a
+  // machine that's off-shift makes no extra calls. ~3s gives a click-to-live start
+  // of a couple seconds without the constant polling an always-on loop would add.
+  setInterval(() => { if (clockedIn) live.checkPending().catch(() => {}); }, 3000);
 
   // Sample the foreground app between heartbeats.
   setInterval(() => {
