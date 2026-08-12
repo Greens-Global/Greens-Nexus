@@ -1,6 +1,9 @@
-import { useState, useEffect, useCallback } from 'react';
-import { ShieldCheck, Loader2, Check, MonitorSmartphone, Copy, Ban, TriangleAlert, Trash2 } from 'lucide-react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { ShieldCheck, Loader2, Check, MonitorSmartphone, Copy, Ban, TriangleAlert, Trash2, Activity, ChevronDown, Video, X, Radio } from 'lucide-react';
 import { api } from '../api';
+import { Avatar } from '../tasks/components';
+import ScreenshotsAdmin from './ScreenshotsAdmin';
+import TimeInsights from './TimeInsights';
 
 // Human "last seen" from a seconds delta.
 function relSeen(secs) {
@@ -11,20 +14,24 @@ function relSeen(secs) {
   return `${Math.round(secs / 86400)}d ago`;
 }
 
-// Live status light for an enrolled PC. Capturing => green with a glowing pulse;
-// online-but-off-shift => steady green; offline (off/asleep/killed/uninstalled) => gray.
+// Shared status light. `pulse` gives it a glowing, breathing ring in its own
+// color (via currentColor in the nexusDotPulse keyframe); static otherwise.
+function Dot({ color, pulse, dim, title }) {
+  return (
+    <span title={title} aria-label={title} style={{
+      width: 10, height: 10, borderRadius: '50%', flexShrink: 0,
+      background: color, color, opacity: dim ? 0.5 : 1,
+      animation: pulse ? 'nexusDotPulse 1.5s ease-out infinite' : 'none',
+    }} />
+  );
+}
+
+// Enrolled-PC light: live (online or capturing) => green glow; offline => gray.
 function StatusDot({ online, capturing, secs }) {
   const title = capturing ? 'Capturing now'
     : online ? 'Online (not on shift)'
     : `Offline - last seen ${relSeen(secs)}`;
-  return (
-    <span title={title} aria-label={title} style={{
-      width: 10, height: 10, borderRadius: '50%', flexShrink: 0,
-      background: online ? 'hsl(var(--color-green))' : 'var(--muted)',
-      opacity: online ? 1 : 0.45,
-      animation: capturing ? 'nexusDotPulse 1.5s ease-out infinite' : 'none',
-    }} />
-  );
+  return <Dot color={online ? 'hsl(var(--color-green))' : 'var(--muted)'} pulse={online} dim={!online} title={title} />;
 }
 
 // ── Monitoring policy (admin) ─────────────────────────────────────────────────
@@ -65,6 +72,7 @@ function AgentInstall() {
   const [copied, setCopied] = useState(false);
   const [copiedU, setCopiedU] = useState(false);
   const [savedId, setSavedId] = useState('');   // device id that just saved its owner
+  const [showHow, setShowHow] = useState(false); // collapse the install/uninstall commands
 
   const loadDevices = useCallback(() => {
     api.timeAgentDevices()
@@ -124,6 +132,16 @@ function AgentInstall() {
         green while capturing, a named process in Task Manager, and it records only while someone is clocked in.
       </p>
 
+      {/* Install/uninstall commands live under a toggle - the day-to-day need is
+          the enrolled list below, not the copy-paste commands. */}
+      <button onClick={() => setShowHow(v => !v)}
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'none', border: '1px solid var(--line)',
+          borderRadius: 8, cursor: 'pointer', padding: '6px 11px', fontSize: 12, fontWeight: 700, color: 'var(--ink)', fontFamily: 'Inter, sans-serif' }}>
+        <ChevronDown size={13} style={{ transform: showHow ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }} />
+        {showHow ? 'Hide install steps' : 'How to install / remove a computer'}
+      </button>
+
+      {showHow && (<div style={{ marginTop: 12 }}>
       {info === null ? (
         <div style={{ fontSize: 12.5, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 7 }}>
           <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Loading install command…
@@ -175,13 +193,9 @@ function AgentInstall() {
           </div>
         )}
       </>)}
+      </div>)}
 
       {/* Enrolled computers */}
-      <style>{`@keyframes nexusDotPulse {
-        0% { box-shadow: 0 0 0 0 hsla(var(--color-green),0.55); }
-        70% { box-shadow: 0 0 0 6px hsla(var(--color-green),0); }
-        100% { box-shadow: 0 0 0 0 hsla(var(--color-green),0); }
-      }`}</style>
       <div style={{ marginTop: 18, borderTop: '1px solid var(--line)', paddingTop: 14 }}>
         <div style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 8 }}>
           Enrolled computers
@@ -236,10 +250,285 @@ function AgentInstall() {
   );
 }
 
-export default function TimeTrackingAdmin() {
+// ── Live coverage (who's clocked in + how they're captured) ───────────────────
+// pulse = the dot glows in motion. Everything live glows; a red "not captured"
+// gap ALSO glows because it means someone is clocked in and NOT being captured -
+// the alert worth the eye. Only exempt / screens-off sit as a steady, quiet dot.
+const COV_META = {
+  agent:       { label: 'Desktop agent', fg: 'hsl(var(--color-green))',  bg: 'hsla(var(--color-green),0.12)',  pulse: true },
+  browser:     { label: 'Chrome share',  fg: 'hsl(var(--color-blue))',   bg: 'hsla(var(--color-blue),0.12)',   pulse: true },
+  on_break:    { label: 'On break',      fg: 'hsl(var(--color-orange))', bg: 'hsla(var(--color-orange),0.12)', pulse: true },
+  gap:         { label: 'Not captured',  fg: 'hsl(var(--color-red))',    bg: 'hsla(var(--color-red),0.12)',    pulse: true },
+  exempt:      { label: 'Exempt',        fg: 'var(--muted)',             bg: 'var(--mist)',                    pulse: false },
+  screens_off: { label: 'Screens off',   fg: 'var(--muted)',             bg: 'var(--mist)',                    pulse: false },
+};
+
+// Wait for ICE gathering to finish so the single answer SDP carries every
+// candidate (non-trickle) - matches the agent side.
+function waitIceGathering(pc) {
+  if (pc.iceGatheringState === 'complete') return Promise.resolve();
+  return new Promise((resolve) => {
+    const check = () => { if (pc.iceGatheringState === 'complete') { pc.removeEventListener('icegatheringstatechange', check); resolve(); } };
+    pc.addEventListener('icegatheringstatechange', check);
+    setTimeout(resolve, 3000);
+  });
+}
+
+// Real-time screen view of one clocked-in employee (Discord-style). The browser
+// is the WebRTC ANSWERER: we ask the server to start a session, the agent posts an
+// offer, we answer, and media flows peer-to-peer over Cloudflare TURN. States:
+// connecting -> live (video) -> break (frozen last frame + label) / offline.
+// Disclosure: the employee's tray shows "Live view active" the whole time.
+function LiveView({ email, name, onClose }) {
+  const videoRef = useRef(null);
+  const [status, setStatus] = useState('connecting');   // connecting|live|break|offline|error
+  const [fps, setFps] = useState(60);
+
+  useEffect(() => {
+    let cancelled = false;
+    let pc = null;
+    let sid = null;
+    let timer = null;
+    let answered = false;
+
+    const clearTimer = () => { if (timer) { clearTimeout(timer); timer = null; } };
+    const closePc = () => { try { if (pc) pc.close(); } catch (_) { /* ignore */ } pc = null; answered = false; };
+
+    async function begin() {
+      if (cancelled) return;
+      let res;
+      try { res = await api.timeLiveRequest(email, fps); }
+      catch (_) { if (!cancelled) { setStatus('error'); } return; }
+      if (cancelled) return;
+      if (!res || !res.ok) {
+        setStatus(res && res.subjectState === 'on_break' ? 'break' : 'offline');
+        timer = setTimeout(begin, 4000);   // retry so it goes live when they return
+        return;
+      }
+      sid = res.sessionId;
+      setFps(res.fps || 30);
+      pc = new RTCPeerConnection({ iceServers: res.iceServers || [] });
+      pc.ontrack = (e) => {
+        if (cancelled) return;
+        if (videoRef.current && e.streams && e.streams[0]) videoRef.current.srcObject = e.streams[0];
+        setStatus('live');
+      };
+      poll();
+    }
+
+    async function poll() {
+      if (cancelled || !sid) return;
+      let r;
+      try { r = await api.timeLivePoll(sid); }
+      catch (_) { timer = setTimeout(poll, 1500); return; }
+      if (cancelled) return;
+      if (r.state === 'ended') {
+        closePc();
+        const reason = r.endedReason || '';
+        // Keep the last video frame on screen; overlay the reason. subject_on_break
+        // -> "On break"; anything else (subject_offline, agent_lost) -> offline.
+        setStatus(reason.indexOf('on_break') >= 0 ? 'break' : 'offline');
+        sid = null;
+        timer = setTimeout(begin, 4000);
+        return;
+      }
+      if (r.offerSdp && pc && !answered && pc.signalingState === 'stable') {
+        answered = true;
+        try {
+          await pc.setRemoteDescription({ type: 'offer', sdp: r.offerSdp });
+          const ans = await pc.createAnswer();
+          await pc.setLocalDescription(ans);
+          await waitIceGathering(pc);
+          if (!cancelled) await api.timeLiveAnswer(sid, pc.localDescription.sdp);
+        } catch (_) { answered = false; }
+      }
+      timer = setTimeout(poll, 1500);
+    }
+
+    begin();
+    return () => {
+      cancelled = true;
+      clearTimer();
+      closePc();
+      if (sid) api.timeLiveEnd(sid).catch(() => {});
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [email]);
+
+  const overlay = status === 'break'
+    ? { text: 'On break', sub: 'Screen paused while this person is on break.', color: 'hsl(var(--color-orange))' }
+    : status === 'offline'
+      ? { text: 'Offline', sub: 'This person is not clocked in, or their agent is not reachable.', color: 'var(--muted)' }
+      : status === 'error'
+        ? { text: 'Could not connect', sub: 'Live view is unavailable right now.', color: 'hsl(var(--color-red))' }
+        : status === 'connecting'
+          ? { text: 'Connecting…', sub: 'Waiting for the screen stream.', color: 'var(--muted)' }
+          : null;
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 1300, background: 'rgba(15,23,42,0.72)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 980, boxShadow: 'var(--shadow-lg, 0 20px 60px rgba(0,0,0,0.4))', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', borderBottom: '1px solid var(--line)' }}>
+          <Avatar email={email} name={name} size={28} card={false} />
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 13.5, fontWeight: 800, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</div>
+            <div style={{ fontSize: 11, color: 'var(--muted)' }}>Live screen view · {fps}fps</div>
+          </div>
+          <div style={{ flex: 1 }} />
+          {status === 'live' && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 800, color: 'hsl(var(--color-red))', background: 'hsla(var(--color-red),0.1)', padding: '3px 10px', borderRadius: 999 }}>
+              <Radio size={12} /> LIVE
+            </span>
+          )}
+          <button onClick={onClose} title="Close" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 30, height: 30, borderRadius: 8, border: '1px solid var(--line)', background: 'var(--card)', cursor: 'pointer', color: 'var(--muted)' }}>
+            <X size={16} />
+          </button>
+        </div>
+        <div style={{ position: 'relative', background: '#0b1220', aspectRatio: '16 / 9', width: '100%' }}>
+          <video ref={videoRef} autoPlay muted playsInline
+            style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block', filter: status === 'break' ? 'grayscale(0.6) brightness(0.7)' : 'none' }} />
+          {overlay && (
+            <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 6, textAlign: 'center', padding: 24 }}>
+              {status === 'connecting'
+                ? <Loader2 size={26} style={{ color: '#cbd5e1', animation: 'spin 1s linear infinite' }} />
+                : <MonitorSmartphone size={26} style={{ color: overlay.color }} />}
+              <div style={{ fontSize: 15, fontWeight: 800, color: '#e2e8f0' }}>{overlay.text}</div>
+              <div style={{ fontSize: 12, color: '#94a3b8', maxWidth: 360, lineHeight: 1.5 }}>{overlay.sub}</div>
+            </div>
+          )}
+        </div>
+        <div style={{ padding: '9px 16px', fontSize: 11, color: 'var(--muted)', borderTop: '1px solid var(--line)', lineHeight: 1.5 }}>
+          Disclosed monitoring - live viewing is covered in the employee's privacy policy, terms of service, and employment agreement. Sessions are recorded in the monitoring audit log.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LiveCoverage({ onOpenPerson }) {
+  const [watch, setWatch] = useState(null);   // {email,name} being live-viewed, or null
+  const [data, setData] = useState(null);   // {people,...} | null loading | false error
+  const load = useCallback(() => {
+    api.timeMonitoringCoverage().then(setData).catch(() => setData(false));
+  }, []);
+  useEffect(() => {
+    load();
+    const iv = setInterval(load, 20000);   // keep the roster live
+    return () => clearInterval(iv);
+  }, [load]);
+
+  const people = (data && data.people) || [];
+  const gaps = people.filter(p => p.status === 'gap').length;
+
+  return (
+    <div style={{ border: '1px solid var(--line)', borderRadius: 14, padding: '16px 18px', background: 'var(--card)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+        <Activity size={16} style={{ color: 'hsl(var(--color-green))' }} />
+        <span style={{ fontSize: 13.5, fontWeight: 800 }}>Live Coverage</span>
+        <div style={{ flex: 1 }} />
+        {gaps > 0 && (
+          <span style={{ fontSize: 11, fontWeight: 800, color: 'hsl(var(--color-red))', background: 'hsla(var(--color-red),0.1)', padding: '2px 9px', borderRadius: 999 }}>
+            {gaps} not captured
+          </span>
+        )}
+      </div>
+      <p style={{ margin: '0 0 12px', fontSize: 12, color: 'var(--muted)', lineHeight: 1.5 }}>
+        Everyone clocked in right now and how their screen is being captured - desktop agent, in-browser Chrome share,
+        or a gap that needs attention. Refreshes automatically.
+      </p>
+      {data === null ? (
+        <div style={{ fontSize: 12.5, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+          <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Loading…
+        </div>
+      ) : data === false ? (
+        <div style={{ fontSize: 12.5, color: '#b91c1c' }}>Could not load coverage.</div>
+      ) : people.length === 0 ? (
+        <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No one is clocked in right now.</div>
+      ) : people.map(p => {
+        const m = COV_META[p.status] || COV_META.gap;
+        const frame = (p.secsSinceFrame != null)
+          ? (p.status === 'gap' ? `last frame ${relSeen(p.secsSinceFrame)}` : `frame ${relSeen(p.secsSinceFrame)}`)
+          : (p.status === 'gap' ? 'no frames yet' : '');
+        return (
+          <div key={p.email} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '8px 0', borderBottom: '1px solid var(--line)' }}>
+            <Dot color={m.fg} pulse={m.pulse} dim={!m.pulse} title={m.label} />
+            <Avatar email={p.email} name={p.name} size={26} card={false} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <button
+                onClick={() => onOpenPerson?.(p.email)}
+                title="View today's screenshots"
+                style={{ display: 'block', maxWidth: '100%', background: 'none', border: 'none', padding: 0, cursor: 'pointer', textAlign: 'left',
+                  fontFamily: 'Inter, sans-serif', fontSize: 12.5, fontWeight: 600, color: 'var(--ink)', textDecoration: 'underline', textDecorationColor: 'var(--line)', textUnderlineOffset: 2,
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {p.name}
+              </button>
+              <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+                {[p.deviceName, frame].filter(Boolean).join(' · ') || (p.onBreak ? 'on break' : '')}
+              </div>
+            </div>
+            {p.canWatchLive && (
+              <button
+                onClick={() => setWatch({ email: p.email, name: p.name })}
+                title="Watch this screen live"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, flexShrink: 0, fontFamily: 'Inter, sans-serif', fontSize: 11, fontWeight: 700,
+                  color: 'hsl(var(--color-blue))', background: 'hsla(var(--color-blue),0.1)', border: '1px solid hsla(var(--color-blue),0.25)',
+                  padding: '3px 10px', borderRadius: 999, cursor: 'pointer' }}>
+                <Video size={12} /> Watch live
+              </button>
+            )}
+            <span style={{ fontSize: 11, fontWeight: 800, color: m.fg, background: m.bg, padding: '3px 10px', borderRadius: 999, flexShrink: 0 }}>
+              {m.label}
+            </span>
+          </div>
+        );
+      })}
+      {watch && <LiveView email={watch.email} name={watch.name} onClose={() => setWatch(null)} />}
+    </div>
+  );
+}
+
+const MON_SUBTABS = [
+  { id: 'coverage',    label: 'Coverage' },
+  { id: 'activity',    label: 'Activity' },
+  { id: 'policy',      label: 'Policy' },
+  { id: 'computers',   label: 'Computers' },
+  { id: 'screenshots', label: 'Screenshots' },
+];
+
+// Activity/Insights (apps, sites, active vs idle, productivity) for a chosen day.
+function ActivityInsights() {
+  const [day, setDay] = useState(() => new Date().toISOString().slice(0, 10));
+  const [people, setPeople] = useState([]);
+  useEffect(() => {
+    api.getPeopleDirectory()
+      .then(rows => setPeople((rows || []).map(u => ({ email: (u.email || '').toLowerCase(), name: u.name || u.display_name || u.email })).filter(p => p.email)))
+      .catch(() => setPeople([]));
+  }, []);
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+        <Activity size={16} style={{ color: 'hsl(var(--color-purple))' }} />
+        <span style={{ fontSize: 13.5, fontWeight: 800 }}>Activity &amp; Insights</span>
+        <div style={{ flex: 1 }} />
+        <input className="form-input" type="date" value={day} onChange={e => setDay(e.target.value)} style={{ fontSize: 12, width: 150 }} />
+      </div>
+      <TimeInsights start={day} end={day} people={people} />
+    </div>
+  );
+}
+
+export default function TimeTrackingAdmin({ initialSub = 'coverage', module = false }) {
   const [policy, setPolicy] = useState(null);
   const [policyMsg, setPolicyMsg] = useState(null);   // {ok, text}
   const [savingPolicy, setSavingPolicy] = useState(false);
+  const [sub, setSub] = useState(initialSub);
+  const [shotReq, setShotReq] = useState({ email: '', date: '' });   // Coverage -> Screenshots deep-link
+  useEffect(() => {
+    if (initialSub) setSub(initialSub);
+    // Opening Screenshots straight from the header/menu shows the people list -
+    // clear any leftover Coverage deep-link so it doesn't reopen the last person.
+    if (initialSub === 'screenshots') setShotReq({ email: '', date: '' });
+  }, [initialSub]);
   useEffect(() => { api.timeMonitoringPolicy().then(setPolicy).catch(() => setPolicy(null)); }, []);
 
   async function savePolicy() {
@@ -263,7 +552,46 @@ export default function TimeTrackingAdmin() {
   }
 
   return (
-    <div style={{ fontFamily: 'Inter,sans-serif', maxWidth: 640, margin: '0 auto' }}>
+    <div style={module
+      ? { fontFamily: 'Inter,sans-serif', animation: 'fadeIn var(--transition-normal) ease-in-out' }
+      : { fontFamily: 'Inter,sans-serif', maxWidth: 640, margin: '0 auto' }}>
+      {module && (
+        <div className="view-header" style={{ marginBottom: 0 }}>
+          <div className="view-title-group">
+            <h2>Employee Tracking</h2>
+            <p>Disclosed monitoring - coverage, activity, screenshots, and company computers</p>
+          </div>
+        </div>
+      )}
+      <style>{`@keyframes nexusDotPulse {
+        0% { box-shadow: 0 0 0 0 currentColor; }
+        70% { box-shadow: 0 0 0 5px transparent; }
+        100% { box-shadow: 0 0 0 0 transparent; }
+      }`}</style>
+
+      {/* Sub-tabs so the monitoring screen isn't one long scroll. */}
+      <div className="scroll-tabs" style={{ display: 'flex', gap: 4, marginTop: module ? 18 : 0, marginBottom: 16, borderBottom: '1px solid var(--line)' }}>
+        {MON_SUBTABS.map(t => (
+          <button key={t.id} onClick={() => { if (t.id === 'screenshots') setShotReq({ email: '', date: '' }); setSub(t.id); }}
+            style={{ padding: '8px 14px', border: 'none', background: 'none', cursor: 'pointer',
+              fontFamily: 'Inter, sans-serif', fontSize: 13, fontWeight: sub === t.id ? 700 : 500,
+              color: sub === t.id ? 'hsl(var(--color-green))' : 'var(--muted)',
+              borderBottom: sub === t.id ? '2px solid hsl(var(--color-green))' : '2px solid transparent',
+              marginBottom: -1 }}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {sub === 'coverage' && <LiveCoverage onOpenPerson={(email) => { setShotReq({ email, date: new Date().toISOString().slice(0, 10) }); setSub('screenshots'); }} />}
+
+      {sub === 'activity' && <ActivityInsights />}
+
+      {sub === 'screenshots' && (
+        <ScreenshotsAdmin embedded initialEmail={shotReq.email} initialDate={shotReq.date} onBack={() => { setShotReq({ email: '', date: '' }); setSub('coverage'); }} />
+      )}
+
+      {sub === 'policy' && (
       <div style={{ border: '1px solid var(--line)', borderRadius: 14, padding: '16px 18px', background: 'var(--card)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
           <ShieldCheck size={16} style={{ color: 'hsl(var(--color-green))' }} />
@@ -312,7 +640,9 @@ export default function TimeTrackingAdmin() {
           </div>
         </>)}
       </div>
-      <AgentInstall />
+      )}
+
+      {sub === 'computers' && <AgentInstall />}
     </div>
   );
 }

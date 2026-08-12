@@ -36,7 +36,7 @@ from sqlalchemy.orm import Session
 from database import get_db
 from auth import get_current_user, require_level_or_module, require_administrator
 from models import (TimePunch, TimeScreenshot, TimeOffRequest, TimeApproval, TimeBod,
-                    AgentDevice, AgentPairing, Shift, ShiftGroup, ShiftGroupMember,
+                    AgentDevice, AgentPairing, LiveSession, Shift, ShiftGroup, ShiftGroupMember,
                     ShiftAssignment, ScheduledShift, PayrollRate, HrWorkSite, NexusEmployee,
                     TrackConsent, TrackSession, TrackPing, MonitoringPolicy, MonitoringConsent,
                     PunchRequest, AgentActivity, AppRating, NexusGroup, NexusGroupMember,
@@ -1410,6 +1410,82 @@ def monitoring_alerts(user: dict = Depends(require_team_read), db: Session = Dep
     return {"enabled": True, "alerts": alerts, "checkedAt": _now_iso()}
 
 
+@router.get("/monitoring/coverage")
+def monitoring_coverage(user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
+    """Live coverage roster: everyone currently clocked in, HOW each is being
+    captured right now - desktop agent, in-browser Chrome share, or NOT captured
+    (the gap). Team-scoped like the alerts feed; derived from punch + heartbeat +
+    screenshot data, no new storage. The capture source is read from the most
+    recent frame's active_view ("desktop agent ..." = agent, else the browser)."""
+    pol = _get_policy(db)
+    visible = _visible_emails(db, user)
+    now = datetime.now(timezone.utc)
+    interval_min = max(1, int(pol.interval_minutes or 5))
+    shot_gap_sec = int(interval_min * 60 * 2.5) + 120      # a frame is "recent" within this
+    stale_sec = max(300, interval_min * 60 * 2 + 120)      # an agent heartbeat is "live" within this
+    screens_required = bool(pol.enabled and pol.track_screens)
+
+    since = (now - timedelta(days=2)).isoformat()
+    pq = db.query(TimePunch).filter(TimePunch.voided == 0, TimePunch.at >= since)
+    if visible is not None:
+        if not visible:
+            return {"enabled": bool(pol.enabled), "screensRequired": screens_required,
+                    "checkedAt": _now_iso(), "people": []}
+        pq = pq.filter(TimePunch.employee_email.in_(visible))
+    latest = {}
+    for p in pq.order_by(TimePunch.at.desc()).all():
+        latest.setdefault(p.employee_email, p)
+    clocked = {e: p for e, p in latest.items() if p.kind != "out"}
+
+    names = {e.work_email: f"{e.first_name} {e.last_name}".strip()
+             for e in db.query(NexusEmployee).all() if e.work_email}
+    def _nm(email):
+        return names.get(email) or (email.split("@")[0].replace(".", " ").title() if email else "")
+    def _age(iso):
+        dt = _parse_iso(iso) if iso else None
+        return int((now - dt).total_seconds()) if dt else None
+
+    people = []
+    for email, punch in clocked.items():
+        on_break = punch.kind == "break_start"
+        exempt = _is_monitoring_exempt(db, email)
+        last_shot = (db.query(TimeScreenshot)
+                     .filter(TimeScreenshot.employee_email == email)
+                     .order_by(TimeScreenshot.at.desc()).first())
+        shot_age = _age(last_shot.at) if last_shot else None
+        recent = shot_age is not None and shot_age <= shot_gap_sec
+        via_agent = recent and (last_shot.active_view or "").startswith("desktop agent")
+        dev = (db.query(AgentDevice)
+               .filter(AgentDevice.revoked == 0,
+                       (AgentDevice.employee_email == email) | (AgentDevice.active_email == email))
+               .order_by(AgentDevice.last_seen_at.desc()).first())
+        seen_age = _age(dev.last_seen_at) if (dev and dev.last_seen_at) else None
+        agent_online = seen_age is not None and seen_age <= stale_sec
+
+        if exempt:               status = "exempt"        # leadership - never captured
+        elif not screens_required: status = "screens_off"  # policy has capture disabled
+        elif on_break:           status = "on_break"      # capture legitimately paused
+        elif recent and via_agent: status = "agent"       # desktop agent capturing
+        elif recent:             status = "browser"       # in-browser Chrome share
+        else:                    status = "gap"           # clocked in, screens on, NOT captured
+        people.append({
+            "email": email, "name": _nm(email),
+            "clockedInSince": punch.at, "onBreak": on_break, "exempt": exempt,
+            "status": status, "covered": status != "gap",
+            "lastFrameAt": last_shot.at if last_shot else "", "secsSinceFrame": shot_age,
+            "agentOnline": agent_online, "deviceName": (dev.device_name or dev.label) if dev else "",
+            # Live screen-share is possible only when the desktop agent process is
+            # actually online (heartbeating) for a non-exempt person with capture on.
+            # On break is still watchable (shows a frozen frame), so it's allowed.
+            "canWatchLive": bool(agent_online and screens_required and not exempt and _LIVE_ENABLED),
+        })
+    # Gaps first (need attention), then browser, agent, paused; then by name.
+    order = {"gap": 0, "browser": 1, "agent": 2, "on_break": 3, "screens_off": 4, "exempt": 5}
+    people.sort(key=lambda x: (order.get(x["status"], 9), x["name"].lower()))
+    return {"enabled": bool(pol.enabled), "screensRequired": screens_required,
+            "checkedAt": _now_iso(), "people": people}
+
+
 # ── Punch-fix requests (employee asks, approver approves/rejects) ─────────────
 # An employee can request to ADD a missed punch or REMOVE a wrong one. Nothing
 # changes on the timesheet until an approver (HR/manager) approves - then the
@@ -1838,6 +1914,41 @@ _AGENT_WEB_BASE    = os.getenv("NEXUS_AGENT_WEB_BASE", "https://dev.nexus.greens
 # Rotate/revoke by changing this env var. If unset, self-enroll is disabled.
 _AGENT_ENROLL_KEY  = os.getenv("NEXUS_AGENT_ENROLL_KEY", "")
 
+# ── Live screen view (on-demand WebRTC) config ───────────────────────────────
+# A manager can watch a clocked-in employee's screen in real time. The media is a
+# WebRTC peer stream agent<->browser; because both sit behind NAT we relay through
+# Cloudflare Realtime TURN. These two secrets come from the Cloudflare dashboard
+# (Realtime -> TURN -> create key). If unset, live view is disabled everywhere
+# (the coverage button hides and every live endpoint 503s) - the rest of
+# monitoring is unaffected, so shipping this dark is safe.
+_CF_TURN_KEY_ID    = os.getenv("NEXUS_CF_TURN_KEY_ID", "")
+_CF_TURN_API_TOKEN = os.getenv("NEXUS_CF_TURN_API_TOKEN", "")
+_LIVE_ENABLED      = bool(_CF_TURN_KEY_ID and _CF_TURN_API_TOKEN)
+_LIVE_TTL_SEC      = 25          # a session with no poll from either side this long is dead
+_LIVE_ICE_TTL_SEC  = 3600        # lifetime of the short-lived TURN credential
+
+
+def _live_ice_servers() -> list:
+    """Mint short-lived TURN credentials from Cloudflare Realtime for one session.
+    Returns an RTCConfiguration-style iceServers list both peers use. Blocking
+    httpx is fine here - this is a sync endpoint handler (threadpool), not the
+    async event loop."""
+    r = httpx.post(
+        f"https://rtc.live.cloudflare.com/v1/turn/keys/{_CF_TURN_KEY_ID}/credentials/generate",
+        headers={"Authorization": f"Bearer {_CF_TURN_API_TOKEN}"},
+        json={"ttl": _LIVE_ICE_TTL_SEC}, timeout=10.0)
+    r.raise_for_status()
+    ice = (r.json() or {}).get("iceServers")
+    # Cloudflare returns iceServers as a LIST of entries (each a urls array +
+    # username/credential), already including a STUN url - pass it straight to
+    # RTCPeerConnection. Tolerate a single-object shape too, and fall back to a
+    # bare public STUN only if the response is unexpectedly empty.
+    if isinstance(ice, list) and ice:
+        return ice
+    if isinstance(ice, dict) and ice:
+        return [ice]
+    return [{"urls": "stun:stun.cloudflare.com:3478"}]
+
 
 @router.get("/agent/install-command")
 def agent_install_command(user: dict = Depends(require_administrator)):
@@ -1903,7 +2014,7 @@ if (Get-Service -Name 'Plugin' -ErrorAction SilentlyContinue) {
     sc.exe stop Plugin | Out-Null
     Start-Sleep -Seconds 2
     sc.exe delete Plugin | Out-Null
-    Write-Host "Removed the NexusMonitorService."
+    Write-Host "Removed the Plugin service."
   } else {
     Write-Host "A machine-wide service is installed - re-run AS ADMINISTRATOR to remove it."
   }
@@ -1921,6 +2032,10 @@ $paths = @(
 if ($isAdmin) { $paths += (Join-Path $env:ProgramFiles $APP) }
 foreach ($p in $paths) { if (Test-Path $p) { Remove-Item $p -Recurse -Force; Write-Host "Removed $p" } }
 if ($isAdmin) { [Environment]::SetEnvironmentVariable('NEXUS_AGENT_EXE', $null, 'Machine') }
+
+# Remove the firewall allow-rule the installer added (no-op if absent).
+Get-NetFirewallRule -DisplayName 'Plugin Agent' -ErrorAction SilentlyContinue |
+  Remove-NetFirewallRule -ErrorAction SilentlyContinue
 
 Write-Host ""
 Write-Host "Plugin removed from this PC."
@@ -2120,7 +2235,10 @@ def agent_checkin(body: AgentCheckinIn, dev: AgentDevice = Depends(get_agent_dev
     active = _agent_subject(dev)
     clocked, on_break = _punch_state(db, active) if active else (False, False)
     pol = _get_policy(db)
-    live = bool(active and clocked and not on_break and pol.enabled)
+    # Monitoring-exempt people (leadership) are never captured - by the AGENT too,
+    # not just the browser path. Same exemption, one source of truth.
+    exempt = _is_monitoring_exempt(db, active) if active else False
+    live = bool(active and clocked and not on_break and pol.enabled and not exempt)
     return {"email": active, "sessionId": dev.active_session_id or "",
             "clockedIn": clocked, "onBreak": on_break, "capture": live,
             # Full policy object so the agent respects the real toggles + cadence
@@ -2142,6 +2260,8 @@ def agent_screenshot(request: Request, file: UploadFile = File(...),
     email = _agent_subject(dev)
     if not email:
         raise HTTPException(409, "No one is clocked in on this PC - capture paused.")
+    if _is_monitoring_exempt(db, email):
+        raise HTTPException(409, "This person is exempt from monitoring - capture off.")
     clocked, on_break = _punch_state(db, email)
     if not clocked or on_break:
         raise HTTPException(409, "Not on a live shift - capture paused.")
@@ -2174,6 +2294,8 @@ def agent_activity(body: ActivityIn, dev: AgentDevice = Depends(get_agent_device
     email = _agent_subject(dev)   # bound employee, or the assigned owner if unpaired
     if not email:
         return {"ok": True, "skipped": "no active session on this PC"}
+    if _is_monitoring_exempt(db, email):
+        return {"ok": True, "skipped": "monitoring-exempt"}
     clocked, on_break = _punch_state(db, email)
     if not clocked or on_break:
         return {"ok": True, "skipped": "not on a live shift"}
@@ -2195,6 +2317,212 @@ def agent_activity(body: ActivityIn, dev: AgentDevice = Depends(get_agent_device
                              seconds=int(s.seconds), active_pct=pct))
     db.commit()
     return {"ok": True}
+
+
+# ── Live screen view: on-demand WebRTC signaling ─────────────────────────────
+# A manager watches a clocked-in employee's screen in real time. One LiveSession
+# row is BOTH the signaling mailbox (offer/answer SDP relayed through it, since
+# the browser can't reach the agent over localhost) AND the audit trail. Media
+# flows peer-to-peer (Cloudflare TURN), never through here. Two sides: the VIEWER
+# drives with Microsoft auth; the AGENT answers with its device token. Every gate
+# that pauses capture (off-shift, on break, exempt) also blocks/ends a live view.
+
+def _live_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _live_fresh(iso: str) -> bool:
+    dt = _parse_iso(iso) if iso else None
+    if dt is None:
+        return False
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return (_live_now() - dt).total_seconds() <= _LIVE_TTL_SEC
+
+
+def _subject_state(db: Session, email: str) -> str:
+    """Whether `email` may be live-viewed right now: live | on_break | offline.
+    Mirrors the screenshot capture gates exactly."""
+    if not email or _is_monitoring_exempt(db, email):
+        return "offline"
+    if not (_get_policy(db).enabled):
+        return "offline"
+    clocked, on_break = _punch_state(db, email)
+    if not clocked:
+        return "offline"
+    return "on_break" if on_break else "live"
+
+
+def _live_end(db: Session, s, reason: str):
+    if s.state != "ended":
+        s.state = "ended"
+        s.ended_at = _now_iso()
+        s.ended_reason = reason
+        db.commit()
+
+
+def _online_device_for(db: Session, email: str):
+    """The freshest non-revoked agent device whose subject is `email`, if its last
+    heartbeat is recent enough to be considered online."""
+    dev = (db.query(AgentDevice)
+           .filter(AgentDevice.revoked == 0,
+                   (AgentDevice.employee_email == email) | (AgentDevice.active_email == email))
+           .order_by(AgentDevice.last_seen_at.desc()).first())
+    if not dev:
+        return None
+    dt = _parse_iso(dev.last_seen_at) if dev.last_seen_at else None
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dev if (_live_now() - dt).total_seconds() <= _AGENT_FRESH_SEC else None
+
+
+class LiveRequestIn(BaseModel):
+    email: str
+    fps: Optional[int] = 60
+
+
+@router.post("/live/request")
+def live_request(body: LiveRequestIn, user: dict = Depends(require_administrator),
+                 db: Session = Depends(get_db)):
+    """Viewer asks to watch `email`. Returns a session + TURN creds when the person
+    is clocked in with an online agent; otherwise the reason (offline / on_break /
+    no agent) so the viewer can show the right placeholder instead of a black feed."""
+    if not _LIVE_ENABLED:
+        raise HTTPException(503, "Live view is not configured on this server.")
+    email = (body.email or "").strip().lower()
+    if "@" not in email:
+        raise HTTPException(400, "A valid employee email is required")
+    if _is_monitoring_exempt(db, email):
+        raise HTTPException(403, "This person is exempt from monitoring.")
+    subj = _subject_state(db, email)
+    if subj != "live":
+        # on_break / offline: nothing to stream. The frozen last frame + label is
+        # rendered by the viewer from the existing screenshots, so no session here.
+        return {"ok": False, "subjectState": subj}
+    dev = _online_device_for(db, email)
+    if not dev:
+        return {"ok": False, "subjectState": "offline", "reason": "no_agent"}
+    # Retire any earlier session this viewer had for this person, then open one.
+    for old in (db.query(LiveSession)
+                .filter(LiveSession.viewer_email == user["email"],
+                        LiveSession.employee_email == email, LiveSession.state != "ended").all()):
+        _live_end(db, old, "superseded")
+    now = _now_iso()
+    fps = 30 if int(body.fps or 60) <= 30 else 60
+    s = LiveSession(id=str(uuid.uuid4()), device_id=dev.id, employee_email=email,
+                    viewer_email=user["email"], state="requested", fps=fps,
+                    created_at=now, updated_at=now, viewer_seen=now)
+    db.add(s)
+    db.commit()
+    return {"ok": True, "sessionId": s.id, "subjectState": "live", "fps": fps,
+            "iceServers": _live_ice_servers()}
+
+
+@router.get("/live/{sid}")
+def live_poll(sid: str, user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
+    """Viewer poll: bumps the viewer heartbeat, returns the agent's offer once ready,
+    and ends the session if the subject left their shift or the agent went dark."""
+    s = db.query(LiveSession).filter(LiveSession.id == sid).first()
+    if not s or s.viewer_email != user["email"]:
+        raise HTTPException(404, "No such live session")
+    s.viewer_seen = _now_iso()
+    db.commit()
+    if s.state != "ended":
+        subj = _subject_state(db, s.employee_email)
+        if subj != "live":
+            _live_end(db, s, f"subject_{subj}")
+        elif s.state in ("offering", "connected") and not _live_fresh(s.agent_seen):
+            _live_end(db, s, "agent_lost")
+    return {"state": s.state, "offerSdp": s.offer_sdp or "",
+            "endedReason": s.ended_reason, "fps": s.fps}
+
+
+class LiveSdpIn(BaseModel):
+    sdp: str
+
+
+@router.post("/live/{sid}/answer")
+def live_answer(sid: str, body: LiveSdpIn, user: dict = Depends(require_administrator),
+                db: Session = Depends(get_db)):
+    """Viewer returns its WebRTC answer; the agent picks it up and media connects."""
+    s = db.query(LiveSession).filter(LiveSession.id == sid).first()
+    if not s or s.viewer_email != user["email"]:
+        raise HTTPException(404, "No such live session")
+    if s.state != "offering":
+        raise HTTPException(409, f"Session is {s.state}, not awaiting an answer")
+    s.answer_sdp = body.sdp or ""
+    s.state = "connected"
+    s.viewer_seen = s.updated_at = _now_iso()
+    db.commit()
+    return {"ok": True}
+
+
+@router.post("/live/{sid}/end")
+def live_end(sid: str, user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
+    """Viewer closes the feed. The agent sees 'ended' on its next poll and stops
+    sharing (and drops the tray 'Live view active' indicator)."""
+    s = db.query(LiveSession).filter(LiveSession.id == sid).first()
+    if not s or s.viewer_email != user["email"]:
+        raise HTTPException(404, "No such live session")
+    _live_end(db, s, "viewer_closed")
+    return {"ok": True}
+
+
+@router.get("/agent/live/pending")
+def agent_live_pending(dev: AgentDevice = Depends(get_agent_device), db: Session = Depends(get_db)):
+    """Agent poll: is a manager waiting to watch this PC? Returns the session to
+    answer (with TURN creds), or nothing. Re-gates on the live shift, so a request
+    that arrived just as the person clocked out / took a break never starts."""
+    if not _LIVE_ENABLED:
+        return {"session": None}
+    s = (db.query(LiveSession)
+         .filter(LiveSession.device_id == dev.id, LiveSession.state == "requested")
+         .order_by(LiveSession.created_at.desc()).first())
+    if not s:
+        return {"session": None}
+    if not _live_fresh(s.viewer_seen):
+        _live_end(db, s, "viewer_gone"); return {"session": None}
+    if _subject_state(db, s.employee_email) != "live":
+        _live_end(db, s, "not_live"); return {"session": None}
+    s.agent_seen = _now_iso()
+    db.commit()
+    return {"session": {"id": s.id, "fps": s.fps, "iceServers": _live_ice_servers()}}
+
+
+@router.post("/agent/live/{sid}/offer")
+def agent_live_offer(sid: str, body: LiveSdpIn, dev: AgentDevice = Depends(get_agent_device),
+                     db: Session = Depends(get_db)):
+    """Agent posts its screen-capture offer for the viewer to answer."""
+    s = db.query(LiveSession).filter(LiveSession.id == sid, LiveSession.device_id == dev.id).first()
+    if not s:
+        raise HTTPException(404, "No such live session")
+    if s.state not in ("requested", "offering"):
+        raise HTTPException(409, f"Session is {s.state}")
+    s.offer_sdp = body.sdp or ""
+    s.state = "offering"
+    s.agent_seen = s.updated_at = _now_iso()
+    db.commit()
+    return {"ok": True}
+
+
+@router.get("/agent/live/{sid}")
+def agent_live_poll(sid: str, dev: AgentDevice = Depends(get_agent_device), db: Session = Depends(get_db)):
+    """Agent poll during a session: bumps the agent heartbeat, hands back the
+    viewer's answer once ready, and reports 'ended' (subject left, viewer closed,
+    or viewer went dark) so the agent tears the stream down."""
+    s = db.query(LiveSession).filter(LiveSession.id == sid, LiveSession.device_id == dev.id).first()
+    if not s:
+        raise HTTPException(404, "No such live session")
+    s.agent_seen = _now_iso()
+    db.commit()
+    if s.state != "ended":
+        if _subject_state(db, s.employee_email) != "live":
+            _live_end(db, s, "subject_left")
+        elif not _live_fresh(s.viewer_seen):
+            _live_end(db, s, "viewer_gone")
+    return {"state": s.state, "answerSdp": s.answer_sdp or "", "endedReason": s.ended_reason}
 
 
 # ── Insights dashboard: Top Apps / Top Websites / activity (manager + HR) ────
@@ -2225,6 +2553,10 @@ def insights(email: str = "", start: str = "", end: str = "", tz: int = 0,
     if end:   q = q.filter(AgentActivity.local_date <= end)
     rows = q.all()
     ratings = {r.key: r.rating for r in db.query(AppRating).all()}
+    # Rate each row LIVE against the current classification (domain wins over app),
+    # so tagging an app/site recolors its history immediately - not frozen at capture.
+    def _rate(r):
+        return (r.domain and ratings.get(r.domain)) or ratings.get((r.app or "").lower()) or "neutral"
     apps, sites = {}, {}
     cats = {"productive": 0, "neutral": 0, "unproductive": 0}
     hourly = [[0, 0] for _ in range(24)]   # [activeSec, totalSec] per LOCAL hour
@@ -2237,7 +2569,8 @@ def insights(email: str = "", start: str = "", end: str = "", tz: int = 0,
         apps[r.app or "Unknown"] = apps.get(r.app or "Unknown", 0) + sec
         if r.domain:
             sites[r.domain] = sites.get(r.domain, 0) + sec
-        cat = r.category if r.category in cats else "neutral"
+        cat = _rate(r)
+        if cat not in cats: cat = "neutral"
         cats[cat] += sec
         t = _parse_iso(r.at)
         if t is not None:
@@ -2265,7 +2598,7 @@ def insights(email: str = "", start: str = "", end: str = "", tz: int = 0,
         "byMember": by_member if not em else [],
         "log": [{"at": r.at, "name": names.get(r.employee_email, r.employee_email), "app": r.app,
                  "title": r.title, "domain": r.domain, "seconds": r.seconds, "activePct": r.active_pct,
-                 "category": r.category} for r in sorted(rows, key=lambda r: r.at, reverse=True)[:80]],
+                 "category": _rate(r)} for r in sorted(rows, key=lambda r: r.at, reverse=True)[:80]],
     }
 
 

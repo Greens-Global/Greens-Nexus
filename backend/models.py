@@ -143,6 +143,43 @@ class ExternalLink(Base):
     category = Column(String, nullable=False)
     description = Column(String, default="")
     clicks = Column(Integer, default=0)
+    # Directory rebuild (Aug 2026, sourced from start.greensglobal.com): "" =
+    # shown to every department (company-wide app); a named department scopes
+    # the tile to that department's filtered view. `icon` is a lucide-react
+    # icon key resolved client-side, not a URL. sort_order is admin drag-order
+    # within a category; is_pinned floats a tile into "Pinned" regardless of
+    # department/category filters.
+    department = Column(String, default="")
+    icon = Column(String, default="Link2")
+    sort_order = Column(Integer, default=0)
+    is_pinned = Column(Boolean, default=False)
+    created_by = Column(String, default="")
+    created_at = Column(String, default="")
+    updated_at = Column(String, default="")
+    # Company filter (Aug 12) - HrEntity.id, same "" = every company / a named
+    # id scopes it convention as department above. Free-standing from
+    # department on purpose: a link can be company-wide but department-
+    # specific (e.g. Accounting at Greens India) or vice versa.
+    company = Column(String, default="")
+
+
+class PersonalLink(Base):
+    """Personal Links (Aug 2026) - an employee's own day-to-day shortcuts,
+    separate from the curated ExternalLink directory above. Private by
+    construction: every query filters on owner_email, so one person's rows
+    are never visible to another regardless of role - there is no "shared"
+    or admin-visible mode for this table."""
+    __tablename__ = "personal_links"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    owner_email = Column(String, nullable=False, index=True)
+    name = Column(String, nullable=False)
+    url = Column(String, nullable=False)
+    description = Column(String, default="")
+    icon = Column(String, default="Link2")
+    sort_order = Column(Integer, default=0)
+    clicks = Column(Integer, default=0)
+    created_at = Column(String, default="")
+    updated_at = Column(String, default="")
 
 
 class AccountingTrx(Base):
@@ -1442,6 +1479,33 @@ class AgentPairing(Base):
     device_id      = Column(String, default="")         # set when the agent claims it
     created_at     = Column(String, default="")
     used           = Column(Integer, default=0)
+
+
+class LiveSession(Base):
+    """One on-demand live-screen-share session (Discord-style). An admin viewer
+    requests to watch a clocked-in employee; the desktop agent on that PC answers
+    with a WebRTC screen stream. This row is BOTH the signaling mailbox (offer/
+    answer SDP passed through it, since the browser can't reach the agent over
+    localhost) AND the audit record of who watched whom, when. Media itself flows
+    peer-to-peer over WebRTC (relayed by Cloudflare TURN) - never through here.
+    States: requested -> offering -> connected -> ended (or 'error')."""
+    __tablename__ = "live_view_sessions"
+    id             = Column(String, primary_key=True)   # uuid
+    device_id      = Column(String, index=True, default="")
+    employee_email = Column(String, index=True, nullable=False)   # who is watched
+    viewer_email   = Column(String, index=True, nullable=False)   # the admin watching
+    state          = Column(String, default="requested")
+    offer_sdp      = Column(Text, default="")   # agent -> viewer (WebRTC offer)
+    answer_sdp     = Column(Text, default="")   # viewer -> agent (WebRTC answer)
+    fps            = Column(Integer, default=60)   # 1080p60 default; 30 is the only lower step
+    created_at     = Column(String, default="")
+    updated_at     = Column(String, default="")   # last change to state/sdp
+    # Each side stamps its own poll so a one-sided disconnect (viewer closes the
+    # tab, or the agent dies) is detected: alive only while BOTH are fresh.
+    viewer_seen    = Column(String, default="")
+    agent_seen     = Column(String, default="")
+    ended_at       = Column(String, default="")
+    ended_reason   = Column(String, default="")
 
 
 class Shift(Base):

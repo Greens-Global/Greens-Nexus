@@ -65,6 +65,7 @@ const MyHR                = lazy(() => import("./views/MyHR"));
 const Testing             = lazy(() => import("./views/Testing"));
 const CredentialVault     = lazy(() => import("./views/CredentialVault"));
 const Egnyte              = lazy(() => import("./views/Egnyte"));
+const EmployeeTracking    = lazy(() => import("./components/TimeTrackingAdmin"));
 
 const VIEW_LABELS = Object.fromEntries(MODULES.map(m => [m.id, m.label]));
 // Views that aren't registered MODULES (e.g. "purchase") fall back to a
@@ -102,6 +103,10 @@ const VIEW_MIN_ROLES = {
   'documents':          'supervisor',
   'marketing':          'supervisor',
   'admin':              'administrator',
+  // Employee Tracking (monitoring) module - IT Admin + Global Admin ONLY. The
+  // 'administrator' level here makes ProtectedView ignore group grants, so no
+  // Access Group can open it - exactly the two admin roles.
+  'employee-tracking':  'administrator',
   'testing':            'supervisor',   // dev-only module; grant-driven for testers below supervisor
   'credvault':          'supervisor',
   // Egnyte reads are open to any signed-in user server-side, but the backend
@@ -307,6 +312,7 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
     case "testing":            return <Testing />;
     case "credvault":          return <CredentialVault />;
     case "egnyte":             return <Egnyte activeSub={activeSub} onSubChange={onSubChange} />;
+    case "employee-tracking":  return <EmployeeTracking initialSub={activeSub} module />;
     case "privacy-policy":     return <PrivacyPolicy embedded />;
     case "terms-conditions":   return <TermsConditions embedded />;
     default:                   return <Placeholder viewName={activeView} onBack={() => onNavigate("dashboard")} />;
@@ -350,6 +356,7 @@ const DEFAULT_SUBS = {
   marketing:         "marketing-ads",
   accounting:        "transactions",
   egnyte:            "browse",
+  "employee-tracking": "coverage",
 };
 const getDefaultSub = view => DEFAULT_SUBS[view] ?? null;
 

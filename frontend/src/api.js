@@ -628,8 +628,21 @@ export const api = {
 
   // External Links
   getExternalLinks: () => req("/external-links"),
+  getExternalLinksMeta: () => req("/external-links/meta"),
   createExternalLink: (data) => req("/external-links", { method: "POST", body: JSON.stringify(data) }),
+  updateExternalLink: (id, data) => req(`/external-links/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  deleteExternalLink: (id) => req(`/external-links/${id}`, { method: "DELETE" }),
   clickExternalLink: (id) => req(`/external-links/${id}/click`, { method: "PATCH" }),
+  reorderExternalLinks: (entries) => req("/external-links/reorder", { method: "PATCH", body: JSON.stringify(entries) }),
+  importExternalLinks: (rows) => req("/external-links/import", { method: "POST", body: JSON.stringify({ rows }) }),
+
+  // Personal Links - private, owner-scoped shortcuts (never shared/admin-visible)
+  getPersonalLinks: () => req("/personal-links"),
+  createPersonalLink: (data) => req("/personal-links", { method: "POST", body: JSON.stringify(data) }),
+  updatePersonalLink: (id, data) => req(`/personal-links/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  deletePersonalLink: (id) => req(`/personal-links/${id}`, { method: "DELETE" }),
+  clickPersonalLink: (id) => req(`/personal-links/${id}/click`, { method: "PATCH" }),
+  reorderPersonalLinks: (entries) => req("/personal-links/reorder", { method: "PATCH", body: JSON.stringify(entries) }),
 
   // Nexus Roles
   getMyRole:    ()                    => cachedGet('/roles/me'),
@@ -1004,6 +1017,15 @@ export const api = {
   timeAgentAssignDevice: (id, email) => req(`/timeclock/agent/devices/${id}/assign`, { method: 'POST', body: JSON.stringify({ email }) }),
   // Hard-delete an enrolled PC record (cleanup after uninstall/decommission).
   timeAgentDeleteDevice: (id)    => req(`/timeclock/agent/devices/${id}`, { method: 'DELETE' }),
+  // Live coverage roster: who's clocked in + how they're captured (agent/browser/gap).
+  timeMonitoringCoverage: ()     => req('/timeclock/monitoring/coverage'),
+  // Live screen view (on-demand WebRTC). request returns a session + TURN creds
+  // when the person is clocked in with an online agent; poll for the agent's offer;
+  // answer with the browser's SDP; ping keeps it alive; end closes it.
+  timeLiveRequest:   (email, fps) => req('/timeclock/live/request', { method: 'POST', body: JSON.stringify({ email, fps: fps || 60 }) }),
+  timeLivePoll:      (id)        => req(`/timeclock/live/${id}`),
+  timeLiveAnswer:    (id, sdp)   => req(`/timeclock/live/${id}/answer`, { method: 'POST', body: JSON.stringify({ sdp }) }),
+  timeLiveEnd:       (id)        => req(`/timeclock/live/${id}/end`, { method: 'POST', body: '{}' }),
   // Field-worker location tracking (manager/HR views; device pings use X-Agent-Token from the native app, not these)
   trackLive:         ()            => req('/timeclock/track/live'),
   trackPath:         (email, date) => req(`/timeclock/track/path?email=${encodeURIComponent(email)}&date=${date}`),

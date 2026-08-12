@@ -14,6 +14,7 @@ import {
   KeyRound,
   Briefcase, FileSignature, ArrowDownToLine, ArrowUpFromLine,
   HardDrive, FolderOpen, MapPin, ClipboardList,
+  MonitorDot,
 } from "lucide-react";
 import TicketToken from "./icons/TicketToken";
 
@@ -24,6 +25,11 @@ export const NAV = [
   { view: "myhr", code: "MHR",              label: "My HR",              icon: Contact },
   { view: "manager-dashboard", code: "MGR", label: "Manager Dashboard",  icon: UserCheck,    minRole: 'supervisor' },
   { view: "locations", code: "LOC",         label: "Locations",          icon: MapPin,       minRole: 'supervisor' },
+  // Employee Tracking (disclosed monitoring dashboard). minRole 'administrator' +
+  // NOT a grantable MODULE => visible ONLY to IT Admin (administrator) and Global
+  // Admin (owner), on desktop and mobile. The route is hard-gated too (App.jsx
+  // VIEW_MIN_ROLES). Do NOT add it to MODULES or a group could grant it.
+  { view: "employee-tracking", code: "EMP", label: "Employee Tracking",  icon: MonitorDot,   minRole: 'administrator' },
   { divider: true },
   // Tasks + Tickets are grant-driven like every other module (Aug 10): they
   // only appear when an Access Group / job role grants them (most job roles

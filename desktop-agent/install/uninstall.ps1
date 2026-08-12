@@ -23,7 +23,7 @@ if (Get-Service -Name 'Plugin' -ErrorAction SilentlyContinue) {
     sc.exe stop Plugin | Out-Null
     Start-Sleep -Seconds 2
     sc.exe delete Plugin | Out-Null
-    Write-Host "Removed the NexusMonitorService."
+    Write-Host "Removed the Plugin service."
   } else {
     Write-Host "A machine-wide service is installed - re-run this AS ADMINISTRATOR to remove it."
   }
@@ -49,6 +49,10 @@ foreach ($p in $paths) {
 
 # 5. Clear the machine-wide agent-exe override the installer set (service mode).
 if ($isAdmin) { [Environment]::SetEnvironmentVariable('NEXUS_AGENT_EXE', $null, 'Machine') }
+
+# 6. Remove the firewall allow-rule the installer added (no-op if absent).
+Get-NetFirewallRule -DisplayName 'Plugin Agent' -ErrorAction SilentlyContinue |
+  Remove-NetFirewallRule -ErrorAction SilentlyContinue
 
 Write-Host ""
 Write-Host "Plugin removed from this PC."
