@@ -345,7 +345,12 @@ export default function TimeTrackingAdmin({ initialSub = 'coverage' }) {
   const [savingPolicy, setSavingPolicy] = useState(false);
   const [sub, setSub] = useState(initialSub);
   const [shotReq, setShotReq] = useState({ email: '', date: '' });   // Coverage -> Screenshots deep-link
-  useEffect(() => { if (initialSub) setSub(initialSub); }, [initialSub]);
+  useEffect(() => {
+    if (initialSub) setSub(initialSub);
+    // Opening Screenshots straight from the header/menu shows the people list -
+    // clear any leftover Coverage deep-link so it doesn't reopen the last person.
+    if (initialSub === 'screenshots') setShotReq({ email: '', date: '' });
+  }, [initialSub]);
   useEffect(() => { api.timeMonitoringPolicy().then(setPolicy).catch(() => setPolicy(null)); }, []);
 
   async function savePolicy() {
@@ -379,7 +384,7 @@ export default function TimeTrackingAdmin({ initialSub = 'coverage' }) {
       {/* Sub-tabs so the monitoring screen isn't one long scroll. */}
       <div className="scroll-tabs" style={{ display: 'flex', gap: 4, marginBottom: 16, borderBottom: '1px solid var(--line)' }}>
         {MON_SUBTABS.map(t => (
-          <button key={t.id} onClick={() => setSub(t.id)}
+          <button key={t.id} onClick={() => { if (t.id === 'screenshots') setShotReq({ email: '', date: '' }); setSub(t.id); }}
             style={{ padding: '8px 14px', border: 'none', background: 'none', cursor: 'pointer',
               fontFamily: 'Inter, sans-serif', fontSize: 13, fontWeight: sub === t.id ? 700 : 500,
               color: sub === t.id ? 'hsl(var(--color-green))' : 'var(--muted)',
@@ -393,7 +398,7 @@ export default function TimeTrackingAdmin({ initialSub = 'coverage' }) {
       {sub === 'coverage' && <LiveCoverage onOpenPerson={(email) => { setShotReq({ email, date: new Date().toISOString().slice(0, 10) }); setSub('screenshots'); }} />}
 
       {sub === 'screenshots' && (
-        <ScreenshotsAdmin embedded initialEmail={shotReq.email} initialDate={shotReq.date} onBack={() => setSub('coverage')} />
+        <ScreenshotsAdmin embedded initialEmail={shotReq.email} initialDate={shotReq.date} onBack={() => { setShotReq({ email: '', date: '' }); setSub('coverage'); }} />
       )}
 
       {sub === 'policy' && (
