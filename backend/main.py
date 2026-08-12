@@ -998,6 +998,18 @@ async def lifespan(app: FastAPI):
                 print("[startup] screenshot bucket migration skipped (not the sync worker)")
         except Exception as e:
             print(f"[startup] screenshot bucket migration skipped: {e}")
+        # Retention sweep: delete monitoring frames older than
+        # NEXUS_SHOT_RETENTION_DAYS (default 90). Same gating story as the
+        # migration above - live storage deletes belong to the sync worker only.
+        try:
+            from asana_sync import is_sync_worker as _is_sync_worker4
+            if _is_sync_worker4():
+                from screenshot_retention import screenshot_retention_loop
+                _tasks.append(_a.create_task(screenshot_retention_loop()))
+            else:
+                print("[startup] screenshot retention sweep skipped (not the sync worker)")
+        except Exception as e:
+            print(f"[startup] screenshot retention sweep skipped: {e}")
         try:
             from asana_sync import is_sync_worker as _is_sync_worker
             if _is_sync_worker():
