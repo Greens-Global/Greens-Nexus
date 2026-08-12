@@ -9,8 +9,8 @@ import ImageLightbox from './ImageLightbox';
 
 const localTime = (iso) => iso ? new Date(iso + 'Z').toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
 
-export default function ScreenshotsAdmin({ onClose }) {
-  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
+export default function ScreenshotsAdmin({ onClose, embedded = false, initialEmail = '', initialDate = '' }) {
+  const [date, setDate] = useState(() => initialDate || new Date().toISOString().slice(0, 10));
   const [people, setPeople] = useState(null);
   const [who, setWho] = useState(null);       // {email, name}
   const [shots, setShots] = useState(null);
@@ -28,13 +28,19 @@ export default function ScreenshotsAdmin({ onClose }) {
     api.timeShots(date, who.email).then(r => setShots(r.shots || [])).catch(() => setShots([]));
   }, [who, date]);
 
+  // Deep-link: jump straight to a person's batch when opened with an email.
+  useEffect(() => { if (initialDate) setDate(initialDate); }, [initialDate]);
+  useEffect(() => {
+    if (!initialEmail || who || people === null) return;
+    const p = (people || []).find(x => (x.email || '').toLowerCase() === initialEmail.toLowerCase());
+    setWho(p || { email: initialEmail, name: initialEmail });
+  }, [initialEmail, people, who]);
 
-  return (
-    <>
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1450, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
-      onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 900, maxHeight: 'min(92dvh, 760px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
-        <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
+  const body = (
+      <div style={embedded
+        ? { display: 'flex', flexDirection: 'column', fontFamily: 'Inter,sans-serif' }
+        : { background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 900, maxHeight: 'min(92dvh, 760px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
+        <div style={{ padding: embedded ? '0 0 12px' : '14px 20px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
           {who && (
             <button onClick={() => setWho(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 2 }}>
               <ChevronLeft size={17} />
@@ -45,10 +51,10 @@ export default function ScreenshotsAdmin({ onClose }) {
             Screenshots{who ? ` - ${who.name}` : ''}
           </h3>
           <input className="form-input" type="date" value={date} onChange={e => setDate(e.target.value)} style={{ fontSize: 12, width: 150 }} />
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
+          {!embedded && <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>}
         </div>
 
-        <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px' }}>
+        <div style={{ flex: 1, overflowY: 'auto', padding: embedded ? '16px 0 0' : '16px 20px' }}>
           {!who && (
             people === null
               ? <div style={{ textAlign: 'center', padding: 30, color: 'var(--muted)' }}><Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} /></div>
@@ -94,9 +100,17 @@ export default function ScreenshotsAdmin({ onClose }) {
           )}
         </div>
       </div>
-    </div>
+  );
 
-    <ImageLightbox shots={shots} index={viewIdx} setIndex={setViewIdx} />
+  return (
+    <>
+      {embedded ? body : (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1450, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+          onClick={e => e.target === e.currentTarget && onClose()}>
+          {body}
+        </div>
+      )}
+      <ImageLightbox shots={shots} index={viewIdx} setIndex={setViewIdx} />
     </>
   );
 }

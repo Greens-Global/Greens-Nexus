@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { ShieldCheck, Loader2, Check, MonitorSmartphone, Copy, Ban, TriangleAlert, Trash2, Activity, ChevronDown } from 'lucide-react';
 import { api } from '../api';
+import { Avatar } from '../tasks/components';
 
 // Human "last seen" from a seconds delta.
 function relSeen(secs) {
@@ -304,10 +305,18 @@ function LiveCoverage() {
           ? (p.status === 'gap' ? `last frame ${relSeen(p.secsSinceFrame)}` : `frame ${relSeen(p.secsSinceFrame)}`)
           : (p.status === 'gap' ? 'no frames yet' : '');
         return (
-          <div key={p.email} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--line)' }}>
+          <div key={p.email} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '8px 0', borderBottom: '1px solid var(--line)' }}>
             <Dot color={m.fg} pulse={m.pulse} dim={!m.pulse} title={m.label} />
+            <Avatar email={p.email} name={p.name} size={26} card={false} />
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 12.5, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</div>
+              <button
+                onClick={() => window.dispatchEvent(new CustomEvent('nexus:open-screenshots', { detail: { email: p.email, date: new Date().toISOString().slice(0, 10) } }))}
+                title="View today's screenshots"
+                style={{ display: 'block', maxWidth: '100%', background: 'none', border: 'none', padding: 0, cursor: 'pointer', textAlign: 'left',
+                  fontFamily: 'Inter, sans-serif', fontSize: 12.5, fontWeight: 600, color: 'var(--ink)', textDecoration: 'underline', textDecorationColor: 'var(--line)', textUnderlineOffset: 2,
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {p.name}
+              </button>
               <div style={{ fontSize: 11, color: 'var(--muted)' }}>
                 {[p.deviceName, frame].filter(Boolean).join(' · ') || (p.onBreak ? 'on break' : '')}
               </div>

@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect, useMemo, lazy, Suspense } from "react";
 import { Menu, Search, LogOut, Settings, User, ArrowLeft, Shield, Activity, Check, ChevronDown, LayoutDashboard, Camera, Clock, Sparkles, X, UserCog, DoorOpen } from "lucide-react";
-import ScreenshotsAdmin from "./ScreenshotsAdmin";
 const Changelog = lazy(() => import("../tasks/ChangelogView"));
 import NotificationBell from "./NotificationBell";
 import PageHelp from "./PageHelp";
@@ -83,7 +82,6 @@ export default function TopHeader({ title, theme, onThemeToggle, sidebarPinned, 
   }, []);
 
   const [open,         setOpen]         = useState(false);
-  const [shotsOpen,    setShotsOpen]    = useState(false);   // Admin → Screenshots gallery
   const [changelogOpen, setChangelogOpen] = useState(false); // Profile → What's new
   const [searchQuery,  setSearchQuery]  = useState('');
   const [searchOpen,   setSearchOpen]   = useState(false);
@@ -499,13 +497,13 @@ export default function TopHeader({ title, theme, onThemeToggle, sidebarPinned, 
                     style={{ color: 'hsl(var(--color-purple))' }}>
                     <Activity size={14} /> Audit Logs
                   </button>
-                  <button className="hud-item" onClick={() => { setOpen(false); setShotsOpen(true); }}
+                  <button className="hud-item" onClick={() => { setOpen(false); onOpenAdmin?.('screenshots'); }}
                     style={{ color: 'hsl(var(--color-purple))' }}>
                     <Camera size={14} /> Screenshots
                   </button>
                   <button className="hud-item" onClick={() => { setOpen(false); onOpenAdmin?.('timetracking'); }}
                     style={{ color: 'hsl(var(--color-purple))' }}>
-                    <Clock size={14} /> Time Tracking
+                    <Clock size={14} /> Employee Tracking
                   </button>
                 </>
               )}
@@ -518,7 +516,6 @@ export default function TopHeader({ title, theme, onThemeToggle, sidebarPinned, 
           )}
         </div>
       </div>
-      {shotsOpen && <ScreenshotsAdmin onClose={() => setShotsOpen(false)} />}
       {changelogOpen && (
         <Suspense fallback={null}>
           <Changelog onClose={() => setChangelogOpen(false)} />

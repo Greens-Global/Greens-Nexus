@@ -1,12 +1,13 @@
 import { useState, useEffect, useCallback, useRef, Fragment } from 'react';
 
 const FragmentRow = Fragment;   // expanded audit rows render as <tr> pairs
-import { X, Shield, Activity, Search, RefreshCw, ChevronDown, Users, Clock, Palette, Check, Loader2 } from 'lucide-react';
+import { X, Shield, Activity, Search, RefreshCw, ChevronDown, Users, Clock, Palette, Check, Loader2, Camera } from 'lucide-react';
 import { useRole } from '../contexts/RoleContext';
 import { api } from '../api';
 import { useNameResolver } from '../lib/useNameResolver';
 import Admin from '../views/Admin';
 import TimeTrackingAdmin from './TimeTrackingAdmin';
+import ScreenshotsAdmin from './ScreenshotsAdmin';
 import { applyBrandAccent } from '../lib/brandAccent';
 import { formatDateTime } from '../lib/datetime';
 
@@ -408,9 +409,17 @@ function BrandingSettings() {
 export default function AdminPanel({ open, initialTab = 'audit', onClose }) {
   const { can } = useRole();
   const [tab, setTab] = useState(initialTab);
+  const [shotReq, setShotReq] = useState({ email: '', date: '' });   // deep-link into Screenshots
   const panelRef = useRef(null);
 
   useEffect(() => { setTab(initialTab); }, [initialTab]);
+
+  // Live Coverage rows fire this to jump to a person's screenshot batch.
+  useEffect(() => {
+    const h = (e) => { setShotReq({ email: e.detail?.email || '', date: e.detail?.date || '' }); setTab('screenshots'); };
+    window.addEventListener('nexus:open-screenshots', h);
+    return () => window.removeEventListener('nexus:open-screenshots', h);
+  }, []);
 
   // Close on ESC
   useEffect(() => {
@@ -430,10 +439,14 @@ export default function AdminPanel({ open, initialTab = 'audit', onClose }) {
 
   // Access Manager retired (Jul 2026) - roles/job-roles/groups moved to
   // People → Roles & Access, and per-person access is set on the employee card.
+  // Drawer tabs mirror the avatar-menu ADMIN items (Roles & Access, Audit Logs,
+  // Screenshots, Employee Tracking) + Branding.
   const tabs = [
-    { id: 'audit',  icon: <Activity size={14} />, label: 'Audit Logs' },
-    { id: 'timetracking', icon: <Clock size={14} />, label: 'Monitoring' },
-    { id: 'branding', icon: <Palette size={14} />, label: 'Branding' },
+    { id: 'access',       icon: <Shield size={14} />,   label: 'Roles & Access' },
+    { id: 'audit',        icon: <Activity size={14} />, label: 'Audit Logs' },
+    { id: 'screenshots',  icon: <Camera size={14} />,   label: 'Screenshots' },
+    { id: 'timetracking', icon: <Clock size={14} />,    label: 'Employee Tracking' },
+    { id: 'branding',     icon: <Palette size={14} />,  label: 'Branding' },
   ];
 
   return (
@@ -518,6 +531,7 @@ export default function AdminPanel({ open, initialTab = 'audit', onClose }) {
             </div>
           )}
           {tab === 'audit'  && <AuditLogs />}
+          {tab === 'screenshots' && <ScreenshotsAdmin embedded initialEmail={shotReq.email} initialDate={shotReq.date} />}
           {tab === 'timetracking' && <TimeTrackingAdmin />}
           {tab === 'branding' && <BrandingSettings />}
         </div>
