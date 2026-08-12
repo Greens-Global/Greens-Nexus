@@ -66,7 +66,7 @@ export default function ImageLightbox({ shots, index, setIndex }) {
       <img src={s.url} alt={`Capture ${t(s.at)}`} onClick={e => e.stopPropagation()}
         style={{ maxWidth: '90vw', maxHeight: '80vh', objectFit: 'contain', borderRadius: 8, boxShadow: '0 10px 50px rgba(0,0,0,0.6)',
           transform: shown ? 'scale(1)' : 'scale(0.94)', opacity: shown ? 1 : 0,
-          transition: 'transform .22s cubic-bezier(0.34, 1.2, 0.64, 1), opacity .18s ease' }} />
+          transition: 'transform .24s cubic-bezier(0.16, 1, 0.3, 1), opacity .18s ease' }} />
       <button onClick={(e) => step(e, 1)} disabled={atEnd} aria-label="Next frame" style={{ ...navBtn('right', atEnd), opacity: shown ? (atEnd ? 0.25 : 1) : 0, transition: 'opacity .2s ease' }}><ChevronRight size={26} /></button>
     </div>
   );
