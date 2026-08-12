@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
-import { ShieldCheck, Loader2, Check } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { ShieldCheck, Loader2, Check, MonitorSmartphone, Copy, Ban, TriangleAlert } from 'lucide-react';
 import { api } from '../api';
+import { formatDate } from '../lib/datetime';
 
 // ── Monitoring policy (admin) ─────────────────────────────────────────────────
 // Central control of what Nexus records while people are clocked in. Capture
@@ -26,6 +27,115 @@ function PolicySwitch({ on, onToggle }) {
       <span style={{ display: 'block', width: 18, height: 18, borderRadius: '50%', background: '#fff',
         transform: on ? 'translateX(18px)' : 'translateX(0)', transition: 'transform .15s ease', boxShadow: '0 1px 2px rgba(0,0,0,0.25)' }} />
     </button>
+  );
+}
+
+// ── Company computers (desktop monitoring agent) ──────────────────────────────
+// The one reusable install command + the list of enrolled PCs. The agent is
+// disclosed (visible tray, named process); the command is identical on every PC
+// and each machine self-enrolls its own identity at install time.
+function AgentInstall() {
+  const [info, setInfo] = useState(null);      // { configured, command, note } | null loading | false error
+  const [devices, setDevices] = useState(null);
+  const [copied, setCopied] = useState(false);
+
+  const loadDevices = useCallback(() => {
+    api.timeAgentDevices()
+      .then(r => setDevices((r.devices || []).filter(d => !(d.label || '').toLowerCase().includes('phone'))))
+      .catch(() => setDevices([]));
+  }, []);
+  useEffect(() => {
+    api.timeAgentInstallCommand().then(setInfo).catch(() => setInfo(false));
+    loadDevices();
+  }, [loadDevices]);
+
+  function copy() {
+    if (!info?.command) return;
+    navigator.clipboard?.writeText(info.command).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    }).catch(() => {});
+  }
+
+  async function revoke(id) {
+    try { await api.timeAgentRevoke(id); loadDevices(); } catch { /* stays listed; retry */ }
+  }
+
+  const card = { border: '1px solid var(--line)', borderRadius: 14, padding: '16px 18px', background: 'var(--card)', marginTop: 16 };
+
+  return (
+    <div style={card}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+        <MonitorSmartphone size={16} style={{ color: 'hsl(var(--color-blue))' }} />
+        <span style={{ fontSize: 13.5, fontWeight: 800 }}>Company Computers</span>
+      </div>
+      <p style={{ margin: '0 0 12px', fontSize: 12, color: 'var(--muted)', lineHeight: 1.55 }}>
+        Installs the Nexus monitoring agent on a company PC. It's the <b>same command on every machine</b> -
+        each PC enrolls its own identity automatically. The agent is disclosed: a visible tray icon that turns
+        green while capturing, a named process in Task Manager, and it records only while someone is clocked in.
+      </p>
+
+      {info === null ? (
+        <div style={{ fontSize: 12.5, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+          <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Loading install command…
+        </div>
+      ) : info === false ? (
+        <div style={{ fontSize: 12.5, color: '#b91c1c' }}>Could not load the install command.</div>
+      ) : (<>
+        {!info.configured && (
+          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', background: 'hsla(var(--color-orange),0.1)', border: '1px solid hsla(var(--color-orange),0.35)', borderRadius: 10, padding: '9px 12px', marginBottom: 10 }}>
+            <TriangleAlert size={14} style={{ color: 'hsl(var(--color-orange))', flexShrink: 0, marginTop: 1 }} />
+            <span style={{ fontSize: 11.5, color: 'var(--ink)', lineHeight: 1.5 }}>
+              Not fully configured yet - the server is missing the hosted installer URL, bundle URL, or enrollment
+              key, so the placeholders below won't run. Set <code>NEXUS_AGENT_INSTALL_URL</code>,{' '}
+              <code>NEXUS_AGENT_BUNDLE_URL</code>, and <code>NEXUS_AGENT_ENROLL_KEY</code> on the backend.
+            </span>
+          </div>
+        )}
+
+        <div style={{ position: 'relative', border: '1px solid var(--line)', borderRadius: 10, background: 'var(--mist)' }}>
+          <pre style={{ margin: 0, padding: '12px 44px 12px 12px', fontSize: 11.5, lineHeight: 1.5, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', color: 'var(--ink)', overflowX: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{info.command}</pre>
+          <button onClick={copy} title="Copy command"
+            style={{ position: 'absolute', top: 8, right: 8, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 8, cursor: 'pointer', padding: '5px 8px', display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: copied ? 'hsl(var(--color-green))' : 'var(--muted)' }}>
+            {copied ? <><Check size={12} /> Copied</> : <><Copy size={12} /> Copy</>}
+          </button>
+        </div>
+        <p style={{ margin: '9px 0 0', fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.5 }}>
+          Run it in an <b>elevated</b> (Administrator) PowerShell or Command Prompt to install the employee-proof
+          service that covers every profile on the PC. A normal prompt does a removable per-user install.
+        </p>
+      </>)}
+
+      {/* Enrolled computers */}
+      <div style={{ marginTop: 18, borderTop: '1px solid var(--line)', paddingTop: 14 }}>
+        <div style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 8 }}>
+          Enrolled computers
+        </div>
+        {devices === null ? (
+          <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Loading…</div>
+        ) : devices.length === 0 ? (
+          <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No computers enrolled yet.</div>
+        ) : devices.map(d => (
+          <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--line)' }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 12.5, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {d.deviceName || d.label || 'Unnamed PC'}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+                {[d.platform, d.deviceUser].filter(Boolean).join(' · ') || 'company PC'}
+              </div>
+            </div>
+            <span style={{ fontSize: 11, color: 'var(--muted)', flexShrink: 0 }}>
+              {d.lastSeen ? `seen ${formatDate(d.lastSeen + 'Z', '-')}` : 'never seen'}
+            </span>
+            <button onClick={() => revoke(d.id)} title="Revoke this computer's token"
+              style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, cursor: 'pointer', color: '#b91c1c', padding: '3px 8px', display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11.5, flexShrink: 0 }}>
+              <Ban size={12} /> Revoke
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -105,6 +215,7 @@ export default function TimeTrackingAdmin() {
           </div>
         </>)}
       </div>
+      <AgentInstall />
     </div>
   );
 }
