@@ -991,6 +991,8 @@ export const api = {
   timeAgentAssignDevice: (id, email) => req(`/timeclock/agent/devices/${id}/assign`, { method: 'POST', body: JSON.stringify({ email }) }),
   // Hard-delete an enrolled PC record (cleanup after uninstall/decommission).
   timeAgentDeleteDevice: (id)    => req(`/timeclock/agent/devices/${id}`, { method: 'DELETE' }),
+  // Live coverage roster: who's clocked in + how they're captured (agent/browser/gap).
+  timeMonitoringCoverage: ()     => req('/timeclock/monitoring/coverage'),
   // Field-worker location tracking (manager/HR views; device pings use X-Agent-Token from the native app, not these)
   trackLive:         ()            => req('/timeclock/track/live'),
   trackPath:         (email, date) => req(`/timeclock/track/path?email=${encodeURIComponent(email)}&date=${date}`),

@@ -104,6 +104,10 @@ export default function TimeclockWidget() {
   // Disclosed-monitoring policy drives whether capture is offered and its cadence.
   const mon = status?.monitoring;
   const canCapture = !!(mon?.enabled && mon?.trackScreens);
+  // When the desktop agent covers this PC it does the capturing, so the browser's
+  // capture control is irrelevant here - hide it (showing "Capture off" would read
+  // as "nothing is recording" when the agent actually is).
+  const agentActive = !!mon?.agentActive;
   const intervalMin = Math.max(1, mon?.intervalMinutes || 5);
   gapRef.current = intervalMin * 60 * 1000;
   randomizeRef.current = !!mon?.randomize;
@@ -318,8 +322,9 @@ export default function TimeclockWidget() {
               {onBreak ? 'On Break' : 'Working'}
             </span>
           </button>
-          {/* Disclosed-monitoring: capture control only appears when the policy enables screen tracking. */}
-          {canCapture && (
+          {/* Capture control appears only when the BROWSER is the capturer: policy
+              enables screens AND no desktop agent covers this PC. */}
+          {canCapture && !agentActive && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <button onClick={capturing ? stopCapture : startCapture}
                 title={paused ? 'Screen capture is paused for your break - no frames are saved until you end the break. Click to stop capture entirely.'
@@ -361,8 +366,8 @@ export default function TimeclockWidget() {
         <span style={{ fontSize: 13.5, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: 'var(--ink)' }}>
           {fmtHMS(elapsedSec)}
         </span>
-        {/* Capture stays visibly disclosed even while collapsed. */}
-        {canCapture && capturing > 0 && (paused ? <MonitorPause size={12} style={{ color: capTint }} /> : <MonitorUp size={12} style={{ color: capTint }} />)}
+        {/* Browser capture indicator (only when the browser is the capturer). */}
+        {canCapture && !agentActive && capturing > 0 && (paused ? <MonitorPause size={12} style={{ color: capTint }} /> : <MonitorUp size={12} style={{ color: capTint }} />)}
         <ChevronUp size={13} style={{ color: 'var(--muted)', transform: expanded ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }} />
       </button>
     </div>

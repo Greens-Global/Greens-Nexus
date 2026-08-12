@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { ShieldCheck, Loader2, Check, MonitorSmartphone, Copy, Ban, TriangleAlert, Trash2 } from 'lucide-react';
+import { ShieldCheck, Loader2, Check, MonitorSmartphone, Copy, Ban, TriangleAlert, Trash2, Activity } from 'lucide-react';
 import { api } from '../api';
 
 // Human "last seen" from a seconds delta.
@@ -236,6 +236,77 @@ function AgentInstall() {
   );
 }
 
+// ── Live coverage (who's clocked in + how they're captured) ───────────────────
+const COV_META = {
+  agent:       { label: 'Desktop agent', fg: 'hsl(var(--color-green))',  bg: 'hsla(var(--color-green),0.12)' },
+  browser:     { label: 'Chrome share',  fg: 'hsl(var(--color-blue))',   bg: 'hsla(var(--color-blue),0.12)' },
+  on_break:    { label: 'On break',      fg: 'hsl(var(--color-orange))', bg: 'hsla(var(--color-orange),0.12)' },
+  exempt:      { label: 'Exempt',        fg: 'var(--muted)',             bg: 'var(--mist)' },
+  screens_off: { label: 'Screens off',   fg: 'var(--muted)',             bg: 'var(--mist)' },
+  gap:         { label: 'Not captured',  fg: 'hsl(var(--color-red))',    bg: 'hsla(var(--color-red),0.12)' },
+};
+
+function LiveCoverage() {
+  const [data, setData] = useState(null);   // {people,...} | null loading | false error
+  const load = useCallback(() => {
+    api.timeMonitoringCoverage().then(setData).catch(() => setData(false));
+  }, []);
+  useEffect(() => {
+    load();
+    const iv = setInterval(load, 20000);   // keep the roster live
+    return () => clearInterval(iv);
+  }, [load]);
+
+  const people = (data && data.people) || [];
+  const gaps = people.filter(p => p.status === 'gap').length;
+
+  return (
+    <div style={{ border: '1px solid var(--line)', borderRadius: 14, padding: '16px 18px', background: 'var(--card)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+        <Activity size={16} style={{ color: 'hsl(var(--color-green))' }} />
+        <span style={{ fontSize: 13.5, fontWeight: 800 }}>Live Coverage</span>
+        <div style={{ flex: 1 }} />
+        {gaps > 0 && (
+          <span style={{ fontSize: 11, fontWeight: 800, color: 'hsl(var(--color-red))', background: 'hsla(var(--color-red),0.1)', padding: '2px 9px', borderRadius: 999 }}>
+            {gaps} not captured
+          </span>
+        )}
+      </div>
+      <p style={{ margin: '0 0 12px', fontSize: 12, color: 'var(--muted)', lineHeight: 1.5 }}>
+        Everyone clocked in right now and how their screen is being captured - desktop agent, in-browser Chrome share,
+        or a gap that needs attention. Refreshes automatically.
+      </p>
+      {data === null ? (
+        <div style={{ fontSize: 12.5, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+          <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Loading…
+        </div>
+      ) : data === false ? (
+        <div style={{ fontSize: 12.5, color: '#b91c1c' }}>Could not load coverage.</div>
+      ) : people.length === 0 ? (
+        <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No one is clocked in right now.</div>
+      ) : people.map(p => {
+        const m = COV_META[p.status] || COV_META.gap;
+        const frame = (p.secsSinceFrame != null)
+          ? (p.status === 'gap' ? `last frame ${relSeen(p.secsSinceFrame)}` : `frame ${relSeen(p.secsSinceFrame)}`)
+          : (p.status === 'gap' ? 'no frames yet' : '');
+        return (
+          <div key={p.email} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--line)' }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 12.5, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</div>
+              <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+                {[p.deviceName, frame].filter(Boolean).join(' · ') || (p.onBreak ? 'on break' : '')}
+              </div>
+            </div>
+            <span style={{ fontSize: 11, fontWeight: 800, color: m.fg, background: m.bg, padding: '3px 10px', borderRadius: 999, flexShrink: 0 }}>
+              {m.label}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function TimeTrackingAdmin() {
   const [policy, setPolicy] = useState(null);
   const [policyMsg, setPolicyMsg] = useState(null);   // {ok, text}
@@ -264,7 +335,8 @@ export default function TimeTrackingAdmin() {
 
   return (
     <div style={{ fontFamily: 'Inter,sans-serif', maxWidth: 640, margin: '0 auto' }}>
-      <div style={{ border: '1px solid var(--line)', borderRadius: 14, padding: '16px 18px', background: 'var(--card)' }}>
+      <LiveCoverage />
+      <div style={{ border: '1px solid var(--line)', borderRadius: 14, padding: '16px 18px', background: 'var(--card)', marginTop: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
           <ShieldCheck size={16} style={{ color: 'hsl(var(--color-green))' }} />
           <span style={{ fontSize: 13.5, fontWeight: 800 }}>Monitoring Policy</span>

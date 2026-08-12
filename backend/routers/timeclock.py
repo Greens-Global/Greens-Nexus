@@ -1410,6 +1410,78 @@ def monitoring_alerts(user: dict = Depends(require_team_read), db: Session = Dep
     return {"enabled": True, "alerts": alerts, "checkedAt": _now_iso()}
 
 
+@router.get("/monitoring/coverage")
+def monitoring_coverage(user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
+    """Live coverage roster: everyone currently clocked in, HOW each is being
+    captured right now - desktop agent, in-browser Chrome share, or NOT captured
+    (the gap). Team-scoped like the alerts feed; derived from punch + heartbeat +
+    screenshot data, no new storage. The capture source is read from the most
+    recent frame's active_view ("desktop agent ..." = agent, else the browser)."""
+    pol = _get_policy(db)
+    visible = _visible_emails(db, user)
+    now = datetime.now(timezone.utc)
+    interval_min = max(1, int(pol.interval_minutes or 5))
+    shot_gap_sec = int(interval_min * 60 * 2.5) + 120      # a frame is "recent" within this
+    stale_sec = max(300, interval_min * 60 * 2 + 120)      # an agent heartbeat is "live" within this
+    screens_required = bool(pol.enabled and pol.track_screens)
+
+    since = (now - timedelta(days=2)).isoformat()
+    pq = db.query(TimePunch).filter(TimePunch.voided == 0, TimePunch.at >= since)
+    if visible is not None:
+        if not visible:
+            return {"enabled": bool(pol.enabled), "screensRequired": screens_required,
+                    "checkedAt": _now_iso(), "people": []}
+        pq = pq.filter(TimePunch.employee_email.in_(visible))
+    latest = {}
+    for p in pq.order_by(TimePunch.at.desc()).all():
+        latest.setdefault(p.employee_email, p)
+    clocked = {e: p for e, p in latest.items() if p.kind != "out"}
+
+    names = {e.work_email: f"{e.first_name} {e.last_name}".strip()
+             for e in db.query(NexusEmployee).all() if e.work_email}
+    def _nm(email):
+        return names.get(email) or (email.split("@")[0].replace(".", " ").title() if email else "")
+    def _age(iso):
+        dt = _parse_iso(iso) if iso else None
+        return int((now - dt).total_seconds()) if dt else None
+
+    people = []
+    for email, punch in clocked.items():
+        on_break = punch.kind == "break_start"
+        exempt = _is_monitoring_exempt(db, email)
+        last_shot = (db.query(TimeScreenshot)
+                     .filter(TimeScreenshot.employee_email == email)
+                     .order_by(TimeScreenshot.at.desc()).first())
+        shot_age = _age(last_shot.at) if last_shot else None
+        recent = shot_age is not None and shot_age <= shot_gap_sec
+        via_agent = recent and (last_shot.active_view or "").startswith("desktop agent")
+        dev = (db.query(AgentDevice)
+               .filter(AgentDevice.revoked == 0,
+                       (AgentDevice.employee_email == email) | (AgentDevice.active_email == email))
+               .order_by(AgentDevice.last_seen_at.desc()).first())
+        seen_age = _age(dev.last_seen_at) if (dev and dev.last_seen_at) else None
+        agent_online = seen_age is not None and seen_age <= stale_sec
+
+        if exempt:               status = "exempt"        # leadership - never captured
+        elif not screens_required: status = "screens_off"  # policy has capture disabled
+        elif on_break:           status = "on_break"      # capture legitimately paused
+        elif recent and via_agent: status = "agent"       # desktop agent capturing
+        elif recent:             status = "browser"       # in-browser Chrome share
+        else:                    status = "gap"           # clocked in, screens on, NOT captured
+        people.append({
+            "email": email, "name": _nm(email),
+            "clockedInSince": punch.at, "onBreak": on_break, "exempt": exempt,
+            "status": status, "covered": status != "gap",
+            "lastFrameAt": last_shot.at if last_shot else "", "secsSinceFrame": shot_age,
+            "agentOnline": agent_online, "deviceName": (dev.device_name or dev.label) if dev else "",
+        })
+    # Gaps first (need attention), then browser, agent, paused; then by name.
+    order = {"gap": 0, "browser": 1, "agent": 2, "on_break": 3, "screens_off": 4, "exempt": 5}
+    people.sort(key=lambda x: (order.get(x["status"], 9), x["name"].lower()))
+    return {"enabled": bool(pol.enabled), "screensRequired": screens_required,
+            "checkedAt": _now_iso(), "people": people}
+
+
 # ── Punch-fix requests (employee asks, approver approves/rejects) ─────────────
 # An employee can request to ADD a missed punch or REMOVE a wrong one. Nothing
 # changes on the timesheet until an approver (HR/manager) approves - then the
