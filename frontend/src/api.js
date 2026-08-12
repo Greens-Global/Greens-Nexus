@@ -595,6 +595,19 @@ export const api = {
   updateKbRun:      (runId, data)  => req(`/knowledge-base/runs/${runId}`, { method: "PATCH", body: JSON.stringify(data) }),
   getMyKbRuns:      ()             => req("/knowledge-base/my-runs"),
   getKbRuns:        (limit = 60)   => req(`/knowledge-base/runs?limit=${limit}`),
+  getKbOriginal:    (id)           => req(`/knowledge-base/documents/${id}/original`),
+  cleanupKbTitles:  (dryRun = true) => req(`/knowledge-base/documents/cleanup-titles?dry_run=${dryRun}`, { method: "POST" }),
+  aiSuggestKbMeta:  (data)         => req("/knowledge-base/ai-suggest-metadata", { method: "POST", body: JSON.stringify(data), timeoutMs: AI_TIMEOUT_MS }),
+  // Services (Department -> Service tier)
+  getKbServices:    (department = '') => req(`/knowledge-base/services${department ? `?department=${encodeURIComponent(department)}` : ''}`),
+  createKbService:  (data)         => req("/knowledge-base/services", { method: "POST", body: JSON.stringify(data) }),
+  updateKbService:  (id, data)     => req(`/knowledge-base/services/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  deleteKbService:  (id)           => req(`/knowledge-base/services/${id}`, { method: "DELETE" }),
+  // Tags (managed vocabulary)
+  getKbTags:        ()             => req("/knowledge-base/tags"),
+  createKbTag:      (data)         => req("/knowledge-base/tags", { method: "POST", body: JSON.stringify(data) }),
+  updateKbTag:      (id, data)     => req(`/knowledge-base/tags/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  deleteKbTag:      (id)           => req(`/knowledge-base/tags/${id}`, { method: "DELETE" }),
 
   // Assets
   getAssets: () => req("/assets"),

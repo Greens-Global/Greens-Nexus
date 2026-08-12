@@ -397,6 +397,16 @@ def _run_migrations():
             "CREATE INDEX IF NOT EXISTS ix_task_email_log_conv ON task_email_log (conversation_id)",
             # time_off_requests: manager+ files on behalf (Neil, Aug 11)
             "ALTER TABLE time_off_requests ADD COLUMN requested_by VARCHAR DEFAULT ''",
+            # KB taxonomy/search/related-articles batch - present in the Postgres
+            # list below but missing here, so a pre-existing local SQLite db never
+            # got these columns and every write 500'd with "no column named tags".
+            "ALTER TABLE kb_documents ADD COLUMN tags VARCHAR DEFAULT ''",
+            "ALTER TABLE kb_documents ADD COLUMN related_ids VARCHAR DEFAULT ''",
+            "ALTER TABLE kb_documents ADD COLUMN content_text TEXT DEFAULT ''",
+            # KB Department->Service->SOP hierarchy + title/content audit trail
+            "ALTER TABLE kb_documents ADD COLUMN service VARCHAR DEFAULT ''",
+            "ALTER TABLE kb_documents ADD COLUMN original_title VARCHAR DEFAULT ''",
+            "ALTER TABLE kb_documents ADD COLUMN original_content TEXT DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -830,6 +840,14 @@ def _run_migrations():
         # time_off_requests: manager+ can file on behalf of an employee (Neil, Aug 11);
         # who filed it is recorded so the request never looks self-submitted.
         "ALTER TABLE time_off_requests ADD COLUMN IF NOT EXISTS requested_by VARCHAR DEFAULT ''",
+        # KB Department->Service->SOP hierarchy + title/content audit trail
+        "ALTER TABLE kb_documents ADD COLUMN IF NOT EXISTS service VARCHAR DEFAULT ''",
+        "ALTER TABLE kb_documents ADD COLUMN IF NOT EXISTS original_title VARCHAR DEFAULT ''",
+        "ALTER TABLE kb_documents ADD COLUMN IF NOT EXISTS original_content TEXT DEFAULT ''",
+        # kb_services/kb_tags: create_all makes these with RLS OFF - same recurring
+        # gap CLAUDE.md records; idempotent, runs every boot on dev and prod.
+        "ALTER TABLE kb_services ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE kb_tags ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

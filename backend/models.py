@@ -738,6 +738,7 @@ class KbDocument(Base):
     title            = Column(String, nullable=False)
     doc_type         = Column(String, default="SOP")           # SOP | Manual | Guide
     departments      = Column(String, default="")              # comma-separated department names ("" = unassigned)
+    service          = Column(String, default="")              # KbService.name within the department ("" = General/Uncategorized)
     status           = Column(String, default="draft")         # draft|in_review|changes_requested|approved|archived
     owner_email      = Column(String, default="")
     owner_name       = Column(String, default="")
@@ -763,6 +764,40 @@ class KbDocument(Base):
     created_by       = Column(String, default="")
     created_at       = Column(String, default="")
     updated_at       = Column(String, default="")
+    original_title   = Column(String, default="")              # pre-cleanup title, set once by cleanup-titles so the
+                                                                 # original is always recoverable/auditable
+    original_content = Column(Text, default="")                # raw extracted source text as first imported, before
+                                                                 # any AI formatting - set once, never overwritten, so a
+                                                                 # bad AI import can always be diffed against the true source
+
+
+class KbService(Base):
+    """Manager-curated Service tier within a Department (e.g. IT -> "Microsoft 365").
+    Mirrors ItemType: deactivating/deleting a service leaves existing KbDocument.service
+    strings untouched - they just stop being pickable. New table - create_all builds it,
+    no migration line needed."""
+    __tablename__ = "kb_services"
+    id         = Column(String, primary_key=True)   # uuid
+    department = Column(String, nullable=False)      # one of the fixed department names
+    name       = Column(String, nullable=False)
+    active     = Column(Boolean, default=True)
+    sort_order = Column(Integer, default=0)
+    created_by = Column(String, default="")
+    created_at = Column(String, default="")
+
+
+class KbTag(Base):
+    """Manager-curated tag vocabulary for KB documents. KbDocument.tags stays a
+    comma-separated free-form string (no FK) - this table is the managed picklist
+    the tag UI autocompletes against, mirroring ItemType. New table - create_all
+    builds it, no migration line needed."""
+    __tablename__ = "kb_tags"
+    id         = Column(String, primary_key=True)   # uuid
+    name       = Column(String, nullable=False, unique=True)
+    active     = Column(Boolean, default=True)
+    sort_order = Column(Integer, default=0)
+    created_by = Column(String, default="")
+    created_at = Column(String, default="")
 
 
 class KbFeedback(Base):
