@@ -21,6 +21,7 @@ import hashlib
 import io
 import json
 import math
+import os
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone, date
@@ -1798,6 +1799,65 @@ def agent_enroll(body: EnrollIn, user: dict = Depends(require_administrator), db
     db.add(dev)
     db.commit()
     return {"deviceId": dev.id, "token": raw, "email": email}
+
+
+# Where the CLI installer + agent bundle are hosted, and what the installed agent
+# should target. Install/bundle URLs come from a public store (uploaded at release
+# - the service key that writes storage lives on the server, not a laptop). The
+# API/Web defaults match desktop-agent/src/config.js so the command targets dev
+# even before the URLs are set.
+_AGENT_INSTALL_URL = os.getenv("NEXUS_AGENT_INSTALL_URL", "")
+_AGENT_BUNDLE_URL  = os.getenv("NEXUS_AGENT_BUNDLE_URL", "")
+_AGENT_API_BASE    = os.getenv("NEXUS_AGENT_API_BASE",
+    "https://greens-nexus-api-dev-a6fad4brawevg8de.westus2-01.azurewebsites.net")
+_AGENT_WEB_BASE    = os.getenv("NEXUS_AGENT_WEB_BASE", "https://dev.nexus.greensglobal.com")
+
+
+class InstallCmdIn(BaseModel):
+    email: str
+    label: Optional[str] = ""
+
+
+@router.post("/agent/install-command")
+def agent_install_command(body: InstallCmdIn, user: dict = Depends(require_administrator),
+                          db: Session = Depends(get_db)):
+    """Mint a per-PC device token AND return a ready-to-paste Windows one-liner
+    that downloads the installer + agent bundle and installs the DISCLOSED agent
+    (visible tray icon; nothing covert). Run it in an ELEVATED prompt for the
+    employee-proof service that covers every profile on the PC; a normal prompt
+    does a removable per-user install. One command == one enrolled PC; who gets
+    attributed is decided by whoever clocks in on the website (shared-PC pairing)."""
+    email = body.email.strip().lower()
+    if "@" not in email:
+        raise HTTPException(400, "A valid employee email is required")
+    raw = secrets.token_urlsafe(32)
+    now = _now_iso()
+    dev = AgentDevice(id=str(uuid.uuid4()), employee_email=email, token_hash=_hash_token(raw),
+                      label=(body.label or "").strip()[:120], created_by=user["email"], created_at=now)
+    db.add(dev)
+    db.commit()
+
+    configured = bool(_AGENT_INSTALL_URL and _AGENT_BUNDLE_URL)
+    install_url = _AGENT_INSTALL_URL or "<host-install.ps1>"
+    bundle_url  = _AGENT_BUNDLE_URL or "<host-agent-bundle.zip>"
+    # Fetch install.ps1 to a temp file, run it with the token + targets baked in,
+    # then clean up. Single-quoted PS literals; the token is url-safe base64 so it
+    # carries no quote characters to escape.
+    inner = (
+        "$p=Join-Path $env:TEMP 'nexus-install.ps1'; "
+        f"Invoke-WebRequest -UseBasicParsing '{install_url}' -OutFile $p; "
+        f"& $p -Source '{bundle_url}' -Token '{raw}' "
+        f"-ApiBase '{_AGENT_API_BASE}' -WebBase '{_AGENT_WEB_BASE}'; "
+        "Remove-Item $p -Force"
+    )
+    command = f'powershell -NoProfile -ExecutionPolicy Bypass -Command "{inner}"'
+    return {
+        "deviceId": dev.id, "email": email, "configured": configured,
+        "command": command, "token": raw,
+        "note": ("Run in an elevated (admin) Command Prompt / PowerShell to install the "
+                 "employee-proof service that covers all profiles; a normal prompt installs "
+                 "per-user for the current profile only."),
+    }
 
 
 @router.get("/agent/devices")
