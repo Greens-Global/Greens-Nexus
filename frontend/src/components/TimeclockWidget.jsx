@@ -158,8 +158,15 @@ export default function TimeclockWidget() {
         if (!navigator.mediaDevices?.getDisplayMedia) return true;
         // A live desktop agent covers this PC (server-detected via the assigned
         // device's heartbeat)? Then it captures every monitor natively - skip the
-        // browser share entirely (no picker, no double capture).
-        if (agentActiveRef.current) return true;
+        // browser share (no picker, no double capture). Re-check FRESH at click
+        // time (not the 25s-poll cache) so a PC assigned an owner moments ago is
+        // honored immediately - the employee never has to reload the page.
+        let covered = agentActiveRef.current;
+        try {
+          const s = await api.timeStatus();
+          if (s?.monitoring) { covered = !!s.monitoring.agentActive; agentActiveRef.current = covered; }
+        } catch { /* server unreachable - fall back to the last known value */ }
+        if (covered) return true;
         await startRef.current?.();
         return streamsRef.current.length > 0;
       },
