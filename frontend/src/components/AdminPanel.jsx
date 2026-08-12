@@ -472,48 +472,47 @@ export default function AdminPanel({ open, initialTab = 'audit', onClose }) {
           transition: 'transform 0.28s cubic-bezier(0.4, 0, 0.2, 1)',
         }}
       >
-        {/* Panel header */}
-        <div style={{
-          display: 'flex', alignItems: 'center', padding: '18px 24px',
-          borderBottom: '1px solid var(--line)', gap: 12, flexShrink: 0,
-        }}>
-          <div style={{
-            width: 34, height: 34, borderRadius: 10,
-            background: 'hsla(var(--color-purple),0.12)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-          }}>
-            <Shield size={17} style={{ color: 'hsl(var(--color-purple))' }} />
-          </div>
-          <div>
-            <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--ink)' }}>Admin Settings</div>
-            <div className="admin-drawer-sub" style={{ fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>Access manager &amp; activity logs</div>
-          </div>
-
-          {/* Tab strip */}
-          <div style={{ display: 'flex', gap: 4, marginLeft: 'auto', marginRight: 8 }}>
-            {tabs.map(t => (
-              <button
-                key={t.id}
-                onClick={() => setTab(t.id)}
-                style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 6,
-                  padding: '6px 14px', borderRadius: 8, border: 'none', cursor: 'pointer',
-                  fontFamily: 'Inter, sans-serif', fontSize: 13, fontWeight: tab === t.id ? 700 : 500,
-                  background: tab === t.id ? 'hsla(var(--color-purple),0.12)' : 'transparent',
-                  color: tab === t.id ? 'hsl(var(--color-purple))' : 'var(--muted)',
-                  transition: 'background .15s, color .15s',
-                }}>
-                {t.icon} {t.label}
-              </button>
-            ))}
+        {/* Panel header - title row, then an underline tab bar of its own. */}
+        <div style={{ borderBottom: '1px solid var(--line)', flexShrink: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', padding: '16px 20px 12px', gap: 12 }}>
+            <div style={{
+              width: 34, height: 34, borderRadius: 10,
+              background: 'hsla(var(--color-purple),0.12)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+            }}>
+              <Shield size={17} style={{ color: 'hsl(var(--color-purple))' }} />
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--ink)' }}>Admin Settings</div>
+              <div className="admin-drawer-sub" style={{ fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>Access manager &amp; activity logs</div>
+            </div>
+            <button
+              onClick={onClose}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 6, borderRadius: 8, display: 'flex', flexShrink: 0 }}
+              title="Close">
+              <X size={18} />
+            </button>
           </div>
 
-          <button
-            onClick={onClose}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 6, borderRadius: 8, display: 'flex', flexShrink: 0 }}
-            title="Close">
-            <X size={18} />
-          </button>
+          {/* Tab bar */}
+          <div className="scroll-tabs" style={{ display: 'flex', gap: 2, padding: '0 12px' }}>
+            {tabs.map(t => {
+              const active = tab === t.id;
+              return (
+                <button key={t.id} onClick={() => setTab(t.id)}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 7, whiteSpace: 'nowrap',
+                    padding: '10px 14px', border: 'none', background: 'none', cursor: 'pointer',
+                    fontFamily: 'Inter, sans-serif', fontSize: 13, fontWeight: active ? 700 : 500,
+                    color: active ? 'hsl(var(--color-purple))' : 'var(--muted)',
+                    borderBottom: active ? '2px solid hsl(var(--color-purple))' : '2px solid transparent',
+                    marginBottom: -1, transition: 'color .15s',
+                  }}>
+                  {t.icon} {t.label}
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         {/* Tab content */}
