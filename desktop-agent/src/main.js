@@ -122,8 +122,10 @@ function markCapturing(canCapture) {
 
 // ── Visible tray indicator ────────────────────────────────────────────────────
 // A circle rendered from a raw bitmap - no binary asset to ship. Green while
-// actually capturing, gray otherwise; hover text is just "Plugin". The menu points
-// to the Time Clock and the local log, and states plainly that it's company-run.
+// actually capturing, gray otherwise; hover text is just "Plugin". The menu opens
+// the Time Clock and states plainly that it's company-run. (The local agent.log
+// still exists on disk at ProgramData\Plugin for IT/audit - it's just no longer
+// linked from the tray menu.)
 let tray = null;
 function trayImage(rgb) {
   const w = 16, h = 16, buf = Buffer.alloc(w * h * 4);
@@ -167,7 +169,6 @@ function setTray(capturing, detail) {
     ...(detail ? [{ label: detail, enabled: false }] : []),
     { type: 'separator' },
     { label: 'Open Time Clock', click: () => shell.openExternal(`${config.webBase}/timeclock`) },
-    { label: 'View activity log', click: () => shell.openPath(LOG_FILE) },
     { type: 'separator' },
     { label: 'Company-managed application', enabled: false },
   ]));

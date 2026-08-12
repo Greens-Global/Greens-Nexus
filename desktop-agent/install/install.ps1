@@ -31,15 +31,23 @@ param(
   [string] $EnrollKey = '',
   [string] $ApiBase   = '',
   [string] $WebBase   = '',
-  [switch] $Force
+  [switch] $Force,
+  [switch] $Detailed          # IT troubleshooting: show the full step-by-step log
 )
 
 $ErrorActionPreference = 'Stop'
 $APP = 'Plugin'
 $EXE = "$APP.exe"
 
-function Info($m) { Write-Host "[nexus-install] $m" }
-function Die($m)  { Write-Host "[nexus-install] ERROR: $m" -ForegroundColor Red; exit 1 }
+# Clean by default: routine step chatter (paths, service registration, firewall,
+# token) is hidden so the install reads as a simple "Installing... Done" - pass
+# -Detailed to see every step for troubleshooting. Real ERRORS always show, so a
+# failed install is never silent. This only quiets the console; the agent stays
+# fully disclosed (visible tray icon, named entry in Task Manager / Installed
+# Programs, its log, and the signed monitoring policy).
+function Info($m) { if ($Detailed) { Write-Host "[nexus-install] $m" } }
+function Die($m)  { Write-Host "Install failed: $m" -ForegroundColor Red; exit 1 }
+Write-Host "Installing $APP..."
 
 $isAdmin = ([Security.Principal.WindowsPrincipal] `
   [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -174,9 +182,16 @@ try {
     $svcInstall = Join-Path $installDir 'resources\service\install.ps1'
     if (-not (Test-Path $svcInstall)) { Die "service installer missing at $svcInstall (was the service built into the bundle?)" }
     Info "registering the Windows service"
-    & powershell -NoProfile -ExecutionPolicy Bypass -File $svcInstall
+    # Swallow the child installer's console chatter (sc.exe [SC] SUCCESS lines,
+    # service name/description) unless -Detailed, so the parent stays clean. Real
+    # failures still surface via the exit-code check below - not hidden.
+    if ($Detailed) {
+      & powershell -NoProfile -ExecutionPolicy Bypass -File $svcInstall
+    } else {
+      & powershell -NoProfile -ExecutionPolicy Bypass -File $svcInstall *> $null
+    }
+    if ($LASTEXITCODE -ne 0) { Die "service registration failed. Re-run with -Detailed to see why." }
     Info "done. The service is running and will launch the agent into each user's session."
-    Info "It covers every profile on this PC and only an administrator can stop it."
   } else {
     # Per-user: the agent self-registers in Startup on first run (setLoginItemSettings).
     $agentArgs = @('--background')
@@ -186,8 +201,8 @@ try {
     foreach ($k in $envPairs.Keys) { [Environment]::SetEnvironmentVariable($k, $envPairs[$k], 'User') }
     Info "launching the agent (registers itself at login for '$env:USERNAME')"
     Start-Process -FilePath $agentExe -ArgumentList $agentArgs
-    Info "done. The tray icon will appear; it captures only while you are clocked in."
   }
+  Write-Host "$APP installed."
 }
 finally {
   if (Test-Path $stage) { Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue }
