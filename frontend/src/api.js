@@ -987,6 +987,8 @@ export const api = {
   timeAgentRevoke:   (id)        => req(`/timeclock/agent/devices/${id}`, { method: 'PATCH' }),
   // The single reusable "install on every company PC" one-liner (admin only).
   timeAgentInstallCommand: ()    => req('/timeclock/agent/install-command'),
+  // Link an enrolled PC to a Nexus person (assigned owner); '' unassigns.
+  timeAgentAssignDevice: (id, email) => req(`/timeclock/agent/devices/${id}/assign`, { method: 'POST', body: JSON.stringify({ email }) }),
   // Field-worker location tracking (manager/HR views; device pings use X-Agent-Token from the native app, not these)
   trackLive:         ()            => req('/timeclock/track/live'),
   trackPath:         (email, date) => req(`/timeclock/track/path?email=${encodeURIComponent(email)}&date=${date}`),

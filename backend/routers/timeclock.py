@@ -1903,13 +1903,49 @@ def agent_devices(user: dict = Depends(require_administrator), db: Session = Dep
     # Revoked devices vanish from the list (row kept for audit; token already dead).
     rows = (db.query(AgentDevice).filter(AgentDevice.revoked == 0)
             .order_by(AgentDevice.created_at.desc()).all())
+    def _nm(email):
+        if not email:
+            return ""
+        return names.get(email) or email.split("@")[0].replace(".", " ").title()
     return {"devices": [{
-        "id": d.id, "email": d.employee_email,
-        "name": names.get(d.employee_email) or d.employee_email.split("@")[0].replace(".", " ").title(),
+        "id": d.id,
+        # Assigned owner: which Nexus person this PC belongs to (admin-set). Empty
+        # for a shared/unassigned PC.
+        "email": d.employee_email, "name": _nm(d.employee_email),
+        # Who is clocked in on this PC right now (bound at clock-in via pairing),
+        # distinct from the assigned owner - a shared PC's current user changes.
+        "activeEmail": d.active_email or "", "activeName": _nm(d.active_email),
         "label": d.label or "", "deviceName": d.device_name or "", "deviceUser": d.device_user or "",
         "mac": d.mac or "", "platform": d.platform or "", "revoked": bool(d.revoked),
         "lastSeen": d.last_seen_at or "", "createdAt": d.created_at or "",
     } for d in rows]}
+
+
+class AssignDeviceIn(BaseModel):
+    email: Optional[str] = ""   # "" unassigns (shared PC)
+
+
+@router.post("/agent/devices/{device_id}/assign")
+def agent_assign_device(device_id: str, body: AssignDeviceIn,
+                        user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
+    """Link an enrolled PC to a Nexus person (its assigned owner), or unassign
+    with an empty email. The owner must be a real Nexus employee - people pickers
+    everywhere resolve against the curated directory, so we validate the same way."""
+    dev = db.query(AgentDevice).filter(AgentDevice.id == device_id, AgentDevice.revoked == 0).first()
+    if not dev:
+        raise HTTPException(404, "Device not found")
+    email = (body.email or "").strip().lower()
+    if email:
+        emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == email).first()
+        if not emp:
+            raise HTTPException(400, "Pick a person from the Nexus directory")
+    dev.employee_email = email
+    db.commit()
+    name = ""
+    if email:
+        e = db.query(NexusEmployee).filter(NexusEmployee.work_email == email).first()
+        name = f"{e.first_name} {e.last_name}".strip() if e else ""
+    return {"ok": True, "email": email, "name": name}
 
 
 @router.patch("/agent/devices/{device_id}")

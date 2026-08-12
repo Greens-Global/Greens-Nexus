@@ -37,6 +37,7 @@ function PolicySwitch({ on, onToggle }) {
 function AgentInstall() {
   const [info, setInfo] = useState(null);      // { configured, command, note } | null loading | false error
   const [devices, setDevices] = useState(null);
+  const [people, setPeople] = useState([]);
   const [copied, setCopied] = useState(false);
 
   const loadDevices = useCallback(() => {
@@ -47,7 +48,17 @@ function AgentInstall() {
   useEffect(() => {
     api.timeAgentInstallCommand().then(setInfo).catch(() => setInfo(false));
     loadDevices();
+    // Curated Nexus People list for the "assign owner" picker (never M365/GAL).
+    api.getPeopleDirectory()
+      .then(rows => setPeople((rows || []).map(u => ({ email: (u.email || '').toLowerCase(), name: u.name || u.display_name || u.email })).filter(p => p.email)))
+      .catch(() => setPeople([]));
   }, [loadDevices]);
+
+  async function assign(id, email) {
+    // Optimistic: reflect the pick immediately, reconcile from the server.
+    setDevices(ds => ds && ds.map(d => d.id === id ? { ...d, email, name: (people.find(p => p.email === email) || {}).name || '' } : d));
+    try { await api.timeAgentAssignDevice(id, email); } finally { loadDevices(); }
+  }
 
   function copy() {
     if (!info?.command) return;
@@ -118,14 +129,24 @@ function AgentInstall() {
         ) : devices.length === 0 ? (
           <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No computers enrolled yet.</div>
         ) : devices.map(d => (
-          <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--line)' }}>
-            <div style={{ flex: 1, minWidth: 0 }}>
+          <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', borderBottom: '1px solid var(--line)', flexWrap: 'wrap' }}>
+            <div style={{ flex: 1, minWidth: 160 }}>
               <div style={{ fontSize: 12.5, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {d.deviceName || d.label || 'Unnamed PC'}
               </div>
               <div style={{ fontSize: 11, color: 'var(--muted)' }}>
                 {[d.platform, d.deviceUser].filter(Boolean).join(' · ') || 'company PC'}
+                {d.activeName && <> · <span style={{ color: 'hsl(var(--color-green))', fontWeight: 700 }}>{d.activeName} clocked in</span></>}
               </div>
+            </div>
+            {/* Assign this PC to a Nexus person (its owner). */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+              <span style={{ fontSize: 11, color: 'var(--muted)' }}>Owner</span>
+              <select className="form-input" value={d.email || ''} onChange={e => assign(d.id, e.target.value)}
+                style={{ fontSize: 12, height: 30, minWidth: 150, maxWidth: 190 }}>
+                <option value="">Unassigned (shared)</option>
+                {people.map(p => <option key={p.email} value={p.email}>{p.name}</option>)}
+              </select>
             </div>
             <span style={{ fontSize: 11, color: 'var(--muted)', flexShrink: 0 }}>
               {d.lastSeen ? `seen ${formatDate(d.lastSeen + 'Z', '-')}` : 'never seen'}
