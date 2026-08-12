@@ -182,6 +182,10 @@ function _detailToMessage(detail, status) {
     if (parts.length) return parts.join('; ');
   } else if (typeof detail === 'string' && detail) {
     return detail;
+  } else if (detail && typeof detail === 'object' && detail.message) {
+    // Structured error body ({ code, message, ... }) - e.g. the timecard
+    // unresolved-exceptions block. Callers can still read err.detail for the rest.
+    return detail.message;
   }
   return `API error ${status}`;
 }
@@ -896,7 +900,11 @@ export const api = {
 
   // ── Time clock (punch in/out with geofencing) ──────────────────────────────
   timeStatus:        ()          => req(`/timeclock/status?tz_offset_min=${new Date().getTimezoneOffset()}`),
-  timePunch:         (data)      => req('/timeclock/punch', { method: 'POST', body: JSON.stringify(data) }),
+  // keepalive: a punch fired as the tab is closing (the classic lost clock-out)
+  // still reaches the server - the browser keeps the request alive past unload.
+  // Body is tiny, well under the 64KB keepalive cap.
+  timePunch:         (data)      => req('/timeclock/punch', { method: 'POST', body: JSON.stringify(data), keepalive: true }),
+  timeExceptions:    (start, end) => req(`/timeclock/exceptions?start=${start || ''}&end=${end || ''}`),
   timeSelfPunch:     (data)      => req('/timeclock/punch/manual', { method: 'POST', body: JSON.stringify(data) }),
   timeMy:            (start, end) => req(`/timeclock/me?start=${start || ''}&end=${end || ''}`),
   timeTeam:          (start, end) => req(`/timeclock/team?start=${start || ''}&end=${end || ''}`),

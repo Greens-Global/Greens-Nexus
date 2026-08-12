@@ -163,12 +163,15 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
     const targets = (rows || []).filter(r => !isRowApproved(r) && Object.keys(r.days || {}).length);
     if (!targets.length || approvingAll) return;
     setApprovingAll(true);
-    let ok = 0;
+    let ok = 0, blocked = 0;
     for (const r of targets) { // sequential - one bell per person, no request race
       try { await api.timeApprove({ email: r.email, days: Object.keys(r.days) }); ok++; }
-      catch { /* keep going; the count tells the story */ }
+      // A row with an unresolved missing/unmatched punch is held, not approved -
+      // say so rather than silently dropping it from the count.
+      catch (e) { if (e?.detail?.code === 'unresolved_exceptions') blocked++; }
     }
-    toastOk(`Approved ${ok} of ${targets.length} timecard${targets.length === 1 ? '' : 's'}.`);
+    toastOk(`Approved ${ok} of ${targets.length} timecard${targets.length === 1 ? '' : 's'}`
+      + (blocked ? ` - ${blocked} held for missing punches` : '') + '.');
     setApprovingAll(false);
     load(true);
   }

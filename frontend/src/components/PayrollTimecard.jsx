@@ -222,11 +222,30 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
     catch (e) { toastErr?.(e?.message || 'Could not save rate.'); }
     setBusy(false);
   }
-  async function approve() {
+  // Approve + finalize share the SwipeClock exception gate: a period with a
+  // missing or unmatched punch is blocked (the paired total would be wrong), with
+  // an explicit "sign off anyway" override - the sign-off is on record either way.
+  async function signOff(call, verb, okMsg) {
     setBusy(true);
-    try { await api.timeApprove({ email, start: perStart, end: perEnd }); toastOk?.('Timecard approved - the employee is notified.'); load(); }
-    catch (e) { toastErr?.(e?.message || 'Could not approve.'); }
+    try { await call(false); toastOk?.(okMsg); load(); }
+    catch (e) {
+      if (e?.detail?.code === 'unresolved_exceptions') {
+        setBusy(false);
+        const go = await dialog.confirm(e.detail.message,
+          { title: 'Unresolved punch exceptions', confirmText: `${verb} anyway`, danger: true });
+        if (!go) return;
+        setBusy(true);
+        try { await call(true); toastOk?.(`${okMsg} (exceptions overridden).`); load(); }
+        catch (e2) { toastErr?.(e2?.message || `Could not ${verb.toLowerCase()}.`); }
+      } else {
+        toastErr?.(e?.message || `Could not ${verb.toLowerCase()}.`);
+      }
+    }
     setBusy(false);
+  }
+  async function approve() {
+    await signOff((allow) => api.timeApprove({ email, start: perStart, end: perEnd, allow_exceptions: allow }),
+      'Approve', 'Timecard approved - the employee is notified.');
   }
   async function signTimecard() {
     setBusy(true);
@@ -262,10 +281,8 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
 
   async function finalize() {
     if (!await dialog.confirm(`Finalize ${nameFor(email)}'s timecard for ${periodLabel}? This locks all time records for the period - edits will need an unlock.`, { title: 'Finalize timecard', confirmText: 'Finalize', danger: true })) return;
-    setBusy(true);
-    try { await api.timeFinalize({ email, start: perStart, end: perEnd }); toastOk?.('Timecard finalized - the period is locked.'); load(); }
-    catch (e) { toastErr?.(e?.message || 'Could not finalize.'); }
-    setBusy(false);
+    await signOff((allow) => api.timeFinalize({ email, start: perStart, end: perEnd, allow_exceptions: allow }),
+      'Finalize', 'Timecard finalized - the period is locked.');
   }
   async function unfinalize() {
     if (!await dialog.confirm(`Unlock ${nameFor(email)}'s finalized timecard for ${periodLabel}? Edits become possible again; re-finalize when done.`, { title: 'Unlock period', confirmText: 'Unlock' })) return;

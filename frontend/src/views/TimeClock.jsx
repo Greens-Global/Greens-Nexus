@@ -173,15 +173,20 @@ const TO_STATUS = { pending: '#b45309', approved: 'hsl(var(--color-green))', rej
 const TO_TINT = { pending: 'rgba(180,83,9,0.1)', approved: 'hsla(var(--color-green),0.1)', rejected: 'rgba(185,28,28,0.08)', cancelled: 'var(--mist)' };
 
 // One-shot position with a hard timeout: never keep the user waiting on GPS.
-const getPosition = () => new Promise((resolve) => {
+// `maxMs` caps how long the punch waits on geolocation before firing without it.
+// Clock-OUT passes a short budget: a lost out-punch (tab closed during the wait)
+// is the whole "logout not recorded" bug, and location matters far less when
+// someone is leaving than the punch actually landing. Clock-IN keeps the full
+// budget for an accurate geofence check.
+const getPosition = (maxMs = 9000) => new Promise((resolve) => {
   if (!navigator.geolocation) { resolve(null); return; }
   const done = (v) => { clearTimeout(timer); resolve(v); };
-  const timer = setTimeout(() => resolve(null), 9000);
+  const timer = setTimeout(() => resolve(null), maxMs);
   navigator.geolocation.getCurrentPosition(
     (pos) => done({ lat: String(pos.coords.latitude), lng: String(pos.coords.longitude),
                     accuracy_m: Math.round(pos.coords.accuracy || 0) }),
     () => done(null),
-    { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 },
+    { enableHighAccuracy: true, timeout: Math.max(1000, maxMs - 1000), maximumAge: 30000 },
   );
 });
 
@@ -351,7 +356,9 @@ export default function TimeClock() {
       return;
     }
     setBusy(kind);
-    const pos = await getPosition();
+    // Short geo budget on the way out so the punch fires fast and can't be lost to
+    // a closing tab; full budget on the way in for the geofence check.
+    const pos = await getPosition(kind === 'out' ? 2500 : 9000);
     try {
       const r = await api.timePunch({
         kind, ...(pos || {}), tz_offset_min: new Date().getTimezoneOffset(),
