@@ -4033,23 +4033,52 @@ def _signed_url(path: str, bucket: str = "") -> str:
     return ""
 
 
+# Reuse a signed screenshot URL across list calls instead of re-signing every
+# time. A fresh signature per call changes the URL's query token, which busts the
+# browser cache and RE-DOWNLOADS every (private, time-monitoring) frame each time a
+# manager opens/re-opens/filters a day - a real egress driver. We reuse each URL
+# for 50 min (signed for 60, so a cached one is always still valid) so the browser
+# cache hits on re-open. Per-worker in-memory; a stale entry can at most outlive a
+# mid-window access change by the TTL, already true of any signed URL.
+_SHOT_URL_CACHE: dict = {}          # (bucket, path) -> (url, expires_at)
+_SHOT_URL_TTL = 3000                # seconds to reuse a signed URL
+
+
 def _signed_urls(paths: list, bucket: str = "") -> dict:
-    """Bulk-sign ONE bucket's paths in a single Supabase call (path -> full URL).
-    The per-frame loop was one HTTP round-trip per screenshot, so opening a day of
-    frames took 10s+; this collapses it to one request."""
+    """Bulk-sign ONE bucket's paths in a single Supabase call (path -> full URL),
+    reusing recently-signed URLs from the cache so re-opening a gallery hits the
+    browser cache instead of re-downloading the frames."""
     out = {}
     if not paths:
         return out
-    try:
-        r = httpx.post(f"{_SUPABASE_URL}/storage/v1/object/sign/{bucket or _DOC_BUCKET}",
-                       headers=_storage_headers(),
-                       json={"expiresIn": 3600, "paths": paths}, timeout=30)
-        if r.is_success:
-            for row in r.json():
-                if row.get("signedURL"):
-                    out[row.get("path", "")] = f"{_SUPABASE_URL}/storage/v1{row['signedURL']}"
-    except Exception:
-        pass
+    bkt = bucket or _DOC_BUCKET
+    now = datetime.now(timezone.utc)
+    need = []
+    for p in paths:
+        c = _SHOT_URL_CACHE.get((bkt, p))
+        if c and c[1] > now:
+            out[p] = c[0]
+        else:
+            need.append(p)
+    if need:
+        try:
+            r = httpx.post(f"{_SUPABASE_URL}/storage/v1/object/sign/{bkt}",
+                           headers=_storage_headers(),
+                           json={"expiresIn": 3600, "paths": need}, timeout=30)
+            if r.is_success:
+                exp = now + timedelta(seconds=_SHOT_URL_TTL)
+                for row in r.json():
+                    if row.get("signedURL"):
+                        url = f"{_SUPABASE_URL}/storage/v1{row['signedURL']}"
+                        path = row.get("path", "")
+                        out[path] = url
+                        _SHOT_URL_CACHE[(bkt, path)] = (url, exp)
+        except Exception:
+            pass
+    # Bound memory: drop expired entries once the cache grows large.
+    if len(_SHOT_URL_CACHE) > 5000:
+        for k in [k for k, v in _SHOT_URL_CACHE.items() if v[1] <= now]:
+            _SHOT_URL_CACHE.pop(k, None)
     return out
 
 
