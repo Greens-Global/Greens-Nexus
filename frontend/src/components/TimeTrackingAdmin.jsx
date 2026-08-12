@@ -398,15 +398,14 @@ export default function TimeTrackingAdmin({ initialSub = 'coverage', module = fa
   }
 
   return (
-    <div style={{ fontFamily: 'Inter,sans-serif', maxWidth: module ? 1180 : 640, margin: '0 auto', padding: module ? '4px 24px 32px' : 0 }}>
+    <div style={module
+      ? { fontFamily: 'Inter,sans-serif', animation: 'fadeIn var(--transition-normal) ease-in-out' }
+      : { fontFamily: 'Inter,sans-serif', maxWidth: 640, margin: '0 auto' }}>
       {module && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '4px 0 16px' }}>
-          <span style={{ width: 34, height: 34, borderRadius: 10, background: 'hsla(var(--color-purple),0.12)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            <Activity size={17} style={{ color: 'hsl(var(--color-purple))' }} />
-          </span>
-          <div>
-            <div style={{ fontSize: 17, fontWeight: 800, color: 'var(--ink)' }}>Employee Tracking</div>
-            <div style={{ fontSize: 12, color: 'var(--muted)' }}>Disclosed monitoring - coverage, activity, screenshots, and company computers</div>
+        <div className="view-header" style={{ marginBottom: 0 }}>
+          <div className="view-title-group">
+            <h2>Employee Tracking</h2>
+            <p>Disclosed monitoring - coverage, activity, screenshots, and company computers</p>
           </div>
         </div>
       )}
@@ -417,7 +416,7 @@ export default function TimeTrackingAdmin({ initialSub = 'coverage', module = fa
       }`}</style>
 
       {/* Sub-tabs so the monitoring screen isn't one long scroll. */}
-      <div className="scroll-tabs" style={{ display: 'flex', gap: 4, marginBottom: 16, borderBottom: '1px solid var(--line)' }}>
+      <div className="scroll-tabs" style={{ display: 'flex', gap: 4, marginTop: module ? 18 : 0, marginBottom: 16, borderBottom: '1px solid var(--line)' }}>
         {MON_SUBTABS.map(t => (
           <button key={t.id} onClick={() => { if (t.id === 'screenshots') setShotReq({ email: '', date: '' }); setSub(t.id); }}
             style={{ padding: '8px 14px', border: 'none', background: 'none', cursor: 'pointer',
