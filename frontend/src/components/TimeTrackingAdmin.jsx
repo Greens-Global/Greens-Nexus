@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { ShieldCheck, Loader2, Check, MonitorSmartphone, Copy, Ban, TriangleAlert, Trash2, Activity } from 'lucide-react';
+import { ShieldCheck, Loader2, Check, MonitorSmartphone, Copy, Ban, TriangleAlert, Trash2, Activity, ChevronDown } from 'lucide-react';
 import { api } from '../api';
 
 // Human "last seen" from a seconds delta.
@@ -69,6 +69,7 @@ function AgentInstall() {
   const [copied, setCopied] = useState(false);
   const [copiedU, setCopiedU] = useState(false);
   const [savedId, setSavedId] = useState('');   // device id that just saved its owner
+  const [showHow, setShowHow] = useState(false); // collapse the install/uninstall commands
 
   const loadDevices = useCallback(() => {
     api.timeAgentDevices()
@@ -128,6 +129,16 @@ function AgentInstall() {
         green while capturing, a named process in Task Manager, and it records only while someone is clocked in.
       </p>
 
+      {/* Install/uninstall commands live under a toggle - the day-to-day need is
+          the enrolled list below, not the copy-paste commands. */}
+      <button onClick={() => setShowHow(v => !v)}
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'none', border: '1px solid var(--line)',
+          borderRadius: 8, cursor: 'pointer', padding: '6px 11px', fontSize: 12, fontWeight: 700, color: 'var(--ink)', fontFamily: 'Inter, sans-serif' }}>
+        <ChevronDown size={13} style={{ transform: showHow ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }} />
+        {showHow ? 'Hide install steps' : 'How to install / remove a computer'}
+      </button>
+
+      {showHow && (<div style={{ marginTop: 12 }}>
       {info === null ? (
         <div style={{ fontSize: 12.5, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 7 }}>
           <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Loading install command…
@@ -179,6 +190,7 @@ function AgentInstall() {
           </div>
         )}
       </>)}
+      </div>)}
 
       {/* Enrolled computers */}
       <div style={{ marginTop: 18, borderTop: '1px solid var(--line)', paddingTop: 14 }}>
