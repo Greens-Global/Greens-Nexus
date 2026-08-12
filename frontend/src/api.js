@@ -996,7 +996,7 @@ export const api = {
   // Live screen view (on-demand WebRTC). request returns a session + TURN creds
   // when the person is clocked in with an online agent; poll for the agent's offer;
   // answer with the browser's SDP; ping keeps it alive; end closes it.
-  timeLiveRequest:   (email, fps) => req('/timeclock/live/request', { method: 'POST', body: JSON.stringify({ email, fps: fps || 30 }) }),
+  timeLiveRequest:   (email, fps) => req('/timeclock/live/request', { method: 'POST', body: JSON.stringify({ email, fps: fps || 60 }) }),
   timeLivePoll:      (id)        => req(`/timeclock/live/${id}`),
   timeLiveAnswer:    (id, sdp)   => req(`/timeclock/live/${id}/answer`, { method: 'POST', body: JSON.stringify({ sdp }) }),
   timeLiveEnd:       (id)        => req(`/timeclock/live/${id}/end`, { method: 'POST', body: '{}' }),

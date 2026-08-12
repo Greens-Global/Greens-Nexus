@@ -2373,7 +2373,7 @@ def _online_device_for(db: Session, email: str):
 
 class LiveRequestIn(BaseModel):
     email: str
-    fps: Optional[int] = 30
+    fps: Optional[int] = 60
 
 
 @router.post("/live/request")
@@ -2403,7 +2403,7 @@ def live_request(body: LiveRequestIn, user: dict = Depends(require_administrator
                         LiveSession.employee_email == email, LiveSession.state != "ended").all()):
         _live_end(db, old, "superseded")
     now = _now_iso()
-    fps = 60 if int(body.fps or 30) >= 60 else 30
+    fps = 30 if int(body.fps or 60) <= 30 else 60
     s = LiveSession(id=str(uuid.uuid4()), device_id=dev.id, employee_email=email,
                     viewer_email=user["email"], state="requested", fps=fps,
                     created_at=now, updated_at=now, viewer_seen=now)

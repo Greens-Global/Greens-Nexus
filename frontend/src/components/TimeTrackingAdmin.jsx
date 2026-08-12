@@ -282,7 +282,7 @@ function waitIceGathering(pc) {
 function LiveView({ email, name, onClose }) {
   const videoRef = useRef(null);
   const [status, setStatus] = useState('connecting');   // connecting|live|break|offline|error
-  const [fps, setFps] = useState(30);
+  const [fps, setFps] = useState(60);
 
   useEffect(() => {
     let cancelled = false;

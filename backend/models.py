@@ -1425,7 +1425,7 @@ class LiveSession(Base):
     state          = Column(String, default="requested")
     offer_sdp      = Column(Text, default="")   # agent -> viewer (WebRTC offer)
     answer_sdp     = Column(Text, default="")   # viewer -> agent (WebRTC answer)
-    fps            = Column(Integer, default=30)
+    fps            = Column(Integer, default=60)   # 1080p60 default; 30 is the only lower step
     created_at     = Column(String, default="")
     updated_at     = Column(String, default="")   # last change to state/sdp
     # Each side stamps its own poll so a one-sided disconnect (viewer closes the

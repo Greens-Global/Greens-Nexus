@@ -42,7 +42,7 @@ async function start({ id, sourceId, iceServers, fps }) {
           chromeMediaSourceId: sourceId,
           maxWidth: 1920,
           maxHeight: 1080,
-          maxFrameRate: fps || 30,
+          maxFrameRate: fps || 60,
         },
       },
     });
