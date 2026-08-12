@@ -39,6 +39,7 @@ function AgentInstall() {
   const [devices, setDevices] = useState(null);
   const [people, setPeople] = useState([]);
   const [copied, setCopied] = useState(false);
+  const [copiedU, setCopiedU] = useState(false);
 
   const loadDevices = useCallback(() => {
     api.timeAgentDevices()
@@ -60,11 +61,11 @@ function AgentInstall() {
     try { await api.timeAgentAssignDevice(id, email); } finally { loadDevices(); }
   }
 
-  function copy() {
-    if (!info?.command) return;
-    navigator.clipboard?.writeText(info.command).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1800);
+  function copyTo(text, setter) {
+    if (!text) return;
+    navigator.clipboard?.writeText(text).then(() => {
+      setter(true);
+      setTimeout(() => setter(false), 1800);
     }).catch(() => {});
   }
 
@@ -106,7 +107,7 @@ function AgentInstall() {
 
         <div style={{ position: 'relative', border: '1px solid var(--line)', borderRadius: 10, background: 'var(--mist)' }}>
           <pre style={{ margin: 0, padding: '12px 44px 12px 12px', fontSize: 11.5, lineHeight: 1.5, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', color: 'var(--ink)', overflowX: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{info.command}</pre>
-          <button onClick={copy} title="Copy command"
+          <button onClick={() => copyTo(info.command, setCopied)} title="Copy command"
             style={{ position: 'absolute', top: 8, right: 8, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 8, cursor: 'pointer', padding: '5px 8px', display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: copied ? 'hsl(var(--color-green))' : 'var(--muted)' }}>
             {copied ? <><Check size={12} /> Copied</> : <><Copy size={12} /> Copy</>}
           </button>
@@ -117,6 +118,25 @@ function AgentInstall() {
           (Pasting into a live PowerShell session mangles it - use Command Prompt, or download install.ps1 and
           run it directly.)
         </p>
+
+        {/* Uninstall one-liner (served straight from the API - no bundle needed). */}
+        {info.uninstallCommand && (
+          <div style={{ marginTop: 14 }}>
+            <div style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 6 }}>
+              Uninstall command
+            </div>
+            <div style={{ position: 'relative', border: '1px solid var(--line)', borderRadius: 10, background: 'var(--mist)' }}>
+              <pre style={{ margin: 0, padding: '12px 44px 12px 12px', fontSize: 11.5, lineHeight: 1.5, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', color: 'var(--ink)', overflowX: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{info.uninstallCommand}</pre>
+              <button onClick={() => copyTo(info.uninstallCommand, setCopiedU)} title="Copy uninstall command"
+                style={{ position: 'absolute', top: 8, right: 8, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 8, cursor: 'pointer', padding: '5px 8px', display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: copiedU ? 'hsl(var(--color-green))' : 'var(--muted)' }}>
+                {copiedU ? <><Check size={12} /> Copied</> : <><Copy size={12} /> Copy</>}
+              </button>
+            </div>
+            {info.uninstallNote && (
+              <p style={{ margin: '9px 0 0', fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.5 }}>{info.uninstallNote}</p>
+            )}
+          </div>
+        )}
       </>)}
 
       {/* Enrolled computers */}

@@ -29,7 +29,7 @@ from typing import List, Optional
 
 import httpx
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, PlainTextResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -1862,14 +1862,76 @@ def agent_install_command(user: dict = Depends(require_administrator)):
         "Remove-Item $p -Force"
     )
     command = f'powershell -NoProfile -ExecutionPolicy Bypass -Command "{inner}"'
+    # Uninstall one-liner. No 106 MB bundle needed, so the script is served straight
+    # from this API (no storage upload) - each machine fetches + runs it.
+    uninstall_url = f"{_AGENT_API_BASE}/timeclock/agent/uninstall.ps1"
+    uinner = (
+        "$p=Join-Path $env:TEMP 'nexus-uninstall.ps1'; "
+        f"Invoke-WebRequest -UseBasicParsing '{uninstall_url}' -OutFile $p; "
+        "& $p; Remove-Item $p -Force"
+    )
+    uninstall_command = f'powershell -NoProfile -ExecutionPolicy Bypass -Command "{uinner}"'
     return {
         "configured": configured, "command": command,
+        "uninstallCommand": uninstall_command,
         "note": ("Same command on every PC. Run it in an elevated (admin) Command Prompt "
                  "(cmd) - elevated installs the employee-proof service covering every "
                  "profile; a normal prompt installs per-user for the current profile only. "
                  "(In a live PowerShell session, download install.ps1 and run it directly "
                  "instead - the wrapped form is written for cmd.)"),
+        "uninstallNote": ("Removes the agent from a PC. Run elevated to also remove the "
+                          "machine-wide service + Program Files install; a normal prompt "
+                          "removes a per-user install. Revoking the token below is separate."),
     }
+
+
+# Uninstaller script, served so the uninstall one-liner can fetch it (mirrors
+# desktop-agent/install/uninstall.ps1 - keep them in sync). No secrets inside, so
+# it's public; it only removes local files/service on the machine that runs it.
+_UNINSTALL_PS1 = r'''# Greens Nexus Agent - uninstaller (served by the Nexus API).
+# Elevated: also removes the machine-wide NexusMonitorService + Program Files
+# install. Normal: removes the per-user install + Startup entry. Local only -
+# revoke the device token separately in Nexus -> Admin -> Monitoring.
+$ErrorActionPreference = 'SilentlyContinue'
+$APP = 'Greens Nexus Agent'
+$isAdmin = ([Security.Principal.WindowsPrincipal] `
+  [Security.Principal.WindowsIdentity]::GetCurrent()
+).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+
+if (Get-Service -Name 'NexusMonitorService' -ErrorAction SilentlyContinue) {
+  if ($isAdmin) {
+    sc.exe stop NexusMonitorService | Out-Null
+    Start-Sleep -Seconds 2
+    sc.exe delete NexusMonitorService | Out-Null
+    Write-Host "Removed the NexusMonitorService."
+  } else {
+    Write-Host "A machine-wide service is installed - re-run AS ADMINISTRATOR to remove it."
+  }
+}
+
+Get-Process -Name $APP -ErrorAction SilentlyContinue | Stop-Process -Force
+Start-Sleep -Milliseconds 500
+Remove-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name $APP -ErrorAction SilentlyContinue
+
+$paths = @(
+  (Join-Path $env:LOCALAPPDATA "Programs\$APP"),
+  (Join-Path $env:APPDATA $APP),
+  (Join-Path $env:ProgramData $APP)
+)
+if ($isAdmin) { $paths += (Join-Path $env:ProgramFiles $APP) }
+foreach ($p in $paths) { if (Test-Path $p) { Remove-Item $p -Recurse -Force; Write-Host "Removed $p" } }
+if ($isAdmin) { [Environment]::SetEnvironmentVariable('NEXUS_AGENT_EXE', $null, 'Machine') }
+
+Write-Host ""
+Write-Host "Greens Nexus Agent removed from this PC."
+'''
+
+
+@router.get("/agent/uninstall.ps1")
+def agent_uninstall_script():
+    """Public uninstaller script the uninstall one-liner downloads. No secrets; it
+    only removes the agent's local files/service on the machine that runs it."""
+    return PlainTextResponse(_UNINSTALL_PS1, media_type="text/plain; charset=utf-8")
 
 
 class SelfEnrollIn(BaseModel):
