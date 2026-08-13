@@ -3296,22 +3296,28 @@ def set_group_members(group_id: str, body: GroupIn, user: dict = Depends(require
     return {"ok": True}
 
 
+def _resolve_group_chat(db: Session, email: str):
+    """The Teams chat bound to this person's first group that has one, as
+    (chat_id, chat_name, group_name). The SERVER-SIDE source of truth, so a
+    client that couldn't fetch it (a network blip) never loses the routing."""
+    email = (email or "").lower()
+    group_ids = [m.group_id for m in db.query(ShiftGroupMember)
+                 .filter(ShiftGroupMember.employee_email == email).all()]
+    if not group_ids:
+        return "", "", ""
+    g = (db.query(ShiftGroup)
+         .filter(ShiftGroup.id.in_(group_ids), ShiftGroup.teams_chat_id != "")
+         .order_by(ShiftGroup.name).first())
+    return (g.teams_chat_id, g.teams_chat_name, g.name) if g else ("", "", "")
+
+
 @router.get("/my-chat")
 def my_group_chat(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """The Teams group chat this employee's group is bound to - where their
     BOD/EOD/Break messages should route. First group (with a binding) they belong
     to wins. Empty chatId means no binding → the client falls back to a picker."""
-    email = user["email"].lower()
-    group_ids = [m.group_id for m in db.query(ShiftGroupMember)
-                 .filter(ShiftGroupMember.employee_email == email).all()]
-    if not group_ids:
-        return {"chatId": "", "chatName": "", "groupName": ""}
-    g = (db.query(ShiftGroup)
-         .filter(ShiftGroup.id.in_(group_ids), ShiftGroup.teams_chat_id != "")
-         .order_by(ShiftGroup.name).first())
-    if not g:
-        return {"chatId": "", "chatName": "", "groupName": ""}
-    return {"chatId": g.teams_chat_id, "chatName": g.teams_chat_name, "groupName": g.name}
+    cid, cname, gname = _resolve_group_chat(db, user["email"])
+    return {"chatId": cid, "chatName": cname, "groupName": gname}
 
 
 @router.delete("/shift-groups/{group_id}")
@@ -4404,14 +4410,26 @@ class BodIn(BaseModel):
 def record_bod(body: BodIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     now = _now_iso()
     kind = body.kind if body.kind in ("bod", "eod", "break") else "bod"
+    chan_id = (body.channel_id or "")[:120]
+    chan_name = (body.channel_name or "")[:120]
+    # Server-side chat resolution fallback: if the client didn't hand us a chat
+    # (its /my-chat lookup blipped - a real prod bug where the BOD then silently
+    # posted nowhere), resolve the person's bound chat here so the post still
+    # lands. Only for a genuine post, never the "already sent elsewhere" skip.
+    if not chan_id and not body.sent:
+        rid, rname, _gn = _resolve_group_chat(db, user["email"])
+        if rid:
+            chan_id, chan_name = rid[:120], (rname or "")[:120]
     row = TimeBod(id=str(uuid.uuid4()), employee_email=user["email"],
                   kind=kind,
                   local_date=_local_date(now, body.tz_offset_min or 0),
                   message=(body.message or "").strip()[:1000],
                   tasks=(body.tasks or "").strip()[:2000],
                   team_id=(body.team_id or "")[:80], team_name=(body.team_name or "")[:120],
-                  channel_id=(body.channel_id or "")[:120], channel_name=(body.channel_name or "")[:120],
-                  sent=1 if body.sent else 0, send_error=(body.send_error or "")[:300],
+                  channel_id=chan_id, channel_name=chan_name,
+                  sent=1 if body.sent else 0,
+                  # A stale "no chat" note from the client is wrong once we've resolved one.
+                  send_error=("" if chan_id else (body.send_error or "")[:300]),
                   created_at=now, html=(body.html or "")[:8000], attempts=0, last_try_at="")
     db.add(row)
     # A real BOD/EOD (not the "already sent elsewhere" skip marker) notifies the

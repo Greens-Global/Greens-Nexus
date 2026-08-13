@@ -71,6 +71,7 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
   const [pending, setPending] = useState('');        // EOD only - starts empty; empty = no section in the post
   const [pendingSugg, setPendingSugg] = useState(''); // open Nexus tasks, offered via one-click insert
   const [bound, setBound] = useState(null);          // { id, name } from the group binding
+  const [chatErr, setChatErr] = useState(false);     // lookup FAILED (couldn't check) - not the same as "no binding"
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [ack, setAck] = useState(false);
@@ -83,10 +84,22 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
   useEffect(() => {
     let live = true;
     (async () => {
-      const my = await api.timeMyChat().catch(() => null);
+      // Retry the lookup - a single blip used to fall straight through to "no team
+      // chat" and (worse) the BOD then posted nowhere. The post itself is now
+      // server-resolved regardless; this is just for an accurate label.
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const my = await api.timeMyChat();
+          if (!live) return;
+          if (my?.chatId) setBound({ id: my.chatId, name: my.chatName });
+          setChatErr(false); setLoading(false);
+          return;
+        } catch (_) {
+          if (attempt < 2) await new Promise(r => setTimeout(r, 800 * (attempt + 1)));
+        }
+      }
       if (!live) return;
-      if (my?.chatId) setBound({ id: my.chatId, name: my.chatName });
-      setLoading(false);
+      setChatErr(true); setLoading(false);   // couldn't check - server still routes on send
     })();
     if (mode === 'eod') {
       api.getTasks().then((rows) => {
@@ -185,8 +198,11 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
     try {
       resp = await api.timeBodRecord({
         kind: mode, message, tasks, channel_id: targetId, channel_name: targetName,
-        html: targetId ? buildHtml(workedMin) : '',
-        sent: false, send_error: targetId ? '' : 'No team chat set up for your group',
+        // ALWAYS send the composed message. If our chat lookup blipped (targetId
+        // empty), the SERVER resolves the person's bound chat and posts it - a
+        // transient client failure can no longer silently drop the Teams post.
+        html: buildHtml(workedMin),
+        sent: false, send_error: '',
         tz_offset_min: new Date().getTimezoneOffset(),
       });
     } catch { /* recording failed after api.js retries - surfaced below */ }
@@ -258,6 +274,12 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
             ) : bound ? (
               <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '7px 12px', borderRadius: 9, background: 'var(--bg)', fontSize: 12.5, fontWeight: 700 }}>
                 <MessageSquare size={13} style={{ color: 'var(--wk-brand)' }} /> {bound.name || 'Your team chat'}
+              </div>
+            ) : chatErr ? (
+              // Couldn't confirm the chat here, but the server resolves it on send -
+              // so the post still routes. Never claim "no chat" on a mere blip.
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '7px 12px', borderRadius: 9, background: 'var(--bg)', fontSize: 12.5, fontWeight: 700 }}>
+                <MessageSquare size={13} style={{ color: 'var(--wk-brand)' }} /> Your team chat
               </div>
             ) : (
               <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
