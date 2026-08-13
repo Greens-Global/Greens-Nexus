@@ -3866,6 +3866,10 @@ button, [role="button"], select { touch-action: manipulation; }
 @media (hover: hover) {
   .app-tile:hover .app-tile-tooltip { opacity: 1; visibility: visible; transform: translateX(-50%) translateY(0); }
 }
+/* Keyboard focus reveals the tooltip regardless of hover capability - a
+   keyboard user tabbing through the grid gets no :hover state at all, so
+   this can't live inside the (hover: hover) block above. */
+.app-tile:focus-visible .app-tile-tooltip { opacity: 1; visibility: visible; transform: translateX(-50%) translateY(0); }
 .app-tile-tooltip.show { opacity: 1; visibility: visible; transform: translateX(-50%) translateY(0); }
 .app-tile-info-btn { display: none; }
 @media (hover: none) {

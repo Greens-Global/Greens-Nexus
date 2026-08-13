@@ -992,6 +992,12 @@ function AppTile({ link, color, canManage, canDelete, isFavorite, onToggleFavori
 
   const description = link.description || '';
   const hasActions = !!(onToggleFavorite || (canManage && (onEdit || onDelete)));
+  // Stable per-link id (not React's own, which isn't guaranteed unique
+  // across a whole page) so aria-describedby can point at this tile's own
+  // tooltip specifically - undefined (no attribute at all) when there's
+  // nothing to describe, rather than pointing at an element that doesn't
+  // exist.
+  const tooltipId = description ? `app-tile-tip-${link.id}` : undefined;
 
   return (
     <div
@@ -999,6 +1005,7 @@ function AppTile({ link, color, canManage, canDelete, isFavorite, onToggleFavori
       role="button" tabIndex={0}
       onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(); } }}
       title={!description ? link.name : undefined}
+      aria-describedby={tooltipId}
     >
       <div className="app-tile-icon-wrap">
         <LinkIcon url={link.url} iconKey={link.icon} size={iconSize} radius={Math.round(iconSize * 0.28)} fg={color.fg} bg={color.bg} gradient={iconGradient} />
@@ -1018,8 +1025,12 @@ function AppTile({ link, color, canManage, canDelete, isFavorite, onToggleFavori
         )}
         {description && (
           <>
-            <div className={`app-tile-tooltip${showTip ? ' show' : ''}`}>{description}</div>
-            <button type="button" className="app-tile-info-btn" onClick={toggleTip} title="Show description" aria-label="Show description">
+            <div id={tooltipId} role="tooltip" className={`app-tile-tooltip${showTip ? ' show' : ''}`}>{description}</div>
+            <button
+              type="button" className="app-tile-info-btn" onClick={toggleTip}
+              title="Show description" aria-label={showTip ? 'Hide description' : 'Show description'}
+              aria-expanded={showTip} aria-controls={tooltipId}
+            >
               <Info size={10} />
             </button>
           </>
