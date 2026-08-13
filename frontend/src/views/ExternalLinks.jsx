@@ -638,34 +638,29 @@ export default function ExternalLinks() {
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          <select value={activeId || ''}
-            onChange={e => { const val = e.target.value; if (val === '__new__') guardedNew(); else guardedSwitch(val || null); }}
-            className="form-input" title="Switch layout view"
-            style={{ fontSize: 12.5, fontWeight: 600, width: 170, padding: '7px 30px 7px 11px', lineHeight: 1.4, height: 'auto' }}>
-            <option value="">Home</option>
-            {views.length > 0 && (
-              <optgroup label="My views">
-                {views.map(v => <option key={v.id} value={v.id}>{v.name}{v.isDefault ? ' ★' : ''}</option>)}
-              </optgroup>
-            )}
-            <option value="__new__">＋ New view…</option>
-          </select>
-          {editing ? (
-            <>
-              <button className="primary-btn" style={{ opacity: dirty ? 1 : 0.6 }} onClick={saveViewLayout} disabled={!dirty}>
-                <Save size={14} /> {dirty ? 'Save' : 'Saved'}
-              </button>
-              <button className="secondary-btn" onClick={guardedDone}><X size={14} /> Done</button>
-            </>
-          ) : (
-            <button className="secondary-btn" onClick={() => setEditing(true)}><SlidersHorizontal size={14} /> Customize</button>
-          )}
-          <div style={{ position: 'relative' }}>
-            <button className="secondary-btn" style={{ padding: '6px 9px' }} onClick={() => setViewMenu(m => !m)} title="View options">
+          {/* View select + "..." menu trigger read as ONE joined control
+              (Aug 14 - "i don't see the use of 3 dot button separately,
+              incorporate them with... view selection") rather than two
+              separate pill buttons sitting side by side. */}
+          <div style={{ display: 'flex', alignItems: 'stretch', border: '1px solid var(--wk-line2)', borderRadius: 10, overflow: 'hidden', position: 'relative' }}>
+            <select value={activeId || ''}
+              onChange={e => { const val = e.target.value; if (val === '__new__') guardedNew(); else guardedSwitch(val || null); }}
+              className="form-select" title="Switch layout view"
+              style={{ fontSize: 12.5, fontWeight: 600, width: 150, padding: '7px 30px 7px 11px', lineHeight: 1.4, height: 'auto', border: 'none', borderRadius: 0, background: 'var(--card)' }}>
+              <option value="">Home</option>
+              {views.length > 0 && (
+                <optgroup label="My views">
+                  {views.map(v => <option key={v.id} value={v.id}>{v.name}{v.isDefault ? ' ★' : ''}</option>)}
+                </optgroup>
+              )}
+              <option value="__new__">＋ New view…</option>
+            </select>
+            <button onClick={() => setViewMenu(m => !m)} title="View options"
+              style={{ display: 'flex', alignItems: 'center', padding: '0 9px', border: 'none', borderLeft: '1px solid var(--wk-line2)', background: 'var(--card)', cursor: 'pointer', color: 'var(--muted)' }}>
               <MoreHorizontal size={15} />
             </button>
             {viewMenu && (
-              <div onMouseLeave={() => setViewMenu(false)} style={{ position: 'absolute', right: 0, top: 40, background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 12, boxShadow: '0 18px 50px rgba(17,24,39,0.18)', padding: 6, zIndex: 50, minWidth: 210 }}>
+              <div onMouseLeave={() => setViewMenu(false)} style={{ position: 'absolute', right: 0, top: 42, background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 12, boxShadow: '0 18px 50px rgba(17,24,39,0.18)', padding: 6, zIndex: 50, minWidth: 210 }}>
                 <div style={{ padding: '6px 10px 9px', borderBottom: '1px solid var(--line)', marginBottom: 5 }}>
                   <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink)', maxWidth: 210, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{activeView?.name || 'Home'}</div>
                   <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--muted)', marginTop: 2 }}>{activeView ? (activeView.isDefault ? 'Your default view' : 'Personal view') : 'Built-in layout'}</div>
@@ -682,6 +677,16 @@ export default function ExternalLinks() {
               </div>
             )}
           </div>
+          {editing ? (
+            <>
+              <button className="primary-btn" style={{ opacity: dirty ? 1 : 0.6 }} onClick={saveViewLayout} disabled={!dirty}>
+                <Save size={14} /> {dirty ? 'Save' : 'Saved'}
+              </button>
+              <button className="secondary-btn" onClick={guardedDone}><X size={14} /> Done</button>
+            </>
+          ) : (
+            <button className="secondary-btn" onClick={() => setEditing(true)}><SlidersHorizontal size={14} /> Customize</button>
+          )}
           {section === 'company' && (
             <button className="secondary-btn" onClick={() => setPaletteOpen(true)}>
               <Command size={14} /> Quick Search
