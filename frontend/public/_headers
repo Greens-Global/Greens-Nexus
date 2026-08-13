@@ -14,17 +14,17 @@
 # 'self' permits only our own origin. Do NOT go back to DENY/'none' without
 # first removing that iframe.
 #
-# img-src += t1.gstatic.com (Aug 13, revised): External Links renders each
-# tile's real site favicon instead of a generic lucide icon. Originally used
-# logo.clearbit.com + www.google.com/s2/favicons, but logo.clearbit.com no
-# longer resolves at all (Clearbit shut down the free logo API), and Google's
-# s2/favicons endpoint just 301-redirects to a *different* host
+# img-src += icon.horse + t1.gstatic.com (Aug 13, revised again): External
+# Links renders each tile's real site logo instead of a generic lucide icon.
+# logo.clearbit.com no longer resolves at all (Clearbit shut down the free
+# logo API); www.google.com/s2/favicons 301-redirects to a *different* host
 # (t1.gstatic.com/faviconV2) - CSP checks the final resource's origin, not the
-# one you requested, so allowing www.google.com never actually covered the
-# image. Fetching the gstatic.com URL directly (see logoSources in
-# ExternalLinks.jsx) skips the dead-end redirect and is the host that
-# actually needs the allowlist entry. Vite's local dev server never serves
-# this file, so a CSP break here only ever shows up once deployed.
+# one requested, so allowing www.google.com never actually covered the image.
+# icon.horse is the primary source now (real logos up to 180x180, served from
+# its own host with no redirect - see logoSources in ExternalLinks.jsx);
+# t1.gstatic.com's faviconV2 stays as the second attempt for domains
+# icon.horse doesn't have. Vite's local dev server never serves this file, so
+# a CSP break here only ever shows up once deployed.
 #
 # `frame-src blob:` + `object-src 'self' blob:` (Aug 10): in-app PDF preview
 # (EgnytePreview and anything else that iframes a blob: PDF) renders through
@@ -36,7 +36,7 @@
 # against an Egnyte invoice PDF. Do NOT put object-src back to 'none' without
 # retesting a blob PDF preview.
 /*
-  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://*.azurewebsites.net https://*.supabase.co wss://*.supabase.co https://login.microsoftonline.com https://*.microsoftonline.com https://login.microsoft.com https://login.windows.net https://graph.microsoft.com https://cloudflareinsights.com https://nominatim.openstreetmap.org; img-src 'self' data: blob: https://*.supabase.co https://*.tile.openstreetmap.org https://*.arcgisonline.com https://picsum.photos https://fastly.picsum.photos https://t1.gstatic.com; media-src 'self' blob: https://*.supabase.co; frame-src 'self' blob: https://*.supabase.co https://login.microsoftonline.com https://*.microsoftonline.com https://login.microsoft.com https://login.windows.net https://login.live.com https://www.youtube.com https://www.youtube-nocookie.com https://www.loom.com https://player.vimeo.com https://www.google.com https://maps.google.com; worker-src 'self' blob:; object-src 'self' blob:; frame-ancestors 'self'; base-uri 'self'; form-action 'self';
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://*.azurewebsites.net https://*.supabase.co wss://*.supabase.co https://login.microsoftonline.com https://*.microsoftonline.com https://login.microsoft.com https://login.windows.net https://graph.microsoft.com https://cloudflareinsights.com https://nominatim.openstreetmap.org; img-src 'self' data: blob: https://*.supabase.co https://*.tile.openstreetmap.org https://*.arcgisonline.com https://picsum.photos https://fastly.picsum.photos https://icon.horse https://t1.gstatic.com; media-src 'self' blob: https://*.supabase.co; frame-src 'self' blob: https://*.supabase.co https://login.microsoftonline.com https://*.microsoftonline.com https://login.microsoft.com https://login.windows.net https://login.live.com https://www.youtube.com https://www.youtube-nocookie.com https://www.loom.com https://player.vimeo.com https://www.google.com https://maps.google.com; worker-src 'self' blob:; object-src 'self' blob:; frame-ancestors 'self'; base-uri 'self'; form-action 'self';
   X-Content-Type-Options: nosniff
   X-Frame-Options: SAMEORIGIN
   Referrer-Policy: strict-origin-when-cross-origin
