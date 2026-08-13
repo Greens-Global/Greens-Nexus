@@ -4,12 +4,13 @@ import { api } from '../api';
 import AsyncSection, { SkeletonBlocks } from '../components/AsyncState';
 import { PersonalLockGate } from '../credvault/vaultShared';
 import { LinkIcon, ICON_MAP } from '../components/LinkIcon.jsx';
-import { useLinkLayout } from './useLinkLayout';
+import { useLinkViews } from './useLinkViews';
 import {
   Search, Plus, Pencil, Trash2, X, Star, Globe, LayoutGrid,
   Settings2, Bookmark, CornerDownLeft, History, Command,
   GripVertical, AlertTriangle, Upload, FolderOpen, Download, Lock, KeyRound, Info,
-  FolderPlus, Check, RotateCcw, RefreshCw,
+  FolderPlus, Check, RefreshCw, SlidersHorizontal, Save,
+  MoreHorizontal, Copy,
 } from 'lucide-react';
 
 // ── Personal, client-side only (favorites / recents / view density) ──
@@ -205,13 +206,18 @@ export default function ExternalLinks() {
   const [pendingVaultOpen, setPendingVaultOpen] = useState(null); // link waiting on Personal Vault unlock
   const [showVaultLockGate, setShowVaultLockGate] = useState(false);
 
-  // Personalization (Aug 13) - app ordering, folders, and favorites are now
-  // backend-persisted per account (see useLinkLayout.js), not localStorage,
-  // so they follow the signed-in user across devices/browsers. Recent stays
-  // localStorage-only on purpose - it's an auto-derived, ephemeral trail
-  // (last 8 clicked), not something deliberately arranged, and the task
-  // this shipped for didn't name it among what must be user-specific.
-  const { layout, loading: layoutLoading, saveError, clearSaveError, mutate, resetToDefault } = useLinkLayout();
+  // Personalization (Aug 13, multi-view Aug 14) - app ordering, folders,
+  // and favorites are backend-persisted per account as named, switchable
+  // "Link Views" (see useLinkViews.js), not localStorage, so they follow
+  // the signed-in user across devices/browsers. Recent stays localStorage-
+  // only on purpose - it's an auto-derived, ephemeral trail (last 8
+  // clicked), not something deliberately arranged.
+  const {
+    views, activeId, activeView, layout, loading: layoutLoading, editing, dirty, saveError,
+    setEditing, mutate, switchView, save: saveView, saveAsNew, createNewView,
+    setDefaultView, clearDefaultView, removeView, renameView, toggleFavorite: toggleFavoriteRaw,
+    clearSaveError, reload: reloadViews,
+  } = useLinkViews();
   useEffect(() => {
     if (saveError) { setBanner({ kind: 'err', text: saveError }); clearSaveError(); }
   }, [saveError, clearSaveError]);
@@ -219,22 +225,13 @@ export default function ExternalLinks() {
   // Favorites can reference either a Company Link or a Personal Link (their
   // ids are both plain autoincrement ints on separate tables, hence the
   // item_type tag) - derive the plain-id arrays each call site already
-  // expects (favorites.includes(l.id)) so LinkList/AppTile don't need to
-  // know about the type distinction, and a toggleFavorite bound to the
-  // right type per section.
+  // expects (favorites.includes(l.id)) so AppTile doesn't need to know
+  // about the type distinction. Favoriting stays instant regardless of
+  // Customize/edit state - see useLinkViews.js's toggleFavorite docstring.
   const favoriteExternalIds = useMemo(() => layout.favorites.filter(f => f.item_type === 'external').map(f => f.item_id), [layout.favorites]);
   const favoritePersonalIds = useMemo(() => layout.favorites.filter(f => f.item_type === 'personal').map(f => f.item_id), [layout.favorites]);
-  const makeToggleFavorite = useCallback((itemType) => (itemId) => {
-    mutate(prev => {
-      const exists = prev.favorites.some(f => f.item_type === itemType && f.item_id === itemId);
-      const favorites = exists
-        ? prev.favorites.filter(f => !(f.item_type === itemType && f.item_id === itemId))
-        : [...prev.favorites, { item_type: itemType, item_id: itemId }];
-      return { ...prev, favorites };
-    });
-  }, [mutate]);
-  const toggleFavorite = useMemo(() => makeToggleFavorite('external'), [makeToggleFavorite]);
-  const togglePersonalFavorite = useMemo(() => makeToggleFavorite('personal'), [makeToggleFavorite]);
+  const toggleFavorite = useCallback((id) => toggleFavoriteRaw('external', id), [toggleFavoriteRaw]);
+  const togglePersonalFavorite = useCallback((id) => toggleFavoriteRaw('personal', id), [toggleFavoriteRaw]);
 
   const [recents, setRecents] = useState(() => readIds(myEmail, 'recents'));
   useEffect(() => { setRecents(readIds(myEmail, 'recents')); }, [myEmail]);
@@ -326,9 +323,6 @@ export default function ExternalLinks() {
     });
   }, [deptFiltered, category, q]);
 
-  const hasCustomOrder = hasCustomOrderFor(layout, 'external');
-  const hasPersonalCustomOrder = hasCustomOrderFor(layout, 'personal');
-
   // Company My Layout and Personal Links each get their own itemsById with
   // the OTHER type left as an empty Map on purpose - even though both types
   // can now live in the same layout document (Aug 14, folders on Personal
@@ -343,13 +337,15 @@ export default function ExternalLinks() {
     external: new Map(),
     personal: new Map((personalLinks || []).map(l => [l.id, l])),
   }), [personalLinks]);
-  // Both tabs are always the live drag/folder view now (Aug 14 - "rearrange
-  // is not working in default view... add folder option is missing", then
-  // "add folders to personal links too"). A pristine tab (no saved row yet,
-  // or a row that only has the OTHER type customized) still needs something
-  // to drag, so the first mutation on either tab seeds that tab's default
-  // order into `items` transparently - not eagerly on load, so a tab no one
-  // has touched never writes a row / never gains a false hasCustomOrder.
+
+  // A view (or Home) can easily have zero items for one of the two types -
+  // e.g. every existing view was built before Personal folders existed, or
+  // this is Home itself. LinksLayoutSection renders the synthesized default
+  // order for display in that case, but an actual drag needs something real
+  // in `items` to reorder - this wraps the hook's `mutate` to seed that
+  // tab's default order into the LOCAL editing draft on the first real
+  // change, mirroring the same seeding this module used before multi-view
+  // (just landing in `dirty` local state now instead of auto-saving).
   const makeSeededMutate = (sourceType, sourceLinks) => (updater) => mutate(prev => {
     const seeded = hasCustomOrderFor(prev, sourceType)
       ? prev
@@ -359,13 +355,47 @@ export default function ExternalLinks() {
   const seededMutate = makeSeededMutate('external', all);
   const seededPersonalMutate = makeSeededMutate('personal', personalLinks || []);
 
-  const resetLayout = () => {
-    if (!window.confirm('Reset to the default company layout? Your custom ordering, folders, and favorites for Company Links will be cleared - this cannot be undone.')) return;
-    resetToDefault('external').catch(() => {}); // failure already surfaced via saveError -> banner
+  // View switcher name-prompt modal state + the actions that open it -
+  // mirrors CustomDashboard.jsx's NameModal/openName/wrap pattern one
+  // screen over. `wrap` is what turns a silent NameModal-swallowed
+  // rejection into a visible banner - without it, a failed save/rename/
+  // create just left the modal re-clickable with no explanation.
+  const [nameModal, setNameModal] = useState(null);
+  const [viewMenu, setViewMenu] = useState(false);
+  const openName = (opts) => { setViewMenu(false); setNameModal(opts); };
+  const wrap = (fn, okMsg) => async (...a) => {
+    try { await fn(...a); if (okMsg) setBanner({ kind: 'ok', text: okMsg }); }
+    catch (e) { setBanner({ kind: 'err', text: e?.message || 'Something went wrong.' }); throw e; }
   };
-  const resetPersonalLayout = () => {
-    if (!window.confirm('Reset your Personal Links arrangement? Your custom ordering and folders for Personal Links will be cleared - this cannot be undone. The links themselves are not deleted.')) return;
-    resetToDefault('personal').catch(() => {});
+  const confirmDiscard = () => !dirty || window.confirm('You have unsaved changes to your layout - discard them?');
+  const guardedSwitch = (id) => { if (confirmDiscard()) switchView(id); };
+  const isOwnView = !!activeView;
+  const saveViewLayout = wrap(async () => {
+    if (isOwnView) { await saveView(); return; }
+    openName({
+      title: 'Save your layout', initial: 'My view', cta: 'Save view',
+      onSubmit: wrap(async (name) => { const v = await saveAsNew(name); await setDefaultView(v.id); }, 'Layout saved'),
+    });
+  }, isOwnView ? 'Layout saved' : null);
+  const saveAsNewView = () => openName({
+    title: 'Save as a new view', initial: '', cta: 'Create view',
+    onSubmit: wrap(name => saveAsNew(name), 'View created'),
+  });
+  const renameCurrentView = () => openName({
+    title: 'Rename view', initial: activeView?.name || '', cta: 'Rename',
+    onSubmit: wrap(name => renameView(activeId, name), 'Renamed'),
+  });
+  const createNew = () => openName({
+    title: 'Create a new view', label: 'Starts from the default layout - customize it after', initial: '', cta: 'Create view',
+    onSubmit: wrap(name => createNewView(name), 'View created - customize away'),
+  });
+  const guardedNew = () => { if (confirmDiscard()) createNew(); };
+  const guardedDone = () => { if (confirmDiscard()) { setEditing(false); reloadViews(); } };
+  const makeDefault = wrap(async () => { setViewMenu(false); if (activeId) await setDefaultView(activeId); }, 'Set as your default');
+  const deleteCurrentView = () => {
+    setViewMenu(false);
+    if (!activeId) return;
+    if (window.confirm(`Delete "${activeView?.name}"?`)) removeView(activeId).catch(e => setBanner({ kind: 'err', text: e?.message }));
   };
 
   const openLink = (link) => {
@@ -607,17 +637,51 @@ export default function ExternalLinks() {
             {all.length > 0 && ` ${all.length} apps across ${categoriesInUse.length || meta.categories.length} categories, ${totalClicks.toLocaleString()} launches all-time.`}
           </p>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          {section === 'company' && hasCustomOrder && (
-            <button className="secondary-btn" onClick={resetLayout} title="Clear your custom ordering and folders - go back to the default company view">
-              <RotateCcw size={14} /> Reset to Default
-            </button>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <select value={activeId || ''}
+            onChange={e => { const val = e.target.value; if (val === '__new__') guardedNew(); else guardedSwitch(val || null); }}
+            className="form-input" title="Switch layout view"
+            style={{ fontSize: 12.5, fontWeight: 600, width: 170, padding: '7px 30px 7px 11px', lineHeight: 1.4, height: 'auto' }}>
+            <option value="">Home</option>
+            {views.length > 0 && (
+              <optgroup label="My views">
+                {views.map(v => <option key={v.id} value={v.id}>{v.name}{v.isDefault ? ' ★' : ''}</option>)}
+              </optgroup>
+            )}
+            <option value="__new__">＋ New view…</option>
+          </select>
+          {editing ? (
+            <>
+              <button className="primary-btn" style={{ opacity: dirty ? 1 : 0.6 }} onClick={saveViewLayout} disabled={!dirty}>
+                <Save size={14} /> {dirty ? 'Save' : 'Saved'}
+              </button>
+              <button className="secondary-btn" onClick={guardedDone}><X size={14} /> Done</button>
+            </>
+          ) : (
+            <button className="secondary-btn" onClick={() => setEditing(true)}><SlidersHorizontal size={14} /> Customize</button>
           )}
-          {section === 'personal' && hasPersonalCustomOrder && (
-            <button className="secondary-btn" onClick={resetPersonalLayout} title="Clear your custom ordering and folders for Personal Links">
-              <RotateCcw size={14} /> Reset to Default
+          <div style={{ position: 'relative' }}>
+            <button className="secondary-btn" style={{ padding: '6px 9px' }} onClick={() => setViewMenu(m => !m)} title="View options">
+              <MoreHorizontal size={15} />
             </button>
-          )}
+            {viewMenu && (
+              <div onMouseLeave={() => setViewMenu(false)} style={{ position: 'absolute', right: 0, top: 40, background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 12, boxShadow: '0 18px 50px rgba(17,24,39,0.18)', padding: 6, zIndex: 50, minWidth: 210 }}>
+                <div style={{ padding: '6px 10px 9px', borderBottom: '1px solid var(--line)', marginBottom: 5 }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink)', maxWidth: 210, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{activeView?.name || 'Home'}</div>
+                  <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--muted)', marginTop: 2 }}>{activeView ? (activeView.isDefault ? 'Your default view' : 'Personal view') : 'Built-in layout'}</div>
+                </div>
+                {isOwnView && <ViewMenuItem icon={Pencil} label="Rename view" onClick={() => { setViewMenu(false); renameCurrentView(); }} />}
+                {isOwnView && !activeView.isDefault && <ViewMenuItem icon={Star} label="Set as my default" onClick={makeDefault} />}
+                {!isOwnView && views.some(v => v.isDefault) && (
+                  <ViewMenuItem icon={LayoutGrid} label="Make Home my default"
+                    onClick={() => { setViewMenu(false); clearDefaultView().catch(e => setBanner({ kind: 'err', text: e?.message })); }} />
+                )}
+                <div style={{ borderTop: '1px solid var(--line)', margin: '5px 0' }} />
+                <ViewMenuItem icon={Copy} label="Save as new view" onClick={() => { setViewMenu(false); saveAsNewView(); }} />
+                {isOwnView && <ViewMenuItem icon={Trash2} label="Delete view" danger onClick={deleteCurrentView} />}
+              </div>
+            )}
+          </div>
           {section === 'company' && (
             <button className="secondary-btn" onClick={() => setPaletteOpen(true)}>
               <Command size={14} /> Quick Search
@@ -667,7 +731,7 @@ export default function ExternalLinks() {
         <PersonalLinksSection
           layout={layout} itemsById={personalItemsById} actionCtx={actionCtx}
           mutate={seededPersonalMutate} allLinks={personalLinks || []}
-          onAdd={openAddPersonal}
+          onAdd={openAddPersonal} editable={editing}
         />
       )}
 
@@ -732,7 +796,7 @@ export default function ExternalLinks() {
           <Section title="My Layout" icon={LayoutGrid}>
             <LinksLayoutSection
               sourceType="external" layout={layout} itemsById={unifiedItemsById} actionCtx={actionCtx}
-              mutate={seededMutate} allLinks={all}
+              mutate={seededMutate} allLinks={all} editable={editing}
             />
           </Section>
         </AsyncSection>
@@ -777,6 +841,8 @@ export default function ExternalLinks() {
           }}
         />
       )}
+
+      {nameModal && <NameModal {...nameModal} onClose={() => setNameModal(null)} />}
     </div>
   );
 }
@@ -831,7 +897,7 @@ const PERSONAL_COLOR = { fg: 'hsl(var(--color-purple))', bg: 'hsla(var(--color-p
 // reuse the exact same LinksLayoutSection Company Links already uses, just
 // pointed at item_type: "personal" - see that component's own docstring for
 // how one layout document stays split cleanly between the two tabs.
-function PersonalLinksSection({ layout, itemsById, actionCtx, mutate, allLinks, onAdd }) {
+function PersonalLinksSection({ layout, itemsById, actionCtx, mutate, allLinks, onAdd, editable }) {
   return (
     <div style={{ marginBottom: 24 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
@@ -844,7 +910,8 @@ function PersonalLinksSection({ layout, itemsById, actionCtx, mutate, allLinks, 
       </div>
       <LinksLayoutSection
         sourceType="personal" layout={layout} itemsById={itemsById} actionCtx={actionCtx}
-        mutate={mutate} allLinks={allLinks} extraAddTile={{ label: 'Add Link', onClick: onAdd }}
+        mutate={mutate} allLinks={allLinks} editable={editable}
+        extraAddTile={{ label: 'Add Link', onClick: onAdd }}
       />
     </div>
   );
@@ -1200,7 +1267,7 @@ function FolderTile({ folder, memberLinks, onOpen, dragHandleProps, dropProps, i
 // members back to top-level, never deletes the underlying links), and each
 // member gets the same reorder/move-out controls as the top-level grid.
 function FolderModal({
-  folder, memberEntries, itemsById, actionCtx,
+  folder, memberEntries, itemsById, actionCtx, editable,
   onClose, onRename, onDeleteFolder, onReorderWithin, onMoveOut,
   allFolders, onCreateFolder,
 }) {
@@ -1250,10 +1317,12 @@ function FolderModal({
               />
               <button className="secondary-btn" onClick={commitRename}><Check size={14} /></button>
             </div>
-          ) : (
+          ) : editable ? (
             <h3 style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }} onClick={() => setRenaming(true)} title="Click to rename">
               {folder.name} <Pencil size={13} style={{ color: 'var(--muted)' }} />
             </h3>
+          ) : (
+            <h3>{folder.name}</h3>
           )}
           <button className="close-btn" onClick={onClose}><X size={16} /></button>
         </div>
@@ -1278,11 +1347,11 @@ function FolderModal({
                     canManage={a.canManage} canDelete={a.canDelete}
                     isFavorite={a.isFavorite} onToggleFavorite={a.onToggleFavorite}
                     onOpen={a.onOpen} onEdit={a.onEdit} onDelete={a.onDelete}
-                    dragHandleProps={{
+                    dragHandleProps={editable ? {
                       onDragStart: (e) => { e.dataTransfer.effectAllowed = 'move'; setDragKey(entryKey(entry)); },
                       onDragEnd: () => setDragKey(null),
-                    }}
-                    dropProps={{
+                    } : undefined}
+                    dropProps={editable ? {
                       onDragOver: (e) => { if (dragKey != null) e.preventDefault(); },
                       // Same DOM-ground-truth read as the background grid's
                       // topItemDropProps - the actual element the drop
@@ -1301,8 +1370,8 @@ function FolderModal({
                         onReorderWithin(entries);
                         setDragKey(null);
                       },
-                    }}
-                    moveControls={{
+                    } : undefined}
+                    moveControls={editable ? {
                       extra: (
                         <FolderPicker
                           folders={allFolders} currentFolderId={folder.id}
@@ -1310,7 +1379,7 @@ function FolderModal({
                           onCreateNew={() => onCreateFolder(entry)}
                         />
                       ),
-                    }}
+                    } : undefined}
                   />
                 );
               })}
@@ -1318,9 +1387,11 @@ function FolderModal({
           )}
         </div>
         <div className="modal-footer">
-          <button className="secondary-btn" style={{ color: 'hsl(var(--color-red))' }} onClick={onDeleteFolder}>
-            <Trash2 size={14} /> Delete Folder
-          </button>
+          {editable && (
+            <button className="secondary-btn" style={{ color: 'hsl(var(--color-red))' }} onClick={onDeleteFolder}>
+              <Trash2 size={14} /> Delete Folder
+            </button>
+          )}
           <button className="primary-btn" onClick={onClose}>Done</button>
         </div>
       </div>
@@ -1352,7 +1423,7 @@ function FolderModal({
 // creates a brand-new PersonalLink row rather than organizing existing
 // ones - Company Links has no equivalent since new Company Links are only
 // ever added from Manage).
-function LinksLayoutSection({ sourceType, layout, itemsById, actionCtx, mutate, allLinks, extraAddTile }) {
+function LinksLayoutSection({ sourceType, layout, itemsById, actionCtx, mutate, allLinks, extraAddTile, editable = false }) {
   const [openFolderId, setOpenFolderId] = useState(null);
   // Desktop drag-and-drop state - HTML5 native, mirrors ManageModal's
   // draggable/onDragStart/onDragOver/onDrop/onDragEnd pattern elsewhere in
@@ -1531,8 +1602,8 @@ function LinksLayoutSection({ sourceType, layout, itemsById, actionCtx, mutate, 
             key={f.id} folder={f}
             memberLinks={folderMembers(f.id).map(e => resolveEntryLink(itemsById, e)).filter(Boolean)}
             onOpen={() => setOpenFolderId(f.id)}
-            dragHandleProps={folderDragProps(f.id)}
-            dropProps={folderDropProps(f.id)}
+            dragHandleProps={editable ? folderDragProps(f.id) : undefined}
+            dropProps={editable ? folderDropProps(f.id) : undefined}
             isDropTarget={dragOverFolderId === f.id}
           />
         ))}
@@ -1545,9 +1616,9 @@ function LinksLayoutSection({ sourceType, layout, itemsById, actionCtx, mutate, 
               canManage={a.canManage} canDelete={a.canDelete}
               isFavorite={a.isFavorite} onToggleFavorite={a.onToggleFavorite}
               onOpen={a.onOpen} onEdit={a.onEdit} onDelete={a.onDelete}
-              dragHandleProps={itemDragProps(entry)}
-              dropProps={topItemDropProps()}
-              moveControls={{
+              dragHandleProps={editable ? itemDragProps(entry) : undefined}
+              dropProps={editable ? topItemDropProps() : undefined}
+              moveControls={editable ? {
                 extra: (
                   <FolderPicker
                     folders={folders} currentFolderId={null}
@@ -1555,12 +1626,12 @@ function LinksLayoutSection({ sourceType, layout, itemsById, actionCtx, mutate, 
                     onCreateNew={() => createFolderWithItem(entry)}
                   />
                 ),
-              }}
+              } : undefined}
             />
           );
         })}
         {extraAddTile && <AddAppTile label={extraAddTile.label} onClick={extraAddTile.onClick} />}
-        <AddAppTile label="New Folder" onClick={createEmptyFolder} />
+        {editable && <AddAppTile label="New Folder" onClick={createEmptyFolder} />}
       </AppGrid>
 
       {openFolder && (
@@ -1569,6 +1640,7 @@ function LinksLayoutSection({ sourceType, layout, itemsById, actionCtx, mutate, 
           memberEntries={folderMembers(openFolder.id)}
           itemsById={itemsById}
           actionCtx={actionCtx}
+          editable={editable}
           onClose={() => setOpenFolderId(null)}
           onRename={(name) => renameFolder(openFolder.id, name)}
           onDeleteFolder={() => {
@@ -1583,6 +1655,54 @@ function LinksLayoutSection({ sourceType, layout, itemsById, actionCtx, mutate, 
         />
       )}
     </>
+  );
+}
+
+// One row in the view "…" menu - mirrors CustomDashboard.jsx's inline menu
+// button markup exactly, pulled out here since Links only has one menu
+// (no publish/department sections) rather than CustomDashboard's grouped list.
+function ViewMenuItem({ icon: Icon, label, onClick, danger }) {
+  return (
+    <button onClick={onClick}
+      style={{ display: 'flex', alignItems: 'center', gap: 9, width: '100%', padding: '8px 10px', border: 'none', background: 'none', borderRadius: 7, cursor: 'pointer', fontSize: 12.5, textAlign: 'left', fontFamily: 'var(--wk-font)', color: danger ? 'hsl(var(--color-red))' : 'var(--ink)' }}
+      onMouseEnter={e => e.currentTarget.style.background = 'var(--mist)'} onMouseLeave={e => e.currentTarget.style.background = 'none'}>
+      <Icon size={14} /> {label}
+    </button>
+  );
+}
+
+// Small, reliable name dialog for saving/renaming/creating a view - mirrors
+// CustomDashboard.jsx's own NameModal (replaces window.prompt, which
+// wouldn't let the user type / was silently blocked in this app before).
+// Auto-focuses; Enter submits, Esc cancels.
+function NameModal({ title, label = 'View name', initial = '', cta = 'Save', onSubmit, onClose }) {
+  const [v, setV] = useState(initial);
+  const [busy, setBusy] = useState(false);
+  const submit = async () => {
+    if (!v.trim() || busy) return;
+    setBusy(true);
+    try { await onSubmit(v.trim()); onClose(); } catch { setBusy(false); }
+  };
+  return (
+    <div onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1450, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, width: '100%', maxWidth: 420, boxShadow: '0 24px 70px rgba(17,24,39,0.30)', fontFamily: 'var(--wk-font)' }}>
+        <div style={{ padding: '15px 20px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center' }}>
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>{title}</h3>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}><X size={18} /></button>
+        </div>
+        <div style={{ padding: 18 }}>
+          <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 6 }}>{label}</label>
+          <input autoFocus value={v} onChange={e => setV(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') submit(); if (e.key === 'Escape') onClose(); }}
+            className="form-input" style={{ width: '100%' }} placeholder="e.g. Finance apps" />
+          <div style={{ display: 'flex', gap: 8, marginTop: 18, justifyContent: 'flex-end' }}>
+            <button className="secondary-btn" onClick={onClose}>Cancel</button>
+            <button className="primary-btn" onClick={submit} disabled={!v.trim() || busy}>{busy ? 'Saving…' : cta}</button>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 

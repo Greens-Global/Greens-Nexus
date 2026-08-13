@@ -1724,6 +1724,46 @@ class UserLinkLayout(Base):
     updated_at  = Column(String, default="")
 
 
+class LinkLayoutView(Base):
+    """One of a user's saved, named External Links personalization
+    arrangements (Aug 14 - "same option as we have in dashboard section...
+    default view and add customize views... save it per our convenient
+    name"). Mirrors DashboardView's personal-view shape (id, owner_email,
+    name, layout, is_default) exactly, minus the department/scope/target
+    machinery that concept needed and this doesn't - every Link View is
+    personal-only, and there's only one screen (External Links) it applies
+    to. Multiple rows per user is the whole point (unlike UserLinkLayout
+    above), so owner_email is indexed but NOT unique.
+
+    Supersedes UserLinkLayout's one-row-per-user shape, which had no room
+    for more than one saved arrangement. UserLinkLayout is left in place
+    read-only as a migration source (link_layouts.py lazily copies a user's
+    existing row into a new LinkLayoutView, named "My view" and marked
+    default, the first time they hit any view-aware endpoint after this
+    shipped) rather than being altered or dropped - changing an existing
+    unique(owner_email) constraint on a live table is exactly the kind of
+    migration this codebase avoids (CLAUDE.md's migration guidance), and a
+    lazy copy-on-read needs no downtime or backfill script.
+
+    "Home" (the synthesized, unarranged company/personal default order) is
+    NOT a row here, same as Dashboard's Home isn't a DashboardView row -
+    it's a client-side fallback when no view is active/default, exactly
+    mirroring useDashboards.js's `activeId === null` case.
+
+    layout shape is identical to UserLinkLayout.layout - see that
+    docstring for the full {folders, items, favorites} shape and the
+    item_type-scoping rules that keep Company and Personal Links from ever
+    mixing within one view."""
+    __tablename__ = "link_layout_views"
+    id          = Column(String, primary_key=True)   # uuid
+    owner_email = Column(String, index=True, nullable=False)
+    name        = Column(String, default="My view")
+    layout      = Column(JSON, default=dict)
+    is_default  = Column(Boolean, default=False)
+    created_at  = Column(String, default="")
+    updated_at  = Column(String, default="")
+
+
 class HrInterviewTemplate(Base):
     """Role questionnaire for AI-assisted interviews: the questions HR asks in
     the Teams call; answers get auto-filled from the transcript and scored."""

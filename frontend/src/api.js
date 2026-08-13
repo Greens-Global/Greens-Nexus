@@ -663,10 +663,28 @@ export const api = {
 
   // Link Layout - per-user Links Module personalization (ordering, folders,
   // favorites), backend-persisted so it follows the account across devices
-  // rather than living in localStorage.
-  getLinkLayout: () => req("/link-layout"),
-  saveLinkLayout: (body) => req("/link-layout", { method: "PUT", body: JSON.stringify(body) }),
-  resetLinkLayout: (scope) => req(`/link-layout${scope ? `?scope=${scope}` : ''}`, { method: "DELETE" }),
+  // rather than living in localStorage. The bare endpoints below always
+  // target "the" default Link View (auto-created on first write); pass a
+  // view id to target a specific one instead - useLinkLayout.js's editing
+  // flow does this while a named view other than the default is active.
+  getLinkLayout: (viewId) => req(`/link-layout${viewId ? `?view=${viewId}` : ''}`),
+  saveLinkLayout: (body, viewId) => req(`/link-layout${viewId ? `?view=${viewId}` : ''}`, { method: "PUT", body: JSON.stringify(body) }),
+  resetLinkLayout: (scope, viewId) => {
+    const params = new URLSearchParams();
+    if (scope) params.set('scope', scope);
+    if (viewId) params.set('view', viewId);
+    const qs = params.toString();
+    return req(`/link-layout${qs ? `?${qs}` : ''}`, { method: "DELETE" });
+  },
+
+  // Link Views - named, saveable External Links arrangements (Aug 14),
+  // mirrors the Dashboard's own view CRUD (dashViews/dashCreateView/etc)
+  // one screen over: no target/scope/department, every view is personal.
+  listLinkViews:   ()             => req('/link-layout/views'),
+  createLinkView:  (body)         => req('/link-layout/views', { method: 'POST', body: JSON.stringify(body) }),
+  updateLinkView:  (id, body)     => req(`/link-layout/views/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+  setDefaultLinkView: (id)        => req(`/link-layout/views/${id}/default`, { method: 'PUT' }),
+  deleteLinkView:  (id)           => req(`/link-layout/views/${id}`, { method: 'DELETE' }),
 
   // Nexus Roles
   getMyRole:    ()                    => cachedGet('/roles/me'),

@@ -947,6 +947,9 @@ def _run_migrations():
         # arrangement, same posture as personal_links above: owner_email-gated
         # in the API, RLS here only to close it to the public anon key.
         "ALTER TABLE user_link_layouts ENABLE ROW LEVEL SECURITY",
+        # link_layout_views (Aug 14) - named, multi-row successor to
+        # user_link_layouts above (same owner_email-gated posture).
+        "ALTER TABLE link_layout_views ENABLE ROW LEVEL SECURITY",
         # External Links directory rebuild (Aug 2026) - see the matching sqlite
         # migration list above for the full rationale; name-keyed idempotent
         # inserts, same statements (portable syntax) on both engines.
