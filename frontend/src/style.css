@@ -3753,4 +3753,145 @@ button, [role="button"], select { touch-action: manipulation; }
 }
 [data-theme="dark"] .dash-grid .dash-card-title { color: var(--ink); }
 .dash-grid .dash-card-sub { font-size: 12px; color: var(--wk-faint); }
+
+/* ── App Launcher tiles (External Links redesign, Aug 2026) ─────────────────
+   Replaces the old large description-cards with compact iPhone/Android-style
+   app icons: icon + name only, description moved to a hover tooltip (touch
+   devices get an explicit (i) button instead, since CSS :hover doesn't fire
+   reliably on tap). .app-grid is a plain flex-wrap, not CSS Grid, on purpose -
+   fixed-width tiles that reflow is what keeps icon size constant at any
+   column count, and a flat wrap container is the easiest shape to later drop
+   a drag-and-drop library or folder grouping into without restructuring. */
+.app-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px 14px;
+}
+.app-tile {
+  position: relative;
+  width: 86px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  cursor: pointer;
+  border-radius: 16px;
+  padding: 6px 4px 8px;
+  border: none;
+  background: transparent;
+  font-family: inherit;
+  transition: transform .15s ease, background-color .15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.app-tile:hover, .app-tile:focus-visible {
+  transform: translateY(-3px) scale(1.05);
+  background: var(--mist);
+  outline: none;
+}
+.app-tile:active { transform: translateY(-1px) scale(1.02); }
+.app-tile-icon-wrap { position: relative; }
+.app-tile-name {
+  margin-top: 8px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--ink);
+  text-align: center;
+  line-height: 1.25;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+  max-width: 100%;
+}
+.app-tile-pin {
+  position: absolute; top: -3px; right: -3px;
+  width: 16px; height: 16px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--card); color: hsl(var(--color-gold));
+  box-shadow: 0 1px 4px rgba(0,0,0,.2);
+}
+.app-tile-fav-badge {
+  position: absolute; top: -3px; left: -3px;
+  width: 16px; height: 16px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--card); color: hsl(var(--color-blue));
+  box-shadow: 0 1px 4px rgba(0,0,0,.2);
+}
+.app-tile-key-badge {
+  position: absolute; bottom: -3px; left: -3px;
+  width: 16px; height: 16px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--card); color: var(--wk-brand, hsl(var(--color-purple)));
+  box-shadow: 0 1px 4px rgba(0,0,0,.2);
+}
+.app-tile-actions {
+  position: absolute; top: -8px; left: 50%; transform: translateX(-50%);
+  display: flex; gap: 3px;
+  opacity: 0; pointer-events: none;
+  transition: opacity .12s ease;
+}
+.app-tile:hover .app-tile-actions, .app-tile:focus-within .app-tile-actions {
+  opacity: 1; pointer-events: auto;
+}
+@media (hover: none) {
+  /* No hover on touch, so favorite/edit/delete would otherwise be
+     unreachable from the grid itself (Manage still has them, but that's an
+     extra trip) - keep the action row always visible there instead of
+     hover-gated. */
+  .app-tile-actions { opacity: 1; pointer-events: auto; position: static; transform: none; margin-bottom: 2px; }
+}
+.app-tile-tooltip {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%) translateY(4px);
+  background: var(--ink);
+  color: var(--card);
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 1.35;
+  padding: 7px 10px;
+  border-radius: 8px;
+  white-space: normal;
+  width: max-content;
+  max-width: 190px;
+  text-align: center;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity .12s ease, transform .12s ease;
+  z-index: 20;
+  box-shadow: 0 6px 20px rgba(0,0,0,.25);
+}
+@media (hover: hover) {
+  .app-tile:hover .app-tile-tooltip { opacity: 1; visibility: visible; transform: translateX(-50%) translateY(0); }
+}
+.app-tile-tooltip.show { opacity: 1; visibility: visible; transform: translateX(-50%) translateY(0); }
+.app-tile-info-btn { display: none; }
+@media (hover: none) {
+  /* Touch devices can't hover to see the tooltip, so an explicit small (i)
+     button is the "appropriate touch interaction" - tapping it toggles the
+     tooltip without also triggering the tile's own open-link click. */
+  .app-tile-info-btn {
+    display: flex; position: absolute; bottom: -5px; right: -5px;
+    width: 20px; height: 20px; border-radius: 50%;
+    align-items: center; justify-content: center;
+    background: var(--card); color: var(--muted);
+    box-shadow: 0 1px 4px rgba(0,0,0,.2);
+    border: none; padding: 0; cursor: pointer;
+  }
+}
+.app-tile-add {
+  border: 1.5px dashed var(--wk-line2);
+  color: var(--muted);
+}
+.app-tile-add:hover { border-color: var(--wk-brand); color: var(--wk-brand); background: var(--wk-brand-tint); }
+.app-tile-add-icon {
+  width: 60px; height: 60px; border-radius: 16px;
+  display: flex; align-items: center; justify-content: center;
+}
+@media (max-width: 480px) {
+  .app-grid { gap: 16px 10px; }
+  .app-tile { width: 74px; }
+}
 [data-theme="dark"] .dash-grid .dash-card-sub { color: var(--text-muted); }

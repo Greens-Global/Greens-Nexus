@@ -4,14 +4,14 @@ import { api } from '../api';
 import AsyncSection, { SkeletonBlocks } from '../components/AsyncState';
 import { PersonalLockGate } from '../credvault/vaultShared';
 import {
-  Search, Plus, Pencil, Trash2, X, Star, ExternalLink as ExternalLinkIcon,
+  Search, Plus, Pencil, Trash2, X, Star,
   Link2, Mail, Calendar, Users2, FolderKanban, Rocket, MessagesSquare, BookOpen,
   HelpCircle, Clock, FileSpreadsheet, Zap, Wifi, Landmark, Wallet, Building2,
   Newspaper, GraduationCap, LineChart, Briefcase, Shield, Globe, Megaphone,
   HardHat, Ruler, CreditCard, PiggyBank, Receipt, ClipboardList, Headphones,
   Video, LayoutGrid, TrendingUp, ArrowUpDown, CheckSquare, Cloud, Presentation,
   Gauge, Bird, Warehouse, Settings2, Bookmark, CornerDownLeft, History, List, Command,
-  GripVertical, AlertTriangle, Upload, FolderOpen, Download, Lock, KeyRound,
+  GripVertical, AlertTriangle, Upload, FolderOpen, Download, Lock, KeyRound, Info,
 } from 'lucide-react';
 
 // ── Personal, client-side only (favorites / recents / view density) ──
@@ -657,7 +657,7 @@ export default function ExternalLinks() {
           error={error}
           isEmpty={isEmpty}
           onRetry={load}
-          skeleton={<SkeletonBlocks count={8} height={116} gridTemplateColumns="repeat(auto-fill, minmax(220px, 1fr))" />}
+          skeleton={<SkeletonBlocks count={16} height={86} borderRadius={16} gridTemplateColumns="repeat(auto-fill, 86px)" />}
           emptyContent={
             <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--muted)' }}>
               <LayoutGrid size={32} style={{ opacity: 0.4, marginBottom: 10 }} />
@@ -791,64 +791,13 @@ function PersonalLinksSection({ links, onOpen, onAdd, onEdit, onDelete }) {
         <span style={{ fontSize: 11, color: 'var(--muted)' }}>Only visible to you</span>
         <div style={{ flex: 1, height: 1, background: 'var(--line)' }} />
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 14 }}>
+      <AppGrid>
         {items.map(l => (
-          <PersonalLinkCard key={l.id} link={l} onOpen={() => onOpen(l)} onEdit={() => onEdit(l)} onDelete={() => onDelete(l)} />
+          <AppTile key={l.id} link={l} color={PERSONAL_COLOR} vaultLinked={!!l.vault_cred_id}
+            canManage canDelete onEdit={() => onEdit(l)} onDelete={() => onDelete(l)} onOpen={() => onOpen(l)} />
         ))}
-        <button
-          onClick={onAdd}
-          style={{
-            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 6,
-            minHeight: 116, borderRadius: 16, border: '1.5px dashed var(--wk-line2)', background: 'transparent',
-            color: 'var(--muted)', cursor: 'pointer', transition: 'border-color .12s, color .12s',
-          }}
-          onMouseEnter={e => { e.currentTarget.style.borderColor = PERSONAL_COLOR.fg; e.currentTarget.style.color = PERSONAL_COLOR.fg; }}
-          onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--wk-line2)'; e.currentTarget.style.color = 'var(--muted)'; }}
-        >
-          <Plus size={18} />
-          <span style={{ fontSize: 12.5, fontWeight: 600 }}>Add Personal Link</span>
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function PersonalLinkCard({ link, onOpen, onEdit, onDelete }) {
-  const [hover, setHover] = useState(false);
-  return (
-    <div
-      onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
-      className="card" onClick={onOpen} title={link.description || link.name}
-      style={{
-        position: 'relative', padding: 16, cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: 10,
-        border: '1px solid transparent', transition: 'transform .12s, box-shadow .12s, border-color .12s',
-        transform: hover ? 'translateY(-3px)' : 'none',
-        boxShadow: hover ? '0 10px 24px -8px rgba(0,0,0,.18)' : 'var(--shadow-md)',
-        borderColor: hover ? PERSONAL_COLOR.bg : 'transparent',
-      }}
-    >
-      {hover && (
-        <div style={{ position: 'absolute', top: 10, right: 10, display: 'flex', gap: 4 }} onClick={e => e.stopPropagation()}>
-          <IconBtn onClick={onEdit} title="Edit link"><Pencil size={13} /></IconBtn>
-          <IconBtn onClick={onDelete} title="Remove link" danger><Trash2 size={13} /></IconBtn>
-        </div>
-      )}
-      <LinkIcon url={link.url} iconKey={link.icon} fg={PERSONAL_COLOR.fg} bg={PERSONAL_COLOR.bg} />
-      <div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-          <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--ink)' }}>{link.name}</span>
-          {link.vault_cred_id && <KeyRound size={11} style={{ color: PERSONAL_COLOR.fg, flexShrink: 0 }} title="Copies your saved password when opened" />}
-        </div>
-        {link.description && (
-          <p style={{
-            fontSize: 12, color: 'var(--muted)', marginTop: 3, lineHeight: 1.4,
-            display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
-          }}>
-            {link.description}
-          </p>
-        )}
-      </div>
-      <ExternalLinkIcon size={12} style={{ color: 'var(--muted)', opacity: hover ? 1 : 0, transition: 'opacity .12s', marginTop: 'auto' }} />
+        <AddAppTile label="Add Link" onClick={onAdd} />
+      </AppGrid>
     </div>
   );
 }
@@ -1011,6 +960,85 @@ function PersonalStrip({ title, icon: Icon, iconColor, links, onOpen, favorites,
   );
 }
 
+// ── App Launcher tiles (Aug 2026 redesign) ──────────────────────────────────
+// Replaces the old description-cards with compact iPhone/Android-style app
+// icons: icon + name only. Description/category/admin actions surface on
+// hover (or an explicit tap on touch devices, since CSS :hover doesn't fire
+// reliably there) instead of sitting on the tile permanently - see the
+// .app-tile rules in style.css for the hover/tooltip mechanics themselves.
+// One shared tile for Company Links, Personal Links, and any future
+// dashboard/folder surface - `data-link-id` is there so a future
+// drag-and-drop library or folder feature can hook in without a rewrite;
+// .app-grid is a plain flex-wrap for the same reason (easy to wrap in a DnD
+// context or split into folder sub-grids later, unlike a CSS Grid with fixed
+// track counts).
+function AppGrid({ children }) {
+  return <div className="app-grid">{children}</div>;
+}
+
+function AppTile({ link, color, canManage, canDelete, isFavorite, onToggleFavorite, onOpen, onEdit, onDelete, iconSize = 60, iconGradient = true, vaultLinked = false }) {
+  const [showTip, setShowTip] = useState(false);
+  const tipTimer = useRef(null);
+  useEffect(() => () => clearTimeout(tipTimer.current), []);
+  const toggleTip = (e) => {
+    e.stopPropagation();
+    setShowTip(s => {
+      const next = !s;
+      clearTimeout(tipTimer.current);
+      if (next) tipTimer.current = setTimeout(() => setShowTip(false), 2500);
+      return next;
+    });
+  };
+
+  const description = link.description || '';
+  const hasActions = !!(onToggleFavorite || (canManage && (onEdit || onDelete)));
+
+  return (
+    <div
+      className="app-tile" onClick={onOpen} data-link-id={link.id}
+      role="button" tabIndex={0}
+      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(); } }}
+      title={!description ? link.name : undefined}
+    >
+      <div className="app-tile-icon-wrap">
+        <LinkIcon url={link.url} iconKey={link.icon} size={iconSize} radius={Math.round(iconSize * 0.28)} fg={color.fg} bg={color.bg} gradient={iconGradient} />
+        {link.is_pinned && <span className="app-tile-pin"><Star size={9} fill="currentColor" /></span>}
+        {isFavorite && <span className="app-tile-fav-badge"><Bookmark size={9} fill="currentColor" /></span>}
+        {vaultLinked && <span className="app-tile-key-badge" title="Copies its saved password when opened"><KeyRound size={9} /></span>}
+        {hasActions && (
+          <div className="app-tile-actions" onClick={e => e.stopPropagation()}>
+            {onToggleFavorite && (
+              <IconBtn onClick={onToggleFavorite} title={isFavorite ? 'Remove from My Favorites' : 'Add to My Favorites'}>
+                <Bookmark size={11} fill={isFavorite ? 'hsl(var(--color-blue))' : 'none'} style={{ color: isFavorite ? 'hsl(var(--color-blue))' : 'var(--muted)' }} />
+              </IconBtn>
+            )}
+            {canManage && onEdit && <IconBtn onClick={onEdit} title="Edit link"><Pencil size={11} /></IconBtn>}
+            {canManage && canDelete && onDelete && <IconBtn onClick={onDelete} title="Delete link" danger><Trash2 size={11} /></IconBtn>}
+          </div>
+        )}
+        {description && (
+          <>
+            <div className={`app-tile-tooltip${showTip ? ' show' : ''}`}>{description}</div>
+            <button type="button" className="app-tile-info-btn" onClick={toggleTip} title="Show description" aria-label="Show description">
+              <Info size={10} />
+            </button>
+          </>
+        )}
+      </div>
+      <span className="app-tile-name">{link.name}</span>
+    </div>
+  );
+}
+
+function AddAppTile({ label, onClick }) {
+  return (
+    <button type="button" className="app-tile app-tile-add" onClick={onClick}>
+      <div className="app-tile-add-icon"><Plus size={22} /></div>
+      <span className="app-tile-name">{label}</span>
+    </button>
+  );
+}
+
 function LinkList({ view, items, canManage, canDelete, favorites, onToggleFavorite, onOpen, onEdit, onDelete }) {
   if (view === 'list') {
     return (
@@ -1024,72 +1052,13 @@ function LinkList({ view, items, canManage, canDelete, favorites, onToggleFavori
     );
   }
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 14 }}>
+    <AppGrid>
       {items.map(l => (
-        <LinkCard key={l.id} link={l} canManage={canManage} canDelete={canDelete}
+        <AppTile key={l.id} link={l} color={colorFor(l.category)} canManage={canManage} canDelete={canDelete}
           isFavorite={favorites.includes(l.id)} onToggleFavorite={() => onToggleFavorite(l.id)}
           onOpen={() => onOpen(l)} onEdit={() => onEdit(l)} onDelete={() => onDelete(l)} />
       ))}
-    </div>
-  );
-}
-
-function LinkCard({ link, canManage, canDelete, isFavorite, onToggleFavorite, onOpen, onEdit, onDelete }) {
-  const [hover, setHover] = useState(false);
-  const { fg, bg } = colorFor(link.category);
-  return (
-    <div
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      className="card"
-      style={{
-        position: 'relative', padding: 16, cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: 10,
-        border: '1px solid transparent',
-        transition: 'transform .12s, box-shadow .12s, border-color .12s',
-        transform: hover ? 'translateY(-3px)' : 'none',
-        boxShadow: hover ? '0 10px 24px -8px rgba(0,0,0,.18)' : 'var(--shadow-md)',
-        borderColor: hover ? bg : 'transparent',
-      }}
-      onClick={onOpen}
-      title={link.description || link.name}
-    >
-      <div style={{ position: 'absolute', top: 10, right: 10, display: 'flex', gap: 4 }} onClick={e => e.stopPropagation()}>
-        {(hover || isFavorite) && (
-          <IconBtn onClick={onToggleFavorite} title={isFavorite ? 'Remove from My Favorites' : 'Add to My Favorites'}>
-            <Bookmark size={13} fill={isFavorite ? 'hsl(var(--color-blue))' : 'none'} style={{ color: isFavorite ? 'hsl(var(--color-blue))' : 'var(--muted)' }} />
-          </IconBtn>
-        )}
-        {canManage && hover && (
-          <>
-            <IconBtn onClick={onEdit} title="Edit link"><Pencil size={13} /></IconBtn>
-            {canDelete && <IconBtn onClick={onDelete} title="Delete link" danger><Trash2 size={13} /></IconBtn>}
-          </>
-        )}
-      </div>
-      <LinkIcon url={link.url} iconKey={link.icon} fg={fg} bg={bg} />
-      <div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-          <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--ink)' }}>{link.name}</span>
-          {link.is_pinned && <Star size={12} style={{ color: 'hsl(var(--color-gold))', flexShrink: 0 }} fill="hsl(var(--color-gold))" />}
-        </div>
-        {link.description && (
-          <p style={{
-            fontSize: 12, color: 'var(--muted)', marginTop: 3, lineHeight: 1.4,
-            display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
-          }}>
-            {link.description}
-          </p>
-        )}
-      </div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 'auto' }}>
-        {!isPlaceholderCategory(link.category) ? (
-          <span style={{ fontSize: 10.5, fontWeight: 600, color: fg, background: bg, padding: '2px 8px', borderRadius: 20 }}>
-            {link.category}
-          </span>
-        ) : <span />}
-        <ExternalLinkIcon size={12} style={{ color: 'var(--muted)', opacity: hover ? 1 : 0, transition: 'opacity .12s' }} />
-      </div>
-    </div>
+    </AppGrid>
   );
 }
 
@@ -1097,25 +1066,21 @@ function LinkListRow({ link, canManage, canDelete, isFavorite, onToggleFavorite,
   const { fg, bg } = colorFor(link.category);
   return (
     <div
-      className="card" onClick={onOpen}
+      className="card" onClick={onOpen} title={link.description || undefined}
       style={{
         display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', cursor: 'pointer',
         boxShadow: 'none', border: '1px solid var(--wk-line2)', borderRadius: 10,
       }}
     >
       <LinkIcon url={link.url} iconKey={link.icon} size={32} iconSize={16} radius={8} fg={fg} bg={bg} gradient={false} />
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-          <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{link.name}</span>
-          {link.is_pinned && <Star size={11} style={{ color: 'hsl(var(--color-gold))', flexShrink: 0 }} fill="hsl(var(--color-gold))" />}
-        </div>
-        {link.description && <p style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{link.description}</p>}
+      <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 5 }}>
+        <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{link.name}</span>
+        {link.is_pinned && <Star size={11} style={{ color: 'hsl(var(--color-gold))', flexShrink: 0 }} fill="hsl(var(--color-gold))" />}
       </div>
       {!isPlaceholderCategory(link.category) && (
         <span style={{ fontSize: 10.5, fontWeight: 600, color: fg, background: bg, padding: '2px 8px', borderRadius: 20, flexShrink: 0 }}>{link.category}</span>
       )}
-      <span style={{ fontSize: 11.5, color: 'var(--muted)', width: 70, flexShrink: 0 }}>{link.department || 'All depts'}</span>
-      <span style={{ fontSize: 11.5, color: 'var(--muted)', width: 60, flexShrink: 0 }}>{link.clicks || 0} uses</span>
+      <span style={{ fontSize: 11.5, color: 'var(--muted)', width: 60, flexShrink: 0, textAlign: 'right' }}>{link.clicks || 0} uses</span>
       <div style={{ display: 'flex', gap: 4, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
         <IconBtn onClick={onToggleFavorite} title={isFavorite ? 'Remove from My Favorites' : 'Add to My Favorites'}>
           <Bookmark size={13} fill={isFavorite ? 'hsl(var(--color-blue))' : 'none'} style={{ color: isFavorite ? 'hsl(var(--color-blue))' : 'var(--muted)' }} />
