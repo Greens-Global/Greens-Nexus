@@ -119,6 +119,25 @@ def external_links_meta(db: Session = Depends(get_db)):
     return {"departments": departments, "categories": categories}
 
 
+def _normalize_url(url: str) -> str:
+    """Duplicate-link detection (Add Link / Add Personal Link, Aug 13) -
+    collapses the differences that would otherwise let the same site get
+    added twice (http vs https, www. vs not, a trailing slash, mixed case)
+    without masking genuinely different pages on the same host. Mirrors
+    normalizeUrl in ExternalLinks.jsx - keep both in sync. This is a
+    server-side backstop behind the client-side check (which is what a user
+    actually sees); it exists for the API path directly, not for UX."""
+    try:
+        parsed = urlparse(url if re.match(r"^https?://", url, re.I) else f"https://{url}")
+        host = (parsed.hostname or "").lower()
+        if host.startswith("www."):
+            host = host[4:]
+        path = parsed.path.rstrip("/")
+        return f"{host}{path}"
+    except ValueError:
+        return url.strip().lower()
+
+
 _META_DESC_RE = re.compile(
     r'<meta[^>]+(?:name|property)=["\'](?:description|og:description)["\'][^>]+content=["\']([^"\']*)["\']', re.I
 )
@@ -200,6 +219,13 @@ async def preview_external_link(url: str, user: dict = Depends(require_links_adm
 
 @router.post("", status_code=201)
 def create_external_link(link: ExternalLinkCreate, user: dict = Depends(require_links_admin), db: Session = Depends(get_db)):
+    target = _normalize_url(link.url)
+    existing = next(
+        (l for l in db.query(models.ExternalLink.name, models.ExternalLink.url).all() if _normalize_url(l.url) == target),
+        None,
+    )
+    if existing:
+        raise HTTPException(status_code=409, detail=f'This link is already added as "{existing.name}".')
     now = _now()
     db_link = models.ExternalLink(
         **link.model_dump(),
@@ -386,6 +412,17 @@ def _owned_vault_cred_id(vault_cred_id: str, user: dict, db: Session) -> str:
 
 @personal_router.post("", status_code=201)
 def create_personal_link(link: PersonalLinkCreate, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    target = _normalize_url(link.url)
+    existing = next(
+        (
+            l for l in db.query(models.PersonalLink.name, models.PersonalLink.url)
+            .filter(models.PersonalLink.owner_email == user["email"]).all()
+            if _normalize_url(l.url) == target
+        ),
+        None,
+    )
+    if existing:
+        raise HTTPException(status_code=409, detail=f'This is already in your Personal Links as "{existing.name}".')
     now = _now()
     data = link.model_dump()
     data["vault_cred_id"] = _owned_vault_cred_id(data.get("vault_cred_id", ""), user, db)

@@ -124,6 +124,23 @@ function LinkIcon({ url, iconKey, size = 42, iconSize, radius = 12, fg, bg, grad
   );
 }
 
+// Duplicate-URL detection (Add Link / Add Personal Link) - normalizes away
+// the differences that would otherwise let the same site get added twice
+// (http vs https, www. vs not, a trailing slash, mixed case) without masking
+// genuinely different pages on the same host (different path = different
+// link). Mirrors _normalize_url in external_links.py - keep both in sync.
+function normalizeUrl(u) {
+  try {
+    const withProto = /^https?:\/\//i.test(u) ? u : `https://${u}`;
+    const parsed = new URL(withProto);
+    const host = parsed.hostname.toLowerCase().replace(/^www\./, '');
+    const path = parsed.pathname.replace(/\/+$/, '');
+    return `${host}${path}`;
+  } catch {
+    return (u || '').trim().toLowerCase();
+  }
+}
+
 // Stable color per category, cycling the app's existing --color-* tokens
 // (same palette InventoryManagement's TYPE_META draws from) so every tile's
 // accent is consistent without an admin having to pick a color by hand.
@@ -375,6 +392,11 @@ export default function ExternalLinks() {
       return;
     }
     const url = /^https?:\/\//i.test(f.url.trim()) ? f.url.trim() : `https://${f.url.trim()}`;
+    const dupe = all.find(l => l.id !== modal.id && normalizeUrl(l.url) === normalizeUrl(url));
+    if (dupe) {
+      setBanner({ kind: 'err', text: `This link is already added as "${dupe.name}"${dupe.department ? ` (${dupe.department})` : ''}.` });
+      return;
+    }
     setSaving(true);
     try {
       if (modal.mode === 'add') {
@@ -473,6 +495,11 @@ export default function ExternalLinks() {
       return;
     }
     const url = /^https?:\/\//i.test(f.url.trim()) ? f.url.trim() : `https://${f.url.trim()}`;
+    const dupe = (personalLinks || []).find(l => l.id !== personalModal.id && normalizeUrl(l.url) === normalizeUrl(url));
+    if (dupe) {
+      setBanner({ kind: 'err', text: `This is already in your Personal Links as "${dupe.name}".` });
+      return;
+    }
     setPersonalSaving(true);
     try {
       if (personalModal.mode === 'add') {
@@ -679,6 +706,7 @@ export default function ExternalLinks() {
           modal={modal} setModal={setModal} save={save} saving={saving}
           departments={[...new Set([...DEPARTMENTS, ...meta.departments])].sort()}
           categories={[...new Set([...CATEGORIES, ...meta.categories])].sort()} companies={companies}
+          existingLinks={all}
         />
       )}
 
@@ -687,7 +715,7 @@ export default function ExternalLinks() {
       )}
 
       {personalModal && (
-        <PersonalLinkModal modal={personalModal} setModal={setPersonalModal} save={savePersonal} saving={personalSaving} vaultCreds={vaultCreds} />
+        <PersonalLinkModal modal={personalModal} setModal={setPersonalModal} save={savePersonal} saving={personalSaving} vaultCreds={vaultCreds} existingLinks={personalLinks || []} />
       )}
 
       {showVaultLockGate && (
@@ -825,9 +853,13 @@ function PersonalLinkCard({ link, onOpen, onEdit, onDelete }) {
   );
 }
 
-function PersonalLinkModal({ modal, setModal, save, saving, vaultCreds }) {
+function PersonalLinkModal({ modal, setModal, save, saving, vaultCreds, existingLinks }) {
   const { mode, form } = modal;
   const setForm = (patch) => setModal(m => ({ ...m, form: { ...m.form, ...patch } }));
+  const duplicate = useMemo(() => {
+    if (!form.url.trim()) return null;
+    return existingLinks.find(l => l.id !== modal.id && normalizeUrl(l.url) === normalizeUrl(form.url)) || null;
+  }, [form.url, existingLinks, modal.id]);
   return (
     <div className="modal-overlay" onClick={() => !saving && setModal(null)}>
       <div className="modal-content" style={{ maxWidth: 440 }} onClick={e => e.stopPropagation()}>
@@ -846,6 +878,12 @@ function PersonalLinkModal({ modal, setModal, save, saving, vaultCreds }) {
           <div className="form-group">
             <label>URL</label>
             <input className="form-input" value={form.url} onChange={e => setForm({ url: e.target.value })} placeholder="https://..." />
+            {duplicate && (
+              <p style={{ fontSize: 11.5, color: 'hsl(var(--color-red))', margin: '5px 0 0', display: 'flex', alignItems: 'flex-start', gap: 5 }}>
+                <AlertTriangle size={12} style={{ flexShrink: 0, marginTop: 1 }} />
+                Already in your Personal Links as "{duplicate.name}" - pick a different link, or edit that one instead.
+              </p>
+            )}
           </div>
           <div className="form-group">
             <label>Description</label>
@@ -891,7 +929,7 @@ function PersonalLinkModal({ modal, setModal, save, saving, vaultCreds }) {
         </div>
         <div className="modal-footer">
           <button className="secondary-btn" onClick={() => setModal(null)} disabled={saving}>Cancel</button>
-          <button className="primary-btn" onClick={save} disabled={saving}>{saving ? 'Saving...' : mode === 'add' ? 'Add Link' : 'Save Changes'}</button>
+          <button className="primary-btn" onClick={save} disabled={saving || !!duplicate}>{saving ? 'Saving...' : mode === 'add' ? 'Add Link' : 'Save Changes'}</button>
         </div>
       </div>
     </div>
@@ -1076,9 +1114,17 @@ function IconBtn({ children, onClick, title, danger }) {
   );
 }
 
-function LinkModal({ modal, setModal, save, saving, departments, categories, companies }) {
+function LinkModal({ modal, setModal, save, saving, departments, categories, companies, existingLinks }) {
   const { mode, form } = modal;
   const setForm = (patch) => setModal(m => ({ ...m, form: { ...m.form, ...patch } }));
+
+  // Live duplicate warning as the admin types/pastes a URL - save() below
+  // re-checks this at submit time too (the source of truth), this is just
+  // faster feedback than waiting for the Save click to bounce.
+  const duplicate = useMemo(() => {
+    if (!form.url.trim()) return null;
+    return existingLinks.find(l => l.id !== modal.id && normalizeUrl(l.url) === normalizeUrl(form.url)) || null;
+  }, [form.url, existingLinks, modal.id]);
 
   // Auto-fill description from the site's own <meta name="description"> once
   // the admin tabs out of the URL field, so Add Link doesn't require copying
@@ -1122,6 +1168,12 @@ function LinkModal({ modal, setModal, save, saving, departments, categories, com
           <div className="form-group">
             <label>URL</label>
             <input className="form-input" value={form.url} onChange={e => setForm({ url: e.target.value })} onBlur={fetchPreview} placeholder="https://..." />
+            {duplicate && (
+              <p style={{ fontSize: 11.5, color: 'hsl(var(--color-red))', margin: '5px 0 0', display: 'flex', alignItems: 'flex-start', gap: 5 }}>
+                <AlertTriangle size={12} style={{ flexShrink: 0, marginTop: 1 }} />
+                Already added as "{duplicate.name}"{duplicate.department ? ` (${duplicate.department})` : ''} - pick a different link, or edit that one instead.
+              </p>
+            )}
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
             <div className="form-group">
@@ -1179,7 +1231,7 @@ function LinkModal({ modal, setModal, save, saving, departments, categories, com
         </div>
         <div className="modal-footer">
           <button className="secondary-btn" onClick={() => setModal(null)} disabled={saving}>Cancel</button>
-          <button className="primary-btn" onClick={save} disabled={saving}>{saving ? 'Saving...' : mode === 'add' ? 'Add Link' : 'Save Changes'}</button>
+          <button className="primary-btn" onClick={save} disabled={saving || !!duplicate}>{saving ? 'Saving...' : mode === 'add' ? 'Add Link' : 'Save Changes'}</button>
         </div>
       </div>
     </div>
