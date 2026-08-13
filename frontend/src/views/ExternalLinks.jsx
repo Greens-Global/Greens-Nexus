@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useRole } from '../contexts/RoleContext';
 import { api } from '../api';
 import AsyncSection, { SkeletonBlocks } from '../components/AsyncState';
-import { PersonalLockGate, VaultOtpModal } from '../credvault/vaultShared';
+import { PersonalLockGate } from '../credvault/vaultShared';
 import {
   Search, Plus, Pencil, Trash2, X, Star, ExternalLink as ExternalLinkIcon,
   Link2, Mail, Calendar, Users2, FolderKanban, Rocket, MessagesSquare, BookOpen,
@@ -158,7 +158,7 @@ const SORTS = [
   { id: 'new',      label: 'Recently Added' },
 ];
 
-const emptyForm = { name: '', url: '', category: '', description: '', department: '', company: '', icon: 'Link2', is_pinned: false, vault_cred_id: '' };
+const emptyForm = { name: '', url: '', category: '', description: '', department: '', company: '', icon: 'Link2', is_pinned: false };
 
 export default function ExternalLinks() {
   const { canAccessModule, myEmail } = useRole();
@@ -226,18 +226,6 @@ export default function ExternalLinks() {
   useEffect(() => { api.cvPersonal().then(setVaultCreds).catch(() => setVaultCreds([])); }, []);
   const [pendingVaultOpen, setPendingVaultOpen] = useState(null); // link waiting on Personal Vault unlock
   const [showVaultLockGate, setShowVaultLockGate] = useState(false);
-
-  // One-click Company Login (Aug 13) - the same copy-and-go pattern above,
-  // but for a Company Link paired with a COMPANY vault credential instead of
-  // a personal one. companyVaultCreds is fetched best-effort (same
-  // silent-degrade as vaultCreds above): an employee without credvault
-  // access gets []; the backend also strips vault_cred_id from every link in
-  // that case, so the Add/Edit Link picker AND the key-icon/launch flow on
-  // the tiles both just don't show up for them - two independent reasons the
-  // feature disappears cleanly for someone without Vault access, not one.
-  const [companyVaultCreds, setCompanyVaultCreds] = useState([]);
-  useEffect(() => { api.cvCredentials().then(setCompanyVaultCreds).catch(() => setCompanyVaultCreds([])); }, []);
-  const [companyOtpGate, setCompanyOtpGate] = useState(null); // { link, win } waiting on OTP verification
 
   const [favorites, setFavorites] = useState(() => readIds(myEmail, 'favs'));
   const [recents, setRecents] = useState(() => readIds(myEmail, 'recents'));
@@ -354,48 +342,12 @@ export default function ExternalLinks() {
     return arr;
   }, [rest, sortBy]);
 
-  const bumpLinkClick = (link) => {
+  const openLink = (link) => {
+    window.open(link.url, '_blank', 'noopener,noreferrer');
     pushRecent(link.id);
     api.clickExternalLink(link.id).then(updated => {
       setLinks(prev => (prev || []).map(l => (l.id === link.id ? updated : l)));
     }).catch(() => {});
-  };
-
-  const openLink = (link) => {
-    // One-click Company Login: vault_cred_id is only ever present on a link
-    // for a user who already has credvault access (backend strips it
-    // otherwise), so reaching this branch already implies they're allowed to
-    // reveal it - the OTP step below is the same step-up CredentialVaultApp
-    // requires before any reveal, not an extra gate specific to this flow.
-    if (link.vault_cred_id) {
-      // Same pre-open-a-blank-tab trick as Personal Links below: window.open
-      // must happen synchronously in this click handler to avoid the popup
-      // blocker, before the OTP modal's own async verify() round trip.
-      const win = window.open('', '_blank');
-      setCompanyOtpGate({ link, win });
-      return;
-    }
-    window.open(link.url, '_blank', 'noopener,noreferrer');
-    bumpLinkClick(link);
-  };
-
-  const revealCompanyAndOpen = async (link, win) => {
-    try {
-      const res = await api.cvReveal(link.vault_cred_id);
-      if (res.approvalRequired) {
-        setBanner({ kind: 'ok', text: `"${link.name}"'s credential is Critical-tier - access request sent to a Global Admin. Opening the link without the password for now.` });
-        gotoAndDetach(win, link.url);
-      } else {
-        try { await navigator.clipboard?.writeText(res.secret); } catch { /* clipboard blocked - link still opens */ }
-        setBanner({ kind: 'ok', text: `Password for "${link.name}" copied to your clipboard - paste it on the page that just opened.` });
-        gotoAndDetach(win, link.url);
-        api.cvCopied(link.vault_cred_id).catch(() => {});
-      }
-    } catch (e) {
-      setBanner({ kind: 'err', text: e?.message || 'Could not copy the linked password - opening the link only.' });
-      gotoAndDetach(win, link.url);
-    }
-    bumpLinkClick(link);
   };
 
   const setViewMode = (mode) => { setView(mode); try { localStorage.setItem('nexus:extlinks:view', mode); } catch { /* ignore */ } };
@@ -430,7 +382,6 @@ export default function ExternalLinks() {
     form: {
       name: link.name, url: link.url, category: link.category, description: link.description || '',
       department: link.department || '', company: link.company || '', icon: link.icon || 'Link2', is_pinned: !!link.is_pinned,
-      vault_cred_id: link.vault_cred_id || '',
     },
   });
 
@@ -755,7 +706,7 @@ export default function ExternalLinks() {
           modal={modal} setModal={setModal} save={save} saving={saving}
           departments={[...new Set([...DEPARTMENTS, ...meta.departments])].sort()}
           categories={[...new Set([...CATEGORIES, ...meta.categories])].sort()} companies={companies}
-          existingLinks={all} vaultCreds={companyVaultCreds}
+          existingLinks={all}
         />
       )}
 
@@ -776,18 +727,6 @@ export default function ExternalLinks() {
             const link = pendingVaultOpen;
             setPendingVaultOpen(null);
             if (link) openPersonalLink(link);
-          }}
-        />
-      )}
-
-      {companyOtpGate && (
-        <VaultOtpModal
-          title={`Confirm it's you to open "${companyOtpGate.link.name}" with its saved password`}
-          onClose={() => { companyOtpGate.win?.close(); setCompanyOtpGate(null); }}
-          onVerified={() => {
-            const { link, win } = companyOtpGate;
-            setCompanyOtpGate(null);
-            revealCompanyAndOpen(link, win);
           }}
         />
       )}
@@ -1132,7 +1071,6 @@ function LinkCard({ link, canManage, canDelete, isFavorite, onToggleFavorite, on
         <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
           <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--ink)' }}>{link.name}</span>
           {link.is_pinned && <Star size={12} style={{ color: 'hsl(var(--color-gold))', flexShrink: 0 }} fill="hsl(var(--color-gold))" />}
-          {link.vault_cred_id && <KeyRound size={11} style={{ color: fg, flexShrink: 0 }} title="Copies its saved password when opened" />}
         </div>
         {link.description && (
           <p style={{
@@ -1170,7 +1108,6 @@ function LinkListRow({ link, canManage, canDelete, isFavorite, onToggleFavorite,
         <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
           <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{link.name}</span>
           {link.is_pinned && <Star size={11} style={{ color: 'hsl(var(--color-gold))', flexShrink: 0 }} fill="hsl(var(--color-gold))" />}
-          {link.vault_cred_id && <KeyRound size={11} style={{ color: fg, flexShrink: 0 }} title="Copies its saved password when opened" />}
         </div>
         {link.description && <p style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{link.description}</p>}
       </div>
@@ -1205,7 +1142,7 @@ function IconBtn({ children, onClick, title, danger }) {
   );
 }
 
-function LinkModal({ modal, setModal, save, saving, departments, categories, companies, existingLinks, vaultCreds }) {
+function LinkModal({ modal, setModal, save, saving, departments, categories, companies, existingLinks }) {
   const { mode, form } = modal;
   const setForm = (patch) => setModal(m => ({ ...m, form: { ...m.form, ...patch } }));
 
@@ -1216,22 +1153,6 @@ function LinkModal({ modal, setModal, save, saving, departments, categories, com
     if (!form.url.trim()) return null;
     return existingLinks.find(l => l.id !== modal.id && normalizeUrl(l.url) === normalizeUrl(form.url)) || null;
   }, [form.url, existingLinks, modal.id]);
-
-  // One-click Company Login (Aug 13) - sort a credential whose own url
-  // matches this link's to the top of the picker, since that's almost always
-  // the one an admin actually wants to attach. vaultCreds is [] for anyone
-  // without credvault access (fetched best-effort at the top level), so this
-  // field just doesn't render for them - same silent-degrade as the Company
-  // filter dropdown when getPeopleDirectory has nothing.
-  const sortedVaultCreds = useMemo(() => {
-    const target = normalizeUrl(form.url);
-    return [...vaultCreds].sort((a, b) => {
-      const aMatch = target && a.url && normalizeUrl(a.url) === target;
-      const bMatch = target && b.url && normalizeUrl(b.url) === target;
-      if (aMatch !== bMatch) return aMatch ? -1 : 1;
-      return a.name.localeCompare(b.name);
-    });
-  }, [vaultCreds, form.url]);
 
   // Auto-fill description from the site's own <meta name="description"> once
   // the admin tabs out of the URL field, so Add Link doesn't require copying
@@ -1312,23 +1233,6 @@ function LinkModal({ modal, setModal, save, saving, departments, categories, com
             <textarea className="form-input" rows={2} value={form.description}
               onChange={e => setForm({ description: e.target.value })} placeholder="What is this for, in one line - or leave blank, we'll try to pull it from the site" />
           </div>
-          {vaultCreds.length > 0 && (
-            <div className="form-group">
-              <label>Linked Company Vault Credential (optional)</label>
-              <select className="form-select" value={form.vault_cred_id || ''} onChange={e => setForm({ vault_cred_id: e.target.value })}>
-                <option value="">None - just open the link</option>
-                {sortedVaultCreds.map(c => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}{c.dept ? ` (${c.dept})` : ''}{normalizeUrl(c.url) === normalizeUrl(form.url) && form.url.trim() ? ' - matches this URL' : ''}
-                  </option>
-                ))}
-              </select>
-              <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '4px 0 0', display: 'flex', alignItems: 'flex-start', gap: 5 }}>
-                <KeyRound size={12} style={{ flexShrink: 0, marginTop: 1 }} />
-                Anyone with Credential Vault access copies its password and opens the site in one click - same as everyone else, they still verify via SMS/Email first. Employees without Vault access just see a plain link.
-              </p>
-            </div>
-          )}
           <div className="form-group">
             <label>Icon</label>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', gap: 6 }}>

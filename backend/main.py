@@ -418,8 +418,6 @@ def _run_migrations():
             "ALTER TABLE external_links ADD COLUMN created_at VARCHAR DEFAULT ''",
             "ALTER TABLE external_links ADD COLUMN updated_at VARCHAR DEFAULT ''",
             "ALTER TABLE external_links ADD COLUMN company VARCHAR DEFAULT ''",
-            # One-click Company Login (Aug 13) - optional company VaultCredential.id
-            "ALTER TABLE external_links ADD COLUMN vault_cred_id VARCHAR DEFAULT ''",
             "ALTER TABLE nexus_roles ADD COLUMN tier_pinned BOOLEAN DEFAULT 0",
             # Attended remote control (IT support) - consent + audit fields on the
             # live-view session row.
@@ -934,8 +932,6 @@ def _run_migrations():
         "ALTER TABLE external_links ADD COLUMN IF NOT EXISTS company VARCHAR DEFAULT ''",
         # Personal Link -> Credential Vault personal credential pointer (Aug 13)
         "ALTER TABLE personal_links ADD COLUMN IF NOT EXISTS vault_cred_id VARCHAR DEFAULT ''",
-        # One-click Company Login (Aug 13) - ExternalLink -> COMPANY VaultCredential.id
-        "ALTER TABLE external_links ADD COLUMN IF NOT EXISTS vault_cred_id VARCHAR DEFAULT ''",
         # external_links predates this table's proper build-out and was created
         # via create_all with RLS OFF like every other gap CLAUDE.md records -
         # closing it now that this is a real, admin-editable module.
