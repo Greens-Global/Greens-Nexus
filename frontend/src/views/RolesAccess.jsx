@@ -111,6 +111,19 @@ export default function RolesAccess({ embedded = false }) {
   const [tour, setTour] = useState(false);
   const [collapsedDepts, setCollapsedDepts] = useState(() => new Set());   // department sections closed
   const toggleDept = d => setCollapsedDepts(s => { const n = new Set(s); n.has(d) ? n.delete(d) : n.add(d); return n; });
+  const [dragRole, setDragRole] = useState(null);   // job-role id being dragged
+  const [dropDept, setDropDept] = useState(null);   // department the drag is hovering over
+
+  // Drag a role card onto a department to reclassify it. Optimistic + persisted.
+  async function moveRoleToDept(roleId, deptName) {
+    const r = (jobRoles || []).find(x => x.id === roleId);
+    if (!r) return;
+    const newDept = deptName === 'Other' ? '' : deptName;
+    if ((r.department || '') === newDept) return;
+    setJobRoles(prev => (prev || []).map(x => x.id === roleId ? { ...x, department: newDept } : x));
+    try { await api.updateJobRole(roleId, { department: newDept }); toastOk(`Moved “${r.name}” to ${deptName}.`); loadRoles(); }
+    catch (e) { toastErr(e?.message || 'Could not move role.'); loadRoles(); }
+  }
 
   const toastOk = m => { setToast({ m, kind: 'ok' }); setTimeout(() => setToast(null), 3500); };
   const toastErr = m => { setToast({ m, kind: 'error' }); setTimeout(() => setToast(null), 5000); };
@@ -231,7 +244,11 @@ export default function RolesAccess({ embedded = false }) {
 
   const roleCard = r => (
     <button key={r.id} onClick={() => setSelId(r.id)}
-      style={{ textAlign: 'left', background: 'var(--card)', border: `1.5px solid ${selId === r.id ? 'var(--ink)' : 'var(--line)'}`, borderRadius: 14, padding: '13px 15px', cursor: 'pointer', fontFamily: 'Inter,sans-serif', boxShadow: selId === r.id ? 'var(--shadow-sm)' : 'none', transition: 'border-color .18s ease, box-shadow .18s ease' }}>
+      draggable
+      onDragStart={e => { e.dataTransfer.setData('text/plain', r.id); e.dataTransfer.effectAllowed = 'move'; setDragRole(r.id); }}
+      onDragEnd={() => { setDragRole(null); setDropDept(null); }}
+      title="Drag onto a department to move it there"
+      style={{ textAlign: 'left', background: 'var(--card)', border: `1.5px solid ${selId === r.id ? 'var(--ink)' : 'var(--line)'}`, borderRadius: 14, padding: '13px 15px', cursor: dragRole === r.id ? 'grabbing' : 'grab', fontFamily: 'Inter,sans-serif', boxShadow: selId === r.id ? 'var(--shadow-sm)' : 'none', opacity: dragRole === r.id ? 0.5 : 1, transition: 'border-color .18s ease, box-shadow .18s ease, opacity .18s ease' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
         <span style={{ fontWeight: 800, fontSize: 14, flex: 1 }}>{r.name}</span>
         <TierBadge tier={r.tier} />
@@ -372,16 +389,23 @@ export default function RolesAccess({ embedded = false }) {
             <div data-tour="role-cards" style={{ display: 'flex', flexDirection: 'column', gap: 8, alignSelf: 'start' }}>
               {jobRoles.length === 0 ? <Empty text="No job roles yet." /> : rolesByDept.map(([deptName, deptRoles]) => {
                 const open = !collapsedDepts.has(deptName);
+                const isDropTarget = dragRole && dropDept === deptName;
                 return (
-                  <div key={deptName}>
+                  <div key={deptName}
+                    // The whole department block is a drop target, so a role can be
+                    // dropped on the header even while the section is collapsed.
+                    onDragOver={dragRole ? (e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dropDept !== deptName) setDropDept(deptName); }) : undefined}
+                    onDragLeave={dragRole ? (e => { if (!e.currentTarget.contains(e.relatedTarget)) setDropDept(d => (d === deptName ? null : d)); }) : undefined}
+                    onDrop={dragRole ? (e => { e.preventDefault(); const id = e.dataTransfer.getData('text/plain'); setDropDept(null); setDragRole(null); moveRoleToDept(id, deptName); }) : undefined}
+                    style={{ borderRadius: 12, outline: isDropTarget ? '2px dashed hsl(var(--color-green))' : '2px dashed transparent', outlineOffset: 2, background: isDropTarget ? 'hsla(var(--color-green),0.06)' : 'transparent', transition: 'background .18s ease' }}>
                     {/* Department header - click to smoothly expand/collapse its roles. */}
                     <button onClick={() => toggleDept(deptName)}
                       style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', padding: '8px 8px', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'Inter,sans-serif', borderRadius: 8 }}
                       onMouseOver={e => { e.currentTarget.style.background = 'var(--mist)'; }}
                       onMouseOut={e => { e.currentTarget.style.background = 'none'; }}>
                       <ChevronRight size={15} style={{ color: 'var(--muted)', transform: open ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform .25s ease', flexShrink: 0 }} />
-                      <span style={{ flex: 1, fontSize: 11.5, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)' }}>{deptName}</span>
-                      <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', background: 'var(--mist)', borderRadius: 999, padding: '1px 8px' }}>{deptRoles.length}</span>
+                      <span style={{ flex: 1, fontSize: 11.5, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: isDropTarget ? 'hsl(var(--color-green))' : 'var(--muted)' }}>{deptName}</span>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', background: 'var(--mist)', borderRadius: 999, padding: '1px 8px' }}>{isDropTarget ? 'Drop here' : deptRoles.length}</span>
                     </button>
                     {/* grid-template-rows 0fr↔1fr = smooth height without layout thrash. */}
                     <div style={{ display: 'grid', gridTemplateRows: open ? '1fr' : '0fr', opacity: open ? 1 : 0, transition: 'grid-template-rows .28s ease, opacity .2s ease' }}>
