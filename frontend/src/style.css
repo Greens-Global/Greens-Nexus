@@ -3788,6 +3788,16 @@ button, [role="button"], select { touch-action: manipulation; }
   outline: none;
 }
 .app-tile:active { transform: translateY(-1px) scale(1.02); }
+/* An app tile hovering over a folder while being dragged - iPhone-style
+   "drop here to add to this folder" highlight, distinct from the plain
+   :hover lift above (this one only appears mid-drag, driven by React state
+   in MyLayoutSection, not CSS :hover, since the pointer isn't necessarily
+   "hovering" in the mouse sense during a native drag). */
+.app-tile-drop-target {
+  transform: scale(1.08);
+  background: var(--wk-brand-tint);
+  box-shadow: 0 0 0 2px var(--wk-brand);
+}
 .app-tile-icon-wrap { position: relative; }
 .app-tile-name {
   margin-top: 8px;
