@@ -79,7 +79,8 @@ def get_all_roles(
 ):
     """Return all role assignments. Requires administrator or above."""
     rows = db.query(NexusRole).all()
-    return [{"email": r.email, "role": r.role, "display_name": r.display_name or "", "assigned_by": r.assigned_by} for r in rows]
+    return [{"email": r.email, "role": r.role, "display_name": r.display_name or "",
+             "assigned_by": r.assigned_by, "tier_pinned": bool(getattr(r, "tier_pinned", False))} for r in rows]
 
 
 @router.get("/directory")

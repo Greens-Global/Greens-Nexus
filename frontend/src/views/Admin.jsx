@@ -108,6 +108,19 @@ function RoleBadge({ role, size = 'sm' }) {
   );
 }
 
+// This person's tier was set directly (a per-person override), so editing their
+// job role's seniority tier will NOT re-stamp them. Re-assigning them to a job
+// role clears it (they follow the role again).
+function OverrideBadge() {
+  return (
+    <span title="Tier set for this person directly - a job-role tier change won't override it. Re-assign them to a job role to reset."
+      style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.03em', textTransform: 'uppercase',
+        color: 'hsl(var(--color-purple))', background: 'hsla(var(--color-purple),0.12)', padding: '2px 6px', borderRadius: 6, whiteSpace: 'nowrap' }}>
+      Override
+    </span>
+  );
+}
+
 function CellValue({ val }) {
   if (val === true)    return <span style={{ fontSize: 15, color: 'hsl(var(--color-green))' }}>✓</span>;
   if (val === false)   return <span style={{ fontSize: 15, color: 'var(--line)', userSelect: 'none' }}>✗</span>;
@@ -533,6 +546,17 @@ export default function Admin() {
 
   const graphEmails = new Set(users.map(u => (u.mail ?? u.userPrincipalName ?? '').toLowerCase()));
 
+  // Who has a per-person tier OVERRIDE (tier_pinned) - set directly here, so a
+  // job-role tier change won't re-stamp them. Refetched after each assign.
+  const [pinnedSet, setPinnedSet] = useState(() => new Set());
+  useEffect(() => {
+    let alive = true;
+    api.getAllRoles()
+      .then(rows => { if (alive) setPinnedSet(new Set((rows || []).filter(r => r.tier_pinned).map(r => (r.email || '').toLowerCase()))); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [saved]);
+
   const displayUsers = useMemo(() => {
     const fromGraph = users.map(u => ({
       id:    u.id,
@@ -541,11 +565,12 @@ export default function Admin() {
       title: u.jobTitle   ?? '-',
       dept:  u.department ?? '-',
       role:  getRole(u.mail ?? u.userPrincipalName ?? ''),
+      pinned: pinnedSet.has((u.mail ?? u.userPrincipalName ?? '').toLowerCase()),
     }));
     // Include manually added users not in Graph
     const fromManual = manualUsers
       .filter(u => !graphEmails.has(u.email))
-      .map(u => ({ ...u, name: cleanName(u.name || ''), role: getRole(u.email) }));
+      .map(u => ({ ...u, name: cleanName(u.name || ''), role: getRole(u.email), pinned: pinnedSet.has(u.email) }));
     const combined = [...fromGraph, ...fromManual];
 
     return combined.filter(u => {
@@ -554,7 +579,7 @@ export default function Admin() {
       const matchFilter = filter === 'all' || u.role === filter;
       return matchSearch && matchFilter;
     });
-  }, [users, manualUsers, graphEmails, search, filter, getRole]);
+  }, [users, manualUsers, graphEmails, search, filter, getRole, pinnedSet]);
 
   const counts = useMemo(() => {
     const c = {};
@@ -697,7 +722,7 @@ export default function Admin() {
                         </div>
                         {saved[u.email]
                           ? <CheckCircle size={15} color="hsl(var(--color-green))" style={{ flexShrink: 0 }} />
-                          : <RoleBadge role={u.role} />}
+                          : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, flexShrink: 0 }}><RoleBadge role={u.role} />{u.pinned && <OverrideBadge />}</span>}
                       </button>
                     );
                   })}
@@ -758,7 +783,7 @@ export default function Admin() {
                             </td>
                             <td style={{ color: 'var(--muted)', fontSize: 13 }}>{u.dept}</td>
                             <td style={{ color: 'var(--muted)', fontSize: 13 }}>{u.title}</td>
-                            <td><RoleBadge role={u.role} /></td>
+                            <td><span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><RoleBadge role={u.role} />{u.pinned && <OverrideBadge />}</span></td>
                             <td>
                               <select
                                 value={u.role}
