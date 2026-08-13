@@ -163,6 +163,31 @@ class ExternalLink(Base):
     company = Column(String, default="")
 
 
+class ExternalLinkTaxonomy(Base):
+    """Admin-managed Department/Category picker options for External Links
+    (Aug 14 - "give the option to add, rename and remove any department and
+    categories"). Before this, the two lists were a hardcoded frontend
+    constant with no backend existence at all - an admin could only ever
+    grow the Category list implicitly (typing a new value directly on a
+    link; that field is free text with an autocomplete), and could never
+    grow Department at all (a strict dropdown with no way to add an
+    option). This gives both explicit CRUD.
+
+    ExternalLink.department/category stay plain free-text string columns,
+    NOT a foreign key to this table - a link keeps whatever string it has
+    even after that name is deleted from here (deleting only removes it
+    from the curated picker, same free-text philosophy Category already
+    had). Renaming, though, bulk-updates every ExternalLink row currently
+    using the old string in the same request, so a rename doesn't silently
+    orphan existing links onto a name that no longer appears in the picker."""
+    __tablename__ = "external_link_taxonomy"
+    id = Column(String, primary_key=True)  # uuid
+    kind = Column(String, nullable=False)  # "department" | "category"
+    name = Column(String, nullable=False)
+    sort_order = Column(Integer, default=0)
+    created_at = Column(String, default="")
+
+
 class PersonalLink(Base):
     """Personal Links (Aug 2026) - an employee's own day-to-day shortcuts,
     separate from the curated ExternalLink directory above. Private by

@@ -132,37 +132,50 @@ export function useLinkViews() {
 
   const clearSaveError = useCallback(() => setSaveError(null), []);
 
-  // Instant favorite toggle, independent of the edit/save cycle above -
+  // Applies + saves immediately, independent of the edit/save cycle above -
   // reads/writes straight through to the active view (or the server's
-  // notion of "the default view", auto-creating one on the very first
-  // favorite exactly like the old single-row model did) via the legacy
-  // bare endpoints, optimistic with rollback on failure.
-  const toggleFavorite = useCallback((itemType, itemId) => {
+  // notion of "the default view", auto-creating one on the very first call
+  // exactly like the old single-row model did) via the legacy bare
+  // endpoints, optimistic with rollback on failure. Used for favoriting
+  // (toggleFavorite below) and for organizing an already-open folder's
+  // contents (Aug 14, "when we drag an application from folder it is not
+  // responsive... we should have the option to drag the application from
+  // folder also") - both are lightweight, expected-to-just-work actions
+  // that shouldn't need a Customize/Save/Done detour the way rearranging
+  // the main screen does.
+  const mutateNow = useCallback((updater) => {
     const prev = layoutRef.current;
-    const exists = prev.favorites.some(f => f.item_type === itemType && f.item_id === itemId);
-    const favorites = exists
-      ? prev.favorites.filter(f => !(f.item_type === itemType && f.item_id === itemId))
-      : [...prev.favorites, { item_type: itemType, item_id: itemId }];
-    const next = { ...prev, favorites };
+    const next = updater(prev);
     setLayoutState(next);
-    api.saveLinkLayout(next, activeId || undefined).then(() => {
+    return api.saveLinkLayout(next, activeId || undefined).then(() => {
       if (activeId) {
         setViews(vs => vs.map(v => v.id === activeId ? { ...v, layout: next } : v));
       } else if (!activeView) {
-        // First-ever favorite with no active view - the server just
-        // silently created "the" default row; reload once so the switcher
-        // picks it up as a real view instead of staying blank.
+        // First-ever change with no active view - the server just silently
+        // created "the" default row; reload once so the switcher picks it
+        // up as a real view instead of staying blank.
         load();
       }
     }).catch(e => {
       setLayoutState(prev);
-      setSaveError(e?.message || 'Could not save your favorite - reverted.');
+      setSaveError(e?.message || 'Could not save that change - reverted.');
+      throw e;
     });
   }, [activeId, activeView, load]);
 
+  const toggleFavorite = useCallback((itemType, itemId) => {
+    mutateNow(prev => {
+      const exists = prev.favorites.some(f => f.item_type === itemType && f.item_id === itemId);
+      const favorites = exists
+        ? prev.favorites.filter(f => !(f.item_type === itemType && f.item_id === itemId))
+        : [...prev.favorites, { item_type: itemType, item_id: itemId }];
+      return { ...prev, favorites };
+    }).catch(() => {}); // saveError already surfaced via banner in ExternalLinks.jsx
+  }, [mutateNow]);
+
   return {
     views, activeId, activeView, layout, loading, editing, dirty, saveError,
-    setEditing, setLayout, mutate, switchView, save, saveAsNew, createNewView,
+    setEditing, setLayout, mutate, mutateNow, switchView, save, saveAsNew, createNewView,
     setDefaultView, clearDefaultView, removeView, renameView, toggleFavorite, clearSaveError,
     reload: load,
   };

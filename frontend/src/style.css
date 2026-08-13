@@ -3895,10 +3895,17 @@ button, [role="button"], select { touch-action: manipulation; }
 }
 .app-tile-grip:active { cursor: grabbing; }
 .app-tile-tooltip {
+  /* Opens DOWNWARD, not up (Aug 14) - a tile in the first row of a folder
+     popup or dashboard widget has no room above it before the container's
+     own edge, and an upward tooltip there breaks out of the modal/card
+     entirely instead of being clipped or repositioned. Below always has
+     room (worst case it sits over the row underneath), so this eliminates
+     the whole class of "tooltip escaped the popup" bugs at the source
+     rather than special-casing every container it can appear in. */
   position: absolute;
-  bottom: calc(100% + 8px);
+  top: calc(100% + 8px);
   left: 50%;
-  transform: translateX(-50%) translateY(4px);
+  transform: translateX(-50%) translateY(-4px);
   background: var(--ink);
   color: var(--card);
   font-size: 11.5px;

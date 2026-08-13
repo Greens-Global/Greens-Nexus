@@ -643,6 +643,10 @@ export const api = {
   // External Links
   getExternalLinks: () => req("/external-links"),
   getExternalLinksMeta: () => req("/external-links/meta"),
+  getExternalLinksTaxonomy: () => req("/external-links/taxonomy"),
+  createExternalLinkTaxonomy: (kind, name) => req("/external-links/taxonomy", { method: "POST", body: JSON.stringify({ kind, name }) }),
+  renameExternalLinkTaxonomy: (id, name) => req(`/external-links/taxonomy/${id}`, { method: "PATCH", body: JSON.stringify({ name }) }),
+  deleteExternalLinkTaxonomy: (id) => req(`/external-links/taxonomy/${id}`, { method: "DELETE" }),
   previewExternalLink: (url) => req(`/external-links/preview?${new URLSearchParams({ url })}`),
   createExternalLink: (data) => req("/external-links", { method: "POST", body: JSON.stringify(data) }),
   updateExternalLink: (id, data) => req(`/external-links/${id}`, { method: "PATCH", body: JSON.stringify(data) }),

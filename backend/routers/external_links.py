@@ -23,6 +23,7 @@ import json
 import os
 import re
 import socket
+import uuid
 from datetime import datetime, timezone
 from urllib.parse import urlparse
 import httpx
@@ -118,6 +119,100 @@ def external_links_meta(db: Session = Depends(get_db)):
     departments = sorted({d for (d,) in db.query(models.ExternalLink.department).distinct() if d})
     categories  = sorted({c for (c,) in db.query(models.ExternalLink.category).distinct() if c})
     return {"departments": departments, "categories": categories}
+
+
+# ── Taxonomy (admin-managed Department/Category picker options) ────────────
+
+_TAXONOMY_KINDS = ("department", "category")
+
+
+def _taxonomy_dict(row: "models.ExternalLinkTaxonomy") -> dict:
+    return {"id": row.id, "kind": row.kind, "name": row.name}
+
+
+@router.get("/taxonomy")
+def list_taxonomy(db: Session = Depends(get_db)):
+    """Every employee can read this (it only feeds picker/filter dropdowns,
+    same posture as list_external_links above) - only add/rename/remove is
+    admin-gated below."""
+    rows = db.query(models.ExternalLinkTaxonomy).order_by(
+        models.ExternalLinkTaxonomy.kind, models.ExternalLinkTaxonomy.sort_order, models.ExternalLinkTaxonomy.name
+    ).all()
+    return {
+        "departments": [_taxonomy_dict(r) for r in rows if r.kind == "department"],
+        "categories": [_taxonomy_dict(r) for r in rows if r.kind == "category"],
+    }
+
+
+class TaxonomyCreate(BaseModel):
+    kind: str
+    name: str
+
+
+@router.post("/taxonomy")
+def create_taxonomy(body: TaxonomyCreate, user: dict = Depends(require_links_admin), db: Session = Depends(get_db)):
+    if body.kind not in _TAXONOMY_KINDS:
+        raise HTTPException(status_code=422, detail="kind must be 'department' or 'category'.")
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="Name can't be empty.")
+    if len(name) > 80:
+        raise HTTPException(status_code=422, detail="Name must be 80 characters or fewer.")
+    exists = db.query(models.ExternalLinkTaxonomy).filter(
+        models.ExternalLinkTaxonomy.kind == body.kind, models.ExternalLinkTaxonomy.name == name).first()
+    if exists:
+        raise HTTPException(status_code=409, detail=f'"{name}" already exists.')
+    max_pos = db.query(models.ExternalLinkTaxonomy).filter(models.ExternalLinkTaxonomy.kind == body.kind).count()
+    row = models.ExternalLinkTaxonomy(
+        id=str(uuid.uuid4()), kind=body.kind, name=name, sort_order=max_pos, created_at=_now())
+    db.add(row)
+    db.commit()
+    return _taxonomy_dict(row)
+
+
+class TaxonomyRename(BaseModel):
+    name: str
+
+
+@router.patch("/taxonomy/{taxonomy_id}")
+def rename_taxonomy(taxonomy_id: str, body: TaxonomyRename, user: dict = Depends(require_links_admin), db: Session = Depends(get_db)):
+    """Renaming bulk-updates every ExternalLink row currently tagged with
+    the old string, in the same transaction - see ExternalLinkTaxonomy's
+    docstring for why that matters (department/category aren't a FK)."""
+    row = db.query(models.ExternalLinkTaxonomy).filter(models.ExternalLinkTaxonomy.id == taxonomy_id).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Not found.")
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="Name can't be empty.")
+    if len(name) > 80:
+        raise HTTPException(status_code=422, detail="Name must be 80 characters or fewer.")
+    dupe = db.query(models.ExternalLinkTaxonomy).filter(
+        models.ExternalLinkTaxonomy.kind == row.kind, models.ExternalLinkTaxonomy.name == name,
+        models.ExternalLinkTaxonomy.id != taxonomy_id).first()
+    if dupe:
+        raise HTTPException(status_code=409, detail=f'"{name}" already exists.')
+
+    old_name = row.name
+    row.name = name
+    if old_name != name:
+        field = models.ExternalLink.department if row.kind == "department" else models.ExternalLink.category
+        db.query(models.ExternalLink).filter(field == old_name).update({row.kind: name}, synchronize_session=False)
+    db.commit()
+    return _taxonomy_dict(row)
+
+
+@router.delete("/taxonomy/{taxonomy_id}")
+def delete_taxonomy(taxonomy_id: str, user: dict = Depends(require_links_admin), db: Session = Depends(get_db)):
+    """Removes the option from the curated picker only - links already
+    tagged with this name keep it (free text, same as Category always
+    was), they just won't see it as a suggested/fixed choice going forward."""
+    row = db.query(models.ExternalLinkTaxonomy).filter(models.ExternalLinkTaxonomy.id == taxonomy_id).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Not found.")
+    db.delete(row)
+    db.commit()
+    return {"ok": True}
 
 
 def _normalize_url(url: str) -> str:

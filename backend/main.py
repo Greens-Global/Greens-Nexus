@@ -471,6 +471,21 @@ def _run_migrations():
             "INSERT INTO external_links (name,url,category,department,icon,description,clicks,sort_order,is_pinned,created_by,created_at,updated_at) SELECT 'My Equity','https://www.myequity.com/myequity/login','Banking','Accounting','Receipt','Equity/cap table portal',0,320,0,'seed-aug2026','','' WHERE NOT EXISTS (SELECT 1 FROM external_links WHERE name = 'My Equity')",
             "INSERT INTO external_links (name,url,category,department,icon,description,clicks,sort_order,is_pinned,created_by,created_at,updated_at) SELECT 'Visio','https://m365.cloud.microsoft/launch/Visio/?auth=2&home=1','Productivity','','Presentation','Diagramming',0,330,0,'seed-aug2026','','' WHERE NOT EXISTS (SELECT 1 FROM external_links WHERE name = 'Visio')",
             "INSERT INTO external_links (name,url,category,department,icon,description,clicks,sort_order,is_pinned,created_by,created_at,updated_at) SELECT 'OneDrive','https://greensg-my.sharepoint.com/','Productivity','','Cloud','Personal cloud file storage',0,340,0,'seed-aug2026','','' WHERE NOT EXISTS (SELECT 1 FROM external_links WHERE name = 'OneDrive')",
+            # external_link_taxonomy (Aug 14) - one-time seed of the former
+            # hardcoded DEPARTMENTS/CATEGORIES frontend constants, so the new
+            # admin-managed picker starts with exactly what everyone already
+            # saw before this shipped, not an empty list.
+            "INSERT INTO external_link_taxonomy (id,kind,name,sort_order,created_at) SELECT 'dept-accounting','department','Accounting',0,'' WHERE NOT EXISTS (SELECT 1 FROM external_link_taxonomy WHERE kind='department' AND name='Accounting')",
+            "INSERT INTO external_link_taxonomy (id,kind,name,sort_order,created_at) SELECT 'dept-administration','department','Administration',1,'' WHERE NOT EXISTS (SELECT 1 FROM external_link_taxonomy WHERE kind='department' AND name='Administration')",
+            "INSERT INTO external_link_taxonomy (id,kind,name,sort_order,created_at) SELECT 'dept-construction','department','Construction',2,'' WHERE NOT EXISTS (SELECT 1 FROM external_link_taxonomy WHERE kind='department' AND name='Construction')",
+            "INSERT INTO external_link_taxonomy (id,kind,name,sort_order,created_at) SELECT 'dept-it','department','IT',3,'' WHERE NOT EXISTS (SELECT 1 FROM external_link_taxonomy WHERE kind='department' AND name='IT')",
+            "INSERT INTO external_link_taxonomy (id,kind,name,sort_order,created_at) SELECT 'dept-storage','department','Storage',4,'' WHERE NOT EXISTS (SELECT 1 FROM external_link_taxonomy WHERE kind='department' AND name='Storage')",
+            "INSERT INTO external_link_taxonomy (id,kind,name,sort_order,created_at) SELECT 'cat-banking','category','Banking',0,'' WHERE NOT EXISTS (SELECT 1 FROM external_link_taxonomy WHERE kind='category' AND name='Banking')",
+            "INSERT INTO external_link_taxonomy (id,kind,name,sort_order,created_at) SELECT 'cat-day-to-day','category','Day to Day',1,'' WHERE NOT EXISTS (SELECT 1 FROM external_link_taxonomy WHERE kind='category' AND name='Day to Day')",
+            "INSERT INTO external_link_taxonomy (id,kind,name,sort_order,created_at) SELECT 'cat-finance-accounting','category','Finance & Accounting',2,'' WHERE NOT EXISTS (SELECT 1 FROM external_link_taxonomy WHERE kind='category' AND name='Finance & Accounting')",
+            "INSERT INTO external_link_taxonomy (id,kind,name,sort_order,created_at) SELECT 'cat-hr-payroll','category','HR & Payroll',3,'' WHERE NOT EXISTS (SELECT 1 FROM external_link_taxonomy WHERE kind='category' AND name='HR & Payroll')",
+            "INSERT INTO external_link_taxonomy (id,kind,name,sort_order,created_at) SELECT 'cat-productivity','category','Productivity',4,'' WHERE NOT EXISTS (SELECT 1 FROM external_link_taxonomy WHERE kind='category' AND name='Productivity')",
+            "INSERT INTO external_link_taxonomy (id,kind,name,sort_order,created_at) SELECT 'cat-reference-support','category','Reference & Support',5,'' WHERE NOT EXISTS (SELECT 1 FROM external_link_taxonomy WHERE kind='category' AND name='Reference & Support')",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -950,6 +965,12 @@ def _run_migrations():
         # link_layout_views (Aug 14) - named, multi-row successor to
         # user_link_layouts above (same owner_email-gated posture).
         "ALTER TABLE link_layout_views ENABLE ROW LEVEL SECURITY",
+        # external_link_taxonomy (Aug 14) - admin-managed Department/Category
+        # picker options; readable by every employee (filter dropdowns),
+        # writable only through this API's admin-gated endpoints - RLS here
+        # only to close it to the public anon key, same posture as the
+        # tables above.
+        "ALTER TABLE external_link_taxonomy ENABLE ROW LEVEL SECURITY",
         # External Links directory rebuild (Aug 2026) - see the matching sqlite
         # migration list above for the full rationale; name-keyed idempotent
         # inserts, same statements (portable syntax) on both engines.
@@ -987,6 +1008,19 @@ def _run_migrations():
         "INSERT INTO external_links (name,url,category,department,icon,description,clicks,sort_order,is_pinned,created_by,created_at,updated_at) SELECT 'My Equity','https://www.myequity.com/myequity/login','Banking','Accounting','Receipt','Equity/cap table portal',0,320,0,'seed-aug2026','','' WHERE NOT EXISTS (SELECT 1 FROM external_links WHERE name = 'My Equity')",
         "INSERT INTO external_links (name,url,category,department,icon,description,clicks,sort_order,is_pinned,created_by,created_at,updated_at) SELECT 'Visio','https://m365.cloud.microsoft/launch/Visio/?auth=2&home=1','Productivity','','Presentation','Diagramming',0,330,0,'seed-aug2026','','' WHERE NOT EXISTS (SELECT 1 FROM external_links WHERE name = 'Visio')",
         "INSERT INTO external_links (name,url,category,department,icon,description,clicks,sort_order,is_pinned,created_by,created_at,updated_at) SELECT 'OneDrive','https://greensg-my.sharepoint.com/','Productivity','','Cloud','Personal cloud file storage',0,340,0,'seed-aug2026','','' WHERE NOT EXISTS (SELECT 1 FROM external_links WHERE name = 'OneDrive')",
+        # external_link_taxonomy (Aug 14) - see the matching sqlite migration
+        # list above for the full rationale; same portable statements.
+        "INSERT INTO external_link_taxonomy (id,kind,name,sort_order,created_at) SELECT 'dept-accounting','department','Accounting',0,'' WHERE NOT EXISTS (SELECT 1 FROM external_link_taxonomy WHERE kind='department' AND name='Accounting')",
+        "INSERT INTO external_link_taxonomy (id,kind,name,sort_order,created_at) SELECT 'dept-administration','department','Administration',1,'' WHERE NOT EXISTS (SELECT 1 FROM external_link_taxonomy WHERE kind='department' AND name='Administration')",
+        "INSERT INTO external_link_taxonomy (id,kind,name,sort_order,created_at) SELECT 'dept-construction','department','Construction',2,'' WHERE NOT EXISTS (SELECT 1 FROM external_link_taxonomy WHERE kind='department' AND name='Construction')",
+        "INSERT INTO external_link_taxonomy (id,kind,name,sort_order,created_at) SELECT 'dept-it','department','IT',3,'' WHERE NOT EXISTS (SELECT 1 FROM external_link_taxonomy WHERE kind='department' AND name='IT')",
+        "INSERT INTO external_link_taxonomy (id,kind,name,sort_order,created_at) SELECT 'dept-storage','department','Storage',4,'' WHERE NOT EXISTS (SELECT 1 FROM external_link_taxonomy WHERE kind='department' AND name='Storage')",
+        "INSERT INTO external_link_taxonomy (id,kind,name,sort_order,created_at) SELECT 'cat-banking','category','Banking',0,'' WHERE NOT EXISTS (SELECT 1 FROM external_link_taxonomy WHERE kind='category' AND name='Banking')",
+        "INSERT INTO external_link_taxonomy (id,kind,name,sort_order,created_at) SELECT 'cat-day-to-day','category','Day to Day',1,'' WHERE NOT EXISTS (SELECT 1 FROM external_link_taxonomy WHERE kind='category' AND name='Day to Day')",
+        "INSERT INTO external_link_taxonomy (id,kind,name,sort_order,created_at) SELECT 'cat-finance-accounting','category','Finance & Accounting',2,'' WHERE NOT EXISTS (SELECT 1 FROM external_link_taxonomy WHERE kind='category' AND name='Finance & Accounting')",
+        "INSERT INTO external_link_taxonomy (id,kind,name,sort_order,created_at) SELECT 'cat-hr-payroll','category','HR & Payroll',3,'' WHERE NOT EXISTS (SELECT 1 FROM external_link_taxonomy WHERE kind='category' AND name='HR & Payroll')",
+        "INSERT INTO external_link_taxonomy (id,kind,name,sort_order,created_at) SELECT 'cat-productivity','category','Productivity',4,'' WHERE NOT EXISTS (SELECT 1 FROM external_link_taxonomy WHERE kind='category' AND name='Productivity')",
+        "INSERT INTO external_link_taxonomy (id,kind,name,sort_order,created_at) SELECT 'cat-reference-support','category','Reference & Support',5,'' WHERE NOT EXISTS (SELECT 1 FROM external_link_taxonomy WHERE kind='category' AND name='Reference & Support')",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
