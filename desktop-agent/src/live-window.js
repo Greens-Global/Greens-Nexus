@@ -83,6 +83,12 @@ async function start({ id, sources, iceServers, fps }) {
     try { channel.send(JSON.stringify({ t: 'screens', screens: screenMeta })); } catch (_) { /* ignore */ }
   };
   channel.onmessage = (ev) => {
+    // Binary = a file chunk (viewer -> this PC). Only accept while control is
+    // active; forward the bytes to main to append to the open file.
+    if (typeof ev.data !== 'string') {
+      if (inputEnabled && curId === id) ipcRenderer.send('live:filechunk', { id, buf: Buffer.from(ev.data) });
+      return;
+    }
     let m;
     try { m = JSON.parse(ev.data); } catch (_) { return; }
     if (!m || typeof m.t !== 'string') return;

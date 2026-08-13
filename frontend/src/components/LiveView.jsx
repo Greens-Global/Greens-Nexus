@@ -53,7 +53,8 @@ const iconBtn = {
 };
 
 export default function LiveView({ email, name, onClose }) {
-  const stageWrapRef = useRef(null);   // fullscreen target + wheel/drag surface
+  const cardRef = useRef(null);        // fullscreen target (whole modal, so controls stay visible)
+  const stageWrapRef = useRef(null);   // wheel/drag surface
   const videoEls = useRef({});         // screen index -> <video> element
   const sidRef = useRef(null);         // current session id, for the control buttons
   const channelRef = useRef(null);     // WebRTC data channel (input + clipboard + files)
@@ -76,7 +77,12 @@ export default function LiveView({ email, name, onClose }) {
   const [fileProg, setFileProg] = useState(null);   // {name, pct} while sending
   const [note, setNote] = useState('');
 
-  useEffect(() => { controlRef.current = control; }, [control]);
+  useEffect(() => {
+    controlRef.current = control;
+    // Keep the popout's control bar (Send File / Stop Control) in sync.
+    const w = popoutRef.current;
+    if (w && !w.closed && typeof w.__syncBar === 'function') { try { w.__syncBar(); } catch (_) { /* ignore */ } }
+  }, [control]);
   useEffect(() => { selRef.current = sel; }, [sel]);
   useEffect(() => { streamsRef.current = streams; }, [streams]);
 
@@ -285,10 +291,12 @@ export default function LiveView({ email, name, onClose }) {
   const stopControl = () => { const id = sidRef.current; if (id) api.timeLiveControlEnd(id).then(() => setControl('ended')).catch(() => {}); };
 
   // ── Fullscreen + system-shortcut capture ────────────────────────────────────
-  // While fullscreen AND controlling, the Keyboard Lock API routes even Ctrl+W /
-  // Alt+Tab-class shortcuts to the remote PC instead of this browser.
+  // Fullscreen the WHOLE modal (not just the video) so the header controls -
+  // screen picker, Send File, Stop Control, exit - stay reachable. While
+  // fullscreen AND controlling, the Keyboard Lock API routes even Ctrl+W /
+  // Alt+Tab-class system shortcuts to the remote PC instead of this browser.
   const toggleFullscreen = () => {
-    const el = stageWrapRef.current;
+    const el = cardRef.current;
     if (!el) return;
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
     else el.requestFullscreen().catch(() => {});
@@ -317,16 +325,47 @@ export default function LiveView({ email, name, onClose }) {
     d.body.style.cssText = 'margin:0;background:#0b1220;height:100vh;display:flex;flex-direction:column;overflow:hidden;font-family:Inter,system-ui,sans-serif';
     const bar = d.createElement('div');
     bar.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 14px;background:#0f172a;color:#e2e8f0;font-size:12.5px;font-weight:600;flex:none';
-    bar.textContent = `${name} - live screen view`;
+    const label = d.createElement('span');
+    label.textContent = `${name} - live screen view`;
+    label.style.cssText = 'flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
+    const mkBtn = (text, color) => {
+      const b = d.createElement('button');
+      b.textContent = text;
+      b.style.cssText = `font:inherit;font-size:12px;font-weight:700;cursor:pointer;border-radius:8px;padding:6px 12px;border:1px solid #334155;background:#1e293b;color:${color || '#e2e8f0'}`;
+      return b;
+    };
     const stage = d.createElement('div');
     stage.style.cssText = 'position:relative;flex:1;min-height:0';
     const v = d.createElement('video');
     v.id = 'nx-pop-video';
     v.autoplay = true; v.muted = true; v.playsInline = true;
     v.style.cssText = 'width:100%;height:100%;object-fit:contain;display:block';
+    // Controls in the popout so you never have to return to the modal.
+    const fileBtn = mkBtn('Send File');
+    const fsBtn = mkBtn('Full Screen');
+    const stopBtn = mkBtn('Stop Control', '#f87171');
+    const syncBar = () => {
+      const on = controlRef.current === 'active';
+      fileBtn.style.display = on ? '' : 'none';
+      stopBtn.style.display = on ? '' : 'none';
+    };
+    fileBtn.onclick = () => { const fi = fileInputRef.current; if (fi) fi.click(); };
+    stopBtn.onclick = () => stopControl();
+    fsBtn.onclick = () => {
+      if (d.fullscreenElement) d.exitFullscreen().catch(() => {});
+      else stage.requestFullscreen().then(() => {
+        if (controlRef.current === 'active' && w.navigator.keyboard && w.navigator.keyboard.lock) w.navigator.keyboard.lock().catch(() => {});
+      }).catch(() => {});
+    };
+    bar.appendChild(label);
+    bar.appendChild(fileBtn);
+    bar.appendChild(fsBtn);
+    bar.appendChild(stopBtn);
     stage.appendChild(v);
     d.body.appendChild(bar);
     d.body.appendChild(stage);
+    popoutRef.current.__syncBar = syncBar;
+    syncBar();
     const idx = () => (selRef.current === 'all' ? 0 : selRef.current);
     const s0 = streamsRef.current[idx()];
     if (s0) v.srcObject = s0;
@@ -364,27 +403,30 @@ export default function LiveView({ email, name, onClose }) {
     const id = Math.random().toString(36).slice(2);
     setNote('');
     setFileProg({ name: file.name, pct: 0 });
+    // Binary chunks straight on the channel (no base64 = 33% fewer bytes and no
+    // per-chunk FileReader): a 'fs' header, raw ArrayBuffer chunks in order, then
+    // 'fe'. One file at a time, so the ordered channel needs no per-chunk id.
     send({ t: 'fs', id, name: file.name, size: file.size });
-    const CHUNK = 48 * 1024;
+    const CHUNK = 256 * 1024;
+    ch.bufferedAmountLowThreshold = 1024 * 1024;
     let off = 0;
-    while (off < file.size) {
-      if (channelRef.current !== ch || ch.readyState !== 'open' || controlRef.current !== 'active') { setFileProg(null); return; }
-      const slice = file.slice(off, off + CHUNK);
-      // eslint-disable-next-line no-await-in-loop
-      const b64 = await new Promise((res, rej) => {
-        const fr = new FileReader();
-        fr.onload = () => res(String(fr.result).split(',')[1] || '');
-        fr.onerror = rej;
-        fr.readAsDataURL(slice);
-      }).catch(() => null);
-      if (b64 == null) { setFileProg(null); setNote('Could not read the file.'); return; }
-      try { ch.send(JSON.stringify({ t: 'fc', id, d: b64 })); } catch (_) { setFileProg(null); return; }
-      off += CHUNK;
-      setFileProg({ name: file.name, pct: Math.min(99, Math.round((off * 100) / file.size)) });
-      // Backpressure: don't let the channel buffer balloon past ~4MB.
-      // eslint-disable-next-line no-await-in-loop
-      while (ch.bufferedAmount > 4 * 1024 * 1024) await new Promise((r) => setTimeout(r, 50));
-    }
+    try {
+      while (off < file.size) {
+        if (channelRef.current !== ch || ch.readyState !== 'open' || controlRef.current !== 'active') { setFileProg(null); return; }
+        // eslint-disable-next-line no-await-in-loop
+        const buf = await file.slice(off, off + CHUNK).arrayBuffer();
+        ch.send(buf);
+        off += CHUNK;
+        setFileProg({ name: file.name, pct: Math.min(99, Math.round((off * 100) / file.size)) });
+        if (ch.bufferedAmount > 8 * 1024 * 1024) {
+          // eslint-disable-next-line no-await-in-loop
+          await new Promise((r) => {
+            const onLow = () => { ch.removeEventListener('bufferedamountlow', onLow); r(); };
+            ch.addEventListener('bufferedamountlow', onLow);
+          });
+        }
+      }
+    } catch (_) { setFileProg(null); setNote('Could not send the file.'); return; }
     send({ t: 'fe', id });
   }, [send, fileProg]);
 
@@ -413,8 +455,8 @@ export default function LiveView({ email, name, onClose }) {
 
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 1300, background: 'rgba(15,23,42,0.72)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 'min(1560px, 96vw)', boxShadow: 'var(--shadow-lg, 0 20px 60px rgba(0,0,0,0.4))', overflow: 'hidden', display: 'flex', flexDirection: 'column', maxHeight: '96vh' }}>
-        <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, padding: '10px 16px', borderBottom: '1px solid var(--line)' }}>
+      <div ref={cardRef} onClick={(e) => e.stopPropagation()} style={{ background: 'var(--card)', borderRadius: isFs ? 0 : 16, width: '100%', height: isFs ? '100vh' : undefined, maxWidth: isFs ? '100vw' : 'min(1560px, 96vw)', boxShadow: 'var(--shadow-lg, 0 20px 60px rgba(0,0,0,0.4))', overflow: 'hidden', display: 'flex', flexDirection: 'column', maxHeight: isFs ? '100vh' : '96vh' }}>
+        <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, padding: '10px 16px', borderBottom: '1px solid var(--line)', flex: 'none' }}>
           <Avatar email={email} name={name} size={28} card={false} />
           <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 13.5, fontWeight: 800, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</div>
@@ -485,7 +527,7 @@ export default function LiveView({ email, name, onClose }) {
           onDragOver={controlling ? (e) => e.preventDefault() : undefined}
           onDrop={controlling ? (e) => { e.preventDefault(); const f = e.dataTransfer.files && e.dataTransfer.files[0]; if (f) sendFile(f); } : undefined}
           style={{ position: 'relative', background: '#0b1220', width: '100%',
-                   height: isFs ? '100%' : 'min(72vh, 860px)', minHeight: 320,
+                   height: isFs ? 'auto' : 'min(72vh, 860px)', flex: isFs ? 1 : undefined, minHeight: isFs ? 0 : 320,
                    cursor: controlling ? 'crosshair' : 'default',
                    outline: controlling ? '2px solid hsl(var(--color-green))' : 'none', outlineOffset: -2 }}>
           {gridMode ? (

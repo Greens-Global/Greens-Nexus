@@ -78,6 +78,7 @@ function stopClipWatch() {
 // employee accepted the control session, and the banner is up the whole time.
 const FILE_MAX = 200 * 1024 * 1024;
 const files = new Map();   // id -> {stream, path, size, received, name}
+let activeFileId = null;   // the file binary chunks currently append to (one at a time)
 
 function fileDir() {
   const dir = path.join(os.homedir(), 'Downloads', 'Nexus Support');
@@ -101,12 +102,24 @@ function fileStart(m) {
   while (fs.existsSync(p)) { p = path.join(dir, name.replace(/(\.[^.]*)?$/, ` (${n})$1`)); n += 1; }
   try {
     files.set(String(m.id), { stream: fs.createWriteStream(p), path: p, size, received: 0, name: path.basename(p) });
+    activeFileId = String(m.id);
   } catch (e) {
     logFn(`control: file open failed: ${e.message || e}`);
     sendToViewer({ t: 'file-err', id: m.id, err: 'Could not write the file.' });
   }
 }
 
+// Binary chunk (viewer sends raw ArrayBuffer): appends to the one open file.
+function fileChunkBin(buf) {
+  const f = activeFileId && files.get(activeFileId);
+  if (!f || !buf) return;
+  const b = Buffer.isBuffer(buf) ? buf : Buffer.from(buf);
+  f.received += b.length;
+  if (f.received > f.size + 1024 * 1024) { fileAbort(activeFileId); return; }   // liar - drop it
+  try { f.stream.write(b); } catch (_) { fileAbort(activeFileId); }
+}
+
+// Legacy base64 chunk (kept so a mid-upgrade viewer still works).
 function fileChunk(m) {
   const f = files.get(String(m.id));
   if (!f) return;
@@ -121,6 +134,7 @@ function fileEnd(m) {
   const f = files.get(id);
   if (!f) return;
   files.delete(id);
+  if (activeFileId === id) activeFileId = null;
   f.stream.end(() => {
     logFn(`control: received file ${f.name} (${f.received} bytes) into Downloads\\Nexus Support`);
     sendToViewer({ t: 'file-done', id, name: f.name });
@@ -131,11 +145,12 @@ function fileAbort(id) {
   const f = files.get(id);
   if (!f) return;
   files.delete(id);
+  if (activeFileId === id) activeFileId = null;
   try { f.stream.destroy(); } catch (_) { /* ignore */ }
   try { fs.unlinkSync(f.path); } catch (_) { /* ignore */ }
 }
 
-function abortAllFiles() { for (const id of Array.from(files.keys())) fileAbort(id); }
+function abortAllFiles() { for (const id of Array.from(files.keys())) fileAbort(id); activeFileId = null; }
 
 // Packaged builds run from app.asar, which PowerShell can't read into - the
 // script is unpacked next to it (electron-builder asarUnpack).
@@ -355,4 +370,4 @@ function isActive() { return active; }
 
 function init(opts) { logFn = (opts && opts.log) || (() => {}); }
 
-module.exports = { init, showConsent, closeConsent, start, stop, inject, isActive, setDisplays };
+module.exports = { init, showConsent, closeConsent, start, stop, inject, fileChunkBin, isActive, setDisplays };

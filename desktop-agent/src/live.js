@@ -196,6 +196,10 @@ ipcMain.on('live:ended', (_e, { id }) => { if (current && current.id === id) sto
 ipcMain.on('live:input', (_e, { id, m }) => {
   if (current && current.id === id && controlState === 'active') control.inject(m);
 });
+// Binary file chunk from the viewer (separate channel event from JSON input).
+ipcMain.on('live:filechunk', (_e, { id, buf }) => {
+  if (current && current.id === id && controlState === 'active') control.fileChunkBin(buf);
+});
 
 function isLive() { return !!current; }
 
