@@ -10,8 +10,8 @@ import {
   HelpCircle, Clock, FileSpreadsheet, Zap, Wifi, Landmark, Wallet, Building2,
   Newspaper, GraduationCap, LineChart, Briefcase, Shield, Globe, Megaphone,
   HardHat, Ruler, CreditCard, PiggyBank, Receipt, ClipboardList, Headphones,
-  Video, LayoutGrid, TrendingUp, ArrowUpDown, CheckSquare, Cloud, Presentation,
-  Gauge, Bird, Warehouse, Settings2, Bookmark, CornerDownLeft, History, List, Command,
+  Video, LayoutGrid, CheckSquare, Cloud, Presentation,
+  Gauge, Bird, Warehouse, Settings2, Bookmark, CornerDownLeft, History, Command,
   GripVertical, AlertTriangle, Upload, FolderOpen, Download, Lock, KeyRound, Info,
   FolderPlus, Check, RotateCcw, RefreshCw,
 } from 'lucide-react';
@@ -61,14 +61,6 @@ const ICON_MAP = {
   CheckSquare, Cloud, Presentation, Gauge, Bird, Warehouse,
 };
 const iconFor = (key) => ICON_MAP[key] || Link2;
-
-// "Imported" is the server-side default category for a CSV row that didn't
-// specify one (see import_external_links in external_links.py) - it's a
-// placeholder to keep the row grouped with its batch until someone re-sorts
-// it from Manage, not a real category, so it shouldn't read as one on every
-// tile forever. Hide the chip rather than the category itself (Manage still
-// needs the real value to filter/re-sort by).
-const isPlaceholderCategory = (cat) => (cat || '').trim().toLowerCase() === 'imported';
 
 // Clearbit's free logo API was shut down (logo.clearbit.com no longer
 // resolves at all, Aug 2026) - it used to be the first choice here because it
@@ -168,6 +160,15 @@ function colorFor(category) {
 function resolveEntryLink(itemsById, entry) {
   return entry.item_type === 'personal' ? itemsById.personal.get(entry.item_id) : itemsById.external.get(entry.item_id);
 }
+// The company default order (pinned first, then admin sort_order, then
+// name) expressed as My Layout `items` entries - used both to seed a
+// pristine user's first mutation (see seededMutate) and to render the very
+// first paint before any mutation has happened at all.
+function defaultOrderItems(allLinks) {
+  const ordered = [...allLinks].sort((a, b) =>
+    (Number(b.is_pinned) - Number(a.is_pinned)) || (a.sort_order - b.sort_order) || a.name.localeCompare(b.name));
+  return ordered.map((l, i) => ({ item_type: 'external', item_id: l.id, folder_id: null, position: i }));
+}
 function entryActions(entry, itemsById, ctx) {
   const link = resolveEntryLink(itemsById, entry);
   if (!link) return null;
@@ -193,13 +194,6 @@ function entryActions(entry, itemsById, ctx) {
   };
 }
 
-const SORTS = [
-  { id: 'category', label: 'By Category' },
-  { id: 'popular',  label: 'Most Used' },
-  { id: 'az',       label: 'A-Z' },
-  { id: 'new',      label: 'Recently Added' },
-];
-
 const emptyForm = { name: '', url: '', category: '', description: '', department: '', company: '', icon: 'Link2', is_pinned: false };
 
 export default function ExternalLinks() {
@@ -216,8 +210,6 @@ export default function ExternalLinks() {
   const [companyFilter, setCompanyFilter] = useState('');
   const [category, setCategory] = useState('');
   const [q, setQ] = useState('');
-  const [sortBy, setSortBy] = useState('category');
-  const [view, setView] = useState(() => localStorage.getItem('nexus:extlinks:view') || 'grid');
 
   // Company list for the filter/Add-Link dropdown, sourced from the same
   // curated People directory every other company/department picker in Nexus
@@ -409,43 +401,26 @@ export default function ExternalLinks() {
     external: new Map(filtered.map(l => [l.id, l])),
     personal: new Map(),
   }), [filtered]);
-  const beginCustomizing = () => {
-    mutate(prev => {
-      const orderedExternal = [...all].sort((a, b) =>
-        (Number(b.is_pinned) - Number(a.is_pinned)) || (a.sort_order - b.sort_order) || a.name.localeCompare(b.name));
-      const items = orderedExternal.map((l, i) => ({ item_type: 'external', item_id: l.id, folder_id: null, position: i }));
-      return { ...prev, items };
-    });
-  };
+  // My Layout is always the live view now (Aug 14 - "rearrange is not
+  // working in default view... add folder option is missing" - the old
+  // design required an explicit "Customize My Layout" click before drag/
+  // folders turned on; that gate is gone). A pristine user (no saved row
+  // yet) still needs *something* to drag, so every mutator seeds the
+  // company default order (pinned first, then sort_order, then name - same
+  // ordering Manage's own list uses) into `items` on the very first change,
+  // via this wrapper - not eagerly on load, so someone who never touches
+  // anything still shows is_customized: false and never writes a row.
+  const seededMutate = (updater) => mutate(prev => {
+    const seeded = (prev.items.length === 0 && prev.folders.length === 0)
+      ? { ...prev, items: defaultOrderItems(all) }
+      : prev;
+    return updater(seeded);
+  });
 
   const resetLayout = () => {
     if (!window.confirm('Reset to the default company layout? Your custom ordering, folders, and favorites for Company Links will be cleared - this cannot be undone.')) return;
     resetToDefault().catch(() => {}); // failure already surfaced via saveError -> banner
   };
-
-  const pinned = useMemo(() => filtered.filter(l => l.is_pinned), [filtered]);
-  const rest = useMemo(() => filtered.filter(l => !l.is_pinned), [filtered]);
-
-  const grouped = useMemo(() => {
-    if (sortBy !== 'category') return null;
-    const map = new Map();
-    rest.forEach(l => {
-      const key = l.category || 'Other';
-      if (!map.has(key)) map.set(key, []);
-      map.get(key).push(l);
-    });
-    for (const arr of map.values()) arr.sort((a, b) => (a.sort_order - b.sort_order) || a.name.localeCompare(b.name));
-    return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-  }, [rest, sortBy]);
-
-  const flatSorted = useMemo(() => {
-    if (sortBy === 'category') return null;
-    const arr = [...rest];
-    if (sortBy === 'popular') arr.sort((a, b) => (b.clicks || 0) - (a.clicks || 0));
-    else if (sortBy === 'az') arr.sort((a, b) => a.name.localeCompare(b.name));
-    else if (sortBy === 'new') arr.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || '') || b.id - a.id);
-    return arr;
-  }, [rest, sortBy]);
 
   const openLink = (link) => {
     window.open(link.url, '_blank', 'noopener,noreferrer');
@@ -454,8 +429,6 @@ export default function ExternalLinks() {
       setLinks(prev => (prev || []).map(l => (l.id === link.id ? updated : l)));
     }).catch(() => {});
   };
-
-  const setViewMode = (mode) => { setView(mode); try { localStorage.setItem('nexus:extlinks:view', mode); } catch { /* ignore */ } };
 
   // Drag-reorder (Manage > All Links) - optimistic update, one bulk PATCH per
   // drop rather than per-row, then resync from the server if it fails so a
@@ -689,11 +662,6 @@ export default function ExternalLinks() {
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          {section === 'company' && !hasCustomOrder && !isLoading && (
-            <button className="secondary-btn" onClick={beginCustomizing} title="Arrange these into your own order and folders - only you will see the change">
-              <LayoutGrid size={14} /> Customize My Layout
-            </button>
-          )}
           {section === 'company' && hasCustomOrder && (
             <button className="secondary-btn" onClick={resetLayout} title="Clear your custom ordering and folders - go back to the default company view">
               <RotateCcw size={14} /> Reset to Default
@@ -784,16 +752,6 @@ export default function ExternalLinks() {
               {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           )}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, position: 'relative' }}>
-            <ArrowUpDown size={14} style={{ color: 'var(--muted)' }} />
-            <select className="form-select" style={{ width: 'auto', minWidth: 150 }} value={sortBy} onChange={e => setSortBy(e.target.value)}>
-              {SORTS.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
-            </select>
-          </div>
-          <div style={{ display: 'flex', background: 'var(--mist)', borderRadius: 8, padding: 2 }}>
-            <ViewToggleBtn active={view === 'grid'} onClick={() => setViewMode('grid')} title="Grid view"><LayoutGrid size={14} /></ViewToggleBtn>
-            <ViewToggleBtn active={view === 'list'} onClick={() => setViewMode('list')} title="List view"><List size={14} /></ViewToggleBtn>
-          </div>
         </div>
 
         {/* Category chips */}
@@ -820,38 +778,12 @@ export default function ExternalLinks() {
             </div>
           }
         >
-          {hasCustomOrder ? (
-            <Section title="My Layout" icon={LayoutGrid}>
-              <MyLayoutSection
-                layout={layout} itemsById={unifiedItemsById} actionCtx={actionCtx}
-                mutate={mutate}
-              />
-            </Section>
-          ) : (<>
-            {pinned.length > 0 && (
-              <Section title="Pinned" icon={Star}>
-                <LinkList view={view} items={pinned} canManage={canManage} canDelete={canDelete}
-                  favorites={favoriteExternalIds} onToggleFavorite={toggleFavorite}
-                  onOpen={openLink} onEdit={openEdit} onDelete={remove} />
-              </Section>
-            )}
-
-            {sortBy === 'category' && grouped && grouped.map(([cat, items]) => (
-              <Section key={cat} title={cat} color={colorFor(cat)}>
-                <LinkList view={view} items={items} canManage={canManage} canDelete={canDelete}
-                  favorites={favoriteExternalIds} onToggleFavorite={toggleFavorite}
-                  onOpen={openLink} onEdit={openEdit} onDelete={remove} />
-              </Section>
-            ))}
-
-            {sortBy !== 'category' && flatSorted && (
-              <Section title={SORTS.find(s => s.id === sortBy)?.label} icon={sortBy === 'popular' ? TrendingUp : undefined}>
-                <LinkList view={view} items={flatSorted} canManage={canManage} canDelete={canDelete}
-                  favorites={favoriteExternalIds} onToggleFavorite={toggleFavorite}
-                  onOpen={openLink} onEdit={openEdit} onDelete={remove} />
-              </Section>
-            )}
-          </>)}
+          <Section title="My Layout" icon={LayoutGrid}>
+            <MyLayoutSection
+              layout={layout} itemsById={unifiedItemsById} actionCtx={actionCtx}
+              mutate={seededMutate} allLinks={all}
+            />
+          </Section>
         </AsyncSection>
       </>)}
 
@@ -1075,19 +1007,6 @@ function PersonalLinkModal({ modal, setModal, save, saving, vaultCreds, existing
         </div>
       </div>
     </div>
-  );
-}
-
-function ViewToggleBtn({ active, onClick, title, children }) {
-  return (
-    <button onClick={onClick} title={title} style={{
-      display: 'flex', alignItems: 'center', justifyContent: 'center', width: 30, height: 26, border: 'none',
-      borderRadius: 6, cursor: 'pointer', background: active ? 'var(--card)' : 'transparent',
-      color: active ? 'var(--ink)' : 'var(--muted)', boxShadow: active ? '0 1px 3px rgba(0,0,0,.12)' : 'none',
-      transition: 'background .12s, color .12s',
-    }}>
-      {children}
-    </button>
   );
 }
 
@@ -1475,7 +1394,7 @@ function FolderModal({
 // entryActions) - a Company Link is admin-gated, a Personal Link is always
 // fully owner-editable, and personalization (position/folder/favorite)
 // never blurs that line.
-function MyLayoutSection({ layout, itemsById, actionCtx, mutate }) {
+function MyLayoutSection({ layout, itemsById, actionCtx, mutate, allLinks }) {
   const [openFolderId, setOpenFolderId] = useState(null);
   // Desktop drag-and-drop state - HTML5 native, mirrors ManageModal's
   // draggable/onDragStart/onDragOver/onDrop/onDragEnd pattern elsewhere in
@@ -1501,9 +1420,16 @@ function MyLayoutSection({ layout, itemsById, actionCtx, mutate }) {
   const sameEntry = (a, b) => a && b && a.item_type === b.item_type && a.item_id === b.item_id;
 
   const entryExists = useCallback((entry) => !!resolveEntryLink(itemsById, entry), [itemsById]);
+  // Nothing saved yet (brand-new user, or one who's never dragged/foldered
+  // anything) - render the same company default order seededMutate would
+  // write on the first real mutation, so drag/folder-drop targets exist to
+  // grab from the very first paint, not only after some other action has
+  // already triggered a save.
+  const displayItems = layout.items.length === 0 && layout.folders.length === 0
+    ? defaultOrderItems(allLinks) : layout.items;
   const topItems = useMemo(
-    () => layout.items.filter(i => i.folder_id === null && entryExists(i)).sort((a, b) => a.position - b.position),
-    [layout.items, entryExists]
+    () => displayItems.filter(i => i.folder_id === null && entryExists(i)).sort((a, b) => a.position - b.position),
+    [displayItems, entryExists]
   );
   const folders = useMemo(() => [...layout.folders].sort((a, b) => a.position - b.position), [layout.folders]);
   const folderMembers = useCallback(
@@ -1690,63 +1616,6 @@ function MyLayoutSection({ layout, itemsById, actionCtx, mutate }) {
         />
       )}
     </>
-  );
-}
-
-// Edit/Delete deliberately not wired to either tile below (Neil, Aug 13) -
-// Company Links are only editable/deletable from Manage now, never inline
-// from the browsing grid/list. onEdit/onDelete still arrive as props from
-// the Section call sites (Pinned/grouped/flat-sorted all pass openEdit/
-// remove) since Manage itself is what still uses those handlers elsewhere
-// on the page - LinkList just no longer forwards them into the tiles.
-function LinkList({ view, items, canManage, canDelete, favorites, onToggleFavorite, onOpen }) {
-  if (view === 'list') {
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-        {items.map(l => (
-          <LinkListRow key={l.id} link={l}
-            isFavorite={favorites.includes(l.id)} onToggleFavorite={() => onToggleFavorite(l.id)}
-            onOpen={() => onOpen(l)} />
-        ))}
-      </div>
-    );
-  }
-  return (
-    <AppGrid>
-      {items.map(l => (
-        <AppTile key={l.id} link={l} color={colorFor(l.category)} canManage={canManage} canDelete={canDelete}
-          isFavorite={favorites.includes(l.id)} onToggleFavorite={() => onToggleFavorite(l.id)}
-          onOpen={() => onOpen(l)} />
-      ))}
-    </AppGrid>
-  );
-}
-
-function LinkListRow({ link, isFavorite, onToggleFavorite, onOpen }) {
-  const { fg, bg } = colorFor(link.category);
-  return (
-    <div
-      className="card" onClick={onOpen} title={link.description || undefined}
-      style={{
-        display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', cursor: 'pointer',
-        boxShadow: 'none', border: '1px solid var(--wk-line2)', borderRadius: 10,
-      }}
-    >
-      <LinkIcon url={link.url} iconKey={link.icon} size={32} iconSize={16} radius={8} fg={fg} bg={bg} gradient={false} />
-      <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 5 }}>
-        <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{link.name}</span>
-        {link.is_pinned && <Star size={11} style={{ color: 'hsl(var(--color-gold))', flexShrink: 0 }} fill="hsl(var(--color-gold))" />}
-      </div>
-      {!isPlaceholderCategory(link.category) && (
-        <span style={{ fontSize: 10.5, fontWeight: 600, color: fg, background: bg, padding: '2px 8px', borderRadius: 20, flexShrink: 0 }}>{link.category}</span>
-      )}
-      <span style={{ fontSize: 11.5, color: 'var(--muted)', width: 60, flexShrink: 0, textAlign: 'right' }}>{link.clicks || 0} uses</span>
-      <div style={{ display: 'flex', gap: 4, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
-        <IconBtn onClick={onToggleFavorite} title={isFavorite ? 'Remove from My Favorites' : 'Add to My Favorites'}>
-          <Bookmark size={13} fill={isFavorite ? 'hsl(var(--color-blue))' : 'none'} style={{ color: isFavorite ? 'hsl(var(--color-blue))' : 'var(--muted)' }} />
-        </IconBtn>
-      </div>
-    </div>
   );
 }
 
