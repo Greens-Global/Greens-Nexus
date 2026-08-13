@@ -180,6 +180,13 @@ class PersonalLink(Base):
     clicks = Column(Integer, default=0)
     created_at = Column(String, default="")
     updated_at = Column(String, default="")
+    # Optional pointer to the owner's own Credential Vault personal credential
+    # (vault_personal_credentials.id) - Aug 13, so opening the link can copy
+    # the password to the clipboard first instead of the user having to look
+    # it up separately. No FK constraint: personal credentials are a separate
+    # module (gated by the "credvault" grant) and can be deleted independently
+    # - a dangling id here just means the copy-password step is skipped.
+    vault_cred_id = Column(String, default="")
 
 
 class AccountingTrx(Base):

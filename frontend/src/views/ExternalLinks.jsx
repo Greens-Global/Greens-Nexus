@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useRole } from '../contexts/RoleContext';
 import { api } from '../api';
 import AsyncSection, { SkeletonBlocks } from '../components/AsyncState';
+import { PersonalLockGate } from '../credvault/vaultShared';
 import {
   Search, Plus, Pencil, Trash2, X, Star, ExternalLink as ExternalLinkIcon,
   Link2, Mail, Calendar, Users2, FolderKanban, Rocket, MessagesSquare, BookOpen,
@@ -10,7 +11,7 @@ import {
   HardHat, Ruler, CreditCard, PiggyBank, Receipt, ClipboardList, Headphones,
   Video, LayoutGrid, TrendingUp, ArrowUpDown, CheckSquare, Cloud, Presentation,
   Gauge, Bird, Warehouse, Settings2, Bookmark, CornerDownLeft, History, List, Command,
-  GripVertical, AlertTriangle, Upload, FolderOpen, Download, Lock,
+  GripVertical, AlertTriangle, Upload, FolderOpen, Download, Lock, KeyRound,
 } from 'lucide-react';
 
 // ── Personal, client-side only (favorites / recents / view density) ──
@@ -51,6 +52,53 @@ const ICON_MAP = {
   CheckSquare, Cloud, Presentation, Gauge, Bird, Warehouse,
 };
 const iconFor = (key) => ICON_MAP[key] || Link2;
+
+// Clearbit's logo API serves the actual brand mark at real resolution (crisp
+// up to a few hundred px); Google's s2 favicon service is the fallback for
+// domains Clearbit doesn't have, but it just re-serves whatever tiny favicon
+// (often 16px) the site itself declared, so it reads hazy once stretched to
+// tile size - only used as a second choice, never the first.
+function logoSources(url, size) {
+  try {
+    const hostname = new URL(url).hostname;
+    return [
+      `https://logo.clearbit.com/${hostname}?size=${size}`,
+      `https://www.google.com/s2/favicons?sz=${size}&domain=${hostname}`,
+    ];
+  } catch {
+    return [];
+  }
+}
+
+// Every link tile in this view (grid card, list row, palette result, Manage
+// rows) used to render the admin-picked lucide glyph. Real site logos read
+// far more recognizable at a glance ("that's the ADP logo") than a generic
+// folder/globe icon, so this swaps to the actual brand mark and only falls
+// back to the curated lucide glyph once every image source has failed to
+// load (network blocked, ad blocker, unrecognized domain, etc - `iconKey`
+// stays on the model for that).
+function LinkIcon({ url, iconKey, size = 42, iconSize, radius = 12, fg, bg, gradient = true }) {
+  const sources = useMemo(() => logoSources(url, Math.max(size * 3, 128)), [url, size]);
+  const [attempt, setAttempt] = useState(0);
+  const src = attempt < sources.length ? sources[attempt] : null;
+  const Fallback = iconFor(iconKey);
+  return (
+    <div style={{
+      width: size, height: size, borderRadius: radius, color: fg, flexShrink: 0, overflow: 'hidden',
+      background: gradient ? `linear-gradient(135deg, ${bg}, ${bg} 40%, transparent)` : bg,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+    }}>
+      {src ? (
+        <img
+          key={src} src={src} alt="" width={Math.round(size * 0.68)} height={Math.round(size * 0.68)}
+          style={{ objectFit: 'contain' }} onError={() => setAttempt(a => a + 1)}
+        />
+      ) : (
+        <Fallback size={iconSize || Math.round(size * 0.5)} />
+      )}
+    </div>
+  );
+}
 
 // Stable color per category, cycling the app's existing --color-* tokens
 // (same palette InventoryManagement's TYPE_META draws from) so every tile's
@@ -108,6 +156,14 @@ export default function ExternalLinks() {
   const [showManage, setShowManage] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
 
+  // Company/Personal split (same "which vault am I looking at" pattern as the
+  // Credential Vault's Company/Personal toggle) - Personal Links used to sit
+  // as a strip pinned above the shared directory regardless of what an
+  // employee was actually browsing, which read as clutter ahead of the thing
+  // most people open this view for. Now it's its own section, switched to
+  // deliberately rather than always-on.
+  const [section, setSection] = useState('company'); // 'company' | 'personal'
+
   // Personal Links - private, owner-scoped rows from their own table (not
   // client-local like favorites/recents above): visible only to the signed-in
   // user, both by API filtering (owner_email) and by never being surfaced
@@ -116,6 +172,19 @@ export default function ExternalLinks() {
   const [personalLinks, setPersonalLinks] = useState(null);
   const [personalModal, setPersonalModal] = useState(null); // { mode: 'add'|'edit', form, id }
   const [personalSaving, setPersonalSaving] = useState(false);
+
+  // Copy-and-go: a Personal Link can be paired with one of the owner's own
+  // Credential Vault personal credentials (Aug 13). Opening it reveals +
+  // copies the password to the clipboard first, then opens the site - no
+  // in-page autofill (a website can't reach into another origin's login
+  // form; that needs a browser extension, which this is not). vaultCreds is
+  // fetched best-effort: an employee without the "credvault" module grant
+  // just never sees the picker, same silent-degrade as the Company filter
+  // dropdown above when getPeopleDirectory has nothing.
+  const [vaultCreds, setVaultCreds] = useState([]);
+  useEffect(() => { api.cvPersonal().then(setVaultCreds).catch(() => setVaultCreds([])); }, []);
+  const [pendingVaultOpen, setPendingVaultOpen] = useState(null); // link waiting on Personal Vault unlock
+  const [showVaultLockGate, setShowVaultLockGate] = useState(false);
 
   const [favorites, setFavorites] = useState(() => readIds(myEmail, 'favs'));
   const [recents, setRecents] = useState(() => readIds(myEmail, 'recents'));
@@ -173,11 +242,14 @@ export default function ExternalLinks() {
   const favoriteLinks = useMemo(() => favorites.map(id => all.find(l => l.id === id)).filter(Boolean), [favorites, all]);
   const recentLinks = useMemo(() => recents.map(id => all.find(l => l.id === id)).filter(Boolean), [recents, all]);
 
-  // Department/Company filters: a specific choice shows that value's links
-  // PLUS ones scoped to "every X" (field === ''); "All ..." shows everything.
-  // The two are independent (AND'd) - a link can be scoped by one, both, or neither.
+  // Department/Company filters: "All ..." shows everything, including
+  // company-wide links (field === ''); picking a specific department scopes
+  // strictly to that department - a company-wide link used to also show up
+  // under every single department choice, which made picking one feel like
+  // it barely narrowed anything (Neil/Pranshu, Aug 13 - "shows too many
+  // links"). Company stays independent of department (AND'd).
   const deptFiltered = useMemo(() => all.filter(l => {
-    const deptOk = !department || l.department === department || !l.department;
+    const deptOk = !department || l.department === department;
     const coOk = !companyFilter || l.company === companyFilter || !l.company;
     return deptOk && coOk;
   }), [all, department, companyFilter]);
@@ -302,17 +374,63 @@ export default function ExternalLinks() {
     }
   };
 
-  const openPersonalLink = (link) => {
-    window.open(link.url, '_blank', 'noopener,noreferrer');
+  const bumpPersonalClick = (link) => {
     api.clickPersonalLink(link.id).then(updated => {
       setPersonalLinks(prev => (prev || []).map(l => (l.id === link.id ? updated : l)));
     }).catch(() => {});
   };
 
-  const openAddPersonal = () => setPersonalModal({ mode: 'add', id: null, form: { name: '', url: '', description: '', icon: 'Link2' } });
+  // No vault credential attached - the plain open, unchanged from before.
+  const openPersonalLink = (link) => {
+    if (!link.vault_cred_id) {
+      window.open(link.url, '_blank', 'noopener,noreferrer');
+      bumpPersonalClick(link);
+      return;
+    }
+    // A window opened synchronously in the click handler is never treated as
+    // a popup; one opened after the `await` below (once reveal() returns)
+    // usually would be, since the click's user-activation window has likely
+    // expired by then - so open a blank tab now and point it at the real URL
+    // once we know whether the copy succeeded. Deliberately no noopener/
+    // noreferrer here: per spec, either one makes window.open() return null
+    // instead of a handle, which would leave this tab permanently stuck on
+    // about:blank since there'd be nothing left to navigate. Sever the
+    // opener link manually right after navigating it instead, once it's
+    // safe to do so.
+    const win = window.open('', '_blank');
+    revealAndOpen(link, win);
+  };
+
+  const gotoAndDetach = (win, url) => {
+    if (!win) { window.open(url, '_blank', 'noopener,noreferrer'); return; }
+    win.location = url;
+    try { win.opener = null; } catch { /* older browser - opener link stays, acceptable fallback */ }
+  };
+
+  const revealAndOpen = async (link, win) => {
+    try {
+      const res = await api.cvPersonalReveal(link.vault_cred_id);
+      try { await navigator.clipboard?.writeText(res.secret); } catch { /* clipboard blocked - link still opens */ }
+      setBanner({ kind: 'ok', text: `Password for "${link.name}" copied to your clipboard - paste it on the page that just opened.` });
+      gotoAndDetach(win, link.url);
+      bumpPersonalClick(link);
+    } catch (e) {
+      if (e?.status === 403 && e?.detail?.code === 'personal_vault_locked') {
+        win?.close();
+        setPendingVaultOpen(link);
+        setShowVaultLockGate(true);
+        return;
+      }
+      setBanner({ kind: 'err', text: e?.message || 'Could not copy the linked password - opening the link only.' });
+      gotoAndDetach(win, link.url);
+      bumpPersonalClick(link);
+    }
+  };
+
+  const openAddPersonal = () => setPersonalModal({ mode: 'add', id: null, form: { name: '', url: '', description: '', icon: 'Link2', vault_cred_id: '' } });
   const openEditPersonal = (link) => setPersonalModal({
     mode: 'edit', id: link.id,
-    form: { name: link.name, url: link.url, description: link.description || '', icon: link.icon || 'Link2' },
+    form: { name: link.name, url: link.url, description: link.description || '', icon: link.icon || 'Link2', vault_cred_id: link.vault_cred_id || '' },
   });
 
   const savePersonal = async () => {
@@ -368,11 +486,13 @@ export default function ExternalLinks() {
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button className="secondary-btn" onClick={() => setPaletteOpen(true)}>
-            <Command size={14} /> Quick Search
-            <kbd style={{ fontSize: 10, fontWeight: 700, opacity: .7, marginLeft: 2 }}>{navigator.platform?.includes('Mac') ? '⌘K' : 'Ctrl K'}</kbd>
-          </button>
-          {canManage && (
+          {section === 'company' && (
+            <button className="secondary-btn" onClick={() => setPaletteOpen(true)}>
+              <Command size={14} /> Quick Search
+              <kbd style={{ fontSize: 10, fontWeight: 700, opacity: .7, marginLeft: 2 }}>{navigator.platform?.includes('Mac') ? '⌘K' : 'Ctrl K'}</kbd>
+            </button>
+          )}
+          {section === 'company' && canManage && (
             <button className="primary-btn" onClick={() => setShowManage(true)}>
               <Settings2 size={14} /> Manage
             </button>
@@ -390,102 +510,127 @@ export default function ExternalLinks() {
         </div>
       )}
 
-      <PersonalLinksSection
-        links={personalLinks} onOpen={openPersonalLink} onAdd={openAddPersonal}
-        onEdit={openEditPersonal} onDelete={removePersonal}
-      />
-
-      {/* Personal shortcuts - client-local, not scoped by the filters below */}
-      {favoriteLinks.length > 0 && (
-        <PersonalStrip title="My Favorites" icon={Bookmark} iconColor="hsl(var(--color-blue))" links={favoriteLinks}
-          onOpen={openLink} favorites={favorites} onToggleFavorite={toggleFavorite} />
-      )}
-      {recentLinks.length > 0 && (
-        <PersonalStrip title="Recently Used" icon={History} iconColor="var(--muted)" links={recentLinks}
-          onOpen={openLink} favorites={favorites} onToggleFavorite={toggleFavorite} />
-      )}
-
-      {/* Filter bar */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 16, alignItems: 'center' }}>
-        <div style={{ position: 'relative', flex: '1 1 260px', minWidth: 220 }}>
-          <Search size={15} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
-          <input
-            className="form-input" placeholder="Search apps, tools, banks..."
-            style={{ paddingLeft: 36 }} value={q} onChange={e => setQ(e.target.value)}
-          />
-        </div>
-        <select className="form-select" style={{ width: 'auto', minWidth: 170 }} value={department}
-          onChange={e => { setDepartment(e.target.value); setCategory(''); }}>
-          <option value="">All Departments</option>
-          {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
-        </select>
-        {companies.length > 0 && (
-          <select className="form-select" style={{ width: 'auto', minWidth: 170 }} value={companyFilter}
-            onChange={e => { setCompanyFilter(e.target.value); setCategory(''); }}>
-            <option value="">All Companies</option>
-            {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
-        )}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, position: 'relative' }}>
-          <ArrowUpDown size={14} style={{ color: 'var(--muted)' }} />
-          <select className="form-select" style={{ width: 'auto', minWidth: 150 }} value={sortBy} onChange={e => setSortBy(e.target.value)}>
-            {SORTS.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
-          </select>
-        </div>
-        <div style={{ display: 'flex', background: 'var(--mist)', borderRadius: 8, padding: 2 }}>
-          <ViewToggleBtn active={view === 'grid'} onClick={() => setViewMode('grid')} title="Grid view"><LayoutGrid size={14} /></ViewToggleBtn>
-          <ViewToggleBtn active={view === 'list'} onClick={() => setViewMode('list')} title="List view"><List size={14} /></ViewToggleBtn>
-        </div>
+      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 2, borderRadius: 12, border: '1px solid var(--wk-line2)', background: 'var(--mist)', padding: 4, marginBottom: 20 }}>
+        <button onClick={() => setSection('company')} style={{
+          display: 'flex', alignItems: 'center', gap: 6, padding: '7px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600,
+          border: 'none', cursor: 'pointer', fontFamily: 'inherit', transition: 'background .15s, color .15s',
+          background: section === 'company' ? 'var(--card)' : 'transparent',
+          color: section === 'company' ? 'var(--ink)' : 'var(--muted)',
+          boxShadow: section === 'company' ? '0 1px 4px rgba(0,0,0,.12)' : 'none',
+        }}>
+          <Globe size={13} /> Company Links
+        </button>
+        <button onClick={() => setSection('personal')} style={{
+          display: 'flex', alignItems: 'center', gap: 6, padding: '7px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600,
+          border: 'none', cursor: 'pointer', fontFamily: 'inherit', transition: 'background .15s, color .15s',
+          background: section === 'personal' ? PERSONAL_COLOR.fg : 'transparent',
+          color: section === 'personal' ? '#fff' : 'var(--muted)',
+          boxShadow: section === 'personal' ? '0 1px 4px rgba(0,0,0,.12)' : 'none',
+        }}>
+          <Lock size={13} /> Personal Links{personalLinks && personalLinks.length > 0 ? ` (${personalLinks.length})` : ''}
+        </button>
       </div>
 
-      {/* Category chips */}
-      {categoriesAvailable.length > 0 && (
-        <div className="scroll-tabs" style={{ display: 'flex', gap: 8, marginBottom: 20, overflowX: 'auto', paddingBottom: 4 }}>
-          <Chip active={!category} label="All Categories" onClick={() => setCategory('')} />
-          {categoriesAvailable.map(c => (
-            <Chip key={c} active={category === c} label={c} color={colorFor(c)} onClick={() => setCategory(category === c ? '' : c)} />
-          ))}
-        </div>
+      {section === 'personal' && (
+        <PersonalLinksSection
+          links={personalLinks} onOpen={openPersonalLink} onAdd={openAddPersonal}
+          onEdit={openEditPersonal} onDelete={removePersonal}
+        />
       )}
 
-      <AsyncSection
-        loading={isLoading}
-        error={error}
-        isEmpty={isEmpty}
-        onRetry={load}
-        skeleton={<SkeletonBlocks count={8} height={116} gridTemplateColumns="repeat(auto-fill, minmax(220px, 1fr))" />}
-        emptyContent={
-          <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--muted)' }}>
-            <LayoutGrid size={32} style={{ opacity: 0.4, marginBottom: 10 }} />
-            <p style={{ fontSize: 14 }}>No links match these filters yet.</p>
-            {canManage && <p style={{ fontSize: 13, marginTop: 4 }}>Use "Manage" to start building this department's directory.</p>}
+      {section === 'company' && (<>
+        {/* Personal shortcuts - client-local, not scoped by the filters below */}
+        {favoriteLinks.length > 0 && (
+          <PersonalStrip title="My Favorites" icon={Bookmark} iconColor="hsl(var(--color-blue))" links={favoriteLinks}
+            onOpen={openLink} favorites={favorites} onToggleFavorite={toggleFavorite} />
+        )}
+        {recentLinks.length > 0 && (
+          <PersonalStrip title="Recently Used" icon={History} iconColor="var(--muted)" links={recentLinks}
+            onOpen={openLink} favorites={favorites} onToggleFavorite={toggleFavorite} />
+        )}
+
+        {/* Filter bar */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 16, alignItems: 'center' }}>
+          <div style={{ position: 'relative', flex: '1 1 260px', minWidth: 220 }}>
+            <Search size={15} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
+            <input
+              className="form-input" placeholder="Search apps, tools, banks..."
+              style={{ paddingLeft: 36 }} value={q} onChange={e => setQ(e.target.value)}
+            />
           </div>
-        }
-      >
-        {pinned.length > 0 && (
-          <Section title="Pinned" icon={Star}>
-            <LinkList view={view} items={pinned} canManage={canManage} canDelete={canDelete}
-              favorites={favorites} onToggleFavorite={toggleFavorite}
-              onOpen={openLink} onEdit={openEdit} onDelete={remove} />
-          </Section>
+          <select className="form-select" style={{ width: 'auto', minWidth: 170 }} value={department}
+            onChange={e => { setDepartment(e.target.value); setCategory(''); }}>
+            <option value="">All Departments</option>
+            {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
+          </select>
+          {companies.length > 0 && (
+            <select className="form-select" style={{ width: 'auto', minWidth: 170 }} value={companyFilter}
+              onChange={e => { setCompanyFilter(e.target.value); setCategory(''); }}>
+              <option value="">All Companies</option>
+              {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, position: 'relative' }}>
+            <ArrowUpDown size={14} style={{ color: 'var(--muted)' }} />
+            <select className="form-select" style={{ width: 'auto', minWidth: 150 }} value={sortBy} onChange={e => setSortBy(e.target.value)}>
+              {SORTS.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
+            </select>
+          </div>
+          <div style={{ display: 'flex', background: 'var(--mist)', borderRadius: 8, padding: 2 }}>
+            <ViewToggleBtn active={view === 'grid'} onClick={() => setViewMode('grid')} title="Grid view"><LayoutGrid size={14} /></ViewToggleBtn>
+            <ViewToggleBtn active={view === 'list'} onClick={() => setViewMode('list')} title="List view"><List size={14} /></ViewToggleBtn>
+          </div>
+        </div>
+
+        {/* Category chips */}
+        {categoriesAvailable.length > 0 && (
+          <div className="scroll-tabs" style={{ display: 'flex', gap: 8, marginBottom: 20, overflowX: 'auto', paddingBottom: 4 }}>
+            <Chip active={!category} label="All Categories" onClick={() => setCategory('')} />
+            {categoriesAvailable.map(c => (
+              <Chip key={c} active={category === c} label={c} color={colorFor(c)} onClick={() => setCategory(category === c ? '' : c)} />
+            ))}
+          </div>
         )}
 
-        {sortBy === 'category' && grouped && grouped.map(([cat, items]) => (
-          <Section key={cat} title={cat} color={colorFor(cat)}>
-            <LinkList view={view} items={items} canManage={canManage} canDelete={canDelete}
-              favorites={favorites} onToggleFavorite={toggleFavorite}
-              onOpen={openLink} onEdit={openEdit} onDelete={remove} />
-          </Section>
-        ))}
+        <AsyncSection
+          loading={isLoading}
+          error={error}
+          isEmpty={isEmpty}
+          onRetry={load}
+          skeleton={<SkeletonBlocks count={8} height={116} gridTemplateColumns="repeat(auto-fill, minmax(220px, 1fr))" />}
+          emptyContent={
+            <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--muted)' }}>
+              <LayoutGrid size={32} style={{ opacity: 0.4, marginBottom: 10 }} />
+              <p style={{ fontSize: 14 }}>No links match these filters yet.</p>
+              {canManage && <p style={{ fontSize: 13, marginTop: 4 }}>Use "Manage" to start building this department's directory.</p>}
+            </div>
+          }
+        >
+          {pinned.length > 0 && (
+            <Section title="Pinned" icon={Star}>
+              <LinkList view={view} items={pinned} canManage={canManage} canDelete={canDelete}
+                favorites={favorites} onToggleFavorite={toggleFavorite}
+                onOpen={openLink} onEdit={openEdit} onDelete={remove} />
+            </Section>
+          )}
 
-        {sortBy !== 'category' && flatSorted && (
-          <Section title={SORTS.find(s => s.id === sortBy)?.label} icon={sortBy === 'popular' ? TrendingUp : undefined}>
-            <LinkList view={view} items={flatSorted} canManage={canManage} canDelete={canDelete}
-              favorites={favorites} onToggleFavorite={toggleFavorite}
-              onOpen={openLink} onEdit={openEdit} onDelete={remove} />
-          </Section>
-        )}
-      </AsyncSection>
+          {sortBy === 'category' && grouped && grouped.map(([cat, items]) => (
+            <Section key={cat} title={cat} color={colorFor(cat)}>
+              <LinkList view={view} items={items} canManage={canManage} canDelete={canDelete}
+                favorites={favorites} onToggleFavorite={toggleFavorite}
+                onOpen={openLink} onEdit={openEdit} onDelete={remove} />
+            </Section>
+          ))}
+
+          {sortBy !== 'category' && flatSorted && (
+            <Section title={SORTS.find(s => s.id === sortBy)?.label} icon={sortBy === 'popular' ? TrendingUp : undefined}>
+              <LinkList view={view} items={flatSorted} canManage={canManage} canDelete={canDelete}
+                favorites={favorites} onToggleFavorite={toggleFavorite}
+                onOpen={openLink} onEdit={openEdit} onDelete={remove} />
+            </Section>
+          )}
+        </AsyncSection>
+      </>)}
 
       {showManage && (
         <ManageModal
@@ -509,7 +654,20 @@ export default function ExternalLinks() {
       )}
 
       {personalModal && (
-        <PersonalLinkModal modal={personalModal} setModal={setPersonalModal} save={savePersonal} saving={personalSaving} />
+        <PersonalLinkModal modal={personalModal} setModal={setPersonalModal} save={savePersonal} saving={personalSaving} vaultCreds={vaultCreds} />
+      )}
+
+      {showVaultLockGate && (
+        <PersonalLockGate
+          userEmail={myEmail}
+          onClose={() => { setShowVaultLockGate(false); setPendingVaultOpen(null); }}
+          onUnlocked={() => {
+            setShowVaultLockGate(false);
+            const link = pendingVaultOpen;
+            setPendingVaultOpen(null);
+            if (link) openPersonalLink(link);
+          }}
+        />
       )}
     </div>
   );
@@ -596,7 +754,6 @@ function PersonalLinksSection({ links, onOpen, onAdd, onEdit, onDelete }) {
 
 function PersonalLinkCard({ link, onOpen, onEdit, onDelete }) {
   const [hover, setHover] = useState(false);
-  const Icon = iconFor(link.icon);
   return (
     <div
       onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
@@ -615,15 +772,12 @@ function PersonalLinkCard({ link, onOpen, onEdit, onDelete }) {
           <IconBtn onClick={onDelete} title="Remove link" danger><Trash2 size={13} /></IconBtn>
         </div>
       )}
-      <div style={{
-        width: 42, height: 42, borderRadius: 12, color: PERSONAL_COLOR.fg,
-        background: `linear-gradient(135deg, ${PERSONAL_COLOR.bg}, ${PERSONAL_COLOR.bg} 40%, transparent)`,
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-      }}>
-        <Icon size={21} />
-      </div>
+      <LinkIcon url={link.url} iconKey={link.icon} fg={PERSONAL_COLOR.fg} bg={PERSONAL_COLOR.bg} />
       <div>
-        <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--ink)' }}>{link.name}</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+          <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--ink)' }}>{link.name}</span>
+          {link.vault_cred_id && <KeyRound size={11} style={{ color: PERSONAL_COLOR.fg, flexShrink: 0 }} title="Copies your saved password when opened" />}
+        </div>
         {link.description && (
           <p style={{
             fontSize: 12, color: 'var(--muted)', marginTop: 3, lineHeight: 1.4,
@@ -638,7 +792,7 @@ function PersonalLinkCard({ link, onOpen, onEdit, onDelete }) {
   );
 }
 
-function PersonalLinkModal({ modal, setModal, save, saving }) {
+function PersonalLinkModal({ modal, setModal, save, saving, vaultCreds }) {
   const { mode, form } = modal;
   const setForm = (patch) => setModal(m => ({ ...m, form: { ...m.form, ...patch } }));
   return (
@@ -664,6 +818,23 @@ function PersonalLinkModal({ modal, setModal, save, saving }) {
             <label>Description</label>
             <textarea className="form-input" rows={2} value={form.description}
               onChange={e => setForm({ description: e.target.value })} placeholder="Optional note to yourself" />
+          </div>
+          <div className="form-group">
+            <label>Password (optional)</label>
+            {vaultCreds.length > 0 ? (
+              <select className="form-select" value={form.vault_cred_id || ''} onChange={e => setForm({ vault_cred_id: e.target.value })}>
+                <option value="">None - just open the link</option>
+                {vaultCreds.map(c => <option key={c.id} value={c.id}>{c.name}{c.username && c.username !== '-' ? ` (${c.username})` : ''}</option>)}
+              </select>
+            ) : (
+              <p style={{ fontSize: 12, color: 'var(--muted)', margin: 0 }}>
+                No saved passwords yet - add one in Credential Vault's Personal Vault, then come back here to attach it.
+              </p>
+            )}
+            <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '4px 0 0', display: 'flex', alignItems: 'flex-start', gap: 5 }}>
+              <KeyRound size={12} style={{ flexShrink: 0, marginTop: 1 }} />
+              Attaching a password copies it to your clipboard right before the site opens, so you just paste it in - Nexus can't fill it in for you automatically (the site's own login page is a different website).
+            </p>
           </div>
           <div className="form-group">
             <label>Icon</label>
@@ -719,7 +890,6 @@ function PersonalStrip({ title, icon: Icon, iconColor, links, onOpen, favorites,
       </div>
       <div className="scroll-tabs" style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 4 }}>
         {links.map(l => {
-          const Ico = iconFor(l.icon);
           const { fg, bg } = colorFor(l.category);
           return (
             <button
@@ -732,9 +902,7 @@ function PersonalStrip({ title, icon: Icon, iconColor, links, onOpen, favorites,
               onMouseEnter={e => { e.currentTarget.style.borderColor = fg; }}
               onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--wk-line2)'; }}
             >
-              <span style={{ width: 26, height: 26, borderRadius: '50%', background: bg, color: fg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <Ico size={13} />
-              </span>
+              <LinkIcon url={l.url} iconKey={l.icon} size={26} iconSize={13} radius="50%" fg={fg} bg={bg} gradient={false} />
               <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--ink)', whiteSpace: 'nowrap' }}>{l.name}</span>
             </button>
           );
@@ -769,7 +937,6 @@ function LinkList({ view, items, canManage, canDelete, favorites, onToggleFavori
 
 function LinkCard({ link, canManage, canDelete, isFavorite, onToggleFavorite, onOpen, onEdit, onDelete }) {
   const [hover, setHover] = useState(false);
-  const Icon = iconFor(link.icon);
   const { fg, bg } = colorFor(link.category);
   return (
     <div
@@ -800,13 +967,7 @@ function LinkCard({ link, canManage, canDelete, isFavorite, onToggleFavorite, on
           </>
         )}
       </div>
-      <div style={{
-        width: 42, height: 42, borderRadius: 12, color: fg,
-        background: `linear-gradient(135deg, ${bg}, ${bg} 40%, transparent)`,
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-      }}>
-        <Icon size={21} />
-      </div>
+      <LinkIcon url={link.url} iconKey={link.icon} fg={fg} bg={bg} />
       <div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
           <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--ink)' }}>{link.name}</span>
@@ -832,7 +993,6 @@ function LinkCard({ link, canManage, canDelete, isFavorite, onToggleFavorite, on
 }
 
 function LinkListRow({ link, canManage, canDelete, isFavorite, onToggleFavorite, onOpen, onEdit, onDelete }) {
-  const Icon = iconFor(link.icon);
   const { fg, bg } = colorFor(link.category);
   return (
     <div
@@ -842,9 +1002,7 @@ function LinkListRow({ link, canManage, canDelete, isFavorite, onToggleFavorite,
         boxShadow: 'none', border: '1px solid var(--wk-line2)', borderRadius: 10,
       }}
     >
-      <div style={{ width: 32, height: 32, borderRadius: 8, background: bg, color: fg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-        <Icon size={16} />
-      </div>
+      <LinkIcon url={link.url} iconKey={link.icon} size={32} iconSize={16} radius={8} fg={fg} bg={bg} gradient={false} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
           <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{link.name}</span>
@@ -1065,7 +1223,6 @@ function ManageModal({ links, onClose, onAdd, onAddForDept, onEdit, onDelete, ca
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                       {items.map(l => {
-                        const Icon = iconFor(l.icon);
                         const { fg, bg } = colorFor(l.category);
                         return (
                           <div
@@ -1082,9 +1239,7 @@ function ManageModal({ links, onClose, onAdd, onAddForDept, onEdit, onDelete, ca
                             }}
                           >
                             {canReorder && <GripVertical size={13} style={{ color: 'var(--muted)', cursor: 'grab', flexShrink: 0 }} />}
-                            <div style={{ width: 26, height: 26, borderRadius: 7, background: bg, color: fg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                              <Icon size={14} />
-                            </div>
+                            <LinkIcon url={l.url} iconKey={l.icon} size={26} iconSize={14} radius={7} fg={fg} bg={bg} gradient={false} />
                             <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', flexShrink: 0 }}>{l.name}</span>
                             {l.is_pinned && <Star size={11} style={{ color: 'hsl(var(--color-gold))', flexShrink: 0 }} fill="hsl(var(--color-gold))" />}
                             <span style={{ fontSize: 11.5, color: 'var(--muted)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -1123,14 +1278,11 @@ function ManageModal({ links, onClose, onAdd, onAddForDept, onEdit, onDelete, ca
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                   {attention.map(({ link: l, reason }) => {
-                    const Icon = iconFor(l.icon);
                     const { fg, bg } = colorFor(l.category);
                     return (
                       <div key={l.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 10px', borderRadius: 8, border: '1px solid var(--line)' }}>
                         <AlertTriangle size={14} style={{ color: 'hsl(var(--color-orange))', flexShrink: 0 }} />
-                        <div style={{ width: 26, height: 26, borderRadius: 7, background: bg, color: fg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                          <Icon size={14} />
-                        </div>
+                        <LinkIcon url={l.url} iconKey={l.icon} size={26} iconSize={14} radius={7} fg={fg} bg={bg} gradient={false} />
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>{l.name}</div>
                           <div style={{ fontSize: 11.5, color: 'hsl(var(--color-orange))' }}>{reason}</div>
@@ -1384,7 +1536,6 @@ function CommandPalette({ links, onOpen, onClose }) {
           {results.length === 0 ? (
             <p style={{ textAlign: 'center', color: 'var(--muted)', fontSize: 13, padding: '24px 0' }}>No matches for "{query}".</p>
           ) : results.map((l, i) => {
-            const Icon = iconFor(l.icon);
             const { fg, bg } = colorFor(l.category);
             return (
               <div
@@ -1394,9 +1545,7 @@ function CommandPalette({ links, onOpen, onClose }) {
                   background: i === active ? 'var(--wk-brand-tint)' : 'transparent',
                 }}
               >
-                <div style={{ width: 30, height: 30, borderRadius: 8, background: bg, color: fg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                  <Icon size={15} />
-                </div>
+                <LinkIcon url={l.url} iconKey={l.icon} size={30} iconSize={15} radius={8} fg={fg} bg={bg} gradient={false} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>{l.name}</div>
                   <div style={{ fontSize: 11, color: 'var(--muted)' }}>{l.category}{l.department ? ` · ${l.department}` : ''}</div>
