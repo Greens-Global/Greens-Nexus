@@ -59,6 +59,8 @@ KNOWN_PUBLIC = {
     "/timeclock/track/ping",
     "/timeclock/track/stop",
     "/timeclock/track/clock",
+    "/timeclock/agent/uninstall.ps1",       # no secrets - only touches the local machine that fetches it
+    "/timeclock/agent/self-enroll",         # shared enrollment key gate (secrets.compare_digest); box has no Nexus login yet
 }
 
 _AUTH_DEP_NAMES = ("get_current_user", "_check", "get_agent_device")

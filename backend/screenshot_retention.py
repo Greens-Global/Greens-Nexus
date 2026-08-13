@@ -24,7 +24,7 @@ from database import SessionLocal
 from models import TimeScreenshot, AgentActivity
 from sqlalchemy import text
 
-from routers.hr import _DOC_BUCKET, _SHOT_BUCKET
+from routers.hr import _DOC_BUCKET
 from screenshot_migrate import _delete, _readable
 
 _LOCK_KEY = 794214     # stable advisory-lock id (migrate loop uses 794213)
