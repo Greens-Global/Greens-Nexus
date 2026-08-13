@@ -386,10 +386,15 @@ export default function ExternalLinks() {
         setBanner({ kind: 'ok', text: `"${link.name}"'s credential is Critical-tier - access request sent to a Global Admin. Opening the link without the password for now.` });
         gotoAndDetach(win, link.url);
       } else {
-        try { await navigator.clipboard?.writeText(res.secret); } catch { /* clipboard blocked - link still opens */ }
-        setBanner({ kind: 'ok', text: `Password for "${link.name}" copied to your clipboard - paste it on the page that just opened.` });
+        const copied = await copyToClipboard(res.secret);
+        setBanner({
+          kind: copied ? 'ok' : 'err',
+          text: copied
+            ? `Password for "${link.name}" copied to your clipboard - paste it on the page that just opened.`
+            : `Opened "${link.name}", but your browser blocked the automatic copy - open the credential in Credential Vault to copy it manually.`,
+        });
         gotoAndDetach(win, link.url);
-        api.cvCopied(link.vault_cred_id).catch(() => {});
+        if (copied) api.cvCopied(link.vault_cred_id).catch(() => {});
       }
     } catch (e) {
       setBanner({ kind: 'err', text: e?.message || 'Could not copy the linked password - opening the link only.' });
@@ -505,6 +510,36 @@ export default function ExternalLinks() {
     revealAndOpen(link, win);
   };
 
+  // The async Clipboard API needs a "fresh" user gesture in most browsers -
+  // an await on a network call (reveal) or, worse, a whole OTP round trip in
+  // between the click and the write, routinely runs past that window, and
+  // writeText() then rejects silently. The old code swallowed that rejection
+  // and showed "copied to your clipboard" regardless, which is how this
+  // looked like "the paste feature is missing" - the banner lied. Falls back
+  // to the older execCommand('copy') path (a hidden textarea + select +
+  // copy), which several browsers still honor even when the async API's
+  // activation check fails, and reports honestly either way.
+  const copyToClipboard = async (text) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch { /* try the fallback below */ }
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      const ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+      return ok;
+    } catch {
+      return false;
+    }
+  };
+
   const gotoAndDetach = (win, url) => {
     if (!win) {
       const opened = window.open(url, '_blank', 'noopener,noreferrer');
@@ -529,8 +564,13 @@ export default function ExternalLinks() {
   const revealAndOpen = async (link, win) => {
     try {
       const res = await api.cvPersonalReveal(link.vault_cred_id);
-      try { await navigator.clipboard?.writeText(res.secret); } catch { /* clipboard blocked - link still opens */ }
-      setBanner({ kind: 'ok', text: `Password for "${link.name}" copied to your clipboard - paste it on the page that just opened.` });
+      const copied = await copyToClipboard(res.secret);
+      setBanner({
+        kind: copied ? 'ok' : 'err',
+        text: copied
+          ? `Password for "${link.name}" copied to your clipboard - paste it on the page that just opened.`
+          : `Opened "${link.name}", but your browser blocked the automatic copy - copy it manually from Credential Vault's Personal Vault.`,
+      });
       gotoAndDetach(win, link.url);
       bumpPersonalClick(link);
     } catch (e) {
