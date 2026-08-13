@@ -370,9 +370,13 @@ def effective_access(email: str, user: dict = Depends(require_administrator), db
         {"module": mid, "level": m["level"], "source": m["source"], "manual": not m["via_role"]}
         for mid, m in sorted(modules.items())
     ]
+    role_row = db.query(NexusRole).filter(NexusRole.email == email).first()
     return {
         "email": email,
         "tier": _get_role(email, db),
+        # True when this person's tier was set directly (a per-person override) and
+        # so won't be re-stamped by a job-role tier edit. Drives the card's control.
+        "tier_pinned": bool(getattr(role_row, "tier_pinned", False)) if role_row else False,
         "job_role": job_role,
         "extra_groups": extra_groups,
         "modules": resolved,

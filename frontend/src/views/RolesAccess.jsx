@@ -479,12 +479,16 @@ export default function RolesAccess({ embedded = false }) {
 
 // ── PEOPLE tab - search a person, see and change their access ────────────────
 function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, nameOf, photoOf = {}, onChanged, toastOk, toastErr }) {
+  const { assignRole, myLevel, can } = useRole();
   const [q, setQ] = useState('');
   const [co, setCo] = useState('');       // company (entity id) filter
   const [dept, setDept] = useState('');   // department (name) filter
   const [eff, setEff] = useState(null);
   const [busy, setBusy] = useState(false);
   const [promoteOpen, setPromoteOpen] = useState(false);
+  // Which tiers this admin may hand out (mirrors the backend guard: owners give
+  // any, others only strictly below their own level).
+  const canAssignTier = t => can('owner') || (ROLES[t]?.level ?? 1) < myLevel;
   useEffect(() => { setPromoteOpen(false); }, [person]);
 
   // Same courtesy as the role panel: picking a person deep in the list brings
@@ -529,6 +533,21 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
     if (!await dialog.confirm(`Remove ${nameOf(person)} from "${g.name}"? They lose that extra access; their job-role baseline is untouched.`, { title: 'Remove from group', confirmText: 'Remove', danger: true })) return;
     try { await api.removeGroupMember(g.id, person); toastOk(`Removed ${nameOf(person)} from “${g.name}”.`); refresh(); }
     catch (e) { toastErr(e?.message || 'Could not remove.'); }
+  }
+  // Per-person tier OVERRIDE: sets this individual's seniority tier directly and
+  // pins it, so two people in the SAME job role can hold different tiers and a
+  // later job-role tier edit won't re-stamp this person.
+  async function setTierOverride(tier) {
+    if (!person || !tier) return;
+    if (!await dialog.confirm(`Set ${nameOf(person)}'s tier to "${ROLES[tier].label}" - just for this person? It overrides their job role's tier and won't change when the role's tier is edited.`, { title: 'Override tier', confirmText: 'Set tier' })) return;
+    try { await assignRole(person, tier, nameOf(person)); toastOk(`${nameOf(person)} is now ${ROLES[tier].label}.`); refresh(); }
+    catch (e) { toastErr(e?.message || 'Could not set tier.'); }
+  }
+  async function resetTier() {
+    if (!person || !eff?.job_role) return;
+    if (!await dialog.confirm(`Reset ${nameOf(person)} to follow their "${eff.job_role.name}" tier again?`, { title: 'Reset tier', confirmText: 'Reset' })) return;
+    try { await api.assignJobRole(eff.job_role.id, person); toastOk('Now follows the job-role tier.'); refresh(); }
+    catch (e) { toastErr(e?.message || 'Could not reset.'); }
   }
 
   const memberGroupIds = new Set((eff?.extra_groups || []).map(g => g.id));
@@ -607,6 +626,29 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
                 onClose={() => setPromoteOpen(false)} onErr={toastErr}
                 onDone={r => { setPromoteOpen(false); toastOk(`${nameOf(person)} is now “${r.name}”.`); refresh(); }} />
             )}
+
+            <div style={sectLabel}>Seniority tier</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <TierBadge tier={eff.tier} />
+              {eff.tier_pinned && (
+                <span title="Set for this person directly - a job-role tier change won't move them."
+                  style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.03em', textTransform: 'uppercase', color: 'hsl(var(--color-purple))', background: 'hsla(var(--color-purple),0.12)', padding: '2px 7px', borderRadius: 6 }}>
+                  Override
+                </span>
+              )}
+              <select value="" onChange={e => setTierOverride(e.target.value)} style={{ ...input, width: 'auto', padding: '6px 10px', fontSize: 12.5 }}>
+                <option value="">{eff.tier_pinned ? 'Change this person’s tier…' : 'Override tier for this person…'}</option>
+                {TIERS.filter(canAssignTier).map(t => <option key={t} value={t}>{ROLES[t].label}</option>)}
+              </select>
+              {eff.tier_pinned && eff.job_role && (
+                <button className="secondary-btn" onClick={resetTier} style={{ padding: '6px 12px', fontSize: 12.5 }}>Reset to role tier</button>
+              )}
+            </div>
+            <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 6, lineHeight: 1.5 }}>
+              {eff.tier_pinned
+                ? 'Set directly for this person - editing the job role’s tier won’t change them.'
+                : 'Follows their job role. Override it here to give this person a different tier while keeping them in the same role.'}
+            </div>
 
             <div style={sectLabel}>Extra groups - added on top</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
