@@ -107,9 +107,36 @@ export function bffLogin() {
  *  Microsoft - a POST that only cleared the cookie left the SSO session alive,
  *  so /auth/login silently re-authed and bounced the user right back in. */
 export function bffLogout() {
+  // Shared PC: wipe EVERYTHING this user cached in the browser before leaving, so
+  // the next person to sign in on this machine can never see any of their data,
+  // identity, prefs, or tokens. localStorage/sessionStorage are cleared
+  // synchronously (removes MSAL accounts/tokens and every module cache); the
+  // IndexedDB store is deleted fire-and-forget. The next login also re-purges on a
+  // user change, so a session that ended without this (browser closed / crash) is
+  // still covered.
+  try { localStorage.clear(); } catch { /* storage blocked */ }
+  try { sessionStorage.clear(); } catch { /* storage blocked */ }
+  try { indexedDB.deleteDatabase('nexus_store'); } catch { /* ignore */ }
+  // Re-set the markers the logout handoff itself needs, AFTER the wipe.
   try { sessionStorage.setItem(LOGOUT_TAB_KEY, '1'); } catch { /* storage blocked */ }
   try { localStorage.setItem(SIGNED_OUT_KEY, String(Date.now())); } catch { /* storage blocked */ }
   window.location.href = '/api/auth/logout';
+}
+
+/** Remove every browser-cached artifact of a PREVIOUS user - all localStorage and
+ *  sessionStorage (module caches, prefs, MSAL accounts/tokens), the IndexedDB
+ *  store, and any Cache Storage entries. Used when a DIFFERENT user signs in on a
+ *  shared browser than last time, so nothing of the old user survives. */
+async function _purgeClientData() {
+  try { sessionStorage.clear(); } catch { /* blocked */ }
+  try { localStorage.clear(); } catch { /* blocked */ }
+  try { indexedDB.deleteDatabase('nexus_store'); } catch { /* ignore */ }
+  try {
+    if (typeof caches !== 'undefined') {
+      const ks = await caches.keys();
+      await Promise.all(ks.map((k) => caches.delete(k)));
+    }
+  } catch { /* ignore */ }
 }
 
 /** Make msalInstance report a SYNTHETIC account for the session user, so every
@@ -202,6 +229,14 @@ export async function bffBootstrap() {
       if (res.ok) {
         _me = await res.json();
         if (_me && _me.email) {
+          // Shared PC: if a DIFFERENT user is signing in than last time on this
+          // browser, purge the previous user's cached data/prefs/tokens BEFORE the
+          // app reads any of it. Catches sessions that ended without a clean logout
+          // (browser closed, crash). First-ever login (no prior) purges nothing.
+          try {
+            const prev = (localStorage.getItem('nexus:lastEmail') || '').toLowerCase();
+            if (prev && prev !== _me.email.toLowerCase()) await _purgeClientData();
+          } catch { /* best-effort */ }
           // Remembered for the NEXT sign-in: passed as login_hint so Entra
           // preselects this account instead of showing the picker.
           try { localStorage.setItem('nexus:lastEmail', _me.email); } catch { /* storage blocked */ }
