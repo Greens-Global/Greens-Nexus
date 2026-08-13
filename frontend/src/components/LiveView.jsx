@@ -123,23 +123,38 @@ export default function LiveView({ email, name, onClose }) {
     let timer = null;
     let answered = false;
 
+    let pollFails = 0;
     const clearTimer = () => { if (timer) { clearTimeout(timer); timer = null; } };
     const closePc = () => {
       try { if (pc) pc.close(); } catch (_) { /* ignore */ }
       pc = null; answered = false; channelRef.current = null;
+    };
+    // Self-heal: whenever the feed isn't live (the person locked their PC, went on
+    // break, walked away, or the connection dropped), tear down and keep trying to
+    // reconnect on a timer. The moment they're back and their agent is capturing,
+    // begin() succeeds and the video resumes - the admin never has to reload.
+    const scheduleRetry = (statusText, delay = 4000) => {
+      if (cancelled) return;
+      closePc();
+      sid = null; sidRef.current = null;
+      setControl('');
+      setStatus(statusText);
+      clearTimer();
+      timer = setTimeout(begin, delay);
     };
 
     async function begin() {
       if (cancelled) return;
       let res;
       try { res = await api.timeLiveRequest(email, fps); }
-      catch (_) { if (!cancelled) { setStatus('error'); } return; }
+      catch (_) { scheduleRetry('reconnecting'); return; }
       if (cancelled) return;
       if (!res || !res.ok) {
-        setStatus(res && res.subjectState === 'on_break' ? 'break' : 'offline');
-        timer = setTimeout(begin, 4000);   // retry so it goes live when they return
+        // on_break -> frozen frame + "On break"; otherwise offline. Both retry.
+        scheduleRetry(res && res.subjectState === 'on_break' ? 'break' : 'offline');
         return;
       }
+      pollFails = 0;
       sid = res.sessionId;
       sidRef.current = sid;
       setFps(res.fps || 30);
@@ -163,7 +178,7 @@ export default function LiveView({ email, name, onClose }) {
         if (cancelled || !pc) return;
         const st = pc.iceConnectionState;
         if (st === 'failed' && !iceRetried && pc.restartIce) { iceRetried = true; try { pc.restartIce(); } catch (_) { /* ignore */ } }
-        else if (st === 'failed') { setStatus('error'); }
+        else if (st === 'failed') { scheduleRetry('reconnecting'); }   // don't dead-end - reconnect
       };
       // The agent opens the channel with its offer; input over it stays inert
       // until the employee accepts a control request on their PC. Screen picking
@@ -188,19 +203,20 @@ export default function LiveView({ email, name, onClose }) {
     async function poll() {
       if (cancelled || !sid) return;
       let r;
-      try { r = await api.timeLivePoll(sid); }
-      catch (_) { timer = setTimeout(poll, 1500); return; }
+      try { r = await api.timeLivePoll(sid); pollFails = 0; }
+      catch (_) {
+        // A dead/stale session (e.g. the API restarted, or the agent dropped) would
+        // otherwise poll forever - after a few misses, reconnect from scratch.
+        pollFails += 1;
+        if (pollFails >= 3) { scheduleRetry('reconnecting'); } else { timer = setTimeout(poll, 1500); }
+        return;
+      }
       if (cancelled) return;
       if (r.state === 'ended') {
-        closePc();
+        // subject_on_break -> frozen frame + "On break"; anything else
+        // (subject_offline, agent_lost, locked PC) -> offline. Both self-heal.
         const reason = r.endedReason || '';
-        // Keep the last video frame on screen; overlay the reason. subject_on_break
-        // -> "On break"; anything else (subject_offline, agent_lost) -> offline.
-        setStatus(reason.indexOf('on_break') >= 0 ? 'break' : 'offline');
-        sid = null;
-        sidRef.current = null;
-        setControl('');
-        timer = setTimeout(begin, 4000);
+        scheduleRetry(reason.indexOf('on_break') >= 0 ? 'break' : 'offline');
         return;
       }
       setControl(r.controlState || '');
@@ -506,14 +522,16 @@ export default function LiveView({ email, name, onClose }) {
 
   // ── Render ──────────────────────────────────────────────────────────────────
   const overlay = status === 'break'
-    ? { text: 'On break', sub: 'Screen paused while this person is on break.', color: 'hsl(var(--color-orange))' }
+    ? { text: 'On break', sub: 'Screen paused while this person is on break. Resumes automatically when they’re back.', color: 'hsl(var(--color-orange))' }
     : status === 'offline'
-      ? { text: 'Offline', sub: 'This person is not clocked in, or their agent is not reachable.', color: 'var(--muted)' }
-      : status === 'error'
-        ? { text: 'Could not connect', sub: 'Live view is unavailable right now.', color: 'hsl(var(--color-red))' }
-        : status === 'connecting'
-          ? { text: 'Connecting…', sub: 'Waiting for the screen stream.', color: 'var(--muted)' }
-          : null;
+      ? { text: 'Offline', sub: 'Their screen is locked or the agent is unreachable. Reconnects automatically the moment they’re back.', color: 'var(--muted)' }
+      : status === 'reconnecting'
+        ? { text: 'Reconnecting…', sub: 'The connection dropped (locked PC or network). This resumes on its own - no need to reload.', color: 'var(--muted)', spin: true }
+        : status === 'error'
+          ? { text: 'Could not connect', sub: 'Live view is unavailable right now.', color: 'hsl(var(--color-red))' }
+          : status === 'connecting'
+            ? { text: 'Connecting…', sub: 'Waiting for the screen stream.', color: 'var(--muted)', spin: true }
+            : null;
 
   const screenLabel = (s) => `Screen ${s.i + 1}${s.primary ? ' · Primary' : ''}`;
   const showPicker = screens.length > 1;
@@ -653,7 +671,7 @@ export default function LiveView({ email, name, onClose }) {
           )}
           {overlay && (
             <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 6, textAlign: 'center', padding: 24 }}>
-              {status === 'connecting'
+              {overlay.spin
                 ? <Loader2 size={26} style={{ color: '#cbd5e1', animation: 'spin 1s linear infinite' }} />
                 : <MonitorSmartphone size={26} style={{ color: overlay.color }} />}
               <div style={{ fontSize: 15, fontWeight: 800, color: '#e2e8f0' }}>{overlay.text}</div>
