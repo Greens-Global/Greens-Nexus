@@ -160,14 +160,27 @@ function colorFor(category) {
 function resolveEntryLink(itemsById, entry) {
   return entry.item_type === 'personal' ? itemsById.personal.get(entry.item_id) : itemsById.external.get(entry.item_id);
 }
-// The company default order (pinned first, then admin sort_order, then
-// name) expressed as My Layout `items` entries - used both to seed a
-// pristine user's first mutation (see seededMutate) and to render the very
-// first paint before any mutation has happened at all.
-function defaultOrderItems(allLinks) {
-  const ordered = [...allLinks].sort((a, b) =>
-    (Number(b.is_pinned) - Number(a.is_pinned)) || (a.sort_order - b.sort_order) || a.name.localeCompare(b.name));
-  return ordered.map((l, i) => ({ item_type: 'external', item_id: l.id, folder_id: null, position: i }));
+// The default order for a pristine (never-arranged) tab, expressed as
+// layout `items` entries - used both to seed a user's first mutation (see
+// makeSeededMutate) and to render the very first paint before any mutation
+// has happened at all. Company Links default to pinned first, then admin
+// sort_order, then name (mirrors Manage's own list); Personal Links have no
+// pin concept, so just sort_order then name.
+function defaultOrderItems(links, sourceType = 'external') {
+  const ordered = [...links].sort((a, b) => (sourceType === 'external'
+    ? (Number(b.is_pinned) - Number(a.is_pinned)) || (a.sort_order - b.sort_order) || a.name.localeCompare(b.name)
+    : (a.sort_order - b.sort_order) || a.name.localeCompare(b.name)));
+  return ordered.map((l, i) => ({ item_type: sourceType, item_id: l.id, folder_id: null, position: i }));
+}
+// Whether this tab (external|personal) has any real customization yet -
+// NOT the hook's isCustomized flag alone, which just means "a layout row
+// exists" (true the moment someone favorites a single link, since favorites
+// live in the same document) - using that directly would dump a user into
+// an otherwise-empty custom view the first time they favorite anything,
+// before they ever touched ordering.
+function hasCustomOrderFor(layout, sourceType) {
+  return layout.items.some(i => i.item_type === sourceType)
+    || layout.folders.some(f => (f.item_type || 'external') === sourceType);
 }
 function entryActions(entry, itemsById, ctx) {
   const link = resolveEntryLink(itemsById, entry);
@@ -382,44 +395,46 @@ export default function ExternalLinks() {
     });
   }, [deptFiltered, category, q]);
 
-  // My Layout (personalization) - gated on whether ordering/folders have
-  // actually been customized, NOT the hook's isCustomized flag alone: that
-  // flag just means "a layout row exists," which happens the moment someone
-  // favorites a single link (favorites live in the same document) - using it
-  // directly would dump a user into an otherwise-empty "My Layout" the first
-  // time they favorite anything, before they ever touched ordering. This
-  // only switches once there's real ordering/folder data to show.
-  const hasCustomOrder = layout.items.length > 0 || layout.folders.length > 0;
+  const hasCustomOrder = hasCustomOrderFor(layout, 'external');
+  const hasPersonalCustomOrder = hasCustomOrderFor(layout, 'personal');
 
-  // Personal Links stay out of My Layout entirely (Neil, Aug 13 - only
-  // visible in their own tab, never mixed into the shared launcher).
-  // itemsById.personal is always an empty Map here on purpose - entryActions
-  // still branches on item_type generically (Favorites still resolves both
-  // types, since the My Favorites strip is a different, already-approved
-  // surface), this is just what My Layout itself is allowed to draw from.
+  // Company My Layout and Personal Links each get their own itemsById with
+  // the OTHER type left as an empty Map on purpose - even though both types
+  // can now live in the same layout document (Aug 14, folders on Personal
+  // Links too), resolveEntryLink returning undefined for the other type is
+  // what makes it structurally impossible for a Company entry to render
+  // inside Personal Links or vice versa, regardless of what's in the data.
   const unifiedItemsById = useMemo(() => ({
     external: new Map(filtered.map(l => [l.id, l])),
     personal: new Map(),
   }), [filtered]);
-  // My Layout is always the live view now (Aug 14 - "rearrange is not
-  // working in default view... add folder option is missing" - the old
-  // design required an explicit "Customize My Layout" click before drag/
-  // folders turned on; that gate is gone). A pristine user (no saved row
-  // yet) still needs *something* to drag, so every mutator seeds the
-  // company default order (pinned first, then sort_order, then name - same
-  // ordering Manage's own list uses) into `items` on the very first change,
-  // via this wrapper - not eagerly on load, so someone who never touches
-  // anything still shows is_customized: false and never writes a row.
-  const seededMutate = (updater) => mutate(prev => {
-    const seeded = (prev.items.length === 0 && prev.folders.length === 0)
-      ? { ...prev, items: defaultOrderItems(all) }
-      : prev;
+  const personalItemsById = useMemo(() => ({
+    external: new Map(),
+    personal: new Map((personalLinks || []).map(l => [l.id, l])),
+  }), [personalLinks]);
+  // Both tabs are always the live drag/folder view now (Aug 14 - "rearrange
+  // is not working in default view... add folder option is missing", then
+  // "add folders to personal links too"). A pristine tab (no saved row yet,
+  // or a row that only has the OTHER type customized) still needs something
+  // to drag, so the first mutation on either tab seeds that tab's default
+  // order into `items` transparently - not eagerly on load, so a tab no one
+  // has touched never writes a row / never gains a false hasCustomOrder.
+  const makeSeededMutate = (sourceType, sourceLinks) => (updater) => mutate(prev => {
+    const seeded = hasCustomOrderFor(prev, sourceType)
+      ? prev
+      : { ...prev, items: [...prev.items, ...defaultOrderItems(sourceLinks, sourceType)] };
     return updater(seeded);
   });
+  const seededMutate = makeSeededMutate('external', all);
+  const seededPersonalMutate = makeSeededMutate('personal', personalLinks || []);
 
   const resetLayout = () => {
     if (!window.confirm('Reset to the default company layout? Your custom ordering, folders, and favorites for Company Links will be cleared - this cannot be undone.')) return;
-    resetToDefault().catch(() => {}); // failure already surfaced via saveError -> banner
+    resetToDefault('external').catch(() => {}); // failure already surfaced via saveError -> banner
+  };
+  const resetPersonalLayout = () => {
+    if (!window.confirm('Reset your Personal Links arrangement? Your custom ordering and folders for Personal Links will be cleared - this cannot be undone. The links themselves are not deleted.')) return;
+    resetToDefault('personal').catch(() => {});
   };
 
   const openLink = (link) => {
@@ -667,6 +682,11 @@ export default function ExternalLinks() {
               <RotateCcw size={14} /> Reset to Default
             </button>
           )}
+          {section === 'personal' && hasPersonalCustomOrder && (
+            <button className="secondary-btn" onClick={resetPersonalLayout} title="Clear your custom ordering and folders for Personal Links">
+              <RotateCcw size={14} /> Reset to Default
+            </button>
+          )}
           {section === 'company' && (
             <button className="secondary-btn" onClick={() => setPaletteOpen(true)}>
               <Command size={14} /> Quick Search
@@ -714,9 +734,9 @@ export default function ExternalLinks() {
 
       {section === 'personal' && (
         <PersonalLinksSection
-          links={personalLinks} onOpen={openPersonalLink} onAdd={openAddPersonal}
-          onEdit={openEditPersonal} onDelete={removePersonal}
-          favorites={favoritePersonalIds} onToggleFavorite={togglePersonalFavorite}
+          layout={layout} itemsById={personalItemsById} actionCtx={actionCtx}
+          mutate={seededPersonalMutate} allLinks={personalLinks || []}
+          onAdd={openAddPersonal}
         />
       )}
 
@@ -779,8 +799,8 @@ export default function ExternalLinks() {
           }
         >
           <Section title="My Layout" icon={LayoutGrid}>
-            <MyLayoutSection
-              layout={layout} itemsById={unifiedItemsById} actionCtx={actionCtx}
+            <LinksLayoutSection
+              sourceType="external" layout={layout} itemsById={unifiedItemsById} actionCtx={actionCtx}
               mutate={seededMutate} allLinks={all}
             />
           </Section>
@@ -875,8 +895,12 @@ const PERSONAL_COLOR = { fg: 'hsl(var(--color-purple))', bg: 'hsla(var(--color-p
 // owner_email server-side, so nothing here is visible to anyone else,
 // regardless of role - not even in Manage or the command palette, which only
 // ever touch the shared ExternalLink directory.
-function PersonalLinksSection({ links, onOpen, onAdd, onEdit, onDelete, favorites, onToggleFavorite }) {
-  const items = links || [];
+//
+// Drag-to-reorder and folders (Aug 14, "add folders to personal links too")
+// reuse the exact same LinksLayoutSection Company Links already uses, just
+// pointed at item_type: "personal" - see that component's own docstring for
+// how one layout document stays split cleanly between the two tabs.
+function PersonalLinksSection({ layout, itemsById, actionCtx, mutate, allLinks, onAdd }) {
   return (
     <div style={{ marginBottom: 24 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
@@ -887,14 +911,10 @@ function PersonalLinksSection({ links, onOpen, onAdd, onEdit, onDelete, favorite
         <span style={{ fontSize: 11, color: 'var(--muted)' }}>Only visible to you</span>
         <div style={{ flex: 1, height: 1, background: 'var(--line)' }} />
       </div>
-      <AppGrid>
-        {items.map(l => (
-          <AppTile key={l.id} link={l} color={PERSONAL_COLOR} vaultLinked={!!l.vault_cred_id}
-            canManage canDelete onEdit={() => onEdit(l)} onDelete={() => onDelete(l)} onOpen={() => onOpen(l)}
-            isFavorite={favorites.includes(l.id)} onToggleFavorite={() => onToggleFavorite(l.id)} />
-        ))}
-        <AddAppTile label="Add Link" onClick={onAdd} />
-      </AppGrid>
+      <LinksLayoutSection
+        sourceType="personal" layout={layout} itemsById={itemsById} actionCtx={actionCtx}
+        mutate={mutate} allLinks={allLinks} extraAddTile={{ label: 'Add Link', onClick: onAdd }}
+      />
     </div>
   );
 }
@@ -1257,10 +1277,9 @@ function FolderModal({
   const [renaming, setRenaming] = useState(false);
   // Own small drag state for reordering within this folder - separate DnD
   // context from the background grid (this is a modal on top of it), so it
-  // doesn't share MyLayoutSection's dragKind/dragId. Composite key
-  // (item_type:item_id) since a folder can now hold both a Company and a
-  // Personal Link whose ids collide (separate tables, same autoincrement
-  // space).
+  // doesn't share LinksLayoutSection's dragKind/dragId. Composite key
+  // (item_type:item_id) since Company and Personal Links share the same
+  // autoincrement id space (separate tables).
   const [dragKey, setDragKey] = useState(null);
   const entryKey = (entry) => `${entry.item_type}:${entry.item_id}`;
   const commitRename = () => {
@@ -1394,7 +1413,15 @@ function FolderModal({
 // entryActions) - a Company Link is admin-gated, a Personal Link is always
 // fully owner-editable, and personalization (position/folder/favorite)
 // never blurs that line.
-function MyLayoutSection({ layout, itemsById, actionCtx, mutate, allLinks }) {
+// sourceType ('external' | 'personal') scopes every read/write in this
+// component to just that tab's slice of the one shared layout document -
+// Company Links and Personal Links each get their own instance (Aug 14,
+// "add folders to personal links too"). extraAddTile is an optional extra
+// tile rendered before "New Folder" (Personal Links' "Add Link", which
+// creates a brand-new PersonalLink row rather than organizing existing
+// ones - Company Links has no equivalent since new Company Links are only
+// ever added from Manage).
+function LinksLayoutSection({ sourceType, layout, itemsById, actionCtx, mutate, allLinks, extraAddTile }) {
   const [openFolderId, setOpenFolderId] = useState(null);
   // Desktop drag-and-drop state - HTML5 native, mirrors ManageModal's
   // draggable/onDragStart/onDragOver/onDrop/onDragEnd pattern elsewhere in
@@ -1420,21 +1447,26 @@ function MyLayoutSection({ layout, itemsById, actionCtx, mutate, allLinks }) {
   const sameEntry = (a, b) => a && b && a.item_type === b.item_type && a.item_id === b.item_id;
 
   const entryExists = useCallback((entry) => !!resolveEntryLink(itemsById, entry), [itemsById]);
-  // Nothing saved yet (brand-new user, or one who's never dragged/foldered
-  // anything) - render the same company default order seededMutate would
-  // write on the first real mutation, so drag/folder-drop targets exist to
-  // grab from the very first paint, not only after some other action has
-  // already triggered a save.
-  const displayItems = layout.items.length === 0 && layout.folders.length === 0
-    ? defaultOrderItems(allLinks) : layout.items;
+  // Nothing saved yet for THIS tab (brand-new user, or one who's customized
+  // the other tab but never touched this one) - render the same default
+  // order makeSeededMutate would write on the first real mutation, so drag/
+  // folder-drop targets exist to grab from the very first paint, not only
+  // after some other action has already triggered a save. Once this tab has
+  // any real data, its own items are used even if empty (e.g. every item
+  // moved into folders leaves an empty top-level list on purpose).
+  const displayItems = hasCustomOrderFor(layout, sourceType)
+    ? layout.items : defaultOrderItems(allLinks, sourceType);
   const topItems = useMemo(
-    () => displayItems.filter(i => i.folder_id === null && entryExists(i)).sort((a, b) => a.position - b.position),
-    [displayItems, entryExists]
+    () => displayItems.filter(i => i.item_type === sourceType && i.folder_id === null && entryExists(i)).sort((a, b) => a.position - b.position),
+    [displayItems, sourceType, entryExists]
   );
-  const folders = useMemo(() => [...layout.folders].sort((a, b) => a.position - b.position), [layout.folders]);
+  const folders = useMemo(
+    () => layout.folders.filter(f => (f.item_type || 'external') === sourceType).sort((a, b) => a.position - b.position),
+    [layout.folders, sourceType]
+  );
   const folderMembers = useCallback(
-    (folderId) => layout.items.filter(i => i.folder_id === folderId && entryExists(i)).sort((a, b) => a.position - b.position),
-    [layout.items, entryExists]
+    (folderId) => layout.items.filter(i => i.item_type === sourceType && i.folder_id === folderId && entryExists(i)).sort((a, b) => a.position - b.position),
+    [layout.items, sourceType, entryExists]
   );
 
   const reorderTopLevel = (orderedEntries) => mutate(prev => {
@@ -1466,13 +1498,15 @@ function MyLayoutSection({ layout, itemsById, actionCtx, mutate, allLinks }) {
     const nextPos = dest.length ? Math.max(...dest.map(i => i.position)) + 1 : 0;
     return { ...prev, items: prev.items.map(i => sameEntry(i, entry) ? { ...i, folder_id: folderId, position: nextPos } : i) };
   });
+  const foldersOfType = (allFolders) => allFolders.filter(f => (f.item_type || 'external') === sourceType);
   const createFolderWithItem = (entry) => {
     const id = `f_${Math.random().toString(36).slice(2, 8)}`;
     mutate(prev => {
-      const position = prev.folders.length ? Math.max(...prev.folders.map(f => f.position)) + 1 : 0;
+      const own = foldersOfType(prev.folders);
+      const position = own.length ? Math.max(...own.map(f => f.position)) + 1 : 0;
       return {
         ...prev,
-        folders: [...prev.folders, { id, name: 'New Folder', position }],
+        folders: [...prev.folders, { id, name: 'New Folder', position, item_type: sourceType }],
         items: prev.items.map(i => sameEntry(i, entry) ? { ...i, folder_id: id, position: 0 } : i),
       };
     });
@@ -1481,8 +1515,9 @@ function MyLayoutSection({ layout, itemsById, actionCtx, mutate, allLinks }) {
   const createEmptyFolder = () => {
     const id = `f_${Math.random().toString(36).slice(2, 8)}`;
     mutate(prev => {
-      const position = prev.folders.length ? Math.max(...prev.folders.map(f => f.position)) + 1 : 0;
-      return { ...prev, folders: [...prev.folders, { id, name: 'New Folder', position }] };
+      const own = foldersOfType(prev.folders);
+      const position = own.length ? Math.max(...own.map(f => f.position)) + 1 : 0;
+      return { ...prev, folders: [...prev.folders, { id, name: 'New Folder', position, item_type: sourceType }] };
     });
     setOpenFolderId(id);
   };
@@ -1593,6 +1628,7 @@ function MyLayoutSection({ layout, itemsById, actionCtx, mutate, allLinks }) {
             />
           );
         })}
+        {extraAddTile && <AddAppTile label={extraAddTile.label} onClick={extraAddTile.onClick} />}
         <AddAppTile label="New Folder" onClick={createEmptyFolder} />
       </AppGrid>
 

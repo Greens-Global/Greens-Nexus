@@ -1703,14 +1703,19 @@ class UserLinkLayout(Base):
     layout per person for this module (no named/multiple-views concept).
 
     layout shape: {
-      folders:   [{id, name, position}],
+      folders:   [{id, name, position, item_type: 'external'|'personal'}],
       items:     [{item_type: 'external'|'personal', item_id, folder_id|null,
                    position, dashboard?: bool}],
       favorites: [{item_type, item_id}],
     }
     item_type disambiguates ExternalLink vs PersonalLink ids, which are both
     plain autoincrement ints on separate tables and would otherwise collide.
-    Folders are intentionally flat (no parent_folder_id) - single-level only."""
+    A folder's own item_type (Aug 14) keeps it strictly one or the other -
+    a Company folder only ever holds 'external' items, a Personal folder
+    only ever holds 'personal' ones; link_layouts.py enforces this on every
+    write so Company and Personal arrangements can never cross despite
+    sharing this one JSON document. Folders are intentionally flat (no
+    parent_folder_id) - single-level only."""
     __tablename__ = "user_link_layouts"
     id          = Column(String, primary_key=True)   # uuid
     owner_email = Column(String, index=True, unique=True, nullable=False)

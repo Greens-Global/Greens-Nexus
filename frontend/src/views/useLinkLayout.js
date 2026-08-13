@@ -64,15 +64,20 @@ export function useLinkLayout() {
   // Restore Default Layout (Aug 14) - cancels any pending debounced save
   // first (a queued mutation landing right after a reset would silently
   // re-customize the layout the user just asked to clear), then deletes the
-  // saved row server-side so the next load falls back to the synthesized
-  // default, same as a brand-new user. Returns the promise so the caller
-  // can show its own confirmation/loading state around the click.
-  const resetToDefault = useCallback(() => {
+  // saved row (or, with a scope, just that item_type's slice of it - Aug 14,
+  // "add folders to personal links too": resetting Company Links shouldn't
+  // also wipe out a Personal Links arrangement sitting in the same document)
+  // server-side so the next load falls back to the synthesized default for
+  // that type. Returns the promise so the caller can show its own
+  // confirmation/loading state around the click.
+  const resetToDefault = useCallback((scope) => {
     clearTimeout(saveTimerRef.current);
-    return api.resetLinkLayout().then(() => {
-      setLayout(EMPTY_LAYOUT);
-      setIsCustomized(false);
-      lastSavedRef.current = EMPTY_LAYOUT;
+    return api.resetLinkLayout(scope).then(res => {
+      const { is_customized, ...doc } = res || {};
+      const next = doc.items ? doc : EMPTY_LAYOUT;
+      setLayout(next);
+      setIsCustomized(!!is_customized);
+      lastSavedRef.current = next;
       setSaveError(null);
     }).catch(e => {
       setSaveError(e?.message || 'Could not restore the default layout.');

@@ -666,7 +666,7 @@ export const api = {
   // rather than living in localStorage.
   getLinkLayout: () => req("/link-layout"),
   saveLinkLayout: (body) => req("/link-layout", { method: "PUT", body: JSON.stringify(body) }),
-  resetLinkLayout: () => req("/link-layout", { method: "DELETE" }),
+  resetLinkLayout: (scope) => req(`/link-layout${scope ? `?scope=${scope}` : ''}`, { method: "DELETE" }),
 
   // Nexus Roles
   getMyRole:    ()                    => cachedGet('/roles/me'),
