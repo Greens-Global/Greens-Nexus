@@ -34,6 +34,13 @@ function writeIds(email, kind, ids) {
 // the field stays free text so a one-off department name isn't blocked.
 const DEPARTMENTS = ['Accounting', 'Administration', 'Construction', 'IT', 'Storage'];
 
+// Fixed category chips (Neil, Aug 13) - shown up front in the filter bar
+// regardless of whether a category has any links yet, same reasoning as
+// DEPARTMENTS above. Free text everywhere else (Add/Edit modal, CSV import),
+// so a one-off category isn't blocked - it just also appears as a chip once
+// something is filed under it.
+const CATEGORIES = ['Banking', 'Day to Day', 'Finance & Accounting', 'HR & Payroll', 'Productivity', 'Reference & Support'];
+
 // Curated icon set an admin picks from when adding/editing a link - kept to
 // business-app-shaped icons rather than exposing all ~1500 lucide icons.
 const ICON_OPTIONS = [
@@ -263,10 +270,19 @@ export default function ExternalLinks() {
     return deptOk && coOk;
   }), [all, department, companyFilter]);
 
-  const categoriesAvailable = useMemo(
-    () => [...new Set(deptFiltered.map(l => l.category).filter(Boolean))].sort(),
+  // categoriesInUse drives the header stat ("N categories") - only what
+  // actually has links. categoriesAvailable drives the filter chips, which
+  // show the fixed CATEGORIES list up front (Neil, Aug 13) plus any
+  // additional ones present in the data, so a category isn't hidden until
+  // something's filed under it.
+  const categoriesInUse = useMemo(
+    () => [...new Set(deptFiltered.map(l => l.category).filter(Boolean))],
     [deptFiltered]
   );
+  const categoriesAvailable = useMemo(() => {
+    const extra = categoriesInUse.filter(c => !CATEGORIES.includes(c)).sort();
+    return [...CATEGORIES, ...extra];
+  }, [categoriesInUse]);
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -491,7 +507,7 @@ export default function ExternalLinks() {
           <h2>External Links</h2>
           <p>
             Every tool the company runs on, one launchpad.
-            {all.length > 0 && ` ${all.length} apps across ${categoriesAvailable.length || meta.categories.length} categories, ${totalClicks.toLocaleString()} launches all-time.`}
+            {all.length > 0 && ` ${all.length} apps across ${categoriesInUse.length || meta.categories.length} categories, ${totalClicks.toLocaleString()} launches all-time.`}
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
@@ -654,7 +670,7 @@ export default function ExternalLinks() {
         <LinkModal
           modal={modal} setModal={setModal} save={save} saving={saving}
           departments={[...new Set([...DEPARTMENTS, ...meta.departments])].sort()}
-          categories={meta.categories} companies={companies}
+          categories={[...new Set([...CATEGORIES, ...meta.categories])].sort()} companies={companies}
         />
       )}
 
