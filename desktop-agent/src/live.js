@@ -12,7 +12,7 @@
 // the server re-gates every poll and tells us to stop the instant that changes.
 
 const path = require('path');
-const { BrowserWindow, desktopCapturer, ipcMain } = require('electron');
+const { BrowserWindow, desktopCapturer, ipcMain, screen } = require('electron');
 const api = require('./api');
 const control = require('./control');
 
@@ -50,12 +50,25 @@ function sendToWindow(channel, payload) {
   }
 }
 
-async function primarySourceId() {
-  // types:['screen'] returns one source per physical display; the primary is the
-  // first Electron reports. A tiny thumbnail keeps this lookup cheap (we only want
-  // the id - the real frames come from getUserMedia in the renderer).
+async function screenSources() {
+  // types:['screen'] returns one source per physical display. Pair each with its
+  // Electron Display (matched by display_id) so remote-control input can be mapped
+  // onto that display's slice of the virtual desktop. Primary display first, so
+  // screen index 0 always means the main screen for the viewer. A tiny thumbnail
+  // keeps the lookup cheap - real frames come from getUserMedia in the renderer.
   const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 1, height: 1 } });
-  return sources.length ? sources[0].id : null;
+  const displays = screen.getAllDisplays();
+  const primaryId = String(screen.getPrimaryDisplay().id);
+  const list = sources.map((s) => {
+    const d = displays.find((x) => String(x.id) === String(s.display_id)) || null;
+    return {
+      sourceId: s.id,
+      primary: d ? String(d.id) === primaryId : false,
+      bounds: d ? d.bounds : null,           // DIP coords in the virtual desktop
+    };
+  });
+  list.sort((a, b) => (b.primary ? 1 : 0) - (a.primary ? 1 : 0));
+  return list;
 }
 
 async function startSession(sess) {
@@ -63,10 +76,15 @@ async function startSession(sess) {
   controlState = '';
   onLiveChange(true);
   try {
-    const sourceId = await primarySourceId();
-    if (!sourceId) { logFn('live: no screen source'); stopSession('no-source'); return; }
+    const sources = await screenSources();
+    if (!sources.length) { logFn('live: no screen source'); stopSession('no-source'); return; }
+    control.setDisplays(sources);
     ensureWindow();
-    sendToWindow('live:start', { id: sess.id, sourceId, iceServers: sess.iceServers, fps: sess.fps });
+    sendToWindow('live:start', {
+      id: sess.id, iceServers: sess.iceServers, fps: sess.fps,
+      sources: sources.map((s, i) => ({ sourceId: s.sourceId, i, primary: s.primary,
+        w: s.bounds ? s.bounds.width : 0, h: s.bounds ? s.bounds.height : 0 })),
+    });
     pollAnswer();
   } catch (e) { logFn(`live start failed: ${e.message || e}`); stopSession('start-error'); }
 }
@@ -113,6 +131,9 @@ function handleControl(id, next, requesterName) {
         controlState = 'ended';
         try { await api.agentLiveControl(getToken(), id, 'end'); } catch (_) { /* poll re-syncs */ }
       },
+      // Agent -> viewer messages (clipboard changes, file acks) ride the same
+      // data channel, sent from the renderer that owns it.
+      send: (m) => sendToWindow('control:tx', { id, m }),
     });
     sendToWindow('control:enable', { id });
     onControlChange(true);

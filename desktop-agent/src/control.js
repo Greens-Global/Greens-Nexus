@@ -12,7 +12,9 @@
 // and ending control (banner button, clock-out, closed viewer) is immediate.
 
 const path = require('path');
-const { BrowserWindow, ipcMain, screen } = require('electron');
+const fs = require('fs');
+const os = require('os');
+const { BrowserWindow, ipcMain, screen, clipboard } = require('electron');
 const { spawn } = require('child_process');
 
 let consentWin = null;
@@ -22,7 +24,118 @@ let active = false;
 let consentTimer = null;
 let onConsentDecision = null;   // (accepted: boolean) => void
 let onBannerEnd = null;         // employee clicked End Session
+let sendToViewer = () => {};    // agent -> viewer over the data channel (clipboard, file acks)
 let logFn = () => {};
+
+// The captured displays, source order (primary first) - set per session so
+// input for screen N can be mapped onto that display's slice of the virtual
+// desktop. Bounds are Electron DIP coords; SendInput's VIRTUALDESK space is
+// physical pixels, so the normalized position matches exactly on uniform-DPI
+// setups (the office norm) and is approximate only on mixed-DPI multi-monitor.
+let displays = [];
+let virtualRect = null;   // DIP union of all display bounds
+
+function setDisplays(list) {
+  // Keep the FULL list in source order - indexes must line up with the renderer's
+  // track order (a display with no matched bounds just can't take mvv input).
+  displays = list || [];
+  const withBounds = displays.filter((d) => d && d.bounds);
+  if (!withBounds.length) { virtualRect = null; return; }
+  const xs = withBounds.map((d) => d.bounds.x), ys = withBounds.map((d) => d.bounds.y);
+  const x2 = withBounds.map((d) => d.bounds.x + d.bounds.width), y2 = withBounds.map((d) => d.bounds.y + d.bounds.height);
+  virtualRect = { x: Math.min(...xs), y: Math.min(...ys),
+                  w: Math.max(...x2) - Math.min(...xs), h: Math.max(...y2) - Math.min(...ys) };
+}
+
+// ── Clipboard sync (only while control is active) ─────────────────────────────
+// Remote -> viewer: poll the clipboard and push text changes so IT can copy on
+// the employee's PC and paste locally. Viewer -> remote arrives as a 'clip'
+// message (the viewer pushes its clipboard just before sending Ctrl+V).
+const CLIP_MAX = 1024 * 1024;   // 1MB of text either way
+let clipTimer = null;
+let lastClip = null;
+
+function startClipWatch() {
+  lastClip = null;
+  try { lastClip = clipboard.readText(); } catch (_) { /* ignore */ }
+  clipTimer = setInterval(() => {
+    let t;
+    try { t = clipboard.readText(); } catch (_) { return; }
+    if (typeof t === 'string' && t && t !== lastClip) {
+      lastClip = t;
+      sendToViewer({ t: 'clip', s: t.slice(0, CLIP_MAX) });
+    }
+  }, 1000);
+}
+
+function stopClipWatch() {
+  if (clipTimer) { clearInterval(clipTimer); clipTimer = null; }
+  lastClip = null;
+}
+
+// ── File receive (viewer -> this PC, only while control is active) ────────────
+// Chunked base64 over the data channel; lands in Downloads\Nexus Support. The
+// employee accepted the control session, and the banner is up the whole time.
+const FILE_MAX = 200 * 1024 * 1024;
+const files = new Map();   // id -> {stream, path, size, received, name}
+
+function fileDir() {
+  const dir = path.join(os.homedir(), 'Downloads', 'Nexus Support');
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+function safeName(name) {
+  const base = path.basename(String(name || 'file')).replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').slice(0, 150);
+  return base || 'file';
+}
+
+function fileStart(m) {
+  const size = Number(m.size) || 0;
+  if (size <= 0 || size > FILE_MAX || files.size >= 4) {
+    sendToViewer({ t: 'file-err', id: m.id, err: size > FILE_MAX ? 'File is larger than 200MB.' : 'Transfer refused.' });
+    return;
+  }
+  const dir = fileDir();
+  let name = safeName(m.name), p = path.join(dir, name), n = 1;
+  while (fs.existsSync(p)) { p = path.join(dir, name.replace(/(\.[^.]*)?$/, ` (${n})$1`)); n += 1; }
+  try {
+    files.set(String(m.id), { stream: fs.createWriteStream(p), path: p, size, received: 0, name: path.basename(p) });
+  } catch (e) {
+    logFn(`control: file open failed: ${e.message || e}`);
+    sendToViewer({ t: 'file-err', id: m.id, err: 'Could not write the file.' });
+  }
+}
+
+function fileChunk(m) {
+  const f = files.get(String(m.id));
+  if (!f) return;
+  const buf = Buffer.from(String(m.d || ''), 'base64');
+  f.received += buf.length;
+  if (f.received > f.size + 1024 * 1024) { fileAbort(String(m.id)); return; }   // liar - drop it
+  try { f.stream.write(buf); } catch (_) { fileAbort(String(m.id)); }
+}
+
+function fileEnd(m) {
+  const id = String(m.id);
+  const f = files.get(id);
+  if (!f) return;
+  files.delete(id);
+  f.stream.end(() => {
+    logFn(`control: received file ${f.name} (${f.received} bytes) into Downloads\\Nexus Support`);
+    sendToViewer({ t: 'file-done', id, name: f.name });
+  });
+}
+
+function fileAbort(id) {
+  const f = files.get(id);
+  if (!f) return;
+  files.delete(id);
+  try { f.stream.destroy(); } catch (_) { /* ignore */ }
+  try { fs.unlinkSync(f.path); } catch (_) { /* ignore */ }
+}
+
+function abortAllFiles() { for (const id of Array.from(files.keys())) fileAbort(id); }
 
 // Packaged builds run from app.asar, which PowerShell can't read into - the
 // script is unpacked next to it (electron-builder asarUnpack).
@@ -77,12 +190,36 @@ function keyLine(m) {
 // Validate + translate one data-channel message into sink line(s). Dropped
 // unless control is actually active (belt to the server-side suspenders).
 function inject(m) {
-  if (!active || !sink || !sink.stdin || !sink.stdin.writable || !m) return;
+  if (!active || !m) return;
+  // Clipboard + file transfer don't touch the sink - handle them first.
+  if (m.t === 'clip') {
+    const s = typeof m.s === 'string' ? m.s.slice(0, CLIP_MAX) : '';
+    if (s) { lastClip = s; try { clipboard.writeText(s); } catch (_) { /* ignore */ } }
+    return;
+  }
+  if (m.t === 'fs') { fileStart(m); return; }
+  if (m.t === 'fc') { fileChunk(m); return; }
+  if (m.t === 'fe') { fileEnd(m); return; }
+  if (!sink || !sink.stdin || !sink.stdin.writable) return;
   let line = null;
   switch (m.t) {
-    case 'mv':
-      if (ok01(m.x) && ok01(m.y)) line = `mv ${m.x.toFixed(4)} ${m.y.toFixed(4)}`;
+    case 'mv': {
+      if (!ok01(m.x) || !ok01(m.y)) break;
+      const s = Number.isInteger(m.s) ? m.s : 0;
+      const d = displays[s];
+      if (s > 0 || (d && !d.primary)) {
+        // A non-primary screen: map the in-screen position into the DIP virtual
+        // desktop and inject with the VIRTUALDESK flag.
+        if (!d || !d.bounds || !virtualRect || !virtualRect.w || !virtualRect.h) break;
+        const vx = (d.bounds.x + m.x * d.bounds.width - virtualRect.x) / virtualRect.w;
+        const vy = (d.bounds.y + m.y * d.bounds.height - virtualRect.y) / virtualRect.h;
+        line = `mvv ${Math.max(0, Math.min(1, vx)).toFixed(5)} ${Math.max(0, Math.min(1, vy)).toFixed(5)}`;
+      } else {
+        // Primary screen: plain ABSOLUTE coords are exact (incl. DPI scaling).
+        line = `mv ${m.x.toFixed(4)} ${m.y.toFixed(4)}`;
+      }
       break;
+    }
     case 'dn': case 'up': {
       const b = m.b === 1 || m.b === 2 ? m.b : 0;
       line = `${m.t} ${b}`;
@@ -198,13 +335,18 @@ function stopSink() {
 function start(requesterName, opts) {
   active = true;
   onBannerEnd = (opts && opts.onEnd) || null;
+  sendToViewer = (opts && opts.send) || (() => {});
   startSink();
   showBanner(requesterName);
+  startClipWatch();
 }
 
 function stop() {
   active = false;
   onBannerEnd = null;
+  sendToViewer = () => {};
+  stopClipWatch();
+  abortAllFiles();
   stopSink();
   hideBanner();
 }
@@ -213,4 +355,4 @@ function isActive() { return active; }
 
 function init(opts) { logFn = (opts && opts.log) || (() => {}); }
 
-module.exports = { init, showConsent, closeConsent, start, stop, inject, isActive };
+module.exports = { init, showConsent, closeConsent, start, stop, inject, isActive, setDisplays };
