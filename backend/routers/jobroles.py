@@ -77,6 +77,7 @@ def _serialize(jr: NexusGroup, db: Session) -> dict:
         "id": jr.id,
         "name": jr.name,
         "tier": (jr.tier or "employee"),
+        "department": (jr.department or ""),
         "description": jr.description or "",
         "allowed_modules": _parse_modules(jr.allowed_modules or ""),
         "member_count": len(members),
@@ -93,6 +94,7 @@ def _serialize(jr: NexusGroup, db: Session) -> dict:
 class JobRoleBody(BaseModel):
     name: str
     tier: str = "employee"
+    department: Optional[str] = ""
     description: Optional[str] = ""
     allowed_modules: Optional[list[ModuleGrant]] = []
     monitoring_exempt: Optional[bool] = False
@@ -101,6 +103,7 @@ class JobRoleBody(BaseModel):
 class JobRoleUpdate(BaseModel):
     name: Optional[str] = None
     tier: Optional[str] = None
+    department: Optional[str] = None
     description: Optional[str] = None
     allowed_modules: Optional[list[ModuleGrant]] = None
     monitoring_exempt: Optional[bool] = None
@@ -150,6 +153,7 @@ def create_job_role(body: JobRoleBody, user: dict = Depends(require_administrato
         name=name,
         is_job_role=1,
         tier=tier,
+        department=(body.department or "").strip(),
         description=(body.description or "").strip(),
         allowed_modules=_modules_csv(body.allowed_modules),
         monitoring_exempt=1 if body.monitoring_exempt else 0,
@@ -173,6 +177,8 @@ def update_job_role(jr_id: str, body: JobRoleUpdate, user: dict = Depends(requir
         if not name:
             raise HTTPException(status_code=400, detail="Job role name is required")
         jr.name = name
+    if body.department is not None:
+        jr.department = body.department.strip()
     if body.description is not None:
         jr.description = body.description.strip()
     if body.allowed_modules is not None:

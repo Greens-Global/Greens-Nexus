@@ -96,7 +96,7 @@ function bundleSummary(allowed) {
 const TABS = [['people', 'People', User], ['jobroles', 'Roles', Shield], ['groups', 'Groups', Users], ['audit', 'Audit', LayoutGrid]];
 
 export default function RolesAccess({ embedded = false }) {
-  const { can } = useRole();
+  const { can, assignRole, myLevel } = useRole();
   const nameOf = useNameResolver();   // email → real name, never a raw email
   const [sub, setSub] = useState('people');
   const [jobRoles, setJobRoles] = useState(null);
@@ -109,15 +109,40 @@ export default function RolesAccess({ embedded = false }) {
   const [person, setPerson] = useState(null);        // selected person email
   const [toast, setToast] = useState(null);
   const [tour, setTour] = useState(false);
+  const [collapsedDepts, setCollapsedDepts] = useState(() => new Set());   // department sections closed
+  const toggleDept = d => setCollapsedDepts(s => { const n = new Set(s); n.has(d) ? n.delete(d) : n.add(d); return n; });
 
   const toastOk = m => { setToast({ m, kind: 'ok' }); setTimeout(() => setToast(null), 3500); };
   const toastErr = m => { setToast({ m, kind: 'error' }); setTimeout(() => setToast(null), 5000); };
 
   const loadRoles = () => api.getJobRoles().then(setJobRoles).catch(() => setJobRoles([]));
   const loadGroups = () => api.getGroups().then(gs => setGroups(gs.filter(g => !g.is_job_role))).catch(() => setGroups([]));
+  // email -> { role, pinned }: each member's actual tier + whether it's a
+  // per-person override, so a role's member list can show and change tiers.
+  const [roleMap, setRoleMap] = useState({});
+  const loadRoleMap = () => api.getAllRoles().then(rows => {
+    const m = {}; (rows || []).forEach(r => { m[(r.email || '').toLowerCase()] = { role: r.role, pinned: !!r.tier_pinned }; });
+    setRoleMap(m);
+  }).catch(() => {});
   useEffect(() => {
-    loadRoles(); loadGroups();
+    loadRoles(); loadGroups(); loadRoleMap();
   }, []);
+
+  // Which tiers this admin may grant (mirrors the backend: owner gives any, others
+  // only strictly below their own level).
+  const canAssignTier = t => can('owner') || (ROLES[t]?.level ?? 1) < myLevel;
+  async function setMemberTier(email, tier) {
+    if (!tier || !selected) return;
+    if (!await dialog.confirm(`Set ${nameOf(email)}'s tier to "${ROLES[tier].label}" - just for this person? It overrides the "${selected.name}" role tier and won't change when the role's tier is edited.`, { title: 'Override tier', confirmText: 'Set tier' })) return;
+    try { await assignRole(email, tier, nameOf(email)); toastOk(`${nameOf(email)} is now ${ROLES[tier].label}.`); loadRoleMap(); }
+    catch (e) { toastErr(e?.message || 'Could not set tier.'); }
+  }
+  async function resetMemberTier(email) {
+    if (!selected) return;
+    if (!await dialog.confirm(`Reset ${nameOf(email)} to follow the "${selected.name}" tier again?`, { title: 'Reset tier', confirmText: 'Reset' })) return;
+    try { await api.assignJobRole(selected.id, email); toastOk(`${nameOf(email)} follows the role tier again.`); loadRoleMap(); loadRoles(); }
+    catch (e) { toastErr(e?.message || 'Could not reset.'); }
+  }
 
   const people = useMemo(() => (dir || [])
     .map(p => ({
@@ -195,6 +220,44 @@ export default function RolesAccess({ embedded = false }) {
   }, [jobRoles, groups]);
 
   const selected = (jobRoles || []).find(r => r.id === selId) || null;
+
+  // Group the role list by department (roles with none fall under "Other", shown
+  // last). Departments sort alphabetically so the list reads like an org chart.
+  const rolesByDept = useMemo(() => {
+    const g = {};
+    (jobRoles || []).forEach(r => { const d = (r.department || '').trim() || 'Other'; (g[d] = g[d] || []).push(r); });
+    return Object.entries(g).sort(([a], [b]) => (a === 'Other' ? 1 : b === 'Other' ? -1 : a.localeCompare(b)));
+  }, [jobRoles]);
+
+  const roleCard = r => (
+    <button key={r.id} onClick={() => setSelId(r.id)}
+      style={{ textAlign: 'left', background: 'var(--card)', border: `1.5px solid ${selId === r.id ? 'var(--ink)' : 'var(--line)'}`, borderRadius: 14, padding: '13px 15px', cursor: 'pointer', fontFamily: 'Inter,sans-serif', boxShadow: selId === r.id ? 'var(--shadow-sm)' : 'none', transition: 'border-color .18s ease, box-shadow .18s ease' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+        <span style={{ fontWeight: 800, fontSize: 14, flex: 1 }}>{r.name}</span>
+        <TierBadge tier={r.tier} />
+      </div>
+      {/* Neil (Aug 1): no bundle summary on the card - the people ARE the summary.
+          Faces only; the full bundle is one click away. */}
+      <div style={{ marginTop: 8, minHeight: 24, display: 'flex', alignItems: 'center' }}>
+        {(() => {
+          const mem = (r.members || []).filter(inFilter);
+          return mem.length ? (
+            <span title={`${mem.length} ${mem.length === 1 ? 'person' : 'people'}${filterOn ? ` in this filter (${r.member_count} total)` : ''}: ${mem.map(nameOf).join(', ')}`}
+              style={{ display: 'inline-flex', alignItems: 'center' }}>
+              {mem.slice(0, 8).map((em, i) => (
+                <span key={em} style={{ marginLeft: i ? -7 : 0, display: 'inline-flex', borderRadius: '50%', border: '2px solid var(--card)' }}>
+                  <Avatar name={nameOf(em)} src={photoOf[em]} size={24} />
+                </span>
+              ))}
+              {mem.length > 8 && <span style={{ marginLeft: 5, fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>+{mem.length - 8}</span>}
+            </span>
+          ) : (
+            <span style={{ fontSize: 11.5, color: 'var(--muted)', fontWeight: 600 }}>{filterOn && r.member_count ? 'None in this filter' : 'Nobody yet'}</span>
+          );
+        })()}
+      </div>
+    </button>
+  );
 
   // Picking a role deep in a 30+ card list leaves the detail panel (and its
   // Assign/Edit actions) off-screen above - bring it into view on selection.
@@ -306,36 +369,29 @@ export default function RolesAccess({ embedded = false }) {
             <div style={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'flex-end' }}>
               <button className="primary-btn" data-tour="new-role" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }} onClick={() => setEditing(null)}><Plus size={15} /> New job role</button>
             </div>
-            <div data-tour="role-cards" style={{ display: 'flex', flexDirection: 'column', gap: 10, alignSelf: 'start' }}>
-              {jobRoles.length === 0 ? <Empty text="No job roles yet." /> : jobRoles.map(r => (
-                <button key={r.id} onClick={() => setSelId(r.id)}
-                  style={{ textAlign: 'left', background: 'var(--card)', border: `1.5px solid ${selId === r.id ? 'var(--ink)' : 'var(--line)'}`, borderRadius: 14, padding: '13px 15px', cursor: 'pointer', fontFamily: 'Inter,sans-serif', boxShadow: selId === r.id ? 'var(--shadow-sm)' : 'none' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-                    <span style={{ fontWeight: 800, fontSize: 14, flex: 1 }}>{r.name}</span>
-                    <TierBadge tier={r.tier} />
+            <div data-tour="role-cards" style={{ display: 'flex', flexDirection: 'column', gap: 8, alignSelf: 'start' }}>
+              {jobRoles.length === 0 ? <Empty text="No job roles yet." /> : rolesByDept.map(([deptName, deptRoles]) => {
+                const open = !collapsedDepts.has(deptName);
+                return (
+                  <div key={deptName}>
+                    {/* Department header - click to smoothly expand/collapse its roles. */}
+                    <button onClick={() => toggleDept(deptName)}
+                      style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', padding: '8px 8px', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'Inter,sans-serif', borderRadius: 8 }}
+                      onMouseOver={e => { e.currentTarget.style.background = 'var(--mist)'; }}
+                      onMouseOut={e => { e.currentTarget.style.background = 'none'; }}>
+                      <ChevronRight size={15} style={{ color: 'var(--muted)', transform: open ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform .25s ease', flexShrink: 0 }} />
+                      <span style={{ flex: 1, fontSize: 11.5, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)' }}>{deptName}</span>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', background: 'var(--mist)', borderRadius: 999, padding: '1px 8px' }}>{deptRoles.length}</span>
+                    </button>
+                    {/* grid-template-rows 0fr↔1fr = smooth height without layout thrash. */}
+                    <div style={{ display: 'grid', gridTemplateRows: open ? '1fr' : '0fr', opacity: open ? 1 : 0, transition: 'grid-template-rows .28s ease, opacity .2s ease' }}>
+                      <div style={{ overflow: 'hidden', minHeight: 0, display: 'flex', flexDirection: 'column', gap: 8, paddingTop: 6, paddingLeft: 6 }}>
+                        {deptRoles.map(roleCard)}
+                      </div>
+                    </div>
                   </div>
-                  {/* Neil (Aug 1): no bundle summary on the card - the people ARE
-                      the summary. Faces only; the full bundle is one click away. */}
-                  <div style={{ marginTop: 8, minHeight: 24, display: 'flex', alignItems: 'center' }}>
-                    {(() => {
-                      const mem = (r.members || []).filter(inFilter);
-                      return mem.length ? (
-                        <span title={`${mem.length} ${mem.length === 1 ? 'person' : 'people'}${filterOn ? ` in this filter (${r.member_count} total)` : ''}: ${mem.map(nameOf).join(', ')}`}
-                          style={{ display: 'inline-flex', alignItems: 'center' }}>
-                          {mem.slice(0, 8).map((em, i) => (
-                            <span key={em} style={{ marginLeft: i ? -7 : 0, display: 'inline-flex', borderRadius: '50%', border: '2px solid var(--card)' }}>
-                              <Avatar name={nameOf(em)} src={photoOf[em]} size={24} />
-                            </span>
-                          ))}
-                          {mem.length > 8 && <span style={{ marginLeft: 5, fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>+{mem.length - 8}</span>}
-                        </span>
-                      ) : (
-                        <span style={{ fontSize: 11.5, color: 'var(--muted)', fontWeight: 600 }}>{filterOn && r.member_count ? 'None in this filter' : 'Nobody yet'}</span>
-                      );
-                    })()}
-                  </div>
-                </button>
-              ))}
+                );
+              })}
             </div>
             <div ref={rolePanelRef} style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 20, alignSelf: 'start', scrollMarginTop: 12 }}>
               {!selected ? <div style={{ color: 'var(--muted)', padding: '40px 10px', textAlign: 'center', fontSize: 13.5 }}>Pick a job role to see its full bundle, or create a new one.</div> : (
@@ -381,19 +437,37 @@ export default function RolesAccess({ embedded = false }) {
                     ? `${(selected.members || []).filter(inFilter).length} of ${selected.member_count}`
                     : selected.member_count}</div>
                   {(selected.members || []).filter(inFilter).length > 0 && (
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
-                      {selected.members.filter(inFilter).map(em => (
-                        <span key={em} style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '4px 6px 4px 5px', borderRadius: 20, background: 'var(--paper)', border: '1px solid var(--line)', fontSize: 12.5, fontWeight: 600 }}>
-                          <Avatar name={nameOf(em)} src={photoOf[em]} size={22} />
-                          {nameOf(em)}
-                          <button onClick={() => removeMember(em)} title="Remove from this role" aria-label={`Remove ${nameOf(em)}`}
-                            style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'grid', placeItems: 'center', width: 18, height: 18, borderRadius: '50%', padding: 0 }}
-                            onMouseOver={e => { e.currentTarget.style.background = 'hsla(var(--color-red),0.14)'; e.currentTarget.style.color = 'hsl(var(--color-red))'; }}
-                            onMouseOut={e => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = 'var(--muted)'; }}>
-                            <X size={13} />
-                          </button>
-                        </span>
-                      ))}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
+                      {selected.members.filter(inFilter).map(em => {
+                        const info = roleMap[em] || {};
+                        return (
+                          <div key={em} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '6px 10px', borderRadius: 10, background: 'var(--paper)', border: '1px solid var(--line)', flexWrap: 'wrap' }}>
+                            <Avatar name={nameOf(em)} src={photoOf[em]} size={24} />
+                            <span style={{ fontSize: 12.5, fontWeight: 600, flex: 1, minWidth: 90, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nameOf(em)}</span>
+                            {info.role && <TierBadge tier={info.role} />}
+                            {info.pinned && (
+                              <span title="Tier set for this person directly - a role-tier change won't move them."
+                                style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.03em', textTransform: 'uppercase', color: 'hsl(var(--color-purple))', background: 'hsla(var(--color-purple),0.12)', padding: '2px 7px', borderRadius: 6 }}>
+                                Override
+                              </span>
+                            )}
+                            <select value="" onChange={e => setMemberTier(em, e.target.value)} title="Give this person a different tier"
+                              style={{ ...input, width: 'auto', padding: '4px 8px', fontSize: 12 }}>
+                              <option value="">Tier…</option>
+                              {TIERS.filter(canAssignTier).map(t => <option key={t} value={t}>{ROLES[t].label}</option>)}
+                            </select>
+                            {info.pinned && (
+                              <button className="secondary-btn" onClick={() => resetMemberTier(em)} title="Follow the role tier again" style={{ padding: '4px 9px', fontSize: 11.5 }}>Reset</button>
+                            )}
+                            <button onClick={() => removeMember(em)} title="Remove from this role" aria-label={`Remove ${nameOf(em)}`}
+                              style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'grid', placeItems: 'center', width: 18, height: 18, borderRadius: '50%', padding: 0 }}
+                              onMouseOver={e => { e.currentTarget.style.background = 'hsla(var(--color-red),0.14)'; e.currentTarget.style.color = 'hsl(var(--color-red))'; }}
+                              onMouseOut={e => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = 'var(--muted)'; }}>
+                              <X size={13} />
+                            </button>
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                   <button className="secondary-btn" data-tour="assign" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }} onClick={() => setAssignFor(selected)}>
@@ -1032,15 +1106,17 @@ function PromoteModal({ person, eff, jobRoles, nameOf, onClose, onDone, onErr })
 function RoleEditor({ role, jobRoles = [], onClose, onSaved, onErr }) {
   const [name, setName] = useState(role?.name || '');
   const [tier, setTier] = useState(role?.tier || 'employee');
+  const [dept, setDept] = useState(role?.department || '');
   const [desc, setDesc] = useState(role?.description || '');
   const [bundle, setBundle] = useState(() => Object.fromEntries((role?.allowed_modules || []).map(g => [g.id, g.level])));
   const [monExempt, setMonExempt] = useState(!!role?.monitoring_exempt);
   const [busy, setBusy] = useState(false);
+  const deptOptions = [...new Set((jobRoles || []).map(r => r.department).filter(Boolean))].sort();
 
   async function save() {
     if (!name.trim()) return onErr('Name is required.');
     setBusy(true);
-    const body = { name: name.trim(), tier, description: desc.trim(), monitoring_exempt: monExempt, allowed_modules: Object.entries(bundle).map(([id, level]) => ({ id, level })) };
+    const body = { name: name.trim(), tier, department: dept.trim(), description: desc.trim(), monitoring_exempt: monExempt, allowed_modules: Object.entries(bundle).map(([id, level]) => ({ id, level })) };
     try {
       // A seed object with no id (from Duplicate) creates a new role rather than editing the original.
       const saved = role?.id ? await api.updateJobRole(role.id, body) : await api.createJobRole(body);
@@ -1058,6 +1134,11 @@ function RoleEditor({ role, jobRoles = [], onClose, onSaved, onErr }) {
             {TIERS.map(t => <option key={t} value={t}>{ROLES[t].label}</option>)}
           </select>
           <span style={{ fontSize: 11.5, color: 'var(--muted)', fontWeight: 400 }}>{ROLES[tier]?.description}</span>
+        </label>
+        <label style={fieldLabel}>Department
+          <input value={dept} onChange={e => setDept(e.target.value)} placeholder="e.g. Accounting" list="jr-dept-options" style={input} />
+          <datalist id="jr-dept-options">{deptOptions.map(d => <option key={d} value={d} />)}</datalist>
+          <span style={{ fontSize: 11.5, color: 'var(--muted)', fontWeight: 400 }}>Groups this role under a department in the list. Leave blank for “Other”.</span>
         </label>
         <label style={fieldLabel}>Description
           <textarea value={desc} onChange={e => setDesc(e.target.value)} rows={2} placeholder="Plain-language: what this role does" style={{ ...input, resize: 'vertical' }} /></label>
