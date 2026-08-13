@@ -659,6 +659,12 @@ export const api = {
   clickPersonalLink: (id) => req(`/personal-links/${id}/click`, { method: "PATCH" }),
   reorderPersonalLinks: (entries) => req("/personal-links/reorder", { method: "PATCH", body: JSON.stringify(entries) }),
 
+  // Link Layout - per-user Links Module personalization (ordering, folders,
+  // favorites), backend-persisted so it follows the account across devices
+  // rather than living in localStorage.
+  getLinkLayout: () => req("/link-layout"),
+  saveLinkLayout: (body) => req("/link-layout", { method: "PUT", body: JSON.stringify(body) }),
+
   // Nexus Roles
   getMyRole:    ()                    => cachedGet('/roles/me'),
   getAllRoles:   ()                   => req('/roles'),

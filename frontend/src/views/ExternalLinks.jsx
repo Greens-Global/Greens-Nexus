@@ -3,6 +3,7 @@ import { useRole } from '../contexts/RoleContext';
 import { api } from '../api';
 import AsyncSection, { SkeletonBlocks } from '../components/AsyncState';
 import { PersonalLockGate } from '../credvault/vaultShared';
+import { useLinkLayout } from './useLinkLayout';
 import {
   Search, Plus, Pencil, Trash2, X, Star,
   Link2, Mail, Calendar, Users2, FolderKanban, Rocket, MessagesSquare, BookOpen,
@@ -12,6 +13,7 @@ import {
   Video, LayoutGrid, TrendingUp, ArrowUpDown, CheckSquare, Cloud, Presentation,
   Gauge, Bird, Warehouse, Settings2, Bookmark, CornerDownLeft, History, List, Command,
   GripVertical, AlertTriangle, Upload, FolderOpen, Download, Lock, KeyRound, Info,
+  ChevronUp, ChevronDown, FolderPlus, Check,
 } from 'lucide-react';
 
 // ── Personal, client-side only (favorites / recents / view density) ──
@@ -227,17 +229,39 @@ export default function ExternalLinks() {
   const [pendingVaultOpen, setPendingVaultOpen] = useState(null); // link waiting on Personal Vault unlock
   const [showVaultLockGate, setShowVaultLockGate] = useState(false);
 
-  const [favorites, setFavorites] = useState(() => readIds(myEmail, 'favs'));
-  const [recents, setRecents] = useState(() => readIds(myEmail, 'recents'));
-  useEffect(() => { setFavorites(readIds(myEmail, 'favs')); setRecents(readIds(myEmail, 'recents')); }, [myEmail]);
+  // Personalization (Aug 13) - app ordering, folders, and favorites are now
+  // backend-persisted per account (see useLinkLayout.js), not localStorage,
+  // so they follow the signed-in user across devices/browsers. Recent stays
+  // localStorage-only on purpose - it's an auto-derived, ephemeral trail
+  // (last 8 clicked), not something deliberately arranged, and the task
+  // this shipped for didn't name it among what must be user-specific.
+  const { layout, loading: layoutLoading, saveError, clearSaveError, mutate } = useLinkLayout();
+  useEffect(() => {
+    if (saveError) { setBanner({ kind: 'err', text: saveError }); clearSaveError(); }
+  }, [saveError, clearSaveError]);
 
-  const toggleFavorite = useCallback((id) => {
-    setFavorites(prev => {
-      const next = prev.includes(id) ? prev.filter(x => x !== id) : [id, ...prev];
-      writeIds(myEmail, 'favs', next);
-      return next;
+  // Favorites can reference either a Company Link or a Personal Link (their
+  // ids are both plain autoincrement ints on separate tables, hence the
+  // item_type tag) - derive the plain-id arrays each call site already
+  // expects (favorites.includes(l.id)) so LinkList/AppTile don't need to
+  // know about the type distinction, and a toggleFavorite bound to the
+  // right type per section.
+  const favoriteExternalIds = useMemo(() => layout.favorites.filter(f => f.item_type === 'external').map(f => f.item_id), [layout.favorites]);
+  const favoritePersonalIds = useMemo(() => layout.favorites.filter(f => f.item_type === 'personal').map(f => f.item_id), [layout.favorites]);
+  const makeToggleFavorite = useCallback((itemType) => (itemId) => {
+    mutate(prev => {
+      const exists = prev.favorites.some(f => f.item_type === itemType && f.item_id === itemId);
+      const favorites = exists
+        ? prev.favorites.filter(f => !(f.item_type === itemType && f.item_id === itemId))
+        : [...prev.favorites, { item_type: itemType, item_id: itemId }];
+      return { ...prev, favorites };
     });
-  }, [myEmail]);
+  }, [mutate]);
+  const toggleFavorite = useMemo(() => makeToggleFavorite('external'), [makeToggleFavorite]);
+  const togglePersonalFavorite = useMemo(() => makeToggleFavorite('personal'), [makeToggleFavorite]);
+
+  const [recents, setRecents] = useState(() => readIds(myEmail, 'recents'));
+  useEffect(() => { setRecents(readIds(myEmail, 'recents')); }, [myEmail]);
 
   const pushRecent = useCallback((id) => {
     setRecents(prev => {
@@ -279,8 +303,16 @@ export default function ExternalLinks() {
 
   // Personal shortcuts - shown above the filtered grid regardless of the
   // current department/category filter (mirrors Okta's own "recent apps"
-  // ribbon, which isn't scoped by the app-group filters either).
-  const favoriteLinks = useMemo(() => favorites.map(id => all.find(l => l.id === id)).filter(Boolean), [favorites, all]);
+  // ribbon, which isn't scoped by the app-group filters either). A favorite
+  // can be either a Company or a Personal Link, so resolve against whichever
+  // list matches its item_type - `_uid` disambiguates the render key since
+  // the two tables' autoincrement ids can collide.
+  const favoriteLinks = useMemo(() => layout.favorites
+    .map(f => {
+      const link = (f.item_type === 'personal' ? (personalLinks || []) : all).find(l => l.id === f.item_id);
+      return link ? { ...link, _uid: `${f.item_type}-${link.id}`, _favType: f.item_type } : null;
+    })
+    .filter(Boolean), [layout.favorites, all, personalLinks]);
   const recentLinks = useMemo(() => recents.map(id => all.find(l => l.id === id)).filter(Boolean), [recents, all]);
 
   // Department/Company filters: "All ..." shows everything, including
@@ -317,6 +349,23 @@ export default function ExternalLinks() {
       return [l.name, l.description, l.category, l.department].some(v => (v || '').toLowerCase().includes(needle));
     });
   }, [deptFiltered, category, q]);
+
+  // My Layout (personalization) - gated on whether ordering/folders have
+  // actually been customized, NOT the hook's isCustomized flag alone: that
+  // flag just means "a layout row exists," which happens the moment someone
+  // favorites a single link (favorites live in the same document) - using it
+  // directly would dump a user into an otherwise-empty "My Layout" the first
+  // time they favorite anything, before they ever touched ordering. This
+  // only switches once there's real ordering/folder data to show.
+  const hasCustomOrder = layout.items.length > 0 || layout.folders.length > 0;
+  const filteredById = useMemo(() => new Map(filtered.map(l => [l.id, l])), [filtered]);
+  const beginCustomizing = () => {
+    mutate(prev => {
+      const ordered = [...all].sort((a, b) =>
+        (Number(b.is_pinned) - Number(a.is_pinned)) || (a.sort_order - b.sort_order) || a.name.localeCompare(b.name));
+      return { ...prev, items: ordered.map((l, i) => ({ item_type: 'external', item_id: l.id, folder_id: null, position: i })) };
+    });
+  };
 
   const pinned = useMemo(() => filtered.filter(l => l.is_pinned), [filtered]);
   const rest = useMemo(() => filtered.filter(l => !l.is_pinned), [filtered]);
@@ -530,7 +579,11 @@ export default function ExternalLinks() {
     }
   };
 
-  const isLoading = links === null && !error;
+  // Gate on layoutLoading too, not just links - resolving personalization
+  // after the grid has already painted the default category view would flash
+  // straight into "My Layout" for anyone customized, which is exactly the
+  // visible layout jump the personalization spec calls out to avoid.
+  const isLoading = (links === null || layoutLoading) && !error;
   const isEmpty = !isLoading && !error && filtered.length === 0;
 
   const totalClicks = all.reduce((s, l) => s + (l.clicks || 0), 0);
@@ -546,6 +599,11 @@ export default function ExternalLinks() {
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
+          {section === 'company' && !hasCustomOrder && !isLoading && (
+            <button className="secondary-btn" onClick={beginCustomizing} title="Arrange these into your own order and folders - only you will see the change">
+              <LayoutGrid size={14} /> Customize My Layout
+            </button>
+          )}
           {section === 'company' && (
             <button className="secondary-btn" onClick={() => setPaletteOpen(true)}>
               <Command size={14} /> Quick Search
@@ -595,6 +653,7 @@ export default function ExternalLinks() {
         <PersonalLinksSection
           links={personalLinks} onOpen={openPersonalLink} onAdd={openAddPersonal}
           onEdit={openEditPersonal} onDelete={removePersonal}
+          favorites={favoritePersonalIds} onToggleFavorite={togglePersonalFavorite}
         />
       )}
 
@@ -602,11 +661,11 @@ export default function ExternalLinks() {
         {/* Personal shortcuts - client-local, not scoped by the filters below */}
         {favoriteLinks.length > 0 && (
           <PersonalStrip title="My Favorites" icon={Bookmark} iconColor="hsl(var(--color-blue))" links={favoriteLinks}
-            onOpen={openLink} favorites={favorites} onToggleFavorite={toggleFavorite} />
+            onOpen={(l) => (l._favType === 'personal' ? openPersonalLink(l) : openLink(l))} />
         )}
         {recentLinks.length > 0 && (
           <PersonalStrip title="Recently Used" icon={History} iconColor="var(--muted)" links={recentLinks}
-            onOpen={openLink} favorites={favorites} onToggleFavorite={toggleFavorite} />
+            onOpen={openLink} />
         )}
 
         {/* Filter bar */}
@@ -666,29 +725,41 @@ export default function ExternalLinks() {
             </div>
           }
         >
-          {pinned.length > 0 && (
-            <Section title="Pinned" icon={Star}>
-              <LinkList view={view} items={pinned} canManage={canManage} canDelete={canDelete}
-                favorites={favorites} onToggleFavorite={toggleFavorite}
-                onOpen={openLink} onEdit={openEdit} onDelete={remove} />
+          {hasCustomOrder ? (
+            <Section title="My Layout" icon={LayoutGrid}>
+              <MyLayoutSection
+                layout={layout} itemsById={filteredById}
+                canManage={canManage} canDelete={canDelete}
+                favorites={favoriteExternalIds} onToggleFavorite={toggleFavorite}
+                onOpen={openLink} onEdit={openEdit} onDelete={remove}
+                mutate={mutate}
+              />
             </Section>
-          )}
+          ) : (<>
+            {pinned.length > 0 && (
+              <Section title="Pinned" icon={Star}>
+                <LinkList view={view} items={pinned} canManage={canManage} canDelete={canDelete}
+                  favorites={favoriteExternalIds} onToggleFavorite={toggleFavorite}
+                  onOpen={openLink} onEdit={openEdit} onDelete={remove} />
+              </Section>
+            )}
 
-          {sortBy === 'category' && grouped && grouped.map(([cat, items]) => (
-            <Section key={cat} title={cat} color={colorFor(cat)}>
-              <LinkList view={view} items={items} canManage={canManage} canDelete={canDelete}
-                favorites={favorites} onToggleFavorite={toggleFavorite}
-                onOpen={openLink} onEdit={openEdit} onDelete={remove} />
-            </Section>
-          ))}
+            {sortBy === 'category' && grouped && grouped.map(([cat, items]) => (
+              <Section key={cat} title={cat} color={colorFor(cat)}>
+                <LinkList view={view} items={items} canManage={canManage} canDelete={canDelete}
+                  favorites={favoriteExternalIds} onToggleFavorite={toggleFavorite}
+                  onOpen={openLink} onEdit={openEdit} onDelete={remove} />
+              </Section>
+            ))}
 
-          {sortBy !== 'category' && flatSorted && (
-            <Section title={SORTS.find(s => s.id === sortBy)?.label} icon={sortBy === 'popular' ? TrendingUp : undefined}>
-              <LinkList view={view} items={flatSorted} canManage={canManage} canDelete={canDelete}
-                favorites={favorites} onToggleFavorite={toggleFavorite}
-                onOpen={openLink} onEdit={openEdit} onDelete={remove} />
-            </Section>
-          )}
+            {sortBy !== 'category' && flatSorted && (
+              <Section title={SORTS.find(s => s.id === sortBy)?.label} icon={sortBy === 'popular' ? TrendingUp : undefined}>
+                <LinkList view={view} items={flatSorted} canManage={canManage} canDelete={canDelete}
+                  favorites={favoriteExternalIds} onToggleFavorite={toggleFavorite}
+                  onOpen={openLink} onEdit={openEdit} onDelete={remove} />
+              </Section>
+            )}
+          </>)}
         </AsyncSection>
       </>)}
 
@@ -779,7 +850,7 @@ const PERSONAL_COLOR = { fg: 'hsl(var(--color-purple))', bg: 'hsla(var(--color-p
 // owner_email server-side, so nothing here is visible to anyone else,
 // regardless of role - not even in Manage or the command palette, which only
 // ever touch the shared ExternalLink directory.
-function PersonalLinksSection({ links, onOpen, onAdd, onEdit, onDelete }) {
+function PersonalLinksSection({ links, onOpen, onAdd, onEdit, onDelete, favorites, onToggleFavorite }) {
   const items = links || [];
   return (
     <div style={{ marginBottom: 24 }}>
@@ -794,7 +865,8 @@ function PersonalLinksSection({ links, onOpen, onAdd, onEdit, onDelete }) {
       <AppGrid>
         {items.map(l => (
           <AppTile key={l.id} link={l} color={PERSONAL_COLOR} vaultLinked={!!l.vault_cred_id}
-            canManage canDelete onEdit={() => onEdit(l)} onDelete={() => onDelete(l)} onOpen={() => onOpen(l)} />
+            canManage canDelete onEdit={() => onEdit(l)} onDelete={() => onDelete(l)} onOpen={() => onOpen(l)}
+            isFavorite={favorites.includes(l.id)} onToggleFavorite={() => onToggleFavorite(l.id)} />
         ))}
         <AddAppTile label="Add Link" onClick={onAdd} />
       </AppGrid>
@@ -929,7 +1001,7 @@ function ViewToggleBtn({ active, onClick, title, children }) {
 // Horizontal shortcut row (Favorites / Recently Used) - compact pill-tiles,
 // distinct from the full card grid below so personal shortcuts read as a
 // quick-launch strip rather than another section to scan top to bottom.
-function PersonalStrip({ title, icon: Icon, iconColor, links, onOpen, favorites, onToggleFavorite }) {
+function PersonalStrip({ title, icon: Icon, iconColor, links, onOpen }) {
   return (
     <div style={{ marginBottom: 18 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 10 }}>
@@ -941,7 +1013,7 @@ function PersonalStrip({ title, icon: Icon, iconColor, links, onOpen, favorites,
           const { fg, bg } = colorFor(l.category);
           return (
             <button
-              key={l.id} onClick={() => onOpen(l)} title={l.description || l.name}
+              key={l._uid || l.id} onClick={() => onOpen(l)} title={l.description || l.name}
               style={{
                 flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px 8px 8px',
                 borderRadius: 30, border: '1px solid var(--wk-line2)', background: 'var(--card)', cursor: 'pointer',
@@ -976,7 +1048,11 @@ function AppGrid({ children }) {
   return <div className="app-grid">{children}</div>;
 }
 
-function AppTile({ link, color, canManage, canDelete, isFavorite, onToggleFavorite, onOpen, onEdit, onDelete, iconSize = 60, iconGradient = true, vaultLinked = false }) {
+function AppTile({
+  link, color, canManage, canDelete, isFavorite, onToggleFavorite, onOpen, onEdit, onDelete,
+  iconSize = 60, iconGradient = true, vaultLinked = false,
+  dragHandleProps, dropProps, moveControls,
+}) {
   const [showTip, setShowTip] = useState(false);
   const tipTimer = useRef(null);
   useEffect(() => () => clearTimeout(tipTimer.current), []);
@@ -991,7 +1067,7 @@ function AppTile({ link, color, canManage, canDelete, isFavorite, onToggleFavori
   };
 
   const description = link.description || '';
-  const hasActions = !!(onToggleFavorite || (canManage && (onEdit || onDelete)));
+  const hasActions = !!(onToggleFavorite || (canManage && (onEdit || onDelete)) || moveControls || dragHandleProps);
   // Stable per-link id (not React's own, which isn't guaranteed unique
   // across a whole page) so aria-describedby can point at this tile's own
   // tooltip specifically - undefined (no attribute at all) when there's
@@ -1006,6 +1082,7 @@ function AppTile({ link, color, canManage, canDelete, isFavorite, onToggleFavori
       onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(); } }}
       title={!description ? link.name : undefined}
       aria-describedby={tooltipId}
+      {...dropProps}
     >
       <div className="app-tile-icon-wrap">
         <LinkIcon url={link.url} iconKey={link.icon} size={iconSize} radius={Math.round(iconSize * 0.28)} fg={color.fg} bg={color.bg} gradient={iconGradient} />
@@ -1014,6 +1091,11 @@ function AppTile({ link, color, canManage, canDelete, isFavorite, onToggleFavori
         {vaultLinked && <span className="app-tile-key-badge" title="Copies its saved password when opened"><KeyRound size={9} /></span>}
         {hasActions && (
           <div className="app-tile-actions" onClick={e => e.stopPropagation()}>
+            {dragHandleProps && (
+              <span className="app-tile-grip" draggable {...dragHandleProps} title="Drag to reorder">
+                <GripVertical size={11} />
+              </span>
+            )}
             {onToggleFavorite && (
               <IconBtn onClick={onToggleFavorite} title={isFavorite ? 'Remove from My Favorites' : 'Add to My Favorites'}>
                 <Bookmark size={11} fill={isFavorite ? 'hsl(var(--color-blue))' : 'none'} style={{ color: isFavorite ? 'hsl(var(--color-blue))' : 'var(--muted)' }} />
@@ -1021,6 +1103,13 @@ function AppTile({ link, color, canManage, canDelete, isFavorite, onToggleFavori
             )}
             {canManage && onEdit && <IconBtn onClick={onEdit} title="Edit link"><Pencil size={11} /></IconBtn>}
             {canManage && canDelete && onDelete && <IconBtn onClick={onDelete} title="Delete link" danger><Trash2 size={11} /></IconBtn>}
+            {moveControls && (
+              <>
+                <IconBtn onClick={moveControls.onMoveUp} title="Move up" disabled={!moveControls.canMoveUp}><ChevronUp size={12} /></IconBtn>
+                <IconBtn onClick={moveControls.onMoveDown} title="Move down" disabled={!moveControls.canMoveDown}><ChevronDown size={12} /></IconBtn>
+                {moveControls.extra}
+              </>
+            )}
           </div>
         )}
         {description && (
@@ -1047,6 +1136,406 @@ function AddAppTile({ label, onClick }) {
       <div className="app-tile-add-icon"><Plus size={22} /></div>
       <span className="app-tile-name">{label}</span>
     </button>
+  );
+}
+
+// ── Personalization: My Layout (Aug 13) ─────────────────────────────────────
+// Once a user customizes (reorders, favorites into a folder, etc.), Company
+// Links switches from the admin category-grouped view to this - the user's
+// own arrangement, backend-persisted (see useLinkLayout.js). Small, focused
+// components rather than one giant one so drag-and-drop/folders stay
+// separable pieces, per the "prepare for future enhancements" precedent this
+// module has followed all session (data-link-id on tiles, plain flex grid).
+
+// Click-outside-closing folder picker for "move this item to a folder" -
+// self-contained rather than pulled in from credvault's Dropdown, which is
+// scoped to that module's own stylesheet.
+function FolderPicker({ folders, currentFolderId, onMove, onCreateNew }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+  return (
+    <div style={{ position: 'relative' }} ref={ref}>
+      <IconBtn onClick={() => setOpen(o => !o)} title="Move to folder...">
+        <FolderOpen size={11} />
+      </IconBtn>
+      {open && (
+        <div className="folder-picker">
+          {currentFolderId && (
+            <button type="button" className="folder-picker-item" onClick={() => { onMove(null); setOpen(false); }}>
+              Remove from folder
+            </button>
+          )}
+          {folders.filter(f => f.id !== currentFolderId).map(f => (
+            <button key={f.id} type="button" className="folder-picker-item" onClick={() => { onMove(f.id); setOpen(false); }}>
+              {f.name}
+            </button>
+          ))}
+          <button type="button" className="folder-picker-item folder-picker-new" onClick={() => { onCreateNew(); setOpen(false); }}>
+            <FolderPlus size={12} /> New Folder...
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FolderTile({ folder, memberLinks, onOpen, dragHandleProps, dropProps, moveControls }) {
+  const preview = memberLinks.slice(0, 4);
+  return (
+    <div
+      className="app-tile" onClick={onOpen} data-folder-id={folder.id}
+      role="button" tabIndex={0}
+      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(); } }}
+      title={folder.name}
+      {...dropProps}
+    >
+      <div className="app-tile-icon-wrap">
+        <div className="app-folder-preview">
+          {preview.length === 0
+            ? <FolderOpen size={22} style={{ color: 'var(--muted)' }} />
+            : preview.map(l => (
+              <div key={l.id} className="app-folder-preview-cell">
+                <LinkIcon url={l.url} iconKey={l.icon} size={24} radius={6} fg="var(--muted)" bg="var(--mist)" gradient={false} />
+              </div>
+            ))}
+        </div>
+        {(dragHandleProps || moveControls) && (
+          <div className="app-tile-actions" onClick={e => e.stopPropagation()}>
+            {dragHandleProps && (
+              <span className="app-tile-grip" draggable {...dragHandleProps} title="Drag to reorder">
+                <GripVertical size={11} />
+              </span>
+            )}
+            {moveControls && (
+              <>
+                <IconBtn onClick={moveControls.onMoveUp} title="Move up" disabled={!moveControls.canMoveUp}><ChevronUp size={12} /></IconBtn>
+                <IconBtn onClick={moveControls.onMoveDown} title="Move down" disabled={!moveControls.canMoveDown}><ChevronDown size={12} /></IconBtn>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+      <span className="app-tile-name">{folder.name}{memberLinks.length > 0 ? ` (${memberLinks.length})` : ''}</span>
+    </div>
+  );
+}
+
+// Opens a folder's contents - inline-renamable title, delete (unfolds
+// members back to top-level, never deletes the underlying links), and each
+// member gets the same reorder/move-out controls as the top-level grid.
+function FolderModal({
+  folder, memberEntries, itemsById, canManage, canDelete, favorites, onToggleFavorite,
+  onOpen, onEdit, onDelete, onClose, onRename, onDeleteFolder, onReorderWithin, onMoveOut,
+  allFolders, onCreateFolder,
+}) {
+  const [nameDraft, setNameDraft] = useState(folder.name);
+  const [renaming, setRenaming] = useState(false);
+  // Own small drag state for reordering within this folder - separate DnD
+  // context from the background grid (this is a modal on top of it), so it
+  // doesn't share MyLayoutSection's dragKind/dragId.
+  const [dragItemId, setDragItemId] = useState(null);
+  const commitRename = () => {
+    const trimmed = nameDraft.trim();
+    if (trimmed && trimmed !== folder.name) onRename(trimmed);
+    setRenaming(false);
+  };
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content" style={{ maxWidth: 480 }} onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          {renaming ? (
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center', flex: 1 }}>
+              <input
+                className="form-input" value={nameDraft} onChange={e => setNameDraft(e.target.value)} autoFocus
+                maxLength={60}
+                onKeyDown={e => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') setRenaming(false); }}
+              />
+              <button className="secondary-btn" onClick={commitRename}><Check size={14} /></button>
+            </div>
+          ) : (
+            <h3 style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }} onClick={() => setRenaming(true)} title="Click to rename">
+              {folder.name} <Pencil size={13} style={{ color: 'var(--muted)' }} />
+            </h3>
+          )}
+          <button className="close-btn" onClick={onClose}><X size={16} /></button>
+        </div>
+        <div style={{ padding: '20px 24px' }}>
+          {memberEntries.length === 0 ? (
+            <p style={{ textAlign: 'center', color: 'var(--muted)', fontSize: 13, padding: '20px 0' }}>
+              Empty - use "Move to folder" on any app to add it here.
+            </p>
+          ) : (
+            <AppGrid>
+              {memberEntries.map((entry, i) => {
+                const link = itemsById.get(entry.item_id);
+                if (!link) return null;
+                return (
+                  <AppTile
+                    key={entry.item_id} link={link} color={colorFor(link.category)}
+                    canManage={canManage} canDelete={canDelete}
+                    isFavorite={favorites.includes(link.id)} onToggleFavorite={() => onToggleFavorite(link.id)}
+                    onOpen={() => onOpen(link)} onEdit={() => onEdit(link)} onDelete={() => onDelete(link)}
+                    dragHandleProps={{
+                      onDragStart: (e) => { e.dataTransfer.effectAllowed = 'move'; setDragItemId(entry.item_id); },
+                      onDragEnd: () => setDragItemId(null),
+                    }}
+                    dropProps={{
+                      onDragOver: (e) => { if (dragItemId != null) e.preventDefault(); },
+                      onDrop: (e) => {
+                        e.preventDefault();
+                        if (dragItemId == null || dragItemId === entry.item_id) return;
+                        const fromIdx = memberEntries.findIndex(x => x.item_id === dragItemId);
+                        if (fromIdx === -1) return;
+                        onReorderWithin(fromIdx, i);
+                        setDragItemId(null);
+                      },
+                    }}
+                    moveControls={{
+                      canMoveUp: i > 0, canMoveDown: i < memberEntries.length - 1,
+                      onMoveUp: () => onReorderWithin(i, i - 1), onMoveDown: () => onReorderWithin(i, i + 1),
+                      extra: (
+                        <FolderPicker
+                          folders={allFolders} currentFolderId={folder.id}
+                          onMove={(destId) => onMoveOut(entry.item_id, destId)}
+                          onCreateNew={() => onCreateFolder(entry.item_id)}
+                        />
+                      ),
+                    }}
+                  />
+                );
+              })}
+            </AppGrid>
+          )}
+        </div>
+        <div className="modal-footer">
+          <button className="secondary-btn" style={{ color: 'hsl(var(--color-red))' }} onClick={onDeleteFolder}>
+            <Trash2 size={14} /> Delete Folder
+          </button>
+          <button className="primary-btn" onClick={onClose}>Done</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Orchestrates the customized Company Links grid once hasCustomOrder is
+// true: folders first (their own position space), then loose top-level apps
+// (their own position space) - both in one AppGrid so grid flow stays
+// uniform. All mutations funnel through the parent's `mutate` (from
+// useLinkLayout), which optimistically applies + auto-saves + rolls back on
+// failure - this component never calls the API directly.
+function MyLayoutSection({ layout, itemsById, canManage, canDelete, favorites, onToggleFavorite, onOpen, onEdit, onDelete, mutate }) {
+  const [openFolderId, setOpenFolderId] = useState(null);
+  // Desktop drag-and-drop state - HTML5 native, mirrors ManageModal's
+  // draggable/onDragStart/onDragOver/onDrop/onDragEnd pattern elsewhere in
+  // this file (its own "All Links" category reorder). Touch has no
+  // equivalent gesture (poor/no support for native HTML5 DnD), so every tile
+  // also gets Move Up/Down + a folder picker as the touch-inclusive path -
+  // see AppTile's moveControls.
+  const [dragKind, setDragKind] = useState(null); // 'item' | 'folder' | null
+  const [dragId, setDragId] = useState(null);
+
+  const topItems = useMemo(
+    () => layout.items.filter(i => i.folder_id === null && itemsById.has(i.item_id)).sort((a, b) => a.position - b.position),
+    [layout.items, itemsById]
+  );
+  const folders = useMemo(() => [...layout.folders].sort((a, b) => a.position - b.position), [layout.folders]);
+  const folderMembers = useCallback(
+    (folderId) => layout.items.filter(i => i.folder_id === folderId && itemsById.has(i.item_id)).sort((a, b) => a.position - b.position),
+    [layout.items, itemsById]
+  );
+
+  const reorderTopLevel = (orderedIds) => mutate(prev => {
+    const rank = new Map(orderedIds.map((id, i) => [id, i]));
+    return { ...prev, items: prev.items.map(i => (i.folder_id === null && rank.has(i.item_id)) ? { ...i, position: rank.get(i.item_id) } : i) };
+  });
+  const reorderFolders = (orderedIds) => mutate(prev => {
+    const rank = new Map(orderedIds.map((id, i) => [id, i]));
+    return { ...prev, folders: prev.folders.map(f => rank.has(f.id) ? { ...f, position: rank.get(f.id) } : f) };
+  });
+  const reorderWithinFolder = (folderId, orderedIds) => mutate(prev => {
+    const rank = new Map(orderedIds.map((id, i) => [id, i]));
+    return { ...prev, items: prev.items.map(i => (i.folder_id === folderId && rank.has(i.item_id)) ? { ...i, position: rank.get(i.item_id) } : i) };
+  });
+  const moveToFolder = (itemId, folderId) => mutate(prev => {
+    const dest = prev.items.filter(i => i.folder_id === folderId && i.item_id !== itemId);
+    const nextPos = dest.length ? Math.max(...dest.map(i => i.position)) + 1 : 0;
+    return { ...prev, items: prev.items.map(i => i.item_id === itemId ? { ...i, folder_id: folderId, position: nextPos } : i) };
+  });
+  const createFolderWithItem = (itemId) => {
+    const id = `f_${Math.random().toString(36).slice(2, 8)}`;
+    mutate(prev => {
+      const position = prev.folders.length ? Math.max(...prev.folders.map(f => f.position)) + 1 : 0;
+      return {
+        ...prev,
+        folders: [...prev.folders, { id, name: 'New Folder', position }],
+        items: prev.items.map(i => i.item_id === itemId ? { ...i, folder_id: id, position: 0 } : i),
+      };
+    });
+    setOpenFolderId(id); // straight into the modal so the user can rename it right away
+  };
+  const createEmptyFolder = () => {
+    const id = `f_${Math.random().toString(36).slice(2, 8)}`;
+    mutate(prev => {
+      const position = prev.folders.length ? Math.max(...prev.folders.map(f => f.position)) + 1 : 0;
+      return { ...prev, folders: [...prev.folders, { id, name: 'New Folder', position }] };
+    });
+    setOpenFolderId(id);
+  };
+  const renameFolder = (folderId, name) => mutate(prev => ({ ...prev, folders: prev.folders.map(f => f.id === folderId ? { ...f, name } : f) }));
+  const deleteFolder = (folderId) => mutate(prev => {
+    const topPositions = prev.items.filter(i => i.folder_id === null).map(i => i.position);
+    let nextPos = topPositions.length ? Math.max(...topPositions) + 1 : 0;
+    return {
+      ...prev,
+      folders: prev.folders.filter(f => f.id !== folderId),
+      items: prev.items.map(i => i.folder_id === folderId ? { ...i, folder_id: null, position: nextPos++ } : i),
+    };
+  });
+  const moveItemUpDown = (itemId, folderId, dir) => mutate(prev => {
+    const siblings = prev.items.filter(i => i.folder_id === folderId).sort((a, b) => a.position - b.position);
+    const idx = siblings.findIndex(i => i.item_id === itemId);
+    const swapIdx = idx + dir;
+    if (idx < 0 || swapIdx < 0 || swapIdx >= siblings.length) return prev;
+    const a = siblings[idx], b = siblings[swapIdx];
+    return {
+      ...prev,
+      items: prev.items.map(i => {
+        if (i.item_id === a.item_id && i.folder_id === folderId) return { ...i, position: b.position };
+        if (i.item_id === b.item_id && i.folder_id === folderId) return { ...i, position: a.position };
+        return i;
+      }),
+    };
+  });
+  const moveFolderUpDown = (folderId, dir) => mutate(prev => {
+    const sorted = [...prev.folders].sort((a, b) => a.position - b.position);
+    const idx = sorted.findIndex(f => f.id === folderId);
+    const swapIdx = idx + dir;
+    if (idx < 0 || swapIdx < 0 || swapIdx >= sorted.length) return prev;
+    const a = sorted[idx], b = sorted[swapIdx];
+    return {
+      ...prev,
+      folders: prev.folders.map(f => {
+        if (f.id === a.id) return { ...f, position: b.position };
+        if (f.id === b.id) return { ...f, position: a.position };
+        return f;
+      }),
+    };
+  });
+
+  const itemDragProps = (itemId) => ({
+    onDragStart: (e) => { e.dataTransfer.effectAllowed = 'move'; setDragKind('item'); setDragId(itemId); },
+    onDragEnd: () => { setDragKind(null); setDragId(null); },
+  });
+  const folderDragProps = (folderId) => ({
+    onDragStart: (e) => { e.dataTransfer.effectAllowed = 'move'; setDragKind('folder'); setDragId(folderId); },
+    onDragEnd: () => { setDragKind(null); setDragId(null); },
+  });
+  const topItemDropProps = (targetItemId) => ({
+    onDragOver: (e) => { if (dragKind === 'item') e.preventDefault(); },
+    onDrop: (e) => {
+      e.preventDefault();
+      if (dragKind !== 'item' || dragId === targetItemId) return;
+      const ids = topItems.map(i => i.item_id).filter(id => id !== dragId);
+      const idx = ids.indexOf(targetItemId);
+      ids.splice(idx, 0, dragId);
+      reorderTopLevel(ids);
+    },
+  });
+  const folderDropProps = (targetFolderId) => ({
+    onDragOver: (e) => { if (dragKind) e.preventDefault(); },
+    onDrop: (e) => {
+      e.preventDefault();
+      if (dragKind === 'item') { moveToFolder(dragId, targetFolderId); return; }
+      if (dragKind === 'folder' && dragId !== targetFolderId) {
+        const ids = folders.map(f => f.id).filter(id => id !== dragId);
+        const idx = ids.indexOf(targetFolderId);
+        ids.splice(idx, 0, dragId);
+        reorderFolders(ids);
+      }
+    },
+  });
+
+  const openFolder = folders.find(f => f.id === openFolderId) || null;
+
+  return (
+    <>
+      <AppGrid>
+        {folders.map((f, i) => (
+          <FolderTile
+            key={f.id} folder={f}
+            memberLinks={folderMembers(f.id).map(e => itemsById.get(e.item_id)).filter(Boolean)}
+            onOpen={() => setOpenFolderId(f.id)}
+            dragHandleProps={folderDragProps(f.id)}
+            dropProps={folderDropProps(f.id)}
+            moveControls={{
+              canMoveUp: i > 0, canMoveDown: i < folders.length - 1,
+              onMoveUp: () => moveFolderUpDown(f.id, -1), onMoveDown: () => moveFolderUpDown(f.id, 1),
+            }}
+          />
+        ))}
+        {topItems.map((entry, i) => {
+          const link = itemsById.get(entry.item_id);
+          return (
+            <AppTile
+              key={entry.item_id} link={link} color={colorFor(link.category)}
+              canManage={canManage} canDelete={canDelete}
+              isFavorite={favorites.includes(link.id)} onToggleFavorite={() => onToggleFavorite(link.id)}
+              onOpen={() => onOpen(link)} onEdit={() => onEdit(link)} onDelete={() => onDelete(link)}
+              dragHandleProps={itemDragProps(entry.item_id)}
+              dropProps={topItemDropProps(entry.item_id)}
+              moveControls={{
+                canMoveUp: i > 0, canMoveDown: i < topItems.length - 1,
+                onMoveUp: () => moveItemUpDown(entry.item_id, null, -1), onMoveDown: () => moveItemUpDown(entry.item_id, null, 1),
+                extra: (
+                  <FolderPicker
+                    folders={folders} currentFolderId={null}
+                    onMove={(destId) => moveToFolder(entry.item_id, destId)}
+                    onCreateNew={() => createFolderWithItem(entry.item_id)}
+                  />
+                ),
+              }}
+            />
+          );
+        })}
+        <AddAppTile label="New Folder" onClick={createEmptyFolder} />
+      </AppGrid>
+
+      {openFolder && (
+        <FolderModal
+          folder={openFolder}
+          memberEntries={folderMembers(openFolder.id)}
+          itemsById={itemsById}
+          canManage={canManage} canDelete={canDelete}
+          favorites={favorites} onToggleFavorite={onToggleFavorite}
+          onOpen={onOpen} onEdit={onEdit} onDelete={onDelete}
+          onClose={() => setOpenFolderId(null)}
+          onRename={(name) => renameFolder(openFolder.id, name)}
+          onDeleteFolder={() => {
+            if (!window.confirm(`Delete "${openFolder.name}"? Apps inside will move back to the main view.`)) return;
+            deleteFolder(openFolder.id);
+            setOpenFolderId(null);
+          }}
+          onReorderWithin={(fromIdx, toIdx) => {
+            const members = folderMembers(openFolder.id);
+            if (toIdx < 0 || toIdx >= members.length) return;
+            const ids = members.map(e => e.item_id);
+            const [moved] = ids.splice(fromIdx, 1);
+            ids.splice(toIdx, 0, moved);
+            reorderWithinFolder(openFolder.id, ids);
+          }}
+          onMoveOut={(itemId, destId) => moveToFolder(itemId, destId)}
+          allFolders={folders}
+          onCreateFolder={(itemId) => createFolderWithItem(itemId)}
+        />
+      )}
+    </>
   );
 }
 
@@ -1103,14 +1592,14 @@ function LinkListRow({ link, canManage, canDelete, isFavorite, onToggleFavorite,
   );
 }
 
-function IconBtn({ children, onClick, title, danger }) {
+function IconBtn({ children, onClick, title, danger, disabled }) {
   return (
     <button
-      onClick={onClick} title={title}
+      onClick={onClick} title={title} disabled={disabled}
       style={{
         width: 24, height: 24, borderRadius: 6, border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center',
-        background: 'var(--card)', boxShadow: '0 1px 4px rgba(0,0,0,.15)', cursor: 'pointer',
-        color: danger ? 'hsl(var(--color-red))' : 'var(--muted)',
+        background: 'var(--card)', boxShadow: '0 1px 4px rgba(0,0,0,.15)', cursor: disabled ? 'default' : 'pointer',
+        color: danger ? 'hsl(var(--color-red))' : 'var(--muted)', opacity: disabled ? 0.35 : 1,
       }}
     >
       {children}

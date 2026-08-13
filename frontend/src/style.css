@@ -3839,7 +3839,17 @@ button, [role="button"], select { touch-action: manipulation; }
      extra trip) - keep the action row always visible there instead of
      hover-gated. */
   .app-tile-actions { opacity: 1; pointer-events: auto; position: static; transform: none; margin-bottom: 2px; }
+  /* HTML5 drag-and-drop has no real touch support - the Move Up/Down/Move to
+     folder buttons are the touch equivalent instead (rendered alongside this
+     in the same action row), so the grip handle would just be dead weight. */
+  .app-tile-grip { display: none; }
 }
+.app-tile-grip {
+  width: 24px; height: 24px; border-radius: 6px; display: flex; align-items: center; justify-content: center;
+  background: var(--card); box-shadow: 0 1px 4px rgba(0,0,0,.15); color: var(--muted);
+  cursor: grab;
+}
+.app-tile-grip:active { cursor: grabbing; }
 .app-tile-tooltip {
   position: absolute;
   bottom: calc(100% + 8px);
@@ -3894,6 +3904,30 @@ button, [role="button"], select { touch-action: manipulation; }
   width: 60px; height: 60px; border-radius: 16px;
   display: flex; align-items: center; justify-content: center;
 }
+
+/* ── My Layout: folders + move-to-folder picker (Aug 13) ────────────────── */
+.app-folder-preview {
+  width: 60px; height: 60px; border-radius: 16px; background: var(--mist);
+  display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 3px;
+  align-items: center; justify-items: center; padding: 6px;
+}
+.app-folder-preview:has(> svg) { display: flex; align-items: center; justify-content: center; }
+.app-folder-preview-cell { display: flex; align-items: center; justify-content: center; }
+.folder-picker {
+  position: absolute; top: 100%; left: 50%; transform: translateX(-50%); margin-top: 4px;
+  min-width: 170px; max-height: 220px; overflow-y: auto; z-index: 30;
+  background: var(--card); border: 1px solid var(--wk-line2); border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.2); padding: 4px;
+}
+.folder-picker-item {
+  display: flex; align-items: center; gap: 6px; width: 100%; text-align: left;
+  padding: 7px 9px; border-radius: 7px; border: none; background: none; cursor: pointer;
+  font-size: 12.5px; font-weight: 500; color: var(--ink); font-family: inherit;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.folder-picker-item:hover { background: var(--mist); }
+.folder-picker-new { color: var(--wk-brand); font-weight: 600; }
+
 @media (max-width: 480px) {
   .app-grid { gap: 16px 10px; }
   .app-tile { width: 74px; }

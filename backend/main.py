@@ -35,6 +35,7 @@ import act_as  # Act As: Manager/IT Admin/Global Admin can impersonate a lower-r
 from routers import branding  # Branding settings: login-screen accent color (Jul 2026)
 from routers import egnyte  # Egnyte module: browse/upload at the right folder level (Jul 2026)
 from routers import external_links  # External Links directory rebuild (Aug 2026) - own file, see its docstring
+from routers import link_layouts  # Per-user Links Module personalization overlay (Aug 13) - own file, see its docstring
 from audit import AuditMiddleware
 
 
@@ -942,6 +943,10 @@ def _run_migrations():
         # zero policies still closes the table to the public anon key, which
         # is the whole point: nothing outside this API can read it.
         "ALTER TABLE personal_links ENABLE ROW LEVEL SECURITY",
+        # user_link_layouts (Aug 13) - one employee's personalized Links Module
+        # arrangement, same posture as personal_links above: owner_email-gated
+        # in the API, RLS here only to close it to the public anon key.
+        "ALTER TABLE user_link_layouts ENABLE ROW LEVEL SECURITY",
         # External Links directory rebuild (Aug 2026) - see the matching sqlite
         # migration list above for the full rationale; name-keyed idempotent
         # inserts, same statements (portable syntax) on both engines.
@@ -1375,6 +1380,7 @@ app.include_router(external_links.router) # External Links: registered BEFORE as
                                            # first route added wins on a path collision) - see
                                            # routers/external_links.py's module docstring.
 app.include_router(external_links.personal_router) # Personal Links: private, owner-scoped shortcuts (Aug 12)
+app.include_router(link_layouts.router) # Per-user Links Module layout (folders/ordering/favorites) (Aug 13)
 app.include_router(assets.router)
 app.include_router(property_assets.router)
 app.include_router(accounting.router)

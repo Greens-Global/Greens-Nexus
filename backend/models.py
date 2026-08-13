@@ -1691,6 +1691,34 @@ class DashboardView(Base):
     updated_at   = Column(String, default="")
 
 
+class UserLinkLayout(Base):
+    """A user's personalized External Links arrangement (app ordering, custom
+    folders, favorites) - mirrors DashboardView's JSON-blob-per-user shape
+    above rather than normalizing into per-item rows: auto-save writes the
+    whole document in one UPSERT, and nothing here needs SQL-side querying by
+    folder/item (existence/permission re-checks happen at read time against
+    ExternalLink/PersonalLink directly in the router, not via a FK - a dead
+    reference is dropped there, not rejected here). One row per user, unlike
+    DashboardView's multi-row-per-owner shape, since there's exactly one
+    layout per person for this module (no named/multiple-views concept).
+
+    layout shape: {
+      folders:   [{id, name, position}],
+      items:     [{item_type: 'external'|'personal', item_id, folder_id|null,
+                   position, dashboard?: bool}],
+      favorites: [{item_type, item_id}],
+    }
+    item_type disambiguates ExternalLink vs PersonalLink ids, which are both
+    plain autoincrement ints on separate tables and would otherwise collide.
+    Folders are intentionally flat (no parent_folder_id) - single-level only."""
+    __tablename__ = "user_link_layouts"
+    id          = Column(String, primary_key=True)   # uuid
+    owner_email = Column(String, index=True, unique=True, nullable=False)
+    layout      = Column(JSON, default=dict)
+    created_at  = Column(String, default="")
+    updated_at  = Column(String, default="")
+
+
 class HrInterviewTemplate(Base):
     """Role questionnaire for AI-assisted interviews: the questions HR asks in
     the Teams call; answers get auto-filled from the transcript and scored."""
