@@ -860,6 +860,31 @@ function PersonalLinkModal({ modal, setModal, save, saving, vaultCreds, existing
     if (!form.url.trim()) return null;
     return existingLinks.find(l => l.id !== modal.id && normalizeUrl(l.url) === normalizeUrl(form.url)) || null;
   }, [form.url, existingLinks, modal.id]);
+
+  // Same auto-fill as the Company Links Add Link modal (see LinkModal) -
+  // fetch the site's own meta description once the URL field is blurred,
+  // fill it in only if the description is still empty or was itself the
+  // last auto-fill (never overwrite something the user actually typed).
+  const [fetchingPreview, setFetchingPreview] = useState(false);
+  const autoFilledDescRef = useRef('');
+  const fetchPreview = async () => {
+    const raw = form.url.trim();
+    if (!raw || (form.description && form.description !== autoFilledDescRef.current)) return;
+    const url = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+    setFetchingPreview(true);
+    try {
+      const preview = await api.previewExternalLink(url);
+      if (preview?.description) {
+        autoFilledDescRef.current = preview.description;
+        setForm({ description: preview.description });
+      }
+    } catch {
+      /* best-effort prefill - the field just stays as it was */
+    } finally {
+      setFetchingPreview(false);
+    }
+  };
+
   return (
     <div className="modal-overlay" onClick={() => !saving && setModal(null)}>
       <div className="modal-content" style={{ maxWidth: 440 }} onClick={e => e.stopPropagation()}>
@@ -877,7 +902,7 @@ function PersonalLinkModal({ modal, setModal, save, saving, vaultCreds, existing
           </div>
           <div className="form-group">
             <label>URL</label>
-            <input className="form-input" value={form.url} onChange={e => setForm({ url: e.target.value })} placeholder="https://..." />
+            <input className="form-input" value={form.url} onChange={e => setForm({ url: e.target.value })} onBlur={fetchPreview} placeholder="https://..." />
             {duplicate && (
               <p style={{ fontSize: 11.5, color: 'hsl(var(--color-red))', margin: '5px 0 0', display: 'flex', alignItems: 'flex-start', gap: 5 }}>
                 <AlertTriangle size={12} style={{ flexShrink: 0, marginTop: 1 }} />
@@ -886,9 +911,12 @@ function PersonalLinkModal({ modal, setModal, save, saving, vaultCreds, existing
             )}
           </div>
           <div className="form-group">
-            <label>Description</label>
+            <label>
+              Description
+              {fetchingPreview && <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--muted)', marginLeft: 8 }}>Fetching from site...</span>}
+            </label>
             <textarea className="form-input" rows={2} value={form.description}
-              onChange={e => setForm({ description: e.target.value })} placeholder="Optional note to yourself" />
+              onChange={e => setForm({ description: e.target.value })} placeholder="Optional note to yourself - or leave blank, we'll try to pull it from the site" />
           </div>
           <div className="form-group">
             <label>Password (optional)</label>

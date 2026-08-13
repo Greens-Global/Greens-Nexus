@@ -206,14 +206,16 @@ def _fetch_link_preview(url: str) -> dict:
 
 
 @router.get("/preview")
-async def preview_external_link(url: str, user: dict = Depends(require_links_admin)):
-    """Add Link modal auto-fill (Aug 13): fetches the given URL server-side
-    (a client-side fetch would be blocked by both CORS and CSP's connect-src,
-    which has no reason to allowlist arbitrary third-party sites) and pulls
-    its <meta name="description">/og:description to prefill the description
-    field. Manager+ gated same as create, since this makes the backend issue
-    an outbound request to a user-supplied URL - see _resolves_to_public_ip
-    for the SSRF guard. Always 200s with whatever it found, possibly {}."""
+async def preview_external_link(url: str, user: dict = Depends(get_current_user)):
+    """Add Link modal auto-fill (Aug 13), used by both the Company Links Add
+    Link modal (manager+) and the Personal Links Add modal (every employee -
+    self-service, no admin gate). Any signed-in user is enough here: fetches
+    the given URL server-side (a client-side fetch would be blocked by both
+    CORS and CSP's connect-src, which has no reason to allowlist arbitrary
+    third-party sites) and pulls its <meta name="description">/og:description
+    to prefill the description field - see _resolves_to_public_ip for the
+    SSRF guard, which is what actually needs to hold here since the URL is
+    user-supplied. Always 200s with whatever it found, possibly {}."""
     return await asyncio.to_thread(_fetch_link_preview, url)
 
 
