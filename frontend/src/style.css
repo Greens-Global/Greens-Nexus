@@ -3834,8 +3834,20 @@ button, [role="button"], select { touch-action: manipulation; }
   opacity: 0; pointer-events: none;
   transition: opacity .12s ease;
 }
+/* The container itself never becomes a hit target, even once visible on
+   hover - only its actual buttons do. It overlaps the top of the icon
+   (position: absolute, top: -8px), and hovering the tile at all (required
+   before a press can even start) used to flip the WHOLE strip - including
+   the gaps between buttons - to pointer-events: auto, silently eating any
+   press that landed there instead of starting a drag on the tile
+   underneath. Real bug, not cosmetic: that strip is exactly where people
+   instinctively grab an icon to drag it. */
+.app-tile-actions > * { pointer-events: none; }
 .app-tile:hover .app-tile-actions, .app-tile:focus-within .app-tile-actions {
-  opacity: 1; pointer-events: auto;
+  opacity: 1;
+}
+.app-tile:hover .app-tile-actions > *, .app-tile:focus-within .app-tile-actions > * {
+  pointer-events: auto;
 }
 @media (hover: none) {
   /* No hover on touch, so favorite/edit/delete would otherwise be
@@ -3843,6 +3855,7 @@ button, [role="button"], select { touch-action: manipulation; }
      extra trip) - keep the action row always visible there instead of
      hover-gated. */
   .app-tile-actions { opacity: 1; pointer-events: auto; position: static; transform: none; margin-bottom: 2px; }
+  .app-tile-actions > * { pointer-events: auto; }
   /* HTML5 drag-and-drop has no real touch support - the Move Up/Down/Move to
      folder buttons are the touch equivalent instead (rendered alongside this
      in the same action row), so the grip handle would just be dead weight. */

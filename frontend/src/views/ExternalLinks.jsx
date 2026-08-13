@@ -1315,9 +1315,28 @@ function FolderModal({
     if (trimmed && trimmed !== folder.name) onRename(trimmed);
     setRenaming(false);
   };
+  // Drag a member out onto the dimmed backdrop (outside the folder's own
+  // content box) to pull it back to the main grid - the drag-and-drop
+  // equivalent of the "Remove from folder" option already in the picker,
+  // for the "grab it and pull it out" gesture users expect from a phone
+  // folder. onDrop/onDragOver on modal-content stop propagation so a drop
+  // that lands ON another tile (within-folder reorder) never also bubbles
+  // up and gets misread as a drag-to-backdrop.
+  const onBackdropDragOver = (e) => { if (dragKey != null) e.preventDefault(); };
+  const onBackdropDrop = (e) => {
+    e.preventDefault();
+    if (dragKey == null) return;
+    const entry = memberEntries.find(x => entryKey(x) === dragKey);
+    setDragKey(null);
+    if (entry) onMoveOut(entry, null);
+  };
+
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content" style={{ maxWidth: 480 }} onClick={e => e.stopPropagation()}>
+    <div className="modal-overlay" onClick={onClose} onDragOver={onBackdropDragOver} onDrop={onBackdropDrop}>
+      <div
+        className="modal-content" style={{ maxWidth: 480 }}
+        onClick={e => e.stopPropagation()} onDragOver={e => e.stopPropagation()} onDrop={e => e.stopPropagation()}
+      >
         <div className="modal-header">
           {renaming ? (
             <div style={{ display: 'flex', gap: 6, alignItems: 'center', flex: 1 }}>
@@ -1335,6 +1354,11 @@ function FolderModal({
           )}
           <button className="close-btn" onClick={onClose}><X size={16} /></button>
         </div>
+        {dragKey && (
+          <p style={{ margin: '10px 24px 0', fontSize: 11.5, color: 'var(--wk-brand)', fontWeight: 600, textAlign: 'center' }}>
+            Drop outside this box to take it out of the folder
+          </p>
+        )}
         <div style={{ padding: '20px 24px' }}>
           {memberEntries.length === 0 ? (
             <p style={{ textAlign: 'center', color: 'var(--muted)', fontSize: 13, padding: '20px 0' }}>

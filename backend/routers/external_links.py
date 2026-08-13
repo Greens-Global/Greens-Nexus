@@ -20,6 +20,7 @@ import asyncio
 import html as html_lib
 import ipaddress
 import json
+import os
 import re
 import socket
 from datetime import datetime, timezone
@@ -166,6 +167,65 @@ def _resolves_to_public_ip(hostname: str) -> bool:
     return True
 
 
+_CATEGORY_MODEL = "claude-haiku-4-5-20251001"  # cheap: one tiny classification call per Add Link
+_ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "").strip()
+_MAX_CATEGORY_WORDS = 3
+_MAX_CATEGORY_LEN = 30
+
+
+def _classify_category(hostname: str, title: str, meta_description: str) -> str:
+    """Neil, Aug 14: the auto-filled description was reading as a full
+    marketing sentence pulled verbatim off the site ("F&M Bank is a local
+    Southern California community bank with more than 100 years...") -
+    wanted instead as a one-to-three-word category tag (Banking, AI Tool,
+    Shopping Platform). No amount of truncating the meta description gets
+    there - it needs an actual classification, not a substring - so this
+    asks Claude Haiku for the short label instead of scraping one. Same
+    call pattern as every other AI feature in this backend (raw httpx to
+    the Anthropic Messages API, no SDK dependency - see construction_ai.py's
+    docstring for why). Best-effort: returns "" on a missing key or any
+    failure, same as the rest of this endpoint - this is a convenience
+    prefill, never something that should block Add Link."""
+    if not _ANTHROPIC_API_KEY:
+        return ""
+    context = f"Website: {hostname}"
+    if title:
+        context += f"\nPage title: {title}"
+    if meta_description:
+        context += f"\nMeta description: {meta_description[:400]}"
+    try:
+        resp = httpx.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": _ANTHROPIC_API_KEY,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            json={
+                "model": _CATEGORY_MODEL,
+                "max_tokens": 20,
+                "system": (
+                    "You label a website with the single best short category for what kind of "
+                    "application or tool it is. Reply with ONLY 1-3 words, no punctuation, no "
+                    "explanation - just the category. Examples: Banking, AI Tool, Shopping Platform, "
+                    "Video Streaming, Project Management, Team Chat, Cloud Storage, Payroll, "
+                    "Expense Management, Social Media."
+                ),
+                "messages": [{"role": "user", "content": f"{context}\n\nShort category:"}],
+            },
+            timeout=8.0,
+        )
+        resp.raise_for_status()
+        text = "".join(b.get("text", "") for b in resp.json().get("content", []) if b.get("type") == "text").strip()
+    except (httpx.HTTPError, ValueError, KeyError):
+        return ""
+    # The model is asked for 1-3 words but is never trusted to actually stop
+    # there - cap hard so a verbose reply can never regress back into a full
+    # sentence, which is the exact thing this feature exists to avoid.
+    words = text.strip(" .").split()
+    return " ".join(words[:_MAX_CATEGORY_WORDS])[:_MAX_CATEGORY_LEN]
+
+
 def _fetch_link_preview(url: str) -> dict:
     """Runs in a worker thread (see asyncio.to_thread in the route below) -
     this does blocking DNS + network I/O, which must never sit on the async
@@ -200,8 +260,14 @@ def _fetch_link_preview(url: str) -> dict:
         return {}
     desc_match = _META_DESC_RE.search(page) or _META_DESC_RE_REV.search(page)
     title_match = _TITLE_RE.search(page)
-    description = html_lib.unescape(desc_match.group(1)).strip() if desc_match else ""
+    meta_description = html_lib.unescape(desc_match.group(1)).strip() if desc_match else ""
     title = html_lib.unescape(title_match.group(1)).strip() if title_match else ""
+    category = _classify_category(parsed.hostname, title, meta_description)
+    # Fall back to the raw meta description only if classification is
+    # unavailable entirely (no API key configured) - a short category beats
+    # a full sentence, but a full sentence still beats leaving the field
+    # empty when there's genuinely nothing else to offer.
+    description = category or meta_description
     return {"description": description[:300], "title": title[:120]}
 
 
