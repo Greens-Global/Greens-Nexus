@@ -203,14 +203,14 @@ async function _primeMsalAccount(email) {
     const { msalReady } = await import('./msalInstance');
     await msalReady;
     const { primeGraphSso } = await import('./teamsGraph');
-    if (await primeGraphSso(email)) return;            // iframe path worked - done
-    const key = 'nexus:msalprime:' + email;
-    const last = Number(localStorage.getItem(key) || 0);
-    if (Date.now() - last < 24 * 3600 * 1000) return;  // already tried recently - never loop
-    localStorage.setItem(key, String(Date.now()));
-    const { loginRequest } = await import('./authConfig');
-    await msalInstance.loginRedirect({ ...loginRequest, prompt: 'none', loginHint: email });
-  } catch { /* priming is best-effort - Teams posts degrade to "not sent", nothing else */ }
+    // Silent iframe path only. The old fallback did a full-page loginRedirect when
+    // the iframe failed - which flashed the whole app as a "reload" on the first
+    // open of the day. Not worth it: priming only speeds up secondary Graph
+    // features (the Teams BOD/EOD post is delivered SERVER-SIDE now, and people
+    // pickers have their own fallback). If the silent path can't prime, those
+    // features just resolve on demand later - the app never navigates the page.
+    await primeGraphSso(email);
+  } catch { /* priming is best-effort - never a full-page redirect */ }
 }
 
 /** Resolve identity from the session before the app renders. Returns whether to

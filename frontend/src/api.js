@@ -238,6 +238,15 @@ async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
   // BFF mode: a 401 means the session cookie is dead/absent -> server-side login
   // (the replacement for MSAL's token-refresh + interactive reauth).
   if (res.status === 401 && BFF_MODE) {
+    // A 401 is usually TRANSIENT, not a dead session: the server's silent token
+    // refresh raced this request, or Microsoft blipped for a moment. Retry once
+    // (letting that settle) BEFORE the jarring full-page re-login - so a user
+    // coming back from lunch isn't bounced through a whole-page sign-in for a
+    // momentary hiccup. Only a genuinely dead session (still 401 on retry) redirects.
+    if (!tokenRefreshed) {
+      await new Promise(r => setTimeout(r, 700));
+      return req(path, options, attempt, true);
+    }
     bffLogin();
   } else if (res.status === 401 && !tokenRefreshed) {
     // On 401 (expired token), force-refresh MSAL token and retry once
@@ -321,6 +330,11 @@ async function reqBlob(path, options = {}, attempt = 1, tokenRefreshed = false) 
     throw err;
   }
   if (res.status === 401 && BFF_MODE) {
+    // Same as req(): absorb a transient 401 with one retry before a full-page re-login.
+    if (!tokenRefreshed) {
+      await new Promise(r => setTimeout(r, 700));
+      return reqBlob(path, options, attempt, true);
+    }
     bffLogin();
   } else if (res.status === 401 && !tokenRefreshed) {
     return reqBlob(path, options, attempt, true);
