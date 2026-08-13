@@ -147,6 +147,18 @@ export default function LiveView({ email, name, onClose }) {
         // Tracks arrive in the agent's source order (primary screen first).
         setStreams((prev) => (prev.some((s) => s.id === stream.id) ? prev : [...prev, stream]));
         setStatus('live');
+        // Mobile browsers gate autoplay even for muted video; nudge each element.
+        setTimeout(() => Object.values(videoEls.current).forEach((v) => v && v.play && v.play().catch(() => {})), 0);
+      };
+      // On mobile/cellular, ICE can fail behind CGNAT even with TURN; surface it as
+      // an error (with the retry loop) instead of an endless "connecting", and try
+      // an ICE restart once before giving up.
+      let iceRetried = false;
+      pc.oniceconnectionstatechange = () => {
+        if (cancelled || !pc) return;
+        const st = pc.iceConnectionState;
+        if (st === 'failed' && !iceRetried && pc.restartIce) { iceRetried = true; try { pc.restartIce(); } catch (_) { /* ignore */ } }
+        else if (st === 'failed') { setStatus('error'); }
       };
       // The agent opens the channel with its offer; input over it stays inert
       // until the employee accepts a control request on their PC. Screen picking
@@ -224,7 +236,7 @@ export default function LiveView({ email, name, onClose }) {
     if (el) {
       videoEls.current[idx] = el;
       const s = streams[idx];
-      if (s && el.srcObject !== s) el.srcObject = s;
+      if (s && el.srcObject !== s) { el.srcObject = s; el.play && el.play().catch(() => {}); }
     } else delete videoEls.current[idx];
   };
   useEffect(() => {
