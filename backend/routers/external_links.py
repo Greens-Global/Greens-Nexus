@@ -262,13 +262,14 @@ def _fetch_link_preview(url: str) -> dict:
     title_match = _TITLE_RE.search(page)
     meta_description = html_lib.unescape(desc_match.group(1)).strip() if desc_match else ""
     title = html_lib.unescape(title_match.group(1)).strip() if title_match else ""
+    # No fallback to the raw meta description - a multi-sentence marketing
+    # blurb is exactly what the 1-3 word category exists to replace (Aug 13:
+    # "i said i want max 3 word description"). If classification is
+    # unavailable (no ANTHROPIC_API_KEY configured, or the call failed),
+    # leave the field blank rather than ever showing the long sentence -
+    # blank is a safe, honest default the admin can fill in by hand.
     category = _classify_category(parsed.hostname, title, meta_description)
-    # Fall back to the raw meta description only if classification is
-    # unavailable entirely (no API key configured) - a short category beats
-    # a full sentence, but a full sentence still beats leaving the field
-    # empty when there's genuinely nothing else to offer.
-    description = category or meta_description
-    return {"description": description[:300], "title": title[:120]}
+    return {"description": category[:300], "title": title[:120]}
 
 
 @router.get("/preview")
