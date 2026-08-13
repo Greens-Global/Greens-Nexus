@@ -26,19 +26,32 @@ from datetime import datetime, timezone
 from urllib.parse import urlparse
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.encoders import jsonable_encoder
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
 
 import models
 from database import get_db
-from auth import get_current_user, require_level_or_module
+from auth import get_current_user, require_level_or_module, _module_level
 
 router = APIRouter(prefix="/external-links", tags=["External Links"], dependencies=[Depends(get_current_user)])
 
 _ROLE_LEVEL = {"employee": 1, "supervisor": 2, "manager": 3, "administrator": 4, "owner": 5}
 require_links_admin  = require_level_or_module(_ROLE_LEVEL["manager"],       "external-links", "editor")
 require_links_delete = require_level_or_module(_ROLE_LEVEL["administrator"], "external-links", "full")
+
+
+def _has_vault_access(user: dict, db: Session) -> bool:
+    """One-click Company Login (Aug 13) - whether this user could reveal a
+    COMPANY vault credential at all, i.e. the same bar credvault's own router
+    dependency (require_module_grant("credvault")) uses: administrator+ or a
+    credvault Access Group grant at any level. Gates whether ExternalLink.
+    vault_cred_id is included in what this user gets back below - External
+    Links is a baseline module (every employee reads it), so a link's
+    attached credential must never be visible to someone who couldn't
+    already see/reveal it through Vault itself."""
+    return user["level"] >= _ROLE_LEVEL["administrator"] or _module_level(user["email"], "credvault", db) >= 1
 
 
 class ExternalLinkCreate(BaseModel):
@@ -50,6 +63,7 @@ class ExternalLinkCreate(BaseModel):
     company: str = ""         # "" = shown to every company; else an HrEntity.id
     icon: str = "Link2"       # lucide-react icon key, resolved client-side
     is_pinned: bool = False
+    vault_cred_id: str = ""   # optional COMPANY VaultCredential.id - one-click login
 
 
 class ExternalLinkUpdate(BaseModel):
@@ -61,6 +75,7 @@ class ExternalLinkUpdate(BaseModel):
     company: Optional[str] = None
     icon: Optional[str] = None
     is_pinned: Optional[bool] = None
+    vault_cred_id: Optional[str] = None
 
 
 class ReorderEntry(BaseModel):
@@ -99,15 +114,26 @@ def _audit(db: Session, user: dict, action: str, link: "models.ExternalLink", ex
 
 
 @router.get("")
-def list_external_links(db: Session = Depends(get_db)):
+def list_external_links(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """Every employee can read the full directory - the department/category
     filtering is a client-side UX affordance, not an access boundary (these
-    are just launch links, same as the old company-wide start page)."""
-    return (
+    are just launch links, same as the old company-wide start page).
+    vault_cred_id is the one exception: it's stripped for anyone without
+    credvault access (see _has_vault_access) - the linked credential must
+    stay invisible to someone who couldn't already reveal it through Vault."""
+    rows = (
         db.query(models.ExternalLink)
         .order_by(models.ExternalLink.is_pinned.desc(), models.ExternalLink.sort_order.asc(), models.ExternalLink.name.asc())
         .all()
     )
+    if _has_vault_access(user, db):
+        return rows
+    out = []
+    for l in rows:
+        d = jsonable_encoder(l)
+        d["vault_cred_id"] = ""
+        out.append(d)
+    return out
 
 
 @router.get("/meta")
@@ -219,6 +245,26 @@ async def preview_external_link(url: str, user: dict = Depends(get_current_user)
     return await asyncio.to_thread(_fetch_link_preview, url)
 
 
+def _validate_vault_cred_id(cred_id: str, user: dict, db: Session):
+    """Backstop behind the Add/Edit Link picker (which already only offers
+    credentials to admins with credvault access): a non-empty vault_cred_id
+    must both belong to a real, non-deleted company credential and only be
+    settable by someone who could see the Vault list in the first place -
+    otherwise a manager without credvault access could wire an External Link
+    to a credential id they merely guessed."""
+    if not cred_id:
+        return
+    if not _has_vault_access(user, db):
+        raise HTTPException(status_code=403, detail="You don't have Credential Vault access to link a credential.")
+    found = (
+        db.query(models.VaultCredential.id)
+        .filter(models.VaultCredential.id == cred_id, models.VaultCredential.deleted_at == "")
+        .first()
+    )
+    if not found:
+        raise HTTPException(status_code=400, detail="Selected credential not found.")
+
+
 @router.post("", status_code=201)
 def create_external_link(link: ExternalLinkCreate, user: dict = Depends(require_links_admin), db: Session = Depends(get_db)):
     target = _normalize_url(link.url)
@@ -228,6 +274,7 @@ def create_external_link(link: ExternalLinkCreate, user: dict = Depends(require_
     )
     if existing:
         raise HTTPException(status_code=409, detail=f'This link is already added as "{existing.name}".')
+    _validate_vault_cred_id(link.vault_cred_id, user, db)
     now = _now()
     db_link = models.ExternalLink(
         **link.model_dump(),
@@ -262,6 +309,8 @@ def update_external_link(link_id: int, patch: ExternalLinkUpdate, user: dict = D
     if not db_link:
         raise HTTPException(status_code=404, detail="Link not found")
     changes = patch.model_dump(exclude_unset=True)
+    if "vault_cred_id" in changes:
+        _validate_vault_cred_id(changes["vault_cred_id"] or "", user, db)
     for field, value in changes.items():
         setattr(db_link, field, value)
     db_link.updated_at = _now()

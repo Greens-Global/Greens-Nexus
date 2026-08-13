@@ -161,6 +161,13 @@ class ExternalLink(Base):
     # department on purpose: a link can be company-wide but department-
     # specific (e.g. Accounting at Greens India) or vice versa.
     company = Column(String, default="")
+    # One-click Company Login (Aug 13) - optional VaultCredential.id from the
+    # COMPANY vault (not Personal - see PersonalLink.vault_cred_id for that).
+    # Only ever returned to a user who already holds credvault module access
+    # (list_external_links strips it otherwise) - reveal itself still goes
+    # through /credvault's own OTP gate + tier rules, this column only wires
+    # the link to the credential, it grants nothing by itself.
+    vault_cred_id = Column(String, default="")
 
 
 class PersonalLink(Base):
