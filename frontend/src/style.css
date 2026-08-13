@@ -3799,6 +3799,22 @@ button, [role="button"], select { touch-action: manipulation; }
   background: var(--wk-brand-tint);
   box-shadow: 0 0 0 2px var(--wk-brand);
 }
+/* Folder tiles size to their own name rather than the fixed 86px every
+   plain app tile uses (Aug 14) - a folder's name is admin/user-picked and
+   can run longer than any app name ever does, and the fixed width was
+   splitting mid-word ("ACCOUNTIN" / "G (7)") instead of wrapping at the
+   space between words. min-width keeps it visually aligned with the
+   regular tiles beside it when the name is short; max-width caps how wide
+   a very long name is allowed to push it before wrapping takes over. */
+.app-tile-folder {
+  width: auto;
+  min-width: 86px;
+  max-width: 132px;
+}
+.app-tile-folder .app-tile-name {
+  word-break: normal;
+  overflow-wrap: break-word;
+}
 .app-tile-icon-wrap { position: relative; }
 .app-tile-name {
   margin-top: 8px;

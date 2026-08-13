@@ -746,8 +746,13 @@ export default function ExternalLinks() {
             onOpen={openLink} />
         )}
 
-        {/* Filter bar */}
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 16, alignItems: 'center' }}>
+        {/* Filter bar - category chips sit inline beside the Companies
+            dropdown (Aug 14), not stacked on their own row below, so the
+            filter bar reads as one control group instead of two. The chip
+            strip gets its own shrinkable/scrollable flex item (minWidth: 0)
+            so a long category list scrolls horizontally in place rather
+            than pushing the search box and dropdowns off narrower screens. */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 20, alignItems: 'center' }}>
           <div style={{ position: 'relative', flex: '1 1 260px', minWidth: 220 }}>
             <Search size={15} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
             <input
@@ -767,17 +772,15 @@ export default function ExternalLinks() {
               {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           )}
+          {categoriesAvailable.length > 0 && (
+            <div className="scroll-tabs" style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 4, flex: '1 1 260px', minWidth: 0 }}>
+              <Chip active={!category} label="All Categories" onClick={() => setCategory('')} />
+              {categoriesAvailable.map(c => (
+                <Chip key={c} active={category === c} label={c} color={colorFor(c)} onClick={() => setCategory(category === c ? '' : c)} />
+              ))}
+            </div>
+          )}
         </div>
-
-        {/* Category chips */}
-        {categoriesAvailable.length > 0 && (
-          <div className="scroll-tabs" style={{ display: 'flex', gap: 8, marginBottom: 20, overflowX: 'auto', paddingBottom: 4 }}>
-            <Chip active={!category} label="All Categories" onClick={() => setCategory('')} />
-            {categoriesAvailable.map(c => (
-              <Chip key={c} active={category === c} label={c} color={colorFor(c)} onClick={() => setCategory(category === c ? '' : c)} />
-            ))}
-          </div>
-        )}
 
         <AsyncSection
           loading={isLoading}
@@ -1216,7 +1219,7 @@ function FolderTile({ folder, memberLinks, onOpen, dragHandleProps, dropProps, i
   const preview = memberLinks.slice(0, 4);
   return (
     <div
-      className={`app-tile${isDropTarget ? ' app-tile-drop-target' : ''}`} onClick={onOpen} data-folder-id={folder.id}
+      className={`app-tile app-tile-folder${isDropTarget ? ' app-tile-drop-target' : ''}`} onClick={onOpen} data-folder-id={folder.id}
       role="button" tabIndex={0}
       onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(); } }}
       title={folder.name}
