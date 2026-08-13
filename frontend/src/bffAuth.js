@@ -126,10 +126,39 @@ function installSyntheticAccount(me) {
     name: me.name || me.email,
     idTokenClaims: { preferred_username: me.email, name: me.name || me.email },
   };
+  // The COOKIE session is the source of truth for identity. Only ever expose an
+  // MSAL account that belongs to the cookie user - never a real account left in
+  // the cache by a PREVIOUS user on a shared PC. Without this, Aarav signing in
+  // on Arnav's browser saw Arnav's name/avatar/greeting (accounts[0] returned
+  // the stale real account) while the API correctly saw Aarav: a split-brain
+  // identity. Filtering to the cookie email makes the synthetic account win when
+  // the only real account is someone else's.
+  const mine = (me.email || '').toLowerCase();
+  const isMine = (a) => a && (a.username || '').toLowerCase() === mine;
   const realAll = msalInstance.getAllAccounts.bind(msalInstance);
-  msalInstance.getAllAccounts = () => { const r = realAll(); return r.length ? r : [acct]; };
+  msalInstance.getAllAccounts = () => { const r = realAll().filter(isMine); return r.length ? r : [acct]; };
   const realActive = msalInstance.getActiveAccount.bind(msalInstance);
-  msalInstance.getActiveAccount = () => realActive() ?? acct;
+  msalInstance.getActiveAccount = () => { const a = realActive(); return isMine(a) ? a : acct; };
+}
+
+/** Evict any cached MSAL account that belongs to a DIFFERENT user than the cookie
+ *  session (a previous user on this shared browser). Belt-and-suspenders on top of
+ *  installSyntheticAccount's filter: it also removes the old user's tokens from
+ *  this browser so nothing can silently acquire Graph tokens as them. */
+async function _evictForeignAccounts(email) {
+  try {
+    const { msalReady } = await import('./msalInstance');
+    await msalReady;
+    const mine = (email || '').toLowerCase();
+    const foreign = msalInstance.getAllAccounts().filter(a => (a.username || '').toLowerCase() !== mine);
+    if (!foreign.length) return;
+    for (const a of foreign) {
+      try { await msalInstance.clearCache({ account: a }); } catch (_) { /* try the next */ }
+    }
+    // A stale msalprime marker for the old user is irrelevant; drop this user's so
+    // priming their REAL account can run now instead of waiting out the 24h guard.
+    try { localStorage.removeItem('nexus:msalprime:' + email); } catch (_) { /* storage blocked */ }
+  } catch (_) { /* best-effort */ }
 }
 
 /** Get a REAL MSAL account into the cache for the cookie-session user.
@@ -178,6 +207,9 @@ export async function bffBootstrap() {
           try { localStorage.setItem('nexus:lastEmail', _me.email); } catch { /* storage blocked */ }
           // Signed in successfully - any leftover logout markers are stale.
           clearSignedOutMarker();
+          // Shared PC: drop a previous user's cached MSAL account/tokens BEFORE we
+          // expose accounts, so the new user never inherits the old identity.
+          await _evictForeignAccounts(_me.email);
           installSyntheticAccount(_me);
           // Background: turn the live Entra SSO session into a REAL cached MSAL
           // account so Graph calls - the Teams BOD/EOD post, chat lists - work
