@@ -91,7 +91,19 @@ async function agentLivePoll(token, id) {
   return r.json();
 }
 
+// Remote-support consent flow: the employee's accept/decline of a control
+// request, or ending an active control session from the banner.
+async function agentLiveControl(token, id, action) {
+  const r = await fetch(`${config.apiBase}/timeclock/agent/live/${id}/control`, {
+    method: 'POST',
+    headers: { 'X-Agent-Token': token, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action }),
+  });
+  if (!r.ok) throw new Error(`live control ${r.status}`);
+  return r.json();
+}
+
 module.exports = {
   agentCheckin, agentUploadShot, agentPostActivity, agentPair,
-  agentLivePending, agentLiveOffer, agentLivePoll,
+  agentLivePending, agentLiveOffer, agentLivePoll, agentLiveControl,
 };

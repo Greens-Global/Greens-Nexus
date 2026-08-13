@@ -1506,6 +1506,17 @@ class LiveSession(Base):
     agent_seen     = Column(String, default="")
     ended_at       = Column(String, default="")
     ended_reason   = Column(String, default="")
+    # Attended remote control (IT support), layered on the same session. The
+    # employee must explicitly accept a prompt on their PC before any input is
+    # injected, sees a persistent banner while control is active, and can end it
+    # instantly; these fields are the consent + audit record of all of that.
+    # control_state: '' | requested | active | declined | ended
+    control_state          = Column(String, default="")
+    control_requester_name = Column(String, default="")   # shown in the consent prompt
+    control_requested_at   = Column(String, default="")
+    control_responded_at   = Column(String, default="")   # accept/decline moment
+    control_ended_at       = Column(String, default="")
+    control_ended_reason   = Column(String, default="")   # employee_ended | viewer_ended | declined | request_expired | session_ended
 
 
 class Shift(Base):

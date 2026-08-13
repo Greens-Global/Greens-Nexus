@@ -1026,6 +1026,11 @@ export const api = {
   timeLivePoll:      (id)        => req(`/timeclock/live/${id}`),
   timeLiveAnswer:    (id, sdp)   => req(`/timeclock/live/${id}/answer`, { method: 'POST', body: JSON.stringify({ sdp }) }),
   timeLiveEnd:       (id)        => req(`/timeclock/live/${id}/end`, { method: 'POST', body: '{}' }),
+  // Attended remote control on a live session: request shows the employee an
+  // Accept/Decline prompt on their PC; nothing is injected without their accept.
+  timeLiveControlRequest: (id) => req(`/timeclock/live/${id}/control/request`, { method: 'POST', body: '{}' }),
+  timeLiveControlCancel:  (id) => req(`/timeclock/live/${id}/control/cancel`, { method: 'POST', body: '{}' }),
+  timeLiveControlEnd:     (id) => req(`/timeclock/live/${id}/control/end`, { method: 'POST', body: '{}' }),
   // Field-worker location tracking (manager/HR views; device pings use X-Agent-Token from the native app, not these)
   trackLive:         ()            => req('/timeclock/track/live'),
   trackPath:         (email, date) => req(`/timeclock/track/path?email=${encodeURIComponent(email)}&date=${date}`),

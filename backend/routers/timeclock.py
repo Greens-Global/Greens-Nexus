@@ -2353,8 +2353,57 @@ def _subject_state(db: Session, email: str) -> str:
     return "on_break" if on_break else "live"
 
 
+def _display_name(db: Session, email: str) -> str:
+    """First + last name for the consent prompt - never a raw email. Falls back to
+    a title-cased guess from the address's local part for accounts not yet in the
+    People directory."""
+    em = (email or "").strip().lower()
+    e = db.query(NexusEmployee).filter(NexusEmployee.work_email == em).first()
+    if e:
+        name = f"{e.first_name or ''} {e.last_name or ''}".strip()
+        if name:
+            return name
+    return " ".join(p.capitalize() for p in em.split("@")[0].replace("_", ".").split(".") if p) or "IT"
+
+
+_CONTROL_REQUEST_TTL_SEC = 75   # unanswered consent prompt expires (agent auto-declines at 60s)
+
+
+def _control_expire(db: Session, s):
+    """A control request nobody answered (agent offline, employee walked away)
+    quietly lapses so the viewer's button resets and a stale prompt can't be
+    accepted minutes later."""
+    if s.control_state == "requested" and not _live_fresh_within(s.control_requested_at, _CONTROL_REQUEST_TTL_SEC):
+        s.control_state = ""
+        s.control_ended_reason = "request_expired"
+        db.commit()
+
+
+def _live_fresh_within(iso: str, ttl: int) -> bool:
+    dt = _parse_iso(iso) if iso else None
+    if dt is None:
+        return False
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return (_live_now() - dt).total_seconds() <= ttl
+
+
+def _control_end(db: Session, s, reason: str):
+    if s.control_state in ("requested", "active"):
+        s.control_state = "ended" if s.control_state == "active" else ""
+        s.control_ended_at = _now_iso()
+        s.control_ended_reason = reason
+        db.commit()
+
+
 def _live_end(db: Session, s, reason: str):
     if s.state != "ended":
+        # Control never outlives its session: clock-out, break, a closed tab or a
+        # dead agent all tear down input injection along with the stream.
+        if s.control_state in ("requested", "active"):
+            s.control_state = "ended" if s.control_state == "active" else ""
+            s.control_ended_at = _now_iso()
+            s.control_ended_reason = "session_ended"
         s.state = "ended"
         s.ended_at = _now_iso()
         s.ended_reason = reason
@@ -2435,8 +2484,12 @@ def live_poll(sid: str, user: dict = Depends(require_administrator), db: Session
             _live_end(db, s, f"subject_{subj}")
         elif s.state in ("offering", "connected") and not _live_fresh(s.agent_seen):
             _live_end(db, s, "agent_lost")
+        else:
+            _control_expire(db, s)
     return {"state": s.state, "offerSdp": s.offer_sdp or "",
-            "endedReason": s.ended_reason, "fps": s.fps}
+            "endedReason": s.ended_reason, "fps": s.fps,
+            "controlState": s.control_state or "",
+            "controlEndedReason": s.control_ended_reason or ""}
 
 
 class LiveSdpIn(BaseModel):
@@ -2468,6 +2521,95 @@ def live_end(sid: str, user: dict = Depends(require_administrator), db: Session 
         raise HTTPException(404, "No such live session")
     _live_end(db, s, "viewer_closed")
     return {"ok": True}
+
+
+# ── Attended remote control (IT support) ─────────────────────────────────────
+# Layered on a connected live-view session. The flow is consent-first: the viewer
+# REQUESTS control, the agent shows the employee an Accept/Decline prompt, and no
+# input is ever injected unless the employee accepted AND the server says the
+# session is still active. Either side ends it instantly; every transition is
+# stamped on the LiveSession row as the audit record.
+
+@router.post("/live/{sid}/control/request")
+def live_control_request(sid: str, user: dict = Depends(require_administrator),
+                         db: Session = Depends(get_db)):
+    s = db.query(LiveSession).filter(LiveSession.id == sid).first()
+    if not s or s.viewer_email != user["email"]:
+        raise HTTPException(404, "No such live session")
+    if s.state != "connected":
+        raise HTTPException(409, "Live view must be connected before requesting control.")
+    if s.control_state == "active":
+        raise HTTPException(409, "Control is already active.")
+    if s.control_state == "requested":
+        raise HTTPException(409, "A control request is already waiting.")
+    s.control_state = "requested"
+    s.control_requester_name = _display_name(db, user["email"])
+    s.control_requested_at = _now_iso()
+    s.control_responded_at = s.control_ended_at = s.control_ended_reason = ""
+    s.viewer_seen = s.updated_at = _now_iso()
+    db.commit()
+    return {"ok": True, "controlState": s.control_state}
+
+
+@router.post("/live/{sid}/control/cancel")
+def live_control_cancel(sid: str, user: dict = Depends(require_administrator),
+                        db: Session = Depends(get_db)):
+    s = db.query(LiveSession).filter(LiveSession.id == sid).first()
+    if not s or s.viewer_email != user["email"]:
+        raise HTTPException(404, "No such live session")
+    if s.control_state == "requested":
+        s.control_state = ""
+        s.control_ended_reason = "viewer_canceled"
+        s.updated_at = _now_iso()
+        db.commit()
+    return {"ok": True, "controlState": s.control_state}
+
+
+@router.post("/live/{sid}/control/end")
+def live_control_end(sid: str, user: dict = Depends(require_administrator),
+                     db: Session = Depends(get_db)):
+    s = db.query(LiveSession).filter(LiveSession.id == sid).first()
+    if not s or s.viewer_email != user["email"]:
+        raise HTTPException(404, "No such live session")
+    _control_end(db, s, "viewer_ended")
+    return {"ok": True, "controlState": s.control_state}
+
+
+class AgentControlIn(BaseModel):
+    action: str   # accept | decline | end
+
+
+@router.post("/agent/live/{sid}/control")
+def agent_live_control(sid: str, body: AgentControlIn, dev: AgentDevice = Depends(get_agent_device),
+                       db: Session = Depends(get_db)):
+    """The employee's side of the consent flow, authenticated by the device token:
+    accept/decline the prompt, or end an active control session from the banner."""
+    s = db.query(LiveSession).filter(LiveSession.id == sid, LiveSession.device_id == dev.id).first()
+    if not s:
+        raise HTTPException(404, "No such live session")
+    action = (body.action or "").strip().lower()
+    now = _now_iso()
+    if action == "accept":
+        if s.control_state != "requested":
+            raise HTTPException(409, f"Control is {s.control_state or 'not requested'}")
+        s.control_state = "active"
+        s.control_responded_at = now
+    elif action == "decline":
+        if s.control_state != "requested":
+            raise HTTPException(409, f"Control is {s.control_state or 'not requested'}")
+        s.control_state = "declined"
+        s.control_responded_at = now
+        s.control_ended_reason = "declined"
+    elif action == "end":
+        if s.control_state == "active":
+            s.control_state = "ended"
+            s.control_ended_at = now
+            s.control_ended_reason = "employee_ended"
+    else:
+        raise HTTPException(400, "action must be accept, decline or end")
+    s.agent_seen = s.updated_at = now
+    db.commit()
+    return {"ok": True, "controlState": s.control_state}
 
 
 @router.get("/agent/live/pending")
@@ -2522,7 +2664,11 @@ def agent_live_poll(sid: str, dev: AgentDevice = Depends(get_agent_device), db: 
             _live_end(db, s, "subject_left")
         elif not _live_fresh(s.viewer_seen):
             _live_end(db, s, "viewer_gone")
-    return {"state": s.state, "answerSdp": s.answer_sdp or "", "endedReason": s.ended_reason}
+        else:
+            _control_expire(db, s)
+    return {"state": s.state, "answerSdp": s.answer_sdp or "", "endedReason": s.ended_reason,
+            "controlState": s.control_state or "",
+            "requesterName": s.control_requester_name or ""}
 
 
 # ── Insights dashboard: Top Apps / Top Websites / activity (manager + HR) ────

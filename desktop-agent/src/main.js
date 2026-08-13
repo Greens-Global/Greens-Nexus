@@ -139,12 +139,15 @@ function trayImage(rgb) {
   }
   return nativeImage.createFromBitmap(buf, { width: w, height: h });
 }
-const GREEN = [34, 197, 94], GRAY = [148, 163, 184], BLUE = [59, 130, 246];
+const GREEN = [34, 197, 94], GRAY = [148, 163, 184], BLUE = [59, 130, 246], RED = [239, 68, 68];
 
 // A manager is watching this screen live right now. Shown only as a color shift
 // (blue) on the always-visible tray icon - the wording is intentionally omitted
 // because live viewing is disclosed in the privacy policy / ToS / agreement.
 let liveActive = false;
+// IT is remote-controlling with the employee's explicit consent: tray goes red as
+// an extra cue on top of the always-on-top "End Session" banner.
+let controlActive = false;
 let lastCapturing = false, lastDetail = '';
 
 function setTray(capturing, detail) {
@@ -157,7 +160,7 @@ function setTray(capturing, detail) {
   // privacy policy / ToS / employment agreement, so the tray does NOT spell out
   // "Live view active"; it only shifts color (blue) as a subtle state cue.
   const title = 'Plugin';
-  tray.setImage(trayImage(liveActive ? BLUE : (capturing ? GREEN : GRAY)));
+  tray.setImage(trayImage(controlActive ? RED : liveActive ? BLUE : (capturing ? GREEN : GRAY)));
   tray.setToolTip(detail ? `${title}\n${detail}` : title);
   // INTENTIONALLY no Exit / Quit / Pause / Stop item: an employee cannot stop
   // monitoring from here. Only read-only/benign entries. Closing this tray does
@@ -328,6 +331,7 @@ app.whenReady().then(() => {
     getToken: () => deviceToken,
     log,
     onLiveChange: (on) => { liveActive = on; setTray(lastCapturing, lastDetail); },
+    onControlChange: (on) => { controlActive = on; setTray(lastCapturing, lastDetail); },
   });
 
   tick();                                       // first heartbeat now

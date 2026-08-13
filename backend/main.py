@@ -418,6 +418,14 @@ def _run_migrations():
             "ALTER TABLE external_links ADD COLUMN created_at VARCHAR DEFAULT ''",
             "ALTER TABLE external_links ADD COLUMN updated_at VARCHAR DEFAULT ''",
             "ALTER TABLE external_links ADD COLUMN company VARCHAR DEFAULT ''",
+            # Attended remote control (IT support) - consent + audit fields on the
+            # live-view session row.
+            "ALTER TABLE live_view_sessions ADD COLUMN control_state VARCHAR DEFAULT ''",
+            "ALTER TABLE live_view_sessions ADD COLUMN control_requester_name VARCHAR DEFAULT ''",
+            "ALTER TABLE live_view_sessions ADD COLUMN control_requested_at VARCHAR DEFAULT ''",
+            "ALTER TABLE live_view_sessions ADD COLUMN control_responded_at VARCHAR DEFAULT ''",
+            "ALTER TABLE live_view_sessions ADD COLUMN control_ended_at VARCHAR DEFAULT ''",
+            "ALTER TABLE live_view_sessions ADD COLUMN control_ended_reason VARCHAR DEFAULT ''",
             # External Links directory rebuild (Aug 2026) - real Accounting-view
             # data sourced from start.greensglobal.com (screenshot, Aug 12); name-keyed
             # idempotent inserts so this only fires once per row, everywhere. A few
@@ -481,6 +489,14 @@ def _run_migrations():
         "ALTER TABLE time_screenshots ADD COLUMN IF NOT EXISTS session_id VARCHAR DEFAULT ''",
         "ALTER TABLE agent_devices ADD COLUMN IF NOT EXISTS active_email VARCHAR DEFAULT ''",
         "ALTER TABLE agent_devices ADD COLUMN IF NOT EXISTS active_session_id VARCHAR DEFAULT ''",
+        # Attended remote control (IT support) - consent + audit fields on the
+        # live-view session row.
+        "ALTER TABLE live_view_sessions ADD COLUMN IF NOT EXISTS control_state VARCHAR DEFAULT ''",
+        "ALTER TABLE live_view_sessions ADD COLUMN IF NOT EXISTS control_requester_name VARCHAR DEFAULT ''",
+        "ALTER TABLE live_view_sessions ADD COLUMN IF NOT EXISTS control_requested_at VARCHAR DEFAULT ''",
+        "ALTER TABLE live_view_sessions ADD COLUMN IF NOT EXISTS control_responded_at VARCHAR DEFAULT ''",
+        "ALTER TABLE live_view_sessions ADD COLUMN IF NOT EXISTS control_ended_at VARCHAR DEFAULT ''",
+        "ALTER TABLE live_view_sessions ADD COLUMN IF NOT EXISTS control_ended_reason VARCHAR DEFAULT ''",
         "ALTER TABLE requisitions ADD COLUMN IF NOT EXISTS employee_email VARCHAR DEFAULT ''",
         "ALTER TABLE nexus_notifications ADD COLUMN IF NOT EXISTS read_by VARCHAR DEFAULT ''",
         # inventory_requests: return-flow columns added after initial table creation

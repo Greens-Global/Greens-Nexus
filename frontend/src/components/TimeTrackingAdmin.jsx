@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { ShieldCheck, Loader2, Check, MonitorSmartphone, Copy, Ban, TriangleAlert, Trash2, Activity, ChevronDown, Video, X, Radio } from 'lucide-react';
+import { ShieldCheck, Loader2, Check, MonitorSmartphone, Copy, Ban, TriangleAlert, Trash2, Activity, ChevronDown, Video, X, Radio, MousePointer2 } from 'lucide-react';
 import { api } from '../api';
 import { Avatar } from '../tasks/components';
 import ScreenshotsAdmin from './ScreenshotsAdmin';
@@ -281,8 +281,13 @@ function waitIceGathering(pc) {
 // Disclosure: the employee's tray shows "Live view active" the whole time.
 function LiveView({ email, name, onClose }) {
   const videoRef = useRef(null);
+  const stageRef = useRef(null);    // the video's container - input capture while controlling
+  const sidRef = useRef(null);      // current session id, for the control buttons
+  const channelRef = useRef(null);  // WebRTC data channel carrying control input
   const [status, setStatus] = useState('connecting');   // connecting|live|break|offline|error
   const [fps, setFps] = useState(60);
+  // Remote control: ''|requested|active|declined|ended, mirrored from the server.
+  const [control, setControl] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -292,7 +297,10 @@ function LiveView({ email, name, onClose }) {
     let answered = false;
 
     const clearTimer = () => { if (timer) { clearTimeout(timer); timer = null; } };
-    const closePc = () => { try { if (pc) pc.close(); } catch (_) { /* ignore */ } pc = null; answered = false; };
+    const closePc = () => {
+      try { if (pc) pc.close(); } catch (_) { /* ignore */ }
+      pc = null; answered = false; channelRef.current = null;
+    };
 
     async function begin() {
       if (cancelled) return;
@@ -306,6 +314,7 @@ function LiveView({ email, name, onClose }) {
         return;
       }
       sid = res.sessionId;
+      sidRef.current = sid;
       setFps(res.fps || 30);
       pc = new RTCPeerConnection({ iceServers: res.iceServers || [] });
       pc.ontrack = (e) => {
@@ -313,6 +322,9 @@ function LiveView({ email, name, onClose }) {
         if (videoRef.current && e.streams && e.streams[0]) videoRef.current.srcObject = e.streams[0];
         setStatus('live');
       };
+      // The agent opens the control channel with its offer; it stays inert until
+      // the employee accepts a control request on their PC.
+      pc.ondatachannel = (e) => { if (e.channel && e.channel.label === 'control') channelRef.current = e.channel; };
       poll();
     }
 
@@ -329,9 +341,12 @@ function LiveView({ email, name, onClose }) {
         // -> "On break"; anything else (subject_offline, agent_lost) -> offline.
         setStatus(reason.indexOf('on_break') >= 0 ? 'break' : 'offline');
         sid = null;
+        sidRef.current = null;
+        setControl('');
         timer = setTimeout(begin, 4000);
         return;
       }
+      setControl(r.controlState || '');
       if (r.offerSdp && pc && !answered && pc.signalingState === 'stable') {
         answered = true;
         try {
@@ -350,10 +365,65 @@ function LiveView({ email, name, onClose }) {
       cancelled = true;
       clearTimer();
       closePc();
+      sidRef.current = null;
       if (sid) api.timeLiveEnd(sid).catch(() => {});
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [email]);
+
+  // ── Remote control: send viewer input over the data channel ─────────────────
+  const controlling = control === 'active' && status === 'live';
+
+  const send = useCallback((m) => {
+    const ch = channelRef.current;
+    if (ch && ch.readyState === 'open') { try { ch.send(JSON.stringify(m)); } catch (_) { /* ignore */ } }
+  }, []);
+
+  // Map a mouse event to normalized 0..1 coordinates on the remote screen,
+  // accounting for the objectFit:contain letterbox around the video.
+  const remoteXY = useCallback((e) => {
+    const v = videoRef.current;
+    if (!v || !v.videoWidth || !v.videoHeight) return null;
+    const r = v.getBoundingClientRect();
+    const scale = Math.min(r.width / v.videoWidth, r.height / v.videoHeight);
+    const dw = v.videoWidth * scale, dh = v.videoHeight * scale;
+    const x = (e.clientX - (r.left + (r.width - dw) / 2)) / dw;
+    const y = (e.clientY - (r.top + (r.height - dh) / 2)) / dh;
+    if (x < -0.02 || x > 1.02 || y < -0.02 || y > 1.02) return null;   // in the letterbox
+    return { x: Math.max(0, Math.min(1, x)), y: Math.max(0, Math.min(1, y)) };
+  }, []);
+
+  const onMouseMove = (e) => { const c = remoteXY(e); if (c) send({ t: 'mv', x: c.x, y: c.y }); };
+  const onMouseDown = (e) => {
+    const c = remoteXY(e);
+    if (!c) return;
+    e.preventDefault();
+    send({ t: 'mv', x: c.x, y: c.y });
+    send({ t: 'dn', b: e.button === 2 ? 2 : e.button === 1 ? 1 : 0 });
+  };
+  const onMouseUp = (e) => { if (remoteXY(e)) send({ t: 'up', b: e.button === 2 ? 2 : e.button === 1 ? 1 : 0 }); };
+
+  // Keyboard goes window-level while controlling (no focus juggling); wheel needs
+  // a native non-passive listener because React registers wheel as passive.
+  useEffect(() => {
+    if (!controlling) return undefined;
+    const kd = (e) => { e.preventDefault(); send({ t: 'kd', code: e.code, key: e.key, c: e.ctrlKey, a: e.altKey, s: e.shiftKey, m: e.metaKey }); };
+    const ku = (e) => { e.preventDefault(); send({ t: 'ku', code: e.code, key: e.key, c: e.ctrlKey, a: e.altKey, s: e.shiftKey, m: e.metaKey }); };
+    const wh = (e) => { e.preventDefault(); send({ t: 'wh', dx: e.deltaX, dy: e.deltaY }); };
+    window.addEventListener('keydown', kd, true);
+    window.addEventListener('keyup', ku, true);
+    const stage = stageRef.current;
+    if (stage) stage.addEventListener('wheel', wh, { passive: false });
+    return () => {
+      window.removeEventListener('keydown', kd, true);
+      window.removeEventListener('keyup', ku, true);
+      if (stage) stage.removeEventListener('wheel', wh);
+    };
+  }, [controlling, send]);
+
+  const requestControl = () => { const id = sidRef.current; if (id) api.timeLiveControlRequest(id).then(() => setControl('requested')).catch(() => {}); };
+  const cancelControl = () => { const id = sidRef.current; if (id) api.timeLiveControlCancel(id).then(() => setControl('')).catch(() => {}); };
+  const stopControl = () => { const id = sidRef.current; if (id) api.timeLiveControlEnd(id).then(() => setControl('ended')).catch(() => {}); };
 
   const overlay = status === 'break'
     ? { text: 'On break', sub: 'Screen paused while this person is on break.', color: 'hsl(var(--color-orange))' }
@@ -375,6 +445,37 @@ function LiveView({ email, name, onClose }) {
             <div style={{ fontSize: 11, color: 'var(--muted)' }}>Live screen view · {fps}fps</div>
           </div>
           <div style={{ flex: 1 }} />
+          {status === 'live' && control === 'requested' && (
+            <>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>
+                <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> Waiting for {name.split(' ')[0]} to accept…
+              </span>
+              <button onClick={cancelControl}
+                style={{ fontSize: 11.5, fontWeight: 700, padding: '5px 12px', borderRadius: 8, border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--ink)', cursor: 'pointer' }}>
+                Cancel
+              </button>
+            </>
+          )}
+          {status === 'live' && control === 'active' && (
+            <>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 800, color: 'hsl(var(--color-green))', background: 'hsla(var(--color-green),0.12)', padding: '3px 10px', borderRadius: 999 }}>
+                <MousePointer2 size={12} /> CONTROLLING
+              </span>
+              <button onClick={stopControl}
+                style={{ fontSize: 11.5, fontWeight: 700, padding: '5px 12px', borderRadius: 8, border: '1px solid var(--line)', background: 'var(--card)', color: 'hsl(var(--color-red))', cursor: 'pointer' }}>
+                Stop Control
+              </button>
+            </>
+          )}
+          {status === 'live' && control !== 'requested' && control !== 'active' && (
+            <>
+              {control === 'declined' && <span style={{ fontSize: 11, fontWeight: 700, color: 'hsl(var(--color-red))' }}>Declined</span>}
+              <button onClick={requestControl} title={`Ask ${name} to allow remote control`}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11.5, fontWeight: 700, padding: '5px 12px', borderRadius: 8, border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--ink)', cursor: 'pointer' }}>
+                <MousePointer2 size={13} /> Request Control
+              </button>
+            </>
+          )}
           {status === 'live' && (
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 800, color: 'hsl(var(--color-red))', background: 'hsla(var(--color-red),0.1)', padding: '3px 10px', borderRadius: 999 }}>
               <Radio size={12} /> LIVE
@@ -384,7 +485,12 @@ function LiveView({ email, name, onClose }) {
             <X size={16} />
           </button>
         </div>
-        <div style={{ position: 'relative', background: '#0b1220', aspectRatio: '16 / 9', width: '100%' }}>
+        <div ref={stageRef}
+          onMouseMove={controlling ? onMouseMove : undefined}
+          onMouseDown={controlling ? onMouseDown : undefined}
+          onMouseUp={controlling ? onMouseUp : undefined}
+          onContextMenu={controlling ? (e) => e.preventDefault() : undefined}
+          style={{ position: 'relative', background: '#0b1220', aspectRatio: '16 / 9', width: '100%', cursor: controlling ? 'crosshair' : 'default', outline: controlling ? '2px solid hsl(var(--color-green))' : 'none', outlineOffset: -2 }}>
           <video ref={videoRef} autoPlay muted playsInline
             style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block', filter: status === 'break' ? 'grayscale(0.6) brightness(0.7)' : 'none' }} />
           {overlay && (
@@ -398,7 +504,7 @@ function LiveView({ email, name, onClose }) {
           )}
         </div>
         <div style={{ padding: '9px 16px', fontSize: 11, color: 'var(--muted)', borderTop: '1px solid var(--line)', lineHeight: 1.5 }}>
-          Disclosed monitoring - live viewing is covered in the employee's privacy policy, terms of service, and employment agreement. Sessions are recorded in the monitoring audit log.
+          Disclosed monitoring - live viewing is covered in the employee's privacy policy, terms of service, and employment agreement. Remote control additionally requires the employee's explicit acceptance on their PC, shows them a persistent banner they can end at any time, and every session is recorded in the monitoring audit log.
         </div>
       </div>
     </div>

@@ -9,6 +9,7 @@ const { ipcRenderer } = require('electron');
 let pc = null;
 let stream = null;
 let curId = null;
+let inputEnabled = false;   // set by main ONLY while employee-accepted control is active
 
 function waitIceGathering(peer) {
   if (peer.iceGatheringState === 'complete') return Promise.resolve();
@@ -28,6 +29,7 @@ async function stop() {
   try { if (stream) stream.getTracks().forEach((t) => t.stop()); } catch (_) { /* ignore */ }
   stream = null;
   curId = null;
+  inputEnabled = false;
 }
 
 async function start({ id, sourceId, iceServers, fps }) {
@@ -53,6 +55,17 @@ async function start({ id, sourceId, iceServers, fps }) {
   if (curId !== id) { return; }   // a stop/replace raced in while we awaited
 
   pc = new RTCPeerConnection({ iceServers: iceServers || [] });
+  // Remote-support channel, created BEFORE the offer so it rides the original
+  // offer/answer (no renegotiation). It exists on every session but is inert:
+  // messages are forwarded to main only while control:enable is set, i.e. only
+  // after the employee accepted the consent prompt AND the server went active.
+  const channel = pc.createDataChannel('control', { ordered: true });
+  channel.onmessage = (ev) => {
+    if (!inputEnabled || curId !== id) return;
+    let m;
+    try { m = JSON.parse(ev.data); } catch (_) { return; }
+    if (m && typeof m.t === 'string') ipcRenderer.send('live:input', { id, m });
+  };
   for (const track of stream.getVideoTracks()) pc.addTrack(track, stream);
   pc.onconnectionstatechange = () => {
     if (!pc) return;
@@ -79,3 +92,5 @@ async function applyAnswer({ id, sdp }) {
 ipcRenderer.on('live:start', (_e, m) => { start(m); });
 ipcRenderer.on('live:answer', (_e, m) => { applyAnswer(m); });
 ipcRenderer.on('live:stop', () => { stop(); });
+ipcRenderer.on('control:enable', (_e, { id }) => { if (id === curId) inputEnabled = true; });
+ipcRenderer.on('control:disable', () => { inputEnabled = false; });

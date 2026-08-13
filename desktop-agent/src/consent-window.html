@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: #ffffff; color: #0f172a;
+    border: 1px solid #cbd5e1; border-radius: 12px; overflow: hidden;
+    display: flex; flex-direction: column;
+    -webkit-user-select: none; user-select: none;
+  }
+  .head {
+    display: flex; align-items: center; gap: 8px; padding: 12px 16px 0 16px;
+    -webkit-app-region: drag;
+  }
+  .mark {
+    width: 22px; height: 22px; border-radius: 6px; background: #1d4ed8;
+    color: #fff; font-weight: 800; font-size: 13px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .brand { font-size: 12.5px; font-weight: 700; color: #475569; }
+  .body { padding: 14px 16px 0 16px; flex: 1; }
+  .title { font-size: 15px; font-weight: 700; line-height: 1.4; }
+  .title b { color: #1d4ed8; }
+  .sub { margin-top: 6px; font-size: 12px; color: #64748b; line-height: 1.5; }
+  .hint { margin-top: 6px; font-size: 11px; color: #94a3b8; }
+  .row { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 16px 16px 16px; }
+  button {
+    font-family: inherit; font-size: 13px; font-weight: 700; cursor: pointer;
+    border-radius: 8px; padding: 8px 18px; border: 1px solid transparent;
+  }
+  .decline { background: #ffffff; color: #334155; border-color: #cbd5e1; }
+  .decline:hover { background: #f1f5f9; }
+  .accept { background: #1d4ed8; color: #ffffff; }
+  .accept:hover { background: #1e40af; }
+</style>
+</head>
+<body>
+  <div class="head">
+    <div class="mark">N</div>
+    <div class="brand">Nexus</div>
+  </div>
+  <div class="body">
+    <div class="title">IT (<b id="name">IT</b>) wants to access your computer</div>
+    <div class="sub">They will be able to see your screen and use your mouse and keyboard to help you. You can end this at any time.</div>
+    <div class="hint">If nothing is chosen, this request declines on its own in <span id="left">60</span>s.</div>
+  </div>
+  <div class="row">
+    <button class="decline" id="decline">Decline</button>
+    <button class="accept" id="accept">Accept</button>
+  </div>
+<script>
+  const { ipcRenderer } = require('electron');
+  ipcRenderer.on('consent:init', (_e, { name }) => {
+    document.getElementById('name').textContent = name || 'IT';
+  });
+  document.getElementById('accept').onclick = () => ipcRenderer.send('control:consent-decision', { accept: true });
+  document.getElementById('decline').onclick = () => ipcRenderer.send('control:consent-decision', { accept: false });
+  let left = 60;
+  const el = document.getElementById('left');
+  setInterval(() => { left = Math.max(0, left - 1); el.textContent = String(left); }, 1000);
+</script>
+</body>
+</html>

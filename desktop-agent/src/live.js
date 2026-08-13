@@ -14,14 +14,17 @@
 const path = require('path');
 const { BrowserWindow, desktopCapturer, ipcMain } = require('electron');
 const api = require('./api');
+const control = require('./control');
 
 let win = null;                 // hidden renderer running the WebRTC
 let current = null;             // { id } of the active session, or null
 let getToken = () => null;
 let logFn = () => {};
 let onLiveChange = () => {};
+let onControlChange = () => {};
 let checking = false;
 let answerTimer = null;
+let controlState = '';          // server-relayed: '' | requested | active | declined | ended
 
 function ensureWindow() {
   if (win && !win.isDestroyed()) return win;
@@ -57,6 +60,7 @@ async function primarySourceId() {
 
 async function startSession(sess) {
   current = { id: sess.id };
+  controlState = '';
   onLiveChange(true);
   try {
     const sourceId = await primarySourceId();
@@ -78,8 +82,52 @@ async function pollAnswer() {
     if (!current || current.id !== id) return;
     if (r.state === 'ended') { stopSession(r.endedReason || 'ended'); return; }
     if (r.answerSdp) sendToWindow('live:answer', { id, sdp: r.answerSdp });
+    handleControl(id, r.controlState || '', r.requesterName || '');
   } catch (e) { logFn(`live poll failed: ${e.message || e}`); }
   if (current && current.id === id) answerTimer = setTimeout(pollAnswer, 1500);
+}
+
+// ── Attended remote control state machine ─────────────────────────────────────
+// Driven entirely by the server-relayed control_state on the ~1.5s poll. The
+// employee's Accept is required before anything is injected; every exit path
+// (decline, either side ending it, session teardown) lands in teardownControl.
+function handleControl(id, next, requesterName) {
+  if (!current || current.id !== id || next === controlState) return;
+  const prev = controlState;
+  controlState = next;
+  if (next === 'requested') {
+    logFn(`control requested by ${requesterName} (session ${id})`);
+    control.showConsent(requesterName, async (accepted) => {
+      if (!current || current.id !== id) return;
+      logFn(`control ${accepted ? 'accepted' : 'declined'} by employee (session ${id})`);
+      try { await api.agentLiveControl(getToken(), id, accepted ? 'accept' : 'decline'); }
+      catch (e) { logFn(`control response failed: ${e.message || e}`); }
+    });
+  } else if (next === 'active') {
+    control.closeConsent();
+    control.start(requesterName, {
+      onEnd: async () => {
+        // Employee hit End Session on the banner: kill injection immediately,
+        // then tell the server (the viewer learns on its next poll).
+        teardownControl(id, 'employee ended');
+        controlState = 'ended';
+        try { await api.agentLiveControl(getToken(), id, 'end'); } catch (_) { /* poll re-syncs */ }
+      },
+    });
+    sendToWindow('control:enable', { id });
+    onControlChange(true);
+    logFn(`control active (session ${id})`);
+  } else {
+    control.closeConsent();
+    if (prev === 'active') teardownControl(id, next || 'cleared');
+  }
+}
+
+function teardownControl(id, reason) {
+  control.stop();
+  sendToWindow('control:disable', { id });
+  onControlChange(false);
+  logFn(`control ended (session ${id}, ${reason})`);
 }
 
 function stopSession(reason) {
@@ -87,6 +135,9 @@ function stopSession(reason) {
   const id = current.id;
   current = null;
   if (answerTimer) { clearTimeout(answerTimer); answerTimer = null; }
+  control.closeConsent();
+  if (controlState === 'active') teardownControl(id, `session ${reason}`);
+  controlState = '';
   sendToWindow('live:stop', { id });
   logFn(`live session ${id} stopped (${reason})`);
   onLiveChange(false);
@@ -118,12 +169,21 @@ ipcMain.on('live:rtcstate', (_e, { id, state }) => {
 });
 ipcMain.on('live:ended', (_e, { id }) => { if (current && current.id === id) stopSession('rtc-closed'); });
 
+// Viewer input arriving over the data channel (relayed by the hidden renderer).
+// Injected ONLY while the employee-accepted control session is active - the
+// control module drops everything otherwise, and so does this gate.
+ipcMain.on('live:input', (_e, { id, m }) => {
+  if (current && current.id === id && controlState === 'active') control.inject(m);
+});
+
 function isLive() { return !!current; }
 
 function init(opts) {
   getToken = opts.getToken || (() => null);
   logFn = opts.log || (() => {});
   onLiveChange = opts.onLiveChange || (() => {});
+  onControlChange = opts.onControlChange || (() => {});
+  control.init({ log: logFn });
 }
 
 module.exports = { init, checkPending, isLive, stopSession };
