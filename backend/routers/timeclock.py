@@ -16,6 +16,7 @@ Design decisions are research-backed (Jul 2026 deep-research pass):
   break deduction - breaks exist only as explicit punches. Compliance items
   (WA/OR break policy, retention windows) are open questions for counsel.
 """
+import base64
 import csv
 import hashlib
 import io
@@ -1950,6 +1951,19 @@ def _live_ice_servers() -> list:
     return [{"urls": "stun:stun.cloudflare.com:3478"}]
 
 
+def _ps_oneliner(script: str) -> str:
+    """Wrap a PowerShell script into a paste-anywhere one-liner via -EncodedCommand.
+    The script is base64'd (UTF-16LE, what PowerShell expects), so the pasted text
+    carries NO quotes, URLs, or $-variables in the clear. That makes it immune to:
+      - chat/linkifier mangling (a bare 'https://...ps1' followed by a quote used to
+        get linkified and the trailing ' swallowed as %27, breaking the string),
+      - cmd-vs-PowerShell quoting differences and $env: double-expansion when pasted
+        into a live PowerShell session.
+    It runs identically in Command Prompt and PowerShell."""
+    b64 = base64.b64encode(script.encode("utf-16-le")).decode("ascii")
+    return f"powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand {b64}"
+
+
 @router.get("/agent/install-command")
 def agent_install_command(user: dict = Depends(require_administrator)):
     """Return the ONE reusable Windows one-liner used on every PC (like Flowace's
@@ -1972,7 +1986,6 @@ def agent_install_command(user: dict = Depends(require_administrator)):
         f"-ApiBase '{_AGENT_API_BASE}' -WebBase '{_AGENT_WEB_BASE}'; "
         "Remove-Item $p -Force"
     )
-    command = f'powershell -NoProfile -ExecutionPolicy Bypass -Command "{inner}"'
     # Uninstall one-liner. No 106 MB bundle needed, so the script is served straight
     # from this API (no storage upload) - each machine fetches + runs it.
     uninstall_url = f"{_AGENT_API_BASE}/timeclock/agent/uninstall.ps1"
@@ -1981,15 +1994,14 @@ def agent_install_command(user: dict = Depends(require_administrator)):
         f"Invoke-WebRequest -UseBasicParsing '{uninstall_url}' -OutFile $p; "
         "& $p; Remove-Item $p -Force"
     )
-    uninstall_command = f'powershell -NoProfile -ExecutionPolicy Bypass -Command "{uinner}"'
     return {
-        "configured": configured, "command": command,
-        "uninstallCommand": uninstall_command,
-        "note": ("Same command on every PC. Run it in an elevated (admin) Command Prompt "
-                 "(cmd) - elevated installs the employee-proof service covering every "
-                 "profile; a normal prompt installs per-user for the current profile only. "
-                 "(In a live PowerShell session, download install.ps1 and run it directly "
-                 "instead - the wrapped form is written for cmd.)"),
+        "configured": configured,
+        "command": _ps_oneliner(inner),
+        "uninstallCommand": _ps_oneliner(uinner),
+        "note": ("Same command on every PC. Run it in an elevated (admin) prompt - "
+                 "elevated installs the employee-proof service covering every profile; "
+                 "a normal prompt installs per-user for the current profile only. Works "
+                 "the same pasted into Command Prompt or PowerShell."),
         "uninstallNote": ("Removes the agent from a PC. Run elevated to also remove the "
                           "machine-wide service + Program Files install; a normal prompt "
                           "removes a per-user install. Revoking the token below is separate."),

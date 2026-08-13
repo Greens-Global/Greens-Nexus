@@ -169,10 +169,9 @@ function AgentInstall() {
           </button>
         </div>
         <p style={{ margin: '9px 0 0', fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.5 }}>
-          Run it in an <b>elevated</b> (Administrator) <b>Command Prompt</b> to install the employee-proof
-          service that covers every profile on the PC. A normal prompt does a removable per-user install.
-          (Pasting into a live PowerShell session mangles it - use Command Prompt, or download install.ps1 and
-          run it directly.)
+          Run it in an <b>elevated</b> (Administrator) prompt to install the employee-proof service that covers
+          every profile on the PC. A normal prompt does a removable per-user install. It runs the same way pasted
+          into Command Prompt or PowerShell.
         </p>
 
         {/* Uninstall one-liner (served straight from the API - no bundle needed). */}
