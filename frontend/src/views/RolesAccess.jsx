@@ -396,7 +396,7 @@ export default function RolesAccess({ embedded = false }) {
                     // dropped on the header even while the section is collapsed.
                     onDragOver={dragRole ? (e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dropDept !== deptName) setDropDept(deptName); }) : undefined}
                     onDragLeave={dragRole ? (e => { if (!e.currentTarget.contains(e.relatedTarget)) setDropDept(d => (d === deptName ? null : d)); }) : undefined}
-                    onDrop={dragRole ? (e => { e.preventDefault(); const id = e.dataTransfer.getData('text/plain'); setDropDept(null); moveRoleToDept(id, deptName); }) : undefined}
+                    onDrop={dragRole ? (e => { e.preventDefault(); const id = e.dataTransfer.getData('text/plain'); setDropDept(null); setDragRole(null); moveRoleToDept(id, deptName); }) : undefined}
                     style={{ borderRadius: 12, outline: isDropTarget ? '2px dashed hsl(var(--color-green))' : '2px dashed transparent', outlineOffset: 2, background: isDropTarget ? 'hsla(var(--color-green),0.06)' : 'transparent', transition: 'background .18s ease' }}>
                     {/* Department header - click to smoothly expand/collapse its roles. */}
                     <button onClick={() => toggleDept(deptName)}
