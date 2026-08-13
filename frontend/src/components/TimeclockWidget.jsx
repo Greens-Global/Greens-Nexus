@@ -226,7 +226,9 @@ export default function TimeclockWidget() {
         const form = new FormData();
         form.append('file', blob, 'shot.jpg');
         form.append('idle_sec', String(Math.round((Date.now() - lastActive.current) / 1000)));
-        form.append('active_view', window.location.pathname.slice(0, 100)
+        // Label browser-share frames "Chrome share" (mirrors the desktop agent's
+        // "desktop agent · screen N") instead of leaking the current page path.
+        form.append('active_view', 'Chrome share'
           + (streamsRef.current.length > 1 ? ` · screen ${i + 1}` : ''));
         form.append('tz_offset_min', String(new Date().getTimezoneOffset()));
         await api.timeShotUpload(form);

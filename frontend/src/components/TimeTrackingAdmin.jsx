@@ -81,7 +81,9 @@ function AgentInstall() {
       .catch(() => setDevices([]));
   }, []);
   useEffect(() => {
-    api.timeAgentInstallCommand().then(setInfo).catch(() => setInfo(false));
+    // A view-only Employee Tracking grant can watch/see computers but not install
+    // or manage them (that needs a full grant / IT Admin) - the endpoint 403s.
+    api.timeAgentInstallCommand().then(setInfo).catch(e => setInfo(e && e.status === 403 ? 'forbidden' : false));
     loadDevices();
     // Refresh the roster so the status dots track live (heartbeat is every 60s).
     const iv = setInterval(loadDevices, 20000);
@@ -120,6 +122,9 @@ function AgentInstall() {
   }
 
   const card = { border: '1px solid var(--line)', borderRadius: 14, padding: '16px 18px', background: 'var(--card)', marginTop: 16 };
+  // View-only Employee Tracking grant: can see the enrolled list, but not install
+  // or manage computers (those endpoints require a full grant / IT Admin).
+  const viewOnly = info === 'forbidden';
 
   return (
     <div style={card}>
@@ -133,6 +138,12 @@ function AgentInstall() {
         green while capturing, a named process in Task Manager, and it records only while someone is clocked in.
       </p>
 
+      {viewOnly ? (
+        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', background: 'var(--mist)', border: '1px solid var(--line)', borderRadius: 10, padding: '10px 12px', fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.5 }}>
+          <ShieldCheck size={14} style={{ color: 'hsl(var(--color-blue))', flexShrink: 0, marginTop: 1 }} />
+          <span>You have <b>view-only</b> access to Employee Tracking. Installing, assigning, and removing computers needs a full grant (or IT Admin). You can still watch screens and view the enrolled list below.</span>
+        </div>
+      ) : (<>
       {/* Install/uninstall commands live under a toggle - the day-to-day need is
           the enrolled list below, not the copy-paste commands. */}
       <button onClick={() => setShowHow(v => !v)}
@@ -194,6 +205,7 @@ function AgentInstall() {
         )}
       </>)}
       </div>)}
+      </>)}
 
       {/* Enrolled computers */}
       <div style={{ marginTop: 18, borderTop: '1px solid var(--line)', paddingTop: 14 }}>
@@ -221,7 +233,13 @@ function AgentInstall() {
                 {d.activeName && !d.capturing && <> · <span style={{ fontWeight: 700 }}>{d.activeName}</span></>}
               </div>
             </div>
-            {/* Assign this PC to a Nexus person (its owner). */}
+            {/* Assign this PC to a Nexus person (its owner). Owner picker + Revoke +
+                Remove need a full grant; a view-only grant sees the owner read-only. */}
+            {viewOnly ? (
+              <span style={{ fontSize: 11.5, color: 'var(--muted)', flexShrink: 0 }}>
+                {d.email ? <>Owner: <b style={{ color: 'var(--ink)' }}>{d.name || d.email}</b></> : 'Shared'}
+              </span>
+            ) : (<>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
               <span style={{ fontSize: 11, color: 'var(--muted)' }}>Owner</span>
               <select className="form-input" value={d.email || ''} onChange={e => assign(d.id, e.target.value)}
@@ -243,6 +261,7 @@ function AgentInstall() {
               style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, cursor: 'pointer', color: 'var(--muted)', padding: '4px 7px', display: 'inline-flex', alignItems: 'center', flexShrink: 0 }}>
               <Trash2 size={13} />
             </button>
+            </>)}
           </div>
         ))}
       </div>

@@ -3,6 +3,7 @@ import { Loader2, MonitorSmartphone, X, Radio, MousePointer2, Maximize2, Externa
 import { api } from '../api';
 import { Avatar } from '../tasks/components';
 import { useRole } from '../contexts/RoleContext';
+import { usePhotoMap } from '../lib/peoplePhotos';
 
 // Real-time screen view of one clocked-in employee (Discord-style), plus
 // consent-based attended remote control. The browser is the WebRTC ANSWERER: we
@@ -55,6 +56,8 @@ const iconBtn = {
 
 export default function LiveView({ email, name, onClose }) {
   const { myEmail } = useRole();       // the support person - their avatar rides the control cursor
+  const photos = usePhotoMap();
+  const myPhoto = myEmail ? photos[myEmail.toLowerCase()] : '';
   const cardRef = useRef(null);        // fullscreen target (whole modal, so controls stay visible)
   const stageWrapRef = useRef(null);   // wheel/drag surface
   const videoEls = useRef({});         // screen index -> <video> element
@@ -351,19 +354,49 @@ export default function LiveView({ email, name, onClose }) {
       return b;
     };
     const stage = d.createElement('div');
-    stage.style.cssText = 'position:relative;flex:1;min-height:0';
+    stage.style.cssText = 'position:relative;flex:1;min-height:0;overflow:hidden';
+    // Zoom wrapper (grows past the stage so it scrolls) - mirrors the modal.
+    const vwrap = d.createElement('div');
+    vwrap.style.cssText = 'width:100%;height:100%';
     const v = d.createElement('video');
     v.id = 'nx-pop-video';
     v.autoplay = true; v.muted = true; v.playsInline = true;
     v.style.cssText = 'width:100%;height:100%;object-fit:contain;display:block';
+    vwrap.appendChild(v);
+    // Support-PFP cursor (hidden until controlling) - the employee's real cursor
+    // is already in the stream, so this is the second, larger cursor.
+    const cur = d.createElement('div');
+    cur.style.cssText = 'position:absolute;left:0;top:0;pointer-events:none;z-index:6;display:none';
+    cur.innerHTML = '<svg width="26" height="26" viewBox="0 0 24 24" style="filter:drop-shadow(0 1px 2px rgba(0,0,0,.55))"><path d="M5 3l14 8-6 1.5L9 20z" fill="#2b7fff" stroke="#fff" stroke-width="1.5"/></svg>';
+    const ini = ((myEmail || 'IT').split('@')[0].replace(/[^a-z]/gi, '').slice(0, 2) || 'IT').toUpperCase();
+    const avaCss = 'position:absolute;left:18px;top:18px;width:34px;height:34px;border-radius:50%;box-shadow:0 0 0 2px #2b7fff,0 2px 6px rgba(0,0,0,.5)';
+    const ava = d.createElement(myPhoto ? 'img' : 'div');
+    if (myPhoto) { ava.src = myPhoto; ava.style.cssText = avaCss + ';object-fit:cover'; }
+    else { ava.textContent = ini; ava.style.cssText = avaCss + ';background:#2b7fff;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px'; }
+    cur.appendChild(ava);
     // Controls in the popout so you never have to return to the modal.
     const fileBtn = mkBtn('Send File');
     const fsBtn = mkBtn('Full Screen');
     const stopBtn = mkBtn('Stop Control', '#f87171');
+    // Zoom controls.
+    let popZoom = 1;
+    const zLabel = d.createElement('span');
+    zLabel.style.cssText = 'font:inherit;font-size:11px;font-weight:700;color:#94a3b8;min-width:36px;text-align:center';
+    const applyZoom = () => {
+      vwrap.style.width = `${popZoom * 100}%`;
+      vwrap.style.height = `${popZoom * 100}%`;
+      stage.style.overflow = popZoom > 1 ? 'auto' : 'hidden';
+      zLabel.textContent = `${Math.round(popZoom * 100)}%`;
+    };
+    const zoomOut = mkBtn('−'); const zoomIn = mkBtn('+');
+    zoomOut.onclick = () => { popZoom = Math.max(1, +(popZoom - 0.5).toFixed(1)); applyZoom(); };
+    zoomIn.onclick = () => { popZoom = Math.min(4, +(popZoom + 0.5).toFixed(1)); applyZoom(); };
     const syncBar = () => {
       const on = controlRef.current === 'active';
       fileBtn.style.display = on ? '' : 'none';
       stopBtn.style.display = on ? '' : 'none';
+      stage.style.cursor = on ? 'none' : 'default';
+      if (!on) cur.style.display = 'none';
     };
     fileBtn.onclick = () => { const fi = fileInputRef.current; if (fi) fi.click(); };
     stopBtn.onclick = () => stopControl();
@@ -374,18 +407,33 @@ export default function LiveView({ email, name, onClose }) {
       }).catch(() => {});
     };
     bar.appendChild(label);
+    bar.appendChild(zoomOut);
+    bar.appendChild(zLabel);
+    bar.appendChild(zoomIn);
     bar.appendChild(fileBtn);
     bar.appendChild(fsBtn);
     bar.appendChild(stopBtn);
-    stage.appendChild(v);
+    stage.appendChild(vwrap);
+    stage.appendChild(cur);
     d.body.appendChild(bar);
     d.body.appendChild(stage);
     popoutRef.current.__syncBar = syncBar;
+    applyZoom();
     syncBar();
     const idx = () => (selRef.current === 'all' ? 0 : selRef.current);
     const s0 = streamsRef.current[idx()];
     if (s0) v.srcObject = s0;
-    const mm = (e) => { if (controlRef.current !== 'active') return; const c = remoteXYEl(e, v); if (c) send({ t: 'mv', ...c, s: idx() }); };
+    const mm = (e) => {
+      // Move the support cursor overlay (in content coords, so it tracks scroll).
+      if (controlRef.current === 'active') {
+        const r = stage.getBoundingClientRect();
+        cur.style.left = `${e.clientX - r.left + stage.scrollLeft}px`;
+        cur.style.top = `${e.clientY - r.top + stage.scrollTop}px`;
+        cur.style.display = 'block';
+        const c = remoteXYEl(e, v); if (c) send({ t: 'mv', ...c, s: idx() });
+      }
+    };
+    stage.addEventListener('mouseleave', () => { cur.style.display = 'none'; });
     const md = (e) => {
       if (controlRef.current !== 'active') return;
       const c = remoteXYEl(e, v);
