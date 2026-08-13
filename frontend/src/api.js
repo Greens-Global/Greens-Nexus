@@ -1031,6 +1031,8 @@ export const api = {
   timeLiveControlRequest: (id) => req(`/timeclock/live/${id}/control/request`, { method: 'POST', body: '{}' }),
   timeLiveControlCancel:  (id) => req(`/timeclock/live/${id}/control/cancel`, { method: 'POST', body: '{}' }),
   timeLiveControlEnd:     (id) => req(`/timeclock/live/${id}/control/end`, { method: 'POST', body: '{}' }),
+  // Who is watching / giving remote support on each screen right now (presence badges).
+  timeLivePresence:  () => req('/timeclock/live/presence'),
   // Field-worker location tracking (manager/HR views; device pings use X-Agent-Token from the native app, not these)
   trackLive:         ()            => req('/timeclock/track/live'),
   trackPath:         (email, date) => req(`/timeclock/track/path?email=${encodeURIComponent(email)}&date=${date}`),

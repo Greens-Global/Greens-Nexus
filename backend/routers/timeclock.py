@@ -2624,6 +2624,36 @@ def live_control_end(sid: str, user: dict = Depends(require_tracking),
     return {"ok": True, "controlState": s.control_state}
 
 
+@router.get("/live/presence")
+def live_presence(user: dict = Depends(require_tracking), db: Session = Depends(get_db)):
+    """Who is WATCHING and who is CONTROLLING each screen right now, for the Live
+    Coverage presence badges (the eye + viewer count, and the wrench = who's giving
+    remote support). Derived from live sessions whose VIEWER side is still fresh -
+    a closed tab drops off within the heartbeat TTL. Keyed by watched email; each
+    watcher/controller carries a display name (never a raw email) so the UI can
+    render a name + Nexus avatar."""
+    out, names = {}, {}
+
+    def nm(email):
+        if email not in names:
+            names[email] = _display_name(db, email)
+        return names[email]
+
+    for s in db.query(LiveSession).filter(LiveSession.state != "ended").all():
+        if not _live_fresh(s.viewer_seen):
+            continue
+        e = (s.employee_email or "").lower()
+        if not e:
+            continue
+        entry = out.setdefault(e, {"watchers": [], "controller": None})
+        if s.state in ("requested", "offering", "connected") and \
+                not any(w["email"] == s.viewer_email for w in entry["watchers"]):
+            entry["watchers"].append({"email": s.viewer_email, "name": nm(s.viewer_email)})
+        if s.control_state == "active":
+            entry["controller"] = {"email": s.viewer_email, "name": nm(s.viewer_email)}
+    return {"bySubject": out}
+
+
 class AgentControlIn(BaseModel):
     action: str   # accept | decline | end
 

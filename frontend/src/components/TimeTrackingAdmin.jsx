@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { ShieldCheck, Loader2, Check, MonitorSmartphone, Copy, Ban, TriangleAlert, Trash2, Activity, ChevronDown, Video, X, Radio, MousePointer2 } from 'lucide-react';
+import { ShieldCheck, Loader2, Check, MonitorSmartphone, Copy, Ban, TriangleAlert, Trash2, Activity, ChevronDown, Video, X, Radio, MousePointer2, Eye, Wrench } from 'lucide-react';
 import { api } from '../api';
 import { Avatar } from '../tasks/components';
 import ScreenshotsAdmin from './ScreenshotsAdmin';
@@ -264,9 +264,59 @@ const COV_META = {
 };
 
 
+// Live presence badges for one person: an animated eye with the watcher count
+// (click to see who, with their Nexus avatar) and an animated wrench when someone
+// is giving remote support. Both quietly absent when nobody is watching/helping.
+function PresenceBadges({ pres }) {
+  const [open, setOpen] = useState(false);
+  const watchers = (pres && pres.watchers) || [];
+  const controller = pres && pres.controller;
+  if (!watchers.length && !controller) return null;
+  return (
+    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+      {controller && (
+        <span title={`${controller.name} is giving remote support`}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 800,
+            color: 'hsl(var(--color-orange))', background: 'hsla(var(--color-orange),0.12)', padding: '3px 9px', borderRadius: 999 }}>
+          <Wrench size={12} style={{ transformOrigin: 'center', animation: 'nexusWrenchWork 1.1s ease-in-out infinite' }} />
+          <Avatar email={controller.email} name={controller.name} size={16} card={false} />
+        </span>
+      )}
+      {watchers.length > 0 && (
+        <div style={{ position: 'relative' }}>
+          <button onClick={() => setOpen(v => !v)} title={`${watchers.length} watching`}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 800, cursor: 'pointer',
+              color: 'hsl(var(--color-blue))', background: 'hsla(var(--color-blue),0.12)', border: 'none', padding: '3px 9px', borderRadius: 999 }}>
+            <Eye size={13} style={{ animation: 'nexusEyeWatch 1.4s ease-in-out infinite' }} />
+            {watchers.length > 1 ? `+${watchers.length}` : ''}
+          </button>
+          {open && (
+            <>
+              <div onClick={() => setOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 20 }} />
+              <div style={{ position: 'absolute', top: 'calc(100% + 6px)', right: 0, zIndex: 21, minWidth: 180, maxWidth: 240,
+                background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: 'var(--shadow-lg, 0 12px 30px rgba(0,0,0,0.25))', padding: 6 }}>
+                <div style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--muted)', padding: '4px 8px 6px' }}>
+                  Watching now
+                </div>
+                {watchers.map(w => (
+                  <div key={w.email} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 8px', borderRadius: 8 }}>
+                    <Avatar email={w.email} name={w.name} size={22} card={false} />
+                    <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{w.name}</span>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function LiveCoverage({ onOpenPerson }) {
   const [watch, setWatch] = useState(null);   // {email,name} being live-viewed, or null
   const [data, setData] = useState(null);   // {people,...} | null loading | false error
+  const [presence, setPresence] = useState({});   // email -> {watchers, controller}
   const load = useCallback(() => {
     api.timeMonitoringCoverage().then(setData).catch(() => setData(false));
   }, []);
@@ -275,6 +325,17 @@ function LiveCoverage({ onOpenPerson }) {
     const iv = setInterval(load, 20000);   // keep the roster live
     return () => clearInterval(iv);
   }, [load]);
+  // Presence (who's watching / giving support) refreshes faster than the roster
+  // so the eye/wrench badges feel live.
+  useEffect(() => {
+    let alive = true;
+    const tick = () => api.timeLivePresence()
+      .then(r => { if (alive) setPresence((r && r.bySubject) || {}); })
+      .catch(() => {});
+    tick();
+    const iv = setInterval(tick, 5000);
+    return () => { alive = false; clearInterval(iv); };
+  }, []);
 
   const people = (data && data.people) || [];
   const gaps = people.filter(p => p.status === 'gap').length;
@@ -325,6 +386,7 @@ function LiveCoverage({ onOpenPerson }) {
                 {[p.deviceName, frame].filter(Boolean).join(' · ') || (p.onBreak ? 'on break' : '')}
               </div>
             </div>
+            <PresenceBadges pres={presence[p.email]} />
             {p.canWatchLive && (
               <button
                 onClick={() => setWatch({ email: p.email, name: p.name })}
@@ -426,7 +488,9 @@ export default function TimeTrackingAdmin({ initialSub = 'coverage', module = fa
         0% { box-shadow: 0 0 0 0 currentColor; }
         70% { box-shadow: 0 0 0 5px transparent; }
         100% { box-shadow: 0 0 0 0 transparent; }
-      }`}</style>
+      }
+      @keyframes nexusEyeWatch { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.55; transform: scale(1.14); } }
+      @keyframes nexusWrenchWork { 0%,100% { transform: rotate(-14deg); } 50% { transform: rotate(14deg); } }`}</style>
 
       {/* Sub-tabs so the monitoring screen isn't one long scroll. */}
       <div className="scroll-tabs" style={{ display: 'flex', gap: 4, marginTop: module ? 18 : 0, marginBottom: 16, borderBottom: '1px solid var(--line)' }}>
