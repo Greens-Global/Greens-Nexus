@@ -13,7 +13,7 @@ import {
   Video, LayoutGrid, TrendingUp, ArrowUpDown, CheckSquare, Cloud, Presentation,
   Gauge, Bird, Warehouse, Settings2, Bookmark, CornerDownLeft, History, List, Command,
   GripVertical, AlertTriangle, Upload, FolderOpen, Download, Lock, KeyRound, Info,
-  ChevronUp, ChevronDown, FolderPlus, Check,
+  FolderPlus, Check,
 } from 'lucide-react';
 
 // ── Personal, client-side only (favorites / recents / view density) ──
@@ -1182,13 +1182,7 @@ function AppTile({
             )}
             {canManage && onEdit && <IconBtn onClick={onEdit} title="Edit link"><Pencil size={11} /></IconBtn>}
             {canManage && canDelete && onDelete && <IconBtn onClick={onDelete} title="Delete link" danger><Trash2 size={11} /></IconBtn>}
-            {moveControls && (
-              <>
-                <IconBtn onClick={moveControls.onMoveUp} title="Move up" disabled={!moveControls.canMoveUp}><ChevronUp size={12} /></IconBtn>
-                <IconBtn onClick={moveControls.onMoveDown} title="Move down" disabled={!moveControls.canMoveDown}><ChevronDown size={12} /></IconBtn>
-                {moveControls.extra}
-              </>
-            )}
+            {moveControls?.extra}
           </div>
         )}
         {description && (
@@ -1264,7 +1258,7 @@ function FolderPicker({ folders, currentFolderId, onMove, onCreateNew }) {
   );
 }
 
-function FolderTile({ folder, memberLinks, onOpen, dragHandleProps, dropProps, moveControls }) {
+function FolderTile({ folder, memberLinks, onOpen, dragHandleProps, dropProps }) {
   const preview = memberLinks.slice(0, 4);
   return (
     <div
@@ -1285,19 +1279,11 @@ function FolderTile({ folder, memberLinks, onOpen, dragHandleProps, dropProps, m
               </div>
             ))}
         </div>
-        {(dragHandleProps || moveControls) && (
+        {dragHandleProps && (
           <div className="app-tile-actions" draggable={false} onClick={e => e.stopPropagation()} onDragStart={e => e.stopPropagation()}>
-            {dragHandleProps && (
-              <span className="app-tile-grip" title="Drag to reorder">
-                <GripVertical size={11} />
-              </span>
-            )}
-            {moveControls && (
-              <>
-                <IconBtn onClick={moveControls.onMoveUp} title="Move up" disabled={!moveControls.canMoveUp}><ChevronUp size={12} /></IconBtn>
-                <IconBtn onClick={moveControls.onMoveDown} title="Move down" disabled={!moveControls.canMoveDown}><ChevronDown size={12} /></IconBtn>
-              </>
-            )}
+            <span className="app-tile-grip" title="Drag to reorder">
+              <GripVertical size={11} />
+            </span>
           </div>
         )}
       </div>
@@ -1381,8 +1367,6 @@ function FolderModal({
                       },
                     }}
                     moveControls={{
-                      canMoveUp: i > 0, canMoveDown: i < memberEntries.length - 1,
-                      onMoveUp: () => onReorderWithin(i, i - 1), onMoveDown: () => onReorderWithin(i, i + 1),
                       extra: (
                         <FolderPicker
                           folders={allFolders} currentFolderId={folder.id}
@@ -1508,37 +1492,6 @@ function MyLayoutSection({ layout, itemsById, actionCtx, mutate }) {
       items: prev.items.map(i => i.folder_id === folderId ? { ...i, folder_id: null, position: nextPos++ } : i),
     };
   });
-  const moveItemUpDown = (entry, folderId, dir) => mutate(prev => {
-    const siblings = prev.items.filter(i => i.folder_id === folderId).sort((a, b) => a.position - b.position);
-    const idx = siblings.findIndex(i => sameEntry(i, entry));
-    const swapIdx = idx + dir;
-    if (idx < 0 || swapIdx < 0 || swapIdx >= siblings.length) return prev;
-    const a = siblings[idx], b = siblings[swapIdx];
-    return {
-      ...prev,
-      items: prev.items.map(i => {
-        if (sameEntry(i, a) && i.folder_id === folderId) return { ...i, position: b.position };
-        if (sameEntry(i, b) && i.folder_id === folderId) return { ...i, position: a.position };
-        return i;
-      }),
-    };
-  });
-  const moveFolderUpDown = (folderId, dir) => mutate(prev => {
-    const sorted = [...prev.folders].sort((a, b) => a.position - b.position);
-    const idx = sorted.findIndex(f => f.id === folderId);
-    const swapIdx = idx + dir;
-    if (idx < 0 || swapIdx < 0 || swapIdx >= sorted.length) return prev;
-    const a = sorted[idx], b = sorted[swapIdx];
-    return {
-      ...prev,
-      folders: prev.folders.map(f => {
-        if (f.id === a.id) return { ...f, position: b.position };
-        if (f.id === b.id) return { ...f, position: a.position };
-        return f;
-      }),
-    };
-  });
-
   const itemDragProps = (entry) => ({
     onDragStart: (e) => { e.dataTransfer.effectAllowed = 'move'; setDragKind('item'); setDragEntry(entry); },
     onDragEnd: () => { setDragKind(null); setDragEntry(null); },
@@ -1577,20 +1530,16 @@ function MyLayoutSection({ layout, itemsById, actionCtx, mutate }) {
   return (
     <>
       <AppGrid>
-        {folders.map((f, i) => (
+        {folders.map((f) => (
           <FolderTile
             key={f.id} folder={f}
             memberLinks={folderMembers(f.id).map(e => resolveEntryLink(itemsById, e)).filter(Boolean)}
             onOpen={() => setOpenFolderId(f.id)}
             dragHandleProps={folderDragProps(f.id)}
             dropProps={folderDropProps(f.id)}
-            moveControls={{
-              canMoveUp: i > 0, canMoveDown: i < folders.length - 1,
-              onMoveUp: () => moveFolderUpDown(f.id, -1), onMoveDown: () => moveFolderUpDown(f.id, 1),
-            }}
           />
         ))}
-        {topItems.map((entry, i) => {
+        {topItems.map((entry) => {
           const a = entryActions(entry, itemsById, actionCtx);
           if (!a) return null;
           return (
@@ -1602,8 +1551,6 @@ function MyLayoutSection({ layout, itemsById, actionCtx, mutate }) {
               dragHandleProps={itemDragProps(entry)}
               dropProps={topItemDropProps(entry)}
               moveControls={{
-                canMoveUp: i > 0, canMoveDown: i < topItems.length - 1,
-                onMoveUp: () => moveItemUpDown(entry, null, -1), onMoveDown: () => moveItemUpDown(entry, null, 1),
                 extra: (
                   <FolderPicker
                     folders={folders} currentFolderId={null}
