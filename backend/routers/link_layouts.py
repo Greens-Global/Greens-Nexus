@@ -72,16 +72,17 @@ def _live_ids(user: dict, db: Session) -> tuple[set, set]:
     return external_ids, personal_ids
 
 
-def _clean_and_merge(layout: dict, external_ids: set, personal_ids: set, db: Session) -> tuple[dict, bool]:
+def _clean_and_merge(layout: dict, external_ids: set, personal_ids: set, user: dict, db: Session) -> tuple[dict, bool]:
     """Drops any items/favorites entry that no longer exists (a deleted
     Company Link, or a Personal Link the user removed elsewhere) and appends
-    any live Company Link not yet present as a new top-level (ungrouped)
-    item, in the same order the default company view already uses - a newly
-    added mandatory link must surface without the system guessing which
-    folder (if any) it belongs in; the user drags it in themselves. Returns
-    (possibly-changed layout, changed) so the caller only writes back to the
-    DB when something actually moved - a GET on an already-clean layout is a
-    pure read."""
+    any live link of EITHER type not yet present as a new top-level
+    (ungrouped) item, in the same order that type's own default list already
+    uses - a newly added mandatory Company Link, or a Personal Link that
+    existed before the user ever customized, must surface without the system
+    guessing which folder (if any) it belongs in; the user drags it in
+    themselves. Returns (possibly-changed layout, changed) so the caller only
+    writes back to the DB when something actually moved - a GET on an
+    already-clean layout is a pure read."""
     folder_ids = {f["id"] for f in layout.get("folders", [])}
 
     def _alive(entry: dict) -> bool:
@@ -97,19 +98,34 @@ def _clean_and_merge(layout: dict, external_ids: set, personal_ids: set, db: Ses
     favorites = [f for f in orig_favorites if _alive(f)]
     changed = len(items) != len(orig_items) or len(favorites) != len(orig_favorites)
 
+    top_level_positions = [i["position"] for i in items if i.get("folder_id") is None]
+    next_pos = (max(top_level_positions) + 1) if top_level_positions else 0
+
     known_external = {i["item_id"] for i in items if i["item_type"] == "external"}
-    new_ids = external_ids - known_external
-    if new_ids:
-        top_level_positions = [i["position"] for i in items if i.get("folder_id") is None]
-        next_pos = (max(top_level_positions) + 1) if top_level_positions else 0
+    new_external_ids = external_ids - known_external
+    if new_external_ids:
         new_rows = (
             db.query(models.ExternalLink)
-            .filter(models.ExternalLink.id.in_(new_ids))
+            .filter(models.ExternalLink.id.in_(new_external_ids))
             .order_by(models.ExternalLink.is_pinned.desc(), models.ExternalLink.sort_order.asc(), models.ExternalLink.name.asc())
             .all()
         )
         for row in new_rows:
             items.append({"item_type": "external", "item_id": row.id, "folder_id": None, "position": next_pos, "dashboard": False})
+            next_pos += 1
+        changed = True
+
+    known_personal = {i["item_id"] for i in items if i["item_type"] == "personal"}
+    new_personal_ids = personal_ids - known_personal
+    if new_personal_ids:
+        new_rows = (
+            db.query(models.PersonalLink)
+            .filter(models.PersonalLink.id.in_(new_personal_ids), models.PersonalLink.owner_email == user["email"])
+            .order_by(models.PersonalLink.sort_order.asc(), models.PersonalLink.name.asc())
+            .all()
+        )
+        for row in new_rows:
+            items.append({"item_type": "personal", "item_id": row.id, "folder_id": None, "position": next_pos, "dashboard": False})
             next_pos += 1
         changed = True
 
@@ -127,7 +143,7 @@ def get_link_layout(user: dict = Depends(get_current_user), db: Session = Depend
     if not row:
         return {"folders": [], "items": [], "favorites": [], "is_customized": False}
 
-    healed, changed = _clean_and_merge(row.layout or {}, external_ids, personal_ids, db)
+    healed, changed = _clean_and_merge(row.layout or {}, external_ids, personal_ids, user, db)
     if changed:
         row.layout = healed
         row.updated_at = _now()

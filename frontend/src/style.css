@@ -3810,6 +3810,10 @@ button, [role="button"], select { touch-action: manipulation; }
   background: var(--card); color: hsl(var(--color-gold));
   box-shadow: 0 1px 4px rgba(0,0,0,.2);
 }
+/* Personal Link indicator - reuses the pin badge's corner slot (never
+   occupied at the same time: PersonalLink rows have no is_pinned concept),
+   just a different color/icon so the two never read as the same thing. */
+.app-tile-personal-badge { color: hsl(var(--color-purple)); }
 .app-tile-fav-badge {
   position: absolute; top: -3px; left: -3px;
   width: 16px; height: 16px; border-radius: 50%;

@@ -153,6 +153,42 @@ function colorFor(category) {
   return { fg: `hsl(var(--color-${tone}))`, bg: `hsla(var(--color-${tone}),0.12)` };
 }
 
+// Company and Personal Links share one launcher/folders now (Aug 13), but
+// stay two different backend records with two different ownership models -
+// a folder entry is just {item_type, item_id}, so every place that renders
+// one needs to resolve which table it came from and which actions/who's
+// allowed to use them. Centralized here once rather than re-branching this
+// at every call site: a Personal Link is always fully editable by its owner
+// (that's the whole point of it being personal), a Company Link is only
+// editable by someone who already holds the existing manager/admin grant -
+// personalization (position, folder, favorite) never changes that.
+// itemsById is {external: Map<id,link>, personal: Map<id,link>} - a plain
+// Map<id,link> stops being safe once two tables share the same autoincrement
+// id space in one view.
+function resolveEntryLink(itemsById, entry) {
+  return entry.item_type === 'personal' ? itemsById.personal.get(entry.item_id) : itemsById.external.get(entry.item_id);
+}
+function entryActions(entry, itemsById, ctx) {
+  const link = resolveEntryLink(itemsById, entry);
+  if (!link) return null;
+  if (entry.item_type === 'personal') {
+    return {
+      link, sourceType: 'personal', color: PERSONAL_COLOR, canManage: true, canDelete: true,
+      vaultLinked: !!link.vault_cred_id,
+      isFavorite: ctx.favoritePersonalIds.includes(link.id),
+      onToggleFavorite: () => ctx.togglePersonalFavorite(link.id),
+      onOpen: () => ctx.onOpenPersonal(link), onEdit: () => ctx.onEditPersonal(link), onDelete: () => ctx.onDeletePersonal(link),
+    };
+  }
+  return {
+    link, sourceType: 'external', color: colorFor(link.category), canManage: ctx.canManage, canDelete: ctx.canDelete,
+    vaultLinked: false,
+    isFavorite: ctx.favoriteExternalIds.includes(link.id),
+    onToggleFavorite: () => ctx.toggleFavorite(link.id),
+    onOpen: () => ctx.onOpenExternal(link), onEdit: () => ctx.onEditExternal(link), onDelete: () => ctx.onDeleteExternal(link),
+  };
+}
+
 const SORTS = [
   { id: 'category', label: 'By Category' },
   { id: 'popular',  label: 'Most Used' },
@@ -358,12 +394,37 @@ export default function ExternalLinks() {
   // time they favorite anything, before they ever touched ordering. This
   // only switches once there's real ordering/folder data to show.
   const hasCustomOrder = layout.items.length > 0 || layout.folders.length > 0;
-  const filteredById = useMemo(() => new Map(filtered.map(l => [l.id, l])), [filtered]);
+
+  // "All Apps / Company / Personal" (Aug 13) - Company and Personal Links
+  // now share one launcher and can sit in the same folder, so this filter
+  // only matters/renders once hasCustomOrder; before that the existing
+  // Company/Personal tabs already are that split. Search now needs to reach
+  // Personal Links too (it never did before - they had no search field at
+  // all in their own flat section), so a lightweight name/description
+  // filter mirrors `filtered`'s needle match but skips department/category/
+  // company (Personal Links have none of those fields).
+  const [linkTypeFilter, setLinkTypeFilter] = useState('all'); // 'all' | 'company' | 'personal'
+  const filteredPersonal = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    const list = personalLinks || [];
+    if (!needle) return list;
+    return list.filter(l => [l.name, l.description].some(v => (v || '').toLowerCase().includes(needle)));
+  }, [personalLinks, q]);
+  const unifiedItemsById = useMemo(() => ({
+    external: linkTypeFilter === 'personal' ? new Map() : new Map(filtered.map(l => [l.id, l])),
+    personal: linkTypeFilter === 'company' ? new Map() : new Map(filteredPersonal.map(l => [l.id, l])),
+  }), [filtered, filteredPersonal, linkTypeFilter]);
   const beginCustomizing = () => {
     mutate(prev => {
-      const ordered = [...all].sort((a, b) =>
+      const orderedExternal = [...all].sort((a, b) =>
         (Number(b.is_pinned) - Number(a.is_pinned)) || (a.sort_order - b.sort_order) || a.name.localeCompare(b.name));
-      return { ...prev, items: ordered.map((l, i) => ({ item_type: 'external', item_id: l.id, folder_id: null, position: i })) };
+      const orderedPersonal = [...(personalLinks || [])].sort((a, b) => (a.sort_order - b.sort_order) || a.name.localeCompare(b.name));
+      let pos = 0;
+      const items = [
+        ...orderedExternal.map(l => ({ item_type: 'external', item_id: l.id, folder_id: null, position: pos++ })),
+        ...orderedPersonal.map(l => ({ item_type: 'personal', item_id: l.id, folder_id: null, position: pos++ })),
+      ];
+      return { ...prev, items };
     });
   };
 
@@ -579,6 +640,17 @@ export default function ExternalLinks() {
     }
   };
 
+  // My Layout's per-entry action/permission set (see entryActions) - built
+  // here, after every handler it references is defined, since this is a
+  // plain object evaluated immediately (unlike the JSX below, which only
+  // reads these closures once actually invoked on a later render pass).
+  const actionCtx = {
+    canManage, canDelete,
+    favoriteExternalIds, toggleFavorite, favoritePersonalIds, togglePersonalFavorite,
+    onOpenExternal: openLink, onEditExternal: openEdit, onDeleteExternal: remove,
+    onOpenPersonal: openPersonalLink, onEditPersonal: openEditPersonal, onDeletePersonal: removePersonal,
+  };
+
   // Gate on layoutLoading too, not just links - resolving personalization
   // after the grid has already painted the default category view would flash
   // straight into "My Layout" for anyone customized, which is exactly the
@@ -727,12 +799,15 @@ export default function ExternalLinks() {
         >
           {hasCustomOrder ? (
             <Section title="My Layout" icon={LayoutGrid}>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+                <Chip active={linkTypeFilter === 'all'} label="All Apps" onClick={() => setLinkTypeFilter('all')} />
+                <Chip active={linkTypeFilter === 'company'} label="Company Apps" color={{ fg: 'hsl(var(--color-blue))', bg: 'hsla(var(--color-blue),0.12)' }} onClick={() => setLinkTypeFilter(linkTypeFilter === 'company' ? 'all' : 'company')} />
+                <Chip active={linkTypeFilter === 'personal'} label="Personal Apps" color={PERSONAL_COLOR} onClick={() => setLinkTypeFilter(linkTypeFilter === 'personal' ? 'all' : 'personal')} />
+              </div>
               <MyLayoutSection
-                layout={layout} itemsById={filteredById}
-                canManage={canManage} canDelete={canDelete}
-                favorites={favoriteExternalIds} onToggleFavorite={toggleFavorite}
-                onOpen={openLink} onEdit={openEdit} onDelete={remove}
+                layout={layout} itemsById={unifiedItemsById} actionCtx={actionCtx}
                 mutate={mutate}
+                onAddPersonal={linkTypeFilter !== 'company' ? openAddPersonal : undefined}
               />
             </Section>
           ) : (<>
@@ -1050,7 +1125,7 @@ function AppGrid({ children }) {
 
 function AppTile({
   link, color, canManage, canDelete, isFavorite, onToggleFavorite, onOpen, onEdit, onDelete,
-  iconSize = 60, iconGradient = true, vaultLinked = false,
+  iconSize = 60, iconGradient = true, vaultLinked = false, sourceType,
   dragHandleProps, dropProps, moveControls,
 }) {
   const [showTip, setShowTip] = useState(false);
@@ -1074,19 +1149,31 @@ function AppTile({
   // nothing to describe, rather than pointing at an element that doesn't
   // exist.
   const tooltipId = description ? `app-tile-tip-${link.id}` : undefined;
+  // Subtle source indicator (Aug 13) - Company and Personal Links now share
+  // one launcher/folders, so at-a-glance it must still be obvious which is
+  // which. Company Links get no badge (the implicit default, keeps the
+  // common case visually quiet); Personal gets a small lock in the corner
+  // ExternalLink's is_pinned always leaves empty (PersonalLink has no pin
+  // concept, so the two badges never collide) plus a tooltip/title suffix -
+  // "small badge" + "tooltip information" from the two suggested approaches,
+  // deliberately not a third visual element that would bulk up the tile.
+  const isPersonal = sourceType === 'personal';
+  const tooltipText = description ? (isPersonal ? `${description} · Personal` : description) : undefined;
+  const plainTitle = !description ? (isPersonal ? `${link.name} (Personal)` : link.name) : undefined;
 
   return (
     <div
       className="app-tile" onClick={onOpen} data-link-id={link.id}
       role="button" tabIndex={0}
       onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(); } }}
-      title={!description ? link.name : undefined}
+      title={plainTitle}
       aria-describedby={tooltipId}
       {...dropProps}
     >
       <div className="app-tile-icon-wrap">
         <LinkIcon url={link.url} iconKey={link.icon} size={iconSize} radius={Math.round(iconSize * 0.28)} fg={color.fg} bg={color.bg} gradient={iconGradient} />
-        {link.is_pinned && <span className="app-tile-pin"><Star size={9} fill="currentColor" /></span>}
+        {link.is_pinned && <span className="app-tile-pin" title="Pinned"><Star size={9} fill="currentColor" /></span>}
+        {!link.is_pinned && isPersonal && <span className="app-tile-pin app-tile-personal-badge" title="Personal Link - only visible to you"><Lock size={8} /></span>}
         {isFavorite && <span className="app-tile-fav-badge"><Bookmark size={9} fill="currentColor" /></span>}
         {vaultLinked && <span className="app-tile-key-badge" title="Copies its saved password when opened"><KeyRound size={9} /></span>}
         {hasActions && (
@@ -1114,7 +1201,7 @@ function AppTile({
         )}
         {description && (
           <>
-            <div id={tooltipId} role="tooltip" className={`app-tile-tooltip${showTip ? ' show' : ''}`}>{description}</div>
+            <div id={tooltipId} role="tooltip" className={`app-tile-tooltip${showTip ? ' show' : ''}`}>{tooltipText}</div>
             <button
               type="button" className="app-tile-info-btn" onClick={toggleTip}
               title="Show description" aria-label={showTip ? 'Hide description' : 'Show description'}
@@ -1230,16 +1317,20 @@ function FolderTile({ folder, memberLinks, onOpen, dragHandleProps, dropProps, m
 // members back to top-level, never deletes the underlying links), and each
 // member gets the same reorder/move-out controls as the top-level grid.
 function FolderModal({
-  folder, memberEntries, itemsById, canManage, canDelete, favorites, onToggleFavorite,
-  onOpen, onEdit, onDelete, onClose, onRename, onDeleteFolder, onReorderWithin, onMoveOut,
+  folder, memberEntries, itemsById, actionCtx,
+  onClose, onRename, onDeleteFolder, onReorderWithin, onMoveOut,
   allFolders, onCreateFolder,
 }) {
   const [nameDraft, setNameDraft] = useState(folder.name);
   const [renaming, setRenaming] = useState(false);
   // Own small drag state for reordering within this folder - separate DnD
   // context from the background grid (this is a modal on top of it), so it
-  // doesn't share MyLayoutSection's dragKind/dragId.
-  const [dragItemId, setDragItemId] = useState(null);
+  // doesn't share MyLayoutSection's dragKind/dragId. Composite key
+  // (item_type:item_id) since a folder can now hold both a Company and a
+  // Personal Link whose ids collide (separate tables, same autoincrement
+  // space).
+  const [dragKey, setDragKey] = useState(null);
+  const entryKey = (entry) => `${entry.item_type}:${entry.item_id}`;
   const commitRename = () => {
     const trimmed = nameDraft.trim();
     if (trimmed && trimmed !== folder.name) onRename(trimmed);
@@ -1273,27 +1364,27 @@ function FolderModal({
           ) : (
             <AppGrid>
               {memberEntries.map((entry, i) => {
-                const link = itemsById.get(entry.item_id);
-                if (!link) return null;
+                const a = entryActions(entry, itemsById, actionCtx);
+                if (!a) return null;
                 return (
                   <AppTile
-                    key={entry.item_id} link={link} color={colorFor(link.category)}
-                    canManage={canManage} canDelete={canDelete}
-                    isFavorite={favorites.includes(link.id)} onToggleFavorite={() => onToggleFavorite(link.id)}
-                    onOpen={() => onOpen(link)} onEdit={() => onEdit(link)} onDelete={() => onDelete(link)}
+                    key={entryKey(entry)} link={a.link} color={a.color} sourceType={a.sourceType} vaultLinked={a.vaultLinked}
+                    canManage={a.canManage} canDelete={a.canDelete}
+                    isFavorite={a.isFavorite} onToggleFavorite={a.onToggleFavorite}
+                    onOpen={a.onOpen} onEdit={a.onEdit} onDelete={a.onDelete}
                     dragHandleProps={{
-                      onDragStart: (e) => { e.dataTransfer.effectAllowed = 'move'; setDragItemId(entry.item_id); },
-                      onDragEnd: () => setDragItemId(null),
+                      onDragStart: (e) => { e.dataTransfer.effectAllowed = 'move'; setDragKey(entryKey(entry)); },
+                      onDragEnd: () => setDragKey(null),
                     }}
                     dropProps={{
-                      onDragOver: (e) => { if (dragItemId != null) e.preventDefault(); },
+                      onDragOver: (e) => { if (dragKey != null) e.preventDefault(); },
                       onDrop: (e) => {
                         e.preventDefault();
-                        if (dragItemId == null || dragItemId === entry.item_id) return;
-                        const fromIdx = memberEntries.findIndex(x => x.item_id === dragItemId);
+                        if (dragKey == null || dragKey === entryKey(entry)) return;
+                        const fromIdx = memberEntries.findIndex(x => entryKey(x) === dragKey);
                         if (fromIdx === -1) return;
                         onReorderWithin(fromIdx, i);
-                        setDragItemId(null);
+                        setDragKey(null);
                       },
                     }}
                     moveControls={{
@@ -1302,8 +1393,8 @@ function FolderModal({
                       extra: (
                         <FolderPicker
                           folders={allFolders} currentFolderId={folder.id}
-                          onMove={(destId) => onMoveOut(entry.item_id, destId)}
-                          onCreateNew={() => onCreateFolder(entry.item_id)}
+                          onMove={(destId) => onMoveOut(entry, destId)}
+                          onCreateNew={() => onCreateFolder(entry)}
                         />
                       ),
                     }}
@@ -1330,52 +1421,78 @@ function FolderModal({
 // uniform. All mutations funnel through the parent's `mutate` (from
 // useLinkLayout), which optimistically applies + auto-saves + rolls back on
 // failure - this component never calls the API directly.
-function MyLayoutSection({ layout, itemsById, canManage, canDelete, favorites, onToggleFavorite, onOpen, onEdit, onDelete, mutate }) {
+// itemsById: {external: Map<id,link>, personal: Map<id,link>} - pre-filtered
+// by the parent (department/category/search/type-filter all collapse down
+// to "is this id present in these maps or not"), so a Company or Personal
+// Link that's currently filtered out simply can't be found here and quietly
+// drops out of both the top-level grid and any folder it's placed in -
+// no separate filtering logic needed inside this component. actionCtx
+// carries the two link types' very different permission/handler sets (see
+// entryActions) - a Company Link is admin-gated, a Personal Link is always
+// fully owner-editable, and personalization (position/folder/favorite)
+// never blurs that line.
+function MyLayoutSection({ layout, itemsById, actionCtx, mutate, onAddPersonal }) {
   const [openFolderId, setOpenFolderId] = useState(null);
   // Desktop drag-and-drop state - HTML5 native, mirrors ManageModal's
   // draggable/onDragStart/onDragOver/onDrop/onDragEnd pattern elsewhere in
   // this file (its own "All Links" category reorder). Touch has no
   // equivalent gesture (poor/no support for native HTML5 DnD), so every tile
   // also gets Move Up/Down + a folder picker as the touch-inclusive path -
-  // see AppTile's moveControls.
+  // see AppTile's moveControls. dragEntry carries {item_type, item_id} (not
+  // just an id) now that a mix of both types can share one grid/folder and
+  // their autoincrement ids can collide.
   const [dragKind, setDragKind] = useState(null); // 'item' | 'folder' | null
-  const [dragId, setDragId] = useState(null);
+  const [dragEntry, setDragEntry] = useState(null);
+  const sameEntry = (a, b) => a && b && a.item_type === b.item_type && a.item_id === b.item_id;
 
+  const entryExists = useCallback((entry) => !!resolveEntryLink(itemsById, entry), [itemsById]);
   const topItems = useMemo(
-    () => layout.items.filter(i => i.folder_id === null && itemsById.has(i.item_id)).sort((a, b) => a.position - b.position),
-    [layout.items, itemsById]
+    () => layout.items.filter(i => i.folder_id === null && entryExists(i)).sort((a, b) => a.position - b.position),
+    [layout.items, entryExists]
   );
   const folders = useMemo(() => [...layout.folders].sort((a, b) => a.position - b.position), [layout.folders]);
   const folderMembers = useCallback(
-    (folderId) => layout.items.filter(i => i.folder_id === folderId && itemsById.has(i.item_id)).sort((a, b) => a.position - b.position),
-    [layout.items, itemsById]
+    (folderId) => layout.items.filter(i => i.folder_id === folderId && entryExists(i)).sort((a, b) => a.position - b.position),
+    [layout.items, entryExists]
   );
 
-  const reorderTopLevel = (orderedIds) => mutate(prev => {
-    const rank = new Map(orderedIds.map((id, i) => [id, i]));
-    return { ...prev, items: prev.items.map(i => (i.folder_id === null && rank.has(i.item_id)) ? { ...i, position: rank.get(i.item_id) } : i) };
+  const reorderTopLevel = (orderedEntries) => mutate(prev => {
+    const rank = new Map(orderedEntries.map((e, i) => [`${e.item_type}:${e.item_id}`, i]));
+    return {
+      ...prev,
+      items: prev.items.map(i => {
+        const key = `${i.item_type}:${i.item_id}`;
+        return (i.folder_id === null && rank.has(key)) ? { ...i, position: rank.get(key) } : i;
+      }),
+    };
   });
   const reorderFolders = (orderedIds) => mutate(prev => {
     const rank = new Map(orderedIds.map((id, i) => [id, i]));
     return { ...prev, folders: prev.folders.map(f => rank.has(f.id) ? { ...f, position: rank.get(f.id) } : f) };
   });
-  const reorderWithinFolder = (folderId, orderedIds) => mutate(prev => {
-    const rank = new Map(orderedIds.map((id, i) => [id, i]));
-    return { ...prev, items: prev.items.map(i => (i.folder_id === folderId && rank.has(i.item_id)) ? { ...i, position: rank.get(i.item_id) } : i) };
+  const reorderWithinFolder = (folderId, orderedEntries) => mutate(prev => {
+    const rank = new Map(orderedEntries.map((e, i) => [`${e.item_type}:${e.item_id}`, i]));
+    return {
+      ...prev,
+      items: prev.items.map(i => {
+        const key = `${i.item_type}:${i.item_id}`;
+        return (i.folder_id === folderId && rank.has(key)) ? { ...i, position: rank.get(key) } : i;
+      }),
+    };
   });
-  const moveToFolder = (itemId, folderId) => mutate(prev => {
-    const dest = prev.items.filter(i => i.folder_id === folderId && i.item_id !== itemId);
+  const moveToFolder = (entry, folderId) => mutate(prev => {
+    const dest = prev.items.filter(i => i.folder_id === folderId && !sameEntry(i, entry));
     const nextPos = dest.length ? Math.max(...dest.map(i => i.position)) + 1 : 0;
-    return { ...prev, items: prev.items.map(i => i.item_id === itemId ? { ...i, folder_id: folderId, position: nextPos } : i) };
+    return { ...prev, items: prev.items.map(i => sameEntry(i, entry) ? { ...i, folder_id: folderId, position: nextPos } : i) };
   });
-  const createFolderWithItem = (itemId) => {
+  const createFolderWithItem = (entry) => {
     const id = `f_${Math.random().toString(36).slice(2, 8)}`;
     mutate(prev => {
       const position = prev.folders.length ? Math.max(...prev.folders.map(f => f.position)) + 1 : 0;
       return {
         ...prev,
         folders: [...prev.folders, { id, name: 'New Folder', position }],
-        items: prev.items.map(i => i.item_id === itemId ? { ...i, folder_id: id, position: 0 } : i),
+        items: prev.items.map(i => sameEntry(i, entry) ? { ...i, folder_id: id, position: 0 } : i),
       };
     });
     setOpenFolderId(id); // straight into the modal so the user can rename it right away
@@ -1398,17 +1515,17 @@ function MyLayoutSection({ layout, itemsById, canManage, canDelete, favorites, o
       items: prev.items.map(i => i.folder_id === folderId ? { ...i, folder_id: null, position: nextPos++ } : i),
     };
   });
-  const moveItemUpDown = (itemId, folderId, dir) => mutate(prev => {
+  const moveItemUpDown = (entry, folderId, dir) => mutate(prev => {
     const siblings = prev.items.filter(i => i.folder_id === folderId).sort((a, b) => a.position - b.position);
-    const idx = siblings.findIndex(i => i.item_id === itemId);
+    const idx = siblings.findIndex(i => sameEntry(i, entry));
     const swapIdx = idx + dir;
     if (idx < 0 || swapIdx < 0 || swapIdx >= siblings.length) return prev;
     const a = siblings[idx], b = siblings[swapIdx];
     return {
       ...prev,
       items: prev.items.map(i => {
-        if (i.item_id === a.item_id && i.folder_id === folderId) return { ...i, position: b.position };
-        if (i.item_id === b.item_id && i.folder_id === folderId) return { ...i, position: a.position };
+        if (sameEntry(i, a) && i.folder_id === folderId) return { ...i, position: b.position };
+        if (sameEntry(i, b) && i.folder_id === folderId) return { ...i, position: a.position };
         return i;
       }),
     };
@@ -1429,34 +1546,34 @@ function MyLayoutSection({ layout, itemsById, canManage, canDelete, favorites, o
     };
   });
 
-  const itemDragProps = (itemId) => ({
-    onDragStart: (e) => { e.dataTransfer.effectAllowed = 'move'; setDragKind('item'); setDragId(itemId); },
-    onDragEnd: () => { setDragKind(null); setDragId(null); },
+  const itemDragProps = (entry) => ({
+    onDragStart: (e) => { e.dataTransfer.effectAllowed = 'move'; setDragKind('item'); setDragEntry(entry); },
+    onDragEnd: () => { setDragKind(null); setDragEntry(null); },
   });
   const folderDragProps = (folderId) => ({
-    onDragStart: (e) => { e.dataTransfer.effectAllowed = 'move'; setDragKind('folder'); setDragId(folderId); },
-    onDragEnd: () => { setDragKind(null); setDragId(null); },
+    onDragStart: (e) => { e.dataTransfer.effectAllowed = 'move'; setDragKind('folder'); setDragEntry(folderId); },
+    onDragEnd: () => { setDragKind(null); setDragEntry(null); },
   });
-  const topItemDropProps = (targetItemId) => ({
+  const topItemDropProps = (targetEntry) => ({
     onDragOver: (e) => { if (dragKind === 'item') e.preventDefault(); },
     onDrop: (e) => {
       e.preventDefault();
-      if (dragKind !== 'item' || dragId === targetItemId) return;
-      const ids = topItems.map(i => i.item_id).filter(id => id !== dragId);
-      const idx = ids.indexOf(targetItemId);
-      ids.splice(idx, 0, dragId);
-      reorderTopLevel(ids);
+      if (dragKind !== 'item' || sameEntry(dragEntry, targetEntry)) return;
+      const entries = topItems.filter(i => !sameEntry(i, dragEntry));
+      const idx = entries.findIndex(i => sameEntry(i, targetEntry));
+      entries.splice(idx, 0, dragEntry);
+      reorderTopLevel(entries);
     },
   });
   const folderDropProps = (targetFolderId) => ({
     onDragOver: (e) => { if (dragKind) e.preventDefault(); },
     onDrop: (e) => {
       e.preventDefault();
-      if (dragKind === 'item') { moveToFolder(dragId, targetFolderId); return; }
-      if (dragKind === 'folder' && dragId !== targetFolderId) {
-        const ids = folders.map(f => f.id).filter(id => id !== dragId);
+      if (dragKind === 'item') { moveToFolder(dragEntry, targetFolderId); return; }
+      if (dragKind === 'folder' && dragEntry !== targetFolderId) {
+        const ids = folders.map(f => f.id).filter(id => id !== dragEntry);
         const idx = ids.indexOf(targetFolderId);
-        ids.splice(idx, 0, dragId);
+        ids.splice(idx, 0, dragEntry);
         reorderFolders(ids);
       }
     },
@@ -1470,7 +1587,7 @@ function MyLayoutSection({ layout, itemsById, canManage, canDelete, favorites, o
         {folders.map((f, i) => (
           <FolderTile
             key={f.id} folder={f}
-            memberLinks={folderMembers(f.id).map(e => itemsById.get(e.item_id)).filter(Boolean)}
+            memberLinks={folderMembers(f.id).map(e => resolveEntryLink(itemsById, e)).filter(Boolean)}
             onOpen={() => setOpenFolderId(f.id)}
             dragHandleProps={folderDragProps(f.id)}
             dropProps={folderDropProps(f.id)}
@@ -1481,29 +1598,31 @@ function MyLayoutSection({ layout, itemsById, canManage, canDelete, favorites, o
           />
         ))}
         {topItems.map((entry, i) => {
-          const link = itemsById.get(entry.item_id);
+          const a = entryActions(entry, itemsById, actionCtx);
+          if (!a) return null;
           return (
             <AppTile
-              key={entry.item_id} link={link} color={colorFor(link.category)}
-              canManage={canManage} canDelete={canDelete}
-              isFavorite={favorites.includes(link.id)} onToggleFavorite={() => onToggleFavorite(link.id)}
-              onOpen={() => onOpen(link)} onEdit={() => onEdit(link)} onDelete={() => onDelete(link)}
-              dragHandleProps={itemDragProps(entry.item_id)}
-              dropProps={topItemDropProps(entry.item_id)}
+              key={`${entry.item_type}:${entry.item_id}`} link={a.link} color={a.color} sourceType={a.sourceType} vaultLinked={a.vaultLinked}
+              canManage={a.canManage} canDelete={a.canDelete}
+              isFavorite={a.isFavorite} onToggleFavorite={a.onToggleFavorite}
+              onOpen={a.onOpen} onEdit={a.onEdit} onDelete={a.onDelete}
+              dragHandleProps={itemDragProps(entry)}
+              dropProps={topItemDropProps(entry)}
               moveControls={{
                 canMoveUp: i > 0, canMoveDown: i < topItems.length - 1,
-                onMoveUp: () => moveItemUpDown(entry.item_id, null, -1), onMoveDown: () => moveItemUpDown(entry.item_id, null, 1),
+                onMoveUp: () => moveItemUpDown(entry, null, -1), onMoveDown: () => moveItemUpDown(entry, null, 1),
                 extra: (
                   <FolderPicker
                     folders={folders} currentFolderId={null}
-                    onMove={(destId) => moveToFolder(entry.item_id, destId)}
-                    onCreateNew={() => createFolderWithItem(entry.item_id)}
+                    onMove={(destId) => moveToFolder(entry, destId)}
+                    onCreateNew={() => createFolderWithItem(entry)}
                   />
                 ),
               }}
             />
           );
         })}
+        {onAddPersonal && <AddAppTile label="Add Personal Link" onClick={onAddPersonal} />}
         <AddAppTile label="New Folder" onClick={createEmptyFolder} />
       </AppGrid>
 
@@ -1512,9 +1631,7 @@ function MyLayoutSection({ layout, itemsById, canManage, canDelete, favorites, o
           folder={openFolder}
           memberEntries={folderMembers(openFolder.id)}
           itemsById={itemsById}
-          canManage={canManage} canDelete={canDelete}
-          favorites={favorites} onToggleFavorite={onToggleFavorite}
-          onOpen={onOpen} onEdit={onEdit} onDelete={onDelete}
+          actionCtx={actionCtx}
           onClose={() => setOpenFolderId(null)}
           onRename={(name) => renameFolder(openFolder.id, name)}
           onDeleteFolder={() => {
@@ -1525,14 +1642,14 @@ function MyLayoutSection({ layout, itemsById, canManage, canDelete, favorites, o
           onReorderWithin={(fromIdx, toIdx) => {
             const members = folderMembers(openFolder.id);
             if (toIdx < 0 || toIdx >= members.length) return;
-            const ids = members.map(e => e.item_id);
-            const [moved] = ids.splice(fromIdx, 1);
-            ids.splice(toIdx, 0, moved);
-            reorderWithinFolder(openFolder.id, ids);
+            const entries = [...members];
+            const [moved] = entries.splice(fromIdx, 1);
+            entries.splice(toIdx, 0, moved);
+            reorderWithinFolder(openFolder.id, entries);
           }}
-          onMoveOut={(itemId, destId) => moveToFolder(itemId, destId)}
+          onMoveOut={(entry, destId) => moveToFolder(entry, destId)}
           allFolders={folders}
-          onCreateFolder={(itemId) => createFolderWithItem(itemId)}
+          onCreateFolder={(entry) => createFolderWithItem(entry)}
         />
       )}
     </>
