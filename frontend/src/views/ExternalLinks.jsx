@@ -1181,7 +1181,7 @@ function AppTile({
 
   return (
     <div
-      className="app-tile" onClick={onOpen} data-link-id={link.id}
+      className="app-tile" onClick={onOpen} data-link-id={link.id} data-item-type={sourceType || 'external'}
       role="button" tabIndex={0}
       onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(); } }}
       title={plainTitle}
@@ -1415,12 +1415,19 @@ function FolderModal({
                     }}
                     dropProps={{
                       onDragOver: (e) => { if (dragKey != null) e.preventDefault(); },
+                      // Same DOM-ground-truth read as the background grid's
+                      // topItemDropProps - the actual element the drop
+                      // landed on, not a closure captured when this tile's
+                      // dropProps were built.
                       onDrop: (e) => {
                         e.preventDefault();
-                        if (dragKey == null || dragKey === entryKey(entry)) return;
-                        const entries = memberEntries.filter(x => entryKey(x) !== dragKey);
+                        if (dragKey == null) return;
+                        const targetKey = `${e.currentTarget.dataset.itemType}:${e.currentTarget.dataset.linkId}`;
+                        if (dragKey === targetKey) return;
                         const dragged = memberEntries.find(x => entryKey(x) === dragKey);
-                        const idx = entries.findIndex(x => entryKey(x) === entryKey(entry));
+                        const entries = memberEntries.filter(x => entryKey(x) !== dragKey);
+                        const idx = entries.findIndex(x => entryKey(x) === targetKey);
+                        if (!dragged || idx === -1) return;
                         entries.splice(idx, 0, dragged);
                         onReorderWithin(entries);
                         setDragKey(null);
@@ -1571,15 +1578,27 @@ function MyLayoutSection({ layout, itemsById, actionCtx, mutate }) {
     onDragStart: (e) => { e.dataTransfer.effectAllowed = 'move'; setDragKind('folder'); setDragEntry(folderId); },
     onDragEnd: () => { setDragKind(null); setDragEntry(null); },
   });
-  const topItemDropProps = (targetEntry) => ({
+  const topItemDropProps = () => ({
     onDragOver: (e) => {
       if (dragKind !== 'item') return;
       e.preventDefault();
       setDragOverFolderId(null);
     },
+    // Reads the actual drop target straight off the DOM node the drop event
+    // landed on (e.currentTarget, guaranteed to be exactly the element the
+    // browser fired this handler for) instead of trusting a JS closure
+    // captured back when this tile's dropProps were built - eliminates any
+    // possibility of the target being stale/wrong regardless of cause, which
+    // is what "always moves one slot, ignoring where I actually drop it"
+    // pointed at. data-item-type/data-link-id are always in sync with what's
+    // rendered since they come straight from the same props on every render.
     onDrop: (e) => {
       e.preventDefault();
-      if (dragKind !== 'item' || sameEntry(dragEntry, targetEntry)) return;
+      if (dragKind !== 'item') return;
+      const targetType = e.currentTarget.dataset.itemType;
+      const targetId = Number(e.currentTarget.dataset.linkId);
+      const targetEntry = topItems.find(i => i.item_type === targetType && i.item_id === targetId);
+      if (!targetEntry || sameEntry(dragEntry, targetEntry)) return;
       const entries = topItems.filter(i => !sameEntry(i, dragEntry));
       const idx = entries.findIndex(i => sameEntry(i, targetEntry));
       entries.splice(idx, 0, dragEntry);
@@ -1593,13 +1612,17 @@ function MyLayoutSection({ layout, itemsById, actionCtx, mutate }) {
       if (dragKind === 'item') setDragOverFolderId(targetFolderId); // highlight - dropping here adds it to the folder
     },
     onDragLeave: () => { if (dragOverFolderId === targetFolderId) setDragOverFolderId(null); },
+    // Ground-truth target read off the DOM node the drop actually landed on
+    // (e.currentTarget), same reasoning as topItemDropProps above.
     onDrop: (e) => {
       e.preventDefault();
       setDragOverFolderId(null);
-      if (dragKind === 'item') { moveToFolder(dragEntry, targetFolderId); return; }
-      if (dragKind === 'folder' && dragEntry !== targetFolderId) {
+      const actualTargetFolderId = e.currentTarget.dataset.folderId;
+      if (dragKind === 'item') { moveToFolder(dragEntry, actualTargetFolderId); return; }
+      if (dragKind === 'folder' && dragEntry !== actualTargetFolderId) {
         const ids = folders.map(f => f.id).filter(id => id !== dragEntry);
-        const idx = ids.indexOf(targetFolderId);
+        const idx = ids.indexOf(actualTargetFolderId);
+        if (idx === -1) return;
         ids.splice(idx, 0, dragEntry);
         reorderFolders(ids);
       }
@@ -1631,7 +1654,7 @@ function MyLayoutSection({ layout, itemsById, actionCtx, mutate }) {
               isFavorite={a.isFavorite} onToggleFavorite={a.onToggleFavorite}
               onOpen={a.onOpen} onEdit={a.onEdit} onDelete={a.onDelete}
               dragHandleProps={itemDragProps(entry)}
-              dropProps={topItemDropProps(entry)}
+              dropProps={topItemDropProps()}
               moveControls={{
                 extra: (
                   <FolderPicker
