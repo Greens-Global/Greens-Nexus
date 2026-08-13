@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Loader2, MonitorSmartphone, X, Radio, MousePointer2, Maximize2, ExternalLink, Paperclip } from 'lucide-react';
+import { Loader2, MonitorSmartphone, X, Radio, MousePointer2, Maximize2, ExternalLink, Paperclip, ZoomIn, ZoomOut } from 'lucide-react';
 import { api } from '../api';
 import { Avatar } from '../tasks/components';
+import { useRole } from '../contexts/RoleContext';
 
 // Real-time screen view of one clocked-in employee (Discord-style), plus
 // consent-based attended remote control. The browser is the WebRTC ANSWERER: we
@@ -53,6 +54,7 @@ const iconBtn = {
 };
 
 export default function LiveView({ email, name, onClose }) {
+  const { myEmail } = useRole();       // the support person - their avatar rides the control cursor
   const cardRef = useRef(null);        // fullscreen target (whole modal, so controls stay visible)
   const stageWrapRef = useRef(null);   // wheel/drag surface
   const videoEls = useRef({});         // screen index -> <video> element
@@ -76,6 +78,8 @@ export default function LiveView({ email, name, onClose }) {
   const [popped, setPopped] = useState(false);
   const [fileProg, setFileProg] = useState(null);   // {name, pct} while sending
   const [note, setNote] = useState('');
+  const [zoom, setZoom] = useState(1);              // 1..4, single-screen magnify for small displays
+  const [cursorPos, setCursorPos] = useState(null); // support cursor overlay position (px in stage)
 
   useEffect(() => {
     controlRef.current = control;
@@ -83,7 +87,7 @@ export default function LiveView({ email, name, onClose }) {
     const w = popoutRef.current;
     if (w && !w.closed && typeof w.__syncBar === 'function') { try { w.__syncBar(); } catch (_) { /* ignore */ } }
   }, [control]);
-  useEffect(() => { selRef.current = sel; }, [sel]);
+  useEffect(() => { selRef.current = sel; setZoom(1); }, [sel]);
   useEffect(() => { streamsRef.current = streams; }, [streams]);
 
   const send = useCallback((m) => {
@@ -511,6 +515,19 @@ export default function LiveView({ email, name, onClose }) {
               <Radio size={12} /> LIVE
             </span>
           )}
+          {status === 'live' && !gridMode && (
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+              <button onClick={() => setZoom(z => Math.max(1, +(z - 0.5).toFixed(1)))} disabled={zoom <= 1} title="Zoom out"
+                style={{ ...iconBtn, opacity: zoom <= 1 ? 0.4 : 1, cursor: zoom <= 1 ? 'default' : 'pointer' }}>
+                <ZoomOut size={15} />
+              </button>
+              {zoom > 1 && <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', minWidth: 30, textAlign: 'center' }}>{Math.round(zoom * 100)}%</span>}
+              <button onClick={() => setZoom(z => Math.min(4, +(z + 0.5).toFixed(1)))} disabled={zoom >= 4} title="Zoom in"
+                style={{ ...iconBtn, opacity: zoom >= 4 ? 0.4 : 1, cursor: zoom >= 4 ? 'default' : 'pointer' }}>
+                <ZoomIn size={15} />
+              </button>
+            </div>
+          )}
           <button onClick={toggleFullscreen} title={isFs ? 'Exit Full Screen' : 'Full Screen'} style={iconBtn}>
             <Maximize2 size={15} />
           </button>
@@ -526,9 +543,18 @@ export default function LiveView({ email, name, onClose }) {
         <div ref={stageWrapRef}
           onDragOver={controlling ? (e) => e.preventDefault() : undefined}
           onDrop={controlling ? (e) => { e.preventDefault(); const f = e.dataTransfer.files && e.dataTransfer.files[0]; if (f) sendFile(f); } : undefined}
+          onMouseMove={controlling ? (e) => {
+            const st = stageWrapRef.current; if (!st) return;
+            const r = st.getBoundingClientRect();
+            setCursorPos({ x: e.clientX - r.left + st.scrollLeft, y: e.clientY - r.top + st.scrollTop });
+          } : undefined}
+          onMouseLeave={() => setCursorPos(null)}
           style={{ position: 'relative', background: '#0b1220', width: '100%',
                    height: isFs ? 'auto' : 'min(72vh, 860px)', flex: isFs ? 1 : undefined, minHeight: isFs ? 0 : 320,
-                   cursor: controlling ? 'crosshair' : 'default',
+                   overflow: (!gridMode && zoom > 1) ? 'auto' : 'hidden',
+                   // Hide the OS crosshair while controlling - the employee's real
+                   // cursor shows in the stream, and we draw the support cursor below.
+                   cursor: controlling ? 'none' : 'default',
                    outline: controlling ? '2px solid hsl(var(--color-green))' : 'none', outlineOffset: -2 }}>
           {gridMode ? (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))', gap: 6, width: '100%', height: '100%', padding: 6, boxSizing: 'border-box' }}>
@@ -542,8 +568,19 @@ export default function LiveView({ email, name, onClose }) {
               ))}
             </div>
           ) : (
-            <div {...tileMouse(sel === 'all' ? 0 : sel)} style={{ width: '100%', height: '100%' }}>
+            // Zoom magnifies by growing the wrapper past the stage so it scrolls
+            // (transform scale wouldn't create scrollable overflow). Control coords
+            // stay correct - remoteXY reads the video's live rect.
+            <div {...tileMouse(sel === 'all' ? 0 : sel)} style={{ width: `${zoom * 100}%`, height: `${zoom * 100}%` }}>
               {videoTag(sel === 'all' ? 0 : Math.min(typeof sel === 'number' ? sel : 0, Math.max(0, streams.length - 1)))}
+            </div>
+          )}
+          {controlling && cursorPos && (
+            <div style={{ position: 'absolute', left: cursorPos.x, top: cursorPos.y, pointerEvents: 'none', zIndex: 6 }}>
+              <MousePointer2 size={26} style={{ color: '#fff', fill: 'hsl(var(--color-blue))', filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.55))' }} />
+              <div style={{ position: 'absolute', left: 18, top: 18, borderRadius: '50%', boxShadow: '0 0 0 2px hsl(var(--color-blue)), 0 2px 6px rgba(0,0,0,0.5)' }}>
+                <Avatar email={myEmail} size={34} card={false} />
+              </div>
             </div>
           )}
           {overlay && (
