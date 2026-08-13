@@ -303,11 +303,11 @@ function PresenceBadges({ pres }) {
       )}
       {watchers.length > 0 && (
         <div style={{ position: 'relative' }}>
-          <button onClick={() => setOpen(v => !v)} title={`${watchers.length} watching`}
+          <button onClick={() => setOpen(v => !v)} title={`${watchers.length} watching - click to see who`}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 800, cursor: 'pointer',
               color: 'hsl(var(--color-blue))', background: 'hsla(var(--color-blue),0.12)', border: 'none', padding: '3px 9px', borderRadius: 999 }}>
             <Eye size={13} style={{ animation: 'nexusEyeWatch 1.4s ease-in-out infinite' }} />
-            {watchers.length > 1 ? `+${watchers.length}` : ''}
+            {watchers.length}
           </button>
           {open && (
             <>
