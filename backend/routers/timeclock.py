@@ -35,7 +35,8 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from database import get_db
-from auth import get_current_user, require_level_or_module, require_administrator
+from auth import (get_current_user, require_level_or_module, require_administrator,
+                  require_module_grant, require_level_or_modules)
 from models import (TimePunch, TimeScreenshot, TimeOffRequest, TimeApproval, TimeBod,
                     AgentDevice, AgentPairing, LiveSession, Shift, ShiftGroup, ShiftGroupMember,
                     ShiftAssignment, ScheduledShift, PayrollRate, HrWorkSite, NexusEmployee,
@@ -51,6 +52,23 @@ router = APIRouter(prefix="/timeclock", tags=["timeclock"])
 # Managers (level 3+) OR anyone granted the HR module can review the team.
 require_team_read = require_level_or_module(3, "hr", "viewer")
 require_team_write = require_level_or_module(3, "hr", "editor")
+
+# Employee Tracking (disclosed monitoring) is a grant-driven module (Aug 13). IT
+# Admin / Global Admin always have it (require_module_grant's bypass); otherwise an
+# Access-Group grant on "employee-tracking" opens it, tiered by level:
+#   viewer = watch live, coverage, screenshots, see enrolled devices;
+#   full   = remote CONTROL, edit the monitoring policy, enroll/assign/revoke PCs.
+# NOTE: unlike require_team_read, a plain manager/supervisor role does NOT open the
+# screen - only an explicit grant does (or admin) - matching its grant-driven
+# sidebar/route visibility.
+require_tracking      = require_module_grant("employee-tracking", "viewer")
+require_tracking_full = require_module_grant("employee-tracking", "full")
+# Read surfaces the monitoring dashboard SHARES with the manager audience (top
+# apps/coverage/alerts): keep managers + HR-grant AND additively admit an
+# Employee-Tracking grant, so a granted non-manager can use them too. A superset
+# of require_team_read - never narrows it.
+require_tracking_read       = require_level_or_modules(3, [("hr", "viewer"), ("employee-tracking", "viewer")])
+require_tracking_read_write = require_level_or_modules(3, [("hr", "editor"), ("employee-tracking", "full")])
 
 
 def _visible_emails(db: Session, user: dict):
@@ -1311,7 +1329,7 @@ class MonitoringPolicyIn(BaseModel):
 
 
 @router.put("/monitoring/policy")
-def set_monitoring_policy(body: MonitoringPolicyIn, user: dict = Depends(require_administrator),
+def set_monitoring_policy(body: MonitoringPolicyIn, user: dict = Depends(require_tracking_full),
                           db: Session = Depends(get_db)):
     """Admin sets the monitoring cadence and what's collected. Central + auditable."""
     p = _get_policy(db)
@@ -1327,7 +1345,7 @@ def set_monitoring_policy(body: MonitoringPolicyIn, user: dict = Depends(require
 
 
 @router.get("/monitoring/alerts")
-def monitoring_alerts(user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
+def monitoring_alerts(user: dict = Depends(require_tracking_read), db: Session = Depends(get_db)):
     """Tamper/coverage alerts: employees who are CLOCKED IN while monitoring is on,
     but whose agent has gone quiet - the honest, visible way to catch someone
     killing/uninstalling the agent to dodge capture. Nothing is hidden; the gap is
@@ -1412,7 +1430,7 @@ def monitoring_alerts(user: dict = Depends(require_team_read), db: Session = Dep
 
 
 @router.get("/monitoring/coverage")
-def monitoring_coverage(user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
+def monitoring_coverage(user: dict = Depends(require_tracking_read), db: Session = Depends(get_db)):
     """Live coverage roster: everyone currently clocked in, HOW each is being
     captured right now - desktop agent, in-browser Chrome share, or NOT captured
     (the gap). Team-scoped like the alerts feed; derived from punch + heartbeat +
@@ -1885,7 +1903,7 @@ class EnrollIn(BaseModel):
 
 
 @router.post("/agent/enroll")
-def agent_enroll(body: EnrollIn, user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
+def agent_enroll(body: EnrollIn, user: dict = Depends(require_tracking_full), db: Session = Depends(get_db)):
     """Mint a fresh device token for an employee. The raw token is returned ONCE
     (only its hash is stored) - the portal bakes it into the install command."""
     email = body.email.strip().lower()
@@ -1965,7 +1983,7 @@ def _ps_oneliner(script: str) -> str:
 
 
 @router.get("/agent/install-command")
-def agent_install_command(user: dict = Depends(require_administrator)):
+def agent_install_command(user: dict = Depends(require_tracking_full)):
     """Return the ONE reusable Windows one-liner used on every PC (like Flowace's
     silent command). It downloads the installer + agent bundle and installs the
     DISCLOSED agent (visible tray icon; nothing covert), carrying the shared
@@ -2107,7 +2125,7 @@ def agent_self_enroll(body: SelfEnrollIn, db: Session = Depends(get_db)):
 
 
 @router.get("/agent/devices")
-def agent_devices(user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
+def agent_devices(user: dict = Depends(require_tracking), db: Session = Depends(get_db)):
     """Silent App Tracking: every enrolled computer, self-described on check-in."""
     names = {e.work_email: f"{e.first_name} {e.last_name}".strip()
              for e in db.query(NexusEmployee).all() if e.work_email}
@@ -2157,7 +2175,7 @@ class AssignDeviceIn(BaseModel):
 
 @router.post("/agent/devices/{device_id}/assign")
 def agent_assign_device(device_id: str, body: AssignDeviceIn,
-                        user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
+                        user: dict = Depends(require_tracking_full), db: Session = Depends(get_db)):
     """Link an enrolled PC to a Nexus person (its assigned owner), or unassign
     with an empty email. The owner must be a real Nexus employee - people pickers
     everywhere resolve against the curated directory, so we validate the same way."""
@@ -2179,7 +2197,7 @@ def agent_assign_device(device_id: str, body: AssignDeviceIn,
 
 
 @router.patch("/agent/devices/{device_id}")
-def agent_revoke(device_id: str, user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
+def agent_revoke(device_id: str, user: dict = Depends(require_tracking_full), db: Session = Depends(get_db)):
     dev = db.query(AgentDevice).filter(AgentDevice.id == device_id).first()
     if not dev:
         raise HTTPException(404, "Device not found")
@@ -2189,7 +2207,7 @@ def agent_revoke(device_id: str, user: dict = Depends(require_administrator), db
 
 
 @router.delete("/agent/devices/{device_id}")
-def agent_delete_device(device_id: str, user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
+def agent_delete_device(device_id: str, user: dict = Depends(require_tracking_full), db: Session = Depends(get_db)):
     """Hard-delete an enrolled computer's record - for cleaning up a PC that's been
     uninstalled/decommissioned. Distinct from revoke (which just kills the token):
     this removes the row entirely. If the agent is somehow still installed, its next
@@ -2445,7 +2463,7 @@ class LiveRequestIn(BaseModel):
 
 
 @router.post("/live/request")
-def live_request(body: LiveRequestIn, user: dict = Depends(require_administrator),
+def live_request(body: LiveRequestIn, user: dict = Depends(require_tracking),
                  db: Session = Depends(get_db)):
     """Viewer asks to watch `email`. Returns a session + TURN creds when the person
     is clocked in with an online agent; otherwise the reason (offline / on_break /
@@ -2482,7 +2500,7 @@ def live_request(body: LiveRequestIn, user: dict = Depends(require_administrator
 
 
 @router.get("/live/{sid}")
-def live_poll(sid: str, user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
+def live_poll(sid: str, user: dict = Depends(require_tracking), db: Session = Depends(get_db)):
     """Viewer poll: bumps the viewer heartbeat, returns the agent's offer once ready,
     and ends the session if the subject left their shift or the agent went dark."""
     s = db.query(LiveSession).filter(LiveSession.id == sid).first()
@@ -2509,7 +2527,7 @@ class LiveSdpIn(BaseModel):
 
 
 @router.post("/live/{sid}/answer")
-def live_answer(sid: str, body: LiveSdpIn, user: dict = Depends(require_administrator),
+def live_answer(sid: str, body: LiveSdpIn, user: dict = Depends(require_tracking),
                 db: Session = Depends(get_db)):
     """Viewer returns its WebRTC answer; the agent picks it up and media connects."""
     s = db.query(LiveSession).filter(LiveSession.id == sid).first()
@@ -2525,7 +2543,7 @@ def live_answer(sid: str, body: LiveSdpIn, user: dict = Depends(require_administ
 
 
 @router.post("/live/{sid}/end")
-def live_end(sid: str, user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
+def live_end(sid: str, user: dict = Depends(require_tracking), db: Session = Depends(get_db)):
     """Viewer closes the feed. The agent sees 'ended' on its next poll and stops
     sharing (and drops the tray 'Live view active' indicator)."""
     s = db.query(LiveSession).filter(LiveSession.id == sid).first()
@@ -2543,7 +2561,7 @@ def live_end(sid: str, user: dict = Depends(require_administrator), db: Session 
 # stamped on the LiveSession row as the audit record.
 
 @router.post("/live/{sid}/control/request")
-def live_control_request(sid: str, user: dict = Depends(require_administrator),
+def live_control_request(sid: str, user: dict = Depends(require_tracking_full),
                          db: Session = Depends(get_db)):
     s = db.query(LiveSession).filter(LiveSession.id == sid).first()
     if not s or s.viewer_email != user["email"]:
@@ -2583,7 +2601,7 @@ def live_control_request(sid: str, user: dict = Depends(require_administrator),
 
 
 @router.post("/live/{sid}/control/cancel")
-def live_control_cancel(sid: str, user: dict = Depends(require_administrator),
+def live_control_cancel(sid: str, user: dict = Depends(require_tracking),
                         db: Session = Depends(get_db)):
     s = db.query(LiveSession).filter(LiveSession.id == sid).first()
     if not s or s.viewer_email != user["email"]:
@@ -2597,7 +2615,7 @@ def live_control_cancel(sid: str, user: dict = Depends(require_administrator),
 
 
 @router.post("/live/{sid}/control/end")
-def live_control_end(sid: str, user: dict = Depends(require_administrator),
+def live_control_end(sid: str, user: dict = Depends(require_tracking),
                      db: Session = Depends(get_db)):
     s = db.query(LiveSession).filter(LiveSession.id == sid).first()
     if not s or s.viewer_email != user["email"]:
@@ -2706,7 +2724,7 @@ def agent_live_poll(sid: str, dev: AgentDevice = Depends(get_agent_device), db: 
 
 @router.get("/insights")
 def insights(email: str = "", start: str = "", end: str = "", tz: int = 0,
-             user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
+             user: dict = Depends(require_tracking_read), db: Session = Depends(get_db)):
     """Top apps, top websites, active-vs-idle, productivity split, an hourly
     activity strip and (team view) a per-member leaderboard over [start,end]. `tz`
     is the client's getTimezoneOffset() minutes - used to bucket the hourly strip
@@ -2780,7 +2798,7 @@ def insights(email: str = "", start: str = "", end: str = "", tz: int = 0,
 
 
 @router.get("/ratings")
-def list_ratings(user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
+def list_ratings(user: dict = Depends(require_tracking_read), db: Session = Depends(get_db)):
     return [{"key": r.key, "kind": r.kind, "label": r.label or r.key, "rating": r.rating}
             for r in db.query(AppRating).order_by(AppRating.key).all()]
 
@@ -2793,7 +2811,7 @@ class RatingIn(BaseModel):
 
 
 @router.put("/ratings")
-def set_rating(body: RatingIn, user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+def set_rating(body: RatingIn, user: dict = Depends(require_tracking_read_write), db: Session = Depends(get_db)):
     key = (body.key or "").strip().lower()
     if not key:
         raise HTTPException(400, "key is required")
@@ -4279,7 +4297,7 @@ def _sign_shot_rows(rows: list) -> dict:
 
 @router.get("/screenshots")
 def list_screenshots(date: str = "", email: str = "",
-                     user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
+                     user: dict = Depends(require_tracking), db: Session = Depends(get_db)):
     """Admin gallery. Without an email: per-person counts for the day. With one:
     the frames themselves, each with a fresh signed URL."""
     day = date or datetime.now(timezone.utc).strftime("%Y-%m-%d")

@@ -104,9 +104,12 @@ const VIEW_MIN_ROLES = {
   'marketing':          'supervisor',
   'admin':              'administrator',
   // Employee Tracking (monitoring) module - IT Admin + Global Admin ONLY. The
-  // 'administrator' level here makes ProtectedView ignore group grants, so no
-  // Access Group can open it - exactly the two admin roles.
-  'employee-tracking':  'administrator',
+  // Grant-driven (Aug 13): IT Admin / Global Admin always reach it; below that it
+  // opens ONLY via an explicit Access-Group/job-role grant on 'employee-tracking'
+  // (not a plain supervisor/manager role). Backend endpoints gate on the same
+  // grant (require_tracking / require_tracking_full in timeclock.py). Keep the
+  // module in RoleContext MODULES and this value non-'administrator' so grants work.
+  'employee-tracking':  'supervisor',
   'testing':            'supervisor',   // dev-only module; grant-driven for testers below supervisor
   'credvault':          'supervisor',
   // Egnyte reads are open to any signed-in user server-side, but the backend

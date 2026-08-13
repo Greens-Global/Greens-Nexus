@@ -285,6 +285,24 @@ def require_level_or_module(min_level: int, module_id: str, min_module_level: st
     return _check
 
 
+def require_level_or_modules(min_level: int, module_grants):
+    """Admit users at/above `min_level` globally, OR anyone whose Access Group
+    grants at least the given level for ANY entry in `module_grants` (a list of
+    (module_id, min_module_level) tuples). Purely additive - a superset of what
+    `min_level` alone allows. Use when a read surface is shared between audiences,
+    e.g. the manager team-read audience PLUS an Employee-Tracking grant holder."""
+    checks = [(mid, _MODULE_LEVEL_RANK[lvl]) for mid, lvl in module_grants]
+
+    def _check(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+        if user["level"] >= min_level:
+            return user
+        g = _grants_for(user["email"], db)
+        if any(g.get(mid, 0) >= th for mid, th in checks):
+            return user
+        raise HTTPException(status_code=401, detail="Insufficient permissions")
+    return _check
+
+
 def require_module_grant(module_id: str, min_module_level: str = "viewer", bypass_level: str = "administrator"):
     """Grant-driven access (Jun 17): admits admins at/above `bypass_level`
     (administrator by default - they manage every screen), OR anyone whose Access
