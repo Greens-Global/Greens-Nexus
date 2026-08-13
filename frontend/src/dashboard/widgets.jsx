@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { formatTime } from '../lib/datetime';
 import { api } from '../api';
+import { LinkIcon } from '../components/LinkIcon.jsx';
 
 // Heavy panels (ported from the old Overview / Team Analytics screens) load
 // lazily so TimeAdmin & the approval flows stay out of the main bundle.
@@ -189,15 +190,37 @@ function LinksWidget({ config }) {
   );
 }
 
-function LinksFolderRow({ link, onOpen }) {
+// Same accent-color scheme External Links uses (colorFor/PERSONAL_COLOR in
+// ExternalLinks.jsx) - not shared as an import since it's three lines of
+// pure hashing, cheaper to duplicate than to couple this file to that
+// view's module. Company gets a stable per-category tone; Personal gets one
+// flat purple, matching that view's own Personal badge color exactly.
+const LINK_TILE_PALETTE = ['blue', 'green', 'orange', 'purple', 'red', 'gold'];
+function hashLinkStr(s) { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return Math.abs(h); }
+function colorForLinkCategory(category) {
+  const tone = LINK_TILE_PALETTE[hashLinkStr(category || '') % LINK_TILE_PALETTE.length];
+  return { fg: `hsl(var(--color-${tone}))`, bg: `hsla(var(--color-${tone}),0.12)` };
+}
+const PERSONAL_TILE_COLOR = { fg: 'hsl(var(--color-purple))', bg: 'hsla(var(--color-purple),0.12)' };
+
+// Reuses External Links' own .app-grid/.app-tile CSS and real-favicon
+// LinkIcon (Aug 14, "i want the same folder style in dashboard as we have
+// in external links") rather than a plain text list, so a folder looks
+// identical whether it's opened from External Links or from this widget -
+// just the hover actions (favorite/drag/move-to-folder) are left out, since
+// none of those make sense on a small fixed dashboard tile.
+function LinksFolderTile({ link, color, onOpen }) {
   return (
-    <button onClick={onOpen} className="dash-link-row"
-      style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '9px 8px', border: 'none', background: 'none', borderRadius: 8, cursor: 'pointer', textAlign: 'left', fontSize: 13.5, color: 'var(--ink)', fontFamily: 'var(--wk-font)', width: '100%' }}
-      onMouseEnter={e => e.currentTarget.style.background = 'var(--mist)'}
-      onMouseLeave={e => e.currentTarget.style.background = 'none'}>
-      <ExternalLink size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />
-      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{link.name}</span>
-    </button>
+    <div
+      className="app-tile" onClick={onOpen} role="button" tabIndex={0}
+      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(); } }}
+      title={link.name}
+    >
+      <div className="app-tile-icon-wrap">
+        <LinkIcon url={link.url} iconKey={link.icon} size={48} radius={13} fg={color.fg} bg={color.bg} />
+      </div>
+      <span className="app-tile-name">{link.name}</span>
+    </div>
   );
 }
 
@@ -263,8 +286,11 @@ function LinksFolderWidget({ config }) {
       ) : state.links.length === 0 ? (
         <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '24px 4px', textAlign: 'center' }}>This folder is empty.</div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-          {state.links.map(l => <LinksFolderRow key={l.id} link={l} onOpen={() => open(l)} />)}
+        <div className="app-grid" style={{ gap: '14px 10px' }}>
+          {state.links.map(l => (
+            <LinksFolderTile key={l.id} link={l} onOpen={() => open(l)}
+              color={config.itemType === 'personal' ? PERSONAL_TILE_COLOR : colorForLinkCategory(l.category)} />
+          ))}
         </div>
       )}
     </DashCard>

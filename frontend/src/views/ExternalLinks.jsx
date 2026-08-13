@@ -3,15 +3,11 @@ import { useRole } from '../contexts/RoleContext';
 import { api } from '../api';
 import AsyncSection, { SkeletonBlocks } from '../components/AsyncState';
 import { PersonalLockGate } from '../credvault/vaultShared';
+import { LinkIcon, ICON_MAP } from '../components/LinkIcon.jsx';
 import { useLinkLayout } from './useLinkLayout';
 import {
-  Search, Plus, Pencil, Trash2, X, Star,
-  Link2, Mail, Calendar, Users2, FolderKanban, Rocket, MessagesSquare, BookOpen,
-  HelpCircle, Clock, FileSpreadsheet, Zap, Wifi, Landmark, Wallet, Building2,
-  Newspaper, GraduationCap, LineChart, Briefcase, Shield, Globe, Megaphone,
-  HardHat, Ruler, CreditCard, PiggyBank, Receipt, ClipboardList, Headphones,
-  Video, LayoutGrid, CheckSquare, Cloud, Presentation,
-  Gauge, Bird, Warehouse, Settings2, Bookmark, CornerDownLeft, History, Command,
+  Search, Plus, Pencil, Trash2, X, Star, Globe, LayoutGrid,
+  Settings2, Bookmark, CornerDownLeft, History, Command,
   GripVertical, AlertTriangle, Upload, FolderOpen, Download, Lock, KeyRound, Info,
   FolderPlus, Check, RotateCcw, RefreshCw,
 } from 'lucide-react';
@@ -53,71 +49,6 @@ const ICON_OPTIONS = [
   'Receipt', 'ClipboardList', 'Headphones', 'Video', 'CheckSquare', 'Cloud',
   'Presentation', 'Gauge', 'Bird', 'Warehouse',
 ];
-const ICON_MAP = {
-  Link2, Mail, Calendar, Users2, FolderKanban, Rocket, MessagesSquare, BookOpen,
-  HelpCircle, Clock, FileSpreadsheet, Zap, Wifi, Landmark, Wallet, Building2,
-  Newspaper, GraduationCap, LineChart, Briefcase, Shield, Globe, Megaphone,
-  HardHat, Ruler, CreditCard, PiggyBank, Receipt, ClipboardList, Headphones, Video,
-  CheckSquare, Cloud, Presentation, Gauge, Bird, Warehouse,
-};
-const iconFor = (key) => ICON_MAP[key] || Link2;
-
-// Clearbit's free logo API was shut down (logo.clearbit.com no longer
-// resolves at all, Aug 2026) - it used to be the first choice here because it
-// served the actual brand mark at real resolution. icon.horse is first now:
-// it resolves a site's real high-res logo/favicon (up to 180x180, not just
-// whatever tiny favicon.ico the site declared) and serves it from its own
-// host with no redirect, so it doesn't need a second CSP img-src entry the
-// way the old www.google.com/s2/favicons fallback did (that endpoint
-// redirects to a *different* host, t1.gstatic.com, which CSP checks against
-// instead of the one that was actually requested). Google's faviconV2 stays
-// as the second attempt for the handful of domains icon.horse doesn't have -
-// `fallback_opts` deliberately omits `TYPE` so a domain with nothing on file
-// 404s instead of silently returning Google's generic globe glyph as if it
-// were a real logo; the 404 is what lets onError fall through to our own
-// (nicer, brand-colored) lucide icon instead of that globe.
-function logoSources(url, size) {
-  try {
-    const hostname = new URL(url).hostname;
-    return [
-      `https://icon.horse/icon/${hostname}`,
-      `https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=&url=https://${hostname}&size=${size}`,
-    ];
-  } catch {
-    return [];
-  }
-}
-
-// Every link tile in this view (grid card, list row, palette result, Manage
-// rows) used to render the admin-picked lucide glyph. Real site logos read
-// far more recognizable at a glance ("that's the ADP logo") than a generic
-// folder/globe icon, so this swaps to the actual brand mark and only falls
-// back to the curated lucide glyph once every image source has failed to
-// load (network blocked, ad blocker, unrecognized domain, etc - `iconKey`
-// stays on the model for that).
-function LinkIcon({ url, iconKey, size = 42, iconSize, radius = 12, fg, bg, gradient = true }) {
-  const sources = useMemo(() => logoSources(url, Math.max(size * 3, 128)), [url, size]);
-  const [attempt, setAttempt] = useState(0);
-  const src = attempt < sources.length ? sources[attempt] : null;
-  const Fallback = iconFor(iconKey);
-  return (
-    <div style={{
-      width: size, height: size, borderRadius: radius, color: fg, flexShrink: 0, overflow: 'hidden',
-      background: gradient ? `linear-gradient(135deg, ${bg}, ${bg} 40%, transparent)` : bg,
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-    }}>
-      {src ? (
-        <img
-          key={src} src={src} alt="" width={Math.round(size * 0.68)} height={Math.round(size * 0.68)}
-          style={{ objectFit: 'contain' }} onError={() => setAttempt(a => a + 1)}
-        />
-      ) : (
-        <Fallback size={iconSize || Math.round(size * 0.5)} />
-      )}
-    </div>
-  );
-}
-
 // Duplicate-URL detection (Add Link / Add Personal Link) - normalizes away
 // the differences that would otherwise let the same site get added twice
 // (http vs https, www. vs not, a trailing slash, mixed case) without masking
