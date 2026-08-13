@@ -245,6 +245,7 @@ class PersonalLinkCreate(BaseModel):
     url: str
     description: str = ""
     icon: str = "Link2"
+    vault_cred_id: str = ""
 
 
 class PersonalLinkUpdate(BaseModel):
@@ -252,6 +253,7 @@ class PersonalLinkUpdate(BaseModel):
     url: Optional[str] = None
     description: Optional[str] = None
     icon: Optional[str] = None
+    vault_cred_id: Optional[str] = None
 
 
 class PersonalReorderEntry(BaseModel):
@@ -280,10 +282,29 @@ def list_personal_links(user: dict = Depends(get_current_user), db: Session = De
     )
 
 
+def _owned_vault_cred_id(vault_cred_id: str, user: dict, db: Session) -> str:
+    """Guards against pointing a link at someone else's (or a deleted)
+    Credential Vault personal credential - id is client-supplied, so this is
+    the only thing standing between a typo/tamper and reveal() being asked
+    to decrypt a row that was never this user's. Silently drops an invalid
+    id rather than 400ing the whole save; the link itself is still valid
+    without a credential attached."""
+    if not vault_cred_id:
+        return ""
+    owns = (
+        db.query(models.VaultPersonalCredential.id)
+        .filter(models.VaultPersonalCredential.id == vault_cred_id, models.VaultPersonalCredential.owner_email == user["email"])
+        .first()
+    )
+    return vault_cred_id if owns else ""
+
+
 @personal_router.post("", status_code=201)
 def create_personal_link(link: PersonalLinkCreate, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     now = _now()
-    db_link = models.PersonalLink(**link.model_dump(), owner_email=user["email"], created_at=now, updated_at=now)
+    data = link.model_dump()
+    data["vault_cred_id"] = _owned_vault_cred_id(data.get("vault_cred_id", ""), user, db)
+    db_link = models.PersonalLink(**data, owner_email=user["email"], created_at=now, updated_at=now)
     db.add(db_link)
     db.commit()
     db.refresh(db_link)
@@ -309,7 +330,10 @@ def reorder_personal_links(entries: list[PersonalReorderEntry], user: dict = Dep
 @personal_router.patch("/{link_id}")
 def update_personal_link(link_id: int, patch: PersonalLinkUpdate, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     db_link = _own_personal_link(link_id, user, db)
-    for field, value in patch.model_dump(exclude_unset=True).items():
+    changes = patch.model_dump(exclude_unset=True)
+    if "vault_cred_id" in changes:
+        changes["vault_cred_id"] = _owned_vault_cred_id(changes["vault_cred_id"] or "", user, db)
+    for field, value in changes.items():
         setattr(db_link, field, value)
     db_link.updated_at = _now()
     db.commit()
