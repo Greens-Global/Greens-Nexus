@@ -13,7 +13,7 @@ import {
   Video, LayoutGrid, TrendingUp, ArrowUpDown, CheckSquare, Cloud, Presentation,
   Gauge, Bird, Warehouse, Settings2, Bookmark, CornerDownLeft, History, List, Command,
   GripVertical, AlertTriangle, Upload, FolderOpen, Download, Lock, KeyRound, Info,
-  FolderPlus, Check,
+  FolderPlus, Check, RotateCcw, RefreshCw,
 } from 'lucide-react';
 
 // ── Personal, client-side only (favorites / recents / view density) ──
@@ -275,7 +275,7 @@ export default function ExternalLinks() {
   // localStorage-only on purpose - it's an auto-derived, ephemeral trail
   // (last 8 clicked), not something deliberately arranged, and the task
   // this shipped for didn't name it among what must be user-specific.
-  const { layout, loading: layoutLoading, saveError, clearSaveError, mutate } = useLinkLayout();
+  const { layout, loading: layoutLoading, saveError, clearSaveError, mutate, resetToDefault } = useLinkLayout();
   useEffect(() => {
     if (saveError) { setBanner({ kind: 'err', text: saveError }); clearSaveError(); }
   }, [saveError, clearSaveError]);
@@ -418,6 +418,11 @@ export default function ExternalLinks() {
     });
   };
 
+  const resetLayout = () => {
+    if (!window.confirm('Reset to the default company layout? Your custom ordering, folders, and favorites for Company Links will be cleared - this cannot be undone.')) return;
+    resetToDefault().catch(() => {}); // failure already surfaced via saveError -> banner
+  };
+
   const pinned = useMemo(() => filtered.filter(l => l.is_pinned), [filtered]);
   const rest = useMemo(() => filtered.filter(l => !l.is_pinned), [filtered]);
 
@@ -473,6 +478,29 @@ export default function ExternalLinks() {
       if (!meta.categories.includes(l.category)) setMeta(m => ({ ...m, categories: [...new Set([...m.categories, l.category])].sort() }));
       if (l.department && !meta.departments.includes(l.department)) setMeta(m => ({ ...m, departments: [...new Set([...m.departments, l.department])].sort() }));
     });
+  };
+
+  // Shorten Descriptions (Aug 14) - the short-category autofill only ever
+  // applied going forward to new Add Link submissions; a link added before
+  // that shipped (or via CSV import, which never set a description at all)
+  // keeps its old long description until someone explicitly refreshes it,
+  // here or per-row.
+  const refreshDescription = async (link) => {
+    try {
+      const updated = await api.refreshLinkDescription(link.id);
+      setLinks(prev => (prev || []).map(l => (l.id === link.id ? updated : l)));
+    } catch (e) {
+      setBanner({ kind: 'err', text: e?.message || `Could not refresh "${link.name}"'s description.` });
+    }
+  };
+  const refreshAllDescriptions = async () => {
+    try {
+      const res = await api.refreshAllLinkDescriptions();
+      await load(); // one bulk call already wrote every row server-side - just resync the list
+      setBanner({ kind: 'ok', text: `Updated ${res.updated} of ${res.total} link descriptions.` });
+    } catch (e) {
+      setBanner({ kind: 'err', text: e?.message || 'Could not refresh descriptions.' });
+    }
   };
 
   const openAdd = () => setModal({ mode: 'add', id: null, form: { ...emptyForm, department, company: companyFilter, category: category || '' } });
@@ -666,6 +694,11 @@ export default function ExternalLinks() {
               <LayoutGrid size={14} /> Customize My Layout
             </button>
           )}
+          {section === 'company' && hasCustomOrder && (
+            <button className="secondary-btn" onClick={resetLayout} title="Clear your custom ordering and folders - go back to the default company view">
+              <RotateCcw size={14} /> Reset to Default
+            </button>
+          )}
           {section === 'company' && (
             <button className="secondary-btn" onClick={() => setPaletteOpen(true)}>
               <Command size={14} /> Quick Search
@@ -828,6 +861,7 @@ export default function ExternalLinks() {
           onAdd={openAdd} onAddForDept={openAddForDept} onEdit={openEdit} onDelete={remove}
           canDelete={canDelete} onReorder={reorderCategory} onImported={onImported}
           companyName={companyName}
+          onRefreshDescription={refreshDescription} onRefreshAllDescriptions={refreshAllDescriptions}
         />
       )}
 
@@ -1851,13 +1885,28 @@ function attentionFor(links) {
 // URLs + departments with nothing in them yet) - plus Add Link and batch
 // Import. Not scoped by the tile grid's department/category filter, so
 // managing 30+ links doesn't mean hunting through sections first.
-function ManageModal({ links, onClose, onAdd, onAddForDept, onEdit, onDelete, canDelete, onReorder, onImported, companyName }) {
+function ManageModal({
+  links, onClose, onAdd, onAddForDept, onEdit, onDelete, canDelete, onReorder, onImported, companyName,
+  onRefreshDescription, onRefreshAllDescriptions,
+}) {
   const [q, setQ] = useState('');
   const [tab, setTab] = useState('all');
   const [showImport, setShowImport] = useState(false);
   const [dragId, setDragId] = useState(null);
   const [dropCategory, setDropCategory] = useState(null);
   const [deptPick, setDeptPick] = useState('');
+  const [refreshingId, setRefreshingId] = useState(null); // per-row spinner
+  const [refreshingAll, setRefreshingAll] = useState(false);
+
+  const doRefreshOne = async (link) => {
+    setRefreshingId(link.id);
+    try { await onRefreshDescription(link); } finally { setRefreshingId(null); }
+  };
+  const doRefreshAll = async () => {
+    if (!window.confirm('Re-fetch and shorten the description for every Company Link? This overwrites current descriptions.')) return;
+    setRefreshingAll(true);
+    try { await onRefreshAllDescriptions(); } finally { setRefreshingAll(false); }
+  };
 
   const rows = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -1917,6 +1966,9 @@ function ManageModal({ links, onClose, onAdd, onAddForDept, onEdit, onDelete, ca
             <Search size={14} style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
             <input className="form-input" style={{ paddingLeft: 32 }} placeholder="Search links..." value={q} onChange={e => setQ(e.target.value)} />
           </div>
+          <button className="secondary-btn" onClick={doRefreshAll} disabled={refreshingAll} title="Re-fetch and shorten every link's description">
+            <RefreshCw size={14} className={refreshingAll ? 'spin' : undefined} /> {refreshingAll ? 'Shortening...' : 'Shorten Descriptions'}
+          </button>
           <button className="secondary-btn" onClick={() => setShowImport(true)}><Upload size={14} /> Import</button>
           <button className="primary-btn" onClick={onAdd}><Plus size={15} /> Add Link</button>
         </div>
@@ -1960,6 +2012,9 @@ function ManageModal({ links, onClose, onAdd, onAddForDept, onEdit, onDelete, ca
                               {l.department || 'All departments'}{l.company ? ` · ${companyName(l.company)}` : ''}
                             </span>
                             <span style={{ fontSize: 11.5, color: 'var(--muted)', flexShrink: 0 }}>{l.clicks || 0} uses</span>
+                            <IconBtn onClick={() => doRefreshOne(l)} title="Re-fetch and shorten this link's description" disabled={refreshingId === l.id}>
+                              <RefreshCw size={13} className={refreshingId === l.id ? 'spin' : undefined} />
+                            </IconBtn>
                             <IconBtn onClick={() => onEdit(l)} title="Edit link"><Pencil size={13} /></IconBtn>
                             {canDelete && <IconBtn onClick={() => onDelete(l)} title="Delete link" danger><Trash2 size={13} /></IconBtn>}
                           </div>

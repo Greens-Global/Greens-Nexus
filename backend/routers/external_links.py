@@ -337,6 +337,47 @@ def update_external_link(link_id: int, patch: ExternalLinkUpdate, user: dict = D
     return db_link
 
 
+@router.post("/{link_id}/refresh-description")
+async def refresh_link_description(link_id: int, user: dict = Depends(require_links_admin), db: Session = Depends(get_db)):
+    """Re-runs the same auto-fill /preview uses against an EXISTING link's
+    URL and persists the result to the row (Aug 14). The short-category
+    autofill only ever applied going forward, to new Add Link submissions -
+    a link added before that shipped, or via CSV import (which never set a
+    description at all), keeps whatever it was originally saved with until
+    someone explicitly asks for a refresh, here or via the bulk version
+    below. Best-effort: if the fetch/classification comes back empty, the
+    existing description is left alone rather than blanked out."""
+    db_link = db.query(models.ExternalLink).filter(models.ExternalLink.id == link_id).first()
+    if not db_link:
+        raise HTTPException(status_code=404, detail="Link not found")
+    preview = await asyncio.to_thread(_fetch_link_preview, db_link.url)
+    if preview.get("description"):
+        db_link.description = preview["description"]
+        db_link.updated_at = _now()
+        db.commit()
+        db.refresh(db_link)
+    return db_link
+
+
+@router.post("/refresh-descriptions")
+async def refresh_all_link_descriptions(user: dict = Depends(require_links_admin), db: Session = Depends(get_db)):
+    """Bulk version of the single-link refresh above - one pass over every
+    Company Link, best-effort per row (a site that fails to fetch/classify
+    just keeps its current description). Sequential, not parallel - this is
+    an occasional admin action over a small directory, not a hot path worth
+    the complexity of fanning the requests out concurrently."""
+    links = db.query(models.ExternalLink).all()
+    updated = 0
+    for link in links:
+        preview = await asyncio.to_thread(_fetch_link_preview, link.url)
+        if preview.get("description") and preview["description"] != link.description:
+            link.description = preview["description"]
+            link.updated_at = _now()
+            updated += 1
+    db.commit()
+    return {"updated": updated, "total": len(links)}
+
+
 @router.delete("/{link_id}")
 def delete_external_link(link_id: int, user: dict = Depends(require_links_delete), db: Session = Depends(get_db)):
     db_link = db.query(models.ExternalLink).filter(models.ExternalLink.id == link_id).first()

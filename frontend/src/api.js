@@ -650,6 +650,8 @@ export const api = {
   clickExternalLink: (id) => req(`/external-links/${id}/click`, { method: "PATCH" }),
   reorderExternalLinks: (entries) => req("/external-links/reorder", { method: "PATCH", body: JSON.stringify(entries) }),
   importExternalLinks: (rows) => req("/external-links/import", { method: "POST", body: JSON.stringify({ rows }) }),
+  refreshLinkDescription: (id) => req(`/external-links/${id}/refresh-description`, { method: "POST" }),
+  refreshAllLinkDescriptions: () => req("/external-links/refresh-descriptions", { method: "POST" }),
 
   // Personal Links - private, owner-scoped shortcuts (never shared/admin-visible)
   getPersonalLinks: () => req("/personal-links"),
@@ -664,6 +666,7 @@ export const api = {
   // rather than living in localStorage.
   getLinkLayout: () => req("/link-layout"),
   saveLinkLayout: (body) => req("/link-layout", { method: "PUT", body: JSON.stringify(body) }),
+  resetLinkLayout: () => req("/link-layout", { method: "DELETE" }),
 
   // Nexus Roles
   getMyRole:    ()                    => cachedGet('/roles/me'),

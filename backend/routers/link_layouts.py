@@ -192,3 +192,17 @@ def save_link_layout(body: LayoutIn, user: dict = Depends(get_current_user), db:
         db.add(row)
     db.commit()
     return {"folders": folders, "items": items, "favorites": favorites, "is_customized": True}
+
+
+@router.delete("")
+def reset_link_layout(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Restore Default Layout (Aug 14) - removes the user's saved row
+    entirely (not just clearing its contents) so the next GET falls back to
+    the synthesized default, exactly like a brand-new user who's never
+    customized. Idempotent: 200s whether or not a row existed, since "no
+    customization" is the desired end state either way, not an error."""
+    row = _get_row(user, db)
+    if row:
+        db.delete(row)
+        db.commit()
+    return {"folders": [], "items": [], "favorites": [], "is_customized": False}

@@ -61,5 +61,24 @@ export function useLinkLayout() {
 
   const clearSaveError = useCallback(() => setSaveError(null), []);
 
-  return { layout, isCustomized, loading, saveError, clearSaveError, mutate };
+  // Restore Default Layout (Aug 14) - cancels any pending debounced save
+  // first (a queued mutation landing right after a reset would silently
+  // re-customize the layout the user just asked to clear), then deletes the
+  // saved row server-side so the next load falls back to the synthesized
+  // default, same as a brand-new user. Returns the promise so the caller
+  // can show its own confirmation/loading state around the click.
+  const resetToDefault = useCallback(() => {
+    clearTimeout(saveTimerRef.current);
+    return api.resetLinkLayout().then(() => {
+      setLayout(EMPTY_LAYOUT);
+      setIsCustomized(false);
+      lastSavedRef.current = EMPTY_LAYOUT;
+      setSaveError(null);
+    }).catch(e => {
+      setSaveError(e?.message || 'Could not restore the default layout.');
+      throw e;
+    });
+  }, []);
+
+  return { layout, isCustomized, loading, saveError, clearSaveError, mutate, resetToDefault };
 }
