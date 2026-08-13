@@ -119,10 +119,12 @@ function entryActions(entry, itemsById, ctx) {
   if (!link) return null;
   if (entry.item_type === 'personal') {
     return {
+      // No favorite toggle and no "move to folder" picker on Personal Links
+      // (Aug 14 - "i don't have to see bookmark, folder icon we hover over
+      // the application") - just grip/edit/delete. Folders still work by
+      // drag, this only drops the two extra hover-row icons.
       link, sourceType: 'personal', color: PERSONAL_COLOR, canManage: true, canDelete: true,
       vaultLinked: !!link.vault_cred_id,
-      isFavorite: ctx.favoritePersonalIds.includes(link.id),
-      onToggleFavorite: () => ctx.togglePersonalFavorite(link.id),
       onOpen: () => ctx.onOpenPersonal(link), onEdit: () => ctx.onEditPersonal(link), onDelete: () => ctx.onDeletePersonal(link),
     };
   }
@@ -193,16 +195,14 @@ export default function ExternalLinks() {
   const [personalModal, setPersonalModal] = useState(null); // { mode: 'add'|'edit', form, id }
   const [personalSaving, setPersonalSaving] = useState(false);
 
-  // Copy-and-go: a Personal Link can be paired with one of the owner's own
-  // Credential Vault personal credentials (Aug 13). Opening it reveals +
-  // copies the password to the clipboard first, then opens the site - no
-  // in-page autofill (a website can't reach into another origin's login
-  // form; that needs a browser extension, which this is not). vaultCreds is
-  // fetched best-effort: an employee without the "credvault" module grant
-  // just never sees the picker, same silent-degrade as the Company filter
-  // dropdown above when getPeopleDirectory has nothing.
-  const [vaultCreds, setVaultCreds] = useState([]);
-  useEffect(() => { api.cvPersonal().then(setVaultCreds).catch(() => setVaultCreds([])); }, []);
+  // Copy-and-go: a Personal Link can still be paired with one of the
+  // owner's own Credential Vault personal credentials on links that already
+  // have one set (opening it reveals + copies the password to the
+  // clipboard first, then opens the site) - the Add/Edit modal's own
+  // picker for attaching a NEW one was removed (Aug 14, "i don't want
+  // password section" in that modal). No in-page autofill either way (a
+  // website can't reach into another origin's login form; that needs a
+  // browser extension, which this is not).
   const [pendingVaultOpen, setPendingVaultOpen] = useState(null); // link waiting on Personal Vault unlock
   const [showVaultLockGate, setShowVaultLockGate] = useState(false);
 
@@ -826,7 +826,7 @@ export default function ExternalLinks() {
       )}
 
       {personalModal && (
-        <PersonalLinkModal modal={personalModal} setModal={setPersonalModal} save={savePersonal} saving={personalSaving} vaultCreds={vaultCreds} existingLinks={personalLinks || []} />
+        <PersonalLinkModal modal={personalModal} setModal={setPersonalModal} save={savePersonal} saving={personalSaving} existingLinks={personalLinks || []} />
       )}
 
       {showVaultLockGate && (
@@ -917,7 +917,7 @@ function PersonalLinksSection({ layout, itemsById, actionCtx, mutate, allLinks, 
   );
 }
 
-function PersonalLinkModal({ modal, setModal, save, saving, vaultCreds, existingLinks }) {
+function PersonalLinkModal({ modal, setModal, save, saving, existingLinks }) {
   const { mode, form } = modal;
   const setForm = (patch) => setModal(m => ({ ...m, form: { ...m.form, ...patch } }));
   const duplicate = useMemo(() => {
@@ -981,23 +981,6 @@ function PersonalLinkModal({ modal, setModal, save, saving, vaultCreds, existing
             </label>
             <textarea className="form-input" rows={2} value={form.description}
               onChange={e => setForm({ description: e.target.value })} placeholder="Optional note to yourself - or leave blank, we'll try to pull it from the site" />
-          </div>
-          <div className="form-group">
-            <label>Password (optional)</label>
-            {vaultCreds.length > 0 ? (
-              <select className="form-select" value={form.vault_cred_id || ''} onChange={e => setForm({ vault_cred_id: e.target.value })}>
-                <option value="">None - just open the link</option>
-                {vaultCreds.map(c => <option key={c.id} value={c.id}>{c.name}{c.username && c.username !== '-' ? ` (${c.username})` : ''}</option>)}
-              </select>
-            ) : (
-              <p style={{ fontSize: 12, color: 'var(--muted)', margin: 0 }}>
-                No saved passwords yet - add one in Credential Vault's Personal Vault, then come back here to attach it.
-              </p>
-            )}
-            <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '4px 0 0', display: 'flex', alignItems: 'flex-start', gap: 5 }}>
-              <KeyRound size={12} style={{ flexShrink: 0, marginTop: 1 }} />
-              Attaching a password copies it to your clipboard right before the site opens, so you just paste it in - Nexus can't fill it in for you automatically (the site's own login page is a different website).
-            </p>
           </div>
           <div className="form-group">
             <label>Icon</label>
@@ -1371,7 +1354,9 @@ function FolderModal({
                         setDragKey(null);
                       },
                     } : undefined}
-                    moveControls={editable ? {
+                    // No "move to folder" picker icon on Personal Links (Aug
+                    // 14) - matches the background grid's own gate above.
+                    moveControls={(editable && folder.item_type !== 'personal') ? {
                       extra: (
                         <FolderPicker
                           folders={allFolders} currentFolderId={folder.id}
@@ -1618,7 +1603,10 @@ function LinksLayoutSection({ sourceType, layout, itemsById, actionCtx, mutate, 
               onOpen={a.onOpen} onEdit={a.onEdit} onDelete={a.onDelete}
               dragHandleProps={editable ? itemDragProps(entry) : undefined}
               dropProps={editable ? topItemDropProps() : undefined}
-              moveControls={editable ? {
+              // No "move to folder" picker icon on Personal Links (Aug 14) -
+              // folders still work by dragging a tile onto one, this just
+              // drops the extra hover-row button; Company Links keeps it.
+              moveControls={(editable && sourceType !== 'personal') ? {
                 extra: (
                   <FolderPicker
                     folders={folders} currentFolderId={null}
