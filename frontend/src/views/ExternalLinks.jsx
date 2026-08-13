@@ -778,12 +778,11 @@ export default function ExternalLinks() {
             </select>
           )}
           {categoriesAvailable.length > 0 && (
-            <div className="scroll-tabs" style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 4, flex: '1 1 260px', minWidth: 0 }}>
-              <Chip active={!category} label="All Categories" onClick={() => setCategory('')} />
-              {categoriesAvailable.map(c => (
-                <Chip key={c} active={category === c} label={c} color={colorFor(c)} onClick={() => setCategory(category === c ? '' : c)} />
-              ))}
-            </div>
+            <select className="form-select" style={{ width: 'auto', minWidth: 170 }} value={category}
+              onChange={e => setCategory(e.target.value)}>
+              <option value="">All Categories</option>
+              {categoriesAvailable.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
           )}
         </div>
 
@@ -852,22 +851,6 @@ export default function ExternalLinks() {
 
       {nameModal && <NameModal {...nameModal} onClose={() => setNameModal(null)} />}
     </div>
-  );
-}
-
-function Chip({ active, label, onClick, color }) {
-  return (
-    <button
-      onClick={onClick}
-      style={{
-        flexShrink: 0, border: 'none', borderRadius: 20, padding: '7px 14px', fontSize: 12.5, fontWeight: 600,
-        cursor: 'pointer', whiteSpace: 'nowrap', transition: 'background .15s, color .15s',
-        background: active ? (color?.fg || 'var(--pine)') : (color?.bg || 'var(--mist)'),
-        color: active ? '#fff' : (color?.fg || 'var(--muted)'),
-      }}
-    >
-      {label}
-    </button>
   );
 }
 
@@ -1249,7 +1232,7 @@ function FolderTile({ folder, memberLinks, onOpen, dragHandleProps, dropProps, i
           </div>
         )}
       </div>
-      <span className="app-tile-name">{folder.name}{memberLinks.length > 0 ? ` (${memberLinks.length})` : ''}</span>
+      <span className="app-tile-name">{folder.name}</span>
     </div>
   );
 }
@@ -1293,9 +1276,14 @@ function FolderModal({
   };
 
   return (
-    <div className="modal-overlay" onClick={onClose} onDragOver={onBackdropDragOver} onDrop={onBackdropDrop}>
+    // A right-anchored drawer covering 60% of the screen width (Aug 14),
+    // not the usual centered modal every other dialog in this file uses -
+    // overridden here via inline style rather than touching the shared
+    // .modal-overlay/.modal-content classes every other modal still relies
+    // on for its centered look.
+    <div className="modal-overlay" style={{ justifyContent: 'flex-end', padding: 0 }} onClick={onClose} onDragOver={onBackdropDragOver} onDrop={onBackdropDrop}>
       <div
-        className="modal-content" style={{ maxWidth: 480 }}
+        className="modal-content" style={{ width: '60vw', maxWidth: 'none', height: '100vh', maxHeight: '100vh', borderRadius: 0 }}
         onClick={e => e.stopPropagation()} onDragOver={e => e.stopPropagation()} onDrop={e => e.stopPropagation()}
       >
         <div className="modal-header">
