@@ -612,7 +612,8 @@ export default function LiveView({ email, name, onClose }) {
                 <Loader2 size={12} style={{ animation: 'spin 1s linear infinite', color: 'var(--muted)' }} />
                 <span>Sending {fileProg.name}… {fileProg.pct}%</span>
                 <span style={{ flex: 1, height: 4, borderRadius: 999, background: 'var(--mist, rgba(148,163,184,0.2))', overflow: 'hidden' }}>
-                  <span style={{ display: 'block', height: '100%', width: `${fileProg.pct}%`, background: 'hsl(var(--color-blue))', transition: 'width 0.2s' }} />
+                  <span style={{ display: 'block', height: '100%', width: '100%', background: 'hsl(var(--color-blue))',
+                    transform: `scaleX(${fileProg.pct / 100})`, transformOrigin: 'left', transition: 'transform 0.2s' }} />
                 </span>
               </>
             ) : <span style={{ color: 'var(--muted)' }}>{note}</span>}
