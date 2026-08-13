@@ -629,6 +629,7 @@ export const api = {
   // External Links
   getExternalLinks: () => req("/external-links"),
   getExternalLinksMeta: () => req("/external-links/meta"),
+  previewExternalLink: (url) => req(`/external-links/preview?${new URLSearchParams({ url })}`),
   createExternalLink: (data) => req("/external-links", { method: "POST", body: JSON.stringify(data) }),
   updateExternalLink: (id, data) => req(`/external-links/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
   deleteExternalLink: (id) => req(`/external-links/${id}`, { method: "DELETE" }),

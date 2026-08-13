@@ -60,6 +60,14 @@ const ICON_MAP = {
 };
 const iconFor = (key) => ICON_MAP[key] || Link2;
 
+// "Imported" is the server-side default category for a CSV row that didn't
+// specify one (see import_external_links in external_links.py) - it's a
+// placeholder to keep the row grouped with its batch until someone re-sorts
+// it from Manage, not a real category, so it shouldn't read as one on every
+// tile forever. Hide the chip rather than the category itself (Manage still
+// needs the real value to filter/re-sort by).
+const isPlaceholderCategory = (cat) => (cat || '').trim().toLowerCase() === 'imported';
+
 // Clearbit's free logo API was shut down (logo.clearbit.com no longer
 // resolves at all, Aug 2026) - it used to be the first choice here because it
 // served the actual brand mark at real resolution. icon.horse is first now:
@@ -1008,9 +1016,11 @@ function LinkCard({ link, canManage, canDelete, isFavorite, onToggleFavorite, on
         )}
       </div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 'auto' }}>
-        <span style={{ fontSize: 10.5, fontWeight: 600, color: fg, background: bg, padding: '2px 8px', borderRadius: 20 }}>
-          {link.category}
-        </span>
+        {!isPlaceholderCategory(link.category) ? (
+          <span style={{ fontSize: 10.5, fontWeight: 600, color: fg, background: bg, padding: '2px 8px', borderRadius: 20 }}>
+            {link.category}
+          </span>
+        ) : <span />}
         <ExternalLinkIcon size={12} style={{ color: 'var(--muted)', opacity: hover ? 1 : 0, transition: 'opacity .12s' }} />
       </div>
     </div>
@@ -1035,7 +1045,9 @@ function LinkListRow({ link, canManage, canDelete, isFavorite, onToggleFavorite,
         </div>
         {link.description && <p style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{link.description}</p>}
       </div>
-      <span style={{ fontSize: 10.5, fontWeight: 600, color: fg, background: bg, padding: '2px 8px', borderRadius: 20, flexShrink: 0 }}>{link.category}</span>
+      {!isPlaceholderCategory(link.category) && (
+        <span style={{ fontSize: 10.5, fontWeight: 600, color: fg, background: bg, padding: '2px 8px', borderRadius: 20, flexShrink: 0 }}>{link.category}</span>
+      )}
       <span style={{ fontSize: 11.5, color: 'var(--muted)', width: 70, flexShrink: 0 }}>{link.department || 'All depts'}</span>
       <span style={{ fontSize: 11.5, color: 'var(--muted)', width: 60, flexShrink: 0 }}>{link.clicks || 0} uses</span>
       <div style={{ display: 'flex', gap: 4, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
@@ -1067,6 +1079,34 @@ function IconBtn({ children, onClick, title, danger }) {
 function LinkModal({ modal, setModal, save, saving, departments, categories, companies }) {
   const { mode, form } = modal;
   const setForm = (patch) => setModal(m => ({ ...m, form: { ...m.form, ...patch } }));
+
+  // Auto-fill description from the site's own <meta name="description"> once
+  // the admin tabs out of the URL field, so Add Link doesn't require copying
+  // a blurb by hand for every link. Only ever overwrites a description this
+  // same auto-fill put there (autoFilledDescRef tracks that value) or an
+  // empty one - never something the admin actually typed. Best-effort and
+  // silent: a site with no meta description, or the fetch failing outright,
+  // just leaves the field as it was.
+  const [fetchingPreview, setFetchingPreview] = useState(false);
+  const autoFilledDescRef = useRef('');
+  const fetchPreview = async () => {
+    const raw = form.url.trim();
+    if (!raw || (form.description && form.description !== autoFilledDescRef.current)) return;
+    const url = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+    setFetchingPreview(true);
+    try {
+      const preview = await api.previewExternalLink(url);
+      if (preview?.description) {
+        autoFilledDescRef.current = preview.description;
+        setForm({ description: preview.description });
+      }
+    } catch {
+      /* best-effort prefill - the field just stays as it was */
+    } finally {
+      setFetchingPreview(false);
+    }
+  };
+
   return (
     <div className="modal-overlay" onClick={() => !saving && setModal(null)}>
       <div className="modal-content" style={{ maxWidth: 480 }} onClick={e => e.stopPropagation()}>
@@ -1081,7 +1121,7 @@ function LinkModal({ modal, setModal, save, saving, departments, categories, com
           </div>
           <div className="form-group">
             <label>URL</label>
-            <input className="form-input" value={form.url} onChange={e => setForm({ url: e.target.value })} placeholder="https://..." />
+            <input className="form-input" value={form.url} onChange={e => setForm({ url: e.target.value })} onBlur={fetchPreview} placeholder="https://..." />
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
             <div className="form-group">
@@ -1106,9 +1146,12 @@ function LinkModal({ modal, setModal, save, saving, departments, categories, com
             </select>
           </div>
           <div className="form-group">
-            <label>Description</label>
+            <label>
+              Description
+              {fetchingPreview && <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--muted)', marginLeft: 8 }}>Fetching from site...</span>}
+            </label>
             <textarea className="form-input" rows={2} value={form.description}
-              onChange={e => setForm({ description: e.target.value })} placeholder="What is this for, in one line" />
+              onChange={e => setForm({ description: e.target.value })} placeholder="What is this for, in one line - or leave blank, we'll try to pull it from the site" />
           </div>
           <div className="form-group">
             <label>Icon</label>

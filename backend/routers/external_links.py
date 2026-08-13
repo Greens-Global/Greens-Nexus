@@ -16,9 +16,15 @@ baseline module like sop). Managing entries (create/edit/delete/reorder)
 requires manager+ globally OR an Access Group grant of "external-links" at
 editor+ (full+ to delete), mirroring items.py's require_items_admin pattern.
 """
+import asyncio
+import html as html_lib
+import ipaddress
 import json
 import re
+import socket
 from datetime import datetime, timezone
+from urllib.parse import urlparse
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
@@ -111,6 +117,85 @@ def external_links_meta(db: Session = Depends(get_db)):
     departments = sorted({d for (d,) in db.query(models.ExternalLink.department).distinct() if d})
     categories  = sorted({c for (c,) in db.query(models.ExternalLink.category).distinct() if c})
     return {"departments": departments, "categories": categories}
+
+
+_META_DESC_RE = re.compile(
+    r'<meta[^>]+(?:name|property)=["\'](?:description|og:description)["\'][^>]+content=["\']([^"\']*)["\']', re.I
+)
+_META_DESC_RE_REV = re.compile(
+    r'<meta[^>]+content=["\']([^"\']*)["\'][^>]+(?:name|property)=["\'](?:description|og:description)["\']', re.I
+)
+_TITLE_RE = re.compile(r"<title[^>]*>([^<]*)</title>", re.I)
+
+
+def _resolves_to_public_ip(hostname: str) -> bool:
+    """SSRF guard for /preview below - an admin-supplied URL must not be able
+    to make the backend fetch internal/private infrastructure (RFC1918,
+    loopback, link-local incl. the 169.254.169.254 cloud metadata endpoint).
+    ip.is_global is False for all of those."""
+    try:
+        infos = socket.getaddrinfo(hostname, None)
+    except socket.gaierror:
+        return False
+    for info in infos:
+        try:
+            ip = ipaddress.ip_address(info[4][0])
+        except ValueError:
+            return False
+        if not ip.is_global:
+            return False
+    return True
+
+
+def _fetch_link_preview(url: str) -> dict:
+    """Runs in a worker thread (see asyncio.to_thread in the route below) -
+    this does blocking DNS + network I/O, which must never sit on the async
+    event loop. Best-effort only: any failure (bad scheme, private IP, DNS
+    failure, timeout, non-2xx, no meta description) returns {} rather than
+    raising, since this is a convenience prefill for the Add Link modal, not
+    something that should ever block or error out the save."""
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        return {}
+    if not _resolves_to_public_ip(parsed.hostname):
+        return {}
+    try:
+        with httpx.Client(
+            follow_redirects=True, timeout=6.0,
+            headers={"User-Agent": "Mozilla/5.0 (compatible; NexusLinkPreview/1.0)"},
+        ) as client:
+            with client.stream("GET", url) as resp:
+                final_host = urlparse(str(resp.url)).hostname
+                if not final_host or not _resolves_to_public_ip(final_host):
+                    return {}  # redirected off to a private host mid-request
+                if resp.status_code >= 400:
+                    return {}
+                chunks, total = [], 0
+                for chunk in resp.iter_text():
+                    chunks.append(chunk)
+                    total += len(chunk)
+                    if total > 300_000:  # cap - only the <head> is needed
+                        break
+                page = "".join(chunks)
+    except httpx.HTTPError:
+        return {}
+    desc_match = _META_DESC_RE.search(page) or _META_DESC_RE_REV.search(page)
+    title_match = _TITLE_RE.search(page)
+    description = html_lib.unescape(desc_match.group(1)).strip() if desc_match else ""
+    title = html_lib.unescape(title_match.group(1)).strip() if title_match else ""
+    return {"description": description[:300], "title": title[:120]}
+
+
+@router.get("/preview")
+async def preview_external_link(url: str, user: dict = Depends(require_links_admin)):
+    """Add Link modal auto-fill (Aug 13): fetches the given URL server-side
+    (a client-side fetch would be blocked by both CORS and CSP's connect-src,
+    which has no reason to allowlist arbitrary third-party sites) and pulls
+    its <meta name="description">/og:description to prefill the description
+    field. Manager+ gated same as create, since this makes the backend issue
+    an outbound request to a user-supplied URL - see _resolves_to_public_ip
+    for the SSRF guard. Always 200s with whatever it found, possibly {}."""
+    return await asyncio.to_thread(_fetch_link_preview, url)
 
 
 @router.post("", status_code=201)
