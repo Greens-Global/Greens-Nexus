@@ -1309,12 +1309,7 @@ function FolderModal({
   // Personal Link whose ids collide (separate tables, same autoincrement
   // space).
   const [dragKey, setDragKey] = useState(null);
-  // Same live shift preview as the background grid (MyLayoutSection) -
-  // other members slide to make room as the dragged one passes over them,
-  // committed only on drop. null = not previewing, use memberEntries as-is.
-  const [previewOrder, setPreviewOrder] = useState(null);
   const entryKey = (entry) => `${entry.item_type}:${entry.item_id}`;
-  const displayMembers = previewOrder || memberEntries;
   const commitRename = () => {
     const trimmed = nameDraft.trim();
     if (trimmed && trimmed !== folder.name) onRename(trimmed);
@@ -1333,7 +1328,6 @@ function FolderModal({
     if (dragKey == null) return;
     const entry = memberEntries.find(x => entryKey(x) === dragKey);
     setDragKey(null);
-    setPreviewOrder(null);
     if (entry) onMoveOut(entry, null);
   };
 
@@ -1372,7 +1366,7 @@ function FolderModal({
             </p>
           ) : (
             <AppGrid>
-              {displayMembers.map((entry) => {
+              {memberEntries.map((entry) => {
                 const a = entryActions(entry, itemsById, actionCtx);
                 if (!a) return null;
                 return (
@@ -1383,29 +1377,19 @@ function FolderModal({
                     onOpen={a.onOpen} onEdit={a.onEdit} onDelete={a.onDelete}
                     dragHandleProps={{
                       onDragStart: (e) => { e.dataTransfer.effectAllowed = 'move'; setDragKey(entryKey(entry)); },
-                      onDragEnd: () => { setDragKey(null); setPreviewOrder(null); },
+                      onDragEnd: () => setDragKey(null),
                     }}
                     dropProps={{
-                      onDragOver: (e) => {
-                        if (dragKey == null || dragKey === entryKey(entry)) return;
-                        e.preventDefault();
-                        setPreviewOrder(prev => {
-                          const base = prev || memberEntries;
-                          const idx = base.findIndex(x => entryKey(x) === entryKey(entry));
-                          const curIdx = base.findIndex(x => entryKey(x) === dragKey);
-                          if (idx === -1 || curIdx === -1 || idx === curIdx) return prev;
-                          const dragged = base[curIdx];
-                          const next = base.filter(x => entryKey(x) !== dragKey);
-                          next.splice(idx, 0, dragged);
-                          return next;
-                        });
-                      },
+                      onDragOver: (e) => { if (dragKey != null) e.preventDefault(); },
                       onDrop: (e) => {
                         e.preventDefault();
-                        if (dragKey == null) return;
-                        if (previewOrder) onReorderWithin(previewOrder);
+                        if (dragKey == null || dragKey === entryKey(entry)) return;
+                        const entries = memberEntries.filter(x => entryKey(x) !== dragKey);
+                        const dragged = memberEntries.find(x => entryKey(x) === dragKey);
+                        const idx = entries.findIndex(x => entryKey(x) === entryKey(entry));
+                        entries.splice(idx, 0, dragged);
+                        onReorderWithin(entries);
                         setDragKey(null);
-                        setPreviewOrder(null);
                       },
                     }}
                     moveControls={{
@@ -1462,15 +1446,16 @@ function MyLayoutSection({ layout, itemsById, actionCtx, mutate }) {
   // their autoincrement ids can collide.
   const [dragKind, setDragKind] = useState(null); // 'item' | 'folder' | null
   const [dragEntry, setDragEntry] = useState(null);
-  // Live shift preview while dragging (Aug 14, "same as iPhone") - other
-  // tiles slide to make room for where the dragged one would land as it
-  // passes over them, updated on every dragover, not just on drop. Only
-  // committed (saved) on an actual drop; onDragEnd always clears it, so a
-  // cancelled drag (dropped somewhere invalid, or Escape) reverts to the
-  // real order with nothing sent to the server. null = not previewing, use
-  // the real layout-derived order.
-  const [previewTopOrder, setPreviewTopOrder] = useState(null);
-  const [previewFolderOrder, setPreviewFolderOrder] = useState(null);
+  // dragOverFolderId only drives a CSS highlight (which folder an item would
+  // drop into) - safe to update on every dragover since it never touches
+  // the DOM order. Reordering itself is computed and applied on DROP ONLY
+  // (not live during dragover) - an earlier attempt at a live "iPhone-style"
+  // shift preview reordered the actual rendered list on every dragover,
+  // which reorders/reinserts the dragged element's own DOM node mid-drag -
+  // a well-known way to break a native HTML5 drag session (the browser can
+  // lose track of the drag once the element under the cursor moves out from
+  // under it), and it did: reordering stopped working entirely. Reverted -
+  // the order only changes once, at drop, which is what actually worked.
   const [dragOverFolderId, setDragOverFolderId] = useState(null); // highlights the folder an item would drop into
   const sameEntry = (a, b) => a && b && a.item_type === b.item_type && a.item_id === b.item_id;
 
@@ -1480,8 +1465,6 @@ function MyLayoutSection({ layout, itemsById, actionCtx, mutate }) {
     [layout.items, entryExists]
   );
   const folders = useMemo(() => [...layout.folders].sort((a, b) => a.position - b.position), [layout.folders]);
-  const displayTopItems = previewTopOrder || topItems;
-  const displayFolders = previewFolderOrder || folders;
   const folderMembers = useCallback(
     (folderId) => layout.items.filter(i => i.folder_id === folderId && entryExists(i)).sort((a, b) => a.position - b.position),
     [layout.items, entryExists]
@@ -1548,69 +1531,43 @@ function MyLayoutSection({ layout, itemsById, actionCtx, mutate }) {
   });
   const itemDragProps = (entry) => ({
     onDragStart: (e) => { e.dataTransfer.effectAllowed = 'move'; setDragKind('item'); setDragEntry(entry); },
-    onDragEnd: () => { setDragKind(null); setDragEntry(null); setPreviewTopOrder(null); setDragOverFolderId(null); },
+    onDragEnd: () => { setDragKind(null); setDragEntry(null); setDragOverFolderId(null); },
   });
   const folderDragProps = (folderId) => ({
     onDragStart: (e) => { e.dataTransfer.effectAllowed = 'move'; setDragKind('folder'); setDragEntry(folderId); },
-    onDragEnd: () => { setDragKind(null); setDragEntry(null); setPreviewFolderOrder(null); },
+    onDragEnd: () => { setDragKind(null); setDragEntry(null); },
   });
   const topItemDropProps = (targetEntry) => ({
     onDragOver: (e) => {
-      if (dragKind !== 'item' || sameEntry(dragEntry, targetEntry)) return;
+      if (dragKind !== 'item') return;
       e.preventDefault();
       setDragOverFolderId(null);
-      // Live shift: recompute the order every time the dragged tile passes
-      // over a new target, building on the current preview (not always the
-      // original order) so a drag across several tiles reads as one smooth
-      // cascade rather than snapping back and forth.
-      setPreviewTopOrder(prev => {
-        const base = prev || topItems;
-        const idx = base.findIndex(i => sameEntry(i, targetEntry));
-        const curIdx = base.findIndex(i => sameEntry(i, dragEntry));
-        if (idx === -1 || curIdx === -1 || idx === curIdx) return prev;
-        const next = base.filter(i => !sameEntry(i, dragEntry));
-        next.splice(idx, 0, dragEntry);
-        return next;
-      });
     },
     onDrop: (e) => {
       e.preventDefault();
-      if (dragKind !== 'item') return;
-      if (previewTopOrder) reorderTopLevel(previewTopOrder);
-      setPreviewTopOrder(null);
+      if (dragKind !== 'item' || sameEntry(dragEntry, targetEntry)) return;
+      const entries = topItems.filter(i => !sameEntry(i, dragEntry));
+      const idx = entries.findIndex(i => sameEntry(i, targetEntry));
+      entries.splice(idx, 0, dragEntry);
+      reorderTopLevel(entries);
     },
   });
   const folderDropProps = (targetFolderId) => ({
     onDragOver: (e) => {
       if (!dragKind) return;
       e.preventDefault();
-      if (dragKind === 'item') {
-        setDragOverFolderId(targetFolderId); // highlight - dropping here adds it to the folder, not a reorder
-        return;
-      }
-      if (dragEntry === targetFolderId) return;
-      setPreviewFolderOrder(prev => {
-        const base = prev || folders;
-        const idx = base.findIndex(f => f.id === targetFolderId);
-        const curIdx = base.findIndex(f => f.id === dragEntry);
-        if (idx === -1 || curIdx === -1 || idx === curIdx) return prev;
-        const dragged = base[curIdx];
-        const next = base.filter(f => f.id !== dragEntry);
-        next.splice(idx, 0, dragged);
-        return next;
-      });
+      if (dragKind === 'item') setDragOverFolderId(targetFolderId); // highlight - dropping here adds it to the folder
     },
     onDragLeave: () => { if (dragOverFolderId === targetFolderId) setDragOverFolderId(null); },
     onDrop: (e) => {
       e.preventDefault();
-      if (dragKind === 'item') {
-        moveToFolder(dragEntry, targetFolderId);
-        setDragOverFolderId(null);
-        return;
-      }
-      if (dragKind === 'folder') {
-        if (previewFolderOrder) reorderFolders(previewFolderOrder.map(f => f.id));
-        setPreviewFolderOrder(null);
+      setDragOverFolderId(null);
+      if (dragKind === 'item') { moveToFolder(dragEntry, targetFolderId); return; }
+      if (dragKind === 'folder' && dragEntry !== targetFolderId) {
+        const ids = folders.map(f => f.id).filter(id => id !== dragEntry);
+        const idx = ids.indexOf(targetFolderId);
+        ids.splice(idx, 0, dragEntry);
+        reorderFolders(ids);
       }
     },
   });
@@ -1620,7 +1577,7 @@ function MyLayoutSection({ layout, itemsById, actionCtx, mutate }) {
   return (
     <>
       <AppGrid>
-        {displayFolders.map((f) => (
+        {folders.map((f) => (
           <FolderTile
             key={f.id} folder={f}
             memberLinks={folderMembers(f.id).map(e => resolveEntryLink(itemsById, e)).filter(Boolean)}
@@ -1630,7 +1587,7 @@ function MyLayoutSection({ layout, itemsById, actionCtx, mutate }) {
             isDropTarget={dragOverFolderId === f.id}
           />
         ))}
-        {displayTopItems.map((entry) => {
+        {topItems.map((entry) => {
           const a = entryActions(entry, itemsById, actionCtx);
           if (!a) return null;
           return (
