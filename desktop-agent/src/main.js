@@ -32,6 +32,14 @@ const { startPairServer } = require('./pairserver');
 const { captureAllScreens } = require('./capture');
 const live = require('./live');
 
+// Use the Windows Graphics Capture (WGC) backend for screen capture. The legacy
+// GDI/DirectX capturer renders DirectComposition-based surfaces - the Settings
+// app, some hardware-accelerated windows, and certain overlays - as BLACK, which
+// showed up as a black live-view/screenshot whenever Windows Settings was in the
+// foreground. WGC captures those correctly. Both feature names are passed so the
+// right one applies across Chromium versions (window + screen capturers).
+app.commandLine.appendSwitch('enable-features', 'AllowWgcDesktopCapturer,AllowWgcScreenCapturer');
+
 // ── Discoverable log (for the employee / IT to inspect) ───────────────────────
 const LOG_DIR = path.join(process.env.PROGRAMDATA || app.getPath('userData'), 'Plugin');
 const LOG_FILE = path.join(LOG_DIR, 'agent.log');
