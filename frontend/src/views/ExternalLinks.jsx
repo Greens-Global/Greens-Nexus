@@ -1276,14 +1276,13 @@ function FolderModal({
   };
 
   return (
-    // A right-anchored drawer covering 60% of the screen width (Aug 14),
-    // not the usual centered modal every other dialog in this file uses -
-    // overridden here via inline style rather than touching the shared
-    // .modal-overlay/.modal-content classes every other modal still relies
-    // on for its centered look.
-    <div className="modal-overlay" style={{ justifyContent: 'flex-end', padding: 0 }} onClick={onClose} onDragOver={onBackdropDragOver} onDrop={onBackdropDrop}>
+    // Same centered popup every other modal in this file uses, just wider -
+    // 60% of the screen width (Aug 14), not the usual ~480-520px cap. Kept
+    // as an inline override rather than touching the shared .modal-content
+    // class every other modal still relies on for its normal size.
+    <div className="modal-overlay" onClick={onClose} onDragOver={onBackdropDragOver} onDrop={onBackdropDrop}>
       <div
-        className="modal-content" style={{ width: '60vw', maxWidth: 'none', height: '100vh', maxHeight: '100vh', borderRadius: 0 }}
+        className="modal-content" style={{ width: '60vw', maxWidth: '60vw' }}
         onClick={e => e.stopPropagation()} onDragOver={e => e.stopPropagation()} onDrop={e => e.stopPropagation()}
       >
         <div className="modal-header">
