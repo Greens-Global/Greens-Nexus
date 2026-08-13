@@ -181,11 +181,15 @@ function entryActions(entry, itemsById, ctx) {
     };
   }
   return {
+    // Edit/Delete deliberately omitted for Company Links (Neil, Aug 13) -
+    // Manage is the one place those live now, not the tile hover row.
+    // canManage still gates whether Manage itself is reachable elsewhere on
+    // the page; it's just no longer what shows/hides an inline pencil here.
     link, sourceType: 'external', color: colorFor(link.category), canManage: ctx.canManage, canDelete: ctx.canDelete,
     vaultLinked: false,
     isFavorite: ctx.favoriteExternalIds.includes(link.id),
     onToggleFavorite: () => ctx.toggleFavorite(link.id),
-    onOpen: () => ctx.onOpenExternal(link), onEdit: () => ctx.onEditExternal(link), onDelete: () => ctx.onDeleteExternal(link),
+    onOpen: () => ctx.onOpenExternal(link),
   };
 }
 
@@ -395,35 +399,21 @@ export default function ExternalLinks() {
   // only switches once there's real ordering/folder data to show.
   const hasCustomOrder = layout.items.length > 0 || layout.folders.length > 0;
 
-  // "All Apps / Company / Personal" (Aug 13) - Company and Personal Links
-  // now share one launcher and can sit in the same folder, so this filter
-  // only matters/renders once hasCustomOrder; before that the existing
-  // Company/Personal tabs already are that split. Search now needs to reach
-  // Personal Links too (it never did before - they had no search field at
-  // all in their own flat section), so a lightweight name/description
-  // filter mirrors `filtered`'s needle match but skips department/category/
-  // company (Personal Links have none of those fields).
-  const [linkTypeFilter, setLinkTypeFilter] = useState('all'); // 'all' | 'company' | 'personal'
-  const filteredPersonal = useMemo(() => {
-    const needle = q.trim().toLowerCase();
-    const list = personalLinks || [];
-    if (!needle) return list;
-    return list.filter(l => [l.name, l.description].some(v => (v || '').toLowerCase().includes(needle)));
-  }, [personalLinks, q]);
+  // Personal Links stay out of My Layout entirely (Neil, Aug 13 - only
+  // visible in their own tab, never mixed into the shared launcher).
+  // itemsById.personal is always an empty Map here on purpose - entryActions
+  // still branches on item_type generically (Favorites still resolves both
+  // types, since the My Favorites strip is a different, already-approved
+  // surface), this is just what My Layout itself is allowed to draw from.
   const unifiedItemsById = useMemo(() => ({
-    external: linkTypeFilter === 'personal' ? new Map() : new Map(filtered.map(l => [l.id, l])),
-    personal: linkTypeFilter === 'company' ? new Map() : new Map(filteredPersonal.map(l => [l.id, l])),
-  }), [filtered, filteredPersonal, linkTypeFilter]);
+    external: new Map(filtered.map(l => [l.id, l])),
+    personal: new Map(),
+  }), [filtered]);
   const beginCustomizing = () => {
     mutate(prev => {
       const orderedExternal = [...all].sort((a, b) =>
         (Number(b.is_pinned) - Number(a.is_pinned)) || (a.sort_order - b.sort_order) || a.name.localeCompare(b.name));
-      const orderedPersonal = [...(personalLinks || [])].sort((a, b) => (a.sort_order - b.sort_order) || a.name.localeCompare(b.name));
-      let pos = 0;
-      const items = [
-        ...orderedExternal.map(l => ({ item_type: 'external', item_id: l.id, folder_id: null, position: pos++ })),
-        ...orderedPersonal.map(l => ({ item_type: 'personal', item_id: l.id, folder_id: null, position: pos++ })),
-      ];
+      const items = orderedExternal.map((l, i) => ({ item_type: 'external', item_id: l.id, folder_id: null, position: i }));
       return { ...prev, items };
     });
   };
@@ -799,15 +789,9 @@ export default function ExternalLinks() {
         >
           {hasCustomOrder ? (
             <Section title="My Layout" icon={LayoutGrid}>
-              <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-                <Chip active={linkTypeFilter === 'all'} label="All Apps" onClick={() => setLinkTypeFilter('all')} />
-                <Chip active={linkTypeFilter === 'company'} label="Company Apps" color={{ fg: 'hsl(var(--color-blue))', bg: 'hsla(var(--color-blue),0.12)' }} onClick={() => setLinkTypeFilter(linkTypeFilter === 'company' ? 'all' : 'company')} />
-                <Chip active={linkTypeFilter === 'personal'} label="Personal Apps" color={PERSONAL_COLOR} onClick={() => setLinkTypeFilter(linkTypeFilter === 'personal' ? 'all' : 'personal')} />
-              </div>
               <MyLayoutSection
                 layout={layout} itemsById={unifiedItemsById} actionCtx={actionCtx}
                 mutate={mutate}
-                onAddPersonal={linkTypeFilter !== 'company' ? openAddPersonal : undefined}
               />
             </Section>
           ) : (<>
@@ -1440,7 +1424,7 @@ function FolderModal({
 // entryActions) - a Company Link is admin-gated, a Personal Link is always
 // fully owner-editable, and personalization (position/folder/favorite)
 // never blurs that line.
-function MyLayoutSection({ layout, itemsById, actionCtx, mutate, onAddPersonal }) {
+function MyLayoutSection({ layout, itemsById, actionCtx, mutate }) {
   const [openFolderId, setOpenFolderId] = useState(null);
   // Desktop drag-and-drop state - HTML5 native, mirrors ManageModal's
   // draggable/onDragStart/onDragOver/onDrop/onDragEnd pattern elsewhere in
@@ -1631,7 +1615,6 @@ function MyLayoutSection({ layout, itemsById, actionCtx, mutate, onAddPersonal }
             />
           );
         })}
-        {onAddPersonal && <AddAppTile label="Add Personal Link" onClick={onAddPersonal} />}
         <AddAppTile label="New Folder" onClick={createEmptyFolder} />
       </AppGrid>
 
@@ -1665,14 +1648,20 @@ function MyLayoutSection({ layout, itemsById, actionCtx, mutate, onAddPersonal }
   );
 }
 
-function LinkList({ view, items, canManage, canDelete, favorites, onToggleFavorite, onOpen, onEdit, onDelete }) {
+// Edit/Delete deliberately not wired to either tile below (Neil, Aug 13) -
+// Company Links are only editable/deletable from Manage now, never inline
+// from the browsing grid/list. onEdit/onDelete still arrive as props from
+// the Section call sites (Pinned/grouped/flat-sorted all pass openEdit/
+// remove) since Manage itself is what still uses those handlers elsewhere
+// on the page - LinkList just no longer forwards them into the tiles.
+function LinkList({ view, items, canManage, canDelete, favorites, onToggleFavorite, onOpen }) {
   if (view === 'list') {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         {items.map(l => (
-          <LinkListRow key={l.id} link={l} canManage={canManage} canDelete={canDelete}
+          <LinkListRow key={l.id} link={l}
             isFavorite={favorites.includes(l.id)} onToggleFavorite={() => onToggleFavorite(l.id)}
-            onOpen={() => onOpen(l)} onEdit={() => onEdit(l)} onDelete={() => onDelete(l)} />
+            onOpen={() => onOpen(l)} />
         ))}
       </div>
     );
@@ -1682,13 +1671,13 @@ function LinkList({ view, items, canManage, canDelete, favorites, onToggleFavori
       {items.map(l => (
         <AppTile key={l.id} link={l} color={colorFor(l.category)} canManage={canManage} canDelete={canDelete}
           isFavorite={favorites.includes(l.id)} onToggleFavorite={() => onToggleFavorite(l.id)}
-          onOpen={() => onOpen(l)} onEdit={() => onEdit(l)} onDelete={() => onDelete(l)} />
+          onOpen={() => onOpen(l)} />
       ))}
     </AppGrid>
   );
 }
 
-function LinkListRow({ link, canManage, canDelete, isFavorite, onToggleFavorite, onOpen, onEdit, onDelete }) {
+function LinkListRow({ link, isFavorite, onToggleFavorite, onOpen }) {
   const { fg, bg } = colorFor(link.category);
   return (
     <div
@@ -1711,8 +1700,6 @@ function LinkListRow({ link, canManage, canDelete, isFavorite, onToggleFavorite,
         <IconBtn onClick={onToggleFavorite} title={isFavorite ? 'Remove from My Favorites' : 'Add to My Favorites'}>
           <Bookmark size={13} fill={isFavorite ? 'hsl(var(--color-blue))' : 'none'} style={{ color: isFavorite ? 'hsl(var(--color-blue))' : 'var(--muted)' }} />
         </IconBtn>
-        {canManage && <IconBtn onClick={onEdit} title="Edit link"><Pencil size={13} /></IconBtn>}
-        {canManage && canDelete && <IconBtn onClick={onDelete} title="Delete link" danger><Trash2 size={13} /></IconBtn>}
       </div>
     </div>
   );

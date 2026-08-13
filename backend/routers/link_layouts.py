@@ -72,20 +72,31 @@ def _live_ids(user: dict, db: Session) -> tuple[set, set]:
     return external_ids, personal_ids
 
 
-def _clean_and_merge(layout: dict, external_ids: set, personal_ids: set, user: dict, db: Session) -> tuple[dict, bool]:
+def _clean_and_merge(layout: dict, external_ids: set, personal_ids: set, db: Session) -> tuple[dict, bool]:
     """Drops any items/favorites entry that no longer exists (a deleted
     Company Link, or a Personal Link the user removed elsewhere) and appends
-    any live link of EITHER type not yet present as a new top-level
-    (ungrouped) item, in the same order that type's own default list already
-    uses - a newly added mandatory Company Link, or a Personal Link that
-    existed before the user ever customized, must surface without the system
-    guessing which folder (if any) it belongs in; the user drags it in
-    themselves. Returns (possibly-changed layout, changed) so the caller only
-    writes back to the DB when something actually moved - a GET on an
-    already-clean layout is a pure read."""
+    any live Company Link not yet present as a new top-level (ungrouped)
+    item, in the same order the default company view already uses - a newly
+    added mandatory link must surface without the system guessing which
+    folder (if any) it belongs in; the user drags it in themselves. Returns
+    (possibly-changed layout, changed) so the caller only writes back to the
+    DB when something actually moved - a GET on an already-clean layout is a
+    pure read.
+
+    Personal Links never go into `items` (ordering/folders) - only Company
+    Links do (Neil, Aug 13: Personal Links must stay visible only in their
+    own tab, never mixed into the shared launcher). They CAN still appear in
+    `favorites` - that's the one place Personal Links were already meant to
+    surface outside their own tab (the My Favorites strip), untouched here.
+    `_alive_item` intentionally excludes item_type == "personal" so an
+    existing row from before this rule (the brief window where Personal
+    Links did get merged into items) self-heals back out on the next read."""
     folder_ids = {f["id"] for f in layout.get("folders", [])}
 
-    def _alive(entry: dict) -> bool:
+    def _alive_item(entry: dict) -> bool:
+        return entry["item_type"] == "external" and entry["item_id"] in external_ids
+
+    def _alive_fav(entry: dict) -> bool:
         ids = external_ids if entry["item_type"] == "external" else personal_ids
         return entry["item_id"] in ids
 
@@ -93,9 +104,9 @@ def _clean_and_merge(layout: dict, external_ids: set, personal_ids: set, user: d
     orig_favorites = layout.get("favorites", [])
     items = [
         i for i in orig_items
-        if _alive(i) and (i.get("folder_id") is None or i.get("folder_id") in folder_ids)
+        if _alive_item(i) and (i.get("folder_id") is None or i.get("folder_id") in folder_ids)
     ]
-    favorites = [f for f in orig_favorites if _alive(f)]
+    favorites = [f for f in orig_favorites if _alive_fav(f)]
     changed = len(items) != len(orig_items) or len(favorites) != len(orig_favorites)
 
     top_level_positions = [i["position"] for i in items if i.get("folder_id") is None]
@@ -115,20 +126,6 @@ def _clean_and_merge(layout: dict, external_ids: set, personal_ids: set, user: d
             next_pos += 1
         changed = True
 
-    known_personal = {i["item_id"] for i in items if i["item_type"] == "personal"}
-    new_personal_ids = personal_ids - known_personal
-    if new_personal_ids:
-        new_rows = (
-            db.query(models.PersonalLink)
-            .filter(models.PersonalLink.id.in_(new_personal_ids), models.PersonalLink.owner_email == user["email"])
-            .order_by(models.PersonalLink.sort_order.asc(), models.PersonalLink.name.asc())
-            .all()
-        )
-        for row in new_rows:
-            items.append({"item_type": "personal", "item_id": row.id, "folder_id": None, "position": next_pos, "dashboard": False})
-            next_pos += 1
-        changed = True
-
     return {"folders": layout.get("folders", []), "items": items, "favorites": favorites}, changed
 
 
@@ -143,7 +140,7 @@ def get_link_layout(user: dict = Depends(get_current_user), db: Session = Depend
     if not row:
         return {"folders": [], "items": [], "favorites": [], "is_customized": False}
 
-    healed, changed = _clean_and_merge(row.layout or {}, external_ids, personal_ids, user, db)
+    healed, changed = _clean_and_merge(row.layout or {}, external_ids, personal_ids, db)
     if changed:
         row.layout = healed
         row.updated_at = _now()
@@ -170,9 +167,13 @@ def save_link_layout(body: LayoutIn, user: dict = Depends(get_current_user), db:
     # Strip rather than 500 - a stale tab submitting a since-deleted link or
     # folder id is a normal occurrence (another tab, another device, an
     # admin deleting a Company Link mid-session), not a client error.
+    # item_type == "personal" is also stripped from `items` specifically -
+    # Personal Links must stay visible only in their own tab, never ordered/
+    # foldered into the shared launcher (Neil, Aug 13) - favorites are the
+    # one exception, unaffected below.
     items = [
         i.model_dump() for i in body.items
-        if _alive(i.item_type, i.item_id) and (i.folder_id is None or i.folder_id in folder_ids)
+        if i.item_type == "external" and _alive(i.item_type, i.item_id) and (i.folder_id is None or i.folder_id in folder_ids)
     ]
     favorites = [f.model_dump() for f in body.favorites if _alive(f.item_type, f.item_id)]
     folders = [f.model_dump() for f in body.folders]
