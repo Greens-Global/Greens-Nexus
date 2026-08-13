@@ -15,8 +15,10 @@ import { usePhotoMap } from '../lib/peoplePhotos';
 // Disclosure: the employee's tray shows the live state the whole time; control
 // additionally requires their explicit Accept and shows an End Session banner.
 
-const CLIP_MAX = 1024 * 1024;         // clipboard text sync cap, matches the agent
-const FILE_MAX = 200 * 1024 * 1024;   // file send cap, matches the agent
+const CLIP_MAX = 1024 * 1024;              // clipboard text sync cap, matches the agent
+// Effectively "any file". The only reason for a ceiling at all is so a mistaken
+// send can't fill the employee's disk; 20 GB clears any real document/archive.
+const FILE_MAX = 20 * 1024 * 1024 * 1024;  // file send cap, matches the agent
 
 // Wait for ICE gathering to finish so the single answer SDP carries every
 // candidate (non-trickle) - matches the agent side.
@@ -471,8 +473,12 @@ export default function LiveView({ email, name, onClose }) {
     // per-chunk FileReader): a 'fs' header, raw ArrayBuffer chunks in order, then
     // 'fe'. One file at a time, so the ordered channel needs no per-chunk id.
     send({ t: 'fs', id, name: file.name, size: file.size });
-    const CHUNK = 256 * 1024;
-    ch.bufferedAmountLowThreshold = 1024 * 1024;
+    // 16 KB per message. A WebRTC data channel's max message size defaults to 64 KB
+    // when the SDP doesn't advertise one, and larger messages get silently
+    // truncated/fragmented at the SCTP layer (the file "delivers" but arrives
+    // corrupt). 16 KB is the universally-safe size for reliable transfer.
+    const CHUNK = 16 * 1024;
+    ch.bufferedAmountLowThreshold = 256 * 1024;
     let off = 0;
     try {
       while (off < file.size) {
@@ -482,7 +488,9 @@ export default function LiveView({ email, name, onClose }) {
         ch.send(buf);
         off += CHUNK;
         setFileProg({ name: file.name, pct: Math.min(99, Math.round((off * 100) / file.size)) });
-        if (ch.bufferedAmount > 8 * 1024 * 1024) {
+        // Pace against the send buffer so it never balloons (or overflows Chrome's
+        // ~16 MB cap and starts dropping): pause until it drains below the threshold.
+        if (ch.bufferedAmount > 4 * 1024 * 1024) {
           // eslint-disable-next-line no-await-in-loop
           await new Promise((r) => {
             const onLow = () => { ch.removeEventListener('bufferedamountlow', onLow); r(); };

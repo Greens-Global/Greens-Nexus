@@ -76,7 +76,10 @@ function stopClipWatch() {
 // ── File receive (viewer -> this PC, only while control is active) ────────────
 // Chunked base64 over the data channel; lands in Downloads\Nexus Support. The
 // employee accepted the control session, and the banner is up the whole time.
-const FILE_MAX = 200 * 1024 * 1024;
+// Effectively "any file" - a ceiling only so a mistaken send can't fill the
+// employee's disk. Bytes stream straight to disk (createWriteStream), never held
+// in memory, so large files are fine. Matches the viewer's FILE_MAX.
+const FILE_MAX = 20 * 1024 * 1024 * 1024;
 const files = new Map();   // id -> {stream, path, size, received, name}
 let activeFileId = null;   // the file binary chunks currently append to (one at a time)
 
