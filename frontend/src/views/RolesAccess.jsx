@@ -96,7 +96,7 @@ function bundleSummary(allowed) {
 const TABS = [['people', 'People', User], ['jobroles', 'Roles', Shield], ['groups', 'Groups', Users], ['audit', 'Audit', LayoutGrid]];
 
 export default function RolesAccess({ embedded = false }) {
-  const { can } = useRole();
+  const { can, assignRole, myLevel } = useRole();
   const nameOf = useNameResolver();   // email → real name, never a raw email
   const [sub, setSub] = useState('people');
   const [jobRoles, setJobRoles] = useState(null);
@@ -115,9 +115,32 @@ export default function RolesAccess({ embedded = false }) {
 
   const loadRoles = () => api.getJobRoles().then(setJobRoles).catch(() => setJobRoles([]));
   const loadGroups = () => api.getGroups().then(gs => setGroups(gs.filter(g => !g.is_job_role))).catch(() => setGroups([]));
+  // email -> { role, pinned }: each member's actual tier + whether it's a
+  // per-person override, so a role's member list can show and change tiers.
+  const [roleMap, setRoleMap] = useState({});
+  const loadRoleMap = () => api.getAllRoles().then(rows => {
+    const m = {}; (rows || []).forEach(r => { m[(r.email || '').toLowerCase()] = { role: r.role, pinned: !!r.tier_pinned }; });
+    setRoleMap(m);
+  }).catch(() => {});
   useEffect(() => {
-    loadRoles(); loadGroups();
+    loadRoles(); loadGroups(); loadRoleMap();
   }, []);
+
+  // Which tiers this admin may grant (mirrors the backend: owner gives any, others
+  // only strictly below their own level).
+  const canAssignTier = t => can('owner') || (ROLES[t]?.level ?? 1) < myLevel;
+  async function setMemberTier(email, tier) {
+    if (!tier || !selected) return;
+    if (!await dialog.confirm(`Set ${nameOf(email)}'s tier to "${ROLES[tier].label}" - just for this person? It overrides the "${selected.name}" role tier and won't change when the role's tier is edited.`, { title: 'Override tier', confirmText: 'Set tier' })) return;
+    try { await assignRole(email, tier, nameOf(email)); toastOk(`${nameOf(email)} is now ${ROLES[tier].label}.`); loadRoleMap(); }
+    catch (e) { toastErr(e?.message || 'Could not set tier.'); }
+  }
+  async function resetMemberTier(email) {
+    if (!selected) return;
+    if (!await dialog.confirm(`Reset ${nameOf(email)} to follow the "${selected.name}" tier again?`, { title: 'Reset tier', confirmText: 'Reset' })) return;
+    try { await api.assignJobRole(selected.id, email); toastOk(`${nameOf(email)} follows the role tier again.`); loadRoleMap(); loadRoles(); }
+    catch (e) { toastErr(e?.message || 'Could not reset.'); }
+  }
 
   const people = useMemo(() => (dir || [])
     .map(p => ({
@@ -381,19 +404,37 @@ export default function RolesAccess({ embedded = false }) {
                     ? `${(selected.members || []).filter(inFilter).length} of ${selected.member_count}`
                     : selected.member_count}</div>
                   {(selected.members || []).filter(inFilter).length > 0 && (
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
-                      {selected.members.filter(inFilter).map(em => (
-                        <span key={em} style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '4px 6px 4px 5px', borderRadius: 20, background: 'var(--paper)', border: '1px solid var(--line)', fontSize: 12.5, fontWeight: 600 }}>
-                          <Avatar name={nameOf(em)} src={photoOf[em]} size={22} />
-                          {nameOf(em)}
-                          <button onClick={() => removeMember(em)} title="Remove from this role" aria-label={`Remove ${nameOf(em)}`}
-                            style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'grid', placeItems: 'center', width: 18, height: 18, borderRadius: '50%', padding: 0 }}
-                            onMouseOver={e => { e.currentTarget.style.background = 'hsla(var(--color-red),0.14)'; e.currentTarget.style.color = 'hsl(var(--color-red))'; }}
-                            onMouseOut={e => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = 'var(--muted)'; }}>
-                            <X size={13} />
-                          </button>
-                        </span>
-                      ))}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
+                      {selected.members.filter(inFilter).map(em => {
+                        const info = roleMap[em] || {};
+                        return (
+                          <div key={em} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '6px 10px', borderRadius: 10, background: 'var(--paper)', border: '1px solid var(--line)', flexWrap: 'wrap' }}>
+                            <Avatar name={nameOf(em)} src={photoOf[em]} size={24} />
+                            <span style={{ fontSize: 12.5, fontWeight: 600, flex: 1, minWidth: 90, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nameOf(em)}</span>
+                            {info.role && <TierBadge tier={info.role} />}
+                            {info.pinned && (
+                              <span title="Tier set for this person directly - a role-tier change won't move them."
+                                style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.03em', textTransform: 'uppercase', color: 'hsl(var(--color-purple))', background: 'hsla(var(--color-purple),0.12)', padding: '2px 7px', borderRadius: 6 }}>
+                                Override
+                              </span>
+                            )}
+                            <select value="" onChange={e => setMemberTier(em, e.target.value)} title="Give this person a different tier"
+                              style={{ ...input, width: 'auto', padding: '4px 8px', fontSize: 12 }}>
+                              <option value="">Tier…</option>
+                              {TIERS.filter(canAssignTier).map(t => <option key={t} value={t}>{ROLES[t].label}</option>)}
+                            </select>
+                            {info.pinned && (
+                              <button className="secondary-btn" onClick={() => resetMemberTier(em)} title="Follow the role tier again" style={{ padding: '4px 9px', fontSize: 11.5 }}>Reset</button>
+                            )}
+                            <button onClick={() => removeMember(em)} title="Remove from this role" aria-label={`Remove ${nameOf(em)}`}
+                              style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'grid', placeItems: 'center', width: 18, height: 18, borderRadius: '50%', padding: 0 }}
+                              onMouseOver={e => { e.currentTarget.style.background = 'hsla(var(--color-red),0.14)'; e.currentTarget.style.color = 'hsl(var(--color-red))'; }}
+                              onMouseOut={e => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = 'var(--muted)'; }}>
+                              <X size={13} />
+                            </button>
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                   <button className="secondary-btn" data-tour="assign" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }} onClick={() => setAssignFor(selected)}>
