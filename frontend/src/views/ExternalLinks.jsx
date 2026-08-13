@@ -1168,6 +1168,14 @@ function AppTile({
       onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(); } }}
       title={plainTitle}
       aria-describedby={tooltipId}
+      // Press-and-hold anywhere on the tile to drag it, not just the tiny
+      // grip icon - matches the phone-launcher gesture this is modeled on.
+      // HTML5 drag-and-drop already disambiguates this from a plain click on
+      // its own: dragstart only fires once the browser sees real pointer
+      // movement while the button is held, so a quick tap still opens the
+      // link as normal. The grip icon stays as a visual "this is
+      // draggable" hint, it's no longer the only place that works.
+      draggable={!!dragHandleProps} {...(dragHandleProps || {})}
       {...dropProps}
     >
       <div className="app-tile-icon-wrap">
@@ -1177,9 +1185,9 @@ function AppTile({
         {isFavorite && <span className="app-tile-fav-badge"><Bookmark size={9} fill="currentColor" /></span>}
         {vaultLinked && <span className="app-tile-key-badge" title="Copies its saved password when opened"><KeyRound size={9} /></span>}
         {hasActions && (
-          <div className="app-tile-actions" onClick={e => e.stopPropagation()}>
+          <div className="app-tile-actions" draggable={false} onClick={e => e.stopPropagation()} onDragStart={e => e.stopPropagation()}>
             {dragHandleProps && (
-              <span className="app-tile-grip" draggable {...dragHandleProps} title="Drag to reorder">
+              <span className="app-tile-grip" title="Drag to reorder">
                 <GripVertical size={11} />
               </span>
             )}
@@ -1280,6 +1288,7 @@ function FolderTile({ folder, memberLinks, onOpen, dragHandleProps, dropProps, m
       role="button" tabIndex={0}
       onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(); } }}
       title={folder.name}
+      draggable={!!dragHandleProps} {...(dragHandleProps || {})}
       {...dropProps}
     >
       <div className="app-tile-icon-wrap">
@@ -1293,9 +1302,9 @@ function FolderTile({ folder, memberLinks, onOpen, dragHandleProps, dropProps, m
             ))}
         </div>
         {(dragHandleProps || moveControls) && (
-          <div className="app-tile-actions" onClick={e => e.stopPropagation()}>
+          <div className="app-tile-actions" draggable={false} onClick={e => e.stopPropagation()} onDragStart={e => e.stopPropagation()}>
             {dragHandleProps && (
-              <span className="app-tile-grip" draggable {...dragHandleProps} title="Drag to reorder">
+              <span className="app-tile-grip" title="Drag to reorder">
                 <GripVertical size={11} />
               </span>
             )}
