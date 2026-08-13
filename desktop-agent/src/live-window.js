@@ -106,6 +106,27 @@ async function start({ id, sources, iceServers, fps }) {
   tracks.forEach((t, i) => { if (t) t.enabled = i === 0; });
   streams.forEach((stream, i) => { if (tracks[i]) pc.addTrack(tracks[i], stream); });
 
+  // Prefer H.264 in the offer. iOS Safari can't decode VP8/VP9 for a WebRTC
+  // stream it receives, so a VP8-only offer plays as an endless "connecting" /
+  // black video on iPhone/iPad. Ordering H.264 first makes every viewer that has
+  // it (Safari included) negotiate H.264; desktop Chrome still works either way.
+  try {
+    const caps = (typeof RTCRtpSender !== 'undefined' && RTCRtpSender.getCapabilities)
+      ? RTCRtpSender.getCapabilities('video') : null;
+    if (caps && caps.codecs) {
+      const h264 = caps.codecs.filter((c) => /H264/i.test(c.mimeType));
+      const rest = caps.codecs.filter((c) => !/H264/i.test(c.mimeType));
+      if (h264.length) {
+        pc.getTransceivers().forEach((t) => {
+          const kind = t.sender && t.sender.track && t.sender.track.kind;
+          if (kind === 'video' && t.setCodecPreferences) {
+            try { t.setCodecPreferences([...h264, ...rest]); } catch (_) { /* ignore */ }
+          }
+        });
+      }
+    }
+  } catch (_) { /* codec preference is best-effort */ }
+
   pc.onconnectionstatechange = () => {
     if (!pc) return;
     ipcRenderer.send('live:rtcstate', { id, state: pc.connectionState });
