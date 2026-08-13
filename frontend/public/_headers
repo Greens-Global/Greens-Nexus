@@ -14,6 +14,14 @@
 # 'self' permits only our own origin. Do NOT go back to DENY/'none' without
 # first removing that iframe.
 #
+# img-src += logo.clearbit.com + www.google.com (Aug 13): External Links renders
+# each tile's real site favicon (Clearbit's logo API, Google's s2 favicon
+# service as fallback) instead of a generic lucide icon. Without these two
+# hosts the CSP silently blocks both <img> requests - onError falls through to
+# the lucide fallback, so this looked like a JS bug (generic icons everywhere)
+# rather than a policy block; Vite's local dev server never serves this file,
+# which is why it worked on localhost and only broke once deployed.
+#
 # `frame-src blob:` + `object-src 'self' blob:` (Aug 10): in-app PDF preview
 # (EgnytePreview and anything else that iframes a blob: PDF) renders through
 # Chrome's PDF viewer, which is a PLUGIN document - it checks BOTH directives
@@ -24,7 +32,7 @@
 # against an Egnyte invoice PDF. Do NOT put object-src back to 'none' without
 # retesting a blob PDF preview.
 /*
-  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://*.azurewebsites.net https://*.supabase.co wss://*.supabase.co https://login.microsoftonline.com https://*.microsoftonline.com https://login.microsoft.com https://login.windows.net https://graph.microsoft.com https://cloudflareinsights.com https://nominatim.openstreetmap.org; img-src 'self' data: blob: https://*.supabase.co https://*.tile.openstreetmap.org https://*.arcgisonline.com https://picsum.photos https://fastly.picsum.photos; media-src 'self' blob: https://*.supabase.co; frame-src 'self' blob: https://*.supabase.co https://login.microsoftonline.com https://*.microsoftonline.com https://login.microsoft.com https://login.windows.net https://login.live.com https://www.youtube.com https://www.youtube-nocookie.com https://www.loom.com https://player.vimeo.com https://www.google.com https://maps.google.com; worker-src 'self' blob:; object-src 'self' blob:; frame-ancestors 'self'; base-uri 'self'; form-action 'self';
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://*.azurewebsites.net https://*.supabase.co wss://*.supabase.co https://login.microsoftonline.com https://*.microsoftonline.com https://login.microsoft.com https://login.windows.net https://graph.microsoft.com https://cloudflareinsights.com https://nominatim.openstreetmap.org; img-src 'self' data: blob: https://*.supabase.co https://*.tile.openstreetmap.org https://*.arcgisonline.com https://picsum.photos https://fastly.picsum.photos https://logo.clearbit.com https://www.google.com; media-src 'self' blob: https://*.supabase.co; frame-src 'self' blob: https://*.supabase.co https://login.microsoftonline.com https://*.microsoftonline.com https://login.microsoft.com https://login.windows.net https://login.live.com https://www.youtube.com https://www.youtube-nocookie.com https://www.loom.com https://player.vimeo.com https://www.google.com https://maps.google.com; worker-src 'self' blob:; object-src 'self' blob:; frame-ancestors 'self'; base-uri 'self'; form-action 'self';
   X-Content-Type-Options: nosniff
   X-Frame-Options: SAMEORIGIN
   Referrer-Policy: strict-origin-when-cross-origin
