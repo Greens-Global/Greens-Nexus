@@ -2554,6 +2554,25 @@ def live_control_request(sid: str, user: dict = Depends(require_administrator),
         raise HTTPException(409, "Control is already active.")
     if s.control_state == "requested":
         raise HTTPException(409, "A control request is already waiting.")
+    # One controller per PC. Many admins can WATCH the same screen, but only one
+    # may drive it - two people injecting input at once would fight over the
+    # mouse/keyboard. If another live session on this device already holds or is
+    # requesting control, block with a clear message naming who, and re-check the
+    # freshness so a dead viewer's stale lock can't wedge the machine forever.
+    if s.device_id:
+        others = (db.query(LiveSession)
+                  .filter(LiveSession.device_id == s.device_id, LiveSession.id != s.id,
+                          LiveSession.state != "ended",
+                          LiveSession.control_state.in_(("requested", "active"))).all())
+        for o in others:
+            _control_expire(db, o)
+            if o.control_state == "active" and not _live_fresh(o.viewer_seen):
+                _control_end(db, o, "controller_gone")
+                _live_end(db, o, "viewer_gone")
+            if o.control_state in ("requested", "active"):
+                who = o.control_requester_name or _display_name(db, o.viewer_email)
+                verb = "is controlling" if o.control_state == "active" else "is requesting control of"
+                raise HTTPException(409, f"{who} {verb} this computer. Only one person can control a PC at a time.")
     s.control_state = "requested"
     s.control_requester_name = _display_name(db, user["email"])
     s.control_requested_at = _now_iso()
