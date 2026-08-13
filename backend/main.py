@@ -418,6 +418,7 @@ def _run_migrations():
             "ALTER TABLE external_links ADD COLUMN created_at VARCHAR DEFAULT ''",
             "ALTER TABLE external_links ADD COLUMN updated_at VARCHAR DEFAULT ''",
             "ALTER TABLE external_links ADD COLUMN company VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_roles ADD COLUMN tier_pinned BOOLEAN DEFAULT 0",
             # Attended remote control (IT support) - consent + audit fields on the
             # live-view session row.
             "ALTER TABLE live_view_sessions ADD COLUMN control_state VARCHAR DEFAULT ''",
@@ -525,6 +526,7 @@ def _run_migrations():
         "ALTER TABLE inventory_requests ADD COLUMN IF NOT EXISTS assigned_allocator_name VARCHAR DEFAULT ''",
         # nexus_roles: display name captured from Microsoft Graph at assignment time
         "ALTER TABLE nexus_roles ADD COLUMN IF NOT EXISTS display_name VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_roles ADD COLUMN IF NOT EXISTS tier_pinned BOOLEAN DEFAULT FALSE",
         # inventory_items: physical site/storage location (e.g. "GSVC", "GSE")
         "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS location VARCHAR DEFAULT ''",
         # item_checkouts: handover/receipt photo flow (added to model but migration was missed - broke prod SELECTs)

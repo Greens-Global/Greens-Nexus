@@ -198,6 +198,11 @@ def update_job_role(jr_id: str, body: JobRoleUpdate, user: dict = Depends(requir
         for email in _member_emails(db, jr.id):
             row = db.query(NexusRole).filter(NexusRole.email == email).first()
             if row:
+                # A per-person tier override (tier_pinned) is deliberately kept: the
+                # admin promoted/demoted this individual apart from the role, so the
+                # role's tier change does not re-stamp them.
+                if getattr(row, "tier_pinned", False):
+                    continue
                 row.role = jr.tier
             else:
                 db.add(NexusRole(email=email, role=jr.tier, assigned_by=user["email"]))
@@ -270,8 +275,11 @@ def assign_job_role(jr_id: str, body: AssignBody, user: dict = Depends(get_curre
 
     row = db.query(NexusRole).filter(NexusRole.email == email).first()
     if row:
+        # (Re)assigning a job role means "follow this role's tier" - clear any prior
+        # per-person override so future role-tier edits track again.
         row.role = tier
         row.assigned_by = user["email"]
+        row.tier_pinned = False
     else:
         db.add(NexusRole(email=email, role=tier, assigned_by=user["email"]))
     invalidate_role_cache(email)

@@ -500,6 +500,12 @@ class NexusRole(Base):
     role         = Column(String, nullable=False, default="employee")
     display_name = Column(String, default="")         # captured from Microsoft Graph when assigned via Access Manager
     assigned_by  = Column(String, default="system")
+    # A per-person tier override: set when an admin picks this person's tier
+    # directly (Access Manager -> Roles), it PINS the tier so editing their job
+    # role's seniority tier no longer re-stamps them. Lets two people in one job
+    # role hold different tiers (e.g. one promoted to Global Admin). Cleared when
+    # they are (re)assigned to a job role, which means "follow this role's tier".
+    tier_pinned  = Column(Boolean, default=False)
 
 
 class NexusGroup(Base):

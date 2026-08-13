@@ -136,10 +136,15 @@ def assign_role(
     if row:
         row.role        = new_role
         row.assigned_by = user["email"]
+        # Setting a person's tier directly PINS it: this is a deliberate per-person
+        # override, so editing their job role's seniority tier will no longer
+        # re-stamp them. Cleared if they are later (re)assigned to a job role.
+        row.tier_pinned = True
         if display_name:
             row.display_name = display_name
     else:
-        row = NexusRole(email=target_email, role=new_role, display_name=display_name, assigned_by=user["email"])
+        row = NexusRole(email=target_email, role=new_role, display_name=display_name,
+                        assigned_by=user["email"], tier_pinned=True)
         db.add(row)
     db.commit()
     invalidate_role_cache(target_email)
