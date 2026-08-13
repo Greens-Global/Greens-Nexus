@@ -53,17 +53,19 @@ const ICON_MAP = {
 };
 const iconFor = (key) => ICON_MAP[key] || Link2;
 
-// Clearbit's logo API serves the actual brand mark at real resolution (crisp
-// up to a few hundred px); Google's s2 favicon service is the fallback for
-// domains Clearbit doesn't have, but it just re-serves whatever tiny favicon
-// (often 16px) the site itself declared, so it reads hazy once stretched to
-// tile size - only used as a second choice, never the first.
+// Clearbit's free logo API was shut down (logo.clearbit.com no longer
+// resolves at all, Aug 2026) - it used to be the first choice here because it
+// served the actual brand mark at real resolution. Google's faviconV2
+// endpoint (what www.google.com/s2/favicons redirects to - fetching it
+// directly avoids a cross-origin redirect that CSP's img-src would otherwise
+// have to allow a second host for) is the only source left; it re-serves
+// whatever favicon the site itself declared, so it can read a bit soft once
+// stretched to tile size, but at least it loads.
 function logoSources(url, size) {
   try {
     const hostname = new URL(url).hostname;
     return [
-      `https://logo.clearbit.com/${hostname}?size=${size}`,
-      `https://www.google.com/s2/favicons?sz=${size}&domain=${hostname}`,
+      `https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://${hostname}&size=${size}`,
     ];
   } catch {
     return [];
