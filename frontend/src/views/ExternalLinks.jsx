@@ -7,7 +7,7 @@ import { LinkIcon, ICON_MAP } from '../components/LinkIcon.jsx';
 import { useLinkViews } from './useLinkViews';
 import {
   Search, Plus, Pencil, Trash2, X, Star, Globe, LayoutGrid,
-  Settings2, Bookmark, CornerDownLeft, History, Command,
+  Settings2, Bookmark, History,
   GripVertical, AlertTriangle, Upload, FolderOpen, Download, Lock, KeyRound, Info,
   FolderPlus, Check, RefreshCw, SlidersHorizontal, Save,
   MoreHorizontal, Copy,
@@ -176,7 +176,6 @@ export default function ExternalLinks() {
   const [modal, setModal] = useState(null); // { mode: 'add'|'edit', form, id }
   const [saving, setSaving] = useState(false);
   const [showManage, setShowManage] = useState(false);
-  const [paletteOpen, setPaletteOpen] = useState(false);
 
   // Company/Personal split (same "which vault am I looking at" pattern as the
   // Credential Vault's Company/Personal toggle) - Personal Links used to sit
@@ -243,17 +242,6 @@ export default function ExternalLinks() {
       return next;
     });
   }, [myEmail]);
-
-  // Cmd/Ctrl+K opens the command palette from anywhere on the page - the
-  // Okta/Linear/Raycast "just start typing" pattern for a fast app launch
-  // without touching the department/category filters below.
-  useEffect(() => {
-    const onKey = (e) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); setPaletteOpen(true); }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, []);
 
   const load = useCallback(() => {
     setError(false);
@@ -641,24 +629,31 @@ export default function ExternalLinks() {
           {/* View select + "..." menu trigger read as ONE joined control
               (Aug 14 - "i don't see the use of 3 dot button separately,
               incorporate them with... view selection") rather than two
-              separate pill buttons sitting side by side. */}
-          <div style={{ display: 'flex', alignItems: 'stretch', border: '1px solid var(--wk-line2)', borderRadius: 10, overflow: 'hidden', position: 'relative' }}>
-            <select value={activeId || ''}
-              onChange={e => { const val = e.target.value; if (val === '__new__') guardedNew(); else guardedSwitch(val || null); }}
-              className="form-select" title="Switch layout view"
-              style={{ fontSize: 12.5, fontWeight: 600, width: 150, padding: '7px 30px 7px 11px', lineHeight: 1.4, height: 'auto', border: 'none', borderRadius: 0, background: 'var(--card)' }}>
-              <option value="">Home</option>
-              {views.length > 0 && (
-                <optgroup label="My views">
-                  {views.map(v => <option key={v.id} value={v.id}>{v.name}{v.isDefault ? ' ★' : ''}</option>)}
-                </optgroup>
-              )}
-              <option value="__new__">＋ New view…</option>
-            </select>
-            <button onClick={() => setViewMenu(m => !m)} title="View options"
-              style={{ display: 'flex', alignItems: 'center', padding: '0 9px', border: 'none', borderLeft: '1px solid var(--wk-line2)', background: 'var(--card)', cursor: 'pointer', color: 'var(--muted)' }}>
-              <MoreHorizontal size={15} />
-            </button>
+              separate pill buttons sitting side by side. The dropdown menu
+              lives on this OUTER wrapper (position: relative, no overflow
+              clip), not inside the inner overflow:hidden pill below it -
+              putting it inside the clipped pill was why the menu never
+              actually appeared ("its just a placeholder", Aug 14): it was
+              rendering, just clipped to invisible by the pill's own bounds. */}
+          <div style={{ position: 'relative' }}>
+            <div style={{ display: 'flex', alignItems: 'stretch', border: '1px solid var(--wk-line2)', borderRadius: 10, overflow: 'hidden' }}>
+              <select value={activeId || ''}
+                onChange={e => { const val = e.target.value; if (val === '__new__') guardedNew(); else guardedSwitch(val || null); }}
+                className="form-select" title="Switch layout view"
+                style={{ fontSize: 12.5, fontWeight: 600, width: 150, padding: '7px 30px 7px 11px', lineHeight: 1.4, height: 'auto', border: 'none', borderRadius: 0, background: 'var(--card)' }}>
+                <option value="">Home</option>
+                {views.length > 0 && (
+                  <optgroup label="My views">
+                    {views.map(v => <option key={v.id} value={v.id}>{v.name}{v.isDefault ? ' ★' : ''}</option>)}
+                  </optgroup>
+                )}
+                <option value="__new__">＋ New view…</option>
+              </select>
+              <button onClick={() => setViewMenu(m => !m)} title="View options"
+                style={{ display: 'flex', alignItems: 'center', padding: '0 9px', border: 'none', borderLeft: '1px solid var(--wk-line2)', background: 'var(--card)', cursor: 'pointer', color: 'var(--muted)' }}>
+                <MoreHorizontal size={15} />
+              </button>
+            </div>
             {viewMenu && (
               <div onMouseLeave={() => setViewMenu(false)} style={{ position: 'absolute', right: 0, top: 42, background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 12, boxShadow: '0 18px 50px rgba(17,24,39,0.18)', padding: 6, zIndex: 50, minWidth: 210 }}>
                 <div style={{ padding: '6px 10px 9px', borderBottom: '1px solid var(--line)', marginBottom: 5 }}>
@@ -686,12 +681,6 @@ export default function ExternalLinks() {
             </>
           ) : (
             <button className="secondary-btn" onClick={() => setEditing(true)}><SlidersHorizontal size={14} /> Customize</button>
-          )}
-          {section === 'company' && (
-            <button className="secondary-btn" onClick={() => setPaletteOpen(true)}>
-              <Command size={14} /> Quick Search
-              <kbd style={{ fontSize: 10, fontWeight: 700, opacity: .7, marginLeft: 2 }}>{navigator.platform?.includes('Mac') ? '⌘K' : 'Ctrl K'}</kbd>
-            </button>
           )}
           {section === 'company' && canManage && (
             <button className="primary-btn" onClick={() => setShowManage(true)}>
@@ -826,10 +815,6 @@ export default function ExternalLinks() {
           categories={[...new Set([...CATEGORIES, ...meta.categories])].sort()} companies={companies}
           existingLinks={all}
         />
-      )}
-
-      {paletteOpen && (
-        <CommandPalette links={all} onOpen={openLink} onClose={() => setPaletteOpen(false)} />
       )}
 
       {personalModal && (
@@ -2218,75 +2203,3 @@ function ImportModal({ onClose, onImported }) {
   );
 }
 
-// Cmd/Ctrl+K spotlight - fuzzy-ish search across every link (ignores the
-// department/category/search filters on the page) with arrow-key navigation
-// and Enter-to-launch, the pattern from Okta's dashboard search, Linear, and
-// Raycast. Opens on the most-used links when the query is empty so it also
-// works as a "what do I usually reach for" jump list.
-function CommandPalette({ links, onOpen, onClose }) {
-  const [query, setQuery] = useState('');
-  const [active, setActive] = useState(0);
-
-  const results = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    const pool = needle
-      ? links.filter(l => [l.name, l.category, l.department, l.description].some(v => (v || '').toLowerCase().includes(needle)))
-      : [...links].sort((a, b) => (b.clicks || 0) - (a.clicks || 0));
-    return pool.slice(0, 8);
-  }, [links, query]);
-
-  useEffect(() => { setActive(0); }, [query]);
-
-  const launch = (link) => { onOpen(link); onClose(); };
-
-  const onKeyDown = (e) => {
-    if (e.key === 'ArrowDown') { e.preventDefault(); setActive(a => Math.min(a + 1, results.length - 1)); }
-    else if (e.key === 'ArrowUp') { e.preventDefault(); setActive(a => Math.max(a - 1, 0)); }
-    else if (e.key === 'Enter') { e.preventDefault(); if (results[active]) launch(results[active]); }
-    else if (e.key === 'Escape') { onClose(); }
-  };
-
-  return (
-    <div className="modal-overlay" style={{ alignItems: 'flex-start', paddingTop: '12vh' }} onClick={onClose}>
-      <div className="modal-content" style={{ maxWidth: 560 }} onClick={e => e.stopPropagation()}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 18px', borderBottom: '1px solid var(--line)' }}>
-          <Search size={16} style={{ color: 'var(--muted)', flexShrink: 0 }} />
-          <input
-            autoFocus value={query} onChange={e => setQuery(e.target.value)} onKeyDown={onKeyDown}
-            placeholder="Jump to an app, tool, or bank..."
-            style={{ flex: 1, border: 'none', outline: 'none', background: 'transparent', fontSize: 15, color: 'var(--ink)' }}
-          />
-          <kbd style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', background: 'var(--mist)', padding: '2px 6px', borderRadius: 5 }}>ESC</kbd>
-        </div>
-        {!query.trim() && (
-          <div style={{ padding: '8px 18px 0', fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em' }}>
-            Most Used
-          </div>
-        )}
-        <div style={{ maxHeight: '50vh', overflowY: 'auto', padding: 6 }}>
-          {results.length === 0 ? (
-            <p style={{ textAlign: 'center', color: 'var(--muted)', fontSize: 13, padding: '24px 0' }}>No matches for "{query}".</p>
-          ) : results.map((l, i) => {
-            const { fg, bg } = colorFor(l.category);
-            return (
-              <div
-                key={l.id} onMouseEnter={() => setActive(i)} onClick={() => launch(l)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderRadius: 9, cursor: 'pointer',
-                  background: i === active ? 'var(--wk-brand-tint)' : 'transparent',
-                }}
-              >
-                <LinkIcon url={l.url} iconKey={l.icon} size={30} iconSize={15} radius={8} fg={fg} bg={bg} gradient={false} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>{l.name}</div>
-                  <div style={{ fontSize: 11, color: 'var(--muted)' }}>{l.category}{l.department ? ` · ${l.department}` : ''}</div>
-                </div>
-                {i === active && <CornerDownLeft size={13} style={{ color: 'var(--wk-brand)', flexShrink: 0 }} />}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    </div>
-  );
-}
