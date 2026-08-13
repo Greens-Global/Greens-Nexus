@@ -506,23 +506,8 @@ export default function ExternalLinks() {
   };
 
   const gotoAndDetach = (win, url) => {
-    if (!win) {
-      const opened = window.open(url, '_blank', 'noopener,noreferrer');
-      opened?.focus();
-      return;
-    }
+    if (!win) { window.open(url, '_blank', 'noopener,noreferrer'); return; }
     win.location = url;
-    // The pre-opened tab was focused at the moment of the original click, but
-    // for Company Links that click is followed by the OTP modal - the user
-    // has to switch back to THIS tab to enter the code, which moves focus
-    // away from the pre-opened one. Browsers won't auto-refocus a background
-    // tab just because its location changed (that'd be an obnoxious pattern
-    // to allow), so without this it silently sits there off-screen once the
-    // reveal finishes - the site opened, the password copied, nothing looked
-    // like it happened. Calling .focus() on a handle you already legitimately
-    // hold isn't something popup blockers touch (only window.open() is
-    // gated), so this is always safe to call.
-    try { win.focus(); } catch { /* not focusable in this browser - tab still opened, just not brought forward */ }
     try { win.opener = null; } catch { /* older browser - opener link stays, acceptable fallback */ }
   };
 
