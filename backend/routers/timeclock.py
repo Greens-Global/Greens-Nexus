@@ -2624,8 +2624,11 @@ def live_control_end(sid: str, user: dict = Depends(require_tracking),
     return {"ok": True, "controlState": s.control_state}
 
 
-@router.get("/live/presence")
+@router.get("/live-presence")
 def live_presence(user: dict = Depends(require_tracking), db: Session = Depends(get_db)):
+    # NOTE the path is "/live-presence", NOT "/live/presence": the latter is
+    # shadowed by the "/live/{sid}" viewer-poll route (FastAPI would read
+    # "presence" as a session id and 404), which silently broke the coverage eye.
     """Who is WATCHING and who is CONTROLLING each screen right now, for the Live
     Coverage presence badges (the eye + viewer count, and the wrench = who's giving
     remote support). Derived from live sessions whose VIEWER side is still fresh -

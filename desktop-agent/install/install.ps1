@@ -46,7 +46,21 @@ $EXE = "$APP.exe"
 # fully disclosed (visible tray icon, named entry in Task Manager / Installed
 # Programs, its log, and the signed monitoring policy).
 function Info($m) { if ($Detailed) { Write-Host "[nexus-install] $m" } }
+function Step($m) { Write-Host $m }   # always-visible short phase status (so it never looks frozen)
 function Die($m)  { Write-Host "Install failed: $m" -ForegroundColor Red; exit 1 }
+
+# Native .NET extraction - Expand-Archive is pure PowerShell and painfully slow on
+# a 100 MB+ Electron zip (thousands of files); ZipFile.ExtractToDirectory is many
+# times faster. Falls back to Expand-Archive if the assembly can't load.
+function Expand-Zip($zip, $dest) {
+  try {
+    Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction Stop
+    [System.IO.Compression.ZipFile]::ExtractToDirectory($zip, $dest)
+  } catch {
+    Expand-Archive -Path $zip -DestinationPath $dest -Force
+  }
+}
+
 Write-Host "Installing $APP..."
 
 $isAdmin = ([Security.Principal.WindowsPrincipal] `
@@ -73,17 +87,18 @@ $srcRoot = $null
 try {
   if ($Source -match '^https?://') {
     $zip = Join-Path $stage 'agent.zip'
+    Step "Downloading the agent (about 110 MB - this can take a minute)..."
     Info "downloading $Source"
     $old = $ProgressPreference; $ProgressPreference = 'SilentlyContinue'   # faster download
     Invoke-WebRequest -UseBasicParsing -Uri $Source -OutFile $zip
     $ProgressPreference = $old
-    Info "extracting"
-    Expand-Archive -Path $zip -DestinationPath $stage -Force
+    Step "Extracting..."
+    Expand-Zip $zip $stage
     Remove-Item $zip -Force
     $srcRoot = $stage
   } elseif (Test-Path $Source -PathType Leaf) {
-    Info "extracting $Source"
-    Expand-Archive -Path $Source -DestinationPath $stage -Force
+    Step "Extracting..."
+    Expand-Zip $Source $stage
     $srcRoot = $stage
   } elseif (Test-Path $Source -PathType Container) {
     $srcRoot = (Resolve-Path $Source).Path                 # install straight from a local build
@@ -112,6 +127,7 @@ try {
   # ── 3. Copy the bundle into place ──────────────────────────────────────────
   if ((Test-Path $installDir) -and $Force) { Remove-Item $installDir -Recurse -Force -ErrorAction SilentlyContinue }
   New-Item -ItemType Directory -Force -Path $installDir | Out-Null
+  Step "Installing files..."
   Info "installing to $installDir"
   # robocopy /MIR mirrors the tree and tolerates long paths; 0-7 are success codes.
   $rc = (Start-Process robocopy -ArgumentList @("`"$srcRoot`"", "`"$installDir`"", '/MIR', '/NFL', '/NDL', '/NJH', '/NJS', '/NP', '/R:1', '/W:1') -Wait -PassThru -WindowStyle Hidden).ExitCode
