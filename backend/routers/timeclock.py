@@ -38,7 +38,7 @@ from database import get_db
 from auth import (get_current_user, require_level_or_module, require_administrator,
                   require_module_grant, require_level_or_modules)
 from models import (TimePunch, TimeScreenshot, TimeOffRequest, TimeApproval, TimeBod,
-                    AgentDevice, AgentPairing, LiveSession, Shift, ShiftGroup, ShiftGroupMember,
+                    AgentDevice, AgentPairing, AgentRelease, LiveSession, Shift, ShiftGroup, ShiftGroupMember,
                     ShiftAssignment, ScheduledShift, PayrollRate, HrWorkSite, NexusEmployee,
                     TrackConsent, TrackSession, TrackPing, MonitoringPolicy, MonitoringConsent,
                     PunchRequest, AgentActivity, AppRating, NexusGroup, NexusGroupMember,
@@ -1941,6 +1941,10 @@ _AGENT_ENROLL_KEY  = os.getenv("NEXUS_AGENT_ENROLL_KEY", "")
 _AGENT_VERSION        = os.getenv("NEXUS_AGENT_VERSION", "")
 _AGENT_BUNDLE_SHA256  = os.getenv("NEXUS_AGENT_BUNDLE_SHA256", "")
 _AGENT_MIN_VERSION    = os.getenv("NEXUS_AGENT_MIN_VERSION", "")   # reserved: force-update floor
+# Shared secret the CI publish step presents to POST /agent/release. Set on the API
+# (dev+prod) and in the CI secrets; if unset, the publish endpoint is disabled and
+# the manifest falls back to the env vars above.
+_AGENT_PUBLISH_KEY    = os.getenv("NEXUS_AGENT_PUBLISH_KEY", "")
 
 # ── Live screen view (on-demand WebRTC) config ───────────────────────────────
 # A manager can watch a clocked-in employee's screen in real time. The media is a
@@ -2293,18 +2297,73 @@ def agent_checkin(body: AgentCheckinIn, dev: AgentDevice = Depends(get_agent_dev
 
 
 @router.get("/agent/manifest")
-def agent_manifest(dev: AgentDevice = Depends(get_agent_device)):
+def agent_manifest(dev: AgentDevice = Depends(get_agent_device), db: Session = Depends(get_db)):
     """Auto-update manifest for the agent's updater task (device-token auth). Tells
     an installed PC the current target build + where to get it + its sha256. The
     updater only downloads/swaps when `version` is ahead of what the PC runs; an
-    empty `version` means auto-update is off (no target configured), so agents stay
-    where they are. Bundle URL is the same public store the install one-liner uses."""
+    empty `version` means auto-update is off, so agents stay where they are.
+
+    Source of truth is the agent_releases table (written by the CI publish step) so a
+    release needs NO Azure change and NO restart. Falls back to the NEXUS_AGENT_*
+    env vars when no release row exists yet (transition / safety)."""
+    rel = (db.query(AgentRelease)
+           .filter(AgentRelease.is_current == 1, AgentRelease.version != "")
+           .order_by(AgentRelease.published_at.desc()).first())
+    if rel:
+        return {"version": rel.version, "bundleUrl": rel.bundle_url or "",
+                "sha256": rel.sha256 or "", "minVersion": rel.min_version or ""}
     return {
         "version": _AGENT_VERSION,
         "bundleUrl": _AGENT_BUNDLE_URL,
         "sha256": _AGENT_BUNDLE_SHA256,
         "minVersion": _AGENT_MIN_VERSION,
     }
+
+
+class AgentReleaseIn(BaseModel):
+    version: str
+    bundle_url: str
+    sha256: str = ""
+    min_version: Optional[str] = ""
+    notes: Optional[str] = ""
+    publish_key: str = ""
+
+
+@router.post("/agent/release")
+def agent_publish_release(body: AgentReleaseIn, db: Session = Depends(get_db)):
+    """Publish (or roll back to) an agent build - called by the CI pipeline after it
+    builds + uploads the bundle. Auth is the shared NEXUS_AGENT_PUBLISH_KEY (no user
+    session, so CI can call it). Writes/updates the agent_releases row for this
+    version and marks it current; every agent's updater picks it up within ~10 min.
+    Idempotent per version (re-publishing the same version just refreshes its url/sha)."""
+    if not _AGENT_PUBLISH_KEY:
+        raise HTTPException(503, "Agent publishing is not enabled (NEXUS_AGENT_PUBLISH_KEY unset)")
+    if not body.publish_key or not secrets.compare_digest(body.publish_key.strip(), _AGENT_PUBLISH_KEY):
+        raise HTTPException(403, "Invalid publish key")
+    version = (body.version or "").strip()
+    if not version:
+        raise HTTPException(400, "version is required")
+    now = _now_iso()
+    # Demote the current release, then upsert this version as the new current.
+    db.query(AgentRelease).filter(AgentRelease.is_current == 1).update({AgentRelease.is_current: 0})
+    rel = db.query(AgentRelease).filter(AgentRelease.version == version).first()
+    if rel:
+        rel.bundle_url = (body.bundle_url or "").strip()
+        rel.sha256 = (body.sha256 or "").strip()
+        rel.min_version = (body.min_version or "").strip()
+        rel.notes = (body.notes or "").strip()[:500]
+        rel.is_current = 1
+        rel.published_by = "ci"
+        rel.published_at = now
+    else:
+        db.add(AgentRelease(id=str(uuid.uuid4()), version=version,
+                            bundle_url=(body.bundle_url or "").strip(),
+                            sha256=(body.sha256 or "").strip(),
+                            min_version=(body.min_version or "").strip(),
+                            notes=(body.notes or "").strip()[:500],
+                            is_current=1, published_by="ci", published_at=now))
+    db.commit()
+    return {"ok": True, "version": version, "publishedAt": now}
 
 
 @router.post("/agent/screenshot")

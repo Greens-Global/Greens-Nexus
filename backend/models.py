@@ -1516,6 +1516,24 @@ class AgentDevice(Base):
     active_session_id = Column(String, default="")   # their in-punch id = the clock session
 
 
+class AgentRelease(Base):
+    """A published desktop-agent build. This is the source of truth the auto-update
+    manifest reads - moving it OUT of Azure env vars means a release is just a row
+    here (written by the CI publish step), with no Azure change and no API restart.
+    The current release is the one row with is_current=1; older rows are kept so a
+    rollback is just flipping the flag back to a prior version."""
+    __tablename__ = "agent_releases"
+    id           = Column(String, primary_key=True)     # uuid
+    version      = Column(String, nullable=False, index=True)   # "0.8.7"
+    bundle_url   = Column(String, default="")
+    sha256       = Column(String, default="")
+    min_version  = Column(String, default="")           # force-update floor (reserved)
+    notes        = Column(String, default="")
+    is_current   = Column(Integer, default=0)           # exactly one row is the live target
+    published_by = Column(String, default="")           # "ci" or an admin email
+    published_at = Column(String, default="")
+
+
 class AgentPairing(Base):
     """Short-lived nonce binding a browser clock-in to the physical device. The
     website mints it for the logged-in employee; the LOCAL AGENT claims it by
