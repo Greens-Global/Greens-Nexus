@@ -137,9 +137,6 @@ export default function ExternalLinks() {
   const [error, setError] = useState(false);
   const [banner, setBanner] = useState(null); // { kind: 'ok'|'err', text }
 
-  const [department, setDepartment] = useState('');
-  const [companyFilter, setCompanyFilter] = useState('');
-  const [category, setCategory] = useState('');
   const [q, setQ] = useState('');
 
   // Personal Links' own filter bar (Aug 14) - separate state from the
@@ -250,12 +247,25 @@ export default function ExternalLinks() {
     views, activeId, activeView, layout, loading: layoutLoading, editing, dirty, saveError,
     setEditing, mutate, mutateNow, switchView, save: saveView, saveAsNew, createNewView,
     setDefaultView, clearDefaultView, removeView, renameView, toggleFavorite: toggleFavoriteRaw,
-    clearSaveError, reload: reloadViews,
+    setFilters, clearSaveError, reload: reloadViews,
   } = useLinkViews();
   useEffect(() => {
     if (saveError) { setBanner({ kind: 'err', text: saveError }); clearSaveError(); }
   }, [saveError, clearSaveError]);
   useEffect(() => { if (editing) setGridView('tile'); }, [editing]);
+
+  // Company filter bar state now lives IN the active view's layout (Aug 14,
+  // "when i am making a customize view, i should also be able to include
+  // department, company and category in that view") rather than as plain
+  // component state - derived from layout.filters, with setters that write
+  // straight back through setFilters (always-live, same as favoriting) so
+  // switching views restores whichever filters that view had.
+  const department = layout.filters?.department || '';
+  const companyFilter = layout.filters?.company || '';
+  const category = layout.filters?.category || '';
+  const setDepartment = (v) => setFilters({ department: v });
+  const setCompanyFilter = (v) => setFilters({ company: v });
+  const setCategory = (v) => setFilters({ category: v });
 
   // Favorites can reference either a Company Link or a Personal Link (their
   // ids are both plain autoincrement ints on separate tables, hence the

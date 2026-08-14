@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { api } from '../api';
 
-const EMPTY_LAYOUT = { folders: [], items: [], favorites: [] };
+const EMPTY_FILTERS = { department: '', company: '', category: '' };
+const EMPTY_LAYOUT = { folders: [], items: [], favorites: [], filters: EMPTY_FILTERS };
 
 // Named, saveable External Links arrangements with a default star and an
 // explicit Customize -> edit -> Save/Save as new/Done flow - mirrors
@@ -42,7 +43,10 @@ export function useLinkViews() {
 
   const applyView = useCallback((view) => {
     setActiveId(view?.id ?? null);
-    setLayoutState(view?.layout || EMPTY_LAYOUT);
+    // .filters defensively defaulted - a view saved before this field
+    // existed still needs a real object here, not undefined, or every
+    // filter dropdown reading layout.filters.department would throw.
+    setLayoutState(view?.layout ? { ...view.layout, filters: { ...EMPTY_FILTERS, ...view.layout.filters } } : EMPTY_LAYOUT);
     setDirty(false);
   }, []);
 
@@ -173,10 +177,23 @@ export function useLinkViews() {
     }).catch(() => {}); // saveError already surfaced via banner in ExternalLinks.jsx
   }, [mutateNow]);
 
+  // Department/Company/Category filter selections, captured into whichever
+  // view is active (Aug 14 - "when i am making a customize view, i should
+  // also be able to include department, company and category in that
+  // view. Currently it is not"). Same always-live posture as favorites and
+  // folder-organizing above rather than folding into the Customize/dirty/
+  // Save cycle - a filter is a browsing preference you'd expect to just
+  // stick the moment you set it, not something you forget to Save and lose.
+  // Switching views (or Home, whose filters are never persisted) restores
+  // whatever that view had via applyView above.
+  const setFilters = useCallback((patch) => {
+    mutateNow(prev => ({ ...prev, filters: { ...EMPTY_FILTERS, ...prev.filters, ...patch } })).catch(() => {});
+  }, [mutateNow]);
+
   return {
     views, activeId, activeView, layout, loading, editing, dirty, saveError,
     setEditing, setLayout, mutate, mutateNow, switchView, save, saveAsNew, createNewView,
-    setDefaultView, clearDefaultView, removeView, renameView, toggleFavorite, clearSaveError,
+    setDefaultView, clearDefaultView, removeView, renameView, toggleFavorite, setFilters, clearSaveError,
     reload: load,
   };
 }
