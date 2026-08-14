@@ -89,21 +89,21 @@ jobs:
           $ErrorActionPreference = 'Stop'
           function Publish($name, $sbUrl, $sbKey, $api) {
             if (-not $sbUrl -or -not $sbKey -or -not $api -or -not $env:PUBLISH_KEY) {
-              throw "$name: missing required secrets (Supabase URL/key, API base, or publish key)"
+              throw "${name}: missing required secrets (Supabase URL/key, API base, or publish key)"
             }
-            Write-Host "== $name: uploading $env:BUNDLE to storage =="
+            Write-Host "== ${name}: uploading $env:BUNDLE to storage =="
             $obj = "$sbUrl/storage/v1/object/agent-dist/$env:BUNDLE"
             curl.exe --fail-with-body -sS -X POST $obj `
               -H "Authorization: Bearer $sbKey" -H "x-upsert: true" -H "Content-Type: application/zip" `
               --data-binary "@$env:ZIP"
-            if ($LASTEXITCODE -ne 0) { throw "$name: storage upload failed" }
-            Write-Host "`n== $name: publishing release row =="
+            if ($LASTEXITCODE -ne 0) { throw "${name}: storage upload failed" }
+            Write-Host "`n== ${name}: publishing release row =="
             $publicUrl = "$sbUrl/storage/v1/object/public/agent-dist/$env:BUNDLE"
             $body = @{ version=$env:VER; bundle_url=$publicUrl; sha256=$env:SHA; publish_key=$env:PUBLISH_KEY } | ConvertTo-Json -Compress
             curl.exe --fail-with-body -sS -X POST "$api/timeclock/agent/release" `
               -H "Content-Type: application/json" --data $body
-            if ($LASTEXITCODE -ne 0) { throw "$name: release publish failed" }
-            Write-Host "`n== $name: published v$env:VER =="
+            if ($LASTEXITCODE -ne 0) { throw "${name}: release publish failed" }
+            Write-Host "`n== ${name}: published v$env:VER =="
           }
           Publish 'DEV' $env:SB_DEV_URL $env:SB_DEV_KEY $env:API_DEV
           if ($env:DEV_ONLY -eq 'true') { Write-Host 'dev_only set - skipping prod' }
