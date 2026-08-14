@@ -431,6 +431,9 @@ def _run_migrations():
             "ALTER TABLE live_view_sessions ADD COLUMN control_ended_reason VARCHAR DEFAULT ''",
             # Personal Link -> Credential Vault personal credential pointer (Aug 13)
             "ALTER TABLE personal_links ADD COLUMN vault_cred_id VARCHAR DEFAULT ''",
+            # Personal Links department/category (Aug 14)
+            "ALTER TABLE personal_links ADD COLUMN department VARCHAR DEFAULT ''",
+            "ALTER TABLE personal_links ADD COLUMN category VARCHAR DEFAULT ''",
             # External Links directory rebuild (Aug 2026) - real Accounting-view
             # data sourced from start.greensglobal.com (screenshot, Aug 12); name-keyed
             # idempotent inserts so this only fires once per row, everywhere. A few
@@ -950,6 +953,9 @@ def _run_migrations():
         "ALTER TABLE external_links ADD COLUMN IF NOT EXISTS company VARCHAR DEFAULT ''",
         # Personal Link -> Credential Vault personal credential pointer (Aug 13)
         "ALTER TABLE personal_links ADD COLUMN IF NOT EXISTS vault_cred_id VARCHAR DEFAULT ''",
+        # Personal Links department/category (Aug 14)
+        "ALTER TABLE personal_links ADD COLUMN IF NOT EXISTS department VARCHAR DEFAULT ''",
+        "ALTER TABLE personal_links ADD COLUMN IF NOT EXISTS category VARCHAR DEFAULT ''",
         # external_links predates this table's proper build-out and was created
         # via create_all with RLS OFF like every other gap CLAUDE.md records -
         # closing it now that this is a real, admin-editable module.

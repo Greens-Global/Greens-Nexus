@@ -4,7 +4,7 @@ import {
   ArrowRight, ArrowUpRight, BookOpen, CheckSquare, ChevronRight, ListTodo, Package, ShieldCheck, Bell, Clock, StickyNote,
   BarChart3, Layers, Zap, Users, ClipboardCheck, CalendarClock, ExternalLink, Boxes, X,
   ClipboardList, HandCoins, TrendingUp, Building2, FolderKanban, CalendarDays, Timer,
-  CheckCheck, Trash2, Mail, CalendarPlus, FolderOpen,
+  CheckCheck, Trash2, Mail, CalendarPlus, FolderOpen, LayoutGrid,
 } from 'lucide-react';
 import { formatTime } from '../lib/datetime';
 import { api } from '../api';
@@ -235,8 +235,46 @@ function LinksFolderTile({ link, color, onOpen }) {
 // reordering/deleting apps in the folder from External Links shows up here
 // without re-configuring the widget - only which folder is shown is fixed
 // config, not its contents.
+// Every app in the folder, opened from the "All Apps" tile (Aug 14 -
+// "when we add widget in dashboard, i need to have all apps icon so when i
+// click on all apps it opens me all the apps in that folder") - same
+// modal-overlay/modal-content chrome the rest of the app uses, reusing
+// LinksFolderTile so it's visually identical to the widget's own preview
+// tiles and to External Links' own folder popup.
+function LinksFolderAllModal({ title, links, itemType, onOpen, onClose }) {
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content" style={{ maxWidth: 480 }} onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <h3>{title}</h3>
+          <button className="close-btn" onClick={onClose}><X size={16} /></button>
+        </div>
+        <div style={{ padding: '20px 24px' }}>
+          <div className="app-grid" style={{ gap: '14px 10px' }}>
+            {links.map(l => (
+              <LinksFolderTile key={l.id} link={l} onOpen={() => onOpen(l)}
+                color={itemType === 'personal' ? PERSONAL_TILE_COLOR : colorForLinkCategory(l.category)} />
+            ))}
+          </div>
+        </div>
+        <div className="modal-footer">
+          <button className="primary-btn" onClick={onClose}>Done</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Only a handful of tiles preview in the widget itself (Aug 14 - replaces
+// the old scroll-arrows grid, which cramped a tiny scrollbar into a
+// dashboard tile) - "All Apps" opens the full list in LinksFolderAllModal
+// above instead. PREVIEW_COUNT leaves room for the All Apps tile itself in
+// a typical 3-4 column widget width.
+const LINKS_FOLDER_PREVIEW_COUNT = 3;
+
 function LinksFolderWidget({ config }) {
   const [state, setState] = useState({ loading: true, folder: null, links: [] });
+  const [showAll, setShowAll] = useState(false);
   useEffect(() => {
     let alive = true;
     if (!config?.folderId) { setState({ loading: false, folder: null, links: [] }); return undefined; }
@@ -287,11 +325,28 @@ function LinksFolderWidget({ config }) {
         <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '24px 4px', textAlign: 'center' }}>This folder is empty.</div>
       ) : (
         <div className="app-grid" style={{ gap: '14px 10px' }}>
-          {state.links.map(l => (
+          {state.links.slice(0, LINKS_FOLDER_PREVIEW_COUNT).map(l => (
             <LinksFolderTile key={l.id} link={l} onOpen={() => open(l)}
               color={config.itemType === 'personal' ? PERSONAL_TILE_COLOR : colorForLinkCategory(l.category)} />
           ))}
+          <div className="app-tile" onClick={() => setShowAll(true)} role="button" tabIndex={0}
+            onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setShowAll(true); } }}
+            title={`See all ${state.links.length} apps in ${title}`}>
+            <div className="app-tile-icon-wrap">
+              <div style={{
+                width: 48, height: 48, borderRadius: 13, background: 'var(--mist)', color: 'var(--muted)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                <LayoutGrid size={20} />
+              </div>
+            </div>
+            <span className="app-tile-name">All Apps</span>
+          </div>
         </div>
+      )}
+      {showAll && (
+        <LinksFolderAllModal title={title} links={state.links} itemType={config.itemType}
+          onOpen={open} onClose={() => setShowAll(false)} />
       )}
     </DashCard>
   );

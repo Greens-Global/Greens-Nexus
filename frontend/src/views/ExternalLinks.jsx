@@ -3,10 +3,10 @@ import { useRole } from '../contexts/RoleContext';
 import { api } from '../api';
 import AsyncSection, { SkeletonBlocks } from '../components/AsyncState';
 import { PersonalLockGate } from '../credvault/vaultShared';
-import { LinkIcon, ICON_MAP } from '../components/LinkIcon.jsx';
+import { LinkIcon } from '../components/LinkIcon.jsx';
 import { useLinkViews } from './useLinkViews';
 import {
-  Search, Plus, Pencil, Trash2, X, Star, Globe, LayoutGrid,
+  Search, Plus, Pencil, Trash2, X, Star, Globe, LayoutGrid, List,
   Settings2, Bookmark, History,
   GripVertical, AlertTriangle, Upload, FolderOpen, Download, Lock, KeyRound, Info,
   FolderPlus, Check, RefreshCw, SlidersHorizontal, Save,
@@ -34,16 +34,6 @@ function writeIds(email, kind, ids) {
 // below, fetched on mount and threaded down as props everywhere a
 // department/category picker needs the curated list.
 
-// Curated icon set an admin picks from when adding/editing a link - kept to
-// business-app-shaped icons rather than exposing all ~1500 lucide icons.
-const ICON_OPTIONS = [
-  'Link2', 'Mail', 'Calendar', 'Users2', 'FolderKanban', 'Rocket', 'MessagesSquare',
-  'BookOpen', 'HelpCircle', 'Clock', 'FileSpreadsheet', 'Zap', 'Wifi', 'Landmark',
-  'Wallet', 'Building2', 'Newspaper', 'GraduationCap', 'LineChart', 'Briefcase',
-  'Shield', 'Globe', 'Megaphone', 'HardHat', 'Ruler', 'CreditCard', 'PiggyBank',
-  'Receipt', 'ClipboardList', 'Headphones', 'Video', 'CheckSquare', 'Cloud',
-  'Presentation', 'Gauge', 'Bird', 'Warehouse',
-];
 // Duplicate-URL detection (Add Link / Add Personal Link) - normalizes away
 // the differences that would otherwise let the same site get added twice
 // (http vs https, www. vs not, a trailing slash, mixed case) without masking
@@ -152,6 +142,23 @@ export default function ExternalLinks() {
   const [category, setCategory] = useState('');
   const [q, setQ] = useState('');
 
+  // Personal Links' own filter bar (Aug 14) - separate state from the
+  // Company filters above so switching tabs doesn't clobber either one's
+  // in-progress search/filter.
+  const [pDepartment, setPDepartment] = useState('');
+  const [pCategory, setPCategory] = useState('');
+  const [pq, setPq] = useState('');
+
+  // List/Tile view toggle (Aug 14) - two independent toggles, one for the
+  // main grid (beside All Categories) and one for the My Favorites strip
+  // (beside its own header), since a user might want the big grid compact
+  // but favorites still as a quick-glance pill row, or vice versa. Tile is
+  // the only mode Customize/drag works in - list is read-only browsing, so
+  // switching to Customize forces tile view (see the `editing` effect
+  // further down, after `editing` itself is available from useLinkViews()).
+  const [gridView, setGridView] = useState('tile');
+  const [favView, setFavView] = useState('tile');
+
   // Company list for the filter/Add-Link dropdown, sourced from the same
   // curated People directory every other company/department picker in Nexus
   // uses (CLAUDE.md: never M365/GAL-derived) - NOT the HR module's own
@@ -170,6 +177,12 @@ export default function ExternalLinks() {
   const [modal, setModal] = useState(null); // { mode: 'add'|'edit', form, id }
   const [saving, setSaving] = useState(false);
   const [showManage, setShowManage] = useState(false);
+  // Personal Links' own entry point into the same admin-managed Department/
+  // Category picker Company Links' Manage modal has (Aug 14, "we should add
+  // manage section in personal links also") - same taxonomy, same
+  // TaxonomyManager component, just reachable from this tab too since
+  // Personal Links now has its own department/category fields and filters.
+  const [showPersonalTaxonomy, setShowPersonalTaxonomy] = useState(false);
 
   // Admin-managed Department/Category picker options (Aug 14) - shared by
   // both Company and Personal Links now that Personal Links also carry
@@ -242,6 +255,7 @@ export default function ExternalLinks() {
   useEffect(() => {
     if (saveError) { setBanner({ kind: 'err', text: saveError }); clearSaveError(); }
   }, [saveError, clearSaveError]);
+  useEffect(() => { if (editing) setGridView('tile'); }, [editing]);
 
   // Favorites can reference either a Company Link or a Personal Link (their
   // ids are both plain autoincrement ints on separate tables, hence the
@@ -343,10 +357,33 @@ export default function ExternalLinks() {
     external: new Map(filtered.map(l => [l.id, l])),
     personal: new Map(),
   }), [filtered]);
+  // Personal Links' own filter bar (Aug 14) - mirrors the Company filter
+  // logic above, minus the Company dropdown (Personal Links has no
+  // company-portfolio concept). Only narrows what's resolvable via
+  // personalItemsById (the same "quietly drops out of the grid/any folder"
+  // behavior filtered has for Company) - never touches the underlying
+  // personalLinks list or what seededPersonalMutate seeds from.
+  const personalFiltered = useMemo(() => {
+    const needle = pq.trim().toLowerCase();
+    return (personalLinks || []).filter(l => {
+      if (pDepartment && l.department !== pDepartment) return false;
+      if (pCategory && l.category !== pCategory) return false;
+      if (!needle) return true;
+      return [l.name, l.description, l.category, l.department].some(v => (v || '').toLowerCase().includes(needle));
+    });
+  }, [personalLinks, pDepartment, pCategory, pq]);
+  const personalCategoriesAvailable = useMemo(
+    () => [...new Set([...categoryNames, ...(personalLinks || []).map(l => l.category).filter(Boolean)])].sort(),
+    [categoryNames, personalLinks]
+  );
+  const personalDepartmentsAvailable = useMemo(
+    () => [...new Set([...departmentNames, ...(personalLinks || []).map(l => l.department).filter(Boolean)])].sort(),
+    [departmentNames, personalLinks]
+  );
   const personalItemsById = useMemo(() => ({
     external: new Map(),
-    personal: new Map((personalLinks || []).map(l => [l.id, l])),
-  }), [personalLinks]);
+    personal: new Map(personalFiltered.map(l => [l.id, l])),
+  }), [personalFiltered]);
 
   // A view (or Home) can easily have zero items for one of the two types -
   // e.g. every existing view was built before Personal folders existed, or
@@ -579,10 +616,13 @@ export default function ExternalLinks() {
     }
   };
 
-  const openAddPersonal = () => setPersonalModal({ mode: 'add', id: null, form: { name: '', url: '', description: '', icon: 'Link2', vault_cred_id: '' } });
+  const openAddPersonal = () => setPersonalModal({ mode: 'add', id: null, form: { name: '', url: '', description: '', icon: 'Link2', vault_cred_id: '', department: '', category: '' } });
   const openEditPersonal = (link) => setPersonalModal({
     mode: 'edit', id: link.id,
-    form: { name: link.name, url: link.url, description: link.description || '', icon: link.icon || 'Link2', vault_cred_id: link.vault_cred_id || '' },
+    form: {
+      name: link.name, url: link.url, description: link.description || '', icon: link.icon || 'Link2', vault_cred_id: link.vault_cred_id || '',
+      department: link.department || '', category: link.category || '',
+    },
   });
 
   const savePersonal = async () => {
@@ -753,19 +793,65 @@ export default function ExternalLinks() {
         </button>
       </div>
 
-      {section === 'personal' && (
+      {section === 'personal' && (<>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 20, alignItems: 'center' }}>
+          <div style={{ position: 'relative', flex: '1 1 260px', minWidth: 220 }}>
+            <Search size={15} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
+            <input
+              className="form-input" placeholder="Search your links..."
+              style={{ paddingLeft: 36 }} value={pq} onChange={e => setPq(e.target.value)}
+            />
+          </div>
+          <select className="form-select" style={{ width: 'auto', minWidth: 170 }} value={pDepartment} onChange={e => setPDepartment(e.target.value)}>
+            <option value="">All Departments</option>
+            {personalDepartmentsAvailable.map(d => <option key={d} value={d}>{d}</option>)}
+          </select>
+          <select className="form-select" style={{ width: 'auto', minWidth: 170 }} value={pCategory} onChange={e => setPCategory(e.target.value)}>
+            <option value="">All Categories</option>
+            {personalCategoriesAvailable.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+          {canManage && (
+            <button className="secondary-btn" onClick={() => setShowPersonalTaxonomy(true)}>
+              <Settings2 size={14} /> Manage
+            </button>
+          )}
+        </div>
         <PersonalLinksSection
           layout={layout} itemsById={personalItemsById} actionCtx={actionCtx}
           mutate={seededPersonalMutate} immediateMutate={seededPersonalMutateNow} allLinks={personalLinks || []}
           onAdd={openAddPersonal} editable={editing}
         />
-      )}
+        {showPersonalTaxonomy && (
+          <TaxonomyModal taxonomy={taxonomy} onAdd={addTaxonomy} onRename={renameTaxonomy} onDelete={deleteTaxonomy}
+            onClose={() => setShowPersonalTaxonomy(false)} />
+        )}
+      </>)}
 
       {section === 'company' && (<>
         {/* Personal shortcuts - client-local, not scoped by the filters below */}
         {favoriteLinks.length > 0 && (
-          <PersonalStrip title="My Favorites" icon={Bookmark} iconColor="hsl(var(--color-blue))" links={favoriteLinks}
-            onOpen={(l) => (l._favType === 'personal' ? openPersonalLink(l) : openLink(l))} />
+          <div style={{ marginBottom: 18 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 10 }}>
+              <Bookmark size={14} style={{ color: 'hsl(var(--color-blue))' }} />
+              <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink)', flex: 1 }}>My Favorites</span>
+              <ViewToggle view={favView} onChange={setFavView} />
+            </div>
+            {favView === 'tile' ? (
+              <PersonalStrip links={favoriteLinks} onOpen={(l) => (l._favType === 'personal' ? openPersonalLink(l) : openLink(l))} />
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                {favoriteLinks.map(l => {
+                  const { fg, bg } = colorFor(l.category);
+                  return (
+                    <LinksListRow key={l._uid || l.id}
+                      icon={<LinkIcon url={l.url} iconKey={l.icon} size={26} iconSize={13} radius={7} fg={fg} bg={bg} gradient={false} />}
+                      name={l.name} sub={l.category}
+                      onOpen={() => (l._favType === 'personal' ? openPersonalLink(l) : openLink(l))} />
+                  );
+                })}
+              </div>
+            )}
+          </div>
         )}
         {recentLinks.length > 0 && (
           <PersonalStrip title="Recently Used" icon={History} iconColor="var(--muted)" links={recentLinks}
@@ -805,6 +891,7 @@ export default function ExternalLinks() {
               {categoriesAvailable.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
           )}
+          {!editing && <ViewToggle view={gridView} onChange={setGridView} />}
         </div>
 
         <AsyncSection
@@ -825,6 +912,7 @@ export default function ExternalLinks() {
             <LinksLayoutSection
               sourceType="external" layout={layout} itemsById={unifiedItemsById} actionCtx={actionCtx}
               mutate={seededMutate} immediateMutate={seededMutateNow} allLinks={all} editable={editing}
+              view={gridView}
             />
           </Section>
         </AsyncSection>
@@ -852,7 +940,8 @@ export default function ExternalLinks() {
       )}
 
       {personalModal && (
-        <PersonalLinkModal modal={personalModal} setModal={setPersonalModal} save={savePersonal} saving={personalSaving} existingLinks={personalLinks || []} />
+        <PersonalLinkModal modal={personalModal} setModal={setPersonalModal} save={savePersonal} saving={personalSaving} existingLinks={personalLinks || []}
+          departments={departmentNames} categories={categoryNames} />
       )}
 
       {showVaultLockGate && (
@@ -888,6 +977,50 @@ function Section({ title, icon: Icon, color, children }) {
       </div>
       {children}
     </div>
+  );
+}
+
+// Tile/List toggle (Aug 14) - two independent instances live in this view
+// (the main grid, beside All Categories; My Favorites, beside its own
+// header), each with its own state so picking one doesn't affect the other.
+function ViewToggle({ view, onChange }) {
+  return (
+    <div style={{ display: 'inline-flex', background: 'var(--mist)', borderRadius: 8, padding: 2 }}>
+      <button type="button" onClick={() => onChange('tile')} title="Tile view"
+        style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'center', width: 28, height: 26, border: 'none',
+          borderRadius: 6, cursor: 'pointer', background: view === 'tile' ? 'var(--card)' : 'transparent',
+          color: view === 'tile' ? 'var(--ink)' : 'var(--muted)', boxShadow: view === 'tile' ? '0 1px 3px rgba(0,0,0,.12)' : 'none',
+        }}>
+        <LayoutGrid size={14} />
+      </button>
+      <button type="button" onClick={() => onChange('list')} title="List view"
+        style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'center', width: 28, height: 26, border: 'none',
+          borderRadius: 6, cursor: 'pointer', background: view === 'list' ? 'var(--card)' : 'transparent',
+          color: view === 'list' ? 'var(--ink)' : 'var(--muted)', boxShadow: view === 'list' ? '0 1px 3px rgba(0,0,0,.12)' : 'none',
+        }}>
+        <List size={14} />
+      </button>
+    </div>
+  );
+}
+
+// Compact list-view row - the read-only alternative to an icon AppTile/
+// FolderTile, used only when a Tile/List toggle is set to List. Folders
+// show a member count instead of a description; both open the same way
+// tiles do (a link opens the URL, a folder opens FolderModal).
+function LinksListRow({ icon, name, sub, onOpen, isFolder }) {
+  return (
+    <button onClick={onOpen} className="dash-link-row"
+      style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 10px', border: 'none', background: 'none', borderRadius: 8, cursor: 'pointer', textAlign: 'left', width: '100%', fontFamily: 'inherit' }}
+      onMouseEnter={e => e.currentTarget.style.background = 'var(--mist)'}
+      onMouseLeave={e => e.currentTarget.style.background = 'none'}>
+      {icon}
+      <span style={{ flex: 1, minWidth: 0, fontSize: 13.5, fontWeight: 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</span>
+      {sub && <span style={{ fontSize: 11.5, color: 'var(--muted)', flexShrink: 0 }}>{sub}</span>}
+      {isFolder && <FolderOpen size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />}
+    </button>
   );
 }
 
@@ -927,7 +1060,7 @@ function PersonalLinksSection({ layout, itemsById, actionCtx, mutate, immediateM
   );
 }
 
-function PersonalLinkModal({ modal, setModal, save, saving, existingLinks }) {
+function PersonalLinkModal({ modal, setModal, save, saving, existingLinks, departments, categories }) {
   const { mode, form } = modal;
   const setForm = (patch) => setModal(m => ({ ...m, form: { ...m.form, ...patch } }));
   const duplicate = useMemo(() => {
@@ -961,7 +1094,7 @@ function PersonalLinkModal({ modal, setModal, save, saving, existingLinks }) {
 
   return (
     <div className="modal-overlay" onClick={() => !saving && setModal(null)}>
-      <div className="modal-content" style={{ maxWidth: 440 }} onClick={e => e.stopPropagation()}>
+      <div className="modal-content" style={{ width: '60vw', maxWidth: '60vw' }} onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <h3>{mode === 'add' ? 'Add Personal Link' : 'Edit Personal Link'}</h3>
           <button className="close-btn" onClick={() => setModal(null)}><X size={16} /></button>
@@ -992,26 +1125,25 @@ function PersonalLinkModal({ modal, setModal, save, saving, existingLinks }) {
             <textarea className="form-input" rows={2} value={form.description}
               onChange={e => setForm({ description: e.target.value })} placeholder="Optional note to yourself - or leave blank, we'll try to pull it from the site" />
           </div>
-          <div className="form-group">
-            <label>Icon</label>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', gap: 6 }}>
-              {ICON_OPTIONS.map(key => {
-                const Ico = ICON_MAP[key];
-                const active = form.icon === key;
-                return (
-                  <button key={key} type="button" onClick={() => setForm({ icon: key })} title={key}
-                    style={{
-                      height: 32, borderRadius: 8, border: active ? '2px solid var(--wk-brand)' : '1px solid var(--wk-line2)',
-                      background: active ? 'var(--wk-brand-tint)' : 'var(--card)', color: active ? 'var(--wk-brand)' : 'var(--muted)',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
-                    }}>
-                    <Ico size={15} />
-                  </button>
-                );
-              })}
+          <div className="form-grid" style={{ padding: 0 }}>
+            <div className="form-group">
+              <label>Category</label>
+              <input className="form-input" list="personal-link-categories" value={form.category}
+                onChange={e => setForm({ category: e.target.value })} placeholder="e.g. Productivity" />
+              <datalist id="personal-link-categories">{categories.map(c => <option key={c} value={c} />)}</datalist>
+            </div>
+            <div className="form-group">
+              <label>Department</label>
+              <select className="form-select" value={form.department} onChange={e => setForm({ department: e.target.value })}>
+                <option value="">None</option>
+                {departments.map(d => <option key={d} value={d}>{d}</option>)}
+              </select>
             </div>
           </div>
         </div>
+        <p style={{ textAlign: 'center', fontSize: 13, fontWeight: 700, color: 'var(--muted)', margin: '4px 0 18px' }}>
+          Icon Auto Fetched From AI
+        </p>
         <div className="modal-footer">
           <button className="secondary-btn" onClick={() => setModal(null)} disabled={saving}>Cancel</button>
           <button className="primary-btn" onClick={save} disabled={saving || !!duplicate}>{saving ? 'Saving...' : mode === 'add' ? 'Add Link' : 'Save Changes'}</button>
@@ -1026,11 +1158,13 @@ function PersonalLinkModal({ modal, setModal, save, saving, existingLinks }) {
 // quick-launch strip rather than another section to scan top to bottom.
 function PersonalStrip({ title, icon: Icon, iconColor, links, onOpen }) {
   return (
-    <div style={{ marginBottom: 18 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 10 }}>
-        <Icon size={14} style={{ color: iconColor }} />
-        <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink)' }}>{title}</span>
-      </div>
+    <div style={title ? { marginBottom: 18 } : undefined}>
+      {title && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 10 }}>
+          <Icon size={14} style={{ color: iconColor }} />
+          <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink)' }}>{title}</span>
+        </div>
+      )}
       <div className="scroll-tabs" style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 4 }}>
         {links.map(l => {
           const { fg, bg } = colorFor(l.category);
@@ -1106,7 +1240,14 @@ function AppTile({
   // "small badge" + "tooltip information" from the two suggested approaches,
   // deliberately not a third visual element that would bulk up the tile.
   const isPersonal = sourceType === 'personal';
-  const tooltipText = description ? (isPersonal ? `${description} · Personal` : description) : undefined;
+  // Capped independent of however long the stored description actually is
+  // (Aug 14 - a link added before the short-description autofill shipped,
+  // or added while ANTHROPIC_API_KEY wasn't configured, can still carry its
+  // original full scraped sentence) - an unbounded tooltip is what was
+  // overlapping neighboring tiles and getting clipped by whatever ancestor
+  // it happened to overflow into; a short, predictable box avoids both.
+  const shortDescription = description.length > 90 ? `${description.slice(0, 90).trim()}…` : description;
+  const tooltipText = description ? (isPersonal ? `${shortDescription} · Personal` : shortDescription) : undefined;
   const plainTitle = !description ? (isPersonal ? `${link.name} (Personal)` : link.name) : undefined;
 
   return (
@@ -1422,7 +1563,7 @@ function FolderModal({
 // creates a brand-new PersonalLink row rather than organizing existing
 // ones - Company Links has no equivalent since new Company Links are only
 // ever added from Manage).
-function LinksLayoutSection({ sourceType, layout, itemsById, actionCtx, mutate, immediateMutate, allLinks, extraAddTile, editable = false }) {
+function LinksLayoutSection({ sourceType, layout, itemsById, actionCtx, mutate, immediateMutate, allLinks, extraAddTile, editable = false, view = 'tile' }) {
   const [openFolderId, setOpenFolderId] = useState(null);
   // Desktop drag-and-drop state - HTML5 native, mirrors ManageModal's
   // draggable/onDragStart/onDragOver/onDrop/onDragEnd pattern elsewhere in
@@ -1598,6 +1739,56 @@ function LinksLayoutSection({ sourceType, layout, itemsById, actionCtx, mutate, 
   });
 
   const openFolder = folders.find(f => f.id === openFolderId) || null;
+
+  // List view (Aug 14) - read-only rows instead of the drag-and-drop icon
+  // grid; Customize forces tile view (see the `editing` effect in the
+  // parent), so this branch never needs to carry drag handlers at all.
+  if (view === 'list') {
+    return (
+      <>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          {folders.map((f) => {
+            const members = folderMembers(f.id).map(e => resolveEntryLink(itemsById, e)).filter(Boolean);
+            return (
+              <LinksListRow key={f.id} isFolder
+                icon={<FolderOpen size={17} style={{ color: 'var(--muted)', flexShrink: 0 }} />}
+                name={f.name} sub={members.length > 0 ? `${members.length} apps` : 'Empty'}
+                onOpen={() => setOpenFolderId(f.id)} />
+            );
+          })}
+          {topItems.map((entry) => {
+            const a = entryActions(entry, itemsById, actionCtx);
+            if (!a) return null;
+            return (
+              <LinksListRow key={`${entry.item_type}:${entry.item_id}`}
+                icon={<LinkIcon url={a.link.url} iconKey={a.link.icon} size={26} iconSize={13} radius={7} fg={a.color.fg} bg={a.color.bg} gradient={false} />}
+                name={a.link.name} sub={a.link.category} onOpen={a.onOpen} />
+            );
+          })}
+        </div>
+        {openFolder && (
+          <FolderModal
+            folder={openFolder}
+            memberEntries={folderMembers(openFolder.id)}
+            itemsById={itemsById}
+            actionCtx={actionCtx}
+            editable={true}
+            onClose={() => setOpenFolderId(null)}
+            onRename={(name) => renameFolder(openFolder.id, name, immediateMutate)}
+            onDeleteFolder={() => {
+              if (!window.confirm(`Delete "${openFolder.name}"? Apps inside will move back to the main view.`)) return;
+              deleteFolder(openFolder.id, immediateMutate);
+              setOpenFolderId(null);
+            }}
+            onReorderWithin={(orderedEntries) => reorderWithinFolder(openFolder.id, orderedEntries, immediateMutate)}
+            onMoveOut={(entry, destId) => moveToFolder(entry, destId, immediateMutate)}
+            allFolders={folders}
+            onCreateFolder={(entry) => createFolderWithItem(entry, immediateMutate)}
+          />
+        )}
+      </>
+    );
+  }
 
   return (
     <>
@@ -1779,7 +1970,7 @@ function LinkModal({ modal, setModal, save, saving, departments, categories, com
 
   return (
     <div className="modal-overlay" onClick={() => !saving && setModal(null)}>
-      <div className="modal-content" style={{ maxWidth: 480 }} onClick={e => e.stopPropagation()}>
+      <div className="modal-content" style={{ width: '60vw', maxWidth: '60vw' }} onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <h3>{mode === 'add' ? 'Add Link' : 'Edit Link'}</h3>
           <button className="close-btn" onClick={() => setModal(null)}><X size={16} /></button>
@@ -1829,30 +2020,14 @@ function LinkModal({ modal, setModal, save, saving, departments, categories, com
             <textarea className="form-input" rows={2} value={form.description}
               onChange={e => setForm({ description: e.target.value })} placeholder="What is this for, in one line - or leave blank, we'll try to pull it from the site" />
           </div>
-          <div className="form-group">
-            <label>Icon</label>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', gap: 6 }}>
-              {ICON_OPTIONS.map(key => {
-                const Ico = ICON_MAP[key];
-                const active = form.icon === key;
-                return (
-                  <button key={key} type="button" onClick={() => setForm({ icon: key })} title={key}
-                    style={{
-                      height: 32, borderRadius: 8, border: active ? '2px solid var(--wk-brand)' : '1px solid var(--wk-line2)',
-                      background: active ? 'var(--wk-brand-tint)' : 'var(--card)', color: active ? 'var(--wk-brand)' : 'var(--muted)',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
-                    }}>
-                    <Ico size={15} />
-                  </button>
-                );
-              })}
-            </div>
-          </div>
           <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 500, color: 'var(--ink)', cursor: 'pointer' }}>
             <input type="checkbox" checked={form.is_pinned} onChange={e => setForm({ is_pinned: e.target.checked })} />
             Pin to top (featured for everyone)
           </label>
         </div>
+        <p style={{ textAlign: 'center', fontSize: 13, fontWeight: 700, color: 'var(--muted)', margin: '4px 0 18px' }}>
+          Icon Auto Fetched From AI
+        </p>
         <div className="modal-footer">
           <button className="secondary-btn" onClick={() => setModal(null)} disabled={saving}>Cancel</button>
           <button className="primary-btn" onClick={save} disabled={saving || !!duplicate}>{saving ? 'Saving...' : mode === 'add' ? 'Add Link' : 'Save Changes'}</button>
@@ -1941,7 +2116,7 @@ function ManageModal({
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content" style={{ maxWidth: 820 }} onClick={e => e.stopPropagation()}>
+      <div className="modal-content" style={{ width: '60vw', maxWidth: '60vw' }} onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <h3>Manage Links</h3>
           <button className="close-btn" onClick={onClose}><X size={16} /></button>
@@ -2088,6 +2263,37 @@ function ManageTab({ active, onClick, children }) {
     }}>
       {children}
     </button>
+  );
+}
+
+// Personal Links' own entry point into the same Departments & Categories
+// picker Company Links' Manage modal has (Aug 14, "we should add manage
+// section in personal links also... same department and category setting
+// as in general links") - a standalone modal wrapping the same
+// TaxonomyManager pair used inline as a tab in ManageModal, so Personal
+// Links doesn't need the rest of Manage's link-CRUD/import/attention
+// surface, just this one piece.
+function TaxonomyModal({ taxonomy, onAdd, onRename, onDelete, onClose }) {
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content" style={{ width: '60vw', maxWidth: '60vw' }} onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <h3>Departments &amp; Categories</h3>
+          <button className="close-btn" onClick={onClose}><X size={16} /></button>
+        </div>
+        <div style={{ padding: '20px 24px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
+            <TaxonomyManager kind="department" label="Departments" items={taxonomy.departments}
+              onAdd={onAdd} onRename={onRename} onDelete={onDelete} />
+            <TaxonomyManager kind="category" label="Categories" items={taxonomy.categories}
+              onAdd={onAdd} onRename={onRename} onDelete={onDelete} />
+          </div>
+        </div>
+        <div className="modal-footer">
+          <button className="primary-btn" onClick={onClose}>Done</button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -2253,7 +2459,7 @@ function ImportModal({ onClose, onImported }) {
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content" style={{ maxWidth: 640 }} onClick={e => e.stopPropagation()}>
+      <div className="modal-content" style={{ width: '60vw', maxWidth: '60vw' }} onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <h3>Batch Import Links</h3>
           <button className="close-btn" onClick={onClose}><X size={16} /></button>
