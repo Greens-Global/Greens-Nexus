@@ -989,6 +989,10 @@ def _run_migrations():
         # bypass. Carries session/device tokens, so this is not optional.
         "ALTER TABLE live_view_sessions ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE agent_pairings ENABLE ROW LEVEL SECURITY",
+        # agent_releases (Aug 14) - the auto-update target of record, written by the
+        # CI publish step. Backend-only (the manifest/publish endpoints are the only
+        # readers/writers); close it to the public anon key like the rest.
+        "ALTER TABLE agent_releases ENABLE ROW LEVEL SECURITY",
         # External Links directory rebuild (Aug 2026) - see the matching sqlite
         # migration list above for the full rationale; name-keyed idempotent
         # inserts, same statements (portable syntax) on both engines.

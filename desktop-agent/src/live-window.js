@@ -43,15 +43,21 @@ async function stop() {
 }
 
 async function captureSource(sourceId, fps) {
+  // Capture at the display's NATIVE resolution (up to 4K), not a forced 1080p.
+  // Forcing 1080p downscales a 1440p/4K desktop before encoding, which throws away
+  // the pixels that make small text (code, terminals) legible - no bitrate can
+  // recover them. Capturing native keeps text 1:1, so the viewer reads it crisply
+  // (Discord-style). getUserMedia caps AT these maxima, so a 1080p monitor still
+  // sends 1080p; only higher-res displays now send their real detail.
   return navigator.mediaDevices.getUserMedia({
     audio: false,
     video: {
       mandatory: {
         chromeMediaSource: 'desktop',
         chromeMediaSourceId: sourceId,
-        maxWidth: 1920,
-        maxHeight: 1080,
-        maxFrameRate: fps || 60,
+        maxWidth: 3840,
+        maxHeight: 2160,
+        maxFrameRate: fps || 30,
       },
     },
   });
@@ -120,8 +126,9 @@ async function start({ id, sources, iceServers, fps }) {
       if (!sender.track || sender.track.kind !== 'video') continue;
       const params = sender.getParameters();
       if (!params.encodings || !params.encodings.length) params.encodings = [{}];
-      params.encodings[0].maxBitrate = 8_000_000;   // 8 Mbps ceiling for a crisp 1080p desktop
+      params.encodings[0].maxBitrate = 12_000_000;  // 12 Mbps: headroom for crisp native-res text
       params.encodings[0].maxFramerate = 30;         // screen content: 30fps sharp > 60fps soft
+      params.encodings[0].scaleResolutionDownBy = 1; // never downscale the encoded frame
       params.degradationPreference = 'maintain-resolution';
       // eslint-disable-next-line no-await-in-loop
       await sender.setParameters(params);
