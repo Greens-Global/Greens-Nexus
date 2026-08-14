@@ -384,6 +384,33 @@ def list_items(
     return result
 
 
+@router.get("/signature")
+def items_signature(db: Session = Depends(get_db)):
+    """Cheap change-digest for the inventory fallback poll. The DB hashes the rows
+    internally and returns two short strings, so the poll asks "did anything
+    change?" for ~70 bytes instead of re-pulling the whole ~1000-item catalog every
+    30s - that single poll was ~95% of the database's pooler egress. The client
+    re-fetches the full list only when a digest flips; realtime still drives the
+    instant updates. `items` covers item rows PLUS the active-checkout enrichment
+    the list carries (so an availability change flips it too); `checkouts` covers
+    the checkouts list. Casting the whole row to text means ANY column change moves
+    the hash - no column list to keep in sync. On a backend that can't hash
+    server-side (local SQLite dev), returns empty strings and the client just falls
+    back to always-fetching, exactly as before."""
+    try:
+        row = db.execute(sa_text(
+            "SELECT "
+            "  md5(coalesce((SELECT string_agg(t::text, ',' ORDER BY t.id) FROM items t "
+            "     WHERE t.deleted_at IS NULL OR t.deleted_at = ''), '') || '::' || "
+            "     coalesce((SELECT string_agg(c::text, ',' ORDER BY c.id) FROM item_checkouts c "
+            "     WHERE c.status IN ('pending','approved','pending_receipt','allocated')), '')) AS items_sig, "
+            "  md5(coalesce((SELECT string_agg(c::text, ',' ORDER BY c.id) FROM item_checkouts c), '')) AS co_sig"
+        )).first()
+        return {"items": (row[0] or ""), "checkouts": (row[1] or "")}
+    except Exception:
+        return {"items": "", "checkouts": ""}
+
+
 # ── Serial numbers ────────────────────────────────────────────────────────────
 # Each physical unit carries a static, Nexus-assigned serial (GG-#####). It is the
 # identity the CSV import upserts on - names are NOT unique (10 identical laptops),

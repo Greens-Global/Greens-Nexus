@@ -654,6 +654,7 @@ export const api = {
   clickExternalLink: (id) => req(`/external-links/${id}/click`, { method: "PATCH" }),
   reorderExternalLinks: (entries) => req("/external-links/reorder", { method: "PATCH", body: JSON.stringify(entries) }),
   importExternalLinks: (rows) => req("/external-links/import", { method: "POST", body: JSON.stringify({ rows }) }),
+  getExternalLinksImportTemplate: () => reqBlob("/external-links/import-template"),
   refreshLinkDescription: (id) => req(`/external-links/${id}/refresh-description`, { method: "POST" }),
   refreshAllLinkDescriptions: () => req("/external-links/refresh-descriptions", { method: "POST" }),
 
@@ -759,6 +760,9 @@ export const api = {
 
   // Items - new individual-unit system
   getItems:            (params = {})  => req(`/items?${new URLSearchParams(params)}`),
+  // Tiny change-digest {items, checkouts} for the fallback poll - lets it re-pull
+  // the full catalog only when something actually changed (huge egress saver).
+  getItemsSignature:   ()             => req('/items/signature'),
   createItem:          (data)         => req('/items', { method: 'POST', body: JSON.stringify(data) }),
   importItems:         (items)        => req('/items/import', { method: 'POST', body: JSON.stringify({ items }) }),
   updateItem:          (id, data)     => req(`/items/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),

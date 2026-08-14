@@ -60,6 +60,11 @@ function colorFor(category) {
   const tone = PALETTE[hashStr(category || '') % PALETTE.length];
   return { fg: `hsl(var(--color-${tone}))`, bg: `hsla(var(--color-${tone}),0.12)` };
 }
+// A Company Link can carry several categories now (Aug 14, "add multiple
+// checkbox option in departments and category") - a tile still only shows
+// one accent color, so this picks the first one consistently everywhere a
+// single "the" category is needed (tile color, list-view subtitle).
+const primaryCategory = (link) => (link.categories && link.categories[0]) || '';
 
 // Company and Personal Links share one launcher/folders now (Aug 13), but
 // stay two different backend records with two different ownership models -
@@ -117,7 +122,7 @@ function entryActions(entry, itemsById, ctx) {
     // Manage is the one place those live now, not the tile hover row.
     // canManage still gates whether Manage itself is reachable elsewhere on
     // the page; it's just no longer what shows/hides an inline pencil here.
-    link, sourceType: 'external', color: colorFor(link.category), canManage: ctx.canManage, canDelete: ctx.canDelete,
+    link, sourceType: 'external', color: colorFor(primaryCategory(link)), canManage: ctx.canManage, canDelete: ctx.canDelete,
     vaultLinked: false,
     isFavorite: ctx.favoriteExternalIds.includes(link.id),
     onToggleFavorite: () => ctx.toggleFavorite(link.id),
@@ -125,7 +130,7 @@ function entryActions(entry, itemsById, ctx) {
   };
 }
 
-const emptyForm = { name: '', url: '', category: '', description: '', department: '', company: '', icon: 'Link2', is_pinned: false };
+const emptyForm = { name: '', url: '', categories: [], description: '', departments: [], company: '', icon: 'Link2', is_pinned: false };
 
 export default function ExternalLinks() {
   const { canAccessModule, myEmail } = useRole();
@@ -327,7 +332,7 @@ export default function ExternalLinks() {
   // it barely narrowed anything (Neil/Pranshu, Aug 13 - "shows too many
   // links"). Company stays independent of department (AND'd).
   const deptFiltered = useMemo(() => all.filter(l => {
-    const deptOk = !department || l.department === department;
+    const deptOk = !department || (l.departments || []).includes(department);
     const coOk = !companyFilter || l.company === companyFilter || !l.company;
     return deptOk && coOk;
   }), [all, department, companyFilter]);
@@ -336,9 +341,10 @@ export default function ExternalLinks() {
   // actually has links. categoriesAvailable drives the filter chips, which
   // show the fixed CATEGORIES list up front (Neil, Aug 13) plus any
   // additional ones present in the data, so a category isn't hidden until
-  // something's filed under it.
+  // something's filed under it. A link can carry several categories now
+  // (Aug 14) - flatMap instead of map so it shows up under each one.
   const categoriesInUse = useMemo(
-    () => [...new Set(deptFiltered.map(l => l.category).filter(Boolean))],
+    () => [...new Set(deptFiltered.flatMap(l => l.categories || []))],
     [deptFiltered]
   );
   const categoriesAvailable = useMemo(() => {
@@ -349,9 +355,9 @@ export default function ExternalLinks() {
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
     return deptFiltered.filter(l => {
-      if (category && l.category !== category) return false;
+      if (category && !(l.categories || []).includes(category)) return false;
       if (!needle) return true;
-      return [l.name, l.description, l.category, l.department].some(v => (v || '').toLowerCase().includes(needle));
+      return [l.name, l.description, ...(l.categories || []), ...(l.departments || [])].some(v => (v || '').toLowerCase().includes(needle));
     });
   }, [deptFiltered, category, q]);
 
@@ -489,8 +495,12 @@ export default function ExternalLinks() {
     if (!createdLinks.length) return;
     setLinks(prev => [...(prev || []), ...createdLinks]);
     createdLinks.forEach(l => {
-      if (!meta.categories.includes(l.category)) setMeta(m => ({ ...m, categories: [...new Set([...m.categories, l.category])].sort() }));
-      if (l.department && !meta.departments.includes(l.department)) setMeta(m => ({ ...m, departments: [...new Set([...m.departments, l.department])].sort() }));
+      (l.categories || []).forEach(c => {
+        if (!meta.categories.includes(c)) setMeta(m => ({ ...m, categories: [...new Set([...m.categories, c])].sort() }));
+      });
+      (l.departments || []).forEach(d => {
+        if (!meta.departments.includes(d)) setMeta(m => ({ ...m, departments: [...new Set([...m.departments, d])].sort() }));
+      });
     });
   };
 
@@ -517,26 +527,26 @@ export default function ExternalLinks() {
     }
   };
 
-  const openAdd = () => setModal({ mode: 'add', id: null, form: { ...emptyForm, department, company: companyFilter, category: category || '' } });
-  const openAddForDept = (dept) => setModal({ mode: 'add', id: null, form: { ...emptyForm, department: dept } });
+  const openAdd = () => setModal({ mode: 'add', id: null, form: { ...emptyForm, departments: department ? [department] : [], company: companyFilter, categories: category ? [category] : [] } });
+  const openAddForDept = (dept) => setModal({ mode: 'add', id: null, form: { ...emptyForm, departments: [dept] } });
   const openEdit = (link) => setModal({
     mode: 'edit', id: link.id,
     form: {
-      name: link.name, url: link.url, category: link.category, description: link.description || '',
-      department: link.department || '', company: link.company || '', icon: link.icon || 'Link2', is_pinned: !!link.is_pinned,
+      name: link.name, url: link.url, categories: link.categories || [], description: link.description || '',
+      departments: link.departments || [], company: link.company || '', icon: link.icon || 'Link2', is_pinned: !!link.is_pinned,
     },
   });
 
   const save = async () => {
     const f = modal.form;
-    if (!f.name.trim() || !f.url.trim() || !f.category.trim()) {
-      setBanner({ kind: 'err', text: 'Name, URL, and category are required.' });
+    if (!f.name.trim() || !f.url.trim() || f.categories.length === 0) {
+      setBanner({ kind: 'err', text: 'Name, URL, and at least one category are required.' });
       return;
     }
     const url = /^https?:\/\//i.test(f.url.trim()) ? f.url.trim() : `https://${f.url.trim()}`;
     const dupe = all.find(l => l.id !== modal.id && normalizeUrl(l.url) === normalizeUrl(url));
     if (dupe) {
-      setBanner({ kind: 'err', text: `This link is already added as "${dupe.name}"${dupe.department ? ` (${dupe.department})` : ''}.` });
+      setBanner({ kind: 'err', text: `This link is already added as "${dupe.name}"${dupe.departments?.length ? ` (${dupe.departments.join(', ')})` : ''}.` });
       return;
     }
     setSaving(true);
@@ -577,9 +587,13 @@ export default function ExternalLinks() {
   // it reuses the exact same validation/audit path each individual edit
   // already goes through rather than adding a second bulk code path server-
   // side to keep in sync. Applies whichever of category/department was
-  // actually picked - a blank field is left untouched, not cleared.
+  // actually picked - an empty array is left untouched, not cleared. Sets
+  // categories/departments to exactly the picked set (replaces, doesn't
+  // merge into each link's existing values) - simplest mental model for
+  // "reassign these N links," now that the picker itself supports several
+  // values at once (Aug 14, checkboxes here matching Add/Edit).
   const bulkUpdateLinks = async (ids, patch) => {
-    const clean = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== '' && v != null));
+    const clean = Object.fromEntries(Object.entries(patch).filter(([, v]) => Array.isArray(v) ? v.length > 0 : v !== '' && v != null));
     if (!ids.length || Object.keys(clean).length === 0) return;
     const results = await Promise.allSettled(ids.map(id => api.updateExternalLink(id, clean)));
     const updatedById = new Map();
@@ -885,11 +899,14 @@ export default function ExternalLinks() {
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                 {favoriteLinks.map(l => {
-                  const { fg, bg } = colorFor(l.category);
+                  // External carries `categories` (array, Aug 14); Personal
+                  // still has the single `category` string.
+                  const cat = l.categories ? primaryCategory(l) : l.category;
+                  const { fg, bg } = colorFor(cat);
                   return (
                     <LinksListRow key={l._uid || l.id}
                       icon={<LinkIcon url={l.url} iconKey={l.icon} size={26} iconSize={13} radius={7} fg={fg} bg={bg} gradient={false} />}
-                      name={l.name} sub={l.category}
+                      name={l.name} sub={cat}
                       onOpen={() => (l._favType === 'personal' ? openPersonalLink(l) : openLink(l))} />
                   );
                 })}
@@ -1211,20 +1228,26 @@ function PersonalStrip({ title, icon: Icon, iconColor, links, onOpen }) {
       )}
       <div className="scroll-tabs" style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 4 }}>
         {links.map(l => {
-          const { fg, bg } = colorFor(l.category);
+          // External links carry `categories` (array, Aug 14); Personal
+          // Links still have the single `category` string.
+          const { fg, bg } = colorFor(l.categories ? primaryCategory(l) : l.category);
           return (
+            // Icon-only (Aug 15) - the name showed as a permanent label
+            // before; now it's just the native `title` tooltip on hover,
+            // same as every other icon-only control in this file, so the
+            // strip stays a compact quick-launch row instead of widening
+            // with every long app name.
             <button
-              key={l._uid || l.id} onClick={() => onOpen(l)} title={l.description || l.name}
+              key={l._uid || l.id} onClick={() => onOpen(l)} title={l.name}
               style={{
-                flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px 8px 8px',
-                borderRadius: 30, border: '1px solid var(--wk-line2)', background: 'var(--card)', cursor: 'pointer',
+                flexShrink: 0, width: 38, height: 38, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                borderRadius: '50%', border: '1px solid var(--wk-line2)', background: 'var(--card)', cursor: 'pointer',
                 transition: 'border-color .12s, transform .12s',
               }}
               onMouseEnter={e => { e.currentTarget.style.borderColor = fg; }}
               onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--wk-line2)'; }}
             >
               <LinkIcon url={l.url} iconKey={l.icon} size={26} iconSize={13} radius="50%" fg={fg} bg={bg} gradient={false} />
-              <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--ink)', whiteSpace: 'nowrap' }}>{l.name}</span>
             </button>
           );
         })}
@@ -1603,7 +1626,8 @@ function FolderModal({
 // component to just that tab's slice of the one shared layout document -
 // Company Links and Personal Links each get their own instance (Aug 14,
 // "add folders to personal links too"). extraAddTile is an optional extra
-// tile rendered before "New Folder" (Personal Links' "Add Link", which
+// tile rendered at the end, after every folder/item (Personal Links' "Add
+// Link", which
 // creates a brand-new PersonalLink row rather than organizing existing
 // ones - Company Links has no equivalent since new Company Links are only
 // ever added from Manage).
@@ -1806,7 +1830,7 @@ function LinksLayoutSection({ sourceType, layout, itemsById, actionCtx, mutate, 
             return (
               <LinksListRow key={`${entry.item_type}:${entry.item_id}`}
                 icon={<LinkIcon url={a.link.url} iconKey={a.link.icon} size={26} iconSize={13} radius={7} fg={a.color.fg} bg={a.color.bg} gradient={false} />}
-                name={a.link.name} sub={a.link.category} onOpen={a.onOpen} />
+                name={a.link.name} sub={a.link.categories ? primaryCategory(a.link) : a.link.category} onOpen={a.onOpen} />
             );
           })}
         </div>
@@ -1837,6 +1861,9 @@ function LinksLayoutSection({ sourceType, layout, itemsById, actionCtx, mutate, 
   return (
     <>
       <AppGrid>
+        {/* First tile, not last (Aug 15) - "the new folder section is at
+            last, i want it at first so it is easy for user to understand." */}
+        {editable && <AddAppTile label="New Folder" onClick={createEmptyFolder} />}
         {folders.map((f) => (
           <FolderTile
             key={f.id} folder={f}
@@ -1874,7 +1901,6 @@ function LinksLayoutSection({ sourceType, layout, itemsById, actionCtx, mutate, 
           );
         })}
         {extraAddTile && <AddAppTile label={extraAddTile.label} onClick={extraAddTile.onClick} />}
-        {editable && <AddAppTile label="New Folder" onClick={createEmptyFolder} />}
       </AppGrid>
 
       {openFolder && (
@@ -1973,6 +1999,73 @@ function IconBtn({ children, onClick, title, danger, disabled }) {
   );
 }
 
+// Checkbox multi-select for Category/Department in Add/Edit Link (Aug 14,
+// "add multiple checkbox option in departments and category") - a closed
+// button showing what's picked (or a placeholder), opens a checklist panel
+// on click, closes on an outside click. `allowCustom` adds a small text
+// input at the bottom so Category (always free text - CLAUDE.md: "so a
+// one-off category isn't blocked") can still introduce a brand-new value
+// beyond the curated taxonomy list, the same way its old free-text+datalist
+// input could; Department stays picker-only (no free text), matching how
+// it worked before this was a checkbox list.
+function CheckboxMultiSelect({ options, selected, onChange, placeholder, allowCustom, customPlaceholder }) {
+  const [open, setOpen] = useState(false);
+  const [customValue, setCustomValue] = useState('');
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  const toggle = (opt) => onChange(selected.includes(opt) ? selected.filter(s => s !== opt) : [...selected, opt]);
+  const addCustom = () => {
+    const v = customValue.trim();
+    if (v && !selected.includes(v)) onChange([...selected, v]);
+    setCustomValue('');
+  };
+  // Union with `selected` so a value picked earlier (e.g. a custom one
+  // typed in, or a department that's since been removed from the curated
+  // taxonomy) still shows up checked rather than silently disappearing.
+  const allOptions = [...new Set([...options, ...selected])].sort();
+
+  return (
+    <div style={{ position: 'relative' }} ref={ref}>
+      <button type="button" className="form-select" onClick={() => setOpen(o => !o)}
+        style={{ width: '100%', textAlign: 'left', display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
+        <span style={{ color: selected.length ? 'var(--ink)' : 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {selected.length ? selected.join(', ') : placeholder}
+        </span>
+      </button>
+      {open && (
+        <div style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 10, boxShadow: '0 12px 30px rgba(0,0,0,.18)', zIndex: 40, maxHeight: 220, overflowY: 'auto', padding: 6 }}>
+          {allOptions.length === 0 && (
+            <p style={{ fontSize: 12, color: 'var(--muted)', padding: '6px 8px', margin: 0 }}>Nothing added yet.</p>
+          )}
+          {allOptions.map(opt => (
+            <label key={opt}
+              style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', borderRadius: 6, cursor: 'pointer', fontSize: 13 }}
+              onMouseEnter={e => e.currentTarget.style.background = 'var(--mist)'} onMouseLeave={e => e.currentTarget.style.background = 'none'}>
+              <input type="checkbox" checked={selected.includes(opt)} onChange={() => toggle(opt)} />
+              {opt}
+            </label>
+          ))}
+          {allowCustom && (
+            <div style={{ display: 'flex', gap: 6, padding: '6px 8px 2px', borderTop: allOptions.length > 0 ? '1px solid var(--line)' : 'none', marginTop: allOptions.length > 0 ? 4 : 0 }}>
+              <input className="form-input" style={{ padding: '5px 8px', fontSize: 12.5 }} value={customValue}
+                onChange={e => setCustomValue(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addCustom(); } }}
+                placeholder={customPlaceholder || 'Add new...'} />
+              <button type="button" className="secondary-btn" style={{ padding: '5px 10px', fontSize: 12.5 }} onClick={addCustom}>Add</button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function LinkModal({ modal, setModal, save, saving, departments, categories, companies, existingLinks }) {
   const { mode, form } = modal;
   const setForm = (patch) => setModal(m => ({ ...m, form: { ...m.form, ...patch } }));
@@ -2030,23 +2123,24 @@ function LinkModal({ modal, setModal, save, saving, departments, categories, com
             {duplicate && (
               <p style={{ fontSize: 11.5, color: 'hsl(var(--color-red))', margin: '5px 0 0', display: 'flex', alignItems: 'flex-start', gap: 5 }}>
                 <AlertTriangle size={12} style={{ flexShrink: 0, marginTop: 1 }} />
-                Already added as "{duplicate.name}"{duplicate.department ? ` (${duplicate.department})` : ''} - pick a different link, or edit that one instead.
+                Already added as "{duplicate.name}"{duplicate.departments?.length ? ` (${duplicate.departments.join(', ')})` : ''} - pick a different link, or edit that one instead.
               </p>
             )}
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
             <div className="form-group">
-              <label>Category</label>
-              <input className="form-input" list="ext-link-categories" value={form.category}
-                onChange={e => setForm({ category: e.target.value })} placeholder="e.g. Finance & Accounting" />
-              <datalist id="ext-link-categories">{categories.map(c => <option key={c} value={c} />)}</datalist>
+              <label>Category <span style={{ fontWeight: 500, color: 'var(--muted)', textTransform: 'none' }}>(pick one or more)</span></label>
+              <CheckboxMultiSelect
+                options={categories} selected={form.categories} onChange={v => setForm({ categories: v })}
+                placeholder="Pick categories..." allowCustom customPlaceholder="Add a new category..."
+              />
             </div>
             <div className="form-group">
-              <label>Department</label>
-              <select className="form-select" value={form.department} onChange={e => setForm({ department: e.target.value })}>
-                <option value="">All Departments</option>
-                {departments.map(d => <option key={d} value={d}>{d}</option>)}
-              </select>
+              <label>Department <span style={{ fontWeight: 500, color: 'var(--muted)', textTransform: 'none' }}>(blank = all)</span></label>
+              <CheckboxMultiSelect
+                options={departments} selected={form.departments} onChange={v => setForm({ departments: v })}
+                placeholder="All Departments"
+              />
             </div>
           </div>
           <div className="form-group">
@@ -2118,18 +2212,18 @@ function ManageModal({
   // selection never silently applies to a different filtered view than the
   // one it was made against.
   const [selectedIds, setSelectedIds] = useState(() => new Set());
-  const [bulkCategory, setBulkCategory] = useState('');
-  const [bulkDepartment, setBulkDepartment] = useState('');
+  const [bulkCategories, setBulkCategories] = useState([]);
+  const [bulkDepartments, setBulkDepartments] = useState([]);
   const [bulkApplying, setBulkApplying] = useState(false);
   const toggleSelected = (id) => setSelectedIds(prev => {
     const next = new Set(prev);
     if (next.has(id)) next.delete(id); else next.add(id);
     return next;
   });
-  const clearSelection = () => { setSelectedIds(new Set()); setBulkCategory(''); setBulkDepartment(''); };
+  const clearSelection = () => { setSelectedIds(new Set()); setBulkCategories([]); setBulkDepartments([]); };
   const applyBulk = async () => {
     setBulkApplying(true);
-    try { await onBulkUpdate([...selectedIds], { category: bulkCategory, department: bulkDepartment }); clearSelection(); }
+    try { await onBulkUpdate([...selectedIds], { categories: bulkCategories, departments: bulkDepartments }); clearSelection(); }
     finally { setBulkApplying(false); }
   };
   const applyBulkDelete = async () => {
@@ -2154,30 +2248,43 @@ function ManageModal({
   const rows = useMemo(() => {
     const needle = q.trim().toLowerCase();
     return needle
-      ? links.filter(l => [l.name, l.category, l.department, l.description].some(v => (v || '').toLowerCase().includes(needle)))
+      ? links.filter(l => [l.name, l.description, ...(l.categories || []), ...(l.departments || [])].some(v => (v || '').toLowerCase().includes(needle)))
       : links;
   }, [links, q]);
 
+  // A link with several categories (Aug 14) appears in EACH of its
+  // category's groups here, not just its first - Manage is where an admin
+  // goes to find "everything filed under Banking," and a link missing from
+  // that list because it's ALSO filed under something else would be a real
+  // gap, not a simplification.
   const grouped = useMemo(() => {
     const map = new Map();
-    rows.forEach(l => { const k = l.category || 'Other'; if (!map.has(k)) map.set(k, []); map.get(k).push(l); });
+    rows.forEach(l => {
+      const cats = l.categories && l.categories.length ? l.categories : ['Other'];
+      cats.forEach(k => { if (!map.has(k)) map.set(k, []); map.get(k).push(l); });
+    });
     for (const arr of map.values()) arr.sort((a, b) => (a.sort_order - b.sort_order) || a.name.localeCompare(b.name));
     return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]));
   }, [rows]);
 
   const attention = useMemo(() => attentionFor(links), [links]);
-  const emptyDepartments = useMemo(() => departmentNames.filter(d => !links.some(l => l.department === d)), [links, departmentNames]);
+  const emptyDepartments = useMemo(() => departmentNames.filter(d => !links.some(l => (l.departments || []).includes(d))), [links, departmentNames]);
   useEffect(() => {
     if (!emptyDepartments.includes(deptPick)) setDeptPick(emptyDepartments[0] || '');
   }, [emptyDepartments]); // eslint-disable-line react-hooks/exhaustive-deps
   const canReorder = q.trim() === '';
 
-  const dropOnRow = (targetLink) => {
+  // `cat` is which GROUP COLUMN this drop landed in (from the render loop's
+  // own closure), not "the" category of either link - a link can be in
+  // several groups now (Aug 14), so dedicating one canonical category per
+  // link no longer makes sense; reordering is scoped to the column you
+  // actually dropped into instead.
+  const dropOnRow = (targetLink, cat) => {
     if (dragId == null || dragId === targetLink.id) return;
-    const group = grouped.find(([cat]) => cat === (targetLink.category || 'Other'));
+    const group = grouped.find(([c]) => c === cat);
     if (!group) return;
     const dragged = group[1].find(l => l.id === dragId);
-    if (!dragged || dragged.category !== targetLink.category) return; // cross-category drag is a no-op
+    if (!dragged) return; // the dragged link isn't in this column - no-op
     const ids = group[1].map(l => l.id).filter(id => id !== dragId);
     ids.splice(ids.indexOf(targetLink.id), 0, dragId);
     onReorder(ids);
@@ -2222,15 +2329,19 @@ function ManageModal({
         {tab === 'all' && selectedIds.size > 0 && (
           <div style={{ margin: '12px 24px 0', padding: '10px 12px', borderRadius: 10, background: 'var(--wk-brand-tint)', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--wk-brand)' }}>{selectedIds.size} selected</span>
-            <input className="form-input" list="manage-bulk-categories" style={{ width: 'auto', minWidth: 160, padding: '6px 10px' }}
-              value={bulkCategory} onChange={e => setBulkCategory(e.target.value)} placeholder="Set category..." />
-            <datalist id="manage-bulk-categories">{categoryNames.map(c => <option key={c} value={c} />)}</datalist>
-            <select className="form-select" style={{ width: 'auto', minWidth: 160, padding: '6px 10px' }}
-              value={bulkDepartment} onChange={e => setBulkDepartment(e.target.value)}>
-              <option value="">Set department...</option>
-              {departmentNames.map(d => <option key={d} value={d}>{d}</option>)}
-            </select>
-            <button className="primary-btn" onClick={applyBulk} disabled={bulkApplying || (!bulkCategory && !bulkDepartment)}>
+            <div style={{ width: 180 }}>
+              <CheckboxMultiSelect
+                options={categoryNames} selected={bulkCategories} onChange={setBulkCategories}
+                placeholder="Set categories..." allowCustom customPlaceholder="Add a new category..."
+              />
+            </div>
+            <div style={{ width: 180 }}>
+              <CheckboxMultiSelect
+                options={departmentNames} selected={bulkDepartments} onChange={setBulkDepartments}
+                placeholder="Set departments..."
+              />
+            </div>
+            <button className="primary-btn" onClick={applyBulk} disabled={bulkApplying || (bulkCategories.length === 0 && bulkDepartments.length === 0)}>
               {bulkApplying ? 'Applying...' : 'Apply'}
             </button>
             {canDelete && (
@@ -2265,14 +2376,14 @@ function ManageModal({
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                       {items.map(l => {
-                        const { fg, bg } = colorFor(l.category);
+                        const { fg, bg } = colorFor(primaryCategory(l));
                         return (
                           <div
                             key={l.id}
                             draggable={canReorder}
                             onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; setDragId(l.id); }}
                             onDragOver={(e) => { if (canReorder && dragId != null) { e.preventDefault(); setDropCategory(cat); } }}
-                            onDrop={(e) => { e.preventDefault(); dropOnRow(l); }}
+                            onDrop={(e) => { e.preventDefault(); dropOnRow(l, cat); }}
                             onDragEnd={() => { setDragId(null); setDropCategory(null); }}
                             style={{
                               display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', borderRadius: 8,
@@ -2287,7 +2398,7 @@ function ManageModal({
                             <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', flexShrink: 0 }}>{l.name}</span>
                             {l.is_pinned && <Star size={11} style={{ color: 'hsl(var(--color-gold))', flexShrink: 0 }} fill="hsl(var(--color-gold))" />}
                             <span style={{ fontSize: 11.5, color: 'var(--muted)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                              {l.department || 'All departments'}{l.company ? ` · ${companyName(l.company)}` : ''}
+                              {(l.departments && l.departments.length) ? l.departments.join(', ') : 'All departments'}{l.company ? ` · ${companyName(l.company)}` : ''}
                             </span>
                             <span style={{ fontSize: 11.5, color: 'var(--muted)', flexShrink: 0 }}>{l.clicks || 0} uses</span>
                             <IconBtn onClick={() => doRefreshOne(l)} title="Re-fetch and shorten this link's description" disabled={refreshingId === l.id}>
@@ -2325,7 +2436,7 @@ function ManageModal({
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                   {attention.map(({ link: l, reason }) => {
-                    const { fg, bg } = colorFor(l.category);
+                    const { fg, bg } = colorFor(primaryCategory(l));
                     return (
                       <div key={l.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 10px', borderRadius: 8, border: '1px solid var(--line)' }}>
                         <AlertTriangle size={14} style={{ color: 'hsl(var(--color-orange))', flexShrink: 0 }} />
@@ -2345,7 +2456,7 @@ function ManageModal({
         </div>
       </div>
 
-      {showImport && <ImportModal onClose={() => setShowImport(false)} onImported={onImported} />}
+      {showImport && <ImportModal onClose={() => setShowImport(false)} onImported={onImported} departmentNames={departmentNames} categoryNames={categoryNames} />}
     </div>
   );
 }
@@ -2486,56 +2597,97 @@ function parseCSVLine(line) {
   cells.push(cur);
   return cells.map(c => c.trim());
 }
-// Deliberately no category/icon columns (Neil, Aug 12) - icon has to match an
-// internal key so it's not fill-in-by-hand, and a missing category gets
-// defaulted server-side ("Imported") rather than blocking the row. `company`
-// is typed as a name (e.g. "Greens India"), not the raw entity id - resolved
-// server-side, same reasoning as icon: not something to fill in from memory.
+// Department/category no longer come from typed CSV text (Aug 14, "select
+// multiple department or category by selecting" instead of typing) - the
+// sheet only carries name/url/company/description/pinned; department and
+// category are picked per row in the preview table below via the same
+// checkbox dropdown as Add/Edit, starting from nothing rather than parsed
+// text. `company` is still typed as a name (e.g. "Greens India"), not the
+// raw entity id - resolved server-side, same reasoning icon always had.
 function parseCSV(text) {
   const lines = text.split(/\r?\n/).filter(l => l.trim() !== '');
   if (lines.length === 0) return [];
   const start = parseCSVLine(lines[0])[0]?.toLowerCase() === 'name' ? 1 : 0;
   return lines.slice(start).map(line => {
-    const [name = '', url = '', department = '', company = '', description = '', pinned = ''] = parseCSVLine(line);
-    return { name, url, department, company, description, is_pinned: /^(true|1|yes)$/i.test(pinned.trim()) };
+    const [name = '', url = '', company = '', description = '', pinned = ''] = parseCSVLine(line);
+    return { name, url, company, description, is_pinned: /^(true|1|yes)$/i.test(pinned.trim()), categories: [], departments: [] };
   });
 }
 
-// Downloads a starter CSV with the exact header + a couple of filled-in
-// example rows so "what format does Import want" never has to be answered
-// in chat - the file that comes back out of Import is already the answer.
-function downloadImportTemplate() {
-  const csv = [
-    'name,url,department,company,description,pinned',
-    'ADP,https://adp.com,Accounting,Greens,Payroll processing,false',
-    'Slack,https://slack.com,,,Team chat,false',
-  ].join('\n');
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+// Downloads the server-generated Excel template (Aug 14, "department and
+// category column in excel but it should be multi selectable and in
+// dropdown") rather than building one client-side - a real in-cell
+// dropdown needs Data Validation written into the .xlsx itself (Department
+// 1-3 / Category 1-3 columns, each sourced from the live taxonomy), which
+// the browser has no way to construct; see GET /external-links/import-template.
+async function downloadImportTemplate() {
+  const { blob, filename } = await api.getExternalLinksImportTemplate();
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = 'external-links-import-template.csv';
+  a.download = filename || 'external-links-import-template.xlsx';
   document.body.appendChild(a);
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
 }
 
-function ImportModal({ onClose, onImported }) {
+// Reads the filled-in Excel template back - Department 1-3 / Category 1-3
+// columns (each a single-select dropdown in the sheet) union into this
+// row's categories/departments arrays, same as picking several in the
+// preview table below would. CSV upload/paste still works too (name/url/
+// company/description/pinned only - department/category are picked in the
+// table, same as before), for anyone who'd rather type a plain list.
+async function parseXLSX(file) {
+  const XLSX = await import('xlsx');
+  const buf = await file.arrayBuffer();
+  const wb = XLSX.read(buf, { type: 'array' });
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const data = XLSX.utils.sheet_to_json(ws, { defval: '' });
+  return data.map(r => {
+    const categories = [r['Category 1'], r['Category 2'], r['Category 3']].map(v => String(v || '').trim()).filter(Boolean);
+    const departments = [r['Department 1'], r['Department 2'], r['Department 3']].map(v => String(v || '').trim()).filter(Boolean);
+    const pinned = r['Pinned'];
+    return {
+      name: String(r['Name'] || '').trim(), url: String(r['URL'] || '').trim(), company: String(r['Company'] || '').trim(),
+      description: String(r['Description'] || '').trim(),
+      is_pinned: pinned === true || /^(true|1|yes)$/i.test(String(pinned || '').trim()),
+      categories, departments,
+    };
+  });
+}
+
+function ImportModal({ onClose, onImported, departmentNames, categoryNames }) {
   const [text, setText] = useState('');
+  const [rows, setRows] = useState([]);
   const [importing, setImporting] = useState(false);
   const [result, setResult] = useState(null); // { createdCount, errors }
   const fileRef = useRef(null);
 
-  const rows = useMemo(() => parseCSV(text), [text]);
+  // Re-parsing on every keystroke would stomp the department/category picks
+  // an admin just made in the table below - only re-derive from text when
+  // the row COUNT changes (a fresh paste/upload), and preserve whichever
+  // picks already exist for rows that survive.
+  useEffect(() => {
+    const parsed = parseCSV(text);
+    setRows(prev => parsed.map((r, i) => ({ ...r, categories: prev[i]?.categories || [], departments: prev[i]?.departments || [] })));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [text]);
+
   const validCount = rows.filter(r => r.name && r.url).length;
+
+  const setRowField = (i, patch) => setRows(prev => prev.map((r, idx) => idx === i ? { ...r, ...patch } : r));
 
   const handleFile = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => setText(String(reader.result || ''));
-    reader.readAsText(file);
+    if (/\.xlsx$/i.test(file.name)) {
+      parseXLSX(file).then(setRows).catch(() => {});
+    } else {
+      const reader = new FileReader();
+      reader.onload = () => setText(String(reader.result || ''));
+      reader.readAsText(file);
+    }
     e.target.value = '';
   };
 
@@ -2564,28 +2716,31 @@ function ImportModal({ onClose, onImported }) {
           {!result ? (
             <>
               <p style={{ fontSize: 12.5, color: 'var(--muted)' }}>
-                Paste CSV or upload a file. Columns (in order): <code>name, url, department, company, description, pinned</code> -
-                only name/url are required, and a header row is optional. Category and icon aren't part of the
-                sheet - imported links land in an "Imported" category you can re-sort from Manage afterward.
-                Company is typed by name (e.g. "Greens India"); an unrecognized name is left as all-companies rather than failing the row.
+                Export the Excel template for a Department 1-3 / Category 1-3 dropdown per row (each cell is a
+                single-select picker sourced from your live taxonomy - fill more than one of the 3 columns to give
+                a link several). Or paste/upload a plain CSV with just <code>name, url, company, description, pinned</code> and
+                pick department(s)/category(ies) from the dropdowns in the table below instead. Only name/url are
+                required; icon isn't part of either sheet, imported links default to "Imported" if no category is
+                picked. Company is typed by name (e.g. "Greens India"); an unrecognized name is left as
+                all-companies rather than failing the row.
               </p>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                <button className="secondary-btn" onClick={downloadImportTemplate}><Download size={14} /> Export Template</button>
-                <button className="secondary-btn" onClick={() => fileRef.current?.click()}><Upload size={14} /> Upload CSV</button>
-                <input ref={fileRef} type="file" accept=".csv,text/csv" style={{ display: 'none' }} onChange={handleFile} />
+                <button className="secondary-btn" onClick={downloadImportTemplate}><Download size={14} /> Export Excel Template</button>
+                <button className="secondary-btn" onClick={() => fileRef.current?.click()}><Upload size={14} /> Upload Excel or CSV</button>
+                <input ref={fileRef} type="file" accept=".csv,text/csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style={{ display: 'none' }} onChange={handleFile} />
                 {rows.length > 0 && <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>{validCount} of {rows.length} row{rows.length === 1 ? '' : 's'} look valid</span>}
               </div>
               <textarea
                 className="form-input" rows={7} value={text} onChange={e => setText(e.target.value)}
-                placeholder={'name,url,department,company,description,pinned\nADP,https://adp.com,Accounting,Greens,Payroll processing,false'}
+                placeholder={'name,url,company,description,pinned\nADP,https://adp.com,Greens,Payroll processing,false'}
                 style={{ fontFamily: 'monospace', fontSize: 12 }}
               />
               {rows.length > 0 && (
-                <div style={{ maxHeight: 220, overflowY: 'auto', border: '1px solid var(--line)', borderRadius: 8 }}>
+                <div style={{ maxHeight: 280, overflowY: 'auto', border: '1px solid var(--line)', borderRadius: 8 }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                     <thead>
                       <tr>
-                        {['Name', 'URL', 'Department', 'Company', 'Description'].map(h => (
+                        {['Name', 'URL', 'Department', 'Category', 'Company', 'Description'].map(h => (
                           <th key={h} style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid var(--line)', color: 'var(--muted)', fontWeight: 700, fontSize: 10, textTransform: 'uppercase' }}>{h}</th>
                         ))}
                       </tr>
@@ -2596,10 +2751,21 @@ function ImportModal({ onClose, onImported }) {
                         return (
                           <tr key={i} style={{ background: valid ? 'transparent' : 'hsla(var(--color-red),0.06)' }}>
                             <td style={{ padding: '5px 8px', borderBottom: '1px solid var(--line)' }}>{r.name || <em style={{ color: 'hsl(var(--color-red))' }}>missing</em>}</td>
-                            <td style={{ padding: '5px 8px', borderBottom: '1px solid var(--line)', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.url || <em style={{ color: 'hsl(var(--color-red))' }}>missing</em>}</td>
-                            <td style={{ padding: '5px 8px', borderBottom: '1px solid var(--line)' }}>{r.department || 'All'}</td>
+                            <td style={{ padding: '5px 8px', borderBottom: '1px solid var(--line)', maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.url || <em style={{ color: 'hsl(var(--color-red))' }}>missing</em>}</td>
+                            <td style={{ padding: '5px 8px', borderBottom: '1px solid var(--line)', minWidth: 150 }}>
+                              <CheckboxMultiSelect
+                                options={departmentNames} selected={r.departments} onChange={v => setRowField(i, { departments: v })}
+                                placeholder="All Departments"
+                              />
+                            </td>
+                            <td style={{ padding: '5px 8px', borderBottom: '1px solid var(--line)', minWidth: 150 }}>
+                              <CheckboxMultiSelect
+                                options={categoryNames} selected={r.categories} onChange={v => setRowField(i, { categories: v })}
+                                placeholder="Imported" allowCustom customPlaceholder="Add a new category..."
+                              />
+                            </td>
                             <td style={{ padding: '5px 8px', borderBottom: '1px solid var(--line)' }}>{r.company || 'All'}</td>
-                            <td style={{ padding: '5px 8px', borderBottom: '1px solid var(--line)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.description}</td>
+                            <td style={{ padding: '5px 8px', borderBottom: '1px solid var(--line)', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.description}</td>
                           </tr>
                         );
                       })}
