@@ -46,7 +46,9 @@ export function useLinkViews() {
     // .filters defensively defaulted - a view saved before this field
     // existed still needs a real object here, not undefined, or every
     // filter dropdown reading layout.filters.department would throw.
-    setLayoutState(view?.layout ? { ...view.layout, filters: { ...EMPTY_FILTERS, ...view.layout.filters } } : EMPTY_LAYOUT);
+    const next = view?.layout ? { ...view.layout, filters: { ...EMPTY_FILTERS, ...view.layout.filters } } : EMPTY_LAYOUT;
+    layoutRef.current = next; // synchronous - see setLayout's comment above
+    setLayoutState(next);
     setDirty(false);
   }, []);
 
@@ -65,7 +67,15 @@ export function useLinkViews() {
 
   const activeView = views.find(v => v.id === activeId) || null;
 
-  const setLayout = useCallback((next) => { setLayoutState(next); setDirty(true); }, []);
+  // layoutRef is updated synchronously here, not left to the useEffect
+  // above - two mutate/mutateNow calls back-to-back in the same event
+  // handler (e.g. a filter's onChange calling setFilters twice) would
+  // otherwise both read the SAME stale layoutRef (the effect hasn't run
+  // yet, since effects fire after the render commits, not synchronously
+  // between two setState calls in one handler), so the second call's
+  // update would silently overwrite the first - "the filters are not
+  // working, i can just click and nothing is happening" (Aug 14).
+  const setLayout = useCallback((next) => { layoutRef.current = next; setLayoutState(next); setDirty(true); }, []);
   const mutate = useCallback((updater) => setLayout(updater(layoutRef.current)), [setLayout]);
 
   const switchView = (id) => {
@@ -150,6 +160,7 @@ export function useLinkViews() {
   const mutateNow = useCallback((updater) => {
     const prev = layoutRef.current;
     const next = updater(prev);
+    layoutRef.current = next; // synchronous, same reasoning as setLayout above
     setLayoutState(next);
     return api.saveLinkLayout(next, activeId || undefined).then(() => {
       if (activeId) {
@@ -161,6 +172,7 @@ export function useLinkViews() {
         load();
       }
     }).catch(e => {
+      layoutRef.current = prev;
       setLayoutState(prev);
       setSaveError(e?.message || 'Could not save that change - reverted.');
       throw e;

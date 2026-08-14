@@ -263,8 +263,6 @@ export default function ExternalLinks() {
   const department = layout.filters?.department || '';
   const companyFilter = layout.filters?.company || '';
   const category = layout.filters?.category || '';
-  const setDepartment = (v) => setFilters({ department: v });
-  const setCompanyFilter = (v) => setFilters({ company: v });
   const setCategory = (v) => setFilters({ category: v });
 
   // Favorites can reference either a Company Link or a Personal Link (their
@@ -919,13 +917,13 @@ export default function ExternalLinks() {
             />
           </div>
           <select className="form-select" style={{ width: 'auto', minWidth: 170 }} value={department}
-            onChange={e => { setDepartment(e.target.value); setCategory(''); }}>
+            onChange={e => setFilters({ department: e.target.value, category: '' })}>
             <option value="">All Departments</option>
             {[...new Set([...departmentNames, ...meta.departments])].sort().map(d => <option key={d} value={d}>{d}</option>)}
           </select>
           {companies.length > 0 && (
             <select className="form-select" style={{ width: 'auto', minWidth: 170 }} value={companyFilter}
-              onChange={e => { setCompanyFilter(e.target.value); setCategory(''); }}>
+              onChange={e => setFilters({ company: e.target.value, category: '' })}>
               <option value="">All Companies</option>
               {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
