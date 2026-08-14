@@ -20,6 +20,16 @@ const CLIP_MAX = 1024 * 1024;              // clipboard text sync cap, matches t
 // send can't fill the employee's disk; 20 GB clears any real document/archive.
 const FILE_MAX = 20 * 1024 * 1024 * 1024;  // file send cap, matches the agent
 
+// Human-readable byte size for the file-transfer progress line (e.g. "2.4 MB").
+function formatBytes(n) {
+  n = Number(n) || 0;
+  if (n < 1024) return `${n} B`;
+  const units = ['KB', 'MB', 'GB', 'TB'];
+  let i = -1;
+  do { n /= 1024; i++; } while (n >= 1024 && i < units.length - 1);
+  return `${n.toFixed(n < 10 ? 1 : 0)} ${units[i]}`;
+}
+
 // Wait for ICE gathering to finish so the single answer SDP carries every
 // candidate (non-trickle) - matches the agent side.
 function waitIceGathering(pc) {
@@ -71,6 +81,7 @@ export default function LiveView({ email, name, onClose }) {
   const streamsRef = useRef([]);
   const remoteClipRef = useRef('');    // last clipboard text that came FROM the remote
   const pendingClipRef = useRef('');   // clip we couldn't write while unfocused
+  const fileClearTimer = useRef(null); // auto-dismiss timer for the "delivered" state
 
   const [status, setStatus] = useState('connecting');   // connecting|live|break|offline|error
   const [fps, setFps] = useState(60);
@@ -85,6 +96,9 @@ export default function LiveView({ email, name, onClose }) {
   const [note, setNote] = useState('');
   const [zoom, setZoom] = useState(1);              // 1..4, single-screen magnify for small displays
   const [cursorPos, setCursorPos] = useState(null); // support cursor overlay position (px in stage)
+
+  // Don't leave the "delivered" auto-dismiss timer running past unmount.
+  useEffect(() => () => { if (fileClearTimer.current) clearTimeout(fileClearTimer.current); }, []);
 
   useEffect(() => {
     controlRef.current = control;
@@ -193,8 +207,22 @@ export default function LiveView({ email, name, onClose }) {
           if (!m || typeof m.t !== 'string') return;
           if (m.t === 'screens') setScreens(Array.isArray(m.screens) ? m.screens : []);
           else if (m.t === 'clip') receiveClip(String(m.s || '').slice(0, CLIP_MAX));
-          else if (m.t === 'file-done') { setFileProg(null); setNote(`Delivered ${m.name} to Downloads\\Nexus Support on their PC.`); }
-          else if (m.t === 'file-err') { setFileProg(null); setNote(m.err || 'File transfer failed.'); }
+          else if (m.t === 'file-done') {
+            // Agent confirmed the write. Show a full green "Delivered" state, then
+            // auto-dismiss after a few seconds (the user asked for it to go away).
+            setFileProg((p) => ({ name: (p && p.name) || m.name || 'file', size: (p && p.size) || 0,
+              sent: (p && p.size) || 0, pct: 100, status: 'done' }));
+            setNote('');
+            if (fileClearTimer.current) clearTimeout(fileClearTimer.current);
+            fileClearTimer.current = setTimeout(() => setFileProg(null), 4000);
+          }
+          else if (m.t === 'file-err') {
+            setFileProg((p) => ({ name: (p && p.name) || 'file', size: (p && p.size) || 0,
+              sent: (p && p.sent) || 0, pct: (p && p.pct) || 0, status: 'error', err: m.err || 'File transfer failed.' }));
+            setNote('');
+            if (fileClearTimer.current) clearTimeout(fileClearTimer.current);
+            fileClearTimer.current = setTimeout(() => setFileProg(null), 5000);
+          }
         };
       };
       poll();
@@ -481,10 +509,11 @@ export default function LiveView({ email, name, onClose }) {
     const ch = channelRef.current;
     if (!file || controlRef.current !== 'active' || !ch || ch.readyState !== 'open') return;
     if (file.size > FILE_MAX) { setNote('File is larger than 200MB.'); return; }
-    if (fileProg) { setNote('One file at a time - a transfer is already running.'); return; }
+    if (fileProg && fileProg.status === 'sending') { setNote('One file at a time - a transfer is already running.'); return; }
+    if (fileClearTimer.current) { clearTimeout(fileClearTimer.current); fileClearTimer.current = null; }
     const id = Math.random().toString(36).slice(2);
     setNote('');
-    setFileProg({ name: file.name, pct: 0 });
+    setFileProg({ name: file.name, size: file.size, sent: 0, pct: 0, status: 'sending' });
     // Binary chunks straight on the channel (no base64 = 33% fewer bytes and no
     // per-chunk FileReader): a 'fs' header, raw ArrayBuffer chunks in order, then
     // 'fe'. One file at a time, so the ordered channel needs no per-chunk id.
@@ -503,7 +532,8 @@ export default function LiveView({ email, name, onClose }) {
         const buf = await file.slice(off, off + CHUNK).arrayBuffer();
         ch.send(buf);
         off += CHUNK;
-        setFileProg({ name: file.name, pct: Math.min(99, Math.round((off * 100) / file.size)) });
+        const sent = Math.min(off, file.size);
+        setFileProg({ name: file.name, size: file.size, sent, pct: Math.min(99, Math.round((sent * 100) / file.size)), status: 'sending' });
         // Pace against the send buffer so it never balloons (or overflows Chrome's
         // ~16 MB cap and starts dropping): pause until it drains below the threshold.
         if (ch.bufferedAmount > 4 * 1024 * 1024) {
@@ -514,8 +544,16 @@ export default function LiveView({ email, name, onClose }) {
           });
         }
       }
-    } catch (_) { setFileProg(null); setNote('Could not send the file.'); return; }
+    } catch (_) {
+      setFileProg({ name: file.name, size: file.size, sent: off, pct: 0, status: 'error', err: 'Could not send the file.' });
+      if (fileClearTimer.current) clearTimeout(fileClearTimer.current);
+      fileClearTimer.current = setTimeout(() => setFileProg(null), 5000);
+      return;
+    }
     send({ t: 'fe', id });
+    // Note: the full green "Delivered" state + auto-dismiss is driven by the
+    // agent's 'file-done' ack (handled in the message loop), not here - so the bar
+    // holds at 99% until the bytes are actually written on the far side.
   }, [send, fileProg]);
 
   const fileInputRef = useRef(null);
@@ -680,14 +718,36 @@ export default function LiveView({ email, name, onClose }) {
           )}
         </div>
         {(fileProg || note) && (
-          <div style={{ padding: '7px 16px', fontSize: 11.5, fontWeight: 600, color: 'var(--ink)', borderTop: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ padding: '8px 16px', fontSize: 11.5, fontWeight: 600, color: 'var(--ink)', borderTop: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
             {fileProg ? (
               <>
-                <Loader2 size={12} style={{ animation: 'spin 1s linear infinite', color: 'var(--muted)' }} />
-                <span>Sending {fileProg.name}… {fileProg.pct}%</span>
-                <span style={{ flex: 1, height: 4, borderRadius: 999, background: 'var(--mist, rgba(148,163,184,0.2))', overflow: 'hidden' }}>
-                  <span style={{ display: 'block', height: '100%', width: '100%', background: 'hsl(var(--color-blue))',
-                    transform: `scaleX(${fileProg.pct / 100})`, transformOrigin: 'left', transition: 'transform 0.2s' }} />
+                <style>{'@keyframes nexusFileStripe{from{background-position:0 0}to{background-position:22px 0}}'}</style>
+                {fileProg.status === 'done'
+                  ? <span style={{ color: 'hsl(var(--color-green))', fontSize: 14, lineHeight: 1, fontWeight: 800 }}>✓</span>
+                  : fileProg.status === 'error'
+                    ? <X size={13} style={{ color: 'hsl(var(--color-red))', flexShrink: 0 }} />
+                    : <Loader2 size={12} style={{ animation: 'spin 1s linear infinite', color: 'var(--muted)', flexShrink: 0 }} />}
+                <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 220 }}>
+                  {fileProg.status === 'done' ? `Delivered ${fileProg.name}`
+                    : fileProg.status === 'error' ? (fileProg.err || 'Transfer failed')
+                      : `Sending ${fileProg.name}`}
+                </span>
+                {fileProg.status !== 'error' && (
+                  <span style={{ color: 'var(--muted)', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', fontWeight: 700, flexShrink: 0 }}>
+                    {formatBytes(fileProg.sent)} / {formatBytes(fileProg.size)}{fileProg.status === 'sending' ? ` · ${fileProg.pct}%` : ''}
+                  </span>
+                )}
+                <span style={{ flex: 1, minWidth: 60, height: 6, borderRadius: 999, background: 'rgba(148,163,184,0.22)', overflow: 'hidden', position: 'relative' }}>
+                  <span style={{ position: 'absolute', left: 0, top: 0, bottom: 0, borderRadius: 999, overflow: 'hidden',
+                    width: `${fileProg.status === 'done' ? 100 : fileProg.pct}%`,
+                    background: fileProg.status === 'error' ? 'hsl(var(--color-red))' : fileProg.status === 'done' ? 'hsl(var(--color-green))' : 'hsl(var(--color-blue))',
+                    transition: 'width 0.25s ease, background 0.3s ease' }}>
+                    {fileProg.status === 'sending' && (
+                      <span style={{ position: 'absolute', inset: 0,
+                        backgroundImage: 'linear-gradient(-45deg, rgba(255,255,255,0.45) 25%, transparent 25%, transparent 50%, rgba(255,255,255,0.45) 50%, rgba(255,255,255,0.45) 75%, transparent 75%)',
+                        backgroundSize: '22px 22px', animation: 'nexusFileStripe 0.55s linear infinite' }} />
+                    )}
+                  </span>
                 </span>
               </>
             ) : <span style={{ color: 'var(--muted)' }}>{note}</span>}
