@@ -629,6 +629,9 @@ export const api = {
 
   // Asset Management (property portfolio) - whole-workspace load/save.
   getPropertyWorkspace:  ()   => req("/property-assets/workspace"),
+  // Tiny {_ts} freshness marker so the background poll skips the full-blob pull
+  // when nothing changed (big egress saver).
+  getPropertyWorkspaceTs: ()  => req("/property-assets/workspace/ts"),
   savePropertyWorkspace: (ws) => req("/property-assets/workspace", { method: "PUT", body: JSON.stringify(ws), timeoutMs: 60_000 }),
   scanPropertyReminders: ()   => req("/property-assets/reminders/scan", { method: "POST" }),
 

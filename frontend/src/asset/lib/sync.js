@@ -61,6 +61,15 @@ export function serverGet() {
     .catch(() => null);
 }
 
+/** GET just the server's `_ts` freshness marker (a few bytes, one meta row).
+ * Resolves to a number, or `null` on failure / a backend without the endpoint -
+ * in which case the caller falls back to a full serverGet (old behavior). */
+export function serverTs() {
+  return api.getPropertyWorkspaceTs()
+    .then((r) => (r && typeof r._ts === 'number' ? r._ts : null))
+    .catch(() => null);
+}
+
 /**
  * PUT a JSON-stringified state blob to Nexus. Resolves to { status, ts }: status is an HTTP-like
  * code the queue uses to decide retries (200 = accepted, 0 = request failed → transient, retried
@@ -338,8 +347,7 @@ export function wireBackgroundSync(onServerNewer, pollMs = 7000) {
   let stopped = false;
   applyServer = onServerNewer;
 
-  const pull = () => {
-    if (pushTimer || pending) return; // a write is queued/going out; don't race it with an incoming pull
+  const fullPull = () => {
     serverGet().then((serverState) => {
       if (stopped || !serverState || !Array.isArray(serverState.properties)) return;
       const logs = (serverState.logs && serverState.logs.length) || 0;
@@ -354,6 +362,19 @@ export function wireBackgroundSync(onServerNewer, pollMs = 7000) {
         baseTs = Math.max(ts, baseTs);   // our copy now derives from this server state
         onServerNewer(serverState);
       }
+    });
+  };
+
+  const pull = () => {
+    if (pushTimer || pending) return; // a write is queued/going out; don't race it with an incoming pull
+    // Cheap freshness check first: the ~few-byte _ts marker tells us whether the
+    // heavy full-workspace pull is even worth doing. Re-pulling the whole portfolio
+    // blob every 7s just to read _ts was a top pooler-egress driver. If the ts
+    // endpoint is unavailable (older backend), fall back to the full pull.
+    serverTs().then((ts) => {
+      if (stopped) return;
+      if (ts === null || ts > lastTs) fullPull();
+      // else: server has nothing newer than what we last saw - skip the pull.
     });
   };
 

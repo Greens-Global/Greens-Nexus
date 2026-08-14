@@ -84,6 +84,17 @@ def get_workspace(db: Session = Depends(get_db), user=Depends(require_asset_read
     return ws
 
 
+@router.get("/property-assets/workspace/ts")
+def get_workspace_ts(db: Session = Depends(get_db), user=Depends(require_asset_read)):
+    """Just the workspace freshness marker (server epoch ms), from the one-row meta
+    table. The module's background poll runs every 7s; having it check THIS first -
+    a few bytes - instead of re-pulling the whole portfolio blob (properties +
+    records + activity logs) means it only downloads the full workspace when
+    something actually changed. That full-blob poll was a top pooler-egress driver."""
+    meta = db.get(PropertyWorkspaceMeta, 1)
+    return {"_ts": (meta.ts if meta else 0) or 0}
+
+
 @router.put("/property-assets/workspace")
 def put_workspace(ws: Workspace, db: Session = Depends(get_db), user=Depends(require_asset_write)):
     """Replace the whole workspace. Tiny dataset → delete-all + re-insert in one
