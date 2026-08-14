@@ -3,7 +3,7 @@ import { useRole } from '../contexts/RoleContext';
 import { api } from '../api';
 import AsyncSection, { SkeletonBlocks } from '../components/AsyncState';
 import { PersonalLockGate } from '../credvault/vaultShared';
-import { LinkIcon, ICON_MAP } from '../components/LinkIcon.jsx';
+import { LinkIcon } from '../components/LinkIcon.jsx';
 import { useLinkViews } from './useLinkViews';
 import {
   Search, Plus, Pencil, Trash2, X, Star, Globe, LayoutGrid, List,
@@ -34,16 +34,6 @@ function writeIds(email, kind, ids) {
 // below, fetched on mount and threaded down as props everywhere a
 // department/category picker needs the curated list.
 
-// Curated icon set an admin picks from when adding/editing a link - kept to
-// business-app-shaped icons rather than exposing all ~1500 lucide icons.
-const ICON_OPTIONS = [
-  'Link2', 'Mail', 'Calendar', 'Users2', 'FolderKanban', 'Rocket', 'MessagesSquare',
-  'BookOpen', 'HelpCircle', 'Clock', 'FileSpreadsheet', 'Zap', 'Wifi', 'Landmark',
-  'Wallet', 'Building2', 'Newspaper', 'GraduationCap', 'LineChart', 'Briefcase',
-  'Shield', 'Globe', 'Megaphone', 'HardHat', 'Ruler', 'CreditCard', 'PiggyBank',
-  'Receipt', 'ClipboardList', 'Headphones', 'Video', 'CheckSquare', 'Cloud',
-  'Presentation', 'Gauge', 'Bird', 'Warehouse',
-];
 // Duplicate-URL detection (Add Link / Add Personal Link) - normalizes away
 // the differences that would otherwise let the same site get added twice
 // (http vs https, www. vs not, a trailing slash, mixed case) without masking
@@ -1104,7 +1094,7 @@ function PersonalLinkModal({ modal, setModal, save, saving, existingLinks, depar
 
   return (
     <div className="modal-overlay" onClick={() => !saving && setModal(null)}>
-      <div className="modal-content" style={{ maxWidth: 440 }} onClick={e => e.stopPropagation()}>
+      <div className="modal-content" style={{ width: '60vw', maxWidth: '60vw' }} onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <h3>{mode === 'add' ? 'Add Personal Link' : 'Edit Personal Link'}</h3>
           <button className="close-btn" onClick={() => setModal(null)}><X size={16} /></button>
@@ -1150,26 +1140,10 @@ function PersonalLinkModal({ modal, setModal, save, saving, existingLinks, depar
               </select>
             </div>
           </div>
-          <div className="form-group">
-            <label>Icon</label>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', gap: 6 }}>
-              {ICON_OPTIONS.map(key => {
-                const Ico = ICON_MAP[key];
-                const active = form.icon === key;
-                return (
-                  <button key={key} type="button" onClick={() => setForm({ icon: key })} title={key}
-                    style={{
-                      height: 32, borderRadius: 8, border: active ? '2px solid var(--wk-brand)' : '1px solid var(--wk-line2)',
-                      background: active ? 'var(--wk-brand-tint)' : 'var(--card)', color: active ? 'var(--wk-brand)' : 'var(--muted)',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
-                    }}>
-                    <Ico size={15} />
-                  </button>
-                );
-              })}
-            </div>
-          </div>
         </div>
+        <p style={{ textAlign: 'center', fontSize: 13, fontWeight: 700, color: 'var(--muted)', margin: '4px 0 18px' }}>
+          Icon Auto Fetched From AI
+        </p>
         <div className="modal-footer">
           <button className="secondary-btn" onClick={() => setModal(null)} disabled={saving}>Cancel</button>
           <button className="primary-btn" onClick={save} disabled={saving || !!duplicate}>{saving ? 'Saving...' : mode === 'add' ? 'Add Link' : 'Save Changes'}</button>
@@ -1989,7 +1963,7 @@ function LinkModal({ modal, setModal, save, saving, departments, categories, com
 
   return (
     <div className="modal-overlay" onClick={() => !saving && setModal(null)}>
-      <div className="modal-content" style={{ maxWidth: 480 }} onClick={e => e.stopPropagation()}>
+      <div className="modal-content" style={{ width: '60vw', maxWidth: '60vw' }} onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <h3>{mode === 'add' ? 'Add Link' : 'Edit Link'}</h3>
           <button className="close-btn" onClick={() => setModal(null)}><X size={16} /></button>
@@ -2039,30 +2013,14 @@ function LinkModal({ modal, setModal, save, saving, departments, categories, com
             <textarea className="form-input" rows={2} value={form.description}
               onChange={e => setForm({ description: e.target.value })} placeholder="What is this for, in one line - or leave blank, we'll try to pull it from the site" />
           </div>
-          <div className="form-group">
-            <label>Icon</label>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', gap: 6 }}>
-              {ICON_OPTIONS.map(key => {
-                const Ico = ICON_MAP[key];
-                const active = form.icon === key;
-                return (
-                  <button key={key} type="button" onClick={() => setForm({ icon: key })} title={key}
-                    style={{
-                      height: 32, borderRadius: 8, border: active ? '2px solid var(--wk-brand)' : '1px solid var(--wk-line2)',
-                      background: active ? 'var(--wk-brand-tint)' : 'var(--card)', color: active ? 'var(--wk-brand)' : 'var(--muted)',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
-                    }}>
-                    <Ico size={15} />
-                  </button>
-                );
-              })}
-            </div>
-          </div>
           <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 500, color: 'var(--ink)', cursor: 'pointer' }}>
             <input type="checkbox" checked={form.is_pinned} onChange={e => setForm({ is_pinned: e.target.checked })} />
             Pin to top (featured for everyone)
           </label>
         </div>
+        <p style={{ textAlign: 'center', fontSize: 13, fontWeight: 700, color: 'var(--muted)', margin: '4px 0 18px' }}>
+          Icon Auto Fetched From AI
+        </p>
         <div className="modal-footer">
           <button className="secondary-btn" onClick={() => setModal(null)} disabled={saving}>Cancel</button>
           <button className="primary-btn" onClick={save} disabled={saving || !!duplicate}>{saving ? 'Saving...' : mode === 'add' ? 'Add Link' : 'Save Changes'}</button>
@@ -2151,7 +2109,7 @@ function ManageModal({
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content" style={{ maxWidth: 820 }} onClick={e => e.stopPropagation()}>
+      <div className="modal-content" style={{ width: '60vw', maxWidth: '60vw' }} onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <h3>Manage Links</h3>
           <button className="close-btn" onClick={onClose}><X size={16} /></button>
@@ -2311,7 +2269,7 @@ function ManageTab({ active, onClick, children }) {
 function TaxonomyModal({ taxonomy, onAdd, onRename, onDelete, onClose }) {
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content" style={{ maxWidth: 640 }} onClick={e => e.stopPropagation()}>
+      <div className="modal-content" style={{ width: '60vw', maxWidth: '60vw' }} onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <h3>Departments &amp; Categories</h3>
           <button className="close-btn" onClick={onClose}><X size={16} /></button>
@@ -2494,7 +2452,7 @@ function ImportModal({ onClose, onImported }) {
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content" style={{ maxWidth: 640 }} onClick={e => e.stopPropagation()}>
+      <div className="modal-content" style={{ width: '60vw', maxWidth: '60vw' }} onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <h3>Batch Import Links</h3>
           <button className="close-btn" onClick={onClose}><X size={16} /></button>
