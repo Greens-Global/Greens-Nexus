@@ -741,7 +741,7 @@ export default function LiveView({ email, name, onClose }) {
                   <span style={{ position: 'absolute', left: 0, top: 0, bottom: 0, borderRadius: 999, overflow: 'hidden',
                     width: `${fileProg.status === 'done' ? 100 : fileProg.pct}%`,
                     background: fileProg.status === 'error' ? 'hsl(var(--color-red))' : fileProg.status === 'done' ? 'hsl(var(--color-green))' : 'hsl(var(--color-blue))',
-                    transition: 'width 0.25s ease, background 0.3s ease' }}>
+                    transition: 'background 0.3s ease' }}>
                     {fileProg.status === 'sending' && (
                       <span style={{ position: 'absolute', inset: 0,
                         backgroundImage: 'linear-gradient(-45deg, rgba(255,255,255,0.45) 25%, transparent 25%, transparent 50%, rgba(255,255,255,0.45) 50%, rgba(255,255,255,0.45) 75%, transparent 75%)',
