@@ -3915,7 +3915,7 @@ button, [role="button"], select { touch-action: manipulation; }
   border-radius: 8px;
   white-space: normal;
   width: max-content;
-  max-width: 190px;
+  max-width: 165px;
   text-align: center;
   pointer-events: none;
   opacity: 0;

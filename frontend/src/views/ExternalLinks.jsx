@@ -1240,7 +1240,14 @@ function AppTile({
   // "small badge" + "tooltip information" from the two suggested approaches,
   // deliberately not a third visual element that would bulk up the tile.
   const isPersonal = sourceType === 'personal';
-  const tooltipText = description ? (isPersonal ? `${description} · Personal` : description) : undefined;
+  // Capped independent of however long the stored description actually is
+  // (Aug 14 - a link added before the short-description autofill shipped,
+  // or added while ANTHROPIC_API_KEY wasn't configured, can still carry its
+  // original full scraped sentence) - an unbounded tooltip is what was
+  // overlapping neighboring tiles and getting clipped by whatever ancestor
+  // it happened to overflow into; a short, predictable box avoids both.
+  const shortDescription = description.length > 90 ? `${description.slice(0, 90).trim()}…` : description;
+  const tooltipText = description ? (isPersonal ? `${shortDescription} · Personal` : shortDescription) : undefined;
   const plainTitle = !description ? (isPersonal ? `${link.name} (Personal)` : link.name) : undefined;
 
   return (
