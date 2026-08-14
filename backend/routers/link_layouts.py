@@ -51,7 +51,8 @@ router = APIRouter(prefix="/link-layout", tags=["Link Layout"], dependencies=[De
 MAX_FOLDER_NAME_LEN = 60
 MAX_VIEW_NAME_LEN = 80
 ITEM_TYPES = ("external", "personal")
-EMPTY_DOC = {"folders": [], "items": [], "favorites": []}
+EMPTY_FILTERS = {"department": "", "company": "", "category": ""}
+EMPTY_DOC = {"folders": [], "items": [], "favorites": [], "filters": dict(EMPTY_FILTERS)}
 
 
 class LayoutFolder(BaseModel):
@@ -74,10 +75,23 @@ class LayoutFavorite(BaseModel):
     item_id: int
 
 
+class LayoutFilters(BaseModel):
+    """Department/Company/Category filter selections captured into a saved
+    view (Aug 14 - "when i am making a customize view, i should also be
+    able to include department, company and category in that view").
+    Free text, same as the fields they mirror on ExternalLink - not
+    validated against the taxonomy table, so a since-renamed/removed
+    department or category just quietly matches nothing instead of erroring."""
+    department: str = ""
+    company: str = ""
+    category: str = ""
+
+
 class LayoutIn(BaseModel):
     folders: list[LayoutFolder] = Field(default_factory=list)
     items: list[LayoutItem] = Field(default_factory=list)
     favorites: list[LayoutFavorite] = Field(default_factory=list)
+    filters: LayoutFilters = Field(default_factory=LayoutFilters)
 
 
 def _now() -> str:
@@ -166,7 +180,8 @@ def _clean_and_merge(layout: dict, external_ids: set, personal_ids: set, db: Ses
             next_pos += 1
         changed = True
 
-    return {"folders": folders, "items": items, "favorites": favorites}, changed
+    filters = {**EMPTY_FILTERS, **(layout.get("filters") or {})}
+    return {"folders": folders, "items": items, "favorites": favorites, "filters": filters}, changed
 
 
 def _validate_and_clean(body: LayoutIn, external_ids: set, personal_ids: set) -> dict:
@@ -196,7 +211,7 @@ def _validate_and_clean(body: LayoutIn, external_ids: set, personal_ids: set) ->
     ]
     favorites = [f.model_dump() for f in body.favorites if _alive(f.item_type, f.item_id)]
     folders = [f.model_dump() for f in body.folders]
-    return {"folders": folders, "items": items, "favorites": favorites}
+    return {"folders": folders, "items": items, "favorites": favorites, "filters": body.filters.model_dump()}
 
 
 # ── Legacy migration ─────────────────────────────────────────────────────────
@@ -424,7 +439,7 @@ def reset_link_layout(
         db.commit()
         return {**EMPTY_DOC, "is_customized": False}
 
-    row.layout = {"folders": folders, "items": items, "favorites": favorites}
+    row.layout = {"folders": folders, "items": items, "favorites": favorites, "filters": {**EMPTY_FILTERS, **(layout.get("filters") or {})}}
     row.updated_at = _now()
     db.commit()
     return {**row.layout, "is_customized": True}

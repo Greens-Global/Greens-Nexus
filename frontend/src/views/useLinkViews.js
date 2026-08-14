@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { api } from '../api';
 
-const EMPTY_LAYOUT = { folders: [], items: [], favorites: [] };
+const EMPTY_FILTERS = { department: '', company: '', category: '' };
+const EMPTY_LAYOUT = { folders: [], items: [], favorites: [], filters: EMPTY_FILTERS };
 
 // Named, saveable External Links arrangements with a default star and an
 // explicit Customize -> edit -> Save/Save as new/Done flow - mirrors
@@ -42,7 +43,12 @@ export function useLinkViews() {
 
   const applyView = useCallback((view) => {
     setActiveId(view?.id ?? null);
-    setLayoutState(view?.layout || EMPTY_LAYOUT);
+    // .filters defensively defaulted - a view saved before this field
+    // existed still needs a real object here, not undefined, or every
+    // filter dropdown reading layout.filters.department would throw.
+    const next = view?.layout ? { ...view.layout, filters: { ...EMPTY_FILTERS, ...view.layout.filters } } : EMPTY_LAYOUT;
+    layoutRef.current = next; // synchronous - see setLayout's comment above
+    setLayoutState(next);
     setDirty(false);
   }, []);
 
@@ -61,7 +67,15 @@ export function useLinkViews() {
 
   const activeView = views.find(v => v.id === activeId) || null;
 
-  const setLayout = useCallback((next) => { setLayoutState(next); setDirty(true); }, []);
+  // layoutRef is updated synchronously here, not left to the useEffect
+  // above - two mutate/mutateNow calls back-to-back in the same event
+  // handler (e.g. a filter's onChange calling setFilters twice) would
+  // otherwise both read the SAME stale layoutRef (the effect hasn't run
+  // yet, since effects fire after the render commits, not synchronously
+  // between two setState calls in one handler), so the second call's
+  // update would silently overwrite the first - "the filters are not
+  // working, i can just click and nothing is happening" (Aug 14).
+  const setLayout = useCallback((next) => { layoutRef.current = next; setLayoutState(next); setDirty(true); }, []);
   const mutate = useCallback((updater) => setLayout(updater(layoutRef.current)), [setLayout]);
 
   const switchView = (id) => {
@@ -146,6 +160,7 @@ export function useLinkViews() {
   const mutateNow = useCallback((updater) => {
     const prev = layoutRef.current;
     const next = updater(prev);
+    layoutRef.current = next; // synchronous, same reasoning as setLayout above
     setLayoutState(next);
     return api.saveLinkLayout(next, activeId || undefined).then(() => {
       if (activeId) {
@@ -157,6 +172,7 @@ export function useLinkViews() {
         load();
       }
     }).catch(e => {
+      layoutRef.current = prev;
       setLayoutState(prev);
       setSaveError(e?.message || 'Could not save that change - reverted.');
       throw e;
@@ -173,10 +189,23 @@ export function useLinkViews() {
     }).catch(() => {}); // saveError already surfaced via banner in ExternalLinks.jsx
   }, [mutateNow]);
 
+  // Department/Company/Category filter selections, captured into whichever
+  // view is active (Aug 14 - "when i am making a customize view, i should
+  // also be able to include department, company and category in that
+  // view. Currently it is not"). Same always-live posture as favorites and
+  // folder-organizing above rather than folding into the Customize/dirty/
+  // Save cycle - a filter is a browsing preference you'd expect to just
+  // stick the moment you set it, not something you forget to Save and lose.
+  // Switching views (or Home, whose filters are never persisted) restores
+  // whatever that view had via applyView above.
+  const setFilters = useCallback((patch) => {
+    mutateNow(prev => ({ ...prev, filters: { ...EMPTY_FILTERS, ...prev.filters, ...patch } })).catch(() => {});
+  }, [mutateNow]);
+
   return {
     views, activeId, activeView, layout, loading, editing, dirty, saveError,
     setEditing, setLayout, mutate, mutateNow, switchView, save, saveAsNew, createNewView,
-    setDefaultView, clearDefaultView, removeView, renameView, toggleFavorite, clearSaveError,
+    setDefaultView, clearDefaultView, removeView, renameView, toggleFavorite, setFilters, clearSaveError,
     reload: load,
   };
 }

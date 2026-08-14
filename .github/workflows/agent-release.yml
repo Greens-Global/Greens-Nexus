@@ -1,0 +1,110 @@
+# Desktop-agent release pipeline. Builds the Windows bundle, uploads it to Supabase
+# storage (dev + prod), and publishes the release row via the API - so every
+# enrolled PC auto-updates within ~10 min. NO manual upload, NO Azure change.
+#
+# Trigger it either way:
+#   - bump desktop-agent/package.json version, then push a tag "agent-v<version>"
+#   - or run it from the Actions tab (workflow_dispatch)
+#
+# The version is read from package.json (single source of truth). Required repo
+# secrets (Settings -> Secrets and variables -> Actions):
+#   SUPABASE_DEV_URL, SUPABASE_DEV_SERVICE_KEY
+#   SUPABASE_PROD_URL, SUPABASE_PROD_SERVICE_KEY
+#   NEXUS_API_DEV, NEXUS_API_PROD        (the backend base URLs)
+#   NEXUS_AGENT_PUBLISH_KEY              (same value set on the API in Azure)
+name: Agent Release
+
+on:
+  push:
+    tags: ['agent-v*']
+  workflow_dispatch:
+    inputs:
+      dev_only:
+        description: 'Publish to dev only (skip prod)'
+        type: boolean
+        default: false
+
+jobs:
+  build-publish:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Read version from package.json
+        id: ver
+        shell: pwsh
+        run: |
+          $v = (Get-Content desktop-agent/package.json -Raw | ConvertFrom-Json).version
+          if (-not $v) { throw 'no version in package.json' }
+          "version=$v" >> $env:GITHUB_OUTPUT
+          "bundle=agent-bundle-$v.zip" >> $env:GITHUB_OUTPUT
+          Write-Host "Building agent v$v"
+
+      - name: Build supervisor service (net48)
+        shell: pwsh
+        run: |
+          dotnet build desktop-agent/service/NexusMonitorService.csproj -c Release
+          Copy-Item desktop-agent/service/bin/Release/net48/NexusMonitorService.exe desktop-agent/service/NexusMonitorService.exe -Force
+
+      - name: Build agent bundle
+        shell: pwsh
+        working-directory: desktop-agent
+        run: |
+          npm ci
+          npx electron-builder --win --dir
+
+      - name: Package + hash bundle
+        id: pkg
+        shell: pwsh
+        run: |
+          $src = (Resolve-Path desktop-agent/dist/win-unpacked).Path
+          $zip = Join-Path (Resolve-Path desktop-agent/dist).Path "${{ steps.ver.outputs.bundle }}"
+          if (Test-Path $zip) { Remove-Item $zip -Force }
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          [System.IO.Compression.ZipFile]::CreateFromDirectory($src, $zip, 'Optimal', $false)
+          $sha = (Get-FileHash -Algorithm SHA256 $zip).Hash.ToLower()
+          "sha=$sha" >> $env:GITHUB_OUTPUT
+          "zip=$zip" >> $env:GITHUB_OUTPUT
+          Write-Host "Bundle sha256 = $sha"
+
+      - name: Upload + publish (dev, then prod)
+        shell: pwsh
+        env:
+          SB_DEV_URL: ${{ secrets.SUPABASE_DEV_URL }}
+          SB_DEV_KEY: ${{ secrets.SUPABASE_DEV_SERVICE_KEY }}
+          SB_PROD_URL: ${{ secrets.SUPABASE_PROD_URL }}
+          SB_PROD_KEY: ${{ secrets.SUPABASE_PROD_SERVICE_KEY }}
+          API_DEV: ${{ secrets.NEXUS_API_DEV }}
+          API_PROD: ${{ secrets.NEXUS_API_PROD }}
+          PUBLISH_KEY: ${{ secrets.NEXUS_AGENT_PUBLISH_KEY }}
+          VER: ${{ steps.ver.outputs.version }}
+          BUNDLE: ${{ steps.ver.outputs.bundle }}
+          SHA: ${{ steps.pkg.outputs.sha }}
+          ZIP: ${{ steps.pkg.outputs.zip }}
+          DEV_ONLY: ${{ inputs.dev_only }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          function Publish($name, $sbUrl, $sbKey, $api) {
+            if (-not $sbUrl -or -not $sbKey -or -not $api -or -not $env:PUBLISH_KEY) {
+              throw "$name: missing required secrets (Supabase URL/key, API base, or publish key)"
+            }
+            Write-Host "== $name: uploading $env:BUNDLE to storage =="
+            $obj = "$sbUrl/storage/v1/object/agent-dist/$env:BUNDLE"
+            curl.exe --fail-with-body -sS -X POST $obj `
+              -H "Authorization: Bearer $sbKey" -H "x-upsert: true" -H "Content-Type: application/zip" `
+              --data-binary "@$env:ZIP"
+            if ($LASTEXITCODE -ne 0) { throw "$name: storage upload failed" }
+            Write-Host "`n== $name: publishing release row =="
+            $publicUrl = "$sbUrl/storage/v1/object/public/agent-dist/$env:BUNDLE"
+            $body = @{ version=$env:VER; bundle_url=$publicUrl; sha256=$env:SHA; publish_key=$env:PUBLISH_KEY } | ConvertTo-Json -Compress
+            curl.exe --fail-with-body -sS -X POST "$api/timeclock/agent/release" `
+              -H "Content-Type: application/json" --data $body
+            if ($LASTEXITCODE -ne 0) { throw "$name: release publish failed" }
+            Write-Host "`n== $name: published v$env:VER =="
+          }
+          Publish 'DEV' $env:SB_DEV_URL $env:SB_DEV_KEY $env:API_DEV
+          if ($env:DEV_ONLY -eq 'true') { Write-Host 'dev_only set - skipping prod' }
+          else { Publish 'PROD' $env:SB_PROD_URL $env:SB_PROD_KEY $env:API_PROD }
