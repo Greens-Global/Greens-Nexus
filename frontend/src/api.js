@@ -654,6 +654,7 @@ export const api = {
   clickExternalLink: (id) => req(`/external-links/${id}/click`, { method: "PATCH" }),
   reorderExternalLinks: (entries) => req("/external-links/reorder", { method: "PATCH", body: JSON.stringify(entries) }),
   importExternalLinks: (rows) => req("/external-links/import", { method: "POST", body: JSON.stringify({ rows }) }),
+  getExternalLinksImportTemplate: () => reqBlob("/external-links/import-template"),
   refreshLinkDescription: (id) => req(`/external-links/${id}/refresh-description`, { method: "POST" }),
   refreshAllLinkDescriptions: () => req("/external-links/refresh-descriptions", { method: "POST" }),
 

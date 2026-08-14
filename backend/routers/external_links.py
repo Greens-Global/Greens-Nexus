@@ -18,6 +18,7 @@ editor+ (full+ to delete), mirroring items.py's require_items_admin pattern.
 """
 import asyncio
 import html as html_lib
+import io
 import ipaddress
 import json
 import os
@@ -28,6 +29,7 @@ from datetime import datetime, timezone
 from urllib.parse import urlparse
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
@@ -548,6 +550,81 @@ def increment_click(link_id: int, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(link)
     return link
+
+
+@router.get("/import-template")
+def import_template(user: dict = Depends(require_links_admin), db: Session = Depends(get_db)):
+    """Excel import template (Manage > Import > Export Template, Aug 14 -
+    "department and category column in excel but multi selectable and in
+    dropdown"). A single Excel cell can't hold a native multi-select
+    dropdown without an embedded VBA macro (.xlsm, triggers Excel's "Enable
+    Content" security prompt, and some IT policies block macros outright) -
+    so instead this gives 3 Department columns and 3 Category columns, each
+    a plain single-select Data Validation dropdown sourced from the live
+    taxonomy. Picking more than one department/category for a link is just
+    filling more than one of those columns; import_external_links below
+    already unions them (via _clean_list) same as it would 3 typed values.
+    Options list off a hidden sheet, not an inline comma list, since Excel's
+    inline-list validation formula is capped around 255 characters and the
+    taxonomy will outgrow that."""
+    try:
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill
+        from openpyxl.worksheet.datavalidation import DataValidation
+        from openpyxl.utils import get_column_letter
+    except ImportError:
+        raise HTTPException(500, "openpyxl not installed")
+
+    rows = db.query(models.ExternalLinkTaxonomy).order_by(
+        models.ExternalLinkTaxonomy.kind, models.ExternalLinkTaxonomy.sort_order, models.ExternalLinkTaxonomy.name
+    ).all()
+    departments = [r.name for r in rows if r.kind == "department"] or ["General"]
+    categories = [r.name for r in rows if r.kind == "category"] or ["Imported"]
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Links"
+    headers = ["Name", "URL", "Company", "Description", "Pinned",
+               "Department 1", "Department 2", "Department 3",
+               "Category 1", "Category 2", "Category 3"]
+    hfill = PatternFill(start_color="1A1A2E", end_color="1A1A2E", fill_type="solid")
+    hfont = Font(bold=True, color="FFFFFF")
+    for col, h in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col, value=h)
+        cell.font = hfont
+        cell.fill = hfill
+    ws.append(["ADP", "https://adp.com", "Greens", "Payroll processing", False, "Accounting", "", "", "Finance", "", ""])
+    ws.append(["Slack", "https://slack.com", "", "Team chat", False, "", "", "", "", "", ""])
+    for col in range(1, len(headers) + 1):
+        ws.column_dimensions[get_column_letter(col)].width = 18
+
+    lists = wb.create_sheet("Lists")
+    lists.sheet_state = "hidden"
+    lists["A1"] = "Department"
+    lists["B1"] = "Category"
+    for i, d in enumerate(departments, start=2):
+        lists.cell(row=i, column=1, value=d)
+    for i, c in enumerate(categories, start=2):
+        lists.cell(row=i, column=2, value=c)
+
+    max_rows = 500
+    dept_dv = DataValidation(type="list", formula1=f"=Lists!$A$2:$A${1 + len(departments)}", allow_blank=True)
+    cat_dv = DataValidation(type="list", formula1=f"=Lists!$B$2:$B${1 + len(categories)}", allow_blank=True)
+    ws.add_data_validation(dept_dv)
+    ws.add_data_validation(cat_dv)
+    for col in ("F", "G", "H"):
+        dept_dv.add(f"{col}2:{col}{max_rows}")
+    for col in ("I", "J", "K"):
+        cat_dv.add(f"{col}2:{col}{max_rows}")
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=external-links-import-template.xlsx"},
+    )
 
 
 @router.post("/import")

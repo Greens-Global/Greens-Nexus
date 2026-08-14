@@ -2607,24 +2607,47 @@ function parseCSV(text) {
   });
 }
 
-// Downloads a starter CSV with the exact header + a couple of filled-in
-// example rows so "what format does Import want" never has to be answered
-// in chat - the file that comes back out of Import is already the answer.
-function downloadImportTemplate() {
-  const csv = [
-    'name,url,company,description,pinned',
-    'ADP,https://adp.com,Greens,Payroll processing,false',
-    'Slack,https://slack.com,,Team chat,false',
-  ].join('\n');
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+// Downloads the server-generated Excel template (Aug 14, "department and
+// category column in excel but it should be multi selectable and in
+// dropdown") rather than building one client-side - a real in-cell
+// dropdown needs Data Validation written into the .xlsx itself (Department
+// 1-3 / Category 1-3 columns, each sourced from the live taxonomy), which
+// the browser has no way to construct; see GET /external-links/import-template.
+async function downloadImportTemplate() {
+  const { blob, filename } = await api.getExternalLinksImportTemplate();
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = 'external-links-import-template.csv';
+  a.download = filename || 'external-links-import-template.xlsx';
   document.body.appendChild(a);
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
+}
+
+// Reads the filled-in Excel template back - Department 1-3 / Category 1-3
+// columns (each a single-select dropdown in the sheet) union into this
+// row's categories/departments arrays, same as picking several in the
+// preview table below would. CSV upload/paste still works too (name/url/
+// company/description/pinned only - department/category are picked in the
+// table, same as before), for anyone who'd rather type a plain list.
+async function parseXLSX(file) {
+  const XLSX = await import('xlsx');
+  const buf = await file.arrayBuffer();
+  const wb = XLSX.read(buf, { type: 'array' });
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const data = XLSX.utils.sheet_to_json(ws, { defval: '' });
+  return data.map(r => {
+    const categories = [r['Category 1'], r['Category 2'], r['Category 3']].map(v => String(v || '').trim()).filter(Boolean);
+    const departments = [r['Department 1'], r['Department 2'], r['Department 3']].map(v => String(v || '').trim()).filter(Boolean);
+    const pinned = r['Pinned'];
+    return {
+      name: String(r['Name'] || '').trim(), url: String(r['URL'] || '').trim(), company: String(r['Company'] || '').trim(),
+      description: String(r['Description'] || '').trim(),
+      is_pinned: pinned === true || /^(true|1|yes)$/i.test(String(pinned || '').trim()),
+      categories, departments,
+    };
+  });
 }
 
 function ImportModal({ onClose, onImported, departmentNames, categoryNames }) {
@@ -2651,9 +2674,13 @@ function ImportModal({ onClose, onImported, departmentNames, categoryNames }) {
   const handleFile = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => setText(String(reader.result || ''));
-    reader.readAsText(file);
+    if (/\.xlsx$/i.test(file.name)) {
+      parseXLSX(file).then(setRows).catch(() => {});
+    } else {
+      const reader = new FileReader();
+      reader.onload = () => setText(String(reader.result || ''));
+      reader.readAsText(file);
+    }
     e.target.value = '';
   };
 
@@ -2682,17 +2709,18 @@ function ImportModal({ onClose, onImported, departmentNames, categoryNames }) {
           {!result ? (
             <>
               <p style={{ fontSize: 12.5, color: 'var(--muted)' }}>
-                Paste CSV or upload a file. Columns (in order): <code>name, url, company, description, pinned</code> -
-                only name/url are required, and a header row is optional. Pick each row's department(s) and
-                category/categories from the dropdowns below instead of typing them - icon isn't part of the
-                sheet either, imported links default to "Imported" if no category is picked, re-sortable from
-                Manage afterward. Company is typed by name (e.g. "Greens India"); an unrecognized name is left
-                as all-companies rather than failing the row.
+                Export the Excel template for a Department 1-3 / Category 1-3 dropdown per row (each cell is a
+                single-select picker sourced from your live taxonomy - fill more than one of the 3 columns to give
+                a link several). Or paste/upload a plain CSV with just <code>name, url, company, description, pinned</code> and
+                pick department(s)/category(ies) from the dropdowns in the table below instead. Only name/url are
+                required; icon isn't part of either sheet, imported links default to "Imported" if no category is
+                picked. Company is typed by name (e.g. "Greens India"); an unrecognized name is left as
+                all-companies rather than failing the row.
               </p>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                <button className="secondary-btn" onClick={downloadImportTemplate}><Download size={14} /> Export Template</button>
-                <button className="secondary-btn" onClick={() => fileRef.current?.click()}><Upload size={14} /> Upload CSV</button>
-                <input ref={fileRef} type="file" accept=".csv,text/csv" style={{ display: 'none' }} onChange={handleFile} />
+                <button className="secondary-btn" onClick={downloadImportTemplate}><Download size={14} /> Export Excel Template</button>
+                <button className="secondary-btn" onClick={() => fileRef.current?.click()}><Upload size={14} /> Upload Excel or CSV</button>
+                <input ref={fileRef} type="file" accept=".csv,text/csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style={{ display: 'none' }} onChange={handleFile} />
                 {rows.length > 0 && <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>{validCount} of {rows.length} row{rows.length === 1 ? '' : 's'} look valid</span>}
               </div>
               <textarea
