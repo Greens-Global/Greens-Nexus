@@ -60,6 +60,11 @@ function colorFor(category) {
   const tone = PALETTE[hashStr(category || '') % PALETTE.length];
   return { fg: `hsl(var(--color-${tone}))`, bg: `hsla(var(--color-${tone}),0.12)` };
 }
+// A Company Link can carry several categories now (Aug 14, "add multiple
+// checkbox option in departments and category") - a tile still only shows
+// one accent color, so this picks the first one consistently everywhere a
+// single "the" category is needed (tile color, list-view subtitle).
+const primaryCategory = (link) => (link.categories && link.categories[0]) || '';
 
 // Company and Personal Links share one launcher/folders now (Aug 13), but
 // stay two different backend records with two different ownership models -
@@ -117,7 +122,7 @@ function entryActions(entry, itemsById, ctx) {
     // Manage is the one place those live now, not the tile hover row.
     // canManage still gates whether Manage itself is reachable elsewhere on
     // the page; it's just no longer what shows/hides an inline pencil here.
-    link, sourceType: 'external', color: colorFor(link.category), canManage: ctx.canManage, canDelete: ctx.canDelete,
+    link, sourceType: 'external', color: colorFor(primaryCategory(link)), canManage: ctx.canManage, canDelete: ctx.canDelete,
     vaultLinked: false,
     isFavorite: ctx.favoriteExternalIds.includes(link.id),
     onToggleFavorite: () => ctx.toggleFavorite(link.id),
@@ -125,7 +130,7 @@ function entryActions(entry, itemsById, ctx) {
   };
 }
 
-const emptyForm = { name: '', url: '', category: '', description: '', department: '', company: '', icon: 'Link2', is_pinned: false };
+const emptyForm = { name: '', url: '', categories: [], description: '', departments: [], company: '', icon: 'Link2', is_pinned: false };
 
 export default function ExternalLinks() {
   const { canAccessModule, myEmail } = useRole();
@@ -327,7 +332,7 @@ export default function ExternalLinks() {
   // it barely narrowed anything (Neil/Pranshu, Aug 13 - "shows too many
   // links"). Company stays independent of department (AND'd).
   const deptFiltered = useMemo(() => all.filter(l => {
-    const deptOk = !department || l.department === department;
+    const deptOk = !department || (l.departments || []).includes(department);
     const coOk = !companyFilter || l.company === companyFilter || !l.company;
     return deptOk && coOk;
   }), [all, department, companyFilter]);
@@ -336,9 +341,10 @@ export default function ExternalLinks() {
   // actually has links. categoriesAvailable drives the filter chips, which
   // show the fixed CATEGORIES list up front (Neil, Aug 13) plus any
   // additional ones present in the data, so a category isn't hidden until
-  // something's filed under it.
+  // something's filed under it. A link can carry several categories now
+  // (Aug 14) - flatMap instead of map so it shows up under each one.
   const categoriesInUse = useMemo(
-    () => [...new Set(deptFiltered.map(l => l.category).filter(Boolean))],
+    () => [...new Set(deptFiltered.flatMap(l => l.categories || []))],
     [deptFiltered]
   );
   const categoriesAvailable = useMemo(() => {
@@ -349,9 +355,9 @@ export default function ExternalLinks() {
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
     return deptFiltered.filter(l => {
-      if (category && l.category !== category) return false;
+      if (category && !(l.categories || []).includes(category)) return false;
       if (!needle) return true;
-      return [l.name, l.description, l.category, l.department].some(v => (v || '').toLowerCase().includes(needle));
+      return [l.name, l.description, ...(l.categories || []), ...(l.departments || [])].some(v => (v || '').toLowerCase().includes(needle));
     });
   }, [deptFiltered, category, q]);
 
@@ -489,8 +495,12 @@ export default function ExternalLinks() {
     if (!createdLinks.length) return;
     setLinks(prev => [...(prev || []), ...createdLinks]);
     createdLinks.forEach(l => {
-      if (!meta.categories.includes(l.category)) setMeta(m => ({ ...m, categories: [...new Set([...m.categories, l.category])].sort() }));
-      if (l.department && !meta.departments.includes(l.department)) setMeta(m => ({ ...m, departments: [...new Set([...m.departments, l.department])].sort() }));
+      (l.categories || []).forEach(c => {
+        if (!meta.categories.includes(c)) setMeta(m => ({ ...m, categories: [...new Set([...m.categories, c])].sort() }));
+      });
+      (l.departments || []).forEach(d => {
+        if (!meta.departments.includes(d)) setMeta(m => ({ ...m, departments: [...new Set([...m.departments, d])].sort() }));
+      });
     });
   };
 
@@ -517,26 +527,26 @@ export default function ExternalLinks() {
     }
   };
 
-  const openAdd = () => setModal({ mode: 'add', id: null, form: { ...emptyForm, department, company: companyFilter, category: category || '' } });
-  const openAddForDept = (dept) => setModal({ mode: 'add', id: null, form: { ...emptyForm, department: dept } });
+  const openAdd = () => setModal({ mode: 'add', id: null, form: { ...emptyForm, departments: department ? [department] : [], company: companyFilter, categories: category ? [category] : [] } });
+  const openAddForDept = (dept) => setModal({ mode: 'add', id: null, form: { ...emptyForm, departments: [dept] } });
   const openEdit = (link) => setModal({
     mode: 'edit', id: link.id,
     form: {
-      name: link.name, url: link.url, category: link.category, description: link.description || '',
-      department: link.department || '', company: link.company || '', icon: link.icon || 'Link2', is_pinned: !!link.is_pinned,
+      name: link.name, url: link.url, categories: link.categories || [], description: link.description || '',
+      departments: link.departments || [], company: link.company || '', icon: link.icon || 'Link2', is_pinned: !!link.is_pinned,
     },
   });
 
   const save = async () => {
     const f = modal.form;
-    if (!f.name.trim() || !f.url.trim() || !f.category.trim()) {
-      setBanner({ kind: 'err', text: 'Name, URL, and category are required.' });
+    if (!f.name.trim() || !f.url.trim() || f.categories.length === 0) {
+      setBanner({ kind: 'err', text: 'Name, URL, and at least one category are required.' });
       return;
     }
     const url = /^https?:\/\//i.test(f.url.trim()) ? f.url.trim() : `https://${f.url.trim()}`;
     const dupe = all.find(l => l.id !== modal.id && normalizeUrl(l.url) === normalizeUrl(url));
     if (dupe) {
-      setBanner({ kind: 'err', text: `This link is already added as "${dupe.name}"${dupe.department ? ` (${dupe.department})` : ''}.` });
+      setBanner({ kind: 'err', text: `This link is already added as "${dupe.name}"${dupe.departments?.length ? ` (${dupe.departments.join(', ')})` : ''}.` });
       return;
     }
     setSaving(true);
@@ -577,10 +587,16 @@ export default function ExternalLinks() {
   // it reuses the exact same validation/audit path each individual edit
   // already goes through rather than adding a second bulk code path server-
   // side to keep in sync. Applies whichever of category/department was
-  // actually picked - a blank field is left untouched, not cleared.
+  // actually picked - a blank field is left untouched, not cleared. Sets
+  // it as that link's ONLY category/department (replaces, doesn't add) -
+  // a link can hold several now (Aug 14, checkboxes in Add/Edit), but a
+  // bulk "reassign these N links" action is still simplest as "set to
+  // exactly this one," not a picker duplicated across every selected row.
   const bulkUpdateLinks = async (ids, patch) => {
     const clean = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== '' && v != null));
     if (!ids.length || Object.keys(clean).length === 0) return;
+    if (clean.category) { clean.categories = [clean.category]; delete clean.category; }
+    if (clean.department) { clean.departments = [clean.department]; delete clean.department; }
     const results = await Promise.allSettled(ids.map(id => api.updateExternalLink(id, clean)));
     const updatedById = new Map();
     let failed = 0;
@@ -885,11 +901,14 @@ export default function ExternalLinks() {
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                 {favoriteLinks.map(l => {
-                  const { fg, bg } = colorFor(l.category);
+                  // External carries `categories` (array, Aug 14); Personal
+                  // still has the single `category` string.
+                  const cat = l.categories ? primaryCategory(l) : l.category;
+                  const { fg, bg } = colorFor(cat);
                   return (
                     <LinksListRow key={l._uid || l.id}
                       icon={<LinkIcon url={l.url} iconKey={l.icon} size={26} iconSize={13} radius={7} fg={fg} bg={bg} gradient={false} />}
-                      name={l.name} sub={l.category}
+                      name={l.name} sub={cat}
                       onOpen={() => (l._favType === 'personal' ? openPersonalLink(l) : openLink(l))} />
                   );
                 })}
@@ -1211,7 +1230,9 @@ function PersonalStrip({ title, icon: Icon, iconColor, links, onOpen }) {
       )}
       <div className="scroll-tabs" style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 4 }}>
         {links.map(l => {
-          const { fg, bg } = colorFor(l.category);
+          // External links carry `categories` (array, Aug 14); Personal
+          // Links still have the single `category` string.
+          const { fg, bg } = colorFor(l.categories ? primaryCategory(l) : l.category);
           return (
             <button
               key={l._uid || l.id} onClick={() => onOpen(l)} title={l.description || l.name}
@@ -1806,7 +1827,7 @@ function LinksLayoutSection({ sourceType, layout, itemsById, actionCtx, mutate, 
             return (
               <LinksListRow key={`${entry.item_type}:${entry.item_id}`}
                 icon={<LinkIcon url={a.link.url} iconKey={a.link.icon} size={26} iconSize={13} radius={7} fg={a.color.fg} bg={a.color.bg} gradient={false} />}
-                name={a.link.name} sub={a.link.category} onOpen={a.onOpen} />
+                name={a.link.name} sub={a.link.categories ? primaryCategory(a.link) : a.link.category} onOpen={a.onOpen} />
             );
           })}
         </div>
@@ -1973,6 +1994,73 @@ function IconBtn({ children, onClick, title, danger, disabled }) {
   );
 }
 
+// Checkbox multi-select for Category/Department in Add/Edit Link (Aug 14,
+// "add multiple checkbox option in departments and category") - a closed
+// button showing what's picked (or a placeholder), opens a checklist panel
+// on click, closes on an outside click. `allowCustom` adds a small text
+// input at the bottom so Category (always free text - CLAUDE.md: "so a
+// one-off category isn't blocked") can still introduce a brand-new value
+// beyond the curated taxonomy list, the same way its old free-text+datalist
+// input could; Department stays picker-only (no free text), matching how
+// it worked before this was a checkbox list.
+function CheckboxMultiSelect({ options, selected, onChange, placeholder, allowCustom, customPlaceholder }) {
+  const [open, setOpen] = useState(false);
+  const [customValue, setCustomValue] = useState('');
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  const toggle = (opt) => onChange(selected.includes(opt) ? selected.filter(s => s !== opt) : [...selected, opt]);
+  const addCustom = () => {
+    const v = customValue.trim();
+    if (v && !selected.includes(v)) onChange([...selected, v]);
+    setCustomValue('');
+  };
+  // Union with `selected` so a value picked earlier (e.g. a custom one
+  // typed in, or a department that's since been removed from the curated
+  // taxonomy) still shows up checked rather than silently disappearing.
+  const allOptions = [...new Set([...options, ...selected])].sort();
+
+  return (
+    <div style={{ position: 'relative' }} ref={ref}>
+      <button type="button" className="form-select" onClick={() => setOpen(o => !o)}
+        style={{ width: '100%', textAlign: 'left', display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
+        <span style={{ color: selected.length ? 'var(--ink)' : 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {selected.length ? selected.join(', ') : placeholder}
+        </span>
+      </button>
+      {open && (
+        <div style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 10, boxShadow: '0 12px 30px rgba(0,0,0,.18)', zIndex: 40, maxHeight: 220, overflowY: 'auto', padding: 6 }}>
+          {allOptions.length === 0 && (
+            <p style={{ fontSize: 12, color: 'var(--muted)', padding: '6px 8px', margin: 0 }}>Nothing added yet.</p>
+          )}
+          {allOptions.map(opt => (
+            <label key={opt}
+              style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', borderRadius: 6, cursor: 'pointer', fontSize: 13 }}
+              onMouseEnter={e => e.currentTarget.style.background = 'var(--mist)'} onMouseLeave={e => e.currentTarget.style.background = 'none'}>
+              <input type="checkbox" checked={selected.includes(opt)} onChange={() => toggle(opt)} />
+              {opt}
+            </label>
+          ))}
+          {allowCustom && (
+            <div style={{ display: 'flex', gap: 6, padding: '6px 8px 2px', borderTop: allOptions.length > 0 ? '1px solid var(--line)' : 'none', marginTop: allOptions.length > 0 ? 4 : 0 }}>
+              <input className="form-input" style={{ padding: '5px 8px', fontSize: 12.5 }} value={customValue}
+                onChange={e => setCustomValue(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addCustom(); } }}
+                placeholder={customPlaceholder || 'Add new...'} />
+              <button type="button" className="secondary-btn" style={{ padding: '5px 10px', fontSize: 12.5 }} onClick={addCustom}>Add</button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function LinkModal({ modal, setModal, save, saving, departments, categories, companies, existingLinks }) {
   const { mode, form } = modal;
   const setForm = (patch) => setModal(m => ({ ...m, form: { ...m.form, ...patch } }));
@@ -2030,23 +2118,24 @@ function LinkModal({ modal, setModal, save, saving, departments, categories, com
             {duplicate && (
               <p style={{ fontSize: 11.5, color: 'hsl(var(--color-red))', margin: '5px 0 0', display: 'flex', alignItems: 'flex-start', gap: 5 }}>
                 <AlertTriangle size={12} style={{ flexShrink: 0, marginTop: 1 }} />
-                Already added as "{duplicate.name}"{duplicate.department ? ` (${duplicate.department})` : ''} - pick a different link, or edit that one instead.
+                Already added as "{duplicate.name}"{duplicate.departments?.length ? ` (${duplicate.departments.join(', ')})` : ''} - pick a different link, or edit that one instead.
               </p>
             )}
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
             <div className="form-group">
-              <label>Category</label>
-              <input className="form-input" list="ext-link-categories" value={form.category}
-                onChange={e => setForm({ category: e.target.value })} placeholder="e.g. Finance & Accounting" />
-              <datalist id="ext-link-categories">{categories.map(c => <option key={c} value={c} />)}</datalist>
+              <label>Category <span style={{ fontWeight: 500, color: 'var(--muted)', textTransform: 'none' }}>(pick one or more)</span></label>
+              <CheckboxMultiSelect
+                options={categories} selected={form.categories} onChange={v => setForm({ categories: v })}
+                placeholder="Pick categories..." allowCustom customPlaceholder="Add a new category..."
+              />
             </div>
             <div className="form-group">
-              <label>Department</label>
-              <select className="form-select" value={form.department} onChange={e => setForm({ department: e.target.value })}>
-                <option value="">All Departments</option>
-                {departments.map(d => <option key={d} value={d}>{d}</option>)}
-              </select>
+              <label>Department <span style={{ fontWeight: 500, color: 'var(--muted)', textTransform: 'none' }}>(blank = all)</span></label>
+              <CheckboxMultiSelect
+                options={departments} selected={form.departments} onChange={v => setForm({ departments: v })}
+                placeholder="All Departments"
+              />
             </div>
           </div>
           <div className="form-group">
@@ -2154,30 +2243,43 @@ function ManageModal({
   const rows = useMemo(() => {
     const needle = q.trim().toLowerCase();
     return needle
-      ? links.filter(l => [l.name, l.category, l.department, l.description].some(v => (v || '').toLowerCase().includes(needle)))
+      ? links.filter(l => [l.name, l.description, ...(l.categories || []), ...(l.departments || [])].some(v => (v || '').toLowerCase().includes(needle)))
       : links;
   }, [links, q]);
 
+  // A link with several categories (Aug 14) appears in EACH of its
+  // category's groups here, not just its first - Manage is where an admin
+  // goes to find "everything filed under Banking," and a link missing from
+  // that list because it's ALSO filed under something else would be a real
+  // gap, not a simplification.
   const grouped = useMemo(() => {
     const map = new Map();
-    rows.forEach(l => { const k = l.category || 'Other'; if (!map.has(k)) map.set(k, []); map.get(k).push(l); });
+    rows.forEach(l => {
+      const cats = l.categories && l.categories.length ? l.categories : ['Other'];
+      cats.forEach(k => { if (!map.has(k)) map.set(k, []); map.get(k).push(l); });
+    });
     for (const arr of map.values()) arr.sort((a, b) => (a.sort_order - b.sort_order) || a.name.localeCompare(b.name));
     return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]));
   }, [rows]);
 
   const attention = useMemo(() => attentionFor(links), [links]);
-  const emptyDepartments = useMemo(() => departmentNames.filter(d => !links.some(l => l.department === d)), [links, departmentNames]);
+  const emptyDepartments = useMemo(() => departmentNames.filter(d => !links.some(l => (l.departments || []).includes(d))), [links, departmentNames]);
   useEffect(() => {
     if (!emptyDepartments.includes(deptPick)) setDeptPick(emptyDepartments[0] || '');
   }, [emptyDepartments]); // eslint-disable-line react-hooks/exhaustive-deps
   const canReorder = q.trim() === '';
 
-  const dropOnRow = (targetLink) => {
+  // `cat` is which GROUP COLUMN this drop landed in (from the render loop's
+  // own closure), not "the" category of either link - a link can be in
+  // several groups now (Aug 14), so dedicating one canonical category per
+  // link no longer makes sense; reordering is scoped to the column you
+  // actually dropped into instead.
+  const dropOnRow = (targetLink, cat) => {
     if (dragId == null || dragId === targetLink.id) return;
-    const group = grouped.find(([cat]) => cat === (targetLink.category || 'Other'));
+    const group = grouped.find(([c]) => c === cat);
     if (!group) return;
     const dragged = group[1].find(l => l.id === dragId);
-    if (!dragged || dragged.category !== targetLink.category) return; // cross-category drag is a no-op
+    if (!dragged) return; // the dragged link isn't in this column - no-op
     const ids = group[1].map(l => l.id).filter(id => id !== dragId);
     ids.splice(ids.indexOf(targetLink.id), 0, dragId);
     onReorder(ids);
@@ -2265,14 +2367,14 @@ function ManageModal({
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                       {items.map(l => {
-                        const { fg, bg } = colorFor(l.category);
+                        const { fg, bg } = colorFor(primaryCategory(l));
                         return (
                           <div
                             key={l.id}
                             draggable={canReorder}
                             onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; setDragId(l.id); }}
                             onDragOver={(e) => { if (canReorder && dragId != null) { e.preventDefault(); setDropCategory(cat); } }}
-                            onDrop={(e) => { e.preventDefault(); dropOnRow(l); }}
+                            onDrop={(e) => { e.preventDefault(); dropOnRow(l, cat); }}
                             onDragEnd={() => { setDragId(null); setDropCategory(null); }}
                             style={{
                               display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', borderRadius: 8,
@@ -2287,7 +2389,7 @@ function ManageModal({
                             <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', flexShrink: 0 }}>{l.name}</span>
                             {l.is_pinned && <Star size={11} style={{ color: 'hsl(var(--color-gold))', flexShrink: 0 }} fill="hsl(var(--color-gold))" />}
                             <span style={{ fontSize: 11.5, color: 'var(--muted)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                              {l.department || 'All departments'}{l.company ? ` · ${companyName(l.company)}` : ''}
+                              {(l.departments && l.departments.length) ? l.departments.join(', ') : 'All departments'}{l.company ? ` · ${companyName(l.company)}` : ''}
                             </span>
                             <span style={{ fontSize: 11.5, color: 'var(--muted)', flexShrink: 0 }}>{l.clicks || 0} uses</span>
                             <IconBtn onClick={() => doRefreshOne(l)} title="Re-fetch and shorten this link's description" disabled={refreshingId === l.id}>
@@ -2325,7 +2427,7 @@ function ManageModal({
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                   {attention.map(({ link: l, reason }) => {
-                    const { fg, bg } = colorFor(l.category);
+                    const { fg, bg } = colorFor(primaryCategory(l));
                     return (
                       <div key={l.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 10px', borderRadius: 8, border: '1px solid var(--line)' }}>
                         <AlertTriangle size={14} style={{ color: 'hsl(var(--color-orange))', flexShrink: 0 }} />

@@ -420,6 +420,14 @@ def _run_migrations():
             "ALTER TABLE external_links ADD COLUMN created_at VARCHAR DEFAULT ''",
             "ALTER TABLE external_links ADD COLUMN updated_at VARCHAR DEFAULT ''",
             "ALTER TABLE external_links ADD COLUMN company VARCHAR DEFAULT ''",
+            # Multi-select departments/categories (Aug 14) - new plural JSON-
+            # array columns alongside the old singular ones (never altering
+            # an existing column's type on a live table), backfilled once
+            # from whatever the old columns already held.
+            "ALTER TABLE external_links ADD COLUMN categories JSON DEFAULT '[]'",
+            "ALTER TABLE external_links ADD COLUMN departments JSON DEFAULT '[]'",
+            "UPDATE external_links SET categories = json_array(category) WHERE (categories IS NULL OR categories = '[]') AND category IS NOT NULL AND category != ''",
+            "UPDATE external_links SET departments = json_array(department) WHERE (departments IS NULL OR departments = '[]') AND department IS NOT NULL AND department != ''",
             "ALTER TABLE nexus_roles ADD COLUMN tier_pinned BOOLEAN DEFAULT 0",
             # Attended remote control (IT support) - consent + audit fields on the
             # live-view session row.
@@ -951,6 +959,12 @@ def _run_migrations():
         "ALTER TABLE external_links ADD COLUMN IF NOT EXISTS created_at VARCHAR DEFAULT ''",
         "ALTER TABLE external_links ADD COLUMN IF NOT EXISTS updated_at VARCHAR DEFAULT ''",
         "ALTER TABLE external_links ADD COLUMN IF NOT EXISTS company VARCHAR DEFAULT ''",
+        # Multi-select departments/categories (Aug 14) - see the matching
+        # sqlite migration list above for the full rationale.
+        "ALTER TABLE external_links ADD COLUMN IF NOT EXISTS categories JSONB DEFAULT '[]'::jsonb",
+        "ALTER TABLE external_links ADD COLUMN IF NOT EXISTS departments JSONB DEFAULT '[]'::jsonb",
+        "UPDATE external_links SET categories = jsonb_build_array(category) WHERE (categories IS NULL OR categories = '[]'::jsonb) AND category IS NOT NULL AND category != ''",
+        "UPDATE external_links SET departments = jsonb_build_array(department) WHERE (departments IS NULL OR departments = '[]'::jsonb) AND department IS NOT NULL AND department != ''",
         # Personal Link -> Credential Vault personal credential pointer (Aug 13)
         "ALTER TABLE personal_links ADD COLUMN IF NOT EXISTS vault_cred_id VARCHAR DEFAULT ''",
         # Personal Links department/category (Aug 14)

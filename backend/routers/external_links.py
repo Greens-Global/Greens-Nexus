@@ -46,9 +46,9 @@ require_links_delete = require_level_or_module(_ROLE_LEVEL["administrator"], "ex
 class ExternalLinkCreate(BaseModel):
     name: str
     url: str
-    category: str
+    categories: list[str] = []  # at least one required - validated below, not by Pydantic, so the 422 detail can be specific
     description: str = ""
-    department: str = ""      # "" = shown to every department (company-wide)
+    departments: list[str] = []  # [] = shown to every department (company-wide)
     company: str = ""         # "" = shown to every company; else an HrEntity.id
     icon: str = "Link2"       # lucide-react icon key, resolved client-side
     is_pinned: bool = False
@@ -57,12 +57,24 @@ class ExternalLinkCreate(BaseModel):
 class ExternalLinkUpdate(BaseModel):
     name: Optional[str] = None
     url: Optional[str] = None
-    category: Optional[str] = None
+    categories: Optional[list[str]] = None
     description: Optional[str] = None
-    department: Optional[str] = None
+    departments: Optional[list[str]] = None
     company: Optional[str] = None
     icon: Optional[str] = None
     is_pinned: Optional[bool] = None
+
+
+def _clean_list(values: list[str]) -> list[str]:
+    """Trim, drop blanks, de-dupe while preserving order - shared by create
+    and update so "  Banking , Banking" doesn't become two entries."""
+    seen, out = set(), []
+    for v in values:
+        v = (v or "").strip()
+        if v and v not in seen:
+            seen.add(v)
+            out.append(v)
+    return out
 
 
 class ReorderEntry(BaseModel):
@@ -90,7 +102,7 @@ def _now() -> str:
 
 
 def _audit(db: Session, user: dict, action: str, link: "models.ExternalLink", extra: dict | None = None):
-    details = {"name": link.name, "url": link.url, "category": link.category, "department": link.department}
+    details = {"name": link.name, "url": link.url, "categories": link.categories, "departments": link.departments}
     if extra:
         details.update(extra)
     db.add(models.AuditLog(
@@ -115,10 +127,17 @@ def list_external_links(db: Session = Depends(get_db)):
 @router.get("/meta")
 def external_links_meta(db: Session = Depends(get_db)):
     """Distinct departments/categories currently in use, for the filter
-    dropdowns - avoids a second hardcoded list drifting from real data."""
-    departments = sorted({d for (d,) in db.query(models.ExternalLink.department).distinct() if d})
-    categories  = sorted({c for (c,) in db.query(models.ExternalLink.category).distinct() if c})
-    return {"departments": departments, "categories": categories}
+    dropdowns - avoids a second hardcoded list drifting from real data. Each
+    link can carry several of each now (Aug 14, "add multiple checkbox
+    option in departments and category"), so this flattens every row's
+    array client-side rather than a plain SQL DISTINCT (no portable way to
+    dedupe across JSON array elements in one query across both engines)."""
+    departments, categories = set(), set()
+    for (d,) in db.query(models.ExternalLink.departments).all():
+        departments.update(d or [])
+    for (c,) in db.query(models.ExternalLink.categories).all():
+        categories.update(c or [])
+    return {"departments": sorted(departments), "categories": sorted(categories)}
 
 
 # ── Taxonomy (admin-managed Department/Category picker options) ────────────
@@ -196,8 +215,18 @@ def rename_taxonomy(taxonomy_id: str, body: TaxonomyRename, user: dict = Depends
     old_name = row.name
     row.name = name
     if old_name != name:
-        field = models.ExternalLink.department if row.kind == "department" else models.ExternalLink.category
-        db.query(models.ExternalLink).filter(field == old_name).update({row.kind: name}, synchronize_session=False)
+        # A link can hold several departments/categories now, so this can't
+        # be a single portable SQL UPDATE (no cross-engine way to replace
+        # one element inside a JSON array column) - fetch every row that has
+        # the old name anywhere in its list and rewrite that one element in
+        # Python instead.
+        field_name = "departments" if row.kind == "department" else "categories"
+        field = getattr(models.ExternalLink, field_name)
+        candidates = db.query(models.ExternalLink).filter(field.isnot(None)).all()
+        for link in candidates:
+            values = getattr(link, field_name) or []
+            if old_name in values:
+                setattr(link, field_name, _clean_list([name if v == old_name else v for v in values]))
     db.commit()
     return _taxonomy_dict(row)
 
@@ -390,9 +419,20 @@ def create_external_link(link: ExternalLinkCreate, user: dict = Depends(require_
     )
     if existing:
         raise HTTPException(status_code=409, detail=f'This link is already added as "{existing.name}".')
+    categories = _clean_list(link.categories)
+    if not categories:
+        raise HTTPException(status_code=422, detail="Pick at least one category.")
+    departments = _clean_list(link.departments)
     now = _now()
+    data = link.model_dump(exclude={"categories", "departments"})
     db_link = models.ExternalLink(
-        **link.model_dump(),
+        **data, categories=categories, departments=departments,
+        # Legacy singular columns kept in sync on write, best-effort, purely
+        # so nothing that still reads them (there's nothing left in this
+        # codebase that does, but the columns are NOT NULL on `category`)
+        # sees a stale/empty value - first pick wins, same as any "primary"
+        # tag would.
+        category=categories[0], department=departments[0] if departments else "",
         created_by=user["email"], created_at=now, updated_at=now,
     )
     db.add(db_link)
@@ -424,8 +464,20 @@ def update_external_link(link_id: int, patch: ExternalLinkUpdate, user: dict = D
     if not db_link:
         raise HTTPException(status_code=404, detail="Link not found")
     changes = patch.model_dump(exclude_unset=True)
+    if "categories" in changes:
+        changes["categories"] = _clean_list(changes["categories"])
+        if not changes["categories"]:
+            raise HTTPException(status_code=422, detail="Pick at least one category.")
+    if "departments" in changes:
+        changes["departments"] = _clean_list(changes["departments"])
     for field, value in changes.items():
         setattr(db_link, field, value)
+    # Legacy singular columns kept in sync - see create_external_link's
+    # comment for why.
+    if "categories" in changes:
+        db_link.category = changes["categories"][0]
+    if "departments" in changes:
+        db_link.department = changes["departments"][0] if changes["departments"] else ""
     db_link.updated_at = _now()
     _audit(db, user, "Updated external link", db_link, {"changed_fields": list(changes.keys())})
     db.commit()
@@ -523,9 +575,12 @@ def import_external_links(payload: ImportRequest, user: dict = Depends(require_l
             continue
         if not re.match(r"^https?://", url, re.I):
             url = f"https://{url}"
+        category = row.category.strip() or "Imported"
+        department = row.department.strip()
         db_link = models.ExternalLink(
-            name=name, url=url, category=row.category.strip() or "Imported", description=row.description.strip(),
-            department=row.department.strip(), company=company_by_name.get(row.company.strip().lower(), ""),
+            name=name, url=url, category=category, description=row.description.strip(),
+            department=department, categories=[category], departments=[department] if department else [],
+            company=company_by_name.get(row.company.strip().lower(), ""),
             icon=row.icon or "Link2", is_pinned=row.is_pinned,
             created_by=user["email"], created_at=now, updated_at=now,
         )

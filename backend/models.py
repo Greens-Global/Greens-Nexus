@@ -140,16 +140,23 @@ class ExternalLink(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String, nullable=False)
     url = Column(String, nullable=False)
+    # Legacy single-value columns (kept, unused going forward) - superseded
+    # by categories/departments below (Aug 14, "add multiple checkbox option
+    # in departments and category"). Changing an EXISTING column's type on a
+    # live table is exactly the kind of migration this codebase avoids
+    # (CLAUDE.md), so these were left in place and new plural JSON-array
+    # columns added alongside instead, backfilled once from these on deploy.
     category = Column(String, nullable=False)
+    department = Column(String, default="")
     description = Column(String, default="")
     clicks = Column(Integer, default=0)
-    # Directory rebuild (Aug 2026, sourced from start.greensglobal.com): "" =
-    # shown to every department (company-wide app); a named department scopes
-    # the tile to that department's filtered view. `icon` is a lucide-react
-    # icon key resolved client-side, not a URL. sort_order is admin drag-order
-    # within a category; is_pinned floats a tile into "Pinned" regardless of
-    # department/category filters.
-    department = Column(String, default="")
+    # A link can now belong to several categories/departments at once - "" /
+    # [] still means company-wide (shown regardless of department filter).
+    # `icon` is a lucide-react icon key resolved client-side, not a URL.
+    # sort_order is admin drag-order within a category; is_pinned floats a
+    # tile into "Pinned" regardless of department/category filters.
+    categories = Column(JSON, default=list)
+    departments = Column(JSON, default=list)
     icon = Column(String, default="Link2")
     sort_order = Column(Integer, default=0)
     is_pinned = Column(Boolean, default=False)
