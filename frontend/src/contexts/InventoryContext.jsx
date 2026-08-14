@@ -26,6 +26,7 @@ export function InventoryProvider({ children }) {
 
   const eventsRef     = useRef(null);
   const pollRef       = useRef(null);
+  const sigRef        = useRef({ items: null, checkouts: null }); // last change-digest seen by the poll
   const itemsInFlight = useRef(false);
   const cosInFlight   = useRef(false);
   // Consecutive error counts for backoff
@@ -135,8 +136,19 @@ export function InventoryProvider({ children }) {
                 : 60_000;
     pollRef.current = setTimeout(() => {
       if (typeof document === 'undefined' || document.visibilityState === 'visible') {
-        fetchItems();
-        fetchCheckouts();
+        // Delta gate: ask the server for a ~64-byte change-digest first, and only
+        // re-pull the (heavy) full catalog / checkouts when a digest actually
+        // flipped. When nothing changed - the common case - the poll costs a few
+        // bytes instead of the whole ~1000-item catalog. This is what turned the
+        // fallback poll from ~95% of DB pooler egress into near-nothing.
+        api.getItemsSignature().then((sig) => {
+          if (sig.items !== sigRef.current.items) { sigRef.current.items = sig.items; fetchItems(); }
+          if (sig.checkouts !== sigRef.current.checkouts) { sigRef.current.checkouts = sig.checkouts; fetchCheckouts(); }
+        }).catch(() => {
+          // Digest unavailable (e.g. older backend) - fall back to the old behavior.
+          fetchItems();
+          fetchCheckouts();
+        });
       }
       scheduleNext();
     }, delay);
@@ -145,6 +157,9 @@ export function InventoryProvider({ children }) {
   useEffect(() => {
     fetchItems().then(scheduleNext);
     fetchCheckouts();
+    // Seed the digest so the first poll after mount doesn't re-pull what we just
+    // fetched; it only refetches once the server-side digest actually moves.
+    api.getItemsSignature().then((sig) => { sigRef.current = sig; }).catch(() => {});
 
     if (supabase) {
       // inventory_events ONLY: a skinny ping table (checkout id + status, no

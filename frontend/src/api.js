@@ -760,6 +760,9 @@ export const api = {
 
   // Items - new individual-unit system
   getItems:            (params = {})  => req(`/items?${new URLSearchParams(params)}`),
+  // Tiny change-digest {items, checkouts} for the fallback poll - lets it re-pull
+  // the full catalog only when something actually changed (huge egress saver).
+  getItemsSignature:   ()             => req('/items/signature'),
   createItem:          (data)         => req('/items', { method: 'POST', body: JSON.stringify(data) }),
   importItems:         (items)        => req('/items/import', { method: 'POST', body: JSON.stringify({ items }) }),
   updateItem:          (id, data)     => req(`/items/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
