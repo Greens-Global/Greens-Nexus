@@ -240,20 +240,25 @@ function LinksFolderTile({ link, color, onOpen }) {
 // click on all apps it opens me all the apps in that folder") - same
 // modal-overlay/modal-content chrome the rest of the app uses, reusing
 // LinksFolderTile so it's visually identical to the widget's own preview
-// tiles and to External Links' own folder popup.
+// tiles and to External Links' own folder popup. 60vw width + a single
+// horizontally-scrolling row instead of a wrapping grid (Aug 15 - "opening
+// the folder... it should open horizontally, and the popup should use 60%
+// of screen"), matching every other popup's width convention in this app.
 function LinksFolderAllModal({ title, links, itemType, onOpen, onClose }) {
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content" style={{ maxWidth: 480 }} onClick={e => e.stopPropagation()}>
+      <div className="modal-content" style={{ width: '60vw', maxWidth: '60vw' }} onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <h3>{title}</h3>
           <button className="close-btn" onClick={onClose}><X size={16} /></button>
         </div>
         <div style={{ padding: '20px 24px' }}>
-          <div className="app-grid" style={{ gap: '14px 10px' }}>
+          <div className="scroll-tabs" style={{ display: 'flex', flexWrap: 'nowrap', gap: 14, overflowX: 'auto', paddingBottom: 4 }}>
             {links.map(l => (
-              <LinksFolderTile key={l.id} link={l} onOpen={() => onOpen(l)}
-                color={itemType === 'personal' ? PERSONAL_TILE_COLOR : colorForLinkCategory(l.category)} />
+              <div key={l.id} style={{ flexShrink: 0 }}>
+                <LinksFolderTile link={l} onOpen={() => onOpen(l)}
+                  color={itemType === 'personal' ? PERSONAL_TILE_COLOR : colorForLinkCategory(l.category)} />
+              </div>
             ))}
           </div>
         </div>
