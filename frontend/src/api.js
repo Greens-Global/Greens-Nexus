@@ -182,6 +182,10 @@ function _detailToMessage(detail, status) {
     if (parts.length) return parts.join('; ');
   } else if (typeof detail === 'string' && detail) {
     return detail;
+  } else if (detail && typeof detail === 'object' && detail.message) {
+    // Structured error body ({ code, message, ... }) - e.g. the timecard
+    // unresolved-exceptions block. Callers can still read err.detail for the rest.
+    return detail.message;
   }
   return `API error ${status}`;
 }
@@ -234,6 +238,15 @@ async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
   // BFF mode: a 401 means the session cookie is dead/absent -> server-side login
   // (the replacement for MSAL's token-refresh + interactive reauth).
   if (res.status === 401 && BFF_MODE) {
+    // A 401 is usually TRANSIENT, not a dead session: the server's silent token
+    // refresh raced this request, or Microsoft blipped for a moment. Retry once
+    // (letting that settle) BEFORE the jarring full-page re-login - so a user
+    // coming back from lunch isn't bounced through a whole-page sign-in for a
+    // momentary hiccup. Only a genuinely dead session (still 401 on retry) redirects.
+    if (!tokenRefreshed) {
+      await new Promise(r => setTimeout(r, 700));
+      return req(path, options, attempt, true);
+    }
     bffLogin();
   } else if (res.status === 401 && !tokenRefreshed) {
     // On 401 (expired token), force-refresh MSAL token and retry once
@@ -317,6 +330,11 @@ async function reqBlob(path, options = {}, attempt = 1, tokenRefreshed = false) 
     throw err;
   }
   if (res.status === 401 && BFF_MODE) {
+    // Same as req(): absorb a transient 401 with one retry before a full-page re-login.
+    if (!tokenRefreshed) {
+      await new Promise(r => setTimeout(r, 700));
+      return reqBlob(path, options, attempt, true);
+    }
     bffLogin();
   } else if (res.status === 401 && !tokenRefreshed) {
     return reqBlob(path, options, attempt, true);
@@ -591,6 +609,19 @@ export const api = {
   updateKbRun:      (runId, data)  => req(`/knowledge-base/runs/${runId}`, { method: "PATCH", body: JSON.stringify(data) }),
   getMyKbRuns:      ()             => req("/knowledge-base/my-runs"),
   getKbRuns:        (limit = 60)   => req(`/knowledge-base/runs?limit=${limit}`),
+  getKbOriginal:    (id)           => req(`/knowledge-base/documents/${id}/original`),
+  cleanupKbTitles:  (dryRun = true) => req(`/knowledge-base/documents/cleanup-titles?dry_run=${dryRun}`, { method: "POST" }),
+  aiSuggestKbMeta:  (data)         => req("/knowledge-base/ai-suggest-metadata", { method: "POST", body: JSON.stringify(data), timeoutMs: AI_TIMEOUT_MS }),
+  // Services (Department -> Service tier)
+  getKbServices:    (department = '') => req(`/knowledge-base/services${department ? `?department=${encodeURIComponent(department)}` : ''}`),
+  createKbService:  (data)         => req("/knowledge-base/services", { method: "POST", body: JSON.stringify(data) }),
+  updateKbService:  (id, data)     => req(`/knowledge-base/services/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  deleteKbService:  (id)           => req(`/knowledge-base/services/${id}`, { method: "DELETE" }),
+  // Tags (managed vocabulary)
+  getKbTags:        ()             => req("/knowledge-base/tags"),
+  createKbTag:      (data)         => req("/knowledge-base/tags", { method: "POST", body: JSON.stringify(data) }),
+  updateKbTag:      (id, data)     => req(`/knowledge-base/tags/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  deleteKbTag:      (id)           => req(`/knowledge-base/tags/${id}`, { method: "DELETE" }),
 
   // Assets
   getAssets: () => req("/assets"),
@@ -611,8 +642,53 @@ export const api = {
 
   // External Links
   getExternalLinks: () => req("/external-links"),
+  getExternalLinksMeta: () => req("/external-links/meta"),
+  getExternalLinksTaxonomy: () => req("/external-links/taxonomy"),
+  createExternalLinkTaxonomy: (kind, name) => req("/external-links/taxonomy", { method: "POST", body: JSON.stringify({ kind, name }) }),
+  renameExternalLinkTaxonomy: (id, name) => req(`/external-links/taxonomy/${id}`, { method: "PATCH", body: JSON.stringify({ name }) }),
+  deleteExternalLinkTaxonomy: (id) => req(`/external-links/taxonomy/${id}`, { method: "DELETE" }),
+  previewExternalLink: (url) => req(`/external-links/preview?${new URLSearchParams({ url })}`),
   createExternalLink: (data) => req("/external-links", { method: "POST", body: JSON.stringify(data) }),
+  updateExternalLink: (id, data) => req(`/external-links/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  deleteExternalLink: (id) => req(`/external-links/${id}`, { method: "DELETE" }),
   clickExternalLink: (id) => req(`/external-links/${id}/click`, { method: "PATCH" }),
+  reorderExternalLinks: (entries) => req("/external-links/reorder", { method: "PATCH", body: JSON.stringify(entries) }),
+  importExternalLinks: (rows) => req("/external-links/import", { method: "POST", body: JSON.stringify({ rows }) }),
+  refreshLinkDescription: (id) => req(`/external-links/${id}/refresh-description`, { method: "POST" }),
+  refreshAllLinkDescriptions: () => req("/external-links/refresh-descriptions", { method: "POST" }),
+
+  // Personal Links - private, owner-scoped shortcuts (never shared/admin-visible)
+  getPersonalLinks: () => req("/personal-links"),
+  createPersonalLink: (data) => req("/personal-links", { method: "POST", body: JSON.stringify(data) }),
+  updatePersonalLink: (id, data) => req(`/personal-links/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  deletePersonalLink: (id) => req(`/personal-links/${id}`, { method: "DELETE" }),
+  clickPersonalLink: (id) => req(`/personal-links/${id}/click`, { method: "PATCH" }),
+  reorderPersonalLinks: (entries) => req("/personal-links/reorder", { method: "PATCH", body: JSON.stringify(entries) }),
+
+  // Link Layout - per-user Links Module personalization (ordering, folders,
+  // favorites), backend-persisted so it follows the account across devices
+  // rather than living in localStorage. The bare endpoints below always
+  // target "the" default Link View (auto-created on first write); pass a
+  // view id to target a specific one instead - useLinkLayout.js's editing
+  // flow does this while a named view other than the default is active.
+  getLinkLayout: (viewId) => req(`/link-layout${viewId ? `?view=${viewId}` : ''}`),
+  saveLinkLayout: (body, viewId) => req(`/link-layout${viewId ? `?view=${viewId}` : ''}`, { method: "PUT", body: JSON.stringify(body) }),
+  resetLinkLayout: (scope, viewId) => {
+    const params = new URLSearchParams();
+    if (scope) params.set('scope', scope);
+    if (viewId) params.set('view', viewId);
+    const qs = params.toString();
+    return req(`/link-layout${qs ? `?${qs}` : ''}`, { method: "DELETE" });
+  },
+
+  // Link Views - named, saveable External Links arrangements (Aug 14),
+  // mirrors the Dashboard's own view CRUD (dashViews/dashCreateView/etc)
+  // one screen over: no target/scope/department, every view is personal.
+  listLinkViews:   ()             => req('/link-layout/views'),
+  createLinkView:  (body)         => req('/link-layout/views', { method: 'POST', body: JSON.stringify(body) }),
+  updateLinkView:  (id, body)     => req(`/link-layout/views/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+  setDefaultLinkView: (id)        => req(`/link-layout/views/${id}/default`, { method: 'PUT' }),
+  deleteLinkView:  (id)           => req(`/link-layout/views/${id}`, { method: 'DELETE' }),
 
   // Nexus Roles
   getMyRole:    ()                    => cachedGet('/roles/me'),
@@ -896,7 +972,14 @@ export const api = {
 
   // ── Time clock (punch in/out with geofencing) ──────────────────────────────
   timeStatus:        ()          => req(`/timeclock/status?tz_offset_min=${new Date().getTimezoneOffset()}`),
-  timePunch:         (data)      => req('/timeclock/punch', { method: 'POST', body: JSON.stringify(data) }),
+  // keepalive: a punch fired as the tab is closing (the classic lost clock-out)
+  // still reaches the server - the browser keeps the request alive past unload.
+  // Body is tiny, well under the 64KB keepalive cap.
+  timePunch:         (data)      => req('/timeclock/punch', { method: 'POST', body: JSON.stringify(data), keepalive: true }),
+  timeExceptions:    (start, end) => req(`/timeclock/exceptions?start=${start || ''}&end=${end || ''}`),
+  // Shared-PC: mint a one-time nonce the local agent claims (over localhost) so
+  // clock-in can bind this employee to the physical PC. No agent = no nonce used.
+  timeAgentPairChallenge: () => req('/timeclock/agent/pair-challenge', { method: 'POST', body: '{}' }),
   timeSelfPunch:     (data)      => req('/timeclock/punch/manual', { method: 'POST', body: JSON.stringify(data) }),
   timeMy:            (start, end) => req(`/timeclock/me?start=${start || ''}&end=${end || ''}`),
   timeTeam:          (start, end) => req(`/timeclock/team?start=${start || ''}&end=${end || ''}`),
@@ -974,6 +1057,28 @@ export const api = {
   timeAgentEnroll:   (data)      => req('/timeclock/agent/enroll', { method: 'POST', body: JSON.stringify(data) }),
   timeAgentDevices:  ()          => req('/timeclock/agent/devices'),
   timeAgentRevoke:   (id)        => req(`/timeclock/agent/devices/${id}`, { method: 'PATCH' }),
+  // The single reusable "install on every company PC" one-liner (admin only).
+  timeAgentInstallCommand: ()    => req('/timeclock/agent/install-command'),
+  // Link an enrolled PC to a Nexus person (assigned owner); '' unassigns.
+  timeAgentAssignDevice: (id, email) => req(`/timeclock/agent/devices/${id}/assign`, { method: 'POST', body: JSON.stringify({ email }) }),
+  // Hard-delete an enrolled PC record (cleanup after uninstall/decommission).
+  timeAgentDeleteDevice: (id)    => req(`/timeclock/agent/devices/${id}`, { method: 'DELETE' }),
+  // Live coverage roster: who's clocked in + how they're captured (agent/browser/gap).
+  timeMonitoringCoverage: ()     => req('/timeclock/monitoring/coverage'),
+  // Live screen view (on-demand WebRTC). request returns a session + TURN creds
+  // when the person is clocked in with an online agent; poll for the agent's offer;
+  // answer with the browser's SDP; ping keeps it alive; end closes it.
+  timeLiveRequest:   (email, fps) => req('/timeclock/live/request', { method: 'POST', body: JSON.stringify({ email, fps: fps || 60 }) }),
+  timeLivePoll:      (id)        => req(`/timeclock/live/${id}`),
+  timeLiveAnswer:    (id, sdp)   => req(`/timeclock/live/${id}/answer`, { method: 'POST', body: JSON.stringify({ sdp }) }),
+  timeLiveEnd:       (id)        => req(`/timeclock/live/${id}/end`, { method: 'POST', body: '{}' }),
+  // Attended remote control on a live session: request shows the employee an
+  // Accept/Decline prompt on their PC; nothing is injected without their accept.
+  timeLiveControlRequest: (id) => req(`/timeclock/live/${id}/control/request`, { method: 'POST', body: '{}' }),
+  timeLiveControlCancel:  (id) => req(`/timeclock/live/${id}/control/cancel`, { method: 'POST', body: '{}' }),
+  timeLiveControlEnd:     (id) => req(`/timeclock/live/${id}/control/end`, { method: 'POST', body: '{}' }),
+  // Who is watching / giving remote support on each screen right now (presence badges).
+  timeLivePresence:  () => req('/timeclock/live-presence'),
   // Field-worker location tracking (manager/HR views; device pings use X-Agent-Token from the native app, not these)
   trackLive:         ()            => req('/timeclock/track/live'),
   trackPath:         (email, date) => req(`/timeclock/track/path?email=${encodeURIComponent(email)}&date=${date}`),

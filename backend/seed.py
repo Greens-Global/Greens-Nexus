@@ -95,12 +95,12 @@ if db.query(models.Website).count() == 0:
 
 if db.query(models.ExternalLink).count() == 0:
     links = [
-        models.ExternalLink(name='Procore Construction OS', url='https://www.procore.com', category='Operations', description='Primary construction management software for project logs, safety checklists, and plans.', clicks=120),
-        models.ExternalLink(name='Sage Intacct Accounting', url='https://www.sage.com', category='Accounting', description='Cloud ERP ledger for budgeting, invoice tracking, and audits.', clicks=85),
-        models.ExternalLink(name='Asana Workspace', url='https://asana.com', category='IT', description='Internal tasks tracker, team workload manager, and project scheduling board.', clicks=230),
-        models.ExternalLink(name='CoConstruct Portal', url='https://coconstruct.com', category='Operations', description='Custom home building estimating, scheduling, and subcontractor bidding portal.', clicks=64),
-        models.ExternalLink(name='Autodesk Build', url='https://construction.autodesk.com', category='Development', description='Design blueprint management, CAD specifications, and zoning docs.', clicks=92),
-        models.ExternalLink(name='HubSpot CRM', url='https://www.hubspot.com', category='Marketing', description='Marketing campaign manager, client lead logs, and sales pipeline tracker.', clicks=105),
+        models.ExternalLink(name='Procore Construction OS', url='https://www.procore.com', category='Operations', department='Operations', icon='HardHat', description='Primary construction management software for project logs, safety checklists, and plans.', clicks=120),
+        models.ExternalLink(name='Sage Intacct Accounting', url='https://www.sage.com', category='Finance & Accounting', department='Accounting', icon='Landmark', description='Cloud ERP ledger for budgeting, invoice tracking, and audits.', clicks=85),
+        models.ExternalLink(name='Asana Workspace', url='https://asana.com', category='Productivity', department='', icon='CheckSquare', description='Internal tasks tracker, team workload manager, and project scheduling board.', clicks=230),
+        models.ExternalLink(name='CoConstruct Portal', url='https://coconstruct.com', category='Operations', department='Operations', icon='HardHat', description='Custom home building estimating, scheduling, and subcontractor bidding portal.', clicks=64),
+        models.ExternalLink(name='Autodesk Build', url='https://construction.autodesk.com', category='Development', department='Development', icon='Ruler', description='Design blueprint management, CAD specifications, and zoning docs.', clicks=92),
+        models.ExternalLink(name='HubSpot CRM', url='https://www.hubspot.com', category='Marketing', department='Marketing', icon='Megaphone', description='Marketing campaign manager, client lead logs, and sales pipeline tracker.', clicks=105),
     ]
     db.add_all(links)
 

@@ -1,6 +1,9 @@
 node_modules/
 dist/
 out/
+# .NET service build output (service/)
+bin/
+obj/
 *.log
 .DS_Store
 # packaged installers / signing material — never commit

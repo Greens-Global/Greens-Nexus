@@ -893,6 +893,47 @@ async function parseItemsFile(file, customFields = []) {
 const NA_TOKENS = new Set(['', 'n/a', 'na', 'n.a.', 'n.a', 'none', 'null', 'nil', '-', '–', '-']);
 const cleanField = v => { const s = String(v ?? '').trim(); return NA_TOKENS.has(s.toLowerCase()) ? '' : s; };
 
+// Levenshtein edit distance - used only to catch import typos in free-text fields
+// (Department / Location). Small inputs, so the plain two-row DP is plenty.
+function _editDistance(a, b) {
+  a = String(a).toLowerCase(); b = String(b).toLowerCase();
+  if (a === b) return 0;
+  const m = a.length, n = b.length;
+  if (!m) return n; if (!n) return m;
+  let prev = Array.from({ length: n + 1 }, (_, i) => i);
+  let cur  = new Array(n + 1);
+  for (let i = 1; i <= m; i++) {
+    cur[0] = i;
+    for (let j = 1; j <= n; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost);
+    }
+    [prev, cur] = [cur, prev];
+  }
+  return prev[n];
+}
+
+// A value that ALMOST matches an existing one (a typo) but isn't an exact match.
+// Returns the existing value to suggest, or '' when the value is blank, already a
+// known value, or too different to be a confident typo. This is what stops a
+// misspelled "Constrcuction" from creating a phantom department that no filter
+// finds - the import preview offers the correct spelling with one click.
+function suggestKnown(value, known) {
+  const v = String(value ?? '').trim();
+  if (!v || !known?.length) return '';
+  const lower = v.toLowerCase();
+  if (known.some(k => String(k).toLowerCase() === lower)) return '';   // already valid
+  let best = '', bestD = Infinity;
+  for (const k of known) {
+    const d = _editDistance(v, k);
+    if (d < bestD) { bestD = d; best = k; }
+  }
+  // Confident-typo window: distance 1-2, scaled to length so short words don't
+  // false-match ("IT" is not a typo of "HR").
+  const tol = v.length <= 4 ? 1 : 2;
+  return (best && bestD > 0 && bestD <= tol) ? best : '';
+}
+
 function csvField(v) { const s = String(v ?? ''); return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; }
 
 function triggerDownload(filename, blob) {
@@ -942,7 +983,35 @@ function downloadImportTemplate(customFields = []) {
 }
 
 // ── Import Modal ───────────────────────────────────────────────────────────────
-function ImportItemsModal({ onClose, onImport, customFields = [] }) {
+// A blend-in editable cell for the import preview. Renders as plain text until
+// focused, so the grid still reads like a table but any value can be corrected
+// in place. When a close-but-not-exact match to a known value exists, it offers
+// a one-click "Did you mean X?" chip beneath the field.
+function ImportEditCell({ value, suggestion, onChange, placeholder }) {
+  return (
+    <div style={{ display:'flex', flexDirection:'column', gap:3, minWidth:96 }}>
+      <input
+        value={value || ''}
+        placeholder={placeholder || ''}
+        onChange={e => onChange(e.target.value)}
+        style={{ width:'100%', border:'1px solid transparent', borderRadius:5, padding:'3px 6px',
+                 fontSize:12, background:'transparent', color:'var(--muted)', fontFamily:'inherit' }}
+        onFocus={e => { e.target.style.borderColor = 'var(--line)'; e.target.style.background = 'var(--card)'; e.target.style.color = 'var(--ink)'; }}
+        onBlur={e => { e.target.style.borderColor = 'transparent'; e.target.style.background = 'transparent'; e.target.style.color = 'var(--muted)'; }}
+      />
+      {suggestion && (
+        <button type="button" onClick={() => onChange(suggestion)} title={`Use "${suggestion}"`}
+          style={{ alignSelf:'flex-start', display:'inline-flex', alignItems:'center', gap:4, fontSize:11, fontWeight:600,
+                   color:'hsl(var(--color-orange))', background:'hsla(var(--color-orange),0.09)',
+                   border:'1px solid hsla(var(--color-orange),0.35)', borderRadius:12, padding:'1px 8px', cursor:'pointer', whiteSpace:'nowrap' }}>
+          Did you mean {suggestion}?
+        </button>
+      )}
+    </div>
+  );
+}
+
+function ImportItemsModal({ onClose, onImport, customFields = [], knownDepts = [], knownLocations = [] }) {
   const [rows,      setRows]      = useState(null);
   const [parseErr,  setParseErr]  = useState('');
   const [importing, setImporting] = useState(false);
@@ -979,9 +1048,17 @@ function ImportItemsModal({ onClose, onImport, customFields = [] }) {
       .finally(() => setImporting(false));
   }
 
+  // Edit a single preview row in place (Department / Location corrections). The
+  // corrected value flows straight into the `valid` set that gets imported.
+  const updateRow = (idx, patch) => setRows(rs => (rs || []).map((r, i) => i === idx ? { ...r, ...patch } : r));
+
   const valid   = rows?.filter(r => r._valid) ?? [];
   const invalid = rows?.filter(r => !r._valid) ?? [];
   const warned  = rows?.filter(r => r._unknownType) ?? [];
+  // Rows whose Department or Location looks like a typo of an existing value.
+  // Surfaced as a banner + inline "Did you mean" so an item never lands under a
+  // phantom, unfilterable name (the "Constrcuction" that hid Ashley's item).
+  const typoRows = rows?.filter(r => suggestKnown(r.department, knownDepts) || suggestKnown(r.location, knownLocations)) ?? [];
   // The distinct unknown type names (not just a count) - Amy needs to SEE all of
   // them before importing, not just "14 unknown".
   const unknownTypes = [...new Set(warned.map(r => (r.item_type || '').trim()).filter(Boolean))];
@@ -1047,6 +1124,16 @@ function ImportItemsModal({ onClose, onImport, customFields = [] }) {
                     </div>
                   </div>
                 )}
+                {typoRows.length > 0 && (
+                  <div style={{ border:'1px solid hsla(var(--color-orange),0.35)', background:'hsla(var(--color-orange),0.06)', borderRadius:8, padding:'10px 12px', marginBottom:14 }}>
+                    <div style={{ fontSize:12, fontWeight:700, color:'hsl(var(--color-orange))', marginBottom:4 }}>
+                      {typoRows.length} row{typoRows.length !== 1 ? 's' : ''} with a department or location that looks like a typo of one you already use
+                    </div>
+                    <div style={{ fontSize:12, color:'var(--muted)' }}>
+                      Tap the suggestion under the field to fix it, or type the correct value. An item filed under a misspelled name won't show up when you filter by the correct one.
+                    </div>
+                  </div>
+                )}
                 <div style={{ border:'1px solid var(--line)', borderRadius:8, overflow:'auto', maxHeight:'52vh', marginBottom:10 }}>
                   <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12 }}>
                     <thead>
@@ -1063,9 +1150,15 @@ function ImportItemsModal({ onClose, onImport, customFields = [] }) {
                           <td style={{ padding:'6px 10px', color: r._unknownType ? 'hsl(var(--color-orange))' : 'var(--muted)' }}>{r.item_type}</td>
                           <td style={{ padding:'6px 10px', color:'var(--muted)' }}>{r.make}</td>
                           <td style={{ padding:'6px 10px', color:'var(--muted)' }}>{r.model}</td>
-                          <td style={{ padding:'6px 10px', color:'var(--muted)' }}>{r.department}</td>
+                          <td style={{ padding:'4px 8px', verticalAlign:'top' }}>
+                            <ImportEditCell value={r.department} suggestion={suggestKnown(r.department, knownDepts)}
+                              onChange={v => updateRow(i, { department: v })} />
+                          </td>
                           <td style={{ padding:'6px 10px', color:'var(--muted)' }}>{r.ownership_type}</td>
-                          <td style={{ padding:'6px 10px', color:'var(--muted)' }}>{r.location}</td>
+                          <td style={{ padding:'4px 8px', verticalAlign:'top' }}>
+                            <ImportEditCell value={r.location} suggestion={suggestKnown(r.location, knownLocations)}
+                              onChange={v => updateRow(i, { location: v })} />
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -8419,7 +8512,9 @@ export default function InventoryManagement({ activeSub }) {
         <ManageTypesModal types={itemTypes} counts={typeCounts} onClose={() => setTypesOpen(false)}
           onChanged={t => setItemTypes(Array.isArray(t) && t.length ? t : ITEM_TYPES)} toast={toast} />
       )}
-      {importOpen   && <ImportItemsModal onClose={() => setImportOpen(false)} onImport={handleImport} customFields={customFields} />}
+      {importOpen   && <ImportItemsModal onClose={() => setImportOpen(false)} onImport={handleImport} customFields={customFields}
+        knownDepts={[...new Set([...DEPARTMENTS.filter(d => d !== 'All'), ...items.map(i => (i.department || '').trim()).filter(Boolean)])]}
+        knownLocations={locationOptions} />}
       {reportOpen   && <ReportModal onClose={() => setReportOpen(false)} checkouts={checkouts} initial={reportInitial} />}
       {returningCo  && (
         <ReturnModal checkout={returningCo} onClose={() => setReturningCo(null)}

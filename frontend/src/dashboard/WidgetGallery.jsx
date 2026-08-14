@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { X, Plus, Check } from 'lucide-react';
 import { WIDGETS, KPI_CATALOG, SHORTCUT_TARGETS } from './widgets.jsx';
+import { api } from '../api';
 
 const Overlay = ({ children, onClose }) => (
   <div onClick={e => { if (e.target === e.currentTarget) onClose(); }}
@@ -22,8 +23,62 @@ const Shell = ({ title, sub, onClose, children }) => (
   </div>
 );
 
+// Folder picker for the Links Folder widget - its own component (not just a
+// branch inline in ConfigFields) since it needs its own fetch effect, and
+// conditionally calling a hook inside ConfigFields depending on `type`
+// would break the rules of hooks the moment the picker switches widget
+// types mid-session. Lists every folder the user has built in External
+// Links across BOTH tabs (Aug 14, "add a option external links where i can
+// see all my folders... company and personal") - grouped so it's clear
+// which tab each one lives in, since the two are kept strictly separate
+// everywhere else in this module.
+function LinksFolderFields({ config, onChange }) {
+  const [state, setState] = useState({ loading: true, folders: [] });
+  useEffect(() => {
+    api.getLinkLayout().then(l => setState({ loading: false, folders: l?.folders || [] }))
+      .catch(() => setState({ loading: false, folders: [] }));
+  }, []);
+  const key = (f) => `${f.item_type || 'external'}:${f.id}`;
+  const cur = config.folderId ? `${config.itemType || 'external'}:${config.folderId}` : '';
+  const company = state.folders.filter(f => (f.item_type || 'external') === 'external');
+  const personal = state.folders.filter(f => f.item_type === 'personal');
+  return (
+    <div>
+      <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 6 }}>Folder</label>
+      {state.loading ? (
+        <p style={{ fontSize: 12.5, color: 'var(--muted)' }}>Loading your folders…</p>
+      ) : state.folders.length === 0 ? (
+        <p style={{ fontSize: 12.5, color: 'var(--muted)' }}>
+          You don't have any folders yet - open External Links, drag a couple of apps together (or hit "New Folder" on either tab), then come back here.
+        </p>
+      ) : (
+        <select className="form-input" value={cur} style={{ width: '100%' }}
+          onChange={e => {
+            const f = state.folders.find(x => key(x) === e.target.value);
+            if (f) onChange({ folderId: f.id, itemType: f.item_type || 'external', folderName: f.name });
+          }}>
+          <option value="">Pick a folder…</option>
+          {company.length > 0 && (
+            <optgroup label="Company Links">
+              {company.map(f => <option key={key(f)} value={key(f)}>{f.name}</option>)}
+            </optgroup>
+          )}
+          {personal.length > 0 && (
+            <optgroup label="Personal Links">
+              {personal.map(f => <option key={key(f)} value={key(f)}>{f.name}</option>)}
+            </optgroup>
+          )}
+        </select>
+      )}
+    </div>
+  );
+}
+
 // Config picker used both when adding a configurable widget and when editing one.
 function ConfigFields({ type, config, onChange }) {
+  if (type === 'links-folder') {
+    return <LinksFolderFields config={config} onChange={onChange} />;
+  }
   if (type === 'kpi') {
     return (
       <div>
@@ -78,7 +133,8 @@ export function WidgetGallery({ target, can, onAdd, onClose, layout = [] }) {
           <ConfigFields type={picking.type} config={picking.config} onChange={patch => setPicking(p => ({ ...p, config: { ...p.config, ...patch } }))} />
           <div style={{ display: 'flex', gap: 8, marginTop: 18, justifyContent: 'flex-end' }}>
             <button className="secondary-btn" onClick={() => setPicking(null)}>Back</button>
-            <button className="primary-btn" onClick={() => { onAdd(picking.type, picking.config); onClose(); }}>
+            <button className="primary-btn" disabled={picking.type === 'links-folder' && !picking.config.folderId}
+              onClick={() => { onAdd(picking.type, picking.config); onClose(); }}>
               <Plus size={14} /> Add Widget
             </button>
           </div>
@@ -99,8 +155,12 @@ export function WidgetGallery({ target, can, onAdd, onClose, layout = [] }) {
                 const added = onView.has(type);
                 return (
                   <button key={type} onClick={() => {
-                      if (def.configurable) setPicking({ type, config: def.configurable === 'kpi' ? { metric: 'open_tasks' } : { ...SHORTCUT_TARGETS[0] } });
-                      else { onAdd(type); onClose(); }
+                      if (def.configurable) {
+                        const initial = def.configurable === 'kpi' ? { metric: 'open_tasks' }
+                          : def.configurable === 'links-folder' ? {}
+                          : { ...SHORTCUT_TARGETS[0] };
+                        setPicking({ type, config: initial });
+                      } else { onAdd(type); onClose(); }
                     }}
                     title={added ? 'Already on this view - click to add another copy' : undefined}
                     style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 12px', border: '1px solid var(--line)', borderRadius: 10, background: 'var(--card)', cursor: 'pointer', textAlign: 'left', fontFamily: 'var(--wk-font)' }}

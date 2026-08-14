@@ -173,17 +173,45 @@ const TO_STATUS = { pending: '#b45309', approved: 'hsl(var(--color-green))', rej
 const TO_TINT = { pending: 'rgba(180,83,9,0.1)', approved: 'hsla(var(--color-green),0.1)', rejected: 'rgba(185,28,28,0.08)', cancelled: 'var(--mist)' };
 
 // One-shot position with a hard timeout: never keep the user waiting on GPS.
-const getPosition = () => new Promise((resolve) => {
+// `maxMs` caps how long the punch waits on geolocation before firing without it.
+// Clock-OUT passes a short budget: a lost out-punch (tab closed during the wait)
+// is the whole "logout not recorded" bug, and location matters far less when
+// someone is leaving than the punch actually landing. Clock-IN keeps the full
+// budget for an accurate geofence check.
+const getPosition = (maxMs = 9000) => new Promise((resolve) => {
   if (!navigator.geolocation) { resolve(null); return; }
   const done = (v) => { clearTimeout(timer); resolve(v); };
-  const timer = setTimeout(() => resolve(null), 9000);
+  const timer = setTimeout(() => resolve(null), maxMs);
   navigator.geolocation.getCurrentPosition(
     (pos) => done({ lat: String(pos.coords.latitude), lng: String(pos.coords.longitude),
                     accuracy_m: Math.round(pos.coords.accuracy || 0) }),
     () => done(null),
-    { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 },
+    { enableHighAccuracy: true, timeout: Math.max(1000, maxMs - 1000), maximumAge: 30000 },
   );
 });
+
+// Shared-PC binding: mint a nonce and hand it to the LOCAL Nexus agent over
+// localhost, so the agent claims this PC's device identity with its own token
+// (the browser never sends a device_id). Returns the nonce to send with clock-in,
+// or '' if there's no agent - a personal machine then clocks in unbound, exactly
+// as before. Best-effort with a short timeout so it never blocks the punch.
+const NEXUS_AGENT_PORT = 47615;
+async function pairLocalAgent() {
+  try {
+    const { nonce } = await api.timeAgentPairChallenge();
+    if (!nonce) return '';
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 2500);
+    let ok = false;
+    try {
+      const r = await fetch(`http://127.0.0.1:${NEXUS_AGENT_PORT}/nexus/pair?nonce=${encodeURIComponent(nonce)}`,
+        { signal: ctrl.signal });
+      ok = r.ok;
+    } catch { /* no agent reachable - unbound clock-in */ }
+    clearTimeout(t);
+    return ok ? nonce : '';
+  } catch { return ''; }
+}
 
 function GeoChip({ p }) {
   if (!p) return null;
@@ -351,11 +379,19 @@ export default function TimeClock() {
       return;
     }
     setBusy(kind);
-    const pos = await getPosition();
+    // Short geo budget on the way out so the punch fires fast and can't be lost to
+    // a closing tab; full budget on the way in for the geofence check. On the way
+    // IN, pair with the local agent concurrently (shared-PC device binding) so it
+    // adds no latency over the geolocation wait.
+    const [pos, pairNonce] = await Promise.all([
+      getPosition(kind === 'out' ? 2500 : 9000),
+      kind === 'in' ? pairLocalAgent() : Promise.resolve(''),
+    ]);
     try {
       const r = await api.timePunch({
         kind, ...(pos || {}), tz_offset_min: new Date().getTimezoneOffset(),
         ...(gateClickRef.current ? { clicked_at: gateClickRef.current } : {}),
+        ...(pairNonce ? { pair_nonce: pairNonce } : {}),
       });
       gateClickRef.current = '';
       const p = r.punch;
@@ -391,10 +427,12 @@ export default function TimeClock() {
   // someone clocked in 12+ hours "still working, or forgot to punch out?" -
   // last.at alone isn't the session start when the newest punch is a break.
   const [longAckAt, setLongAckAt] = useState(() => Number(localStorage.getItem('nexus:longShiftAck') || 0));
-  let sessionInAt = null;
+  let sessionInAt = null, sessionDay = '';
   if (clockedIn) {
-    Object.values(days).forEach(d => (d.punches || []).forEach(p => {
-      if (p.kind === 'in' && !p.voided && (!sessionInAt || p.at > sessionInAt)) sessionInAt = p.at;
+    // Track the DAY KEY of the session's in-punch too: a segment (and its break
+    // allowance) belongs to the day the shift STARTED, not the wall-clock day.
+    Object.entries(days).forEach(([dk, d]) => (d.punches || []).forEach(p => {
+      if (p.kind === 'in' && !p.voided && (!sessionInAt || p.at > sessionInAt)) { sessionInAt = p.at; sessionDay = dk; }
     }));
     if (!sessionInAt && last?.kind === 'in') sessionInAt = last.at;
   }
@@ -405,9 +443,13 @@ export default function TimeClock() {
   const todayKey = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
   const todayData = days[todayKey];
   const weekTotal = Object.values(days).reduce((a, d) => a + d.workedMin, 0);
-  // Daily break allowance: 1 hour. Used = completed breaks today + the live open one.
+  // Daily break allowance: 1 hour. Count against the SHIFT's day (the in-punch's
+  // date), not the wall-clock day - otherwise a night shift's allowance silently
+  // resets at midnight mid-shift and stops warning. Falls back to today when not
+  // clocked in (nothing open to attribute the meter to).
+  const breakData = (clockedIn && sessionDay && days[sessionDay]) || todayData;
   const BREAK_ALLOWANCE_MIN = 60;
-  const breakUsedMin = (todayData?.breakMin || 0) + gapBreakFromPunches(todayData?.punches) + (onBreak ? Math.floor(sinceSec / 60) : 0);
+  const breakUsedMin = (breakData?.breakMin || 0) + gapBreakFromPunches(breakData?.punches) + (onBreak ? Math.floor(sinceSec / 60) : 0);
   const breakLeftMin = BREAK_ALLOWANCE_MIN - breakUsedMin;
 
   // ── Current pay period (the Clock tab's mini summary). The Time Sheet tab is the

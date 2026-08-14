@@ -8,6 +8,7 @@ import ModuleTabs from '../components/ModuleTabs';
 import DocumentBuilder from '../components/DocumentBuilder';
 import { BODY_EXTENSIONS } from '../lib/docBuilderSchema';
 import { formatDateLong } from '../lib/datetime';
+import { useNameResolver } from '../lib/useNameResolver';
 import {
   BookOpen, CheckSquare, Search, Clock, Sparkles,
   X, ArrowLeft, Plus, Trash2, Edit3, Send, Archive, ArchiveRestore, Loader, ChevronUp, ChevronDown,
@@ -236,11 +237,11 @@ const bodyFieldEmpty = (body, f) =>
   (f === 'purpose' || f === 'scopeText') ? !((body?.[f] || '').trim()) : !((body?.[f] || []).length);
 
 const blankDraft = (name, email) => ({
-  id: null, title: '', doc_type: 'SOP', departments: [], reviewer_email: '',
+  id: null, title: '', doc_type: 'SOP', departments: [], service: '', reviewer_email: '',
   reviewer_name: '', version: '1.0', effective_date: '', body: blankBody(),
   require_ack: false, review_every_months: 12, retention_months: 84,
   tags: [], related_ids: [],
-  owner_name: name, owner_email: email, _raw: '',
+  owner_name: name, owner_email: email, _raw: '', _restructure: false,
 });
 
 const fmtDate = (s) => formatDateLong(s, '-');
@@ -414,16 +415,6 @@ async function uploadKbImage(dataUrl) {
 // Binary docs (Word/PDF) are larger than pasted text - allow more headroom.
 const _importLimit = name => (/\.(pdf|docx?)$/i.test(name) ? 15 : 2) * 1024 * 1024;
 
-// Friendly display name from a possible email ("visesh.lodha@x.com" → "Visesh Lodha")
-// so header cells show a clean name instead of a long, wrapping address.
-function prettyName(s) {
-  const v = (s || '').trim();
-  if (!v) return '-';
-  if (!v.includes('@')) return v;
-  return v.split('@')[0].split(/[._-]+/).filter(Boolean)
-    .map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ') || v;
-}
-
 // Render a procedure step's detail as a lead line (optional) plus indented bullets,
 // splitting on newlines AND inline " - " separators so dense steps don't read as one
 // run-on paragraph.
@@ -453,6 +444,9 @@ export default function SOP({ activeSub, onSubChange }) {
   const { can, myEmail } = useRole();
   const myName = accounts[0]?.name || myEmail || 'Me';
   const isManager = can('manager');
+  // Real Nexus People display names instead of raw emails or the email-derived
+  // heuristic prettyName() used to fall back to - see useNameResolver.js.
+  const nameOf = useNameResolver();
 
   const [docs, setDocs] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -479,6 +473,13 @@ export default function SOP({ activeSub, onSubChange }) {
   const [libView, setLibView] = useState(() => { try { return localStorage.getItem('kbLibView') || 'list'; } catch { return 'list'; } }); // list | cards | outline
   const [pins, setPins] = useState([]); // doc ids the user has pinned
   const [reviewers, setReviewers] = useState([]); // managers who can approve
+  const [serviceFilter, setServiceFilter] = useState('all');
+  const [services, setServices] = useState([]); // KbService rows (Department -> Service tier)
+  const [tagList, setTagList] = useState([]); // KbTag rows (managed tag vocabulary)
+  const [svcNewDept, setSvcNewDept] = useState(DEPARTMENTS[0]);
+  const [svcNewName, setSvcNewName] = useState('');
+  const [tagNewName, setTagNewName] = useState('');
+  const [titleCleanup, setTitleCleanup] = useState({ loading: false, proposed: null, unchanged: 0, applying: false });
   const searchRef = useRef(null);
   const [sidebarOpen, setSidebarOpen] = useState(() => { try { return localStorage.getItem('kbSidebar') !== '0'; } catch { return true; } }); // Playbook side panel
   const [help, setHelp] = useState(null); // page key of the contextual help drawer, or null
@@ -513,6 +514,7 @@ export default function SOP({ activeSub, onSubChange }) {
   const [commentText, setCommentText] = useState('');
   const [snapshots, setSnapshots] = useState([]);
   const [diff, setDiff] = useState(null); // { from, to } indices into snapshots
+  const [originalView, setOriginalView] = useState(null); // { loading, content } - raw pre-AI source text
   const [docLang, setDocLang] = useState('en');
   const [translating, setTranslating] = useState('');
   const [freeformHtml, setFreeformHtml] = useState({ id: '', html: '', loading: false });
@@ -611,6 +613,10 @@ export default function SOP({ activeSub, onSubChange }) {
     }).catch(() => setFreeformHtml({ id: linkedId, html: '', loading: false }));
   }, [mode, selected, freeformHtml.id]);
   useEffect(() => { api.getKbReviewers().then(setReviewers).catch(() => {}); }, []);
+  const refreshServices = useCallback(() => { api.getKbServices().then(setServices).catch(() => {}); }, []);
+  const refreshTags = useCallback(() => { api.getKbTags().then(setTagList).catch(() => {}); }, []);
+  useEffect(() => { refreshServices(); }, [refreshServices]);
+  useEffect(() => { refreshTags(); }, [refreshTags]);
   // remember the chosen library view between sessions
   useEffect(() => { try { localStorage.setItem('kbLibView', libView); } catch { /* ignore */ } }, [libView]);
   useEffect(() => { try { localStorage.setItem('kbSidebar', sidebarOpen ? '1' : '0'); } catch { /* ignore */ } }, [sidebarOpen]);
@@ -745,18 +751,21 @@ export default function SOP({ activeSub, onSubChange }) {
   // ── filtering ──
   const docSearchText = (d) => {
     const b = d.body || {};
-    return [d.title, d.doc_code, d.owner_name, b.purpose, b.scopeText,
+    return [d.title, d.doc_code, d.owner_name, d.service || '', b.purpose, b.scopeText,
       (b.procedure || []).map(s => s.text + ' ' + (s.detail || '')).join(' '),
       (b.references || []).join(' '),
       (b.tables || []).map(t => t.title + ' ' + (t.headers || []).join(' ') + ' ' + (t.rows || []).map(r => r.join(' ')).join(' ')).join(' '),
       (d.tags || []).join(' '), d.content_text || ''].join('  ').toLowerCase();
   };
   const allTags = [...new Set(docs.flatMap(d => d.tags || []))].sort((a, b) => a.localeCompare(b));
+  const servicesForDept = (dept) => services.filter(s => s.active && (!dept || dept === 'all' || s.department === dept));
+  const serviceLabel = (s) => s || 'General/Uncategorized';
   const filtered = docs.filter(d => {
     if (deptFilter !== 'all' && !(d.departments || []).includes(deptFilter)) return false;
     if (typeFilter !== 'all' && d.doc_type !== typeFilter) return false;
     if (statusFilter !== 'all' && d.status !== statusFilter) return false;
     if (tagFilter !== 'all' && !(d.tags || []).includes(tagFilter)) return false;
+    if (serviceFilter !== 'all' && (serviceFilter === '__none__' ? d.service : d.service !== serviceFilter)) return false;
     if (search && !docSearchText(d).includes(search.toLowerCase().trim())) return false;
     return true;
   });
@@ -773,12 +782,13 @@ export default function SOP({ activeSub, onSubChange }) {
   const openEdit = (d) => {
     setDraft({
       id: d.id, title: d.title, doc_type: d.doc_type, departments: [...(d.departments || [])],
+      service: d.service || '',
       reviewer_email: d.reviewer_email || '', reviewer_name: d.reviewer_name || '',
       version: d.version, effective_date: d.effective_date || '', require_ack: !!d.require_ack,
       review_every_months: d.review_every_months || 12, retention_months: d.retention_months || 84,
       tags: [...(d.tags || [])], related_ids: [...(d.related_ids || [])],
       body: { ...blankBody(), ...(d.body || {}) }, owner_name: d.owner_name, owner_email: d.owner_email, _raw: '',
-      _status: d.status, _reviewNote: d.review_note || '',
+      _status: d.status, _reviewNote: d.review_note || '', _restructure: false,
     });
     setEdStep(0);
     setMode('editor');
@@ -812,12 +822,17 @@ export default function SOP({ activeSub, onSubChange }) {
   // ── save / workflow ──
   const payloadFromDraft = () => ({
     title: draft.title, doc_type: draft.doc_type, departments: draft.departments,
+    service: draft.service || '',
     reviewer_email: draft.reviewer_email, reviewer_name: draft.reviewer_name,
     version: draft.version, effective_date: draft.effective_date, body: draft.body,
     require_ack: draft.require_ack,
     review_every_months: parseInt(draft.review_every_months, 10) || 12,
     retention_months: parseInt(draft.retention_months, 10) || 84,
     tags: draft.tags || [], related_ids: draft.related_ids || [],
+    // Raw pre-AI source text - the backend only ever stores this ONCE (on first
+    // create, or the first update that supplies it) and never overwrites it
+    // again, so it's always safe to include here regardless of create vs edit.
+    original_content: draft._raw || '',
   });
 
   const save = async (submit) => {
@@ -908,7 +923,10 @@ export default function SOP({ activeSub, onSubChange }) {
     if (!content) { setErr('Paste or upload an existing document, or add a title/purpose for the AI to work from.'); return; }
     setAiBusy(true); setErr('');
     try {
-      const { sop, source } = await api.aiFormatKbDoc({ content, title: draft.title, departments: draft.departments });
+      const [{ sop, source }, meta] = await Promise.all([
+        api.aiFormatKbDoc({ content, title: draft.title, departments: draft.departments, restructure: !!draft._restructure }),
+        api.aiSuggestKbMeta({ content, title: draft.title, departments: draft.departments }).catch(() => null),
+      ]);
       if (source !== 'ai') { setErr('Nexus AI is unavailable right now (no key locally, or a network/parse error) - this used a best-effort offline formatter instead, which cannot group steps, place images, or read tables. Try again once the API key is configured, or expect to do heavier manual cleanup.'); }
       // Map the [[IMG#]] markers Claude placed back to the uploaded image URLs, and
       // scrub any stray markers out of text so they never render as literal "[[IMG1]]".
@@ -955,8 +973,17 @@ export default function SOP({ activeSub, onSubChange }) {
       // which template sections the source did NOT cover - flagged red in Content
       const gapFields = Object.keys(SOP_FIELD_LABELS).filter(f => bodyFieldEmpty(afterBody, f));
       setDraft(p => ({ ...p, title: afterTitle, _importSource: raw ? content : p._importSource, _gaps: gapFields, body: afterBody }));
+      // Metadata suggestions are surfaced for review only - never applied to the
+      // draft until the user clicks "Keep Changes" on the panel below, so a bad
+      // guess can't silently become permanent data.
       setAiReview({ open: true, tab: 'changes', source: raw ? content : '',
-        before, after: { title: afterTitle, departments: [...draft.departments], body: afterBody } });
+        before, after: { title: afterTitle, departments: [...draft.departments], body: afterBody },
+        meta: {
+          title: meta?.title || afterTitle,
+          department: (meta?.department && DEPARTMENTS.includes(meta.department)) ? meta.department : (draft.departments[0] || ''),
+          service: meta?.service || draft.service || '',
+          tags: meta?.tags?.length ? [...new Set([...(draft.tags || []), ...meta.tags])] : (draft.tags || []),
+        } });
       // wizard: a fresh capture that formatted successfully moves on to Content
       if (!draft.id && draft.doc_type !== 'Manual') setEdStep(p => (p === 0 ? 1 : p));
     } catch (e) { setErr(e.message || 'AI formatting failed'); }
@@ -1519,8 +1546,8 @@ export default function SOP({ activeSub, onSubChange }) {
               <div style={{ padding: '8px 13px', borderBottom: `1px solid ${DOC_THEME.line}`, background: '#F7F8FA', fontSize: '0.72rem', fontWeight: 700, color: DOC_THEME.slate, letterSpacing: '0.04em' }}>DOCUMENT CONTROL</div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 1, backgroundColor: DOC_THEME.line }}>
                 {[['SOP ID', d.doc_code || '-'], ['Type', d.doc_type], ['Version', 'v' + d.version],
-                  ['Owner', prettyName(d.owner_name || d.owner_email), d.owner_email],
-                  ['Reviewer', prettyName(d.reviewer_name || d.reviewer_email), d.reviewer_email],
+                  ['Owner', nameOf(d.owner_email, d.owner_name), d.owner_email],
+                  ['Reviewer', nameOf(d.reviewer_email, d.reviewer_name), d.reviewer_email],
                   ['Effective', fmtDate(d.effective_date)], ['Updated', fmtDate(d.updated_at)]].map(([k, v, tip]) => (
                   <div key={k} style={{ backgroundColor: DOC_THEME.paper, padding: '10px 13px', minWidth: 0 }}>
                     <div style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: DOC_THEME.muted, marginBottom: 3 }}>{k}</div>
@@ -1639,9 +1666,9 @@ export default function SOP({ activeSub, onSubChange }) {
                 ? <div style={{ fontSize: '0.83rem', color: 'var(--text-muted)', marginBottom: 4 }}>No comments yet. Start the discussion below.</div>
                 : comments.map(c => (
                   <div key={c.id} style={{ display: 'flex', gap: 11, padding: '12px 0', borderBottom: '1px solid var(--bg-secondary)' }}>
-                    <span style={{ flex: '0 0 auto', width: 32, height: 32, borderRadius: '50%', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '0.72rem' }}>{initials(prettyName(c.author_name || c.author_email))}</span>
+                    <span style={{ flex: '0 0 auto', width: 32, height: 32, borderRadius: '50%', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '0.72rem' }}>{initials(nameOf(c.author_email, c.author_name))}</span>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}><span style={{ fontWeight: 600, fontSize: '0.82rem' }}>{prettyName(c.author_name || c.author_email)}</span><span style={{ marginLeft: 'auto', fontSize: '0.7rem', color: 'var(--text-muted)', fontFamily: 'inherit' }}>{fmtDate(c.created_at)}</span></div>
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}><span style={{ fontWeight: 600, fontSize: '0.82rem' }}>{nameOf(c.author_email, c.author_name)}</span><span style={{ marginLeft: 'auto', fontSize: '0.7rem', color: 'var(--text-muted)', fontFamily: 'inherit' }}>{fmtDate(c.created_at)}</span></div>
                       <div style={{ fontSize: '0.85rem', color: 'var(--text-primary)', marginTop: 4, whiteSpace: 'pre-wrap', wordWrap: 'break-word' }}>{c.text}</div>
                     </div>
                   </div>
@@ -1659,7 +1686,7 @@ export default function SOP({ activeSub, onSubChange }) {
             <div style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 16, boxShadow: 'var(--shadow-sm)' }}>
               <h3 style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', margin: '0 0 12px' }}>Status</h3>
               <Badge status={d.status} />
-              {d.status === 'in_review' && <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: '10px 0 0' }}>Submitted to {prettyName(d.reviewer_name || d.reviewer_email)} for approval.</p>}
+              {d.status === 'in_review' && <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: '10px 0 0' }}>Submitted to {nameOf(d.reviewer_email, d.reviewer_name)} for approval.</p>}
               {d.status === 'changes_requested' && d.review_note && <p style={{ fontSize: '0.8rem', color: 'hsl(0,70%,45%)', margin: '10px 0 0' }}>{d.review_note}</p>}
               {d.status === 'approved' && <p style={{ fontSize: '0.8rem', color: 'hsl(145,55%,32%)', margin: '10px 0 0' }}>Published and live in the library.</p>}
             </div>
@@ -1698,7 +1725,7 @@ export default function SOP({ activeSub, onSubChange }) {
                 {d.is_stale
                   ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', fontWeight: 700, color: 'hsl(32,80%,38%)', background: 'hsla(38,92%,50%,0.14)', borderRadius: 999, padding: '4px 10px' }}>Needs Review</span>
                   : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', fontWeight: 700, color: 'hsl(145,55%,30%)', background: 'hsla(145,63%,42%,0.14)', borderRadius: 999, padding: '4px 10px' }}><CheckSquare size={13} /> Verified</span>}
-                <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 8 }}>{d.verified_at ? `Last verified ${fmtDate(d.verified_at)}${d.verified_by ? ` by ${prettyName(d.verified_by)}` : ''}.` : 'Not yet verified.'}</div>
+                <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 8 }}>{d.verified_at ? `Last verified ${fmtDate(d.verified_at)}${d.verified_by ? ` by ${nameOf('', d.verified_by)}` : ''}.` : 'Not yet verified.'}</div>
                 <div style={{ fontSize: '0.78rem', color: d.is_stale ? 'hsl(32,80%,38%)' : 'var(--text-muted)', marginTop: 3 }}>Every {d.review_every_months} mo · next due {fmtDate(d.next_review)}.</div>
                 {(isManager || d.owner_email === myEmail) && <button className={d.is_stale ? 'primary-btn' : 'secondary-btn'} onClick={verifyDoc} style={{ marginTop: 10, width: '100%', height: 32, fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}><ShieldCheck size={14} /> Still Accurate - Verify</button>}
               </div>
@@ -1725,7 +1752,7 @@ export default function SOP({ activeSub, onSubChange }) {
                           {ackInfo.signed.map((s, i) => (
                             <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: '0.78rem' }}>
                               <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'hsl(145,63%,42%)', flex: '0 0 auto' }} />
-                              <span style={{ fontWeight: 500 }}>{prettyName(s.user_name || s.user_email)}</span>
+                              <span style={{ fontWeight: 500 }}>{nameOf(s.user_email, s.user_name)}</span>
                               <span style={{ marginLeft: 'auto', fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'inherit' }}>{fmtDate(s.signed_at)}</span>
                             </div>
                           ))}
@@ -1752,6 +1779,16 @@ export default function SOP({ activeSub, onSubChange }) {
               {snapshots.length >= 2 && (
                 <button className="secondary-btn" onClick={() => setDiff({ from: snapshots.length - 2, to: snapshots.length - 1 })} style={{ marginTop: 12, width: '100%', height: 34, fontSize: '0.8rem' }}>Compare Versions</button>
               )}
+              {d.has_original_content && (
+                <button className="secondary-btn" onClick={() => {
+                  setOriginalView({ loading: true, content: '' });
+                  api.getKbOriginal(d.id).then(r => setOriginalView({ loading: false, content: r.original_content || '' }))
+                    .catch(e => setOriginalView({ loading: false, content: '', error: e.message || 'Could not load the original' }));
+                }} style={{ marginTop: 8, width: '100%', height: 34, fontSize: '0.8rem' }}>View Original Source</button>
+              )}
+              {d.original_title && (
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 10 }}>Originally titled: "{d.original_title}"</div>
+              )}
             </div>
           </div>
         </div>
@@ -1759,7 +1796,7 @@ export default function SOP({ activeSub, onSubChange }) {
           const snaps = snapshots;
           const A = snaps[Math.min(diff.from, snaps.length - 1)], B = snaps[Math.min(diff.to, snaps.length - 1)];
           const ab = A.body || {}, bb = B.body || {};
-          const opt = (sel) => snaps.map((s, i) => <option key={i} value={i}>v{s.version} · {fmtDate(s.date)}{s.author ? ' · ' + prettyName(s.author) : ''}</option>);
+          const opt = (sel) => snaps.map((s, i) => <option key={i} value={i}>v{s.version} · {fmtDate(s.date)}{s.author ? ' · ' + nameOf(s.author, s.author) : ''}</option>);
           const field = (label, node) => <div style={{ marginBottom: 16 }}><h4 style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', margin: '0 0 7px' }}>{label}</h4>{node}</div>;
           return (
             <div className="modal-overlay" style={{ display: 'flex' }} onClick={e => { if (e.target === e.currentTarget) setDiff(null); }}>
@@ -1787,6 +1824,22 @@ export default function SOP({ activeSub, onSubChange }) {
             </div>
           );
         })()}
+        {originalView && (
+          <div className="modal-overlay" style={{ display: 'flex' }} onClick={e => { if (e.target === e.currentTarget) setOriginalView(null); }}>
+            <div className="modal-content" style={{ maxWidth: 760 }}>
+              <div className="modal-header"><h3>Original Source</h3><button className="close-btn" onClick={() => setOriginalView(null)}><X size={18} /></button></div>
+              <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: '0 2px 10px' }}>The raw text as first imported, before any AI formatting - use this to check whether the published version dropped, changed, or added anything.</div>
+              <div style={{ maxHeight: '60vh', overflow: 'auto', padding: '4px 2px' }}>
+                {originalView.loading
+                  ? <div style={{ textAlign: 'center', padding: 24 }}><Loader size={18} style={{ animation: 'spin 0.7s linear infinite' }} /></div>
+                  : originalView.error
+                    ? <div style={{ color: 'hsl(0,70%,45%)', fontSize: '0.85rem' }}>{originalView.error}</div>
+                    : <div style={{ fontSize: '0.83rem', lineHeight: 1.6, whiteSpace: 'pre-wrap', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 10, padding: '12px 14px' }}>{originalView.content || '(no original source recorded)'}</div>}
+              </div>
+              <div className="modal-footer"><button className="primary-btn" onClick={() => setOriginalView(null)}>Done</button></div>
+            </div>
+          </div>
+        )}
         {lightbox && (
           <div onClick={() => setLightbox(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.82)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 30, zIndex: 200, cursor: 'zoom-out' }}>
             <img src={lightbox} alt="" style={{ maxWidth: '100%', maxHeight: '100%', borderRadius: 10 }} />
@@ -2097,7 +2150,7 @@ export default function SOP({ activeSub, onSubChange }) {
                     ))}
                   </div>
                 )}
-                <div style={{ display: 'flex', gap: 10, justifyContent: isMobile ? 'center' : 'flex-start', marginTop: 16, flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', gap: 10, justifyContent: isMobile ? 'center' : 'flex-start', marginTop: 16, flexWrap: 'wrap', alignItems: 'center' }}>
                   <label className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 42, cursor: 'pointer', margin: 0 }}>
                     <Paperclip size={15} /> Upload File
                     <input type="file" accept={IMPORT_ACCEPT} onChange={e => { importFile(e.target.files[0]); e.target.value = ''; }} style={{ display: 'none' }} />
@@ -2106,6 +2159,10 @@ export default function SOP({ activeSub, onSubChange }) {
                     {aiBusy ? <Loader size={15} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Sparkles size={15} />} {aiBusy ? 'Writing Your SOP…' : 'Format with Nexus'}
                   </button>
                 </div>
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, marginTop: 12, cursor: 'pointer', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                  <input type="checkbox" checked={!!draft._restructure} onChange={e => setDraft(p => ({ ...p, _restructure: e.target.checked }))} style={{ width: 15, height: 15, cursor: 'pointer' }} />
+                  Restructure mode - let Nexus reorganize unstructured notes (default is light cleanup only: it preserves your wording, commands, and step boundaries as written)
+                </label>
               </div>
             </div>
           </div>
@@ -2169,8 +2226,17 @@ export default function SOP({ activeSub, onSubChange }) {
             </div>
           </div>
           <div style={{ marginTop: 20 }}>
+            <label style={fieldLabel}>Service</label>
+            {fieldTip('The team within the department this belongs to - leave unset for General/Uncategorized.')}
+            <select className="form-select" value={draft.service} onChange={e => setDraft(p => ({ ...p, service: e.target.value }))} style={{ padding: '11px 36px 11px 14px', maxWidth: 360 }}>
+              <option value="">General/Uncategorized</option>
+              {servicesForDept(draft.departments[0]).map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+              {draft.service && !servicesForDept(draft.departments[0]).some(s => s.name === draft.service) && <option value={draft.service}>{draft.service}</option>}
+            </select>
+          </div>
+          <div style={{ marginTop: 20 }}>
             <label style={fieldLabel}>Tags</label>
-            {fieldTip('Free-form keywords for browsing/filtering the library - press Enter to add.')}
+            {fieldTip('Keywords for browsing/filtering the library - pick from the managed list or type a new one and press Enter.')}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
               {(draft.tags || []).map(t => (
                 <span key={t} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', fontWeight: 500, padding: '5px 10px', borderRadius: 999, background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: 'var(--text-secondary)' }}>
@@ -2179,14 +2245,21 @@ export default function SOP({ activeSub, onSubChange }) {
                 </span>
               ))}
             </div>
-            <input className="form-input" placeholder="Type a tag and press Enter…" style={{ padding: '10px 14px', maxWidth: 320 }}
-              onKeyDown={e => {
-                if (e.key !== 'Enter') return;
-                e.preventDefault();
-                const v = e.target.value.trim();
-                if (v && !(draft.tags || []).includes(v)) setDraft(p => ({ ...p, tags: [...(p.tags || []), v] }));
-                e.target.value = '';
-              }} />
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', maxWidth: 480 }}>
+              <select className="form-select" value="" style={{ padding: '10px 34px 10px 14px' }}
+                onChange={e => { const v = e.target.value; if (v && !(draft.tags || []).includes(v)) setDraft(p => ({ ...p, tags: [...(p.tags || []), v] })); }}>
+                <option value="">+ Add from managed tags…</option>
+                {tagList.filter(t => t.active && !(draft.tags || []).includes(t.name)).map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
+              </select>
+              <input className="form-input" placeholder="Or type a new tag and press Enter…" style={{ padding: '10px 14px', maxWidth: 260 }}
+                onKeyDown={e => {
+                  if (e.key !== 'Enter') return;
+                  e.preventDefault();
+                  const v = e.target.value.trim();
+                  if (v && !(draft.tags || []).includes(v)) setDraft(p => ({ ...p, tags: [...(p.tags || []), v] }));
+                  e.target.value = '';
+                }} />
+            </div>
           </div>
           <div style={{ marginTop: 20 }}>
             <label style={fieldLabel}>Related documents (See also)</label>
@@ -2320,7 +2393,22 @@ export default function SOP({ activeSub, onSubChange }) {
           const A = aiReview.before, B = aiReview.after;
           const ab = A.body || {}, bb = B.body || {};
           const field = (label, node) => <div style={{ marginBottom: 18 }}><h4 style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', fontWeight: 700, margin: '0 0 7px' }}>{label}</h4>{node}</div>;
-          const close = () => setAiReview(p => p ? { ...p, open: false } : null);
+          const meta = aiReview.meta || null;
+          const setMeta = (patch) => setAiReview(p => ({ ...p, meta: { ...p.meta, ...patch } }));
+          const close = () => {
+            // Metadata only becomes real draft data here, on explicit confirm -
+            // never silently from the AI response itself.
+            if (meta) {
+              setDraft(p => ({
+                ...p,
+                title: (meta.title || '').trim() || p.title,
+                departments: meta.department ? [meta.department] : p.departments,
+                service: meta.service || p.service,
+                tags: meta.tags || p.tags,
+              }));
+            }
+            setAiReview(p => p ? { ...p, open: false } : null);
+          };
           return (
             <div className="modal-overlay" style={{ display: 'flex', alignItems: 'stretch', justifyContent: 'center', padding: '2.5vh 2vw' }} onClick={e => { if (e.target === e.currentTarget) close(); }}>
               <div style={{ background: 'var(--bg-card)', borderRadius: 16, width: '96vw', maxWidth: 1180, height: '95vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.28)', overflow: 'hidden' }}>
@@ -2341,6 +2429,41 @@ export default function SOP({ activeSub, onSubChange }) {
                   {aiReview.tab === 'changes' ? (
                     <div style={{ maxWidth: 980, margin: '0 auto' }}>
                       {aiReview.source && field('Original source', <div style={{ fontSize: '0.82rem', lineHeight: 1.6, color: 'var(--text-secondary)', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 10, padding: '11px 13px', whiteSpace: 'pre-wrap', maxHeight: 220, overflow: 'auto' }}>{aiReview.source}</div>)}
+                      {meta && field('Suggested metadata (edit before Keep Changes applies it)', (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 10, padding: '12px 14px' }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+                            <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '0.76rem', color: 'var(--text-muted)' }}>Detected Title
+                              <input value={meta.title} onChange={e => setMeta({ title: e.target.value })} className="form-input" style={{ fontSize: '0.85rem' }} />
+                            </label>
+                            <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '0.76rem', color: 'var(--text-muted)' }}>Department
+                              <select value={meta.department} onChange={e => setMeta({ department: e.target.value, service: '' })} className="form-input" style={{ fontSize: '0.85rem' }}>
+                                <option value="">- Select -</option>
+                                {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
+                              </select>
+                            </label>
+                            <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '0.76rem', color: 'var(--text-muted)' }}>Suggested Service
+                              <select value={meta.service} onChange={e => setMeta({ service: e.target.value })} className="form-input" style={{ fontSize: '0.85rem' }}>
+                                <option value="">General/Uncategorized</option>
+                                {servicesForDept(meta.department).map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                                {meta.service && !servicesForDept(meta.department).some(s => s.name === meta.service) && <option value={meta.service}>{meta.service} (new)</option>}
+                              </select>
+                            </label>
+                          </div>
+                          <div>
+                            <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', marginBottom: 4 }}>Suggested Tags</div>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                              {(meta.tags || []).map((t, i) => (
+                                <span key={t + i} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: '0.76rem', fontWeight: 600, padding: '3px 8px', borderRadius: 999, background: 'hsla(var(--color-blue),0.12)', color: 'hsl(var(--color-blue))' }}>
+                                  {t}
+                                  <button onClick={() => setMeta({ tags: meta.tags.filter((_, j) => j !== i) })} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', display: 'flex', padding: 0 }}><X size={11} /></button>
+                                </span>
+                              ))}
+                              <input placeholder="Add tag + Enter" style={{ fontSize: '0.76rem', border: '1px dashed var(--border-color)', borderRadius: 999, padding: '3px 10px', background: 'transparent', color: 'var(--text-primary)', width: 130 }}
+                                onKeyDown={e => { if (e.key === 'Enter' && e.currentTarget.value.trim()) { setMeta({ tags: [...(meta.tags || []), e.currentTarget.value.trim()] }); e.currentTarget.value = ''; } }} />
+                            </div>
+                          </div>
+                        </div>
+                      ))}
                       {field('Title', <TextDiff oldS={A.title} newS={B.title} />)}
                       {field('Purpose', <TextDiff oldS={ab.purpose} newS={bb.purpose} />)}
                       {field('Scope', <TextDiff oldS={ab.scopeText} newS={bb.scopeText} />)}
@@ -2421,6 +2544,10 @@ export default function SOP({ activeSub, onSubChange }) {
       </span>
     );
   };
+
+  const serviceChip = (d) => (
+    <span style={{ fontSize: '0.66rem', fontWeight: 600, color: d.service ? 'var(--text-secondary)' : 'var(--text-muted)', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 999, padding: '1px 7px' }}>{serviceLabel(d.service)}</span>
+  );
 
   const tagChips = (d) => {
     const ts = d.tags || [];
@@ -2559,6 +2686,7 @@ export default function SOP({ activeSub, onSubChange }) {
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.7rem', color: 'var(--text-secondary)' }}>{d.doc_type} · v{d.version}<VerifyBadge d={d} compact /></span>
                   {deptChips(d)}
                 </div>
+                {serviceChip(d)}
                 {tagChips(d)}
               </div>
             );
@@ -2585,7 +2713,7 @@ export default function SOP({ activeSub, onSubChange }) {
               <button key={d.id} onClick={() => openDetail(d)} style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', textAlign: 'left', padding: '11px 15px', background: 'transparent', border: 'none', borderTop: '1px solid var(--bg-secondary)', cursor: 'pointer' }}>
                 <span style={{ flex: 1, minWidth: 0 }}>
                   <span style={{ display: 'block', fontWeight: 600, fontSize: '0.85rem', color: 'var(--text-primary)' }}>{d.title}</span>
-                  <span style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'inherit' }}>{d.doc_code || '-'} · {d.doc_type} · v{d.version} · {d.owner_name || ''}</span>
+                  <span style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'inherit' }}>{d.doc_code || '-'} · {d.doc_type} · v{d.version} · {nameOf(d.owner_email, d.owner_name)}</span>
                 </span>
                 <VerifyBadge d={d} compact />
                 <Badge status={d.status} />
@@ -2660,7 +2788,7 @@ export default function SOP({ activeSub, onSubChange }) {
                 <td className="kb-c-type" style={{ padding: '11px 14px', fontSize: '0.82rem' }}>{d.doc_type}</td>
                 <td className="kb-c-dept" style={{ padding: '11px 14px', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>{(d.departments || []).length ? d.departments.join(', ') : 'Unassigned'}</td>
                 <td style={{ padding: '11px 14px' }}><div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 4 }}><Badge status={d.status} /><VerifyBadge d={d} compact /></div></td>
-                <td className="kb-c-owner" style={{ padding: '11px 14px', fontSize: '0.82rem' }}>{d.owner_name || '-'}</td>
+                <td className="kb-c-owner" style={{ padding: '11px 14px', fontSize: '0.82rem' }}>{d.owner_email ? nameOf(d.owner_email, d.owner_name) : '-'}</td>
                 <td className="kb-c-upd" style={{ padding: '11px 14px', fontSize: '0.78rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{fmtDate(d.updated_at)}</td>
               </tr>
             ))}</tbody>
@@ -2714,7 +2842,14 @@ export default function SOP({ activeSub, onSubChange }) {
           </div>
 
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 14 }}>
-            <select className="form-select" value={deptFilter} onChange={e => setDeptFilter(e.target.value)} style={{ height: 36, fontSize: '0.83rem', width: 'auto' }}><option value="all">All departments</option>{DEPARTMENTS.map(d => <option key={d}>{d}</option>)}</select>
+            <select className="form-select" value={deptFilter} onChange={e => { setDeptFilter(e.target.value); setServiceFilter('all'); }} style={{ height: 36, fontSize: '0.83rem', width: 'auto' }}><option value="all">All departments</option>{DEPARTMENTS.map(d => <option key={d}>{d}</option>)}</select>
+            {servicesForDept(deptFilter).length > 0 && (
+              <select className="form-select" value={serviceFilter} onChange={e => setServiceFilter(e.target.value)} style={{ height: 36, fontSize: '0.83rem', width: 'auto' }}>
+                <option value="all">All services</option>
+                <option value="__none__">General/Uncategorized</option>
+                {servicesForDept(deptFilter).map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+              </select>
+            )}
             <select className="form-select" value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={{ height: 36, fontSize: '0.83rem', width: 'auto' }}><option value="all">All types</option>{DOC_TYPES.map(t => <option key={t}>{t}</option>)}</select>
             <select className="form-select" value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={{ height: 36, fontSize: '0.83rem', width: 'auto' }}><option value="all">All statuses</option>{Object.entries(STATUS_META).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</select>
             {allTags.length > 0 && (
@@ -2776,7 +2911,7 @@ export default function SOP({ activeSub, onSubChange }) {
           <button className="primary-btn" onClick={e => { e.stopPropagation(); openSourceById(s.id); }} style={{ height: 32, fontSize: '0.8rem', flex: '0 0 auto' }}>Review &amp; sign</button>));
         const returnedRows = returnedToMe.map(d => taskRow(d.id, () => openDetail(d), d.title, `${d.doc_code || '-'} · v${d.version}`,
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flex: '0 0 auto' }}><span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'hsl(0,70%,45%)', background: 'hsla(0,84%,60%,0.12)', borderRadius: 999, padding: '3px 10px' }}>Changes requested</span><ChevronRight size={16} style={{ color: 'var(--text-muted)' }} /></span>));
-        const reviewRows = awaitingReview.map(d => taskRow(d.id, () => openDetail(d), d.title, `${d.doc_code || '-'} · v${d.version} · ${d.owner_name || ''}`,
+        const reviewRows = awaitingReview.map(d => taskRow(d.id, () => openDetail(d), d.title, `${d.doc_code || '-'} · v${d.version} · ${nameOf(d.owner_email, d.owner_name)}`,
           <button className="primary-btn" onClick={e => { e.stopPropagation(); openDetail(d); }} style={{ height: 32, fontSize: '0.8rem', flex: '0 0 auto', backgroundColor: 'hsl(var(--color-green))' }}>Review</button>));
         return (
           <>
@@ -2854,6 +2989,9 @@ export default function SOP({ activeSub, onSubChange }) {
           [BarChart3, 'Insights', 'Usage, freshness & training', () => switchTab('insights')],
           [GraduationCap, 'Training Courses', 'Author Learn courses', openCourseManager],
           [BookOpen, 'New Manual', 'Chaptered reference doc', openCreateManual],
+          [Building2, 'Services', 'Manage the Department → Service list', () => switchTab('services')],
+          [List, 'Tags', 'Manage the tag vocabulary', () => switchTab('tags')],
+          [Edit3, 'Clean Up Titles', 'Strip legacy date/dept prefixes from titles', () => switchTab('titlecleanup')],
         ];
         return (
         <>
@@ -2940,7 +3078,7 @@ export default function SOP({ activeSub, onSubChange }) {
                           <button key={r.id} onClick={() => d && openDetail(d)} {...hoverRow} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left', padding: '10px 14px', background: 'transparent', border: 'none', borderTop: i ? '1px solid var(--bg-secondary)' : 'none', cursor: 'pointer' }}>
                             <div style={{ flex: 1, minWidth: 0 }}>
                               <div style={{ fontSize: '0.83rem', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.doc_title}</div>
-                              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{prettyName(r.user_name || r.user_email)} · {r.steps_done.length}/{r.step_count} steps</div>
+                              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nameOf(r.user_email, r.user_name)} · {r.steps_done.length}/{r.step_count} steps</div>
                             </div>
                             <span style={{ fontSize: '0.66rem', fontWeight: 700, borderRadius: 999, padding: '2px 8px', flex: '0 0 auto', color: r.status === 'completed' ? 'hsl(145,55%,30%)' : r.status === 'open' ? 'hsl(var(--color-blue))' : 'var(--text-muted)', background: r.status === 'completed' ? 'hsla(145,63%,42%,0.12)' : 'var(--bg-secondary)' }}>{r.status === 'completed' ? 'Completed' : r.status === 'open' ? 'In progress' : 'Abandoned'}</span>
                             <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', whiteSpace: 'nowrap', flex: '0 0 auto' }}>{fmtDate(r.completed_at || r.started_at)}</span>
@@ -2953,6 +3091,131 @@ export default function SOP({ activeSub, onSubChange }) {
         </>
         );
       })()}
+
+      {/* Services admin (managers) - Department -> Service tier */}
+      {sub === 'services' && isManager && (
+        <>
+          <div className="view-header" style={{ marginBottom: 16 }}>
+            <div className="view-title-group"><h2>Services</h2><p>The Service tier under each department - deactivate one instead of deleting it if SOPs still use it.</p></div>
+            <button className="secondary-btn" onClick={() => switchTab('manage')} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><ArrowLeft size={14} /> Back to Manage</button>
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 20, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 14 }}>
+            <select className="form-select" value={svcNewDept} onChange={e => setSvcNewDept(e.target.value)} style={{ width: 'auto' }}>
+              {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
+            </select>
+            <input className="form-input" placeholder="New service name (e.g. Microsoft 365)" value={svcNewName} onChange={e => setSvcNewName(e.target.value)} style={{ maxWidth: 280 }} />
+            <button className="primary-btn" disabled={!svcNewName.trim()} onClick={async () => {
+              try { await api.createKbService({ department: svcNewDept, name: svcNewName.trim() }); setSvcNewName(''); refreshServices(); }
+              catch (e) { setErr(e.message || 'Could not create service'); }
+            }}>Add Service</button>
+          </div>
+          {DEPARTMENTS.map(dep => {
+            const rows = services.filter(s => s.department === dep);
+            if (!rows.length) return null;
+            return (
+              <div key={dep} style={{ marginBottom: 18 }}>
+                <div style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: 8 }}>{dep}</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {rows.map(s => (
+                    <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 10, padding: '9px 14px' }}>
+                      <span style={{ flex: 1, fontSize: '0.88rem', color: s.active ? 'var(--text-primary)' : 'var(--text-muted)', textDecoration: s.active ? 'none' : 'line-through' }}>{s.name}</span>
+                      <button className="secondary-btn" style={{ height: 30, fontSize: '0.76rem' }} onClick={async () => {
+                        try { await api.updateKbService(s.id, { active: !s.active }); refreshServices(); }
+                        catch (e) { setErr(e.message || 'Could not update service'); }
+                      }}>{s.active ? 'Deactivate' : 'Reactivate'}</button>
+                      <button className="secondary-btn" style={{ height: 30, fontSize: '0.76rem', color: 'hsl(0,70%,45%)' }} onClick={async () => {
+                        try { await api.deleteKbService(s.id); refreshServices(); }
+                        catch (e) { setErr(e.message || 'Could not delete service'); }
+                      }}><Trash2 size={12} /></button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+          {services.length === 0 && <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>No services yet - add one above.</div>}
+        </>
+      )}
+
+      {/* Tags admin (managers) - managed vocabulary */}
+      {sub === 'tags' && isManager && (
+        <>
+          <div className="view-header" style={{ marginBottom: 16 }}>
+            <div className="view-title-group"><h2>Tags</h2><p>The managed tag vocabulary - renaming a tag updates every SOP that uses it.</p></div>
+            <button className="secondary-btn" onClick={() => switchTab('manage')} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><ArrowLeft size={14} /> Back to Manage</button>
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 20, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 14 }}>
+            <input className="form-input" placeholder="New tag name" value={tagNewName} onChange={e => setTagNewName(e.target.value)} style={{ maxWidth: 280 }} />
+            <button className="primary-btn" disabled={!tagNewName.trim()} onClick={async () => {
+              try { await api.createKbTag({ name: tagNewName.trim() }); setTagNewName(''); refreshTags(); }
+              catch (e) { setErr(e.message || 'Could not create tag'); }
+            }}>Add Tag</button>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {tagList.map(t => (
+              <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 10, padding: '9px 14px' }}>
+                <input defaultValue={t.name} key={t.id + t.name} style={{ flex: 1, fontSize: '0.88rem', border: 'none', background: 'transparent', color: t.active ? 'var(--text-primary)' : 'var(--text-muted)', outline: 'none' }}
+                  onBlur={async e => {
+                    const v = e.target.value.trim();
+                    if (!v || v === t.name) { e.target.value = t.name; return; }
+                    try { await api.updateKbTag(t.id, { name: v }); refreshTags(); refresh(); }
+                    catch (err) { setErr(err.message || 'Could not rename tag'); e.target.value = t.name; }
+                  }} />
+                <button className="secondary-btn" style={{ height: 30, fontSize: '0.76rem' }} onClick={async () => {
+                  try { await api.updateKbTag(t.id, { active: !t.active }); refreshTags(); }
+                  catch (e) { setErr(e.message || 'Could not update tag'); }
+                }}>{t.active ? 'Deactivate' : 'Reactivate'}</button>
+                <button className="secondary-btn" style={{ height: 30, fontSize: '0.76rem', color: 'hsl(0,70%,45%)' }} onClick={async () => {
+                  try { await api.deleteKbTag(t.id); refreshTags(); }
+                  catch (e) { setErr(e.message || 'Could not delete tag'); }
+                }}><Trash2 size={12} /></button>
+              </div>
+            ))}
+            {tagList.length === 0 && <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>No tags yet - add one above.</div>}
+          </div>
+        </>
+      )}
+
+      {/* Title cleanup (managers) - non-destructive dry-run then apply */}
+      {sub === 'titlecleanup' && isManager && (
+        <>
+          <div className="view-header" style={{ marginBottom: 16 }}>
+            <div className="view-title-group"><h2>Clean Up Titles</h2><p>Strips the legacy "Date - Type - Dept - Title" prefix. The original title is always preserved and nothing is overwritten until you apply.</p></div>
+            <button className="secondary-btn" onClick={() => switchTab('manage')} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><ArrowLeft size={14} /> Back to Manage</button>
+          </div>
+          <button className="primary-btn" disabled={titleCleanup.loading} onClick={async () => {
+            setTitleCleanup(p => ({ ...p, loading: true }));
+            try {
+              const res = await api.cleanupKbTitles(true);
+              setTitleCleanup({ loading: false, proposed: res.proposed, unchanged: res.unchanged, applying: false });
+            } catch (e) { setErr(e.message || 'Preview failed'); setTitleCleanup(p => ({ ...p, loading: false })); }
+          }} style={{ marginBottom: 18 }}>{titleCleanup.loading ? 'Scanning…' : 'Preview Changes'}</button>
+          {titleCleanup.proposed && (
+            titleCleanup.proposed.length === 0
+              ? <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Nothing to clean up - {titleCleanup.unchanged} document(s) already have a clean title or don't match the legacy pattern.</div>
+              : <>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
+                  {titleCleanup.proposed.map(p => (
+                    <div key={p.id} style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 10, padding: '10px 14px' }}>
+                      <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', textDecoration: 'line-through' }}>{p.current_title}</div>
+                      <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-primary)' }}>{p.new_title}</div>
+                      {(p.backfill?.effective_date || p.backfill?.departments) && (
+                        <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: 4 }}>
+                          Will also backfill: {[p.backfill.effective_date && `effective date ${p.backfill.effective_date}`, p.backfill.departments && `department ${p.backfill.departments.join(', ')}`].filter(Boolean).join(', ')}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <button className="primary-btn" disabled={titleCleanup.applying} style={{ backgroundColor: 'hsl(var(--color-green))', border: 'none' }} onClick={async () => {
+                  setTitleCleanup(p => ({ ...p, applying: true }));
+                  try { await api.cleanupKbTitles(false); setTitleCleanup({ loading: false, proposed: null, unchanged: 0, applying: false }); refresh(); }
+                  catch (e) { setErr(e.message || 'Apply failed'); setTitleCleanup(p => ({ ...p, applying: false })); }
+                }}>{titleCleanup.applying ? 'Applying…' : `Apply to ${titleCleanup.proposed.length} document(s)`}</button>
+              </>
+          )}
+        </>
+      )}
 
       {/* Assignment Matrix (managers) */}
       {sub === 'matrix' && isManager && (() => {
@@ -3077,7 +3340,7 @@ export default function SOP({ activeSub, onSubChange }) {
                             : <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, overflow: 'hidden' }}>
                                 {roster.map((r, i) => (
                                   <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderTop: i ? '1px solid var(--bg-secondary)' : 'none' }}>
-                                    <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: '0.85rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.user_name}</div><div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{r.user_email}{r.due_date ? ` · due ${fmtDate(r.due_date)}` : ''}</div></div>
+                                    <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: '0.85rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nameOf(r.user_email, r.user_name)}</div><div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{r.user_email}{r.due_date ? ` · due ${fmtDate(r.due_date)}` : ''}</div></div>
                                     {statusChip(r)}
                                     <button className="secondary-btn" onClick={() => removeAssign(r.id)} title="Remove" style={{ width: 34, height: 32, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}><X size={14} /></button>
                                   </div>
@@ -3107,7 +3370,7 @@ export default function SOP({ activeSub, onSubChange }) {
                             : att.map(a => (
                                 <div key={a.id} style={{ border: '1px solid var(--border-color)', borderRadius: 12, padding: '12px 14px', marginBottom: 10, background: 'var(--bg-card)' }}>
                                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                                    <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{prettyName(a.user_name || a.user_email)}</div><div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{a.user_email} · {fmtDate(a.created_at)}</div></div>
+                                    <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{nameOf(a.user_email, a.user_name)}</div><div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{a.user_email} · {fmtDate(a.created_at)}</div></div>
                                     <span style={{ fontSize: '0.8rem', fontWeight: 700, color: a.passed ? 'hsl(145,55%,30%)' : 'hsl(0,70%,45%)' }}>{a.score}%</span>
                                     <span style={{ fontSize: '0.7rem', fontWeight: 700, color: a.passed ? 'hsl(145,55%,30%)' : 'hsl(0,70%,45%)', background: a.passed ? 'hsla(145,63%,42%,0.12)' : 'hsla(0,84%,60%,0.1)', borderRadius: 999, padding: '3px 10px' }}>{a.passed ? 'Passed' : 'Did not pass'}</span>
                                   </div>

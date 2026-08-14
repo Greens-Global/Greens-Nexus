@@ -1169,12 +1169,22 @@ function ActivityTab({ taskId, nameOf }) {
 // ── Attachments ─────────────────────────────────────────────────────────────
 function AttachmentsTab({ task, refresh }) {
   const [rows, setRows] = useState(null);
+  const [uploads, setUploads] = useState([]);   // in-flight files: {key, name, pct}
   const [view, setView] = useState(null);   // attachment open in the in-app viewer
   const fileRef = useRef(null);
   const reload = () => api.getTaskAttachments(task.id).then(setRows).catch(() => setRows([]));
   useEffect(() => { reload(); /* eslint-disable-next-line */ }, [task.id]);
 
-  const sendFile = (f) => uploadTaskAttachment(task.id, f).then(() => { reload(); refresh?.(); }).catch(() => {});
+  const sendFile = (f) => {
+    const key = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    setUploads((u) => [...u, { key, name: f.name, pct: 0 }]);
+    return uploadTaskAttachment(task.id, f, {}, (pct) => {
+      setUploads((u) => u.map((x) => (x.key === key ? { ...x, pct } : x)));
+    })
+      .then(() => { reload(); refresh?.(); })
+      .catch(() => {})
+      .finally(() => setUploads((u) => u.filter((x) => x.key !== key)));
+  };
   const onFile = (e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) sendFile(f); };
   const onPaste = (e) => { const files = filesFromPaste(e); if (files.length) { e.preventDefault(); files.forEach(sendFile); } };
   const del = async (a) => { await api.deleteTaskAttachment(a.id).catch(() => {}); reload(); refresh?.(); };
@@ -1184,11 +1194,23 @@ function AttachmentsTab({ task, refresh }) {
       <input ref={fileRef} type="file" style={{ display: 'none' }} onChange={onFile} />
       <button onClick={() => fileRef.current?.click()} style={{ ...btn('outline'), borderStyle: 'dashed', fontSize: 12, marginBottom: 12 }}><Paperclip size={13} /> Attach file</button>
       <span style={{ fontSize: 11, color: NX.faint, marginLeft: 8 }}>or press Ctrl+V to paste a screenshot</span>
-      {rows === null ? <div style={{ color: NX.faint, fontSize: 13, textAlign: 'center', padding: 20 }}>Loading…</div>
-        : rows.length === 0 ? <div style={{ color: NX.faint, fontSize: 13, textAlign: 'center', padding: 20 }}>No attachments yet.</div>
+      {(rows?.length || 0) === 0 && uploads.length === 0 ? (
+        rows === null ? <div style={{ color: NX.faint, fontSize: 13, textAlign: 'center', padding: 20 }}>Loading…</div>
+          : <div style={{ color: NX.faint, fontSize: 13, textAlign: 'center', padding: 20 }}>No attachments yet.</div>
+      )
           : (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              {rows.map((a) => {
+              {uploads.map((u) => (
+                <div key={u.key} style={{ display: 'flex', alignItems: 'center', gap: 8, border: `1px dashed ${NX.border}`, borderRadius: 10, padding: '6px 10px', fontSize: 12 }}>
+                  <Paperclip size={13} style={{ color: NX.dim }} />
+                  <span style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: NX.dim }}>{u.name}</span>
+                  <span style={{ width: 90, height: 4, borderRadius: 2, background: NX.border2, overflow: 'hidden' }}>
+                    <span style={{ display: 'block', height: '100%', width: '100%', background: NX.primary, transformOrigin: 'left', transform: `scaleX(${u.pct})`, transition: 'transform .15s linear' }} />
+                  </span>
+                  <span style={{ color: NX.faint, minWidth: 32, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{Math.round(u.pct * 100)}%</span>
+                </div>
+              ))}
+              {(rows || []).map((a) => {
                 const href = a.dataUrl || a.url;
                 const thumb = a.kind === 'image' && href
                   ? <img src={href} alt={a.name} style={{ width: 32, height: 32, borderRadius: 6, objectFit: 'cover' }} />

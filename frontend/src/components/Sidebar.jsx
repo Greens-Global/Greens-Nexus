@@ -14,6 +14,7 @@ import {
   KeyRound,
   Briefcase, FileSignature, ArrowDownToLine, ArrowUpFromLine,
   HardDrive, FolderOpen, MapPin, ClipboardList,
+  MonitorDot,
 } from "lucide-react";
 import TicketToken from "./icons/TicketToken";
 
@@ -24,6 +25,13 @@ export const NAV = [
   { view: "myhr", code: "MHR",              label: "My HR",              icon: Contact },
   { view: "manager-dashboard", code: "MGR", label: "Manager Dashboard",  icon: UserCheck,    minRole: 'supervisor' },
   { view: "locations", code: "LOC",         label: "Locations",          icon: MapPin,       minRole: 'supervisor' },
+  // Employee Tracking (disclosed monitoring dashboard). Grant-driven (Aug 13):
+  // IT Admin / Global Admin always see it; below that it appears only when an
+  // Access Group / job role grants the 'employee-tracking' module (in MODULES).
+  // The route (App.jsx VIEW_MIN_ROLES) and the backend endpoints gate on the same
+  // grant. Watching needs a viewer grant; remote control + device/policy admin
+  // need a full grant.
+  { view: "employee-tracking", code: "EMP", label: "Employee Tracking",  icon: MonitorDot,   minRole: 'supervisor' },
   { divider: true },
   // Tasks + Tickets are grant-driven like every other module (Aug 10): they
   // only appear when an Access Group / job role grants them (most job roles

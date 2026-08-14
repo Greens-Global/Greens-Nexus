@@ -1,8 +1,8 @@
-{
-  "name": "greens-nexus-agent",
-  "productName": "Greens Nexus Agent",
-  "version": "0.2.0",
-  "description": "Time & activity tracker for Greens Nexus — records the foreground app/window and a periodic screenshot while clocked in, per the disclosed monitoring policy. Headless, auto-starts at login, no tray.",
+﻿{
+  "name": "plugin",
+  "productName": "Plugin",
+  "version": "0.8.3",
+  "description": "Time & activity tracker for Greens Nexus â€” records the foreground app/window and a periodic screenshot while clocked in, per the disclosed monitoring policy. Visible 'Nexus Monitoring Active' tray indicator (no stop/exit), offline spooling with resume; on company PCs a Windows supervisor service (service/) auto-starts it, respawns it, and only IT admins can stop or remove it. Per-machine MSI under Program Files.",
   "main": "src/main.js",
   "author": "Greens Global",
   "license": "UNLICENSED",

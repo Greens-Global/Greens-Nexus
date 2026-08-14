@@ -5,6 +5,10 @@ import { editGuard } from '../asset/lib/editGuard.js';
 import BodModal from './BodModal';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 
+// Whether a live desktop agent covers this PC is decided SERVER-SIDE and read from
+// api.timeStatus().monitoring.agentActive - never by probing 127.0.0.1 from the
+// page, which Chrome's private-network policy blocks on unmanaged browsers.
+
 // ── Global mini-timer - lives on EVERY screen while clocked in ────────────────
 // A floating pill with a live HH:MM:SS stopwatch, a quick punch-out, and the
 // work-session screen capture engine. Capture is consent-per-shift: the user
@@ -44,6 +48,7 @@ export default function TimeclockWidget() {
   const onBreakRef = useRef(false);                // pause frames while on break
   const clockedInRef = useRef(false);              // only save frames during a live shift
   const canCaptureRef = useRef(false);             // monitoring policy allows capture
+  const agentActiveRef = useRef(false);            // a live desktop agent covers this PC
   const startRef = useRef(null);                   // latest startCapture, for the global hook
 
   const load = useCallback(() => {
@@ -99,6 +104,10 @@ export default function TimeclockWidget() {
   // Disclosed-monitoring policy drives whether capture is offered and its cadence.
   const mon = status?.monitoring;
   const canCapture = !!(mon?.enabled && mon?.trackScreens);
+  // When the desktop agent covers this PC it does the capturing, so the browser's
+  // capture control is irrelevant here - hide it (showing "Capture off" would read
+  // as "nothing is recording" when the agent actually is).
+  const agentActive = !!mon?.agentActive;
   const intervalMin = Math.max(1, mon?.intervalMinutes || 5);
   gapRef.current = intervalMin * 60 * 1000;
   randomizeRef.current = !!mon?.randomize;
@@ -106,6 +115,7 @@ export default function TimeclockWidget() {
   onBreakRef.current = onBreak;
   clockedInRef.current = clockedIn;
   canCaptureRef.current = canCapture;
+  agentActiveRef.current = !!mon?.agentActive;   // server says a live agent covers this person's PC
   // Next gap until a shot is due - jittered ±25% when the policy randomizes.
   const nextGap = () => randomizeRef.current
     ? Math.round(gapRef.current * (0.75 + Math.random() * 0.5))
@@ -150,6 +160,17 @@ export default function TimeclockWidget() {
         // a phone. Never block a field worker's punch on a share they physically
         // cannot perform; the punch records normally (monitoring simply n/a here).
         if (!navigator.mediaDevices?.getDisplayMedia) return true;
+        // A live desktop agent covers this PC (server-detected via the assigned
+        // device's heartbeat)? Then it captures every monitor natively - skip the
+        // browser share (no picker, no double capture). Re-check FRESH at click
+        // time (not the 25s-poll cache) so a PC assigned an owner moments ago is
+        // honored immediately - the employee never has to reload the page.
+        let covered = agentActiveRef.current;
+        try {
+          const s = await api.timeStatus();
+          if (s?.monitoring) { covered = !!s.monitoring.agentActive; agentActiveRef.current = covered; }
+        } catch { /* server unreachable - fall back to the last known value */ }
+        if (covered) return true;
         await startRef.current?.();
         return streamsRef.current.length > 0;
       },
@@ -205,7 +226,9 @@ export default function TimeclockWidget() {
         const form = new FormData();
         form.append('file', blob, 'shot.jpg');
         form.append('idle_sec', String(Math.round((Date.now() - lastActive.current) / 1000)));
-        form.append('active_view', window.location.pathname.slice(0, 100)
+        // Label browser-share frames "Chrome share" (mirrors the desktop agent's
+        // "desktop agent · screen N") instead of leaking the current page path.
+        form.append('active_view', 'Chrome share'
           + (streamsRef.current.length > 1 ? ` · screen ${i + 1}` : ''));
         form.append('tz_offset_min', String(new Date().getTimezoneOffset()));
         await api.timeShotUpload(form);
@@ -221,6 +244,7 @@ export default function TimeclockWidget() {
 
   async function startCapture() {
     if (!canCaptureRef.current) return;   // monitoring policy off - nothing to do
+    if (agentActiveRef.current) return;   // the desktop agent captures here instead
     // Managed-device path: getAllScreensMedia() grabs EVERY monitor at once with
     // NO picker - but only when the Nexus origin is allowlisted by the managed-
     // Chrome policy MultiScreenCaptureAllowedForUrls. On any device without that
@@ -300,8 +324,9 @@ export default function TimeclockWidget() {
               {onBreak ? 'On Break' : 'Working'}
             </span>
           </button>
-          {/* Disclosed-monitoring: capture control only appears when the policy enables screen tracking. */}
-          {canCapture && (
+          {/* Capture control appears only when the BROWSER is the capturer: policy
+              enables screens AND no desktop agent covers this PC. */}
+          {canCapture && !agentActive && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <button onClick={capturing ? stopCapture : startCapture}
                 title={paused ? 'Screen capture is paused for your break - no frames are saved until you end the break. Click to stop capture entirely.'
@@ -343,8 +368,8 @@ export default function TimeclockWidget() {
         <span style={{ fontSize: 13.5, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: 'var(--ink)' }}>
           {fmtHMS(elapsedSec)}
         </span>
-        {/* Capture stays visibly disclosed even while collapsed. */}
-        {canCapture && capturing > 0 && (paused ? <MonitorPause size={12} style={{ color: capTint }} /> : <MonitorUp size={12} style={{ color: capTint }} />)}
+        {/* Browser capture indicator (only when the browser is the capturer). */}
+        {canCapture && !agentActive && capturing > 0 && (paused ? <MonitorPause size={12} style={{ color: capTint }} /> : <MonitorUp size={12} style={{ color: capTint }} />)}
         <ChevronUp size={13} style={{ color: 'var(--muted)', transform: expanded ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }} />
       </button>
     </div>

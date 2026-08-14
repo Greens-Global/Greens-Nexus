@@ -4,9 +4,11 @@ import {
   ArrowRight, ArrowUpRight, BookOpen, CheckSquare, ChevronRight, ListTodo, Package, ShieldCheck, Bell, Clock, StickyNote,
   BarChart3, Layers, Zap, Users, ClipboardCheck, CalendarClock, ExternalLink, Boxes, X,
   ClipboardList, HandCoins, TrendingUp, Building2, FolderKanban, CalendarDays, Timer,
-  CheckCheck, Trash2, Mail, CalendarPlus,
+  CheckCheck, Trash2, Mail, CalendarPlus, FolderOpen,
 } from 'lucide-react';
 import { formatTime } from '../lib/datetime';
+import { api } from '../api';
+import { LinkIcon } from '../components/LinkIcon.jsx';
 
 // Heavy panels (ported from the old Overview / Team Analytics screens) load
 // lazily so TimeAdmin & the approval flows stay out of the main bundle.
@@ -188,6 +190,113 @@ function LinksWidget({ config }) {
   );
 }
 
+// Same accent-color scheme External Links uses (colorFor/PERSONAL_COLOR in
+// ExternalLinks.jsx) - not shared as an import since it's three lines of
+// pure hashing, cheaper to duplicate than to couple this file to that
+// view's module. Company gets a stable per-category tone; Personal gets one
+// flat purple, matching that view's own Personal badge color exactly.
+const LINK_TILE_PALETTE = ['blue', 'green', 'orange', 'purple', 'red', 'gold'];
+function hashLinkStr(s) { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return Math.abs(h); }
+function colorForLinkCategory(category) {
+  const tone = LINK_TILE_PALETTE[hashLinkStr(category || '') % LINK_TILE_PALETTE.length];
+  return { fg: `hsl(var(--color-${tone}))`, bg: `hsla(var(--color-${tone}),0.12)` };
+}
+const PERSONAL_TILE_COLOR = { fg: 'hsl(var(--color-purple))', bg: 'hsla(var(--color-purple),0.12)' };
+
+// Reuses External Links' own .app-grid/.app-tile CSS and real-favicon
+// LinkIcon (Aug 14, "i want the same folder style in dashboard as we have
+// in external links") rather than a plain text list, so a folder looks
+// identical whether it's opened from External Links or from this widget -
+// just the hover actions (favorite/drag/move-to-folder) are left out, since
+// none of those make sense on a small fixed dashboard tile.
+function LinksFolderTile({ link, color, onOpen }) {
+  return (
+    <div
+      className="app-tile" onClick={onOpen} role="button" tabIndex={0}
+      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(); } }}
+      title={link.name}
+    >
+      <div className="app-tile-icon-wrap">
+        <LinkIcon url={link.url} iconKey={link.icon} size={48} radius={13} fg={color.fg} bg={color.bg} />
+      </div>
+      <span className="app-tile-name">{link.name}</span>
+    </div>
+  );
+}
+
+// Shows the live contents of one of the user's own External Links folders
+// (Company or Personal - see PersonalLinksSection/LinksLayoutSection in
+// ExternalLinks.jsx, Aug 14 - "add a option external links where i can see
+// all my folders... so i can directly add as a customization in my
+// dashboard"). Fetches independently on mount rather than sharing state
+// with the External Links view - a dashboard widget has no guarantee that
+// view has ever been opened this session. Folder membership always comes
+// from the live layout document, never frozen into config, so renaming/
+// reordering/deleting apps in the folder from External Links shows up here
+// without re-configuring the widget - only which folder is shown is fixed
+// config, not its contents.
+function LinksFolderWidget({ config }) {
+  const [state, setState] = useState({ loading: true, folder: null, links: [] });
+  useEffect(() => {
+    let alive = true;
+    if (!config?.folderId) { setState({ loading: false, folder: null, links: [] }); return undefined; }
+    const itemType = config.itemType === 'personal' ? 'personal' : 'external';
+    Promise.all([
+      api.getLinkLayout(),
+      itemType === 'personal' ? api.getPersonalLinks() : api.getExternalLinks(),
+    ]).then(([layout, allLinks]) => {
+      if (!alive) return;
+      const folder = (layout?.folders || []).find(f => f.id === config.folderId) || null;
+      const byId = new Map((allLinks || []).map(l => [l.id, l]));
+      const links = (layout?.items || [])
+        .filter(i => i.folder_id === config.folderId && i.item_type === itemType)
+        .sort((a, b) => a.position - b.position)
+        .map(i => byId.get(i.item_id))
+        .filter(Boolean);
+      setState({ loading: false, folder, links });
+    }).catch(() => { if (alive) setState({ loading: false, folder: null, links: [] }); });
+    return () => { alive = false; };
+  }, [config?.folderId, config?.itemType]);
+
+  const open = (link) => {
+    window.open(link.url, '_blank', 'noopener,noreferrer');
+    (config.itemType === 'personal' ? api.clickPersonalLink : api.clickExternalLink)(link.id).catch(() => {});
+  };
+
+  if (!config?.folderId) {
+    return (
+      <DashCard title="Links Folder">
+        <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '24px 8px', textAlign: 'center', lineHeight: 1.5 }}>
+          No folder picked yet - use the pencil to edit this tile and choose one.
+        </div>
+      </DashCard>
+    );
+  }
+
+  const title = state.folder?.name || config.folderName || 'Links Folder';
+  return (
+    <DashCard title={title} sub={config.itemType === 'personal' ? 'Personal' : 'Company'}
+      action={<FolderOpen size={15} style={{ color: 'var(--muted)' }} />}>
+      {state.loading ? (
+        <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '24px 4px', textAlign: 'center' }}>Loading…</div>
+      ) : !state.folder ? (
+        <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '24px 8px', textAlign: 'center', lineHeight: 1.5 }}>
+          This folder no longer exists - edit this tile to pick a different one.
+        </div>
+      ) : state.links.length === 0 ? (
+        <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '24px 4px', textAlign: 'center' }}>This folder is empty.</div>
+      ) : (
+        <div className="app-grid" style={{ gap: '14px 10px' }}>
+          {state.links.map(l => (
+            <LinksFolderTile key={l.id} link={l} onOpen={() => open(l)}
+              color={config.itemType === 'personal' ? PERSONAL_TILE_COLOR : colorForLinkCategory(l.category)} />
+          ))}
+        </div>
+      )}
+    </DashCard>
+  );
+}
+
 // Two kinds of action: `act` opens a composer that creates the thing in place
 // (an Outlook mail/event via Graph, or the Tasks module's own create modal),
 // everything else navigates to a screen the way this widget always has.
@@ -346,6 +455,7 @@ export const WIDGETS = {
   'kpi-bar':     { title: 'KPI Bar Chart',   cat: 'Metrics',   icon: BarChart3,    size: { w: 4, h: 3 }, limits: { minW: 3, minH: 3, maxW: 6, maxH: 5 }, render: KpiBarWidget },
   shortcut:      { title: 'Shortcut Tile',   cat: 'Navigation', icon: Layers,      size: { w: 3, h: 2 }, limits: STAT_LIMITS, render: ShortcutWidget,     configurable: 'shortcut' },
   links:         { title: 'Quick Links',     cat: 'Navigation', icon: ExternalLink, size: { w: 3, h: 4 }, limits: { minW: 2, minH: 3, maxW: 4, maxH: 6 }, render: LinksWidget },
+  'links-folder': { title: 'Links Folder',   cat: 'Navigation', icon: FolderOpen,  size: { w: 3, h: 4 }, limits: { minW: 2, minH: 3, maxW: 4, maxH: 6 }, render: LinksFolderWidget, configurable: 'links-folder' },
   'quick-actions': { title: 'Quick Actions', cat: 'Navigation', icon: Zap,         size: { w: 3, h: 4 }, limits: { minW: 3, minH: 2, maxW: 6, maxH: 6 }, render: QuickActionsWidget },
   notifications: { title: 'Notifications',   cat: 'Live',      icon: Bell,         size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 6 }, render: NotificationsWidget },
   agenda:        { title: 'My Agenda',       cat: 'Live',      icon: CalendarDays, size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 7 }, render: AgendaPanel },

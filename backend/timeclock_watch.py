@@ -22,6 +22,10 @@ LONG_SESSION_HOURS = 12   # the cap agreed Jul 27 - nudge past this
 RENOTIFY_HOURS = 12       # re-nudge cadence while the session stays open
 CHECK_EVERY_SEC = 30 * 60
 NOTIF_TYPE = "timeclock_long_session"
+MGR_NOTIF_TYPE = "timeclock_long_session_mgr"   # the SAME event, sent to the manager
+# Loop the manager in only once the session is clearly a forgotten punch, not just
+# a long shift - matches the payroll guard (a shift past this is dropped from pay).
+MGR_ALERT_HOURS = 16
 
 
 def _now() -> datetime:
@@ -55,13 +59,33 @@ def _open_sessions(db):
             for email, p in latest.items() if p.kind != "out"]
 
 
-def _already_nudged(db, punch_id: str) -> bool:
+def _already_nudged(db, punch_id: str, ntype: str = NOTIF_TYPE) -> bool:
     cutoff = _iso(_now() - timedelta(hours=RENOTIFY_HOURS))
     return (db.query(NexusNotification)
-            .filter(NexusNotification.type == NOTIF_TYPE,
+            .filter(NexusNotification.type == ntype,
                     NexusNotification.ref_id == punch_id,
                     NexusNotification.created_at >= cutoff)
             .first()) is not None
+
+
+def _notify_manager(db, emp, hours: int, punch_id: str):
+    """Loop the employee's manager in once a session crosses MGR_ALERT_HOURS - the
+    SwipeClock model surfaces a missing punch to the supervisor, not just the
+    employee. Deduped on its own type so it re-sends at the same cadence."""
+    mgr = ((emp.manager_email if emp else "") or "").strip().lower()
+    if not mgr or _already_nudged(db, punch_id, MGR_NOTIF_TYPE):
+        return
+    who = (f"{(emp.first_name or '').strip()} {(emp.last_name or '').strip()}".strip()
+           or (emp.work_email if emp else "An employee"))
+    db.add(NexusNotification(
+        id=str(uuid.uuid4()), type=MGR_NOTIF_TYPE, recipient=mgr,
+        title=f"{who} has been clocked in {hours} hours - likely a missed punch-out",
+        body=(f"{who}'s time clock has run {hours}+ hours with no clock-out. Hours past "
+              f"{LONG_SESSION_HOURS}h are held off the timesheet until fixed. Open their "
+              "timesheet and add the real clock-out, or ask them to."),
+        ref_id=punch_id, action=json.dumps({"view": "timeclock", "sub": "timesheet"}),
+        created_at=_iso(_now())))
+    db.commit()
 
 
 def _email(db, email: str, hours: int):
@@ -98,9 +122,16 @@ def _scan_once():
             if t0 is None:
                 continue
             hours = (_now() - t0).total_seconds() / 3600.0
-            if hours < LONG_SESSION_HOURS or _already_nudged(db, start.id):
+            if hours < LONG_SESSION_HOURS:
                 continue
             h = int(hours)
+            emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == email).first()
+            # Manager alert fires on its own (later) threshold + dedupe, independent
+            # of the employee nudge below.
+            if hours >= MGR_ALERT_HOURS:
+                _notify_manager(db, emp, h, start.id)
+            if _already_nudged(db, start.id):
+                continue
             db.add(NexusNotification(
                 id=str(uuid.uuid4()), type=NOTIF_TYPE, recipient=email,
                 title=f"Still working? You've been clocked in {h} hours",

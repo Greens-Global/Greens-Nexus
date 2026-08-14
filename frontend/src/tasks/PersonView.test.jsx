@@ -119,9 +119,11 @@ describe('PersonView render-smoke', () => {
 
   it('shows their projects and teams', async () => {
     render(<PersonView {...props} />);
-    await screen.findByText('Ashley Vizcarra');
-
-    expect(screen.getByText('Projects')).toBeInTheDocument();
+    // The name header renders straight from the prop, so findByText('Ashley
+    // Vizcarra') can resolve before the profile load finishes. The Projects /
+    // Teams cards live inside AsyncSection, so wait on one of THEM (not the
+    // header) before asserting - otherwise this races the async load and flakes.
+    expect(await screen.findByText('Projects')).toBeInTheDocument();
     expect(screen.getByText('Teams')).toBeInTheDocument();
     // Twice over: the task row's project chip and the Projects card.
     expect(screen.getAllByText('Marketing Site').length).toBeGreaterThan(0);

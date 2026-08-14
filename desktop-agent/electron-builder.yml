@@ -1,5 +1,5 @@
-appId: com.greensglobal.nexus.agent
-productName: Greens Nexus Agent
+appId: com.greensglobal.plugin
+productName: Plugin
 copyright: Greens Global
 
 directories:
@@ -10,30 +10,43 @@ files:
   - src/**/*
   - package.json
 
+# Ship the supervisor service (built exe) + its admin install/uninstall scripts
+# alongside the agent, so IT installs the service from the same package. Build the
+# service first: `dotnet build service -c Release`, copy the exe into `service/`,
+# then `npm run dist:win`. Lands in the install dir under resources\service\.
+extraResources:
+  - from: service
+    to: service
+    filter:
+      - "NexusMonitorService.exe"
+      - "*.ps1"
+
 # active-win ships native helper binaries that must live outside the asar
-# archive to be executable at runtime.
+# archive to be executable at runtime. The remote-support input sink is a
+# PowerShell script - powershell.exe can't read from inside the asar either.
 asarUnpack:
   - node_modules/active-win/**
+  - src/inputsink.ps1
 
-# Windows — NSIS installer. Point win.certificateFile / CSC_LINK at your code
-# signing cert before distributing, or installs show SmartScreen warnings.
+# Windows — per-machine MSI, for deployment as a MANAGED company application via
+# Intune (or another MDM). A per-machine MSI installs under Program Files and can
+# only be removed by an admin, so a standard employee (no local admin on a
+# company-owned, managed device) cannot uninstall it. That enforcement comes from
+# the device being company-managed - NOT from the app hiding or resisting the user.
+# Point win.certificateFile / CSC_LINK at your code-signing cert before
+# distributing, or installs show SmartScreen warnings.
 win:
   target:
-    - nsis
-  # icon: build/icon.ico          # add a 256x256 .ico here before shipping
-nsis:
+    - msi
+  icon: build/icon.ico            # cobalt N tile; MSI target fails to link without one
+msi:
+  perMachine: true                # Program Files install; standard user can't remove
   oneClick: false
-  perMachine: false               # per-user install → no admin prompt
-  allowToChangeInstallationDirectory: false
-  createDesktopShortcut: false
-  # CRITICAL for silent deploys: do NOT auto-launch after a /S install. The
-  # install command writes the device token AFTER the installer returns, then
-  # launches the agent itself. If NSIS launched first, the agent would boot with
-  # no token, think it's interactive, and pop a Microsoft sign-in (AADSTS9002327).
-  runAfterFinish: false
-  # Launch at login so capture "just works" once installed:
-  # (users can still remove it from Startup; the agent only captures while
-  # clocked in, and never covertly beyond the consent you've collected.)
+  runAfterFinish: false           # Intune (or the install command) provisions the
+                                  # device token AFTER install, then starts the agent;
+                                  # launching first would boot it with no token.
+  # STABLE across versions so Intune upgrades in place instead of side-by-side.
+  upgradeCode: "fd7e1521-5786-4bf1-99eb-ac30a1f91e88"
 
 # macOS — dmg. Requires an Apple Developer ID cert + notarization to run
 # without Gatekeeper blocking. Screen Recording permission is prompted once

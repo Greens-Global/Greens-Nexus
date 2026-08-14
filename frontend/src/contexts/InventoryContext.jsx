@@ -120,18 +120,24 @@ export function InventoryProvider({ children }) {
     };
   }
 
-  // Adaptive polling: backs off from 10s to 60s when errors accumulate,
-  // then ramps back down on the first successful response.
+  // Adaptive polling: backs off from 30s to 60s when errors accumulate,
+  // then ramps back down on the first successful response. This periodic wheel
+  // is only a FALLBACK - the inventory_events realtime subscription below already
+  // refetches on every real change - so it runs slow and skips hidden tabs to
+  // avoid re-pulling the full ~440-item catalog + all checkouts for a backgrounded
+  // page (a needless egress driver). On return to a visible tab the next tick (or
+  // a realtime ping) refreshes it.
   const scheduleNext = useCallback(() => {
     clearTimeout(pollRef.current);
     const errCount = Math.max(itemsErrCount.current, cosErrCount.current);
-    const delay = errCount === 0 ? 10_000
-                : errCount === 1 ? 20_000
-                : errCount === 2 ? 40_000
+    const delay = errCount === 0 ? 30_000
+                : errCount === 1 ? 45_000
                 : 60_000;
     pollRef.current = setTimeout(() => {
-      fetchItems();
-      fetchCheckouts();
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+        fetchItems();
+        fetchCheckouts();
+      }
       scheduleNext();
     }, delay);
   }, [fetchItems, fetchCheckouts]);

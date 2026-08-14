@@ -66,15 +66,29 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
   const actingEnteredByName = actingAs
     ? cleanName(accounts[0]?.name) || emailToName(realEmail)
     : '';
-  const [message, setMessage] = useState('');
-  const [tasks, setTasks] = useState('');
-  const [pending, setPending] = useState('');        // EOD only - starts empty; empty = no section in the post
+  // Draft persistence: the app can reload itself to recover from a deploy that
+  // replaced its code chunks (public/guard.js). sessionStorage survives that
+  // same-tab reload, so what someone typed after punching in is restored instead
+  // of lost. Cleared once the message is sent or explicitly skipped.
+  const DRAFT_KEY = `nexus:bodDraft:${mode}`;
+  const _draft0 = (() => { try { return JSON.parse(sessionStorage.getItem(DRAFT_KEY) || '{}'); } catch { return {}; } })();
+  const clearDraft = () => { try { sessionStorage.removeItem(DRAFT_KEY); } catch { /* storage blocked */ } };
+  const [message, setMessage] = useState(_draft0.message || '');
+  const [tasks, setTasks] = useState(_draft0.tasks || '');
+  const [pending, setPending] = useState(_draft0.pending || '');   // EOD only - empty = no section in the post
   const [pendingSugg, setPendingSugg] = useState(''); // open Nexus tasks, offered via one-click insert
   const [bound, setBound] = useState(null);          // { id, name } from the group binding
+  const [chatErr, setChatErr] = useState(false);     // lookup FAILED (couldn't check) - not the same as "no binding"
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [ack, setAck] = useState(false);
   const [workedMin, setWorkedMin] = useState(0);      // EOD only - total worked today, for the Line 3 tally
+
+  // Persist the draft on every keystroke so a recovery reload can't lose it.
+  useEffect(() => {
+    try { sessionStorage.setItem(DRAFT_KEY, JSON.stringify({ message, tasks, pending })); }
+    catch { /* storage blocked */ }
+  }, [message, tasks, pending, DRAFT_KEY]);
 
   // On open: resolve the ONE chat an admin bound to this person's group. Every
   // field starts EMPTY on purpose - pre-filling (yesterday's text, open tasks)
@@ -83,10 +97,22 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
   useEffect(() => {
     let live = true;
     (async () => {
-      const my = await api.timeMyChat().catch(() => null);
+      // Retry the lookup - a single blip used to fall straight through to "no team
+      // chat" and (worse) the BOD then posted nowhere. The post itself is now
+      // server-resolved regardless; this is just for an accurate label.
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const my = await api.timeMyChat();
+          if (!live) return;
+          if (my?.chatId) setBound({ id: my.chatId, name: my.chatName });
+          setChatErr(false); setLoading(false);
+          return;
+        } catch (_) {
+          if (attempt < 2) await new Promise(r => setTimeout(r, 800 * (attempt + 1)));
+        }
+      }
       if (!live) return;
-      if (my?.chatId) setBound({ id: my.chatId, name: my.chatName });
-      setLoading(false);
+      setChatErr(true); setLoading(false);   // couldn't check - server still routes on send
     })();
     if (mode === 'eod') {
       api.getTasks().then((rows) => {
@@ -185,8 +211,11 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
     try {
       resp = await api.timeBodRecord({
         kind: mode, message, tasks, channel_id: targetId, channel_name: targetName,
-        html: targetId ? buildHtml(workedMin) : '',
-        sent: false, send_error: targetId ? '' : 'No team chat set up for your group',
+        // ALWAYS send the composed message. If our chat lookup blipped (targetId
+        // empty), the SERVER resolves the person's bound chat and posts it - a
+        // transient client failure can no longer silently drop the Teams post.
+        html: buildHtml(workedMin),
+        sent: false, send_error: '',
         tz_offset_min: new Date().getTimezoneOffset(),
       });
     } catch { /* recording failed after api.js retries - surfaced below */ }
@@ -197,11 +226,14 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
     // skew). The row recorded; don't scare the user with a failure toast.
     else if (resp?.ok) toastOk('Recorded in Nexus.');
     else toastErr('Could not record your message - check your connection and try again.');
+    // Clear the saved draft only once it's safely recorded - if recording failed,
+    // keep it so reopening restores what they typed.
+    if (resp?.ok || resp?.sent || resp?.queued) clearDraft();
     setBusy(false);
     if (onSent) onSent(); else onClose();
   }
 
-  const skip = () => (onSkip ? onSkip() : onClose());
+  const skip = () => { clearDraft(); return onSkip ? onSkip() : onClose(); };
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1420, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
@@ -258,6 +290,12 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
             ) : bound ? (
               <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '7px 12px', borderRadius: 9, background: 'var(--bg)', fontSize: 12.5, fontWeight: 700 }}>
                 <MessageSquare size={13} style={{ color: 'var(--wk-brand)' }} /> {bound.name || 'Your team chat'}
+              </div>
+            ) : chatErr ? (
+              // Couldn't confirm the chat here, but the server resolves it on send -
+              // so the post still routes. Never claim "no chat" on a mere blip.
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '7px 12px', borderRadius: 9, background: 'var(--bg)', fontSize: 12.5, fontWeight: 700 }}>
+                <MessageSquare size={13} style={{ color: 'var(--wk-brand)' }} /> Your team chat
               </div>
             ) : (
               <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>

@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; background: transparent; overflow: hidden; }
+  body {
+    font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+    display: flex; align-items: center; justify-content: center;
+    -webkit-user-select: none; user-select: none;
+  }
+  .pill {
+    display: flex; align-items: center; gap: 10px;
+    background: #0f172a; color: #e2e8f0;
+    border: 1px solid #ef4444; border-radius: 999px;
+    padding: 8px 10px 8px 16px; max-width: 100%;
+    box-shadow: 0 4px 18px rgba(0,0,0,0.35);
+    -webkit-app-region: drag;
+  }
+  .dot {
+    width: 9px; height: 9px; border-radius: 50%; background: #ef4444; flex: none;
+    animation: pulse 1.4s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+  .txt { font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .txt b { color: #ffffff; }
+  button {
+    -webkit-app-region: no-drag;
+    font-family: inherit; font-size: 12px; font-weight: 700; cursor: pointer;
+    color: #ffffff; background: #ef4444; border: none; border-radius: 999px;
+    padding: 6px 14px; flex: none;
+  }
+  button:hover { background: #dc2626; }
+</style>
+</head>
+<body>
+  <div class="pill">
+    <div class="dot"></div>
+    <div class="txt">IT (<b id="name">IT</b>) is controlling your computer</div>
+    <button id="end">End Session</button>
+  </div>
+<script>
+  const { ipcRenderer } = require('electron');
+  ipcRenderer.on('banner:init', (_e, { name }) => {
+    document.getElementById('name').textContent = name || 'IT';
+  });
+  document.getElementById('end').onclick = () => ipcRenderer.send('control:end-click');
+</script>
+</body>
+</html>

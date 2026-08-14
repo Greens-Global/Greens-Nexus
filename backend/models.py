@@ -143,6 +143,75 @@ class ExternalLink(Base):
     category = Column(String, nullable=False)
     description = Column(String, default="")
     clicks = Column(Integer, default=0)
+    # Directory rebuild (Aug 2026, sourced from start.greensglobal.com): "" =
+    # shown to every department (company-wide app); a named department scopes
+    # the tile to that department's filtered view. `icon` is a lucide-react
+    # icon key resolved client-side, not a URL. sort_order is admin drag-order
+    # within a category; is_pinned floats a tile into "Pinned" regardless of
+    # department/category filters.
+    department = Column(String, default="")
+    icon = Column(String, default="Link2")
+    sort_order = Column(Integer, default=0)
+    is_pinned = Column(Boolean, default=False)
+    created_by = Column(String, default="")
+    created_at = Column(String, default="")
+    updated_at = Column(String, default="")
+    # Company filter (Aug 12) - HrEntity.id, same "" = every company / a named
+    # id scopes it convention as department above. Free-standing from
+    # department on purpose: a link can be company-wide but department-
+    # specific (e.g. Accounting at Greens India) or vice versa.
+    company = Column(String, default="")
+
+
+class ExternalLinkTaxonomy(Base):
+    """Admin-managed Department/Category picker options for External Links
+    (Aug 14 - "give the option to add, rename and remove any department and
+    categories"). Before this, the two lists were a hardcoded frontend
+    constant with no backend existence at all - an admin could only ever
+    grow the Category list implicitly (typing a new value directly on a
+    link; that field is free text with an autocomplete), and could never
+    grow Department at all (a strict dropdown with no way to add an
+    option). This gives both explicit CRUD.
+
+    ExternalLink.department/category stay plain free-text string columns,
+    NOT a foreign key to this table - a link keeps whatever string it has
+    even after that name is deleted from here (deleting only removes it
+    from the curated picker, same free-text philosophy Category already
+    had). Renaming, though, bulk-updates every ExternalLink row currently
+    using the old string in the same request, so a rename doesn't silently
+    orphan existing links onto a name that no longer appears in the picker."""
+    __tablename__ = "external_link_taxonomy"
+    id = Column(String, primary_key=True)  # uuid
+    kind = Column(String, nullable=False)  # "department" | "category"
+    name = Column(String, nullable=False)
+    sort_order = Column(Integer, default=0)
+    created_at = Column(String, default="")
+
+
+class PersonalLink(Base):
+    """Personal Links (Aug 2026) - an employee's own day-to-day shortcuts,
+    separate from the curated ExternalLink directory above. Private by
+    construction: every query filters on owner_email, so one person's rows
+    are never visible to another regardless of role - there is no "shared"
+    or admin-visible mode for this table."""
+    __tablename__ = "personal_links"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    owner_email = Column(String, nullable=False, index=True)
+    name = Column(String, nullable=False)
+    url = Column(String, nullable=False)
+    description = Column(String, default="")
+    icon = Column(String, default="Link2")
+    sort_order = Column(Integer, default=0)
+    clicks = Column(Integer, default=0)
+    created_at = Column(String, default="")
+    updated_at = Column(String, default="")
+    # Optional pointer to the owner's own Credential Vault personal credential
+    # (vault_personal_credentials.id) - Aug 13, so opening the link can copy
+    # the password to the clipboard first instead of the user having to look
+    # it up separately. No FK constraint: personal credentials are a separate
+    # module (gated by the "credvault" grant) and can be deleted independently
+    # - a dangling id here just means the copy-password step is skipped.
+    vault_cred_id = Column(String, default="")
 
 
 class AccountingTrx(Base):
@@ -456,6 +525,12 @@ class NexusRole(Base):
     role         = Column(String, nullable=False, default="employee")
     display_name = Column(String, default="")         # captured from Microsoft Graph when assigned via Access Manager
     assigned_by  = Column(String, default="system")
+    # A per-person tier override: set when an admin picks this person's tier
+    # directly (Access Manager -> Roles), it PINS the tier so editing their job
+    # role's seniority tier no longer re-stamps them. Lets two people in one job
+    # role hold different tiers (e.g. one promoted to Global Admin). Cleared when
+    # they are (re)assigned to a job role, which means "follow this role's tier".
+    tier_pinned  = Column(Boolean, default=False)
 
 
 class NexusGroup(Base):
@@ -738,6 +813,7 @@ class KbDocument(Base):
     title            = Column(String, nullable=False)
     doc_type         = Column(String, default="SOP")           # SOP | Manual | Guide
     departments      = Column(String, default="")              # comma-separated department names ("" = unassigned)
+    service          = Column(String, default="")              # KbService.name within the department ("" = General/Uncategorized)
     status           = Column(String, default="draft")         # draft|in_review|changes_requested|approved|archived
     owner_email      = Column(String, default="")
     owner_name       = Column(String, default="")
@@ -763,6 +839,40 @@ class KbDocument(Base):
     created_by       = Column(String, default="")
     created_at       = Column(String, default="")
     updated_at       = Column(String, default="")
+    original_title   = Column(String, default="")              # pre-cleanup title, set once by cleanup-titles so the
+                                                                 # original is always recoverable/auditable
+    original_content = Column(Text, default="")                # raw extracted source text as first imported, before
+                                                                 # any AI formatting - set once, never overwritten, so a
+                                                                 # bad AI import can always be diffed against the true source
+
+
+class KbService(Base):
+    """Manager-curated Service tier within a Department (e.g. IT -> "Microsoft 365").
+    Mirrors ItemType: deactivating/deleting a service leaves existing KbDocument.service
+    strings untouched - they just stop being pickable. New table - create_all builds it,
+    no migration line needed."""
+    __tablename__ = "kb_services"
+    id         = Column(String, primary_key=True)   # uuid
+    department = Column(String, nullable=False)      # one of the fixed department names
+    name       = Column(String, nullable=False)
+    active     = Column(Boolean, default=True)
+    sort_order = Column(Integer, default=0)
+    created_by = Column(String, default="")
+    created_at = Column(String, default="")
+
+
+class KbTag(Base):
+    """Manager-curated tag vocabulary for KB documents. KbDocument.tags stays a
+    comma-separated free-form string (no FK) - this table is the managed picklist
+    the tag UI autocompletes against, mirroring ItemType. New table - create_all
+    builds it, no migration line needed."""
+    __tablename__ = "kb_tags"
+    id         = Column(String, primary_key=True)   # uuid
+    name       = Column(String, nullable=False, unique=True)
+    active     = Column(Boolean, default=True)
+    sort_order = Column(Integer, default=0)
+    created_by = Column(String, default="")
+    created_at = Column(String, default="")
 
 
 class KbFeedback(Base):
@@ -1311,7 +1421,12 @@ class TimeScreenshot(Base):
     employee_email = Column(String, nullable=False, index=True)
     at             = Column(String, nullable=False)     # UTC ISO
     local_date     = Column(String, default="")
-    storage_path   = Column(String, default="")         # hr-docs path
+    storage_path   = Column(String, default="")         # object key within `bucket`
+    # Which storage bucket the object lives in. '' = legacy hr-docs (pre-split);
+    # new frames land in the dedicated private 'time-monitoring' bucket. Reads
+    # sign per-row against this so a migration in flight still resolves both.
+    bucket         = Column(String, default="")
+    session_id     = Column(String, default="")         # clock session (in-punch id) at capture
     idle_sec       = Column(Integer, default=0)         # seconds since last input at capture
     active_view    = Column(String, default="")         # Nexus view/path when captured
     created_at     = Column(String, default="")
@@ -1383,6 +1498,63 @@ class AgentDevice(Base):
     created_by     = Column(String, default="")
     created_at     = Column(String, default="")
     last_seen_at   = Column(String, default="")
+    # Shared-PC support: the device is a permanent PC identity; the CURRENT
+    # employee is whoever clocked in via the website (bound at clock-in, cleared at
+    # clock-out). Screenshots + heartbeat attribute to `active_email`, NOT the
+    # enroll-time `employee_email`, so two people can share one enrolled machine.
+    active_email      = Column(String, default="")   # employee clocked in on this PC now
+    active_session_id = Column(String, default="")   # their in-punch id = the clock session
+
+
+class AgentPairing(Base):
+    """Short-lived nonce binding a browser clock-in to the physical device. The
+    website mints it for the logged-in employee; the LOCAL AGENT claims it by
+    authenticating with its own device token - so the device_id is proven by the
+    agent, never trusted from the browser. Consumed once, at clock-in."""
+    __tablename__ = "agent_pairings"
+    nonce          = Column(String, primary_key=True)   # random, unguessable
+    employee_email = Column(String, nullable=False, index=True)
+    device_id      = Column(String, default="")         # set when the agent claims it
+    created_at     = Column(String, default="")
+    used           = Column(Integer, default=0)
+
+
+class LiveSession(Base):
+    """One on-demand live-screen-share session (Discord-style). An admin viewer
+    requests to watch a clocked-in employee; the desktop agent on that PC answers
+    with a WebRTC screen stream. This row is BOTH the signaling mailbox (offer/
+    answer SDP passed through it, since the browser can't reach the agent over
+    localhost) AND the audit record of who watched whom, when. Media itself flows
+    peer-to-peer over WebRTC (relayed by Cloudflare TURN) - never through here.
+    States: requested -> offering -> connected -> ended (or 'error')."""
+    __tablename__ = "live_view_sessions"
+    id             = Column(String, primary_key=True)   # uuid
+    device_id      = Column(String, index=True, default="")
+    employee_email = Column(String, index=True, nullable=False)   # who is watched
+    viewer_email   = Column(String, index=True, nullable=False)   # the admin watching
+    state          = Column(String, default="requested")
+    offer_sdp      = Column(Text, default="")   # agent -> viewer (WebRTC offer)
+    answer_sdp     = Column(Text, default="")   # viewer -> agent (WebRTC answer)
+    fps            = Column(Integer, default=60)   # 1080p60 default; 30 is the only lower step
+    created_at     = Column(String, default="")
+    updated_at     = Column(String, default="")   # last change to state/sdp
+    # Each side stamps its own poll so a one-sided disconnect (viewer closes the
+    # tab, or the agent dies) is detected: alive only while BOTH are fresh.
+    viewer_seen    = Column(String, default="")
+    agent_seen     = Column(String, default="")
+    ended_at       = Column(String, default="")
+    ended_reason   = Column(String, default="")
+    # Attended remote control (IT support), layered on the same session. The
+    # employee must explicitly accept a prompt on their PC before any input is
+    # injected, sees a persistent banner while control is active, and can end it
+    # instantly; these fields are the consent + audit record of all of that.
+    # control_state: '' | requested | active | declined | ended
+    control_state          = Column(String, default="")
+    control_requester_name = Column(String, default="")   # shown in the consent prompt
+    control_requested_at   = Column(String, default="")
+    control_responded_at   = Column(String, default="")   # accept/decline moment
+    control_ended_at       = Column(String, default="")
+    control_ended_reason   = Column(String, default="")   # employee_ended | viewer_ended | declined | request_expired | session_ended
 
 
 class Shift(Base):
@@ -1542,6 +1714,79 @@ class DashboardView(Base):
     created_by   = Column(String, default="")
     created_at   = Column(String, default="")
     updated_at   = Column(String, default="")
+
+
+class UserLinkLayout(Base):
+    """A user's personalized External Links arrangement (app ordering, custom
+    folders, favorites) - mirrors DashboardView's JSON-blob-per-user shape
+    above rather than normalizing into per-item rows: auto-save writes the
+    whole document in one UPSERT, and nothing here needs SQL-side querying by
+    folder/item (existence/permission re-checks happen at read time against
+    ExternalLink/PersonalLink directly in the router, not via a FK - a dead
+    reference is dropped there, not rejected here). One row per user, unlike
+    DashboardView's multi-row-per-owner shape, since there's exactly one
+    layout per person for this module (no named/multiple-views concept).
+
+    layout shape: {
+      folders:   [{id, name, position, item_type: 'external'|'personal'}],
+      items:     [{item_type: 'external'|'personal', item_id, folder_id|null,
+                   position, dashboard?: bool}],
+      favorites: [{item_type, item_id}],
+    }
+    item_type disambiguates ExternalLink vs PersonalLink ids, which are both
+    plain autoincrement ints on separate tables and would otherwise collide.
+    A folder's own item_type (Aug 14) keeps it strictly one or the other -
+    a Company folder only ever holds 'external' items, a Personal folder
+    only ever holds 'personal' ones; link_layouts.py enforces this on every
+    write so Company and Personal arrangements can never cross despite
+    sharing this one JSON document. Folders are intentionally flat (no
+    parent_folder_id) - single-level only."""
+    __tablename__ = "user_link_layouts"
+    id          = Column(String, primary_key=True)   # uuid
+    owner_email = Column(String, index=True, unique=True, nullable=False)
+    layout      = Column(JSON, default=dict)
+    created_at  = Column(String, default="")
+    updated_at  = Column(String, default="")
+
+
+class LinkLayoutView(Base):
+    """One of a user's saved, named External Links personalization
+    arrangements (Aug 14 - "same option as we have in dashboard section...
+    default view and add customize views... save it per our convenient
+    name"). Mirrors DashboardView's personal-view shape (id, owner_email,
+    name, layout, is_default) exactly, minus the department/scope/target
+    machinery that concept needed and this doesn't - every Link View is
+    personal-only, and there's only one screen (External Links) it applies
+    to. Multiple rows per user is the whole point (unlike UserLinkLayout
+    above), so owner_email is indexed but NOT unique.
+
+    Supersedes UserLinkLayout's one-row-per-user shape, which had no room
+    for more than one saved arrangement. UserLinkLayout is left in place
+    read-only as a migration source (link_layouts.py lazily copies a user's
+    existing row into a new LinkLayoutView, named "My view" and marked
+    default, the first time they hit any view-aware endpoint after this
+    shipped) rather than being altered or dropped - changing an existing
+    unique(owner_email) constraint on a live table is exactly the kind of
+    migration this codebase avoids (CLAUDE.md's migration guidance), and a
+    lazy copy-on-read needs no downtime or backfill script.
+
+    "Home" (the synthesized, unarranged company/personal default order) is
+    NOT a row here, same as Dashboard's Home isn't a DashboardView row -
+    it's a client-side fallback when no view is active/default, exactly
+    mirroring useDashboards.js's `activeId === null` case.
+
+    layout shape is identical to UserLinkLayout.layout - see that
+    docstring for the full {folders, items, favorites} shape and the
+    item_type-scoping rules that keep Company and Personal Links from ever
+    mixing within one view."""
+    __tablename__ = "link_layout_views"
+    id          = Column(String, primary_key=True)   # uuid
+    owner_email = Column(String, index=True, nullable=False)
+    name        = Column(String, default="My view")
+    layout      = Column(JSON, default=dict)
+    is_default  = Column(Boolean, default=False)
+    created_at  = Column(String, default="")
+    updated_at  = Column(String, default="")
 
 
 class HrInterviewTemplate(Base):

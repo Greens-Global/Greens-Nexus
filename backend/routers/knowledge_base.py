@@ -168,6 +168,7 @@ def _serialize(d: models.KbDocument) -> dict:
         "title": d.title,
         "doc_type": d.doc_type,
         "departments": [s for s in (d.departments or "").split(",") if s],
+        "service": d.service or "",  # "" renders as "General/Uncategorized" client-side
         "status": d.status,
         "owner_email": d.owner_email or "",
         "owner_name": d.owner_name or "",
@@ -192,6 +193,8 @@ def _serialize(d: models.KbDocument) -> dict:
         "created_by": d.created_by or "",
         "created_at": d.created_at or "",
         "updated_at": d.updated_at or "",
+        "original_title": d.original_title or "",
+        "has_original_content": bool(d.original_content),
     }
 
 
@@ -213,6 +216,7 @@ class KbDocIn(BaseModel):
     title: str = ""
     doc_type: str = "SOP"
     departments: list[str] = []
+    service: str = ""
     reviewer_email: str = ""
     reviewer_name: str = ""
     version: str = "1.0"
@@ -223,6 +227,7 @@ class KbDocIn(BaseModel):
     retention_months: int = 84
     tags: list[str] = []
     related_ids: list[str] = []
+    original_content: str = ""  # raw pre-AI source text, captured once on first create
 
 
 class ContentTextIn(BaseModel):
@@ -242,12 +247,20 @@ class AiFormatIn(BaseModel):
     content: str = ""
     title: str = ""
     departments: list[str] = []
+    restructure: bool = False  # opt-in aggressive reorganize; default is conservative preserve-as-is
 
 
 class AiReviseIn(BaseModel):
     body: dict = {}
     title: str = ""
     instruction: str = ""
+    departments: list[str] = []
+    restructure: bool = False
+
+
+class AiSuggestMetaIn(BaseModel):
+    content: str = ""
+    title: str = ""
     departments: list[str] = []
 
 
@@ -306,6 +319,194 @@ def reviewers(user: dict = Depends(get_current_user), db: Session = Depends(get_
     return out
 
 
+# ---- Services (Department -> Service tier) ---------------------------------
+class ServiceIn(BaseModel):
+    department: str = ""
+    name: str = ""
+
+
+class ServicePatchIn(BaseModel):
+    name: str | None = None
+    active: bool | None = None
+    sort_order: int | None = None
+
+
+def _serialize_service(s: models.KbService) -> dict:
+    return {
+        "id": s.id, "department": s.department, "name": s.name,
+        "active": bool(s.active), "sort_order": s.sort_order or 0,
+        "created_by": s.created_by or "", "created_at": s.created_at or "",
+    }
+
+
+@router.get("/services")
+def list_services(department: str = "", user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    q = db.query(models.KbService)
+    if department:
+        q = q.filter(models.KbService.department == department)
+    rows = q.all()
+    rows.sort(key=lambda s: (s.department, s.sort_order or 0, s.name.lower()))
+    return [_serialize_service(s) for s in rows]
+
+
+@router.post("/services", status_code=201)
+def create_service(payload: ServiceIn, user: dict = Depends(require_level(3)), db: Session = Depends(get_db)):
+    dept = (payload.department or "").strip()
+    name = (payload.name or "").strip()
+    if not dept or dept not in DEPT_ABBR:
+        raise HTTPException(status_code=400, detail="Choose a valid department")
+    if not name:
+        raise HTTPException(status_code=400, detail="Service name cannot be empty")
+    existing = db.query(models.KbService).filter(models.KbService.department == dept).all()
+    if any(s.name.strip().lower() == name.lower() for s in existing):
+        raise HTTPException(status_code=400, detail=f"“{name}” already exists under {dept}")
+    nxt = max([s.sort_order or 0 for s in existing], default=0) + 1
+    s = models.KbService(id=_new_id(), department=dept, name=name, active=True,
+                          sort_order=nxt, created_by=user["email"], created_at=_now())
+    db.add(s)
+    db.commit()
+    db.refresh(s)
+    return _serialize_service(s)
+
+
+@router.patch("/services/{service_id}")
+def update_service(service_id: str, payload: ServicePatchIn, user: dict = Depends(require_level(3)), db: Session = Depends(get_db)):
+    s = db.query(models.KbService).filter(models.KbService.id == service_id).first()
+    if not s:
+        raise HTTPException(status_code=404, detail="Service not found")
+    if payload.name is not None:
+        name = payload.name.strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="Service name cannot be empty")
+        dupe = db.query(models.KbService).filter(
+            models.KbService.department == s.department, models.KbService.id != s.id).all()
+        if any(x.name.strip().lower() == name.lower() for x in dupe):
+            raise HTTPException(status_code=400, detail=f"“{name}” already exists under {s.department}")
+        # Renaming keeps existing SOPs pointed at the old string valid until
+        # someone re-saves them - same soft-decoupling ItemType uses - EXCEPT we
+        # also propagate here since the service name is the join key on
+        # KbDocument.service, and a silent orphan would look like data loss.
+        old_name = s.name
+        s.name = name
+        for d in db.query(models.KbDocument).filter(models.KbDocument.service == old_name).all():
+            d.service = name
+    if payload.active is not None:
+        s.active = payload.active
+    if payload.sort_order is not None:
+        s.sort_order = payload.sort_order
+    db.commit()
+    db.refresh(s)
+    return _serialize_service(s)
+
+
+@router.delete("/services/{service_id}")
+def delete_service(service_id: str, user: dict = Depends(require_level(3)), db: Session = Depends(get_db)):
+    s = db.query(models.KbService).filter(models.KbService.id == service_id).first()
+    if not s:
+        raise HTTPException(status_code=404, detail="Service not found")
+    in_use = db.query(models.KbDocument).filter(models.KbDocument.service == s.name).count()
+    if in_use:
+        raise HTTPException(status_code=409, detail=f"{in_use} SOP(s) use this service - deactivate it instead of deleting")
+    db.delete(s)
+    db.commit()
+    return {"ok": True}
+
+
+# ---- Tags (managed vocabulary) ---------------------------------------------
+class TagIn(BaseModel):
+    name: str = ""
+
+
+class TagPatchIn(BaseModel):
+    name: str | None = None
+    active: bool | None = None
+    sort_order: int | None = None
+
+
+def _serialize_tag(t: models.KbTag) -> dict:
+    return {
+        "id": t.id, "name": t.name, "active": bool(t.active), "sort_order": t.sort_order or 0,
+        "created_by": t.created_by or "", "created_at": t.created_at or "",
+    }
+
+
+@router.get("/tags")
+def list_tags(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    rows = db.query(models.KbTag).all()
+    rows.sort(key=lambda t: (t.sort_order or 0, t.name.lower()))
+    return [_serialize_tag(t) for t in rows]
+
+
+@router.post("/tags", status_code=201)
+def create_tag(payload: TagIn, user: dict = Depends(require_level(3)), db: Session = Depends(get_db)):
+    name = (payload.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Tag name cannot be empty")
+    rows = db.query(models.KbTag).all()
+    if any(t.name.strip().lower() == name.lower() for t in rows):
+        raise HTTPException(status_code=400, detail=f"“{name}” already exists")
+    nxt = max([t.sort_order or 0 for t in rows], default=0) + 1
+    t = models.KbTag(id=_new_id(), name=name, active=True, sort_order=nxt,
+                      created_by=user["email"], created_at=_now())
+    db.add(t)
+    db.commit()
+    db.refresh(t)
+    return _serialize_tag(t)
+
+
+def _docs_using_tag(db: Session, name: str) -> list:
+    """Tags live as a comma-joined string on KbDocument.tags (no FK) - a SQL
+    LIKE/contains() would false-positive on substrings (tag "IT" inside
+    "Ignite"), so filter the exact split list in Python instead. KB doc counts
+    are small enough that this is cheap."""
+    return [d for d in db.query(models.KbDocument).all() if name in (d.tags or "").split(",")]
+
+
+def _rename_tag_on_docs(db: Session, old_name: str, new_name: str) -> None:
+    """Renaming the canonical tag would otherwise silently orphan every doc
+    using the old string, so replace it inside each doc's list in place."""
+    for d in _docs_using_tag(db, old_name):
+        parts = [p for p in (d.tags or "").split(",") if p]
+        d.tags = ",".join(new_name if p == old_name else p for p in parts)
+
+
+@router.patch("/tags/{tag_id}")
+def update_tag(tag_id: str, payload: TagPatchIn, user: dict = Depends(require_level(3)), db: Session = Depends(get_db)):
+    t = db.query(models.KbTag).filter(models.KbTag.id == tag_id).first()
+    if not t:
+        raise HTTPException(status_code=404, detail="Tag not found")
+    if payload.name is not None:
+        name = payload.name.strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="Tag name cannot be empty")
+        dupe = db.query(models.KbTag).filter(models.KbTag.id != t.id).all()
+        if any(x.name.strip().lower() == name.lower() for x in dupe):
+            raise HTTPException(status_code=400, detail=f"“{name}” already exists")
+        if name != t.name:
+            _rename_tag_on_docs(db, t.name, name)
+            t.name = name
+    if payload.active is not None:
+        t.active = payload.active
+    if payload.sort_order is not None:
+        t.sort_order = payload.sort_order
+    db.commit()
+    db.refresh(t)
+    return _serialize_tag(t)
+
+
+@router.delete("/tags/{tag_id}")
+def delete_tag(tag_id: str, user: dict = Depends(require_level(3)), db: Session = Depends(get_db)):
+    t = db.query(models.KbTag).filter(models.KbTag.id == tag_id).first()
+    if not t:
+        raise HTTPException(status_code=404, detail="Tag not found")
+    in_use = len(_docs_using_tag(db, t.name))
+    if in_use:
+        raise HTTPException(status_code=409, detail=f"{in_use} SOP(s) use this tag - deactivate it instead of deleting")
+    db.delete(t)
+    db.commit()
+    return {"ok": True}
+
+
 @router.get("/documents/{doc_id}")
 def get_document(doc_id: str, db: Session = Depends(get_db)):
     d = _get_or_404(doc_id, db)
@@ -313,6 +514,16 @@ def get_document(doc_id: str, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(d)
     return _serialize(d)
+
+
+@router.get("/documents/{doc_id}/original")
+def get_original_content(doc_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """The raw source text as first imported, before any AI formatting - for
+    diffing a suspect AI import against the true original (see original_content
+    on the model). Not included in _serialize/list_documents so the list view
+    never pays for potentially large source text it isn't showing."""
+    d = _get_or_404(doc_id, db)
+    return {"original_content": d.original_content or "", "original_title": d.original_title or ""}
 
 
 @router.post("/documents", status_code=201)
@@ -326,6 +537,7 @@ def create_document(payload: KbDocIn, user: dict = Depends(get_current_user), db
         title=payload.title.strip(),
         doc_type=payload.doc_type or "SOP",
         departments=",".join(payload.departments),
+        service=payload.service or "",
         status="draft",
         owner_email=user["email"],
         owner_name=user.get("name") or user["email"],
@@ -346,6 +558,10 @@ def create_document(payload: KbDocIn, user: dict = Depends(get_current_user), db
         created_by=user["email"],
         created_at=now,
         updated_at=now,
+        # Captured once, here, from the raw text the editor extracted before any AI
+        # formatting ran - never touched again (see update_document) so a bad AI
+        # import can always be diffed back against the true original source.
+        original_content=payload.original_content or "",
     )
     db.add(d)
     _snapshot(d, db)
@@ -363,6 +579,7 @@ def update_document(doc_id: str, payload: KbDocIn, user: dict = Depends(get_curr
         d.title = payload.title.strip()
     d.doc_type = payload.doc_type or d.doc_type
     d.departments = ",".join(payload.departments)
+    d.service = payload.service or ""
     d.reviewer_email = payload.reviewer_email
     d.reviewer_name = payload.reviewer_name
     if payload.version:
@@ -385,6 +602,10 @@ def update_document(doc_id: str, payload: KbDocIn, user: dict = Depends(get_curr
     # how many times its department changes; it only gets a real, permanent
     # number the moment review_document actually approves it, so an abandoned
     # or rejected draft never burns an audit-trail id.
+    # original_content is set once at create and never overwritten (see create_document)
+    # so a later edit/AI-revise round trip can't clobber the true original source.
+    if not d.original_content and payload.original_content:
+        d.original_content = payload.original_content
     d.updated_at = _now()
     _push_history(d, {"version": d.version, "date": _today(), "author": user.get("name") or user["email"], "notes": "Edited."})
     _snapshot(d, db)
@@ -568,6 +789,77 @@ def set_departments(doc_id: str, payload: DepartmentsIn, user: dict = Depends(re
     db.commit()
     db.refresh(d)
     return _serialize(d)
+
+
+# ---- Title cleanup (non-destructive) ---------------------------------------
+# Matches the legacy "2026-08-12 - SOP - IT - WordPress Website Redirection"
+# convention: DATE - DOCTYPE - DEPARTMENT - Title. The department segment is
+# matched loosely (full name or DEPT_ABBR code, case-insensitive) since older
+# titles used either.
+_TITLE_PREFIX_RE = re.compile(
+    r'^\s*(\d{4}-\d{2}-\d{2})\s*-\s*(SOP|Manual|Guide)\s*-\s*([^-]+?)\s*-\s*(.+?)\s*$',
+    re.IGNORECASE,
+)
+_DEPT_BY_KEY = {k.lower(): k for k in DEPT_ABBR}
+_DEPT_BY_ABBR = {v.lower(): k for k, v in DEPT_ABBR.items()}
+
+
+def _match_title_prefix(title: str) -> dict | None:
+    m = _TITLE_PREFIX_RE.match(title or "")
+    if not m:
+        return None
+    date, doc_type, dept_raw, clean_title = m.groups()
+    dept_key = dept_raw.strip().lower()
+    department = _DEPT_BY_KEY.get(dept_key) or _DEPT_BY_ABBR.get(dept_key)
+    if not department or not clean_title:
+        return None
+    return {"date": date, "doc_type": doc_type.title() if doc_type.lower() != "sop" else "SOP",
+            "department": department, "clean_title": clean_title}
+
+
+@router.post("/documents/cleanup-titles")
+def cleanup_titles(dry_run: bool = True, user: dict = Depends(require_level(3)), db: Session = Depends(get_db)):
+    """Strips the DATE - TYPE - DEPT - Title prefix legacy SOPs carry inline.
+    Non-destructive: the pre-cleanup title is always preserved in
+    original_title before being overwritten, and a field is only ever
+    backfilled (effective_date/departments) when it is currently empty - an
+    already-set value is never touched. Idempotent - a doc with
+    original_title already set, or whose title doesn't match the legacy
+    pattern, is skipped. dry_run (default true) returns the proposed changes
+    without writing anything, for admin review before applying."""
+    rows = db.query(models.KbDocument).all()
+    proposed, unchanged = [], 0
+    for d in rows:
+        if d.original_title:
+            unchanged += 1
+            continue
+        m = _match_title_prefix(d.title)
+        if not m:
+            unchanged += 1
+            continue
+        backfill = {}
+        if not d.effective_date:
+            backfill["effective_date"] = m["date"]
+        if not d.departments:
+            backfill["departments"] = [m["department"]]
+        entry = {
+            "id": d.id, "current_title": d.title, "new_title": m["clean_title"],
+            "backfill": backfill,
+        }
+        proposed.append(entry)
+        if not dry_run:
+            d.original_title = d.title
+            d.title = m["clean_title"]
+            if "effective_date" in backfill:
+                d.effective_date = backfill["effective_date"]
+            if "departments" in backfill:
+                d.departments = ",".join(backfill["departments"])
+            d.updated_at = _now()
+            _push_history(d, {"version": d.version, "date": _today(), "author": user["email"],
+                               "notes": f"Title cleaned up (was: “{entry['current_title']}”)."})
+    if not dry_run and proposed:
+        db.commit()
+    return {"dry_run": dry_run, "proposed": proposed, "changed": 0 if dry_run else len(proposed), "unchanged": unchanged}
 
 
 @router.get("/documents/{doc_id}/related")
@@ -857,7 +1149,82 @@ def _push_history(d: models.KbDocument, entry: dict) -> None:
 
 
 # ---- AI format ------------------------------------------------------------
-_STD_SCHEMA = (
+# Two schemas, same output shape (_normalize_sop doesn't care which produced it):
+#
+# _CONSERVATIVE_SCHEMA (default) - light cleanup only. This exists because the
+# old single "REORGANISE and synthesise... never transcribe it line by line"
+# instruction was the direct cause of AI imports inventing/dropping/merging/
+# splitting operational content - that instruction told the model to rewrite,
+# so it did. The conservative schema instead tells it to preserve.
+#
+# _RESTRUCTURE_SCHEMA (opt-in, AiFormatIn.restructure=true) - the original
+# aggressive behavior, kept for genuinely unstructured source notes where the
+# user explicitly wants the AI to impose organization.
+_CONSERVATIVE_SCHEMA = (
+    'Return ONLY a JSON object (no markdown, no preamble) with this exact shape:\n'
+    '{"title":string,"purpose":string,"scopeText":string,"materials":[string],'
+    '"responsibilities":[{"role":string,"duty":string}],'
+    '"definitions":[{"term":string,"def":string}],'
+    '"tables":[{"title":string,"headers":[string],"rows":[[string]]}],'
+    '"procedure":[{"text":string,"detail":string,"image":string}],"safety":[string],"references":[string]}\n'
+    'This is LIGHT CLEANUP, not a rewrite. The fundamental rule: preserve the source\'s exact operational '
+    'meaning and information. When in doubt, preserve - never guess, invent, or delete.\n'
+    '- Do NOT invent, delete, paraphrase, summarize, or reorder any operational instruction, and never '
+    'change what an instruction means. Copy the exact wording of every command, URL, IP/hostname, port, '
+    'file path, config key/value, number, date, and proper/product name character-for-character from the '
+    'source - never "correct", modernize, or rephrase them.\n'
+    '- Only split into separate "procedure" steps at boundaries the source ALREADY signals - an existing '
+    'numbered/bulleted list item, an existing heading, or an obvious paragraph break starting a new '
+    'imperative instruction. NEVER split one instruction/sentence into multiple steps. NEVER merge two '
+    'distinct instructions into one step, and never combine unrelated instructions.\n'
+    '- "text" for a step should be the source\'s own wording (only lightly trimmed), not a rewritten or '
+    'condensed summary; "detail" holds the rest of that same instruction in the source\'s own words - one '
+    'sub-step or key/value per line, prefixed "- ", using real newline characters.\n'
+    '- If you are not confident how a passage should be categorized, or unsure whether it is metadata vs. '
+    'content, copy it through unchanged into "procedure" rather than guessing, dropping it, or forcing it '
+    'into a section it may not belong in. Preserving mis-filed content is always better than losing it.\n'
+    '- You MAY: detect and lightly clean up the title; recognize headings/sections the source already has; '
+    'fix obvious formatting artifacts (stray line breaks, inconsistent whitespace, list-marker '
+    'normalization); identify a definitions list or lookup table using the rules below - but only when '
+    'that structure is already visibly present in the source, never by re-authoring content to fit it.\n'
+    '- TABLES: blocks wrapped in [[TABLE]] ... [[/TABLE]] came from a table in the source document, one '
+    "line per row with cells joined by ' | '. A short table near the top with fields like Author, "
+    'Version, Revision, Date, Owner, Approved by, or Status is DOCUMENT METADATA - ignore it completely; '
+    'never turn it into procedure steps or list items. Any other table is genuine content - put it in '
+    '"tables" as {title, headers, rows}, PRESERVING EVERY ROW LOSSLESSLY (never sample, truncate, or '
+    'summarize it), copying cell text verbatim. Never leave raw \'|\'-joined rows or [[TABLE]] markers in '
+    'any other field.\n'
+    '- IMAGES: [[IMG1]], [[IMG2]] etc. mark where a screenshot belongs. Set the "image" field of the step '
+    'it illustrates to the exact placeholder token, "" if none. Never leave a placeholder inside text/'
+    'detail/purpose. Drop placeholders that are clearly a logo/letterhead/banner/watermark/signature '
+    '(especially one at the very top of the source, before any real content, or beside title/author/date).\n'
+    '- "purpose"/"scopeText": if the source already states these, use its own wording lightly cleaned; if '
+    'genuinely absent, leave "" - do not invent one by guessing at intent.\n'
+    '- "safety": copy warnings/"do not"/"never"/compliance statements verbatim, unedited. "references": '
+    'copy referenced docs/links/standards verbatim.\n'
+    '- "materials"/"responsibilities"/"definitions": only real tools/role→duty/term→meaning the source '
+    'states; never document metadata (author, version, date). Leave any field/array empty rather than '
+    'inventing content the source does not have.\n'
+    '- COMPANY SOP TEMPLATE: many source documents follow this house style - a title line reading '
+    '"SOP: <Service> – <Topic>" (strip only the literal "SOP:" label from the title, keep the rest, '
+    'including the dash and both halves, exactly as written); an Author/Version/Date table right under '
+    'it (that IS the document-metadata table described above - ignore it); a PURPOSE section; a PROCESS '
+    'section that is itself broken into ALL-CAPS sub-headings (e.g. "ADD NEW USER", "ROLE-BASED '
+    'ADMINISTRATION", "PERMISSION LEVELS", "DATA RETENTION", "INVITATION NOT ACCEPTED"); and often a '
+    'closing NOTES section. When you see this shape:\n'
+    '  - Every ALL-CAPS short line inside PROCESS is a SECTION HEADING, not an instruction to execute and '
+    'not part of the previous step. Carry each one through as its own procedure step with that exact '
+    'heading text (same wording and case) as "text" and "" as "detail" - it must appear immediately before '
+    'the steps that belong under it, never merged into another step, never dropped, never reworded.\n'
+    '  - A closing NOTES heading and whatever follows it (even if terse, e.g. a lone "-") becomes the '
+    'final procedure step(s), titled "Notes", with each note as its own "- " line in "detail" - do not '
+    'fold notes into "safety" or "references" unless an individual note genuinely is a warning or a link.\n'
+    '  - Sub-item labels within ONE instruction (e.g. "4.(i)", "4.(ii)", "2.(iii)") mark sub-steps of that '
+    'single instruction - keep them all together as lines in that one step\'s "detail", never split each '
+    'lettered/numbered sub-item into its own top-level procedure step.'
+)
+
+_RESTRUCTURE_SCHEMA = (
     'Return ONLY a JSON object (no markdown, no preamble) with this exact shape:\n'
     '{"title":string,"purpose":string,"scopeText":string,"materials":[string],'
     '"responsibilities":[{"role":string,"duty":string}],'
@@ -951,13 +1318,59 @@ _HEURISTIC_IMPERATIVE_STARTS = {
 }
 
 
+def _heuristic_definition_match(clean: str):
+    """Returns the (term, def) match for a "Term: description" line, or None -
+    shared by every call site below so the two false-positive classes found
+    against real company SOPs (a bare URL's "https:" read as a term, and a
+    gerund heading like "Deleting the User: -" not recognized as instructional
+    because only "delete" was in the imperative-verb set) are fixed once."""
+    if "://" in clean or clean.lower().startswith(("http:", "https:")):
+        return None  # a URL's colon is not a term/definition separator
+    m = _HEURISTIC_DEF_RE.match(clean)
+    if not m:
+        return None
+    term_words = m.group(1).split()
+    if len(term_words) > 5:
+        return None
+    first = term_words[0].lower()
+    # "Deleting" -> "delet"+"ing"; the base verb "delete" needs its silent E back before
+    # the set lookup, so try both the bare stem and the stem+"e" (create/creating,
+    # delete/deleting, but also e.g. running -> "runn"/"runne" - neither matches, so a
+    # gerund that doesn't map cleanly just falls through, which only under-catches).
+    stem = first[:-3] if first.endswith("ing") else ""
+    if first in _HEURISTIC_IMPERATIVE_STARTS or stem in _HEURISTIC_IMPERATIVE_STARTS or (stem + "e") in _HEURISTIC_IMPERATIVE_STARTS:
+        return None  # imperative verb (incl. gerund) - a step, not a definition
+    return (m.group(1).strip(), m.group(2).strip())
+
+
+# Section headers this company's SOP template uses (bare, no colon - "PURPOSE",
+# "PROCESS", "NOTES" each sit on their own line). Recognizing them as pure
+# section switches - rather than misreading the bare heading line itself as
+# content - is what the AI schema does with a real model; this offline
+# fallback needs the same state machine or "PURPOSE" ends up AS the purpose
+# text and "PROCESS"/"NOTES" end up as bogus procedure steps.
+_HEURISTIC_SECTION_HEADERS = {
+    "purpose": "purpose", "objective": "purpose", "scope": "scope",
+    "process": "process", "procedure": "process", "steps": "process",
+    "materials": "materials", "tools": "materials", "equipment": "materials", "required": "materials",
+    "safety": "safety", "warnings": "safety",
+    "references": "references", "reference": "references",
+    "definitions": "definitions",
+    "notes": "notes", "note": "notes",
+}
+
+
 def _heuristic_format(text: str, title: str) -> dict:
-    """Offline fallback when the AI proxy is unavailable - best-effort structuring."""
+    """Offline fallback when the AI proxy is unavailable - best-effort structuring.
+    Company SOPs commonly use bare ALL-CAPS section headers (PURPOSE/PROCESS/NOTES)
+    and, within PROCESS, further ALL-CAPS sub-headings (e.g. "ADD NEW USER") - this
+    mirrors the same house-style handling _CONSERVATIVE_SCHEMA gives the real model,
+    so the offline path preserves the same shape rather than a degraded one."""
     out = _normalize_sop({})
     out["title"] = title
     steps, refs, safety, materials, definitions = [], [], [], [], []
     tables: list[dict] = []
-    purpose = ""
+    purpose_parts, scope_parts = [], []
     # Strip [[TABLE]]...[[/TABLE]] blocks (and inline [[IMG#]] markers) before the
     # line-by-line walk below - without this, a table's pipe-joined rows and any
     # image placeholder land in "procedure" as bogus, unreadable steps, since this
@@ -976,6 +1389,19 @@ def _heuristic_format(text: str, title: str) -> dict:
     text = re.sub(r"\[\[TABLE\]\](.*?)\[\[/TABLE\]\]", _table, text or "", flags=re.DOTALL)
     text = re.sub(r"\[\[IMG\d+\]\]", "", text)
     out["tables"] = tables
+
+    def _is_subheading(clean_line: str) -> bool:
+        # An ALL-CAPS line, short enough to be a heading, with no URL/command
+        # punctuation - "ADD NEW USER", not "SET THE HOSTNAME TO 10.0.0.1:8080".
+        if not (2 <= len(clean_line) <= 60):
+            return False
+        letters = [c for c in clean_line if c.isalpha()]
+        if not letters or any(c.islower() for c in letters):
+            return False
+        return not any(c in clean_line for c in ("://", "@", "\\"))
+
+    section = "purpose"  # docs open with intro prose before any header appears
+    first_line = True
     for raw in (text or "").splitlines():
         line = raw.strip()
         if not line:
@@ -983,31 +1409,59 @@ def _heuristic_format(text: str, title: str) -> dict:
         clean = line.lstrip("-*•0123456789.) ").strip()
         if not clean:
             continue
-        low = line.lower()
-        if low.startswith(("purpose", "objective")) and (":" in line or "-" in line):
-            purpose = line.split(":", 1)[-1].strip() if ":" in line else line.split("-", 1)[-1].strip()
-        elif low.startswith(("materials", "tools", "equipment", "required")) and (":" in line):
-            materials.append(line.split(":", 1)[-1].strip())
-        elif any(w in clean.lower() for w in ("warning", "caution", "do not", "never", "must not", "safety")):
+        # The company template's own title line ("SOP: Egnyte – Investor Access") is
+        # part of the extracted body text, not a section - it must never fall through
+        # to the definition/step classifiers below (a bare "SOP: X" line matches the
+        # "Term: description" pattern and would otherwise become a bogus definition).
+        if first_line:
+            first_line = False
+            tm = re.match(r'^sop\s*[:\-–]\s*(.+)$', clean, re.IGNORECASE)
+            if tm:
+                if not title or title.strip().lower() == "sop":
+                    out["title"] = tm.group(1).strip()
+                continue
+        # Bare section-header lines ("PURPOSE", "Notes: -", "PROCESS") switch state
+        # rather than becoming content - this company's docs mix full ALL-CAPS
+        # headers (PURPOSE, PROCESS) with Title Case ones (Notes: -), so the keyword
+        # match itself (not casing) is what identifies a header line.
+        header_key = _HEURISTIC_SECTION_HEADERS.get(clean.rstrip(": -").strip().lower())
+        if header_key and len(clean.rstrip(": -").strip().split()) <= 2:
+            section = header_key
+            continue  # the heading line itself is a section switch, not content
+        if section == "process" and _is_subheading(clean):
+            # Preserve the sub-heading as its own step, exactly as written -
+            # never merged into the previous step or paraphrased.
+            steps.append(clean)
+            continue
+        if any(w in clean.lower() for w in ("warning", "caution", "do not", "never", "must not")):
             safety.append(clean)
-        elif any(w in clean.lower() for w in ("see ", "refer", "reference", "per ")) and len(clean) < 80:
+        elif section == "materials":
+            materials.append(clean)
+        elif section == "safety":
+            safety.append(clean)
+        elif section == "references" or (any(w in clean.lower() for w in ("see ", "refer", "reference", "per ")) and len(clean) < 80):
             refs.append(clean)
-        elif not purpose:
-            purpose = clean
-        else:
+        elif section == "scope":
+            scope_parts.append(clean)
+        elif section in ("purpose", "definitions"):
             # A short "Term: description" line (few words before the colon) reads as
             # a definition, not an instruction - a procedure step's own colon usually
-            # follows a much longer imperative clause. The AI prompt already tells the
-            # real model to pull these into "definitions"; this fallback has no
-            # section-level understanding, so it never had an equivalent check and
-            # dumped every one into "procedure" as a bogus step instead.
-            m = _HEURISTIC_DEF_RE.match(clean)
-            term_words = m.group(1).split() if m else []
-            if m and len(term_words) <= 5 and term_words[0].lower() not in _HEURISTIC_IMPERATIVE_STARTS:
-                definitions.append({"term": m.group(1).strip(), "def": m.group(2).strip()})
+            # follows a much longer imperative clause.
+            defm = _heuristic_definition_match(clean)
+            if defm:
+                definitions.append({"term": defm[0], "def": defm[1]})
+            elif section == "purpose":
+                purpose_parts.append(clean)
+        elif section == "notes":
+            steps.append(clean)  # closing NOTES lines become trailing steps, same as the AI schema
+        else:
+            defm = _heuristic_definition_match(clean)
+            if defm:
+                definitions.append({"term": defm[0], "def": defm[1]})
             else:
                 steps.append(clean)
-    out["purpose"] = purpose
+    out["purpose"] = " ".join(purpose_parts).strip()
+    out["scopeText"] = " ".join(scope_parts).strip()
     out["materials"] = materials
     out["safety"] = safety
     out["references"] = refs
@@ -1095,12 +1549,24 @@ def ai_format(payload: AiFormatIn, user: dict = Depends(get_current_user)):
     if not _ANTHROPIC_API_KEY:
         return {"source": "heuristic", "sop": _heuristic_format(payload.content, payload.title)}
     depts = ", ".join(payload.departments) or "Company-wide"
+    if payload.restructure:
+        intro = (
+            "You are a technical-documentation specialist for a self-storage and "
+            "commercial real estate operator. Convert the source material into a standardized, "
+            "well-structured SOP - REORGANISE and synthesise the content into the right sections; "
+            "do not transcribe it line by line."
+        )
+        schema = _RESTRUCTURE_SCHEMA
+    else:
+        intro = (
+            "You are cleaning up a company SOP for publishing. The fundamental rule: preserve the "
+            "source's exact operational meaning and information - do not invent, delete, or "
+            "aggressively rewrite. Light formatting cleanup only."
+        )
+        schema = _CONSERVATIVE_SCHEMA
     prompt = (
-        "You are a technical-documentation specialist for a self-storage and "
-        "commercial real estate operator. Convert the source material into a standardized, "
-        "well-structured SOP - REORGANISE and synthesise the content into the right sections; "
-        "do not transcribe it line by line.\n\n"
-        f"{_STD_SCHEMA}\n\nDepartments: {depts}\nWorking title: {payload.title or '(none)'}\n\n"
+        f"{intro}\n\n"
+        f"{schema}\n\nDepartments: {depts}\nWorking title: {payload.title or '(none)'}\n\n"
         f'SOURCE MATERIAL:\n"""\n{payload.content}\n"""'
     )
     try:
@@ -1139,10 +1605,12 @@ def ai_revise(payload: AiReviseIn, user: dict = Depends(get_current_user)):
         # No key locally - return the document unchanged so the caller can degrade gracefully.
         return {"source": "offline", "sop": current}
     depts = ", ".join(payload.departments) or "Company-wide"
+    schema = _RESTRUCTURE_SCHEMA if payload.restructure else _CONSERVATIVE_SCHEMA
     prompt = (
-        "You are editing an existing company SOP. Apply the requested change and return the FULL "
-        "revised SOP - keep everything that should stay the same and only change what the request implies.\n\n"
-        f"{_STD_SCHEMA}\n\nWorking title: {payload.title or '(none)'}\nDepartments: {depts}\n\n"
+        "You are editing an existing company SOP. Apply ONLY the requested change and return the FULL "
+        "SOP - every other field must come back exactly as given, unchanged word-for-word. Do not use "
+        "this as an opportunity to rewrite, reorganize, or 'improve' anything the request didn't ask for.\n\n"
+        f"{schema}\n\nWorking title: {payload.title or '(none)'}\nDepartments: {depts}\n\n"
         f"CURRENT SOP (JSON):\n{json.dumps(current)}\n\nREQUESTED CHANGE:\n{instruction}"
     )
     try:
@@ -1160,6 +1628,69 @@ def ai_revise(payload: AiReviseIn, user: dict = Depends(get_current_user)):
     except Exception as e:
         print(f"[kb ai-revise] failed: {e}")
         return {"source": "offline", "sop": current}
+
+
+@router.post("/ai-suggest-metadata")
+def ai_suggest_metadata(payload: AiSuggestMetaIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Lightweight, separate call for Detected Title / Department / Suggested
+    Service / Suggested Tags - kept OUT of ai-format's body-transform call on
+    purpose, so a wrong metadata guess can never leak into or distort the SOP
+    content, and vice versa. Feeds the import Review screen; nothing here is
+    ever written to a document without the user confirming it there."""
+    source = (payload.content or "").strip()
+    if not source and not (payload.title or "").strip():
+        return {"source": "none", "title": "", "department": "", "service": "", "tags": []}
+    services = db.query(models.KbService).filter(models.KbService.active == True).all()  # noqa: E712
+    tags = db.query(models.KbTag).filter(models.KbTag.active == True).all()  # noqa: E712
+    service_names = sorted({s.name for s in services})
+    tag_names = sorted({t.name for t in tags})
+    fallback = {"source": "none", "title": payload.title or "", "department": "", "service": "", "tags": []}
+    if not _ANTHROPIC_API_KEY:
+        return fallback
+    prompt = (
+        "Suggest metadata for this SOP. Return ONLY a JSON object (no markdown) with this exact shape: "
+        '{"title":string,"department":string,"service":string,"tags":[string]}\n'
+        "- \"title\": a short, clean document title with NO date/department/doc-type prefix (e.g. "
+        '"WordPress Website Redirection", not "2026-08-12 - SOP - IT - WordPress Website Redirection"). '
+        'Many of this company\'s source docs open with a line like "SOP: Egnyte – Investor Access" - strip '
+        'only the literal "SOP:" label and keep the rest (including the "Service – Topic" wording) as-is.\n'
+        f'- "department": your best guess, exactly one of: {", ".join(DEPT_ABBR)}. Empty string if unsure. '
+        'A doc about a specific software platform (Egnyte, WordPress, Asana, Microsoft 365, Nexus, Ignite) '
+        'is almost always IT, even though the platform name itself is the SERVICE, not the department.\n'
+        f'- "service": pick the closest existing match from this list if one clearly fits: '
+        f'{", ".join(service_names) or "(none defined yet)"}. Otherwise suggest a short new service name '
+        'that fits the department - for a platform-specific SOP this is usually the platform itself '
+        '(e.g. "Egnyte", "Asana", "WordPress" under IT), matching the "Service" half of a '
+        '"SOP: Service – Topic" title. Empty string if unsure.\n'
+        f'- "tags": 2-5 relevant tags, preferring existing ones from this list where they fit: '
+        f'{", ".join(tag_names) or "(none defined yet)"}. New tags are fine when nothing existing fits. '
+        "Never invent department/service/tag values that contradict the source - leave a field empty "
+        "rather than guessing when the source gives no signal.\n\n"
+        f"Working title: {payload.title or '(none)'}\nDepartments already selected: {', '.join(payload.departments) or '(none)'}\n\n"
+        f'SOURCE MATERIAL:\n"""\n{source[:8000]}\n"""'
+    )
+    try:
+        with httpx.Client(timeout=60) as client:
+            r = client.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={"x-api-key": _ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json"},
+                json={"model": _AI_MODEL, "max_tokens": 500, "messages": [{"role": "user", "content": prompt}]},
+            )
+            r.raise_for_status()
+            data = r.json()
+        text = "".join(blk.get("text", "") for blk in data.get("content", []) if blk.get("type") == "text")
+        text = text.replace("```json", "").replace("```", "").strip()
+        parsed = json.loads(text)
+        return {
+            "source": "ai",
+            "title": str(parsed.get("title") or "")[:200],
+            "department": parsed.get("department") if parsed.get("department") in DEPT_ABBR else "",
+            "service": str(parsed.get("service") or "")[:60],
+            "tags": [str(t) for t in (parsed.get("tags") or []) if isinstance(t, str)][:8],
+        }
+    except Exception as e:
+        print(f"[kb ai-suggest-metadata] failed: {e}")
+        return fallback
 
 
 # ---- Runs (execute an SOP as a live checklist) -----------------------------

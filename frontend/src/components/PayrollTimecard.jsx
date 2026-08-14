@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { ChevronLeft, ChevronRight, ChevronDown, ChevronUp, ArrowRight, Pencil, Plus, X, Loader2, CheckCircle, Download, AlertTriangle, MapPin, PlayCircle, Info } from 'lucide-react';
 import { api } from '../api';
 import { formatDate } from '../lib/datetime';
+import { TZ_OPTIONS, useDisplayTz, setDisplayTz, formatTimeTz, utcToInputTz, inputToUtcTz } from '../lib/displayTz';
 import { dialog } from '../ui/dialog';
 import { useWorkSites } from '../lib/queries';
 import { ensureStepUp, isStepUpRequired, StepUpNeeded } from '../stepup/StepUp';
@@ -22,9 +23,30 @@ const hhmm = (min) => `${Math.floor((min || 0) / 60)}:${String((min || 0) % 60).
 const dec = (min) => ((min || 0) / 60).toFixed(2);
 const CUR_SYM = { USD: '$', INR: '₹' };
 const money = (n, cur = 'USD') => `${CUR_SYM[cur] || '$'}${(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-const t12 = (iso) => iso ? new Date(iso + 'Z').toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }).replace(' ', '').toLowerCase() : '-';
-const utcToInput = (iso) => { const d = new Date(iso + 'Z'); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); };
-const inputToUtc = (v) => new Date(v).toISOString().slice(0, 19);
+const t12 = (iso) => iso ? formatTimeTz(iso) : '-';
+const utcToInput = (iso) => utcToInputTz(iso);
+const inputToUtc = (v) => inputToUtcTz(v);
+
+// California / India toggle for punch-time display. Default California to line up
+// 1:1 with SwipeClock (its site clock is Pacific); flip to India for local time.
+function TzSwitch() {
+  const cur = useDisplayTz();
+  return (
+    <div title="Timezone for punch times on this timecard. California matches SwipeClock; India shows local time for India-based staff."
+      style={{ display: 'inline-flex', border: '1px solid var(--wk-line2)', borderRadius: 999, overflow: 'hidden' }}>
+      {TZ_OPTIONS.map((o) => {
+        const on = o.key === cur.key;
+        return (
+          <button key={o.key} onClick={() => setDisplayTz(o.key)} title={`Show times in ${o.label} time (${o.abbr})`}
+            style={{ border: 'none', cursor: 'pointer', fontFamily: 'var(--wk-font)', fontSize: 11.5, fontWeight: 700, padding: '5px 11px',
+              background: on ? 'var(--wk-brand)' : 'transparent', color: on ? '#fff' : 'var(--muted)' }}>
+            {o.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 // Internal punch markers that are NOT reasons meant for the reader (e.g. the tag
 // a +added punch carries). Never surfaced on the card.
@@ -101,6 +123,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   const [stepLocked, setStepLocked] = useState(false);   // payroll $ needs a fresh step-up
   const [exceptions, setExceptions] = useState([]);      // per-employee missing/exception counts (sidebar)
   const [showRaw, setShowRaw] = useState(false);         // SwipeClock's "Show Unrounded Times"
+  useDisplayTz();   // re-render this card (and its time cells) when the tz switch flips
   const [tour, setTour] = useState(false);               // Simulate walkthrough
   const { can, myEmail } = useRole();
   const isAdmin = can('administrator');
@@ -222,11 +245,30 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
     catch (e) { toastErr?.(e?.message || 'Could not save rate.'); }
     setBusy(false);
   }
-  async function approve() {
+  // Approve + finalize share the SwipeClock exception gate: a period with a
+  // missing or unmatched punch is blocked (the paired total would be wrong), with
+  // an explicit "sign off anyway" override - the sign-off is on record either way.
+  async function signOff(call, verb, okMsg) {
     setBusy(true);
-    try { await api.timeApprove({ email, start: perStart, end: perEnd }); toastOk?.('Timecard approved - the employee is notified.'); load(); }
-    catch (e) { toastErr?.(e?.message || 'Could not approve.'); }
+    try { await call(false); toastOk?.(okMsg); load(); }
+    catch (e) {
+      if (e?.detail?.code === 'unresolved_exceptions') {
+        setBusy(false);
+        const go = await dialog.confirm(e.detail.message,
+          { title: 'Unresolved punch exceptions', confirmText: `${verb} anyway`, danger: true });
+        if (!go) return;
+        setBusy(true);
+        try { await call(true); toastOk?.(`${okMsg} (exceptions overridden).`); load(); }
+        catch (e2) { toastErr?.(e2?.message || `Could not ${verb.toLowerCase()}.`); }
+      } else {
+        toastErr?.(e?.message || `Could not ${verb.toLowerCase()}.`);
+      }
+    }
     setBusy(false);
+  }
+  async function approve() {
+    await signOff((allow) => api.timeApprove({ email, start: perStart, end: perEnd, allow_exceptions: allow }),
+      'Approve', 'Timecard approved - the employee is notified.');
   }
   async function signTimecard() {
     setBusy(true);
@@ -262,10 +304,8 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
 
   async function finalize() {
     if (!await dialog.confirm(`Finalize ${nameFor(email)}'s timecard for ${periodLabel}? This locks all time records for the period - edits will need an unlock.`, { title: 'Finalize timecard', confirmText: 'Finalize', danger: true })) return;
-    setBusy(true);
-    try { await api.timeFinalize({ email, start: perStart, end: perEnd }); toastOk?.('Timecard finalized - the period is locked.'); load(); }
-    catch (e) { toastErr?.(e?.message || 'Could not finalize.'); }
-    setBusy(false);
+    await signOff((allow) => api.timeFinalize({ email, start: perStart, end: perEnd, allow_exceptions: allow }),
+      'Finalize', 'Timecard finalized - the period is locked.');
   }
   async function unfinalize() {
     if (!await dialog.confirm(`Unlock ${nameFor(email)}'s finalized timecard for ${periodLabel}? Edits become possible again; re-finalize when done.`, { title: 'Unlock period', confirmText: 'Unlock' })) return;
@@ -398,6 +438,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
         </button>
         )}
         <div style={{ flex: 1 }} />
+        <TzSwitch />
         <label data-tour="pr-rounding" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, color: 'var(--muted)', fontWeight: 700, cursor: 'pointer' }}
           title="SwipeClock shows rounded times (nearest 5 min) and computes pay from them. Tick to see the raw punch times instead - totals stay computed from rounded.">
           <input type="checkbox" checked={showRaw} onChange={e => setShowRaw(e.target.checked)} />
@@ -722,7 +763,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   );
 }
 
-const t12s = (iso) => iso ? new Date(iso + 'Z').toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true }).replace(' ', '').toLowerCase() : '';
+const t12s = (iso) => iso ? formatTimeTz(iso, { seconds: true }) : '';
 
 // A punch time you can edit right in the sheet (SwipeClock-style): click the
 // time → it becomes an input, Enter/blur saves via the audited adjust endpoint.
@@ -736,6 +777,7 @@ const t12s = (iso) => iso ? new Date(iso + 'Z').toLocaleTimeString('en-US', { ho
 // signatures as the hourly card, but the pay math is the fixed model: salary,
 // per-day present/half/absent/weekend status, deductions and weekend overtime.
 function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM, showRaw, setShowRaw, isAdmin, busy, setBusy, onPrev, onNext, onApprove, onFinalize, onUnfinalize, onSign, editDay, setEditDay, load, toastOk, toastErr, setWorkLogDay }) {
+  useDisplayTz();   // re-render this card (and its time cells) when the tz switch flips
   const T = data.totals || {};
   const fin = data.finalized;
   const mgrAp = data.approval;
@@ -794,6 +836,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
           <button className="icon-btn" onClick={onNext} style={{ padding: 6 }}><ChevronRight size={16} /></button>
         </div>
         <div style={{ flex: 1 }} />
+        <TzSwitch />
         {/* No rounding toggle - salary pay is day-based, so times show exactly as punched. */}
       </div>
 

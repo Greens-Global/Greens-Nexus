@@ -15,6 +15,7 @@ import TimeInsights from './TimeInsights';
 import ImageLightbox from './ImageLightbox';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { ErrorBanner } from './AsyncState';
+import { formatDate } from '../lib/datetime';
 
 const TYPE_COLOR = { vacation: '#2563eb', sick: '#16a34a', personal: '#8b5cf6', unpaid: '#6b7280', other: '#f59e0b' };
 
@@ -163,12 +164,15 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
     const targets = (rows || []).filter(r => !isRowApproved(r) && Object.keys(r.days || {}).length);
     if (!targets.length || approvingAll) return;
     setApprovingAll(true);
-    let ok = 0;
+    let ok = 0, blocked = 0;
     for (const r of targets) { // sequential - one bell per person, no request race
       try { await api.timeApprove({ email: r.email, days: Object.keys(r.days) }); ok++; }
-      catch { /* keep going; the count tells the story */ }
+      // A row with an unresolved missing/unmatched punch is held, not approved -
+      // say so rather than silently dropping it from the count.
+      catch (e) { if (e?.detail?.code === 'unresolved_exceptions') blocked++; }
     }
-    toastOk(`Approved ${ok} of ${targets.length} timecard${targets.length === 1 ? '' : 's'}.`);
+    toastOk(`Approved ${ok} of ${targets.length} timecard${targets.length === 1 ? '' : 's'}`
+      + (blocked ? ` - ${blocked} held for missing punches` : '') + '.');
     setApprovingAll(false);
     load(true);
   }
@@ -234,6 +238,21 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
     try { await api.timeApprovalRevoke(id); toastOk('Approval revoked.'); load(true); }
     catch (e) { toastErr(e?.message || 'Could not revoke.'); }
   }
+
+  // Punch exceptions for the range (SwipeClock "Show Missing Only") - the missing
+  // and unmatched punches that block sign-off until fixed. Reloads with the range
+  // and whenever a punch changes anywhere.
+  const [exceptions, setExceptions] = useState(null);
+  const loadExceptions = useCallback(() => {
+    api.timeExceptions(start, end).then(r => setExceptions(Array.isArray(r) ? r : [])).catch(() => setExceptions([]));
+  }, [start, end]);
+  useEffect(() => { loadExceptions(); }, [loadExceptions]);
+  useEffect(() => {
+    const onChange = () => loadExceptions();
+    window.addEventListener('nexus:timeclock-changed', onChange);
+    return () => window.removeEventListener('nexus:timeclock-changed', onChange);
+  }, [loadExceptions]);
+  const exBlocking = (exceptions || []).reduce((a, r) => a + (r.blocking || 0), 0);
 
   // Manager+ files a time-off request FOR an employee (Neil, Aug 11) - the
   // sanctioned path, so nobody needs Act As (Global Admin only) for this.
@@ -354,7 +373,8 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
           base) instead of floating pills that merged into the content. */}
       <div className="scroll-tabs" style={{ display: 'flex', gap: 2, marginBottom: 18, borderBottom: '1px solid var(--wk-line)' }}>
         {[['payroll', 'Payroll', Banknote], ['attendance', 'Attendance', CalendarDays],
-          ['insights', 'Insights', Activity], ['requests', 'Punch requests', Inbox, punchReqs.length],
+          ['requests', 'Punch requests', Inbox, punchReqs.length],
+          ['exceptions', 'Missing punches', AlertTriangle, exBlocking],
           ['screenshots', 'Screenshots', Camera], ['shifts', 'Shifts', CalendarClock],
           ['timeoff', 'Time off', CalendarOff, pendingCount]].map(([key, label, Icon, badge]) => {
           const on = view === key;
@@ -374,9 +394,8 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
         })}
       </div>
 
-      {/* Range + export bar (shared by Timecards and Insights) */}
-      {view === 'insights' && (
-      /* Insights date range only - approve/CSV live on the Payroll timecard now. */
+      {/* Range picker - shared by Insights and Missing punches (both scan a range) */}
+      {(view === 'insights' || view === 'exceptions') && (
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
         {[['This week', 0], ['Last week', -1]].map(([l, off]) => {
           const r = weekRange(off);
@@ -662,6 +681,57 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Missing punches (SwipeClock "Show Missing Only") - the range's unmatched /
+          missing-out punches that block sign-off until an approver fixes them. */}
+      {view === 'exceptions' && (
+        <div>
+          <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 12, lineHeight: 1.5 }}>
+            A shift with no clock-out (or a clock-out with no clock-in) can't be paid until it's fixed - these block approve and finalize. Open the person's timecard and add the real time to clear it.
+          </div>
+          {exceptions === null ? (
+            <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}>
+              <Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} />
+            </div>
+          ) : exceptions.length === 0 ? (
+            <div style={{ padding: '26px 18px', textAlign: 'center', fontSize: 12.5, color: 'var(--muted)', border: '1.5px dashed var(--line)', borderRadius: 12,
+              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+              <CheckCircle size={22} style={{ color: 'hsl(var(--color-green))' }} />
+              Every shift in this range is matched - nothing is blocking sign-off.
+            </div>
+          ) : (
+            exceptions.map(r => {
+              const nm = (rows || []).find(x => x.email === r.email)?.name || r.email;
+              return (
+                <div key={r.email} style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 14, marginBottom: 8, overflow: 'hidden', boxShadow: 'var(--wk-shadow)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', borderBottom: '1px solid var(--line)', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 13, fontWeight: 800 }}>{nm}</span>
+                    <span style={{ fontSize: 11.5, color: 'var(--muted)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.email}</span>
+                    {r.blocking > 0 && (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 800, color: 'hsl(var(--color-red))', background: 'rgba(220,38,38,0.08)', padding: '3px 9px', borderRadius: 999 }}>
+                        <AlertTriangle size={11} /> {r.blocking} blocking
+                      </span>
+                    )}
+                    <button className="primary-btn" onClick={() => { setPayrollEmail(r.email); setView('payroll'); }}
+                      style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                      <Pencil size={12} /> Fix on timecard
+                    </button>
+                  </div>
+                  <div>
+                    {r.exceptions.map((e, i) => (
+                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 14px', borderTop: i ? '1px solid var(--line)' : 'none', fontSize: 12.5 }}>
+                        <span title={e.blocking ? 'Blocks sign-off' : 'Warning'} style={{ width: 8, height: 8, borderRadius: '50%', flexShrink: 0, background: e.blocking ? 'hsl(var(--color-red))' : '#b45309' }} />
+                        <span style={{ fontWeight: 700, width: 92, flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>{formatDate(e.date)}</span>
+                        <span style={{ color: 'var(--ink)' }}>{e.label}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })
+          )}
         </div>
       )}
 

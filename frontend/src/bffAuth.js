@@ -107,9 +107,36 @@ export function bffLogin() {
  *  Microsoft - a POST that only cleared the cookie left the SSO session alive,
  *  so /auth/login silently re-authed and bounced the user right back in. */
 export function bffLogout() {
+  // Shared PC: wipe EVERYTHING this user cached in the browser before leaving, so
+  // the next person to sign in on this machine can never see any of their data,
+  // identity, prefs, or tokens. localStorage/sessionStorage are cleared
+  // synchronously (removes MSAL accounts/tokens and every module cache); the
+  // IndexedDB store is deleted fire-and-forget. The next login also re-purges on a
+  // user change, so a session that ended without this (browser closed / crash) is
+  // still covered.
+  try { localStorage.clear(); } catch { /* storage blocked */ }
+  try { sessionStorage.clear(); } catch { /* storage blocked */ }
+  try { indexedDB.deleteDatabase('nexus_store'); } catch { /* ignore */ }
+  // Re-set the markers the logout handoff itself needs, AFTER the wipe.
   try { sessionStorage.setItem(LOGOUT_TAB_KEY, '1'); } catch { /* storage blocked */ }
   try { localStorage.setItem(SIGNED_OUT_KEY, String(Date.now())); } catch { /* storage blocked */ }
   window.location.href = '/api/auth/logout';
+}
+
+/** Remove every browser-cached artifact of a PREVIOUS user - all localStorage and
+ *  sessionStorage (module caches, prefs, MSAL accounts/tokens), the IndexedDB
+ *  store, and any Cache Storage entries. Used when a DIFFERENT user signs in on a
+ *  shared browser than last time, so nothing of the old user survives. */
+async function _purgeClientData() {
+  try { sessionStorage.clear(); } catch { /* blocked */ }
+  try { localStorage.clear(); } catch { /* blocked */ }
+  try { indexedDB.deleteDatabase('nexus_store'); } catch { /* ignore */ }
+  try {
+    if (typeof caches !== 'undefined') {
+      const ks = await caches.keys();
+      await Promise.all(ks.map((k) => caches.delete(k)));
+    }
+  } catch { /* ignore */ }
 }
 
 /** Make msalInstance report a SYNTHETIC account for the session user, so every
@@ -126,10 +153,39 @@ function installSyntheticAccount(me) {
     name: me.name || me.email,
     idTokenClaims: { preferred_username: me.email, name: me.name || me.email },
   };
+  // The COOKIE session is the source of truth for identity. Only ever expose an
+  // MSAL account that belongs to the cookie user - never a real account left in
+  // the cache by a PREVIOUS user on a shared PC. Without this, Aarav signing in
+  // on Arnav's browser saw Arnav's name/avatar/greeting (accounts[0] returned
+  // the stale real account) while the API correctly saw Aarav: a split-brain
+  // identity. Filtering to the cookie email makes the synthetic account win when
+  // the only real account is someone else's.
+  const mine = (me.email || '').toLowerCase();
+  const isMine = (a) => a && (a.username || '').toLowerCase() === mine;
   const realAll = msalInstance.getAllAccounts.bind(msalInstance);
-  msalInstance.getAllAccounts = () => { const r = realAll(); return r.length ? r : [acct]; };
+  msalInstance.getAllAccounts = () => { const r = realAll().filter(isMine); return r.length ? r : [acct]; };
   const realActive = msalInstance.getActiveAccount.bind(msalInstance);
-  msalInstance.getActiveAccount = () => realActive() ?? acct;
+  msalInstance.getActiveAccount = () => { const a = realActive(); return isMine(a) ? a : acct; };
+}
+
+/** Evict any cached MSAL account that belongs to a DIFFERENT user than the cookie
+ *  session (a previous user on this shared browser). Belt-and-suspenders on top of
+ *  installSyntheticAccount's filter: it also removes the old user's tokens from
+ *  this browser so nothing can silently acquire Graph tokens as them. */
+async function _evictForeignAccounts(email) {
+  try {
+    const { msalReady } = await import('./msalInstance');
+    await msalReady;
+    const mine = (email || '').toLowerCase();
+    const foreign = msalInstance.getAllAccounts().filter(a => (a.username || '').toLowerCase() !== mine);
+    if (!foreign.length) return;
+    for (const a of foreign) {
+      try { await msalInstance.clearCache({ account: a }); } catch (_) { /* try the next */ }
+    }
+    // A stale msalprime marker for the old user is irrelevant; drop this user's so
+    // priming their REAL account can run now instead of waiting out the 24h guard.
+    try { localStorage.removeItem('nexus:msalprime:' + email); } catch (_) { /* storage blocked */ }
+  } catch (_) { /* best-effort */ }
 }
 
 /** Get a REAL MSAL account into the cache for the cookie-session user.
@@ -147,14 +203,14 @@ async function _primeMsalAccount(email) {
     const { msalReady } = await import('./msalInstance');
     await msalReady;
     const { primeGraphSso } = await import('./teamsGraph');
-    if (await primeGraphSso(email)) return;            // iframe path worked - done
-    const key = 'nexus:msalprime:' + email;
-    const last = Number(localStorage.getItem(key) || 0);
-    if (Date.now() - last < 24 * 3600 * 1000) return;  // already tried recently - never loop
-    localStorage.setItem(key, String(Date.now()));
-    const { loginRequest } = await import('./authConfig');
-    await msalInstance.loginRedirect({ ...loginRequest, prompt: 'none', loginHint: email });
-  } catch { /* priming is best-effort - Teams posts degrade to "not sent", nothing else */ }
+    // Silent iframe path only. The old fallback did a full-page loginRedirect when
+    // the iframe failed - which flashed the whole app as a "reload" on the first
+    // open of the day. Not worth it: priming only speeds up secondary Graph
+    // features (the Teams BOD/EOD post is delivered SERVER-SIDE now, and people
+    // pickers have their own fallback). If the silent path can't prime, those
+    // features just resolve on demand later - the app never navigates the page.
+    await primeGraphSso(email);
+  } catch { /* priming is best-effort - never a full-page redirect */ }
 }
 
 /** Resolve identity from the session before the app renders. Returns whether to
@@ -173,11 +229,22 @@ export async function bffBootstrap() {
       if (res.ok) {
         _me = await res.json();
         if (_me && _me.email) {
+          // Shared PC: if a DIFFERENT user is signing in than last time on this
+          // browser, purge the previous user's cached data/prefs/tokens BEFORE the
+          // app reads any of it. Catches sessions that ended without a clean logout
+          // (browser closed, crash). First-ever login (no prior) purges nothing.
+          try {
+            const prev = (localStorage.getItem('nexus:lastEmail') || '').toLowerCase();
+            if (prev && prev !== _me.email.toLowerCase()) await _purgeClientData();
+          } catch { /* best-effort */ }
           // Remembered for the NEXT sign-in: passed as login_hint so Entra
           // preselects this account instead of showing the picker.
           try { localStorage.setItem('nexus:lastEmail', _me.email); } catch { /* storage blocked */ }
           // Signed in successfully - any leftover logout markers are stale.
           clearSignedOutMarker();
+          // Shared PC: drop a previous user's cached MSAL account/tokens BEFORE we
+          // expose accounts, so the new user never inherits the old identity.
+          await _evictForeignAccounts(_me.email);
           installSyntheticAccount(_me);
           // Background: turn the live Entra SSO session into a REAL cached MSAL
           // account so Graph calls - the Teams BOD/EOD post, chat lists - work

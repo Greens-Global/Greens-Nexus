@@ -3961,7 +3961,7 @@ def start_auto_pull():
         return
     _AUTO_PULL_STARTED = True
 
-    def _every(minutes, work):
+    def _every(minutes, work, gate_key):
         def _loop():
             while True:
                 time.sleep(minutes * 60)
@@ -3969,16 +3969,41 @@ def start_auto_pull():
                     db = SessionLocal()
                     try:
                         cfg = get_config(db)
-                        if sync_is_on(cfg) and cfg.token:
-                            work(db)
+                        if not (sync_is_on(cfg) and cfg.token):
+                            continue
+                        # Only ONE worker runs this background sweep per tick. Every
+                        # gunicorn worker process starts its own loop, but they used
+                        # to all fire at once and pile up BLOCKING on pull()'s
+                        # transaction-scoped advisory lock (7 workers sat waiting,
+                        # each pinning a pooled DB connection). A session-scoped
+                        # NON-blocking try-lock makes the losers skip this tick
+                        # instead of blocking; the winner does the full sweep and
+                        # releases when done. Manual Pull / Push all and the webhook
+                        # call work() directly (not through here), so they are
+                        # unaffected and still run every time. SQLite/local has one
+                        # process, so there is nothing to gate.
+                        got = True
+                        pg = db.bind.dialect.name == "postgresql"
+                        if pg:
+                            got = bool(db.execute(text("SELECT pg_try_advisory_lock(:k)"),
+                                                  {"k": gate_key}).scalar())
+                        if got:
+                            try:
+                                work(db)
+                            finally:
+                                if pg:
+                                    db.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": gate_key})
+                                    db.commit()
                     finally:
                         db.close()
                 except Exception:
                     pass
         threading.Thread(target=_loop, daemon=True).start()
 
-    _every(_AUTO_PULL_INTERVAL_MIN, pull)
-    _every(_AUTO_PUSH_INTERVAL_MIN, push_all)
+    # Distinct gate keys (separate from pull()'s internal _ASANA_PULL_LOCK_KEY) so a
+    # worker running the pull sweep never blocks a different worker's push sweep.
+    _every(_AUTO_PULL_INTERVAL_MIN, pull, _ASANA_PULL_LOCK_KEY + 1)
+    _every(_AUTO_PUSH_INTERVAL_MIN, push_all, _ASANA_PULL_LOCK_KEY + 2)
 
 
 def trigger_pull_async():

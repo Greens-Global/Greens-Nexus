@@ -16,11 +16,13 @@ Design decisions are research-backed (Jul 2026 deep-research pass):
   break deduction - breaks exist only as explicit punches. Compliance items
   (WA/OR break policy, retention windows) are open questions for counsel.
 """
+import base64
 import csv
 import hashlib
 import io
 import json
 import math
+import os
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone, date
@@ -28,19 +30,20 @@ from typing import List, Optional
 
 import httpx
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, PlainTextResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from database import get_db
-from auth import get_current_user, require_level_or_module, require_administrator
+from auth import (get_current_user, require_level_or_module, require_administrator,
+                  require_module_grant, require_level_or_modules)
 from models import (TimePunch, TimeScreenshot, TimeOffRequest, TimeApproval, TimeBod,
-                    AgentDevice, Shift, ShiftGroup, ShiftGroupMember,
+                    AgentDevice, AgentPairing, LiveSession, Shift, ShiftGroup, ShiftGroupMember,
                     ShiftAssignment, ScheduledShift, PayrollRate, HrWorkSite, NexusEmployee,
                     TrackConsent, TrackSession, TrackPing, MonitoringPolicy, MonitoringConsent,
                     PunchRequest, AgentActivity, AppRating, NexusGroup, NexusGroupMember,
                     NexusSetting, NexusNotification)
-from routers.hr import _hr_notify, _storage_headers, _SUPABASE_URL, _DOC_BUCKET, sync_comp_from_rate
+from routers.hr import _hr_notify, _storage_headers, _SUPABASE_URL, _DOC_BUCKET, _SHOT_BUCKET, sync_comp_from_rate
 from routers.esign import _client_meta
 from routers.stepup import require_stepup
 
@@ -49,6 +52,23 @@ router = APIRouter(prefix="/timeclock", tags=["timeclock"])
 # Managers (level 3+) OR anyone granted the HR module can review the team.
 require_team_read = require_level_or_module(3, "hr", "viewer")
 require_team_write = require_level_or_module(3, "hr", "editor")
+
+# Employee Tracking (disclosed monitoring) is a grant-driven module (Aug 13). IT
+# Admin / Global Admin always have it (require_module_grant's bypass); otherwise an
+# Access-Group grant on "employee-tracking" opens it, tiered by level:
+#   viewer = watch live, coverage, screenshots, see enrolled devices;
+#   full   = remote CONTROL, edit the monitoring policy, enroll/assign/revoke PCs.
+# NOTE: unlike require_team_read, a plain manager/supervisor role does NOT open the
+# screen - only an explicit grant does (or admin) - matching its grant-driven
+# sidebar/route visibility.
+require_tracking      = require_module_grant("employee-tracking", "viewer")
+require_tracking_full = require_module_grant("employee-tracking", "full")
+# Read surfaces the monitoring dashboard SHARES with the manager audience (top
+# apps/coverage/alerts): keep managers + HR-grant AND additively admit an
+# Employee-Tracking grant, so a granted non-manager can use them too. A superset
+# of require_team_read - never narrows it.
+require_tracking_read       = require_level_or_modules(3, [("hr", "viewer"), ("employee-tracking", "viewer")])
+require_tracking_read_write = require_level_or_modules(3, [("hr", "editor"), ("employee-tracking", "full")])
 
 
 def _visible_emails(db: Session, user: dict):
@@ -214,12 +234,24 @@ def _day_summaries(punches: list, round_min: int = 0) -> dict:
             if open_in is None:
                 flag(d, "out_without_in")
             else:
+                span = (t - open_in).total_seconds()
+                # Forgotten clock-out: an in that only meets an out a full max-shift
+                # later is a missed punch, not real time. Do NOT count the bridged
+                # span (mirrors _compute_timecard) - else approve/finalize would lock
+                # in a phantom 25h/71h total. Flag the in as missing-out, drop this
+                # out as an orphan.
+                if span > _MAX_SHIFT_MIN * 60:
+                    flag(open_in_date, "missing_out")
+                    open_in = None
+                    open_brk = 0.0
+                    last_out[d] = p.at
+                    continue
                 # A closed pair spanning 12+ hours is almost always a forgotten
                 # punch-out (Jul 27: a Sat 02:31 in / Mon 20:59 out landed 66h on
                 # Saturday). Flag it so the timesheet and approver see it loudly.
-                if (t - open_in).total_seconds() >= 12 * 3600:
+                if span >= 12 * 3600:
                     flag(open_in_date, "unusually_long")
-                worked[open_in_date] = worked.get(open_in_date, 0.0) + (t - open_in).total_seconds() / 60
+                worked[open_in_date] = worked.get(open_in_date, 0.0) + span / 60
                 brk[open_in_date] = brk.get(open_in_date, 0.0) + open_brk
                 open_in = None
             last_out[d] = p.at
@@ -260,6 +292,10 @@ class PunchIn(BaseModel):
     # When the punch BUTTON was pressed, for punches gated behind the
     # beginning/end-of-day message (see the punch endpoint) - "" = record now.
     clicked_at: Optional[str] = ""
+    # Shared-PC binding: a pairing nonce the local agent has claimed with its own
+    # device token (see /agent/pair). On clock-IN it binds this employee to that
+    # physical PC for the shift; '' = no agent / personal device (unbound, as today).
+    pair_nonce: Optional[str] = ""
 
 
 @router.get("/status")
@@ -303,6 +339,9 @@ def my_status(tz_offset_min: int = 0, user: dict = Depends(get_current_user), db
             "consentRequired": False,
             "textVersion": _MONITORING_TEXT_VERSION,
             "text": _MONITORING_NOTICE,
+            # A live desktop agent is covering this PC, so the browser can skip its
+            # own screen share (no getDisplayMedia picker) - the agent captures.
+            "agentActive": _agent_active_for(db, email),
         })(_is_monitoring_exempt(db, email)),
     }
 
@@ -319,6 +358,18 @@ def punch(body: PunchIn, request: Request,
     allowed = _allowed_kinds(last.kind if last else None)
     if body.kind not in allowed:
         raise HTTPException(409, f"Can't punch '{body.kind}' right now - allowed: {', '.join(allowed)}")
+    # Shared-PC: resolve the device the local agent claimed (via /agent/pair) and
+    # gate it BEFORE recording an 'in', so a device already in use blocks cleanly
+    # without leaving a stray punch. One active employee per device.
+    pending_bind = None
+    if body.kind == "in" and (body.pair_nonce or "").strip():
+        pending_bind = _resolve_pairing(db, body.pair_nonce.strip(), email)
+        if pending_bind:
+            _pairing, _dev = pending_bind
+            if _dev.active_email and _dev.active_email != email:
+                _e2 = db.query(NexusEmployee).filter(NexusEmployee.work_email == _dev.active_email).first()
+                _nm = (f"{_e2.first_name} {_e2.last_name}".strip() if _e2 else _dev.active_email.split("@")[0])
+                raise HTTPException(409, f"This PC is already clocked in for {_nm}. They need to clock out before you can start a shift on this computer.")
     now = _now_iso()
     # The BOD/EOD message gate opens BEFORE the punch is sent, so the minutes
     # spent writing the day message used to fall outside the recorded time
@@ -388,6 +439,18 @@ def punch(body: PunchIn, request: Request,
                             TimeBod.local_date == row.local_date).first())
         prompt_eod = eod_done is None
         close_track_session(db, email, "clock_out")  # tracking never outlives the shift
+    # Shared-PC binding: claim the device on clock-IN (it now belongs to this
+    # employee's session; screenshots + heartbeat attribute to them), and release
+    # it on clock-OUT (freed for the next person to clock in on the same machine).
+    if body.kind == "in" and pending_bind:
+        _pairing, _dev = pending_bind
+        _dev.active_email = email
+        _dev.active_session_id = row.id
+        _pairing.used = 1
+    elif body.kind == "out":
+        for _d in db.query(AgentDevice).filter(AgentDevice.active_email == email).all():
+            _d.active_email = ""
+            _d.active_session_id = ""
     db.commit()
     return {"punch": _serialize(row), "allowed": _allowed_kinds(body.kind),
             "firstInToday": first_in_today, "promptEod": prompt_eod}
@@ -531,12 +594,83 @@ def _guard_not_finalized(db: Session, email: str, d_start: str, d_end: str = "")
         raise HTTPException(403, "This pay period is finalized and locked. Ask HR to unlock it before changing time records.")
 
 
+# ── Punch exceptions (SwipeClock "missing punch" model) ──────────────────────
+# A period can't be cleanly signed off while any of these are open. `missing_out`
+# / `out_without_in` corrupt the paired total, so they BLOCK approve + finalize;
+# `unusually_long` is a loud warning that still pays (a real long shift).
+_EXCEPTION_LABELS = {
+    "missing_out":     "No clock-out - open shift, needs an out time",
+    "out_without_in":  "Clock-out with no matching clock-in",
+    "unusually_long":  "Unusually long shift (over 12h) - check for a missed punch",
+}
+_BLOCKING_EXCEPTIONS = ("missing_out", "out_without_in")
+
+
+def _period_exceptions(db: Session, email: str, start: str, end: str) -> list:
+    """[{date, type, label, blocking}] for a period - the SwipeClock 'missing
+    punch' exceptions, derived from the same paired-shift flags approve/finalize
+    already compute. Only days within [start, end] are reported (the extra fetched
+    day just lends its out-punch to an overnight shift)."""
+    _end_nx = (date.fromisoformat(end) + timedelta(days=1)).isoformat() if end else end
+    summ = _day_summaries(_live_punches(db, email, start, _end_nx), _round_min(db))
+    out = []
+    for d in sorted(summ):
+        if end and d > end:
+            continue
+        for f in sorted(summ[d].get("flags", [])):
+            if f in _EXCEPTION_LABELS:
+                out.append({"date": d, "type": f, "label": _EXCEPTION_LABELS[f],
+                            "blocking": f in _BLOCKING_EXCEPTIONS})
+    return out
+
+
+def _blocking_exceptions(db: Session, email: str, start: str, end: str) -> list:
+    return [e for e in _period_exceptions(db, email, start, end) if e["blocking"]]
+
+
+def _exceptions_409(exc: list):
+    n = len(exc)
+    days = ", ".join(sorted({e["date"] for e in exc}))
+    raise HTTPException(409, {
+        "code": "unresolved_exceptions",
+        "message": (f"{n} unresolved punch exception{'s' if n != 1 else ''} "
+                    f"({days}) must be fixed before sign-off. Add the missing "
+                    f"clock-out(s) on the timesheet, or override to sign off anyway."),
+        "exceptions": exc})
+
+
+@router.get("/exceptions")
+def list_exceptions(start: str, end: str, user: dict = Depends(require_team_write),
+                    db: Session = Depends(get_db)):
+    """SwipeClock 'Show Missing Only': every unresolved punch exception across the
+    manager's team for a period, so they get fixed before payroll runs. Team-scoped
+    (a manager sees their reports; an admin sees everyone with punches in range)."""
+    scope = _visible_emails(db, user)
+    _hi = (date.fromisoformat(end) + timedelta(days=2)).isoformat()
+    q = (db.query(TimePunch.employee_email)
+         .filter(TimePunch.voided == 0, TimePunch.at >= start, TimePunch.at < _hi)
+         .distinct())
+    if scope is not None:
+        q = q.filter(TimePunch.employee_email.in_(scope))
+    out = []
+    for (em,) in q.all():
+        exc = _period_exceptions(db, em, start, end)
+        if exc:
+            out.append({"email": em, "exceptions": exc,
+                        "blocking": sum(1 for e in exc if e["blocking"])})
+    out.sort(key=lambda r: (-r["blocking"], r["email"]))
+    return out
+
+
 class ApprovalIn(BaseModel):
     email: str
     start: str = ""
     end: str = ""
     days: Optional[List[str]] = None     # per-day mode: approve these dates
     note: Optional[str] = ""
+    # SwipeClock parity: unresolved missing/unmatched punches block sign-off.
+    # An approver can knowingly override (their sign-off is on record either way).
+    allow_exceptions: bool = False
 
 
 @router.post("/approvals")
@@ -551,6 +685,19 @@ def approve_timecard(body: ApprovalIn, user: dict = Depends(require_team_write),
             _guard_not_finalized(db, email, _d)
     elif body.start and body.end:
         _guard_not_finalized(db, email, body.start, body.end)
+    # SwipeClock parity: a period with unresolved missing/unmatched punches can't
+    # be approved until fixed (or explicitly overridden). Same paired-shift flags
+    # the timesheet shows - so the approver never locks in a corrupted total.
+    if not body.allow_exceptions:
+        if body.days:
+            exc = [e for _d in sorted({d for d in body.days if d})
+                   for e in _blocking_exceptions(db, email, _d, _d)]
+        elif body.start and body.end:
+            exc = _blocking_exceptions(db, email, body.start, body.end)
+        else:
+            exc = []
+        if exc:
+            _exceptions_409(exc)
     now = _now_iso()
 
     # ── Per-day mode: one approval row per date; re-approving a changed day
@@ -710,6 +857,7 @@ class FinalizeIn(BaseModel):
     email: str
     start: str
     end: str
+    allow_exceptions: bool = False   # override unresolved missing/unmatched punches
 
 
 @router.post("/finalize")
@@ -723,6 +871,12 @@ def finalize_timecard(body: FinalizeIn, user: dict = Depends(require_administrat
         raise HTTPException(400, "start and end are required")
     if _finalized_row(db, email, body.start, body.end):
         raise HTTPException(409, "Already finalized for this period")
+    # SwipeClock parity: unresolved missing/unmatched punches block finalize -
+    # payroll can't lock a period that still has a phantom or dangling shift.
+    if not body.allow_exceptions:
+        exc = _blocking_exceptions(db, email, body.start, body.end)
+        if exc:
+            _exceptions_409(exc)
     _end_nx = (date.fromisoformat(body.end) + timedelta(days=1)).isoformat()
     # Freeze the pay rate + OT rule as of finalize, so a later change can't
     # re-price this locked, paid period (see _compute_timecard).
@@ -1069,6 +1223,25 @@ def _is_monitoring_exempt(db: Session, email: str) -> bool:
         NexusGroup.id.in_(gids), NexusGroup.monitoring_exempt == 1).first() is not None
 
 
+_AGENT_FRESH_SEC = 180   # heartbeat is 60s; tolerate ~2 missed beats
+
+
+def _agent_active_for(db: Session, email: str) -> bool:
+    """True when a live desktop agent covers this person: a non-revoked device
+    assigned to them (owner) or currently bound to them (active_email) that has
+    checked in within the last few minutes. The browser reads this to skip its own
+    screen share (the agent captures instead) - detection is server-side because
+    Chrome's private-network policy blocks any browser->127.0.0.1 probe."""
+    if not email:
+        return False
+    cutoff = (datetime.now(timezone.utc) - timedelta(seconds=_AGENT_FRESH_SEC)).strftime("%Y-%m-%dT%H:%M:%S")
+    q = (db.query(AgentDevice.id)
+         .filter(AgentDevice.revoked == 0,
+                 (AgentDevice.employee_email == email) | (AgentDevice.active_email == email),
+                 AgentDevice.last_seen_at >= cutoff))
+    return db.query(q.exists()).scalar()
+
+
 def _has_monitoring_consent(db: Session, email: str, local_date: str) -> bool:
     return db.query(MonitoringConsent).filter(
         MonitoringConsent.employee_email == email,
@@ -1077,18 +1250,19 @@ def _has_monitoring_consent(db: Session, email: str, local_date: str) -> bool:
     ).first() is not None
 
 
-def _store_shot(db: Session, email: str, blob: bytes, idle_sec: int, active_view: str, tz_offset_min: int):
+def _store_shot(db: Session, email: str, blob: bytes, idle_sec: int, active_view: str, tz_offset_min: int, session_id: str = ""):
     if not blob or len(blob) > 2_000_000:
         raise HTTPException(400, "Screenshot missing or larger than 2 MB")
     now = _now_iso()
     path = f"timeclock/{email}/{_local_date(now, tz_offset_min)}/{now.replace(':', '-')}-{uuid.uuid4().hex[:6]}.jpg"
-    up = httpx.post(f"{_SUPABASE_URL}/storage/v1/object/{_DOC_BUCKET}/{path}",
+    up = httpx.post(f"{_SUPABASE_URL}/storage/v1/object/{_SHOT_BUCKET}/{path}",
                     headers={**_storage_headers(), "Content-Type": "image/jpeg"},
                     content=blob, timeout=30)
     if not up.is_success:
         raise HTTPException(502, f"Storage upload failed: {up.text[:200]}")
     row = TimeScreenshot(id=str(uuid.uuid4()), employee_email=email, at=now,
                          local_date=_local_date(now, tz_offset_min), storage_path=path,
+                         bucket=_SHOT_BUCKET, session_id=session_id or "",
                          idle_sec=max(0, int(idle_sec or 0)),
                          active_view=(active_view or "")[:120], created_at=now)
     db.add(row)
@@ -1155,7 +1329,7 @@ class MonitoringPolicyIn(BaseModel):
 
 
 @router.put("/monitoring/policy")
-def set_monitoring_policy(body: MonitoringPolicyIn, user: dict = Depends(require_administrator),
+def set_monitoring_policy(body: MonitoringPolicyIn, user: dict = Depends(require_tracking_full),
                           db: Session = Depends(get_db)):
     """Admin sets the monitoring cadence and what's collected. Central + auditable."""
     p = _get_policy(db)
@@ -1171,7 +1345,7 @@ def set_monitoring_policy(body: MonitoringPolicyIn, user: dict = Depends(require
 
 
 @router.get("/monitoring/alerts")
-def monitoring_alerts(user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
+def monitoring_alerts(user: dict = Depends(require_tracking_read), db: Session = Depends(get_db)):
     """Tamper/coverage alerts: employees who are CLOCKED IN while monitoring is on,
     but whose agent has gone quiet - the honest, visible way to catch someone
     killing/uninstalling the agent to dodge capture. Nothing is hidden; the gap is
@@ -1253,6 +1427,82 @@ def monitoring_alerts(user: dict = Depends(require_team_read), db: Session = Dep
     # High severity first, then most-recently clocked in
     alerts.sort(key=lambda a: (a["severity"] != "high", a["clockedInSince"]), reverse=False)
     return {"enabled": True, "alerts": alerts, "checkedAt": _now_iso()}
+
+
+@router.get("/monitoring/coverage")
+def monitoring_coverage(user: dict = Depends(require_tracking_read), db: Session = Depends(get_db)):
+    """Live coverage roster: everyone currently clocked in, HOW each is being
+    captured right now - desktop agent, in-browser Chrome share, or NOT captured
+    (the gap). Team-scoped like the alerts feed; derived from punch + heartbeat +
+    screenshot data, no new storage. The capture source is read from the most
+    recent frame's active_view ("desktop agent ..." = agent, else the browser)."""
+    pol = _get_policy(db)
+    visible = _visible_emails(db, user)
+    now = datetime.now(timezone.utc)
+    interval_min = max(1, int(pol.interval_minutes or 5))
+    shot_gap_sec = int(interval_min * 60 * 2.5) + 120      # a frame is "recent" within this
+    stale_sec = max(300, interval_min * 60 * 2 + 120)      # an agent heartbeat is "live" within this
+    screens_required = bool(pol.enabled and pol.track_screens)
+
+    since = (now - timedelta(days=2)).isoformat()
+    pq = db.query(TimePunch).filter(TimePunch.voided == 0, TimePunch.at >= since)
+    if visible is not None:
+        if not visible:
+            return {"enabled": bool(pol.enabled), "screensRequired": screens_required,
+                    "checkedAt": _now_iso(), "people": []}
+        pq = pq.filter(TimePunch.employee_email.in_(visible))
+    latest = {}
+    for p in pq.order_by(TimePunch.at.desc()).all():
+        latest.setdefault(p.employee_email, p)
+    clocked = {e: p for e, p in latest.items() if p.kind != "out"}
+
+    names = {e.work_email: f"{e.first_name} {e.last_name}".strip()
+             for e in db.query(NexusEmployee).all() if e.work_email}
+    def _nm(email):
+        return names.get(email) or (email.split("@")[0].replace(".", " ").title() if email else "")
+    def _age(iso):
+        dt = _parse_iso(iso) if iso else None
+        return int((now - dt).total_seconds()) if dt else None
+
+    people = []
+    for email, punch in clocked.items():
+        on_break = punch.kind == "break_start"
+        exempt = _is_monitoring_exempt(db, email)
+        last_shot = (db.query(TimeScreenshot)
+                     .filter(TimeScreenshot.employee_email == email)
+                     .order_by(TimeScreenshot.at.desc()).first())
+        shot_age = _age(last_shot.at) if last_shot else None
+        recent = shot_age is not None and shot_age <= shot_gap_sec
+        via_agent = recent and (last_shot.active_view or "").startswith("desktop agent")
+        dev = (db.query(AgentDevice)
+               .filter(AgentDevice.revoked == 0,
+                       (AgentDevice.employee_email == email) | (AgentDevice.active_email == email))
+               .order_by(AgentDevice.last_seen_at.desc()).first())
+        seen_age = _age(dev.last_seen_at) if (dev and dev.last_seen_at) else None
+        agent_online = seen_age is not None and seen_age <= stale_sec
+
+        if exempt:               status = "exempt"        # leadership - never captured
+        elif not screens_required: status = "screens_off"  # policy has capture disabled
+        elif on_break:           status = "on_break"      # capture legitimately paused
+        elif recent and via_agent: status = "agent"       # desktop agent capturing
+        elif recent:             status = "browser"       # in-browser Chrome share
+        else:                    status = "gap"           # clocked in, screens on, NOT captured
+        people.append({
+            "email": email, "name": _nm(email),
+            "clockedInSince": punch.at, "onBreak": on_break, "exempt": exempt,
+            "status": status, "covered": status != "gap",
+            "lastFrameAt": last_shot.at if last_shot else "", "secsSinceFrame": shot_age,
+            "agentOnline": agent_online, "deviceName": (dev.device_name or dev.label) if dev else "",
+            # Live screen-share is possible only when the desktop agent process is
+            # actually online (heartbeating) for a non-exempt person with capture on.
+            # On break is still watchable (shows a frozen frame), so it's allowed.
+            "canWatchLive": bool(agent_online and screens_required and not exempt and _LIVE_ENABLED),
+        })
+    # Gaps first (need attention), then browser, agent, paused; then by name.
+    order = {"gap": 0, "browser": 1, "agent": 2, "on_break": 3, "screens_off": 4, "exempt": 5}
+    people.sort(key=lambda x: (order.get(x["status"], 9), x["name"].lower()))
+    return {"enabled": bool(pol.enabled), "screensRequired": screens_required,
+            "checkedAt": _now_iso(), "people": people}
 
 
 # ── Punch-fix requests (employee asks, approver approves/rejects) ─────────────
@@ -1575,13 +1825,85 @@ def get_agent_device(request: Request, db: Session = Depends(get_db)) -> AgentDe
     return dev
 
 
+# ── Shared-PC pairing (browser <-> local agent, nonce challenge) ──────────────
+# The browser must NOT send a raw device_id (it could lie). Instead: the website
+# mints a nonce for the logged-in employee; the browser hands it to the LOCAL
+# agent over localhost; the agent CLAIMS it by POSTing here with its own device
+# token (proving which physical PC it is); clock-in then binds employee+device via
+# the nonce. A rogue web page can't get a nonce (needs an authed Nexus session),
+# and a rogue localhost process can't claim one (needs a valid device token).
+_PAIR_TTL_SEC = 180
+
+
+def _resolve_pairing(db: Session, nonce: str, email: str):
+    """(AgentPairing, AgentDevice) for a valid, unused, recent nonce the agent has
+    claimed for `email`; else None. Locks the row against double-spend."""
+    if not nonce:
+        return None
+    p = db.query(AgentPairing).filter(AgentPairing.nonce == nonce).with_for_update().first()
+    if not p or p.used or p.employee_email != email or not p.device_id:
+        return None
+    ts = _parse_iso(p.created_at)
+    if ts is None:
+        return None
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    if (datetime.now(timezone.utc) - ts).total_seconds() > _PAIR_TTL_SEC:
+        return None
+    dev = db.query(AgentDevice).filter(AgentDevice.id == p.device_id, AgentDevice.revoked == 0).first()
+    return (p, dev) if dev else None
+
+
+@router.post("/agent/pair-challenge")
+def agent_pair_challenge(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Website mints a one-time nonce for the logged-in employee; the browser hands
+    it to the local agent, and clock-in spends it. Prunes this employee's old
+    nonces so they can't pile up."""
+    email = user["email"]
+    cutoff = (datetime.now(timezone.utc) - timedelta(seconds=_PAIR_TTL_SEC)).strftime("%Y-%m-%dT%H:%M:%S")
+    db.query(AgentPairing).filter(
+        AgentPairing.employee_email == email,
+        ((AgentPairing.used == 1) | (AgentPairing.created_at < cutoff))
+    ).delete(synchronize_session=False)
+    nonce = secrets.token_urlsafe(24)
+    db.add(AgentPairing(nonce=nonce, employee_email=email, created_at=_now_iso()))
+    db.commit()
+    return {"nonce": nonce, "expiresInSec": _PAIR_TTL_SEC}
+
+
+class PairClaimIn(BaseModel):
+    nonce: str
+
+
+@router.post("/agent/pair")
+def agent_pair(body: PairClaimIn, dev: AgentDevice = Depends(get_agent_device),
+               db: Session = Depends(get_db)):
+    """The local agent claims a nonce with its OWN device token, stamping the
+    trusted device_id onto it - which is what lets the browser never send a
+    device_id itself."""
+    p = db.query(AgentPairing).filter(AgentPairing.nonce == (body.nonce or "")).with_for_update().first()
+    if not p or p.used:
+        raise HTTPException(404, "Unknown or spent pairing nonce")
+    ts = _parse_iso(p.created_at)
+    if ts is None:
+        raise HTTPException(410, "Pairing nonce expired")
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    if (datetime.now(timezone.utc) - ts).total_seconds() > _PAIR_TTL_SEC:
+        raise HTTPException(410, "Pairing nonce expired")
+    p.device_id = dev.id
+    dev.last_seen_at = _now_iso()
+    db.commit()
+    return {"ok": True, "deviceId": dev.id, "deviceName": dev.device_name or ""}
+
+
 class EnrollIn(BaseModel):
     email: str
     label: Optional[str] = ""
 
 
 @router.post("/agent/enroll")
-def agent_enroll(body: EnrollIn, user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
+def agent_enroll(body: EnrollIn, user: dict = Depends(require_tracking_full), db: Session = Depends(get_db)):
     """Mint a fresh device token for an employee. The raw token is returned ONCE
     (only its hash is stored) - the portal bakes it into the install command."""
     email = body.email.strip().lower()
@@ -1596,29 +1918,304 @@ def agent_enroll(body: EnrollIn, user: dict = Depends(require_administrator), db
     return {"deviceId": dev.id, "token": raw, "email": email}
 
 
+# Where the CLI installer + agent bundle are hosted, and what the installed agent
+# should target. Install/bundle URLs come from a public store (uploaded at release
+# - the service key that writes storage lives on the server, not a laptop). The
+# API/Web defaults match desktop-agent/src/config.js so the command targets dev
+# even before the URLs are set.
+_AGENT_INSTALL_URL = os.getenv("NEXUS_AGENT_INSTALL_URL", "")
+_AGENT_BUNDLE_URL  = os.getenv("NEXUS_AGENT_BUNDLE_URL", "")
+_AGENT_API_BASE    = os.getenv("NEXUS_AGENT_API_BASE",
+    "https://greens-nexus-api-dev-a6fad4brawevg8de.westus2-01.azurewebsites.net")
+_AGENT_WEB_BASE    = os.getenv("NEXUS_AGENT_WEB_BASE", "https://dev.nexus.greensglobal.com")
+# Shared enrollment secret. One value the install one-liner carries on EVERY PC;
+# each machine trades it for its own device token at install time (self-enroll).
+# Rotate/revoke by changing this env var. If unset, self-enroll is disabled.
+_AGENT_ENROLL_KEY  = os.getenv("NEXUS_AGENT_ENROLL_KEY", "")
+
+# ── Live screen view (on-demand WebRTC) config ───────────────────────────────
+# A manager can watch a clocked-in employee's screen in real time. The media is a
+# WebRTC peer stream agent<->browser; because both sit behind NAT we relay through
+# Cloudflare Realtime TURN. These two secrets come from the Cloudflare dashboard
+# (Realtime -> TURN -> create key). If unset, live view is disabled everywhere
+# (the coverage button hides and every live endpoint 503s) - the rest of
+# monitoring is unaffected, so shipping this dark is safe.
+_CF_TURN_KEY_ID    = os.getenv("NEXUS_CF_TURN_KEY_ID", "")
+_CF_TURN_API_TOKEN = os.getenv("NEXUS_CF_TURN_API_TOKEN", "")
+_LIVE_ENABLED      = bool(_CF_TURN_KEY_ID and _CF_TURN_API_TOKEN)
+_LIVE_TTL_SEC      = 25          # a session with no poll from either side this long is dead
+_LIVE_ICE_TTL_SEC  = 3600        # lifetime of the short-lived TURN credential
+
+
+def _live_ice_servers() -> list:
+    """Mint short-lived TURN credentials from Cloudflare Realtime for one session.
+    Returns an RTCConfiguration-style iceServers list both peers use. Blocking
+    httpx is fine here - this is a sync endpoint handler (threadpool), not the
+    async event loop."""
+    r = httpx.post(
+        f"https://rtc.live.cloudflare.com/v1/turn/keys/{_CF_TURN_KEY_ID}/credentials/generate",
+        headers={"Authorization": f"Bearer {_CF_TURN_API_TOKEN}"},
+        json={"ttl": _LIVE_ICE_TTL_SEC}, timeout=10.0)
+    r.raise_for_status()
+    ice = (r.json() or {}).get("iceServers")
+    # Cloudflare returns iceServers as a LIST of entries (each a urls array +
+    # username/credential), already including a STUN url - pass it straight to
+    # RTCPeerConnection. Tolerate a single-object shape too, and fall back to a
+    # bare public STUN only if the response is unexpectedly empty.
+    if isinstance(ice, list) and ice:
+        return ice
+    if isinstance(ice, dict) and ice:
+        return [ice]
+    return [{"urls": "stun:stun.cloudflare.com:3478"}]
+
+
+def _ps_oneliner(script: str) -> str:
+    """Wrap a PowerShell script into a paste-anywhere one-liner via -EncodedCommand.
+    The script is base64'd (UTF-16LE, what PowerShell expects), so the pasted text
+    carries NO quotes, URLs, or $-variables in the clear. That makes it immune to:
+      - chat/linkifier mangling (a bare 'https://...ps1' followed by a quote used to
+        get linkified and the trailing ' swallowed as %27, breaking the string),
+      - cmd-vs-PowerShell quoting differences and $env: double-expansion when pasted
+        into a live PowerShell session.
+    It runs identically in Command Prompt and PowerShell."""
+    b64 = base64.b64encode(script.encode("utf-16-le")).decode("ascii")
+    return f"powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand {b64}"
+
+
+@router.get("/agent/install-command")
+def agent_install_command(user: dict = Depends(require_tracking_full)):
+    """Return the ONE reusable Windows one-liner used on every PC (like Flowace's
+    silent command). It downloads the installer + agent bundle and installs the
+    DISCLOSED agent (visible tray icon; nothing covert), carrying the shared
+    enrollment key - each machine self-enrolls its own device identity on install.
+    Run it in an ELEVATED prompt for the employee-proof service that covers every
+    profile on the PC; a normal prompt does a removable per-user install. Who gets
+    attributed is decided by whoever clocks in on the website (shared-PC pairing)."""
+    configured = bool(_AGENT_INSTALL_URL and _AGENT_BUNDLE_URL and _AGENT_ENROLL_KEY)
+    install_url = _AGENT_INSTALL_URL or "<set NEXUS_AGENT_INSTALL_URL>"
+    bundle_url  = _AGENT_BUNDLE_URL or "<set NEXUS_AGENT_BUNDLE_URL>"
+    enroll_key  = _AGENT_ENROLL_KEY or "<set NEXUS_AGENT_ENROLL_KEY>"
+    # Fetch install.ps1 to a temp file, run it with the shared key + targets, clean
+    # up. Single-quoted PS literals; the key/urls carry no quote chars to escape.
+    inner = (
+        "$p=Join-Path $env:TEMP 'nexus-install.ps1'; "
+        f"Invoke-WebRequest -UseBasicParsing '{install_url}' -OutFile $p; "
+        f"& $p -Source '{bundle_url}' -EnrollKey '{enroll_key}' "
+        f"-ApiBase '{_AGENT_API_BASE}' -WebBase '{_AGENT_WEB_BASE}'; "
+        "Remove-Item $p -Force"
+    )
+    # Uninstall one-liner. No 106 MB bundle needed, so the script is served straight
+    # from this API (no storage upload) - each machine fetches + runs it.
+    uninstall_url = f"{_AGENT_API_BASE}/timeclock/agent/uninstall.ps1"
+    uinner = (
+        "$p=Join-Path $env:TEMP 'nexus-uninstall.ps1'; "
+        f"Invoke-WebRequest -UseBasicParsing '{uninstall_url}' -OutFile $p; "
+        "& $p; Remove-Item $p -Force"
+    )
+    return {
+        "configured": configured,
+        "command": _ps_oneliner(inner),
+        "uninstallCommand": _ps_oneliner(uinner),
+        "note": ("Same command on every PC. Run it in an elevated (admin) prompt - "
+                 "elevated installs the employee-proof service covering every profile; "
+                 "a normal prompt installs per-user for the current profile only. Works "
+                 "the same pasted into Command Prompt or PowerShell."),
+        "uninstallNote": ("Removes the agent from a PC. Run elevated to also remove the "
+                          "machine-wide service + Program Files install; a normal prompt "
+                          "removes a per-user install. Revoking the token below is separate."),
+    }
+
+
+# Uninstaller script, served so the uninstall one-liner can fetch it (mirrors
+# desktop-agent/install/uninstall.ps1 - keep them in sync). No secrets inside, so
+# it's public; it only removes local files/service on the machine that runs it.
+_UNINSTALL_PS1 = r'''# Plugin - uninstaller (served by the Nexus API).
+# Elevated: also removes the machine-wide Plugin + Program Files
+# install. Normal: removes the per-user install + Startup entry. Local only -
+# revoke the device token separately in Nexus -> Admin -> Monitoring.
+$ErrorActionPreference = 'SilentlyContinue'
+$APP = 'Plugin'
+$isAdmin = ([Security.Principal.WindowsPrincipal] `
+  [Security.Principal.WindowsIdentity]::GetCurrent()
+).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+
+if (Get-Service -Name 'Plugin' -ErrorAction SilentlyContinue) {
+  if ($isAdmin) {
+    sc.exe stop Plugin | Out-Null
+    Start-Sleep -Seconds 2
+    sc.exe delete Plugin | Out-Null
+    Write-Host "Removed the Plugin service."
+  } else {
+    Write-Host "A machine-wide service is installed - re-run AS ADMINISTRATOR to remove it."
+  }
+}
+
+Get-Process -Name $APP -ErrorAction SilentlyContinue | Stop-Process -Force
+Start-Sleep -Milliseconds 500
+Remove-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name $APP -ErrorAction SilentlyContinue
+
+$paths = @(
+  (Join-Path $env:LOCALAPPDATA "Programs\$APP"),
+  (Join-Path $env:APPDATA $APP),
+  (Join-Path $env:ProgramData $APP)
+)
+if ($isAdmin) { $paths += (Join-Path $env:ProgramFiles $APP) }
+foreach ($p in $paths) { if (Test-Path $p) { Remove-Item $p -Recurse -Force; Write-Host "Removed $p" } }
+if ($isAdmin) { [Environment]::SetEnvironmentVariable('NEXUS_AGENT_EXE', $null, 'Machine') }
+
+# Remove the firewall allow-rule the installer added (no-op if absent).
+Get-NetFirewallRule -DisplayName 'Plugin Agent' -ErrorAction SilentlyContinue |
+  Remove-NetFirewallRule -ErrorAction SilentlyContinue
+
+Write-Host ""
+Write-Host "Plugin removed from this PC."
+'''
+
+
+@router.get("/agent/uninstall.ps1")
+def agent_uninstall_script():
+    """Public uninstaller script the uninstall one-liner downloads. No secrets; it
+    only removes the agent's local files/service on the machine that runs it."""
+    return PlainTextResponse(_UNINSTALL_PS1, media_type="text/plain; charset=utf-8")
+
+
+class SelfEnrollIn(BaseModel):
+    enroll_key: str
+    hostname: Optional[str] = ""
+    mac: Optional[str] = ""
+    platform: Optional[str] = ""
+    device_user: Optional[str] = ""
+
+
+@router.post("/agent/self-enroll")
+def agent_self_enroll(body: SelfEnrollIn, db: Session = Depends(get_db)):
+    """Trade the shared enrollment key for THIS machine's own device token. Called
+    by install.ps1 once per PC at install time (no Nexus login on the box). Gated
+    only by the shared key - by design, since the target has no user identity;
+    identity is bound later at website clock-in. Idempotent per MAC so a reinstall
+    rotates the token onto the existing PC row instead of piling up duplicates."""
+    if not _AGENT_ENROLL_KEY:
+        raise HTTPException(503, "Self-enrollment is not enabled")
+    if not body.enroll_key or not secrets.compare_digest(body.enroll_key.strip(), _AGENT_ENROLL_KEY):
+        raise HTTPException(403, "Invalid enrollment key")
+    raw = secrets.token_urlsafe(32)
+    now = _now_iso()
+    mac = (body.mac or "").strip().lower()
+    dev = None
+    if mac:
+        dev = (db.query(AgentDevice)
+               .filter(AgentDevice.mac == mac, AgentDevice.revoked == 0)
+               .order_by(AgentDevice.created_at.desc()).first())
+    if dev:
+        dev.token_hash = _hash_token(raw)     # reinstall on a known PC -> rotate token
+        dev.device_name = (body.hostname or dev.device_name or "")[:120]
+        dev.device_user = (body.device_user or dev.device_user or "")[:120]
+        dev.platform = (body.platform or dev.platform or "")[:60]
+        dev.last_seen_at = now
+    else:
+        dev = AgentDevice(id=str(uuid.uuid4()), employee_email="",   # no owner: shared PC
+                          token_hash=_hash_token(raw), label="Self-enrolled PC",
+                          device_name=(body.hostname or "")[:120],
+                          device_user=(body.device_user or "")[:120],
+                          mac=mac[:120], platform=(body.platform or "")[:60],
+                          created_by="self-enroll", created_at=now, last_seen_at=now)
+        db.add(dev)
+    db.commit()
+    return {"deviceId": dev.id, "token": raw}
+
+
 @router.get("/agent/devices")
-def agent_devices(user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
+def agent_devices(user: dict = Depends(require_tracking), db: Session = Depends(get_db)):
     """Silent App Tracking: every enrolled computer, self-described on check-in."""
     names = {e.work_email: f"{e.first_name} {e.last_name}".strip()
              for e in db.query(NexusEmployee).all() if e.work_email}
     # Revoked devices vanish from the list (row kept for audit; token already dead).
     rows = (db.query(AgentDevice).filter(AgentDevice.revoked == 0)
             .order_by(AgentDevice.created_at.desc()).all())
-    return {"devices": [{
-        "id": d.id, "email": d.employee_email,
-        "name": names.get(d.employee_email) or d.employee_email.split("@")[0].replace(".", " ").title(),
-        "label": d.label or "", "deviceName": d.device_name or "", "deviceUser": d.device_user or "",
-        "mac": d.mac or "", "platform": d.platform or "", "revoked": bool(d.revoked),
-        "lastSeen": d.last_seen_at or "", "createdAt": d.created_at or "",
-    } for d in rows]}
+    def _nm(email):
+        if not email:
+            return ""
+        return names.get(email) or email.split("@")[0].replace(".", " ").title()
+    # Live status: online = heartbeat within 150s (agent beats every 60s);
+    # capturing = online AND the subject (bound user or assigned owner) is on a live
+    # shift with screen capture enabled. Offline => powered off, asleep, killed, or
+    # uninstalled (indistinguishable from here, so we just report "offline").
+    pol = _get_policy(db)
+    cap_on = bool(pol.enabled and pol.track_screens)
+    now = datetime.now(timezone.utc)
+    online_cutoff = (now - timedelta(seconds=150)).strftime("%Y-%m-%dT%H:%M:%S")
+    out = []
+    for d in rows:
+        _ts = _parse_iso(d.last_seen_at) if d.last_seen_at else None
+        secs = int((now - _ts).total_seconds()) if _ts else None
+        online = bool(d.last_seen_at and d.last_seen_at >= online_cutoff)
+        subject = (d.active_email or d.employee_email or "").strip()
+        capturing = False
+        if online and cap_on and subject:
+            _clocked, _brk = _punch_state(db, subject)
+            capturing = bool(_clocked and not _brk)
+        out.append({
+            "id": d.id,
+            # Assigned owner: which Nexus person this PC belongs to (admin-set).
+            "email": d.employee_email, "name": _nm(d.employee_email),
+            # Who is clocked in on this PC right now (pairing binding).
+            "activeEmail": d.active_email or "", "activeName": _nm(d.active_email),
+            "label": d.label or "", "deviceName": d.device_name or "", "deviceUser": d.device_user or "",
+            "mac": d.mac or "", "platform": d.platform or "", "revoked": bool(d.revoked),
+            "lastSeen": d.last_seen_at or "", "createdAt": d.created_at or "",
+            # Live status for the admin dot: online/offline + actively capturing.
+            "online": online, "capturing": capturing, "secondsSinceSeen": secs,
+        })
+    return {"devices": out}
+
+
+class AssignDeviceIn(BaseModel):
+    email: Optional[str] = ""   # "" unassigns (shared PC)
+
+
+@router.post("/agent/devices/{device_id}/assign")
+def agent_assign_device(device_id: str, body: AssignDeviceIn,
+                        user: dict = Depends(require_tracking_full), db: Session = Depends(get_db)):
+    """Link an enrolled PC to a Nexus person (its assigned owner), or unassign
+    with an empty email. The owner must be a real Nexus employee - people pickers
+    everywhere resolve against the curated directory, so we validate the same way."""
+    dev = db.query(AgentDevice).filter(AgentDevice.id == device_id, AgentDevice.revoked == 0).first()
+    if not dev:
+        raise HTTPException(404, "Device not found")
+    email = (body.email or "").strip().lower()
+    if email:
+        emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == email).first()
+        if not emp:
+            raise HTTPException(400, "Pick a person from the Nexus directory")
+    dev.employee_email = email
+    db.commit()
+    name = ""
+    if email:
+        e = db.query(NexusEmployee).filter(NexusEmployee.work_email == email).first()
+        name = f"{e.first_name} {e.last_name}".strip() if e else ""
+    return {"ok": True, "email": email, "name": name}
 
 
 @router.patch("/agent/devices/{device_id}")
-def agent_revoke(device_id: str, user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
+def agent_revoke(device_id: str, user: dict = Depends(require_tracking_full), db: Session = Depends(get_db)):
     dev = db.query(AgentDevice).filter(AgentDevice.id == device_id).first()
     if not dev:
         raise HTTPException(404, "Device not found")
     dev.revoked = 1
+    db.commit()
+    return {"ok": True}
+
+
+@router.delete("/agent/devices/{device_id}")
+def agent_delete_device(device_id: str, user: dict = Depends(require_tracking_full), db: Session = Depends(get_db)):
+    """Hard-delete an enrolled computer's record - for cleaning up a PC that's been
+    uninstalled/decommissioned. Distinct from revoke (which just kills the token):
+    this removes the row entirely. If the agent is somehow still installed, its next
+    checkin 401s (token gone) and it can re-enroll only via the shared key."""
+    dev = db.query(AgentDevice).filter(AgentDevice.id == device_id).first()
+    if not dev:
+        raise HTTPException(404, "Device not found")
+    db.delete(dev)
     db.commit()
     return {"ok": True}
 
@@ -1633,6 +2230,15 @@ def _punch_state(db: Session, email: str):
     last = (db.query(TimePunch).filter(TimePunch.employee_email == email, TimePunch.voided == 0)
             .order_by(TimePunch.at.desc()).first())
     return bool(last and last.kind != "out"), bool(last and last.kind == "break_start")
+
+
+def _agent_subject(dev) -> str:
+    """The employee this agent's capture belongs to. Prefer the live clock-in
+    binding (active_email, shared-PC pairing). But that pairing runs a browser->
+    127.0.0.1 call Chrome blocks on unmanaged devices, so fall back to the PC's
+    ASSIGNED OWNER (employee_email). One-person-one-PC works off the owner alone;
+    a shared PC still uses the live binding whenever pairing succeeded."""
+    return (dev.active_email or "").strip() or (dev.employee_email or "").strip()
 
 
 class AgentCheckinIn(BaseModel):
@@ -1654,11 +2260,17 @@ def agent_checkin(body: AgentCheckinIn, dev: AgentDevice = Depends(get_agent_dev
     if body.mac:         dev.mac = body.mac[:40]
     if body.platform:    dev.platform = body.platform[:20]
     db.commit()
-    clocked, on_break = _punch_state(db, dev.employee_email)
+    # Capture follows the bound employee (pairing) or, when pairing can't run,
+    # the PC's assigned owner (see _agent_subject). No subject => nobody to capture.
+    active = _agent_subject(dev)
+    clocked, on_break = _punch_state(db, active) if active else (False, False)
     pol = _get_policy(db)
-    live = bool(clocked and not on_break and pol.enabled)
-    return {"email": dev.employee_email, "clockedIn": clocked, "onBreak": on_break,
-            "capture": live,
+    # Monitoring-exempt people (leadership) are never captured - by the AGENT too,
+    # not just the browser path. Same exemption, one source of truth.
+    exempt = _is_monitoring_exempt(db, active) if active else False
+    live = bool(active and clocked and not on_break and pol.enabled and not exempt)
+    return {"email": active, "sessionId": dev.active_session_id or "",
+            "clockedIn": clocked, "onBreak": on_break, "capture": live,
             # Full policy object so the agent respects the real toggles + cadence
             # (applyPolicy reads this). Server still re-gates every upload anyway.
             "policy": _policy_dict(pol),
@@ -1673,15 +2285,21 @@ def agent_screenshot(request: Request, file: UploadFile = File(...),
                      idle_sec: int = Form(0), active_view: str = Form(""),
                      tz_offset_min: int = Form(0),
                      dev: AgentDevice = Depends(get_agent_device), db: Session = Depends(get_db)):
-    """Screenshot from the desktop agent - identity from the token, re-gated here."""
-    email = dev.employee_email
+    """Screenshot from the desktop agent - the PC is known from the token, and the
+    EMPLOYEE from the device's active clock-in binding (shared-PC safe), re-gated."""
+    email = _agent_subject(dev)
+    if not email:
+        raise HTTPException(409, "No one is clocked in on this PC - capture paused.")
+    if _is_monitoring_exempt(db, email):
+        raise HTTPException(409, "This person is exempt from monitoring - capture off.")
     clocked, on_break = _punch_state(db, email)
     if not clocked or on_break:
         raise HTTPException(409, "Not on a live shift - capture paused.")
     pol = _get_policy(db)
     if not (pol.enabled and pol.track_screens):
         raise HTTPException(409, "Screen capture is disabled by policy.")
-    row = _store_shot(db, email, file.file.read(), idle_sec, active_view, tz_offset_min)
+    row = _store_shot(db, email, file.file.read(), idle_sec, active_view, tz_offset_min,
+                      session_id=dev.active_session_id or "")
     return {"ok": True, "id": row.id}
 
 
@@ -1703,7 +2321,11 @@ def agent_activity(body: ActivityIn, dev: AgentDevice = Depends(get_agent_device
                    db: Session = Depends(get_db)):
     """App / website usage samples (seconds per foreground app + active domain),
     tagged with the admin productivity rating. Kept only during a live shift."""
-    email = dev.employee_email
+    email = _agent_subject(dev)   # bound employee, or the assigned owner if unpaired
+    if not email:
+        return {"ok": True, "skipped": "no active session on this PC"}
+    if _is_monitoring_exempt(db, email):
+        return {"ok": True, "skipped": "monitoring-exempt"}
     clocked, on_break = _punch_state(db, email)
     if not clocked or on_break:
         return {"ok": True, "skipped": "not on a live shift"}
@@ -1727,11 +2349,415 @@ def agent_activity(body: ActivityIn, dev: AgentDevice = Depends(get_agent_device
     return {"ok": True}
 
 
+# ── Live screen view: on-demand WebRTC signaling ─────────────────────────────
+# A manager watches a clocked-in employee's screen in real time. One LiveSession
+# row is BOTH the signaling mailbox (offer/answer SDP relayed through it, since
+# the browser can't reach the agent over localhost) AND the audit trail. Media
+# flows peer-to-peer (Cloudflare TURN), never through here. Two sides: the VIEWER
+# drives with Microsoft auth; the AGENT answers with its device token. Every gate
+# that pauses capture (off-shift, on break, exempt) also blocks/ends a live view.
+
+def _live_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _live_fresh(iso: str) -> bool:
+    dt = _parse_iso(iso) if iso else None
+    if dt is None:
+        return False
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return (_live_now() - dt).total_seconds() <= _LIVE_TTL_SEC
+
+
+def _subject_state(db: Session, email: str) -> str:
+    """Whether `email` may be live-viewed right now: live | on_break | offline.
+    Mirrors the screenshot capture gates exactly."""
+    if not email or _is_monitoring_exempt(db, email):
+        return "offline"
+    if not (_get_policy(db).enabled):
+        return "offline"
+    clocked, on_break = _punch_state(db, email)
+    if not clocked:
+        return "offline"
+    return "on_break" if on_break else "live"
+
+
+def _display_name(db: Session, email: str) -> str:
+    """First + last name for the consent prompt - never a raw email. Falls back to
+    a title-cased guess from the address's local part for accounts not yet in the
+    People directory."""
+    em = (email or "").strip().lower()
+    e = db.query(NexusEmployee).filter(NexusEmployee.work_email == em).first()
+    if e:
+        name = f"{e.first_name or ''} {e.last_name or ''}".strip()
+        if name:
+            return name
+    return " ".join(p.capitalize() for p in em.split("@")[0].replace("_", ".").split(".") if p) or "IT"
+
+
+_CONTROL_REQUEST_TTL_SEC = 75   # unanswered consent prompt expires (agent auto-declines at 60s)
+
+
+def _control_expire(db: Session, s):
+    """A control request nobody answered (agent offline, employee walked away)
+    quietly lapses so the viewer's button resets and a stale prompt can't be
+    accepted minutes later."""
+    if s.control_state == "requested" and not _live_fresh_within(s.control_requested_at, _CONTROL_REQUEST_TTL_SEC):
+        s.control_state = ""
+        s.control_ended_reason = "request_expired"
+        db.commit()
+
+
+def _live_fresh_within(iso: str, ttl: int) -> bool:
+    dt = _parse_iso(iso) if iso else None
+    if dt is None:
+        return False
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return (_live_now() - dt).total_seconds() <= ttl
+
+
+def _control_end(db: Session, s, reason: str):
+    if s.control_state in ("requested", "active"):
+        s.control_state = "ended" if s.control_state == "active" else ""
+        s.control_ended_at = _now_iso()
+        s.control_ended_reason = reason
+        db.commit()
+
+
+def _live_end(db: Session, s, reason: str):
+    if s.state != "ended":
+        # Control never outlives its session: clock-out, break, a closed tab or a
+        # dead agent all tear down input injection along with the stream.
+        if s.control_state in ("requested", "active"):
+            s.control_state = "ended" if s.control_state == "active" else ""
+            s.control_ended_at = _now_iso()
+            s.control_ended_reason = "session_ended"
+        s.state = "ended"
+        s.ended_at = _now_iso()
+        s.ended_reason = reason
+        db.commit()
+
+
+def _online_device_for(db: Session, email: str):
+    """The freshest non-revoked agent device whose subject is `email`, if its last
+    heartbeat is recent enough to be considered online."""
+    dev = (db.query(AgentDevice)
+           .filter(AgentDevice.revoked == 0,
+                   (AgentDevice.employee_email == email) | (AgentDevice.active_email == email))
+           .order_by(AgentDevice.last_seen_at.desc()).first())
+    if not dev:
+        return None
+    dt = _parse_iso(dev.last_seen_at) if dev.last_seen_at else None
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dev if (_live_now() - dt).total_seconds() <= _AGENT_FRESH_SEC else None
+
+
+class LiveRequestIn(BaseModel):
+    email: str
+    fps: Optional[int] = 60
+
+
+@router.post("/live/request")
+def live_request(body: LiveRequestIn, user: dict = Depends(require_tracking),
+                 db: Session = Depends(get_db)):
+    """Viewer asks to watch `email`. Returns a session + TURN creds when the person
+    is clocked in with an online agent; otherwise the reason (offline / on_break /
+    no agent) so the viewer can show the right placeholder instead of a black feed."""
+    if not _LIVE_ENABLED:
+        raise HTTPException(503, "Live view is not configured on this server.")
+    email = (body.email or "").strip().lower()
+    if "@" not in email:
+        raise HTTPException(400, "A valid employee email is required")
+    if _is_monitoring_exempt(db, email):
+        raise HTTPException(403, "This person is exempt from monitoring.")
+    subj = _subject_state(db, email)
+    if subj != "live":
+        # on_break / offline: nothing to stream. The frozen last frame + label is
+        # rendered by the viewer from the existing screenshots, so no session here.
+        return {"ok": False, "subjectState": subj}
+    dev = _online_device_for(db, email)
+    if not dev:
+        return {"ok": False, "subjectState": "offline", "reason": "no_agent"}
+    # Retire any earlier session this viewer had for this person, then open one.
+    for old in (db.query(LiveSession)
+                .filter(LiveSession.viewer_email == user["email"],
+                        LiveSession.employee_email == email, LiveSession.state != "ended").all()):
+        _live_end(db, old, "superseded")
+    now = _now_iso()
+    fps = 30 if int(body.fps or 60) <= 30 else 60
+    s = LiveSession(id=str(uuid.uuid4()), device_id=dev.id, employee_email=email,
+                    viewer_email=user["email"], state="requested", fps=fps,
+                    created_at=now, updated_at=now, viewer_seen=now)
+    db.add(s)
+    db.commit()
+    return {"ok": True, "sessionId": s.id, "subjectState": "live", "fps": fps,
+            "iceServers": _live_ice_servers()}
+
+
+@router.get("/live/{sid}")
+def live_poll(sid: str, user: dict = Depends(require_tracking), db: Session = Depends(get_db)):
+    """Viewer poll: bumps the viewer heartbeat, returns the agent's offer once ready,
+    and ends the session if the subject left their shift or the agent went dark."""
+    s = db.query(LiveSession).filter(LiveSession.id == sid).first()
+    if not s or s.viewer_email != user["email"]:
+        raise HTTPException(404, "No such live session")
+    s.viewer_seen = _now_iso()
+    db.commit()
+    if s.state != "ended":
+        subj = _subject_state(db, s.employee_email)
+        if subj != "live":
+            _live_end(db, s, f"subject_{subj}")
+        elif s.state in ("offering", "connected") and not _live_fresh(s.agent_seen):
+            _live_end(db, s, "agent_lost")
+        else:
+            _control_expire(db, s)
+    return {"state": s.state, "offerSdp": s.offer_sdp or "",
+            "endedReason": s.ended_reason, "fps": s.fps,
+            "controlState": s.control_state or "",
+            "controlEndedReason": s.control_ended_reason or ""}
+
+
+class LiveSdpIn(BaseModel):
+    sdp: str
+
+
+@router.post("/live/{sid}/answer")
+def live_answer(sid: str, body: LiveSdpIn, user: dict = Depends(require_tracking),
+                db: Session = Depends(get_db)):
+    """Viewer returns its WebRTC answer; the agent picks it up and media connects."""
+    s = db.query(LiveSession).filter(LiveSession.id == sid).first()
+    if not s or s.viewer_email != user["email"]:
+        raise HTTPException(404, "No such live session")
+    if s.state != "offering":
+        raise HTTPException(409, f"Session is {s.state}, not awaiting an answer")
+    s.answer_sdp = body.sdp or ""
+    s.state = "connected"
+    s.viewer_seen = s.updated_at = _now_iso()
+    db.commit()
+    return {"ok": True}
+
+
+@router.post("/live/{sid}/end")
+def live_end(sid: str, user: dict = Depends(require_tracking), db: Session = Depends(get_db)):
+    """Viewer closes the feed. The agent sees 'ended' on its next poll and stops
+    sharing (and drops the tray 'Live view active' indicator)."""
+    s = db.query(LiveSession).filter(LiveSession.id == sid).first()
+    if not s or s.viewer_email != user["email"]:
+        raise HTTPException(404, "No such live session")
+    _live_end(db, s, "viewer_closed")
+    return {"ok": True}
+
+
+# ── Attended remote control (IT support) ─────────────────────────────────────
+# Layered on a connected live-view session. The flow is consent-first: the viewer
+# REQUESTS control, the agent shows the employee an Accept/Decline prompt, and no
+# input is ever injected unless the employee accepted AND the server says the
+# session is still active. Either side ends it instantly; every transition is
+# stamped on the LiveSession row as the audit record.
+
+@router.post("/live/{sid}/control/request")
+def live_control_request(sid: str, user: dict = Depends(require_tracking_full),
+                         db: Session = Depends(get_db)):
+    s = db.query(LiveSession).filter(LiveSession.id == sid).first()
+    if not s or s.viewer_email != user["email"]:
+        raise HTTPException(404, "No such live session")
+    if s.state != "connected":
+        raise HTTPException(409, "Live view must be connected before requesting control.")
+    if s.control_state == "active":
+        raise HTTPException(409, "Control is already active.")
+    if s.control_state == "requested":
+        raise HTTPException(409, "A control request is already waiting.")
+    # One controller per PC. Many admins can WATCH the same screen, but only one
+    # may drive it - two people injecting input at once would fight over the
+    # mouse/keyboard. If another live session on this device already holds or is
+    # requesting control, block with a clear message naming who, and re-check the
+    # freshness so a dead viewer's stale lock can't wedge the machine forever.
+    if s.device_id:
+        others = (db.query(LiveSession)
+                  .filter(LiveSession.device_id == s.device_id, LiveSession.id != s.id,
+                          LiveSession.state != "ended",
+                          LiveSession.control_state.in_(("requested", "active"))).all())
+        for o in others:
+            _control_expire(db, o)
+            if o.control_state == "active" and not _live_fresh(o.viewer_seen):
+                _control_end(db, o, "controller_gone")
+                _live_end(db, o, "viewer_gone")
+            if o.control_state in ("requested", "active"):
+                who = o.control_requester_name or _display_name(db, o.viewer_email)
+                verb = "is controlling" if o.control_state == "active" else "is requesting control of"
+                raise HTTPException(409, f"{who} {verb} this computer. Only one person can control a PC at a time.")
+    s.control_state = "requested"
+    s.control_requester_name = _display_name(db, user["email"])
+    s.control_requested_at = _now_iso()
+    s.control_responded_at = s.control_ended_at = s.control_ended_reason = ""
+    s.viewer_seen = s.updated_at = _now_iso()
+    db.commit()
+    return {"ok": True, "controlState": s.control_state}
+
+
+@router.post("/live/{sid}/control/cancel")
+def live_control_cancel(sid: str, user: dict = Depends(require_tracking),
+                        db: Session = Depends(get_db)):
+    s = db.query(LiveSession).filter(LiveSession.id == sid).first()
+    if not s or s.viewer_email != user["email"]:
+        raise HTTPException(404, "No such live session")
+    if s.control_state == "requested":
+        s.control_state = ""
+        s.control_ended_reason = "viewer_canceled"
+        s.updated_at = _now_iso()
+        db.commit()
+    return {"ok": True, "controlState": s.control_state}
+
+
+@router.post("/live/{sid}/control/end")
+def live_control_end(sid: str, user: dict = Depends(require_tracking),
+                     db: Session = Depends(get_db)):
+    s = db.query(LiveSession).filter(LiveSession.id == sid).first()
+    if not s or s.viewer_email != user["email"]:
+        raise HTTPException(404, "No such live session")
+    _control_end(db, s, "viewer_ended")
+    return {"ok": True, "controlState": s.control_state}
+
+
+@router.get("/live-presence")
+def live_presence(user: dict = Depends(require_tracking), db: Session = Depends(get_db)):
+    # NOTE the path is "/live-presence", NOT "/live/presence": the latter is
+    # shadowed by the "/live/{sid}" viewer-poll route (FastAPI would read
+    # "presence" as a session id and 404), which silently broke the coverage eye.
+    """Who is WATCHING and who is CONTROLLING each screen right now, for the Live
+    Coverage presence badges (the eye + viewer count, and the wrench = who's giving
+    remote support). Derived from live sessions whose VIEWER side is still fresh -
+    a closed tab drops off within the heartbeat TTL. Keyed by watched email; each
+    watcher/controller carries a display name (never a raw email) so the UI can
+    render a name + Nexus avatar."""
+    out, names = {}, {}
+
+    def nm(email):
+        if email not in names:
+            names[email] = _display_name(db, email)
+        return names[email]
+
+    for s in db.query(LiveSession).filter(LiveSession.state != "ended").all():
+        if not _live_fresh(s.viewer_seen):
+            continue
+        e = (s.employee_email or "").lower()
+        if not e:
+            continue
+        entry = out.setdefault(e, {"watchers": [], "controller": None})
+        if s.state in ("requested", "offering", "connected") and \
+                not any(w["email"] == s.viewer_email for w in entry["watchers"]):
+            entry["watchers"].append({"email": s.viewer_email, "name": nm(s.viewer_email)})
+        if s.control_state == "active":
+            entry["controller"] = {"email": s.viewer_email, "name": nm(s.viewer_email)}
+    return {"bySubject": out}
+
+
+class AgentControlIn(BaseModel):
+    action: str   # accept | decline | end
+
+
+@router.post("/agent/live/{sid}/control")
+def agent_live_control(sid: str, body: AgentControlIn, dev: AgentDevice = Depends(get_agent_device),
+                       db: Session = Depends(get_db)):
+    """The employee's side of the consent flow, authenticated by the device token:
+    accept/decline the prompt, or end an active control session from the banner."""
+    s = db.query(LiveSession).filter(LiveSession.id == sid, LiveSession.device_id == dev.id).first()
+    if not s:
+        raise HTTPException(404, "No such live session")
+    action = (body.action or "").strip().lower()
+    now = _now_iso()
+    if action == "accept":
+        if s.control_state != "requested":
+            raise HTTPException(409, f"Control is {s.control_state or 'not requested'}")
+        s.control_state = "active"
+        s.control_responded_at = now
+    elif action == "decline":
+        if s.control_state != "requested":
+            raise HTTPException(409, f"Control is {s.control_state or 'not requested'}")
+        s.control_state = "declined"
+        s.control_responded_at = now
+        s.control_ended_reason = "declined"
+    elif action == "end":
+        if s.control_state == "active":
+            s.control_state = "ended"
+            s.control_ended_at = now
+            s.control_ended_reason = "employee_ended"
+    else:
+        raise HTTPException(400, "action must be accept, decline or end")
+    s.agent_seen = s.updated_at = now
+    db.commit()
+    return {"ok": True, "controlState": s.control_state}
+
+
+@router.get("/agent/live/pending")
+def agent_live_pending(dev: AgentDevice = Depends(get_agent_device), db: Session = Depends(get_db)):
+    """Agent poll: is a manager waiting to watch this PC? Returns the session to
+    answer (with TURN creds), or nothing. Re-gates on the live shift, so a request
+    that arrived just as the person clocked out / took a break never starts."""
+    if not _LIVE_ENABLED:
+        return {"session": None}
+    s = (db.query(LiveSession)
+         .filter(LiveSession.device_id == dev.id, LiveSession.state == "requested")
+         .order_by(LiveSession.created_at.desc()).first())
+    if not s:
+        return {"session": None}
+    if not _live_fresh(s.viewer_seen):
+        _live_end(db, s, "viewer_gone"); return {"session": None}
+    if _subject_state(db, s.employee_email) != "live":
+        _live_end(db, s, "not_live"); return {"session": None}
+    s.agent_seen = _now_iso()
+    db.commit()
+    return {"session": {"id": s.id, "fps": s.fps, "iceServers": _live_ice_servers()}}
+
+
+@router.post("/agent/live/{sid}/offer")
+def agent_live_offer(sid: str, body: LiveSdpIn, dev: AgentDevice = Depends(get_agent_device),
+                     db: Session = Depends(get_db)):
+    """Agent posts its screen-capture offer for the viewer to answer."""
+    s = db.query(LiveSession).filter(LiveSession.id == sid, LiveSession.device_id == dev.id).first()
+    if not s:
+        raise HTTPException(404, "No such live session")
+    if s.state not in ("requested", "offering"):
+        raise HTTPException(409, f"Session is {s.state}")
+    s.offer_sdp = body.sdp or ""
+    s.state = "offering"
+    s.agent_seen = s.updated_at = _now_iso()
+    db.commit()
+    return {"ok": True}
+
+
+@router.get("/agent/live/{sid}")
+def agent_live_poll(sid: str, dev: AgentDevice = Depends(get_agent_device), db: Session = Depends(get_db)):
+    """Agent poll during a session: bumps the agent heartbeat, hands back the
+    viewer's answer once ready, and reports 'ended' (subject left, viewer closed,
+    or viewer went dark) so the agent tears the stream down."""
+    s = db.query(LiveSession).filter(LiveSession.id == sid, LiveSession.device_id == dev.id).first()
+    if not s:
+        raise HTTPException(404, "No such live session")
+    s.agent_seen = _now_iso()
+    db.commit()
+    if s.state != "ended":
+        if _subject_state(db, s.employee_email) != "live":
+            _live_end(db, s, "subject_left")
+        elif not _live_fresh(s.viewer_seen):
+            _live_end(db, s, "viewer_gone")
+        else:
+            _control_expire(db, s)
+    return {"state": s.state, "answerSdp": s.answer_sdp or "", "endedReason": s.ended_reason,
+            "controlState": s.control_state or "",
+            "requesterName": s.control_requester_name or ""}
+
+
 # ── Insights dashboard: Top Apps / Top Websites / activity (manager + HR) ────
 
 @router.get("/insights")
 def insights(email: str = "", start: str = "", end: str = "", tz: int = 0,
-             user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
+             user: dict = Depends(require_tracking_read), db: Session = Depends(get_db)):
     """Top apps, top websites, active-vs-idle, productivity split, an hourly
     activity strip and (team view) a per-member leaderboard over [start,end]. `tz`
     is the client's getTimezoneOffset() minutes - used to bucket the hourly strip
@@ -1755,6 +2781,10 @@ def insights(email: str = "", start: str = "", end: str = "", tz: int = 0,
     if end:   q = q.filter(AgentActivity.local_date <= end)
     rows = q.all()
     ratings = {r.key: r.rating for r in db.query(AppRating).all()}
+    # Rate each row LIVE against the current classification (domain wins over app),
+    # so tagging an app/site recolors its history immediately - not frozen at capture.
+    def _rate(r):
+        return (r.domain and ratings.get(r.domain)) or ratings.get((r.app or "").lower()) or "neutral"
     apps, sites = {}, {}
     cats = {"productive": 0, "neutral": 0, "unproductive": 0}
     hourly = [[0, 0] for _ in range(24)]   # [activeSec, totalSec] per LOCAL hour
@@ -1767,7 +2797,8 @@ def insights(email: str = "", start: str = "", end: str = "", tz: int = 0,
         apps[r.app or "Unknown"] = apps.get(r.app or "Unknown", 0) + sec
         if r.domain:
             sites[r.domain] = sites.get(r.domain, 0) + sec
-        cat = r.category if r.category in cats else "neutral"
+        cat = _rate(r)
+        if cat not in cats: cat = "neutral"
         cats[cat] += sec
         t = _parse_iso(r.at)
         if t is not None:
@@ -1795,12 +2826,12 @@ def insights(email: str = "", start: str = "", end: str = "", tz: int = 0,
         "byMember": by_member if not em else [],
         "log": [{"at": r.at, "name": names.get(r.employee_email, r.employee_email), "app": r.app,
                  "title": r.title, "domain": r.domain, "seconds": r.seconds, "activePct": r.active_pct,
-                 "category": r.category} for r in sorted(rows, key=lambda r: r.at, reverse=True)[:80]],
+                 "category": _rate(r)} for r in sorted(rows, key=lambda r: r.at, reverse=True)[:80]],
     }
 
 
 @router.get("/ratings")
-def list_ratings(user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
+def list_ratings(user: dict = Depends(require_tracking_read), db: Session = Depends(get_db)):
     return [{"key": r.key, "kind": r.kind, "label": r.label or r.key, "rating": r.rating}
             for r in db.query(AppRating).order_by(AppRating.key).all()]
 
@@ -1813,7 +2844,7 @@ class RatingIn(BaseModel):
 
 
 @router.put("/ratings")
-def set_rating(body: RatingIn, user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+def set_rating(body: RatingIn, user: dict = Depends(require_tracking_read_write), db: Session = Depends(get_db)):
     key = (body.key or "").strip().lower()
     if not key:
         raise HTTPException(400, "key is required")
@@ -2265,22 +3296,28 @@ def set_group_members(group_id: str, body: GroupIn, user: dict = Depends(require
     return {"ok": True}
 
 
+def _resolve_group_chat(db: Session, email: str):
+    """The Teams chat bound to this person's first group that has one, as
+    (chat_id, chat_name, group_name). The SERVER-SIDE source of truth, so a
+    client that couldn't fetch it (a network blip) never loses the routing."""
+    email = (email or "").lower()
+    group_ids = [m.group_id for m in db.query(ShiftGroupMember)
+                 .filter(ShiftGroupMember.employee_email == email).all()]
+    if not group_ids:
+        return "", "", ""
+    g = (db.query(ShiftGroup)
+         .filter(ShiftGroup.id.in_(group_ids), ShiftGroup.teams_chat_id != "")
+         .order_by(ShiftGroup.name).first())
+    return (g.teams_chat_id, g.teams_chat_name, g.name) if g else ("", "", "")
+
+
 @router.get("/my-chat")
 def my_group_chat(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """The Teams group chat this employee's group is bound to - where their
     BOD/EOD/Break messages should route. First group (with a binding) they belong
     to wins. Empty chatId means no binding → the client falls back to a picker."""
-    email = user["email"].lower()
-    group_ids = [m.group_id for m in db.query(ShiftGroupMember)
-                 .filter(ShiftGroupMember.employee_email == email).all()]
-    if not group_ids:
-        return {"chatId": "", "chatName": "", "groupName": ""}
-    g = (db.query(ShiftGroup)
-         .filter(ShiftGroup.id.in_(group_ids), ShiftGroup.teams_chat_id != "")
-         .order_by(ShiftGroup.name).first())
-    if not g:
-        return {"chatId": "", "chatName": "", "groupName": ""}
-    return {"chatId": g.teams_chat_id, "chatName": g.teams_chat_name, "groupName": g.name}
+    cid, cname, gname = _resolve_group_chat(db, user["email"])
+    return {"chatId": cid, "chatName": cname, "groupName": gname}
 
 
 @router.delete("/shift-groups/{group_id}")
@@ -2439,6 +3476,14 @@ _DAY_OT_MIN  = 8 * 60    # CA: over 8h/day is overtime
 _DAY_DT_MIN  = 12 * 60   # CA: over 12h/day is double-time
 _OT_MULT = 1.5
 _DT_MULT = 2.0
+# A single stint longer than this is treated as a forgotten clock-out, not real
+# worked time: the pairing closes the open in-punch as a missing-out (unpaid,
+# flagged) instead of bridging it to a far-later out and paying a phantom
+# 25h/71h segment (which also inflated CA double-time). 16h is well beyond any
+# real shift - CA already forces double-time past 12h - so nothing legitimate
+# trips it, while every missed-punch case does. Matches SwipeClock, which shows
+# the same as a missing punch rather than paying it.
+_MAX_SHIFT_MIN = 16 * 60
 
 
 def _ot_split(day_minutes: list, rule: str) -> list:
@@ -2944,6 +3989,17 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
                 brk += (t - open_break).total_seconds() / 60
                 open_break = None
             if open_in is not None:
+                # Forgotten clock-out guard: an in that only meets an out more than
+                # a full max-shift later is a missed punch, not a real stint. Pairing
+                # it would bridge to a far-later stint's out and pay a phantom
+                # 25h/71h segment (with bogus CA double-time). Close the in as a
+                # missing-out (unpaid, flagged) and drop this out as an orphan -
+                # SwipeClock behavior - so the manager fixes it instead of paying it.
+                if (t - open_in).total_seconds() / 60 > _MAX_SHIFT_MIN:
+                    _flush_missing()
+                    open_in = None
+                    sflags, brk = set(), 0.0
+                    continue
                 if p.adjusted_by:
                     sflags.add("adjusted")
                 mins = int(round((t - open_in).total_seconds() / 60 - brk))
@@ -3200,9 +4256,9 @@ def set_payroll_rate(body: RateIn, user: dict = Depends(require_team_write),
 # composition bar via TimeScreenshot.idle_sec.
 
 
-def _signed_url(path: str) -> str:
+def _signed_url(path: str, bucket: str = "") -> str:
     try:
-        r = httpx.post(f"{_SUPABASE_URL}/storage/v1/object/sign/{_DOC_BUCKET}/{path}",
+        r = httpx.post(f"{_SUPABASE_URL}/storage/v1/object/sign/{bucket or _DOC_BUCKET}/{path}",
                        headers=_storage_headers(), json={"expiresIn": 3600}, timeout=20)
         if r.is_success:
             return f"{_SUPABASE_URL}/storage/v1{r.json().get('signedURL', '')}"
@@ -3211,24 +4267,67 @@ def _signed_url(path: str) -> str:
     return ""
 
 
-def _signed_urls(paths: list) -> dict:
-    """Bulk-sign in ONE Supabase call (path -> full URL). The per-frame loop was
-    one HTTP round-trip per screenshot, so opening a person's day of frames took
-    10s+; this collapses it to a single request."""
+# Reuse a signed screenshot URL across list calls instead of re-signing every
+# time. A fresh signature per call changes the URL's query token, which busts the
+# browser cache and RE-DOWNLOADS every (private, time-monitoring) frame each time a
+# manager opens/re-opens/filters a day - a real egress driver. We reuse each URL
+# for 50 min (signed for 60, so a cached one is always still valid) so the browser
+# cache hits on re-open. Per-worker in-memory; a stale entry can at most outlive a
+# mid-window access change by the TTL, already true of any signed URL.
+_SHOT_URL_CACHE: dict = {}          # (bucket, path) -> (url, expires_at)
+_SHOT_URL_TTL = 3000                # seconds to reuse a signed URL
+
+
+def _signed_urls(paths: list, bucket: str = "") -> dict:
+    """Bulk-sign ONE bucket's paths in a single Supabase call (path -> full URL),
+    reusing recently-signed URLs from the cache so re-opening a gallery hits the
+    browser cache instead of re-downloading the frames."""
     out = {}
     if not paths:
         return out
-    try:
-        r = httpx.post(f"{_SUPABASE_URL}/storage/v1/object/sign/{_DOC_BUCKET}",
-                       headers=_storage_headers(),
-                       json={"expiresIn": 3600, "paths": paths}, timeout=30)
-        if r.is_success:
-            for row in r.json():
-                if row.get("signedURL"):
-                    out[row.get("path", "")] = f"{_SUPABASE_URL}/storage/v1{row['signedURL']}"
-    except Exception:
-        pass
+    bkt = bucket or _DOC_BUCKET
+    now = datetime.now(timezone.utc)
+    need = []
+    for p in paths:
+        c = _SHOT_URL_CACHE.get((bkt, p))
+        if c and c[1] > now:
+            out[p] = c[0]
+        else:
+            need.append(p)
+    if need:
+        try:
+            r = httpx.post(f"{_SUPABASE_URL}/storage/v1/object/sign/{bkt}",
+                           headers=_storage_headers(),
+                           json={"expiresIn": 3600, "paths": need}, timeout=30)
+            if r.is_success:
+                exp = now + timedelta(seconds=_SHOT_URL_TTL)
+                for row in r.json():
+                    if row.get("signedURL"):
+                        url = f"{_SUPABASE_URL}/storage/v1{row['signedURL']}"
+                        path = row.get("path", "")
+                        out[path] = url
+                        _SHOT_URL_CACHE[(bkt, path)] = (url, exp)
+        except Exception:
+            pass
+    # Bound memory: drop expired entries once the cache grows large.
+    if len(_SHOT_URL_CACHE) > 5000:
+        for k in [k for k, v in _SHOT_URL_CACHE.items() if v[1] <= now]:
+            _SHOT_URL_CACHE.pop(k, None)
     return out
+
+
+def _sign_shot_rows(rows: list) -> dict:
+    """Signed URLs for a set of TimeScreenshot rows, signing each against its OWN
+    bucket - so a gallery spanning the hr-docs -> time-monitoring migration (some
+    rows on each) resolves correctly. Paths carry a uuid so they never collide
+    across buckets. One sign call per bucket (at most two)."""
+    by_bucket = {}
+    for s in rows:
+        by_bucket.setdefault(s.bucket or _DOC_BUCKET, []).append(s.storage_path)
+    urls = {}
+    for bucket, paths in by_bucket.items():
+        urls.update(_signed_urls(paths, bucket))
+    return urls
 
 
 # Desktop-agent installer hosting (/agent/download-url, /agent/upload-url,
@@ -3237,7 +4336,7 @@ def _signed_urls(paths: list) -> dict:
 
 @router.get("/screenshots")
 def list_screenshots(date: str = "", email: str = "",
-                     user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
+                     user: dict = Depends(require_tracking), db: Session = Depends(get_db)):
     """Admin gallery. Without an email: per-person counts for the day. With one:
     the frames themselves, each with a fresh signed URL."""
     day = date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -3253,7 +4352,7 @@ def list_screenshots(date: str = "", email: str = "",
             for em, n in sorted(counts.items())]}
     rows = q.filter(TimeScreenshot.employee_email == email.strip().lower()) \
             .order_by(TimeScreenshot.at).all()
-    urls = _signed_urls([s.storage_path for s in rows])   # one call, not one per frame
+    urls = _sign_shot_rows(rows)   # per-bucket signing (handles the migration in flight)
     return {"date": day, "email": email, "shots": [
         {"id": s.id, "at": s.at, "idleSec": s.idle_sec or 0, "activeView": s.active_view or "",
          "url": urls.get(s.storage_path, "")} for s in rows]}
@@ -3285,7 +4384,7 @@ def team_screenshots(date: str = "", email: str = "",
     if visible is not None and tgt not in visible:
         raise HTTPException(403, "That employee isn't on your team.")
     rows = q.filter(TimeScreenshot.employee_email == tgt).order_by(TimeScreenshot.at).all()
-    urls = _signed_urls([s.storage_path for s in rows])   # one call, not one per frame
+    urls = _sign_shot_rows(rows)   # per-bucket signing (handles the migration in flight)
     return {"date": day, "email": tgt, "shots": [
         {"id": s.id, "at": s.at, "idleSec": s.idle_sec or 0, "activeView": s.active_view or "",
          "url": urls.get(s.storage_path, "")} for s in rows]}
@@ -3311,14 +4410,26 @@ class BodIn(BaseModel):
 def record_bod(body: BodIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     now = _now_iso()
     kind = body.kind if body.kind in ("bod", "eod", "break") else "bod"
+    chan_id = (body.channel_id or "")[:120]
+    chan_name = (body.channel_name or "")[:120]
+    # Server-side chat resolution fallback: if the client didn't hand us a chat
+    # (its /my-chat lookup blipped - a real prod bug where the BOD then silently
+    # posted nowhere), resolve the person's bound chat here so the post still
+    # lands. Only for a genuine post, never the "already sent elsewhere" skip.
+    if not chan_id and not body.sent:
+        rid, rname, _gn = _resolve_group_chat(db, user["email"])
+        if rid:
+            chan_id, chan_name = rid[:120], (rname or "")[:120]
     row = TimeBod(id=str(uuid.uuid4()), employee_email=user["email"],
                   kind=kind,
                   local_date=_local_date(now, body.tz_offset_min or 0),
                   message=(body.message or "").strip()[:1000],
                   tasks=(body.tasks or "").strip()[:2000],
                   team_id=(body.team_id or "")[:80], team_name=(body.team_name or "")[:120],
-                  channel_id=(body.channel_id or "")[:120], channel_name=(body.channel_name or "")[:120],
-                  sent=1 if body.sent else 0, send_error=(body.send_error or "")[:300],
+                  channel_id=chan_id, channel_name=chan_name,
+                  sent=1 if body.sent else 0,
+                  # A stale "no chat" note from the client is wrong once we've resolved one.
+                  send_error=("" if chan_id else (body.send_error or "")[:300]),
                   created_at=now, html=(body.html or "")[:8000], attempts=0, last_try_at="")
     db.add(row)
     # A real BOD/EOD (not the "already sent elsewhere" skip marker) notifies the

@@ -77,6 +77,7 @@ def _serialize(jr: NexusGroup, db: Session) -> dict:
         "id": jr.id,
         "name": jr.name,
         "tier": (jr.tier or "employee"),
+        "department": (jr.department or ""),
         "description": jr.description or "",
         "allowed_modules": _parse_modules(jr.allowed_modules or ""),
         "member_count": len(members),
@@ -93,6 +94,7 @@ def _serialize(jr: NexusGroup, db: Session) -> dict:
 class JobRoleBody(BaseModel):
     name: str
     tier: str = "employee"
+    department: Optional[str] = ""
     description: Optional[str] = ""
     allowed_modules: Optional[list[ModuleGrant]] = []
     monitoring_exempt: Optional[bool] = False
@@ -101,6 +103,7 @@ class JobRoleBody(BaseModel):
 class JobRoleUpdate(BaseModel):
     name: Optional[str] = None
     tier: Optional[str] = None
+    department: Optional[str] = None
     description: Optional[str] = None
     allowed_modules: Optional[list[ModuleGrant]] = None
     monitoring_exempt: Optional[bool] = None
@@ -150,6 +153,7 @@ def create_job_role(body: JobRoleBody, user: dict = Depends(require_administrato
         name=name,
         is_job_role=1,
         tier=tier,
+        department=(body.department or "").strip(),
         description=(body.description or "").strip(),
         allowed_modules=_modules_csv(body.allowed_modules),
         monitoring_exempt=1 if body.monitoring_exempt else 0,
@@ -173,6 +177,8 @@ def update_job_role(jr_id: str, body: JobRoleUpdate, user: dict = Depends(requir
         if not name:
             raise HTTPException(status_code=400, detail="Job role name is required")
         jr.name = name
+    if body.department is not None:
+        jr.department = body.department.strip()
     if body.description is not None:
         jr.description = body.description.strip()
     if body.allowed_modules is not None:
@@ -198,6 +204,11 @@ def update_job_role(jr_id: str, body: JobRoleUpdate, user: dict = Depends(requir
         for email in _member_emails(db, jr.id):
             row = db.query(NexusRole).filter(NexusRole.email == email).first()
             if row:
+                # A per-person tier override (tier_pinned) is deliberately kept: the
+                # admin promoted/demoted this individual apart from the role, so the
+                # role's tier change does not re-stamp them.
+                if getattr(row, "tier_pinned", False):
+                    continue
                 row.role = jr.tier
             else:
                 db.add(NexusRole(email=email, role=jr.tier, assigned_by=user["email"]))
@@ -270,8 +281,11 @@ def assign_job_role(jr_id: str, body: AssignBody, user: dict = Depends(get_curre
 
     row = db.query(NexusRole).filter(NexusRole.email == email).first()
     if row:
+        # (Re)assigning a job role means "follow this role's tier" - clear any prior
+        # per-person override so future role-tier edits track again.
         row.role = tier
         row.assigned_by = user["email"]
+        row.tier_pinned = False
     else:
         db.add(NexusRole(email=email, role=tier, assigned_by=user["email"]))
     invalidate_role_cache(email)
@@ -362,9 +376,13 @@ def effective_access(email: str, user: dict = Depends(require_administrator), db
         {"module": mid, "level": m["level"], "source": m["source"], "manual": not m["via_role"]}
         for mid, m in sorted(modules.items())
     ]
+    role_row = db.query(NexusRole).filter(NexusRole.email == email).first()
     return {
         "email": email,
         "tier": _get_role(email, db),
+        # True when this person's tier was set directly (a per-person override) and
+        # so won't be re-stamped by a job-role tier edit. Drives the card's control.
+        "tier_pinned": bool(getattr(role_row, "tier_pinned", False)) if role_row else False,
         "job_role": job_role,
         "extra_groups": extra_groups,
         "modules": resolved,

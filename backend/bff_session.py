@@ -227,13 +227,26 @@ def get_session(db, sid: str):
                 row.access_expires_at = _now() + int(resp.get("expires_in", 3600))
             else:
                 raise ValueError("refresh returned no access_token")
-        except Exception:
-            # Refresh failed (revoked / password change / 90-day window) -> the
-            # session is genuinely dead. Drop it; the client gets a clean 401 and
-            # is sent to /auth/login (a real interactive sign-in, which works).
+        except httpx.HTTPStatusError as e:
+            # A 4xx from Entra means the refresh token is GENUINELY dead (revoked,
+            # password change, past the 90-day window) -> drop the session; the
+            # client gets a clean 401 and does a real interactive sign-in.
+            if 400 <= e.response.status_code < 500:
+                db.delete(row)
+                db.commit()
+                return None
+            # A 5xx is a TRANSIENT Microsoft outage - do NOT sign the user out over
+            # it. Keep the session (identity is still valid) and retry the refresh on
+            # the next request. This is what stops a momentary blip from bouncing a
+            # working user through a jarring full-page re-login (the "random reload").
+        except ValueError:
             db.delete(row)
             db.commit()
             return None
+        except Exception:
+            # Network error / timeout reaching Microsoft - also transient. Keep the
+            # session and retry later; never sign someone out for a network blip.
+            pass
     # Throttle last_seen writes: this runs on EVERY authenticated request, so
     # persisting it every time would be a DB write per call. Only update when it's
     # meaningfully stale (idle-expiry has day granularity, so minutes is plenty).
