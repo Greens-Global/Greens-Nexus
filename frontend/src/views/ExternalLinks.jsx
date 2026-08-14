@@ -587,16 +587,14 @@ export default function ExternalLinks() {
   // it reuses the exact same validation/audit path each individual edit
   // already goes through rather than adding a second bulk code path server-
   // side to keep in sync. Applies whichever of category/department was
-  // actually picked - a blank field is left untouched, not cleared. Sets
-  // it as that link's ONLY category/department (replaces, doesn't add) -
-  // a link can hold several now (Aug 14, checkboxes in Add/Edit), but a
-  // bulk "reassign these N links" action is still simplest as "set to
-  // exactly this one," not a picker duplicated across every selected row.
+  // actually picked - an empty array is left untouched, not cleared. Sets
+  // categories/departments to exactly the picked set (replaces, doesn't
+  // merge into each link's existing values) - simplest mental model for
+  // "reassign these N links," now that the picker itself supports several
+  // values at once (Aug 14, checkboxes here matching Add/Edit).
   const bulkUpdateLinks = async (ids, patch) => {
-    const clean = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== '' && v != null));
+    const clean = Object.fromEntries(Object.entries(patch).filter(([, v]) => Array.isArray(v) ? v.length > 0 : v !== '' && v != null));
     if (!ids.length || Object.keys(clean).length === 0) return;
-    if (clean.category) { clean.categories = [clean.category]; delete clean.category; }
-    if (clean.department) { clean.departments = [clean.department]; delete clean.department; }
     const results = await Promise.allSettled(ids.map(id => api.updateExternalLink(id, clean)));
     const updatedById = new Map();
     let failed = 0;
@@ -2207,18 +2205,18 @@ function ManageModal({
   // selection never silently applies to a different filtered view than the
   // one it was made against.
   const [selectedIds, setSelectedIds] = useState(() => new Set());
-  const [bulkCategory, setBulkCategory] = useState('');
-  const [bulkDepartment, setBulkDepartment] = useState('');
+  const [bulkCategories, setBulkCategories] = useState([]);
+  const [bulkDepartments, setBulkDepartments] = useState([]);
   const [bulkApplying, setBulkApplying] = useState(false);
   const toggleSelected = (id) => setSelectedIds(prev => {
     const next = new Set(prev);
     if (next.has(id)) next.delete(id); else next.add(id);
     return next;
   });
-  const clearSelection = () => { setSelectedIds(new Set()); setBulkCategory(''); setBulkDepartment(''); };
+  const clearSelection = () => { setSelectedIds(new Set()); setBulkCategories([]); setBulkDepartments([]); };
   const applyBulk = async () => {
     setBulkApplying(true);
-    try { await onBulkUpdate([...selectedIds], { category: bulkCategory, department: bulkDepartment }); clearSelection(); }
+    try { await onBulkUpdate([...selectedIds], { categories: bulkCategories, departments: bulkDepartments }); clearSelection(); }
     finally { setBulkApplying(false); }
   };
   const applyBulkDelete = async () => {
@@ -2324,15 +2322,19 @@ function ManageModal({
         {tab === 'all' && selectedIds.size > 0 && (
           <div style={{ margin: '12px 24px 0', padding: '10px 12px', borderRadius: 10, background: 'var(--wk-brand-tint)', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--wk-brand)' }}>{selectedIds.size} selected</span>
-            <input className="form-input" list="manage-bulk-categories" style={{ width: 'auto', minWidth: 160, padding: '6px 10px' }}
-              value={bulkCategory} onChange={e => setBulkCategory(e.target.value)} placeholder="Set category..." />
-            <datalist id="manage-bulk-categories">{categoryNames.map(c => <option key={c} value={c} />)}</datalist>
-            <select className="form-select" style={{ width: 'auto', minWidth: 160, padding: '6px 10px' }}
-              value={bulkDepartment} onChange={e => setBulkDepartment(e.target.value)}>
-              <option value="">Set department...</option>
-              {departmentNames.map(d => <option key={d} value={d}>{d}</option>)}
-            </select>
-            <button className="primary-btn" onClick={applyBulk} disabled={bulkApplying || (!bulkCategory && !bulkDepartment)}>
+            <div style={{ width: 180 }}>
+              <CheckboxMultiSelect
+                options={categoryNames} selected={bulkCategories} onChange={setBulkCategories}
+                placeholder="Set categories..." allowCustom customPlaceholder="Add a new category..."
+              />
+            </div>
+            <div style={{ width: 180 }}>
+              <CheckboxMultiSelect
+                options={departmentNames} selected={bulkDepartments} onChange={setBulkDepartments}
+                placeholder="Set departments..."
+              />
+            </div>
+            <button className="primary-btn" onClick={applyBulk} disabled={bulkApplying || (bulkCategories.length === 0 && bulkDepartments.length === 0)}>
               {bulkApplying ? 'Applying...' : 'Apply'}
             </button>
             {canDelete && (
@@ -2447,7 +2449,7 @@ function ManageModal({
         </div>
       </div>
 
-      {showImport && <ImportModal onClose={() => setShowImport(false)} onImported={onImported} />}
+      {showImport && <ImportModal onClose={() => setShowImport(false)} onImported={onImported} departmentNames={departmentNames} categoryNames={categoryNames} />}
     </div>
   );
 }
@@ -2588,18 +2590,20 @@ function parseCSVLine(line) {
   cells.push(cur);
   return cells.map(c => c.trim());
 }
-// Deliberately no category/icon columns (Neil, Aug 12) - icon has to match an
-// internal key so it's not fill-in-by-hand, and a missing category gets
-// defaulted server-side ("Imported") rather than blocking the row. `company`
-// is typed as a name (e.g. "Greens India"), not the raw entity id - resolved
-// server-side, same reasoning as icon: not something to fill in from memory.
+// Department/category no longer come from typed CSV text (Aug 14, "select
+// multiple department or category by selecting" instead of typing) - the
+// sheet only carries name/url/company/description/pinned; department and
+// category are picked per row in the preview table below via the same
+// checkbox dropdown as Add/Edit, starting from nothing rather than parsed
+// text. `company` is still typed as a name (e.g. "Greens India"), not the
+// raw entity id - resolved server-side, same reasoning icon always had.
 function parseCSV(text) {
   const lines = text.split(/\r?\n/).filter(l => l.trim() !== '');
   if (lines.length === 0) return [];
   const start = parseCSVLine(lines[0])[0]?.toLowerCase() === 'name' ? 1 : 0;
   return lines.slice(start).map(line => {
-    const [name = '', url = '', department = '', company = '', description = '', pinned = ''] = parseCSVLine(line);
-    return { name, url, department, company, description, is_pinned: /^(true|1|yes)$/i.test(pinned.trim()) };
+    const [name = '', url = '', company = '', description = '', pinned = ''] = parseCSVLine(line);
+    return { name, url, company, description, is_pinned: /^(true|1|yes)$/i.test(pinned.trim()), categories: [], departments: [] };
   });
 }
 
@@ -2608,9 +2612,9 @@ function parseCSV(text) {
 // in chat - the file that comes back out of Import is already the answer.
 function downloadImportTemplate() {
   const csv = [
-    'name,url,department,company,description,pinned',
-    'ADP,https://adp.com,Accounting,Greens,Payroll processing,false',
-    'Slack,https://slack.com,,,Team chat,false',
+    'name,url,company,description,pinned',
+    'ADP,https://adp.com,Greens,Payroll processing,false',
+    'Slack,https://slack.com,,Team chat,false',
   ].join('\n');
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
@@ -2623,14 +2627,26 @@ function downloadImportTemplate() {
   URL.revokeObjectURL(url);
 }
 
-function ImportModal({ onClose, onImported }) {
+function ImportModal({ onClose, onImported, departmentNames, categoryNames }) {
   const [text, setText] = useState('');
+  const [rows, setRows] = useState([]);
   const [importing, setImporting] = useState(false);
   const [result, setResult] = useState(null); // { createdCount, errors }
   const fileRef = useRef(null);
 
-  const rows = useMemo(() => parseCSV(text), [text]);
+  // Re-parsing on every keystroke would stomp the department/category picks
+  // an admin just made in the table below - only re-derive from text when
+  // the row COUNT changes (a fresh paste/upload), and preserve whichever
+  // picks already exist for rows that survive.
+  useEffect(() => {
+    const parsed = parseCSV(text);
+    setRows(prev => parsed.map((r, i) => ({ ...r, categories: prev[i]?.categories || [], departments: prev[i]?.departments || [] })));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [text]);
+
   const validCount = rows.filter(r => r.name && r.url).length;
+
+  const setRowField = (i, patch) => setRows(prev => prev.map((r, idx) => idx === i ? { ...r, ...patch } : r));
 
   const handleFile = (e) => {
     const file = e.target.files?.[0];
@@ -2666,10 +2682,12 @@ function ImportModal({ onClose, onImported }) {
           {!result ? (
             <>
               <p style={{ fontSize: 12.5, color: 'var(--muted)' }}>
-                Paste CSV or upload a file. Columns (in order): <code>name, url, department, company, description, pinned</code> -
-                only name/url are required, and a header row is optional. Category and icon aren't part of the
-                sheet - imported links land in an "Imported" category you can re-sort from Manage afterward.
-                Company is typed by name (e.g. "Greens India"); an unrecognized name is left as all-companies rather than failing the row.
+                Paste CSV or upload a file. Columns (in order): <code>name, url, company, description, pinned</code> -
+                only name/url are required, and a header row is optional. Pick each row's department(s) and
+                category/categories from the dropdowns below instead of typing them - icon isn't part of the
+                sheet either, imported links default to "Imported" if no category is picked, re-sortable from
+                Manage afterward. Company is typed by name (e.g. "Greens India"); an unrecognized name is left
+                as all-companies rather than failing the row.
               </p>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                 <button className="secondary-btn" onClick={downloadImportTemplate}><Download size={14} /> Export Template</button>
@@ -2679,15 +2697,15 @@ function ImportModal({ onClose, onImported }) {
               </div>
               <textarea
                 className="form-input" rows={7} value={text} onChange={e => setText(e.target.value)}
-                placeholder={'name,url,department,company,description,pinned\nADP,https://adp.com,Accounting,Greens,Payroll processing,false'}
+                placeholder={'name,url,company,description,pinned\nADP,https://adp.com,Greens,Payroll processing,false'}
                 style={{ fontFamily: 'monospace', fontSize: 12 }}
               />
               {rows.length > 0 && (
-                <div style={{ maxHeight: 220, overflowY: 'auto', border: '1px solid var(--line)', borderRadius: 8 }}>
+                <div style={{ maxHeight: 280, overflowY: 'auto', border: '1px solid var(--line)', borderRadius: 8 }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                     <thead>
                       <tr>
-                        {['Name', 'URL', 'Department', 'Company', 'Description'].map(h => (
+                        {['Name', 'URL', 'Department', 'Category', 'Company', 'Description'].map(h => (
                           <th key={h} style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid var(--line)', color: 'var(--muted)', fontWeight: 700, fontSize: 10, textTransform: 'uppercase' }}>{h}</th>
                         ))}
                       </tr>
@@ -2698,10 +2716,21 @@ function ImportModal({ onClose, onImported }) {
                         return (
                           <tr key={i} style={{ background: valid ? 'transparent' : 'hsla(var(--color-red),0.06)' }}>
                             <td style={{ padding: '5px 8px', borderBottom: '1px solid var(--line)' }}>{r.name || <em style={{ color: 'hsl(var(--color-red))' }}>missing</em>}</td>
-                            <td style={{ padding: '5px 8px', borderBottom: '1px solid var(--line)', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.url || <em style={{ color: 'hsl(var(--color-red))' }}>missing</em>}</td>
-                            <td style={{ padding: '5px 8px', borderBottom: '1px solid var(--line)' }}>{r.department || 'All'}</td>
+                            <td style={{ padding: '5px 8px', borderBottom: '1px solid var(--line)', maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.url || <em style={{ color: 'hsl(var(--color-red))' }}>missing</em>}</td>
+                            <td style={{ padding: '5px 8px', borderBottom: '1px solid var(--line)', minWidth: 150 }}>
+                              <CheckboxMultiSelect
+                                options={departmentNames} selected={r.departments} onChange={v => setRowField(i, { departments: v })}
+                                placeholder="All Departments"
+                              />
+                            </td>
+                            <td style={{ padding: '5px 8px', borderBottom: '1px solid var(--line)', minWidth: 150 }}>
+                              <CheckboxMultiSelect
+                                options={categoryNames} selected={r.categories} onChange={v => setRowField(i, { categories: v })}
+                                placeholder="Imported" allowCustom customPlaceholder="Add a new category..."
+                              />
+                            </td>
                             <td style={{ padding: '5px 8px', borderBottom: '1px solid var(--line)' }}>{r.company || 'All'}</td>
-                            <td style={{ padding: '5px 8px', borderBottom: '1px solid var(--line)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.description}</td>
+                            <td style={{ padding: '5px 8px', borderBottom: '1px solid var(--line)', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.description}</td>
                           </tr>
                         );
                       })}

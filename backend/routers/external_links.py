@@ -85,8 +85,8 @@ class ReorderEntry(BaseModel):
 class ImportRow(BaseModel):
     name: str = ""
     url: str = ""
-    category: str = ""
-    department: str = ""
+    categories: list[str] = []
+    departments: list[str] = []
     company: str = ""
     description: str = ""
     icon: str = "Link2"
@@ -557,14 +557,17 @@ def import_external_links(payload: ImportRequest, user: dict = Depends(require_l
     effort: valid rows are created, invalid ones are reported back by 1-based
     row number and skipped - a typo in row 12 shouldn't lose rows 1-11.
 
-    The template only asks for name/url/department/company/description/pinned
-    - category and icon are left off the sheet on purpose (Neil, Aug 12): icon
-    has to match an internal key so it's not something to fill in by hand,
-    and category is defaulted here so a row without one still groups with
-    its siblings instead of failing import. `company` is typed as a company
-    NAME (e.g. "Greens India"), not the HrEntity.id a human has no reason to
-    know - resolved to the id here, case-insensitively; an unmatched name is
-    left blank (company-wide) rather than failing the whole row."""
+    Department/category arrive as arrays now (Aug 14, "select multiple
+    department or category by selecting" - the import preview table picks
+    these per row with the same checkbox dropdown as Add/Edit, not typed
+    CSV text), same shape `update_external_link` takes. A row with no
+    category defaults to "Imported" so it still groups with its siblings
+    instead of failing import - icon is still left off the sheet on purpose
+    (Neil, Aug 12): it has to match an internal key, not something to fill
+    in by hand. `company` is typed as a company NAME (e.g. "Greens India"),
+    not the HrEntity.id a human has no reason to know - resolved to the id
+    here, case-insensitively; an unmatched name is left blank (company-wide)
+    rather than failing the whole row."""
     now = _now()
     company_by_name = {e.name.strip().lower(): e.id for e in db.query(models.HrEntity).all()}
     created, errors = [], []
@@ -575,11 +578,11 @@ def import_external_links(payload: ImportRequest, user: dict = Depends(require_l
             continue
         if not re.match(r"^https?://", url, re.I):
             url = f"https://{url}"
-        category = row.category.strip() or "Imported"
-        department = row.department.strip()
+        categories = _clean_list(row.categories) or ["Imported"]
+        departments = _clean_list(row.departments)
         db_link = models.ExternalLink(
-            name=name, url=url, category=category, description=row.description.strip(),
-            department=department, categories=[category], departments=[department] if department else [],
+            name=name, url=url, category=categories[0], description=row.description.strip(),
+            department=departments[0] if departments else "", categories=categories, departments=departments,
             company=company_by_name.get(row.company.strip().lower(), ""),
             icon=row.icon or "Link2", is_pinned=row.is_pinned,
             created_by=user["email"], created_at=now, updated_at=now,
