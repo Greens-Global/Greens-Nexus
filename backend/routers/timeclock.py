@@ -1493,6 +1493,7 @@ def monitoring_coverage(user: dict = Depends(require_tracking_read), db: Session
             "status": status, "covered": status != "gap",
             "lastFrameAt": last_shot.at if last_shot else "", "secsSinceFrame": shot_age,
             "agentOnline": agent_online, "deviceName": (dev.device_name or dev.label) if dev else "",
+            "agentVersion": (dev.agent_version if dev else "") or "",
             # Live screen-share is possible only when the desktop agent process is
             # actually online (heartbeating) for a non-exempt person with capture on.
             # On break is still watchable (shows a frozen frame), so it's allowed.
@@ -1932,6 +1933,14 @@ _AGENT_WEB_BASE    = os.getenv("NEXUS_AGENT_WEB_BASE", "https://dev.nexus.greens
 # each machine trades it for its own device token at install time (self-enroll).
 # Rotate/revoke by changing this env var. If unset, self-enroll is disabled.
 _AGENT_ENROLL_KEY  = os.getenv("NEXUS_AGENT_ENROLL_KEY", "")
+# Auto-update manifest. The installed agents' updater task polls /agent/manifest
+# and pulls a new bundle when _AGENT_VERSION is ahead of what a PC runs. Leave
+# _AGENT_VERSION unset to disable auto-update (the manifest reports no target, so
+# every agent stays put). _AGENT_BUNDLE_SHA256 lets the updater verify the download
+# before it swaps files - set it to the sha256 of the hosted bundle.
+_AGENT_VERSION        = os.getenv("NEXUS_AGENT_VERSION", "")
+_AGENT_BUNDLE_SHA256  = os.getenv("NEXUS_AGENT_BUNDLE_SHA256", "")
+_AGENT_MIN_VERSION    = os.getenv("NEXUS_AGENT_MIN_VERSION", "")   # reserved: force-update floor
 
 # ── Live screen view (on-demand WebRTC) config ───────────────────────────────
 # A manager can watch a clocked-in employee's screen in real time. The media is a
@@ -2162,6 +2171,7 @@ def agent_devices(user: dict = Depends(require_tracking), db: Session = Depends(
             "activeEmail": d.active_email or "", "activeName": _nm(d.active_email),
             "label": d.label or "", "deviceName": d.device_name or "", "deviceUser": d.device_user or "",
             "mac": d.mac or "", "platform": d.platform or "", "revoked": bool(d.revoked),
+            "agentVersion": d.agent_version or "",
             "lastSeen": d.last_seen_at or "", "createdAt": d.created_at or "",
             # Live status for the admin dot: online/offline + actively capturing.
             "online": online, "capturing": capturing, "secondsSinceSeen": secs,
@@ -2247,6 +2257,7 @@ class AgentCheckinIn(BaseModel):
     mac: Optional[str] = ""
     platform: Optional[str] = ""
     tz_offset_min: Optional[int] = 0
+    agent_version: Optional[str] = ""   # agent build, for the coverage version badge + auto-update
 
 
 @router.post("/agent/checkin")
@@ -2259,6 +2270,7 @@ def agent_checkin(body: AgentCheckinIn, dev: AgentDevice = Depends(get_agent_dev
     if body.device_user: dev.device_user = body.device_user[:120]
     if body.mac:         dev.mac = body.mac[:40]
     if body.platform:    dev.platform = body.platform[:20]
+    if body.agent_version: dev.agent_version = body.agent_version[:20]
     db.commit()
     # Capture follows the bound employee (pairing) or, when pairing can't run,
     # the PC's assigned owner (see _agent_subject). No subject => nobody to capture.
@@ -2278,6 +2290,21 @@ def agent_checkin(body: AgentCheckinIn, dev: AgentDevice = Depends(get_agent_dev
             "trackScreens": live and bool(pol.track_screens),
             "trackApps": live and bool(pol.track_windows),
             "intervalMin": max(1, int(pol.interval_minutes or 5)), "randomize": bool(pol.randomize)}
+
+
+@router.get("/agent/manifest")
+def agent_manifest(dev: AgentDevice = Depends(get_agent_device)):
+    """Auto-update manifest for the agent's updater task (device-token auth). Tells
+    an installed PC the current target build + where to get it + its sha256. The
+    updater only downloads/swaps when `version` is ahead of what the PC runs; an
+    empty `version` means auto-update is off (no target configured), so agents stay
+    where they are. Bundle URL is the same public store the install one-liner uses."""
+    return {
+        "version": _AGENT_VERSION,
+        "bundleUrl": _AGENT_BUNDLE_URL,
+        "sha256": _AGENT_BUNDLE_SHA256,
+        "minVersion": _AGENT_MIN_VERSION,
+    }
 
 
 @router.post("/agent/screenshot")

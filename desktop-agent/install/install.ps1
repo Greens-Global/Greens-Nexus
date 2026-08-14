@@ -61,6 +61,39 @@ function Expand-Zip($zip, $dest) {
   }
 }
 
+# Register the silent auto-updater as a hidden scheduled task. Runs every 10 min
+# (plus at startup/logon for catch-up), checks the backend manifest, and swaps in a
+# newer bundle with no window and no user interaction. SYSTEM for a service install
+# (can write Program Files + restart the service); the current user for a per-user
+# install. Best-effort: a failure here never fails the install - the agent still
+# runs, it just won't self-update until this succeeds on a later install.
+function Register-Updater($installDir, $mode, $tokenFile, $apiBase) {
+  try {
+    $script = Join-Path $installDir 'resources\updater\updater.ps1'
+    if (-not (Test-Path $script)) { Info "updater script missing at $script; auto-update not registered"; return }
+    $taskName = 'Plugin Updater'
+    $argline = ('-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{0}" ' +
+                '-InstallDir "{1}" -Mode {2} -TokenFile "{3}" -ApiBase "{4}"') -f `
+                $script, $installDir, $mode, $tokenFile, $apiBase
+    $act = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $argline
+    $every = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(2) `
+               -RepetitionInterval (New-TimeSpan -Minutes 10) -RepetitionDuration (New-TimeSpan -Days 3650)
+    $atBoot = if ($mode -eq 'service') { New-ScheduledTaskTrigger -AtStartup } else { New-ScheduledTaskTrigger -AtLogOn }
+    $set = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
+             -StartWhenAvailable -Hidden -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 30)
+    if ($mode -eq 'service') {
+      $principal = New-ScheduledTaskPrincipal -UserId 'S-1-5-18' -LogonType ServiceAccount -RunLevel Highest
+    } else {
+      $principal = New-ScheduledTaskPrincipal -UserId ("{0}\{1}" -f $env:USERDOMAIN, $env:USERNAME) -LogonType Interactive
+    }
+    Register-ScheduledTask -TaskName $taskName -Action $act -Trigger @($every, $atBoot) `
+      -Settings $set -Principal $principal -Force | Out-Null
+    Info "auto-updater scheduled task registered ($mode)"
+  } catch {
+    Info "WARNING: could not register the auto-updater task: $($_.Exception.Message)"
+  }
+}
+
 Write-Host "Installing $APP..."
 
 $isAdmin = ([Security.Principal.WindowsPrincipal] `
@@ -208,6 +241,7 @@ try {
     }
     if ($LASTEXITCODE -ne 0) { Die "service registration failed. Re-run with -Detailed to see why." }
     Info "done. The service is running and will launch the agent into each user's session."
+    Register-Updater $installDir 'service' $tokenFile ($ApiBase.TrimEnd('/'))
   } else {
     # Per-user: the agent self-registers in Startup on first run (setLoginItemSettings).
     $agentArgs = @('--background')
@@ -217,6 +251,7 @@ try {
     foreach ($k in $envPairs.Keys) { [Environment]::SetEnvironmentVariable($k, $envPairs[$k], 'User') }
     Info "launching the agent (registers itself at login for '$env:USERNAME')"
     Start-Process -FilePath $agentExe -ArgumentList $agentArgs
+    Register-Updater $installDir 'user' $tokenFile ($ApiBase.TrimEnd('/'))
   }
   Write-Host "$APP installed."
 }

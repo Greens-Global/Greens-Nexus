@@ -20,6 +20,10 @@ extraResources:
     filter:
       - "NexusMonitorService.exe"
       - "*.ps1"
+  # Silent auto-updater, run from a hidden scheduled task install.ps1 registers.
+  # Lands at <installDir>\resources\updater\updater.ps1.
+  - from: install/updater.ps1
+    to: updater/updater.ps1
 
 # active-win ships native helper binaries that must live outside the asar
 # archive to be executable at runtime. The remote-support input sink is a
