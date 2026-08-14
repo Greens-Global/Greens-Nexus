@@ -187,6 +187,12 @@ export default function ExternalLinks() {
   const [modal, setModal] = useState(null); // { mode: 'add'|'edit', form, id }
   const [saving, setSaving] = useState(false);
   const [showManage, setShowManage] = useState(false);
+  // Personal Links' own entry point into the same admin-managed Department/
+  // Category picker Company Links' Manage modal has (Aug 14, "we should add
+  // manage section in personal links also") - same taxonomy, same
+  // TaxonomyManager component, just reachable from this tab too since
+  // Personal Links now has its own department/category fields and filters.
+  const [showPersonalTaxonomy, setShowPersonalTaxonomy] = useState(false);
 
   // Admin-managed Department/Category picker options (Aug 14) - shared by
   // both Company and Personal Links now that Personal Links also carry
@@ -814,12 +820,21 @@ export default function ExternalLinks() {
             <option value="">All Categories</option>
             {personalCategoriesAvailable.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
+          {canManage && (
+            <button className="secondary-btn" onClick={() => setShowPersonalTaxonomy(true)}>
+              <Settings2 size={14} /> Manage
+            </button>
+          )}
         </div>
         <PersonalLinksSection
           layout={layout} itemsById={personalItemsById} actionCtx={actionCtx}
           mutate={seededPersonalMutate} immediateMutate={seededPersonalMutateNow} allLinks={personalLinks || []}
           onAdd={openAddPersonal} editable={editing}
         />
+        {showPersonalTaxonomy && (
+          <TaxonomyModal taxonomy={taxonomy} onAdd={addTaxonomy} onRename={renameTaxonomy} onDelete={deleteTaxonomy}
+            onClose={() => setShowPersonalTaxonomy(false)} />
+        )}
       </>)}
 
       {section === 'company' && (<>
@@ -2283,6 +2298,37 @@ function ManageTab({ active, onClick, children }) {
     }}>
       {children}
     </button>
+  );
+}
+
+// Personal Links' own entry point into the same Departments & Categories
+// picker Company Links' Manage modal has (Aug 14, "we should add manage
+// section in personal links also... same department and category setting
+// as in general links") - a standalone modal wrapping the same
+// TaxonomyManager pair used inline as a tab in ManageModal, so Personal
+// Links doesn't need the rest of Manage's link-CRUD/import/attention
+// surface, just this one piece.
+function TaxonomyModal({ taxonomy, onAdd, onRename, onDelete, onClose }) {
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content" style={{ maxWidth: 640 }} onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <h3>Departments &amp; Categories</h3>
+          <button className="close-btn" onClick={onClose}><X size={16} /></button>
+        </div>
+        <div style={{ padding: '20px 24px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
+            <TaxonomyManager kind="department" label="Departments" items={taxonomy.departments}
+              onAdd={onAdd} onRename={onRename} onDelete={onDelete} />
+            <TaxonomyManager kind="category" label="Categories" items={taxonomy.categories}
+              onAdd={onAdd} onRename={onRename} onDelete={onDelete} />
+          </div>
+        </div>
+        <div className="modal-footer">
+          <button className="primary-btn" onClick={onClose}>Done</button>
+        </div>
+      </div>
+    </div>
   );
 }
 
