@@ -582,6 +582,23 @@ export default function ExternalLinks() {
     else setBanner({ kind: 'ok', text: `Updated ${updatedById.size} link${updatedById.size === 1 ? '' : 's'}.` });
   };
 
+  // Bulk delete (Manage > All Links, Aug 14) - same loop-the-single-endpoint
+  // approach as bulkUpdateLinks above, same reasoning. Returns whether it
+  // actually proceeded, so the caller can leave the selection intact on a
+  // cancelled confirm instead of clearing it as if something happened.
+  const bulkDeleteLinks = async (ids) => {
+    if (!ids.length) return false;
+    if (!window.confirm(`Remove ${ids.length} link${ids.length === 1 ? '' : 's'} from External Links? This cannot be undone.`)) return false;
+    const results = await Promise.allSettled(ids.map(id => api.deleteExternalLink(id)));
+    const removed = new Set();
+    let failed = 0;
+    results.forEach((r, i) => { if (r.status === 'fulfilled') removed.add(ids[i]); else failed++; });
+    setLinks(prev => (prev || []).filter(l => !removed.has(l.id)));
+    if (failed) setBanner({ kind: 'err', text: `Removed ${removed.size} link${removed.size === 1 ? '' : 's'}, ${failed} failed.` });
+    else setBanner({ kind: 'ok', text: `Removed ${removed.size} link${removed.size === 1 ? '' : 's'}.` });
+    return true;
+  };
+
   const bumpPersonalClick = (link) => {
     api.clickPersonalLink(link.id).then(updated => {
       setPersonalLinks(prev => (prev || []).map(l => (l.id === link.id ? updated : l)));
@@ -945,7 +962,7 @@ export default function ExternalLinks() {
           companyName={companyName}
           onRefreshDescription={refreshDescription} onRefreshAllDescriptions={refreshAllDescriptions}
           taxonomy={taxonomy} onAddTaxonomy={addTaxonomy} onRenameTaxonomy={renameTaxonomy} onDeleteTaxonomy={deleteTaxonomy}
-          departmentNames={departmentNames} categoryNames={categoryNames} onBulkUpdate={bulkUpdateLinks}
+          departmentNames={departmentNames} categoryNames={categoryNames} onBulkUpdate={bulkUpdateLinks} onBulkDelete={bulkDeleteLinks}
         />
       )}
 
@@ -2078,7 +2095,7 @@ function attentionFor(links) {
 function ManageModal({
   links, onClose, onAdd, onAddForDept, onEdit, onDelete, canDelete, onReorder, onImported, companyName,
   onRefreshDescription, onRefreshAllDescriptions,
-  taxonomy, onAddTaxonomy, onRenameTaxonomy, onDeleteTaxonomy, departmentNames, categoryNames, onBulkUpdate,
+  taxonomy, onAddTaxonomy, onRenameTaxonomy, onDeleteTaxonomy, departmentNames, categoryNames, onBulkUpdate, onBulkDelete,
 }) {
   const [q, setQ] = useState('');
   const [tab, setTab] = useState('all');
@@ -2105,6 +2122,11 @@ function ManageModal({
   const applyBulk = async () => {
     setBulkApplying(true);
     try { await onBulkUpdate([...selectedIds], { category: bulkCategory, department: bulkDepartment }); clearSelection(); }
+    finally { setBulkApplying(false); }
+  };
+  const applyBulkDelete = async () => {
+    setBulkApplying(true);
+    try { const proceeded = await onBulkDelete([...selectedIds]); if (proceeded) clearSelection(); }
     finally { setBulkApplying(false); }
   };
   // A selection made against one search/tab shouldn't silently carry over
@@ -2203,6 +2225,11 @@ function ManageModal({
             <button className="primary-btn" onClick={applyBulk} disabled={bulkApplying || (!bulkCategory && !bulkDepartment)}>
               {bulkApplying ? 'Applying...' : 'Apply'}
             </button>
+            {canDelete && (
+              <button className="secondary-btn" style={{ color: 'hsl(var(--color-red))' }} onClick={applyBulkDelete} disabled={bulkApplying}>
+                <Trash2 size={13} /> {bulkApplying ? 'Removing...' : `Delete ${selectedIds.size}`}
+              </button>
+            )}
             <button className="secondary-btn" onClick={clearSelection} disabled={bulkApplying}>Clear</button>
           </div>
         )}
