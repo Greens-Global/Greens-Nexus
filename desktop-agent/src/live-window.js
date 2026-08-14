@@ -106,6 +106,28 @@ async function start({ id, sources, iceServers, fps }) {
   tracks.forEach((t, i) => { if (t) t.enabled = i === 0; });
   streams.forEach((stream, i) => { if (tracks[i]) pc.addTrack(tracks[i], stream); });
 
+  // Quality: this is a screen/text stream, not video-of-motion. WebRTC's defaults
+  // are tuned for camera video, so 1080p desktop content (code, small UI text)
+  // comes out soft. Fix it three ways: contentHint 'detail' tells the encoder to
+  // preserve spatial detail over smooth motion; degradationPreference
+  // 'maintain-resolution' drops FRAMERATE, never resolution, under network
+  // pressure (so text never goes fuzzy); and a real maxBitrate ceiling gives the
+  // encoder the headroom it otherwise won't take (the default caps far too low for
+  // sharp 1080p). 30fps at high bitrate reads sharper than 60fps starved of bits.
+  tracks.forEach((t) => { if (t) { try { t.contentHint = 'detail'; } catch (_) { /* older build */ } } });
+  try {
+    for (const sender of pc.getSenders()) {
+      if (!sender.track || sender.track.kind !== 'video') continue;
+      const params = sender.getParameters();
+      if (!params.encodings || !params.encodings.length) params.encodings = [{}];
+      params.encodings[0].maxBitrate = 8_000_000;   // 8 Mbps ceiling for a crisp 1080p desktop
+      params.encodings[0].maxFramerate = 30;         // screen content: 30fps sharp > 60fps soft
+      params.degradationPreference = 'maintain-resolution';
+      // eslint-disable-next-line no-await-in-loop
+      await sender.setParameters(params);
+    }
+  } catch (_) { /* setParameters is best-effort; the stream still runs without it */ }
+
   // Prefer H.264 in the offer. iOS Safari can't decode VP8/VP9 for a WebRTC
   // stream it receives, so a VP8-only offer plays as an endless "connecting" /
   // black video on iPhone/iPad. Ordering H.264 first makes every viewer that has
