@@ -971,6 +971,16 @@ def _run_migrations():
         # only to close it to the public anon key, same posture as the
         # tables above.
         "ALTER TABLE external_link_taxonomy ENABLE ROW LEVEL SECURITY",
+        # live_view_sessions + agent_pairings (Aug 12-13) - the live screen-view
+        # and remote-support signaling mailbox and the desktop-agent enrollment
+        # rows. Both are backend-only (device tokens, WebRTC offer/answer, control
+        # state); the frontend and agent reach them only through this API, never
+        # the anon client. These were created by create_all without an RLS line -
+        # exactly the recurring gap above - so close them to the public anon key
+        # here. Zero policies = full anon denial, backend keeps its service-role
+        # bypass. Carries session/device tokens, so this is not optional.
+        "ALTER TABLE live_view_sessions ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE agent_pairings ENABLE ROW LEVEL SECURITY",
         # External Links directory rebuild (Aug 2026) - see the matching sqlite
         # migration list above for the full rationale; name-keyed idempotent
         # inserts, same statements (portable syntax) on both engines.
