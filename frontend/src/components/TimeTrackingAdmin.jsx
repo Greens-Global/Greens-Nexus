@@ -229,7 +229,7 @@ function AgentInstall() {
                 <span style={{ color: d.online ? 'hsl(var(--color-green))' : 'var(--muted)', fontWeight: 700 }}>
                   {d.capturing ? 'Capturing' : d.online ? 'Online' : `Offline · ${relSeen(d.secondsSinceSeen)}`}
                 </span>
-                {' · '}{[d.platform, d.deviceUser].filter(Boolean).join(' · ') || 'company PC'}
+                {' · '}{[d.platform, d.deviceUser, d.agentVersion ? `Agent v${d.agentVersion}` : null].filter(Boolean).join(' · ') || 'company PC'}
                 {d.activeName && !d.capturing && <> · <span style={{ fontWeight: 700 }}>{d.activeName}</span></>}
               </div>
             </div>
@@ -402,7 +402,7 @@ function LiveCoverage({ onOpenPerson }) {
                 {p.name}
               </button>
               <div style={{ fontSize: 11, color: 'var(--muted)' }}>
-                {[p.deviceName, frame].filter(Boolean).join(' · ') || (p.onBreak ? 'on break' : '')}
+                {[p.deviceName, p.agentVersion ? `Agent v${p.agentVersion}` : null, frame].filter(Boolean).join(' · ') || (p.onBreak ? 'on break' : '')}
               </div>
             </div>
             <PresenceBadges pres={presence[p.email]} />

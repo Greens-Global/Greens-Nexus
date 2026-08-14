@@ -60,6 +60,7 @@ def _run_migrations():
             "ALTER TABLE time_screenshots ADD COLUMN session_id VARCHAR DEFAULT ''",
             "ALTER TABLE agent_devices ADD COLUMN active_email VARCHAR DEFAULT ''",
             "ALTER TABLE agent_devices ADD COLUMN active_session_id VARCHAR DEFAULT ''",
+            "ALTER TABLE agent_devices ADD COLUMN agent_version VARCHAR DEFAULT ''",
             "ALTER TABLE items ADD COLUMN picture_required BOOLEAN DEFAULT 1",
             "ALTER TABLE items ADD COLUMN asset_value FLOAT DEFAULT 0",
             "UPDATE items SET status = 'available' WHERE ownership_type = 'permanent' AND COALESCE(assigned_to_email, '') = '' AND status = 'permanently_assigned'",
@@ -508,6 +509,7 @@ def _run_migrations():
         "ALTER TABLE time_screenshots ADD COLUMN IF NOT EXISTS session_id VARCHAR DEFAULT ''",
         "ALTER TABLE agent_devices ADD COLUMN IF NOT EXISTS active_email VARCHAR DEFAULT ''",
         "ALTER TABLE agent_devices ADD COLUMN IF NOT EXISTS active_session_id VARCHAR DEFAULT ''",
+        "ALTER TABLE agent_devices ADD COLUMN IF NOT EXISTS agent_version VARCHAR DEFAULT ''",
         # Attended remote control (IT support) - consent + audit fields on the
         # live-view session row.
         "ALTER TABLE live_view_sessions ADD COLUMN IF NOT EXISTS control_state VARCHAR DEFAULT ''",

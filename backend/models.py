@@ -1498,6 +1498,7 @@ class AgentDevice(Base):
     created_by     = Column(String, default="")
     created_at     = Column(String, default="")
     last_seen_at   = Column(String, default="")
+    agent_version  = Column(String, default="")         # agent build reported on checkin (auto-update)
     # Shared-PC support: the device is a permanent PC identity; the CURRENT
     # employee is whoever clocked in via the website (bound at clock-in, cleared at
     # clock-out). Screenshots + heartbeat attribute to `active_email`, NOT the

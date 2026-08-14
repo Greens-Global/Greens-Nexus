@@ -54,6 +54,26 @@ function log(msg) {
   } catch { /* logging is best-effort */ }
 }
 
+// ── Auto-update hold marker ───────────────────────────────────────────────────
+// While a manager is watching live or remote-controlling, we do NOT want the
+// silent updater to swap files and restart the agent mid-session. The agent
+// stamps this marker (in the machine-wide log dir, readable by the SYSTEM updater
+// task) while a live/control session is active; the updater skips a cycle when the
+// marker is fresh, and applies the update on the next tick once the session ends.
+// Best-effort, like the log: if it can't be written, the update just proceeds and
+// the live-view auto-reconnect covers the brief restart.
+const LIVE_MARKER = path.join(process.env.PROGRAMDATA || app.getPath('userData'), 'Plugin', 'live.active');
+function setLiveMarker(active) {
+  try {
+    if (active) {
+      fs.mkdirSync(path.dirname(LIVE_MARKER), { recursive: true });
+      fs.writeFileSync(LIVE_MARKER, String(Date.now()));
+    } else if (fs.existsSync(LIVE_MARKER)) {
+      fs.unlinkSync(LIVE_MARKER);
+    }
+  } catch { /* best-effort */ }
+}
+
 // ── Service-managed mode ──────────────────────────────────────────────────────
 // On company PCs the Nexus Monitor Service (a privileged Windows service standard
 // users can't stop) launches this agent into the interactive user session and
@@ -257,6 +277,7 @@ async function tick() {
       mac: firstMac(),
       platform: process.platform,
       tz_offset_min: new Date().getTimezoneOffset(),
+      agent_version: app.getVersion(),   // shown on the coverage page + drives auto-update
     }).catch((e) => { log(`checkin failed: ${e.message || e}`); return null; });
 
     let capture = false;
@@ -338,8 +359,8 @@ app.whenReady().then(() => {
   live.init({
     getToken: () => deviceToken,
     log,
-    onLiveChange: (on) => { liveActive = on; setTray(lastCapturing, lastDetail); },
-    onControlChange: (on) => { controlActive = on; setTray(lastCapturing, lastDetail); },
+    onLiveChange: (on) => { liveActive = on; setLiveMarker(on || controlActive); setTray(lastCapturing, lastDetail); },
+    onControlChange: (on) => { controlActive = on; setLiveMarker(on || liveActive); setTray(lastCapturing, lastDetail); },
   });
 
   tick();                                       // first heartbeat now
