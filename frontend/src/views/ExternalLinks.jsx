@@ -563,6 +563,25 @@ export default function ExternalLinks() {
     }
   };
 
+  // Bulk category/department reassignment (Manage > All Links, Aug 14) -
+  // no dedicated bulk endpoint; loops the existing single-link PATCH since
+  // Manage's own link counts are small enough that N requests is fine, and
+  // it reuses the exact same validation/audit path each individual edit
+  // already goes through rather than adding a second bulk code path server-
+  // side to keep in sync. Applies whichever of category/department was
+  // actually picked - a blank field is left untouched, not cleared.
+  const bulkUpdateLinks = async (ids, patch) => {
+    const clean = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== '' && v != null));
+    if (!ids.length || Object.keys(clean).length === 0) return;
+    const results = await Promise.allSettled(ids.map(id => api.updateExternalLink(id, clean)));
+    const updatedById = new Map();
+    let failed = 0;
+    results.forEach((r, i) => { if (r.status === 'fulfilled') updatedById.set(ids[i], r.value); else failed++; });
+    setLinks(prev => (prev || []).map(l => updatedById.get(l.id) || l));
+    if (failed) setBanner({ kind: 'err', text: `Updated ${updatedById.size} link${updatedById.size === 1 ? '' : 's'}, ${failed} failed.` });
+    else setBanner({ kind: 'ok', text: `Updated ${updatedById.size} link${updatedById.size === 1 ? '' : 's'}.` });
+  };
+
   const bumpPersonalClick = (link) => {
     api.clickPersonalLink(link.id).then(updated => {
       setPersonalLinks(prev => (prev || []).map(l => (l.id === link.id ? updated : l)));
@@ -926,7 +945,7 @@ export default function ExternalLinks() {
           companyName={companyName}
           onRefreshDescription={refreshDescription} onRefreshAllDescriptions={refreshAllDescriptions}
           taxonomy={taxonomy} onAddTaxonomy={addTaxonomy} onRenameTaxonomy={renameTaxonomy} onDeleteTaxonomy={deleteTaxonomy}
-          departmentNames={departmentNames}
+          departmentNames={departmentNames} categoryNames={categoryNames} onBulkUpdate={bulkUpdateLinks}
         />
       )}
 
@@ -2059,7 +2078,7 @@ function attentionFor(links) {
 function ManageModal({
   links, onClose, onAdd, onAddForDept, onEdit, onDelete, canDelete, onReorder, onImported, companyName,
   onRefreshDescription, onRefreshAllDescriptions,
-  taxonomy, onAddTaxonomy, onRenameTaxonomy, onDeleteTaxonomy, departmentNames,
+  taxonomy, onAddTaxonomy, onRenameTaxonomy, onDeleteTaxonomy, departmentNames, categoryNames, onBulkUpdate,
 }) {
   const [q, setQ] = useState('');
   const [tab, setTab] = useState('all');
@@ -2069,6 +2088,28 @@ function ManageModal({
   const [deptPick, setDeptPick] = useState('');
   const [refreshingId, setRefreshingId] = useState(null); // per-row spinner
   const [refreshingAll, setRefreshingAll] = useState(false);
+  // Bulk category/department reassignment (Aug 14) - a plain Set of ids
+  // checked in the All Links list; cleared on tab/search change so a
+  // selection never silently applies to a different filtered view than the
+  // one it was made against.
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
+  const [bulkCategory, setBulkCategory] = useState('');
+  const [bulkDepartment, setBulkDepartment] = useState('');
+  const [bulkApplying, setBulkApplying] = useState(false);
+  const toggleSelected = (id) => setSelectedIds(prev => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+  const clearSelection = () => { setSelectedIds(new Set()); setBulkCategory(''); setBulkDepartment(''); };
+  const applyBulk = async () => {
+    setBulkApplying(true);
+    try { await onBulkUpdate([...selectedIds], { category: bulkCategory, department: bulkDepartment }); clearSelection(); }
+    finally { setBulkApplying(false); }
+  };
+  // A selection made against one search/tab shouldn't silently carry over
+  // and apply to a completely different filtered set.
+  useEffect(() => { clearSelection(); }, [q, tab]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const doRefreshOne = async (link) => {
     setRefreshingId(link.id);
@@ -2148,6 +2189,24 @@ function ManageModal({
           </div>
         )}
 
+        {tab === 'all' && selectedIds.size > 0 && (
+          <div style={{ margin: '12px 24px 0', padding: '10px 12px', borderRadius: 10, background: 'var(--wk-brand-tint)', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--wk-brand)' }}>{selectedIds.size} selected</span>
+            <input className="form-input" list="manage-bulk-categories" style={{ width: 'auto', minWidth: 160, padding: '6px 10px' }}
+              value={bulkCategory} onChange={e => setBulkCategory(e.target.value)} placeholder="Set category..." />
+            <datalist id="manage-bulk-categories">{categoryNames.map(c => <option key={c} value={c} />)}</datalist>
+            <select className="form-select" style={{ width: 'auto', minWidth: 160, padding: '6px 10px' }}
+              value={bulkDepartment} onChange={e => setBulkDepartment(e.target.value)}>
+              <option value="">Set department...</option>
+              {departmentNames.map(d => <option key={d} value={d}>{d}</option>)}
+            </select>
+            <button className="primary-btn" onClick={applyBulk} disabled={bulkApplying || (!bulkCategory && !bulkDepartment)}>
+              {bulkApplying ? 'Applying...' : 'Apply'}
+            </button>
+            <button className="secondary-btn" onClick={clearSelection} disabled={bulkApplying}>Clear</button>
+          </div>
+        )}
+
         <div style={{ padding: '16px 24px 20px', maxHeight: '60vh', overflowY: 'auto' }}>
           {tab === 'taxonomy' ? (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
@@ -2186,6 +2245,8 @@ function ManageModal({
                               border: '1px solid var(--line)',
                             }}
                           >
+                            <input type="checkbox" checked={selectedIds.has(l.id)} onClick={e => e.stopPropagation()}
+                              onChange={() => toggleSelected(l.id)} style={{ flexShrink: 0, cursor: 'pointer' }} />
                             {canReorder && <GripVertical size={13} style={{ color: 'var(--muted)', cursor: 'grab', flexShrink: 0 }} />}
                             <LinkIcon url={l.url} iconKey={l.icon} size={26} iconSize={14} radius={7} fg={fg} bg={bg} gradient={false} />
                             <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', flexShrink: 0 }}>{l.name}</span>
