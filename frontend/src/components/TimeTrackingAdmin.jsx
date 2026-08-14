@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { ShieldCheck, Loader2, Check, MonitorSmartphone, Copy, Ban, TriangleAlert, Trash2, Activity, ChevronDown, Video, X, Radio, MousePointer2, Eye, Wrench } from 'lucide-react';
 import { api } from '../api';
 import { Avatar } from '../tasks/components';
@@ -288,8 +289,17 @@ const COV_META = {
 // is giving remote support. Both quietly absent when nobody is watching/helping.
 function PresenceBadges({ pres }) {
   const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState(null);   // fixed-position anchor for the portal menu
+  const btnRef = useRef(null);
   const watchers = (pres && pres.watchers) || [];
   const controller = pres && pres.controller;
+  // Anchor the menu to the button in VIEWPORT coords and render it in a portal, so
+  // it can never be clipped by the coverage card's overflow:hidden (rounded corners).
+  const openMenu = () => {
+    const r = btnRef.current && btnRef.current.getBoundingClientRect();
+    if (r) setPos({ top: r.bottom + 6, right: Math.max(8, window.innerWidth - r.right) });
+    setOpen(true);
+  };
   if (!watchers.length && !controller) return null;
   return (
     <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
@@ -302,31 +312,37 @@ function PresenceBadges({ pres }) {
         </span>
       )}
       {watchers.length > 0 && (
-        <div style={{ position: 'relative' }}>
-          <button onClick={() => setOpen(v => !v)} title={`${watchers.length} watching - click to see who`}
+        <>
+          <button ref={btnRef} onClick={() => (open ? setOpen(false) : openMenu())} title={`${watchers.length} watching - click to see who`}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 800, cursor: 'pointer',
               color: 'hsl(var(--color-blue))', background: 'hsla(var(--color-blue),0.12)', border: 'none', padding: '3px 9px', borderRadius: 999 }}>
             <Eye size={13} style={{ animation: 'nexusEyeWatch 1.4s ease-in-out infinite' }} />
             {watchers.length}
           </button>
-          {open && (
+          {open && pos && createPortal(
             <>
-              <div onClick={() => setOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 20 }} />
-              <div style={{ position: 'absolute', top: 'calc(100% + 6px)', right: 0, zIndex: 21, minWidth: 180, maxWidth: 240,
-                background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: 'var(--shadow-lg, 0 12px 30px rgba(0,0,0,0.25))', padding: 6 }}>
-                <div style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--muted)', padding: '4px 8px 6px' }}>
-                  Watching now
+              <div onClick={() => setOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 3000 }} />
+              <div style={{ position: 'fixed', top: pos.top, right: pos.right, zIndex: 3001, minWidth: 200, maxWidth: 280,
+                background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12,
+                boxShadow: '0 16px 44px rgba(0,0,0,0.30)', padding: 6, transformOrigin: 'top right',
+                animation: 'nexusPresPop 0.15s cubic-bezier(0.16,1,0.3,1)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 8px 7px' }}>
+                  <Eye size={12} style={{ color: 'hsl(var(--color-blue))' }} />
+                  <span style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)' }}>Watching now</span>
+                  <span style={{ marginLeft: 'auto', fontSize: 10.5, fontWeight: 800, color: 'hsl(var(--color-blue))', background: 'hsla(var(--color-blue),0.12)', borderRadius: 999, padding: '1px 7px' }}>{watchers.length}</span>
                 </div>
                 {watchers.map(w => (
-                  <div key={w.email} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 8px', borderRadius: 8 }}>
-                    <Avatar email={w.email} name={w.name} size={22} card={false} />
+                  <div key={w.email}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--mist, rgba(148,163,184,0.12))')}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                    style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '6px 8px', borderRadius: 8, transition: 'background 0.12s' }}>
+                    <Avatar email={w.email} name={w.name} size={24} card={false} />
                     <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{w.name}</span>
                   </div>
                 ))}
               </div>
-            </>
-          )}
-        </div>
+            </>, document.body)}
+        </>
       )}
     </div>
   );
@@ -509,7 +525,8 @@ export default function TimeTrackingAdmin({ initialSub = 'coverage', module = fa
         100% { box-shadow: 0 0 0 0 transparent; }
       }
       @keyframes nexusEyeWatch { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.55; transform: scale(1.14); } }
-      @keyframes nexusWrenchWork { 0%,100% { transform: rotate(-14deg); } 50% { transform: rotate(14deg); } }`}</style>
+      @keyframes nexusWrenchWork { 0%,100% { transform: rotate(-14deg); } 50% { transform: rotate(14deg); } }
+      @keyframes nexusPresPop { from { opacity: 0; transform: translateY(-6px) scale(0.96); } to { opacity: 1; transform: translateY(0) scale(1); } }`}</style>
 
       {/* Sub-tabs so the monitoring screen isn't one long scroll. */}
       <div className="scroll-tabs" style={{ display: 'flex', gap: 4, marginTop: module ? 18 : 0, marginBottom: 16, borderBottom: '1px solid var(--line)' }}>
