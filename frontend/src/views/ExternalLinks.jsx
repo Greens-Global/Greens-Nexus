@@ -6,7 +6,7 @@ import { PersonalLockGate } from '../credvault/vaultShared';
 import { LinkIcon, ICON_MAP } from '../components/LinkIcon.jsx';
 import { useLinkViews } from './useLinkViews';
 import {
-  Search, Plus, Pencil, Trash2, X, Star, Globe, LayoutGrid,
+  Search, Plus, Pencil, Trash2, X, Star, Globe, LayoutGrid, List,
   Settings2, Bookmark, History,
   GripVertical, AlertTriangle, Upload, FolderOpen, Download, Lock, KeyRound, Info,
   FolderPlus, Check, RefreshCw, SlidersHorizontal, Save,
@@ -158,6 +158,16 @@ export default function ExternalLinks() {
   const [pDepartment, setPDepartment] = useState('');
   const [pCategory, setPCategory] = useState('');
   const [pq, setPq] = useState('');
+
+  // List/Tile view toggle (Aug 14) - two independent toggles, one for the
+  // main grid (beside All Categories) and one for the My Favorites strip
+  // (beside its own header), since a user might want the big grid compact
+  // but favorites still as a quick-glance pill row, or vice versa. Tile is
+  // the only mode Customize/drag works in - list is read-only browsing, so
+  // switching to Customize forces tile view (see the `editing` effect below).
+  const [gridView, setGridView] = useState('tile');
+  const [favView, setFavView] = useState('tile');
+  useEffect(() => { if (editing) setGridView('tile'); }, [editing]);
 
   // Company list for the filter/Add-Link dropdown, sourced from the same
   // curated People directory every other company/department picker in Nexus
@@ -814,8 +824,28 @@ export default function ExternalLinks() {
       {section === 'company' && (<>
         {/* Personal shortcuts - client-local, not scoped by the filters below */}
         {favoriteLinks.length > 0 && (
-          <PersonalStrip title="My Favorites" icon={Bookmark} iconColor="hsl(var(--color-blue))" links={favoriteLinks}
-            onOpen={(l) => (l._favType === 'personal' ? openPersonalLink(l) : openLink(l))} />
+          <div style={{ marginBottom: 18 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 10 }}>
+              <Bookmark size={14} style={{ color: 'hsl(var(--color-blue))' }} />
+              <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink)', flex: 1 }}>My Favorites</span>
+              <ViewToggle view={favView} onChange={setFavView} />
+            </div>
+            {favView === 'tile' ? (
+              <PersonalStrip links={favoriteLinks} onOpen={(l) => (l._favType === 'personal' ? openPersonalLink(l) : openLink(l))} />
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                {favoriteLinks.map(l => {
+                  const { fg, bg } = colorFor(l.category);
+                  return (
+                    <LinksListRow key={l._uid || l.id}
+                      icon={<LinkIcon url={l.url} iconKey={l.icon} size={26} iconSize={13} radius={7} fg={fg} bg={bg} gradient={false} />}
+                      name={l.name} sub={l.category}
+                      onOpen={() => (l._favType === 'personal' ? openPersonalLink(l) : openLink(l))} />
+                  );
+                })}
+              </div>
+            )}
+          </div>
         )}
         {recentLinks.length > 0 && (
           <PersonalStrip title="Recently Used" icon={History} iconColor="var(--muted)" links={recentLinks}
@@ -855,6 +885,7 @@ export default function ExternalLinks() {
               {categoriesAvailable.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
           )}
+          {!editing && <ViewToggle view={gridView} onChange={setGridView} />}
         </div>
 
         <AsyncSection
@@ -875,6 +906,7 @@ export default function ExternalLinks() {
             <LinksLayoutSection
               sourceType="external" layout={layout} itemsById={unifiedItemsById} actionCtx={actionCtx}
               mutate={seededMutate} immediateMutate={seededMutateNow} allLinks={all} editable={editing}
+              view={gridView}
             />
           </Section>
         </AsyncSection>
@@ -939,6 +971,50 @@ function Section({ title, icon: Icon, color, children }) {
       </div>
       {children}
     </div>
+  );
+}
+
+// Tile/List toggle (Aug 14) - two independent instances live in this view
+// (the main grid, beside All Categories; My Favorites, beside its own
+// header), each with its own state so picking one doesn't affect the other.
+function ViewToggle({ view, onChange }) {
+  return (
+    <div style={{ display: 'inline-flex', background: 'var(--mist)', borderRadius: 8, padding: 2 }}>
+      <button type="button" onClick={() => onChange('tile')} title="Tile view"
+        style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'center', width: 28, height: 26, border: 'none',
+          borderRadius: 6, cursor: 'pointer', background: view === 'tile' ? 'var(--card)' : 'transparent',
+          color: view === 'tile' ? 'var(--ink)' : 'var(--muted)', boxShadow: view === 'tile' ? '0 1px 3px rgba(0,0,0,.12)' : 'none',
+        }}>
+        <LayoutGrid size={14} />
+      </button>
+      <button type="button" onClick={() => onChange('list')} title="List view"
+        style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'center', width: 28, height: 26, border: 'none',
+          borderRadius: 6, cursor: 'pointer', background: view === 'list' ? 'var(--card)' : 'transparent',
+          color: view === 'list' ? 'var(--ink)' : 'var(--muted)', boxShadow: view === 'list' ? '0 1px 3px rgba(0,0,0,.12)' : 'none',
+        }}>
+        <List size={14} />
+      </button>
+    </div>
+  );
+}
+
+// Compact list-view row - the read-only alternative to an icon AppTile/
+// FolderTile, used only when a Tile/List toggle is set to List. Folders
+// show a member count instead of a description; both open the same way
+// tiles do (a link opens the URL, a folder opens FolderModal).
+function LinksListRow({ icon, name, sub, onOpen, isFolder }) {
+  return (
+    <button onClick={onOpen} className="dash-link-row"
+      style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 10px', border: 'none', background: 'none', borderRadius: 8, cursor: 'pointer', textAlign: 'left', width: '100%', fontFamily: 'inherit' }}
+      onMouseEnter={e => e.currentTarget.style.background = 'var(--mist)'}
+      onMouseLeave={e => e.currentTarget.style.background = 'none'}>
+      {icon}
+      <span style={{ flex: 1, minWidth: 0, fontSize: 13.5, fontWeight: 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</span>
+      {sub && <span style={{ fontSize: 11.5, color: 'var(--muted)', flexShrink: 0 }}>{sub}</span>}
+      {isFolder && <FolderOpen size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />}
+    </button>
   );
 }
 
@@ -1092,11 +1168,13 @@ function PersonalLinkModal({ modal, setModal, save, saving, existingLinks, depar
 // quick-launch strip rather than another section to scan top to bottom.
 function PersonalStrip({ title, icon: Icon, iconColor, links, onOpen }) {
   return (
-    <div style={{ marginBottom: 18 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 10 }}>
-        <Icon size={14} style={{ color: iconColor }} />
-        <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink)' }}>{title}</span>
-      </div>
+    <div style={title ? { marginBottom: 18 } : undefined}>
+      {title && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 10 }}>
+          <Icon size={14} style={{ color: iconColor }} />
+          <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink)' }}>{title}</span>
+        </div>
+      )}
       <div className="scroll-tabs" style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 4 }}>
         {links.map(l => {
           const { fg, bg } = colorFor(l.category);
@@ -1488,7 +1566,7 @@ function FolderModal({
 // creates a brand-new PersonalLink row rather than organizing existing
 // ones - Company Links has no equivalent since new Company Links are only
 // ever added from Manage).
-function LinksLayoutSection({ sourceType, layout, itemsById, actionCtx, mutate, immediateMutate, allLinks, extraAddTile, editable = false }) {
+function LinksLayoutSection({ sourceType, layout, itemsById, actionCtx, mutate, immediateMutate, allLinks, extraAddTile, editable = false, view = 'tile' }) {
   const [openFolderId, setOpenFolderId] = useState(null);
   // Desktop drag-and-drop state - HTML5 native, mirrors ManageModal's
   // draggable/onDragStart/onDragOver/onDrop/onDragEnd pattern elsewhere in
@@ -1664,6 +1742,56 @@ function LinksLayoutSection({ sourceType, layout, itemsById, actionCtx, mutate, 
   });
 
   const openFolder = folders.find(f => f.id === openFolderId) || null;
+
+  // List view (Aug 14) - read-only rows instead of the drag-and-drop icon
+  // grid; Customize forces tile view (see the `editing` effect in the
+  // parent), so this branch never needs to carry drag handlers at all.
+  if (view === 'list') {
+    return (
+      <>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          {folders.map((f) => {
+            const members = folderMembers(f.id).map(e => resolveEntryLink(itemsById, e)).filter(Boolean);
+            return (
+              <LinksListRow key={f.id} isFolder
+                icon={<FolderOpen size={17} style={{ color: 'var(--muted)', flexShrink: 0 }} />}
+                name={f.name} sub={members.length > 0 ? `${members.length} apps` : 'Empty'}
+                onOpen={() => setOpenFolderId(f.id)} />
+            );
+          })}
+          {topItems.map((entry) => {
+            const a = entryActions(entry, itemsById, actionCtx);
+            if (!a) return null;
+            return (
+              <LinksListRow key={`${entry.item_type}:${entry.item_id}`}
+                icon={<LinkIcon url={a.link.url} iconKey={a.link.icon} size={26} iconSize={13} radius={7} fg={a.color.fg} bg={a.color.bg} gradient={false} />}
+                name={a.link.name} sub={a.link.category} onOpen={a.onOpen} />
+            );
+          })}
+        </div>
+        {openFolder && (
+          <FolderModal
+            folder={openFolder}
+            memberEntries={folderMembers(openFolder.id)}
+            itemsById={itemsById}
+            actionCtx={actionCtx}
+            editable={true}
+            onClose={() => setOpenFolderId(null)}
+            onRename={(name) => renameFolder(openFolder.id, name, immediateMutate)}
+            onDeleteFolder={() => {
+              if (!window.confirm(`Delete "${openFolder.name}"? Apps inside will move back to the main view.`)) return;
+              deleteFolder(openFolder.id, immediateMutate);
+              setOpenFolderId(null);
+            }}
+            onReorderWithin={(orderedEntries) => reorderWithinFolder(openFolder.id, orderedEntries, immediateMutate)}
+            onMoveOut={(entry, destId) => moveToFolder(entry, destId, immediateMutate)}
+            allFolders={folders}
+            onCreateFolder={(entry) => createFolderWithItem(entry, immediateMutate)}
+          />
+        )}
+      </>
+    );
+  }
 
   return (
     <>
