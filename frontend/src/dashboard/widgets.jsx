@@ -1,4 +1,5 @@
 import { useState, useEffect, lazy, Suspense } from 'react';
+import { createPortal } from 'react-dom';
 import { useMsal } from '@azure/msal-react';
 import {
   ArrowRight, ArrowUpRight, BookOpen, CheckSquare, ChevronRight, ListTodo, Package, ShieldCheck, Bell, Clock, StickyNote,
@@ -244,8 +245,18 @@ function LinksFolderTile({ link, color, onOpen }) {
 // horizontally-scrolling row instead of a wrapping grid (Aug 15 - "opening
 // the folder... it should open horizontally, and the popup should use 60%
 // of screen"), matching every other popup's width convention in this app.
+// Portaled straight to document.body (Aug 15, "when i click on the folder
+// present on dashboard, my screen starts flickering") - this modal was
+// mounted deep inside the widget's own DashCard, which scrolls its own
+// content (`overflow: auto`, see DashCard below); a `position: fixed`
+// overlay born that deep in a scrolling ancestor tree would render at the
+// wrong size/position for a frame before the browser settled it to the
+// real viewport, which is what read as a flicker/jump on open. Portaling
+// makes it a direct child of body, same as it should have been the whole
+// session - no other modal in this app is nested this deep, which is why
+// this is the only one that showed it.
 function LinksFolderAllModal({ title, links, itemType, onOpen, onClose }) {
-  return (
+  return createPortal((
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content" style={{ width: '60vw', maxWidth: '60vw' }} onClick={e => e.stopPropagation()}>
         <div className="modal-header">
@@ -267,7 +278,7 @@ function LinksFolderAllModal({ title, links, itemType, onOpen, onClose }) {
         </div>
       </div>
     </div>
-  );
+  ), document.body);
 }
 
 // Only a handful of tiles preview in the widget itself (Aug 14 - replaces
