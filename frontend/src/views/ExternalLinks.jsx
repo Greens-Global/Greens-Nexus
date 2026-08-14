@@ -164,10 +164,10 @@ export default function ExternalLinks() {
   // (beside its own header), since a user might want the big grid compact
   // but favorites still as a quick-glance pill row, or vice versa. Tile is
   // the only mode Customize/drag works in - list is read-only browsing, so
-  // switching to Customize forces tile view (see the `editing` effect below).
+  // switching to Customize forces tile view (see the `editing` effect
+  // further down, after `editing` itself is available from useLinkViews()).
   const [gridView, setGridView] = useState('tile');
   const [favView, setFavView] = useState('tile');
-  useEffect(() => { if (editing) setGridView('tile'); }, [editing]);
 
   // Company list for the filter/Add-Link dropdown, sourced from the same
   // curated People directory every other company/department picker in Nexus
@@ -259,6 +259,7 @@ export default function ExternalLinks() {
   useEffect(() => {
     if (saveError) { setBanner({ kind: 'err', text: saveError }); clearSaveError(); }
   }, [saveError, clearSaveError]);
+  useEffect(() => { if (editing) setGridView('tile'); }, [editing]);
 
   // Favorites can reference either a Company Link or a Personal Link (their
   // ids are both plain autoincrement ints on separate tables, hence the
