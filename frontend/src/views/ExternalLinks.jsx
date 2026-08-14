@@ -1232,18 +1232,22 @@ function PersonalStrip({ title, icon: Icon, iconColor, links, onOpen }) {
           // Links still have the single `category` string.
           const { fg, bg } = colorFor(l.categories ? primaryCategory(l) : l.category);
           return (
+            // Icon-only (Aug 15) - the name showed as a permanent label
+            // before; now it's just the native `title` tooltip on hover,
+            // same as every other icon-only control in this file, so the
+            // strip stays a compact quick-launch row instead of widening
+            // with every long app name.
             <button
-              key={l._uid || l.id} onClick={() => onOpen(l)} title={l.description || l.name}
+              key={l._uid || l.id} onClick={() => onOpen(l)} title={l.name}
               style={{
-                flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px 8px 8px',
-                borderRadius: 30, border: '1px solid var(--wk-line2)', background: 'var(--card)', cursor: 'pointer',
+                flexShrink: 0, width: 38, height: 38, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                borderRadius: '50%', border: '1px solid var(--wk-line2)', background: 'var(--card)', cursor: 'pointer',
                 transition: 'border-color .12s, transform .12s',
               }}
               onMouseEnter={e => { e.currentTarget.style.borderColor = fg; }}
               onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--wk-line2)'; }}
             >
               <LinkIcon url={l.url} iconKey={l.icon} size={26} iconSize={13} radius="50%" fg={fg} bg={bg} gradient={false} />
-              <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--ink)', whiteSpace: 'nowrap' }}>{l.name}</span>
             </button>
           );
         })}
@@ -1622,7 +1626,8 @@ function FolderModal({
 // component to just that tab's slice of the one shared layout document -
 // Company Links and Personal Links each get their own instance (Aug 14,
 // "add folders to personal links too"). extraAddTile is an optional extra
-// tile rendered before "New Folder" (Personal Links' "Add Link", which
+// tile rendered at the end, after every folder/item (Personal Links' "Add
+// Link", which
 // creates a brand-new PersonalLink row rather than organizing existing
 // ones - Company Links has no equivalent since new Company Links are only
 // ever added from Manage).
@@ -1856,6 +1861,9 @@ function LinksLayoutSection({ sourceType, layout, itemsById, actionCtx, mutate, 
   return (
     <>
       <AppGrid>
+        {/* First tile, not last (Aug 15) - "the new folder section is at
+            last, i want it at first so it is easy for user to understand." */}
+        {editable && <AddAppTile label="New Folder" onClick={createEmptyFolder} />}
         {folders.map((f) => (
           <FolderTile
             key={f.id} folder={f}
@@ -1893,7 +1901,6 @@ function LinksLayoutSection({ sourceType, layout, itemsById, actionCtx, mutate, 
           );
         })}
         {extraAddTile && <AddAppTile label={extraAddTile.label} onClick={extraAddTile.onClick} />}
-        {editable && <AddAppTile label="New Folder" onClick={createEmptyFolder} />}
       </AppGrid>
 
       {openFolder && (
