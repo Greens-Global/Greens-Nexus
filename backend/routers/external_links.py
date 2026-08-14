@@ -562,6 +562,8 @@ class PersonalLinkCreate(BaseModel):
     description: str = ""
     icon: str = "Link2"
     vault_cred_id: str = ""
+    department: str = ""
+    category: str = ""
 
 
 class PersonalLinkUpdate(BaseModel):
@@ -570,6 +572,8 @@ class PersonalLinkUpdate(BaseModel):
     description: Optional[str] = None
     icon: Optional[str] = None
     vault_cred_id: Optional[str] = None
+    department: Optional[str] = None
+    category: Optional[str] = None
 
 
 class PersonalReorderEntry(BaseModel):

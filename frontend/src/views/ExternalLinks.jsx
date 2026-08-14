@@ -152,6 +152,13 @@ export default function ExternalLinks() {
   const [category, setCategory] = useState('');
   const [q, setQ] = useState('');
 
+  // Personal Links' own filter bar (Aug 14) - separate state from the
+  // Company filters above so switching tabs doesn't clobber either one's
+  // in-progress search/filter.
+  const [pDepartment, setPDepartment] = useState('');
+  const [pCategory, setPCategory] = useState('');
+  const [pq, setPq] = useState('');
+
   // Company list for the filter/Add-Link dropdown, sourced from the same
   // curated People directory every other company/department picker in Nexus
   // uses (CLAUDE.md: never M365/GAL-derived) - NOT the HR module's own
@@ -343,10 +350,33 @@ export default function ExternalLinks() {
     external: new Map(filtered.map(l => [l.id, l])),
     personal: new Map(),
   }), [filtered]);
+  // Personal Links' own filter bar (Aug 14) - mirrors the Company filter
+  // logic above, minus the Company dropdown (Personal Links has no
+  // company-portfolio concept). Only narrows what's resolvable via
+  // personalItemsById (the same "quietly drops out of the grid/any folder"
+  // behavior filtered has for Company) - never touches the underlying
+  // personalLinks list or what seededPersonalMutate seeds from.
+  const personalFiltered = useMemo(() => {
+    const needle = pq.trim().toLowerCase();
+    return (personalLinks || []).filter(l => {
+      if (pDepartment && l.department !== pDepartment) return false;
+      if (pCategory && l.category !== pCategory) return false;
+      if (!needle) return true;
+      return [l.name, l.description, l.category, l.department].some(v => (v || '').toLowerCase().includes(needle));
+    });
+  }, [personalLinks, pDepartment, pCategory, pq]);
+  const personalCategoriesAvailable = useMemo(
+    () => [...new Set([...categoryNames, ...(personalLinks || []).map(l => l.category).filter(Boolean)])].sort(),
+    [categoryNames, personalLinks]
+  );
+  const personalDepartmentsAvailable = useMemo(
+    () => [...new Set([...departmentNames, ...(personalLinks || []).map(l => l.department).filter(Boolean)])].sort(),
+    [departmentNames, personalLinks]
+  );
   const personalItemsById = useMemo(() => ({
     external: new Map(),
-    personal: new Map((personalLinks || []).map(l => [l.id, l])),
-  }), [personalLinks]);
+    personal: new Map(personalFiltered.map(l => [l.id, l])),
+  }), [personalFiltered]);
 
   // A view (or Home) can easily have zero items for one of the two types -
   // e.g. every existing view was built before Personal folders existed, or
@@ -579,10 +609,13 @@ export default function ExternalLinks() {
     }
   };
 
-  const openAddPersonal = () => setPersonalModal({ mode: 'add', id: null, form: { name: '', url: '', description: '', icon: 'Link2', vault_cred_id: '' } });
+  const openAddPersonal = () => setPersonalModal({ mode: 'add', id: null, form: { name: '', url: '', description: '', icon: 'Link2', vault_cred_id: '', department: '', category: '' } });
   const openEditPersonal = (link) => setPersonalModal({
     mode: 'edit', id: link.id,
-    form: { name: link.name, url: link.url, description: link.description || '', icon: link.icon || 'Link2', vault_cred_id: link.vault_cred_id || '' },
+    form: {
+      name: link.name, url: link.url, description: link.description || '', icon: link.icon || 'Link2', vault_cred_id: link.vault_cred_id || '',
+      department: link.department || '', category: link.category || '',
+    },
   });
 
   const savePersonal = async () => {
@@ -753,13 +786,30 @@ export default function ExternalLinks() {
         </button>
       </div>
 
-      {section === 'personal' && (
+      {section === 'personal' && (<>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 20, alignItems: 'center' }}>
+          <div style={{ position: 'relative', flex: '1 1 260px', minWidth: 220 }}>
+            <Search size={15} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
+            <input
+              className="form-input" placeholder="Search your links..."
+              style={{ paddingLeft: 36 }} value={pq} onChange={e => setPq(e.target.value)}
+            />
+          </div>
+          <select className="form-select" style={{ width: 'auto', minWidth: 170 }} value={pDepartment} onChange={e => setPDepartment(e.target.value)}>
+            <option value="">All Departments</option>
+            {personalDepartmentsAvailable.map(d => <option key={d} value={d}>{d}</option>)}
+          </select>
+          <select className="form-select" style={{ width: 'auto', minWidth: 170 }} value={pCategory} onChange={e => setPCategory(e.target.value)}>
+            <option value="">All Categories</option>
+            {personalCategoriesAvailable.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+        </div>
         <PersonalLinksSection
           layout={layout} itemsById={personalItemsById} actionCtx={actionCtx}
           mutate={seededPersonalMutate} immediateMutate={seededPersonalMutateNow} allLinks={personalLinks || []}
           onAdd={openAddPersonal} editable={editing}
         />
-      )}
+      </>)}
 
       {section === 'company' && (<>
         {/* Personal shortcuts - client-local, not scoped by the filters below */}
@@ -852,7 +902,8 @@ export default function ExternalLinks() {
       )}
 
       {personalModal && (
-        <PersonalLinkModal modal={personalModal} setModal={setPersonalModal} save={savePersonal} saving={personalSaving} existingLinks={personalLinks || []} />
+        <PersonalLinkModal modal={personalModal} setModal={setPersonalModal} save={savePersonal} saving={personalSaving} existingLinks={personalLinks || []}
+          departments={departmentNames} categories={categoryNames} />
       )}
 
       {showVaultLockGate && (
@@ -927,7 +978,7 @@ function PersonalLinksSection({ layout, itemsById, actionCtx, mutate, immediateM
   );
 }
 
-function PersonalLinkModal({ modal, setModal, save, saving, existingLinks }) {
+function PersonalLinkModal({ modal, setModal, save, saving, existingLinks, departments, categories }) {
   const { mode, form } = modal;
   const setForm = (patch) => setModal(m => ({ ...m, form: { ...m.form, ...patch } }));
   const duplicate = useMemo(() => {
@@ -991,6 +1042,21 @@ function PersonalLinkModal({ modal, setModal, save, saving, existingLinks }) {
             </label>
             <textarea className="form-input" rows={2} value={form.description}
               onChange={e => setForm({ description: e.target.value })} placeholder="Optional note to yourself - or leave blank, we'll try to pull it from the site" />
+          </div>
+          <div className="form-grid" style={{ padding: 0 }}>
+            <div className="form-group">
+              <label>Category</label>
+              <input className="form-input" list="personal-link-categories" value={form.category}
+                onChange={e => setForm({ category: e.target.value })} placeholder="e.g. Productivity" />
+              <datalist id="personal-link-categories">{categories.map(c => <option key={c} value={c} />)}</datalist>
+            </div>
+            <div className="form-group">
+              <label>Department</label>
+              <select className="form-select" value={form.department} onChange={e => setForm({ department: e.target.value })}>
+                <option value="">None</option>
+                {departments.map(d => <option key={d} value={d}>{d}</option>)}
+              </select>
+            </div>
           </div>
           <div className="form-group">
             <label>Icon</label>

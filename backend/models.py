@@ -212,6 +212,15 @@ class PersonalLink(Base):
     # module (gated by the "credvault" grant) and can be deleted independently
     # - a dangling id here just means the copy-password step is skipped.
     vault_cred_id = Column(String, default="")
+    # department/category (Aug 14) - same free-text fields ExternalLink has,
+    # own filter bar on the Personal Links tab. Values come from the same
+    # admin-managed external_link_taxonomy picker Company Links uses (one
+    # shared vocabulary makes sense even though these rows are private), but
+    # nothing stops a personal free-text value either - not validated
+    # against the taxonomy table server-side, same posture as Category on
+    # ExternalLink.
+    department = Column(String, default="")
+    category = Column(String, default="")
 
 
 class AccountingTrx(Base):
