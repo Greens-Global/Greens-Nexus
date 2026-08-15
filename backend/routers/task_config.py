@@ -1106,6 +1106,20 @@ def asana_sync_pull(db: Session = Depends(get_db)):
         raise HTTPException(400, f"Asana pull failed - check the token. ({e})")
 
 
+@router.post("/asana-sync/pull-new", dependencies=[Depends(require_manager)])
+def asana_sync_pull_new(db: Session = Depends(get_db)):
+    """ADDITIVE pull ("pull what's not there, only"): create Nexus tasks for Asana
+    tasks that have no Nexus counterpart yet, and leave EVERY existing task 100%
+    untouched (no field/comment/attachment writes, no deletions). The recovery mode
+    for when Nexus holds edits Asana doesn't - it can never overwrite them."""
+    import asana_sync
+    from asana_import import ImportError_
+    try:
+        return asana_sync.pull(db, force_full=True, create_only=True)
+    except (ImportError_, ValueError, UnicodeError) as e:
+        raise HTTPException(400, f"Additive pull failed - check the token. ({e})")
+
+
 @router.post("/asana-sync/push-all", dependencies=[Depends(require_manager)])
 def asana_sync_push_all(db: Session = Depends(get_db)):
     import asana_sync

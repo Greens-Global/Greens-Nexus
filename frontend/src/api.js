@@ -441,6 +441,9 @@ export const api = {
   setAsanaSyncConfig: (data) => req("/asana-sync/config", { method: "PUT", body: JSON.stringify(data) }),
   setAsanaProjectMap: (data) => req("/asana-sync/projects", { method: "PUT", body: JSON.stringify(data) }),
   asanaSyncPull: () => req("/asana-sync/pull", { method: "POST", timeoutMs: 600000 }),
+  // Additive pull: create only the Asana tasks Nexus is missing; never touch an
+  // existing task. Safe when Nexus holds edits Asana doesn't.
+  asanaSyncPullNew: () => req("/asana-sync/pull-new", { method: "POST", timeoutMs: 600000 }),
   asanaSyncPushAll: () => req("/asana-sync/push-all", { method: "POST", timeoutMs: 600000 }),
   asanaSyncDedupe: (apply) => req(`/asana-sync/dedupe?apply=${apply ? "true" : "false"}`, { method: "POST", timeoutMs: 600000 }),
   // Why assignees are or are not reaching Asana - the one field that can fail

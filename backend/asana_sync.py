@@ -1968,11 +1968,17 @@ def _from_asana_html(at):
     return "".join(f"<p>{escape(line)}</p>" for line in notes.split("\n") if line.strip())
 
 
-def _apply_inbound(db, at, nexus_project_id, counts, parent_task_id="", email_map=None):
+def _apply_inbound(db, at, nexus_project_id, counts, parent_task_id="", email_map=None, create_only=False):
     """Apply one Asana task into Nexus (create or update). `parent_task_id` set
     means this is a subtask - matches asana_import.py's convention of an empty
     project_id on subtasks (their project is reached via the parent). Returns
-    the Nexus task id."""
+    the Nexus task id.
+
+    create_only=True is the ADDITIVE / "pull what's not there, only" mode: a task
+    that already exists in Nexus is left 100% untouched (used when Nexus holds edits
+    Asana doesn't have, so a normal field update would clobber them). Only tasks with
+    no Nexus counterpart yet are created; its id is still returned so subtask
+    recursion can create any MISSING children."""
     from routers.tasks import _next_code
     gid = at["gid"]
     assignee = _map_email((at.get("assignee") or {}).get("email"), email_map, db)
@@ -1996,6 +2002,11 @@ def _apply_inbound(db, at, nexus_project_id, counts, parent_task_id="", email_ma
         t = db.query(models.Task).filter(models.Task.id == link.nexus_task_id).first()
         if not t:
             return None
+        if create_only:
+            # Additive-only: the task already exists - do not touch a single field,
+            # hash, comment or attachment. Just hand back its id so subtasks recurse.
+            counts["skipped"] = counts.get("skipped", 0) + 1
+            return link.nexus_task_id
         # Recorded on EVERY pass, not only when the digest moved. A due time can
         # be added or changed in Asana without moving anything the digest covers
         # - due_on stays the same date - so gating this behind the digest would
@@ -3293,7 +3304,7 @@ def resolve_dependencies(db, deferred):
 
 
 def _pull_task_tree(db, asana, at, nexus_project_id, parent_task_id, counts, seen=None,
-                    email_map=None, deferred=None):
+                    email_map=None, deferred=None, create_only=False):
     """Apply one Asana task (and recursively its subtasks) into Nexus: fields,
     comments, attachments, dependencies. Depth-first so a child's parent link
     always exists before the child needs it (dependency/subtask resolution).
@@ -3312,31 +3323,35 @@ def _pull_task_tree(db, asana, at, nexus_project_id, parent_task_id, counts, see
     if gid in seen:
         return
     seen.add(gid)
+    # Was this task already in Nexus BEFORE this apply? (create_only leaves it alone.)
+    was_existing = create_only and (_link_by_asana(db, gid) is not None)
     nexus_task_id = _apply_inbound(db, at, nexus_project_id, counts,
-                                   parent_task_id=parent_task_id, email_map=email_map)
+                                   parent_task_id=parent_task_id, email_map=email_map,
+                                   create_only=create_only)
     if not nexus_task_id:
         return
-    # Attachments BEFORE stories, and the order is load-bearing: a comment with a
-    # pasted image is repointed at the attachment Nexus already downloaded, so
-    # that attachment has to exist by the time the comment is written. Pulling
-    # stories first left every inline image pointing at Asana - which is what
-    # rendered as a broken glyph and a bare "image.png".
-    _pull_attachments(db, asana, gid, nexus_task_id, counts, email_map)
-    _pull_stories(db, asana, gid, nexus_task_id, counts)
-    _repair_description_images(db, asana, gid, nexus_task_id)
-    _sync_task_dependencies(db, at, nexus_task_id)
-    if deferred is not None:
-        # Re-resolved at the end of the run by resolve_dependencies, when every
-        # task in this walk is linked - the inline call above can only see
-        # blockers visited before this task.
-        deferred.append((at, nexus_task_id))
+    # In create_only mode a pre-existing task is untouched - skip every sub-pull that
+    # would WRITE to it (attachments/stories/description/dependencies). We still walk
+    # its subtasks below so any MISSING child gets created. Attachments BEFORE stories
+    # (load-bearing): a pasted-image comment is repointed at the attachment Nexus
+    # already downloaded, so that attachment must exist before the comment is written.
+    if not was_existing:
+        _pull_attachments(db, asana, gid, nexus_task_id, counts, email_map)
+        _pull_stories(db, asana, gid, nexus_task_id, counts)
+        _repair_description_images(db, asana, gid, nexus_task_id)
+        _sync_task_dependencies(db, at, nexus_task_id)
+        if deferred is not None:
+            # Re-resolved at the end of the run by resolve_dependencies, when every
+            # task in this walk is linked - the inline call above can only see
+            # blockers visited before this task.
+            deferred.append((at, nexus_task_id))
     try:
         subtasks = asana.get(f"/tasks/{gid}/subtasks", opt_fields=_TASK_OPT_FIELDS)
     except Exception:
         subtasks = []
     for sub in subtasks:
         _pull_task_tree(db, asana, sub, nexus_project_id, nexus_task_id, counts, seen,
-                        email_map, deferred)
+                        email_map, deferred, create_only=create_only)
 
 
 def _asana_task_gone(cfg, gid):
@@ -3435,10 +3450,16 @@ def _pull_window(pm, now):
     return (cursor - timedelta(seconds=_PULL_OVERLAP_SEC)).isoformat(), False
 
 
-def pull(db, force_full=False):
+def pull(db, force_full=False, create_only=False):
     """Poll every mapped Asana project and apply changes into Nexus: tasks
     (subtasks included), comments, attachments, dependencies, status/priority
     custom fields, and project access.
+
+    create_only=True runs an ADDITIVE pull: only tasks with no Nexus counterpart yet
+    are created; every task that already exists is left completely untouched. This is
+    the "pull what's not there, only" recovery mode for when Nexus holds edits Asana
+    doesn't have and a normal update would overwrite them. Implies a full listing (it
+    must see every Asana task to know which are missing).
 
     Incremental by default: each project carries a modified_since cursor, so a
     routine poll asks Asana only for what changed rather than re-listing every
@@ -3481,7 +3502,8 @@ def pull(db, force_full=False):
                 db, cfg, pm.asana_project_gid, pm.nexus_project_id)
             counts["statuses"] = counts.get("statuses", 0) + seed_project_statuses(
                 db, cfg, pm.asana_project_gid, pm.nexus_project_id)
-            since, is_full = ("", True) if force_full else _pull_window(pm, started)
+            # create_only must see the WHOLE project to know which tasks are missing.
+            since, is_full = ("", True) if (force_full or create_only) else _pull_window(pm, started)
             # Raises on an Asana failure, which aborts the whole pull - so
             # _reap_deleted below only ever runs against a task list we know
             # came back complete. A half-fetched project must never be read as
@@ -3493,17 +3515,24 @@ def pull(db, force_full=False):
                                  opt_fields=_TASK_OPT_FIELDS)
                 counts["scanned"] = counts.get("scanned", 0) + len(rows)
             for at in rows:
-                _pull_task_tree(db, asana, at, pm.nexus_project_id, "", counts, seen, None, deferred)
+                _pull_task_tree(db, asana, at, pm.nexus_project_id, "", counts, seen, None, deferred,
+                                create_only=create_only)
             # Reaping needs the COMPLETE list: on an incremental run `seen` holds
             # only what changed, so everything else would look deleted.
             if is_full:
-                _reap_deleted(db, cfg, pm.nexus_project_id, seen, counts)
+                # NEVER reap in create_only mode - deleting is the opposite of additive.
+                if not create_only:
+                    _reap_deleted(db, cfg, pm.nexus_project_id, seen, counts)
                 _sync_project_access(db, asana, cfg, pm.asana_project_gid, pm.nexus_project_id,
                                      pm.extra_team_names, report=team_report)
-                pm.last_full_pull_at = started.isoformat()
+                if not create_only:
+                    pm.last_full_pull_at = started.isoformat()
             # Stamped from when the fetch STARTED, not when it finished - an edit
             # made mid-pull must fall inside the next window, not be skipped.
-            pm.last_pull_at = started.isoformat()
+            # In create_only mode leave the cursor alone: this is a one-off recovery,
+            # and a later normal pull must still re-cover this window fully.
+            if not create_only:
+                pm.last_pull_at = started.isoformat()
             if team_report:
                 proj_row = db.query(models.TaskProject).filter(
                     models.TaskProject.id == pm.nexus_project_id).first()
