@@ -388,7 +388,9 @@ function AsanaSyncPanel({ store }) {
                 : await api.asanaSyncPushAll();
       await store.refresh?.();
       setMsg(which === 'pull-new'
-        ? `Added missing tasks only: +${res.created} created (${res.skipped || 0} existing tasks left untouched). Nothing was overwritten.`
+        ? (res.started
+            ? 'Pull started - running in the background. It only adds tasks Asana has that Nexus is missing, and never changes existing ones. New tasks appear as each project finishes; a full workspace takes a few minutes.'
+            : `Added missing tasks only: +${res.created} created (${res.skipped || 0} existing tasks left untouched). Nothing was overwritten.`)
         : which === 'pull'
         ? `Pulled from Asana: +${res.created} created, ${res.updated} updated, +${res.comments || 0} comments${res.deleted ? `, ${res.deleted} deleted` : ''}.`
         : `Pushed ${res.pushed} task(s) to Asana`

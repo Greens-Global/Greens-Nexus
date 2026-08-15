@@ -1111,13 +1111,36 @@ def asana_sync_pull_new(db: Session = Depends(get_db)):
     """ADDITIVE pull ("pull what's not there, only"): create Nexus tasks for Asana
     tasks that have no Nexus counterpart yet, and leave EVERY existing task 100%
     untouched (no field/comment/attachment writes, no deletions). The recovery mode
-    for when Nexus holds edits Asana doesn't - it can never overwrite them."""
+    for when Nexus holds edits Asana doesn't - it can never overwrite them.
+
+    Runs in a BACKGROUND thread and returns immediately. A full-workspace create-
+    only pass walks every mapped project and takes minutes, which no request can
+    survive - Cloudflare cuts the response at 100s (524) and gunicorn SIGKILLs the
+    worker at 120s. The synchronous version died there having created nothing.
+    asana_sync.pull commits PER PROJECT (see its checkpoint comment), so the
+    background run makes durable progress and re-running is idempotent: a task
+    created on an earlier pass now has a link and is skipped. Outbound push stays
+    gated by NEXUS_ASANA_PUSH_DISABLED, so this can never write to Asana."""
     import asana_sync
-    from asana_import import ImportError_
-    try:
-        return asana_sync.pull(db, force_full=True, create_only=True)
-    except (ImportError_, ValueError, UnicodeError) as e:
-        raise HTTPException(400, f"Additive pull failed - check the token. ({e})")
+    cfg = asana_sync.get_config(db)
+    if not cfg.token:
+        raise HTTPException(400, "Save an Asana token first.")
+    if not (cfg.workspace_gid or "").strip():
+        raise HTTPException(400, "Pick your Asana workspace first (Find my workspace).")
+
+    def _run_pull_new():
+        s = SessionLocal()
+        try:
+            res = asana_sync.pull(s, force_full=True, create_only=True)
+            print(f"[pull-new] done: +{res.get('created', 0)} created, "
+                  f"{res.get('skipped', 0)} existing skipped")
+        except Exception as e:  # no request to return to - land it in the log
+            print(f"[pull-new] failed: {e}")
+        finally:
+            s.close()
+
+    threading.Thread(target=_run_pull_new, daemon=True).start()
+    return {"started": True}
 
 
 @router.post("/asana-sync/push-all", dependencies=[Depends(require_manager)])
