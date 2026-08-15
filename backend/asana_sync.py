@@ -3470,7 +3470,11 @@ def pull(db, force_full=False, create_only=False):
     `force_full` is for the manual Pull button, where the operator is asking for
     a reconcile and expects deletions and drift to be picked up now."""
     cfg = get_config(db)
-    if not sync_is_on(cfg) or not cfg.token:
+    # The additive create_only pull can't overwrite anything, so it's allowed even
+    # while auto-sync is OFF - which is exactly when it's needed (recovery mode, the
+    # dangerous normal auto-pull deliberately disabled). A normal pull still requires
+    # sync to be on.
+    if not cfg.token or (not create_only and not sync_is_on(cfg)):
         raise ImportError_("Sync is not enabled or has no token.")
     with _PULL_LOCK:
         refresh_directory_cache()   # people added since the last run resolve too
