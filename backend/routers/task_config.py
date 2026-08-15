@@ -1122,11 +1122,31 @@ def asana_sync_pull_new(db: Session = Depends(get_db)):
     created on an earlier pass now has a link and is skipped. Outbound push stays
     gated by NEXUS_ASANA_PUSH_DISABLED, so this can never write to Asana."""
     import asana_sync
+    from routers.task_util import now_iso
     cfg = asana_sync.get_config(db)
     if not cfg.token:
         raise HTTPException(400, "Save an Asana token first.")
     if not (cfg.workspace_gid or "").strip():
         raise HTTPException(400, "Pick your Asana workspace first (Find my workspace).")
+
+    # One-at-a-time guard. A full-workspace create-only pass takes minutes; a second
+    # concurrent run doesn't finish faster - it just contends with the first on the
+    # per-project advisory lock and both crawl (this bit us Aug 15, when repeated
+    # clicks stacked overlapping pulls that froze at +3 for 12 minutes). pull_running_at
+    # is stamped here and cleared when the run ends; a recent value means a pull is
+    # already in flight, so we refuse rather than stack another. A stale value (crashed
+    # run / killed worker) self-heals after the window so the button never wedges.
+    _PULL_STALE_SECS = 20 * 60
+    running = (cfg.pull_running_at or "").strip()
+    if running:
+        try:
+            age = (datetime.now(timezone.utc) - datetime.fromisoformat(running)).total_seconds()
+        except ValueError:
+            age = _PULL_STALE_SECS + 1   # unparseable -> treat as a dead run
+        if age < _PULL_STALE_SECS:
+            return {"started": False, "alreadyRunning": True}
+    cfg.pull_running_at = now_iso()
+    db.commit()
 
     def _run_pull_new():
         s = SessionLocal()
@@ -1137,6 +1157,13 @@ def asana_sync_pull_new(db: Session = Depends(get_db)):
         except Exception as e:  # no request to return to - land it in the log
             print(f"[pull-new] failed: {e}")
         finally:
+            # Always release the guard, or the next click is blocked until it goes stale.
+            try:
+                c = asana_sync.get_config(s)
+                c.pull_running_at = ""
+                s.commit()
+            except Exception as e2:
+                print(f"[pull-new] guard-clear failed: {e2}")
             s.close()
 
     threading.Thread(target=_run_pull_new, daemon=True).start()

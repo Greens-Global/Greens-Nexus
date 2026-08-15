@@ -2490,6 +2490,12 @@ class AsanaSyncConfig(Base):
     # for an existing install until someone opts into the manual-mapping card.
     manual_sync_enabled = Column(Boolean, default=False)
     manual_delete_sync  = Column(Boolean, default=False)
+    # Set to an ISO timestamp while an additive "Pull new only" run is in flight,
+    # cleared when it finishes. The pull-new endpoint refuses to start a second run
+    # while this is set and recent, so rapid re-clicks can't stack overlapping pulls
+    # that contend on the per-project lock and crawl (Aug 15). Self-heals: a value
+    # older than the staleness window is treated as a dead run and a new pull starts.
+    pull_running_at     = Column(String, default="")
 
 
 class AsanaProjectMap(Base):
