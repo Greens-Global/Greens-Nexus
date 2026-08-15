@@ -351,6 +351,7 @@ def _run_migrations():
             # asana_sync.sync_is_on()/delete_sync_is_on().
             "ALTER TABLE asana_sync_config ADD COLUMN manual_sync_enabled BOOLEAN DEFAULT 0",
             "ALTER TABLE asana_sync_config ADD COLUMN manual_delete_sync BOOLEAN DEFAULT 0",
+            "ALTER TABLE asana_sync_config ADD COLUMN pull_running_at VARCHAR DEFAULT ''",
             # The exact rendered body from the original send, reused verbatim on
             # retry instead of re-rendering (which had no comment text to work
             # from for commented/mentioned and could drift from task edits made
@@ -861,6 +862,7 @@ def _run_migrations():
         # asana_sync.sync_is_on()/delete_sync_is_on().
         "ALTER TABLE asana_sync_config ADD COLUMN IF NOT EXISTS manual_sync_enabled BOOLEAN DEFAULT FALSE",
         "ALTER TABLE asana_sync_config ADD COLUMN IF NOT EXISTS manual_delete_sync BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE asana_sync_config ADD COLUMN IF NOT EXISTS pull_running_at VARCHAR DEFAULT ''",
         # The exact rendered body from the original send, reused verbatim on
         # retry instead of re-rendering. See TaskEmailLog.html.
         "ALTER TABLE task_email_log ADD COLUMN IF NOT EXISTS html VARCHAR DEFAULT ''",
