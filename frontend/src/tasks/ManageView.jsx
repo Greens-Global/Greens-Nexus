@@ -383,9 +383,13 @@ function AsanaSyncPanel({ store }) {
     if (which === 'push' && !confirmPush()) return;
     setErr(''); setMsg(''); setBusy(which);
     try {
-      const res = which === 'pull' ? await api.asanaSyncPull() : await api.asanaSyncPushAll();
+      const res = which === 'pull' ? await api.asanaSyncPull()
+                : which === 'pull-new' ? await api.asanaSyncPullNew()
+                : await api.asanaSyncPushAll();
       await store.refresh?.();
-      setMsg(which === 'pull'
+      setMsg(which === 'pull-new'
+        ? `Added missing tasks only: +${res.created} created (${res.skipped || 0} existing tasks left untouched). Nothing was overwritten.`
+        : which === 'pull'
         ? `Pulled from Asana: +${res.created} created, ${res.updated} updated, +${res.comments || 0} comments${res.deleted ? `, ${res.deleted} deleted` : ''}.`
         : `Pushed ${res.pushed} task(s) to Asana`
           + (res.deleted ? `, deleted ${res.deleted} there` : '')
@@ -393,7 +397,7 @@ function AsanaSyncPanel({ store }) {
       // Team access resolves through several steps that all fail quietly on the
       // Asana side; the pull now reports each outcome by name so a team that
       // didn't come across says why instead of just not appearing.
-      setTeamReport(which === 'pull' ? (res.teams || []) : []);
+      setTeamReport((which === 'pull' || which === 'pull-new') ? (res.teams || []) : []);
       load();
     } catch (e) { setErr(e.message || String(e)); } finally { setBusy(''); }
   };
@@ -750,6 +754,7 @@ function AsanaSyncPanel({ store }) {
           <button onClick={clearMap} disabled={!!busy} style={{ ...btn('ghost'), color: NX.red }}>{busy === 'clearmap' ? 'Clearing…' : 'Clear Mapping'}</button>
           <button onClick={() => run('push')} disabled={!!busy} style={btn('outline')}><ArrowRightLeft size={14} />{busy === 'push' ? 'Pushing…' : 'Push all → Asana'}</button>
           <button onClick={() => run('pull')} disabled={!!busy} style={btn('primary')}><Download size={14} />{busy === 'pull' ? 'Pulling…' : 'Pull ← Asana'}</button>
+          <button onClick={() => run('pull-new')} disabled={!!busy} style={btn('outline')} title="Create only the Asana tasks Nexus is missing - never changes an existing task"><Download size={14} />{busy === 'pull-new' ? 'Adding…' : 'Pull new only'}</button>
           {cfg.lastPullAt && <span style={{ fontSize: 11.5, color: NX.faint }}>last pull {fmtDateTime(cfg.lastPullAt)}</span>}
         </div>
 
