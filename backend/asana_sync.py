@@ -84,6 +84,16 @@ def is_sync_worker():
         return True
     return bool(os.getenv("WEBSITE_SITE_NAME"))   # set by Azure App Service
 
+
+def _push_disabled():
+    """Master kill switch for ALL Nexus -> Asana OUTBOUND traffic: the 10-min push
+    sweep, the fire-and-forget push on every task edit, manual Push-all, and the
+    queued-delete drain. Set NEXUS_ASANA_PUSH_DISABLED=true to make Nexus a
+    PULL-ONLY mirror - used when Asana is the live source of truth and must never be
+    overwritten by Nexus. INBOUND (webhooks + the auto-pull) is unaffected, so tasks
+    still flow Asana -> Nexus normally."""
+    return os.getenv("NEXUS_ASANA_PUSH_DISABLED", "").lower() in ("1", "true", "yes")
+
 # email -> Asana user gid, cached per (token, workspace) for a few minutes so
 # assignee resolution doesn't refetch the workspace roster on every push.
 _USER_CACHE = {}
@@ -1136,6 +1146,8 @@ def push_task(db, task, actor_email: str = ""):
     and guessing one - from the newest activity row, say - would credit the wrong
     person whenever several people edited between sweeps. An honest service
     account beats a confident wrong name, so no actor means the shared token."""
+    if _push_disabled():
+        return None
     cfg = get_config(db)
     if not sync_is_on(cfg) or not cfg.token:
         return None
@@ -1326,7 +1338,7 @@ def on_task_changed(task_id, actor_email: str = ""):
     `actor_email` is the signed-in user who made the edit. It is known here and
     was previously dropped at this boundary, which is why every field change
     reached Asana under the shared sync account."""
-    if not is_sync_worker():
+    if _push_disabled() or not is_sync_worker():
         return
     def _run():
         db = SessionLocal()
@@ -1355,6 +1367,8 @@ def push_task_deleted(db, asana_gid):
     Returns (done, error). `done` means the Asana task is not there any more -
     which includes a 404, since a task someone already deleted by hand is the
     outcome we wanted and must not be retried forever."""
+    if _push_disabled():
+        return False, "push disabled"
     cfg = get_config(db)
     if not (sync_is_on(cfg) and cfg.token and delete_sync_is_on(cfg) and asana_gid):
         return False, "sync disabled"
@@ -1390,6 +1404,8 @@ def drain_pending_deletes(db):
     This is the manual path a laptop needs: on localhost the fire-and-forget
     push never runs (is_sync_worker is false), so without draining here a
     deletion made locally could never reach Asana by any means."""
+    if _push_disabled():
+        return {"deleted": 0, "pending": 0}
     cfg = get_config(db)
     rows = db.query(models.AsanaPendingDelete).all()
     if not rows:
@@ -1463,6 +1479,8 @@ def push_all(db):
     closes that gap the same way push_task already covers task edits made
     while sync was off - a comment just sits unsynced (no AsanaCommentLink)
     until the next push_all catches it up."""
+    if _push_disabled():
+        return {"pushed": 0, "deleted": 0, "pendingDeletes": 0}
     cfg = get_config(db)
     if not sync_is_on(cfg) or not cfg.token:
         raise ImportError_("Sync is not enabled or has no token.")
@@ -4003,7 +4021,10 @@ def start_auto_pull():
     # Distinct gate keys (separate from pull()'s internal _ASANA_PULL_LOCK_KEY) so a
     # worker running the pull sweep never blocks a different worker's push sweep.
     _every(_AUTO_PULL_INTERVAL_MIN, pull, _ASANA_PULL_LOCK_KEY + 1)
-    _every(_AUTO_PUSH_INTERVAL_MIN, push_all, _ASANA_PULL_LOCK_KEY + 2)
+    # Skip the outbound sweep entirely when push is killed (pull-only mode); push_all
+    # also self-guards, this just avoids the needless 10-min lock churn.
+    if not _push_disabled():
+        _every(_AUTO_PUSH_INTERVAL_MIN, push_all, _ASANA_PULL_LOCK_KEY + 2)
 
 
 def trigger_pull_async():
