@@ -248,21 +248,42 @@ _EXTERNAL_BASE_PREFIXES = (
     "/version", "/health",
 )
 
-# Module grant -> the API prefixes that grant opens for an EXTERNAL user. A
-# module absent from this map stays closed to externals even if a group grants
-# it - opening a new module to externals is a deliberate act: add its paths
-# here after checking what data those endpoints expose org-wide.
-EXTERNAL_MODULE_PREFIXES = {
-    "tasks":          ("/task",),          # /tasks, /task-tickets, /task-projects, /task-* family
-    "tickets":        ("/task",),
-    "documents":      ("/documents",),
-    "sop":            ("/knowledge-base", "/sop-updates", "/lms-"),
-    "external-links": ("/external-links", "/link-layout"),
+# Module id -> the API prefixes that module's grant opens for an EXTERNAL
+# user. Covers the FULL module catalog (RoleContext.jsx MODULES): externals are
+# granted access through the normal Roles & Access machinery - job roles and
+# groups, same as any employee (Visesh, Aug 18) - and whatever their grants
+# resolve to is what opens here. Every endpoint's own grant/level gate still
+# applies on top, exactly as it does for employees; this path gate only keeps
+# an external OUT of API surface none of their grants cover (fail-closed: no
+# grants = app shell only). A module with no API surface maps to ().
+MODULE_API_PREFIXES = {
+    "dashboard":          ("/dashboards", "/dashboard"),
+    "timeclock":          ("/timeclock",),
+    "employee-tracking":  ("/timeclock",),   # its endpoints self-gate on the tracking grant
+    "myhr":               ("/myhr",),
+    "manager-dashboard":  ("/dashboard",),
+    "tasks":              ("/task",),        # /tasks, /task-tickets, /task-projects, /task-* family
+    "tickets":            ("/task",),
+    "support":            ("/task",),        # Support raises/reads the caller's own tickets
+    "sop":                ("/knowledge-base", "/sop-updates", "/lms-"),
+    "it":                 ("/unifi",),
+    "ops":                ("/construction",),
+    "operations":         ("/ops-projects", "/dev-projects"),
+    "development":        ("/ops-projects", "/dev-projects"),
+    "property-asset":     ("/property-assets",),
+    "accounting":         ("/accounting",),
+    "investor-relations": ("/investor-relations",),
+    "hr":                 ("/hr",),
+    "hr_comp":            ("/hr",),          # compensation reveal self-gates on the hr_comp grant
+    "documents":          ("/documents", "/esign"),
+    "marketing":          ("/marketing-campaigns",),
+    "external-links":     ("/external-links", "/link-layout"),
+    "inventory":          ("/items",),
+    "admin":              (),                # administrator-only; externals are capped at employee
+    "testing":            ("/qa",),
+    "credvault":          ("/credvault",),
+    "egnyte":             ("/egnyte",),
 }
-
-# The only modules an admin may grant to an external user at all (validated by
-# routers/external_users.py). Everything else is internal-only by design.
-EXTERNAL_SAFE_MODULES = tuple(EXTERNAL_MODULE_PREFIXES.keys())
 
 
 def apply_external_policy(request: Request, user: dict) -> dict:
@@ -317,7 +338,7 @@ def apply_external_policy(request: Request, user: dict) -> dict:
     allowed = any(
         path.startswith(prefix)
         for module_id in grants
-        for prefix in EXTERNAL_MODULE_PREFIXES.get(module_id, ())
+        for prefix in MODULE_API_PREFIXES.get(module_id, ())
     )
     if not allowed:
         raise HTTPException(status_code=403, detail="External accounts don't have access to this area.")

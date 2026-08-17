@@ -712,12 +712,12 @@ export const api = {
   removeGroupMember: (id, email)         => req(`/groups/${id}/members/${encodeURIComponent(email)}`, { method: 'DELETE' }),
   assignGroupRole:   (id, role, by)      => req(`/groups/${id}/assign-role`, { method: 'POST', body: JSON.stringify({ role, assigned_by: by }) }),
 
-  // External Users (Entra B2B guest allowlist - Roles & Access panel, Aug 17)
+  // External Users (Entra B2B guest allowlist - Roles & Access People tab, Aug 18)
   getExternalUsers:     ()            => req('/external-users'),
-  getExternalUsersMeta: ()            => req('/external-users/meta'),
   createExternalUser:   (data)        => req('/external-users', { method: 'POST', body: JSON.stringify(data) }),
   updateExternalUser:   (email, data) => req(`/external-users/${encodeURIComponent(email)}`, { method: 'PATCH', body: JSON.stringify(data) }),
   resendExternalInvite: (email)       => req(`/external-users/${encodeURIComponent(email)}/invite`, { method: 'POST' }),
+  removeExternalUser:   (email)       => req(`/external-users/${encodeURIComponent(email)}`, { method: 'DELETE' }),
 
   // Job Roles (Roles & Access redesign) - a job role is a group template with a tier
   getJobRoles:       ()                  => req('/jobroles'),

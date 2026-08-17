@@ -1,21 +1,35 @@
 """External users (Entra B2B guests) - admin CRUD behind the Roles & Access
-"External Users" panel (Aug 17).
+People tab (Aug 18 rework, Visesh: "external users should be in the people tab
+... and they can have access to anything so this has to go through roles and
+access just like any normal employee").
 
 The allowlist model: a guest invited into the Entra tenant can sign in to
 Microsoft, but Nexus only accepts them if an ACTIVE identity_type='guest' row
 exists in nexus_employees for their invited email (enforced centrally in
-auth.apply_external_policy - default-deny). This router manages those rows:
+auth.apply_external_policy - default-deny). This router manages those rows and
+the Microsoft invitation email; it does NOT manage their access. Access is
+assigned through the normal Roles & Access machinery (job roles / groups),
+exactly like an employee - any module is grantable, and the API surface each
+grant opens for an external is auth.MODULE_API_PREFIXES. With no grants they
+are fail-closed to the app shell only.
 
-- list / enroll / deactivate / reactivate / edit an external user
-- their module access flows through the normal Access Group machinery: the
-  router keeps one auto-managed "External - ..." group per distinct grant set
-  (never a per-person group), so the Groups tab stays readable and auditable.
-- grantable modules are restricted to auth.EXTERNAL_SAFE_MODULES; the API
-  surface each grant opens for an external is auth.EXTERNAL_MODULE_PREFIXES.
+Rails that stay regardless of grants: excluded from /myhr/directory (people
+pickers), hard-capped at employee level (never manager broadcasts), and
+tasks/tickets stay participation-scoped at item level.
 
-External rows are EXCLUDED from /myhr/directory (people pickers) and can never
-hold a role above employee (auth caps them), so they never receive
-manager-broadcast notifications and never pollute org-wide people lists.
+Inviting: enrolling a person ALSO sends the Entra B2B invitation via Microsoft
+Graph, through the SAME app-only credentials the rest of the backend uses
+(graph_mail.py - one token fetch, never a second Graph client). Needs the
+User.Invite.All APPLICATION permission with admin consent; without it Graph
+returns 403 and we degrade gracefully (row still created, status 'failed',
+panel says exactly what to fix). These endpoints are sync `def`s, so FastAPI
+runs them on a threadpool worker - the outbound Graph call never sits on the
+async event loop.
+
+Deactivate (status='inactive') is reversible and keeps the record. Remove is
+permanent: it hard-deletes the person row plus their memberships/scopes, and
+they would have to be re-invited from scratch. Neither touches the Entra guest
+account - deleting that is optional manual cleanup.
 """
 import uuid
 from datetime import datetime, timezone
@@ -29,124 +43,20 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from auth import (require_administrator, invalidate_external_cache,
-                  invalidate_role_cache, INTERNAL_DOMAINS, EXTERNAL_SAFE_MODULES)
-from models import NexusEmployee, NexusGroup, NexusGroupMember
-from routers.groups import _parse_modules
+                  invalidate_role_cache, INTERNAL_DOMAINS)
+from models import NexusEmployee, NexusGroupMember, NexusRole, NexusAccessScope
 import cache
 
 router = APIRouter(prefix="/external-users", tags=["External Users"])
 
 _EXTERNAL_TYPES = ("guest", "external")
-_GROUP_PREFIX = "External - "
-
-# What a new external user gets when the admin doesn't pick modules explicitly
-# (Neil's partner-collaboration case): work the tasks/tickets they participate
-# in, nothing else. Task/ticket data is participation-scoped for externals
-# (task_util visibility + tickets never grant the desk queue). Documents is
-# deliberately NOT in the default: the Documents module is org-visible for any
-# grant holder (documents._visible), so granting it shows an external EVERY
-# shared company document - grant it only as a deliberate choice until
-# per-external scoping lands there.
-_DEFAULT_MODULES = [{"id": "tasks", "level": "editor"},
-                    {"id": "tickets", "level": "editor"}]
-
-_LEVELS = ("viewer", "editor")   # externals never get full/owner (delete/manage)
-
-_MODULE_LABELS = {"tasks": "Tasks", "tickets": "Tickets", "documents": "Documents",
-                  "sop": "Knowledge Base", "external-links": "External Links"}
 
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _clean_modules(modules) -> list[dict]:
-    """Validate a grant list against the external-safe set. Raises 400 on
-    anything outside it - an admin must never be able to open an internal-only
-    module to an external through this endpoint."""
-    out, seen = [], set()
-    for m in modules or []:
-        mid = (m.get("id") or "").strip().lower()
-        level = (m.get("level") or "viewer").strip().lower()
-        if not mid or mid in seen:
-            continue
-        if mid not in EXTERNAL_SAFE_MODULES:
-            raise HTTPException(400, f"Module '{mid}' cannot be granted to external users")
-        if level not in _LEVELS:
-            raise HTTPException(400, f"Level must be one of {_LEVELS} for external users")
-        seen.add(mid)
-        out.append({"id": mid, "level": level})
-    return sorted(out, key=lambda g: g["id"])
-
-
-def _modules_csv(modules: list[dict]) -> str:
-    return ",".join(f"{g['id']}:{g['level']}" for g in modules)
-
-
-def _group_name(modules: list[dict]) -> str:
-    if not modules:
-        return _GROUP_PREFIX + "No Access"
-    return _GROUP_PREFIX + " + ".join(
-        f"{_MODULE_LABELS.get(g['id'], g['id'])} ({g['level'].capitalize()})" for g in modules)
-
-
-def _ensure_group(db: Session, modules: list[dict], admin_email: str) -> NexusGroup | None:
-    """Find or create the auto-managed 'External - ...' group carrying exactly
-    this grant set. One group per distinct set - the 7-9 partner users who share
-    a set share a group."""
-    if not modules:
-        return None
-    csv = _modules_csv(modules)
-    grp = (db.query(NexusGroup)
-           .filter(NexusGroup.name.like(_GROUP_PREFIX + "%"),
-                   NexusGroup.allowed_modules == csv).first())
-    if grp:
-        return grp
-    grp = NexusGroup(
-        id=f"EXTGRP{uuid.uuid4().hex[:12].upper()}",
-        name=_group_name(modules),
-        department="",
-        allowed_modules=csv,
-        created_by=admin_email,
-        created_at=_now(),
-    )
-    db.add(grp)
-    db.flush()   # autoflush=False - make the row visible to this transaction
-    return grp
-
-
-def _set_membership(db: Session, email: str, modules: list[dict], admin_email: str) -> None:
-    """Point this external's membership at the right 'External - ...' group,
-    removing them from any other auto-managed external group first. Manually
-    added (non 'External - ') groups are left alone - admins may still layer
-    extra groups through the normal Groups tab if they choose."""
-    ext_group_ids = [g.id for g in db.query(NexusGroup)
-                     .filter(NexusGroup.name.like(_GROUP_PREFIX + "%")).all()]
-    if ext_group_ids:
-        (db.query(NexusGroupMember)
-         .filter(NexusGroupMember.email == email,
-                 NexusGroupMember.group_id.in_(ext_group_ids))
-         .delete(synchronize_session=False))
-    grp = _ensure_group(db, modules, admin_email)
-    if grp:
-        db.add(NexusGroupMember(group_id=grp.id, email=email,
-                                added_by=admin_email, added_at=_now()))
-
-
-def _modules_for(db: Session, email: str) -> list[dict]:
-    rows = (db.query(NexusGroup.allowed_modules)
-            .join(NexusGroupMember, NexusGroupMember.group_id == NexusGroup.id)
-            .filter(NexusGroupMember.email == email).all())
-    best: dict[str, str] = {}
-    rank = {"viewer": 1, "editor": 2, "full": 3, "owner": 4}
-    for (csv,) in rows:
-        for g in _parse_modules(csv or ""):
-            if rank.get(g["level"], 1) > rank.get(best.get(g["id"], ""), 0):
-                best[g["id"]] = g["level"]
-    return [{"id": mid, "level": lvl} for mid, lvl in sorted(best.items())]
-
-
-def _serialize(db: Session, e: NexusEmployee) -> dict:
+def _serialize(e: NexusEmployee) -> dict:
     email = (e.work_email or "").lower()
     return {
         "id": e.id,
@@ -161,7 +71,6 @@ def _serialize(db: Session, e: NexusEmployee) -> dict:
         "inviteStatus": getattr(e, "invite_status", "") or "",
         "expiresAt": getattr(e, "expires_at", "") or "",
         "createdAt": e.created_at or "",
-        "modules": _modules_for(db, email),
     }
 
 
@@ -172,19 +81,7 @@ def _invalidate(email: str) -> None:
     cache.people_directory.invalidate()
 
 
-# ── Entra B2B invitation via Microsoft Graph (Aug 18) ────────────────────────
-# Visesh: "I want people to invite from Nexus", not the Entra portal. Enrolling
-# a person here now ALSO sends the Microsoft invitation email, through the SAME
-# app-only Graph credentials the rest of the backend uses (graph_mail.py -
-# AZURE_TENANT_ID/AZURE_CLIENT_ID/AZURE_CLIENT_SECRET; one token fetch, never a
-# second Graph client). Needs the User.Invite.All APPLICATION permission with
-# admin consent on that app registration - without it Graph returns 403 and we
-# degrade gracefully (the allowlist row is still created, status 'failed', and
-# the panel tells the admin exactly what to fix or to invite manually).
-#
-# These endpoints are sync `def`s, so FastAPI already runs them on a threadpool
-# worker - the outbound Graph call never sits on the async event loop (the
-# CLAUDE.md rule; asyncio.to_thread would only be needed from an async context).
+# ── Entra B2B invitation via Microsoft Graph ─────────────────────────────────
 
 _GRAPH_INVITES_URL = "https://graph.microsoft.com/v1.0/invitations"
 
@@ -255,17 +152,12 @@ def _send_entra_invite(email: str, display_name: str) -> tuple[str, str]:
 
 # ── Schemas ──────────────────────────────────────────────────────────────────
 
-class ModuleGrantIn(BaseModel):
-    id: str
-    level: str = "viewer"
-
 class ExternalUserCreate(BaseModel):
     email:      str
     first_name: str
     last_name:  Optional[str] = ""
     company:    Optional[str] = ""
     expires_at: Optional[str] = ""      # ISO date; empty = no expiry
-    modules:    Optional[list[ModuleGrantIn]] = None   # None = default set
 
 class ExternalUserUpdate(BaseModel):
     first_name: Optional[str] = None
@@ -273,29 +165,16 @@ class ExternalUserUpdate(BaseModel):
     company:    Optional[str] = None
     status:     Optional[str] = None    # active | inactive
     expires_at: Optional[str] = None
-    modules:    Optional[list[ModuleGrantIn]] = None
 
 
 # ── Routes (admin-gated - this is access management) ─────────────────────────
-
-@router.get("/meta")
-def external_users_meta(user: dict = Depends(require_administrator)):
-    """What the admin panel may grant: the external-safe module set + the
-    default proposal for a new external user."""
-    return {
-        "modules": [{"id": mid, "label": _MODULE_LABELS.get(mid, mid)} for mid in EXTERNAL_SAFE_MODULES],
-        "levels": list(_LEVELS),
-        "defaults": _DEFAULT_MODULES,
-        "internalDomains": list(INTERNAL_DOMAINS),
-    }
-
 
 @router.get("")
 def list_external_users(user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
     rows = (db.query(NexusEmployee)
             .filter(NexusEmployee.identity_type.in_(_EXTERNAL_TYPES))
             .order_by(NexusEmployee.created_at.desc()).all())
-    return [_serialize(db, e) for e in rows]
+    return [_serialize(e) for e in rows]
 
 
 @router.post("", status_code=201)
@@ -318,8 +197,6 @@ def enroll_external_user(body: ExternalUserCreate,
             raise HTTPException(409, "This email is already enrolled as an external user - edit or reactivate it instead")
         raise HTTPException(400, "This email already belongs to a person in People")
 
-    modules = _clean_modules([{"id": m.id, "level": m.level} for m in body.modules] if body.modules is not None
-                             else _DEFAULT_MODULES)
     now = _now()
     row = NexusEmployee(
         id=str(uuid.uuid4()),
@@ -337,19 +214,17 @@ def enroll_external_user(body: ExternalUserCreate,
         updated_at=now,
     )
     db.add(row)
-    db.flush()
-    _set_membership(db, email, modules, user["email"])
     db.commit()   # the allowlist row exists no matter what the invite does next
     _invalidate(email)
 
-    # Invite from Nexus (Aug 18): send the Entra B2B invitation as part of
-    # enrolling. Never fails the enrollment - a Graph problem is reported back
-    # (and stored on the row) so the admin can fix consent or invite manually.
+    # No access is granted here: assign a job role / groups in Roles & Access
+    # like any employee. Until then the guest is fail-closed to the app shell.
+
     status, message = _send_entra_invite(email, f"{row.first_name} {row.last_name}".strip())
     row.invite_status = status
     db.commit()
 
-    out = _serialize(db, row)
+    out = _serialize(row)
     out["inviteMessage"] = message
     return out
 
@@ -379,13 +254,11 @@ def update_external_user(email: str, body: ExternalUserUpdate,
         row.external_company = body.company.strip()
     if body.expires_at is not None:
         row.expires_at = body.expires_at.strip()
-    if body.modules is not None:
-        _set_membership(db, email, _clean_modules([{"id": m.id, "level": m.level} for m in body.modules]), user["email"])
 
     row.updated_at = _now()
     db.commit()
     _invalidate(email)
-    return _serialize(db, row)
+    return _serialize(row)
 
 
 @router.post("/{email}/invite")
@@ -406,6 +279,34 @@ def resend_invite(email: str, user: dict = Depends(require_administrator),
     row.updated_at = _now()
     db.commit()
 
-    out = _serialize(db, row)
+    out = _serialize(row)
     out["inviteMessage"] = message
     return out
+
+
+@router.delete("/{email}")
+def remove_external_user(email: str, user: dict = Depends(require_administrator),
+                         db: Session = Depends(get_db)):
+    """Permanent Remove (Visesh, Aug 18): hard-delete the guest's person row
+    plus their group memberships, role row, and access scopes. Unlike
+    Deactivate (reversible, keeps the record) this erases them from Nexus -
+    they would have to be re-invited from scratch. ONLY guest/external rows:
+    employees are never deletable here. Their historical footprint (tasks they
+    were assigned, comments, audit entries) stays untouched - the email simply
+    no longer resolves to a person, and name resolution falls back to the
+    email-derived form the same way it already does for any unknown address.
+    The Entra guest account is NOT touched - deleting it is optional cleanup."""
+    email = email.lower().strip()
+    row = (db.query(NexusEmployee)
+           .filter(func.lower(NexusEmployee.work_email) == email,
+                   NexusEmployee.identity_type.in_(_EXTERNAL_TYPES)).first())
+    if not row:
+        raise HTTPException(404, "External user not found")
+
+    db.query(NexusGroupMember).filter(NexusGroupMember.email == email).delete(synchronize_session=False)
+    db.query(NexusRole).filter(NexusRole.email == email).delete(synchronize_session=False)
+    db.query(NexusAccessScope).filter(NexusAccessScope.email == email).delete(synchronize_session=False)
+    db.delete(row)
+    db.commit()
+    _invalidate(email)
+    return {"removed": email}

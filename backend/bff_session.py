@@ -78,10 +78,17 @@ def authorize_url(redirect_uri: str, state: str, challenge: str, login_hint: str
         "state": state,
         "code_challenge": challenge,
         "code_challenge_method": "S256",
+        # Always show the Microsoft account picker on this INTERACTIVE login
+        # (Aug 18): without it, a live Entra session completed silently as
+        # whichever account the browser held - Pranshu's guest test got SSO'd
+        # into his work account and never got to pick the invited Gmail. This
+        # is the sign-in redirect only; server-side session refresh uses the
+        # refresh-token grant and is unaffected.
+        "prompt": "select_account",
     }
-    # Preselect the account (skip Entra's picker) when the client remembers who
-    # last signed in on this browser. Entra still authenticates fully - the hint
-    # only picks the tile, it never bypasses credentials.
+    # Preselect the account tile inside the picker when the client remembers
+    # who last signed in on this browser. Entra still authenticates fully - the
+    # hint only highlights the tile, it never bypasses credentials.
     if login_hint:
         params["login_hint"] = login_hint
     return f"{AUTHORIZE_URL}?{urllib.parse.urlencode(params)}"

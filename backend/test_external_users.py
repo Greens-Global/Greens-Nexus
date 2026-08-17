@@ -141,8 +141,9 @@ class _ExternalBase(unittest.TestCase):
     def _as_admin(self):
         db = database.SessionLocal()
         try:
-            db.add(models.NexusRole(email=ADMIN, role="administrator", assigned_by="test"))
-            db.commit()
+            if not db.query(models.NexusRole).filter(models.NexusRole.email == ADMIN).first():
+                db.add(models.NexusRole(email=ADMIN, role="administrator", assigned_by="test"))
+                db.commit()
         finally:
             db.close()
         auth.invalidate_role_cache(ADMIN)
@@ -295,27 +296,56 @@ class TestGuestAccess(_ExternalBase):
 
 
 class TestAdminCrud(_ExternalBase):
-    def test_enroll_grants_default_set_and_login_works(self):
+    def test_enroll_gives_no_access_until_granted_normally(self):
+        """Aug 18 rework: enrolling grants NOTHING - access flows through the
+        normal Roles & Access machinery (groups/job roles) like any employee.
+        A fresh guest reaches only the app shell (fail-closed)."""
         self._as_admin()
         r = self.client.post("/external-users", json={
             "email": GUEST, "first_name": "Jane", "last_name": "Doe",
             "company": "Acme Construction"})
         self.assertEqual(r.status_code, 201, r.text)
-        mods = {m["id"]: m["level"] for m in r.json()["modules"]}
-        self.assertEqual(mods, {"tasks": "editor", "tickets": "editor"})
-        # The enrolled guest can now sign in and reach the granted family
         self._as(GUEST)
-        self.assertEqual(self.client.get("/roles/me").status_code, 200)
-        self.assertEqual(self.client.get("/task-saved-views").status_code, 200)
+        self.assertEqual(self.client.get("/roles/me").status_code, 200)   # shell works
+        self.assertEqual(self.client.get("/task-saved-views").status_code, 403)  # nothing granted
+        # A NORMAL group grant (same machinery as employees) opens the module
+        db = database.SessionLocal()
+        try:
+            db.add(models.NexusGroup(id="EXTGRPTEST02", name="Partner Collab",
+                                     allowed_modules="tasks:editor", created_by="test",
+                                     created_at="2026-08-18T00:00:00Z"))
+            db.add(models.NexusGroupMember(group_id="EXTGRPTEST02", email=GUEST,
+                                           added_by="test", added_at="2026-08-18T00:00:00Z"))
+            db.commit()
+        finally:
+            db.close()
+        cache.module_grants.invalidate(GUEST)
+        try:
+            self.assertEqual(self.client.get("/task-saved-views").status_code, 200)
+        finally:
+            db = database.SessionLocal()
+            try:
+                db.query(models.NexusGroupMember).filter(
+                    models.NexusGroupMember.group_id == "EXTGRPTEST02").delete(synchronize_session=False)
+                db.query(models.NexusGroup).filter(
+                    models.NexusGroup.id == "EXTGRPTEST02").delete(synchronize_session=False)
+                db.commit()
+            finally:
+                db.close()
 
-    def test_enroll_rejects_company_email_and_unsafe_module(self):
+    def test_any_module_grant_opens_its_api(self):
+        """No more fixed external-safe set: ANY module is grantable through
+        groups, and the grant opens that module's API surface for the guest."""
+        self._mk_guest(modules_csv="inventory:viewer")
+        self._as(GUEST)
+        self.assertEqual(self.client.get("/items").status_code, 200)
+        # Still fail-closed for surfaces no grant covers
+        self.assertEqual(self.client.get("/hr/employees").status_code, 403)
+
+    def test_enroll_rejects_company_email(self):
         self._as_admin()
         r = self.client.post("/external-users", json={
             "email": "someone@greensglobal.com", "first_name": "X"})
-        self.assertEqual(r.status_code, 400)
-        r = self.client.post("/external-users", json={
-            "email": GUEST, "first_name": "Jane",
-            "modules": [{"id": "hr", "level": "viewer"}]})
         self.assertEqual(r.status_code, 400)
 
     def test_deactivate_shuts_the_door(self):
@@ -329,6 +359,128 @@ class TestAdminCrud(_ExternalBase):
     def test_non_admin_cannot_manage(self):
         self._as("plain.employee@greensglobal.com")
         self.assertIn(self.client.get("/external-users").status_code, (401, 403))
+
+
+class TestRemove(_ExternalBase):
+    """Permanent Remove (Visesh, Aug 18): erases the guest from Nexus entirely,
+    unlike the reversible Deactivate. Guest/external rows only."""
+
+    def test_remove_deletes_row_memberships_and_locks_out(self):
+        self._as_admin()
+        self.client.post("/external-users", json={"email": GUEST, "first_name": "Jane"})
+        db = database.SessionLocal()
+        try:
+            db.add(models.NexusGroup(id="EXTGRPTEST03", name="Partner Collab Rm",
+                                     allowed_modules="tasks:editor", created_by="test",
+                                     created_at="2026-08-18T00:00:00Z"))
+            db.add(models.NexusGroupMember(group_id="EXTGRPTEST03", email=GUEST,
+                                           added_by="test", added_at="2026-08-18T00:00:00Z"))
+            db.add(models.NexusRole(email=GUEST, role="employee", assigned_by="test"))
+            db.commit()
+        finally:
+            db.close()
+        try:
+            r = self.client.delete(f"/external-users/{GUEST}")
+            self.assertEqual(r.status_code, 200, r.text)
+            db = database.SessionLocal()
+            try:
+                self.assertIsNone(db.query(models.NexusEmployee).filter(
+                    models.NexusEmployee.work_email == GUEST).first())
+                self.assertEqual(db.query(models.NexusGroupMember).filter(
+                    models.NexusGroupMember.email == GUEST).count(), 0)
+                self.assertEqual(db.query(models.NexusRole).filter(
+                    models.NexusRole.email == GUEST).count(), 0)
+            finally:
+                db.close()
+            # Removed = default-denied at sign-in again (no allowlist row).
+            # Checked at the policy level with the dev bypass off - the HTTP
+            # path under NEXUS_SKIP_AUTH deliberately skips the unknown-email
+            # deny so local development works.
+            auth.SKIP_AUTH = False
+            try:
+                with self.assertRaises(HTTPException) as ctx:
+                    auth.apply_external_policy(None, {"email": GUEST, "role": "employee", "level": 1})
+                self.assertEqual(ctx.exception.status_code, 403)
+            finally:
+                auth.SKIP_AUTH = True
+            # And a second remove is a clean 404, not a 500
+            self._as_admin()
+            self.assertEqual(self.client.delete(f"/external-users/{GUEST}").status_code, 404)
+        finally:
+            db = database.SessionLocal()
+            try:
+                db.query(models.NexusGroupMember).filter(
+                    models.NexusGroupMember.group_id == "EXTGRPTEST03").delete(synchronize_session=False)
+                db.query(models.NexusGroup).filter(
+                    models.NexusGroup.id == "EXTGRPTEST03").delete(synchronize_session=False)
+                db.commit()
+            finally:
+                db.close()
+
+    def test_remove_never_touches_employees(self):
+        self._as_admin()
+        db = database.SessionLocal()
+        try:
+            db.add(models.NexusEmployee(
+                id="ext-test-internal", first_name="Real", last_name="Employee",
+                work_email="real.employee@greensglobal.com", identity_type="internal",
+                status="active", created_at="2026-08-18T00:00:00Z"))
+            db.commit()
+        finally:
+            db.close()
+        try:
+            r = self.client.delete("/external-users/real.employee@greensglobal.com")
+            self.assertEqual(r.status_code, 404)   # not an external row -> untouchable here
+            db = database.SessionLocal()
+            try:
+                self.assertIsNotNone(db.query(models.NexusEmployee).filter(
+                    models.NexusEmployee.id == "ext-test-internal").first())
+            finally:
+                db.close()
+        finally:
+            db = database.SessionLocal()
+            try:
+                db.query(models.NexusEmployee).filter(
+                    models.NexusEmployee.id == "ext-test-internal").delete(synchronize_session=False)
+                db.commit()
+            finally:
+                db.close()
+
+    def test_task_assigned_to_removed_external_still_displays(self):
+        """The removed email's historical footprint stays: a task assigned to
+        them must still list without a 500, name resolution falling back to the
+        email (externals were never in the directory to begin with)."""
+        self._as_admin()
+        self.client.post("/external-users", json={"email": GUEST, "first_name": "Jane"})
+        db = database.SessionLocal()
+        try:
+            db.add(models.Task(id="ext-t-removed", title="Left-behind task",
+                               access_level="org", assignee_email=GUEST,
+                               created_by="someone@greensglobal.com"))
+            db.commit()
+        finally:
+            db.close()
+        try:
+            self.assertEqual(self.client.delete(f"/external-users/{GUEST}").status_code, 200)
+            r = self.client.get("/tasks")   # admin sees all tasks
+            self.assertEqual(r.status_code, 200, r.text)
+            row = next(t for t in r.json() if t["id"] == "ext-t-removed")
+            self.assertEqual(row["assigneeId"], GUEST)
+            # Directory read (name-resolution source) also stays healthy
+            self.assertEqual(self.client.get("/myhr/directory").status_code, 200)
+        finally:
+            db = database.SessionLocal()
+            try:
+                db.query(models.Task).filter(
+                    models.Task.id == "ext-t-removed").delete(synchronize_session=False)
+                db.commit()
+            finally:
+                db.close()
+
+    def test_remove_requires_admin(self):
+        self._mk_guest()
+        self._as("plain.employee@greensglobal.com")
+        self.assertIn(self.client.delete(f"/external-users/{GUEST}").status_code, (401, 403))
 
 
 class _FakeResp:

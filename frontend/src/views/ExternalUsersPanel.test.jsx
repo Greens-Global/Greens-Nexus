@@ -2,75 +2,76 @@ import React from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 
-// Render-smoke for the External Users panel (new admin surface, Aug 17) - per
-// CLAUDE.md a new high-risk view gets a test that catches crash-on-render.
+// Render-smoke for the external-user pieces that live inside the Roles &
+// Access People tab (Aug 18 rework): the invite modal (no grant checkboxes -
+// access flows through normal roles/groups) and the person-panel section with
+// invite status + Resend Invite / Deactivate / Remove.
 
-const users = [
-  {
-    id: 'e1', email: 'jane.doe@acmeconstruction.com', firstName: 'Jane', lastName: 'Doe',
-    name: 'Jane Doe', company: 'Acme Construction', status: 'active', identityType: 'guest',
-    invitedBy: 'admin@greensglobal.com', inviteStatus: 'sent', expiresAt: '', createdAt: '2026-08-17T00:00:00Z',
-    modules: [{ id: 'tasks', level: 'editor' }, { id: 'documents', level: 'viewer' }],
-  },
-  {
-    id: 'e2', email: 'raj@osm.com', firstName: 'Raj', lastName: '', name: 'Raj',
-    company: 'OSM', status: 'inactive', identityType: 'guest', invitedBy: '',
-    inviteStatus: 'failed', expiresAt: '2026-12-31', createdAt: '2026-08-17T00:00:00Z', modules: [],
-  },
-];
-
-const meta = {
-  modules: [
-    { id: 'tasks', label: 'Tasks' }, { id: 'tickets', label: 'Tickets' },
-    { id: 'documents', label: 'Documents' }, { id: 'sop', label: 'Knowledge Base' },
-    { id: 'external-links', label: 'External Links' },
-  ],
-  levels: ['viewer', 'editor'],
-  defaults: [{ id: 'tasks', level: 'editor' }, { id: 'tickets', level: 'editor' }],
-  internalDomains: ['greensglobal.com'],
-};
-
+const createExternalUser = vi.fn(() => Promise.resolve({ inviteStatus: 'sent', email: 'jane.doe@acmeconstruction.com' }));
+const updateExternalUser = vi.fn(() => Promise.resolve({}));
 const resendExternalInvite = vi.fn(() => Promise.resolve({ inviteStatus: 'sent', inviteMessage: 'Invitation email sent by Microsoft.' }));
+const removeExternalUser = vi.fn(() => Promise.resolve({ removed: 'jane.doe@acmeconstruction.com' }));
 vi.mock('../api', () => ({
   api: {
-    getExternalUsers: () => Promise.resolve(users),
-    getExternalUsersMeta: () => Promise.resolve(meta),
-    updateExternalUser: vi.fn(() => Promise.resolve({})),
-    createExternalUser: vi.fn(() => Promise.resolve({ inviteStatus: 'sent', email: 'x@y.com' })),
+    createExternalUser: (...a) => createExternalUser(...a),
+    updateExternalUser: (...a) => updateExternalUser(...a),
     resendExternalInvite: (...a) => resendExternalInvite(...a),
+    removeExternalUser: (...a) => removeExternalUser(...a),
   },
 }));
+const confirmMock = vi.fn(() => Promise.resolve(true));
+vi.mock('../ui/dialog', () => ({ dialog: { confirm: (...a) => confirmMock(...a) } }));
 
-const ExternalUsersPanel = (await import('./ExternalUsersPanel')).default;
+const { InviteExternalModal, ExternalPersonSection } = await import('./ExternalUsersPanel');
 
-describe('ExternalUsersPanel', () => {
-  it('renders the list without crashing', async () => {
-    render(<ExternalUsersPanel />);
-    await waitFor(() => expect(screen.getByText('Jane Doe')).toBeTruthy());
-    expect(screen.getByText('Raj')).toBeTruthy();
-    expect(screen.getByText('Tasks')).toBeTruthy();
-    expect(screen.getByText('Deactivate')).toBeTruthy();
-    expect(screen.getByText('Reactivate')).toBeTruthy();
-    // Invite delivery states are visible per row
-    expect(screen.getByText('Invite Sent')).toBeTruthy();
+const ext = {
+  id: 'e1', email: 'jane.doe@acmeconstruction.com', firstName: 'Jane', lastName: 'Doe',
+  name: 'Jane Doe', company: 'Acme Construction', status: 'active', identityType: 'guest',
+  invitedBy: 'admin@greensglobal.com', inviteStatus: 'failed', expiresAt: '2026-12-31',
+  createdAt: '2026-08-18T00:00:00Z',
+};
+
+describe('InviteExternalModal', () => {
+  it('renders invite fields with NO grant checkboxes and sends the invite', async () => {
+    const onSaved = vi.fn();
+    render(<InviteExternalModal initial={null} onClose={() => {}} onSaved={onSaved} />);
+    expect(screen.getByText('Invite External User')).toBeTruthy();
+    expect(screen.queryAllByRole('checkbox').length).toBe(0);   // grants live in Roles & Access now
+    fireEvent.change(screen.getByPlaceholderText('name@partnercompany.com'), { target: { value: 'jane.doe@acmeconstruction.com' } });
+    const inputs = document.querySelectorAll('input');
+    fireEvent.change(inputs[1], { target: { value: 'Jane' } });   // first name
+    fireEvent.click(screen.getByText('Send Invite'));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(createExternalUser).toHaveBeenCalledWith(expect.objectContaining({
+      email: 'jane.doe@acmeconstruction.com', first_name: 'Jane',
+    }));
+    expect(createExternalUser.mock.calls[0][0].modules).toBeUndefined();
+  });
+});
+
+describe('ExternalPersonSection', () => {
+  it('shows badge, invite state, and lifecycle actions', () => {
+    render(<ExternalPersonSection ext={ext} />);
+    expect(screen.getByText('External')).toBeTruthy();
     expect(screen.getByText('Invite Failed')).toBeTruthy();
-    expect(screen.getAllByText('Resend Invite').length).toBe(2);
+    expect(screen.getByText('Resend Invite')).toBeTruthy();
+    expect(screen.getByText('Deactivate')).toBeTruthy();
+    expect(screen.getByText('Remove')).toBeTruthy();
   });
 
-  it('resends an invitation from the row action', async () => {
-    render(<ExternalUsersPanel />);
-    await waitFor(() => expect(screen.getByText('Jane Doe')).toBeTruthy());
-    fireEvent.click(screen.getAllByText('Resend Invite')[0]);
-    await waitFor(() => expect(resendExternalInvite).toHaveBeenCalledWith('jane.doe@acmeconstruction.com'));
+  it('resends the invitation', async () => {
+    render(<ExternalPersonSection ext={ext} />);
+    fireEvent.click(screen.getByText('Resend Invite'));
+    await waitFor(() => expect(resendExternalInvite).toHaveBeenCalledWith(ext.email));
   });
 
-  it('opens the invite modal with the default grant set', async () => {
-    render(<ExternalUsersPanel />);
-    await waitFor(() => expect(screen.getByText('Jane Doe')).toBeTruthy());
-    fireEvent.click(screen.getByText('Invite External User'));
-    expect(await screen.findByPlaceholderText('name@partnercompany.com')).toBeTruthy();
-    // Default proposal pre-checked: tasks + tickets (editor)
-    const checks = screen.getAllByRole('checkbox');
-    expect(checks.filter(c => c.checked).length).toBe(2);
+  it('removes only after the confirm dialog', async () => {
+    const onRemoved = vi.fn();
+    render(<ExternalPersonSection ext={ext} onRemoved={onRemoved} />);
+    fireEvent.click(screen.getByText('Remove'));
+    await waitFor(() => expect(removeExternalUser).toHaveBeenCalledWith(ext.email));
+    expect(confirmMock).toHaveBeenCalled();
+    expect(String(confirmMock.mock.calls[0][0])).toContain('re-invited from scratch');
+    await waitFor(() => expect(onRemoved).toHaveBeenCalled());
   });
 });

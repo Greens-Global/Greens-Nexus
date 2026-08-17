@@ -19,11 +19,15 @@ active external-user row exists in Nexus** (see "What was implemented").
 
 ---
 
-> **Update (Aug 18, Visesh):** invitations are now sent FROM NEXUS. Adding a
-> person in Roles & Access > External Users sends the Microsoft invitation
-> email automatically via Graph - nobody needs the Entra portal per person.
-> One NEW one-time Entra step is required first: grant the app registration
-> the **User.Invite.All** application permission (section 2a, step 3).
+> **Update (Aug 18, Visesh):** invitations are now sent FROM NEXUS, and
+> externals live in the **Roles & Access > People tab** like any employee -
+> there is no separate External Users tab. Their access is granted through the
+> normal machinery (job roles / groups - any module), not a special external
+> grant set. One NEW one-time Entra step is required first: grant the app
+> registration the **User.Invite.All** application permission (section 2a,
+> step 3). Sign-in now always shows the Microsoft account picker, so a guest
+> on a shared/work browser can pick the invited address instead of being
+> silently SSO'd into an existing work account (the Pranshu test case).
 
 ## 1. What Neil's 7-9 people will experience
 
@@ -34,11 +38,14 @@ active external-user row exists in Nexus** (see "What was implemented").
    - a Gmail/other personal address gets a Microsoft-emailed one-time passcode
      (no password to create, nothing to install).
 3. They open the normal Nexus URL (nexus.greensglobal.com / dev.nexus...),
-   press **Continue with Microsoft**, and sign in with their own email.
-4. Nexus checks its allowlist. If Visesh has enrolled that email and it is
-   active, they land inside; the sidebar shows ONLY what they were granted
-   (default: **Tasks** and **Tickets**). No Dashboard, no Time Clock, no My HR,
-   no People, no company data.
+   press **Continue with Microsoft**, and **pick their account** - the sign-in
+   always shows Microsoft's account picker now, so on a shared or work browser
+   they choose the invited address instead of being silently signed in as
+   whoever the browser already held.
+4. Nexus checks its allowlist. If the email is enrolled and active, they land
+   inside; the sidebar shows ONLY the modules their assigned roles/groups
+   grant (a fresh invite has none - assign access on their People card). No
+   people pickers, no manager broadcasts, no company data beyond the grants.
 5. In Tasks/Tickets they see only items they are assigned to, follow, raised,
    or that live in a project they were explicitly added to - never the
    company-wide task list or the help-desk queue.
@@ -101,12 +108,17 @@ All in https://entra.microsoft.com with an admin account.
 
 ### 2b. Inviting the 7-9 people - from Nexus, not the portal
 
-Roles & Access > External Users > **Invite External User**: email (the EXACT
-address they will sign in with), name, company, optional expiry, module grants
-(defaults pre-checked). **Send Invite** does both halves at once: creates the
+Roles & Access > **People** tab > **Invite External User** (next to the
+search box): email (the EXACT address they will sign in with), name, company,
+optional expiry. **Send Invite** does both halves at once: creates the
 allowlist row AND sends the Microsoft invitation email (Graph
 `POST /v1.0/invitations`, redirect target = the Nexus URL for that
-environment via `app_url()`). Per-row states:
+environment via `app_url()`). The person then appears in the People list with
+an **External** badge, under the "External" department and their partner
+company in the company filter. **Access is granted on their People card the
+normal way** - assign a job role or add groups, any module, exactly like an
+employee; until you do, they are fail-closed to the app shell. Per-person
+invite states (shown on their card):
 
 - **Invite Sent** - Microsoft delivered the redemption email. Re-sending any
   time is safe (**Resend Invite** just emails the redemption link again).
@@ -139,24 +151,33 @@ Order of operations:
    themselves on startup. Frontend deploys via Cloudflare in ~1 min.
 2. Do the one-time **User.Invite.All** consent (section 2a step 3) so invites
    can actually send.
-3. On dev.nexus as an admin: **Roles & Access > External Users > Invite
-   External User** - invite ONE test address (a Gmail you control) with the
-   default grants. This sends the Microsoft invite AND auto-creates the
-   "External - Tasks (Editor) + Tickets (Editor)" access group on first use.
+3. On dev.nexus as an admin: **Roles & Access > People > Invite External
+   User** - invite ONE test address (a Gmail you control). This sends the
+   Microsoft invite and drops them into the People list with an External
+   badge. Then, on their People card, assign access the normal way (e.g. add
+   them to a group granting Tasks/Tickets). Guest rows enrolled before this
+   rework (e.g. the Pranshu test row) surface in the People tab automatically -
+   nothing to migrate.
 4. Run the 10-minute test script (section 6) against dev with that guest.
 5. **Release to prod** the normal way (PR dev -> main). Migrations self-apply
    on the prod deploy the same way.
-6. On prod: invite the real 7-9 emails from Roles & Access > External Users
-   (after Visesh confirms the list - section 7). UI only, no SQL and no Entra
-   portal needed per person.
+6. On prod: invite the real 7-9 emails from Roles & Access > People (after
+   Visesh confirms the list - section 7), then assign each their role/groups.
+   UI only, no SQL and no Entra portal needed per person.
 7. Add each person to the projects/tickets they should work: Tasks > project >
    Share/members, or assign tasks to their email. Until they are added to
    something, their Tasks screen is simply empty (fail-closed).
 
-**Deactivating someone is Nexus-side only** - Deactivate on their row blocks
-their sign-in within ~60 seconds regardless of Entra. Deleting the Entra guest
-account afterwards (Entra > Users) is OPTIONAL cleanup, not required for
-lockout; do it when the relationship truly ends so the tenant stays tidy.
+**Off-boarding, two speeds, both Nexus-side:**
+- **Deactivate** (their People card) blocks sign-in within ~60 seconds,
+  keeps the record, and is reversible with Reactivate.
+- **Remove** (same card) is permanent: it erases the person row, their group
+  memberships, role, and scopes - they would have to be re-invited from
+  scratch. Tasks/comments they took part in are kept (the email simply no
+  longer resolves to a person).
+Neither touches the Entra guest account - deleting it (Entra > Users) is
+OPTIONAL cleanup, not required for lockout; do it when the relationship truly
+ends so the tenant stays tidy.
 
 ---
 
@@ -175,29 +196,38 @@ Backend
     'external'` row in `nexus_employees` or the request 403s (default-deny).
     Allowlisted externals are hard-capped at employee level (manager
     broadcasts/bypasses can never reach them even if a nexus_roles row slips
-    in) and are path-gated: app-shell endpoints plus only the API prefixes
-    their module grants map to (`EXTERNAL_MODULE_PREFIXES`); everything else
-    403s. Cached like the role cache (60s TTL, `invalidate_external_cache`).
+    in) and are path-gated: app-shell endpoints plus the API prefixes their
+    ACTUAL grants map to (`MODULE_API_PREFIXES` covers the full module
+    catalog - Aug 18 rework: any module is grantable through normal
+    roles/groups, and each endpoint's own grant/level gate still applies on
+    top exactly as for employees); no grants = app shell only; everything
+    else 403s. Cached like the role cache (60s TTL,
+    `invalidate_external_cache`).
 - `backend/bff_session.py` - `normalize_email` now delegates to the shared
   resolver so cookie logins (what dev/prod actually use) resolve guests
   identically.
 - `backend/models.py` - `NexusEmployee` + `external_company`, `invited_by`,
   `expires_at`, `invite_status` (appended; used only on guest/external rows).
-- `backend/main.py` - the three ALTER lines in BOTH migration lists (SQLite +
+- `backend/main.py` - the four ALTER lines in BOTH migration lists (SQLite +
   Postgres) + registers the new router.
-- `backend/routers/external_users.py` (new) - admin-gated CRUD:
-  GET/POST `/external-users`, PATCH `/external-users/{email}`, GET
-  `/external-users/meta`, POST `/external-users/{email}/invite` (resend).
-  Enrolling ALSO sends the Entra B2B invitation via Graph
-  `POST /v1.0/invitations` (reusing `graph_mail.py`'s cached app-only token -
-  no second Graph client; sync endpoints run on FastAPI's threadpool so the
-  call never blocks the event loop). Graph failures never block enrollment:
-  the row is created, `invite_status` records sent/failed/manual, and the
-  response carries the exact remedy. Grants restricted to the external-safe set
-  (tasks/tickets/documents/sop/external-links; viewer/editor only, never
-  full/owner). Access flows through ONE auto-managed "External - ..." group
-  per distinct grant set (visible/auditable in the Groups tab). Rejects
-  company-domain emails and emails already in People.
+- `backend/routers/external_users.py` (new) - admin-gated lifecycle CRUD:
+  GET/POST `/external-users`, PATCH `/external-users/{email}` (edit /
+  deactivate / reactivate), POST `/external-users/{email}/invite` (resend),
+  DELETE `/external-users/{email}` (permanent Remove: hard-deletes the person
+  row + group memberships + role + scopes; guest/external rows only, never
+  employees). It manages the rows and the invitation, NOT access - grants flow
+  through the normal groups/job-roles machinery (Aug 18 rework). Enrolling
+  ALSO sends the Entra B2B invitation via Graph `POST /v1.0/invitations`
+  (reusing `graph_mail.py`'s cached app-only token - no second Graph client;
+  sync endpoints run on FastAPI's threadpool so the call never blocks the
+  event loop). Graph failures never block enrollment: the row is created,
+  `invite_status` records sent/failed/manual, and the response carries the
+  exact remedy. Rejects company-domain emails and emails already in People.
+- `backend/bff_session.py` + `frontend/src/authConfig.js` - the INTERACTIVE
+  sign-in (both the BFF authorize URL and the MSAL loginRedirect request)
+  always carries `prompt=select_account`, so guests on a browser with a live
+  work session get the account picker instead of silent SSO into the wrong
+  account. Silent token acquisition is untouched.
 - `backend/routers/myhr.py` - `/myhr/directory` now EXCLUDES guest/external
   rows (NULL-safe), so externals never appear in any people picker,
   assignment list, or name-resolution surface built on the directory.
@@ -211,13 +241,15 @@ Backend
   externals: their grant opens the module, but they are participants-only
   (own/watched tickets), never the company agent queue, and can never write
   internal notes.
-- `backend/test_external_users.py` (new) - 19 tests: claim resolution,
+- `backend/test_external_users.py` (new) - 30 tests: claim resolution,
   default-deny, active/inactive/expired gating, employee-cap, directory
-  exclusion, task/ticket scoping, admin CRUD. Plus the existing
-  `test_auth_access.py` route sweep still passes.
+  exclusion, task/ticket scoping, normal-group grant resolution, invite flow
+  (Graph stubbed: success/403/conflict/unconfigured/resend), and Remove
+  (row + memberships gone, employees untouchable, removed-assignee tasks still
+  display). Plus the existing `test_auth_access.py` route sweep still passes.
 
 Frontend
-- `frontend/src/api.js` - the four external-users endpoints (appended).
+- `frontend/src/api.js` - the five external-users endpoints (appended).
 - `frontend/src/contexts/RoleContext.jsx` - `isExternal` from `/roles/me`.
 - `frontend/src/components/Sidebar.jsx` + `MobileMenu.jsx` - externals see
   ONLY granted modules in the nav (no baseline screens).
@@ -227,18 +259,23 @@ Frontend
 - `frontend/src/bffAuth.js` + `views/LoginPage.jsx` - a 403 from `/auth/me`
   (guest not enrolled / deactivated) lands on the sign-in screen immediately
   with the server's explanation, instead of a 23s retry spinner.
-- `frontend/src/views/ExternalUsersPanel.jsx` (new) + tab wired into
-  `views/RolesAccess.jsx` - the admin panel: list (name, company, status,
-  invite-delivery pill, expiry, grant pills), Invite External User modal
-  (email/name/company/expiry + module checkboxes with Viewer/Editor; Send
-  Invite creates the row AND emails the Microsoft invitation), Resend Invite,
-  Edit, Deactivate/Reactivate.
-- `frontend/src/views/ExternalUsersPanel.test.jsx` (new) - render-smoke tests.
+- `frontend/src/views/ExternalUsersPanel.jsx` + `views/RolesAccess.jsx` -
+  Aug 18 rework: NO separate tab. Externals merge into the Roles & Access
+  **People** tab (External badge, "External" department, partner company in
+  the company filter; the Pranshu test row and any pre-rework guest rows
+  surface automatically). "Invite External User" sits next to the People
+  search; the invite modal is email/name/company/expiry only - no grant
+  checkboxes. The selected external's card shows an external section (invite
+  pill, Resend Invite, Edit, Deactivate/Reactivate, permanent Remove with a
+  confirm spelling out the difference) above the SAME job-role/tier/groups
+  controls every employee gets.
+- `frontend/src/views/ExternalUsersPanel.test.jsx` - render-smoke + behavior
+  tests for the modal (no grant checkboxes) and the person section
+  (resend / confirm-gated remove).
 
-Build/test status: backend 724/725 green (the one error is the pre-existing
-`test_unifi_cloud` env-dependent script, unrelated); frontend 103/103 tests +
-`npm run build` green; live smoke on a local backend verified enroll ->
-guest-boundary -> deactivate end to end.
+Build/test status: backend externals/auth/task/ticket suites green (108
+tests), full sweep green minus the pre-existing env-dependent
+`test_unifi_cloud`; frontend 105/105 tests + `npm run build` green.
 
 ## 5. What remains / risks
 
@@ -253,12 +290,17 @@ guest-boundary -> deactivate end to end.
   spam. The redirect after redemption uses `app_url()` (NEXUS_APP_URL /
   WEBSITE_SITE_NAME), so dev invites land on dev.nexus and prod on
   nexus.greensglobal.com automatically.
-- **Documents / Knowledge Base grants are org-visible.** The Documents module
-  shows every shared-folder document to ANY grant holder (`documents._visible`),
-  and KB likewise. They are grantable to externals but deliberately NOT in the
-  default set - grant them only when exposing all of that content is intended,
-  or wait for per-external scoping there (`nexus_access_scopes` exists; the
-  per-endpoint filters from `docs/External-Users-Phase4.md` 4c are the follow-up).
+- **Any module is now grantable to an external (Visesh's call, Aug 18) - so
+  the admin doing the granting carries the judgment.** Tasks/Tickets stay
+  participation-scoped at item level regardless of grant, but most other
+  modules show org-wide data to ANY grant holder (e.g. Documents shows every
+  shared-folder document via `documents._visible`, KB likewise). Grant beyond
+  Tasks/Tickets only when exposing that content is intended, or wait for
+  per-external scoping (`nexus_access_scopes` exists; the per-endpoint filters
+  from `docs/External-Users-Phase4.md` 4c are the follow-up). This deviates
+  from the July plan's "restricted external set" leaning - deliberate, per
+  Visesh: "they can have access to anything ... through roles and access just
+  like any normal employee."
 - Externals CAN read `/myhr/directory` output (staff names/emails/photos - the
   GAL-equivalent) because Tasks needs it to show assignee names instead of raw
   emails. They never appear IN it. If Neil wants staff hidden from externals
@@ -272,27 +314,32 @@ guest-boundary -> deactivate end to end.
 - Multiple gunicorn workers each hold the 60s external cache - a deactivation
   is instant on the worker that handled it and within ~60s everywhere. Same
   tradeoff as the existing role cache.
-- Adding a NEW module to the external-safe set is a two-line deliberate act in
-  `auth.py` (`EXTERNAL_MODULE_PREFIXES`) - check what its endpoints expose
-  org-wide first. This is fail-closed on purpose.
+- A future NEW module needs its API prefixes added to `auth.py`'s
+  `MODULE_API_PREFIXES` before an external's grant on it opens anything - a
+  module missing from the map stays closed to externals even when granted.
+  Fail-closed on purpose.
 
 ## 6. 10-minute test script (one guest end to end, on dev)
 
 Need: one test external mailbox you can read (a personal Gmail works).
 
-1. As admin on dev.nexus: Roles & Access > External Users > Invite External
-   User (the test email, name, company "Test Co", default grants). Expect the
-   row to appear with an **Invite Sent** pill and Tasks/Tickets pills. If it
-   says **Invite Failed**, do the User.Invite.All consent (section 2a step 3)
-   and press **Resend Invite**.
-2. Open the invitation email in the test mailbox, accept, complete the
-   OTP/sign-in.
-3. Default-deny check: as admin, **Deactivate** the row; the guest refreshes
-   dev.nexus within a minute and lands back on the sign-in screen with the red
-   "deactivated" notice. **Reactivate** to continue. (A never-enrolled tenant
-   guest gets the same treatment - the allowlist row is the only door.)
-4. Sign in again as the guest: expect to land inside with ONLY Tasks and
-   Tickets in the sidebar. Tasks list is empty (they're in nothing yet).
+1. As admin on dev.nexus: Roles & Access > People > **Invite External User**
+   (the test email, name, company "Test Co"). Expect them to appear in the
+   People list with an External badge and an **Invite Sent** pill on their
+   card. If it says **Invite Failed**, do the User.Invite.All consent
+   (section 2a step 3) and press **Resend Invite**. Then, on their card, add
+   them to a group that grants Tasks/Tickets (normal Groups machinery).
+2. Open the invitation email in the test mailbox, accept, and at the Nexus
+   sign-in confirm the Microsoft ACCOUNT PICKER appears - pick the invited
+   address (this is the Pranshu-case fix), complete the OTP/sign-in.
+3. Default-deny check: as admin, **Deactivate** on their card; the guest
+   refreshes dev.nexus within a minute and lands back on the sign-in screen
+   with the red "deactivated" notice. **Reactivate** to continue. (A
+   never-enrolled tenant guest gets the same treatment - the allowlist row is
+   the only door.)
+4. Sign in again as the guest: expect to land inside with ONLY the granted
+   modules (Tasks/Tickets) in the sidebar. Tasks list is empty (they're in
+   nothing yet).
 5. As admin: assign any test task to the guest's email (or add them to a test
    project). Guest refreshes: exactly that task appears; company tasks do not.
 6. As guest: raise a ticket; confirm it appears for them; confirm they do NOT
@@ -308,9 +355,10 @@ Need: one test external mailbox you can read (a personal Gmail works).
 1. The list from Neil: **7-9 names + emails + companies** (MCD / Aarav
    Construction / OSM?). The email each person will SIGN IN with is the one to
    invite AND enroll - confirm each with the person, not a guess.
-2. Confirm the default module set: proposal = **Tasks (Editor) + Tickets
-   (Editor)** only. Documents/Knowledge Base show ALL shared company content
-   to any grant holder - include them only if Neil explicitly wants that.
+2. Which role/groups each person gets (there is no automatic default now -
+   a fresh invite has NO access until assigned). Suggested starting point:
+   one shared group granting Tasks (Editor) + Tickets (Editor). Remember most
+   other modules show org-wide data to any grant holder (section 5).
 3. Expiration policy: leave blank, or stamp e.g. 6 months on each row?
 4. Which projects/teams each person should be added to in Tasks (their screen
    is empty until someone adds/assigns them).
