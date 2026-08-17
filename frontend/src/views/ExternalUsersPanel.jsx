@@ -81,7 +81,7 @@ export function InviteExternalModal({ initial, onClose, onSaved }) {
 
         <div style={{ display: 'grid', gap: 13 }}>
           <div>
-            <span style={label}>Email (the Microsoft invitation is sent to this address)</span>
+            <span style={label}>Email (the invitation is sent to this address)</span>
             <input style={{ ...field, opacity: editing ? 0.6 : 1 }} type="email" value={email} disabled={editing}
               placeholder="name@partnercompany.com" onChange={e => setEmail(e.target.value)} />
           </div>
