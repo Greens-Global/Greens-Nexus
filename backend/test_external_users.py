@@ -15,6 +15,7 @@ Runs against the local SQLite DB like the other test_*.py files:
 """
 import os
 import unittest
+from unittest import mock
 
 os.environ.setdefault("NEXUS_SKIP_AUTH", "true")
 
@@ -24,8 +25,17 @@ from fastapi.testclient import TestClient
 import auth
 import cache
 import database
+import graph_mail
 import main
 import models
+import routers.external_users as ext_router
+
+# Belt and suspenders: even if this machine's environment carries real Azure
+# credentials, tests must NEVER talk to Microsoft Graph. Blanking the module
+# globals makes graph_configured() False; the invite tests stub the HTTP layer.
+graph_mail._AZURE_TENANT_ID = ""
+graph_mail._AZURE_CLIENT_ID = ""
+graph_mail._AZURE_CLIENT_SECRET = ""
 
 # A fresh checkout has no local SQLite yet (create_all normally runs in the
 # app lifespan, which TestClient only triggers as a context manager).
@@ -127,6 +137,16 @@ class _ExternalBase(unittest.TestCase):
 
     def _as(self, email):
         os.environ["NEXUS_DEV_EMAIL"] = email
+
+    def _as_admin(self):
+        db = database.SessionLocal()
+        try:
+            db.add(models.NexusRole(email=ADMIN, role="administrator", assigned_by="test"))
+            db.commit()
+        finally:
+            db.close()
+        auth.invalidate_role_cache(ADMIN)
+        self._as(ADMIN)
 
     def _mk_guest(self, status="active", expires_at="", modules_csv=""):
         db = database.SessionLocal()
@@ -275,16 +295,6 @@ class TestGuestAccess(_ExternalBase):
 
 
 class TestAdminCrud(_ExternalBase):
-    def _as_admin(self):
-        db = database.SessionLocal()
-        try:
-            db.add(models.NexusRole(email=ADMIN, role="administrator", assigned_by="test"))
-            db.commit()
-        finally:
-            db.close()
-        auth.invalidate_role_cache(ADMIN)
-        self._as(ADMIN)
-
     def test_enroll_grants_default_set_and_login_works(self):
         self._as_admin()
         r = self.client.post("/external-users", json={
@@ -319,6 +329,104 @@ class TestAdminCrud(_ExternalBase):
     def test_non_admin_cannot_manage(self):
         self._as("plain.employee@greensglobal.com")
         self.assertIn(self.client.get("/external-users").status_code, (401, 403))
+
+
+class _FakeResp:
+    def __init__(self, status_code, body=None, text=""):
+        self.status_code = status_code
+        self._body = body if body is not None else {}
+        self.text = text
+
+    def json(self):
+        return self._body
+
+
+class TestInviteFlow(_ExternalBase):
+    """The invite-from-Nexus path (Graph POST /invitations) with the HTTP layer
+    stubbed - success, 403 degradation, and the already-exists conflict. No
+    test ever reaches the real Microsoft Graph."""
+
+    def _enroll(self):
+        return self.client.post("/external-users", json={
+            "email": GUEST, "first_name": "Jane", "last_name": "Doe",
+            "company": "Acme Construction"})
+
+    def _with_graph(self, fake_post):
+        return (mock.patch.object(graph_mail, "graph_configured", return_value=True),
+                mock.patch.object(graph_mail, "access_token", return_value="fake-token"),
+                mock.patch.object(ext_router.httpx, "post", side_effect=fake_post))
+
+    def test_enroll_sends_invitation(self):
+        self._as_admin()
+        calls = []
+
+        def fake_post(url, headers=None, json=None, timeout=None):
+            calls.append((url, headers, json))
+            return _FakeResp(201, {"id": "inv-1", "status": "PendingAcceptance"})
+
+        p1, p2, p3 = self._with_graph(fake_post)
+        with p1, p2, p3:
+            r = self._enroll()
+        self.assertEqual(r.status_code, 201, r.text)
+        self.assertEqual(r.json()["inviteStatus"], "sent")
+        self.assertIn("sent", r.json()["inviteMessage"].lower())
+        url, headers, payload = calls[0]
+        self.assertEqual(url, "https://graph.microsoft.com/v1.0/invitations")
+        self.assertEqual(headers["Authorization"], "Bearer fake-token")
+        self.assertEqual(payload["invitedUserEmailAddress"], GUEST)
+        self.assertEqual(payload["invitedUserDisplayName"], "Jane Doe")
+        self.assertTrue(payload["sendInvitationMessage"])
+        self.assertTrue(payload["inviteRedirectUrl"].startswith("http"))
+        self.assertIn("Nexus", payload["invitedUserMessageInfo"]["customizedMessageBody"])
+        # Stored on the row too
+        listed = self.client.get("/external-users").json()
+        self.assertEqual(listed[0]["inviteStatus"], "sent")
+
+    def test_missing_consent_degrades_but_still_enrolls(self):
+        self._as_admin()
+        p1, p2, p3 = self._with_graph(lambda *a, **k: _FakeResp(
+            403, {"error": {"code": "Authorization_RequestDenied",
+                            "message": "Insufficient privileges to complete the operation."}}))
+        with p1, p2, p3:
+            r = self._enroll()
+        self.assertEqual(r.status_code, 201, r.text)
+        self.assertEqual(r.json()["inviteStatus"], "failed")
+        self.assertIn("User.Invite.All", r.json()["inviteMessage"])
+        # The allowlist row exists and the guest can sign in regardless
+        self._as(GUEST)
+        self.assertEqual(self.client.get("/roles/me").status_code, 200)
+
+    def test_graph_unconfigured_degrades(self):
+        # No patches: graph_configured() is False in tests - no HTTP happens.
+        self._as_admin()
+        r = self._enroll()
+        self.assertEqual(r.status_code, 201, r.text)
+        self.assertEqual(r.json()["inviteStatus"], "failed")
+        self.assertIn("not configured", r.json()["inviteMessage"])
+
+    def test_conflict_marks_manual(self):
+        self._as_admin()
+        p1, p2, p3 = self._with_graph(lambda *a, **k: _FakeResp(
+            409, {"error": {"message": "A user with this email already exists in the directory."}}))
+        with p1, p2, p3:
+            r = self._enroll()
+        self.assertEqual(r.status_code, 201, r.text)
+        self.assertEqual(r.json()["inviteStatus"], "manual")
+
+    def test_resend_invite_updates_status(self):
+        self._as_admin()
+        r = self._enroll()                       # unconfigured -> 'failed'
+        self.assertEqual(r.json()["inviteStatus"], "failed")
+        p1, p2, p3 = self._with_graph(lambda *a, **k: _FakeResp(201, {"id": "inv-2"}))
+        with p1, p2, p3:
+            r = self.client.post(f"/external-users/{GUEST}/invite")
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["inviteStatus"], "sent")
+        self.assertEqual(self.client.get("/external-users").json()[0]["inviteStatus"], "sent")
+
+    def test_resend_unknown_email_404(self):
+        self._as_admin()
+        self.assertEqual(self.client.post("/external-users/nobody@nowhere.com/invite").status_code, 404)
 
 
 if __name__ == "__main__":

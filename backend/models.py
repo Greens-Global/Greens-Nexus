@@ -681,6 +681,11 @@ class NexusEmployee(Base):
     external_company = Column(String, default="")
     invited_by       = Column(String, default="")
     expires_at       = Column(String, default="")
+    # Entra B2B invitation delivery state for guest rows (Aug 18):
+    # '' (never attempted) | 'sent' (Graph invitation email went out) |
+    # 'failed' (Graph rejected/unreachable - invite manually or fix consent) |
+    # 'manual' (already a guest / invited outside Nexus - nothing to send).
+    invite_status    = Column(String, default="")
 
 
 class HrRemovedIdentity(Base):

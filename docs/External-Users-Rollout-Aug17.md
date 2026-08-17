@@ -19,9 +19,16 @@ active external-user row exists in Nexus** (see "What was implemented").
 
 ---
 
+> **Update (Aug 18, Visesh):** invitations are now sent FROM NEXUS. Adding a
+> person in Roles & Access > External Users sends the Microsoft invitation
+> email automatically via Graph - nobody needs the Entra portal per person.
+> One NEW one-time Entra step is required first: grant the app registration
+> the **User.Invite.All** application permission (section 2a, step 3).
+
 ## 1. What Neil's 7-9 people will experience
 
-1. They receive a Microsoft invitation email ("Greens Global invited you...").
+1. They receive a Microsoft invitation email ("Greens Global invited you..."),
+   sent the moment an admin invites them from the Nexus panel.
 2. They click **Accept invitation** once and sign in:
    - a work Microsoft account (their own company's M365) signs in directly;
    - a Gmail/other personal address gets a Microsoft-emailed one-time passcode
@@ -63,7 +70,20 @@ All in https://entra.microsoft.com with an admin account.
 2. **Email one-time passcode** (covers Gmail/non-Microsoft addresses)
    Entra ID > External Identities > All identity providers > Email one-time
    passcode > confirm it is **enabled** (it is the default on current tenants).
-3. **App registration - verify, no changes expected**
+3. **Grant User.Invite.All so Nexus can send the invitations** (NEW, one-time)
+   The backend sends invitations with its existing app-only Graph credentials
+   (`backend/graph_mail.py`, driven by the `AZURE_CLIENT_ID` /
+   `AZURE_CLIENT_SECRET` app settings on the Azure App Service - the SAME
+   Nexus app registration that already sends mail via Mail.Send; its client id
+   in code is `be6f1e37-83a8-4a29-8b46-96d20beb32f9`). Exact clicks:
+   Entra ID > **App registrations** > (that Nexus app) > **API permissions** >
+   **Add a permission** > **Microsoft Graph** > **Application permissions** >
+   search **User.Invite.All** > check it > **Add permissions** > then press
+   **Grant admin consent for Greens Global** (the button above the table).
+   Until this is done, inviting from Nexus still creates the allowlist row but
+   the invite is marked **Invite Failed** with this exact instruction - fix
+   the permission, then press **Resend Invite** on each row.
+4. **App registration - verify, no other changes expected**
    The code uses tenant `40966012-...dc60` as the authority and app
    `be6f1e37-...32f9` for both the SPA and the BFF confidential client
    (`backend/auth.py`, `frontend/src/authConfig.js`). Guests invited into OUR
@@ -73,32 +93,40 @@ All in https://entra.microsoft.com with an admin account.
      **"Assignment required?"** - if it is **Yes**, either set it to **No** or
      assign each guest to the app under Users and groups. If it is No (the
      default), nothing to do.
-   - No redirect-URI or permission changes. Guests consent to the same
+   - No redirect-URI changes. Guests consent to the same
      openid/profile/email scopes on first sign-in.
-4. **MFA for guests** (recommended, not blocking): if Security Defaults are on,
+5. **MFA for guests** (recommended, not blocking): if Security Defaults are on,
    guests already get MFA prompts. With Entra P1, add a Conditional Access
    policy "require MFA for guest and external users" instead.
 
-### 2b. Inviting each of the 7-9 people (~1 min each)
+### 2b. Inviting the 7-9 people - from Nexus, not the portal
 
-Entra ID > **Users** > **New user** > **Invite external user**:
-- Email: the person's real address (this EXACT address is what Nexus keys on -
-  it must match what you enroll in Nexus, case doesn't matter).
-- Display name: their name.
-- Optional message: "Greens Global is giving you access to our Nexus portal -
-  accept this invitation, then open https://nexus.greensglobal.com".
-- Invite. Repeat per person. (Bulk invite via CSV is available under Users >
-  Bulk operations if you prefer.)
+Roles & Access > External Users > **Invite External User**: email (the EXACT
+address they will sign in with), name, company, optional expiry, module grants
+(defaults pre-checked). **Send Invite** does both halves at once: creates the
+allowlist row AND sends the Microsoft invitation email (Graph
+`POST /v1.0/invitations`, redirect target = the Nexus URL for that
+environment via `app_url()`). Per-row states:
+
+- **Invite Sent** - Microsoft delivered the redemption email. Re-sending any
+  time is safe (**Resend Invite** just emails the redemption link again).
+- **Invite Failed** - the row exists and will work once the person is a guest,
+  but the email did not go out. The toast/tooltip says why (usually the
+  User.Invite.All consent above, or Graph creds missing locally). Fix, then
+  **Resend Invite** - or invite manually in Entra > Users > New user > Invite
+  external user with the same address.
+- **Invited Manually** - the address already exists in the tenant (already a
+  guest or a member); nothing needed to be sent.
 
 The person can accept the invite at any time; Nexus access only works once
-BOTH the invite is redeemed and their Nexus row (below) is active.
+BOTH the invite is redeemed and their Nexus row is active.
 
 ---
 
 ## 3. Nexus-side rollout (dev first, then prod)
 
-There are **no new tables** - only three new columns on `nexus_employees`
-(`external_company`, `invited_by`, `expires_at`) plus rows in existing tables
+There are **no new tables** - only four new columns on `nexus_employees`
+(`external_company`, `invited_by`, `expires_at`, `invite_status`) plus rows in existing tables
 (`nexus_employees`, `nexus_groups`, `nexus_group_members`). The columns are in
 BOTH migration lists in `backend/main.py`, so they self-apply on deploy.
 **No new RLS work is required for this release** (nothing new for the anon key
@@ -109,23 +137,26 @@ Order of operations:
 1. **Merge this branch to `dev`** (announce in team chat first - the dev API
    restarts). Wait ~4 min for the Azure deploy; the two migration lines apply
    themselves on startup. Frontend deploys via Cloudflare in ~1 min.
-2. On dev.nexus as an admin: **Roles & Access > External Users > Add External
-   User** - enroll ONE real guest (or a test Gmail you control) with the
-   default grants. This auto-creates the "External - Tasks (Editor) + Tickets
-   (Editor)" access group on first use.
-3. Run the 10-minute test script (section 6) against dev with that guest.
-4. **Release to prod** the normal way (PR dev -> main). Migrations self-apply
+2. Do the one-time **User.Invite.All** consent (section 2a step 3) so invites
+   can actually send.
+3. On dev.nexus as an admin: **Roles & Access > External Users > Invite
+   External User** - invite ONE test address (a Gmail you control) with the
+   default grants. This sends the Microsoft invite AND auto-creates the
+   "External - Tasks (Editor) + Tickets (Editor)" access group on first use.
+4. Run the 10-minute test script (section 6) against dev with that guest.
+5. **Release to prod** the normal way (PR dev -> main). Migrations self-apply
    on the prod deploy the same way.
-5. On prod: enroll the real 7-9 emails in Roles & Access > External Users
-   (after Visesh confirms the list - section 7). UI only, no SQL needed.
-   If you prefer SQL for bulk, the equivalent is: insert a `nexus_employees`
-   row per person with `identity_type='guest'`, `status='active'`,
-   `work_email=<invited email, lowercase>`, plus membership in the
-   External group - but the panel does all of this correctly in two clicks,
-   including cache invalidation, so use the panel.
-6. Add each person to the projects/tickets they should work: Tasks > project >
+6. On prod: invite the real 7-9 emails from Roles & Access > External Users
+   (after Visesh confirms the list - section 7). UI only, no SQL and no Entra
+   portal needed per person.
+7. Add each person to the projects/tickets they should work: Tasks > project >
    Share/members, or assign tasks to their email. Until they are added to
    something, their Tasks screen is simply empty (fail-closed).
+
+**Deactivating someone is Nexus-side only** - Deactivate on their row blocks
+their sign-in within ~60 seconds regardless of Entra. Deleting the Entra guest
+account afterwards (Entra > Users) is OPTIONAL cleanup, not required for
+lockout; do it when the relationship truly ends so the tenant stays tidy.
 
 ---
 
@@ -151,12 +182,18 @@ Backend
   resolver so cookie logins (what dev/prod actually use) resolve guests
   identically.
 - `backend/models.py` - `NexusEmployee` + `external_company`, `invited_by`,
-  `expires_at` (appended; used only on guest/external rows).
+  `expires_at`, `invite_status` (appended; used only on guest/external rows).
 - `backend/main.py` - the three ALTER lines in BOTH migration lists (SQLite +
   Postgres) + registers the new router.
 - `backend/routers/external_users.py` (new) - admin-gated CRUD:
   GET/POST `/external-users`, PATCH `/external-users/{email}`, GET
-  `/external-users/meta`. Grants restricted to the external-safe set
+  `/external-users/meta`, POST `/external-users/{email}/invite` (resend).
+  Enrolling ALSO sends the Entra B2B invitation via Graph
+  `POST /v1.0/invitations` (reusing `graph_mail.py`'s cached app-only token -
+  no second Graph client; sync endpoints run on FastAPI's threadpool so the
+  call never blocks the event loop). Graph failures never block enrollment:
+  the row is created, `invite_status` records sent/failed/manual, and the
+  response carries the exact remedy. Grants restricted to the external-safe set
   (tasks/tickets/documents/sop/external-links; viewer/editor only, never
   full/owner). Access flows through ONE auto-managed "External - ..." group
   per distinct grant set (visible/auditable in the Groups tab). Rejects
@@ -192,8 +229,10 @@ Frontend
   with the server's explanation, instead of a 23s retry spinner.
 - `frontend/src/views/ExternalUsersPanel.jsx` (new) + tab wired into
   `views/RolesAccess.jsx` - the admin panel: list (name, company, status,
-  expiry, grant pills), Add External User modal (email/name/company/expiry +
-  module checkboxes with Viewer/Editor), Edit, Deactivate/Reactivate.
+  invite-delivery pill, expiry, grant pills), Invite External User modal
+  (email/name/company/expiry + module checkboxes with Viewer/Editor; Send
+  Invite creates the row AND emails the Microsoft invitation), Resend Invite,
+  Edit, Deactivate/Reactivate.
 - `frontend/src/views/ExternalUsersPanel.test.jsx` (new) - render-smoke tests.
 
 Build/test status: backend 724/725 green (the one error is the pre-existing
@@ -203,8 +242,17 @@ guest-boundary -> deactivate end to end.
 
 ## 5. What remains / risks
 
-- **Not deployed, not committed** - everything sits in this worktree. Merge to
-  dev, then release to prod per section 3. No env vars, no RLS, no manual SQL.
+- **Committed on the worktree branch, not pushed/deployed.** Merge to dev,
+  then release to prod per section 3. No new env vars, no RLS, no manual SQL.
+- **One human step gates invite sending: the User.Invite.All admin consent**
+  (section 2a step 3). Until then every invite lands as Invite Failed with
+  that instruction; the allowlist rows still work, so a manually-invited
+  guest can sign in regardless.
+- Invitation emails come from Microsoft Invitations
+  (invites@microsoft.com), not a Greens mailbox - tell recipients to check
+  spam. The redirect after redemption uses `app_url()` (NEXUS_APP_URL /
+  WEBSITE_SITE_NAME), so dev invites land on dev.nexus and prod on
+  nexus.greensglobal.com automatically.
 - **Documents / Knowledge Base grants are org-visible.** The Documents module
   shows every shared-folder document to ANY grant holder (`documents._visible`),
   and KB likewise. They are grantable to externals but deliberately NOT in the
@@ -232,14 +280,17 @@ guest-boundary -> deactivate end to end.
 
 Need: one test external mailbox you can read (a personal Gmail works).
 
-1. Entra: invite the test address as a guest (section 2b). Open the invite
-   email, accept, complete the OTP/sign-in.
-2. Open dev.nexus BEFORE enrolling them in Nexus, sign in with that account:
-   expect to land back on the Nexus sign-in screen with the red "not set up
-   for Nexus" notice. (Default-deny proven.)
-3. As admin on dev.nexus: Roles & Access > External Users > Add External User
-   (same email, name, company "Test Co", default grants). Expect the row to
-   appear with Tasks/Tickets pills.
+1. As admin on dev.nexus: Roles & Access > External Users > Invite External
+   User (the test email, name, company "Test Co", default grants). Expect the
+   row to appear with an **Invite Sent** pill and Tasks/Tickets pills. If it
+   says **Invite Failed**, do the User.Invite.All consent (section 2a step 3)
+   and press **Resend Invite**.
+2. Open the invitation email in the test mailbox, accept, complete the
+   OTP/sign-in.
+3. Default-deny check: as admin, **Deactivate** the row; the guest refreshes
+   dev.nexus within a minute and lands back on the sign-in screen with the red
+   "deactivated" notice. **Reactivate** to continue. (A never-enrolled tenant
+   guest gets the same treatment - the allowlist row is the only door.)
 4. Sign in again as the guest: expect to land inside with ONLY Tasks and
    Tickets in the sidebar. Tasks list is empty (they're in nothing yet).
 5. As admin: assign any test task to the guest's email (or add them to a test
@@ -248,9 +299,8 @@ Need: one test external mailbox you can read (a personal Gmail works).
    see other people's tickets.
 7. As admin: check the bell - no change for managers; confirm the guest never
    shows up in any people picker (e.g. Items assign, HR).
-8. As admin: Deactivate the guest. Guest refreshes within a minute: bounced to
-   sign-in with "access has been deactivated". Reactivate if you want to keep
-   the account for prod-day comparison.
+8. As admin: press **Resend Invite** on the row - expect a "sent" toast and a
+   second redemption email in the test mailbox (idempotent re-invite proven).
 9. Supabase dev: run `get_advisors` - expect no new RLS findings.
 
 ## 7. ASK-VISESH (needed before enrolling the real people)

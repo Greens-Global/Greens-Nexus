@@ -9,13 +9,13 @@ const users = [
   {
     id: 'e1', email: 'jane.doe@acmeconstruction.com', firstName: 'Jane', lastName: 'Doe',
     name: 'Jane Doe', company: 'Acme Construction', status: 'active', identityType: 'guest',
-    invitedBy: 'admin@greensglobal.com', expiresAt: '', createdAt: '2026-08-17T00:00:00Z',
+    invitedBy: 'admin@greensglobal.com', inviteStatus: 'sent', expiresAt: '', createdAt: '2026-08-17T00:00:00Z',
     modules: [{ id: 'tasks', level: 'editor' }, { id: 'documents', level: 'viewer' }],
   },
   {
     id: 'e2', email: 'raj@osm.com', firstName: 'Raj', lastName: '', name: 'Raj',
     company: 'OSM', status: 'inactive', identityType: 'guest', invitedBy: '',
-    expiresAt: '2026-12-31', createdAt: '2026-08-17T00:00:00Z', modules: [],
+    inviteStatus: 'failed', expiresAt: '2026-12-31', createdAt: '2026-08-17T00:00:00Z', modules: [],
   },
 ];
 
@@ -30,12 +30,14 @@ const meta = {
   internalDomains: ['greensglobal.com'],
 };
 
+const resendExternalInvite = vi.fn(() => Promise.resolve({ inviteStatus: 'sent', inviteMessage: 'Invitation email sent by Microsoft.' }));
 vi.mock('../api', () => ({
   api: {
     getExternalUsers: () => Promise.resolve(users),
     getExternalUsersMeta: () => Promise.resolve(meta),
     updateExternalUser: vi.fn(() => Promise.resolve({})),
-    createExternalUser: vi.fn(() => Promise.resolve({})),
+    createExternalUser: vi.fn(() => Promise.resolve({ inviteStatus: 'sent', email: 'x@y.com' })),
+    resendExternalInvite: (...a) => resendExternalInvite(...a),
   },
 }));
 
@@ -49,12 +51,23 @@ describe('ExternalUsersPanel', () => {
     expect(screen.getByText('Tasks')).toBeTruthy();
     expect(screen.getByText('Deactivate')).toBeTruthy();
     expect(screen.getByText('Reactivate')).toBeTruthy();
+    // Invite delivery states are visible per row
+    expect(screen.getByText('Invite Sent')).toBeTruthy();
+    expect(screen.getByText('Invite Failed')).toBeTruthy();
+    expect(screen.getAllByText('Resend Invite').length).toBe(2);
   });
 
-  it('opens the add modal with the default grant set', async () => {
+  it('resends an invitation from the row action', async () => {
     render(<ExternalUsersPanel />);
     await waitFor(() => expect(screen.getByText('Jane Doe')).toBeTruthy());
-    fireEvent.click(screen.getByText('Add External User'));
+    fireEvent.click(screen.getAllByText('Resend Invite')[0]);
+    await waitFor(() => expect(resendExternalInvite).toHaveBeenCalledWith('jane.doe@acmeconstruction.com'));
+  });
+
+  it('opens the invite modal with the default grant set', async () => {
+    render(<ExternalUsersPanel />);
+    await waitFor(() => expect(screen.getByText('Jane Doe')).toBeTruthy());
+    fireEvent.click(screen.getByText('Invite External User'));
     expect(await screen.findByPlaceholderText('name@partnercompany.com')).toBeTruthy();
     // Default proposal pre-checked: tasks + tickets (editor)
     const checks = screen.getAllByRole('checkbox');

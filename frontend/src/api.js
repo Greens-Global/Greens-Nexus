@@ -717,6 +717,7 @@ export const api = {
   getExternalUsersMeta: ()            => req('/external-users/meta'),
   createExternalUser:   (data)        => req('/external-users', { method: 'POST', body: JSON.stringify(data) }),
   updateExternalUser:   (email, data) => req(`/external-users/${encodeURIComponent(email)}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  resendExternalInvite: (email)       => req(`/external-users/${encodeURIComponent(email)}/invite`, { method: 'POST' }),
 
   // Job Roles (Roles & Access redesign) - a job role is a group template with a tier
   getJobRoles:       ()                  => req('/jobroles'),

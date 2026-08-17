@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Plus, X, Loader2, Globe, Pencil, ShieldOff, ShieldCheck } from 'lucide-react';
+import { X, Loader2, Globe, Pencil, ShieldOff, ShieldCheck, Send, MailPlus } from 'lucide-react';
 import { api } from '../api';
 import { SkeletonBlocks } from '../components/AsyncState';
 import { formatDate } from '../lib/datetime';
@@ -22,6 +22,20 @@ function StatusBadge({ user }) {
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 10px', borderRadius: 20, fontSize: 10.5, fontWeight: 700, color: s.color, background: s.bg, whiteSpace: 'nowrap' }}>
       <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'currentColor' }} />{s.text}
+    </span>
+  );
+}
+
+// Entra invitation delivery state (stored server-side: sent/failed/manual).
+function InvitePill({ status }) {
+  if (!status) return null;
+  const s = status === 'sent' ? { text: 'Invite Sent', color: 'hsl(var(--color-green))', bg: 'hsla(var(--color-green),0.12)' }
+    : status === 'manual' ? { text: 'Invited Manually', color: 'var(--muted)', bg: 'color-mix(in srgb, var(--muted) 12%, transparent)' }
+      : { text: 'Invite Failed', color: 'hsl(var(--color-red))', bg: 'hsla(var(--color-red),0.10)' };
+  return (
+    <span title={status === 'failed' ? 'The Microsoft invitation email could not be sent - use Resend Invite after fixing the Graph permission, or invite manually in Entra.' : ''}
+      style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 10px', borderRadius: 20, fontSize: 10.5, fontWeight: 700, color: s.color, background: s.bg, whiteSpace: 'nowrap' }}>
+      {s.text}
     </span>
   );
 }
@@ -64,12 +78,10 @@ function ExternalUserModal({ initial, meta, onClose, onSaved }) {
     setSaving(true);
     try {
       const modules = [...grants].map(([id, level]) => ({ id, level }));
-      if (editing) {
-        await api.updateExternalUser(initial.email, { first_name: firstName, last_name: lastName, company, expires_at: expiresAt, modules });
-      } else {
-        await api.createExternalUser({ email: email.trim(), first_name: firstName, last_name: lastName, company, expires_at: expiresAt, modules });
-      }
-      onSaved();
+      const result = editing
+        ? await api.updateExternalUser(initial.email, { first_name: firstName, last_name: lastName, company, expires_at: expiresAt, modules })
+        : await api.createExternalUser({ email: email.trim(), first_name: firstName, last_name: lastName, company, expires_at: expiresAt, modules });
+      onSaved(result);
     } catch (e) {
       setError(e?.message || 'Could not save - try again.');
       setSaving(false);
@@ -80,13 +92,13 @@ function ExternalUserModal({ initial, meta, onClose, onSaved }) {
     <div style={{ position: 'fixed', inset: 0, zIndex: 1400, background: 'rgba(15,23,42,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 18 }} onClick={onClose}>
       <div style={{ width: 480, maxWidth: '100%', maxHeight: '90vh', overflowY: 'auto', background: 'var(--card)', borderRadius: 16, border: '1px solid var(--line)', padding: 24, fontFamily: 'Inter,sans-serif' }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-          <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--ink)' }}>{editing ? 'Edit External User' : 'Add External User'}</div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--ink)' }}>{editing ? 'Edit External User' : 'Invite External User'}</div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 4 }}><X size={17} /></button>
         </div>
 
         <div style={{ display: 'grid', gap: 13 }}>
           <div>
-            <span style={label}>Email (the address they will be invited with in Entra)</span>
+            <span style={label}>Email (the Microsoft invitation is sent to this address)</span>
             <input style={{ ...field, opacity: editing ? 0.6 : 1 }} type="email" value={email} disabled={editing}
               placeholder="name@partnercompany.com" onChange={e => setEmail(e.target.value)} />
           </div>
@@ -135,7 +147,7 @@ function ExternalUserModal({ initial, meta, onClose, onSaved }) {
               })}
             </div>
             <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 7, lineHeight: 1.5 }}>
-              External users only ever see these modules - no people pickers, no dashboards, no HR or company data. In Tasks and Tickets they see only items they are assigned to, following, or raised themselves. Documents and Knowledge Base show ALL shared company content to any grant holder - grant those only when that is intended. They must also be invited as a guest in Entra before they can sign in.
+              External users only ever see these modules - no people pickers, no dashboards, no HR or company data. In Tasks and Tickets they see only items they are assigned to, following, or raised themselves. Documents and Knowledge Base show ALL shared company content to any grant holder - grant those only when that is intended. Saving sends them a Microsoft invitation email automatically.
             </div>
           </div>
 
@@ -145,7 +157,7 @@ function ExternalUserModal({ initial, meta, onClose, onSaved }) {
             <button onClick={onClose} style={{ padding: '9px 18px', borderRadius: 9, border: '1px solid var(--line)', background: 'transparent', color: 'var(--ink)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>Cancel</button>
             <button className="primary-btn" onClick={save} disabled={saving} style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
               {saving && <Loader2 size={14} style={{ animation: 'spin 0.8s linear infinite' }} />}
-              {editing ? 'Save Changes' : 'Add External User'}
+              {editing ? 'Save Changes' : 'Send Invite'}
             </button>
           </div>
         </div>
@@ -182,6 +194,31 @@ export default function ExternalUsersPanel({ toastOk, toastErr }) {
     }
   };
 
+  const resendInvite = async (u) => {
+    setBusyEmail(u.email);
+    try {
+      const r = await api.resendExternalInvite(u.email);
+      if (r.inviteStatus === 'sent') toastOk?.(`Invitation email sent to ${u.email}`);
+      else if (r.inviteStatus === 'manual') toastOk?.(r.inviteMessage || 'Already in the Microsoft tenant - no invitation needed');
+      else toastErr?.(r.inviteMessage || 'The invitation could not be sent');
+      load();
+    } catch (e) {
+      toastErr?.(e?.message || 'The invitation could not be sent');
+    } finally {
+      setBusyEmail('');
+    }
+  };
+
+  // Enrollment saved; the invite outcome rides along on the create response.
+  const onModalSaved = (result) => {
+    setEditing(undefined);
+    if (result?.inviteStatus === 'sent') toastOk?.(`Invitation email sent to ${result.email}`);
+    else if (result?.inviteStatus === 'failed') toastErr?.(result.inviteMessage || 'Added, but the invitation email could not be sent - use Resend Invite after fixing the Microsoft Graph permission, or invite manually in Entra.');
+    else if (result?.inviteStatus === 'manual') toastOk?.(result.inviteMessage || 'Added - already in the Microsoft tenant, no invitation needed');
+    else toastOk?.('Saved');
+    load();
+  };
+
   if (error) return <div style={{ padding: 24, fontSize: 13.5, color: 'var(--muted)' }}>{error}</div>;
   if (!users) return <SkeletonBlocks count={3} height={64} />;
 
@@ -189,10 +226,10 @@ export default function ExternalUsersPanel({ toastOk, toastErr }) {
     <div>
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14, marginBottom: 16, flexWrap: 'wrap' }}>
         <div style={{ fontSize: 13, color: 'var(--muted)', maxWidth: 620, lineHeight: 1.55 }}>
-          Partner-company people who sign in with their own email as Microsoft guests. Someone invited in Entra can only open Nexus if they are listed here and active - and they only ever see the modules granted below. They never appear in people pickers or receive company-wide notifications.
+          Partner-company people who sign in with their own email as Microsoft guests. Inviting someone here sends them the Microsoft invitation email AND puts them on the Nexus allowlist - they only ever see the modules granted below, never appear in people pickers, and never receive company-wide notifications.
         </div>
         <button className="primary-btn" onClick={() => setEditing(null)} style={{ display: 'inline-flex', alignItems: 'center', gap: 7, flexShrink: 0 }}>
-          <Plus size={15} /> Add External User
+          <MailPlus size={15} /> Invite External User
         </button>
       </div>
 
@@ -201,7 +238,7 @@ export default function ExternalUsersPanel({ toastOk, toastErr }) {
           <Globe size={26} style={{ color: 'var(--muted)', marginBottom: 9 }} />
           <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)', marginBottom: 5 }}>No external users yet</div>
           <div style={{ fontSize: 12.5, color: 'var(--muted)', maxWidth: 380, margin: '0 auto', lineHeight: 1.5 }}>
-            Add each partner contact here, then invite the same email as a guest in Microsoft Entra so they can sign in.
+            Invite each partner contact here - they get a Microsoft invitation email and can then sign in with their own address.
           </div>
         </div>
       ) : (
@@ -209,9 +246,10 @@ export default function ExternalUsersPanel({ toastOk, toastErr }) {
           {users.map(u => (
             <div key={u.email} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '13px 16px', borderRadius: 13, border: '1px solid var(--line)', background: 'var(--card)', flexWrap: 'wrap' }}>
               <div style={{ minWidth: 190, flex: '1 1 190px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                   <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--ink)' }}>{u.name}</span>
                   <StatusBadge user={u} />
+                  <InvitePill status={u.inviteStatus} />
                 </div>
                 <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
                   {u.email}{u.company ? ` · ${u.company}` : ''}
@@ -223,7 +261,11 @@ export default function ExternalUsersPanel({ toastOk, toastErr }) {
                   ? u.modules.map(g => <GrantPill key={g.id} id={g.id} level={g.level} labelOf={labelOf} />)
                   : <span style={{ fontSize: 12, color: 'var(--muted)' }}>No modules granted</span>}
               </div>
-              <div style={{ display: 'flex', gap: 7, flexShrink: 0 }}>
+              <div style={{ display: 'flex', gap: 7, flexShrink: 0, flexWrap: 'wrap' }}>
+                <button onClick={() => resendInvite(u)} disabled={busyEmail === u.email} title="Send the Microsoft invitation email again"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 13px', borderRadius: 8, border: '1px solid var(--line)', background: 'transparent', color: 'var(--ink)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
+                  <Send size={13} /> Resend Invite
+                </button>
                 <button onClick={() => setEditing(u)} title="Edit access"
                   style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 13px', borderRadius: 8, border: '1px solid var(--line)', background: 'transparent', color: 'var(--ink)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
                   <Pencil size={13} /> Edit
@@ -248,7 +290,7 @@ export default function ExternalUsersPanel({ toastOk, toastErr }) {
       {editing !== undefined && (
         <ExternalUserModal initial={editing} meta={meta}
           onClose={() => setEditing(undefined)}
-          onSaved={() => { setEditing(undefined); toastOk?.('Saved'); load(); }} />
+          onSaved={onModalSaved} />
       )}
     </div>
   );

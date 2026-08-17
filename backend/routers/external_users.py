@@ -20,6 +20,7 @@ manager-broadcast notifications and never pollute org-wide people lists.
 import uuid
 from datetime import datetime, timezone
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional
@@ -157,6 +158,7 @@ def _serialize(db: Session, e: NexusEmployee) -> dict:
         "status": e.status or "active",
         "identityType": e.identity_type or "guest",
         "invitedBy": getattr(e, "invited_by", "") or "",
+        "inviteStatus": getattr(e, "invite_status", "") or "",
         "expiresAt": getattr(e, "expires_at", "") or "",
         "createdAt": e.created_at or "",
         "modules": _modules_for(db, email),
@@ -168,6 +170,87 @@ def _invalidate(email: str) -> None:
     invalidate_role_cache(email)
     cache.module_grants.invalidate(email)
     cache.people_directory.invalidate()
+
+
+# ── Entra B2B invitation via Microsoft Graph (Aug 18) ────────────────────────
+# Visesh: "I want people to invite from Nexus", not the Entra portal. Enrolling
+# a person here now ALSO sends the Microsoft invitation email, through the SAME
+# app-only Graph credentials the rest of the backend uses (graph_mail.py -
+# AZURE_TENANT_ID/AZURE_CLIENT_ID/AZURE_CLIENT_SECRET; one token fetch, never a
+# second Graph client). Needs the User.Invite.All APPLICATION permission with
+# admin consent on that app registration - without it Graph returns 403 and we
+# degrade gracefully (the allowlist row is still created, status 'failed', and
+# the panel tells the admin exactly what to fix or to invite manually).
+#
+# These endpoints are sync `def`s, so FastAPI already runs them on a threadpool
+# worker - the outbound Graph call never sits on the async event loop (the
+# CLAUDE.md rule; asyncio.to_thread would only be needed from an async context).
+
+_GRAPH_INVITES_URL = "https://graph.microsoft.com/v1.0/invitations"
+
+_CONSENT_HINT = ("The app registration is missing the 'User.Invite.All' application "
+                 "permission (Entra > App registrations > API permissions > Add a "
+                 "permission > Microsoft Graph > Application permissions > "
+                 "User.Invite.All > Grant admin consent), or invite them manually in "
+                 "Entra > Users > Invite external user.")
+
+
+def _invite_message(display_name: str) -> str:
+    first = (display_name or "").split(" ")[0] or "there"
+    return (f"Hi {first}, Greens Global is giving you access to Greens Global Nexus, "
+            "our company portal. Accept this invitation with this email address, then "
+            "sign in at the link to collaborate on the tasks and tickets shared with you.")
+
+
+def _send_entra_invite(email: str, display_name: str) -> tuple[str, str]:
+    """POST /v1.0/invitations for one guest. Returns (status, message) where
+    status is 'sent' | 'failed' | 'manual' - never raises, the caller stores
+    the outcome on the row either way. Re-inviting an existing guest is fine:
+    Graph accepts it and simply re-sends the redemption email (idempotent);
+    a genuine conflict (the address already exists as a MEMBER user, or the
+    tenant refuses the redemption) comes back as 'manual' with the reason."""
+    import graph_mail
+    from app_url import app_url
+
+    if not graph_mail.graph_configured():
+        return "failed", ("Microsoft Graph is not configured on this server "
+                          "(AZURE_CLIENT_SECRET missing) - invite them manually in Entra.")
+    try:
+        token = graph_mail.access_token()
+    except Exception as exc:
+        return "failed", f"Could not get a Microsoft Graph token: {exc}"
+
+    try:
+        resp = httpx.post(
+            _GRAPH_INVITES_URL,
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            json={
+                "invitedUserEmailAddress": email,
+                "invitedUserDisplayName": display_name or email,
+                "inviteRedirectUrl": app_url(),
+                "sendInvitationMessage": True,
+                "invitedUserMessageInfo": {
+                    "customizedMessageBody": _invite_message(display_name),
+                },
+            },
+            timeout=20,
+        )
+    except Exception as exc:
+        return "failed", f"Could not reach Microsoft Graph: {exc}"
+
+    if resp.status_code in (200, 201):
+        return "sent", "Invitation email sent by Microsoft."
+    if resp.status_code in (401, 403):
+        return "failed", "Microsoft refused the invitation. " + _CONSENT_HINT
+    body = ""
+    try:
+        body = (resp.json().get("error") or {}).get("message") or ""
+    except Exception:
+        body = (resp.text or "")[:200]
+    if resp.status_code == 409 or "conflict" in body.lower() or "already exists" in body.lower():
+        return "manual", ("This address already exists in the Microsoft tenant - no "
+                          "invitation is needed. " + body).strip()
+    return "failed", (f"Microsoft Graph returned {resp.status_code}: {body} - " + _CONSENT_HINT)
 
 
 # ── Schemas ──────────────────────────────────────────────────────────────────
@@ -256,9 +339,19 @@ def enroll_external_user(body: ExternalUserCreate,
     db.add(row)
     db.flush()
     _set_membership(db, email, modules, user["email"])
-    db.commit()
+    db.commit()   # the allowlist row exists no matter what the invite does next
     _invalidate(email)
-    return _serialize(db, row)
+
+    # Invite from Nexus (Aug 18): send the Entra B2B invitation as part of
+    # enrolling. Never fails the enrollment - a Graph problem is reported back
+    # (and stored on the row) so the admin can fix consent or invite manually.
+    status, message = _send_entra_invite(email, f"{row.first_name} {row.last_name}".strip())
+    row.invite_status = status
+    db.commit()
+
+    out = _serialize(db, row)
+    out["inviteMessage"] = message
+    return out
 
 
 @router.patch("/{email}")
@@ -293,3 +386,26 @@ def update_external_user(email: str, body: ExternalUserUpdate,
     db.commit()
     _invalidate(email)
     return _serialize(db, row)
+
+
+@router.post("/{email}/invite")
+def resend_invite(email: str, user: dict = Depends(require_administrator),
+                  db: Session = Depends(get_db)):
+    """Re-send the Entra B2B invitation for an enrolled external user.
+    Idempotent: Graph re-invites an existing pending guest by just re-sending
+    the redemption email. Updates the stored invite status either way."""
+    email = email.lower().strip()
+    row = (db.query(NexusEmployee)
+           .filter(func.lower(NexusEmployee.work_email) == email,
+                   NexusEmployee.identity_type.in_(_EXTERNAL_TYPES)).first())
+    if not row:
+        raise HTTPException(404, "External user not found")
+
+    status, message = _send_entra_invite(email, f"{row.first_name} {row.last_name}".strip())
+    row.invite_status = status
+    row.updated_at = _now()
+    db.commit()
+
+    out = _serialize(db, row)
+    out["inviteMessage"] = message
+    return out
