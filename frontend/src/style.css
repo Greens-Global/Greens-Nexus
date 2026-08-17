@@ -3519,12 +3519,12 @@ button, [role="button"], select { touch-action: manipulation; }
 
 .pdf-editor-module {
   width: 100%;
-  /* Now lives as a tab INSIDE Documents (not a flush top-level view), so it can't
-     rely on a `viewport-flush` parent to be tall. Size to the space left below the
-     Nexus top header (56px) and the Documents title + tab strip (~150px) so the
-     editor's toolbar and canvas always get real height. Once a doc is open,
-     `.has-doc` takes the whole viewport (App.jsx hides the header). */
-  height: calc(100vh - 206px);
+  /* PDF Tools now runs full-bleed inside Documents (Neil, Aug 2026): the
+     Documents title + tab strip are hidden, so the module only sits below the
+     Nexus top header (~56px). Fill the rest of the viewport - subtracting the
+     old ~206px left an empty gray band at the bottom that other modules don't
+     have. Once a doc is open, `.has-doc` takes the whole viewport. */
+  height: calc(100vh - 56px);
   min-height: 420px;  /* never collapse to a sliver on short windows */
   overflow: hidden;
   display: flex;

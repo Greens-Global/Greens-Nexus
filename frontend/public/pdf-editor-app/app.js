@@ -6788,6 +6788,98 @@
     }
     window.addPasswordTool = addPasswordTool;
 
+    // ── Unlock: remove the password / encryption from the open PDF ──
+    // The file is already decrypted in memory (the user supplied the password on
+    // open, or it was never encrypted). We reload with ignoreEncryption and save
+    // WITHOUT calling encrypt() - producing an unprotected copy. Fully local, no
+    // API. Mirrors iLovePDF's Unlock, minus the cloud.
+    async function unlockPdfTool() {
+        if (!state.pdfBytes) { showToast('Open a PDF first'); return; }
+        setStatus('Removing password...');
+        try {
+            const L = await encLib();
+            // ignoreEncryption lets pdf-lib load an encrypted file; saving without
+            // encrypt() strips the protection.
+            const doc = await L.PDFDocument.load(new Uint8Array(state.pdfBytes), { ignoreEncryption: true });
+            const bytes = await doc.save();
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+            a.download = state.fileName.replace(/\.pdf$/i, '') + '_unlocked.pdf';
+            a.click();
+            URL.revokeObjectURL(a.href);
+            setStatus('Saved unlocked PDF (no password)');
+            showToast('Saved an unlocked copy - the password has been removed');
+        } catch (err) {
+            console.error(err);
+            showToast('Could not unlock: ' + (err && err.message || 'unknown error'));
+            setStatus('Unlock failed');
+        }
+    }
+    window.unlockPdfTool = unlockPdfTool;
+
+    // ── PDF → Markdown: extract text as a .md file, using layout heuristics ──
+    // Fully local (pdf.js text extraction). Headings inferred from font size,
+    // paragraphs from vertical gaps, bullets kept. Not a perfect converter, but
+    // a clean, dependency-free Markdown export. Mirrors iLovePDF's PDF-to-Markdown.
+    async function exportMarkdownTool() {
+        if (!state.pdfDoc) { showToast('Open a PDF first'); return; }
+        setStatus('Converting to Markdown...');
+        try {
+            let md = '';
+            for (let i = 1; i <= state.totalPages; i++) {
+                setStatus('Reading page ' + i + '/' + state.totalPages + '...');
+                const page = await state.pdfDoc.getPage(i);
+                const tc = await page.getTextContent();
+                const items = (tc.items || []).filter(it => it.str && it.str.trim());
+                if (!items.length) continue;
+
+                // Group fragments into lines by baseline y, then join left-to-right.
+                const lines = [];
+                for (const it of items) {
+                    const y = it.transform[5], x = it.transform[4];
+                    const size = Math.max(6, Math.hypot(it.transform[2], it.transform[3]));
+                    let L = lines.find(l => Math.abs(l.y - y) < Math.max(2, size * 0.4));
+                    if (L) { L.parts.push({ x, str: it.str }); L.size = Math.max(L.size, size); }
+                    else lines.push({ y, size, parts: [{ x, str: it.str }] });
+                }
+                lines.sort((a, b) => b.y - a.y);
+                for (const l of lines) l.text = l.parts.sort((a, b) => a.x - b.x).map(p => p.str).join(' ').replace(/\s+/g, ' ').trim();
+
+                // Median size → heading thresholds. Bigger lines become headings.
+                const sizes = lines.map(l => l.size).sort((a, b) => a - b);
+                const med = sizes[Math.floor(sizes.length / 2)] || 12;
+
+                if (i > 1) md += '\n\n---\n\n'; // page break marker
+                let prevY = null;
+                for (const l of lines) {
+                    if (!l.text) continue;
+                    // Blank line between paragraphs when there's a big vertical gap.
+                    if (prevY !== null && (prevY - l.y) > l.size * 1.8) md += '\n';
+                    prevY = l.y;
+                    const t = l.text;
+                    if (l.size >= med * 1.6)      md += '# '   + t + '\n';
+                    else if (l.size >= med * 1.3) md += '## '  + t + '\n';
+                    else if (l.size >= med * 1.12) md += '### ' + t + '\n';
+                    else if (/^\s*[•·▪◦‣-]\s+/.test(t)) md += t.replace(/^\s*[•·▪◦‣]\s+/, '- ') + '\n';
+                    else md += t + '\n';
+                }
+            }
+            md = md.trim() + '\n';
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(new Blob([md], { type: 'text/markdown' }));
+            a.download = state.fileName.replace(/\.pdf$/i, '') + '.md';
+            a.click();
+            URL.revokeObjectURL(a.href);
+            setStatus('Saved Markdown (.md)');
+            showToast('Saved as Markdown');
+        } catch (err) {
+            console.error(err);
+            showToast('Could not convert to Markdown: ' + (err && err.message || 'unknown error'));
+            setStatus('Markdown export failed');
+        }
+    }
+    window.exportMarkdownTool = exportMarkdownTool;
+
     // ── 2. Compare two PDFs — per-page visual diff ──
     async function comparePdfsTool() {
         _exitScrollForOp();

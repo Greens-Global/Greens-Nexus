@@ -26,7 +26,7 @@ const TABS = [
   { key: 'documents-browse', label: 'My Documents', Icon: Folder },
   { key: 'documents-templates', label: 'Templates', Icon: LayoutTemplate },
   { key: 'documents-esign', label: 'E-Sign', Icon: FileSignature },
-  { key: 'documents-pdf', label: 'PDF Editor', Icon: FileText },
+  { key: 'documents-pdf', label: 'PDF Tools', Icon: FileText },
 ];
 
 export default function Documents({ activeSub, onSubChange }) {
@@ -47,12 +47,11 @@ export default function Documents({ activeSub, onSubChange }) {
   // When a PDF is open in the PDF Editor tab, the editor goes full-bleed
   // (App.jsx hides the Nexus header). Hide Documents' own title + tab strip too
   // so the editor gets the whole viewport, matching its old standalone mode.
-  const [pdfFullBleed, setPdfFullBleed] = useState(false);
-  useEffect(() => {
-    const onDocState = (e) => setPdfFullBleed(!!(e.detail && e.detail.hasDoc));
-    window.addEventListener('nexus:pdf-doc-state', onDocState);
-    return () => window.removeEventListener('nexus:pdf-doc-state', onDocState);
-  }, []);
+  // Full-bleed the moment the PDF Tools tab is active (Neil, Aug 2026): the
+  // Documents title + tab strip are redundant there and waste space, so PDF
+  // Tools takes over the whole content area right away - not only once a doc
+  // is open.
+  const pdfFullBleed = sub === 'documents-pdf';
 
   const [employees, setEmployees] = useState([]);
   const { data: entities = [] } = useEntities();

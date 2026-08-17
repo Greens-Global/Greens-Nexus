@@ -70,18 +70,16 @@ export default function PdfEditorModule() {
 
   return (
     <div className={`pdf-editor-module${hasDoc ? ' has-doc' : ''}`}>
-      {/* Every other module states itself inside the content area - icon chip,
-          title, one line of context, then a rule - and this one jumped straight
-          into a bare iframe, so it read as a different product (Visesh, Jul 30).
-          Hidden once a document is open, which is the existing full-bleed
-          editing mode. */}
+      {/* Module header - icon chip, title, one line of context - so PDF Tools
+          reads as part of Nexus, not a bare iframe. Hidden once a document is
+          open (full-bleed editing mode). */}
       {!hasDoc && (
         <header className="pdf-editor-head">
           <span className="pdf-editor-head-icon" aria-hidden="true">
             <FileText size={18} />
           </span>
           <div>
-            <h1>PDF Editor</h1>
+            <h1>PDF Tools</h1>
             <p>Edit, convert, sign and organize PDFs without leaving Nexus.</p>
           </div>
         </header>
