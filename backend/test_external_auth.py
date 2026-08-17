@@ -484,5 +484,74 @@ class TestRevocation(_Base):
             auth.SKIP_AUTH = True
 
 
+class TestCsrfGuard(_Base):
+    """Regression for the live Aug 18 dev bug: the BFF CSRF middleware
+    (main._bff_csrf_guard) rejected the activation page's very first call with
+    "CSRF token missing or invalid" whenever the browser already held SOMEONE'S
+    session cookie (Visesh was signed in as himself when he opened the guest's
+    activation link). This module's tests set bff_session.CLIENT_SECRET, so the
+    middleware is ACTIVE here - which is exactly why the original suite, which
+    never attached a cookie to these calls, missed it."""
+
+    def _some_session_cookie(self):
+        """Any live session cookie - simulates the admin's own login riding
+        along on the guest's pre-auth requests."""
+        db = database.SessionLocal()
+        try:
+            sid, _csrf = bff_session.create_passwordless_session(db, ADMIN)
+        finally:
+            db.close()
+        return sid
+
+    def test_full_activation_with_foreign_cookie_never_csrf_rejected(self):
+        self._enroll(phone="+14155551234")
+        token = self._token()
+        cookies = {bff_session.SESSION_COOKIE: self._some_session_cookie()}
+        # None of the pre-auth calls may 403 on CSRF, cookie or not
+        r = self.client.post("/external-auth/activate/lookup", json={"token": token}, cookies=cookies)
+        self.assertEqual(r.status_code, 200, r.text)
+        r = self.client.post("/external-auth/activate/send-code", json={"token": token}, cookies=cookies)
+        self.assertEqual(r.status_code, 200, r.text)
+        code = self.sent_sms[-1][1]
+        r = self.client.post("/external-auth/activate/verify", json={"token": token, "code": code}, cookies=cookies)
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertIn(bff_session.SESSION_COOKIE, r.cookies)   # fresh guest session issued
+        self.assertIn(bff_session.CSRF_COOKIE, r.cookies)      # ...WITH its CSRF cookie
+
+    def test_partner_login_with_foreign_cookie_never_csrf_rejected(self):
+        self._enroll()
+        token = self._token()
+        self.client.post("/external-auth/activate/send-code", json={"token": token, "channel": "email"})
+        self.client.post("/external-auth/activate/verify",
+                         json={"token": token, "code": self.sent_email[-1][1]})
+        self._age_all()
+        cookies = {bff_session.SESSION_COOKIE: self._some_session_cookie()}
+        r = self.client.post("/external-auth/request-code",
+                             json={"email": GUEST, "channel": "email"}, cookies=cookies)
+        self.assertEqual(r.status_code, 200, r.text)
+        r = self.client.post("/external-auth/login-verify",
+                             json={"email": GUEST, "code": self.sent_email[-1][1]}, cookies=cookies)
+        self.assertEqual(r.status_code, 200, r.text)
+
+    def test_exemption_is_tight_not_blanket(self):
+        """An AUTHENTICATED session posting to any NORMAL endpoint is still
+        CSRF-checked: cookie without the X-CSRF-Token header -> 403 from the
+        guard; with the matching header the guard passes (whatever the endpoint
+        itself then says, it is never the CSRF rejection)."""
+        db = database.SessionLocal()
+        try:
+            sid, csrf = bff_session.create_passwordless_session(db, ADMIN)
+        finally:
+            db.close()
+        cookies = {bff_session.SESSION_COOKIE: sid}
+        r = self.client.post("/notifications", json={"id": "x", "type": "t", "title": "t", "body": "b"},
+                             cookies=cookies)
+        self.assertEqual(r.status_code, 403, r.text)
+        self.assertEqual(r.json()["detail"], "CSRF token missing or invalid")
+        r = self.client.post("/notifications", json={"id": "x", "type": "t", "title": "t", "body": "b"},
+                             cookies=cookies, headers={"X-CSRF-Token": csrf})
+        self.assertNotEqual(r.json().get("detail"), "CSRF token missing or invalid")
+
+
 if __name__ == "__main__":
     unittest.main()

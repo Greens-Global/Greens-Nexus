@@ -1323,6 +1323,26 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Nexus API", lifespan=lifespan)
 
 
+# PRE-AUTH external passwordless endpoints (Aug 18): exempt from the CSRF
+# guard below, as a TIGHT path allowlist - never a blanket bypass. They run
+# BEFORE any session exists and are routinely opened from a browser that
+# already holds someone ELSE'S session cookie (the live bug: an admin opening
+# a guest's activation link carried the admin's cookie, and the guard rejected
+# the very first lookup with "CSRF token missing or invalid"). CSRF protects
+# COOKIE-AUTHENTICATED state changes; these endpoints ignore the cookie
+# entirely - their credentials and protections are the single-use hashed
+# invite token, the hashed one-time codes, and the DB-count rate limits
+# (routers/external_auth.py). The session-ISSUING responses still set the
+# CSRF cookie, so post-login requests pass the guard normally.
+_CSRF_EXEMPT_PATHS = frozenset({
+    "/external-auth/activate/lookup",
+    "/external-auth/activate/send-code",
+    "/external-auth/activate/verify",
+    "/external-auth/request-code",
+    "/external-auth/login-verify",
+})
+
+
 @app.middleware("http")
 async def _bff_csrf_guard(request, call_next):
     """CSRF enforcement for BFF cookie-authenticated writes. The browser sends the
@@ -1334,7 +1354,8 @@ async def _bff_csrf_guard(request, call_next):
     import bff_session
     if (bff_session.configured()
             and request.method in ("POST", "PUT", "PATCH", "DELETE")
-            and not request.url.path.startswith("/auth/")):
+            and not request.url.path.startswith("/auth/")
+            and request.url.path not in _CSRF_EXEMPT_PATHS):
         sid = request.cookies.get(bff_session.SESSION_COOKIE, "")
         if sid:   # a cookie-authenticated write -> require a matching CSRF token
             hdr = request.headers.get("X-CSRF-Token", "")
