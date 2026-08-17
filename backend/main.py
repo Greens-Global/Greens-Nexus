@@ -519,6 +519,10 @@ def _run_migrations():
             "ALTER TABLE nexus_employees ADD COLUMN expires_at VARCHAR DEFAULT ''",
             # External users (Aug 18): Entra invitation delivery state (sent/failed/manual)
             "ALTER TABLE nexus_employees ADD COLUMN invite_status VARCHAR DEFAULT ''",
+            # Asana attachment rescue (Aug 18): one-at-a-time guard + pre-rescue
+            # URL audit trail. See asana_rescue.py.
+            "ALTER TABLE asana_sync_config ADD COLUMN rescue_running_at VARCHAR DEFAULT ''",
+            "ALTER TABLE task_attachments ADD COLUMN original_asana_url VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -1094,6 +1098,10 @@ def _run_migrations():
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS expires_at VARCHAR DEFAULT ''",
         # External users (Aug 18): Entra invitation delivery state (sent/failed/manual)
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS invite_status VARCHAR DEFAULT ''",
+        # Asana attachment rescue (Aug 18): one-at-a-time guard + pre-rescue
+        # URL audit trail. See asana_rescue.py.
+        "ALTER TABLE asana_sync_config ADD COLUMN IF NOT EXISTS rescue_running_at VARCHAR DEFAULT ''",
+        "ALTER TABLE task_attachments ADD COLUMN IF NOT EXISTS original_asana_url VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
