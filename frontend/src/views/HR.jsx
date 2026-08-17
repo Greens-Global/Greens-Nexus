@@ -6,7 +6,7 @@ import {
   ChevronLeft, Network, CalendarOff, UserPlus, Pencil, FileText,
   CheckCircle, XCircle, ChevronRight, History, CalendarDays, Camera,
   Building2, Trash2, MapPinned, Wallet, Landmark, Lock, Contact, Heart,
-  ShieldCheck, Shield, AlertTriangle, Clock, ArrowUpRight, RotateCcw,
+  ShieldCheck, Shield, AlertTriangle, Clock, ArrowUpRight, RotateCcw, Globe,
 } from 'lucide-react';
 import { api } from '../api';
 import { formatDate } from '../lib/datetime';
@@ -21,6 +21,7 @@ import TimeAdmin from '../components/TimeAdmin';
 import ModuleTabs from '../components/ModuleTabs';
 import PhotoEditorModal from '../components/PhotoEditorModal';
 import RolesAccess, { LevelPill, ModuleLevelPill, TierBadge } from './RolesAccess';
+import ExternalUsersPanel from './ExternalUsersPanel';
 import { capabilityText } from '../lib/moduleCapabilities';
 import PersonHover from '../components/PersonHoverCard';
 import EgnytePersonFolder from '../egnyte/EgnytePersonFolder';
@@ -4164,7 +4165,7 @@ export default function HR({ activeSub, onSubChange }) {
   // Legacy subviews (hr-ms / hr-asana / …) all collapse into People for now.
   // E-Sign moved to its own top-level Documents module (Jul 2026); legacy
   // 'hr-esign*' deep-links are redirected there by the effect below.
-  const sub = ['hr-people', 'hr-hiring', 'hr-org', 'hr-leave', 'hr-time', 'hr-access'].includes(activeSub) ? activeSub : 'hr-people';
+  const sub = ['hr-people', 'hr-hiring', 'hr-org', 'hr-leave', 'hr-time', 'hr-external', 'hr-access'].includes(activeSub) ? activeSub : 'hr-people';
   const isMobile = useIsMobile();
 
   // Old notifications/URLs still point at hr/hr-esign* - bounce them to Documents
@@ -4269,7 +4270,14 @@ export default function HR({ activeSub, onSubChange }) {
 
   function load() {
     api.getEmployees()
-      .then(rows => { setEmployees(rows); setError(''); })
+      .then(rows => {
+        // External users (guest login accounts, Aug 18) live in the External
+        // tab, NOT the directory: excluding them here keeps the Total/Active/
+        // New joiners cards, the By department chart, org chart, and every
+        // list built on `employees` internal-only.
+        setEmployees(rows.filter(e => !['guest', 'external'].includes(e.identityType || 'internal')));
+        setError('');
+      })
       .catch(err => setError(err?.message || 'Could not load employees.'))
       .finally(() => setLoading(false));
   }
@@ -4289,6 +4297,13 @@ export default function HR({ activeSub, onSubChange }) {
   const loadSites = () => api.getWorkSites().then(setSites).catch(() => setSites([]));
   useEffect(load, []);
   useEffect(() => { loadEntities(); loadSites(); }, []);
+  // External tab badge = active externals (admin-only endpoint; non-admins
+  // never see the tab). The panel refreshes this count via onChanged.
+  const [extCount, setExtCount] = useState(0);
+  const countExternals = useCallback(rows => setExtCount((rows || []).filter(x => x.status === 'active').length), []);
+  useEffect(() => {
+    if (isAdmin) api.getExternalUsers().then(countExternals).catch(() => {});
+  }, [isAdmin, countExternals]);
   const entityName = id => entities.find(en => en.id === id)?.name || '';
 
   // Department filter choices are the departments actually in use, scoped to the
@@ -4367,6 +4382,10 @@ export default function HR({ activeSub, onSubChange }) {
     { key: 'hr-org',    label: 'Org Chart', Icon: Network },
     { key: 'hr-leave',  label: 'Leave',     Icon: CalendarOff },
     { key: 'hr-time',   label: 'Time',      Icon: Clock },
+    // External partner users (Visesh, Aug 18) - the tab is their primary home;
+    // they are deliberately absent from the directory/counts above. Admin-only,
+    // like the endpoint behind it.
+    ...(isAdmin ? [{ key: 'hr-external', label: 'External', Icon: Globe, badge: extCount }] : []),
     ...(isAdmin ? [{ key: 'hr-access', label: 'Roles & Access', Icon: Shield }] : []),
   ];
 
@@ -4430,6 +4449,9 @@ export default function HR({ activeSub, onSubChange }) {
       {sub === 'hr-org' && <OrgChartTab employees={employees} entities={entities} onUpdated={onSaved} toastOk={toastOk} toastErr={toastErr} />}
       {sub === 'hr-leave' && <LeaveTab employees={employees} toastOk={toastOk} toastErr={toastErr} />}
       {sub === 'hr-time' && <TimeAdmin employees={employees} toastOk={toastOk} toastErr={toastErr} />}
+      {sub === 'hr-external' && isAdmin && (
+        <ExternalUsersPanel toastOk={toastOk} toastErr={toastErr} onChanged={countExternals} />
+      )}
       {sub === 'hr-access' && isAdmin && <RolesAccess embedded />}
 
       {sub === 'hr-people' && (<>

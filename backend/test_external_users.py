@@ -494,9 +494,19 @@ class _FakeResp:
 
 
 class TestInviteFlow(_ExternalBase):
-    """The invite-from-Nexus path (Graph POST /invitations) with the HTTP layer
-    stubbed - success, 403 degradation, and the already-exists conflict. No
-    test ever reaches the real Microsoft Graph."""
+    """The LEGACY Graph B2B invite path (kept behind NEXUS_EXTERNAL_GRAPH_INVITE
+    as a transition fallback - the primary is now the branded Nexus email +
+    activation link, covered in test_external_auth.py). HTTP layer stubbed -
+    success, 403 degradation, and the already-exists conflict. No test ever
+    reaches the real Microsoft Graph."""
+
+    def setUp(self):
+        super().setUp()
+        os.environ["NEXUS_EXTERNAL_GRAPH_INVITE"] = "true"
+
+    def tearDown(self):
+        os.environ.pop("NEXUS_EXTERNAL_GRAPH_INVITE", None)
+        super().tearDown()
 
     def _enroll(self):
         return self.client.post("/external-users", json={

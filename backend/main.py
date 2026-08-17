@@ -36,7 +36,8 @@ from routers import branding  # Branding settings: login-screen accent color (Ju
 from routers import egnyte  # Egnyte module: browse/upload at the right folder level (Jul 2026)
 from routers import external_links  # External Links directory rebuild (Aug 2026) - own file, see its docstring
 from routers import link_layouts  # Per-user Links Module personalization overlay (Aug 13) - own file, see its docstring
-from routers import external_users  # External users (Entra B2B guest allowlist) admin CRUD (Aug 17)
+from routers import external_users  # External users (guest allowlist) admin CRUD (Aug 17)
+from routers import external_auth  # External passwordless auth: invite activation + code sign-in (Aug 18)
 from audit import AuditMiddleware
 
 
@@ -519,6 +520,8 @@ def _run_migrations():
             "ALTER TABLE nexus_employees ADD COLUMN expires_at VARCHAR DEFAULT ''",
             # External users (Aug 18): Entra invitation delivery state (sent/failed/manual)
             "ALTER TABLE nexus_employees ADD COLUMN invite_status VARCHAR DEFAULT ''",
+            # External passwordless login (Aug 18): phone OTP verification stamp
+            "ALTER TABLE nexus_employees ADD COLUMN phone_verified_at VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -1094,6 +1097,8 @@ def _run_migrations():
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS expires_at VARCHAR DEFAULT ''",
         # External users (Aug 18): Entra invitation delivery state (sent/failed/manual)
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS invite_status VARCHAR DEFAULT ''",
+        # External passwordless login (Aug 18): phone OTP verification stamp
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS phone_verified_at VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -1506,6 +1511,7 @@ app.include_router(groups.router)
 app.include_router(jobroles.router)
 app.include_router(access_scopes.router)
 app.include_router(external_users.router)  # External users: B2B-guest allowlist admin CRUD (Aug 17)
+app.include_router(external_auth.router)   # External passwordless auth - public: the emailed link/code IS the credential (Aug 18)
 app.include_router(qa.router)
 app.include_router(items_router.router)
 app.include_router(hr.router)
