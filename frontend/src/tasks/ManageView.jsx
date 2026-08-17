@@ -1216,18 +1216,16 @@ function FieldModal({ projects = [], field = null, onClose, onSave }) {
       <Field label="Name"><input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Story points, Location" style={inputStyle} /></Field>
       <Field label="Description"><input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Optional" style={inputStyle} /></Field>
       <Field label="Applies To">
-        <select value={appliesTo} onChange={(e) => setAppliesTo(e.target.value)} disabled={!!field}
-          style={{ ...selectStyle, opacity: field ? 0.6 : 1, cursor: field ? 'not-allowed' : 'pointer' }}>
+        <select value={appliesTo} onChange={(e) => setAppliesTo(e.target.value)} style={selectStyle}>
           {APPLIES_TO_OPTS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
-        {field && <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>Cannot change once tasks or projects hold values in it.</div>}
+        {field && <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>Switching this moves where the field shows up - any values already saved under the old kind stay stored but stop showing anywhere.</div>}
       </Field>
       <Field label="Type">
-        <select value={type} onChange={(e) => setType(e.target.value)} disabled={!!field}
-          style={{ ...selectStyle, opacity: field ? 0.6 : 1, cursor: field ? 'not-allowed' : 'pointer' }}>
+        <select value={type} onChange={(e) => setType(e.target.value)} style={selectStyle}>
           {FIELD_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
         </select>
-        {field && <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>Type cannot change once tasks hold values in it.</div>}
+        {field && <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>Switching this can leave existing values in the old kind's shape (e.g. a Select's saved option won't match a Text field) - check them after saving.</div>}
       </Field>
       {OPTION_TYPES.includes(type) && (
         <div>
