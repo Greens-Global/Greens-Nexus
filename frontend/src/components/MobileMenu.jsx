@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { X, ChevronRight, ChevronLeft, LogOut, Moon, Sun } from 'lucide-react';
 import { useMsal } from '@azure/msal-react';
 import { BFF_MODE, bffLogout } from '../bffAuth';
-import { useRole, ROLES } from '../contexts/RoleContext';
+import { useRole, ROLES, EXTERNAL_ROLE_META } from '../contexts/RoleContext';
 import { NAV } from './Sidebar';
 
 // Sub-screens per module - the same sub ids the views' tab strips use, so a
@@ -78,7 +78,8 @@ export default function MobileMenu({ open, onClose, onNavigate, activeView, them
   const account  = accounts[0];
   const name     = account?.name ?? 'User';
   const initials = name.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase();
-  const roleMeta = ROLES[myRole] ?? ROLES.employee;
+  // External guests read "External", never a tier name (Visesh, Aug 18).
+  const roleMeta = isExternal ? EXTERNAL_ROLE_META : (ROLES[myRole] ?? ROLES.employee);
 
   const [subPanel,   setSubPanel]   = useState(null); // { view, label }
   const [subClosing, setSubClosing] = useState(false);

@@ -736,7 +736,8 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
               <Avatar name={extRec?.name || nameOf(eff.email)} src={photoOf[eff.email]} size={34} />
               <h3 style={{ fontSize: 17, fontWeight: 800, flex: 1, minWidth: 140 }}>{extRec?.name || nameOf(eff.email)}</h3>
-              <TierBadge tier={eff.tier} />
+              {/* Externals are badged "External", never a tier name (Visesh, Aug 18). */}
+              {extRec ? <ExternalBadge /> : <TierBadge tier={eff.tier} />}
             </div>
 
             {/* External guest: invite state + lifecycle actions. Everything
@@ -769,6 +770,11 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
                 onDone={r => { setPromoteOpen(false); toastOk(`${nameOf(person)} is now “${r.name}”.`); refresh(); }} />
             )}
 
+            {/* Seniority tier is meaningless for externals: the server hard-caps
+                them at employee level regardless, so offering the override
+                selector would just mislead. The External section above already
+                labels what they are. */}
+            {!extRec && (<>
             <div style={sectLabel}>Seniority tier</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
               <TierBadge tier={eff.tier} />
@@ -791,6 +797,7 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
                 ? 'Set directly for this person - editing the job role’s tier won’t change them.'
                 : 'Follows their job role. Override it here to give this person a different tier while keeping them in the same role.'}
             </div>
+            </>)}
 
             <div style={sectLabel}>Extra groups - added on top</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>

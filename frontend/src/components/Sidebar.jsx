@@ -1,6 +1,6 @@
 import { forwardRef, useState, useEffect } from "react";
 import { useMsal } from "@azure/msal-react";
-import { useRole, ROLES } from "../contexts/RoleContext";
+import { useRole, ROLES, EXTERNAL_ROLE_META } from "../contexts/RoleContext";
 import { api } from "../api";
 import {
   LayoutDashboard, UserCheck, ShoppingCart, CheckSquare, BookOpen,
@@ -162,7 +162,8 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
   const displayName = account?.name ?? account?.username ?? "User";
   const initials    = displayName.split(" ").map(p => p[0]).slice(0, 2).join("").toUpperCase();
   const firstName   = displayName.split(" ")[0];
-  const roleLabel   = ROLES[myRole]?.label ?? 'Employee';
+  // External guests read "External", never a tier name (Visesh, Aug 18).
+  const roleLabel   = isExternal ? EXTERNAL_ROLE_META.label : (ROLES[myRole]?.label ?? 'Employee');
 
   function renderIcon(item, size = 17) {
     return item.icon
