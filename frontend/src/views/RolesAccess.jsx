@@ -1,8 +1,9 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Shield, Plus, X, Search, Loader2, Pencil, Trash2, UserPlus, Check, ChevronRight, ChevronDown,
-  LayoutGrid, Copy, MonitorOff, PlayCircle, Users, User, TrendingUp,
+  LayoutGrid, Copy, MonitorOff, PlayCircle, Users, User, TrendingUp, Globe,
 } from 'lucide-react';
+import ExternalUsersPanel from './ExternalUsersPanel';
 import { api } from '../api';
 import { dialog } from '../ui/dialog';
 import { usePeopleDirectory } from '../lib/queries';
@@ -93,7 +94,7 @@ function bundleSummary(allowed) {
   return parts.join('  ·  ') || 'No access yet';
 }
 
-const TABS = [['people', 'People', User], ['jobroles', 'Roles', Shield], ['groups', 'Groups', Users], ['audit', 'Audit', LayoutGrid]];
+const TABS = [['people', 'People', User], ['jobroles', 'Roles', Shield], ['groups', 'Groups', Users], ['external', 'External Users', Globe], ['audit', 'Audit', LayoutGrid]];
 
 export default function RolesAccess({ embedded = false }) {
   const { can, assignRole, myLevel } = useRole();
@@ -540,6 +541,11 @@ export default function RolesAccess({ embedded = false }) {
             <div style={{ padding: '12px 2px', fontSize: 12, color: 'var(--muted)' }}>Groups only ever add access on top of a job role. Add or remove people from the People tab.</div>
           </>
         )
+      )}
+
+      {/* ── EXTERNAL USERS (Entra B2B guest allowlist, Aug 17) ── */}
+      {sub === 'external' && (
+        <ExternalUsersPanel toastOk={toastOk} toastErr={toastErr} />
       )}
 
       {/* ── AUDIT (tamed matrix) ── */}

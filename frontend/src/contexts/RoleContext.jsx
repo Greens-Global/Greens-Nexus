@@ -78,6 +78,10 @@ export function RoleProvider({ children }) {
   const [allRoles,  setAllRoles]  = useState({});   // { email: role }
   const [loading,   setLoading]   = useState(true);
   const [groups,    setGroups]    = useState([]);   // [{ id, name, department, allowed_modules, members, ... }]
+  // External (Entra B2B guest) accounts see ONLY their granted modules -
+  // Sidebar and ProtectedView narrow on this flag (server enforces the same
+  // boundary in auth.apply_external_policy; this is just matching UI).
+  const [isExternal, setIsExternal] = useState(false);
 
   // ── Act As (Jul 2026) ──────────────────────────────────────────────────────
   // { sessionId, targetEmail, targetName, expiresAt } while impersonating, else
@@ -129,6 +133,7 @@ export function RoleProvider({ children }) {
         .then(data => {
           if (!cancelled) {
             setMyRole(data.role ?? 'employee');
+            setIsExternal(!!data.is_external);
             setLoading(false);
           }
         })
@@ -321,7 +326,7 @@ export function RoleProvider({ children }) {
 
   return (
     <RoleCtx.Provider value={{
-      myRole, myEmail, realEmail, loading,
+      myRole, myEmail, realEmail, loading, isExternal,
       allRoles, getRole, refreshAllRoles,
       can, assignRole, ROLES,
       groups, refreshGroups, createGroup, updateGroup, deleteGroup,

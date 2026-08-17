@@ -34,6 +34,15 @@ const ACCENT_PALETTES = {
 export default function LoginPage() {
   const { instance } = useMsal();
   const [on, setOn] = useState(false);
+  // One-shot notice for an account Nexus refused (external allowlist, Aug 17):
+  // the person authenticated with Microsoft but isn't enrolled/active in Nexus.
+  const [denied] = useState(() => {
+    try {
+      const d = sessionStorage.getItem('nexus:access-denied') || '';
+      sessionStorage.removeItem('nexus:access-denied');
+      return d;
+    } catch { return ''; }
+  });
   const { data: branding } = useBranding();
   const accent = branding?.accent === "blue" ? "blue" : "green";
 
@@ -102,6 +111,12 @@ export default function LoginPage() {
           <p className="nxl-sub" style={{ "--i": 2 }}>
             Sign in with your work account to continue.
           </p>
+
+          {denied && (
+            <p role="alert" style={{ margin: '0 0 14px', padding: '10px 14px', borderRadius: 10, background: '#fef2f2', border: '1px solid #fecaca', color: '#b91c1c', fontSize: 13, lineHeight: 1.5, maxWidth: 340 }}>
+              {denied}
+            </p>
+          )}
 
           <button className="nxl-cta" style={{ "--i": 3 }} onClick={signIn}>
             <svg width="18" height="18" viewBox="0 0 21 21" fill="none" aria-hidden="true">

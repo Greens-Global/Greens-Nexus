@@ -181,9 +181,16 @@ def people_directory(user: dict = Depends(get_current_user), db: Session = Depen
     cached = cache.people_directory.get("all")
     if cached is not None:
         return cached
+    # External users (Aug 17) are excluded: guest/external identities must
+    # never appear in people pickers, assignment lists, or any org-wide people
+    # surface built on this directory. NULL-safe: legacy rows have no
+    # identity_type, and `notin_` alone would silently drop them too.
+    from sqlalchemy import or_
     rows = (db.query(NexusEmployee)
               .filter(NexusEmployee.status != "offboarded")
               .filter(NexusEmployee.work_email != "")
+              .filter(or_(NexusEmployee.identity_type.is_(None),
+                          NexusEmployee.identity_type.notin_(("guest", "external"))))
               .order_by(NexusEmployee.first_name, NexusEmployee.last_name).all())
     # company is the ENTITY ID on the employee row; resolve the display name once
     # so pickers can offer company/department filters without an HR-gated call.

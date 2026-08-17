@@ -36,6 +36,7 @@ from routers import branding  # Branding settings: login-screen accent color (Ju
 from routers import egnyte  # Egnyte module: browse/upload at the right folder level (Jul 2026)
 from routers import external_links  # External Links directory rebuild (Aug 2026) - own file, see its docstring
 from routers import link_layouts  # Per-user Links Module personalization overlay (Aug 13) - own file, see its docstring
+from routers import external_users  # External users (Entra B2B guest allowlist) admin CRUD (Aug 17)
 from audit import AuditMiddleware
 
 
@@ -499,6 +500,10 @@ def _run_migrations():
             "INSERT INTO external_link_taxonomy (id,kind,name,sort_order,created_at) SELECT 'cat-hr-payroll','category','HR & Payroll',3,'' WHERE NOT EXISTS (SELECT 1 FROM external_link_taxonomy WHERE kind='category' AND name='HR & Payroll')",
             "INSERT INTO external_link_taxonomy (id,kind,name,sort_order,created_at) SELECT 'cat-productivity','category','Productivity',4,'' WHERE NOT EXISTS (SELECT 1 FROM external_link_taxonomy WHERE kind='category' AND name='Productivity')",
             "INSERT INTO external_link_taxonomy (id,kind,name,sort_order,created_at) SELECT 'cat-reference-support','category','Reference & Support',5,'' WHERE NOT EXISTS (SELECT 1 FROM external_link_taxonomy WHERE kind='category' AND name='Reference & Support')",
+            # External users (Aug 17): B2B-guest allowlist metadata on the person row
+            "ALTER TABLE nexus_employees ADD COLUMN external_company VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_employees ADD COLUMN invited_by VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_employees ADD COLUMN expires_at VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -1059,6 +1064,10 @@ def _run_migrations():
         "INSERT INTO external_link_taxonomy (id,kind,name,sort_order,created_at) SELECT 'cat-hr-payroll','category','HR & Payroll',3,'' WHERE NOT EXISTS (SELECT 1 FROM external_link_taxonomy WHERE kind='category' AND name='HR & Payroll')",
         "INSERT INTO external_link_taxonomy (id,kind,name,sort_order,created_at) SELECT 'cat-productivity','category','Productivity',4,'' WHERE NOT EXISTS (SELECT 1 FROM external_link_taxonomy WHERE kind='category' AND name='Productivity')",
         "INSERT INTO external_link_taxonomy (id,kind,name,sort_order,created_at) SELECT 'cat-reference-support','category','Reference & Support',5,'' WHERE NOT EXISTS (SELECT 1 FROM external_link_taxonomy WHERE kind='category' AND name='Reference & Support')",
+        # External users (Aug 17): B2B-guest allowlist metadata on the person row
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS external_company VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS invited_by VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS expires_at VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -1470,6 +1479,7 @@ app.include_router(audit.router)
 app.include_router(groups.router)
 app.include_router(jobroles.router)
 app.include_router(access_scopes.router)
+app.include_router(external_users.router)  # External users: B2B-guest allowlist admin CRUD (Aug 17)
 app.include_router(qa.router)
 app.include_router(items_router.router)
 app.include_router(hr.router)

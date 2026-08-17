@@ -672,6 +672,15 @@ class NexusEmployee(Base):
     # each call site remembering to filter.
     deleted_at      = Column(String, default="")
     deleted_by      = Column(String, default="")
+    # External users (Aug 17): metadata for the B2B-guest login allowlist. Only
+    # meaningful on identity_type='guest'/'external' rows. external_company is
+    # the partner org's display name (free text - NOT an HrEntity id, external
+    # orgs are not legal entities of ours); invited_by is the admin who enrolled
+    # them; expires_at (ISO date) optionally auto-expires their sign-in
+    # (checked in auth.apply_external_policy).
+    external_company = Column(String, default="")
+    invited_by       = Column(String, default="")
+    expires_at       = Column(String, default="")
 
 
 class HrRemovedIdentity(Base):

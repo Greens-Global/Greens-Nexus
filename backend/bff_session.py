@@ -139,14 +139,11 @@ def refresh_tokens(refresh_token: str) -> dict:
 
 # ── identity ──────────────────────────────────────────────────────────────────
 def normalize_email(claims: dict) -> str:
-    """Same canonical-identity rule as the Bearer path (auth.get_current_user):
-    the @greensg.onmicrosoft.com UPN is rewritten to the primary @greensglobal.com
-    so a user never splits into two identities."""
-    email = (claims.get("preferred_username") or claims.get("upn")
-             or claims.get("unique_name") or claims.get("email") or "").lower().strip()
-    if email.endswith("@greensg.onmicrosoft.com"):
-        email = email.split("@")[0] + "@greensglobal.com"
-    return email
+    """Same canonical-identity rules as the Bearer path - ONE shared resolver
+    (auth.email_from_claims) so the onmicrosoft rewrite AND the B2B-guest
+    #EXT# un-mangling behave identically on both auth paths."""
+    from auth import email_from_claims
+    return email_from_claims(claims)
 
 
 def _decode_id_claims(id_token: str) -> dict:

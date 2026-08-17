@@ -74,7 +74,7 @@ export const SUBMENUS = {
 // over the left-slid menu (adidas criss-cross); back slides it out again.
 export default function MobileMenu({ open, onClose, onNavigate, activeView, theme, onThemeToggle }) {
   const { instance, accounts } = useMsal();
-  const { myRole, can, myGrantedModules } = useRole();
+  const { myRole, can, myGrantedModules, isExternal } = useRole();
   const account  = accounts[0];
   const name     = account?.name ?? 'User';
   const initials = name.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase();
@@ -110,8 +110,11 @@ export default function MobileMenu({ open, onClose, onNavigate, activeView, them
       ? <svg className="material-symbol-svg" viewBox="0 -960 960 960" style={{ width: size, height: size, flexShrink: 0 }}><path d={item.svgPath} /></svg>
       : null;
 
-  // Mirror the sidebar: grant-driven visibility below admin (Jun 17).
-  const visible = NAV.filter(item => item.divider || !item.minRole || can?.('administrator') || myGrantedModules?.has(item.view));
+  // Mirror the sidebar: grant-driven visibility below admin (Jun 17);
+  // external (B2B guest) accounts see ONLY their granted modules (Aug 17).
+  const visible = NAV.filter(item => isExternal
+    ? (!item.divider && myGrantedModules?.has(item.view))
+    : (item.divider || !item.minRole || can?.('administrator') || myGrantedModules?.has(item.view)));
   const go = (id, sub = null) => { onNavigate(id, sub); onClose(); };
   const openRow = item => {
     const subs = subsFor(item.view);

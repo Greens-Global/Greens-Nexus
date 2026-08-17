@@ -69,7 +69,13 @@ def get_my_role(
     """Return the caller's role - identity is taken from the verified token, never from a param."""
     _seed_if_empty(db)
     role = _get_role(user["email"], db)
-    return {"email": user["email"], "role": role}
+    # is_external: set by auth.apply_external_policy for allowlisted B2B guests.
+    # The frontend uses it to narrow the sidebar/routes to granted modules only.
+    # Externals are also hard-capped at employee level server-side, so report
+    # that cap here rather than any stray nexus_roles row.
+    if user.get("external"):
+        return {"email": user["email"], "role": "employee", "is_external": True}
+    return {"email": user["email"], "role": role, "is_external": False}
 
 
 @router.get("")

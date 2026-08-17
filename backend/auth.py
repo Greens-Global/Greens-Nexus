@@ -17,6 +17,19 @@ ISSUER    = f"https://login.microsoftonline.com/{TENANT_ID}/v2.0"
 # Set NEXUS_SKIP_AUTH=true in local .env to bypass token checks during development
 SKIP_AUTH = os.getenv("NEXUS_SKIP_AUTH", "").lower() in ("1", "true", "yes")
 
+# ── External users (Entra B2B guests, Aug 17) ────────────────────────────────
+# Company domains. A signed-in identity on one of these domains is an employee
+# and keeps today's behavior exactly. Any OTHER domain is an external candidate
+# and must exist as an ACTIVE guest/external row in nexus_employees (allowlist,
+# default-deny) - being invited as an Entra tenant guest alone never grants
+# Nexus access. Comma-separated env override for future company domains.
+INTERNAL_DOMAINS = tuple(
+    d.strip().lower()
+    for d in os.getenv("NEXUS_INTERNAL_DOMAINS",
+                       "greensglobal.com,greensg.onmicrosoft.com").split(",")
+    if d.strip()
+)
+
 _jwks_cache: dict = {"keys": None, "at": 0.0}
 
 
@@ -88,6 +101,50 @@ def invalidate_role_cache(email: str | None = None) -> None:
         _role_cache.clear()
 
 
+def email_from_claims(claims: dict) -> str:
+    """Resolve the canonical Nexus identity email from Entra ID token claims.
+    Shared by the Bearer path here and the BFF cookie path
+    (bff_session.normalize_email) so both resolve identically.
+
+    Employees: Azure AD puts the UPN in several possible claims - same priority
+    order as always, so existing identities never shift.
+
+    Entra B2B guests: their UPN in OUR tenant is a mangled form like
+    "jane_gmail.com#EXT#@greensg.onmicrosoft.com", and which claim carries the
+    real invited address varies by account type. Resolve deterministically to
+    the INVITED email (the address the admin allowlisted): prefer a plain
+    email/unique_name claim, else un-mangle the #EXT# UPN (the last "_" in the
+    local part was the "@" of the original address)."""
+    email = (
+        claims.get("preferred_username")
+        or claims.get("upn")
+        or claims.get("unique_name")
+        or claims.get("email")
+        or ""
+    ).lower().strip()
+
+    if "#ext#" in email:
+        for key in ("email", "unique_name", "preferred_username"):
+            v = (claims.get(key) or "").lower().strip()
+            if v and "@" in v and "#ext#" not in v:
+                email = v
+                break
+        else:
+            local = email.split("#ext#", 1)[0]
+            if "_" in local:
+                user, _, domain = local.rpartition("_")
+                email = f"{user}@{domain}"
+
+    # Canonical identity: some accounts sign in with the tenant-default
+    # @greensg.onmicrosoft.com UPN, but Nexus People (and every module's
+    # actor/notification records) key on the primary @greensglobal.com address of
+    # the SAME account. Without this rewrite those users split into two identities
+    # (Jul 24).
+    if email.endswith("@greensg.onmicrosoft.com"):
+        email = email.split("@")[0] + "@greensglobal.com"
+    return email
+
+
 def _email_from_bearer(authorization: str) -> str:
     """Existing SPA/Bearer path: validate a client-supplied Entra ID token and
     return the caller's canonical email. Raises 401 if missing/invalid."""
@@ -103,23 +160,7 @@ def _email_from_bearer(authorization: str) -> str:
     except pyjwt.PyJWTError as exc:
         raise HTTPException(status_code=401, detail=f"Invalid token: {exc}")
 
-    # Azure AD puts the UPN in several possible claims
-    email = (
-        claims.get("preferred_username")
-        or claims.get("upn")
-        or claims.get("unique_name")
-        or claims.get("email")
-        or ""
-    ).lower().strip()
-
-    # Canonical identity: some accounts sign in with the tenant-default
-    # @greensg.onmicrosoft.com UPN, but Nexus People (and every module's
-    # actor/notification records) key on the primary @greensglobal.com address of
-    # the SAME account. Without this rewrite those users split into two identities
-    # (Jul 24). The BFF path applies the same rule in bff_session.normalize_email.
-    if email.endswith("@greensg.onmicrosoft.com"):
-        email = email.split("@")[0] + "@greensglobal.com"
-
+    email = email_from_claims(claims)
     if not email:
         raise HTTPException(status_code=401, detail="Token contains no identifiable email claim")
     return email
@@ -153,6 +194,134 @@ def _email_from_session(request: Request) -> str:
         raise HTTPException(status_code=503, detail="Session store unavailable, retry shortly")
     except Exception:
         return ""
+
+
+# ── External-user policy (Entra B2B guest allowlist) ─────────────────────────
+# get_current_user runs on every request, so the external lookup is cached the
+# same way the role is. The cache stores one of:
+#   None              → no nexus_employees row for this email at all
+#   {"external": False}   → an internal employee row (normal user)
+#   {"external": True, ...} → a guest/external allowlist row + its status/expiry
+_EXT_CACHE_TTL = 60.0
+_ext_cache: dict[str, tuple] = {}
+
+
+def _external_record(email: str):
+    key = email.lower()
+    cached = _ext_cache.get(key)
+    if cached and time.time() - cached[1] < _EXT_CACHE_TTL:
+        return cached[0]
+    from sqlalchemy import func
+    from models import NexusEmployee
+    db = SessionLocal()
+    try:
+        emp = (db.query(NexusEmployee)
+               .filter(func.lower(NexusEmployee.work_email) == key).first())
+    finally:
+        db.close()
+    if not emp:
+        rec = None
+    elif (emp.identity_type or "internal") in ("guest", "external"):
+        rec = {"external": True, "status": emp.status or "active",
+               "expires_at": (getattr(emp, "expires_at", "") or "").strip()}
+    else:
+        rec = {"external": False}
+    _ext_cache[key] = (rec, time.time())
+    return rec
+
+
+def invalidate_external_cache(email: str | None = None) -> None:
+    """Call after enrolling/deactivating an external user so it takes effect
+    immediately instead of after the cache TTL."""
+    if email:
+        _ext_cache.pop(email.lower(), None)
+    else:
+        _ext_cache.clear()
+
+
+# API surface every signed-in external user needs just for the app shell to
+# function (identity, bell, own group memberships for sidebar gating, the
+# people directory for name resolution - externals are EXCLUDED from its rows).
+_EXTERNAL_BASE_PREFIXES = (
+    "/roles/me", "/notifications", "/groups", "/myhr/directory",
+    "/branding", "/help", "/client-errors", "/policy", "/stepup", "/auth/",
+    "/version", "/health",
+)
+
+# Module grant -> the API prefixes that grant opens for an EXTERNAL user. A
+# module absent from this map stays closed to externals even if a group grants
+# it - opening a new module to externals is a deliberate act: add its paths
+# here after checking what data those endpoints expose org-wide.
+EXTERNAL_MODULE_PREFIXES = {
+    "tasks":          ("/task",),          # /tasks, /task-tickets, /task-projects, /task-* family
+    "tickets":        ("/task",),
+    "documents":      ("/documents",),
+    "sop":            ("/knowledge-base", "/sop-updates", "/lms-"),
+    "external-links": ("/external-links", "/link-layout"),
+}
+
+# The only modules an admin may grant to an external user at all (validated by
+# routers/external_users.py). Everything else is internal-only by design.
+EXTERNAL_SAFE_MODULES = tuple(EXTERNAL_MODULE_PREFIXES.keys())
+
+
+def apply_external_policy(request: Request, user: dict) -> dict:
+    """Default-deny gate for non-employee identities, applied to EVERY resolved
+    request identity (Bearer, BFF cookie, and Act As targets):
+
+    - Internal-domain emails and enrolled employee rows pass through unchanged -
+      employees keep working exactly as today.
+    - An email on a non-company domain with NO allowlist row is rejected: being
+      an Entra tenant guest alone must never grant Nexus access.
+    - An allowlisted guest/external must be active and unexpired, is hard-capped
+      at employee level (so manager-only broadcasts and bypasses can never reach
+      them, even if a nexus_roles row slips in), and may only touch the API
+      surface their module grants map to (fail-closed path allowlist)."""
+    email = user["email"]
+    rec = _external_record(email)
+
+    if rec is None:
+        domain = email.rpartition("@")[2]
+        if domain in INTERNAL_DOMAINS or SKIP_AUTH:
+            return user
+        raise HTTPException(
+            status_code=403,
+            detail="This account is not set up for Nexus. Ask your Greens Global contact to add you as an external user.")
+
+    if not rec["external"]:
+        return user
+
+    if (rec["status"] or "active") != "active":
+        raise HTTPException(
+            status_code=403,
+            detail="Your external access has been deactivated. Contact your Greens Global contact.")
+    exp = rec["expires_at"]
+    if exp:
+        from datetime import datetime, timezone as _tz
+        if exp[:10] < datetime.now(_tz.utc).date().isoformat():
+            raise HTTPException(
+                status_code=403,
+                detail="Your external access has expired. Contact your Greens Global contact.")
+
+    # Never elevated, regardless of any nexus_roles row.
+    user = {**user, "role": "employee", "level": 1, "external": True}
+
+    path = request.url.path if request is not None else ""
+    if path.startswith(_EXTERNAL_BASE_PREFIXES):
+        return user
+    db = SessionLocal()
+    try:
+        grants = _grants_for(email, db)
+    finally:
+        db.close()
+    allowed = any(
+        path.startswith(prefix)
+        for module_id in grants
+        for prefix in EXTERNAL_MODULE_PREFIXES.get(module_id, ())
+    )
+    if not allowed:
+        raise HTTPException(status_code=403, detail="External accounts don't have access to this area.")
+    return user
 
 
 def get_current_user(
@@ -205,9 +374,12 @@ def get_current_user(
         finally:
             db2.close()
         if target:
-            return target
+            return apply_external_policy(request, target)
 
-    return {"email": email, "role": role, "level": level}
+    # External-user gate (Aug 17): default-deny for non-employee identities.
+    # Employees resolve to a pass-through here (cached), so this adds no DB
+    # round trip to the hot path within the cache TTL.
+    return apply_external_policy(request, {"email": email, "role": role, "level": level})
 
 
 def require_level(min_level: int):

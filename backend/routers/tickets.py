@@ -51,6 +51,11 @@ def _has_desk_grant(user: dict, db: Session) -> bool:
     """Whether this caller may see the desk side. The dependency form raises;
     this is the boolean the scoped endpoints branch on."""
     from auth import _grants_for, _LEVELS, _MODULE_LEVEL_RANK
+    # External (B2B guest) users are NEVER desk agents, whatever their grant
+    # level says - the unscoped list is the whole company's queue. Their grant
+    # opens the module; here they stay participants-only (their own tickets).
+    if user.get("external"):
+        return False
     if user.get("level", 0) >= _LEVELS["administrator"]:
         return True
     grants = _grants_for(user.get("email") or "", db)
