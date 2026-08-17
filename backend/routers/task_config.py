@@ -565,7 +565,8 @@ def custom_field_to_dict(f: models.TaskCustomField) -> dict:
     return {"id": f.id, "name": f.name, "description": _nz(f.description), "type": f.type or "text",
             "options": normalize_field_options(f.options if isinstance(f.options, list) else []),
             "projectIds": [p for p in (f.project_ids or []) if p],
-            "required": bool(f.required), "readOnly": bool(f.read_only)}
+            "required": bool(f.required), "readOnly": bool(f.read_only),
+            "appliesTo": f.applies_to if f.applies_to in ("task", "project") else "task"}
 
 
 class CustomFieldBody(BaseModel):
@@ -577,6 +578,7 @@ class CustomFieldBody(BaseModel):
     project_ids: Optional[list] = None
     required: Optional[bool] = None
     read_only: Optional[bool] = None
+    applies_to: Optional[str] = "task"
 
 
 @router.get("/task-custom-fields")
@@ -590,7 +592,8 @@ def create_custom_field(body: CustomFieldBody, db: Session = Depends(get_db)):
                                type=body.type or "text",
                                options=normalize_field_options(body.options or []),
                                project_ids=[p for p in (body.project_ids or []) if p],
-                               required=bool(body.required), read_only=bool(body.read_only))
+                               required=bool(body.required), read_only=bool(body.read_only),
+                               applies_to=body.applies_to if body.applies_to in ("task", "project") else "task")
     db.add(f)
     db.commit()
     db.refresh(f)
@@ -607,6 +610,8 @@ def update_custom_field(field_id: str, body: CustomFieldBody, db: Session = Depe
         data["options"] = normalize_field_options(data["options"] or [])
     if "project_ids" in data:
         data["project_ids"] = [p for p in (data["project_ids"] or []) if p]
+    if "applies_to" in data and data["applies_to"] not in ("task", "project"):
+        data["applies_to"] = "task"
     for k, v in data.items():
         setattr(f, k, v)
     db.commit()

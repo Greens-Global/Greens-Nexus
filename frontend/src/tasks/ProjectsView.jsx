@@ -6,15 +6,16 @@ import { useMemo, useState } from 'react';
 import { Plus, Search, FolderKanban, AlertTriangle, Pencil, Trash2, Archive, Globe, Lock, LayoutGrid, List } from 'lucide-react';
 import { api } from '../api';
 import { useTasks } from './TasksContext';
-import { taskStats, teamInProject, teamProjectIds } from './lib';
+import { taskStats, teamInProject, teamProjectIds, fieldsForProjectEntity } from './lib';
 import { NX, FONT, btn, input as inputStyle, card, chip } from './theme';
 import { Avatar, EmptyState, Modal, usePeople, PersonSelect, useIsMobile, MobileFab } from './components';
 import TasksWorkspace from './TasksWorkspace';
+import { CustomFieldInput } from './TaskDetailDrawer';
 
 const EMPTY_FORM = {
   name: '', description: '', color: NX.blue, ownerId: null,
   portfolioId: '', accessLevel: 'restricted', status: 'not_started',
-  startOn: '', dueOn: '', archived: false,
+  startOn: '', dueOn: '', archived: false, customFieldValues: {},
 };
 
 const VISIBILITY_OPTS = [
@@ -117,6 +118,7 @@ export default function ProjectsView({ onNavigate }) {
     ownerId: p.ownerId || null, hrDepartmentName: p.hrDepartmentName || '', portfolioId: p.portfolioId || '',
     accessLevel: p.accessLevel || 'restricted',
     status: p.status || 'not_started', startOn: p.startOn || '', dueOn: p.dueOn || '', archived: !!p.archived,
+    customFieldValues: p.customFieldValues || {},
   });
 
   // Deleting is permanent and takes the project's tasks and Asana sync state with
@@ -487,7 +489,8 @@ function DeleteProjectModal({ state, setState, onConfirm, onClose }) {
 // only exists after createProject resolves. Callers just get an onSaved(project)
 // callback for their own post-save action (close, navigate, etc).
 function ProjectModal({ form, setForm, people, portfolios, onClose, onSaved }) {
-  const { teams, tasks, createProject, updateProject, updateTeam } = useTasks();
+  const { teams, tasks, customFields, createProject, updateProject, updateTeam } = useTasks();
+  const projectFields = useMemo(() => fieldsForProjectEntity(customFields), [customFields]);
   const set = (patch) => setForm((f) => ({ ...f, ...patch }));
   // Read-only: status is computed from this project's tasks, the same rollup the
   // card's progress bar draws. Shown rather than hidden so the modal answers
@@ -598,6 +601,15 @@ function ProjectModal({ form, setForm, people, portfolios, onClose, onSaved }) {
             </select>
           </div>
         </div>
+
+        {projectFields.map((f) => (
+          <div key={f.id}>
+            <label style={label}>{f.name}</label>
+            <CustomFieldInput field={f} value={(form.customFieldValues || {})[f.id]}
+              onChange={(v) => set({ customFieldValues: { ...(form.customFieldValues || {}), [f.id]: v } })} />
+            {f.description && <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>{f.description}</div>}
+          </div>
+        ))}
 
         <div>
           <label style={label}>Teams</label>

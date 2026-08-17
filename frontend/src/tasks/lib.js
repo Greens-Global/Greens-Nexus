@@ -81,9 +81,18 @@ export const teamInProject = (team, projectId) => !!projectId && teamProjectIds(
 // no meaning on a task that isn't in that project.
 export const fieldsForProject = (customFields, projectId) =>
   (customFields || []).filter((f) => {
+    // Task-scoped only - a project-level field (Location, etc.) lives on the
+    // project record itself and has no meaning as a task column. Missing
+    // appliesTo = a field created before project-scoped fields existed.
+    if ((f.appliesTo || 'task') !== 'task') return false;
     const ids = (f.projectIds || []).filter(Boolean);
     return ids.length === 0 || (projectId ? ids.includes(projectId) : false);
   });
+
+// The project-scoped custom fields (Location, etc.) - these render on the
+// project record itself (ProjectsView), never as a task column.
+export const fieldsForProjectEntity = (customFields) =>
+  (customFields || []).filter((f) => f.appliesTo === 'project');
 
 // The chosen option object for a select value, so callers can render its color.
 export const fieldOption = (field, value) =>
