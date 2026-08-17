@@ -1142,7 +1142,7 @@ function FieldsTab({ store }) {
                 })}
               </div>
             )}
-            {f.appliesTo !== 'project' && (
+            {(f.appliesTo || []).includes('task') && (
               <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 3 }}>
                 {(f.projectIds || []).length
                   ? (f.projectIds || []).map(projectName).filter(Boolean).join(', ')
@@ -1150,7 +1150,8 @@ function FieldsTab({ store }) {
               </div>
             )}
           </div>
-          <span style={chip(NX.purple, 'rgba(124,58,237,0.12)')}>{f.appliesTo === 'project' ? 'Project field' : 'Task field'}</span>
+          {(f.appliesTo || []).includes('task') && <span style={chip(NX.purple, 'rgba(124,58,237,0.12)')}>Task field</span>}
+          {(f.appliesTo || []).includes('project') && <span style={chip(NX.purple, 'rgba(124,58,237,0.12)')}>Project field</span>}
           {f.required && <span style={chip(NX.red, 'rgba(220,38,38,0.12)')}>Required</span>}
           {f.readOnly && <span title="Calculated in Asana - imported but never pushed back" style={chip(NX.dim, NX.border2)}>Read-only</span>}
           <span style={chip(NX.dim, NX.border2)}>{FIELD_TYPES.find((t) => t.value === f.type)?.label || f.type}</span>
@@ -1182,7 +1183,8 @@ function FieldModal({ projects = [], field = null, onClose, onSave }) {
   const [name, setName] = useState(field?.name || '');
   const [description, setDescription] = useState(field?.description || '');
   const [type, setType] = useState(field?.type || 'text');
-  const [appliesTo, setAppliesTo] = useState(field?.appliesTo || 'task');
+  // A field can apply to tasks, projects, or both at once.
+  const [appliesTo, setAppliesTo] = useState(field?.appliesTo?.length ? field.appliesTo : ['task']);
   const [options, setOptions] = useState(() => {
     const existing = (field?.options || []).map((o) => (typeof o === 'string'
       ? { label: o, color: FIELD_OPTION_COLORS[0] }
@@ -1190,20 +1192,25 @@ function FieldModal({ projects = [], field = null, onClose, onSave }) {
     return existing.length ? existing : [{ label: '', color: FIELD_OPTION_COLORS[0] }];
   });
   // Empty = the field applies to every project, which is how every field
-  // behaved before scoping existed. Meaningless for a project-level field
-  // (there is no per-task column to scope), so it stays empty for those.
+  // behaved before scoping existed. Meaningless when the field doesn't apply
+  // to tasks at all (there is no per-task column to scope).
   const [projectIds, setProjectIds] = useState(field?.projectIds || []);
   const [required, setRequired] = useState(!!field?.required);
 
   const setOpt = (i, patch) => setOptions((prev) => prev.map((o, idx) => (idx === i ? { ...o, ...patch } : o)));
   const toggleProject = (id) => setProjectIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
+  // At least one kind must stay checked - a field that applies to nothing
+  // can't show up anywhere to be edited again.
+  const toggleAppliesTo = (kind) => setAppliesTo((prev) => (prev.includes(kind)
+    ? (prev.length > 1 ? prev.filter((k) => k !== kind) : prev)
+    : [...prev, kind]));
   const save = () => {
     if (!name.trim()) return;
     const opts = OPTION_TYPES.includes(type)
       ? options.filter((o) => o.label.trim()).map((o) => ({ id: o.label.trim(), label: o.label.trim(), color: o.color }))
       : [];
     onSave({ name: name.trim(), description: description.trim(), type, options: opts,
-             project_ids: appliesTo === 'project' ? [] : projectIds, required, applies_to: appliesTo });
+             project_ids: appliesTo.includes('task') ? projectIds : [], required, applies_to: appliesTo });
   };
 
   return (
@@ -1216,10 +1223,15 @@ function FieldModal({ projects = [], field = null, onClose, onSave }) {
       <Field label="Name"><input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Story points, Location" style={inputStyle} /></Field>
       <Field label="Description"><input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Optional" style={inputStyle} /></Field>
       <Field label="Applies To">
-        <select value={appliesTo} onChange={(e) => setAppliesTo(e.target.value)} style={selectStyle}>
-          {APPLIES_TO_OPTS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-        </select>
-        {field && <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>Switching this moves where the field shows up - any values already saved under the old kind stay stored but stop showing anywhere.</div>}
+        <div style={{ display: 'flex', gap: 16 }}>
+          {APPLIES_TO_OPTS.map((o) => (
+            <label key={o.value} style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13, cursor: 'pointer' }}>
+              <input type="checkbox" checked={appliesTo.includes(o.value)} onChange={() => toggleAppliesTo(o.value)} style={{ width: 15, height: 15, cursor: 'pointer' }} />
+              {o.label}
+            </label>
+          ))}
+        </div>
+        {field && <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 6 }}>Unchecking a kind moves the field off it - any values already saved under that kind stay stored but stop showing anywhere.</div>}
       </Field>
       <Field label="Type">
         <select value={type} onChange={(e) => setType(e.target.value)} style={selectStyle}>
@@ -1253,7 +1265,7 @@ function FieldModal({ projects = [], field = null, onClose, onSave }) {
           </button>
         </div>
       )}
-      {appliesTo !== 'project' && (
+      {appliesTo.includes('task') && (
         <div style={{ marginTop: 16 }}>
           <label style={fieldLabel}>Projects</label>
           <div style={{ fontSize: 11.5, color: NX.faint, marginBottom: 6 }}>
@@ -1275,7 +1287,9 @@ function FieldModal({ projects = [], field = null, onClose, onSave }) {
       )}
       <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 14, fontSize: 13, cursor: 'pointer' }}>
         <input type="checkbox" checked={required} onChange={(e) => setRequired(e.target.checked)} style={{ width: 16, height: 16 }} />
-        {appliesTo === 'project' ? 'Required when creating a project' : 'Required when creating a task'}
+        {appliesTo.includes('task') && appliesTo.includes('project')
+          ? 'Required when creating a task or project'
+          : appliesTo.includes('project') ? 'Required when creating a project' : 'Required when creating a task'}
       </label>
     </Modal>
   );
