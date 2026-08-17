@@ -17,6 +17,7 @@ from auth import get_current_user, require_manager, require_any_module_grant
 from routers.task_util import (now_iso, gen_id, task_notify, is_manager, visible_project_ids,
                                require_project_role, team_project_ids)
 from routers.hr import _ensure_departments
+from routers.task_config import coerce_custom_field_values
 
 router = APIRouter(tags=["Tasks"],
                    dependencies=[Depends(get_current_user), Depends(require_any_module_grant("tasks", "tickets"))])
@@ -55,6 +56,7 @@ def project_to_dict(p: models.TaskProject) -> dict:
         "accessLevel": p.access_level or "org",
         "status": p.status or "not_started", "startOn": _nz(p.start_on), "dueOn": _nz(p.due_on),
         "archived": bool(p.archived), "activityIds": p.activity_ids or [],
+        "customFieldValues": p.custom_field_values or {},
         "createdAt": p.created_at or "", "modifiedAt": p.modified_at or "",
     }
 
@@ -101,6 +103,7 @@ class ProjectBody(BaseModel):
     start_on: Optional[str] = ""
     due_on: Optional[str] = ""
     archived: Optional[bool] = None
+    custom_field_values: Optional[dict] = None
 
 
 @router.get("/task-projects")
@@ -137,6 +140,7 @@ def create_project(body: ProjectBody, user: dict = Depends(get_current_user), db
         # omitting it must still mean "not archived".
         archived=bool(body.archived),
         activity_ids=[], created_at=now, modified_at=now, created_by=user["email"],
+        custom_field_values=coerce_custom_field_values(db, body.custom_field_values or {}),
     )
     db.add(p)
     # keep the portfolio's ordered project list in sync
@@ -165,6 +169,8 @@ def update_project(project_id: str, body: ProjectBody, user: dict = Depends(get_
             v = (v or "").lower()
         if k == "member_roles" and v:
             v = {em.lower(): role for em, role in v.items()}
+        if k == "custom_field_values":
+            v = coerce_custom_field_values(db, v or {})
         setattr(p, k, v)
     # A role grant is also an access grant - keep member_emails (the flat
     # "has access at all" list every other visibility check relies on) a

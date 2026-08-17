@@ -2063,6 +2063,10 @@ class TaskProject(Base):
     created_at    = Column(String, default="")
     modified_at   = Column(String, default="")
     created_by    = Column(String, default="")
+    # {customFieldId: value} - project-scoped custom fields (see TaskCustomField.
+    # applies_to). Same shape and same coerce_custom_field_values() as
+    # Task.custom_field_values; the field defs table is shared.
+    custom_field_values = Column(JSON, default=dict)
 
 
 class TaskPortfolio(Base):
@@ -2284,6 +2288,14 @@ class TaskCustomField(Base):
     # Must have a value before a task can be created (checked on the create form,
     # not on the API - inbound Asana tasks legitimately arrive without it).
     required    = Column(Boolean, default=False)
+    # task|project - which entity this field lives on (Aug 2026, added for the
+    # project-level Location field). Values are still stored keyed by field id
+    # in the entity's own custom_field_values column (Task.custom_field_values
+    # for task-scoped fields, TaskProject.custom_field_values for project-scoped
+    # ones) - this column only decides where the field editor offers it and
+    # where its value renders. Default "task" keeps every pre-existing field
+    # (and TaskTicket, which reuses these same defs) behaving exactly as before.
+    applies_to  = Column(String, default="task")
 
 
 class TaskMemberRequest(Base):

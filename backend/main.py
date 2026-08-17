@@ -500,6 +500,19 @@ def _run_migrations():
             "INSERT INTO external_link_taxonomy (id,kind,name,sort_order,created_at) SELECT 'cat-hr-payroll','category','HR & Payroll',3,'' WHERE NOT EXISTS (SELECT 1 FROM external_link_taxonomy WHERE kind='category' AND name='HR & Payroll')",
             "INSERT INTO external_link_taxonomy (id,kind,name,sort_order,created_at) SELECT 'cat-productivity','category','Productivity',4,'' WHERE NOT EXISTS (SELECT 1 FROM external_link_taxonomy WHERE kind='category' AND name='Productivity')",
             "INSERT INTO external_link_taxonomy (id,kind,name,sort_order,created_at) SELECT 'cat-reference-support','category','Reference & Support',5,'' WHERE NOT EXISTS (SELECT 1 FROM external_link_taxonomy WHERE kind='category' AND name='Reference & Support')",
+            # Project-scoped custom fields (Aug 2026, added for the project-level
+            # Location field) - a field now lives on tasks OR projects, not
+            # always tasks. Default 'task' keeps every existing field (and
+            # TaskTicket, which reuses these same defs) unchanged.
+            "ALTER TABLE task_custom_fields ADD COLUMN applies_to VARCHAR DEFAULT 'task'",
+            "ALTER TABLE task_projects ADD COLUMN custom_field_values JSON DEFAULT '{}'",
+            # Seed a built-in Location field so it shows on every project (new
+            # or existing) without an admin having to create it first - Manage
+            # -> Custom Fields is then just where new location OPTIONS get
+            # added, same as Neil asked for (Aug 18).
+            "INSERT INTO task_custom_fields (id,name,description,type,options,project_ids,required,read_only,applies_to) "
+            "SELECT 'field-location','Location','','select','[]','[]',0,0,'project' "
+            "WHERE NOT EXISTS (SELECT 1 FROM task_custom_fields WHERE id='field-location')",
             # External users (Aug 17): B2B-guest allowlist metadata on the person row
             "ALTER TABLE nexus_employees ADD COLUMN external_company VARCHAR DEFAULT ''",
             "ALTER TABLE nexus_employees ADD COLUMN invited_by VARCHAR DEFAULT ''",
@@ -1064,6 +1077,15 @@ def _run_migrations():
         "INSERT INTO external_link_taxonomy (id,kind,name,sort_order,created_at) SELECT 'cat-hr-payroll','category','HR & Payroll',3,'' WHERE NOT EXISTS (SELECT 1 FROM external_link_taxonomy WHERE kind='category' AND name='HR & Payroll')",
         "INSERT INTO external_link_taxonomy (id,kind,name,sort_order,created_at) SELECT 'cat-productivity','category','Productivity',4,'' WHERE NOT EXISTS (SELECT 1 FROM external_link_taxonomy WHERE kind='category' AND name='Productivity')",
         "INSERT INTO external_link_taxonomy (id,kind,name,sort_order,created_at) SELECT 'cat-reference-support','category','Reference & Support',5,'' WHERE NOT EXISTS (SELECT 1 FROM external_link_taxonomy WHERE kind='category' AND name='Reference & Support')",
+        # Project-scoped custom fields (Aug 2026) - see the matching sqlite
+        # migration above for the full rationale.
+        "ALTER TABLE task_custom_fields ADD COLUMN IF NOT EXISTS applies_to VARCHAR DEFAULT 'task'",
+        "ALTER TABLE task_projects ADD COLUMN IF NOT EXISTS custom_field_values JSONB DEFAULT '{}'::jsonb",
+        # Seed a built-in Location field - see the matching sqlite migration
+        # above for the full rationale.
+        "INSERT INTO task_custom_fields (id,name,description,type,options,project_ids,required,read_only,applies_to) "
+        "SELECT 'field-location','Location','','select','[]'::jsonb,'[]'::jsonb,FALSE,FALSE,'project' "
+        "WHERE NOT EXISTS (SELECT 1 FROM task_custom_fields WHERE id='field-location')",
         # External users (Aug 17): B2B-guest allowlist metadata on the person row
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS external_company VARCHAR DEFAULT ''",
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS invited_by VARCHAR DEFAULT ''",

@@ -561,11 +561,40 @@ def field_applies_to(f: models.TaskCustomField, project_id: str) -> bool:
     return not ids or (project_id or "") in ids
 
 
+_APPLIES_TO_KINDS = ("task", "project")
+
+
+def _parse_applies_to(raw) -> list:
+    """applies_to is stored as a JSON-encoded array string (e.g. '["task",
+    "project"]') so a field can live on both entities at once. Rows written
+    before multi-select existed (or seeded directly via SQL, like the
+    built-in Location field) hold a bare 'task'/'project' string instead -
+    both shapes read back the same rather than needing a backfill."""
+    if not raw:
+        return ["task"]
+    if isinstance(raw, list):
+        kinds = raw
+    else:
+        try:
+            parsed = json.loads(raw)
+            kinds = parsed if isinstance(parsed, list) else [parsed]
+        except (TypeError, ValueError):
+            kinds = [raw]   # legacy plain 'task' / 'project' string
+    out = [k for k in _APPLIES_TO_KINDS if k in kinds]
+    return out or ["task"]
+
+
+def _dump_applies_to(kinds) -> str:
+    out = [k for k in _APPLIES_TO_KINDS if k in (kinds or [])]
+    return json.dumps(out or ["task"])
+
+
 def custom_field_to_dict(f: models.TaskCustomField) -> dict:
     return {"id": f.id, "name": f.name, "description": _nz(f.description), "type": f.type or "text",
             "options": normalize_field_options(f.options if isinstance(f.options, list) else []),
             "projectIds": [p for p in (f.project_ids or []) if p],
-            "required": bool(f.required), "readOnly": bool(f.read_only)}
+            "required": bool(f.required), "readOnly": bool(f.read_only),
+            "appliesTo": _parse_applies_to(f.applies_to)}
 
 
 class CustomFieldBody(BaseModel):
@@ -577,6 +606,7 @@ class CustomFieldBody(BaseModel):
     project_ids: Optional[list] = None
     required: Optional[bool] = None
     read_only: Optional[bool] = None
+    applies_to: Optional[list] = None
 
 
 @router.get("/task-custom-fields")
@@ -590,7 +620,8 @@ def create_custom_field(body: CustomFieldBody, db: Session = Depends(get_db)):
                                type=body.type or "text",
                                options=normalize_field_options(body.options or []),
                                project_ids=[p for p in (body.project_ids or []) if p],
-                               required=bool(body.required), read_only=bool(body.read_only))
+                               required=bool(body.required), read_only=bool(body.read_only),
+                               applies_to=_dump_applies_to(body.applies_to))
     db.add(f)
     db.commit()
     db.refresh(f)
@@ -607,6 +638,8 @@ def update_custom_field(field_id: str, body: CustomFieldBody, db: Session = Depe
         data["options"] = normalize_field_options(data["options"] or [])
     if "project_ids" in data:
         data["project_ids"] = [p for p in (data["project_ids"] or []) if p]
+    if "applies_to" in data:
+        data["applies_to"] = _dump_applies_to(data["applies_to"])
     for k, v in data.items():
         setattr(f, k, v)
     db.commit()
