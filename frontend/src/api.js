@@ -475,6 +475,9 @@ export const api = {
   // Live check: would a comment posted NOW go out as me, or as the shared
   // sync account - and if the latter, why. Calls Asana for real.
   asanaOauthCheck:      () => req("/asana-oauth/check"),
+  // Counts every Asana task assigned to ME (my own grant sees my private ones)
+  // and says which are not in Nexus. Long: pages the whole list.
+  asanaOauthCoverage:   () => req("/asana-oauth/coverage", { timeoutMs: 300000 }),
   deleteAsanaWebhooks: () => req("/asana-sync/webhooks", { method: "DELETE", timeoutMs: 60000 }),
   getTaskAutomationRules: () => req("/task-automation-rules"),
   createTaskAutomationRule: (data) => req("/task-automation-rules", { method: "POST", body: JSON.stringify(data) }),
