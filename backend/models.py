@@ -2220,6 +2220,10 @@ class TaskAttachment(Base):
     # comment/story parent for an attachment - only a Nexus-native comment gets
     # this link, so nothing here is guessed at for Asana-origin data.
     comment_id = Column(String, default="", index=True)
+    # Set by the Asana attachment rescue (Aug 2026) when it rewrites `url` away
+    # from a dying asanausercontent.com/app.asana.com address: the pre-rescue
+    # URL, kept for audit/rollback. Blank on every row the rescue never touched.
+    original_asana_url = Column(String, default="")
 
 
 class TaskActivity(Base):
@@ -2559,6 +2563,10 @@ class AsanaSyncConfig(Base):
     # that contend on the per-project lock and crawl (Aug 15). Self-heals: a value
     # older than the staleness window is treated as a dead run and a new pull starts.
     pull_running_at     = Column(String, default="")
+    # Same one-at-a-time guard for the attachment-rescue worker (Aug 2026): set
+    # to an ISO timestamp while a rescue run is in flight, cleared when it ends,
+    # treated as dead after 30 minutes so a killed worker never wedges the button.
+    rescue_running_at   = Column(String, default="")
 
 
 class AsanaProjectMap(Base):

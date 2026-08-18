@@ -1203,6 +1203,67 @@ def asana_sync_pull_new(db: Session = Depends(get_db)):
     return {"started": True}
 
 
+@router.post("/asana-sync/rescue-attachments", dependencies=[Depends(require_manager)])
+def asana_sync_rescue_attachments(db: Session = Depends(get_db)):
+    """Rescue attachment files still hosted on Asana before the subscription
+    ends (asanausercontent.com signed URLs and app.asana.com external-host
+    pointers). Same shape as pull-new: starts a BACKGROUND thread and returns
+    immediately - ~450 files / ~4 GB cannot survive a request timeout - with a
+    one-at-a-time guard in asana_sync_config.rescue_running_at (30-minute
+    stale window, so a killed worker never wedges the button). Read-only
+    toward Asana (GET only); Nexus-side it only ever rewrites a row's url
+    AWAY from a dying host, keeping the old value in original_asana_url.
+    Idempotent: rescued rows drop out of the scan, failures are retried by
+    simply running it again. See asana_rescue.py."""
+    import asana_rescue
+    import asana_sync
+    from routers.task_util import now_iso
+    cfg = asana_sync.get_config(db)
+    if not (cfg.token or "").strip() and not (cfg.setup_token or "").strip():
+        raise HTTPException(400, "Save an Asana token first.")
+
+    running = (getattr(cfg, "rescue_running_at", "") or "").strip()
+    if running:
+        try:
+            age = (datetime.now(timezone.utc) - datetime.fromisoformat(running)).total_seconds()
+        except ValueError:
+            age = asana_rescue.STALE_SECS + 1   # unparseable -> treat as a dead run
+        if age < asana_rescue.STALE_SECS:
+            return {"started": False, "alreadyRunning": True}
+    cfg.rescue_running_at = now_iso()
+    db.commit()
+
+    def _run_rescue():
+        # run_rescue clears rescue_running_at itself in its finally block.
+        asana_rescue.run_rescue(SessionLocal)
+
+    threading.Thread(target=_run_rescue, daemon=True).start()
+    return {"started": True}
+
+
+@router.get("/asana-sync/rescue-status", dependencies=[Depends(require_manager)])
+def asana_sync_rescue_status(db: Session = Depends(get_db)):
+    """Progress of the attachment rescue: the in-memory counters of the run on
+    THIS worker process (a run started on another gunicorn worker shows only
+    the DB-derived numbers) plus DB truth that survives restarts:
+    at_risk_remaining (rows still on a dying host) and rescued_total (rows a
+    rescue has rewritten). running reflects the cross-process guard column."""
+    import asana_rescue
+    import asana_sync
+    cfg = asana_sync.get_config(db)
+    running = (getattr(cfg, "rescue_running_at", "") or "").strip()
+    fresh = False
+    if running:
+        try:
+            fresh = (datetime.now(timezone.utc) - datetime.fromisoformat(running)
+                     ).total_seconds() < asana_rescue.STALE_SECS
+        except ValueError:
+            fresh = False
+    return {"running": fresh, "startedAt": running,
+            "worker": asana_rescue.status_snapshot(),
+            **asana_rescue.db_progress(db)}
+
+
 @router.post("/asana-sync/push-all", dependencies=[Depends(require_manager)])
 def asana_sync_push_all(db: Session = Depends(get_db)):
     import asana_sync
