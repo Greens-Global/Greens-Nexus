@@ -29,8 +29,8 @@ export const SUBMENUS = {
     { sub: 'it-websites', label: 'Website Management' },
   ],
   ops: [
-    { sub: 'ops-dashboard', label: 'Project Dashboard' },
-    { sub: 'ops-cubby',     label: 'Cubby Integration' },
+    { sub: 'construction-dashboard', label: 'Project Dashboard' },
+    { sub: 'construction-cubby',     label: 'Cubby Integration' },
   ],
   operations: [
     { sub: 'fms',        label: 'FMS Integration' },

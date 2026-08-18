@@ -6,24 +6,29 @@ import { genId } from '../../lib/format.js';
  *  multi-tenant maintenance tracking - see PropertyMaintenanceSection's unit-filter pills. */
 export function ManageUnitsModal({ units, onSave, onClose }) {
   const [list, setList] = useState(units.map((u) => ({ ...u })));
+  const [initialList] = useState(list);
   const [draft, setDraft] = useState('');
+  const dirty = JSON.stringify(list) !== JSON.stringify(initialList) || !!draft.trim();
 
   const addUnit = () => {
     if (!draft.trim()) return;
     setList((l) => [...l, { id: genId(), label: draft.trim() }]);
     setDraft('');
   };
+  const save = () => onSave(list.filter((u) => u.label.trim()));
 
   return (
     <Modal
       title="Manage Units / Suites"
       onClose={onClose}
+      isDirty={dirty}
+      onSave={save}
       footer={
         <>
           <button className="secondary-btn" onClick={onClose}>
             Cancel
           </button>
-          <button className="primary-btn" onClick={() => onSave(list.filter((u) => u.label.trim()))}>
+          <button className="primary-btn" onClick={save}>
             Save
           </button>
         </>

@@ -107,7 +107,8 @@ export default function CreateMenu({ onNavigate, fab = false, taskDefaults = {} 
       {/* Reached from the floating + on the Teams page (the Create dropdown
           doesn't list departments - those are otherwise a Manage-only action). */}
       {show === 'department' && (
-        <Modal title="Create a Team" onClose={() => setShow(null)} footer={
+        <Modal title="Create a Team" onClose={() => setShow(null)}
+          isDirty={!!(deptName.trim() || deptProjectId)} onSave={deptCanSubmit ? submitDept : undefined} footer={
           <>
             <button style={btn('outline')} onClick={() => setShow(null)}>Cancel</button>
             <button style={{ ...btn('primary'), opacity: !deptCanSubmit ? 0.6 : 1 }} onClick={submitDept} disabled={!deptCanSubmit}>

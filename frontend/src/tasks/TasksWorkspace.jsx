@@ -5,7 +5,7 @@ import { useMemo, useState } from 'react';
 import { List, Columns3, Calendar as CalIcon, GanttChart, LayoutDashboard, Paperclip, Gauge, Plus, Search, CheckCircle2, Circle, Trash2, X, FolderKanban, ArrowLeft, Copy } from 'lucide-react';
 import { useTasks } from './TasksContext';
 import { useRole } from '../contexts/RoleContext';
-import { EMPTY_FILTER, matchesFilter, topLevel, sortTasks, groupTasks, taskStats, taskIdFromUrl, fieldsForProject, cfKey } from './lib';
+import { EMPTY_FILTER, matchesFilter, personScoped, sortTasks, groupTasks, taskStats, taskIdFromUrl, fieldsForProject, cfKey } from './lib';
 import { NX, FONT, btn, CONTROL_H, CONTROL_FS, CONTROL_ICON, input as inputStyle, STATUS_ORDER, STATUS_META, chip } from './theme';
 import { Avatar, StatusChip, PriorityChip, EmptyState, usePeople, useIsMobile, ProjectAccessButton } from './components';
 import CreateTaskModal from './CreateTaskModal';
@@ -30,9 +30,9 @@ const VIEW_KINDS = [
 const GROUPS = ['status', 'priority', 'assignee', 'project', 'none'];
 
 export default function TasksWorkspace({ lockedProjectId = null, mine = false, title = 'Tasks', onBack,
-                                         initialFilters = null }) {
+                                         initialFilters = null, initialSearch = '' }) {
   const store = useTasks();
-  const { tasks, nameOf, projectName, teamName, projectById, toggleComplete, bulkUpdate, deleteTask, myEmail, teams } = store;
+  const { tasks, nameOf, projectName, teamName, projectById, portfolioById, toggleComplete, bulkUpdate, deleteTask, myEmail, teams } = store;
   // Owned here so the Hide / + Column controls can live in the toolbar above
   // while RichListView below renders according to them.
   const [hiddenCols, setHiddenCols] = useHiddenCols();
@@ -48,7 +48,7 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
   const isMobile = useIsMobile();
   const [view, setView] = useState('list');
   const [group, setGroup] = useState('status');
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState(initialSearch || '');
   // Seeded, not forced: header search opens "everything assigned to X" through
   // this, and the user can then clear or widen it like any other filter.
   const [filters, setFilters] = useState(initialFilters || EMPTY_FILTER);
@@ -71,9 +71,13 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
     () => fieldsForProject(store.customFields || [], lockedProjectId),
     [store.customFields, lockedProjectId],
   );
+  // Person-scoped (My Tasks mode or an assignee filter) lists subtasks as their
+  // own rows, like Asana; a project/general list stays top-level with subtasks
+  // reached through their parent. Project scope resolves through the parent
+  // chain so a subtask still counts as being in its parent's project.
   const visible = useMemo(
-    () => sortTasks(topLevel(tasks).filter((t) => matchesFilter(t, filter)), sort, activeFields),
-    [tasks, search, filters, sort, lockedProjectId, mine, myEmail, activeFields],
+    () => sortTasks(personScoped(tasks, filter).filter((t) => matchesFilter(t, filter, store.taskById)), sort, activeFields),
+    [tasks, search, filters, sort, lockedProjectId, mine, myEmail, activeFields, store.taskById],
   );
 
   const applyView = (v) => {
@@ -98,7 +102,7 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
     const all = ids.length > 0 && ids.every((id) => s.has(id));
     return all ? new Set() : new Set(ids);
   });
-  const ctx = { nameOf, projectName, teamName, customFields: activeFields };
+  const ctx = { nameOf, projectName, teamName, customFields: activeFields, taskById: store.taskById };
   const lockedProject = lockedProjectId ? projectById(lockedProjectId) : null;
   // Only select fields can group or sort meaningfully - a free-text field would
   // make one group per distinct string.
@@ -124,6 +128,9 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
               <FolderKanban size={19} style={{ color: lockedProject.color || NX.purple, flexShrink: 0 }} />
               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{lockedProject.name}</span>
               {lockedProject.hrDepartmentName && <span style={chip(NX.dim, NX.border2)}>{lockedProject.hrDepartmentName}</span>}
+              {lockedProject.portfolioId && portfolioById(lockedProject.portfolioId) && (
+                <span style={chip(NX.purple, NX.border2)}>{portfolioById(lockedProject.portfolioId).name}</span>
+              )}
             </>
           ) : title}
         </div>

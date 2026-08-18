@@ -2131,8 +2131,15 @@ def _apply_inbound(db, at, nexus_project_id, counts, parent_task_id="", email_ma
                                 last_synced_at=now))
     db.flush()   # visible to the rest of this pull - see the note above
     counts["created"] += 1
+    # A top-level task with NO project can only reach this branch through
+    # pull_personal_tasks (the project walk always has a project id, a subtask
+    # always has a parent). Say so in the log: sweep_orphans reads this marker
+    # to leave personal tasks alone, since by shape they are indistinguishable
+    # from the orphans a deleted project used to leave behind.
+    personal = not parent_task_id and not (nexus_project_id or "")
     aid = log_activity(db, type="synced_from_asana", actor_email="asana-sync", entity_id=t.id,
-                       entity_code=t.code, entity_title=t.title, detail="Created from Asana")
+                       entity_code=t.code, entity_title=t.title,
+                       detail=_PERSONAL_CREATED_DETAIL if personal else "Created from Asana")
     t.activity_ids = list(t.activity_ids or []) + [aid]
     return t.id
 
@@ -3559,6 +3566,106 @@ def pull(db, force_full=False, create_only=False):
         return counts
 
 
+# Activity detail stamped on a task created by pull_personal_tasks (see there).
+_PERSONAL_CREATED_DETAIL = "Created from Asana (personal task, no project)"
+
+
+def pull_personal_tasks(db, create_only=True):
+    """Bring over the tasks that live in NO Asana project - the ones that exist
+    only in someone's Asana "My Tasks".
+
+    pull() walks asana_project_map, so it can only ever see a task through a
+    project. A task someone created for themselves (or was assigned) without
+    ever adding it to a project is invisible to that walk, to Import, and to
+    the per-project audit of 08/17 - which is how 586 tasks (145 open) across
+    51 people were still absent from Nexus the day before Asana was cancelled,
+    while every per-project count matched. Asana's own filter is the fix: list
+    /tasks by assignee across the workspace and keep the ones with no project
+    membership and no parent (a subtask is reached through its parent by the
+    project walk and would double up here).
+
+    Same engine as everything else (_pull_task_tree), so the task lands with
+    its subtasks, comments, attachments and a proper AsanaTaskLink. Written
+    additive-only: create_only defaults to True and the endpoint never passes
+    anything else - this is a recovery path, and Nexus is the source of truth
+    now. Commits per person, same checkpoint reasoning as pull(). Requires
+    workspace_gid (the assignee listing is workspace-scoped in Asana's API).
+
+    Two sweeps: the workspace under the service token (personal tasks people
+    shared), then each CONNECTED person under their own grant, which is the
+    only credential that sees their private ("Only me") tasks - see below."""
+    cfg = get_config(db)
+    if not cfg.token:
+        raise ImportError_("Sync has no token.")
+    ws = (cfg.workspace_gid or "").strip()
+    if not ws:
+        raise ImportError_("Pick the Asana workspace first (Find my workspace).")
+    with _PULL_LOCK:
+        refresh_directory_cache()
+        asana = Asana(cfg.token)
+        counts = {"created": 0, "updated": 0, "comments": 0, "activities": 0,
+                  "attachments": 0, "deleted": 0, "teams": [], "people": 0, "personal": 0}
+        seen = set()
+        deferred = []
+        # `projects` and `parent` on top of the usual field list: they are the
+        # two facts this walk keys on and the project walk never needed them.
+        fields = _TASK_OPT_FIELDS + ",projects.gid,parent.gid"
+        users = asana.get(f"/workspaces/{ws}/users", opt_fields="email,name")
+        for u in users:
+            if not u.get("gid"):
+                continue
+            rows = asana.get("/tasks", assignee=u["gid"], workspace=ws, opt_fields=fields)
+            personal = [at for at in rows if not (at.get("projects") or []) and not at.get("parent")]
+            counts["people"] += 1
+            if not personal:
+                continue
+            _acquire_pull_lock(db)
+            for at in personal:
+                counts["personal"] += 1
+                _pull_task_tree(db, asana, at, "", "", counts, seen, None, deferred,
+                                create_only=create_only)
+            db.commit()   # checkpoint per person - a killed run keeps what it did
+        # Second sweep, per CONNECTED person, under their own Asana grant. A
+        # task with no project is private to its assignee in Asana ("Only me")
+        # unless it was shared deliberately, so the service token above cannot
+        # even list it - Charmi's "Clean up NAS" (08/19) was in her My Tasks and
+        # in nobody else's view, and Asana reported 425 of her tasks to the
+        # service PAT against the 700+ she sees. Only her own token sees those.
+        # Everything fetched for such a task (subtasks, stories, attachments)
+        # goes through her client too, since the private parts are private all
+        # the way down. `seen` is shared with the sweep above, so a task both
+        # can see is applied once.
+        counts["connected"] = []
+        counts["connectedSkipped"] = []
+        for row in db.query(models.AsanaUserToken).all():
+            email = (row.email or "").strip().lower()
+            tok, why = asana_oauth.token_reason(db, email)
+            if not tok:
+                counts["connectedSkipped"].append(f"{email}: {why}")
+                continue
+            mine = Asana(tok)
+            try:
+                rows = mine.get("/tasks", assignee=(row.asana_user_gid or "me"), workspace=ws, opt_fields=fields)
+            except Exception as e:  # one bad grant must not end the run for everyone else
+                counts["connectedSkipped"].append(f"{email}: {type(e).__name__}: {e}")
+                continue
+            personal = [at for at in rows if not (at.get("projects") or []) and not at.get("parent")
+                        and at["gid"] not in seen]
+            counts["connected"].append(f"{email}: {len(personal)} private personal task(s)")
+            if not personal:
+                continue
+            _acquire_pull_lock(db)
+            for at in personal:
+                counts["personal"] += 1
+                _pull_task_tree(db, mine, at, "", "", counts, seen, None, deferred,
+                                create_only=create_only)
+            db.commit()
+        _acquire_pull_lock(db)
+        resolve_dependencies(db, deferred)
+        db.commit()
+        return counts
+
+
 class TokenConfig:
     """A stand-in for the AsanaSyncConfig row when the caller brings its own
     token - the one-shot Import UI asks for a PAT instead of using the stored
@@ -3757,9 +3864,15 @@ def sweep_orphans(db, apply=False):
     counts["deadLinks"] = len(dead)
 
     linked_ids = {l.nexus_task_id for l in links}
+    # A personal task (pull_personal_tasks) is ALSO a linked, project-less,
+    # top-level row - the one shape this sweep treats as garbage. Its creation
+    # activity carries a marker for exactly this reason; anything wearing it is
+    # someone's real work, not the leftover of a deleted project.
+    personal_ids = {a.entity_id for a in db.query(models.TaskActivity).filter(
+        models.TaskActivity.detail == _PERSONAL_CREATED_DETAIL).all()}
     orphans = [t for t in db.query(models.Task).filter(
         models.Task.project_id == "", models.Task.parent_task_id == "").all()
-        if t.id in linked_ids]
+        if t.id in linked_ids and t.id not in personal_ids]
     counts["orphanTasks"] = len(orphans)
 
     live_project_ids = {row.id for row in db.query(models.TaskProject.id).all()}

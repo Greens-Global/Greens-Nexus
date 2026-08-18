@@ -48,9 +48,11 @@ from routers.hr import (require_hr_read, require_hr_write, require_hr_delete,
 router = APIRouter(prefix="/esign", tags=["esign"])
 
 # NEXUS_APP_URL override, else derived per environment (see app_url.py) - the
-# old hardcoded dev default made PROD e-sign emails link to dev.nexus.
+# old hardcoded dev default made PROD e-sign emails link to dev.nexus. Called
+# fresh at each use rather than cached at import - a worker that first
+# resolves this during Azure's staging-slot warm-up (see app_url.py) would
+# otherwise bake in the wrong URL for its whole process lifetime.
 from app_url import app_url as _app_url_fn
-_APP_URL = _app_url_fn()
 
 # ── Local-dev storage fallback (E-Sign only) ──────────────────────────────────
 # Every real deployment (Azure) always has SUPABASE_URL/SUPABASE_SERVICE_KEY
@@ -132,7 +134,7 @@ def _storage_signed_url(bucket: str, path: str, expires_in: int = 300) -> _Stora
     p = _local_storage_path(bucket, path)
     if not p.exists():
         return _StorageResult(False, text="Local file not found")
-    # _APP_URL is the FRONTEND's origin (used for /sign, /verify links) and
+    # _app_url_fn() is the FRONTEND's origin (used for /sign, /verify links) and
     # defaults to the production domain when NEXUS_APP_URL isn't set locally
     # - using it here would produce an unreachable link. This is the BACKEND
     # API's own origin instead, matching this project's documented local-dev
@@ -441,8 +443,8 @@ def _send_sign_email(party: HrSignParty, req: HrSignRequest, sender_name: str) -
     sender = os.getenv("NEXUS_FROM_EMAIL", "")
     if not (party.email and sender):
         return False, "no recipient email" if not party.email else "NEXUS_FROM_EMAIL not set"
-    link = (f"{_APP_URL}/sign/{party.token}" if party.kind == "external"
-            else f"{_APP_URL}/documents/documents-esign")
+    link = (f"{_app_url_fn()}/sign/{party.token}" if party.kind == "external"
+            else f"{_app_url_fn()}/documents/documents-esign")
     try:
         resp = httpx.post(f"https://graph.microsoft.com/v1.0/users/{sender}/sendMail",
                           headers={"Authorization": f"Bearer {_graph_token()}"}, json={
@@ -1064,7 +1066,7 @@ def party_link(rid: str, pid: str, user: dict = Depends(require_hr_write),
     _log(db, rid, "link_copied", f"{party.name}'s signing link copied by {user['email']}",
          party_id=party.id)
     db.commit()
-    return {"url": f"{_APP_URL}/sign/{party.token}",
+    return {"url": f"{_app_url_fn()}/sign/{party.token}",
             "hasAccessCode": bool((party.access_code or "").strip()),
             "accessCode": (party.access_code or "").strip()}
 
@@ -1717,7 +1719,7 @@ def _certificate_qr_flowable(req: HrSignRequest):
     import qrcode
     from reportlab.platypus import Image as RLImage
     from reportlab.lib.units import mm
-    img = qrcode.make(f"{_APP_URL}/verify/{req.verify_token}")
+    img = qrcode.make(f"{_app_url_fn()}/verify/{req.verify_token}")
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     buf.seek(0)
@@ -1798,7 +1800,7 @@ def _certificate_pdf(req: HrSignRequest, parties: List[HrSignParty],
         qr_table = Table([[qr_flowable,
                            Paragraph("Scan to verify this certificate online - confirms document "
                                     "integrity and the signer timeline without requiring a Nexus "
-                                    f"login.<br/><font face='Courier' size='7'>{_APP_URL}/verify/"
+                                    f"login.<br/><font face='Courier' size='7'>{_app_url_fn()}/verify/"
                                     f"{req.verify_token}</font>", small)]],
                          colWidths=[24 * mm, 158 * mm])
         qr_table.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
@@ -1972,7 +1974,7 @@ def _finalize(db: Session, req: HrSignRequest) -> None:
              + ("" if ok else f" - email failed: {detail}"), party_id=party_id)
 
     sender_name = req.created_by.split("@")[0].replace(".", " ").title()
-    _mail_copy(sender_name, req.created_by, f"{_APP_URL}/documents/documents-esign", "Open in Nexus")
+    _mail_copy(sender_name, req.created_by, f"{_app_url_fn()}/documents/documents-esign", "Open in Nexus")
     for p in parties:
         if p.kind == "internal":
             if p.email != req.created_by:
@@ -1980,8 +1982,8 @@ def _finalize(db: Session, req: HrSignRequest) -> None:
                            "Everyone has signed. The sealed copy is in Documents → E-Sign and in your email.",
                            ref_id=req.id,
                            action={"view": "documents", "sub": "documents-esign"})
-            _mail_copy(p.name, p.email, f"{_APP_URL}/documents/documents-esign", "Open in Nexus", party_id=p.id)
+            _mail_copy(p.name, p.email, f"{_app_url_fn()}/documents/documents-esign", "Open in Nexus", party_id=p.id)
         else:
             # Externals have no Nexus login - their unique link also serves the
             # sealed copy (public download).
-            _mail_copy(p.name, p.email, f"{_APP_URL}/sign/{p.token}", "View & download", party_id=p.id)
+            _mail_copy(p.name, p.email, f"{_app_url_fn()}/sign/{p.token}", "View & download", party_id=p.id)

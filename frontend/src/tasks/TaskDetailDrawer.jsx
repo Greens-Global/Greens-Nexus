@@ -20,6 +20,7 @@ const fmtDate = (iso) => (iso ? fmtDateRaw(iso) : '-');
 import { NX, FONT, btn, input as inputStyle, STATUS_META, STATUS_ORDER, PRIORITY_META, PRIORITY_ORDER } from './theme';
 import { Avatar, PersonSelect, PersonMultiSelect, usePeople, useIsMobile, DateField, AttachmentViewer } from './components';
 import RichDescription, { isEmptyDoc } from './RichDescription';
+import ProjectPicker from './ProjectPicker';
 
 const DEP_TYPES = { FS: 'Finish → Start', SS: 'Start → Start', FF: 'Finish → Finish', SF: 'Start → Finish' };
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -571,22 +572,13 @@ function OverviewTab({ task, patch, people, projectName, teamName, teams, projec
       </Row>
 
       <Row label="Project">
-        <Pop width={220} trigger={(t) => (
-          <button onClick={t} style={{ display: 'flex', alignItems: 'center', gap: 5, border: 'none', background: 'transparent', cursor: 'pointer', padding: 0, color: task.projectId ? NX.ink : NX.faint, fontSize: 13, fontFamily: FONT }}>
-            {task.projectId ? projectName(task.projectId) : 'No project'} <ChevronDown size={13} style={{ color: NX.faint }} />
-          </button>
-        )}>
-          {(close) => (
-            <>
-              <MenuItem icon={!task.projectId ? <Check size={13} /> : <span style={{ width: 13, display: 'inline-block' }} />} onClick={() => { patch({ projectId: '', teamId: '' }); close(); }}>No project</MenuItem>
-              {(projects || []).length === 0 ? (
-                <div style={{ padding: 9, fontSize: 12, color: NX.faint }}>No projects yet</div>
-              ) : (projects || []).map((p) => (
-                <MenuItem key={p.id} icon={task.projectId === p.id ? <Check size={13} /> : <span style={{ width: 13, display: 'inline-block' }} />} onClick={() => { if (p.id !== task.projectId) patch({ projectId: p.id, teamId: '' }); close(); }}>{p.name}</MenuItem>
-              ))}
-            </>
-          )}
-        </Pop>
+        <div style={{ minWidth: 220 }}>
+          <ProjectPicker
+            projects={projects} teams={teams} myEmail={myEmail}
+            value={task.projectId || ''} allowNone noneLabel="No project"
+            onChange={(id) => { if (id !== task.projectId) patch({ projectId: id, teamId: '' }); }}
+          />
+        </div>
       </Row>
 
       <Row label="Team">
@@ -1171,6 +1163,8 @@ function AttachmentsTab({ task, refresh }) {
   const [rows, setRows] = useState(null);
   const [uploads, setUploads] = useState([]);   // in-flight files: {key, name, pct}
   const [view, setView] = useState(null);   // attachment open in the in-app viewer
+  const [dragOver, setDragOver] = useState(false);
+  const dragDepth = useRef(0);   // dragenter/dragleave fire on every child crossed, not just the panel edge
   const fileRef = useRef(null);
   const reload = () => api.getTaskAttachments(task.id).then(setRows).catch(() => setRows([]));
   useEffect(() => { reload(); /* eslint-disable-next-line */ }, [task.id]);
@@ -1189,11 +1183,34 @@ function AttachmentsTab({ task, refresh }) {
   const onPaste = (e) => { const files = filesFromPaste(e); if (files.length) { e.preventDefault(); files.forEach(sendFile); } };
   const del = async (a) => { await api.deleteTaskAttachment(a.id).catch(() => {}); reload(); refresh?.(); };
 
+  // Drag-and-drop straight onto the tab, anywhere - not just onto the Attach
+  // file button - matching Ctrl+V paste already working over the whole panel.
+  const onDragEnter = (e) => { e.preventDefault(); dragDepth.current += 1; if (e.dataTransfer.types.includes('Files')) setDragOver(true); };
+  const onDragOver = (e) => { e.preventDefault(); };
+  const onDragLeave = (e) => { e.preventDefault(); dragDepth.current = Math.max(0, dragDepth.current - 1); if (dragDepth.current === 0) setDragOver(false); };
+  const onDrop = (e) => {
+    e.preventDefault();
+    dragDepth.current = 0;
+    setDragOver(false);
+    Array.from(e.dataTransfer.files || []).forEach(sendFile);
+  };
+
   return (
-    <div onPaste={onPaste} tabIndex={0} style={{ marginTop: 14, outline: 'none' }}>
-      <input ref={fileRef} type="file" style={{ display: 'none' }} onChange={onFile} />
+    <div onPaste={onPaste} onDragEnter={onDragEnter} onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}
+      tabIndex={0} style={{
+        marginTop: 14, outline: 'none', borderRadius: 10, transition: 'background-color .12s ease',
+        ...(dragOver ? { background: NX.hover || NX.border2, boxShadow: `0 0 0 2px ${NX.primary} inset` } : {}),
+      }}>
+      <input ref={fileRef} type="file" multiple style={{ display: 'none' }} onChange={onFile} />
       <button onClick={() => fileRef.current?.click()} style={{ ...btn('outline'), borderStyle: 'dashed', fontSize: 12, marginBottom: 12 }}><Paperclip size={13} /> Attach file</button>
-      <span style={{ fontSize: 11, color: NX.faint, marginLeft: 8 }}>or press Ctrl+V to paste a screenshot</span>
+      <span style={{ fontSize: 11, color: NX.faint, marginLeft: 8 }}>or drag a file in, or press Ctrl+V to paste a screenshot</span>
+      {dragOver && (
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '18px 12px', margin: '10px 0',
+          border: `1.5px dashed ${NX.primary}`, borderRadius: 10, color: NX.primary, fontSize: 12.5, fontWeight: 600,
+          pointerEvents: 'none',
+        }}><Paperclip size={14} /> Drop to attach</div>
+      )}
       {(rows?.length || 0) === 0 && uploads.length === 0 ? (
         rows === null ? <div style={{ color: NX.faint, fontSize: 13, textAlign: 'center', padding: 20 }}>Loading…</div>
           : <div style={{ color: NX.faint, fontSize: 13, textAlign: 'center', padding: 20 }}>No attachments yet.</div>

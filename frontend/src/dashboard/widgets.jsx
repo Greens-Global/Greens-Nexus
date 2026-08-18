@@ -210,12 +210,12 @@ const PERSONAL_TILE_COLOR = { fg: 'hsl(var(--color-purple))', bg: 'hsla(var(--co
 // identical whether it's opened from External Links or from this widget -
 // just the hover actions (favorite/drag/move-to-folder) are left out, since
 // none of those make sense on a small fixed dashboard tile.
-function LinksFolderTile({ link, color, onOpen }) {
+function LinksFolderTile({ link, color, onOpen, style }) {
   return (
     <div
       className="app-tile" onClick={onOpen} role="button" tabIndex={0}
       onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(); } }}
-      title={link.name}
+      title={link.name} style={style}
     >
       <div className="app-tile-icon-wrap">
         <LinkIcon url={link.url} iconKey={link.icon} size={48} radius={13} fg={color.fg} bg={color.bg} />
@@ -340,14 +340,19 @@ function LinksFolderWidget({ config }) {
       ) : state.links.length === 0 ? (
         <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '24px 4px', textAlign: 'center' }}>This folder is empty.</div>
       ) : (
-        <div className="app-grid" style={{ gap: '14px 10px' }}>
+        // Grid (not the shared .app-grid flex-wrap) so a handful of tiles
+        // stretch to fill the card's full width instead of hugging the left
+        // edge and leaving the rest of the tile blank (Aug 18 - "it is not
+        // using in full folder area"). .app-tile's fixed 86px width is
+        // overridden per-tile below so each one grows to its grid cell.
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(76px, 1fr))', gap: '14px 10px' }}>
           {state.links.slice(0, LINKS_FOLDER_PREVIEW_COUNT).map(l => (
-            <LinksFolderTile key={l.id} link={l} onOpen={() => open(l)}
+            <LinksFolderTile key={l.id} link={l} onOpen={() => open(l)} style={{ width: '100%' }}
               color={config.itemType === 'personal' ? PERSONAL_TILE_COLOR : colorForLinkCategory(l.category)} />
           ))}
           <div className="app-tile" onClick={() => setShowAll(true)} role="button" tabIndex={0}
             onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setShowAll(true); } }}
-            title={`See all ${state.links.length} apps in ${title}`}>
+            title={`See all ${state.links.length} apps in ${title}`} style={{ width: '100%' }}>
             <div className="app-tile-icon-wrap">
               <div style={{
                 width: 48, height: 48, borderRadius: 13, background: 'var(--mist)', color: 'var(--muted)',

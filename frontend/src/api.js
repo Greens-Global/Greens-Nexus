@@ -370,7 +370,8 @@ export const api = {
   getTasksDelta: (since = '') => req(`/tasks/delta${since ? `?since=${encodeURIComponent(since)}` : ''}`),
   // Header search: tasks, projects, portfolios, teams and people in one call,
   // already scoped to what the caller may see.
-  searchTaskModule: (q, limit = 6) => req(`/tasks/search?q=${encodeURIComponent(q)}&limit=${limit}`),
+  // 20 is the endpoint's cap. Six looked final when 92 subtasks matched.
+  searchTaskModule: (q, limit = 20) => req(`/tasks/search?q=${encodeURIComponent(q)}&limit=${limit}`),
   // A person's page: who they are, the work they hold, their projects and teams.
   getPersonProfile: (email) => req(`/tasks/people/${encodeURIComponent(email)}`),
   createTask: (data) => req("/tasks", { method: "POST", body: JSON.stringify(data) }),
@@ -444,6 +445,7 @@ export const api = {
   // Additive pull: create only the Asana tasks Nexus is missing; never touch an
   // existing task. Safe when Nexus holds edits Asana doesn't.
   asanaSyncPullNew: () => req("/asana-sync/pull-new", { method: "POST", timeoutMs: 600000 }),
+  asanaSyncPullPersonal: () => req("/asana-sync/pull-personal", { method: "POST", timeoutMs: 600000 }),
   asanaSyncPushAll: () => req("/asana-sync/push-all", { method: "POST", timeoutMs: 600000 }),
   asanaSyncDedupe: (apply) => req(`/asana-sync/dedupe?apply=${apply ? "true" : "false"}`, { method: "POST", timeoutMs: 600000 }),
   // Why assignees are or are not reaching Asana - the one field that can fail

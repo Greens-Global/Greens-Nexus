@@ -4,6 +4,7 @@ import { api } from '../api';
 import { dialog } from '../ui/dialog';
 import { formatDate } from '../lib/datetime';
 import { SkeletonBlocks } from '../components/AsyncState';
+import { COUNTRY_CODES, splitPhone, joinPhone } from '../lib/countryCodes';
 
 // ── External users - invite modal + person-panel section (Aug 18 rework) ─────
 // Externals live in the Roles & Access PEOPLE tab like everyone else (Visesh:
@@ -27,10 +28,14 @@ export function ExternalBadge() {
   );
 }
 
-// Entra invitation delivery state (stored server-side: sent/failed/manual).
+// Entra invitation delivery state (stored server-side: sent/accepted/failed/manual).
+// 'accepted' is stamped by external_auth.activate_verify the moment the invite
+// link is redeemed - it supersedes 'sent' so the panel stops saying "Invite
+// Sent" once the person has actually finished activating their account.
 export function InvitePill({ status }) {
   if (!status) return null;
-  const s = status === 'sent' ? { text: 'Invite Sent', color: 'hsl(var(--color-green))', bg: 'hsla(var(--color-green),0.12)' }
+  const s = status === 'accepted' ? { text: 'Invitation Accepted', color: 'hsl(var(--color-green))', bg: 'hsla(var(--color-green),0.12)' }
+    : status === 'sent' ? { text: 'Invite Sent', color: 'hsl(var(--color-green))', bg: 'hsla(var(--color-green),0.12)' }
     : status === 'manual' ? { text: 'Invited Manually', color: 'var(--muted)', bg: 'color-mix(in srgb, var(--muted) 12%, transparent)' }
       : { text: 'Invite Failed', color: 'hsl(var(--color-red))', bg: 'hsla(var(--color-red),0.10)' };
   return (
@@ -51,18 +56,23 @@ export function InviteExternalModal({ initial, onClose, onSaved }) {
   const [lastName, setLastName] = useState(initial?.lastName || '');
   const [company, setCompany] = useState(initial?.company || '');
   const [expiresAt, setExpiresAt] = useState(initial?.expiresAt || '');
-  const [phone, setPhone] = useState(initial?.phone || '');
+  const initialPhone = splitPhone(initial?.phone);
+  const [phoneDial, setPhoneDial] = useState(initialPhone.dial);
+  const [phoneRest, setPhoneRest] = useState(initialPhone.rest);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
+  const emailChanged = editing && email.trim().toLowerCase() !== (initial.email || '').toLowerCase();
+
   const save = async () => {
     setError('');
-    if (!editing && (!email.trim() || !email.includes('@'))) { setError('A valid email address is required.'); return; }
+    if (!email.trim() || !email.includes('@')) { setError('A valid email address is required.'); return; }
     if (!firstName.trim()) { setError('First name is required.'); return; }
     setSaving(true);
+    const phone = joinPhone(phoneDial, phoneRest);
     try {
       const result = editing
-        ? await api.updateExternalUser(initial.email, { first_name: firstName, last_name: lastName, company, expires_at: expiresAt, phone })
+        ? await api.updateExternalUser(initial.email, { first_name: firstName, last_name: lastName, email: email.trim(), company, expires_at: expiresAt, phone })
         : await api.createExternalUser({ email: email.trim(), first_name: firstName, last_name: lastName, company, expires_at: expiresAt, phone });
       onSaved(result);
     } catch (e) {
@@ -80,11 +90,6 @@ export function InviteExternalModal({ initial, onClose, onSaved }) {
         </div>
 
         <div style={{ display: 'grid', gap: 13 }}>
-          <div>
-            <span style={label}>Email (the invitation is sent to this address)</span>
-            <input style={{ ...field, opacity: editing ? 0.6 : 1 }} type="email" value={email} disabled={editing}
-              placeholder="name@partnercompany.com" onChange={e => setEmail(e.target.value)} />
-          </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             <div>
               <span style={label}>First name</span>
@@ -94,6 +99,17 @@ export function InviteExternalModal({ initial, onClose, onSaved }) {
               <span style={label}>Last name</span>
               <input style={field} value={lastName} onChange={e => setLastName(e.target.value)} />
             </div>
+          </div>
+          <div>
+            <span style={label}>Email (the invitation is sent to this address)</span>
+            <input style={field} type="email" value={email}
+              placeholder="name@partnercompany.com" onChange={e => setEmail(e.target.value)} />
+            {emailChanged && (
+              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 5, lineHeight: 1.5 }}>
+                Their job role, groups, and access carry over to the corrected address. Any invite link or
+                sign-in code already sent to the old address stops working - use Resend Invite afterward.
+              </div>
+            )}
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             <div>
@@ -107,7 +123,14 @@ export function InviteExternalModal({ initial, onClose, onSaved }) {
           </div>
           <div>
             <span style={label}>Mobile phone (optional - one-time codes go by text once verified)</span>
-            <input style={field} type="tel" value={phone} placeholder="+1 555 555 1234" onChange={e => setPhone(e.target.value)} />
+            <div style={{ display: 'flex', gap: 8 }}>
+              <select style={{ ...field, width: 132, flexShrink: 0 }} value={phoneDial} onChange={e => setPhoneDial(e.target.value)}>
+                {COUNTRY_CODES.map(c => (
+                  <option key={c.iso} value={c.dial}>{c.name} ({c.dial})</option>
+                ))}
+              </select>
+              <input style={field} type="tel" value={phoneRest} placeholder="555 555 1234" onChange={e => setPhoneRest(e.target.value)} />
+            </div>
           </div>
 
           <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.5 }}>

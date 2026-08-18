@@ -34,8 +34,7 @@ export default function EditCampaignModal({ campaigns, initialCampaignId, onClos
     setBudget(String(c.spend))
   }
 
-  function handleSave(e) {
-    e.preventDefault()
+  function save() {
     if (!selected || !name.trim()) return
     const spend = Number(budget)
     if (Number.isNaN(spend) || spend < 0) {
@@ -45,6 +44,10 @@ export default function EditCampaignModal({ campaigns, initialCampaignId, onClos
     onSave(selected.id, { name: name.trim(), facility, platform: channel, status, spend })
     onClose()
   }
+  function handleSave(e) { e.preventDefault(); save() }
+  const dirty = !!selected && (name !== (selected.name ?? '') || facility !== (selected.facility ?? FACILITIES[0])
+    || channel !== (selected.platform ?? channels[0]) || status !== (selected.status ?? 'Active')
+    || budget !== String(selected.spend ?? 0))
 
   const filtered = query.trim() ? campaigns.filter((c) => c.name.toLowerCase().includes(query.trim().toLowerCase())) : campaigns
 
@@ -102,7 +105,7 @@ export default function EditCampaignModal({ campaigns, initialCampaignId, onClos
   }
 
   return (
-    <Modal title="Edit Campaign" onClose={onClose} width="max-w-md">
+    <Modal title="Edit Campaign" onClose={onClose} width="max-w-md" isDirty={dirty} onSave={save}>
       <button
         onClick={() => setSelectedId(null)}
         style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: C.gray500, marginBottom: 12 }}

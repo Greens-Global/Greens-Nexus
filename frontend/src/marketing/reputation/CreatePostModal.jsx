@@ -106,6 +106,12 @@ export default function CreatePostModal({ facilities, defaultFacility, platform,
     })
   }
 
+  const dirty = isEdit
+    ? (facility !== (editing.facility ?? defaultFacility) || type !== (editing.type ?? 'STANDARD')
+      || text !== (editing.text ?? '') || imageUrl !== (editing.imageUrl ?? '') || expiresDate !== editing.expiresDate
+      || ctaLabel !== (editing.ctaLabel ?? '') || ctaUrl !== (editing.ctaUrl ?? ''))
+    : !!(text.trim() || imageUrl.trim() || ctaLabel || ctaUrl.trim())
+
   const labelStyle = { display: 'block', fontSize: 12, fontWeight: 500, color: C.gray600, marginBottom: 6 }
   const inputStyle = { width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid ' + C.gray200, fontSize: 13, outline: 'none' }
   const previewChipStyle =
@@ -116,7 +122,8 @@ export default function CreatePostModal({ facilities, defaultFacility, platform,
       : { color: C.blue600, background: C.blue50 }
 
   return (
-    <Modal title={isEdit ? 'Edit Post' : 'Create Post'} onClose={onClose} width="max-w-3xl">
+    <Modal title={isEdit ? 'Edit Post' : 'Create Post'} onClose={onClose} width="max-w-3xl"
+      isDirty={dirty} onSave={(text.trim() && expiresDate) ? submit : undefined}>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,minmax(0,1fr))', gap: 24 }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div>

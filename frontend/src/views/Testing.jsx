@@ -127,18 +127,46 @@ function ResultPill({ result }) {
   );
 }
 
-function Modal({ title, wide, onClose, children }) {
-  useEffect(() => { const h = e => e.key === 'Escape' && onClose(); window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h); }, [onClose]);
+// `isDirty` + `onSave`: closing via the backdrop, Escape, or the X button used
+// to discard in-progress work with no warning - with isDirty set, those three
+// confirm first.
+function Modal({ title, wide, onClose, children, isDirty = false, onSave }) {
+  const [confirming, setConfirming] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const requestClose = () => { if (isDirty) setConfirming(true); else onClose(); };
+  useEffect(() => { const h = e => e.key === 'Escape' && requestClose(); window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h); }, [onClose, isDirty]);
+  const saveAndClose = async () => {
+    if (!onSave) { setConfirming(false); onClose(); return; }
+    setSaving(true);
+    try { await onSave(); } finally { setSaving(false); setConfirming(false); }
+  };
   return (
     <div role="dialog" aria-modal="true" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1250, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
-      onClick={e => e.target === e.currentTarget && onClose()}>
+      onClick={e => e.target === e.currentTarget && requestClose()}>
       <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: wide ? 760 : 540, maxHeight: 'min(92dvh, 840px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
         <div style={{ padding: '16px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
           <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>{title}</h3>
-          <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
+          <button onClick={requestClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
         <div style={{ overflowY: 'auto', flex: 1, padding: '18px 22px' }}>{children}</div>
       </div>
+      {confirming && (
+        <div onClick={e => e.stopPropagation()} style={{ position: 'fixed', inset: 0, zIndex: 1350, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.3)' }}>
+          <div style={{ width: 340, maxWidth: '90vw', background: 'var(--card)', borderRadius: 14, boxShadow: 'var(--shadow-lg)', padding: 20 }}>
+            <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 6 }}>Save your changes?</div>
+            <div style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.5, marginBottom: 18 }}>
+              You have unsaved changes. Closing now will discard them.
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
+              <button className="secondary-btn" onClick={() => setConfirming(false)}>Keep Editing</button>
+              <button className="secondary-btn" onClick={onClose}>Discard</button>
+              {onSave && (
+                <button className="primary-btn" onClick={saveAndClose} disabled={saving}>{saving ? 'Saving…' : 'Save Changes'}</button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -154,6 +182,11 @@ function CaseRunner({ caseObj, runId, existing, onSaved, onFileBug, onClose, toa
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef(null);
   const pendingStep = useRef(-1);
+  const initialStepState = useMemo(() => steps.map((_, i) => existing?.stepState?.[i] || { done: false, shot: '' }), [caseObj, existing]);
+  // No single onSave to offer here - `save` takes a pass/fail result the
+  // confirm dialog can't know, so a dirty exit only gets Discard/Keep Editing.
+  const dirty = JSON.stringify(stepState) !== JSON.stringify(initialStepState)
+    || notes !== (existing?.notes || '') || overallShot !== (existing?.evidence?.shot || '');
 
   const attachTo = useCallback(async (file, idx) => {
     setUploading(true);
@@ -196,7 +229,7 @@ function CaseRunner({ caseObj, runId, existing, onSaved, onFileBug, onClose, toa
   }
 
   return (
-    <Modal title={caseObj.title} wide onClose={onClose}>
+    <Modal title={caseObj.title} wide onClose={onClose} isDirty={dirty}>
       <div onPaste={onPaste}>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12, fontSize: 12, color: 'var(--muted)' }}>
           <span style={{ fontWeight: 700, color: PRI_COLOR[caseObj.priority] }}>{caseObj.priority}</span>
@@ -305,6 +338,7 @@ function AssignModal({ runId, cases, resultsByCase, onClose, onDone, toastOk, to
   const [onlyUnrun, setOnlyUnrun] = useState(true);
   const [due, setDue] = useState('');
   const [note, setNote] = useState('');
+  const assignDirty = !!(email || due || note.trim());
   const [busy, setBusy] = useState(false);
 
   const pool = useMemo(() => cases.filter(c => c.module === module && c.status === 'active' && (!onlyUnrun || !resultsByCase[c.id]?.result)), [cases, module, onlyUnrun, resultsByCase]);
@@ -357,7 +391,7 @@ function AssignModal({ runId, cases, resultsByCase, onClose, onDone, toastOk, to
   }
 
   return (
-    <Modal title="Assign Test Cases" onClose={onClose}>
+    <Modal title="Assign Test Cases" onClose={onClose} isDirty={assignDirty} onSave={(email && pool.length > 0) ? assign : undefined}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <div>
           <label style={FL}>Assign to</label>
@@ -410,6 +444,8 @@ function CaseEditor({ caseObj, onClose, onSaved, toastErr, runId, runName }) {
     priority: caseObj?.priority || 'Medium',
   }));
   const [busy, setBusy] = useState(false);
+  const [initialF] = useState(f);
+  const dirty = JSON.stringify(f) !== JSON.stringify(initialF);
   const set = (k, v) => setF(p => ({ ...p, [k]: v }));
 
   async function save(approve = false) {
@@ -430,7 +466,8 @@ function CaseEditor({ caseObj, onClose, onSaved, toastErr, runId, runName }) {
   }
 
   return (
-    <Modal title={editing ? (caseObj.status === 'draft' ? 'Review AI draft' : 'Edit test case') : 'New test case'} wide onClose={onClose}>
+    <Modal title={editing ? (caseObj.status === 'draft' ? 'Review AI draft' : 'Edit test case') : 'New test case'} wide onClose={onClose}
+      isDirty={dirty} onSave={f.title.trim() ? () => save(false) : undefined}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 120px', gap: 12 }}>
           <div><label style={FL}>Module</label>
@@ -1058,7 +1095,7 @@ export default function Testing() {
           }} />
       )}
       {newRunOpen && (
-        <Modal title="New Test Run" onClose={() => setNewRunOpen(false)}>
+        <Modal title="New Test Run" onClose={() => setNewRunOpen(false)} isDirty={!!newRunName.trim()} onSave={newRunName.trim() ? createRun : undefined}>
           <label style={FL}>Run name</label>
           <input value={newRunName} onChange={e => setNewRunName(e.target.value)} onKeyDown={e => e.key === 'Enter' && createRun()}
             placeholder="e.g. Jul 15 regression" style={inputStyle} autoFocus />

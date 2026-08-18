@@ -32,6 +32,8 @@ export function SimpleRowModal({ title, fields, row, onSave, onDelete, onClose }
     cols.forEach(([key]) => { initial[key] = row ? row[key] ?? '' : ''; });
     return initial;
   });
+  const [initialValues] = useState(values);
+  const dirty = JSON.stringify(values) !== JSON.stringify(initialValues);
 
   const setField = (key, val) => setValues((prev) => ({ ...prev, [key]: val }));
 
@@ -40,6 +42,8 @@ export function SimpleRowModal({ title, fields, row, onSave, onDelete, onClose }
       title={(row ? 'Edit ' : 'Add ') + title.toLowerCase()}
       wide
       onClose={onClose}
+      isDirty={dirty}
+      onSave={() => onSave(values)}
       footer={
         <>
           {row && onDelete && (

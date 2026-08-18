@@ -3,9 +3,9 @@
 // Dashboard/Files tabs, and a List grouped into the four due-date buckets with
 // inline "Add task" rows, a "Task visibility" column, and "Add section".
 import { useMemo, useRef, useState } from 'react';
-import { ChevronDown, Lock, Globe, Plus, List as ListIcon, Columns3, Calendar as CalIcon, LayoutDashboard, Paperclip, Circle, CheckCircle2 } from 'lucide-react';
+import { ChevronDown, Lock, Globe, Plus, List as ListIcon, Columns3, Calendar as CalIcon, LayoutDashboard, Paperclip, Circle, CheckCircle2, CornerDownRight } from 'lucide-react';
 import { useTasks } from './TasksContext';
-import { EMPTY_FILTER, matchesFilter, sortTasks, groupTasks, groupAddDefaults, taskIdFromUrl } from './lib';
+import { EMPTY_FILTER, matchesFilter, sortTasks, groupTasks, groupAddDefaults, taskIdFromUrl, personScoped, rootParent, effectiveProjectId } from './lib';
 import { NX, FONT, btn, CONTROL_H, CONTROL_FS, input as inputStyle, colorForKey } from './theme';
 import { Avatar, EmptyState, useClickOutside, useIsMobile, DateField, TaskCountBadges } from './components';
 import { ProductivityBar, MobileFilters } from './productivity';
@@ -46,15 +46,29 @@ function CollaboratorPicker({ value = [], people, onChange, anchor }) {
   const ref = useRef(null);
   useClickOutside(ref, () => setOpen(false), open);
   const toggle = (email) => onChange(value.includes(email) ? value.filter((e) => e !== email) : [...value, email]);
-  const filtered = q.trim()
+  const filtered = (q.trim()
     ? people.filter((u) => `${u.name} ${u.email}`.toLowerCase().includes(q.trim().toLowerCase()))
-    : people;
+    : people
+  ).slice().sort((a, b) => (a.name || '').localeCompare(b.name || '', 'en', { sensitivity: 'base' }));
   return (
     <div ref={ref} style={{ position: 'relative' }}>
-      <button onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }} style={{ ...btn('ghost'), padding: '2px 6px' }}>
+      <button onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }} title="Add collaborators" style={{ ...btn('ghost'), padding: '2px 6px', display: 'flex', alignItems: 'center', gap: 3 }}>
         {value.length ? (
-          <div style={{ display: 'flex' }}>{value.slice(0, 3).map((em, i) => <span key={em} style={{ marginLeft: i ? -6 : 0 }}><Avatar email={em} size={20} /></span>)}</div>
-        ) : <span style={{ color: NX.faint }}>{anchor || '-'}</span>}
+          <>
+            <div style={{ display: 'flex' }}>{value.slice(0, 3).map((em, i) => <span key={em} style={{ marginLeft: i ? -6 : 0 }}><Avatar email={em} size={20} /></span>)}</div>
+            {/* Always-visible "+" so a row with collaborators still reads as
+                clickable to add more, not just as a display of who's on it. */}
+            <span style={{
+              width: 16, height: 16, borderRadius: '50%', border: `1.5px dashed ${NX.border}`,
+              color: NX.faint, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+            }}><Plus size={10} /></span>
+          </>
+        ) : anchor ? <span style={{ color: NX.faint }}>{anchor}</span> : (
+          <span style={{
+            width: 20, height: 20, borderRadius: '50%', border: `1.5px dashed ${NX.border}`,
+            color: NX.faint, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+          }}><Plus size={12} /></span>
+        )}
       </button>
       {open && (
         <div onClick={(e) => e.stopPropagation()} style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, width: 208, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', zIndex: 50 }}>
@@ -83,7 +97,11 @@ function VisibilityChip({ shared }) {
 }
 
 function TaskRow({ t, people, projects, store, onOpen }) {
-  const shared = (t.followerIds?.length > 0) || !!t.projectId;
+  // A subtask's project is its parent's; the project cell then names the parent
+  // (click-through) rather than offering a select that would re-home the subtask.
+  const parent = t.parentTaskId ? rootParent(t, store.taskById) : null;
+  const projectId = parent ? effectiveProjectId(t, store.taskById) : t.projectId;
+  const shared = (t.followerIds?.length > 0) || !!projectId;
   // Due date reads as a tinted pill (kit grammar), not bare colored text -
   // red tint overdue, amber tint today, quiet gray otherwise.
   const today = new Date().toISOString().slice(0, 10);
@@ -92,7 +110,7 @@ function TaskRow({ t, people, projects, store, onOpen }) {
     : t.dueOn === today ? 'rgba(232,163,61,0.16)'
     : NX.surface2;
   return (
-    <div onClick={() => onOpen(t.id)} className="stack-table-row" data-task-row style={{ display: 'grid', gridTemplateColumns: COLS, alignItems: 'center', gap: 8, padding: '10px 16px', borderBottom: `1px solid ${NX.border2}`, fontSize: 13.5, cursor: 'pointer' }}
+    <div onClick={() => onOpen(t.id)} className="stack-table-row" data-task-row style={{ display: 'grid', gridTemplateColumns: COLS, alignItems: 'center', gap: 8, padding: '5px 16px', borderBottom: `1px solid ${NX.border2}`, fontSize: 13.5, cursor: 'pointer' }}
       onMouseEnter={(e) => (e.currentTarget.style.background = NX.hover)} onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
         <button onClick={(e) => { e.stopPropagation(); store.toggleComplete(t); }} style={{ ...btn('ghost'), padding: 0, color: t.completed ? NX.green : NX.faint }}>{t.completed ? <CheckCircle2 size={17} /> : <Circle size={17} />}</button>
@@ -106,11 +124,19 @@ function TaskRow({ t, people, projects, store, onOpen }) {
       <DateField value={t.dueOn || ''} onChange={(v) => store.updateTask(t.id, { dueOn: v })} color={dueColor(t.dueOn, t.completed)}
         title="Due Date" style={{ fontSize: 12, fontWeight: 600, padding: '3px 10px', borderRadius: 12, background: dueBg, width: 'fit-content' }} />
       <CollaboratorPicker value={t.followerIds || []} people={people} onChange={(v) => store.updateTask(t.id, { followerIds: v })} />
+      {parent ? (
+        <button onClick={(e) => { e.stopPropagation(); onOpen(parent.id); }} title={`Subtask of "${parent.title}"${projectId ? ` in ${store.projectName(projectId)}` : ''}`}
+          style={{ ...btn('ghost'), padding: '2px 4px', fontSize: 12.5, color: NX.dim, minWidth: 0, maxWidth: '100%', justifyContent: 'flex-start' }}>
+          <CornerDownRight size={12} style={{ flexShrink: 0 }} />
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{parent.title}{projectId ? ` · ${store.projectName(projectId)}` : ''}</span>
+        </button>
+      ) : (
       <select value={t.projectId || ''} onClick={(e) => e.stopPropagation()} onChange={(e) => store.updateTask(t.id, { projectId: e.target.value || null })}
         style={{ border: '1px solid transparent', borderRadius: 6, padding: '2px 4px', fontSize: 13, color: NX.dim, background: 'transparent', fontFamily: FONT, width: 'fit-content', maxWidth: '100%', cursor: 'pointer' }}>
         <option value="">No project</option>
         {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
       </select>
+      )}
       <VisibilityChip shared={shared} />
     </div>
   );
@@ -137,7 +163,7 @@ function AddTaskRow({ people, projects, onAdd, defaults = {} }) {
   };
   if (!editing) {
     return (
-      <button onClick={() => setEditing(true)} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', padding: '8px 16px 8px 40px', color: NX.faint }}>
+      <button onClick={() => setEditing(true)} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', padding: '5px 16px 5px 40px', color: NX.faint }}>
         <Plus size={13} /> Add Task...
       </button>
     );
@@ -198,14 +224,16 @@ export default function MyTasksView() {
   const switchView = (next) => { setView(next); setFilters(EMPTY_FILTER); };
 
   const wantsCompleted = filters.statuses.includes('completed');
+  // Subtasks assigned to me are rows here, as in Asana's My Tasks - see
+  // personScoped in lib.js for why the old top-level-only rule was wrong.
   const mine = useMemo(
-    () => sortTasks(tasks.filter((t) => !t.parentTaskId && (wantsCompleted || !t.completed)
-                                        && matchesFilter(t, filter)), sort),
-    [tasks, filters, sort, myEmail, wantsCompleted],
+    () => sortTasks(personScoped(tasks, filter).filter((t) => (wantsCompleted || !t.completed)
+                                        && matchesFilter(t, filter, store.taskById)), sort),
+    [tasks, filters, sort, myEmail, wantsCompleted, store.taskById],
   );
-  const allMine = useMemo(() => tasks.filter((t) => !t.parentTaskId && matchesFilter(t, filter)), [tasks, filters, myEmail]);
-  const ctx = { nameOf, projectName: store.projectName, teamName: store.teamName };
-  const groups = useMemo(() => groupTasks(mine, group, ctx), [mine, group, nameOf, store.projectName, store.teamName]);
+  const allMine = useMemo(() => personScoped(tasks, filter).filter((t) => matchesFilter(t, filter, store.taskById)), [tasks, filters, myEmail, store.taskById]);
+  const ctx = { nameOf, projectName: store.projectName, teamName: store.teamName, taskById: store.taskById };
+  const groups = useMemo(() => groupTasks(mine, group, ctx), [mine, group, nameOf, store.projectName, store.teamName, store.taskById]);
   const boardTasks = useMemo(() => sortTasks(allMine, sort), [allMine, sort]);
 
   const addTask = ({ title, dueOn, followerIds, projectId, status, priority, teamId }) =>
@@ -258,7 +286,7 @@ export default function MyTasksView() {
                 viewports instead of getting clipped by the card's rounded corners. */}
             <div style={{ overflowX: 'auto' }}>
               <div style={{ minWidth: 700 }}>
-                <div style={{ display: 'grid', gridTemplateColumns: COLS, gap: 8, padding: '8px 16px', borderBottom: `1px solid ${NX.border}`, background: NX.surface2, fontSize: 12.5, fontWeight: 600, color: NX.dim }}>
+                <div style={{ display: 'grid', gridTemplateColumns: COLS, gap: 8, padding: '6px 16px', borderBottom: `1px solid ${NX.border}`, background: NX.surface2, fontSize: 12.5, fontWeight: 600, color: NX.dim }}>
                   <div>Name</div><div>Due Date</div><div>Collaborators</div><div>Projects</div><div>Task Visibility</div>
                 </div>
                 {groups.map((g) => {
@@ -268,7 +296,7 @@ export default function MyTasksView() {
                        groups read at a glance against white task rows - the
                        color rides a quiet dot, never rails or colored text. */
                     <div key={g.key}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 16px', background: NX.surface2, borderBottom: `1px solid ${NX.border2}`, fontSize: 13.5, fontWeight: 700, color: NX.ink }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 16px', background: NX.surface2, borderBottom: `1px solid ${NX.border2}`, fontSize: 13.5, fontWeight: 700, color: NX.ink }}>
                         <ChevronDown size={14} style={{ color: NX.faint }} />
                         <span style={{ width: 9, height: 9, borderRadius: 3, background: gc, flexShrink: 0 }} />
                         {g.label} <span style={{ color: NX.faint, fontWeight: 600, fontSize: 12 }}>{g.tasks.length} item{g.tasks.length !== 1 ? 's' : ''}</span>
@@ -283,7 +311,7 @@ export default function MyTasksView() {
             {/* Said "Add Section" and opened the Create Task modal. There are no
                 sections on this screen - the groups above come from the group-by
                 control - so it is what it always was: a new task assigned to me. */}
-            <button onClick={() => openCreate({ assigneeId: myEmail })} style={{ ...btn('ghost'), padding: '12px 16px', color: NX.faint }}><Plus size={15} /> Add Task</button>
+            <button onClick={() => openCreate({ assigneeId: myEmail })} style={{ ...btn('ghost'), padding: '8px 16px', color: NX.faint }}><Plus size={15} /> Add Task</button>
           </div>
         ) : view === 'calendar' ? (
           <CalendarView tasks={mine} onOpen={setOpenId} onCreate={(iso) => openCreate({ assigneeId: myEmail, dueOn: iso })} />

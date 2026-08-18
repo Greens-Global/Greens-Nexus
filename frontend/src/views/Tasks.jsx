@@ -76,10 +76,19 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
   const [searchTaskId, setSearchTaskId] = useState(null);   // task opened from header search
   const [person, setPerson] = useState(null);               // { email, name } from header search
   const [personTasks, setPersonTasks] = useState(false);    // their page -> the full workspace
+  const [searchAll, setSearchAll] = useState('');          // header search "see all" -> workspace with the query
   // Where a project drill-in should return to - the sub the user was on when
   // they entered ('home' from the Home widgets, 'projects' from Projects).
   const [returnSub, setReturnSub] = useState('projects');
-  const go = (key) => (onSubChange ? onSubChange(key) : undefined);
+  // A person opened from header search sits ON TOP of whichever sub-view was
+  // active (see the render below) - switching module tabs used to change
+  // `sub` underneath it while the person's page kept showing, so My Tasks/
+  // Projects/etc. looked broken from there. Any tab jump exits it first.
+  const go = (key) => {
+    if (person) { setPerson(null); setPersonTasks(false); }
+    if (searchAll) setSearchAll('');   // a tab click leaves the search results
+    return onSubChange ? onSubChange(key) : undefined;
+  };
 
   // First visit runs the tour on its own; after that it is the button only.
   // Held until myEmail resolves, otherwise the flag is written against 'anon'
@@ -110,11 +119,16 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
       const email = e.detail?.email;
       if (email) { setPerson({ email, name: e.detail?.name || email }); setPersonTasks(false); }
     };
+    // Header search "and N more": the dropdown caps at 20, so the full result
+    // set lives here - the workspace with the same words in its search box.
+    const openSearch = (e) => { const q = (e.detail?.q || '').trim(); if (q) setSearchAll(q); };
     window.addEventListener('nexus:open-task', openTask);
     window.addEventListener('nexus:tasks-person', openPerson);
+    window.addEventListener('nexus:tasks-search', openSearch);
     return () => {
       window.removeEventListener('nexus:open-task', openTask);
       window.removeEventListener('nexus:tasks-person', openPerson);
+      window.removeEventListener('nexus:tasks-search', openSearch);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -192,7 +206,14 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
       {/* data-tour tracks the active tab, so the guided tour can spotlight
           "this whole screen" without every sub-view needing its own hook. */}
       <div style={{ flex: 1, minHeight: 0 }} data-tour={`task-screen-${sub}`}>
-        {person && personTasks ? (
+        {searchAll ? (
+          <TasksWorkspace
+            key={`search-${searchAll}`}
+            title={`Search · "${searchAll}"`}
+            initialSearch={searchAll}
+            onBack={() => setSearchAll('')}
+          />
+        ) : person && personTasks ? (
           /* "View all tasks" from the person page - the workspace is the right
              home for filtering and bulk edits, seeded with their assignee filter. */
           <TasksWorkspace

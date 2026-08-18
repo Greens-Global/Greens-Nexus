@@ -54,7 +54,7 @@ def _now() -> str:
 def _open_action(label: str = "Open Jobsite") -> str:
     """NotificationBell's click target. The module lives under Operations ->
     Project Dashboard (Sidebar.jsx), and the bell dispatches nexus:navigate."""
-    return json.dumps({"view": "ops", "sub": "ops-dashboard", "label": label})
+    return json.dumps({"view": "ops", "sub": "construction-dashboard", "label": label})
 
 
 def bell(db, *, kind: str, recipient: str, title: str, body: str,
@@ -160,7 +160,7 @@ def report_published(db, project, report, pdf: bytes = b"") -> str:
     if not to:
         return "no executive recipients on this project"
 
-    link = f"{_APP_URL}/?view=ops&sub=ops-dashboard" if _APP_URL else ""
+    link = f"{_APP_URL}/?view=ops&sub=construction-dashboard" if _APP_URL else ""
     attach = None
     note = ""
     name = f"{project.name} - week of {report.week_start}.pdf".replace("/", "-")

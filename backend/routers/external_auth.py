@@ -500,6 +500,7 @@ def activate_verify(body: ActivateVerifyIn, request: Request):
         if outcome is not True:
             return outcome
         token_row.consumed_at = _iso()
+        emp.invite_status = "accepted"   # feeds the People > External list badge
         db.commit()
         _audit(db, email, "external_activated", "invite redeemed, account activated", ip)
         return _session_response(db, email, {"ok": True, "next": "/"})

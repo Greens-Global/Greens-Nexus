@@ -7,7 +7,7 @@
 // workspace is still one click away ("View All Tasks"), which is the right home
 // for filtering and bulk edits.
 import { useEffect, useState } from 'react';
-import { ArrowLeft, CheckCircle2, Circle, FolderKanban, Users, AlertTriangle, Plus, Mail } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, Circle, FolderKanban, Users, AlertTriangle, Plus, Mail, X } from 'lucide-react';
 import { api } from '../api';
 import { NX, FONT, btn, card, chip } from './theme';
 import { Avatar, EmptyState, useIsMobile } from './components';
@@ -40,6 +40,7 @@ export default function PersonView({ email, name, onBack, onOpenProject, onViewA
   const [err, setErr] = useState('');
   const [reload, setReload] = useState(0);
   const [tab, setTab] = useState('assigned');
+  const [statusFilter, setStatusFilter] = useState(null); // null | 'open' | 'overdue' | 'completed'
   const [openId, setOpenId] = useState(null);
   const [creating, setCreating] = useState(null);
 
@@ -54,7 +55,21 @@ export default function PersonView({ email, name, onBack, onOpenProject, onViewA
 
   const person = data?.person;
   const identity = IDENTITY_META[person?.identityType];
-  const rows = data?.tasks?.[tab] || [];
+  const today = new Date().toISOString().slice(0, 10);
+  const allRows = data?.tasks?.[tab] || [];
+  // The rollup cards count the ASSIGNED bucket specifically (backend
+  // person_profile) - clicking one jumps there too, so the number clicked
+  // always matches what's now on screen instead of filtering whatever tab
+  // happened to be open.
+  const rows = !statusFilter ? allRows : allRows.filter((t) => (
+    statusFilter === 'completed' ? t.completed
+      : statusFilter === 'overdue' ? (!t.completed && t.dueOn && t.dueOn < today)
+      : !t.completed // 'open'
+  ));
+  const pickStat = (key) => {
+    setTab('assigned');
+    setStatusFilter((f) => (f === key ? null : key));
+  };
   const title = person?.displayName || person?.name || name || email;
 
   return (
@@ -97,19 +112,29 @@ export default function PersonView({ email, name, onBack, onOpenProject, onViewA
           </div>
         </div>
 
-        {/* Rollup - open / overdue / done, the shape of their load at a glance */}
+        {/* Rollup - open / overdue / done, the shape of their load at a glance,
+            and a filter for the Tasks list below: click one to see just those
+            (click again to clear it). */}
         {data && (
-          <div style={{ display: 'flex', gap: isMobile ? 14 : 26, marginTop: 16, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: isMobile ? 10 : 18, marginTop: 16, flexWrap: 'wrap' }}>
             {[
-              { label: 'Open', value: data.stats.open, color: NX.ink },
-              { label: 'Overdue', value: data.stats.overdue, color: data.stats.overdue ? NX.red : NX.ink },
-              { label: 'Completed', value: data.stats.completed, color: NX.ink },
-            ].map((s) => (
-              <div key={s.label}>
-                <div style={{ fontSize: 20, fontWeight: 800, color: s.color, lineHeight: 1.1 }}>{s.value}</div>
-                <div style={{ fontSize: 11, color: NX.faint, textTransform: 'uppercase', letterSpacing: '.06em', marginTop: 2 }}>{s.label}</div>
-              </div>
-            ))}
+              { key: 'open', label: 'Open', value: data.stats.open, color: NX.ink },
+              { key: 'overdue', label: 'Overdue', value: data.stats.overdue, color: data.stats.overdue ? NX.red : NX.ink },
+              { key: 'completed', label: 'Completed', value: data.stats.completed, color: NX.ink },
+            ].map((s) => {
+              const active = tab === 'assigned' && statusFilter === s.key;
+              return (
+                <button key={s.key} onClick={() => pickStat(s.key)} title={`Show ${s.label.toLowerCase()} tasks`} style={{
+                  border: `1px solid ${active ? NX.primary : 'transparent'}`,
+                  background: active ? (NX.hover || NX.border2) : 'transparent',
+                  borderRadius: 10, padding: isMobile ? '4px 8px' : '5px 12px', cursor: 'pointer',
+                  fontFamily: FONT, textAlign: 'left', transition: 'background-color .12s ease, border-color .12s ease',
+                }}>
+                  <div style={{ fontSize: 20, fontWeight: 800, color: s.color, lineHeight: 1.1 }}>{s.value}</div>
+                  <div style={{ fontSize: 11, color: NX.faint, textTransform: 'uppercase', letterSpacing: '.06em', marginTop: 2 }}>{s.label}</div>
+                </button>
+              );
+            })}
           </div>
         )}
       </div>
@@ -124,12 +149,20 @@ export default function PersonView({ email, name, onBack, onOpenProject, onViewA
           {/* Tasks */}
           <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '12px 16px 0', flexWrap: 'wrap' }}>
-              <div style={{ fontSize: 15, fontWeight: 700 }}>Tasks</div>
-              <button style={{ ...btn('ghost'), fontSize: 12.5, color: NX.dim }} onClick={onViewAllTasks}>View All Tasks</button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div style={{ fontSize: 15, fontWeight: 700 }}>Tasks</div>
+                {statusFilter && (
+                  <button onClick={() => setStatusFilter(null)}
+                    style={{ ...chip(NX.primary, NX.hover || NX.border2), border: 'none', cursor: 'pointer', fontFamily: FONT }}>
+                    {statusFilter[0].toUpperCase() + statusFilter.slice(1)} only <X size={11} style={{ marginLeft: 3 }} />
+                  </button>
+                )}
+              </div>
+              <button style={{ ...btn('outline'), fontSize: 12.5, padding: '5px 10px' }} onClick={onViewAllTasks}>View All Tasks</button>
             </div>
             <div className="scroll-tabs" style={{ display: 'flex', gap: 2, padding: '8px 12px 0', overflowX: 'auto' }}>
               {TABS.map((t) => (
-                <button key={t.key} onClick={() => setTab(t.key)} style={{
+                <button key={t.key} onClick={() => { setTab(t.key); setStatusFilter(null); }} style={{
                   ...btn('ghost'), padding: '6px 10px', borderRadius: 0, whiteSpace: 'nowrap', fontSize: 13,
                   color: tab === t.key ? NX.ink : NX.dim, fontWeight: tab === t.key ? 700 : 500,
                   borderBottom: `2px solid ${tab === t.key ? NX.ink : 'transparent'}`,

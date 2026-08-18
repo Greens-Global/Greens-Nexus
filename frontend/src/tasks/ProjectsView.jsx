@@ -511,7 +511,8 @@ function DeleteProjectModal({ state, setState, onConfirm, onClose }) {
 function ProjectModal({ form, setForm, people, portfolios, onClose, onSaved }) {
   const { teams, tasks, customFields, createProject, updateProject, updateTeam } = useTasks();
   const projectFields = useMemo(() => fieldsForProjectEntity(customFields), [customFields]);
-  const set = (patch) => setForm((f) => ({ ...f, ...patch }));
+  const [dirty, setDirty] = useState(false);
+  const set = (patch) => { setForm((f) => ({ ...f, ...patch })); setDirty(true); };
   // Read-only: status is computed from this project's tasks, the same rollup the
   // card's progress bar draws. Shown rather than hidden so the modal answers
   // "why does it say that?" in place, instead of looking like a missing field.
@@ -534,7 +535,7 @@ function ProjectModal({ form, setForm, people, portfolios, onClose, onSaved }) {
   // Teams currently assigned to this project (none yet for a brand-new one),
   // staged locally until Save so create and edit behave the same way.
   const [teamIds, setTeamIds] = useState(() => teams.filter((t) => teamInProject(t, form.id)).map((t) => t.id));
-  const toggleTeam = (id) => setTeamIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
+  const toggleTeam = (id) => { setTeamIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id])); setDirty(true); };
 
   const save = async () => {
     if (!valid || saving) return;
@@ -565,6 +566,8 @@ function ProjectModal({ form, setForm, people, portfolios, onClose, onSaved }) {
     <Modal
       title={form.id ? 'Edit Project' : 'Create a Project'}
       onClose={onClose}
+      isDirty={dirty}
+      onSave={valid ? save : undefined}
       footer={<>
         <button style={btn('ghost')} onClick={onClose}>Cancel</button>
         <button style={{ ...btn('primary'), opacity: valid && !saving ? 1 : 0.5, pointerEvents: valid && !saving ? 'auto' : 'none' }} onClick={save}>{form.id ? 'Save Changes' : 'Create Project'}</button>

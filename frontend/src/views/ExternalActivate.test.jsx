@@ -1,4 +1,4 @@
-import React from 'react';
+// (React import not needed with the JSX runtime)
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 
@@ -8,7 +8,7 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 
 const calls = [];
 let lookupResult;
-global.fetch = vi.fn(async (url, opts) => {
+globalThis.fetch = vi.fn(async (url, opts) => {
   calls.push({ url, body: JSON.parse(opts.body) });
   if (url.includes('/activate/lookup')) {
     if (lookupResult === 'invalid') {

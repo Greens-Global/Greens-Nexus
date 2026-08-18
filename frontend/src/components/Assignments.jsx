@@ -119,18 +119,38 @@ function PhotoField({ file, setFile, required = true }) {
   );
 }
 
-function ModalShell({ title, sub, children, onClose, busy = false }) {
+// `isDirty`: don't let ESC or a backdrop click silently discard a filled-in
+// tab/reason/photo - confirm first instead. Only Discard/Keep Editing are
+// offered here (no Save Changes) since every form below is submitted through
+// its own explicit action button, not a single reusable save fn.
+function ModalShell({ title, sub, children, onClose, busy = false, isDirty = false }) {
+  const [confirming, setConfirming] = useState(false);
   // P4 modal guards: don't let ESC or a backdrop click tear the modal down while
   // an accept/return/cancel is in flight - that would also lose the onDone refresh.
-  useEffect(() => { const h = e => { if (e.key === 'Escape' && !busy) onClose(); }; window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h); }, [onClose, busy]);
+  const requestClose = () => { if (busy) return; if (isDirty) setConfirming(true); else onClose(); };
+  useEffect(() => { const h = e => { if (e.key === 'Escape') requestClose(); }; window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h); }, [onClose, busy, isDirty]);
   return (
     <div role="dialog" aria-modal="true" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1250, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
-      onClick={e => { if (e.target === e.currentTarget && !busy) onClose(); }}>
+      onClick={e => { if (e.target === e.currentTarget) requestClose(); }}>
       <div style={{ background: 'var(--card)', borderRadius: 14, padding: 28, width: '100%', maxWidth: 430, boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
         <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 6 }}>{title}</h3>
         {sub && <p style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 18 }}>{sub}</p>}
         {children}
       </div>
+      {confirming && (
+        <div onClick={e => e.stopPropagation()} style={{ position: 'fixed', inset: 0, zIndex: 1350, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.3)' }}>
+          <div style={{ width: 340, maxWidth: '90vw', background: 'var(--card)', borderRadius: 14, boxShadow: '0 20px 60px rgba(0,0,0,0.3)', padding: 20 }}>
+            <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 6 }}>Discard your changes?</div>
+            <div style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.5, marginBottom: 18 }}>
+              You have unsaved changes. Closing now will discard them.
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
+              <button className="secondary-btn" onClick={() => setConfirming(false)}>Keep Editing</button>
+              <button className="primary-btn" onClick={onClose}>Discard</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -177,8 +197,10 @@ export function AssignItemModal({ item, mode, userEmail = '', locations = [], on
       .catch(err => { setError(err?.message || 'Could not set the location.'); setBusy(false); });
   }
 
+  const dirty = !!pick || locChanged || skipAccept;
+
   return (
-    <ModalShell onClose={onClose} busy={busy}
+    <ModalShell onClose={onClose} busy={busy} isDirty={dirty}
       title={reassign ? `Reassign ${item.name}` : `Assign ${item.name}`}
       sub="Assign it to a person (they accept with a photo) or set where it lives - a location and a person can both apply.">
       <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
@@ -336,7 +358,7 @@ function DeclineAssignmentModal({ a, onClose, onDone, toast }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   return (
-    <ModalShell onClose={onClose} busy={busy} title={`Decline ${a.itemName}`}
+    <ModalShell onClose={onClose} busy={busy} isDirty={!!note.trim()} title={`Decline ${a.itemName}`}
       sub="Let the manager know why, so they can reassign it. The reason is optional.">
       <label style={FL}>REASON <span style={{ fontSize: 11, fontWeight: 400 }}>(optional)</span></label>
       <textarea rows={2} className="form-input" style={{ width: '100%', resize: 'vertical', fontSize: 13 }} value={note}
@@ -365,7 +387,7 @@ function AcceptAssignmentModal({ a, onClose, onDone, toast }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   return (
-    <ModalShell onClose={onClose} busy={busy} title={`Accept ${a.itemName}`}
+    <ModalShell onClose={onClose} busy={busy} isDirty={!!(file || note.trim())} title={`Accept ${a.itemName}`}
       sub="One click and it's yours. A photo is optional for permanent items - add one if you want a condition record.">
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <PhotoField file={file} setFile={setFile} required={false} />
@@ -408,7 +430,7 @@ function AssignmentReturnModal({ a, reason, onClose, onDone, toast }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   return (
-    <ModalShell onClose={onClose} busy={busy} title={`${c.title}: ${a.itemName}`} sub={c.sub}>
+    <ModalShell onClose={onClose} busy={busy} isDirty={!!(file || note.trim())} title={`${c.title}: ${a.itemName}`} sub={c.sub}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         {needPhoto && <PhotoField file={file} setFile={setFile} />}
         <div>

@@ -29,9 +29,10 @@ export default function SetGoalsModal({ facilities, leadGoalByProperty, onChange
     for (const f of facilities) onChangeLeadGoal(f, draft[f] ?? 0)
     onClose()
   }
+  const dirty = facilities.some((f) => (draft[f] ?? 0) !== (leadGoalByProperty[f] ?? 0))
 
   return (
-    <Modal title="Set Goals" onClose={onClose} width="max-w-md">
+    <Modal title="Set Goals" onClose={onClose} width="max-w-md" isDirty={dirty} onSave={error ? undefined : handleSave}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         <p style={{ fontSize: 12.5, color: C.gray500 }}>Set a monthly lead goal for each property.</p>
 

@@ -49,6 +49,8 @@ export function RecordModal({ coll, row, canDelete = true, requireReason = false
       : recordType.fields;
 
   const [values, setValues] = useInitialFormState(fields, row);
+  const [initialValues] = useState(values);
+  const dirty = JSON.stringify(values) !== JSON.stringify(initialValues);
   const [confirmingRemove, setConfirmingRemove] = useState(false);
   const [removeReason, setRemoveReason] = useState('');
   const isWarranty = coll === 'warranties';
@@ -125,7 +127,8 @@ export function RecordModal({ coll, row, canDelete = true, requireReason = false
   );
 
   return (
-    <Modal title={(row ? 'Edit ' : 'Add ') + recordType.title.toLowerCase()} onClose={onClose} footer={footer}>
+    <Modal title={(row ? 'Edit ' : 'Add ') + recordType.title.toLowerCase()} onClose={onClose} footer={footer}
+      isDirty={dirty && !confirmingRemove} onSave={handleSave}>
       {confirmingRemove && (
         <div
           style={{

@@ -104,7 +104,9 @@ export default function HomeView({ onNavigate }) {
   };
   const availableWidgets = WIDGET_META.filter((w) => !widgets.includes(w.key));
 
-  const myTasks = useMemo(() => tasks.filter((t) => !t.parentTaskId && t.assigneeId === myEmail), [tasks, myEmail]);
+  // Subtasks assigned to me count as mine (Asana's My Tasks rule) - the old
+  // top-level-only filter under-reported people's open work by up to a third.
+  const myTasks = useMemo(() => tasks.filter((t) => t.type !== 'section' && t.assigneeId === myEmail), [tasks, myEmail]);
   const rangeDef = RANGES.find((r) => r.key === range);
   const rangeEnd = addDays(todayISO(), rangeDef.days);
   const overdue = myTasks.filter((t) => !t.completed && t.dueOn && t.dueOn < todayISO());
