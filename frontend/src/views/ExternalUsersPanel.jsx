@@ -62,15 +62,17 @@ export function InviteExternalModal({ initial, onClose, onSaved }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
+  const emailChanged = editing && email.trim().toLowerCase() !== (initial.email || '').toLowerCase();
+
   const save = async () => {
     setError('');
-    if (!editing && (!email.trim() || !email.includes('@'))) { setError('A valid email address is required.'); return; }
+    if (!email.trim() || !email.includes('@')) { setError('A valid email address is required.'); return; }
     if (!firstName.trim()) { setError('First name is required.'); return; }
     setSaving(true);
     const phone = joinPhone(phoneDial, phoneRest);
     try {
       const result = editing
-        ? await api.updateExternalUser(initial.email, { first_name: firstName, last_name: lastName, company, expires_at: expiresAt, phone })
+        ? await api.updateExternalUser(initial.email, { first_name: firstName, last_name: lastName, email: email.trim(), company, expires_at: expiresAt, phone })
         : await api.createExternalUser({ email: email.trim(), first_name: firstName, last_name: lastName, company, expires_at: expiresAt, phone });
       onSaved(result);
     } catch (e) {
@@ -100,8 +102,14 @@ export function InviteExternalModal({ initial, onClose, onSaved }) {
           </div>
           <div>
             <span style={label}>Email (the invitation is sent to this address)</span>
-            <input style={{ ...field, opacity: editing ? 0.6 : 1 }} type="email" value={email} disabled={editing}
+            <input style={field} type="email" value={email}
               placeholder="name@partnercompany.com" onChange={e => setEmail(e.target.value)} />
+            {emailChanged && (
+              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 5, lineHeight: 1.5 }}>
+                Their job role, groups, and access carry over to the corrected address. Any invite link or
+                sign-in code already sent to the old address stops working - use Resend Invite afterward.
+              </div>
+            )}
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             <div>

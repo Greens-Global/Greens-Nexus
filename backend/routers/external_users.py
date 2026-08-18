@@ -188,6 +188,7 @@ class ExternalUserCreate(BaseModel):
 class ExternalUserUpdate(BaseModel):
     first_name: Optional[str] = None
     last_name:  Optional[str] = None
+    email:      Optional[str] = None    # typo correction - see rename cascade below
     company:    Optional[str] = None
     status:     Optional[str] = None    # active | inactive
     expires_at: Optional[str] = None
@@ -271,6 +272,37 @@ def update_external_user(email: str, body: ExternalUserUpdate,
                    NexusEmployee.identity_type.in_(_EXTERNAL_TYPES)).first())
     if not row:
         raise HTTPException(404, "External user not found")
+
+    if body.email is not None:
+        new_email = body.email.lower().strip()
+        if new_email != email:
+            if "@" not in new_email or " " in new_email:
+                raise HTTPException(400, "A valid email address is required")
+            new_domain = new_email.rpartition("@")[2]
+            if new_domain in INTERNAL_DOMAINS:
+                raise HTTPException(400, "That is a company email - employees sign in with their Microsoft account and are managed in People, not here")
+            clash = (db.query(NexusEmployee)
+                     .filter(func.lower(NexusEmployee.work_email) == new_email).first())
+            if clash:
+                raise HTTPException(409, "This email is already enrolled")
+            # Typo correction: carry their job role / groups / access scopes
+            # over to the corrected address (these tables key on email, not
+            # the row's id).
+            db.query(NexusRole).filter(NexusRole.email == email).update(
+                {"email": new_email}, synchronize_session=False)
+            db.query(NexusGroupMember).filter(NexusGroupMember.email == email).update(
+                {"email": new_email}, synchronize_session=False)
+            db.query(NexusAccessScope).filter(NexusAccessScope.email == email).update(
+                {"email": new_email}, synchronize_session=False)
+            # The old address's outstanding invite link / login codes / sessions
+            # were sent to the wrong inbox - kill them rather than carry them
+            # over. The admin resends the invite once the address is fixed.
+            from routers.external_auth import revoke_credentials
+            revoke_credentials(db, email)
+            row.work_email = new_email
+            row.invite_status = ""
+            _invalidate(email)
+            email = new_email
 
     if body.status is not None:
         if body.status not in ("active", "inactive"):
