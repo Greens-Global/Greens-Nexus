@@ -72,7 +72,7 @@ export function InviteExternalModal({ initial, onClose, onSaved }) {
     const phone = joinPhone(phoneDial, phoneRest);
     try {
       const result = editing
-        ? await api.updateExternalUser(initial.email, { first_name: firstName, last_name: lastName, email: email.trim(), company, expires_at: expiresAt, phone })
+        ? await api.updateExternalUser(initial.email || initial.id, { first_name: firstName, last_name: lastName, email: email.trim(), company, expires_at: expiresAt, phone })
         : await api.createExternalUser({ email: email.trim(), first_name: firstName, last_name: lastName, company, expires_at: expiresAt, phone });
       onSaved(result);
     } catch (e) {
@@ -163,6 +163,10 @@ export function inviteOutcomeToast(result, toastOk, toastErr) {
 // ONE implementation of the lifecycle actions, shared by the person-card
 // section (Roles & Access) and the People module's External tab list - the
 // two surfaces must never drift apart in behavior or copy.
+// URL key for an external row: their email, or the row id when the email is
+// blank (older external-contact rows) - the API accepts either.
+const keyOf = (ext) => ext?.email || ext?.id;
+
 export function useExternalActions({ onChanged, onRemoved, toastOk, toastErr }) {
   const [busyEmail, setBusyEmail] = useState('');
 
@@ -171,29 +175,29 @@ export function useExternalActions({ onChanged, onRemoved, toastOk, toastErr }) 
     try { await fn(); } finally { setBusyEmail(''); }
   };
 
-  const resend = (ext) => run(ext.email, async () => {
+  const resend = (ext) => run(keyOf(ext), async () => {
     try {
-      const r = await api.resendExternalInvite(ext.email);
+      const r = await api.resendExternalInvite(keyOf(ext));
       inviteOutcomeToast({ ...r, inviteMessage: r.inviteMessage }, toastOk, toastErr);
       onChanged?.();
     } catch (e) { toastErr?.(e?.message || 'The invitation could not be sent'); }
   });
 
-  const setStatus = (ext, status) => run(ext.email, async () => {
+  const setStatus = (ext, status) => run(keyOf(ext), async () => {
     try {
-      await api.updateExternalUser(ext.email, { status });
+      await api.updateExternalUser(keyOf(ext), { status });
       toastOk?.(status === 'active' ? `${ext.name} reactivated` : `${ext.name} deactivated - they can no longer sign in`);
       onChanged?.();
     } catch (e) { toastErr?.(e?.message || 'Could not update'); }
   });
 
-  const remove = (ext) => run(ext.email, async () => {
+  const remove = (ext) => run(keyOf(ext), async () => {
     const ok = await dialog.confirm(
       `Remove ${ext.name} from Nexus entirely? Deactivate keeps their record and can be reversed - Remove erases them completely, and they would have to be re-invited from scratch. Tasks and comments they took part in are kept.`,
       { title: 'Remove External User', confirmText: 'Remove Permanently', danger: true });
     if (!ok) return;
     try {
-      await api.removeExternalUser(ext.email);
+      await api.removeExternalUser(keyOf(ext));
       toastOk?.(`${ext.name} removed from Nexus`);
       onRemoved?.();
     } catch (e) { toastErr?.(e?.message || 'Could not remove'); }
@@ -212,7 +216,7 @@ export function ExternalPersonSection({ ext, onChanged, onRemoved, toastOk, toas
   const expired = ext.expiresAt && ext.expiresAt.slice(0, 10) < new Date().toISOString().slice(0, 10);
   const { busyEmail, resend: doResend, setStatus: doSetStatus, remove: doRemove } =
     useExternalActions({ onChanged, onRemoved, toastOk, toastErr });
-  const busy = busyEmail === ext.email;
+  const busy = busyEmail === keyOf(ext);
   const resend = () => doResend(ext);
   const setStatus = (status) => doSetStatus(ext, status);
   const remove = () => doRemove(ext);
@@ -341,22 +345,22 @@ export default function ExternalUsersPanel({ toastOk, toastErr, onChanged }) {
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 7, flexShrink: 0, flexWrap: 'wrap' }}>
-                <button onClick={() => resend(u)} disabled={busyEmail === u.email} title="Send a fresh activation email" style={actionBtn()}>
+                <button onClick={() => resend(u)} disabled={busyEmail === keyOf(u)} title="Send a fresh activation email" style={actionBtn()}>
                   <Send size={13} /> Resend Invite
                 </button>
-                <button onClick={() => setEditing(u)} disabled={busyEmail === u.email} title="Edit name, company, phone, or expiry" style={actionBtn()}>
+                <button onClick={() => setEditing(u)} disabled={busyEmail === keyOf(u)} title="Edit name, company, phone, or expiry" style={actionBtn()}>
                   <Pencil size={13} /> Edit
                 </button>
                 {u.status === 'active' ? (
-                  <button onClick={() => setStatus(u, 'inactive')} disabled={busyEmail === u.email} style={actionBtn('hsl(var(--color-red))', 'hsla(var(--color-red),0.4)')}>
+                  <button onClick={() => setStatus(u, 'inactive')} disabled={busyEmail === keyOf(u)} style={actionBtn('hsl(var(--color-red))', 'hsla(var(--color-red),0.4)')}>
                     <ShieldOff size={13} /> Deactivate
                   </button>
                 ) : (
-                  <button onClick={() => setStatus(u, 'active')} disabled={busyEmail === u.email} style={actionBtn('hsl(var(--color-green))', 'hsla(var(--color-green),0.4)')}>
+                  <button onClick={() => setStatus(u, 'active')} disabled={busyEmail === keyOf(u)} style={actionBtn('hsl(var(--color-green))', 'hsla(var(--color-green),0.4)')}>
                     <ShieldCheck size={13} /> Reactivate
                   </button>
                 )}
-                <button onClick={() => remove(u)} disabled={busyEmail === u.email} title="Erase them from Nexus entirely - cannot be undone" style={actionBtn('hsl(var(--color-red))', 'hsla(var(--color-red),0.4)')}>
+                <button onClick={() => remove(u)} disabled={busyEmail === keyOf(u)} title="Erase them from Nexus entirely - cannot be undone" style={actionBtn('hsl(var(--color-red))', 'hsla(var(--color-red),0.4)')}>
                   <Trash2 size={13} /> Remove
                 </button>
               </div>

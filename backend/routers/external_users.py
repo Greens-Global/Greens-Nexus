@@ -54,6 +54,27 @@ router = APIRouter(prefix="/external-users", tags=["External Users"])
 _EXTERNAL_TYPES = ("guest", "external")
 
 
+def _find_external(db, key: str):
+    """The external row behind a URL key - their email, or their row id.
+
+    Every action here used to be email-keyed only, and an external row with
+    an EMPTY email (older "external contact" rows created before the invite
+    flow, e.g. a duplicate of a real guest) could then be neither edited nor
+    removed: the URL had nothing to put in it. Accepting the id closes that;
+    email stays the normal key so nothing else changes."""
+    key = (key or "").strip()
+    q = db.query(NexusEmployee).filter(NexusEmployee.identity_type.in_(_EXTERNAL_TYPES))
+    row = None
+    if key:
+        if "@" in key:
+            row = q.filter(func.lower(NexusEmployee.work_email) == key.lower()).first()
+        if row is None:
+            row = q.filter(NexusEmployee.id == key).first()
+    if not row:
+        raise HTTPException(404, "External user not found")
+    return row
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -266,12 +287,8 @@ def enroll_external_user(body: ExternalUserCreate,
 def update_external_user(email: str, body: ExternalUserUpdate,
                          user: dict = Depends(require_administrator),
                          db: Session = Depends(get_db)):
-    email = email.lower().strip()
-    row = (db.query(NexusEmployee)
-           .filter(func.lower(NexusEmployee.work_email) == email,
-                   NexusEmployee.identity_type.in_(_EXTERNAL_TYPES)).first())
-    if not row:
-        raise HTTPException(404, "External user not found")
+    row = _find_external(db, email)
+    email = (row.work_email or "").lower().strip()
 
     if body.email is not None:
         new_email = body.email.lower().strip()
@@ -342,12 +359,8 @@ def resend_invite(email: str, user: dict = Depends(require_administrator),
     primary path mints a FRESH single-use activation link (killing prior ones)
     and emails it; the legacy Graph path just re-sends the B2B redemption.
     Updates the stored invite status either way."""
-    email = email.lower().strip()
-    row = (db.query(NexusEmployee)
-           .filter(func.lower(NexusEmployee.work_email) == email,
-                   NexusEmployee.identity_type.in_(_EXTERNAL_TYPES)).first())
-    if not row:
-        raise HTTPException(404, "External user not found")
+    row = _find_external(db, email)
+    email = (row.work_email or "").lower().strip()
 
     status, message = _send_invite(db, row, user)
     row.invite_status = status
@@ -371,20 +384,18 @@ def remove_external_user(email: str, user: dict = Depends(require_administrator)
     no longer resolves to a person, and name resolution falls back to the
     email-derived form the same way it already does for any unknown address.
     The Entra guest account is NOT touched - deleting it is optional cleanup."""
-    email = email.lower().strip()
-    row = (db.query(NexusEmployee)
-           .filter(func.lower(NexusEmployee.work_email) == email,
-                   NexusEmployee.identity_type.in_(_EXTERNAL_TYPES)).first())
-    if not row:
-        raise HTTPException(404, "External user not found")
+    row = _find_external(db, email)
+    email = (row.work_email or "").lower().strip()
 
-    db.query(NexusGroupMember).filter(NexusGroupMember.email == email).delete(synchronize_session=False)
-    db.query(NexusRole).filter(NexusRole.email == email).delete(synchronize_session=False)
-    db.query(NexusAccessScope).filter(NexusAccessScope.email == email).delete(synchronize_session=False)
+    if email:   # a blank-email row has nothing keyed to it elsewhere - and '' must never match
+        db.query(NexusGroupMember).filter(NexusGroupMember.email == email).delete(synchronize_session=False)
+        db.query(NexusRole).filter(NexusRole.email == email).delete(synchronize_session=False)
+        db.query(NexusAccessScope).filter(NexusAccessScope.email == email).delete(synchronize_session=False)
     db.delete(row)
     db.commit()
-    _invalidate(email)
-    # Void outstanding codes/invite links and kill live sessions immediately.
-    from routers.external_auth import revoke_credentials
-    revoke_credentials(db, email)
-    return {"removed": email}
+    if email:
+        _invalidate(email)
+        # Void outstanding codes/invite links and kill live sessions immediately.
+        from routers.external_auth import revoke_credentials
+        revoke_credentials(db, email)
+    return {"removed": email or row.id}
