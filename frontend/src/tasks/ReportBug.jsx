@@ -34,6 +34,7 @@ function ReportBugModal({ onClose }) {
   const [busy, setBusy] = useState(false);
   const fileRef = useRef(null);
   const canSubmit = title.trim() && description.trim();
+  const dirty = !!(title.trim() || description.trim() || steps.trim() || shots.length || module !== 'Tasks' || severity !== 'medium');
 
   const addShots = (files) => {
     for (const f of files) {
@@ -63,7 +64,8 @@ function ReportBugModal({ onClose }) {
 
   const sel = { ...inputStyle, cursor: 'pointer' };
   return (
-    <Modal title={<span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Bug size={18} style={{ color: NX.red }} /> Report a Bug</span>} width={560} onClose={onClose} footer={
+    <Modal title={<span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Bug size={18} style={{ color: NX.red }} /> Report a Bug</span>} width={560} onClose={onClose}
+      isDirty={dirty} onSave={canSubmit ? submit : undefined} footer={
       <>
         <button onClick={onClose} style={btn('outline')}>Cancel</button>
         <button onClick={submit} disabled={!canSubmit || busy} style={{ ...btn('primary'), opacity: !canSubmit || busy ? 0.55 : 1 }}>Submit Bug Report</button>

@@ -115,14 +115,48 @@ export function Dropdown({ open, onToggle, trigger, children, width = 240 }) {
   );
 }
 
-export function Modal({ children, onClose, wide }) {
+// `isDirty` + `onSave`: closing via the backdrop, Escape, or the X button used
+// to discard an in-progress form with no warning - with isDirty set, those
+// three now confirm first. A form's own Cancel button still discards straight
+// away, since that's a deliberate choice.
+export function Modal({ children, onClose, wide, isDirty = false, onSave }) {
+  const [confirming, setConfirming] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const requestClose = () => { if (isDirty) setConfirming(true); else onClose(); };
+  React.useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") requestClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose, isDirty]);
+  const saveAndClose = async () => {
+    if (!onSave) { setConfirming(false); onClose(); return; }
+    setSaving(true);
+    try { await onSave(); } finally { setSaving(false); setConfirming(false); }
+  };
   return (
     <div className="cv-modal-overlay">
-      <div className="cv-modal-backdrop" onClick={onClose} />
+      <div className="cv-modal-backdrop" onClick={requestClose} />
       <div className={`cv-modal cv-root${wide ? " cv-modal-wide" : ""}`}>
-        <button onClick={onClose} className="cv-modal-close"><X size={19} /></button>
+        <button onClick={requestClose} className="cv-modal-close"><X size={19} /></button>
         {children}
       </div>
+      {confirming && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 1400, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(15,23,42,.25)" }}>
+          <div className="cv-modal cv-root" style={{ maxWidth: 340, padding: 20 }}>
+            <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 6 }}>Save your changes?</div>
+            <div style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.5, marginBottom: 18 }}>
+              You have unsaved changes. Closing now will discard them.
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, flexWrap: "wrap" }}>
+              <button className="cv-btn" onClick={() => setConfirming(false)}>Keep Editing</button>
+              <button className="cv-btn" onClick={onClose}>Discard</button>
+              {onSave && (
+                <button className="cv-btn-dark" onClick={saveAndClose} disabled={saving}>{saving ? "Saving…" : "Save Changes"}</button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -460,9 +494,12 @@ function PasswordField({ value, onChange, placeholder, required = true, label = 
 
 export function AddModal({ onClose, onSave, depts, userName, userEmail, people }) {
   const [form, setForm] = useState({ name: "", dept: depts[0], type: "Password", username: "", secret: "", tier: "Standard", url: "", backupOwner: "", rotationMax: 90, customExpiry: false });
+  const [initialForm] = useState(form);
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+  const save = () => { if (form.name && form.secret) onSave(form); };
+  const dirty = JSON.stringify(form) !== JSON.stringify(initialForm);
   return (
-    <Modal onClose={onClose}>
+    <Modal onClose={onClose} isDirty={dirty} onSave={form.name && form.secret ? save : undefined}>
       <h3 style={{ fontWeight: 600, fontSize: 17, margin: 0 }}>Add Credential</h3>
       <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: "3px 0 0" }}>Stored encrypted. Saving notifies managers + IT.</p>
       <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 12 }}>
@@ -498,7 +535,7 @@ export function AddModal({ onClose, onSave, depts, userName, userEmail, people }
       </div>
       <div style={rowBetween}>
         <button onClick={onClose} className="cv-btn">Cancel</button>
-        <button onClick={() => form.name && form.secret && onSave(form)} disabled={!form.name || !form.secret} className="cv-btn-dark">Save & Notify</button>
+        <button onClick={save} disabled={!form.name || !form.secret} className="cv-btn-dark">Save & Notify</button>
       </div>
     </Modal>
   );
@@ -506,9 +543,12 @@ export function AddModal({ onClose, onSave, depts, userName, userEmail, people }
 
 export function EditModal({ cred, onClose, onSave, depts, ownerName, people }) {
   const [form, setForm] = useState({ name: cred.name, dept: cred.dept, type: cred.type, username: cred.username === "-" ? "" : cred.username, secret: "", url: cred.url || "", backupOwner: cred.backupOwner || "", rotationMax: cred.rotationMax || 90, customExpiry: cred.customExpiry || false, tier: cred.tier });
+  const [initialForm] = useState(form);
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+  const save = () => onSave(cred.id, form);
+  const dirty = JSON.stringify(form) !== JSON.stringify(initialForm);
   return (
-    <Modal onClose={onClose}>
+    <Modal onClose={onClose} isDirty={dirty} onSave={save}>
       <h3 style={{ fontWeight: 600, fontSize: 17, margin: 0 }}>Edit Credential</h3>
       <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: "3px 0 0" }}>Changes are logged and managers + IT will be notified.</p>
       <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 12 }}>
@@ -537,7 +577,7 @@ export function EditModal({ cred, onClose, onSave, depts, ownerName, people }) {
       </div>
       <div style={rowBetween}>
         <button onClick={onClose} className="cv-btn">Cancel</button>
-        <button onClick={() => onSave(cred.id, form)} className="cv-btn-dark">Save Changes</button>
+        <button onClick={save} className="cv-btn-dark">Save Changes</button>
       </div>
     </Modal>
   );
@@ -566,9 +606,10 @@ export function ImportModal({ onClose, onImport, depts }) {
     });
   }, [raw, depts]);
   const valid = rows.filter((r) => r.valid);
+  const doImport = () => onImport(valid.map((r) => r.data));
 
   return (
-    <Modal onClose={onClose} wide>
+    <Modal onClose={onClose} wide isDirty={!!raw.trim()} onSave={valid.length > 0 ? doImport : undefined}>
       <h3 style={{ fontWeight: 600, fontSize: 17, margin: 0, display: "flex", alignItems: "center", gap: 8 }}><Upload size={19} /> Batch Import</h3>
       <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: "4px 0 0" }}>Bulk-load your existing credentials from a CSV. Download the template first so the columns line up correctly.</p>
       <div style={{ marginTop: 16, display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
@@ -599,7 +640,7 @@ export function ImportModal({ onClose, onImport, depts }) {
       <div style={rowBetween}>
         <button onClick={onClose} className="cv-btn">Cancel</button>
         <button onClick={() => fileRef.current && fileRef.current.click()} className="cv-btn"><Upload size={15} /> Upload CSV</button>
-        <button onClick={() => onImport(valid.map((r) => r.data))} disabled={valid.length === 0} className="cv-btn-dark">Import {valid.length > 0 ? `${valid.length} ` : ""}credentials</button>
+        <button onClick={doImport} disabled={valid.length === 0} className="cv-btn-dark">Import {valid.length > 0 ? `${valid.length} ` : ""}credentials</button>
       </div>
     </Modal>
   );
@@ -834,9 +875,12 @@ export function PersonalLockGate({ userEmail, onClose, onUnlocked }) {
 
 export function PersonalAddModal({ onClose, onSave }) {
   const [form, setForm] = useState({ name: "", username: "", secret: "", type: "Password", note: "" });
+  const [initialForm] = useState(form);
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+  const save = () => { if (form.name && form.secret) onSave(form); };
+  const dirty = JSON.stringify(form) !== JSON.stringify(initialForm);
   return (
-    <Modal onClose={onClose}>
+    <Modal onClose={onClose} isDirty={dirty} onSave={form.name && form.secret ? save : undefined}>
       <ModalHeader icon={<Lock size={19} />} tint="indigo" title="Add Personal Credential" subtitle="Encrypted and private. No one else can see this." />
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <Field label="Name" required><input value={form.name} onChange={(e) => set("name", e.target.value)} className="cv-ipt" placeholder="e.g. Personal Gmail, Home WiFi" /></Field>
@@ -853,7 +897,7 @@ export function PersonalAddModal({ onClose, onSave }) {
       </div>
       <div style={rowBetween}>
         <button onClick={onClose} className="cv-btn">Cancel</button>
-        <button onClick={() => form.name && form.secret && onSave(form)} disabled={!form.name || !form.secret} className="cv-btn-dark cv-btn-indigo">Save to Personal Vault</button>
+        <button onClick={save} disabled={!form.name || !form.secret} className="cv-btn-dark cv-btn-indigo">Save to Personal Vault</button>
       </div>
     </Modal>
   );
@@ -932,9 +976,10 @@ export function RequestAccessModal({ cred, userEmail, ownerName, onClose, onSubm
     const d = DURATIONS.find((x) => x.key === duration);
     onSubmit(cred, d.ms, d.label, trimmed);
   }
+  const dirty = !!recipientEmail.trim() || duration !== "4h";
 
   return (
-    <Modal onClose={onClose}>
+    <Modal onClose={onClose} isDirty={dirty} onSave={recipientEmail.trim() ? handleSubmit : undefined}>
       <ModalHeader icon={<Share2 size={19} />} tint="violet" title="Share Access" subtitle={`${cred.name} · ${cred.dept}`} />
       <div style={{ marginBottom: 16 }}>
         <span className="cv-label">Share with <span style={{ color: "var(--cv-rose)" }}>*</span></span>

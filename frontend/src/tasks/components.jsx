@@ -75,14 +75,29 @@ export function EmptyState({ icon: Icon, title, hint }) {
 }
 
 // Centered modal (portal to body so it isn't clipped by overflow containers).
-export function Modal({ title, onClose, children, footer, width = 560 }) {
+// `isDirty` + `onSave`: an unintentional exit (overlay click, Escape, the X
+// button) used to discard in-progress edits with no warning - the explicit
+// footer Cancel button still discards straight away, since that's a deliberate
+// choice, but these three are easy to trigger by accident and silently threw
+// the edit away (Aug 18 - "when we click outside... it should ask us for
+// 'Do you want to save'"). With isDirty unset (the default) a modal behaves
+// exactly as before.
+export function Modal({ title, onClose, children, footer, width = 560, isDirty = false, onSave }) {
+  const [confirmClose, setConfirmClose] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const requestClose = () => { if (isDirty) setConfirmClose(true); else onClose(); };
   useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    const onKey = (e) => { if (e.key === 'Escape') requestClose(); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  }, [onClose, isDirty]);
+  const saveAndClose = async () => {
+    if (!onSave) { setConfirmClose(false); onClose(); return; }
+    setSaving(true);
+    try { await onSave(); } finally { setSaving(false); setConfirmClose(false); }
+  };
   return createPortal(
-    <div className="nx-tasks-portal" onClick={onClose} style={{
+    <div className="nx-tasks-portal" onClick={requestClose} style={{
       position: 'fixed', inset: 0, background: 'rgba(17,24,39,0.45)', zIndex: 4000,
       display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '7vh 16px',
       fontFamily: FONT, animation: 'fadeIn 0.13s ease',
@@ -94,11 +109,34 @@ export function Modal({ title, onClose, children, footer, width = 560 }) {
       }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', borderBottom: `1px solid ${NX.border2}` }}>
           <div style={{ fontSize: 15, fontWeight: 700, color: NX.ink }}>{title}</div>
-          <button onClick={onClose} style={{ ...btn('ghost'), padding: 6, borderRadius: 8 }} aria-label="Close"><X size={18} /></button>
+          <button onClick={requestClose} style={{ ...btn('ghost'), padding: 6, borderRadius: 8 }} aria-label="Close"><X size={18} /></button>
         </div>
         <div style={{ padding: 20, overflowY: 'auto' }}>{children}</div>
         {footer && <div style={{ padding: '12px 20px', borderTop: `1px solid ${NX.border2}`, background: NX.surface2, display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>{footer}</div>}
       </div>
+      {confirmClose && (
+        <div onClick={(e) => e.stopPropagation()} style={{
+          position: 'fixed', inset: 0, zIndex: 4600, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          background: 'rgba(17,24,39,0.25)',
+        }}>
+          <div style={{
+            background: NX.surface, borderRadius: 14, width: 340, maxWidth: '90vw', padding: 20,
+            boxShadow: '0 24px 70px rgba(17,24,39,0.30)', border: `1px solid ${NX.border}`,
+          }}>
+            <div style={{ fontSize: 14.5, fontWeight: 700, color: NX.ink, marginBottom: 6 }}>Save your changes?</div>
+            <div style={{ fontSize: 12.5, color: NX.dim, marginBottom: 18, lineHeight: 1.5 }}>
+              You have unsaved changes. Closing now will discard them.
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
+              <button style={btn('ghost')} onClick={() => setConfirmClose(false)}>Keep Editing</button>
+              <button style={btn('ghost')} onClick={onClose}>Discard</button>
+              <button style={{ ...btn('primary'), opacity: saving ? 0.6 : 1, pointerEvents: saving ? 'none' : 'auto' }} onClick={saveAndClose}>
+                {saving ? 'Saving…' : 'Save Changes'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>,
     document.body,
   );
@@ -647,7 +685,8 @@ export function PersonMultiSelect({ value, onChange, people, placeholder = 'Sele
   }, []);
   const emails = Array.isArray(value) ? value : [];
   const personFor = (em) => people.find((p) => p.email === em) || { email: em, name: emailToName(em) };
-  const filtered = q ? people.filter((p) => (p.name + p.email).toLowerCase().includes(q.toLowerCase())) : people;
+  const filtered = (q ? people.filter((p) => (p.name + p.email).toLowerCase().includes(q.toLowerCase())) : people)
+    .slice().sort((a, b) => (a.name || '').localeCompare(b.name || '', 'en', { sensitivity: 'base' }));
   const toggle = (em) => onChange(emails.includes(em) ? emails.filter((x) => x !== em) : [...emails, em]);
   return (
     <div ref={ref} style={{ position: 'relative' }}>

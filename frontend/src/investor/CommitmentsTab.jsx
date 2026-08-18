@@ -52,21 +52,21 @@ export default function CommitmentsTab() {
 
   const openAdd = () => {
     setFormErr('');
-    setModal({ id: null, form: { fundId: fundFilter || '', investorId: investorFilter || '', commitmentAmount: '', units: '', subscriptionDate: today(), status: 'pending' } });
+    const form = { fundId: fundFilter || '', investorId: investorFilter || '', commitmentAmount: '', units: '', subscriptionDate: today(), status: 'pending' };
+    setModal({ id: null, form, initialForm: form });
   };
   const openEdit = (c) => {
     setFormErr('');
-    setModal({
-      id: c.id, investorName: c.investorName, fundName: c.fundName,
-      form: {
-        fundId: String(c.fundId), investorId: String(c.investorId),
-        commitmentAmount: c.commitmentAmount ?? '', units: c.units ?? '',
-        subscriptionDate: (c.subscriptionDate || '').slice(0, 10), status: c.status || 'pending',
-      },
-    });
+    const form = {
+      fundId: String(c.fundId), investorId: String(c.investorId),
+      commitmentAmount: c.commitmentAmount ?? '', units: c.units ?? '',
+      subscriptionDate: (c.subscriptionDate || '').slice(0, 10), status: c.status || 'pending',
+    };
+    setModal({ id: c.id, investorName: c.investorName, fundName: c.fundName, form, initialForm: form });
   };
 
   const setF = patch => setModal(m => ({ ...m, form: { ...m.form, ...patch } }));
+  const dirty = modal ? JSON.stringify(modal.form) !== JSON.stringify(modal.initialForm) : false;
 
   const save = async (e) => {
     e.preventDefault();
@@ -183,7 +183,7 @@ export default function CommitmentsTab() {
       )}
 
       {modal && (
-        <Modal title={modal.id ? `Edit Commitment - ${modal.investorName}` : 'Add Commitment'} onClose={() => setModal(null)}>
+        <Modal title={modal.id ? `Edit Commitment - ${modal.investorName}` : 'Add Commitment'} onClose={() => setModal(null)} isDirty={dirty} onSave={() => save({ preventDefault() {} })}>
           <form onSubmit={save}>
             <div className="form-grid">
               <FG label="Investor" full>

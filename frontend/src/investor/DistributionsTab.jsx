@@ -73,10 +73,14 @@ export default function DistributionsTab() {
   const [busy, setBusy] = useState(false);
   const [formErr, setFormErr] = useState('');
 
+  const [modalInitial, setModalInitial] = useState(null);
   const openAdd = () => {
     setFormErr('');
-    setModal({ fundId: fundFilter || '', title: '', distributionType: 'return_of_capital', totalAmount: '', distributionDate: today() });
+    const blank = { fundId: fundFilter || '', title: '', distributionType: 'return_of_capital', totalAmount: '', distributionDate: today() };
+    setModal(blank);
+    setModalInitial(blank);
   };
+  const dirty = modal ? JSON.stringify(modal) !== JSON.stringify(modalInitial) : false;
 
   const create = async (e) => {
     e.preventDefault();
@@ -240,7 +244,7 @@ export default function DistributionsTab() {
       )}
 
       {modal && (
-        <Modal title="New Distribution" onClose={() => setModal(null)}>
+        <Modal title="New Distribution" onClose={() => setModal(null)} isDirty={dirty} onSave={() => create({ preventDefault() {} })}>
           <form onSubmit={create}>
             <div className="form-grid">
               <FG label="Deal" full>

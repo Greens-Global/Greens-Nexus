@@ -167,26 +167,25 @@ export default function FundsTab() {
   const [busy, setBusy] = useState(false);
   const [formErr, setFormErr] = useState('');
 
-  const openAdd = () => { setFormErr(''); setModal({ id: null, form: { ...BLANK } }); };
+  const openAdd = () => { setFormErr(''); setModal({ id: null, form: { ...BLANK }, initialForm: { ...BLANK } }); };
   const openEdit = (f) => {
     setFormErr('');
-    setModal({
-      id: f.id,
-      form: {
-        name: s(f.name), entityName: s(f.entityName), strategy: s(f.strategy), propertyName: s(f.propertyName),
-        status: f.status || 'raising', targetRaise: s(f.targetRaise),
-        minimumInvestment: s(f.minimumInvestment), preferredReturnPct: s(f.preferredReturnPct),
-        gpPromotePct: s(f.gpPromotePct), targetIrrPct: s(f.targetIrrPct), targetMultiple: s(f.targetMultiple),
-        holdPeriodYears: s(f.holdPeriodYears), inceptionDate: s(f.inceptionDate).slice(0, 10),
-        closeDate: s(f.closeDate).slice(0, 10), exitDate: s(f.exitDate).slice(0, 10),
-        fundManagerEmail: s(f.fundManagerEmail),
-        description: s(f.description), thesis: s(f.thesis),
-        propertyAssetId: s(f.propertyAssetId),
-      },
-    });
+    const form = {
+      name: s(f.name), entityName: s(f.entityName), strategy: s(f.strategy), propertyName: s(f.propertyName),
+      status: f.status || 'raising', targetRaise: s(f.targetRaise),
+      minimumInvestment: s(f.minimumInvestment), preferredReturnPct: s(f.preferredReturnPct),
+      gpPromotePct: s(f.gpPromotePct), targetIrrPct: s(f.targetIrrPct), targetMultiple: s(f.targetMultiple),
+      holdPeriodYears: s(f.holdPeriodYears), inceptionDate: s(f.inceptionDate).slice(0, 10),
+      closeDate: s(f.closeDate).slice(0, 10), exitDate: s(f.exitDate).slice(0, 10),
+      fundManagerEmail: s(f.fundManagerEmail),
+      description: s(f.description), thesis: s(f.thesis),
+      propertyAssetId: s(f.propertyAssetId),
+    };
+    setModal({ id: f.id, form, initialForm: form });
   };
 
   const setF = patch => setModal(m => ({ ...m, form: { ...m.form, ...patch } }));
+  const dirty = modal ? JSON.stringify(modal.form) !== JSON.stringify(modal.initialForm) : false;
 
   const save = async (e) => {
     e.preventDefault();
@@ -292,7 +291,8 @@ export default function FundsTab() {
       )}
 
       {modal && (
-        <Modal title={modal.id ? 'Edit Deal' : 'Add Deal'} onClose={() => setModal(null)} width={640}>
+        <Modal title={modal.id ? 'Edit Deal' : 'Add Deal'} onClose={() => setModal(null)} width={640}
+          isDirty={dirty} onSave={() => save({ preventDefault() {} })}>
           <form onSubmit={save}>
             <div className="form-grid">
               <FG label="Deal Name" full>

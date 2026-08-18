@@ -22,6 +22,7 @@ import { TIMELINE_STATUS_OPTIONS } from '../../lib/timelineFields.js';
 export function TimelineStatusModal({ current, onSave, onClose }) {
   const [status, setStatus] = useState(current || '');
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [initialDate] = useState(date);
   const [reason, setReason] = useState('');
 
   const handleSave = () => {
@@ -35,11 +36,14 @@ export function TimelineStatusModal({ current, onSave, onClose }) {
     }
     onSave(status, date, reason.trim());
   };
+  const dirty = status !== (current || '') || date !== initialDate || !!reason.trim();
 
   return (
     <Modal
       title="Update Status"
       onClose={onClose}
+      isDirty={dirty}
+      onSave={handleSave}
       footer={
         <>
           <button className="secondary-btn" onClick={onClose}>Cancel</button>

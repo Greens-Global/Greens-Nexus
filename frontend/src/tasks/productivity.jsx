@@ -446,6 +446,7 @@ function IntakeModal({ forms, projectName, createTask, myEmail, onOpenTask, onCl
   const [priority, setPriority] = useState('medium');
   const [neededBy, setNeededBy] = useState('');
   const [busy, setBusy] = useState(false);
+  const dirty = !!(summary.trim() || neededBy || priority !== 'medium');
   if (!form) return null;
   const submit = async () => {
     if (!summary.trim() || busy) return; setBusy(true);
@@ -456,6 +457,7 @@ function IntakeModal({ forms, projectName, createTask, myEmail, onOpenTask, onCl
   };
   return (
     <Modal title={form.title || 'Submit a request'} onClose={onClose}
+      isDirty={dirty} onSave={summary.trim() ? submit : undefined}
       footer={<>
         <button onClick={onClose} style={btn('outline')}>Cancel</button>
         <button onClick={submit} disabled={!summary.trim() || busy} style={{ ...btn('primary'), opacity: !summary.trim() || busy ? 0.6 : 1 }}>Submit Request</button>

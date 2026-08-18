@@ -43,8 +43,10 @@ export default function AddPhotoModal({ facilities, defaultFacility, onAdd, onCl
     onAdd({ facility, category, url: url.trim() })
   }
 
+  const dirty = !!(url.trim() || category !== 'EXTERIOR' || facility !== defaultFacility)
+
   return (
-    <Modal title="Add Photo" onClose={onClose} width="max-w-md">
+    <Modal title="Add Photo" onClose={onClose} width="max-w-md" isDirty={dirty} onSave={url.trim() ? submit : undefined}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         <div>
           <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: C.gray600, marginBottom: 6 }}>Property</label>

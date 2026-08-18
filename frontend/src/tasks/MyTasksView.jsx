@@ -46,15 +46,21 @@ function CollaboratorPicker({ value = [], people, onChange, anchor }) {
   const ref = useRef(null);
   useClickOutside(ref, () => setOpen(false), open);
   const toggle = (email) => onChange(value.includes(email) ? value.filter((e) => e !== email) : [...value, email]);
-  const filtered = q.trim()
+  const filtered = (q.trim()
     ? people.filter((u) => `${u.name} ${u.email}`.toLowerCase().includes(q.trim().toLowerCase()))
-    : people;
+    : people
+  ).slice().sort((a, b) => (a.name || '').localeCompare(b.name || '', 'en', { sensitivity: 'base' }));
   return (
     <div ref={ref} style={{ position: 'relative' }}>
-      <button onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }} style={{ ...btn('ghost'), padding: '2px 6px' }}>
+      <button onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }} title="Add collaborators" style={{ ...btn('ghost'), padding: '2px 6px' }}>
         {value.length ? (
           <div style={{ display: 'flex' }}>{value.slice(0, 3).map((em, i) => <span key={em} style={{ marginLeft: i ? -6 : 0 }}><Avatar email={em} size={20} /></span>)}</div>
-        ) : <span style={{ color: NX.faint }}>{anchor || '-'}</span>}
+        ) : anchor ? <span style={{ color: NX.faint }}>{anchor}</span> : (
+          <span style={{
+            width: 20, height: 20, borderRadius: '50%', border: `1.5px dashed ${NX.border}`,
+            color: NX.faint, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+          }}><Plus size={12} /></span>
+        )}
       </button>
       {open && (
         <div onClick={(e) => e.stopPropagation()} style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, width: 208, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', zIndex: 50 }}>

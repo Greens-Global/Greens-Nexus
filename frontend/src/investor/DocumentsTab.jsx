@@ -47,10 +47,14 @@ export default function DocumentsTab() {
   const [rowErr, setRowErr] = useState('');
   const fileRef = useRef(null);
 
+  const [modalInitial, setModalInitial] = useState(null);
   const openUpload = () => {
     setFormErr('');
-    setModal({ file: null, title: '', category: 'other', fundId: fundFilter || '', investorId: investorFilter || '' });
+    const blank = { file: null, title: '', category: 'other', fundId: fundFilter || '', investorId: investorFilter || '' };
+    setModal(blank);
+    setModalInitial(blank);
   };
+  const dirty = modal ? JSON.stringify(modal) !== JSON.stringify(modalInitial) : false;
 
   const takeFile = (file) => {
     if (!file) return;
@@ -202,7 +206,7 @@ export default function DocumentsTab() {
       )}
 
       {modal && (
-        <Modal title="Upload Document" onClose={() => setModal(null)}>
+        <Modal title="Upload Document" onClose={() => setModal(null)} isDirty={dirty} onSave={() => save({ preventDefault() {} })}>
           <form onSubmit={save} onPaste={handlePaste}>
             <div className="form-grid">
               <div className="form-group form-group-full">

@@ -81,6 +81,7 @@ export function AddAssetModal({ row, draft, properties, onSave, onDelete, onClos
     });
     return initial;
   });
+  const [initialValues] = useState(values);
 
   const [addressChangeReason, setAddressChangeReason] = useState('');
   const [linkTargetId, setLinkTargetId] = useState(row?.parentId || '');
@@ -245,12 +246,22 @@ export function AddAssetModal({ row, draft, properties, onSave, onDelete, onClos
   const showLinking = isAdding && step === 1 && kind === 'property';
   const showFieldForm = row || step === 1;
   const classLabel = kind === 'property' ? 'property' : kind === 'vehicle' ? 'vehicle' : 'equipment';
+  // Step 0 is just the class picker + CSV import shortcut - nothing typed yet,
+  // so it never prompts. Once the field form is showing, guard on the values
+  // actually changing (plus the linking picker for a brand-new property).
+  const dirty = showFieldForm && (
+    JSON.stringify(values) !== JSON.stringify(initialValues)
+    || !!addressChangeReason.trim()
+    || linkTargetId !== (row?.parentId || '')
+  );
 
   return (
     <Modal
       title={row ? `Edit ${classLabel}` : 'Add Asset'}
       wide
       onClose={onClose}
+      isDirty={dirty}
+      onSave={save}
       footer={
         <>
           {row && onDelete && (

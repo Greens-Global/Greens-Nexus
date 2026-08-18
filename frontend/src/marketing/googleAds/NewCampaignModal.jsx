@@ -16,8 +16,7 @@ export default function NewCampaignModal({ onClose, onCreate, defaultFacility })
   const [budget, setBudget] = useState('')
   const [error, setError] = useState('')
 
-  function handleSubmit(e) {
-    e.preventDefault()
+  function submit() {
     if (!name.trim()) {
       setError('Campaign name is required.')
       return
@@ -40,9 +39,11 @@ export default function NewCampaignModal({ onClose, onCreate, defaultFacility })
     })
     onClose()
   }
+  function handleSubmit(e) { e.preventDefault(); submit() }
+  const dirty = !!(name.trim() || budget || platform !== channels[0] || facility !== (defaultFacility ?? FACILITIES[0]))
 
   return (
-    <Modal title="New Campaign" onClose={onClose} width="max-w-md">
+    <Modal title="New Campaign" onClose={onClose} width="max-w-md" isDirty={dirty} onSave={submit}>
       <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         <div>
           <label style={labelStyle}>Campaign Name</label>

@@ -1108,6 +1108,13 @@ function AddUpdateModal({ entry, submitLabel, myEmail, onClose, onSave }) {
   const [saving, setSaving] = useState(false);
 
   const canSave = title.trim() && description.trim() && module.trim() && version.trim() && !saving;
+  const dirty = title !== (p.title || '') || description !== (p.description || '') || type !== (p.type || 'New Feature')
+    || module !== (p.module || '') || version !== (p.version || '') || environment !== (p.environment || 'Production')
+    || ticketRef !== (p.ticketRef || '') || reviewerId !== (p.reviewerId || '')
+    || businessImpact !== (p.businessImpact || '') || userImpact !== (p.userImpact || '')
+    || whatsChanged !== (p.whatsChanged || []).join('\n') || tags !== (p.tags || []).join(', ')
+    || linkLabel !== (p.links?.[0]?.label || '') || linkUrl !== (p.links?.[0]?.url || '')
+    || beforeImg !== p.beforeImageDataUrl || afterImg !== p.afterImageDataUrl;
 
   const save = async () => {
     if (!canSave) return;
@@ -1143,7 +1150,8 @@ function AddUpdateModal({ entry, submitLabel, myEmail, onClose, onSave }) {
   );
 
   return (
-    <Modal title={entry ? 'Edit update' : 'Add new update'} onClose={onClose} width={640} footer={footer}>
+    <Modal title={entry ? 'Edit update' : 'Add new update'} onClose={onClose} width={640} footer={footer}
+      isDirty={dirty} onSave={canSave ? save : undefined}>
       <Field label="Title">
         <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Fixed leave balance calculation" style={inputStyle} />
       </Field>

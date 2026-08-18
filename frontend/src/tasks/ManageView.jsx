@@ -1024,6 +1024,13 @@ function RuleModal({ rule, onClose, onSave }) {
   const [actions, setActions] = useState(
     rule?.actions?.length ? rule.actions.map((a) => ({ type: a.type, value: a.value ?? '' })) : [{ type: 'set_priority', value: 'urgent' }],
   );
+  const initial = useMemo(() => ({
+    name: rule?.name || '', enabled: rule ? !!rule.enabled : true,
+    trigger: rule?.trigger?.type || 'status_changed', triggerValue: rule?.trigger?.value || 'not_started',
+    actions: rule?.actions?.length ? rule.actions.map((a) => ({ type: a.type, value: a.value ?? '' })) : [{ type: 'set_priority', value: 'urgent' }],
+  }), [rule]);
+  const dirty = name !== initial.name || enabled !== initial.enabled || trigger !== initial.trigger
+    || triggerValue !== initial.triggerValue || JSON.stringify(actions) !== JSON.stringify(initial.actions);
 
   const setAction = (i, patch) => setActions((prev) => prev.map((a, idx) => (idx === i ? { ...a, ...patch } : a)));
   const addAction = () => setActions((prev) => [...prev, { type: 'set_priority', value: 'urgent' }]);
@@ -1040,7 +1047,7 @@ function RuleModal({ rule, onClose, onSave }) {
   };
 
   return (
-    <Modal title={rule ? 'Edit Rule' : 'New Rule'} onClose={onClose} footer={
+    <Modal title={rule ? 'Edit Rule' : 'New Rule'} onClose={onClose} isDirty={dirty} onSave={name.trim() ? save : undefined} footer={
       <>
         <button style={btn('ghost')} onClick={onClose}>Cancel</button>
         <button style={btn('primary')} onClick={save}>{rule ? 'Save rule' : 'Add rule'}</button>
@@ -1196,6 +1203,22 @@ function FieldModal({ projects = [], field = null, onClose, onSave }) {
   // to tasks at all (there is no per-task column to scope).
   const [projectIds, setProjectIds] = useState(field?.projectIds || []);
   const [required, setRequired] = useState(!!field?.required);
+  const initial = useMemo(() => ({
+    name: field?.name || '', description: field?.description || '', type: field?.type || 'text',
+    appliesTo: field?.appliesTo?.length ? field.appliesTo : ['task'],
+    options: (() => {
+      const existing = (field?.options || []).map((o) => (typeof o === 'string'
+        ? { label: o, color: FIELD_OPTION_COLORS[0] }
+        : { label: o.label || o.id || '', color: o.color || FIELD_OPTION_COLORS[0] }));
+      return existing.length ? existing : [{ label: '', color: FIELD_OPTION_COLORS[0] }];
+    })(),
+    projectIds: field?.projectIds || [], required: !!field?.required,
+  }), [field]);
+  const dirty = name !== initial.name || description !== initial.description || type !== initial.type
+    || required !== initial.required
+    || JSON.stringify(appliesTo) !== JSON.stringify(initial.appliesTo)
+    || JSON.stringify(options) !== JSON.stringify(initial.options)
+    || JSON.stringify(projectIds) !== JSON.stringify(initial.projectIds);
 
   const setOpt = (i, patch) => setOptions((prev) => prev.map((o, idx) => (idx === i ? { ...o, ...patch } : o)));
   const toggleProject = (id) => setProjectIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
@@ -1214,7 +1237,7 @@ function FieldModal({ projects = [], field = null, onClose, onSave }) {
   };
 
   return (
-    <Modal title={field ? 'Edit Custom Field' : 'New Custom Field'} onClose={onClose} footer={
+    <Modal title={field ? 'Edit Custom Field' : 'New Custom Field'} onClose={onClose} isDirty={dirty} onSave={name.trim() ? save : undefined} footer={
       <>
         <button style={btn('ghost')} onClick={onClose}>Cancel</button>
         <button style={btn('primary')} onClick={save}>{field ? 'Save Field' : 'Add Field'}</button>
@@ -1377,11 +1400,16 @@ function StatusModal({ projects = [], status = null, onClose, onSave }) {
   const [label, setLabel] = useState(status?.label || '');
   const [color, setColor] = useState(status?.color || SWATCHES[0]);
   const [projectIds, setProjectIds] = useState(status?.projectIds || []);
+  const initial = useMemo(() => ({
+    label: status?.label || '', color: status?.color || SWATCHES[0], projectIds: status?.projectIds || [],
+  }), [status]);
+  const dirty = label !== initial.label || color !== initial.color
+    || JSON.stringify(projectIds) !== JSON.stringify(initial.projectIds);
   const toggleProject = (id) => setProjectIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
   const save = () => { if (label.trim()) onSave({ label: label.trim(), color, project_ids: projectIds }); };
 
   return (
-    <Modal title={status ? 'Edit Status' : 'New Status'} width={440} onClose={onClose} footer={
+    <Modal title={status ? 'Edit Status' : 'New Status'} width={440} onClose={onClose} isDirty={dirty} onSave={label.trim() ? save : undefined} footer={
       <>
         <button style={btn('ghost')} onClick={onClose}>Cancel</button>
         <button style={btn('primary')} onClick={save}>{status ? 'Save Status' : 'Add Status'}</button>
