@@ -6,7 +6,10 @@ import { supabase, supabaseUrl, supabaseAnonKey } from '../lib/supabase';
 import { formatDate as usFormatDate, formatDateTime as usFormatDateTime } from '../lib/datetime';
 
 export const EMPTY_FILTER = {
-  assigneeIds: [], statuses: [], priorities: [], teamIds: [], projectIds: [],
+  // collaboratorIds = people in a task's follower list (Asana "collaborators").
+  // Someone asking "what is X on?" usually means both what X holds and what X
+  // is copied on, which is why it sits next to assignee rather than inside it.
+  assigneeIds: [], collaboratorIds: [], statuses: [], priorities: [], teamIds: [], projectIds: [],
   tags: [], due: 'any', dueFrom: null, dueTo: null, search: '',
   // {fieldId: [selectedOptionId, ...]} - only select-type fields are filterable;
   // a free-text or number field has no bounded option list to offer.
@@ -72,11 +75,12 @@ export function rootParent(task, taskById) {
 // switched off - "tasks are missing" when they were in the database all along.
 // Sections are never rows. Callers without a person scope keep topLevel().
 export function personScoped(tasks, f) {
-  return f?.assigneeIds?.length ? (tasks || []).filter((t) => !isSection(t)) : topLevel(tasks);
+  return (f?.assigneeIds?.length || f?.collaboratorIds?.length) ? (tasks || []).filter((t) => !isSection(t)) : topLevel(tasks);
 }
 
 export function matchesFilter(task, f = EMPTY_FILTER, taskById = null) {
   if (f.assigneeIds?.length && !f.assigneeIds.includes(task.assigneeId)) return false;
+  if (f.collaboratorIds?.length && !f.collaboratorIds.some((em) => (task.followerIds || []).includes(em))) return false;
   if (f.statuses?.length && !f.statuses.includes(task.status)) return false;
   if (f.priorities?.length && !f.priorities.includes(task.priority)) return false;
   if (f.teamIds?.length && !f.teamIds.includes(task.teamId)) return false;
