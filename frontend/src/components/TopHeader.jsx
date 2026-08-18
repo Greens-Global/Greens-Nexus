@@ -378,21 +378,14 @@ export default function TopHeader({ title, theme, onThemeToggle, sidebarPinned, 
       </div>
 
       <div className="header-right">
-        {/* Module tabs occupy the center → search lives here as an icon */}
+        {/* Module tabs occupy the center → search moves here, as its own
+            always-visible compact bar rather than an icon someone has to
+            already know to click (people were missing task/people search
+            entirely because nothing on screen showed it existed, Aug 2026). */}
         {headerTabs && (
-          <div className="hdr-search-wrap" ref={searchRef}>
-            <button className="icon-btn" aria-label="Search Nexus" title="Search"
-              onClick={() => setSearchOpen(o => !o)}>
-              <Search style={{ width: 16, height: 16 }} />
-            </button>
-            {searchOpen && (
-              <div className="hdr-search-pop">
-                <div style={{ position: 'relative' }}>
-                  {searchInput}
-                  {searchResultsDropdown}
-                </div>
-              </div>
-            )}
+          <div className="hdr-search-wrap hdr-search-inline" ref={searchRef}>
+            {searchInput}
+            {searchResultsDropdown}
           </div>
         )}
         <NotificationBell onNavigate={onNavigate} />

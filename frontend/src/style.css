@@ -3159,20 +3159,14 @@ button, [role="button"], select { touch-action: manipulation; }
   box-shadow: var(--wk-shadow-hov);
 }
 
-/* Search popover (module screens - the magnifier next to the bell) */
+/* Header search on module screens (tabs occupy the center, so this lives in
+   header-right) - an always-visible compact bar, not an icon someone has to
+   already know exists to click (that hid task/people search well enough that
+   it went unnoticed, Aug 2026). Its own results dropdown (searchResultsDropdown's
+   panelStyle, left:0/right:0) matches this width, so give it enough room to
+   read a task title or an email without everything eliding. */
 .hdr-search-wrap { position: relative; }
-.hdr-search-pop {
-  position: absolute;
-  top: calc(100% + 8px);
-  right: 0;
-  width: 300px;
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  box-shadow: 0 8px 28px rgba(0,0,0,.15);
-  padding: 8px;
-  z-index: 500;
-}
+.hdr-search-inline { width: 220px; flex-shrink: 0; }
 @media (max-width: 900px) { .hdr-search-wrap { display: none; } }
 
 /* In-page fallback strip: phones only - the header center is hidden ≤900px,
