@@ -202,37 +202,29 @@ def callback(code: str = "", state: str = "", error: str = "",
     return _back("connected")
 
 
-@router.get("/coverage")
-def coverage(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Is everything Asana assigns to me in Nexus? Counted with MY grant.
-
-    The service token cannot list a person's private ("Only me") tasks, so
-    no admin-side count can answer this - the night before Asana closed,
-    Charmi's 700-odd tasks read as 425 to the service PAT and 643 in Nexus, and
-    the only way to know whether the gap was real was to ask Asana as her.
-    Every task assigned to the caller is fetched with the caller's own token
-    and matched to Nexus through the Asana links; whatever is left over is
-    listed with the reason it could not have come across, so the person (or
-    whoever runs the pull) knows what to do about it."""
+def _coverage_for(db, email):
+    """(token, workspace, rows, out) behind /coverage and /coverage/rescue.
+    `rows` is the caller's full Asana assignment list under their own grant;
+    `out` is the coverage payload. token is None when there is no usable
+    grant, and out.reason says why."""
     from asana_import import Asana
-    email = (user.get("email") or "").strip().lower()
     token, why = asana_oauth.token_reason(db, email)
     out = {"ok": False, "reason": why, "asanaTotal": 0, "asanaOpen": 0, "inNexus": 0,
            "inNexusOpen": 0, "missing": 0, "missingOpen": 0, "missingTasks": []}
     if not token:
-        return out
+        return None, "", [], out
     cfg = asana_sync.get_config(db)
     ws = (cfg.workspace_gid or "").strip() if cfg else ""
     if not ws:
         out["reason"] = "The Asana workspace is not set on this server (Manage > Two-way Sync > Find my workspace)."
-        return out
+        return None, "", [], out
     me = Asana(token)
     try:
         rows = me.get("/tasks", assignee="me", workspace=ws,
                       opt_fields="name,completed,due_on,parent.gid,projects.gid,projects.name,projects.archived,memberships.project.name")
     except Exception as e:
         out["reason"] = f"Asana refused the listing ({e})"
-        return out
+        return None, "", [], out
     linked = {l.asana_gid for l in db.query(models.AsanaTaskLink.asana_gid).all() if l.asana_gid}
     mapped = {pm.asana_project_gid for pm in db.query(models.AsanaProjectMap.asana_project_gid).all()}
     out["ok"] = True
@@ -251,17 +243,97 @@ def coverage(user: dict = Depends(get_current_user), db: Session = Depends(get_d
         elif not projects:
             reason = "personal task (no project) - run Pull Personal Tasks again"
         elif any(p.get("archived") for p in projects):
-            reason = "in an ARCHIVED Asana project (unarchive it, then Import All + Pull new only)"
+            reason = "in an ARCHIVED Asana project"
         elif not any(p.get("gid") in mapped for p in projects):
-            reason = "in an Asana project Nexus has not imported (Import All)"
+            reason = "in an Asana project Nexus has not imported"
         else:
-            reason = "in an imported project but not linked - run Pull new only"
+            reason = "in an imported project but not linked"
         missing.append({"gid": t["gid"], "title": t.get("name") or "(untitled)",
                         "completed": bool(t.get("completed")), "dueOn": t.get("due_on") or "",
-                        "projects": [p.get("name") or "" for p in projects], "reason": reason})
+                        "projects": [p.get("name") or "" for p in projects],
+                        "projectGids": [p.get("gid") or "" for p in projects],
+                        "parentGid": (t.get("parent") or {}).get("gid") or "",
+                        "reason": reason})
     # Open work first, then by due date - the part a person actually acts on.
     missing.sort(key=lambda m: (m["completed"], m["dueOn"] or "9999", m["title"].lower()))
     out["missing"] = len(missing)
     out["missingOpen"] = sum(1 for m in missing if not m["completed"])
     out["missingTasks"] = missing[:200]
+    return token, ws, rows, out
+
+
+@router.get("/coverage")
+def coverage(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Is everything Asana assigns to me in Nexus? Counted with MY grant.
+
+    The service token cannot list a person's private ("Only me") tasks, so
+    no admin-side count can answer this - the night before Asana closed,
+    Charmi's 700-odd tasks read as 425 to the service PAT and 643 in Nexus, and
+    the only way to know whether the gap was real was to ask Asana as her.
+    Every task assigned to the caller is fetched with the caller's own token
+    and matched to Nexus through the Asana links; whatever is left over is
+    listed with the reason, and /coverage/rescue can bring it in."""
+    _tok, _ws, _rows, out = _coverage_for(db, (user.get("email") or "").strip().lower())
     return out
+
+
+@router.post("/coverage/rescue")
+def coverage_rescue(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Bring the tasks /coverage listed as missing into Nexus, through the
+    caller's own grant, with the normal engine (_pull_task_tree: subtasks,
+    comments, attachments, links). Additive only.
+
+    Placement, in order: the task's mapped Nexus project when it has one;
+    under its parent when the parent is already in Nexus; otherwise as a
+    personal (project-less) task tagged with the Asana project name, so a task
+    from an ARCHIVED or never-imported project still lands somewhere the person
+    can see instead of waiting on an unarchive nobody can do once Asana closes.
+    The personal-task marker on that creation keeps sweep_orphans off it."""
+    from asana_import import Asana
+    email = (user.get("email") or "").strip().lower()
+    token, ws, rows, cov = _coverage_for(db, email)
+    if not token or not cov.get("ok"):
+        return {"ok": False, "reason": cov.get("reason") or "no usable grant", "created": 0, "placed": []}
+    me = Asana(token)
+    proj_map = {pm.asana_project_gid: pm.nexus_project_id
+                for pm in db.query(models.AsanaProjectMap).all() if pm.asana_project_gid}
+    live_projects = {p.id for p in db.query(models.TaskProject.id).all()}
+    counts = {"created": 0, "updated": 0, "comments": 0, "activities": 0,
+              "attachments": 0, "deleted": 0, "teams": []}
+    seen, deferred, placed = set(), [], []
+    asana_sync.refresh_directory_cache()
+    asana_sync._acquire_pull_lock(db)
+    for m in cov["missingTasks"]:
+        try:
+            at = me.get(f"/tasks/{m['gid']}", opt_fields=asana_sync._TASK_OPT_FIELDS)
+        except Exception as e:  # noqa: BLE001 - one unreadable task must not stop the rest
+            placed.append({"gid": m["gid"], "title": m["title"], "where": f"skipped ({e})"})
+            continue
+        if not at:
+            continue
+        nexus_project = next((proj_map[g] for g in m.get("projectGids", [])
+                              if g in proj_map and proj_map[g] in live_projects), "")
+        parent_nexus_id = ""
+        if m.get("parentGid"):
+            plink = asana_sync._link_by_asana(db, m["parentGid"])
+            parent_nexus_id = plink.nexus_task_id if plink else ""
+        asana_sync._pull_task_tree(db, me, at, nexus_project, parent_nexus_id, counts, seen,
+                                   None, deferred, create_only=True)
+        link = asana_sync._link_by_asana(db, m["gid"])
+        t = (db.query(models.Task).filter(models.Task.id == link.nexus_task_id).first()
+             if link else None)
+        where = ("in its project" if nexus_project
+                 else "under its parent" if parent_nexus_id
+                 else "as a personal task")
+        if t is not None and not nexus_project and not parent_nexus_id and m.get("projects"):
+            # Say where it came from - the Asana project name is the one handle
+            # the person has for it, and it is otherwise lost with the archive.
+            tag = ("Asana: " + m["projects"][0])[:80]
+            if tag not in (t.tags or []):
+                t.tags = list(t.tags or []) + [tag]
+            where += " (tagged '" + tag + "')"
+        placed.append({"gid": m["gid"], "title": m["title"], "where": where})
+    asana_sync.resolve_dependencies(db, deferred)
+    db.commit()
+    return {"ok": True, "created": counts["created"], "comments": counts["comments"],
+            "attachments": counts["attachments"], "placed": placed}
