@@ -78,10 +78,17 @@ def authorize_url(redirect_uri: str, state: str, challenge: str, login_hint: str
         "state": state,
         "code_challenge": challenge,
         "code_challenge_method": "S256",
+        # Always show the Microsoft account picker on this INTERACTIVE login
+        # (Aug 18): without it, a live Entra session completed silently as
+        # whichever account the browser held - Pranshu's guest test got SSO'd
+        # into his work account and never got to pick the invited Gmail. This
+        # is the sign-in redirect only; server-side session refresh uses the
+        # refresh-token grant and is unaffected.
+        "prompt": "select_account",
     }
-    # Preselect the account (skip Entra's picker) when the client remembers who
-    # last signed in on this browser. Entra still authenticates fully - the hint
-    # only picks the tile, it never bypasses credentials.
+    # Preselect the account tile inside the picker when the client remembers
+    # who last signed in on this browser. Entra still authenticates fully - the
+    # hint only highlights the tile, it never bypasses credentials.
     if login_hint:
         params["login_hint"] = login_hint
     return f"{AUTHORIZE_URL}?{urllib.parse.urlencode(params)}"
@@ -139,14 +146,11 @@ def refresh_tokens(refresh_token: str) -> dict:
 
 # ── identity ──────────────────────────────────────────────────────────────────
 def normalize_email(claims: dict) -> str:
-    """Same canonical-identity rule as the Bearer path (auth.get_current_user):
-    the @greensg.onmicrosoft.com UPN is rewritten to the primary @greensglobal.com
-    so a user never splits into two identities."""
-    email = (claims.get("preferred_username") or claims.get("upn")
-             or claims.get("unique_name") or claims.get("email") or "").lower().strip()
-    if email.endswith("@greensg.onmicrosoft.com"):
-        email = email.split("@")[0] + "@greensglobal.com"
-    return email
+    """Same canonical-identity rules as the Bearer path - ONE shared resolver
+    (auth.email_from_claims) so the onmicrosoft rewrite AND the B2B-guest
+    #EXT# un-mangling behave identically on both auth paths."""
+    from auth import email_from_claims
+    return email_from_claims(claims)
 
 
 def _decode_id_claims(id_token: str) -> dict:
@@ -188,6 +192,50 @@ def create_session(db, token_resp: dict) -> tuple[str, str, str]:
     db.add(row)
     db.commit()
     return sid, csrf, email
+
+
+def create_passwordless_session(db, email: str) -> tuple[str, str]:
+    """Session for an EXTERNAL passwordless login (Aug 18) - same cookie, same
+    store, same idle expiry as an employee's Entra session, just with NO Entra
+    tokens behind it (the emailed/texted code was the credential). Notes:
+    - access_expires_at is set far in the future so get_session never attempts
+      a refresh-token grant (there is no refresh token; the empty-token path
+      would delete the session as 'revoked').
+    - authORIZATION is entirely unchanged: auth.apply_external_policy re-checks
+      the allowlist row (active/unexpired) plus grants on every request, so a
+      deactivated guest is out within the cache TTL even with a live cookie.
+    - unlike create_session, this does NOT need bff.configured() - no Entra
+      round trip is involved."""
+    from models import ServerSession
+    sid = secrets.token_urlsafe(32)
+    csrf = secrets.token_urlsafe(24)
+    row = ServerSession(
+        id=sid,
+        user_email=(email or "").lower(),
+        csrf_token=csrf,
+        access_token_enc=secret_box.encrypt(""),
+        refresh_token_enc=secret_box.encrypt(""),
+        id_token_enc=secret_box.encrypt(""),
+        access_expires_at=_now() + 3650 * 86400,   # never "expiring" - idle expiry governs
+        auth_time=_now(),
+        created_at=_iso(),
+        last_seen=_iso(),
+    )
+    db.add(row)
+    db.commit()
+    return sid, csrf
+
+
+def revoke_sessions(db, email: str) -> int:
+    """Kill EVERY server session this email holds - deactivating/removing an
+    external must log them out everywhere, not just wait for the policy cache.
+    Returns how many sessions were dropped."""
+    from models import ServerSession
+    n = (db.query(ServerSession)
+         .filter(ServerSession.user_email == (email or "").lower())
+         .delete(synchronize_session=False))
+    db.commit()
+    return n
 
 
 def _idle_expired(row) -> bool:

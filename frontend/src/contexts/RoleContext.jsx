@@ -52,6 +52,16 @@ export const MODULE_LEVELS = {
   owner:  { label: 'Owner',  rank: 4, description: 'Full access + manage who else has it' },
 };
 
+// How an EXTERNAL (B2B guest) account's tier renders wherever a role/tier
+// label is shown - topbar chip, account dropdown, mobile menu, person cards
+// (Visesh, Aug 18: externals read "External", never "Employee"). Same shape as
+// a ROLES entry so render sites can swap it in; level mirrors the server's
+// employee-level hard cap. Internal employees are untouched.
+export const EXTERNAL_ROLE_META = {
+  label: 'External', level: 1, color: 'var(--color-blue)', bg: 'hsla(var(--color-blue),0.12)',
+  description: 'Partner guest account - access limited to explicitly granted modules',
+};
+
 export const ROLES = {
   employee:      { label: 'Employee',      level: 1, color: 'var(--color-blue)',   bg: 'hsla(var(--color-blue),0.12)',   description: 'Raise requests, view own activity' },
   supervisor:    { label: 'Supervisor',     level: 2, color: 'var(--color-green)',  bg: 'hsla(var(--color-green),0.12)',  description: 'Allocate items, manage returns' },
@@ -78,6 +88,10 @@ export function RoleProvider({ children }) {
   const [allRoles,  setAllRoles]  = useState({});   // { email: role }
   const [loading,   setLoading]   = useState(true);
   const [groups,    setGroups]    = useState([]);   // [{ id, name, department, allowed_modules, members, ... }]
+  // External (Entra B2B guest) accounts see ONLY their granted modules -
+  // Sidebar and ProtectedView narrow on this flag (server enforces the same
+  // boundary in auth.apply_external_policy; this is just matching UI).
+  const [isExternal, setIsExternal] = useState(false);
 
   // ── Act As (Jul 2026) ──────────────────────────────────────────────────────
   // { sessionId, targetEmail, targetName, expiresAt } while impersonating, else
@@ -129,6 +143,7 @@ export function RoleProvider({ children }) {
         .then(data => {
           if (!cancelled) {
             setMyRole(data.role ?? 'employee');
+            setIsExternal(!!data.is_external);
             setLoading(false);
           }
         })
@@ -321,7 +336,7 @@ export function RoleProvider({ children }) {
 
   return (
     <RoleCtx.Provider value={{
-      myRole, myEmail, realEmail, loading,
+      myRole, myEmail, realEmail, loading, isExternal,
       allRoles, getRole, refreshAllRoles,
       can, assignRole, ROLES,
       groups, refreshGroups, createGroup, updateGroup, deleteGroup,

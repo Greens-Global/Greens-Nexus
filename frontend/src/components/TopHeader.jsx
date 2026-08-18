@@ -9,7 +9,7 @@ import AccountSettingsModal from "./AccountSettingsModal";
 import MyProfileModal from "./MyProfileModal";
 import { useMsal }        from "@azure/msal-react";
 import { BFF_MODE, bffLogout } from "../bffAuth";
-import { useRole, ROLES, MODULES } from "../contexts/RoleContext";
+import { useRole, ROLES, MODULES, EXTERNAL_ROLE_META } from "../contexts/RoleContext";
 import { usePersonPhoto } from "../lib/peoplePhotos";
 import { api } from "../api";
 
@@ -28,7 +28,7 @@ const EMPTY_HITS = { tasks: [], projects: [], people: [], portfolios: [], teams:
 
 export default function TopHeader({ title, theme, onThemeToggle, sidebarPinned, onSidebarPinnedChange, onMobileToggle, canGoBack, onBack, onNavigate, prevLabel, onOpenAdmin, helpKey, helpLabel }) {
   const { instance, accounts } = useMsal();
-  const { myRole, can, myGrantedModules, actingAs, startActAs, stopActAs } = useRole();
+  const { myRole, can, myGrantedModules, actingAs, startActAs, stopActAs, isExternal } = useRole();
   // Module tab strip published by the active module (<ModuleTabs>). When
   // present it takes the header center (Work OS shell) and the global search
   // collapses to a magnifier icon on the right.
@@ -68,7 +68,8 @@ export default function TopHeader({ title, theme, onThemeToggle, sidebarPinned, 
   // their avatar shows everywhere else in the app. '' while it loads, and for
   // anyone HR hasn't given a photo, so the initials stay the fallback.
   const photo    = usePersonPhoto(email);
-  const roleMeta = ROLES[myRole] ?? ROLES.employee;
+  // External guests read "External", never a tier name (Visesh, Aug 18).
+  const roleMeta = isExternal ? EXTERNAL_ROLE_META : (ROLES[myRole] ?? ROLES.employee);
   const isAdmin  = can?.('administrator') ?? false;
   // What Teams shows under your name is your job title, not an access level -
   // "Global Admin" there is meaningless to a colleague who just wants to know

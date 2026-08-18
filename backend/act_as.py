@@ -36,7 +36,7 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from auth import get_current_user, require_level_or_module, _role_for, _LEVELS
-from models import ActAsSession, NexusRole
+from models import ActAsSession, NexusRole, NexusEmployee
 
 router = APIRouter(prefix="/act-as", tags=["Act As"])
 
@@ -115,18 +115,28 @@ class StopIn(BaseModel):
 
 @router.get("/eligible-targets")
 def eligible_targets(user: dict = Depends(_act_as_gate), db: Session = Depends(get_db)):
-    """People this caller is allowed to act as - anyone whose role is strictly
-    below the caller's own (a Manager cannot act as another Manager or an
-    admin; a Global Admin can act as anyone else). Same underlying data as
-    /roles/directory, filtered to valid targets so the picker can't offer an
-    invalid choice."""
-    rows = db.query(NexusRole).order_by(NexusRole.email).all()
+    """People this caller is allowed to act as - sourced from the curated Nexus
+    People list (nexus_employees), NOT nexus_roles: a role row gets created for
+    anyone who has ever logged in via M365/Entra, so querying it directly (as
+    this used to) offered the whole ~150-account GAL instead of just real
+    Nexus users. Only people strictly below the caller's own role are
+    eligible (a Manager cannot act as another Manager or an admin; a Global
+    Admin can act as anyone else)."""
+    employees = (db.query(NexusEmployee)
+                   .filter(NexusEmployee.status != "offboarded")
+                   .filter(NexusEmployee.work_email != "")
+                   .order_by(NexusEmployee.first_name, NexusEmployee.last_name).all())
+    roles = {r.email: r for r in db.query(NexusRole).all()}
     out = []
-    for r in rows:
-        if r.email == user["email"]:
+    for e in employees:
+        email = (e.work_email or "").lower().strip()
+        if not email or email == user["email"]:
             continue
-        if _LEVELS.get(r.role, 1) < user["level"]:
-            out.append({"email": r.email, "name": _display_name(r.email, r.display_name or "")})
+        role_row = roles.get(email)
+        role = role_row.role if role_row else "employee"
+        if _LEVELS.get(role, 1) >= user["level"]:
+            continue
+        out.append({"email": email, "name": _display_name(email, e.display_name or "")})
     return out
 
 

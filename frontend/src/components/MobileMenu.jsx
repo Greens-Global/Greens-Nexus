@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { X, ChevronRight, ChevronLeft, LogOut, Moon, Sun } from 'lucide-react';
 import { useMsal } from '@azure/msal-react';
 import { BFF_MODE, bffLogout } from '../bffAuth';
-import { useRole, ROLES } from '../contexts/RoleContext';
+import { useRole, ROLES, EXTERNAL_ROLE_META } from '../contexts/RoleContext';
 import { NAV } from './Sidebar';
 
 // Sub-screens per module - the same sub ids the views' tab strips use, so a
@@ -74,11 +74,12 @@ export const SUBMENUS = {
 // over the left-slid menu (adidas criss-cross); back slides it out again.
 export default function MobileMenu({ open, onClose, onNavigate, activeView, theme, onThemeToggle }) {
   const { instance, accounts } = useMsal();
-  const { myRole, can, myGrantedModules } = useRole();
+  const { myRole, can, myGrantedModules, isExternal } = useRole();
   const account  = accounts[0];
   const name     = account?.name ?? 'User';
   const initials = name.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase();
-  const roleMeta = ROLES[myRole] ?? ROLES.employee;
+  // External guests read "External", never a tier name (Visesh, Aug 18).
+  const roleMeta = isExternal ? EXTERNAL_ROLE_META : (ROLES[myRole] ?? ROLES.employee);
 
   const [subPanel,   setSubPanel]   = useState(null); // { view, label }
   const [subClosing, setSubClosing] = useState(false);
@@ -110,8 +111,11 @@ export default function MobileMenu({ open, onClose, onNavigate, activeView, them
       ? <svg className="material-symbol-svg" viewBox="0 -960 960 960" style={{ width: size, height: size, flexShrink: 0 }}><path d={item.svgPath} /></svg>
       : null;
 
-  // Mirror the sidebar: grant-driven visibility below admin (Jun 17).
-  const visible = NAV.filter(item => item.divider || !item.minRole || can?.('administrator') || myGrantedModules?.has(item.view));
+  // Mirror the sidebar: grant-driven visibility below admin (Jun 17);
+  // external (B2B guest) accounts see ONLY their granted modules (Aug 17).
+  const visible = NAV.filter(item => isExternal
+    ? (!item.divider && myGrantedModules?.has(item.view))
+    : (item.divider || !item.minRole || can?.('administrator') || myGrantedModules?.has(item.view)));
   const go = (id, sub = null) => { onNavigate(id, sub); onClose(); };
   const openRow = item => {
     const subs = subsFor(item.view);

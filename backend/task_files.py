@@ -63,6 +63,41 @@ def store_bytes(name: str, raw: bytes, content_type: str) -> str:
     return f"{url}/storage/v1/object/public/{TASK_FILES_BUCKET}/{path}"
 
 
+def store_file(name: str, fileobj, size: int, content_type: str) -> str:
+    """store_bytes for a file too big to hold in RAM: streams `fileobj` (an
+    open binary file positioned at 0) to the same bucket/path scheme and
+    returns the public URL, or "" on any failure. `size` is sent as an
+    explicit Content-Length so the body is not chunk-encoded (httpx would
+    otherwise line-iterate a raw file object, which corrupts binary data -
+    hence the chunk generator). Used by the Asana attachment rescue, whose
+    over-5MB files are exactly the ones _pull_attachments never inlined."""
+    url, key = _creds()
+    if not (url and key and size):
+        return ""
+    path = f"tasks/{uuid.uuid4().hex}-{_safe_name(name)}"
+
+    def _chunks():
+        while True:
+            block = fileobj.read(1024 * 1024)
+            if not block:
+                return
+            yield block
+
+    try:
+        r = httpx.post(
+            f"{url}/storage/v1/object/{TASK_FILES_BUCKET}/{path}",
+            headers={"Authorization": f"Bearer {key}", "apikey": key,
+                     "Content-Type": content_type or "application/octet-stream",
+                     "Content-Length": str(size),
+                     "Cache-Control": "31536000"},
+            content=_chunks(), timeout=600)
+    except Exception:
+        return ""
+    if not r.is_success:
+        return ""
+    return f"{url}/storage/v1/object/public/{TASK_FILES_BUCKET}/{path}"
+
+
 def data_url_to_storage(name: str, data_url: str) -> str:
     """Decode a base64 `data:` URL and store it; "" when it isn't one, isn't
     base64, or the upload fails."""

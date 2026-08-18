@@ -120,7 +120,17 @@ def is_manager(user: dict) -> bool:
     return (user or {}).get("level", 0) >= 3
 
 
-def visible_project_ids(db: Session, email: str) -> set[str]:
+def _email_and_external(user_or_email) -> tuple[str, bool]:
+    """Both visibility helpers accept either the plain email (legacy call
+    sites) or the full user dict from get_current_user. Passing the dict is
+    what lets them recognize an EXTERNAL (B2B guest) caller - externals never
+    get the org-wide defaults, only explicit participation (Aug 17)."""
+    if isinstance(user_or_email, dict):
+        return (user_or_email.get("email") or "").lower(), bool(user_or_email.get("external"))
+    return (user_or_email or "").lower(), False
+
+
+def visible_project_ids(db: Session, user_or_email) -> set[str]:
     """Project ids a non-manager user may see: marked 'org' (Nexus Global),
     owned by them, an explicit project member, containing a team they're a
     member of, or containing a task they're the assignee of. Deliberately
@@ -130,10 +140,13 @@ def visible_project_ids(db: Session, email: str) -> set[str]:
     project to everyone the moment it has any task in it. A task's own
     org-visibility only grants visibility to that one task (see task_is_visible),
     not its whole project."""
-    email = (email or "").lower()
+    email, external = _email_and_external(user_or_email)
     ids: set[str] = set()
     for p in db.query(TaskProject).all():
-        if ((p.access_level or "org") == "org" or (p.owner_email or "").lower() == email
+        # Externals never inherit 'org' (Nexus Global) visibility - they see a
+        # project only through explicit ownership/membership/team/assignment.
+        if (((p.access_level or "org") == "org" and not external)
+                or (p.owner_email or "").lower() == email
                 or email in [m.lower() for m in (p.member_emails or [])]):
             ids.add(p.id)
     for t in db.query(TaskTeam).all():
@@ -157,12 +170,14 @@ def team_project_ids(t: TaskTeam) -> list:
     return ids
 
 
-def task_is_visible(t: Task, email: str, visible_proj_ids: set[str]) -> bool:
+def task_is_visible(t: Task, user_or_email, visible_proj_ids: set[str]) -> bool:
     """A task is visible if it's independently 'org', the viewer is its
     assignee/owner/creator/a follower, or it sits in a project the viewer can
-    already see (org-wide, owned, or via team/assignee collaboration)."""
-    email = (email or "").lower()
-    if (t.access_level or "org") == "org":
+    already see (org-wide, owned, or via team/assignee collaboration).
+    EXTERNAL callers (pass the user dict) never get the 'org' default - only
+    explicit participation or a project they explicitly belong to (Aug 17)."""
+    email, external = _email_and_external(user_or_email)
+    if (t.access_level or "org") == "org" and not external:
         return True
     if email in ((t.assignee_email or "").lower(), (t.owner_email or "").lower(), (t.created_by or "").lower()):
         return True

@@ -57,6 +57,7 @@ const Support             = lazy(() => import("./views/Support"));
 const Placeholder         = lazy(() => import("./views/Placeholder"));
 const PublicSign          = lazy(() => import("./views/PublicSign"));
 const PublicVerify        = lazy(() => import("./views/PublicVerify"));
+const ExternalActivate    = lazy(() => import("./views/ExternalActivate"));
 const PrivacyPolicy       = lazy(() => import("./views/PrivacyPolicy"));
 const TermsConditions     = lazy(() => import("./views/TermsConditions"));
 const TimeClock           = lazy(() => import("./views/TimeClock"));
@@ -257,7 +258,7 @@ function TaskPrefetch() {
 // notification links, dev tools), the actual view content is never shown
 // without the correct role or a group grant.
 function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
-  const { can, myGrantedModules } = useRole();
+  const { can, myGrantedModules, isExternal } = useRole();
   const minRole = VIEW_MIN_ROLES[activeView];
 
   // Access granted if: no restriction, OR user's role meets minRole,
@@ -266,7 +267,20 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
   // reach a restricted screen only if an Access Group grants it. IT Admin /
   // Global Admin (administrator+) still reach everything to manage access.
   // Groups can never grant admin/owner screens (minRole === 'administrator').
-  const hasAccess = !minRole || can('administrator') || (minRole !== 'administrator' && myGrantedModules.has(activeView));
+  // External (B2B guest) accounts: ONLY explicitly granted modules - the
+  // baseline employee screens are internal-only. The backend enforces the
+  // same boundary per request (auth.apply_external_policy).
+  const hasAccess = isExternal
+    ? myGrantedModules.has(activeView)
+    : (!minRole || can('administrator') || (minRole !== 'administrator' && myGrantedModules.has(activeView)));
+
+  // An external landing on a non-granted view (e.g. the default 'dashboard'
+  // after login) is bounced to their first granted module instead of being
+  // parked on the Access Restricted panel.
+  const firstGranted = isExternal ? (myGrantedModules.keys().next().value ?? null) : null;
+  useEffect(() => {
+    if (isExternal && !hasAccess && firstGranted) onNavigate(firstGranted);
+  }, [isExternal, hasAccess, firstGranted, onNavigate]);
 
   if (!hasAccess) {
     return (
@@ -373,6 +387,17 @@ export default function App() {
     return (
       <Suspense fallback={<div style={{ minHeight: '100dvh' }} />}>
         <PublicSign token={token} />
+      </Suspense>
+    );
+  }
+  // External-user activation (/activate/{token}) - same reasoning as
+  // /sign/{token}: the invited partner has no login yet; the emailed
+  // single-use token is the credential (Aug 18 passwordless flow).
+  if (parsePath().view === 'activate') {
+    const token = window.location.pathname.split('/').filter(Boolean)[1] || '';
+    return (
+      <Suspense fallback={<div style={{ minHeight: '100dvh' }} />}>
+        <ExternalActivate token={token} />
       </Suspense>
     );
   }

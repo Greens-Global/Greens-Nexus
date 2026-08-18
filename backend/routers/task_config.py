@@ -561,11 +561,40 @@ def field_applies_to(f: models.TaskCustomField, project_id: str) -> bool:
     return not ids or (project_id or "") in ids
 
 
+_APPLIES_TO_KINDS = ("task", "project")
+
+
+def _parse_applies_to(raw) -> list:
+    """applies_to is stored as a JSON-encoded array string (e.g. '["task",
+    "project"]') so a field can live on both entities at once. Rows written
+    before multi-select existed (or seeded directly via SQL, like the
+    built-in Location field) hold a bare 'task'/'project' string instead -
+    both shapes read back the same rather than needing a backfill."""
+    if not raw:
+        return ["task"]
+    if isinstance(raw, list):
+        kinds = raw
+    else:
+        try:
+            parsed = json.loads(raw)
+            kinds = parsed if isinstance(parsed, list) else [parsed]
+        except (TypeError, ValueError):
+            kinds = [raw]   # legacy plain 'task' / 'project' string
+    out = [k for k in _APPLIES_TO_KINDS if k in kinds]
+    return out or ["task"]
+
+
+def _dump_applies_to(kinds) -> str:
+    out = [k for k in _APPLIES_TO_KINDS if k in (kinds or [])]
+    return json.dumps(out or ["task"])
+
+
 def custom_field_to_dict(f: models.TaskCustomField) -> dict:
     return {"id": f.id, "name": f.name, "description": _nz(f.description), "type": f.type or "text",
             "options": normalize_field_options(f.options if isinstance(f.options, list) else []),
             "projectIds": [p for p in (f.project_ids or []) if p],
-            "required": bool(f.required), "readOnly": bool(f.read_only)}
+            "required": bool(f.required), "readOnly": bool(f.read_only),
+            "appliesTo": _parse_applies_to(f.applies_to)}
 
 
 class CustomFieldBody(BaseModel):
@@ -577,6 +606,7 @@ class CustomFieldBody(BaseModel):
     project_ids: Optional[list] = None
     required: Optional[bool] = None
     read_only: Optional[bool] = None
+    applies_to: Optional[list] = None
 
 
 @router.get("/task-custom-fields")
@@ -590,7 +620,8 @@ def create_custom_field(body: CustomFieldBody, db: Session = Depends(get_db)):
                                type=body.type or "text",
                                options=normalize_field_options(body.options or []),
                                project_ids=[p for p in (body.project_ids or []) if p],
-                               required=bool(body.required), read_only=bool(body.read_only))
+                               required=bool(body.required), read_only=bool(body.read_only),
+                               applies_to=_dump_applies_to(body.applies_to))
     db.add(f)
     db.commit()
     db.refresh(f)
@@ -607,6 +638,8 @@ def update_custom_field(field_id: str, body: CustomFieldBody, db: Session = Depe
         data["options"] = normalize_field_options(data["options"] or [])
     if "project_ids" in data:
         data["project_ids"] = [p for p in (data["project_ids"] or []) if p]
+    if "applies_to" in data:
+        data["applies_to"] = _dump_applies_to(data["applies_to"])
     for k, v in data.items():
         setattr(f, k, v)
     db.commit()
@@ -1168,6 +1201,67 @@ def asana_sync_pull_new(db: Session = Depends(get_db)):
 
     threading.Thread(target=_run_pull_new, daemon=True).start()
     return {"started": True}
+
+
+@router.post("/asana-sync/rescue-attachments", dependencies=[Depends(require_manager)])
+def asana_sync_rescue_attachments(db: Session = Depends(get_db)):
+    """Rescue attachment files still hosted on Asana before the subscription
+    ends (asanausercontent.com signed URLs and app.asana.com external-host
+    pointers). Same shape as pull-new: starts a BACKGROUND thread and returns
+    immediately - ~450 files / ~4 GB cannot survive a request timeout - with a
+    one-at-a-time guard in asana_sync_config.rescue_running_at (30-minute
+    stale window, so a killed worker never wedges the button). Read-only
+    toward Asana (GET only); Nexus-side it only ever rewrites a row's url
+    AWAY from a dying host, keeping the old value in original_asana_url.
+    Idempotent: rescued rows drop out of the scan, failures are retried by
+    simply running it again. See asana_rescue.py."""
+    import asana_rescue
+    import asana_sync
+    from routers.task_util import now_iso
+    cfg = asana_sync.get_config(db)
+    if not (cfg.token or "").strip() and not (cfg.setup_token or "").strip():
+        raise HTTPException(400, "Save an Asana token first.")
+
+    running = (getattr(cfg, "rescue_running_at", "") or "").strip()
+    if running:
+        try:
+            age = (datetime.now(timezone.utc) - datetime.fromisoformat(running)).total_seconds()
+        except ValueError:
+            age = asana_rescue.STALE_SECS + 1   # unparseable -> treat as a dead run
+        if age < asana_rescue.STALE_SECS:
+            return {"started": False, "alreadyRunning": True}
+    cfg.rescue_running_at = now_iso()
+    db.commit()
+
+    def _run_rescue():
+        # run_rescue clears rescue_running_at itself in its finally block.
+        asana_rescue.run_rescue(SessionLocal)
+
+    threading.Thread(target=_run_rescue, daemon=True).start()
+    return {"started": True}
+
+
+@router.get("/asana-sync/rescue-status", dependencies=[Depends(require_manager)])
+def asana_sync_rescue_status(db: Session = Depends(get_db)):
+    """Progress of the attachment rescue: the in-memory counters of the run on
+    THIS worker process (a run started on another gunicorn worker shows only
+    the DB-derived numbers) plus DB truth that survives restarts:
+    at_risk_remaining (rows still on a dying host) and rescued_total (rows a
+    rescue has rewritten). running reflects the cross-process guard column."""
+    import asana_rescue
+    import asana_sync
+    cfg = asana_sync.get_config(db)
+    running = (getattr(cfg, "rescue_running_at", "") or "").strip()
+    fresh = False
+    if running:
+        try:
+            fresh = (datetime.now(timezone.utc) - datetime.fromisoformat(running)
+                     ).total_seconds() < asana_rescue.STALE_SECS
+        except ValueError:
+            fresh = False
+    return {"running": fresh, "startedAt": running,
+            "worker": asana_rescue.status_snapshot(),
+            **asana_rescue.db_progress(db)}
 
 
 @router.post("/asana-sync/push-all", dependencies=[Depends(require_manager)])
