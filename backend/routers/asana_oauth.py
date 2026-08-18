@@ -107,9 +107,26 @@ def check(user: dict = Depends(get_current_user), db: Session = Depends(get_db))
     # project that task happens to live in" - and reporting the first as the
     # second tells somebody their connection is broken when their own project
     # works fine.
-    links = (db.query(models.AsanaTaskLink)
-               .filter(models.AsanaTaskLink.asana_gid != "")
-               .order_by(models.AsanaTaskLink.last_synced_at.desc()).limit(8).all())
+    # The sample starts with THIS PERSON'S OWN tasks and only then tops up with
+    # the most recently synced ones. "Most recent" alone was wrong the night
+    # personal tasks were pulled (08/19): the newest links were other people's
+    # private My Tasks rows, which nobody else can open, so every account
+    # tested - including a perfectly good one - was told it could reach nothing.
+    own_ids = [t.id for t in db.query(models.Task.id)
+               .filter(models.Task.assignee_email == (email or "").lower()).limit(400).all()]
+    links = []
+    if own_ids:
+        links = (db.query(models.AsanaTaskLink)
+                   .filter(models.AsanaTaskLink.asana_gid != "",
+                           models.AsanaTaskLink.nexus_task_id.in_(own_ids))
+                   .order_by(models.AsanaTaskLink.last_synced_at.desc()).limit(8).all())
+    if len(links) < 8:
+        seen_ids = {l.id for l in links}
+        for l in (db.query(models.AsanaTaskLink)
+                    .filter(models.AsanaTaskLink.asana_gid != "")
+                    .order_by(models.AsanaTaskLink.last_synced_at.desc()).limit(8 + len(links)).all()):
+            if l.id not in seen_ids and len(links) < 8:
+                links.append(l)
     reachable, blocked, last_err = 0, 0, ""
     for link in links:
         try:
