@@ -30,7 +30,6 @@ import ticket_mail_templates as tmpl
 from routers.task_util import log_activity
 
 from app_url import app_url
-_APP_URL = app_url()   # NEXUS_APP_URL override, else derived per environment - see app_url.py
 _SETTINGS_KEY = "ticket_notify_config"
 
 _DEFAULT_SETTINGS = {
@@ -373,30 +372,30 @@ def notify_ticket_event(ticket_id: str, event_type: str, actor_email: str, **kw)
 
         for recipient, role in recipients:
             if event_type == "created":
-                subject, html = (tmpl.created_email_requester(t=ctx, base_url=_APP_URL, logo_url=logo_url)
+                subject, html = (tmpl.created_email_requester(t=ctx, base_url=app_url(), logo_url=logo_url)
                                   if role == "requester" else
-                                  tmpl.created_email_triage(t=ctx, base_url=_APP_URL, logo_url=logo_url))
+                                  tmpl.created_email_triage(t=ctx, base_url=app_url(), logo_url=logo_url))
             elif event_type == "assigned":
-                subject, html = tmpl.assigned_email(t=ctx, base_url=_APP_URL, logo_url=logo_url,
+                subject, html = tmpl.assigned_email(t=ctx, base_url=app_url(), logo_url=logo_url,
                                                      audience="assignee" if role == "assignee" else "other")
             elif event_type == "updated":
                 # Comment updates render as a conversation thread (avatars + full
                 # bodies, newest first) instead of a details table.
                 thread = (_comment_thread(db, t.id)
                           if kw.get("update_kind") == "New comment added" else None)
-                subject, html = tmpl.update_email(t=ctx, base_url=_APP_URL, logo_url=logo_url,
+                subject, html = tmpl.update_email(t=ctx, base_url=app_url(), logo_url=logo_url,
                                                    update_kind=kw.get("update_kind", "Ticket updated"),
                                                    prev_status=kw.get("prev_status", ""),
                                                    latest_comment=kw.get("latest_comment", ""),
                                                    thread=thread)
             elif event_type == "resolved":
-                subject, html = tmpl.resolved_email(t=ctx, base_url=_APP_URL, logo_url=logo_url,
+                subject, html = tmpl.resolved_email(t=ctx, base_url=app_url(), logo_url=logo_url,
                                                      audience="requester" if role == "requester" else "other")
             elif event_type == "reopened":
-                subject, html = tmpl.reopened_email(t=ctx, base_url=_APP_URL, logo_url=logo_url,
+                subject, html = tmpl.reopened_email(t=ctx, base_url=app_url(), logo_url=logo_url,
                                                      reason=kw.get("reopen_reason", ""))
             elif event_type == "approval_required":
-                subject, html = tmpl.approval_email(t=ctx, base_url=_APP_URL, logo_url=logo_url)
+                subject, html = tmpl.approval_email(t=ctx, base_url=app_url(), logo_url=logo_url)
             else:
                 continue
             _send_one(db, t=t, event_type=event_type, event_version=version,
@@ -473,15 +472,15 @@ def _retry_failed_once(db: Session) -> None:
 def _rebuild_email(event_type: str, ctx: dict, role: str, cfg: dict) -> tuple[str, str]:
     logo_url = cfg.get("logoUrl") or ""
     if event_type == "created":
-        return (tmpl.created_email_requester(t=ctx, base_url=_APP_URL, logo_url=logo_url) if role == "requester"
-                else tmpl.created_email_triage(t=ctx, base_url=_APP_URL, logo_url=logo_url))
+        return (tmpl.created_email_requester(t=ctx, base_url=app_url(), logo_url=logo_url) if role == "requester"
+                else tmpl.created_email_triage(t=ctx, base_url=app_url(), logo_url=logo_url))
     if event_type == "assigned":
-        return tmpl.assigned_email(t=ctx, base_url=_APP_URL, logo_url=logo_url, audience="assignee" if role == "assignee" else "other")
+        return tmpl.assigned_email(t=ctx, base_url=app_url(), logo_url=logo_url, audience="assignee" if role == "assignee" else "other")
     if event_type == "resolved":
-        return tmpl.resolved_email(t=ctx, base_url=_APP_URL, logo_url=logo_url, audience="requester" if role == "requester" else "other")
+        return tmpl.resolved_email(t=ctx, base_url=app_url(), logo_url=logo_url, audience="requester" if role == "requester" else "other")
     if event_type == "reopened":
-        return tmpl.reopened_email(t=ctx, base_url=_APP_URL, logo_url=logo_url, reason="")
-    return tmpl.update_email(t=ctx, base_url=_APP_URL, logo_url=logo_url, update_kind="Ticket updated")
+        return tmpl.reopened_email(t=ctx, base_url=app_url(), logo_url=logo_url, reason="")
+    return tmpl.update_email(t=ctx, base_url=app_url(), logo_url=logo_url, update_kind="Ticket updated")
 
 
 def _auto_close_once(db: Session) -> None:

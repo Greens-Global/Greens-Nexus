@@ -52,9 +52,17 @@ function CollaboratorPicker({ value = [], people, onChange, anchor }) {
   ).slice().sort((a, b) => (a.name || '').localeCompare(b.name || '', 'en', { sensitivity: 'base' }));
   return (
     <div ref={ref} style={{ position: 'relative' }}>
-      <button onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }} title="Add collaborators" style={{ ...btn('ghost'), padding: '2px 6px' }}>
+      <button onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }} title="Add collaborators" style={{ ...btn('ghost'), padding: '2px 6px', display: 'flex', alignItems: 'center', gap: 3 }}>
         {value.length ? (
-          <div style={{ display: 'flex' }}>{value.slice(0, 3).map((em, i) => <span key={em} style={{ marginLeft: i ? -6 : 0 }}><Avatar email={em} size={20} /></span>)}</div>
+          <>
+            <div style={{ display: 'flex' }}>{value.slice(0, 3).map((em, i) => <span key={em} style={{ marginLeft: i ? -6 : 0 }}><Avatar email={em} size={20} /></span>)}</div>
+            {/* Always-visible "+" so a row with collaborators still reads as
+                clickable to add more, not just as a display of who's on it. */}
+            <span style={{
+              width: 16, height: 16, borderRadius: '50%', border: `1.5px dashed ${NX.border}`,
+              color: NX.faint, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+            }}><Plus size={10} /></span>
+          </>
         ) : anchor ? <span style={{ color: NX.faint }}>{anchor}</span> : (
           <span style={{
             width: 20, height: 20, borderRadius: '50%', border: `1.5px dashed ${NX.border}`,

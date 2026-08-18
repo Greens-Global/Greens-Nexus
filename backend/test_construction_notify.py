@@ -142,7 +142,7 @@ class DailyLogNotificationTests(_Base):
     def test_the_bell_links_back_to_the_jobsite_dashboard(self):
         notify.log_submitted(self.db, self.project, self._log())
         self.db.commit()
-        self.assertIn('"sub": "ops-dashboard"', self._bells()[0].action)
+        self.assertIn('"sub": "construction-dashboard"', self._bells()[0].action)
 
 
 class PublishedReportTests(_Base):

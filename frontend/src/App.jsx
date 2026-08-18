@@ -363,7 +363,7 @@ function parsePath() {
 const DEFAULT_SUBS = {
   sop:               "index",
   it:                "network",
-  ops:               "ops-dashboard",
+  ops:               "construction-dashboard",
   operations:        "fms",
   development:       "dev-permits",
   "property-asset":  "asset-portfolio",
