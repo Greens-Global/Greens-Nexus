@@ -27,7 +27,9 @@ function Brand() {
 }
 
 export default function ExternalActivate({ token }) {
-  const [phase, setPhase] = useState('loading');   // loading | invalid | intro | code | done
+  // switch = the account-switch confirmation (Aug 18, Visesh: activating a
+  // guest silently replaced his admin session - now it warns first).
+  const [phase, setPhase] = useState('loading');   // loading | invalid | switch | intro | code | done
   const [invite, setInvite] = useState(null);
   const [phone, setPhone] = useState('');
   const [code, setCode] = useState('');
@@ -40,7 +42,13 @@ export default function ExternalActivate({ token }) {
   useEffect(() => {
     let dead = false;
     post('/external-auth/activate/lookup', { token })
-      .then(d => { if (!dead) { setInvite(d); setPhase('intro'); } })
+      .then(d => {
+        if (dead) return;
+        setInvite(d);
+        // A DIFFERENT account already signed in on this browser: confirm the
+        // switch before anything else - same email skips straight through.
+        setPhase(d.sessionConflict && d.signedInAs ? 'switch' : 'intro');
+      })
       .catch(e => { if (!dead) { setInvalidMsg(e.message); setPhase('invalid'); } });
     return () => { dead = true; };
   }, [token]);
@@ -84,6 +92,26 @@ export default function ExternalActivate({ token }) {
               {invalidMsg || 'This invitation link is invalid, already used, or expired - ask your Greens Global contact to send a new one.'}
             </p>
           </div>
+        )}
+
+        {phase === 'switch' && invite && (
+          <>
+            <h1 style={{ margin: '0 0 8px', fontSize: 20, color: '#111827' }}>Switch accounts?</h1>
+            <p style={{ margin: '0 0 16px', fontSize: 13.5, lineHeight: 1.6, color: '#374151' }}>
+              You are signed in as <strong>{invite.signedInAs?.name}</strong>. Continuing signs that
+              account out on this browser and activates this invitation for <strong>{invite.email}</strong>.
+            </p>
+            <div style={{ display: 'grid', gap: 9 }}>
+              <button style={primaryBtn} onClick={() => setPhase('intro')}>Continue</button>
+              <button style={{ ...primaryBtn, background: '#fff', color: '#0f3d2e', border: '1.5px solid #0f3d2e' }}
+                onClick={() => window.location.assign('/')}>
+                Cancel
+              </button>
+            </div>
+            <p style={{ margin: '14px 0 0', fontSize: 12, lineHeight: 1.55, color: '#6b7280' }}>
+              Cancel leaves your current sign-in untouched and takes you back to Nexus.
+            </p>
+          </>
         )}
 
         {phase === 'intro' && invite && (

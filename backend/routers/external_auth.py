@@ -359,6 +359,43 @@ def _mask_phone(phone: str) -> str:
     return f"***{digits[-4:]}" if len(digits) >= 4 else ""
 
 
+def _display_name(db, email: str) -> str:
+    emp = (db.query(NexusEmployee)
+           .filter(func.lower(NexusEmployee.work_email) == (email or "").lower()).first())
+    if emp:
+        name = (emp.display_name or "").strip() or f"{emp.first_name} {emp.last_name}".strip()
+        if name:
+            return name
+    local = (email or "").split("@")[0]
+    return " ".join(p.capitalize() for p in local.replace("_", ".").split(".") if p) or email
+
+
+def _signed_in_identity(request: Request, db) -> dict | None:
+    """Who (if anyone) this browser is ALREADY signed in as - a plain READ of
+    the session cookie (Aug 18, Visesh: activating a guest silently replaced
+    his admin session). These pre-auth endpoints never REQUIRE the cookie
+    (CSRF-exempt for exactly that reason), but reading it lets the frontend
+    warn before a Continue replaces the session. A light lookup on purpose -
+    no token refresh, no last_seen write."""
+    sid = request.cookies.get(bff.SESSION_COOKIE, "") if request is not None else ""
+    if not sid:
+        return None
+    from models import ServerSession
+    row = db.query(ServerSession).filter(ServerSession.id == sid).first()
+    if not row or not (row.user_email or "").strip():
+        return None
+    email = row.user_email.lower()
+    return {"email": email, "name": _display_name(db, email)}
+
+
+def _session_conflict(request: Request, db, target_email: str) -> tuple[dict | None, bool]:
+    """(signedInAs, conflict): conflict only when the live session belongs to a
+    DIFFERENT identity than the invite/login target - same email just means
+    they are re-signing-in and needs no warning."""
+    who = _signed_in_identity(request, db)
+    return who, bool(who and who["email"] != (target_email or "").lower())
+
+
 # ── schemas ──────────────────────────────────────────────────────────────────
 
 class TokenIn(BaseModel):
@@ -385,9 +422,12 @@ class LoginVerifyIn(BaseModel):
 # ── activation (invite link) ─────────────────────────────────────────────────
 
 @router.post("/activate/lookup")
-def activate_lookup(body: TokenIn):
+def activate_lookup(body: TokenIn, request: Request):
     """Validate an invite token and return what the activation page shows.
-    The link arriving in their inbox is the proof of address ownership."""
+    The link arriving in their inbox is the proof of address ownership.
+    Also reports whether this browser already holds a DIFFERENT identity's
+    session, so the page can confirm the account switch instead of silently
+    replacing it."""
     db = SessionLocal()
     try:
         row = _invite_row(db, (body.token or "").strip())
@@ -395,8 +435,10 @@ def activate_lookup(body: TokenIn):
         if not emp:
             return JSONResponse(status_code=404, content={
                 "detail": "This invitation link is invalid, already used, or expired - ask your Greens Global contact to send a new one."})
+        target = (emp.work_email or "").lower()
+        signed_in_as, conflict = _session_conflict(request, db, target)
         return {
-            "email": (emp.work_email or "").lower(),
+            "email": target,
             "firstName": emp.first_name or "",
             "lastName": emp.last_name or "",
             "name": (emp.display_name or "").strip() or f"{emp.first_name} {emp.last_name}".strip(),
@@ -404,6 +446,8 @@ def activate_lookup(body: TokenIn):
             "invitedBy": _inviter_name(db, getattr(emp, "invited_by", "") or ""),
             "hasPhone": bool((emp.phone or "").strip()),
             "phoneMasked": _mask_phone(emp.phone or ""),
+            "signedInAs": signed_in_as,
+            "sessionConflict": conflict,
         }
     finally:
         db.close()
@@ -469,7 +513,10 @@ def activate_verify(body: ActivateVerifyIn, request: Request):
 def request_code(body: RequestCodeIn, request: Request):
     """Partner Sign-In step 1. ALWAYS the same generic 200 - unknown emails,
     deactivated rows, lockouts, and rate limits are indistinguishable from a
-    successful send (no account enumeration)."""
+    successful send (no account enumeration). The session-conflict fields
+    describe only the CALLER'S OWN cookie (who this browser is already signed
+    in as) - they reveal nothing about the submitted email, so the generic
+    posture holds; the frontend uses them to confirm the account switch."""
     ip = _client_ip(request)
     email = (body.email or "").lower().strip()
     db = SessionLocal()
@@ -478,7 +525,9 @@ def request_code(body: RequestCodeIn, request: Request):
         if emp and not _locked_out(db, email) and not _rate_limited(db, email, ip):
             force_email = (body.channel or "").lower() == "email"
             _deliver_code(db, emp, "login", ip, force_email=force_email)
-        return {"ok": True, "message": GENERIC_MSG}
+        signed_in_as, conflict = _session_conflict(request, db, email)
+        return {"ok": True, "message": GENERIC_MSG,
+                "signedInAs": signed_in_as, "sessionConflict": conflict}
     finally:
         db.close()
 
