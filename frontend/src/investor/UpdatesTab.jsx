@@ -17,11 +17,18 @@ export default function UpdatesTab() {
   const [formErr, setFormErr] = useState('');
   const [rowErr, setRowErr] = useState('');
 
-  const openAdd = () => { setFormErr(''); setModal({ id: null, title: '', body: '', fundId: '', pinned: false }); };
+  const [modalInitial, setModalInitial] = useState(null);
+  const openAdd = () => {
+    setFormErr('');
+    const blank = { id: null, title: '', body: '', fundId: '', pinned: false };
+    setModal(blank); setModalInitial(blank);
+  };
   const openEdit = (u) => {
     setFormErr('');
-    setModal({ id: u.id, title: u.title || '', body: u.body || '', fundId: u.fundId ? String(u.fundId) : '', pinned: !!u.pinned });
+    const form = { id: u.id, title: u.title || '', body: u.body || '', fundId: u.fundId ? String(u.fundId) : '', pinned: !!u.pinned };
+    setModal(form); setModalInitial(form);
   };
+  const dirty = modal ? JSON.stringify(modal) !== JSON.stringify(modalInitial) : false;
 
   const save = async (e) => {
     e.preventDefault();
@@ -128,7 +135,7 @@ export default function UpdatesTab() {
       )}
 
       {modal && (
-        <Modal title={modal.id ? 'Edit Update' : 'Post Update'} onClose={() => setModal(null)}>
+        <Modal title={modal.id ? 'Edit Update' : 'Post Update'} onClose={() => setModal(null)} isDirty={dirty} onSave={() => save({ preventDefault() {} })}>
           <form onSubmit={save}>
             <div className="form-grid">
               <FG label="Title" full>

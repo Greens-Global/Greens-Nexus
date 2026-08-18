@@ -6,7 +6,7 @@ import { useRef, useState } from 'react';
 import { Plus, X, Paperclip, ListChecks, CircleCheck, Save, Image as ImageIcon, ScanText, Camera, ImagePlus } from 'lucide-react';
 import { api } from '../api';
 import { useTasks } from './TasksContext';
-import { Modal, PersonSelect, usePeople, DateField, useIsMobile } from './components';
+import { Modal, PersonSelect, PersonMultiSelect, usePeople, DateField, useIsMobile } from './components';
 import { ProjectCreateModal } from './ProjectsView';
 import { CustomFieldInput } from './TaskDetailDrawer';
 import { filesFromPaste, teamInProject, fieldsForProject, uploadTaskAttachment } from './lib';
@@ -48,6 +48,7 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
     recurFreq: editing?.recurrence?.freq ?? 'none', recurDow: editing?.recurrence?.dayOfWeek ?? 1, recurDom: editing?.recurrence?.dayOfMonth ?? 1,
     recurEnd: editing?.recurrence?.until ? 'on' : editing?.recurrence?.count ? 'after' : 'never',
     recurUntil: editing?.recurrence?.until ?? '', recurCount: editing?.recurrence?.count != null ? String(editing.recurrence.count) : '',
+    followerIds: editing?.followerIds ?? defaults.followerIds ?? [],
     labels: editing?.tags ?? [],
     customFieldValues: editing?.customFieldValues ?? {},
   }));
@@ -58,6 +59,14 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
   const [busy, setBusy] = useState(false);
   const [creatingProject, setCreatingProject] = useState(false);
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+  // Frozen on first render (not re-derived from `editing`/`defaults`, which can
+  // change identity across re-renders) so later edits always compare against
+  // what was actually loaded into the form.
+  const [initialForm] = useState(() => form);
+  const [initialSubtasks] = useState(() => subtasks);
+  const dirty = JSON.stringify(form) !== JSON.stringify(initialForm)
+    || JSON.stringify(subtasks) !== JSON.stringify(initialSubtasks)
+    || attachments.length > 0;
 
   const addLabel = () => { const v = labelInput.trim(); if (v && !form.labels.includes(v)) set('labels', [...form.labels, v]); setLabelInput(''); };
   const addSubtask = () => { const v = subtaskInput.trim(); if (v) setSubtasks((s) => [...s, { title: v }]); setSubtaskInput(''); };
@@ -134,6 +143,7 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
       title: form.title.trim(), description: form.description, assigneeId: form.assigneeId || '', ownerId: form.ownerId || '',
       priority: form.priority, status: form.recurFreq !== 'none' ? 'recurring' : form.status, projectId: form.projectId || '', teamId: form.teamId || '',
       dueOn: form.dueOn || '', estimateHours: (form.estimateHrs || form.estimateMin) ? (Number(form.estimateHrs || 0) + Number(form.estimateMin || 0) / 60) : null, tags: form.labels, recurrence: recurrence(),
+      followerIds: form.followerIds,
       customFieldValues: form.customFieldValues,
     };
     try {
@@ -155,7 +165,8 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
 
   const sel = { ...input, cursor: 'pointer' };
   return (
-    <Modal title={isEdit ? 'Edit Task' : 'Create a Task'} width={640} onClose={() => onClose(false)} footer={
+    <Modal title={isEdit ? 'Edit Task' : 'Create a Task'} width={640} onClose={() => onClose(false)}
+      isDirty={dirty} onSave={canSubmit ? submit : undefined} footer={
       <>
         {/* Phone only - desktop already has the Attachments field in view without
             scrolling, and a camera/scan shortcut is meaningless with a mouse. */}
@@ -246,6 +257,10 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
             <div style={{ borderRadius: 8, ...missStyle('assignee'), ...(missing.includes('assignee') ? { border: `1px solid ${NX.red}` } : {}) }}>
               <PersonSelect value={form.assigneeId} onChange={(v) => set('assigneeId', v)} people={people} />
             </div>
+          </div>
+          <div style={field}>
+            <label style={label}>Collaborators</label>
+            <PersonMultiSelect value={form.followerIds} onChange={(v) => set('followerIds', v)} people={people} placeholder="Add collaborators…" />
           </div>
           <div style={field}>
             <label style={label}>Due Date {!isEdit && req}</label>

@@ -237,6 +237,16 @@ export function TeamModal({ team, onClose, onDelete }) {
   const isMobile = useIsMobile();
   const [members, setMembers] = useState(team?.memberIds || []);
   const [saving, setSaving] = useState(false);
+  // Compared against the loaded snapshot rather than tracked per-handler -
+  // this form has too many independent controls (color swatches, icon grid,
+  // member add/remove) to flag dirty at each call site without missing one.
+  const initial = useMemo(() => ({
+    name: team?.name || '', projectIds: teamProjectIds(team), color: team?.color || DEPT_COLORS[0],
+    icon: team?.icon || 'building', members: team?.memberIds || [],
+  }), [team]);
+  const dirty = name !== initial.name || color !== initial.color || icon !== initial.icon
+    || JSON.stringify(projectIds) !== JSON.stringify(initial.projectIds)
+    || JSON.stringify(members) !== JSON.stringify(initial.members);
 
   const addMember = (email) => {
     if (!email) return;
@@ -263,6 +273,8 @@ export function TeamModal({ team, onClose, onDelete }) {
     <Modal
       title={team ? 'Edit Team' : 'Create a Team'}
       onClose={onClose}
+      isDirty={dirty}
+      onSave={canSave ? save : undefined}
       footer={(
         <>
           {onDelete && (

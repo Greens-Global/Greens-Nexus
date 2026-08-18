@@ -59,9 +59,10 @@ export default function SetBudgetModal({
     }
     onClose()
   }
+  const dirty = facilities.some((f) => (google[f] ?? 0) !== (googleBudgetByProperty[f] ?? 0))
 
   return (
-    <Modal title="Set Budget" onClose={onClose} width="max-w-2xl">
+    <Modal title="Set Budget" onClose={onClose} width="max-w-2xl" isDirty={dirty} onSave={error ? undefined : handleSave}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         <div>
           <label style={{ display: 'block', fontSize: 12.5, fontWeight: 500, color: C.gray600, marginBottom: 6 }}>Budget Period</label>

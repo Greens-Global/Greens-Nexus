@@ -20,6 +20,7 @@ const fmtDate = (iso) => (iso ? fmtDateRaw(iso) : '-');
 import { NX, FONT, btn, input as inputStyle, STATUS_META, STATUS_ORDER, PRIORITY_META, PRIORITY_ORDER } from './theme';
 import { Avatar, PersonSelect, PersonMultiSelect, usePeople, useIsMobile, DateField, AttachmentViewer } from './components';
 import RichDescription, { isEmptyDoc } from './RichDescription';
+import ProjectPicker from './ProjectPicker';
 
 const DEP_TYPES = { FS: 'Finish → Start', SS: 'Start → Start', FF: 'Finish → Finish', SF: 'Start → Finish' };
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -571,22 +572,13 @@ function OverviewTab({ task, patch, people, projectName, teamName, teams, projec
       </Row>
 
       <Row label="Project">
-        <Pop width={220} trigger={(t) => (
-          <button onClick={t} style={{ display: 'flex', alignItems: 'center', gap: 5, border: 'none', background: 'transparent', cursor: 'pointer', padding: 0, color: task.projectId ? NX.ink : NX.faint, fontSize: 13, fontFamily: FONT }}>
-            {task.projectId ? projectName(task.projectId) : 'No project'} <ChevronDown size={13} style={{ color: NX.faint }} />
-          </button>
-        )}>
-          {(close) => (
-            <>
-              <MenuItem icon={!task.projectId ? <Check size={13} /> : <span style={{ width: 13, display: 'inline-block' }} />} onClick={() => { patch({ projectId: '', teamId: '' }); close(); }}>No project</MenuItem>
-              {(projects || []).length === 0 ? (
-                <div style={{ padding: 9, fontSize: 12, color: NX.faint }}>No projects yet</div>
-              ) : (projects || []).map((p) => (
-                <MenuItem key={p.id} icon={task.projectId === p.id ? <Check size={13} /> : <span style={{ width: 13, display: 'inline-block' }} />} onClick={() => { if (p.id !== task.projectId) patch({ projectId: p.id, teamId: '' }); close(); }}>{p.name}</MenuItem>
-              ))}
-            </>
-          )}
-        </Pop>
+        <div style={{ minWidth: 220 }}>
+          <ProjectPicker
+            projects={projects} teams={teams} myEmail={myEmail}
+            value={task.projectId || ''} allowNone noneLabel="No project"
+            onChange={(id) => { if (id !== task.projectId) patch({ projectId: id, teamId: '' }); }}
+          />
+        </div>
       </Row>
 
       <Row label="Team">

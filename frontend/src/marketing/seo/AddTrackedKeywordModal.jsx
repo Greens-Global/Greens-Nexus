@@ -10,6 +10,9 @@ export default function AddTrackedKeywordModal({ database, trackedKeywordNames, 
   const [keywordName, setKeywordName] = useState(presetKeyword?.keyword ?? untracked[0]?.keyword ?? '')
   const [facility, setFacility] = useState(presetKeyword?.facility ?? initialFacility ?? FACILITIES[0])
   const [priority, setPriority] = useState('Medium')
+  const initialKeyword = presetKeyword?.keyword ?? untracked[0]?.keyword ?? ''
+  const initialFacilityVal = presetKeyword?.facility ?? initialFacility ?? FACILITIES[0]
+  const dirty = keywordName !== initialKeyword || facility !== initialFacilityVal || priority !== 'Medium'
 
   function submit() {
     const kw = database.find((k) => k.keyword === keywordName)
@@ -32,7 +35,7 @@ export default function AddTrackedKeywordModal({ database, trackedKeywordNames, 
   }
 
   return (
-    <Modal title="Add Keyword to Rank Tracker" onClose={onClose} width="max-w-md">
+    <Modal title="Add Keyword to Rank Tracker" onClose={onClose} width="max-w-md" isDirty={dirty} onSave={keywordName ? submit : undefined}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         <div>
           <label style={labelStyle}>Keyword</label>

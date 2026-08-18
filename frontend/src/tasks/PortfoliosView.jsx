@@ -183,12 +183,13 @@ function PortfolioModal({ portfolio, people, projects, onClose, onCreate, onUpda
   const [ownerId, setOwnerId] = useState(portfolio?.ownerId || null);
   const [projectIds, setProjectIds] = useState(portfolio?.projectIds || []);
   const [busy, setBusy] = useState(false);
+  const [dirty, setDirty] = useState(false);
   // See ProjectsView.jsx's ProjectModal for why: autoFocus + this Modal's
   // vh-based sizing + mobile Chrome's keyboard-open scroll behavior combine
   // to scroll Name/Description/Owner out of view on phones.
   const isMobile = useIsMobile();
 
-  const toggleProject = (id) => setProjectIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
+  const toggleProject = (id) => { setProjectIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id])); setDirty(true); };
 
   const save = async () => {
     if (!name.trim() || busy) return;
@@ -220,6 +221,8 @@ function PortfolioModal({ portfolio, people, projects, onClose, onCreate, onUpda
     <Modal
       title={isEdit ? 'Edit Portfolio' : 'Create a Portfolio'}
       onClose={onClose}
+      isDirty={dirty}
+      onSave={name.trim() ? save : undefined}
       footer={
         <>
           {isEdit && <button onClick={remove} disabled={busy} style={{ ...btn('ghost'), color: NX.red, marginRight: 'auto' }}><Trash2 size={15} />Delete</button>}
@@ -232,15 +235,15 @@ function PortfolioModal({ portfolio, people, projects, onClose, onCreate, onUpda
       <div style={{ display: 'flex', flexDirection: 'column', gap: 15 }}>
         <div>
           <label style={label}>Name</label>
-          <input autoFocus={!isMobile} value={name} onChange={(e) => setName(e.target.value)} placeholder="Portfolio Name" style={inputStyle} onKeyDown={(e) => e.key === 'Enter' && save()} />
+          <input autoFocus={!isMobile} value={name} onChange={(e) => { setName(e.target.value); setDirty(true); }} placeholder="Portfolio Name" style={inputStyle} onKeyDown={(e) => e.key === 'Enter' && save()} />
         </div>
         <div>
           <label style={label}>Description</label>
-          <textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="What does this portfolio track?" rows={3} style={{ ...inputStyle, resize: 'vertical' }} />
+          <textarea value={description} onChange={(e) => { setDescription(e.target.value); setDirty(true); }} placeholder="What does this portfolio track?" rows={3} style={{ ...inputStyle, resize: 'vertical' }} />
         </div>
         <div>
           <label style={label}>Owner</label>
-          <PersonSelect value={ownerId} onChange={setOwnerId} people={people} />
+          <PersonSelect value={ownerId} onChange={(v) => { setOwnerId(v); setDirty(true); }} people={people} />
         </div>
         <div>
           <label style={label}>Projects</label>
@@ -399,7 +402,8 @@ function ManageProjectsModal({ allProjects, currentIds, onClose, onSave }) {
   const [picked, setPicked] = useState(new Set(currentIds));
   const [q, setQ] = useState('');
   const [busy, setBusy] = useState(false);
-  const toggle = (id) => setPicked((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const [dirty, setDirty] = useState(false);
+  const toggle = (id) => { setPicked((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; }); setDirty(true); };
 
   const query = q.trim().toLowerCase();
   const list = allProjects
@@ -418,6 +422,8 @@ function ManageProjectsModal({ allProjects, currentIds, onClose, onSave }) {
     <Modal
       title="Manage Projects"
       onClose={onClose}
+      isDirty={dirty}
+      onSave={save}
       footer={<>
         <button onClick={onClose} style={btn('ghost')}>Cancel</button>
         <button onClick={save} disabled={busy} style={{ ...btn('primary'), opacity: busy ? 0.55 : 1 }}>Save</button>

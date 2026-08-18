@@ -1024,6 +1024,13 @@ function RuleModal({ rule, onClose, onSave }) {
   const [actions, setActions] = useState(
     rule?.actions?.length ? rule.actions.map((a) => ({ type: a.type, value: a.value ?? '' })) : [{ type: 'set_priority', value: 'urgent' }],
   );
+  const initial = useMemo(() => ({
+    name: rule?.name || '', enabled: rule ? !!rule.enabled : true,
+    trigger: rule?.trigger?.type || 'status_changed', triggerValue: rule?.trigger?.value || 'not_started',
+    actions: rule?.actions?.length ? rule.actions.map((a) => ({ type: a.type, value: a.value ?? '' })) : [{ type: 'set_priority', value: 'urgent' }],
+  }), [rule]);
+  const dirty = name !== initial.name || enabled !== initial.enabled || trigger !== initial.trigger
+    || triggerValue !== initial.triggerValue || JSON.stringify(actions) !== JSON.stringify(initial.actions);
 
   const setAction = (i, patch) => setActions((prev) => prev.map((a, idx) => (idx === i ? { ...a, ...patch } : a)));
   const addAction = () => setActions((prev) => [...prev, { type: 'set_priority', value: 'urgent' }]);
@@ -1040,7 +1047,7 @@ function RuleModal({ rule, onClose, onSave }) {
   };
 
   return (
-    <Modal title={rule ? 'Edit Rule' : 'New Rule'} onClose={onClose} footer={
+    <Modal title={rule ? 'Edit Rule' : 'New Rule'} onClose={onClose} isDirty={dirty} onSave={name.trim() ? save : undefined} footer={
       <>
         <button style={btn('ghost')} onClick={onClose}>Cancel</button>
         <button style={btn('primary')} onClick={save}>{rule ? 'Save rule' : 'Add rule'}</button>
@@ -1123,11 +1130,11 @@ function FieldsTab({ store }) {
     <div>
       <SectionHead
         title="Custom Fields"
-        hint="Extra fields on tasks (text, number, date, checkbox or a select list). Scope a field to specific projects so it is not a column in every one."
+        hint="Extra fields on tasks or projects (text, number, date, checkbox or a select list). Scope a task field to specific projects so it is not a column in every one."
         action={<button style={btn('primary')} onClick={() => setAdding(true)}><Plus size={15} />New Custom Field</button>}
       />
       {customFields.length === 0 ? (
-        <EmptyState icon={ListChecks} title="No Custom Fields" hint="Add a field to capture extra data on tasks." />
+        <EmptyState icon={ListChecks} title="No Custom Fields" hint="Add a field to capture extra data on tasks or projects." />
       ) : customFields.map((f) => (
         <RowCard key={f.id}>
           <span style={{ ...iconBadge, color: NX.blue }}><ListChecks size={16} /></span>
@@ -1142,12 +1149,16 @@ function FieldsTab({ store }) {
                 })}
               </div>
             )}
-            <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 3 }}>
-              {(f.projectIds || []).length
-                ? (f.projectIds || []).map(projectName).filter(Boolean).join(', ')
-                : 'Every project'}
-            </div>
+            {(f.appliesTo || []).includes('task') && (
+              <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 3 }}>
+                {(f.projectIds || []).length
+                  ? (f.projectIds || []).map(projectName).filter(Boolean).join(', ')
+                  : 'Every project'}
+              </div>
+            )}
           </div>
+          {(f.appliesTo || []).includes('task') && <span style={chip(NX.purple, 'rgba(124,58,237,0.12)')}>Task field</span>}
+          {(f.appliesTo || []).includes('project') && <span style={chip(NX.purple, 'rgba(124,58,237,0.12)')}>Project field</span>}
           {f.required && <span style={chip(NX.red, 'rgba(220,38,38,0.12)')}>Required</span>}
           {f.readOnly && <span title="Calculated in Asana - imported but never pushed back" style={chip(NX.dim, NX.border2)}>Read-only</span>}
           <span style={chip(NX.dim, NX.border2)}>{FIELD_TYPES.find((t) => t.value === f.type)?.label || f.type}</span>
@@ -1170,10 +1181,17 @@ const FIELD_OPTION_COLORS = ['#2563eb', '#0d9488', '#16a34a', '#7c3aed', '#d9770
 // shape, and switching, say, select to number would leave every captured value
 // unreadable. Renaming and rescoping - the reasons anyone opens this - are safe
 // because a task's values are keyed by field id, not by name.
+const APPLIES_TO_OPTS = [
+  { value: 'task', label: 'Tasks' },
+  { value: 'project', label: 'Projects' },
+];
+
 function FieldModal({ projects = [], field = null, onClose, onSave }) {
   const [name, setName] = useState(field?.name || '');
   const [description, setDescription] = useState(field?.description || '');
   const [type, setType] = useState(field?.type || 'text');
+  // A field can apply to tasks, projects, or both at once.
+  const [appliesTo, setAppliesTo] = useState(field?.appliesTo?.length ? field.appliesTo : ['task']);
   const [options, setOptions] = useState(() => {
     const existing = (field?.options || []).map((o) => (typeof o === 'string'
       ? { label: o, color: FIELD_OPTION_COLORS[0] }
@@ -1181,36 +1199,68 @@ function FieldModal({ projects = [], field = null, onClose, onSave }) {
     return existing.length ? existing : [{ label: '', color: FIELD_OPTION_COLORS[0] }];
   });
   // Empty = the field applies to every project, which is how every field
-  // behaved before scoping existed.
+  // behaved before scoping existed. Meaningless when the field doesn't apply
+  // to tasks at all (there is no per-task column to scope).
   const [projectIds, setProjectIds] = useState(field?.projectIds || []);
   const [required, setRequired] = useState(!!field?.required);
+  const initial = useMemo(() => ({
+    name: field?.name || '', description: field?.description || '', type: field?.type || 'text',
+    appliesTo: field?.appliesTo?.length ? field.appliesTo : ['task'],
+    options: (() => {
+      const existing = (field?.options || []).map((o) => (typeof o === 'string'
+        ? { label: o, color: FIELD_OPTION_COLORS[0] }
+        : { label: o.label || o.id || '', color: o.color || FIELD_OPTION_COLORS[0] }));
+      return existing.length ? existing : [{ label: '', color: FIELD_OPTION_COLORS[0] }];
+    })(),
+    projectIds: field?.projectIds || [], required: !!field?.required,
+  }), [field]);
+  const dirty = name !== initial.name || description !== initial.description || type !== initial.type
+    || required !== initial.required
+    || JSON.stringify(appliesTo) !== JSON.stringify(initial.appliesTo)
+    || JSON.stringify(options) !== JSON.stringify(initial.options)
+    || JSON.stringify(projectIds) !== JSON.stringify(initial.projectIds);
 
   const setOpt = (i, patch) => setOptions((prev) => prev.map((o, idx) => (idx === i ? { ...o, ...patch } : o)));
   const toggleProject = (id) => setProjectIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
+  // At least one kind must stay checked - a field that applies to nothing
+  // can't show up anywhere to be edited again.
+  const toggleAppliesTo = (kind) => setAppliesTo((prev) => (prev.includes(kind)
+    ? (prev.length > 1 ? prev.filter((k) => k !== kind) : prev)
+    : [...prev, kind]));
   const save = () => {
     if (!name.trim()) return;
     const opts = OPTION_TYPES.includes(type)
       ? options.filter((o) => o.label.trim()).map((o) => ({ id: o.label.trim(), label: o.label.trim(), color: o.color }))
       : [];
     onSave({ name: name.trim(), description: description.trim(), type, options: opts,
-             project_ids: projectIds, required });
+             project_ids: appliesTo.includes('task') ? projectIds : [], required, applies_to: appliesTo });
   };
 
   return (
-    <Modal title={field ? 'Edit Custom Field' : 'New Custom Field'} onClose={onClose} footer={
+    <Modal title={field ? 'Edit Custom Field' : 'New Custom Field'} onClose={onClose} isDirty={dirty} onSave={name.trim() ? save : undefined} footer={
       <>
         <button style={btn('ghost')} onClick={onClose}>Cancel</button>
         <button style={btn('primary')} onClick={save}>{field ? 'Save Field' : 'Add Field'}</button>
       </>
     }>
-      <Field label="Name"><input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Story points" style={inputStyle} /></Field>
+      <Field label="Name"><input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Story points, Location" style={inputStyle} /></Field>
       <Field label="Description"><input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Optional" style={inputStyle} /></Field>
+      <Field label="Applies To">
+        <div style={{ display: 'flex', gap: 16 }}>
+          {APPLIES_TO_OPTS.map((o) => (
+            <label key={o.value} style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13, cursor: 'pointer' }}>
+              <input type="checkbox" checked={appliesTo.includes(o.value)} onChange={() => toggleAppliesTo(o.value)} style={{ width: 15, height: 15, cursor: 'pointer' }} />
+              {o.label}
+            </label>
+          ))}
+        </div>
+        {field && <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 6 }}>Unchecking a kind moves the field off it - any values already saved under that kind stay stored but stop showing anywhere.</div>}
+      </Field>
       <Field label="Type">
-        <select value={type} onChange={(e) => setType(e.target.value)} disabled={!!field}
-          style={{ ...selectStyle, opacity: field ? 0.6 : 1, cursor: field ? 'not-allowed' : 'pointer' }}>
+        <select value={type} onChange={(e) => setType(e.target.value)} style={selectStyle}>
           {FIELD_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
         </select>
-        {field && <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>Type cannot change once tasks hold values in it.</div>}
+        {field && <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>Switching this can leave existing values in the old kind's shape (e.g. a Select's saved option won't match a Text field) - check them after saving.</div>}
       </Field>
       {OPTION_TYPES.includes(type) && (
         <div>
@@ -1238,27 +1288,31 @@ function FieldModal({ projects = [], field = null, onClose, onSave }) {
           </button>
         </div>
       )}
-      <div style={{ marginTop: 16 }}>
-        <label style={fieldLabel}>Projects</label>
-        <div style={{ fontSize: 11.5, color: NX.faint, marginBottom: 6 }}>
-          Pick none to use this field in every project.
-        </div>
-        {projects.length === 0 ? (
-          <div style={{ fontSize: 12.5, color: NX.faint }}>No projects yet.</div>
-        ) : (
-          <div style={{ maxHeight: 150, overflowY: 'auto', border: `1px solid ${NX.border}`, borderRadius: 10 }}>
-            {projects.filter((p) => !p.archived).map((p) => (
-              <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', fontSize: 13, cursor: 'pointer', borderBottom: `1px solid ${NX.border2}` }}>
-                <input type="checkbox" checked={projectIds.includes(p.id)} onChange={() => toggleProject(p.id)} style={{ cursor: 'pointer' }} />
-                <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
-              </label>
-            ))}
+      {appliesTo.includes('task') && (
+        <div style={{ marginTop: 16 }}>
+          <label style={fieldLabel}>Projects</label>
+          <div style={{ fontSize: 11.5, color: NX.faint, marginBottom: 6 }}>
+            Pick none to use this field in every project.
           </div>
-        )}
-      </div>
+          {projects.length === 0 ? (
+            <div style={{ fontSize: 12.5, color: NX.faint }}>No projects yet.</div>
+          ) : (
+            <div style={{ maxHeight: 150, overflowY: 'auto', border: `1px solid ${NX.border}`, borderRadius: 10 }}>
+              {projects.filter((p) => !p.archived).map((p) => (
+                <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', fontSize: 13, cursor: 'pointer', borderBottom: `1px solid ${NX.border2}` }}>
+                  <input type="checkbox" checked={projectIds.includes(p.id)} onChange={() => toggleProject(p.id)} style={{ cursor: 'pointer' }} />
+                  <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+                </label>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
       <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 14, fontSize: 13, cursor: 'pointer' }}>
         <input type="checkbox" checked={required} onChange={(e) => setRequired(e.target.checked)} style={{ width: 16, height: 16 }} />
-        Required when creating a task
+        {appliesTo.includes('task') && appliesTo.includes('project')
+          ? 'Required when creating a task or project'
+          : appliesTo.includes('project') ? 'Required when creating a project' : 'Required when creating a task'}
       </label>
     </Modal>
   );
@@ -1346,11 +1400,16 @@ function StatusModal({ projects = [], status = null, onClose, onSave }) {
   const [label, setLabel] = useState(status?.label || '');
   const [color, setColor] = useState(status?.color || SWATCHES[0]);
   const [projectIds, setProjectIds] = useState(status?.projectIds || []);
+  const initial = useMemo(() => ({
+    label: status?.label || '', color: status?.color || SWATCHES[0], projectIds: status?.projectIds || [],
+  }), [status]);
+  const dirty = label !== initial.label || color !== initial.color
+    || JSON.stringify(projectIds) !== JSON.stringify(initial.projectIds);
   const toggleProject = (id) => setProjectIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
   const save = () => { if (label.trim()) onSave({ label: label.trim(), color, project_ids: projectIds }); };
 
   return (
-    <Modal title={status ? 'Edit Status' : 'New Status'} width={440} onClose={onClose} footer={
+    <Modal title={status ? 'Edit Status' : 'New Status'} width={440} onClose={onClose} isDirty={dirty} onSave={label.trim() ? save : undefined} footer={
       <>
         <button style={btn('ghost')} onClick={onClose}>Cancel</button>
         <button style={btn('primary')} onClick={save}>{status ? 'Save Status' : 'Add Status'}</button>

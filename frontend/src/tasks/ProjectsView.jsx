@@ -6,15 +6,16 @@ import { useMemo, useState } from 'react';
 import { Plus, Search, FolderKanban, AlertTriangle, Pencil, Trash2, Archive, Globe, Lock, LayoutGrid, List } from 'lucide-react';
 import { api } from '../api';
 import { useTasks } from './TasksContext';
-import { taskStats, teamInProject, teamProjectIds } from './lib';
+import { taskStats, teamInProject, teamProjectIds, fieldsForProjectEntity } from './lib';
 import { NX, FONT, btn, input as inputStyle, card, chip } from './theme';
 import { Avatar, EmptyState, Modal, usePeople, PersonSelect, useIsMobile, MobileFab } from './components';
 import TasksWorkspace from './TasksWorkspace';
+import { CustomFieldInput } from './TaskDetailDrawer';
 
 const EMPTY_FORM = {
   name: '', description: '', color: NX.blue, ownerId: null,
   portfolioId: '', accessLevel: 'restricted', status: 'not_started',
-  startOn: '', dueOn: '', archived: false,
+  startOn: '', dueOn: '', archived: false, customFieldValues: {},
 };
 
 const VISIBILITY_OPTS = [
@@ -64,13 +65,24 @@ const LIST_COLS_WIDE = 'minmax(0,2.4fr) minmax(0,1.3fr) 190px 150px 118px 64px';
 export default function ProjectsView({ onNavigate }) {
   const isMobile = useIsMobile();
   const store = useTasks();
-  const { projects, portfolios, tasks, nameOf, portfolioById, teams,
+  const { projects, portfolios, tasks, nameOf, portfolioById, teams, customFields,
     createProject, updateProject, deleteProject } = store;
   const people = usePeople();
+  // Project-scoped select fields (Location, etc.) - each gets its own filter
+  // dropdown. Multiselect/text/etc. project fields are out of scope for now;
+  // a select is what a "filter through X" ask actually means.
+  const filterableFields = useMemo(
+    () => fieldsForProjectEntity(customFields).filter((f) => f.type === 'select'),
+    [customFields],
+  );
 
   const [openId, setOpenId] = useState(null);      // drilled-into project
   const [search, setSearch] = useState('');
   const [showArchived, setShowArchived] = useState(false);
+  // {fieldId: optionId}. Empty/missing = that filter is off.
+  const [fieldFilters, setFieldFilters] = useState({});
+  const setFieldFilter = (fieldId, optionId) =>
+    setFieldFilters((f) => (optionId ? { ...f, [fieldId]: optionId } : Object.fromEntries(Object.entries(f).filter(([k]) => k !== fieldId))));
   const [editing, setEditing] = useState(null);    // form object | null
   const [deleting, setDeleting] = useState(null);  // { project, mapped, alsoAsana, busy, err } | null
   const [view, setView] = useState(() => {
@@ -94,13 +106,15 @@ export default function ProjectsView({ onNavigate }) {
       .filter((p) => !q || p.name.toLowerCase().includes(q)
         || (p.hrDepartmentName || '').toLowerCase().includes(q)
         || p.teams.some((t) => (t.name || '').toLowerCase().includes(q)))
+      .filter((p) => Object.entries(fieldFilters).every(
+        ([fieldId, optionId]) => (p.customFieldValues || {})[fieldId] === optionId))
       .map((p) => {
         const own = tasks.filter((t) => t.projectId === p.id);
         return { project: p, stats: taskStats(own) };
       })
       .sort((a, b) => Number(a.project.archived) - Number(b.project.archived)
         || a.project.name.localeCompare(b.project.name));
-  }, [projects, tasks, teams, search, showArchived]);
+  }, [projects, tasks, teams, search, showArchived, fieldFilters]);
 
   const openProject = openId ? projects.find((p) => p.id === openId) : null;
 
@@ -117,6 +131,7 @@ export default function ProjectsView({ onNavigate }) {
     ownerId: p.ownerId || null, hrDepartmentName: p.hrDepartmentName || '', portfolioId: p.portfolioId || '',
     accessLevel: p.accessLevel || 'restricted',
     status: p.status || 'not_started', startOn: p.startOn || '', dueOn: p.dueOn || '', archived: !!p.archived,
+    customFieldValues: p.customFieldValues || {},
   });
 
   // Deleting is permanent and takes the project's tasks and Asana sync state with
@@ -163,6 +178,13 @@ export default function ProjectsView({ onNavigate }) {
             <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} style={{ cursor: 'pointer' }} />
             {isMobile ? 'Archived' : 'Show archived'}
           </label>
+          {filterableFields.map((f) => (
+            <select key={f.id} value={fieldFilters[f.id] || ''} onChange={(e) => setFieldFilter(f.id, e.target.value)}
+              style={{ ...inputStyle, width: 'auto', flexShrink: 0, padding: isMobile ? '7px 9px' : '9px 10px', borderRadius: 999, fontSize: isMobile ? 12 : 13, cursor: 'pointer' }}>
+              <option value="">All {f.name}</option>
+              {(f.options || []).map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+            </select>
+          ))}
           {/* Same segmented control the task views use, so the two screens do
               not each invent their own switcher. */}
           <div className="scroll-tabs" style={{ display: 'flex', alignItems: 'center', gap: 2, background: NX.border2, borderRadius: 9, padding: 2, marginLeft: 'auto', flexShrink: 0 }}>
@@ -487,8 +509,10 @@ function DeleteProjectModal({ state, setState, onConfirm, onClose }) {
 // only exists after createProject resolves. Callers just get an onSaved(project)
 // callback for their own post-save action (close, navigate, etc).
 function ProjectModal({ form, setForm, people, portfolios, onClose, onSaved }) {
-  const { teams, tasks, createProject, updateProject, updateTeam } = useTasks();
-  const set = (patch) => setForm((f) => ({ ...f, ...patch }));
+  const { teams, tasks, customFields, createProject, updateProject, updateTeam } = useTasks();
+  const projectFields = useMemo(() => fieldsForProjectEntity(customFields), [customFields]);
+  const [dirty, setDirty] = useState(false);
+  const set = (patch) => { setForm((f) => ({ ...f, ...patch })); setDirty(true); };
   // Read-only: status is computed from this project's tasks, the same rollup the
   // card's progress bar draws. Shown rather than hidden so the modal answers
   // "why does it say that?" in place, instead of looking like a missing field.
@@ -511,7 +535,7 @@ function ProjectModal({ form, setForm, people, portfolios, onClose, onSaved }) {
   // Teams currently assigned to this project (none yet for a brand-new one),
   // staged locally until Save so create and edit behave the same way.
   const [teamIds, setTeamIds] = useState(() => teams.filter((t) => teamInProject(t, form.id)).map((t) => t.id));
-  const toggleTeam = (id) => setTeamIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
+  const toggleTeam = (id) => { setTeamIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id])); setDirty(true); };
 
   const save = async () => {
     if (!valid || saving) return;
@@ -542,6 +566,8 @@ function ProjectModal({ form, setForm, people, portfolios, onClose, onSaved }) {
     <Modal
       title={form.id ? 'Edit Project' : 'Create a Project'}
       onClose={onClose}
+      isDirty={dirty}
+      onSave={valid ? save : undefined}
       footer={<>
         <button style={btn('ghost')} onClick={onClose}>Cancel</button>
         <button style={{ ...btn('primary'), opacity: valid && !saving ? 1 : 0.5, pointerEvents: valid && !saving ? 'auto' : 'none' }} onClick={save}>{form.id ? 'Save Changes' : 'Create Project'}</button>
@@ -598,6 +624,15 @@ function ProjectModal({ form, setForm, people, portfolios, onClose, onSaved }) {
             </select>
           </div>
         </div>
+
+        {projectFields.map((f) => (
+          <div key={f.id}>
+            <label style={label}>{f.name}</label>
+            <CustomFieldInput field={f} value={(form.customFieldValues || {})[f.id]}
+              onChange={(v) => set({ customFieldValues: { ...(form.customFieldValues || {}), [f.id]: v } })} />
+            {f.description && <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>{f.description}</div>}
+          </div>
+        ))}
 
         <div>
           <label style={label}>Teams</label>

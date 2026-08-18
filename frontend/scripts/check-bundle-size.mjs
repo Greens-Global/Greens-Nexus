@@ -13,7 +13,12 @@ import { fileURLToPath } from 'node:url';
 const DIST = fileURLToPath(new URL('../dist/assets', import.meta.url));
 
 const PER_CHUNK_KB = 1000;   // largest today: vendor-pdf ~848 KB
-const TOTAL_KB     = 8500;   // all JS today: ~7.2 MB pre-gzip
+// Raised 8500 -> 8600 (Aug 18, 2026): the Tasks module's project-scoped
+// custom fields (Location dropdown on Create/Edit Project) pushed total JS
+// to 8501 KB, tripping the old cap and silently failing the dev Cloudflare
+// Pages build (same postbuild check runs there). A deliberate, small bump
+// for a genuinely needed feature, not a pressure valve.
+const TOTAL_KB     = 8600;   // all JS today: ~7.2 MB pre-gzip
 
 // Named exemptions, so one oversized lazy chunk does not force the cap up for
 // EVERY chunk. An entry here is a deliberate decision with a reason, not a

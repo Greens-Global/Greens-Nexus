@@ -32,7 +32,7 @@ const GROUPS = ['status', 'priority', 'assignee', 'project', 'none'];
 export default function TasksWorkspace({ lockedProjectId = null, mine = false, title = 'Tasks', onBack,
                                          initialFilters = null }) {
   const store = useTasks();
-  const { tasks, nameOf, projectName, teamName, projectById, toggleComplete, bulkUpdate, deleteTask, myEmail, teams } = store;
+  const { tasks, nameOf, projectName, teamName, projectById, portfolioById, toggleComplete, bulkUpdate, deleteTask, myEmail, teams } = store;
   // Owned here so the Hide / + Column controls can live in the toolbar above
   // while RichListView below renders according to them.
   const [hiddenCols, setHiddenCols] = useHiddenCols();
@@ -124,6 +124,9 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
               <FolderKanban size={19} style={{ color: lockedProject.color || NX.purple, flexShrink: 0 }} />
               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{lockedProject.name}</span>
               {lockedProject.hrDepartmentName && <span style={chip(NX.dim, NX.border2)}>{lockedProject.hrDepartmentName}</span>}
+              {lockedProject.portfolioId && portfolioById(lockedProject.portfolioId) && (
+                <span style={chip(NX.purple, NX.border2)}>{portfolioById(lockedProject.portfolioId).name}</span>
+              )}
             </>
           ) : title}
         </div>

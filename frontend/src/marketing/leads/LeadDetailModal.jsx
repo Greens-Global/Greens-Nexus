@@ -38,7 +38,8 @@ export default function LeadDetailModal({ lead, onClose, onChangeStage, onAssign
   }
 
   return (
-    <Modal title={lead.name} onClose={onClose} width="max-w-xl">
+    <Modal title={lead.name} onClose={onClose} width="max-w-xl"
+      isDirty={hasChanges} onSave={() => { saveChanges(); onClose(); }}>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, fontSize: 13, color: C.gray600, marginBottom: 16 }}>
         <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <Mail size={13} color={C.gray400} />

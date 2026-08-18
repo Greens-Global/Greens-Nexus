@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Loader, X } from 'lucide-react';
 import { statusColor, statusLabel } from './format';
+import UnsavedChangesPrompt from '../../components/UnsavedChangesPrompt';
 
 // ── Status as colored text + small solid dot ─────────────────────────────────
 // This is the ONLY status treatment in the module - tinted chip/pill badges
@@ -55,16 +56,41 @@ export function EmptyState({ icon: Icon, title, sub, children }) {
 }
 
 // Standard modal chrome - children supply the form (form-grid / modal-footer).
-export function Modal({ title, onClose, width, children }) {
+// `isDirty` + `onSave`: an unintentional exit (overlay click, Escape, the X
+// button) used to silently discard an in-progress edit - with isDirty set,
+// those three confirm first. A form's own Cancel button still discards
+// straight away, since that's a deliberate choice.
+export function Modal({ title, onClose, width, children, isDirty = false, onSave }) {
+  const [confirming, setConfirming] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const requestClose = () => { if (isDirty) setConfirming(true); else onClose(); };
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') requestClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose, isDirty]);
+  const saveAndClose = async () => {
+    if (!onSave) { setConfirming(false); onClose(); return; }
+    setSaving(true);
+    try { await onSave(); } finally { setSaving(false); setConfirming(false); }
+  };
   return (
-    <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+    <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) requestClose(); }}>
       <div className="modal-content" style={width ? { maxWidth: width } : undefined}>
         <div className="modal-header">
           <h3>{title}</h3>
-          <button type="button" className="close-btn" onClick={onClose}><X size={18} /></button>
+          <button type="button" className="close-btn" onClick={requestClose}><X size={18} /></button>
         </div>
         {children}
       </div>
+      {confirming && (
+        <UnsavedChangesPrompt
+          onKeepEditing={() => setConfirming(false)}
+          onDiscard={onClose}
+          onSave={onSave ? saveAndClose : undefined}
+          saving={saving}
+        />
+      )}
     </div>
   );
 }
