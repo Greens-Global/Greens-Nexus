@@ -106,7 +106,7 @@ function TaskRow({ t, people, projects, store, onOpen }) {
     : t.dueOn === today ? 'rgba(232,163,61,0.16)'
     : NX.surface2;
   return (
-    <div onClick={() => onOpen(t.id)} className="stack-table-row" data-task-row style={{ display: 'grid', gridTemplateColumns: COLS, alignItems: 'center', gap: 8, padding: '10px 16px', borderBottom: `1px solid ${NX.border2}`, fontSize: 13.5, cursor: 'pointer' }}
+    <div onClick={() => onOpen(t.id)} className="stack-table-row" data-task-row style={{ display: 'grid', gridTemplateColumns: COLS, alignItems: 'center', gap: 8, padding: '5px 16px', borderBottom: `1px solid ${NX.border2}`, fontSize: 13.5, cursor: 'pointer' }}
       onMouseEnter={(e) => (e.currentTarget.style.background = NX.hover)} onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
         <button onClick={(e) => { e.stopPropagation(); store.toggleComplete(t); }} style={{ ...btn('ghost'), padding: 0, color: t.completed ? NX.green : NX.faint }}>{t.completed ? <CheckCircle2 size={17} /> : <Circle size={17} />}</button>
@@ -151,7 +151,7 @@ function AddTaskRow({ people, projects, onAdd, defaults = {} }) {
   };
   if (!editing) {
     return (
-      <button onClick={() => setEditing(true)} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', padding: '8px 16px 8px 40px', color: NX.faint }}>
+      <button onClick={() => setEditing(true)} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', padding: '5px 16px 5px 40px', color: NX.faint }}>
         <Plus size={13} /> Add Task...
       </button>
     );
@@ -272,7 +272,7 @@ export default function MyTasksView() {
                 viewports instead of getting clipped by the card's rounded corners. */}
             <div style={{ overflowX: 'auto' }}>
               <div style={{ minWidth: 700 }}>
-                <div style={{ display: 'grid', gridTemplateColumns: COLS, gap: 8, padding: '8px 16px', borderBottom: `1px solid ${NX.border}`, background: NX.surface2, fontSize: 12.5, fontWeight: 600, color: NX.dim }}>
+                <div style={{ display: 'grid', gridTemplateColumns: COLS, gap: 8, padding: '6px 16px', borderBottom: `1px solid ${NX.border}`, background: NX.surface2, fontSize: 12.5, fontWeight: 600, color: NX.dim }}>
                   <div>Name</div><div>Due Date</div><div>Collaborators</div><div>Projects</div><div>Task Visibility</div>
                 </div>
                 {groups.map((g) => {
@@ -282,7 +282,7 @@ export default function MyTasksView() {
                        groups read at a glance against white task rows - the
                        color rides a quiet dot, never rails or colored text. */
                     <div key={g.key}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 16px', background: NX.surface2, borderBottom: `1px solid ${NX.border2}`, fontSize: 13.5, fontWeight: 700, color: NX.ink }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 16px', background: NX.surface2, borderBottom: `1px solid ${NX.border2}`, fontSize: 13.5, fontWeight: 700, color: NX.ink }}>
                         <ChevronDown size={14} style={{ color: NX.faint }} />
                         <span style={{ width: 9, height: 9, borderRadius: 3, background: gc, flexShrink: 0 }} />
                         {g.label} <span style={{ color: NX.faint, fontWeight: 600, fontSize: 12 }}>{g.tasks.length} item{g.tasks.length !== 1 ? 's' : ''}</span>
@@ -297,7 +297,7 @@ export default function MyTasksView() {
             {/* Said "Add Section" and opened the Create Task modal. There are no
                 sections on this screen - the groups above come from the group-by
                 control - so it is what it always was: a new task assigned to me. */}
-            <button onClick={() => openCreate({ assigneeId: myEmail })} style={{ ...btn('ghost'), padding: '12px 16px', color: NX.faint }}><Plus size={15} /> Add Task</button>
+            <button onClick={() => openCreate({ assigneeId: myEmail })} style={{ ...btn('ghost'), padding: '8px 16px', color: NX.faint }}><Plus size={15} /> Add Task</button>
           </div>
         ) : view === 'calendar' ? (
           <CalendarView tasks={mine} onOpen={setOpenId} onCreate={(iso) => openCreate({ assigneeId: myEmail, dueOn: iso })} />
