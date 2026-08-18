@@ -1,8 +1,9 @@
-import { useState } from 'react';
-import { X, Loader2, Send, Pencil, ShieldOff, ShieldCheck, Trash2 } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { X, Loader2, Send, Pencil, ShieldOff, ShieldCheck, Trash2, Globe, MailPlus } from 'lucide-react';
 import { api } from '../api';
 import { dialog } from '../ui/dialog';
 import { formatDate } from '../lib/datetime';
+import { SkeletonBlocks } from '../components/AsyncState';
 
 // ── External users - invite modal + person-panel section (Aug 18 rework) ─────
 // Externals live in the Roles & Access PEOPLE tab like everyone else (Visesh:
@@ -50,6 +51,7 @@ export function InviteExternalModal({ initial, onClose, onSaved }) {
   const [lastName, setLastName] = useState(initial?.lastName || '');
   const [company, setCompany] = useState(initial?.company || '');
   const [expiresAt, setExpiresAt] = useState(initial?.expiresAt || '');
+  const [phone, setPhone] = useState(initial?.phone || '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -60,8 +62,8 @@ export function InviteExternalModal({ initial, onClose, onSaved }) {
     setSaving(true);
     try {
       const result = editing
-        ? await api.updateExternalUser(initial.email, { first_name: firstName, last_name: lastName, company, expires_at: expiresAt })
-        : await api.createExternalUser({ email: email.trim(), first_name: firstName, last_name: lastName, company, expires_at: expiresAt });
+        ? await api.updateExternalUser(initial.email, { first_name: firstName, last_name: lastName, company, expires_at: expiresAt, phone })
+        : await api.createExternalUser({ email: email.trim(), first_name: firstName, last_name: lastName, company, expires_at: expiresAt, phone });
       onSaved(result);
     } catch (e) {
       setError(e?.message || 'Could not save - try again.');
@@ -79,7 +81,7 @@ export function InviteExternalModal({ initial, onClose, onSaved }) {
 
         <div style={{ display: 'grid', gap: 13 }}>
           <div>
-            <span style={label}>Email (the Microsoft invitation is sent to this address)</span>
+            <span style={label}>Email (the invitation is sent to this address)</span>
             <input style={{ ...field, opacity: editing ? 0.6 : 1 }} type="email" value={email} disabled={editing}
               placeholder="name@partnercompany.com" onChange={e => setEmail(e.target.value)} />
           </div>
@@ -103,9 +105,13 @@ export function InviteExternalModal({ initial, onClose, onSaved }) {
               <input style={field} type="date" value={expiresAt.slice(0, 10)} onChange={e => setExpiresAt(e.target.value)} />
             </div>
           </div>
+          <div>
+            <span style={label}>Mobile phone (optional - one-time codes go by text once verified)</span>
+            <input style={field} type="tel" value={phone} placeholder="+1 555 555 1234" onChange={e => setPhone(e.target.value)} />
+          </div>
 
           <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.5 }}>
-            Saving sends them a Microsoft invitation email automatically. They start with no access - assign a job role or groups on their People card, exactly like an employee. Whatever you grant, they still never appear in people pickers, never receive company-wide notifications, and in Tasks and Tickets only see items they are assigned to, following, or raised themselves.
+            Saving emails them a branded Nexus invitation with a one-time activation link - no Microsoft account needed. They start with no access - assign a job role or groups on their People card, exactly like an employee. Whatever you grant, they still never appear in people pickers, never receive company-wide notifications, and in Tasks and Tickets only see items they are assigned to, following, or raised themselves.
           </div>
 
           {error && <div style={{ fontSize: 12.5, color: 'hsl(var(--color-red))', fontWeight: 600 }}>{error}</div>}
@@ -131,21 +137,18 @@ export function inviteOutcomeToast(result, toastOk, toastErr) {
   else toastOk?.('Saved');
 }
 
-// The external-specific section of a person's panel in the People tab:
-// company/expiry/invite state plus Resend Invite, Edit, Deactivate/Reactivate,
-// and the permanent Remove. Everything below it on the panel (job role, tier,
-// groups) is the same machinery every employee gets.
-export function ExternalPersonSection({ ext, onChanged, onRemoved, toastOk, toastErr }) {
-  const [busy, setBusy] = useState(false);
-  const [editOpen, setEditOpen] = useState(false);
-  const expired = ext.expiresAt && ext.expiresAt.slice(0, 10) < new Date().toISOString().slice(0, 10);
+// ONE implementation of the lifecycle actions, shared by the person-card
+// section (Roles & Access) and the People module's External tab list - the
+// two surfaces must never drift apart in behavior or copy.
+export function useExternalActions({ onChanged, onRemoved, toastOk, toastErr }) {
+  const [busyEmail, setBusyEmail] = useState('');
 
-  const run = async (fn) => {
-    setBusy(true);
-    try { await fn(); } finally { setBusy(false); }
+  const run = async (email, fn) => {
+    setBusyEmail(email);
+    try { await fn(); } finally { setBusyEmail(''); }
   };
 
-  const resend = () => run(async () => {
+  const resend = (ext) => run(ext.email, async () => {
     try {
       const r = await api.resendExternalInvite(ext.email);
       inviteOutcomeToast({ ...r, inviteMessage: r.inviteMessage }, toastOk, toastErr);
@@ -153,7 +156,7 @@ export function ExternalPersonSection({ ext, onChanged, onRemoved, toastOk, toas
     } catch (e) { toastErr?.(e?.message || 'The invitation could not be sent'); }
   });
 
-  const setStatus = (status) => run(async () => {
+  const setStatus = (ext, status) => run(ext.email, async () => {
     try {
       await api.updateExternalUser(ext.email, { status });
       toastOk?.(status === 'active' ? `${ext.name} reactivated` : `${ext.name} deactivated - they can no longer sign in`);
@@ -161,9 +164,9 @@ export function ExternalPersonSection({ ext, onChanged, onRemoved, toastOk, toas
     } catch (e) { toastErr?.(e?.message || 'Could not update'); }
   });
 
-  const remove = () => run(async () => {
+  const remove = (ext) => run(ext.email, async () => {
     const ok = await dialog.confirm(
-      `Remove ${ext.name} from Nexus entirely? Deactivate keeps their record and can be reversed - Remove erases them completely, and they would have to be re-invited from scratch. Tasks and comments they took part in are kept. Their Microsoft guest account is not touched.`,
+      `Remove ${ext.name} from Nexus entirely? Deactivate keeps their record and can be reversed - Remove erases them completely, and they would have to be re-invited from scratch. Tasks and comments they took part in are kept.`,
       { title: 'Remove External User', confirmText: 'Remove Permanently', danger: true });
     if (!ok) return;
     try {
@@ -172,6 +175,24 @@ export function ExternalPersonSection({ ext, onChanged, onRemoved, toastOk, toas
       onRemoved?.();
     } catch (e) { toastErr?.(e?.message || 'Could not remove'); }
   });
+
+  return { busyEmail, resend, setStatus, remove };
+}
+
+
+// The external-specific section of a person's panel in the People tab:
+// company/expiry/invite state plus Resend Invite, Edit, Deactivate/Reactivate,
+// and the permanent Remove. Everything below it on the panel (job role, tier,
+// groups) is the same machinery every employee gets.
+export function ExternalPersonSection({ ext, onChanged, onRemoved, toastOk, toastErr }) {
+  const [editOpen, setEditOpen] = useState(false);
+  const expired = ext.expiresAt && ext.expiresAt.slice(0, 10) < new Date().toISOString().slice(0, 10);
+  const { busyEmail, resend: doResend, setStatus: doSetStatus, remove: doRemove } =
+    useExternalActions({ onChanged, onRemoved, toastOk, toastErr });
+  const busy = busyEmail === ext.email;
+  const resend = () => doResend(ext);
+  const setStatus = (status) => doSetStatus(ext, status);
+  const remove = () => doRemove(ext);
 
   return (
     <div style={{ border: '1px solid hsla(var(--color-blue),0.35)', background: 'hsla(var(--color-blue),0.05)', borderRadius: 12, padding: '12px 14px', margin: '12px 0 4px' }}>
@@ -187,6 +208,7 @@ export function ExternalPersonSection({ ext, onChanged, onRemoved, toastOk, toas
       </div>
       <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6, lineHeight: 1.5 }}>
         {ext.company ? `${ext.company} · ` : ''}{ext.email}
+        {ext.phone ? ` · ${ext.phone}${ext.phoneVerifiedAt ? ' (verified)' : ''}` : ''}
         {ext.expiresAt ? ` · access expires ${formatDate(ext.expiresAt)}` : ''}
       </div>
       <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4, lineHeight: 1.5 }}>
@@ -216,6 +238,118 @@ export function ExternalPersonSection({ ext, onChanged, onRemoved, toastOk, toas
         <InviteExternalModal initial={ext}
           onClose={() => setEditOpen(false)}
           onSaved={() => { setEditOpen(false); toastOk?.('Saved'); onChanged?.(); }} />
+      )}
+    </div>
+  );
+}
+
+
+function StatusBadge({ user }) {
+  const expired = user.expiresAt && user.expiresAt.slice(0, 10) < new Date().toISOString().slice(0, 10);
+  const s = user.status !== 'active' ? { text: 'Inactive', color: 'var(--muted)', bg: 'color-mix(in srgb, var(--muted) 12%, transparent)' }
+    : expired ? { text: 'Expired', color: 'hsl(var(--color-red))', bg: 'hsla(var(--color-red),0.10)' }
+      : { text: 'Active', color: 'hsl(var(--color-green))', bg: 'hsla(var(--color-green),0.12)' };
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 10px', borderRadius: 20, fontSize: 10.5, fontWeight: 700, color: s.color, background: s.bg, whiteSpace: 'nowrap' }}>
+      <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'currentColor' }} />{s.text}
+    </span>
+  );
+}
+
+
+// ── The External tab list (People module, Aug 18 - Visesh: "there should be
+// an external tab"). The PRIMARY home for external users: invite, status,
+// lifecycle actions. Access GRANTS stay on the Roles & Access person card
+// (job roles / groups), which is the other surface these same pieces render
+// on - one implementation, two placements.
+export default function ExternalUsersPanel({ toastOk, toastErr, onChanged }) {
+  const [users, setUsers] = useState(null);
+  const [editing, setEditing] = useState(undefined);   // undefined=closed, null=new, obj=edit
+  const [error, setError] = useState('');
+
+  const load = useCallback(() => {
+    api.getExternalUsers()
+      .then(rows => { setUsers(rows); setError(''); onChanged?.(rows); })
+      .catch(() => setError('Could not load external users.'));
+  }, [onChanged]);
+  useEffect(() => { load(); }, [load]);
+
+  const { busyEmail, resend, setStatus, remove } = useExternalActions({
+    onChanged: load, onRemoved: load, toastOk, toastErr,
+  });
+
+  if (error) return <div style={{ padding: 24, fontSize: 13.5, color: 'var(--muted)' }}>{error}</div>;
+  if (!users) return <SkeletonBlocks count={3} height={64} />;
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14, marginBottom: 16, flexWrap: 'wrap' }}>
+        <div style={{ fontSize: 13, color: 'var(--muted)', maxWidth: 640, lineHeight: 1.55 }}>
+          Partner-company people who sign in passwordlessly with a one-time code. Inviting someone sends them a branded activation email; they only ever see the modules granted to them, never appear in people pickers or the directory, and never receive company-wide notifications. Grant access on their card in Roles & Access, like any employee.
+        </div>
+        <button className="primary-btn" onClick={() => setEditing(null)} style={{ display: 'inline-flex', alignItems: 'center', gap: 7, flexShrink: 0 }}>
+          <MailPlus size={15} /> Invite External User
+        </button>
+      </div>
+
+      {users.length === 0 ? (
+        <div style={{ padding: '44px 20px', textAlign: 'center', border: '1px dashed var(--line)', borderRadius: 14 }}>
+          <Globe size={26} style={{ color: 'var(--muted)', marginBottom: 9 }} />
+          <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)', marginBottom: 5 }}>No external users yet</div>
+          <div style={{ fontSize: 12.5, color: 'var(--muted)', maxWidth: 380, margin: '0 auto', lineHeight: 1.5 }}>
+            Invite each partner contact here - they get an activation email and sign in with a one-time code.
+          </div>
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gap: 9 }}>
+          {users.map(u => (
+            <div key={u.email} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '13px 16px', borderRadius: 13, border: '1px solid var(--line)', background: 'var(--card)', flexWrap: 'wrap' }}>
+              <div style={{ minWidth: 220, flex: '1 1 240px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--ink)' }}>{u.name}</span>
+                  <ExternalBadge />
+                  <StatusBadge user={u} />
+                  <InvitePill status={u.inviteStatus} />
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
+                  {u.email}{u.company ? ` · ${u.company}` : ''}
+                  {u.phone ? ` · ${u.phone}${u.phoneVerifiedAt ? ' (verified)' : ''}` : ''}
+                  {u.expiresAt ? ` · expires ${formatDate(u.expiresAt)}` : ''}
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 7, flexShrink: 0, flexWrap: 'wrap' }}>
+                <button onClick={() => resend(u)} disabled={busyEmail === u.email} title="Send a fresh activation email" style={actionBtn()}>
+                  <Send size={13} /> Resend Invite
+                </button>
+                <button onClick={() => setEditing(u)} disabled={busyEmail === u.email} title="Edit name, company, phone, or expiry" style={actionBtn()}>
+                  <Pencil size={13} /> Edit
+                </button>
+                {u.status === 'active' ? (
+                  <button onClick={() => setStatus(u, 'inactive')} disabled={busyEmail === u.email} style={actionBtn('hsl(var(--color-red))', 'hsla(var(--color-red),0.4)')}>
+                    <ShieldOff size={13} /> Deactivate
+                  </button>
+                ) : (
+                  <button onClick={() => setStatus(u, 'active')} disabled={busyEmail === u.email} style={actionBtn('hsl(var(--color-green))', 'hsla(var(--color-green),0.4)')}>
+                    <ShieldCheck size={13} /> Reactivate
+                  </button>
+                )}
+                <button onClick={() => remove(u)} disabled={busyEmail === u.email} title="Erase them from Nexus entirely - cannot be undone" style={actionBtn('hsl(var(--color-red))', 'hsla(var(--color-red),0.4)')}>
+                  <Trash2 size={13} /> Remove
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {editing !== undefined && (
+        <InviteExternalModal initial={editing}
+          onClose={() => setEditing(undefined)}
+          onSaved={(result) => {
+            setEditing(undefined);
+            inviteOutcomeToast(result, toastOk, toastErr);
+            load();
+          }} />
       )}
     </div>
   );

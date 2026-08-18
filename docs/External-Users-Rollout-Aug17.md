@@ -1,4 +1,32 @@
-# External Users - Rollout Guide (Aug 17)
+# External Users - Rollout Guide (Aug 17, reworked Aug 18)
+
+> **Update (Aug 18 evening, Visesh-approved): externals now sign in WITHOUT
+> Microsoft at all.** The primary flow is Nexus's own passwordless login:
+> a branded invitation email with a single-use activation link, then 6-digit
+> one-time codes (SMS via sent.dm to a verified phone, email otherwise) that
+> mint the SAME session cookie employees get. The Entra B2B guest sections
+> below are LEGACY fallback only (env flag `NEXUS_EXTERNAL_GRAPH_INVITE=true`;
+> default off) - no tenant invitations, no User.Invite.All consent, and no
+> Microsoft account are needed for the primary flow anymore.
+>
+> **RELEASE STEP (LOUD): new table `external_login_codes`.** `create_all`
+> builds it with RLS DISABLED. On BOTH dev and prod, as part of this release,
+> run:
+>
+> ```sql
+> ALTER TABLE external_login_codes ENABLE ROW LEVEL SECURITY;
+> ```
+>
+> then run `get_advisors` to confirm 0 rls_disabled findings. It stores only
+> HASHED codes/tokens, but the rate-limit metadata (emails, IPs, attempt
+> counts) must never be anon-readable.
+>
+> **Env vars:** `NEXUS_SENTDM_KEY` (sent.dm API key - optional; without it
+> every code simply goes by email), plus the existing `NEXUS_FROM_EMAIL` +
+> `AZURE_CLIENT_SECRET` (Mail.Send) that ticket email already uses.
+> **UI:** externals now live under People > **External** (admin-only tab with
+> an active-count badge) - the primary management surface; the Roles & Access
+> People tab keeps the person-card flow for GRANTS.
 
 Neil: "External users must be connected and turned on today - I have 7-9 people
 that need access asap."
@@ -29,41 +57,73 @@ active external-user row exists in Nexus** (see "What was implemented").
 > on a shared/work browser can pick the invited address instead of being
 > silently SSO'd into an existing work account (the Pranshu test case).
 
-## 1. What Neil's 7-9 people will experience
+## 1. What Neil's 7-9 people will experience (passwordless, Aug 18)
 
-1. They receive a Microsoft invitation email ("Greens Global invited you..."),
-   sent the moment an admin invites them from the Nexus panel.
-2. They click **Accept invitation** once and sign in:
-   - a work Microsoft account (their own company's M365) signs in directly;
-   - a Gmail/other personal address gets a Microsoft-emailed one-time passcode
-     (no password to create, nothing to install).
-3. They open the normal Nexus URL (nexus.greensglobal.com / dev.nexus...),
-   press **Continue with Microsoft**, and **pick their account** - the sign-in
-   always shows Microsoft's account picker now, so on a shared or work browser
-   they choose the invited address instead of being silently signed in as
-   whoever the browser already held.
-4. Nexus checks its allowlist. If the email is enrolled and active, they land
-   inside; the sidebar shows ONLY the modules their assigned roles/groups
+1. They receive a branded Nexus email: "Greens Global invited you to Nexus"
+   with an **Accept Invitation** button (single-use link, 7-day expiry), sent
+   the moment an admin invites them from People > External.
+2. The link opens the activation page: it greets them by name, shows who
+   invited them and their company, with their email read-only (the link
+   arriving in that inbox is the proof of ownership).
+   - Phone on file (or added right there): a 6-digit code arrives by text
+     (sent.dm) - verifying it also marks the phone verified, so future
+     sign-in codes go by SMS. Doubles as a second factor.
+   - No phone / prefers email: a 6-digit code arrives by email instead.
+3. Entering the code signs them straight in - same session cookie employees
+   get, ~30-day idle life. No Microsoft account, no password, nothing to
+   install.
+4. Returning later: the Nexus sign-in page has a quiet **Partner Sign-In**
+   link under Continue with Microsoft -> enter email -> enter the 6-digit
+   code (texted to the verified phone, else emailed; "Send to My Email
+   Instead" is always available) -> in. The email step always answers
+   generically, so the screen never confirms whether an account exists.
+5. Inside, the sidebar shows ONLY the modules their assigned roles/groups
    grant (a fresh invite has none - assign access on their People card). No
    people pickers, no manager broadcasts, no company data beyond the grants.
-5. In Tasks/Tickets they see only items they are assigned to, follow, raised,
+6. In Tasks/Tickets they see only items they are assigned to, follow, raised,
    or that live in a project they were explicitly added to - never the
    company-wide task list or the help-desk queue.
-6. If they are NOT enrolled (or were deactivated/expired), the sign-in bounces
-   back to the Nexus login screen with a red notice: "This account is not set
-   up for Nexus. Ask your Greens Global contact to add you as an external
-   user." Being a tenant guest alone grants nothing.
+7. If they are deactivated/expired/removed, codes stop being issued (the
+   request screen stays generic), live sessions are revoked immediately, and
+   any leftover cookie is refused by the per-request allowlist check.
 
-Off-boarding = one click (Deactivate in Nexus - takes effect within ~60s) and
-optionally deleting the guest in Entra.
+Off-boarding = one click (Deactivate in Nexus - immediate: sessions and
+outstanding codes are revoked on the spot; Remove erases them entirely).
+
+Security posture behind the flow (enforced + unit-tested in
+`backend/test_external_auth.py`): codes are 6 digits, hashed at rest with
+per-code salts, 10-minute expiry, single-use, a new request voids prior ones;
+invite tokens are 48 random bytes, hashed, single-use, 7-day expiry, bound to
+the email; 5 failed verifies kills the code and locks the email for 15
+minutes; max 5 code requests per email AND per IP per hour + a 30s resend
+throttle - all counted in the `external_login_codes` table so the limits hold
+across gunicorn's 8 worker processes; no code or token is ever logged; audit
+rows are written for invite sent / activated / login success / lockout.
+Authentication only: `auth.apply_external_policy` remains the authorization
+authority on every request.
 
 ---
 
-## 2. Entra admin steps (Visesh, tonight - portal only, ~10 min once)
+## 2. Inviting the 7-9 people - People > External tab
 
-All in https://entra.microsoft.com with an admin account.
+### 2a. One-time server setup (env vars, not Entra)
 
-### 2a. One-time checks (before the first invite)
+The primary flow needs NO Entra portal work. On the Azure App Service (dev,
+then prod at release):
+
+1. `NEXUS_FROM_EMAIL` + `AZURE_CLIENT_SECRET` with the **Mail.Send**
+   application permission - ALREADY in place (ticket email uses the same
+   plumbing, `backend/graph_mail.py`). Nothing to do unless mail is broken.
+2. `NEXUS_SENTDM_KEY` - the sent.dm API key (docs.sent.dm; free tier covers
+   500 sends/day). OPTIONAL: without it every one-time code simply goes by
+   email; with it, codes text to verified phones. Add when Visesh has the key.
+3. `NEXUS_EXTERNAL_GRAPH_INVITE` - leave UNSET. Setting it `true` falls back
+   to the legacy Microsoft B2B invitations (Appendix A).
+
+### 2b-legacy preface (superseded - see Appendix A for the old Entra steps)
+
+<details>
+<summary>LEGACY Entra B2B one-time checks (only if NEXUS_EXTERNAL_GRAPH_INVITE=true)</summary>
 
 1. **External collaboration settings**
    Entra ID > External Identities > External collaboration settings:
@@ -106,78 +166,84 @@ All in https://entra.microsoft.com with an admin account.
    guests already get MFA prompts. With Entra P1, add a Conditional Access
    policy "require MFA for guest and external users" instead.
 
-### 2b. Inviting the 7-9 people - from Nexus, not the portal
+</details>
 
-Roles & Access > **People** tab > **Invite External User** (next to the
-search box): email (the EXACT address they will sign in with), name, company,
-optional expiry. **Send Invite** does both halves at once: creates the
-allowlist row AND sends the Microsoft invitation email (Graph
-`POST /v1.0/invitations`, redirect target = the Nexus URL for that
-environment via `app_url()`). The person then appears in the People list with
-an **External** badge, under the "External" department and their partner
-company in the company filter. **Access is granted on their People card the
+### 2c. The invite itself
+
+**People > External** (admin-only tab, active-count badge; the same actions
+also live on the person card under Roles & Access > People) > **Invite
+External User**: email (the EXACT address they will sign in with), name,
+company, optional mobile phone (enables texted codes once verified), optional
+expiry. **Send Invite** does both halves at once: creates the allowlist row
+AND emails the branded activation link (single-use, 7 days). The person also
+appears in the Roles & Access People tab with an **External** badge - but
+NOT in the People directory, its counts, New joiners, or By department (the
+External tab is their home). **Access is granted on their person card the
 normal way** - assign a job role or add groups, any module, exactly like an
 employee; until you do, they are fail-closed to the app shell. Per-person
-invite states (shown on their card):
+invite states:
 
-- **Invite Sent** - Microsoft delivered the redemption email. Re-sending any
-  time is safe (**Resend Invite** just emails the redemption link again).
-- **Invite Failed** - the row exists and will work once the person is a guest,
-  but the email did not go out. The toast/tooltip says why (usually the
-  User.Invite.All consent above, or Graph creds missing locally). Fix, then
-  **Resend Invite** - or invite manually in Entra > Users > New user > Invite
-  external user with the same address.
-- **Invited Manually** - the address already exists in the tenant (already a
-  guest or a member); nothing needed to be sent.
-
-The person can accept the invite at any time; Nexus access only works once
-BOTH the invite is redeemed and their Nexus row is active.
+- **Invite Sent** - the activation email went out. **Resend Invite** mints a
+  FRESH link (killing the old one) and emails it - safe any time.
+- **Invite Failed** - the row exists, but the email did not go out (mail
+  config - the toast says exactly what). Fix, then **Resend Invite**.
+- **Invited Manually** - legacy Graph path only.
 
 ---
 
 ## 3. Nexus-side rollout (dev first, then prod)
 
-There are **no new tables** - only four new columns on `nexus_employees`
-(`external_company`, `invited_by`, `expires_at`, `invite_status`) plus rows in existing tables
-(`nexus_employees`, `nexus_groups`, `nexus_group_members`). The columns are in
-BOTH migration lists in `backend/main.py`, so they self-apply on deploy.
-**No new RLS work is required for this release** (nothing new for the anon key
-to see). Still run `get_advisors` after the release per the standing rule.
+Schema changes: five new columns on `nexus_employees` (`external_company`,
+`invited_by`, `expires_at`, `invite_status`, `phone_verified_at` - all in BOTH
+migration lists in `backend/main.py`, self-applying on deploy) **plus ONE NEW
+TABLE, `external_login_codes`** (created by `create_all` on startup).
+
+**MANDATORY RLS STEP at release, on BOTH dev and prod:**
+
+```sql
+ALTER TABLE external_login_codes ENABLE ROW LEVEL SECURITY;
+```
+
+Then run `get_advisors` and confirm 0 rls_disabled findings. Do this right
+after each deploy (dev first, prod at release) - the standing gap from
+CLAUDE.md recurs exactly here.
 
 Order of operations:
 
 1. **Merge this branch to `dev`** (announce in team chat first - the dev API
-   restarts). Wait ~4 min for the Azure deploy; the two migration lines apply
+   restarts). Wait ~4 min for the Azure deploy; migrations + create_all apply
    themselves on startup. Frontend deploys via Cloudflare in ~1 min.
-2. Do the one-time **User.Invite.All** consent (section 2a step 3) so invites
-   can actually send.
-3. On dev.nexus as an admin: **Roles & Access > People > Invite External
-   User** - invite ONE test address (a Gmail you control). This sends the
-   Microsoft invite and drops them into the People list with an External
-   badge. Then, on their People card, assign access the normal way (e.g. add
-   them to a group granting Tasks/Tickets). Guest rows enrolled before this
-   rework (e.g. the Pranshu test row) surface in the People tab automatically -
-   nothing to migrate.
-4. Run the 10-minute test script (section 6) against dev with that guest.
-5. **Release to prod** the normal way (PR dev -> main). Migrations self-apply
-   on the prod deploy the same way.
-6. On prod: invite the real 7-9 emails from Roles & Access > People (after
-   Visesh confirms the list - section 7), then assign each their role/groups.
+2. **Enable RLS on `external_login_codes` (dev)** - the SQL above - and run
+   `get_advisors`.
+3. Optional: add `NEXUS_SENTDM_KEY` to the dev App Service settings so codes
+   can text (email codes work without it).
+4. On dev.nexus as an admin: **People > External > Invite External User** -
+   invite ONE test address (a Gmail you control, phone optional). Then, on
+   their person card (Roles & Access > People), assign access the normal way
+   (e.g. a group granting Tasks/Tickets). Rows enrolled before this rework
+   (e.g. the Pranshu test row) surface in the External tab automatically -
+   nothing to migrate; press Resend Invite to send them the new-style
+   activation link.
+5. Run the 10-minute test script (section 6) against dev with that guest.
+6. **Release to prod** the normal way (PR dev -> main). Repeat the RLS step
+   and env vars on prod.
+7. On prod: invite the real 7-9 emails from People > External (after Visesh
+   confirms the list - section 7), then assign each their role/groups.
    UI only, no SQL and no Entra portal needed per person.
-7. Add each person to the projects/tickets they should work: Tasks > project >
+8. Add each person to the projects/tickets they should work: Tasks > project >
    Share/members, or assign tasks to their email. Until they are added to
    something, their Tasks screen is simply empty (fail-closed).
 
-**Off-boarding, two speeds, both Nexus-side:**
-- **Deactivate** (their People card) blocks sign-in within ~60 seconds,
-  keeps the record, and is reversible with Reactivate.
-- **Remove** (same card) is permanent: it erases the person row, their group
-  memberships, role, and scopes - they would have to be re-invited from
-  scratch. Tasks/comments they took part in are kept (the email simply no
-  longer resolves to a person).
-Neither touches the Entra guest account - deleting it (Entra > Users) is
-OPTIONAL cleanup, not required for lockout; do it when the relationship truly
-ends so the tenant stays tidy.
+**Off-boarding, two speeds, both Nexus-side and both IMMEDIATE (Aug 18: they
+also revoke every live session and outstanding code on the spot):**
+- **Deactivate** blocks sign-in instantly, keeps the record, reversible with
+  Reactivate.
+- **Remove** is permanent: erases the person row, group memberships, role,
+  and scopes - they would have to be re-invited from scratch. Tasks/comments
+  they took part in are kept (the email simply no longer resolves to a
+  person).
+(If anyone was ever invited via the LEGACY Entra path, deleting that guest in
+Entra > Users is optional tidy-up - irrelevant to the passwordless flow.)
 
 ---
 
@@ -273,23 +339,57 @@ Frontend
   tests for the modal (no grant checkboxes) and the person section
   (resend / confirm-gated remove).
 
-Build/test status: backend externals/auth/task/ticket suites green (108
-tests), full sweep green minus the pre-existing env-dependent
-`test_unifi_cloud`; frontend 105/105 tests + `npm run build` green.
+Passwordless flow + External tab (Aug 18 evening):
+- `backend/routers/external_auth.py` (new) - the PUBLIC passwordless
+  endpoints: `/external-auth/activate/{lookup,send-code,verify}`,
+  `/external-auth/request-code`, `/external-auth/login-verify`; branded
+  invite/code emails; hashed codes/tokens; DB-backed rate limits + lockout;
+  audit rows; mints the BFF session cookie on success.
+- `backend/sentdm.py` (new) - tiny sent.dm client (POST
+  https://api.sent.dm/v3/messages, Bearer `NEXUS_SENTDM_KEY`, SMS channel);
+  any failure degrades to the emailed code.
+- `backend/models.py` + BOTH `main.py` migration lists - `external_login_codes`
+  table (NEW - RLS at release!), `nexus_employees.phone_verified_at` (the
+  existing `phone` column is reused for the number).
+- `backend/bff_session.py` - `create_passwordless_session` (same cookie/store
+  as employees, no Entra tokens, idle expiry governs) + `revoke_sessions`;
+  `routers/auth_bff.py` `/auth/me` falls back to the person row for the name.
+- `backend/routers/external_users.py` - invitations now go through
+  `external_auth.issue_invite` (fresh single-use link per send); legacy Graph
+  B2B path kept behind `NEXUS_EXTERNAL_GRAPH_INVITE=true`; phone in the
+  create/update API; deactivate/remove call `revoke_credentials`.
+- `backend/test_external_auth.py` (new, 19 tests) - the security requirements
+  as tests (hashing, single-use, expiry, lockout, hourly caps, throttle,
+  anti-enumeration, revocation, session resolution under the policy).
+- `frontend/src/views/ExternalActivate.jsx` (new) + `/activate/{token}` route
+  (App.jsx + main.jsx PUBLIC_PATH) - branded activation page; render-smoke in
+  `ExternalActivate.test.jsx`.
+- `frontend/src/views/LoginPage.jsx` - quiet **Partner Sign-In** link ->
+  email -> code screens (30s resend throttle, email fallback); employees'
+  MSAL flow untouched. Shared client helpers in `frontend/src/lib/externalAuth.js`.
+- `frontend/src/views/HR.jsx` - **External** tab on the People module
+  (admin-only, active-count badge) rendering the shared `ExternalUsersPanel`
+  list (invite/status pills/Edit/Deactivate/Remove/Resend - ONE
+  implementation with the Roles & Access person card); externals filtered
+  OUT of the directory list, KPI cards, New joiners, and By department.
 
 ## 5. What remains / risks
 
 - **Committed on the worktree branch, not pushed/deployed.** Merge to dev,
-  then release to prod per section 3. No new env vars, no RLS, no manual SQL.
-- **One human step gates invite sending: the User.Invite.All admin consent**
-  (section 2a step 3). Until then every invite lands as Invite Failed with
-  that instruction; the allowlist rows still work, so a manually-invited
-  guest can sign in regardless.
-- Invitation emails come from Microsoft Invitations
-  (invites@microsoft.com), not a Greens mailbox - tell recipients to check
-  spam. The redirect after redemption uses `app_url()` (NEXUS_APP_URL /
+  then release to prod per section 3. **Release checklist: RLS on
+  `external_login_codes` (dev + prod) and, optionally, `NEXUS_SENTDM_KEY`.**
+- Invitation and code emails come from the Nexus sender mailbox
+  (`NEXUS_FROM_EMAIL`) - tell recipients to check spam on first contact. The
+  activation link and redirects use `app_url()` (NEXUS_APP_URL /
   WEBSITE_SITE_NAME), so dev invites land on dev.nexus and prod on
   nexus.greensglobal.com automatically.
+- SMS delivery needs `NEXUS_SENTDM_KEY` (ask Visesh to create the sent.dm
+  account/key); until set, codes go by email only - fully functional.
+- Anyone who already redeemed a LEGACY Entra guest invite (e.g. Pranshu's
+  test) can still use Continue with Microsoft - the allowlist check is
+  identical on both paths. Partner Sign-In works for them too once they
+  activate (Resend Invite sends the new-style link). New invites are
+  passwordless-only unless the legacy flag is on.
 - **Any module is now grantable to an external (Visesh's call, Aug 18) - so
   the admin doing the granting carries the judgment.** Tasks/Tickets stay
   participation-scoped at item level regardless of grant, but most other
@@ -321,49 +421,58 @@ tests), full sweep green minus the pre-existing env-dependent
 
 ## 6. 10-minute test script (one guest end to end, on dev)
 
-Need: one test external mailbox you can read (a personal Gmail works).
+Need: one test external mailbox you can read (a personal Gmail works); a
+phone you can receive texts on if `NEXUS_SENTDM_KEY` is set.
 
-1. As admin on dev.nexus: Roles & Access > People > **Invite External User**
-   (the test email, name, company "Test Co"). Expect them to appear in the
-   People list with an External badge and an **Invite Sent** pill on their
-   card. If it says **Invite Failed**, do the User.Invite.All consent
-   (section 2a step 3) and press **Resend Invite**. Then, on their card, add
-   them to a group that grants Tasks/Tickets (normal Groups machinery).
-2. Open the invitation email in the test mailbox, accept, and at the Nexus
-   sign-in confirm the Microsoft ACCOUNT PICKER appears - pick the invited
-   address (this is the Pranshu-case fix), complete the OTP/sign-in.
-3. Default-deny check: as admin, **Deactivate** on their card; the guest
-   refreshes dev.nexus within a minute and lands back on the sign-in screen
-   with the red "deactivated" notice. **Reactivate** to continue. (A
-   never-enrolled tenant guest gets the same treatment - the allowlist row is
-   the only door.)
-4. Sign in again as the guest: expect to land inside with ONLY the granted
-   modules (Tasks/Tickets) in the sidebar. Tasks list is empty (they're in
-   nothing yet).
-5. As admin: assign any test task to the guest's email (or add them to a test
-   project). Guest refreshes: exactly that task appears; company tasks do not.
-6. As guest: raise a ticket; confirm it appears for them; confirm they do NOT
-   see other people's tickets.
+1. As admin on dev.nexus: **People > External > Invite External User** (the
+   test email, name, company "Test Co", your test phone). Expect the row with
+   an **Invite Sent** pill and the External tab badge to tick up. If **Invite
+   Failed**, fix the mail config the toast names, then **Resend Invite**.
+   On their person card (Roles & Access > People), add them to a group
+   granting Tasks/Tickets (normal Groups machinery).
+2. Confirm the People directory/KPI cards did NOT change (externals are
+   excluded from Total people / Active / New joiners / By department).
+3. Open the invitation email, press **Accept Invitation**: the activation page
+   greets them by name and shows who invited them. Press **Text Me a Code**
+   (or Email Me a Code without sent.dm) - enter the 6 digits - you land
+   inside Nexus with ONLY Tasks/Tickets in the sidebar, "External" on the
+   profile chip. Wrong-code twice first if you want to see the error copy.
+4. Reuse check: open the SAME activation link again - "This link is not
+   valid" (single-use proven).
+5. Returning sign-in: sign out, press **Partner Sign-In** on the login page,
+   enter the email - the generic "if this account exists" message shows -
+   enter the code from your phone (or "Send to My Email Instead") - you are
+   back in. Try a bogus email first: identical generic message.
+6. As admin: assign a test task to the guest (or add them to a test project).
+   Guest refreshes: exactly that task appears; company tasks do not. Raise a
+   ticket as the guest; confirm they never see other people's tickets.
 7. As admin: check the bell - no change for managers; confirm the guest never
-   shows up in any people picker (e.g. Items assign, HR).
-8. As admin: press **Resend Invite** on the row - expect a "sent" toast and a
-   second redemption email in the test mailbox (idempotent re-invite proven).
-9. Supabase dev: run `get_advisors` - expect no new RLS findings.
+   shows up in any people picker (e.g. Items assign, HR) or the directory.
+8. As admin: **Deactivate** on their row - the guest's session dies on their
+   next request (revoked immediately) and Partner Sign-In stops issuing codes
+   (still the generic message). **Reactivate** to continue.
+9. Supabase dev: confirm `external_login_codes` has RLS enabled and
+   `get_advisors` shows 0 rls_disabled.
 
 ## 7. ASK-VISESH (needed before enrolling the real people)
 
 1. The list from Neil: **7-9 names + emails + companies** (MCD / Aarav
-   Construction / OSM?). The email each person will SIGN IN with is the one to
-   invite AND enroll - confirm each with the person, not a guess.
-2. Which role/groups each person gets (there is no automatic default now -
+   Construction / OSM?) plus mobile numbers where texting codes is wanted.
+   The email each person will SIGN IN with is the one to invite - confirm
+   each with the person, not a guess.
+2. **The sent.dm API key** (`NEXUS_SENTDM_KEY`): create the account at
+   sent.dm, add the key to dev + prod App Service settings. Optional - email
+   codes work without it - but texted codes are the better experience and the
+   phone doubles as a second factor.
+3. Which role/groups each person gets (there is no automatic default -
    a fresh invite has NO access until assigned). Suggested starting point:
    one shared group granting Tasks (Editor) + Tickets (Editor). Remember most
    other modules show org-wide data to any grant holder (section 5).
-3. Expiration policy: leave blank, or stamp e.g. 6 months on each row?
-4. Which projects/teams each person should be added to in Tasks (their screen
+4. Expiration policy: leave blank, or stamp e.g. 6 months on each row?
+5. Which projects/teams each person should be added to in Tasks (their screen
    is empty until someone adds/assigns them).
-5. Is it acceptable that externals can resolve staff names via the directory
+6. Is it acceptable that externals can resolve staff names via the directory
    read (section 5)? Default answer is yes (same info as email/Teams
    collaboration exposes), but it is Neil's call to make once.
-6. MFA for guests: Security Defaults prompt is on by default - confirm nothing
-   in the tenant disabled it.
+7. Prod release timing for the RLS statement (section 3) - it must run right
+   after the prod deploy.

@@ -31,6 +31,8 @@ permanent: it hard-deletes the person row plus their memberships/scopes, and
 they would have to be re-invited from scratch. Neither touches the Entra guest
 account - deleting that is optional manual cleanup.
 """
+import os
+import re
 import uuid
 from datetime import datetime, timezone
 
@@ -71,6 +73,8 @@ def _serialize(e: NexusEmployee) -> dict:
         "inviteStatus": getattr(e, "invite_status", "") or "",
         "expiresAt": getattr(e, "expires_at", "") or "",
         "createdAt": e.created_at or "",
+        "phone": e.phone or "",
+        "phoneVerifiedAt": getattr(e, "phone_verified_at", "") or "",
     }
 
 
@@ -81,7 +85,28 @@ def _invalidate(email: str) -> None:
     cache.people_directory.invalidate()
 
 
-# ── Entra B2B invitation via Microsoft Graph ─────────────────────────────────
+# ── Invitations ──────────────────────────────────────────────────────────────
+# PRIMARY (Aug 18, Visesh-approved): our own branded Nexus email with a
+# single-use activation link - the passwordless flow in
+# routers/external_auth.py (issue_invite). The Microsoft Graph B2B invitation
+# below is kept ONLY as a transition fallback behind
+# NEXUS_EXTERNAL_GRAPH_INVITE=true (default off for new invites).
+
+def _use_graph_invite() -> bool:
+    return os.getenv("NEXUS_EXTERNAL_GRAPH_INVITE", "").lower() in ("1", "true", "yes")
+
+
+def _send_invite(db: Session, row: NexusEmployee, inviter: dict) -> tuple[str, str]:
+    """One entry point for both invite paths; returns (invite_status, message)
+    with the same semantics either way: 'sent' = our email went out."""
+    if _use_graph_invite():
+        return _send_entra_invite((row.work_email or "").lower(),
+                                  f"{row.first_name} {row.last_name}".strip())
+    from routers.external_auth import issue_invite, _inviter_name
+    return issue_invite(db, row, _inviter_name(db, inviter["email"]))
+
+
+# ── Entra B2B invitation via Microsoft Graph (legacy fallback) ───────────────
 
 _GRAPH_INVITES_URL = "https://graph.microsoft.com/v1.0/invitations"
 
@@ -158,6 +183,7 @@ class ExternalUserCreate(BaseModel):
     last_name:  Optional[str] = ""
     company:    Optional[str] = ""
     expires_at: Optional[str] = ""      # ISO date; empty = no expiry
+    phone:      Optional[str] = ""      # optional; enables SMS codes once verified
 
 class ExternalUserUpdate(BaseModel):
     first_name: Optional[str] = None
@@ -165,6 +191,11 @@ class ExternalUserUpdate(BaseModel):
     company:    Optional[str] = None
     status:     Optional[str] = None    # active | inactive
     expires_at: Optional[str] = None
+    phone:      Optional[str] = None
+
+
+def _clean_phone(raw: str) -> str:
+    return re.sub(r"[^\d+]", "", raw or "")
 
 
 # ── Routes (admin-gated - this is access management) ─────────────────────────
@@ -204,11 +235,12 @@ def enroll_external_user(body: ExternalUserCreate,
         first_name=body.first_name.strip(),
         last_name=(body.last_name or "").strip(),
         work_email=email,
-        identity_type="guest",       # Entra B2B guest login (Tier B in the July plan)
+        identity_type="guest",       # external partner login (Tier B in the July plan)
         status="active",
         external_company=(body.company or "").strip(),
         invited_by=user["email"],
         expires_at=(body.expires_at or "").strip(),
+        phone=_clean_phone(body.phone or ""),
         created_by=user["email"],
         created_at=now,
         updated_at=now,
@@ -220,7 +252,7 @@ def enroll_external_user(body: ExternalUserCreate,
     # No access is granted here: assign a job role / groups in Roles & Access
     # like any employee. Until then the guest is fail-closed to the app shell.
 
-    status, message = _send_entra_invite(email, f"{row.first_name} {row.last_name}".strip())
+    status, message = _send_invite(db, row, user)
     row.invite_status = status
     db.commit()
 
@@ -254,19 +286,30 @@ def update_external_user(email: str, body: ExternalUserUpdate,
         row.external_company = body.company.strip()
     if body.expires_at is not None:
         row.expires_at = body.expires_at.strip()
+    if body.phone is not None:
+        new_phone = _clean_phone(body.phone)
+        if new_phone != (row.phone or ""):
+            row.phone = new_phone
+            row.phone_verified_at = ""   # a changed number is unverified again
 
     row.updated_at = _now()
     db.commit()
     _invalidate(email)
+    if body.status == "inactive":
+        # Log them out everywhere and void outstanding codes, immediately -
+        # don't wait for the policy cache TTL.
+        from routers.external_auth import revoke_credentials
+        revoke_credentials(db, email)
     return _serialize(row)
 
 
 @router.post("/{email}/invite")
 def resend_invite(email: str, user: dict = Depends(require_administrator),
                   db: Session = Depends(get_db)):
-    """Re-send the Entra B2B invitation for an enrolled external user.
-    Idempotent: Graph re-invites an existing pending guest by just re-sending
-    the redemption email. Updates the stored invite status either way."""
+    """Re-send the invitation for an enrolled external user. Idempotent: the
+    primary path mints a FRESH single-use activation link (killing prior ones)
+    and emails it; the legacy Graph path just re-sends the B2B redemption.
+    Updates the stored invite status either way."""
     email = email.lower().strip()
     row = (db.query(NexusEmployee)
            .filter(func.lower(NexusEmployee.work_email) == email,
@@ -274,7 +317,7 @@ def resend_invite(email: str, user: dict = Depends(require_administrator),
     if not row:
         raise HTTPException(404, "External user not found")
 
-    status, message = _send_entra_invite(email, f"{row.first_name} {row.last_name}".strip())
+    status, message = _send_invite(db, row, user)
     row.invite_status = status
     row.updated_at = _now()
     db.commit()
@@ -309,4 +352,7 @@ def remove_external_user(email: str, user: dict = Depends(require_administrator)
     db.delete(row)
     db.commit()
     _invalidate(email)
+    # Void outstanding codes/invite links and kill live sessions immediately.
+    from routers.external_auth import revoke_credentials
+    revoke_credentials(db, email)
     return {"removed": email}

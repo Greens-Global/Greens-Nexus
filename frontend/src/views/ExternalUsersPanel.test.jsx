@@ -9,20 +9,24 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 
 const createExternalUser = vi.fn(() => Promise.resolve({ inviteStatus: 'sent', email: 'jane.doe@acmeconstruction.com' }));
 const updateExternalUser = vi.fn(() => Promise.resolve({}));
-const resendExternalInvite = vi.fn(() => Promise.resolve({ inviteStatus: 'sent', inviteMessage: 'Invitation email sent by Microsoft.' }));
+const resendExternalInvite = vi.fn(() => Promise.resolve({ inviteStatus: 'sent', inviteMessage: 'Invitation email sent.' }));
 const removeExternalUser = vi.fn(() => Promise.resolve({ removed: 'jane.doe@acmeconstruction.com' }));
+const getExternalUsers = vi.fn(() => Promise.resolve([]));
 vi.mock('../api', () => ({
   api: {
     createExternalUser: (...a) => createExternalUser(...a),
     updateExternalUser: (...a) => updateExternalUser(...a),
     resendExternalInvite: (...a) => resendExternalInvite(...a),
     removeExternalUser: (...a) => removeExternalUser(...a),
+    getExternalUsers: (...a) => getExternalUsers(...a),
   },
 }));
 const confirmMock = vi.fn(() => Promise.resolve(true));
 vi.mock('../ui/dialog', () => ({ dialog: { confirm: (...a) => confirmMock(...a) } }));
 
-const { InviteExternalModal, ExternalPersonSection } = await import('./ExternalUsersPanel');
+const mod = await import('./ExternalUsersPanel');
+const { InviteExternalModal, ExternalPersonSection } = mod;
+const ExternalUsersPanel = mod.default;
 
 const ext = {
   id: 'e1', email: 'jane.doe@acmeconstruction.com', firstName: 'Jane', lastName: 'Doe',
@@ -73,5 +77,32 @@ describe('ExternalPersonSection', () => {
     expect(confirmMock).toHaveBeenCalled();
     expect(String(confirmMock.mock.calls[0][0])).toContain('re-invited from scratch');
     await waitFor(() => expect(onRemoved).toHaveBeenCalled());
+  });
+});
+
+describe('ExternalUsersPanel (People module External tab)', () => {
+  it('renders the list with rows, pills, and actions', async () => {
+    getExternalUsers.mockResolvedValueOnce([ext, {
+      ...ext, id: 'e2', email: 'raj@osm.example', name: 'Raj Mehta',
+      status: 'inactive', inviteStatus: 'sent', company: 'OSM',
+      phone: '+15550001111', phoneVerifiedAt: '2026-08-18T00:00:00Z',
+    }]);
+    const onChanged = vi.fn();
+    render(<ExternalUsersPanel onChanged={onChanged} />);
+    expect(await screen.findByText('Jane Doe')).toBeTruthy();
+    expect(screen.getByText('Raj Mehta')).toBeTruthy();
+    expect(screen.getByText('Invite External User')).toBeTruthy();
+    expect(screen.getByText('Invite Failed')).toBeTruthy();
+    expect(screen.getByText('Invite Sent')).toBeTruthy();
+    expect(screen.getByText('Deactivate')).toBeTruthy();
+    expect(screen.getByText('Reactivate')).toBeTruthy();
+    expect(screen.getAllByText('Remove').length).toBe(2);
+    expect(onChanged).toHaveBeenCalled();   // feeds the External tab count badge
+  });
+
+  it('paints the empty state, never blank', async () => {
+    getExternalUsers.mockResolvedValueOnce([]);
+    render(<ExternalUsersPanel />);
+    expect(await screen.findByText('No external users yet')).toBeTruthy();
   });
 });

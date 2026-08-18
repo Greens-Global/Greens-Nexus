@@ -36,7 +36,8 @@ from routers import branding  # Branding settings: login-screen accent color (Ju
 from routers import egnyte  # Egnyte module: browse/upload at the right folder level (Jul 2026)
 from routers import external_links  # External Links directory rebuild (Aug 2026) - own file, see its docstring
 from routers import link_layouts  # Per-user Links Module personalization overlay (Aug 13) - own file, see its docstring
-from routers import external_users  # External users (Entra B2B guest allowlist) admin CRUD (Aug 17)
+from routers import external_users  # External users (guest allowlist) admin CRUD (Aug 17)
+from routers import external_auth  # External passwordless auth: invite activation + code sign-in (Aug 18)
 from audit import AuditMiddleware
 
 
@@ -519,6 +520,8 @@ def _run_migrations():
             "ALTER TABLE nexus_employees ADD COLUMN expires_at VARCHAR DEFAULT ''",
             # External users (Aug 18): Entra invitation delivery state (sent/failed/manual)
             "ALTER TABLE nexus_employees ADD COLUMN invite_status VARCHAR DEFAULT ''",
+            # External passwordless login (Aug 18): phone OTP verification stamp
+            "ALTER TABLE nexus_employees ADD COLUMN phone_verified_at VARCHAR DEFAULT ''",
             # Asana attachment rescue (Aug 18): one-at-a-time guard + pre-rescue
             # URL audit trail. See asana_rescue.py.
             "ALTER TABLE asana_sync_config ADD COLUMN rescue_running_at VARCHAR DEFAULT ''",
@@ -1098,6 +1101,8 @@ def _run_migrations():
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS expires_at VARCHAR DEFAULT ''",
         # External users (Aug 18): Entra invitation delivery state (sent/failed/manual)
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS invite_status VARCHAR DEFAULT ''",
+        # External passwordless login (Aug 18): phone OTP verification stamp
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS phone_verified_at VARCHAR DEFAULT ''",
         # Asana attachment rescue (Aug 18): one-at-a-time guard + pre-rescue
         # URL audit trail. See asana_rescue.py.
         "ALTER TABLE asana_sync_config ADD COLUMN IF NOT EXISTS rescue_running_at VARCHAR DEFAULT ''",
@@ -1326,6 +1331,26 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Nexus API", lifespan=lifespan)
 
 
+# PRE-AUTH external passwordless endpoints (Aug 18): exempt from the CSRF
+# guard below, as a TIGHT path allowlist - never a blanket bypass. They run
+# BEFORE any session exists and are routinely opened from a browser that
+# already holds someone ELSE'S session cookie (the live bug: an admin opening
+# a guest's activation link carried the admin's cookie, and the guard rejected
+# the very first lookup with "CSRF token missing or invalid"). CSRF protects
+# COOKIE-AUTHENTICATED state changes; these endpoints ignore the cookie
+# entirely - their credentials and protections are the single-use hashed
+# invite token, the hashed one-time codes, and the DB-count rate limits
+# (routers/external_auth.py). The session-ISSUING responses still set the
+# CSRF cookie, so post-login requests pass the guard normally.
+_CSRF_EXEMPT_PATHS = frozenset({
+    "/external-auth/activate/lookup",
+    "/external-auth/activate/send-code",
+    "/external-auth/activate/verify",
+    "/external-auth/request-code",
+    "/external-auth/login-verify",
+})
+
+
 @app.middleware("http")
 async def _bff_csrf_guard(request, call_next):
     """CSRF enforcement for BFF cookie-authenticated writes. The browser sends the
@@ -1337,7 +1362,8 @@ async def _bff_csrf_guard(request, call_next):
     import bff_session
     if (bff_session.configured()
             and request.method in ("POST", "PUT", "PATCH", "DELETE")
-            and not request.url.path.startswith("/auth/")):
+            and not request.url.path.startswith("/auth/")
+            and request.url.path not in _CSRF_EXEMPT_PATHS):
         sid = request.cookies.get(bff_session.SESSION_COOKIE, "")
         if sid:   # a cookie-authenticated write -> require a matching CSRF token
             hdr = request.headers.get("X-CSRF-Token", "")
@@ -1514,6 +1540,7 @@ app.include_router(groups.router)
 app.include_router(jobroles.router)
 app.include_router(access_scopes.router)
 app.include_router(external_users.router)  # External users: B2B-guest allowlist admin CRUD (Aug 17)
+app.include_router(external_auth.router)   # External passwordless auth - public: the emailed link/code IS the credential (Aug 18)
 app.include_router(qa.router)
 app.include_router(items_router.router)
 app.include_router(hr.router)
