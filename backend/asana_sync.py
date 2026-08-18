@@ -3589,7 +3589,11 @@ def pull_personal_tasks(db, create_only=True):
     additive-only: create_only defaults to True and the endpoint never passes
     anything else - this is a recovery path, and Nexus is the source of truth
     now. Commits per person, same checkpoint reasoning as pull(). Requires
-    workspace_gid (the assignee listing is workspace-scoped in Asana's API)."""
+    workspace_gid (the assignee listing is workspace-scoped in Asana's API).
+
+    Two sweeps: the workspace under the service token (personal tasks people
+    shared), then each CONNECTED person under their own grant, which is the
+    only credential that sees their private ("Only me") tasks - see below."""
     cfg = get_config(db)
     if not cfg.token:
         raise ImportError_("Sync has no token.")
@@ -3621,6 +3625,41 @@ def pull_personal_tasks(db, create_only=True):
                 _pull_task_tree(db, asana, at, "", "", counts, seen, None, deferred,
                                 create_only=create_only)
             db.commit()   # checkpoint per person - a killed run keeps what it did
+        # Second sweep, per CONNECTED person, under their own Asana grant. A
+        # task with no project is private to its assignee in Asana ("Only me")
+        # unless it was shared deliberately, so the service token above cannot
+        # even list it - Charmi's "Clean up NAS" (08/19) was in her My Tasks and
+        # in nobody else's view, and Asana reported 425 of her tasks to the
+        # service PAT against the 700+ she sees. Only her own token sees those.
+        # Everything fetched for such a task (subtasks, stories, attachments)
+        # goes through her client too, since the private parts are private all
+        # the way down. `seen` is shared with the sweep above, so a task both
+        # can see is applied once.
+        counts["connected"] = []
+        counts["connectedSkipped"] = []
+        for row in db.query(models.AsanaUserToken).all():
+            email = (row.email or "").strip().lower()
+            tok, why = asana_oauth.token_reason(db, email)
+            if not tok:
+                counts["connectedSkipped"].append(f"{email}: {why}")
+                continue
+            mine = Asana(tok)
+            try:
+                rows = mine.get("/tasks", assignee=(row.asana_user_gid or "me"), workspace=ws, opt_fields=fields)
+            except Exception as e:  # one bad grant must not end the run for everyone else
+                counts["connectedSkipped"].append(f"{email}: {type(e).__name__}: {e}")
+                continue
+            personal = [at for at in rows if not (at.get("projects") or []) and not at.get("parent")
+                        and at["gid"] not in seen]
+            counts["connected"].append(f"{email}: {len(personal)} private personal task(s)")
+            if not personal:
+                continue
+            _acquire_pull_lock(db)
+            for at in personal:
+                counts["personal"] += 1
+                _pull_task_tree(db, mine, at, "", "", counts, seen, None, deferred,
+                                create_only=create_only)
+            db.commit()
         _acquire_pull_lock(db)
         resolve_dependencies(db, deferred)
         db.commit()

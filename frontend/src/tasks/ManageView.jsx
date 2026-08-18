@@ -391,7 +391,7 @@ function AsanaSyncPanel({ store }) {
       setMsg(which === 'pull-personal'
         ? (res.alreadyRunning
             ? 'A pull is already running in the background - let it finish before starting another.'
-            : 'Personal-task pull started - running in the background. It walks every person in the workspace and adds only the tasks that sit in no Asana project (the ones that exist only in a person’s My Tasks); existing tasks are never changed. Takes a few minutes.')
+            : 'Personal-task pull started - running in the background. It walks every person in the workspace and adds only the tasks that sit in no Asana project (the ones that exist only in a person’s My Tasks); existing tasks are never changed. Private (Only me) tasks are only reachable through a person’s own connected Asana account - ask people to Connect Asana under their account menu first, then run this again. Takes a few minutes.')
         : which === 'pull-new'
         ? (res.alreadyRunning
             ? 'A pull is already running in the background - let it finish before starting another.'
@@ -764,7 +764,7 @@ function AsanaSyncPanel({ store }) {
           <button onClick={() => run('push')} disabled={!!busy} style={btn('outline')}><ArrowRightLeft size={14} />{busy === 'push' ? 'Pushing…' : 'Push all → Asana'}</button>
           <button onClick={() => run('pull')} disabled={!!busy} style={btn('primary')}><Download size={14} />{busy === 'pull' ? 'Pulling…' : 'Pull ← Asana'}</button>
           <button onClick={() => run('pull-new')} disabled={!!busy} style={btn('outline')} title="Create only the Asana tasks Nexus is missing - never changes an existing task"><Download size={14} />{busy === 'pull-new' ? 'Adding…' : 'Pull new only'}</button>
-          <button onClick={() => run('pull-personal')} disabled={!!busy} style={btn('outline')} title="Add the tasks that sit in no Asana project (My Tasks only) - the project pulls cannot see them. Never changes an existing task"><Download size={14} />{busy === 'pull-personal' ? 'Adding…' : 'Pull Personal Tasks'}</button>
+          <button onClick={() => run('pull-personal')} disabled={!!busy} style={btn('outline')} title="Add the tasks that sit in no Asana project (My Tasks only) - the project pulls cannot see them. Private (Only me) tasks come through each person’s own connected Asana account. Never changes an existing task"><Download size={14} />{busy === 'pull-personal' ? 'Adding…' : 'Pull Personal Tasks'}</button>
           {cfg.lastPullAt && <span style={{ fontSize: 11.5, color: NX.faint }}>last pull {fmtDateTime(cfg.lastPullAt)}</span>}
         </div>
 

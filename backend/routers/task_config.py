@@ -1183,7 +1183,9 @@ def _start_background_pull(db, label, run):
         try:
             res = run(s)
             print(f"[{label}] done: +{res.get('created', 0)} created, "
-                  f"{res.get('skipped', 0)} existing skipped")
+                  f"{res.get('skipped', 0)} existing skipped"
+                  + (f"; connected accounts: {res['connected']}" if res.get('connected') else "")
+                  + (f"; connected skipped: {res['connectedSkipped']}" if res.get('connectedSkipped') else ""))
         except Exception as e:  # no request to return to - land it in the log
             print(f"[{label}] failed: {e}")
         finally:
