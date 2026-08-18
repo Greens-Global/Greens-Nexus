@@ -75,7 +75,10 @@ export function rootParent(task, taskById) {
 // switched off - "tasks are missing" when they were in the database all along.
 // Sections are never rows. Callers without a person scope keep topLevel().
 export function personScoped(tasks, f) {
-  return (f?.assigneeIds?.length || f?.collaboratorIds?.length) ? (tasks || []).filter((t) => !isSection(t)) : topLevel(tasks);
+  // A typed search is also a hunt for one specific task, wherever it hangs -
+  // 92 same-titled "Finish all Books" subtasks must be findable by title.
+  const flat = f?.assigneeIds?.length || f?.collaboratorIds?.length || (f?.search || '').trim();
+  return flat ? (tasks || []).filter((t) => !isSection(t)) : topLevel(tasks);
 }
 
 export function matchesFilter(task, f = EMPTY_FILTER, taskById = null) {

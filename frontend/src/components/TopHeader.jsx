@@ -169,6 +169,12 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
   // people go through window events (nexus:open-task / nexus:tasks-person)
   // because the Task module owns the drawer and the workspace - the header
   // only says WHAT was picked, never how to render it.
+  function openAllTasks(q) {
+    setSearchQuery(''); setSearchOpen(false);
+    window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'tasks', sub: 'mine' } }));
+    setTimeout(() => window.dispatchEvent(new CustomEvent('nexus:tasks-search', { detail: { q } })), 0);
+  }
+
   function openHit(kind, item) {
     setSearchQuery(''); setSearchOpen(false);
     const toTasks = (sub) => window.dispatchEvent(
@@ -274,7 +280,12 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
                     <>
                       <Check size={13} style={{ color: item.completed ? 'var(--ok, #16a34a)' : 'var(--muted)', flexShrink: 0 }} />
                       <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                        textDecoration: item.completed ? 'line-through' : 'none' }}>{item.title}</span>
+                        textDecoration: item.completed ? 'line-through' : 'none' }}>
+                        {item.title}
+                        {/* A subtask says whose it is - same-titled subtasks
+                            across many parents are otherwise identical lines. */}
+                        {item.parentTitle && <span style={{ ...subStyle, marginLeft: 6 }}>‹ {item.parentTitle}</span>}
+                      </span>
                       {item.projectName && <span style={{ ...subStyle, flexShrink: 0 }}>{item.projectName}</span>}
                     </>
                   ) : g.key === 'people' ? (
@@ -291,6 +302,17 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
                   )}
                 </button>
               ))}
+              {(hits.totals?.[g.key] || 0) > hits[g.key].length && (
+                g.key === 'tasks' ? (
+                  <button onClick={() => openAllTasks(searchQuery)} style={{ ...rowStyle, ...subStyle }} onMouseEnter={hover(true)} onMouseLeave={hover(false)}>
+                    See all {hits.totals[g.key]} tasks matching "{searchQuery.trim()}"
+                  </button>
+                ) : (
+                  <div style={{ ...subStyle, padding: '6px 12px 8px' }}>
+                    and {hits.totals[g.key] - hits[g.key].length} more {g.label.toLowerCase()}
+                  </div>
+                )
+              )}
             </div>
           ) : null))}
           {searchResults.length > 0 && (

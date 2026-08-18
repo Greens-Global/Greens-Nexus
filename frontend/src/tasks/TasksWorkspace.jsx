@@ -30,7 +30,7 @@ const VIEW_KINDS = [
 const GROUPS = ['status', 'priority', 'assignee', 'project', 'none'];
 
 export default function TasksWorkspace({ lockedProjectId = null, mine = false, title = 'Tasks', onBack,
-                                         initialFilters = null }) {
+                                         initialFilters = null, initialSearch = '' }) {
   const store = useTasks();
   const { tasks, nameOf, projectName, teamName, projectById, portfolioById, toggleComplete, bulkUpdate, deleteTask, myEmail, teams } = store;
   // Owned here so the Hide / + Column controls can live in the toolbar above
@@ -48,7 +48,7 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
   const isMobile = useIsMobile();
   const [view, setView] = useState('list');
   const [group, setGroup] = useState('status');
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState(initialSearch || '');
   // Seeded, not forced: header search opens "everything assigned to X" through
   // this, and the user can then clear or widen it like any other filter.
   const [filters, setFilters] = useState(initialFilters || EMPTY_FILTER);

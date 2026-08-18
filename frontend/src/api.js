@@ -370,7 +370,8 @@ export const api = {
   getTasksDelta: (since = '') => req(`/tasks/delta${since ? `?since=${encodeURIComponent(since)}` : ''}`),
   // Header search: tasks, projects, portfolios, teams and people in one call,
   // already scoped to what the caller may see.
-  searchTaskModule: (q, limit = 6) => req(`/tasks/search?q=${encodeURIComponent(q)}&limit=${limit}`),
+  // 20 is the endpoint's cap. Six looked final when 92 subtasks matched.
+  searchTaskModule: (q, limit = 20) => req(`/tasks/search?q=${encodeURIComponent(q)}&limit=${limit}`),
   // A person's page: who they are, the work they hold, their projects and teams.
   getPersonProfile: (email) => req(`/tasks/people/${encodeURIComponent(email)}`),
   createTask: (data) => req("/tasks", { method: "POST", body: JSON.stringify(data) }),

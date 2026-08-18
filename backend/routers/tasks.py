@@ -664,7 +664,7 @@ def search_everything(q: str = "", limit: int = 6,
     system nobody can explain when it puts the wrong row first."""
     term = (q or "").strip().lower()
     if len(term) < 2:
-        return {"tasks": [], "projects": [], "portfolios": [], "teams": [], "people": []}
+        return {"tasks": [], "projects": [], "portfolios": [], "teams": [], "people": [], "totals": {}}
     limit = max(1, min(limit, 20))
 
     def rank(text: str) -> tuple:
@@ -699,18 +699,38 @@ def search_everything(q: str = "", limit: int = 6,
             people.append({"email": e.work_email, "name": name or e.work_email,
                            "jobTitle": e.job_title or ""})
 
+    # A subtask carries project_id "" - its project is its parent's. Without
+    # the walk, 92 same-titled "Finish all Books for Current Year" subtasks
+    # (one per company's Tax Return) rendered as six identical bare lines and
+    # read as duplicates of nothing. parentTitle is what tells them apart.
+    by_id = {t.id: t for t in db.query(models.Task).all()} if any(t.parent_task_id for t in tasks) else {}
+
+    def shape_task(t):
+        parent = by_id.get(t.parent_task_id or "") if t.parent_task_id else None
+        proj_id = t.project_id or ""
+        cur, depth = t, 0
+        while not proj_id and cur is not None and cur.parent_task_id and depth < 20:
+            cur = by_id.get(cur.parent_task_id)
+            proj_id = (cur.project_id or "") if cur else ""
+            depth += 1
+        return {"id": t.id, "code": t.code or "", "title": t.title,
+                "completed": bool(t.completed), "assigneeId": _nz(t.assignee_email),
+                "projectId": _nz(t.project_id),
+                "projectName": project_names.get(proj_id, ""),
+                "parentTitle": (parent.title if parent else "")}
+
     return {
-        "tasks": [{"id": t.id, "code": t.code or "", "title": t.title,
-                   "completed": bool(t.completed), "assigneeId": _nz(t.assignee_email),
-                   "projectId": _nz(t.project_id),
-                   "projectName": project_names.get(t.project_id or "", "")}
-                  for t in top(tasks, lambda t: t.title)],
+        "tasks": [shape_task(t) for t in top(tasks, lambda t: t.title)],
         "projects": [{"id": p.id, "name": p.name, "color": p.color or ""}
                      for p in top(projects, lambda p: p.name)],
         "portfolios": [{"id": p.id, "name": p.name} for p in top(portfolios, lambda p: p.name)],
         "teams": [{"id": t.id, "name": t.name, "color": t.color or ""}
                   for t in top(teams, lambda t: t.name)],
         "people": top(people, lambda p: p["name"]),
+        # How many matched in total, so a capped list can say "and N more"
+        # instead of passing itself off as everything there is.
+        "totals": {"tasks": len(tasks), "projects": len(projects), "portfolios": len(portfolios),
+                   "teams": len(teams), "people": len(people)},
     }
 
 
