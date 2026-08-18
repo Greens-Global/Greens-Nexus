@@ -5,7 +5,7 @@ import { useMemo, useState } from 'react';
 import { List, Columns3, Calendar as CalIcon, GanttChart, LayoutDashboard, Paperclip, Gauge, Plus, Search, CheckCircle2, Circle, Trash2, X, FolderKanban, ArrowLeft, Copy } from 'lucide-react';
 import { useTasks } from './TasksContext';
 import { useRole } from '../contexts/RoleContext';
-import { EMPTY_FILTER, matchesFilter, topLevel, sortTasks, groupTasks, taskStats, taskIdFromUrl, fieldsForProject, cfKey } from './lib';
+import { EMPTY_FILTER, matchesFilter, personScoped, sortTasks, groupTasks, taskStats, taskIdFromUrl, fieldsForProject, cfKey } from './lib';
 import { NX, FONT, btn, CONTROL_H, CONTROL_FS, CONTROL_ICON, input as inputStyle, STATUS_ORDER, STATUS_META, chip } from './theme';
 import { Avatar, StatusChip, PriorityChip, EmptyState, usePeople, useIsMobile, ProjectAccessButton } from './components';
 import CreateTaskModal from './CreateTaskModal';
@@ -71,9 +71,13 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
     () => fieldsForProject(store.customFields || [], lockedProjectId),
     [store.customFields, lockedProjectId],
   );
+  // Person-scoped (My Tasks mode or an assignee filter) lists subtasks as their
+  // own rows, like Asana; a project/general list stays top-level with subtasks
+  // reached through their parent. Project scope resolves through the parent
+  // chain so a subtask still counts as being in its parent's project.
   const visible = useMemo(
-    () => sortTasks(topLevel(tasks).filter((t) => matchesFilter(t, filter)), sort, activeFields),
-    [tasks, search, filters, sort, lockedProjectId, mine, myEmail, activeFields],
+    () => sortTasks(personScoped(tasks, filter).filter((t) => matchesFilter(t, filter, store.taskById)), sort, activeFields),
+    [tasks, search, filters, sort, lockedProjectId, mine, myEmail, activeFields, store.taskById],
   );
 
   const applyView = (v) => {
@@ -98,7 +102,7 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
     const all = ids.length > 0 && ids.every((id) => s.has(id));
     return all ? new Set() : new Set(ids);
   });
-  const ctx = { nameOf, projectName, teamName, customFields: activeFields };
+  const ctx = { nameOf, projectName, teamName, customFields: activeFields, taskById: store.taskById };
   const lockedProject = lockedProjectId ? projectById(lockedProjectId) : null;
   // Only select fields can group or sort meaningfully - a free-text field would
   // make one group per distinct string.

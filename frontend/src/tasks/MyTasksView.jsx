@@ -3,9 +3,9 @@
 // Dashboard/Files tabs, and a List grouped into the four due-date buckets with
 // inline "Add task" rows, a "Task visibility" column, and "Add section".
 import { useMemo, useRef, useState } from 'react';
-import { ChevronDown, Lock, Globe, Plus, List as ListIcon, Columns3, Calendar as CalIcon, LayoutDashboard, Paperclip, Circle, CheckCircle2 } from 'lucide-react';
+import { ChevronDown, Lock, Globe, Plus, List as ListIcon, Columns3, Calendar as CalIcon, LayoutDashboard, Paperclip, Circle, CheckCircle2, CornerDownRight } from 'lucide-react';
 import { useTasks } from './TasksContext';
-import { EMPTY_FILTER, matchesFilter, sortTasks, groupTasks, groupAddDefaults, taskIdFromUrl } from './lib';
+import { EMPTY_FILTER, matchesFilter, sortTasks, groupTasks, groupAddDefaults, taskIdFromUrl, personScoped, rootParent, effectiveProjectId } from './lib';
 import { NX, FONT, btn, CONTROL_H, CONTROL_FS, input as inputStyle, colorForKey } from './theme';
 import { Avatar, EmptyState, useClickOutside, useIsMobile, DateField, TaskCountBadges } from './components';
 import { ProductivityBar, MobileFilters } from './productivity';
@@ -97,7 +97,11 @@ function VisibilityChip({ shared }) {
 }
 
 function TaskRow({ t, people, projects, store, onOpen }) {
-  const shared = (t.followerIds?.length > 0) || !!t.projectId;
+  // A subtask's project is its parent's; the project cell then names the parent
+  // (click-through) rather than offering a select that would re-home the subtask.
+  const parent = t.parentTaskId ? rootParent(t, store.taskById) : null;
+  const projectId = parent ? effectiveProjectId(t, store.taskById) : t.projectId;
+  const shared = (t.followerIds?.length > 0) || !!projectId;
   // Due date reads as a tinted pill (kit grammar), not bare colored text -
   // red tint overdue, amber tint today, quiet gray otherwise.
   const today = new Date().toISOString().slice(0, 10);
@@ -120,11 +124,19 @@ function TaskRow({ t, people, projects, store, onOpen }) {
       <DateField value={t.dueOn || ''} onChange={(v) => store.updateTask(t.id, { dueOn: v })} color={dueColor(t.dueOn, t.completed)}
         title="Due Date" style={{ fontSize: 12, fontWeight: 600, padding: '3px 10px', borderRadius: 12, background: dueBg, width: 'fit-content' }} />
       <CollaboratorPicker value={t.followerIds || []} people={people} onChange={(v) => store.updateTask(t.id, { followerIds: v })} />
+      {parent ? (
+        <button onClick={(e) => { e.stopPropagation(); onOpen(parent.id); }} title={`Subtask of "${parent.title}"${projectId ? ` in ${store.projectName(projectId)}` : ''}`}
+          style={{ ...btn('ghost'), padding: '2px 4px', fontSize: 12.5, color: NX.dim, minWidth: 0, maxWidth: '100%', justifyContent: 'flex-start' }}>
+          <CornerDownRight size={12} style={{ flexShrink: 0 }} />
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{parent.title}{projectId ? ` · ${store.projectName(projectId)}` : ''}</span>
+        </button>
+      ) : (
       <select value={t.projectId || ''} onClick={(e) => e.stopPropagation()} onChange={(e) => store.updateTask(t.id, { projectId: e.target.value || null })}
         style={{ border: '1px solid transparent', borderRadius: 6, padding: '2px 4px', fontSize: 13, color: NX.dim, background: 'transparent', fontFamily: FONT, width: 'fit-content', maxWidth: '100%', cursor: 'pointer' }}>
         <option value="">No project</option>
         {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
       </select>
+      )}
       <VisibilityChip shared={shared} />
     </div>
   );
@@ -212,14 +224,16 @@ export default function MyTasksView() {
   const switchView = (next) => { setView(next); setFilters(EMPTY_FILTER); };
 
   const wantsCompleted = filters.statuses.includes('completed');
+  // Subtasks assigned to me are rows here, as in Asana's My Tasks - see
+  // personScoped in lib.js for why the old top-level-only rule was wrong.
   const mine = useMemo(
-    () => sortTasks(tasks.filter((t) => !t.parentTaskId && (wantsCompleted || !t.completed)
-                                        && matchesFilter(t, filter)), sort),
-    [tasks, filters, sort, myEmail, wantsCompleted],
+    () => sortTasks(personScoped(tasks, filter).filter((t) => (wantsCompleted || !t.completed)
+                                        && matchesFilter(t, filter, store.taskById)), sort),
+    [tasks, filters, sort, myEmail, wantsCompleted, store.taskById],
   );
-  const allMine = useMemo(() => tasks.filter((t) => !t.parentTaskId && matchesFilter(t, filter)), [tasks, filters, myEmail]);
-  const ctx = { nameOf, projectName: store.projectName, teamName: store.teamName };
-  const groups = useMemo(() => groupTasks(mine, group, ctx), [mine, group, nameOf, store.projectName, store.teamName]);
+  const allMine = useMemo(() => personScoped(tasks, filter).filter((t) => matchesFilter(t, filter, store.taskById)), [tasks, filters, myEmail, store.taskById]);
+  const ctx = { nameOf, projectName: store.projectName, teamName: store.teamName, taskById: store.taskById };
+  const groups = useMemo(() => groupTasks(mine, group, ctx), [mine, group, nameOf, store.projectName, store.teamName, store.taskById]);
   const boardTasks = useMemo(() => sortTasks(allMine, sort), [allMine, sort]);
 
   const addTask = ({ title, dueOn, followerIds, projectId, status, priority, teamId }) =>
