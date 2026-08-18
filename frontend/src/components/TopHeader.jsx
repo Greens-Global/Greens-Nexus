@@ -151,14 +151,20 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
   // per keystroke. Failures fall back to an empty result set: the module
   // matches above are computed locally and must keep working if the API is down.
   const [hits, setHits] = useState(EMPTY_HITS);
+  // True from the first keystroke until the answer for the CURRENT text lands
+  // (debounce included). The popover used to sit empty for that beat and read
+  // as "no results" until the rows popped in.
+  const [searching, setSearching] = useState(false);
   useEffect(() => {
     const term = searchQuery.trim();
-    if (term.length < 2) { setHits(EMPTY_HITS); return undefined; }
+    if (term.length < 2) { setHits(EMPTY_HITS); setSearching(false); return undefined; }
     let live = true;
+    setSearching(true);
     const id = setTimeout(() => {
       api.searchTaskModule(term)
         .then((r) => { if (live) setHits({ ...EMPTY_HITS, ...r }); })
-        .catch(() => { if (live) setHits(EMPTY_HITS); });
+        .catch(() => { if (live) setHits(EMPTY_HITS); })
+        .finally(() => { if (live) setSearching(false); });
     }, 180);
     return () => { live = false; clearTimeout(id); };
   }, [searchQuery]);
@@ -268,8 +274,14 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
 
   const searchResultsDropdown = (
     <>
-      {searchOpen && (searchResults.length > 0 || hitCount > 0) && (
+      {searchOpen && (searchResults.length > 0 || hitCount > 0 || searching) && (
         <div style={{ ...panelStyle, maxHeight: '70vh', overflowY: 'auto' }}>
+          {searching && hitCount === 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', fontSize: 12.5, color: 'var(--muted)' }}>
+              <span aria-hidden style={{ width: 13, height: 13, borderRadius: '50%', border: '2px solid var(--line)', borderTopColor: 'var(--muted)', animation: 'spin 0.8s linear infinite', flexShrink: 0 }} />
+              Searching tasks, projects and people…
+            </div>
+          )}
           {SEARCH_GROUPS.map((g) => (hits[g.key]?.length ? (
             <div key={g.key}>
               <div style={headingStyle}>{g.label}</div>

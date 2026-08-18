@@ -16,6 +16,7 @@ export default function AccountSettingsModal({ onClose, initialResult = "", init
   const [busy, setBusy] = useState("");
   // Result of the live "would this actually post as me" probe. Null until asked.
   const [check, setCheck] = useState(null);
+  const [coverage, setCoverage] = useState(null);   // "is everything Asana assigns me in Nexus?"
   const [error, setError] = useState(initialReason || "");
   // "connected" | "denied" | "error" - set when we've just come back from
   // Asana's consent screen, so the outcome is visible rather than silent.
@@ -39,6 +40,13 @@ export default function AccountSettingsModal({ onClose, initialResult = "", init
     } catch (e) {
       setError(e?.message || "Couldn't start the Asana connection.");
     } finally { setBusy(""); }
+  }
+
+  async function runCoverage() {
+    setBusy('coverage'); setError(''); setCoverage(null);
+    try { setCoverage(await api.asanaOauthCoverage()); }
+    catch (e) { setError(e.message || 'Could not count your Asana tasks.'); }
+    finally { setBusy(''); }
   }
 
   async function runCheck() {
@@ -148,6 +156,61 @@ export default function AccountSettingsModal({ onClose, initialResult = "", init
                           ? <>Partly working - {check.reason}</>
                           : <>Your comments are posting as{check.serviceAccountName ? <> <strong>{check.serviceAccountName}</strong></> : ' the shared sync account'} - {check.reason || 'reason unknown'}.</>}
                     </span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* "Did all my Asana tasks make it?" - answered with the person's OWN
+                grant, the only credential that sees their private (Only me)
+                tasks. Lists whatever is missing with the reason, so it is
+                actionable rather than just a number. */}
+            {connected && (
+              <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--line)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+                  <div style={{ fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5, minWidth: 0 }}>
+                    Check that every Asana task assigned to you is in Nexus - including private ones only your account can see.
+                  </div>
+                  <button onClick={runCoverage} disabled={!!busy}
+                    style={{ flexShrink: 0, background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '5px 10px', fontSize: 12, fontWeight: 600, cursor: busy ? 'default' : 'pointer', color: 'var(--ink)', fontFamily: 'inherit' }}>
+                    {busy === 'coverage' ? 'Counting…' : 'Check My Asana Coverage'}
+                  </button>
+                </div>
+                {busy === 'coverage' && (
+                  <div style={{ marginTop: 8, fontSize: 12, color: 'var(--muted)' }}>Asking Asana for your full task list - this can take a minute for a few hundred tasks.</div>
+                )}
+                {coverage && !coverage.ok && (
+                  <div style={{ display: 'flex', gap: 6, marginTop: 8, fontSize: 12, lineHeight: 1.5, color: 'hsl(var(--color-amber, 38 92% 40%))' }}>
+                    <AlertTriangle size={13} style={{ flexShrink: 0, marginTop: 1 }} /><span>{coverage.reason || 'Could not count.'}</span>
+                  </div>
+                )}
+                {coverage && coverage.ok && (
+                  <div style={{ marginTop: 8, fontSize: 12.5, lineHeight: 1.6 }}>
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'flex-start', color: coverage.missing === 0 ? 'hsl(var(--color-green, 145 60% 36%))' : 'var(--ink)' }}>
+                      {coverage.missing === 0 ? <Check size={13} style={{ flexShrink: 0, marginTop: 3 }} /> : <AlertTriangle size={13} style={{ flexShrink: 0, marginTop: 3, color: 'hsl(var(--color-amber, 38 92% 40%))' }} />}
+                      <span>
+                        Asana assigns you <strong>{coverage.asanaTotal}</strong> tasks ({coverage.asanaOpen} open). In Nexus: <strong>{coverage.inNexus}</strong> ({coverage.inNexusOpen} open).
+                        {coverage.missing === 0
+                          ? ' Everything is in.'
+                          : <> Not in Nexus: <strong>{coverage.missing}</strong> ({coverage.missingOpen} open).</>}
+                      </span>
+                    </div>
+                    {coverage.missing > 0 && (
+                      <div style={{ marginTop: 6, maxHeight: 220, overflowY: 'auto', border: '1px solid var(--line)', borderRadius: 8 }}>
+                        {coverage.missingTasks.map((m) => (
+                          <div key={m.gid} style={{ padding: '6px 10px', borderBottom: '1px solid var(--line)', fontSize: 12 }}>
+                            <div style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}>
+                              <span style={{ fontWeight: 600, color: m.completed ? 'var(--muted)' : 'var(--ink)', textDecoration: m.completed ? 'line-through' : 'none', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.title}</span>
+                              {m.dueOn && <span style={{ color: 'var(--muted)', flexShrink: 0 }}>{m.dueOn}</span>}
+                            </div>
+                            <div style={{ color: 'var(--muted)' }}>{m.projects.length ? m.projects.join(', ') + ' - ' : ''}{m.reason}</div>
+                          </div>
+                        ))}
+                        {coverage.missing > coverage.missingTasks.length && (
+                          <div style={{ padding: '6px 10px', fontSize: 12, color: 'var(--muted)' }}>and {coverage.missing - coverage.missingTasks.length} more</div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
