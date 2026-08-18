@@ -79,7 +79,14 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
   // Where a project drill-in should return to - the sub the user was on when
   // they entered ('home' from the Home widgets, 'projects' from Projects).
   const [returnSub, setReturnSub] = useState('projects');
-  const go = (key) => (onSubChange ? onSubChange(key) : undefined);
+  // A person opened from header search sits ON TOP of whichever sub-view was
+  // active (see the render below) - switching module tabs used to change
+  // `sub` underneath it while the person's page kept showing, so My Tasks/
+  // Projects/etc. looked broken from there. Any tab jump exits it first.
+  const go = (key) => {
+    if (person) { setPerson(null); setPersonTasks(false); }
+    return onSubChange ? onSubChange(key) : undefined;
+  };
 
   // First visit runs the tour on its own; after that it is the button only.
   // Held until myEmail resolves, otherwise the flag is written against 'anon'

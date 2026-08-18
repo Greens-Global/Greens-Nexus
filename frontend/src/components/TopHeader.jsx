@@ -26,7 +26,7 @@ const SEARCH_GROUPS = [
 ];
 const EMPTY_HITS = { tasks: [], projects: [], people: [], portfolios: [], teams: [] };
 
-export default function TopHeader({ title, theme, onThemeToggle, sidebarPinned, onSidebarPinnedChange, onMobileToggle, canGoBack, onBack, onNavigate, prevLabel, onOpenAdmin, helpKey, helpLabel }) {
+export default function TopHeader({ title, activeView, theme, onThemeToggle, sidebarPinned, onSidebarPinnedChange, onMobileToggle, canGoBack, onBack, onNavigate, prevLabel, onOpenAdmin, helpKey, helpLabel }) {
   const { instance, accounts } = useMsal();
   const { myRole, can, myGrantedModules, actingAs, startActAs, stopActAs, isExternal } = useRole();
   // Module tab strip published by the active module (<ModuleTabs>). When
@@ -362,7 +362,7 @@ export default function TopHeader({ title, theme, onThemeToggle, sidebarPinned, 
               <button key={key}
                 className={`hdr-tab${headerTabs.active === key ? ' active' : ''}`}
                 aria-current={headerTabs.active === key ? 'page' : undefined}
-                onClick={() => headerTabs.onChange(key)}>
+                onClick={() => { setSearchQuery(''); setSearchOpen(false); headerTabs.onChange(key); }}>
                 {Icon && <Icon size={16} strokeWidth={2} />}
                 <span>{label}</span>
                 {badge > 0 && <span className="hdr-tab-badge">{badge}</span>}
@@ -378,14 +378,35 @@ export default function TopHeader({ title, theme, onThemeToggle, sidebarPinned, 
       </div>
 
       <div className="header-right">
-        {/* Module tabs occupy the center → search moves here, as its own
-            always-visible compact bar rather than an icon someone has to
-            already know to click (people were missing task/people search
-            entirely because nothing on screen showed it existed, Aug 2026). */}
-        {headerTabs && (
+        {/* Module tabs occupy the center → search moves here. Tasks gets its
+            own always-visible compact bar rather than an icon someone has to
+            already know to click - task/people search was going unnoticed
+            entirely because nothing on screen showed it existed (Aug 2026).
+            Every other module keeps the plain icon-triggered popover it
+            always had; the content search this bar reaches into (tasks,
+            projects, portfolios, teams, people) is Task-module content, so
+            widening it everywhere just added a search box other modules
+            don't have anything of their own to search. */}
+        {headerTabs && activeView === 'tasks' && (
           <div className="hdr-search-wrap hdr-search-inline" ref={searchRef}>
             {searchInput}
             {searchResultsDropdown}
+          </div>
+        )}
+        {headerTabs && activeView !== 'tasks' && (
+          <div className="hdr-search-wrap" ref={searchRef}>
+            <button className="icon-btn" aria-label="Search Nexus" title="Search"
+              onClick={() => setSearchOpen(o => !o)}>
+              <Search style={{ width: 16, height: 16 }} />
+            </button>
+            {searchOpen && (
+              <div className="hdr-search-pop">
+                <div style={{ position: 'relative' }}>
+                  {searchInput}
+                  {searchResultsDropdown}
+                </div>
+              </div>
+            )}
           </div>
         )}
         <NotificationBell onNavigate={onNavigate} />

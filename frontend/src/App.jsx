@@ -653,6 +653,7 @@ function MainApp() {
             {!pdfHasDoc && (
             <TopHeader
               title={viewLabel(activeView)}
+              activeView={activeView}
               helpKey={activeSub ? `${activeView}:${activeSub}` : activeView}
               helpLabel={viewLabel(activeView)}
               theme={theme}
