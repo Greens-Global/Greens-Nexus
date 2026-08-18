@@ -155,6 +155,17 @@ def me(request: Request, user: dict = Depends(get_current_user)):
             if row and row.id_token_enc:
                 claims = bff._decode_id_claims(secret_box.decrypt(row.id_token_enc))
                 name = (claims.get("name") or "").strip()
+            if not name:
+                # Passwordless EXTERNAL sessions carry no id token (Aug 18) -
+                # fall back to the person row so the header shows their real
+                # name, never the raw email (house rule).
+                from sqlalchemy import func as _f
+                from models import NexusEmployee
+                emp = (db.query(NexusEmployee)
+                       .filter(_f.lower(NexusEmployee.work_email) == user["email"]).first())
+                if emp:
+                    name = ((emp.display_name or "").strip()
+                            or f"{emp.first_name} {emp.last_name}".strip())
         except Exception:
             name = ""
         finally:

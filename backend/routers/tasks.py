@@ -639,8 +639,10 @@ def list_tasks(user: dict = Depends(get_current_user), db: Session = Depends(get
     rows = db.query(models.Task).all()
     if is_manager(user):
         return [task_to_dict(t) for t in rows]
-    visible_projects = visible_project_ids(db, user["email"])
-    return [task_to_dict(t) for t in rows if task_is_visible(t, user["email"], visible_projects)]
+    # Pass the USER dict, not just the email: the helpers scope external
+    # (B2B guest) callers to explicit participation only (Aug 17).
+    visible_projects = visible_project_ids(db, user)
+    return [task_to_dict(t) for t in rows if task_is_visible(t, user, visible_projects)]
 
 
 @router.get("/search")
@@ -673,11 +675,11 @@ def search_everything(q: str = "", limit: int = 6,
         return sorted(rows, key=lambda r: rank(text_of(r)))[:limit]
 
     manager = is_manager(user)
-    visible = None if manager else visible_project_ids(db, user["email"])
+    visible = None if manager else visible_project_ids(db, user)
 
     tasks = [t for t in db.query(models.Task).all()
              if (term in (t.title or "").lower() or term in (t.code or "").lower())
-             and (manager or task_is_visible(t, user["email"], visible))]
+             and (manager or task_is_visible(t, user, visible))]
     project_names = {p.id: p.name for p in db.query(models.TaskProject).all()}
     projects = [p for p in db.query(models.TaskProject).all()
                 if term in (p.name or "").lower() and not p.archived
@@ -739,9 +741,9 @@ def person_profile(email: str, user: dict = Depends(get_current_user), db: Sessi
         models.NexusEmployee.work_email == email).first()
 
     manager = is_manager(user)
-    visible = None if manager else visible_project_ids(db, user["email"])
+    visible = None if manager else visible_project_ids(db, user)
     rows = [t for t in db.query(models.Task).all()
-            if manager or task_is_visible(t, user["email"], visible)]
+            if manager or task_is_visible(t, user, visible)]
     project_names = {p.id: p.name for p in db.query(models.TaskProject).all()}
 
     def shape(t):
@@ -826,8 +828,8 @@ def list_tasks_delta(since: str = "", user: dict = Depends(get_current_user), db
         q = q.filter(models.Task.modified_at > since)
     rows = q.all()
     if not is_manager(user):
-        visible_projects = visible_project_ids(db, user["email"])
-        rows = [t for t in rows if task_is_visible(t, user["email"], visible_projects)]
+        visible_projects = visible_project_ids(db, user)
+        rows = [t for t in rows if task_is_visible(t, user, visible_projects)]
     deleted = (db.query(models.TaskDeleteLog).filter(models.TaskDeleteLog.deleted_at > since).all()
               if since else [])
     return {"tasks": [task_to_dict(t) for t in rows],

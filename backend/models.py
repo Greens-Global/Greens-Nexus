@@ -601,6 +601,39 @@ class NexusAccessScope(Base):
     created_at = Column(String, default="")
 
 
+class ExternalLoginCode(Base):
+    """Single-use passwordless credentials for EXTERNAL users (Aug 18): the
+    long invite-activation tokens AND the 6-digit codes, both HASHED at rest
+    (never stored or logged in plaintext).
+
+    purpose: 'invite' (activation link token, 7-day expiry, sha256 of the
+    48-byte token - enough entropy that a salt adds nothing and a direct
+    hash lookup works) | 'activate' | 'login' (6-digit codes, 10-min expiry,
+    salted sha256 - low entropy, so the salt matters; looked up by email).
+    channel: how the code went out ('sms' via sent.dm, 'email' via Graph) -
+    verifying an sms-channel code is what stamps phone_verified_at.
+    attempts: failed verifies; 5 kills the row and starts a 15-min lockout.
+    consumed_at: set on success, on invalidation-by-newer-code, on lockout,
+    and on deactivate/remove - a row with it set can never verify again.
+    Rate limiting reads THIS table (counts per email/IP per hour), because
+    in-memory counters don't cross gunicorn's worker processes.
+
+    NEW TABLE: create_all builds it with RLS DISABLED - run
+    ALTER TABLE external_login_codes ENABLE ROW LEVEL SECURITY;
+    on BOTH dev and prod at release (see docs/External-Users-Rollout-Aug17.md)."""
+    __tablename__ = "external_login_codes"
+    id          = Column(String, primary_key=True)                 # uuid
+    email       = Column(String, nullable=False, index=True)
+    code_hash   = Column(String, nullable=False, index=True)
+    purpose     = Column(String, default="login")                  # invite | activate | login
+    channel     = Column(String, default="")                       # sms | email
+    expires_at  = Column(String, default="")                       # ISO datetime UTC
+    attempts    = Column(Integer, default=0)
+    created_ip  = Column(String, default="", index=True)
+    consumed_at = Column(String, default="")
+    created_at  = Column(String, default="")
+
+
 class ApprovalHistory(Base):
     __tablename__ = "approval_history"
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -672,6 +705,24 @@ class NexusEmployee(Base):
     # each call site remembering to filter.
     deleted_at      = Column(String, default="")
     deleted_by      = Column(String, default="")
+    # External users (Aug 17): metadata for the B2B-guest login allowlist. Only
+    # meaningful on identity_type='guest'/'external' rows. external_company is
+    # the partner org's display name (free text - NOT an HrEntity id, external
+    # orgs are not legal entities of ours); invited_by is the admin who enrolled
+    # them; expires_at (ISO date) optionally auto-expires their sign-in
+    # (checked in auth.apply_external_policy).
+    external_company = Column(String, default="")
+    invited_by       = Column(String, default="")
+    expires_at       = Column(String, default="")
+    # Invitation delivery state for guest rows (Aug 18):
+    # '' (never attempted) | 'sent' (invitation email went out) |
+    # 'failed' (delivery failed - fix mail config or invite manually) |
+    # 'manual' (invited outside Nexus - nothing to send).
+    invite_status    = Column(String, default="")
+    # Passwordless external login (Aug 18): when the guest verified a 6-digit
+    # code delivered to `phone` (sent.dm SMS), this is stamped and future login
+    # codes go to the phone first. Empty = phone unverified, codes go to email.
+    phone_verified_at = Column(String, default="")
 
 
 class HrRemovedIdentity(Base):
@@ -2169,6 +2220,10 @@ class TaskAttachment(Base):
     # comment/story parent for an attachment - only a Nexus-native comment gets
     # this link, so nothing here is guessed at for Asana-origin data.
     comment_id = Column(String, default="", index=True)
+    # Set by the Asana attachment rescue (Aug 2026) when it rewrites `url` away
+    # from a dying asanausercontent.com/app.asana.com address: the pre-rescue
+    # URL, kept for audit/rollback. Blank on every row the rescue never touched.
+    original_asana_url = Column(String, default="")
 
 
 class TaskActivity(Base):
@@ -2508,6 +2563,10 @@ class AsanaSyncConfig(Base):
     # that contend on the per-project lock and crawl (Aug 15). Self-heals: a value
     # older than the staleness window is treated as a dead run and a new pull starts.
     pull_running_at     = Column(String, default="")
+    # Same one-at-a-time guard for the attachment-rescue worker (Aug 2026): set
+    # to an ISO timestamp while a rescue run is in flight, cleared when it ends,
+    # treated as dead after 30 minutes so a killed worker never wedges the button.
+    rescue_running_at   = Column(String, default="")
 
 
 class AsanaProjectMap(Base):

@@ -20,6 +20,7 @@ import { CheckSquare, Clock, Users } from "lucide-react";
 import { loginRequest } from "../authConfig";
 import { useBranding } from "../lib/queries";
 import { BFF_MODE, clearSignedOutMarker } from "../bffAuth";
+import { externalAuthPost, useResendTimer } from "../lib/externalAuth";
 
 // Accent is a Global Admin-configurable setting (AdminPanel -> Branding), not
 // hardcoded - see backend/routers/branding.py. The hero panel needs three
@@ -34,6 +35,15 @@ const ACCENT_PALETTES = {
 export default function LoginPage() {
   const { instance } = useMsal();
   const [on, setOn] = useState(false);
+  // One-shot notice for an account Nexus refused (external allowlist, Aug 17):
+  // the person authenticated with Microsoft but isn't enrolled/active in Nexus.
+  const [denied] = useState(() => {
+    try {
+      const d = sessionStorage.getItem('nexus:access-denied') || '';
+      sessionStorage.removeItem('nexus:access-denied');
+      return d;
+    } catch { return ''; }
+  });
   const { data: branding } = useBranding();
   const accent = branding?.accent === "blue" ? "blue" : "green";
 
@@ -59,6 +69,53 @@ export default function LoginPage() {
       return;
     }
     instance.loginRedirect(loginRequest);
+  };
+
+  // ── Partner Sign-In (Aug 18): passwordless flow for EXTERNAL users ─────────
+  // Two quiet screens under the Microsoft button: email -> 6-digit code (SMS
+  // to their verified phone via sent.dm, else email). Employees' MSAL flow is
+  // untouched; the server always answers the email step generically, so this
+  // screen can never confirm whether an account exists.
+  const [partner, setPartner] = useState(null);         // null | 'email' | 'switch' | 'code'
+  const [pEmail, setPEmail] = useState('');
+  const [pCode, setPCode] = useState('');
+  const [pBusy, setPBusy] = useState(false);
+  const [pError, setPError] = useState('');
+  // Account-switch confirmation (Aug 18): a browser already signed in as a
+  // DIFFERENT account must confirm before the code sign-in replaces that
+  // session. pSwitch holds who is signed in; pSwitchOk remembers Continue so
+  // a resend doesn't re-ask.
+  const [pSwitch, setPSwitch] = useState(null);
+  const [pSwitchOk, setPSwitchOk] = useState(false);
+  const [resendLeft, startResend] = useResendTimer();
+
+  const exitPartner = () => { setPartner(null); setPSwitch(null); setPSwitchOk(false); setPError(''); };
+
+  const partnerRequest = async (channel = '') => {
+    if (!pEmail.trim() || !pEmail.includes('@')) { setPError('Enter your email address.'); return; }
+    setPBusy(true); setPError('');
+    try {
+      const d = await externalAuthPost('/external-auth/request-code', { email: pEmail.trim(), channel });
+      setPCode(''); startResend(30);
+      if (d.sessionConflict && d.signedInAs && !pSwitchOk) {
+        setPSwitch(d.signedInAs);
+        setPartner('switch');
+      } else {
+        setPartner('code');
+      }
+    } catch { setPError('Could not reach the server - try again.'); }
+    setPBusy(false);
+  };
+
+  const partnerVerify = async () => {
+    setPBusy(true); setPError('');
+    try {
+      await externalAuthPost('/external-auth/login-verify', { email: pEmail.trim(), code: pCode.trim() });
+      window.location.assign('/');
+    } catch (e) {
+      setPError(e.message || 'Invalid or expired code.');
+      setPBusy(false);
+    }
   };
 
   const P = ACCENT_PALETTES[accent];
@@ -98,10 +155,18 @@ export default function LoginPage() {
       <main className="nxl-stage">
         <div className="nxl-stage-inner">
           <div className="nxl-badge" style={{ "--i": 0 }} aria-hidden="true">N</div>
+
+          {partner === null && (<>
           <h1 className="nxl-title" style={{ "--i": 1 }}>Welcome to Nexus</h1>
           <p className="nxl-sub" style={{ "--i": 2 }}>
             Sign in with your work account to continue.
           </p>
+
+          {denied && (
+            <p role="alert" style={{ margin: '0 0 14px', padding: '10px 14px', borderRadius: 10, background: '#fef2f2', border: '1px solid #fecaca', color: '#b91c1c', fontSize: 13, lineHeight: 1.5, maxWidth: 340 }}>
+              {denied}
+            </p>
+          )}
 
           <button className="nxl-cta" style={{ "--i": 3 }} onClick={signIn}>
             <svg width="18" height="18" viewBox="0 0 21 21" fill="none" aria-hidden="true">
@@ -116,6 +181,74 @@ export default function LoginPage() {
           <p className="nxl-note" style={{ "--i": 4 }}>
             Single sign-on with your work account · Microsoft Entra ID
           </p>
+          <button onClick={() => { setPartner('email'); setPError(''); }}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12.5, fontWeight: 600, color: '#6b7280', textDecoration: 'underline', padding: '2px 4px', marginBottom: 8 }}>
+            Partner Sign-In
+          </button>
+          </>)}
+
+          {partner === 'email' && (<>
+          <h1 className="nxl-title" style={{ "--i": 1 }}>Partner Sign-In</h1>
+          <p className="nxl-sub" style={{ "--i": 2 }}>
+            For invited external partners. Enter your email and we'll send you a one-time code.
+          </p>
+          <input type="email" autoFocus value={pEmail} placeholder="you@yourcompany.com"
+            onChange={e => setPEmail(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') partnerRequest(); }}
+            style={{ width: '100%', maxWidth: 340, boxSizing: 'border-box', padding: '12px 14px', borderRadius: 10, border: '1px solid #d1d5db', fontSize: 14, fontFamily: 'inherit', marginBottom: 12 }} />
+          {pError && <p role="alert" style={{ margin: '0 0 12px', fontSize: 12.5, fontWeight: 600, color: '#b91c1c' }}>{pError}</p>}
+          <button className="nxl-cta" style={{ "--i": 3 }} disabled={pBusy} onClick={() => partnerRequest()}>Send Code</button>
+          <button onClick={exitPartner}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12.5, fontWeight: 600, color: '#6b7280', textDecoration: 'underline', padding: '8px 4px' }}>
+            Back to Microsoft Sign-In
+          </button>
+          </>)}
+
+          {partner === 'switch' && pSwitch && (<>
+          <h1 className="nxl-title" style={{ "--i": 1 }}>Switch accounts?</h1>
+          <p className="nxl-sub" style={{ "--i": 2 }}>
+            You are signed in as <strong>{pSwitch.name}</strong>. Continuing signs that account out
+            on this browser and signs in as <strong>{pEmail.trim()}</strong>.
+          </p>
+          <button className="nxl-cta" style={{ "--i": 3 }} onClick={() => { setPSwitchOk(true); setPartner('code'); }}>
+            Continue
+          </button>
+          <button onClick={exitPartner}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12.5, fontWeight: 600, color: '#6b7280', textDecoration: 'underline', padding: '8px 4px' }}>
+            Cancel
+          </button>
+          <p className="nxl-note" style={{ "--i": 4 }}>
+            Cancel leaves your current sign-in untouched.
+          </p>
+          </>)}
+
+          {partner === 'code' && (<>
+          <h1 className="nxl-title" style={{ "--i": 1 }}>Enter your code</h1>
+          <p className="nxl-sub" style={{ "--i": 2 }}>
+            If this account exists, a 6-digit code was sent to the contact on file - check your phone and your email (including spam).
+          </p>
+          <input inputMode="numeric" autoFocus maxLength={6} value={pCode} placeholder="______"
+            onChange={e => setPCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+            onKeyDown={e => { if (e.key === 'Enter' && pCode.length === 6) partnerVerify(); }}
+            style={{ width: '100%', maxWidth: 240, boxSizing: 'border-box', padding: '12px 14px', borderRadius: 10, border: '1px solid #d1d5db', fontSize: 24, letterSpacing: 10, textAlign: 'center', fontWeight: 700, fontFamily: 'inherit', marginBottom: 12 }} />
+          {pError && <p role="alert" style={{ margin: '0 0 12px', fontSize: 12.5, fontWeight: 600, color: '#b91c1c' }}>{pError}</p>}
+          <button className="nxl-cta" style={{ "--i": 3 }} disabled={pBusy || pCode.length !== 6} onClick={partnerVerify}>Verify and Sign In</button>
+          <div style={{ display: 'flex', gap: 14, justifyContent: 'center', flexWrap: 'wrap', marginTop: 4 }}>
+            <button disabled={pBusy || resendLeft > 0} onClick={() => partnerRequest()}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12.5, fontWeight: 600, color: '#6b7280', textDecoration: 'underline', padding: '6px 4px', opacity: resendLeft ? 0.5 : 1 }}>
+              {resendLeft > 0 ? `Resend in ${resendLeft}s` : 'Resend Code'}
+            </button>
+            <button disabled={pBusy || resendLeft > 0} onClick={() => partnerRequest('email')}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12.5, fontWeight: 600, color: '#6b7280', textDecoration: 'underline', padding: '6px 4px', opacity: resendLeft ? 0.5 : 1 }}>
+              Send to My Email Instead
+            </button>
+            <button disabled={pBusy} onClick={() => { setPartner('email'); setPError(''); }}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12.5, fontWeight: 600, color: '#6b7280', textDecoration: 'underline', padding: '6px 4px' }}>
+              Different Email
+            </button>
+          </div>
+          </>)}
+
           <p className="nxl-foot" style={{ "--i": 5 }}>Secure company workspace</p>
           <p className="nxl-legal" style={{ "--i": 6 }}>
             <a href="/privacy">Privacy Policy</a>

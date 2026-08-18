@@ -22,8 +22,13 @@ export const msalConfig = {
 
 export const loginRequest = {
   scopes: ["User.Read"],
-  // No prompt override: with an active Entra session the redirect completes
-  // silently. Entra shows its account picker on its own when it's ambiguous.
+  // Always show the Microsoft account picker on the INTERACTIVE sign-in
+  // (Aug 18): with a live Entra session the silent completion signed people
+  // into whichever account the browser already held - Pranshu's guest test
+  // got SSO'd into his work account and never got to pick the invited Gmail.
+  // Interactive login only - silent token acquisition must never carry a
+  // prompt, or it would stop being silent.
+  prompt: "select_account",
 };
 
 // Scopes used to acquire the ID token sent to the Nexus backend

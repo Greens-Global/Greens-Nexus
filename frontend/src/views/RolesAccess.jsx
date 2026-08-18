@@ -1,8 +1,9 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Shield, Plus, X, Search, Loader2, Pencil, Trash2, UserPlus, Check, ChevronRight, ChevronDown,
-  LayoutGrid, Copy, MonitorOff, PlayCircle, Users, User, TrendingUp,
+  LayoutGrid, Copy, MonitorOff, PlayCircle, Users, User, TrendingUp, MailPlus,
 } from 'lucide-react';
+import { InviteExternalModal, ExternalPersonSection, ExternalBadge, inviteOutcomeToast } from './ExternalUsersPanel';
 import { api } from '../api';
 import { dialog } from '../ui/dialog';
 import { usePeopleDirectory } from '../lib/queries';
@@ -93,6 +94,7 @@ function bundleSummary(allowed) {
   return parts.join('  ·  ') || 'No access yet';
 }
 
+// Externals live INSIDE the People tab (Visesh, Aug 18) - no separate tab.
 const TABS = [['people', 'People', User], ['jobroles', 'Roles', Shield], ['groups', 'Groups', Users], ['audit', 'Audit', LayoutGrid]];
 
 export default function RolesAccess({ embedded = false }) {
@@ -130,6 +132,12 @@ export default function RolesAccess({ embedded = false }) {
 
   const loadRoles = () => api.getJobRoles().then(setJobRoles).catch(() => setJobRoles([]));
   const loadGroups = () => api.getGroups().then(gs => setGroups(gs.filter(g => !g.is_job_role))).catch(() => setGroups([]));
+  // External (B2B guest) users - excluded from the people directory by design,
+  // so the People tab pulls them from the admin endpoint and merges them in
+  // (Visesh, Aug 18: externals belong in the People tab, granted through the
+  // same roles/groups machinery as everyone else).
+  const [externals, setExternals] = useState([]);
+  const loadExternals = () => api.getExternalUsers().then(setExternals).catch(() => setExternals([]));
   // email -> { role, pinned }: each member's actual tier + whether it's a
   // per-person override, so a role's member list can show and change tiers.
   const [roleMap, setRoleMap] = useState({});
@@ -138,7 +146,7 @@ export default function RolesAccess({ embedded = false }) {
     setRoleMap(m);
   }).catch(() => {});
   useEffect(() => {
-    loadRoles(); loadGroups(); loadRoleMap();
+    loadRoles(); loadGroups(); loadRoleMap(); loadExternals();
   }, []);
 
   // Which tiers this admin may grant (mirrors the backend: owner gives any, others
@@ -157,8 +165,8 @@ export default function RolesAccess({ embedded = false }) {
     catch (e) { toastErr(e?.message || 'Could not reset.'); }
   }
 
-  const people = useMemo(() => (dir || [])
-    .map(p => ({
+  const people = useMemo(() => {
+    const staff = (dir || []).map(p => ({
       email: (p.email || p.workEmail || '').toLowerCase(),
       name: p.display_name || p.name || p.fullName || p.email || p.workEmail || '',
       title: p.job_title || p.jobTitle || p.title || '',
@@ -166,9 +174,22 @@ export default function RolesAccess({ embedded = false }) {
       companyName: p.companyName || '',
       dept: p.department || '',
       photo: p.photoUrl || p.photo_url || '',
-    }))
-    .filter(p => p.email)
-    .sort((a, b) => a.name.localeCompare(b.name)), [dir]);
+    }));
+    // Externals merge in with an External department (so the department filter
+    // gains an "External" option) and their partner company as the company
+    // (synthetic ext: id keeps them out of the HrEntity id space).
+    const ext = (externals || []).map(x => ({
+      email: (x.email || '').toLowerCase(),
+      name: x.name || x.email || '',
+      title: x.company ? `External - ${x.company}` : 'External user',
+      company: x.company ? `ext:${x.company.toLowerCase()}` : '',
+      companyName: x.company || '',
+      dept: 'External',
+      photo: '',
+      external: x,
+    }));
+    return [...staff, ...ext].filter(p => p.email).sort((a, b) => a.name.localeCompare(b.name));
+  }, [dir, externals]);
 
   // email → photo, for the member chips (role + group members arrive as emails).
   const photoOf = useMemo(() => Object.fromEntries(people.map(p => [p.email, p.photo])), [people]);
@@ -376,7 +397,8 @@ export default function RolesAccess({ embedded = false }) {
       {sub === 'people' && (
         <PeopleTab people={scopedPeople} membership={membership} jobRoles={jobRoles} groups={groups}
           person={person} setPerson={setPerson} nameOf={nameOf} photoOf={photoOf}
-          onChanged={() => { loadRoles(); loadGroups(); }} toastOk={toastOk} toastErr={toastErr} />
+          onChanged={() => { loadRoles(); loadGroups(); }} onExternalsChanged={loadExternals}
+          toastOk={toastOk} toastErr={toastErr} />
       )}
 
       {/* ── JOB ROLES ── */}
@@ -576,7 +598,7 @@ export default function RolesAccess({ embedded = false }) {
 }
 
 // ── PEOPLE tab - search a person, see and change their access ────────────────
-function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, nameOf, photoOf = {}, onChanged, toastOk, toastErr }) {
+function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, nameOf, photoOf = {}, onChanged, onExternalsChanged, toastOk, toastErr }) {
   const { assignRole, myLevel, can } = useRole();
   const [q, setQ] = useState('');
   const [co, setCo] = useState('');       // company (entity id) filter
@@ -584,6 +606,10 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
   const [eff, setEff] = useState(null);
   const [busy, setBusy] = useState(false);
   const [promoteOpen, setPromoteOpen] = useState(false);
+  // External (B2B guest) support: the selected person's external record (if
+  // any) drives the extra panel section; the invite modal enrolls a new one.
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const extRec = useMemo(() => people.find(p => p.email === person)?.external || null, [people, person]);
   // Which tiers this admin may hand out (mirrors the backend guard: owners give
   // any, others only strictly below their own level).
   const canAssignTier = t => can('owner') || (ROLES[t]?.level ?? 1) < myLevel;
@@ -655,9 +681,16 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
     <div className="ra-people" style={{ display: 'grid', gridTemplateColumns: '360px 1fr', gap: 18 }}>
       {/* left: search + people list */}
       <div style={{ alignSelf: 'start' }}>
-        <div data-tour="people-search" style={{ position: 'relative', marginBottom: 12 }}>
-          <Search size={15} style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
-          <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search anyone…" style={{ ...input, paddingLeft: 34 }} />
+        <div data-tour="people-search" style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+          <div style={{ position: 'relative', flex: 1 }}>
+            <Search size={15} style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
+            <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search anyone…" style={{ ...input, paddingLeft: 34 }} />
+          </div>
+          <button className="secondary-btn" onClick={() => setInviteOpen(true)}
+            title="Invite a partner-company person as a Microsoft guest - they appear here like anyone else"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 13px', fontSize: 12.5, whiteSpace: 'nowrap' }}>
+            <MailPlus size={14} /> Invite External User
+          </button>
         </div>
         <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 6, maxHeight: '64vh', overflow: 'auto' }}>
           {!people.length ? <Spinner /> : filtered.length === 0 ? <Empty text="No matches." /> : filtered.slice(0, 120).map(p => {
@@ -668,7 +701,10 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
                 style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 11px', borderRadius: 10, border: 'none', width: '100%', textAlign: 'left', background: active ? 'color-mix(in srgb, var(--ink) 8%, transparent)' : 'none', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
                 <Avatar name={p.name} src={p.photo} size={28} />
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 700, fontSize: 13 }}>{p.name}</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700, fontSize: 13 }}>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+                    {p.external && <ExternalBadge />}
+                  </div>
                   <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {mem?.role ? mem.role.name : (p.title || 'No job role yet')}
                     {mem?.groups?.length ? `  ·  +${mem.groups.length} ${mem.groups.length === 1 ? 'group' : 'groups'}` : ''}
@@ -698,10 +734,19 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
         ) : (
           <>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-              <Avatar name={nameOf(eff.email)} src={photoOf[eff.email]} size={34} />
-              <h3 style={{ fontSize: 17, fontWeight: 800, flex: 1, minWidth: 140 }}>{nameOf(eff.email)}</h3>
-              <TierBadge tier={eff.tier} />
+              <Avatar name={extRec?.name || nameOf(eff.email)} src={photoOf[eff.email]} size={34} />
+              <h3 style={{ fontSize: 17, fontWeight: 800, flex: 1, minWidth: 140 }}>{extRec?.name || nameOf(eff.email)}</h3>
+              {/* Externals are badged "External", never a tier name (Visesh, Aug 18). */}
+              {extRec ? <ExternalBadge /> : <TierBadge tier={eff.tier} />}
             </div>
+
+            {/* External guest: invite state + lifecycle actions. Everything
+                below (job role, tier, groups) is the same for everyone. */}
+            {extRec && (
+              <ExternalPersonSection ext={extRec} toastOk={toastOk} toastErr={toastErr}
+                onChanged={() => { onExternalsChanged?.(); refresh(); }}
+                onRemoved={() => { setPerson(null); onExternalsChanged?.(); onChanged(); }} />
+            )}
 
             <div style={sectLabel}>Job role - the baseline</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
@@ -725,6 +770,11 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
                 onDone={r => { setPromoteOpen(false); toastOk(`${nameOf(person)} is now “${r.name}”.`); refresh(); }} />
             )}
 
+            {/* Seniority tier is meaningless for externals: the server hard-caps
+                them at employee level regardless, so offering the override
+                selector would just mislead. The External section above already
+                labels what they are. */}
+            {!extRec && (<>
             <div style={sectLabel}>Seniority tier</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
               <TierBadge tier={eff.tier} />
@@ -747,6 +797,7 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
                 ? 'Set directly for this person - editing the job role’s tier won’t change them.'
                 : 'Follows their job role. Override it here to give this person a different tier while keeping them in the same role.'}
             </div>
+            </>)}
 
             <div style={sectLabel}>Extra groups - added on top</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -788,6 +839,17 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
           </>
         )}
       </div>
+
+      {inviteOpen && (
+        <InviteExternalModal initial={null}
+          onClose={() => setInviteOpen(false)}
+          onSaved={(result) => {
+            setInviteOpen(false);
+            inviteOutcomeToast(result, toastOk, toastErr);
+            onExternalsChanged?.();
+            if (result?.email) setPerson(result.email);
+          }} />
+      )}
     </div>
   );
 }

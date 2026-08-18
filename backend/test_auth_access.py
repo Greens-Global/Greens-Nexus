@@ -62,6 +62,14 @@ KNOWN_PUBLIC = {
     "/timeclock/agent/uninstall.ps1",       # no secrets - only touches the local machine that fetches it
     "/timeclock/agent/self-enroll",         # shared enrollment key gate (secrets.compare_digest); box has no Nexus login yet
     "/timeclock/agent/release",             # shared publish-key gate (secrets.compare_digest); called by CI, no user session
+    # External passwordless auth (Aug 18): pre-login by definition. The emailed
+    # single-use activation token / 6-digit code IS the credential; hashed at
+    # rest, rate-limited via DB counts, generic anti-enumeration responses.
+    "/external-auth/activate/lookup",
+    "/external-auth/activate/send-code",
+    "/external-auth/activate/verify",
+    "/external-auth/request-code",
+    "/external-auth/login-verify",
 }
 
 _AUTH_DEP_NAMES = ("get_current_user", "_check", "get_agent_device")

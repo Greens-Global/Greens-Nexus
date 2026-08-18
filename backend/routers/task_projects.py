@@ -111,7 +111,8 @@ def list_projects(user: dict = Depends(get_current_user), db: Session = Depends(
     rows = db.query(models.TaskProject).all()
     if is_manager(user):
         return [project_to_dict(p) for p in rows]
-    visible = visible_project_ids(db, user["email"])
+    # User dict, not email: externals only see projects they explicitly belong to (Aug 17).
+    visible = visible_project_ids(db, user)
     return [project_to_dict(p) for p in rows if p.id in visible]
 
 

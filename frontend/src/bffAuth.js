@@ -257,6 +257,17 @@ export async function bffBootstrap() {
         return false;   // 200 but no identity -> treat as anonymous
       }
       if (res.status === 401) return false;   // genuinely signed out -> login screen
+      if (res.status === 403) {
+        // Signed in to Microsoft fine, but Nexus refused the ACCOUNT (external
+        // allowlist, Aug 17: a tenant guest who isn't enrolled/active). Not a
+        // transient error - retrying can never fix it. Land on the sign-in
+        // screen with the server's explanation instead of a 23s spinner.
+        try {
+          const d = await res.json();
+          sessionStorage.setItem('nexus:access-denied', d?.detail || 'This account does not have Nexus access.');
+        } catch { /* body unreadable - the login screen shows a generic notice */ }
+        return false;
+      }
       // 5xx / other -> backend still coming up, keep retrying
     } catch { /* network error -> backend unreachable, keep retrying */ }
   }

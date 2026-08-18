@@ -1,6 +1,6 @@
 import { forwardRef, useState, useEffect } from "react";
 import { useMsal } from "@azure/msal-react";
-import { useRole, ROLES } from "../contexts/RoleContext";
+import { useRole, ROLES, EXTERNAL_ROLE_META } from "../contexts/RoleContext";
 import { api } from "../api";
 import {
   LayoutDashboard, UserCheck, ShoppingCart, CheckSquare, BookOpen,
@@ -154,7 +154,7 @@ export const NAV = [
 
 const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate, isOpen, onClose, collapsed, onToggleCollapse }, ref) {
   const { accounts } = useMsal();
-  const { myRole, can, myGrantedModules } = useRole();
+  const { myRole, can, myGrantedModules, isExternal } = useRole();
   // Dev-only Testing module: ask the backend once whether it's enabled here.
   const [qaEnabled, setQaEnabled] = useState(false);
   useEffect(() => { api.qaEnabled().then(r => setQaEnabled(!!r?.enabled)).catch(() => {}); }, []);
@@ -162,7 +162,8 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
   const displayName = account?.name ?? account?.username ?? "User";
   const initials    = displayName.split(" ").map(p => p[0]).slice(0, 2).join("").toUpperCase();
   const firstName   = displayName.split(" ")[0];
-  const roleLabel   = ROLES[myRole]?.label ?? 'Employee';
+  // External guests read "External", never a tier name (Visesh, Aug 18).
+  const roleLabel   = isExternal ? EXTERNAL_ROLE_META.label : (ROLES[myRole]?.label ?? 'Employee');
 
   function renderIcon(item, size = 17) {
     return item.icon
@@ -244,7 +245,12 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
               // slot, mirroring the NAV grouping (my desk / work / modules / system).
               const KICKERS = ['My desk', 'Work', 'Modules', 'System'];
               let group = 0;
-              const visible = NAV.filter(item => (!item.qaGated || qaEnabled) && (!item.minRole || can('administrator') || myGrantedModules.has(item.view)));
+              // External (B2B guest) accounts: ONLY explicitly granted modules -
+              // no baseline screens (Dashboard/Time Clock/My HR are internal-only).
+              // Mirrors the server's path allowlist in auth.apply_external_policy.
+              const visible = NAV.filter(item => (!item.qaGated || qaEnabled) && (isExternal
+                ? (!item.divider && myGrantedModules.has(item.view))
+                : (!item.minRole || can('administrator') || myGrantedModules.has(item.view))));
               const out = [];
               if (!collapsed && visible.length && !visible[0].divider) {
                 out.push(<li key="k0" className="nav-kicker">{KICKERS[0]}</li>);
