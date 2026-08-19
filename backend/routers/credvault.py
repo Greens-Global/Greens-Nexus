@@ -21,7 +21,6 @@ import secrets as _secrets
 import uuid
 from datetime import datetime, timezone, timedelta
 
-import httpx
 from cryptography.fernet import Fernet, InvalidToken
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -146,14 +145,13 @@ OTP_MAX_ATTEMPTS    = 5
 OTP_RESEND_COOLDOWN_SEC = 30
 PERSONAL_UNLOCK_TTL_SEC = int(os.getenv("NEXUS_VAULT_PERSONAL_TTL_SEC", "600"))  # server ceiling; the UI auto-locks sooner (2 min idle)
 
-# sent.dm SMS - account is still pending 10DLC compliance approval as of Aug
-# 2026 (see the "Update Compliance Information" email). Until SENTDM_API_KEY
-# is set, SMS is STUBBED: the code is logged server-side (and, off Azure only,
-# returned to the caller as `devCode`) instead of actually being texted - so
-# the whole flow is wired end-to-end and going live is just adding the key.
-# https://docs.sent.dm/start/guides/sending-messages
-_SENTDM_API_KEY = os.getenv("SENTDM_API_KEY", "").strip()
-_SENTDM_URL = "https://api.sent.dm/v3/messages"
+# sent.dm SMS goes through the ONE shared client (backend/sentdm.py) - same
+# x-api-key auth and the same NEXUS_SENTDM_KEY as external login. This file
+# used to carry its own copy with a different env var (SENTDM_API_KEY), so
+# the two SMS surfaces could never both be configured at once. Until the key
+# is set, SMS is STUBBED off Azure (code logged + returned as `devCode`) and
+# fail-closed on a deployed API ("use Email").
+import sentdm as _sentdm
 
 
 def _gen_otp_code() -> str:
@@ -193,26 +191,20 @@ def _verify_password(password: str, stored: str) -> bool:
     return _secrets.compare_digest(dk.hex(), hexhash)
 
 
-def _send_sms_or_stub(phone: str, text: str, code: str) -> str:
+def _send_sms_or_stub(phone: str, code: str) -> str:
     """Sends via sent.dm when configured. Returns the code when it instead ran
     the dev stub (so local testing works without a live SMS account) - the
     caller surfaces that as `devCode`; empty string means a real send happened."""
-    if _SENTDM_API_KEY:
-        try:
-            resp = httpx.post(
-                _SENTDM_URL, json={"to": [phone], "text": text, "channel": ["sms"]},
-                headers={"x-api-key": _SENTDM_API_KEY, "Content-Type": "application/json"},
-                timeout=10,
-            )
-            resp.raise_for_status()
-        except Exception as e:
-            print(f"[credvault] sent.dm SMS failed: {e}")
+    if _sentdm.configured():
+        ok, err = _sentdm.send_vault_code(phone, code)
+        if not ok:
+            print(f"[credvault] sent.dm SMS failed: {err}")
             raise HTTPException(502, "Could not send the SMS code - please try Email instead.")
         return ""
     if _ON_AZURE:
-        print("[credvault] SENTDM_API_KEY not set on a DEPLOYED API - SMS code NOT sent (fail-closed)")
+        print("[credvault] NEXUS_SENTDM_KEY not set on a DEPLOYED API - SMS code NOT sent (fail-closed)")
         raise HTTPException(503, "SMS verification isn't configured on this deployment yet - use Email instead.")
-    print(f"[credvault] SMS STUB (SENTDM_API_KEY not set) - code for {phone}: {code}")
+    print(f"[credvault] SMS STUB (NEXUS_SENTDM_KEY not set) - code for {phone}: {code}")
     return code
 
 
@@ -259,7 +251,7 @@ def _create_otp_challenge(db: Session, email: str, purpose: str, channel: str) -
         phone = (emp.phone if emp else "").strip()
         if not phone:
             raise HTTPException(400, "No phone number on file for SMS - use Email instead, or ask HR to add one.")
-        dev_code = _send_sms_or_stub(phone, f"Your Greens Nexus Credential Vault code is {code}. It expires in 10 minutes.", code)
+        dev_code = _send_sms_or_stub(phone, code)
         target, masked = phone, _mask_phone(phone)
     else:
         channel = "email"

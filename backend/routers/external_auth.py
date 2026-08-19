@@ -267,7 +267,11 @@ def _deliver_code(db, emp: NexusEmployee, purpose: str, ip: str,
         ok, err = sentdm.send_code(phone, code)
         if ok:
             return "sms", True
+        # Audited, not just printed: this degrade was invisible for a day on
+        # prod (every SMS failed on a wrong auth header and the only trace was
+        # a log line nobody reads). No code in the row - the reason only.
         print(f"[external-auth] SMS delivery degraded to email for {email}: {err}")
+        _audit(db, email, "external_sms_degraded", err, ip)
 
     code = _issue_code(db, email, purpose, "email", ip)
     try:
