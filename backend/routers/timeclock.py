@@ -4560,6 +4560,53 @@ def record_bod(body: BodIn, user: dict = Depends(get_current_user), db: Session 
     return {"ok": True, "id": row.id, "sent": bool(row.sent), "queued": queued}
 
 
+@router.get("/my-chats")
+def my_chats(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """The caller's Teams chats, listed SERVER-SIDE through the same delegated
+    Graph token the BOD/EOD delivery queue uses (bff_session.graph_token_for_
+    email redeems the session's refresh token for Chat.ReadBasic). The shift-
+    group binding picker used to do this in the browser with MSAL (silent ->
+    popup) and swallowed the reason when that failed - popup blocked, stale
+    MSAL cache, iframe timeout - so on prod the picker just said "Could not
+    load your Teams chats" (08/19). A person who can log in has a session RT
+    the server can redeem; no browser token dance, no prompt. Returns
+    {"chats": [...], "reason": ""} - reason set (and chats empty) when no
+    token can be minted, so the client can fall back to MSAL and say why.
+    Sync def: outbound HTTP stays off the event loop."""
+    import bff_session
+    email = (user.get("email") or "").lower()
+    tok = ""
+    try:
+        tok = bff_session.graph_token_for_email(db, email)
+    except Exception as e:  # noqa: BLE001 - a failed mint is a reason, not a 500
+        return {"chats": [], "reason": f"could not mint a Graph token from your session ({type(e).__name__})"}
+    if not tok:
+        return {"chats": [], "reason": "no server-side Graph session (cookie login missing or consent revoked)"}
+    try:
+        r = httpx.get(f"https://graph.microsoft.com/v1.0/me/chats?$expand=members&$top=50",
+                      headers={"Authorization": f"Bearer {tok}"}, timeout=15)
+    except Exception as e:  # noqa: BLE001
+        return {"chats": [], "reason": f"Graph unreachable ({type(e).__name__})"}
+    if r.status_code >= 400:
+        return {"chats": [], "reason": f"Graph {r.status_code}: {r.text[:160]}"}
+    me_id = ""
+    try:
+        me = httpx.get("https://graph.microsoft.com/v1.0/me?$select=id",
+                       headers={"Authorization": f"Bearer {tok}"}, timeout=10)
+        me_id = (me.json() or {}).get("id", "") if me.status_code < 400 else ""
+    except Exception:  # noqa: BLE001
+        pass
+    out = []
+    for c in (r.json() or {}).get("value", []):
+        others = [m.get("displayName") for m in (c.get("members") or [])
+                  if m.get("userId") and m.get("userId") != me_id and m.get("displayName")]
+        name = c.get("topic") or (", ".join(others) if others else
+                                  ("Direct chat" if c.get("chatType") == "oneOnOne" else "Group chat"))
+        out.append({"id": c.get("id"), "chatType": c.get("chatType"), "name": name})
+    out.sort(key=lambda x: 0 if x["chatType"] == "group" else 1)
+    return {"chats": out, "reason": ""}
+
+
 @router.get("/bod/last")
 def last_bod(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """The employee's previous BOD post - prefills the channel picker."""

@@ -1040,6 +1040,8 @@ export const api = {
   timeApprovalRevoke: (id)       => req(`/timeclock/approvals/${id}`, { method: 'PATCH' }),
   timeBodRecord:     (data)      => req('/timeclock/bod', { method: 'POST', body: JSON.stringify(data) }),
   timeBodLast:       ()          => req('/timeclock/bod/last'),
+  // My Teams chats, listed server-side via the session's Graph token (no MSAL popup).
+  timeMyChats:       ()          => req('/timeclock/my-chats', { timeoutMs: 30000 }),
   timeBodTemplate:   (kind)      => req(`/timeclock/bod/template?kind=${kind || 'bod'}`),
   // Sign-in company-policy & monitoring acknowledgment
   policyStatus:      ()          => req('/policy/status'),
