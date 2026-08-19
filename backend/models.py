@@ -1529,7 +1529,7 @@ class TimeBod(Base):
     __tablename__ = "time_bod"
     id             = Column(String, primary_key=True)   # uuid
     employee_email = Column(String, nullable=False, index=True)
-    kind           = Column(String, default="bod")      # bod | eod
+    kind           = Column(String, default="bod")      # bod | eod | break | break_end
     local_date     = Column(String, default="")
     message        = Column(String, default="")
     tasks          = Column(String, default="")
