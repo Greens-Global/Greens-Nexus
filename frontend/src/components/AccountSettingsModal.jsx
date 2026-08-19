@@ -17,6 +17,7 @@ export default function AccountSettingsModal({ onClose, initialResult = "", init
   // Result of the live "would this actually post as me" probe. Null until asked.
   const [check, setCheck] = useState(null);
   const [coverage, setCoverage] = useState(null);   // "is everything Asana assigns me in Nexus?"
+  const [rescue, setRescue] = useState(null);       // result of "Bring These Into Nexus"
   const [error, setError] = useState(initialReason || "");
   // "connected" | "denied" | "error" - set when we've just come back from
   // Asana's consent screen, so the outcome is visible rather than silent.
@@ -43,9 +44,21 @@ export default function AccountSettingsModal({ onClose, initialResult = "", init
   }
 
   async function runCoverage() {
-    setBusy('coverage'); setError(''); setCoverage(null);
+    setBusy('coverage'); setError(''); setCoverage(null); setRescue(null);
     try { setCoverage(await api.asanaOauthCoverage()); }
     catch (e) { setError(e.message || 'Could not count your Asana tasks.'); }
+    finally { setBusy(''); }
+  }
+
+  // Pull the missing ones in through my own grant, then recount so the list
+  // shrinks in front of the person rather than asking them to trust a number.
+  async function runRescue() {
+    setBusy('rescue'); setError(''); setRescue(null);
+    try {
+      const r = await api.asanaOauthRescue();
+      setRescue(r);
+      if (r?.ok) setCoverage(await api.asanaOauthCoverage());
+    } catch (e) { setError(e.message || 'Could not bring the tasks in.'); }
     finally { setBusy(''); }
   }
 
@@ -195,6 +208,23 @@ export default function AccountSettingsModal({ onClose, initialResult = "", init
                           : <> Not in Nexus: <strong>{coverage.missing}</strong> ({coverage.missingOpen} open).</>}
                       </span>
                     </div>
+                    {coverage.missing > 0 && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8, flexWrap: 'wrap' }}>
+                        <button onClick={runRescue} disabled={!!busy}
+                          style={{ background: 'var(--pine)', color: '#fff', border: 'none', borderRadius: 8, padding: '6px 12px', fontSize: 12.5, fontWeight: 700, cursor: busy ? 'default' : 'pointer', fontFamily: 'inherit' }}>
+                          {busy === 'rescue' ? 'Bringing them in…' : `Bring These ${coverage.missing} Into Nexus`}
+                        </button>
+                        <span style={{ fontSize: 12, color: 'var(--muted)' }}>Uses your Asana account. Tasks from archived or unimported projects land as personal tasks tagged with the project name.</span>
+                      </div>
+                    )}
+                    {rescue && (
+                      <div style={{ display: 'flex', gap: 6, marginTop: 8, fontSize: 12, lineHeight: 1.5, color: rescue.ok ? 'hsl(var(--color-green, 145 60% 36%))' : 'hsl(var(--color-amber, 38 92% 40%))' }}>
+                        {rescue.ok ? <Check size={13} style={{ flexShrink: 0, marginTop: 1 }} /> : <AlertTriangle size={13} style={{ flexShrink: 0, marginTop: 1 }} />}
+                        <span>{rescue.ok
+                          ? <>Brought in <strong>{rescue.created}</strong> task(s){rescue.comments ? ` with ${rescue.comments} comment(s)` : ''}{rescue.attachments ? ` and ${rescue.attachments} attachment(s)` : ''}. Reload the Tasks screen to see them.</>
+                          : (rescue.reason || 'Could not bring the tasks in.')}</span>
+                      </div>
+                    )}
                     {coverage.missing > 0 && (
                       <div style={{ marginTop: 6, maxHeight: 220, overflowY: 'auto', border: '1px solid var(--line)', borderRadius: 8 }}>
                         {coverage.missingTasks.map((m) => (

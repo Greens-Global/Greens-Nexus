@@ -341,7 +341,11 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
           )}
         </div>
       )}
-      {searchOpen && searchQuery.trim().length >= 2 && searchResults.length === 0 && hitCount === 0 && (
+      {/* "No results" only once the answer for THIS text is back - while the
+          request is in flight the panel above shows the searching line instead.
+          Saying "no results" during the debounce made every search flash a
+          denial before the rows arrived. */}
+      {searchOpen && !searching && searchQuery.trim().length >= 2 && searchResults.length === 0 && hitCount === 0 && (
         <div style={{ ...panelStyle, padding: '12px 14px', fontSize: 13, color: 'var(--muted)', textAlign: 'center' }}>
           No results for "{searchQuery}"
         </div>

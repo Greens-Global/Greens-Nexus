@@ -4495,7 +4495,7 @@ class BodIn(BaseModel):
 @router.post("/bod")
 def record_bod(body: BodIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     now = _now_iso()
-    kind = body.kind if body.kind in ("bod", "eod", "break") else "bod"
+    kind = body.kind if body.kind in ("bod", "eod", "break", "break_end") else "bod"
     chan_id = (body.channel_id or "")[:120]
     chan_name = (body.channel_name or "")[:120]
     # Server-side chat resolution fallback: if the client didn't hand us a chat

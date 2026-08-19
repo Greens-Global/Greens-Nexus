@@ -1122,6 +1122,40 @@ def _run_migrations():
             except Exception as e:
                 conn.rollback()
                 print(f"[migration] skipped: {e}")
+        _enable_rls_everywhere(conn)
+
+
+def _enable_rls_everywhere(conn):
+    """Turn RLS on for every public table that still has it off - at EVERY
+    startup, for every table, present and future.
+
+    The recurring gap (CLAUDE.md, and Supabase's "Table publicly accessible"
+    email to Neil on 08/17): create_all builds a new table with RLS OFF, the
+    backend never notices because it connects with the privileged role, and
+    the public anon key can read/write the table until someone remembers the
+    per-table ALTER in this file. Ad-hoc tables made outside the models (the
+    Aug 15 *_bak tables) never even got a line here. This sweep replaces
+    memory with a rule: any table in public without RLS gets it enabled, with
+    zero policies - which is a full anon denial, and changes nothing for the
+    backend's service-role bypass. Table owner is this connection's role, so
+    the ALTER succeeds; anything it cannot alter is printed, never fatal."""
+    try:
+        rows = conn.execute(text(
+            "SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+            "WHERE n.nspname = 'public' AND c.relkind = 'r' AND NOT c.relrowsecurity"
+        )).fetchall()
+    except Exception as e:
+        conn.rollback()
+        print(f"[rls] sweep skipped: {e}")
+        return
+    for (name,) in rows:
+        try:
+            conn.execute(text(f'ALTER TABLE public."{name}" ENABLE ROW LEVEL SECURITY'))
+            conn.commit()
+            print(f"[rls] enabled on {name}")
+        except Exception as e:
+            conn.rollback()
+            print(f"[rls] could not enable on {name}: {e}")
 
 
 # NOTE (P2-1, Jul 2026): the legacy inventory_items mock seed (~34 rows) was

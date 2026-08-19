@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useMsal } from '@azure/msal-react';
-import { Sunrise, Sunset, Coffee, X, Send, Loader2, MessageSquare } from 'lucide-react';
+import { Sunrise, Sunset, Coffee, Play, X, Send, Loader2, MessageSquare } from 'lucide-react';
 import { api } from '../api';
 import { msalInstance } from '../msalInstance';
 import { formatTime } from '../lib/datetime';
@@ -38,6 +38,12 @@ const MODES = {
     sub: 'Let the team know - this posts "I\'m on a break for …" to your chat.',
     msgLabel: 'Reason', msgPlaceholder: 'Lunch',
     cta: 'Start break & notify', ackLabel: 'I already told my team',
+  },
+  break_end: {
+    title: 'Resuming work', Icon: Play, color: 'var(--wk-brand)', tag: 'BREAK END', reasonOnly: true,
+    sub: 'Let the team know - this posts "I\'m back from break, resuming work." to your chat.',
+    msgLabel: 'Note (optional)', msgPlaceholder: '',
+    cta: 'End break & notify', ackLabel: 'I already told my team', optionalMessage: true,
   },
 };
 
@@ -131,6 +137,7 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
     // break…") - that's whose punch this is. This line must therefore name
     // who actually typed it, not read as if the admin were the one on break.
     const onBehalf = actingEnteredByName ? `<br/><i>Entered by ${esc(actingEnteredByName)}</i>` : '';
+    if (mode === 'break_end') return `I'm back from break, resuming work.${message.trim() ? ` ${esc(message.trim())}` : ''}${onBehalf}`;
     if (M.reasonOnly) return `I'm on a break${message.trim() ? ` for ${esc(message.trim())}` : ''}.${onBehalf}`;
     // Three-line header (spec, Jul 24):
     //   End of Day
@@ -156,7 +163,7 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
 
   async function send() {
     if (busy) return;
-    if (!message.trim()) { toastErr(M.reasonOnly ? 'Add a short reason.' : `Write a short ${M.title.toLowerCase()} message.`); return; }
+    if (!message.trim() && !M.optionalMessage) { toastErr(M.reasonOnly ? 'Add a short reason.' : `Write a short ${M.title.toLowerCase()} message.`); return; }
     setBusy(true);
     // EOD tally: total minutes worked today, straight from the server's punch
     // math (same figure the Time Clock "Worked today" card shows). Best-effort -

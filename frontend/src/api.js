@@ -478,6 +478,8 @@ export const api = {
   // Counts every Asana task assigned to ME (my own grant sees my private ones)
   // and says which are not in Nexus. Long: pages the whole list.
   asanaOauthCoverage:   () => req("/asana-oauth/coverage", { timeoutMs: 300000 }),
+  // Pulls the tasks /coverage listed as missing, through MY grant. Additive.
+  asanaOauthRescue:     () => req("/asana-oauth/coverage/rescue", { method: "POST", timeoutMs: 600000 }),
   deleteAsanaWebhooks: () => req("/asana-sync/webhooks", { method: "DELETE", timeoutMs: 60000 }),
   getTaskAutomationRules: () => req("/task-automation-rules"),
   createTaskAutomationRule: (data) => req("/task-automation-rules", { method: "POST", body: JSON.stringify(data) }),
