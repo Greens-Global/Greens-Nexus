@@ -1708,21 +1708,29 @@ def _nexus_directory(db):
     """Lookup table from anything Asana might call a person to their canonical
     Nexus work email.
 
-    Keyed three ways, in the order _map_email tries them:
+    Keyed four ways, in the order _map_email tries them:
       - the work email itself       (sagar.shoundik@greensglobal.com)
       - a known personal email      (an Asana account opened with a private address)
       - the bare local part         ("sagar.shoundik")
+      - the first name alone        ("vinod" for vinod.bhole@greensglobal.com)
 
     The local-part key is what turns an Asana guest address -
     sagar.shoundik@greensg.onmicrosoft.com, the M365 relay Asana shows for
     guest accounts - into the real person, without hardcoding that domain:
     anything whose local part uniquely identifies one employee resolves to
     them. Ambiguous local parts (two people, different domains, same name
-    before the @) are deliberately left out rather than guessed at."""
+    before the @) are deliberately left out rather than guessed at.
+
+    The first-name key covers relays minted from a short UPN
+    (vinod@greensg.onmicrosoft.com for vinod.bhole@greensglobal.com - his 77
+    imported tasks landed on the relay address, invisible to him). Same
+    uniqueness rule, plus it never claims a key that is also someone's full
+    local part - a full local part that lost its mapping to ambiguity must not
+    be re-won by a weaker first-name guess."""
     ent = _DIRECTORY_CACHE.get("all")
     if ent and time.time() - ent[0] < _DIRECTORY_TTL:
         return ent[1]
-    table, by_local = {}, {}
+    table, by_local, by_first = {}, {}, {}
     for e in db.query(models.NexusEmployee).all():
         work = (e.work_email or "").strip().lower()
         if not work:
@@ -1731,10 +1739,17 @@ def _nexus_directory(db):
         personal = (e.personal_email or "").strip().lower()
         if personal:
             table.setdefault(personal, work)
-        by_local.setdefault(work.split("@", 1)[0], set()).add(work)
+        local = work.split("@", 1)[0]
+        by_local.setdefault(local, set()).add(work)
+        first = local.split(".", 1)[0]
+        if first and first != local:
+            by_first.setdefault(first, set()).add(work)
     for local, emails in by_local.items():
         if len(emails) == 1 and local:
             table.setdefault(local, next(iter(emails)))
+    for first, emails in by_first.items():
+        if len(emails) == 1 and first not in by_local:
+            table.setdefault(first, next(iter(emails)))
     _DIRECTORY_CACHE["all"] = (time.time(), table)
     return table
 
