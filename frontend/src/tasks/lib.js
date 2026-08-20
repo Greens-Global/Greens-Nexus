@@ -181,7 +181,10 @@ export function topLevel(tasks) {
 }
 
 const SORTERS = {
-  manual: () => 0,
+  // Drag order (position - see backend models.Task.position). Untouched tasks
+  // default to their creation time, so a list nobody has dragged yet still
+  // reads in the order tasks were made, same as the no-op comparator before.
+  manual: (a, b) => (a.position ?? 0) - (b.position ?? 0),
   title: (a, b) => (a.title || '').localeCompare(b.title || ''),
   dueOn: (a, b) => (a.dueOn || '9999').localeCompare(b.dueOn || '9999'),
   priority: (a, b) => PRIORITY_ORDER.indexOf(a.priority) - PRIORITY_ORDER.indexOf(b.priority),
