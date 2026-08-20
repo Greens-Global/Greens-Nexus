@@ -737,6 +737,41 @@
       openConvertMenu = menu;
     };
 
+    // iLovePDF-style icons (full SVG markup, 24×24): rounded 2-tone tiles with
+    // the signature corner-arrow accent. Recreated in their visual language
+    // (not their copyrighted files) for the landing tool grid. `_a` is the arrow
+    // color slot the card fills from the tile tint.
+    // iLovePDF signature: white marks on the coloured tile, plus a small
+    // corner-arrow badge in a darker shade of the same colour (--icf-d). The
+    // arrow sits in the lower-right, exactly like their icons.
+    const ARROW = '<g transform="translate(15.5 15.5)"><rect x="-1" y="-1" width="8" height="8" rx="2" fill="var(--icf-d)"/><path d="M1.4 3.5h3.2m0 0-1.3-1.3M4.6 3.5 3.3 4.8" stroke="#fff" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></g>';
+    const ICF = {
+      // Merge: two rounded pages overlapping + inward corner arrow.
+      merge:    '<rect x="3.5" y="3.5" width="10" height="13" rx="2.2" fill="#fff" opacity=".5"/><rect x="7.5" y="6" width="10" height="13" rx="2.2" fill="#fff"/>' + ARROW,
+      // Split: one page separating into two + corner arrow.
+      split:    '<rect x="3.5" y="4" width="9.5" height="13" rx="2.2" fill="#fff"/><rect x="10.5" y="6.5" width="8" height="11" rx="2.2" fill="#fff" opacity=".5"/>' + ARROW,
+      // Rearrange: 2×2 grid of rounded squares.
+      organize: '<rect x="4" y="4" width="7" height="7" rx="1.8" fill="#fff"/><rect x="13" y="4" width="7" height="7" rx="1.8" fill="#fff" opacity=".65"/><rect x="4" y="13" width="7" height="7" rx="1.8" fill="#fff" opacity=".65"/><rect x="13" y="13" width="7" height="7" rx="1.8" fill="#fff"/>',
+      // Rotate: page with a circular rotate arrow (white).
+      rotate:   '<rect x="4.5" y="4.5" width="15" height="15" rx="2.6" fill="#fff" opacity=".22"/><path d="M16.6 9a4.6 4.6 0 1 0 1.1 3.7" stroke="#fff" stroke-width="1.8" fill="none" stroke-linecap="round"/><path d="M17.2 6v3.2H14" stroke="#fff" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>',
+      // Word: white doc + a small "W" + corner arrow.
+      word:     '<rect x="4.5" y="3.5" width="11" height="14" rx="2" fill="#fff"/><path d="M6.8 7l1.2 5 1.2-3.5L10.4 12l1.2-5" stroke="var(--icf-a)" stroke-width="1.3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>' + ARROW,
+      // Excel: white doc + an "X" + corner arrow.
+      excel:    '<rect x="4.5" y="3.5" width="11" height="14" rx="2" fill="#fff"/><path d="M7 7l4 6m0-6l-4 6" stroke="var(--icf-a)" stroke-width="1.4" fill="none" stroke-linecap="round"/>' + ARROW,
+      // Image/JPG: photo frame + corner arrow.
+      image:    '<rect x="3.5" y="4.5" width="13" height="11" rx="2" fill="#fff"/><circle cx="7" cy="8.5" r="1.3" fill="var(--icf-a)"/><path d="M4.8 14l3-3 2.2 2.2L12.5 10l3 3v1.2H4.8z" fill="var(--icf-a)"/>' + ARROW,
+      // Markdown: white doc with an "M▾" glyph.
+      markdown: '<rect x="4" y="6" width="16" height="12" rx="2.4" fill="#fff"/><path d="M7 15V9l2.3 2.6L11.6 9v6M15.2 9v3.6m0 0-1.4-1.3M15.2 12.6l1.4-1.3" stroke="var(--icf-a)" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>',
+      // Compress: four inward corner arrows around a white box.
+      compress: '<rect x="8" y="8" width="8" height="8" rx="1.6" fill="#fff"/><path d="M4.5 4.5l2.5 2.5M4.5 4.5h2.4M4.5 4.5v2.4M19.5 19.5l-2.5-2.5M19.5 19.5h-2.4M19.5 19.5v-2.4M19.5 4.5l-2.5 2.5M19.5 4.5h-2.4M19.5 4.5v2.4M4.5 19.5l2.5-2.5M4.5 19.5h2.4M4.5 19.5v-2.4" stroke="#fff" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>',
+      // Repair: wrench crossing a screwdriver (white).
+      sanitize: '<path d="M9.5 9.5l5 5m-5 0 1.3-1.3M9.5 14.5l-1.4 1.4a1.5 1.5 0 0 0 2.1 2.1l1.4-1.4M14.5 9.5l1.4-1.4a1.5 1.5 0 0 0-2.1-2.1L12.4 7.4" stroke="#fff" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>',
+      // OCR: white scan frame + text lines.
+      ocr:      '<path d="M8 5.5H6a1 1 0 0 0-1 1v2M16 5.5h2a1 1 0 0 1 1 1v2M8 18.5H6a1 1 0 0 1-1-1v-2M16 18.5h2a1 1 0 0 0 1-1v-2" stroke="#fff" stroke-width="1.6" fill="none" stroke-linecap="round"/><path d="M8.5 10.5h7M8.5 13.5h4.5" stroke="#fff" stroke-width="1.7" fill="none" stroke-linecap="round"/>',
+      // Unlock: open padlock (white).
+      unlock:   '<rect x="5.5" y="10.5" width="13" height="9" rx="2" fill="#fff"/><path d="M8.5 10.5V7a3.5 3.5 0 0 1 6.7-1.4" stroke="#fff" stroke-width="1.8" fill="none" stroke-linecap="round"/><circle cx="12" cy="15" r="1.4" fill="var(--icf-a)"/>',
+    };
+
     // SVG path strings (24×24, stroke) keyed for reuse.
     const IC = {
       edit:     'M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5ZM15 5l4 4',
@@ -750,24 +785,60 @@
       sign:     'M3 17c2.5 0 3-6 5-6s1.5 4 3 4 2-8 4-8 1.5 6 3 6M3 21h18',
       protect:  'M4 11h16v10H4zM8 11V7a4 4 0 0 1 8 0v4',
       compress: 'M8 3l4 4 4-4M8 21l4-4 4 4M12 7v10',
+      rotate:   'M23 4v6h-6M20.49 15a9 9 0 1 1-2.12-9.36L23 10',
+      addpage:  'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M12 12v6M9 15h6',
+      addimage: 'M4 3h16v18H4zM9 9a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zM20 16l-5-5L6 20',
+      watermark:'M12 2C8 8 6 11 6 14a6 6 0 0 0 12 0c0-3-2-6-6-12z',
+      pagenum:  'M6 4h12v16H6zM9 8h1v8M14 8h1v4a2 2 0 0 1-2 2',
+      nup:      'M3 3h8v8H3zM13 3h8v8h-8zM3 13h8v8H3zM13 13h8v8h-8z',
+      rmblank:  'M6 4h12v16H6zM9 9l6 6M15 9l-6 6',
+      stamp:    'M5 21h14M12 3a3 3 0 0 1 3 3c0 2-2 3-2 5h-2c0-2-2-3-2-5a3 3 0 0 1 3-3zM8 13h8v4H8z',
+      comment:  'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z',
+      compare:  'M9 3v18M3 7h6M3 11h6M15 3v18M15 7h6M15 11h6',
+      sanitize: 'M12 2l8 4v6c0 5-3.5 8-8 10-4.5-2-8-5-8-10V6zM9 12l2 2 4-4',
+      template: 'M4 2h16v20H4zM8 6h8M8 18h8M9 10l6 4M15 10l-6 4',
+      unlock:   'M7 11V7a5 5 0 0 1 9.9-1M5 11h14v10H5zM12 15v3',
+      markdown: 'M4 5h16v14H4zM7 15V9l2.5 3L12 9v6M16 9v4m0 0l-1.5-1.5M16 13l1.5-1.5',
     };
 
     // Three simple groups (owner request Aug 2026): Edit · Convert · Tools.
     // Each card carries a one-line description (pro editors always label what a
     // tool does). Convert tiles open a direction submenu instead of two one-way
     // tiles; `isSub` marks those.
+    // Full iLovePDF-style tool grid: every function as a labeled icon card,
+    // grouped by category. "Assemble" leads (Neil, Aug 2026); the old "Edit PDF"
+    // card is gone - dropping/opening a file already starts editing.
+    // Exact layout Neil specified (Aug 2026): three rows only. Row 1 = the core
+    // assemble tools; Convert = Word/Image direction-pickers + Excel; Optimize =
+    // Compress/Repair/OCR. Everything else is reachable inside the editor once a
+    // file is open; the landing stays minimal and user-friendly. (Editing is the
+    // "Edit" badge on the dropzone card itself - no separate Edit PDF tile.)
     const ROWS = [
-      { title: 'Edit', cards: [
-        ['Edit PDF',      'Add text, shapes and edits',   '#b06ee8', IC.edit,     () => pickPdfThen(() => revealTool('edit', '#textTool'))],
-        ['Rearrange PDF', 'Reorder, rotate and add pages','#4caf7d', IC.organize, () => pickPdfThen(() => revealTool('organize', '#rotateBtn'))],
-        ['Merge PDF',     'Combine files into one',       '#e8734a', IC.merge,    () => pickPdfThen(() => revealTool('organize', '#mergeBtn'))],
-        ['Split PDF',     'Extract or separate pages',    '#3a97d4', IC.split,    () => pickPdfThen(() => revealTool('organize', '#splitBtn'))],
+      { title: 'Assemble', cards: [
+        ['Rotate PDF',    'Turn pages left or right',      '#4caf7d', IC.rotate,   () => pickPdfThen(() => revealTool('organize', '#rotateBtn'))],
+        ['Rearrange PDF', 'Reorder and add pages',          '#8a6d3b', IC.organize, () => pickPdfThen(() => revealTool('organize', '#addPageBtn'))],
+        ['Split PDF',     'Extract or separate pages',     '#3a97d4', IC.split,    () => pickPdfThen(() => revealTool('organize', '#splitBtn'))],
+        ['Merge PDF',     'Combine files into one',        '#e8734a', IC.merge,    () => pickPdfThen(() => revealTool('organize', '#mergeBtn'))],
       ]},
       { title: 'Convert', cards: [
-        ['Word ⇄ PDF', 'Convert either direction', '#2b7cd3', IC.word, (card) => directionPick(card, [
+        ['Word ⇄ PDF',   'Convert either direction',      '#2b7cd3', IC.word, (card) => directionPick(card, [
           ['PDF → Word', () => pickPdfThen(() => revealExport('word'))],
           ['Word → PDF', () => docxPicker && docxPicker.click()],
         ]), true],
+        ['Excel ⇄ PDF',  'Export tables to a spreadsheet','#1d7044', IC.excel, (card) => directionPick(card, [
+          ['PDF → Excel', () => pickPdfThen(() => revealExport('excel'))],
+        ]), true],
+        ['JPG ⇄ PDF',    'Convert either direction',      '#c2588f', IC.image, (card) => directionPick(card, [
+          ['PDF → JPG', () => pickPdfThen(() => revealExport('image'))],
+          ['JPG → PDF', () => window.imageToPdfDialog && window.imageToPdfDialog()],
+        ]), true],
+        ['PDF → Markdown','Export text as a .md file',     '#3b6ea5', IC.markdown,  () => pickPdfThen(() => window.exportMarkdownTool && window.exportMarkdownTool())],
+      ]},
+      { title: 'Optimize', cards: [
+        ['Compress PDF',  'Reduce the file size',          '#5c9e57', IC.compress,  () => pickPdfThen(() => revealTool('export', '#compressBtn'))],
+        ['Repair PDF',    'Fix a damaged or corrupt PDF',  '#6b7280', IC.sanitize,  () => pickPdfThen(() => revealTool('sign', '#sanitizeBtn'))],
+        ['OCR (scanned)', 'Make scans searchable',         '#7dc243', IC.ocr,       () => pickPdfThen(() => revealTool('ocr', '#ocrBtn'))],
+        ['Unlock PDF',    'Remove a password',             '#d4506e', IC.unlock,    () => pickPdfThen(() => window.unlockPdfTool && window.unlockPdfTool())],
       ]},
     ];
 
@@ -783,6 +854,22 @@
     const leftCol = document.createElement('div');
     leftCol.className = 'welcome-left';
 
+    // "Edit" button ABOVE the dropzone card (Neil, Aug 2026): editing is started
+    // right from the drop area, so there's no separate Edit PDF tile. Sits
+    // outside the dashed card, aligned to its top-left.
+    const editBtn = document.createElement('button');
+    editBtn.type = 'button';
+    editBtn.className = 'welcome-edit-btn';
+    editBtn.title = 'Open a PDF and start editing';
+    editBtn.innerHTML =
+      '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="M15 5l4 4"/></svg>' +
+      '<span>Edit</span>';
+    editBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      pickPdfThen(() => revealTool('edit', '#textTool'));
+    });
+    leftCol.appendChild(editBtn);
+
     const drop = document.createElement('button');
     drop.className = 'welcome-drop';
     drop.type = 'button';
@@ -795,7 +882,7 @@
       '<span class="welcome-drop-s">or click the button below to browse your files</span>' +
       '</span>' +
       '<span class="welcome-drop-btn">Choose File</span>' +
-      '<span class="welcome-drop-hint">Upload a PDF up to 100 MB, or a Word (.docx, .doc) or image (PNG, JPG) file to convert into a PDF.</span>';
+      '<span class="welcome-drop-hint">Upload a PDF up to 750 MB, or a Word (.docx, .doc) or image (PNG, JPG) file to convert into a PDF.</span>';
     drop.addEventListener('click', (e) => { e.stopPropagation(); el('#fileInput')?.click(); });
     leftCol.appendChild(drop);
     wrap.appendChild(leftCol);
@@ -812,12 +899,23 @@
       section.appendChild(rhead);
       const grid = document.createElement('div');
       grid.className = 'welcome-grid';
+      // Reverse map: an IC path string → its key, so a card that passes IC.merge
+      // can pick up the richer iLovePDF-style ICF.merge icon when one exists.
+      const IC_KEY = {};
+      for (const k in IC) IC_KEY[IC[k]] = k;
       for (const [label, desc, tint, path, fn, isSub] of row.cards) {
         const c = document.createElement('button');
         c.className = 'welcome-card';
+        const key = IC_KEY[path];
+        const rich = key && ICF[key];
+        const iconSvg = rich
+          // iLovePDF-style: white 2-tone marks on the coloured tile. --icf-a is
+          // the tile tint (for glyphs sitting ON white); --icf-d is a darker
+          // shade for the corner-arrow badge.
+          ? `<svg width="24" height="24" viewBox="0 0 24 24" style="--icf-a:${tint};--icf-d:color-mix(in srgb, ${tint} 78%, #000)">${rich}</svg>`
+          : `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="${path}"/></svg>`;
         c.innerHTML =
-          `<span class="welcome-card-ic" style="background:${tint};color:#fff">` +
-          `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="${path}"/></svg></span>` +
+          `<span class="welcome-card-ic" style="background:${tint};color:#fff">${iconSvg}</span>` +
           `<span class="welcome-card-body">` +
           `<span class="welcome-card-tx">${label}${isSub ? ' <span class="welcome-card-caret">▾</span>' : ''}</span>` +
           `<span class="welcome-card-desc">${desc}</span></span>`;

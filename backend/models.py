@@ -18,13 +18,22 @@ class Task(Base):
     description       = Column(String, default="")
     type              = Column(String, default="task")     # task|subtask|milestone|approval|section
     status            = Column(String, default="not_started")  # + custom board-column ids
+    # Manual drag-order within whatever grouping a view has on screen. Fractional
+    # on purpose - a drag between two neighbors sets a value between their two
+    # positions, so ONE row moves without renumbering every sibling. Defaults to
+    # the task's creation time (see create_task) so untouched tasks fall back to
+    # creation order, the same order they've always shown in.
+    position          = Column(Float, default=0.0, index=True)
     priority          = Column(String, default="medium")   # low|medium|high|urgent
     assignee_email    = Column(String, default="", index=True)
     owner_email       = Column(String, default="", index=True)
     follower_emails   = Column(JSON, default=list)
     liked_by_emails   = Column(JSON, default=list)
     access_level      = Column(String, default="org")      # org|restricted
-    project_id        = Column(String, default="", index=True)
+    project_id        = Column(String, default="", index=True)  # primary - drives section/access/Asana sync
+    project_ids       = Column(JSON, default=list)         # EXTRA projects, Nexus-only (never synced to Asana,
+                                                             # which stays keyed on project_id alone) - lets a task
+                                                             # show up under several projects without duplicating it
     section_id        = Column(String, default="")
     team_id           = Column(String, default="", index=True)  # TaskTeam within this task's project
     parent_task_id    = Column(String, default="", index=True)

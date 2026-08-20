@@ -9,6 +9,7 @@ Reference implementation: routers/items.py.
 """
 import calendar
 import re
+import time
 from datetime import date, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
@@ -47,12 +48,14 @@ def task_to_dict(t: models.Task) -> dict:
         "type":             t.type or "task",
         "status":           t.status or "not_started",
         "priority":         t.priority or "medium",
+        "position":         t.position if t.position is not None else 0.0,
         "assigneeId":       _nz(t.assignee_email),
         "ownerId":          _nz(t.owner_email),
         "followerIds":      t.follower_emails or [],
         "likedByIds":       t.liked_by_emails or [],
         "accessLevel":      t.access_level or "org",
         "projectId":        _nz(t.project_id),
+        "projectIds":       [p for p in (t.project_ids or []) if p],
         "sectionId":        _nz(t.section_id),
         "teamId":           _nz(t.team_id),
         "parentTaskId":     _nz(t.parent_task_id),
@@ -125,6 +128,7 @@ class TaskCreate(BaseModel):
     type:             Optional[str] = "task"
     status:           Optional[str] = "not_started"
     priority:         Optional[str] = "medium"
+    position:         Optional[float] = None   # manual drag-order - see models.Task.position
     assignee_email:   Optional[str] = ""
     owner_email:      Optional[str] = ""
     follower_emails:  Optional[list] = None
@@ -134,6 +138,7 @@ class TaskCreate(BaseModel):
     # instead of always defaulting to org-wide.
     access_level:     Optional[str] = None
     project_id:       Optional[str] = ""
+    project_ids:      Optional[list] = None   # EXTRA projects beyond project_id - see models.Task
     section_id:       Optional[str] = ""
     team_id:          Optional[str] = ""
     parent_task_id:   Optional[str] = ""
@@ -159,12 +164,14 @@ class TaskUpdate(BaseModel):
     type:             Optional[str] = None
     status:           Optional[str] = None
     priority:         Optional[str] = None
+    position:         Optional[float] = None   # manual drag-order - see models.Task.position
     assignee_email:   Optional[str] = None
     owner_email:      Optional[str] = None
     follower_emails:  Optional[list] = None
     liked_by_emails:  Optional[list] = None
     access_level:     Optional[str] = None
     project_id:       Optional[str] = None
+    project_ids:      Optional[list] = None   # EXTRA projects beyond project_id - see models.Task
     section_id:       Optional[str] = None
     team_id:          Optional[str] = None
     parent_task_id:   Optional[str] = None
@@ -187,6 +194,18 @@ class TaskUpdate(BaseModel):
 def _next_code(db: Session) -> str:
     n = db.query(models.Task).count() + 1
     return f"TASK-{n:03d}"
+
+
+def _extra_project_ids(project_ids: Optional[list], project_id: str) -> list:
+    """Clean a task's EXTRA project list: strip blanks, drop the primary
+    project_id (it's not an "extra"), dedupe while preserving order."""
+    seen, out = set(), []
+    for p in (project_ids or []):
+        p = (p or "").strip()
+        if p and p != project_id and p not in seen:
+            seen.add(p)
+            out.append(p)
+    return out
 
 
 def _get_task(db: Session, task_id: str) -> models.Task:
@@ -561,6 +580,8 @@ def _next_due(base_iso: str, rec: dict) -> str:
             day = min(int(dom), calendar.monthrange(nxt.year, nxt.month)[1])
             nxt = date(nxt.year, nxt.month, day)
         return nxt.isoformat()
+    if freq == "yearly":
+        return _add_months(base, 12 * interval).isoformat()
     # daily (and any unknown freq) → advance whole days
     return (base + timedelta(days=interval)).isoformat()
 
@@ -884,12 +905,17 @@ def create_task(body: TaskCreate, background_tasks: BackgroundTasks,
         type=body.type or "task",
         status=body.status or "not_started",
         priority=body.priority or "medium",
+        # Defaults to "now" (epoch seconds) rather than 0 so a freshly created
+        # task lands at the END of manual order, after everything dragged
+        # before it - not shuffled to the front of every group.
+        position=body.position if body.position is not None else time.time(),
         assignee_email=(body.assignee_email or "").strip().lower(),
         owner_email=(body.owner_email or "").strip().lower(),
         follower_emails=body.follower_emails or [],
         liked_by_emails=body.liked_by_emails or [],
         access_level=access_level,
         project_id=body.project_id or "",
+        project_ids=_extra_project_ids(body.project_ids, body.project_id or ""),
         section_id=body.section_id or "",
         team_id=body.team_id or "",
         parent_task_id=body.parent_task_id or "",
@@ -976,6 +1002,13 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
             # assigned to somebody who never sees it in My Tasks.
             val = (val or "").strip().lower()
         setattr(t, field, val)
+
+    # Re-clean the extra list whenever either side of the project pair moved -
+    # a caller can PATCH project_id alone (e.g. the primary Project picker) or
+    # project_ids alone (the "also in" multi-select), and either one can leave
+    # the primary duplicated inside the extras or a since-removed blank behind.
+    if "project_id" in data or "project_ids" in data:
+        t.project_ids = _extra_project_ids(t.project_ids, t.project_id or "")
 
     # Keeps `completed`, its timestamp and `status` in step regardless of which
     # one the caller actually sent.

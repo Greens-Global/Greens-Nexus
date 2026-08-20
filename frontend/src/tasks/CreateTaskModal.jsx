@@ -273,6 +273,7 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
               <option value="daily">Every day</option>
               <option value="weekly">Every week</option>
               <option value="monthly">Every month</option>
+              <option value="yearly">Every year</option>
             </select>
           </div>
           {form.recurFreq === 'weekly' && (

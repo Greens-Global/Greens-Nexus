@@ -31,6 +31,7 @@ function recurrenceLabel(r) {
   if (r.freq === 'daily') base = 'Every day';
   else if (r.freq === 'weekly') base = `Every week on ${DAYS[r.dayOfWeek ?? 1]}`;
   else if (r.freq === 'monthly') base = `Every month on day ${r.dayOfMonth ?? 1}`;
+  else if (r.freq === 'yearly') base = 'Every year';
   else return 'Does not repeat';
   if (r.until) base += ` until ${r.until}`;
   else if (r.count) base += ` × ${r.count}`;
@@ -397,6 +398,32 @@ function CollaboratorMenuBody({ people, selected, onToggle }) {
   );
 }
 
+// Same shape as CollaboratorMenuBody, for adding an EXTRA project - `exclude`
+// keeps out the primary project and whatever's already added, so a project
+// only ever appears once in this list.
+function ProjectMenuBody({ projects, exclude, onPick }) {
+  const [q, setQ] = useState('');
+  const needle = q.trim().toLowerCase();
+  const filtered = (projects || [])
+    .filter((p) => !p.archived && !exclude.includes(p.id) && (!needle || (p.name || '').toLowerCase().includes(needle)))
+    .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'en', { sensitivity: 'base', numeric: true }));
+  return (
+    <div>
+      <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: NX.faint, padding: '4px 6px' }}>Also in Project</div>
+      <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search projects…"
+        style={{ width: '100%', boxSizing: 'border-box', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '6px 8px', fontSize: 13, outline: 'none', fontFamily: FONT, background: 'transparent', color: NX.ink }} />
+      <div className="nx-scroll" style={{ maxHeight: 220, overflowY: 'auto' }}>
+        {filtered.map((p) => (
+          <button key={p.id} type="button" onClick={() => onPick(p.id)} style={{ display: 'flex', width: '100%', textAlign: 'left', alignItems: 'center', gap: 8, padding: '6px 8px', fontSize: 13, border: 'none', background: 'transparent', cursor: 'pointer', color: NX.ink, fontFamily: FONT }}>
+            {p.name}
+          </button>
+        ))}
+        {filtered.length === 0 && <div style={{ padding: 8, fontSize: 12, color: NX.faint }}>{needle ? 'No match' : 'No other projects'}</div>}
+      </div>
+    </div>
+  );
+}
+
 function MembersMenu({ task, people, nameOf, patch }) {
   const followers = task.followerIds || [];
   const toggle = (email) => patch({ followerIds: followers.includes(email) ? followers.filter((e) => e !== email) : [...followers, email] });
@@ -576,9 +603,32 @@ function OverviewTab({ task, patch, people, projectName, teamName, teams, projec
           <ProjectPicker
             projects={projects} teams={teams} myEmail={myEmail}
             value={task.projectId || ''} allowNone noneLabel="No project"
-            onChange={(id) => { if (id !== task.projectId) patch({ projectId: id, teamId: '' }); }}
+            onChange={(id) => { if (id !== task.projectId) patch({ projectId: id, teamId: '', projectIds: (task.projectIds || []).filter((p) => p !== id) }); }}
           />
         </div>
+      </Row>
+
+      <Row label="Also In">
+        {(task.projectIds || []).map((pid) => (
+          <span key={pid} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, border: `1px solid ${NX.border}`, borderRadius: 999, padding: '3px 9px 3px 9px', fontSize: 12 }}>
+            {projectName(pid) || pid}
+            <button onClick={() => patch({ projectIds: (task.projectIds || []).filter((p) => p !== pid) })} title="Remove" style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: NX.faint, padding: 0, display: 'flex' }}><X size={12} /></button>
+          </span>
+        ))}
+        {task.projectId ? (
+          <Pop width={220} trigger={(t) => (
+            <button onClick={t} title="Add another project" style={{
+              width: 26, height: 26, borderRadius: '50%', border: `1.5px dashed ${NX.border}`,
+              background: 'transparent', color: NX.faint, cursor: 'pointer', padding: 0,
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+            }}><Plus size={13} /></button>
+          )}>
+            {(close) => <ProjectMenuBody projects={projects} exclude={[task.projectId, ...(task.projectIds || [])]}
+              onPick={(id) => { patch({ projectIds: [...(task.projectIds || []), id] }); close(); }} />}
+          </Pop>
+        ) : (
+          <span style={{ color: NX.faint, fontSize: 13 }}>Pick a project first</span>
+        )}
       </Row>
 
       <Row label="Team">
@@ -652,6 +702,7 @@ function OverviewTab({ task, patch, people, projectName, teamName, teams, projec
                 <MenuItem onClick={() => { pickFreq({ freq: 'daily' }); close(); }}>Every day</MenuItem>
                 <MenuItem onClick={() => setRecStep('weekly')}>Every week</MenuItem>
                 <MenuItem onClick={() => setRecStep('monthly')}>Every month</MenuItem>
+                <MenuItem onClick={() => { pickFreq({ freq: 'yearly' }); close(); }}>Every year</MenuItem>
               </>);
             }}
           </Pop>
@@ -1370,6 +1421,7 @@ function PropertiesTab({ task, nameOf, projectName, teamName, customFields, patc
     ['Priority', <Chip color={pm.color} tint={pm.tint}>{pm.label}</Chip>],
     ['Assignee', task.assigneeId ? <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Avatar email={task.assigneeId} name={nameOf(task.assigneeId)} size={18} /> {nameOf(task.assigneeId)}</span> : 'Unassigned'],
     ['Project', task.projectId ? projectName(task.projectId) : '-'],
+    ['Also In', (task.projectIds || []).length ? task.projectIds.map((id) => projectName(id) || id).join(', ') : '-'],
     ['Team', task.teamId ? teamName(task.teamId) : '-'],
     ['Start Date', fmtDate(task.startOn)],
     ['Due Date', fmtDate(task.dueOn)],

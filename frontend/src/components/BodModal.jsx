@@ -37,13 +37,13 @@ const MODES = {
     title: 'Going on break', Icon: Coffee, color: '#b45309', tag: 'BREAK', reasonOnly: true,
     sub: 'Let the team know - this posts "I\'m on a break for …" to your chat.',
     msgLabel: 'Reason', msgPlaceholder: 'Lunch',
-    cta: 'Start break & notify', ackLabel: 'I already told my team',
+    cta: 'Start break & notify', noSkip: true,
   },
   break_end: {
     title: 'Resuming work', Icon: Play, color: 'var(--wk-brand)', tag: 'BREAK END', reasonOnly: true,
     sub: 'Let the team know - this posts "I\'m back from break, resuming work." to your chat.',
     msgLabel: 'Note (optional)', msgPlaceholder: '',
-    cta: 'End break & notify', ackLabel: 'I already told my team', optionalMessage: true,
+    cta: 'End break & notify', optionalMessage: true, noSkip: true,
   },
 };
 
@@ -314,15 +314,17 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
         </div>
 
         <div style={{ padding: '12px 22px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, alignItems: 'center' }}>
-          {required && M.ackLabel && (
+          {required && M.ackLabel && !M.noSkip && (
             <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, color: 'var(--muted)', cursor: 'pointer', flex: 1 }}>
               <input type="checkbox" checked={ack} onChange={e => setAck(e.target.checked)} />
               {M.ackLabel}
             </label>
           )}
-          <div style={{ flex: required && M.ackLabel ? 'none' : 1 }} />
-          <button className="secondary-btn" onClick={skip} disabled={required && !ack}
-            title={required && !ack ? 'Tick the box if you already sent it' : ''}>Skip</button>
+          <div style={{ flex: required && M.ackLabel && !M.noSkip ? 'none' : 1 }} />
+          {!M.noSkip && (
+            <button className="secondary-btn" onClick={skip} disabled={required && !ack}
+              title={required && !ack ? 'Tick the box if you already sent it' : ''}>Skip</button>
+          )}
           <button className="primary-btn" onClick={send} disabled={busy}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             {busy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Send size={13} />} {M.cta}

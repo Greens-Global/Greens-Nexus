@@ -526,6 +526,11 @@ def _run_migrations():
             # URL audit trail. See asana_rescue.py.
             "ALTER TABLE asana_sync_config ADD COLUMN rescue_running_at VARCHAR DEFAULT ''",
             "ALTER TABLE task_attachments ADD COLUMN original_asana_url VARCHAR DEFAULT ''",
+            # Multi-project tasks (Aug 2026): Nexus-only EXTRA project memberships
+            # alongside the primary project_id (which alone still drives Asana sync).
+            "ALTER TABLE tasks ADD COLUMN project_ids JSON DEFAULT '[]'",
+            # Manual drag-order (Aug 2026): see models.Task.position.
+            "ALTER TABLE tasks ADD COLUMN position FLOAT DEFAULT 0",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -1107,6 +1112,11 @@ def _run_migrations():
         # URL audit trail. See asana_rescue.py.
         "ALTER TABLE asana_sync_config ADD COLUMN IF NOT EXISTS rescue_running_at VARCHAR DEFAULT ''",
         "ALTER TABLE task_attachments ADD COLUMN IF NOT EXISTS original_asana_url VARCHAR DEFAULT ''",
+        # Multi-project tasks (Aug 2026): Nexus-only EXTRA project memberships
+        # alongside the primary project_id (which alone still drives Asana sync).
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS project_ids JSONB DEFAULT '[]'::jsonb",
+        # Manual drag-order (Aug 2026): see models.Task.position.
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS position DOUBLE PRECISION DEFAULT 0",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

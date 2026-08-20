@@ -182,7 +182,7 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
       {/* Body */}
       <div className="nx-scroll" style={{ flex: 1, minHeight: 0, overflow: 'auto', background: NX.canvas, paddingBottom: isMobile ? 88 : undefined }}>
         {view === 'list' ? (
-          <RichListView visible={visible} group={group} ctx={ctx} store={store} people={people} selected={selected} toggleSel={toggleSel} onOpen={setOpenId} onSelectAll={selectAll} lockedProjectId={lockedProjectId} hidden={hiddenCols} setHidden={setHiddenCols} />
+          <RichListView visible={visible} group={group} sort={sort} ctx={ctx} store={store} people={people} selected={selected} toggleSel={toggleSel} onOpen={setOpenId} onSelectAll={selectAll} lockedProjectId={lockedProjectId} hidden={hiddenCols} setHidden={setHiddenCols} />
         ) : visible.length === 0 ? (
           <EmptyState icon={CheckCircle2} title="No Tasks Yet" hint="Create your first task to get going." />
         ) : view === 'board' ? (

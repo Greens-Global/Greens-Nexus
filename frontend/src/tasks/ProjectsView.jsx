@@ -6,7 +6,7 @@ import { useMemo, useState } from 'react';
 import { Plus, Search, FolderKanban, AlertTriangle, Pencil, Trash2, Archive, Globe, Lock, LayoutGrid, List } from 'lucide-react';
 import { api } from '../api';
 import { useTasks } from './TasksContext';
-import { taskStats, teamInProject, teamProjectIds, fieldsForProjectEntity } from './lib';
+import { taskStats, teamInProject, teamProjectIds, fieldsForProjectEntity, taskInProject } from './lib';
 import { NX, FONT, btn, input as inputStyle, card, chip } from './theme';
 import { Avatar, EmptyState, Modal, usePeople, PersonSelect, useIsMobile, MobileFab } from './components';
 import TasksWorkspace from './TasksWorkspace';
@@ -109,7 +109,7 @@ export default function ProjectsView({ onNavigate }) {
       .filter((p) => Object.entries(fieldFilters).every(
         ([fieldId, optionId]) => (p.customFieldValues || {})[fieldId] === optionId))
       .map((p) => {
-        const own = tasks.filter((t) => t.projectId === p.id);
+        const own = tasks.filter((t) => taskInProject(t, p.id));
         return { project: p, stats: taskStats(own) };
       })
       .sort((a, b) => Number(a.project.archived) - Number(b.project.archived)
@@ -516,7 +516,7 @@ function ProjectModal({ form, setForm, people, portfolios, onClose, onSaved }) {
   // Read-only: status is computed from this project's tasks, the same rollup the
   // card's progress bar draws. Shown rather than hidden so the modal answers
   // "why does it say that?" in place, instead of looking like a missing field.
-  const stats = useMemo(() => taskStats(form.id ? tasks.filter((t) => t.projectId === form.id) : []), [tasks, form.id]);
+  const stats = useMemo(() => taskStats(form.id ? tasks.filter((t) => taskInProject(t, form.id)) : []), [tasks, form.id]);
   const statusMeta = PROJECT_STATUS_META[projectStatusFor(stats)];
   const label = { fontSize: 12.5, fontWeight: 600, color: NX.dim, marginBottom: 5, display: 'block' };
   const valid = form.name.trim().length > 0;
