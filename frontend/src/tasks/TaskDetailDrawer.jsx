@@ -31,6 +31,7 @@ function recurrenceLabel(r) {
   if (r.freq === 'daily') base = 'Every day';
   else if (r.freq === 'weekly') base = `Every week on ${DAYS[r.dayOfWeek ?? 1]}`;
   else if (r.freq === 'monthly') base = `Every month on day ${r.dayOfMonth ?? 1}`;
+  else if (r.freq === 'yearly') base = 'Every year';
   else return 'Does not repeat';
   if (r.until) base += ` until ${r.until}`;
   else if (r.count) base += ` × ${r.count}`;
@@ -652,6 +653,7 @@ function OverviewTab({ task, patch, people, projectName, teamName, teams, projec
                 <MenuItem onClick={() => { pickFreq({ freq: 'daily' }); close(); }}>Every day</MenuItem>
                 <MenuItem onClick={() => setRecStep('weekly')}>Every week</MenuItem>
                 <MenuItem onClick={() => setRecStep('monthly')}>Every month</MenuItem>
+                <MenuItem onClick={() => { pickFreq({ freq: 'yearly' }); close(); }}>Every year</MenuItem>
               </>);
             }}
           </Pop>

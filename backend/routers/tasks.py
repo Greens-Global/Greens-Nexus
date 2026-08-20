@@ -561,6 +561,8 @@ def _next_due(base_iso: str, rec: dict) -> str:
             day = min(int(dom), calendar.monthrange(nxt.year, nxt.month)[1])
             nxt = date(nxt.year, nxt.month, day)
         return nxt.isoformat()
+    if freq == "yearly":
+        return _add_months(base, 12 * interval).isoformat()
     # daily (and any unknown freq) → advance whole days
     return (base + timedelta(days=interval)).isoformat()
 
