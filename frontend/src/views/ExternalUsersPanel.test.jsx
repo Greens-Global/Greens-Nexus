@@ -42,8 +42,10 @@ describe('InviteExternalModal', () => {
     expect(screen.getByText('Invite External User')).toBeTruthy();
     expect(screen.queryAllByRole('checkbox').length).toBe(0);   // grants live in Roles & Access now
     fireEvent.change(screen.getByPlaceholderText('name@partnercompany.com'), { target: { value: 'jane.doe@acmeconstruction.com' } });
-    const inputs = document.querySelectorAll('input');
-    fireEvent.change(inputs[1], { target: { value: 'Jane' } });   // first name
+    // Find the first-name input by its label span, not by position - the field
+    // order in the modal has changed before and silently broke inputs[N].
+    const firstNameInput = screen.getByText('First name').parentElement.querySelector('input');
+    fireEvent.change(firstNameInput, { target: { value: 'Jane' } });
     fireEvent.click(screen.getByText('Send Invite'));
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
     expect(createExternalUser).toHaveBeenCalledWith(expect.objectContaining({
