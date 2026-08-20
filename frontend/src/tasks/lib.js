@@ -56,6 +56,28 @@ export function effectiveProjectId(task, taskById) {
   return cur?.projectId || '';
 }
 
+// Same walk as effectiveProjectId, but the FULL membership (primary + extras)
+// of whichever task the walk lands on - taskProjectIds is defined below.
+export function effectiveProjectIds(task, taskById) {
+  let cur = task;
+  for (let depth = 0; cur && cur.parentTaskId && depth < 20; depth++) {
+    const parent = taskById?.[cur.parentTaskId];
+    if (!parent) break;
+    cur = parent;
+  }
+  return taskProjectIds(cur);
+}
+
+// A task's full project membership: its primary projectId plus any EXTRA
+// projects (Nexus-only tags, never synced to Asana - see backend
+// models.Task.project_ids) it was also added to, so the same task can show up
+// under several projects without being recreated in each one.
+export const taskProjectIds = (task) => {
+  const extra = (task?.projectIds || []).filter(Boolean);
+  return task?.projectId ? [task.projectId, ...extra.filter((id) => id !== task.projectId)] : extra;
+};
+export const taskInProject = (task, projectId) => !!projectId && taskProjectIds(task).includes(projectId);
+
 // The top-level task a subtask ultimately hangs off, or null for a top-level
 // task - what a row shows as "in <parent>" so a subtask listed on its own
 // (My Tasks, a person's tasks) still says where it lives.
@@ -89,8 +111,13 @@ export function matchesFilter(task, f = EMPTY_FILTER, taskById = null) {
   if (f.teamIds?.length && !f.teamIds.includes(task.teamId)) return false;
   // Project scope resolves through the parent chain when the caller hands over
   // the task map, so a subtask assigned to the filtered person still counts as
-  // being in its parent's project.
-  if (f.projectIds?.length && !f.projectIds.includes(taskById ? effectiveProjectId(task, taskById) : task.projectId)) return false;
+  // being in its parent's project - and counts its EXTRA project memberships
+  // too, so filtering to Project X finds a task added to X as a secondary
+  // project just as readily as one whose primary project is X.
+  if (f.projectIds?.length) {
+    const ids = taskById ? effectiveProjectIds(task, taskById) : taskProjectIds(task);
+    if (!f.projectIds.some((id) => ids.includes(id))) return false;
+  }
   if (f.tags?.length && !f.tags.some((t) => (task.tags || []).includes(t))) return false;
   // Each selected field narrows independently (AND across fields, OR within
   // one) - the same shape as the assignee/status/priority filters above.
