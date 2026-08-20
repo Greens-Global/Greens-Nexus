@@ -24,7 +24,10 @@ class Task(Base):
     follower_emails   = Column(JSON, default=list)
     liked_by_emails   = Column(JSON, default=list)
     access_level      = Column(String, default="org")      # org|restricted
-    project_id        = Column(String, default="", index=True)
+    project_id        = Column(String, default="", index=True)  # primary - drives section/access/Asana sync
+    project_ids       = Column(JSON, default=list)         # EXTRA projects, Nexus-only (never synced to Asana,
+                                                             # which stays keyed on project_id alone) - lets a task
+                                                             # show up under several projects without duplicating it
     section_id        = Column(String, default="")
     team_id           = Column(String, default="", index=True)  # TaskTeam within this task's project
     parent_task_id    = Column(String, default="", index=True)

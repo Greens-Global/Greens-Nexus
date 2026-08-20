@@ -53,6 +53,7 @@ def task_to_dict(t: models.Task) -> dict:
         "likedByIds":       t.liked_by_emails or [],
         "accessLevel":      t.access_level or "org",
         "projectId":        _nz(t.project_id),
+        "projectIds":       [p for p in (t.project_ids or []) if p],
         "sectionId":        _nz(t.section_id),
         "teamId":           _nz(t.team_id),
         "parentTaskId":     _nz(t.parent_task_id),
@@ -134,6 +135,7 @@ class TaskCreate(BaseModel):
     # instead of always defaulting to org-wide.
     access_level:     Optional[str] = None
     project_id:       Optional[str] = ""
+    project_ids:      Optional[list] = None   # EXTRA projects beyond project_id - see models.Task
     section_id:       Optional[str] = ""
     team_id:          Optional[str] = ""
     parent_task_id:   Optional[str] = ""
@@ -165,6 +167,7 @@ class TaskUpdate(BaseModel):
     liked_by_emails:  Optional[list] = None
     access_level:     Optional[str] = None
     project_id:       Optional[str] = None
+    project_ids:      Optional[list] = None   # EXTRA projects beyond project_id - see models.Task
     section_id:       Optional[str] = None
     team_id:          Optional[str] = None
     parent_task_id:   Optional[str] = None
@@ -187,6 +190,18 @@ class TaskUpdate(BaseModel):
 def _next_code(db: Session) -> str:
     n = db.query(models.Task).count() + 1
     return f"TASK-{n:03d}"
+
+
+def _extra_project_ids(project_ids: Optional[list], project_id: str) -> list:
+    """Clean a task's EXTRA project list: strip blanks, drop the primary
+    project_id (it's not an "extra"), dedupe while preserving order."""
+    seen, out = set(), []
+    for p in (project_ids or []):
+        p = (p or "").strip()
+        if p and p != project_id and p not in seen:
+            seen.add(p)
+            out.append(p)
+    return out
 
 
 def _get_task(db: Session, task_id: str) -> models.Task:
@@ -892,6 +907,7 @@ def create_task(body: TaskCreate, background_tasks: BackgroundTasks,
         liked_by_emails=body.liked_by_emails or [],
         access_level=access_level,
         project_id=body.project_id or "",
+        project_ids=_extra_project_ids(body.project_ids, body.project_id or ""),
         section_id=body.section_id or "",
         team_id=body.team_id or "",
         parent_task_id=body.parent_task_id or "",
@@ -978,6 +994,13 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
             # assigned to somebody who never sees it in My Tasks.
             val = (val or "").strip().lower()
         setattr(t, field, val)
+
+    # Re-clean the extra list whenever either side of the project pair moved -
+    # a caller can PATCH project_id alone (e.g. the primary Project picker) or
+    # project_ids alone (the "also in" multi-select), and either one can leave
+    # the primary duplicated inside the extras or a since-removed blank behind.
+    if "project_id" in data or "project_ids" in data:
+        t.project_ids = _extra_project_ids(t.project_ids, t.project_id or "")
 
     # Keeps `completed`, its timestamp and `status` in step regardless of which
     # one the caller actually sent.

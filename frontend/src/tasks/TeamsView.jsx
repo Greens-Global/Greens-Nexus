@@ -13,7 +13,7 @@ import {
 import { NX, FONT, btn, input as inputStyle, STATUS_META } from './theme';
 import { Avatar, EmptyState, Modal, usePeople, PersonSelect, useIsMobile } from './components';
 import { useTasks } from './TasksContext';
-import { topLevel, teamProjectIds } from './lib';
+import { topLevel, teamProjectIds, taskInProject } from './lib';
 import { CalendarView } from './views/extras';
 import { emailToName } from '../lib/utils';
 
@@ -457,7 +457,7 @@ function TeamOverviewTab({ team, teamProjects, onSeeMembers, onNavigate }) {
   const addRef = useRef(null);
   const people = usePeople();
 
-  const taskCountFor = (pid) => tasks.filter((t) => t.projectId === pid).length;
+  const taskCountFor = (pid) => tasks.filter((t) => taskInProject(t, pid)).length;
 
   return (
     <div>
@@ -571,7 +571,7 @@ function TeamWorkTab({ teamProjects, tasks, onNavigate }) {
 }
 
 function ProjectWorkSection({ project, tasks, onNavigate }) {
-  const projectTasks = useMemo(() => topLevel(tasks.filter((t) => t.projectId === project.id)), [project, tasks]);
+  const projectTasks = useMemo(() => topLevel(tasks.filter((t) => taskInProject(t, project.id))), [project, tasks]);
   const [open, setOpen] = useState(true);
 
   return (
@@ -611,6 +611,6 @@ function ProjectWorkSection({ project, tasks, onNavigate }) {
 function TeamCalendarTab({ teamProjects, tasks, onNavigate }) {
   // One calendar across every project the team serves.
   const ids = teamProjects.map((p) => p.id);
-  const teamTasks = topLevel(tasks.filter((t) => ids.includes(t.projectId)));
+  const teamTasks = topLevel(tasks.filter((t) => ids.some((id) => taskInProject(t, id))));
   return <CalendarView tasks={teamTasks} onOpen={(id) => { const t = tasks.find((x) => x.id === id); if (t) onNavigate && onNavigate({ projectId: t.projectId }); }} />;
 }
