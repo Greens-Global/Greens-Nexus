@@ -18,6 +18,12 @@ class Task(Base):
     description       = Column(String, default="")
     type              = Column(String, default="task")     # task|subtask|milestone|approval|section
     status            = Column(String, default="not_started")  # + custom board-column ids
+    # Manual drag-order within whatever grouping a view has on screen. Fractional
+    # on purpose - a drag between two neighbors sets a value between their two
+    # positions, so ONE row moves without renumbering every sibling. Defaults to
+    # the task's creation time (see create_task) so untouched tasks fall back to
+    # creation order, the same order they've always shown in.
+    position          = Column(Float, default=0.0, index=True)
     priority          = Column(String, default="medium")   # low|medium|high|urgent
     assignee_email    = Column(String, default="", index=True)
     owner_email       = Column(String, default="", index=True)

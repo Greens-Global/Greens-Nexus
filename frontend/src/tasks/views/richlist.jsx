@@ -244,7 +244,7 @@ function ActionIcons({ t, store }) {
   );
 }
 
-function TaskRow({ t, cols, customFields = [], template, store, people, selected, toggleSel, onOpen, hidden = new Set(), groupColor, onDragStartRow, onDragEndRow }) {
+function TaskRow({ t, cols, customFields = [], template, store, people, selected, toggleSel, onOpen, hidden = new Set(), groupColor, onDragStartRow, onDragEndRow, onRowDragOver, onRowDrop, onRowDragLeave, dropEdge = null }) {
   // Deferred until the project picker is first opened - see the select below.
   const [projOpen, setProjOpen] = useState(false);
   // Only a person-scoped list hands a subtask to this row; then its parent and
@@ -268,7 +268,15 @@ function TaskRow({ t, cols, customFields = [], template, store, people, selected
     <div onClick={() => onOpen(t.id)} data-task-row draggable
       onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; onDragStartRow?.(t.id); }}
       onDragEnd={() => onDragEndRow?.()}
-      style={{ borderBottom: `1px solid ${NX.border2}`, background: selected ? 'rgba(37,99,235,0.10)' : 'transparent', cursor: 'pointer' }}
+      onDragOver={onRowDragOver} onDrop={onRowDrop} onDragLeave={onRowDragLeave}
+      style={{
+        borderBottom: `1px solid ${NX.border2}`, background: selected ? 'rgba(37,99,235,0.10)' : 'transparent', cursor: 'pointer',
+        // Manual-reorder drop indicator: a colored line on whichever edge the
+        // cursor is over, so dropping "reads" as inserting there rather than
+        // replacing the row.
+        boxShadow: dropEdge === 'above' ? `inset 0 2px 0 ${groupColor}`
+          : dropEdge === 'below' ? `inset 0 -2px 0 ${groupColor}` : 'none',
+      }}
       onMouseEnter={(e) => { if (!selected) e.currentTarget.style.background = NX.hover; }}
       onMouseLeave={(e) => { if (!selected) e.currentTarget.style.background = 'transparent'; }}>
       <div style={{ display: 'grid', gridTemplateColumns: 'var(--nx-grid)', alignItems: 'stretch', fontSize: 13 }}>
@@ -782,7 +790,7 @@ export function ListColumnControls({ hidden, setHidden, customFields, createCust
   );
 }
 
-export default function RichListView({ visible, group, ctx, store, people, selected, toggleSel, onOpen, onSelectAll, lockedProjectId = '', hidden, setHidden }) {
+export default function RichListView({ visible, group, sort, ctx, store, people, selected, toggleSel, onOpen, onSelectAll, lockedProjectId = '', hidden, setHidden }) {
   const [collapsed, setCollapsed] = useState(new Set());
   const effGroup = group === 'none' ? 'status' : group;
   // Inside a project every row has the same project, so the column is noise. It has
@@ -805,6 +813,48 @@ export default function RichListView({ visible, group, ctx, store, people, selec
     if (effGroup === 'assignee') return { assigneeId: key === '-' ? '' : key };
     const d = groupAddDefaults(effGroup, key);
     return Object.keys(d).length ? d : null;
+  };
+
+  // Drag a row onto ANOTHER ROW to reorder it (Sort: Manual only - any other
+  // sort re-derives the list order every render, so a dragged position would
+  // just be overwritten on the next fetch). `dropRow` is the currently
+  // hovered target row + which half of it the cursor is over.
+  const manualSort = (sort?.key || 'manual') === 'manual';
+  const [dropRow, setDropRow] = useState(null);
+  const rowDragOver = (t) => (e) => {
+    if (!dragId || dragId === t.id) return;
+    e.preventDefault(); e.stopPropagation();
+    e.dataTransfer.dropEffect = 'move';
+    const rect = e.currentTarget.getBoundingClientRect();
+    const edge = (e.clientY - rect.top) < rect.height / 2 ? 'above' : 'below';
+    setDropRow((r) => (r && r.taskId === t.id && r.edge === edge ? r : { taskId: t.id, edge }));
+  };
+  const rowDragLeave = (t) => (e) => {
+    if (e.currentTarget.contains(e.relatedTarget)) return;
+    e.stopPropagation();
+    setDropRow((r) => (r?.taskId === t.id ? null : r));
+  };
+  const rowDrop = (g, t) => (e) => {
+    if (!dragId || dragId === t.id) return;
+    e.preventDefault(); e.stopPropagation();
+    const list = g.tasks.filter((x) => x.id !== dragId);
+    const idx = list.findIndex((x) => x.id === t.id);
+    const edge = dropRow?.taskId === t.id ? dropRow.edge : 'below';
+    const before = edge === 'above' ? list[idx - 1] : list[idx];
+    const after = edge === 'above' ? list[idx] : list[idx + 1];
+    const beforePos = before ? (before.position ?? 0) : null;
+    const afterPos = after ? (after.position ?? 0) : null;
+    let newPos;
+    if (beforePos != null && afterPos != null) newPos = (beforePos + afterPos) / 2;
+    else if (beforePos != null) newPos = beforePos + 1;
+    else if (afterPos != null) newPos = afterPos - 1;
+    else newPos = 0;
+    // Dropping into a DIFFERENT group also re-homes the task onto that group's
+    // value (same rule the group-header drop already applies), so a manual
+    // drag can move and reorder in one gesture.
+    const groupPatch = dropPatch(g.key);
+    store.updateTask(dragId, { ...(groupPatch || {}), position: newPos }).catch(() => {});
+    setDragId(null); setDropKey(null); setDropRow(null);
   };
 
   const wrapRef = useRef(null);
@@ -986,7 +1036,11 @@ export default function RichListView({ visible, group, ctx, store, people, selec
                   {groupHeader}
                   {g.tasks.slice(0, groupBudgets[gi] ?? g.tasks.length).map((t) => (
                     <TaskRow key={t.id} t={t} cols={cols} customFields={customFields} template={template} store={store} people={people} selected={selected.has(t.id)} toggleSel={toggleSel} onOpen={onOpen}
-                      hidden={hiddenEff} groupColor={gc} onDragStartRow={setDragId} onDragEndRow={() => { setDragId(null); setDropKey(null); }} />
+                      hidden={hiddenEff} groupColor={gc} onDragStartRow={setDragId} onDragEndRow={() => { setDragId(null); setDropKey(null); setDropRow(null); }}
+                      onRowDragOver={manualSort ? rowDragOver(t) : undefined}
+                      onRowDrop={manualSort ? rowDrop(g, t) : undefined}
+                      onRowDragLeave={manualSort ? rowDragLeave(t) : undefined}
+                      dropEdge={manualSort && dropRow?.taskId === t.id ? dropRow.edge : null} />
                   ))}
                   <AddTaskInline store={store} lockedProjectId={lockedProjectId} defaults={groupAddDefaults(effGroup, g.key)} />
                   {/* summary footer - mirrors monday's group tallies */}

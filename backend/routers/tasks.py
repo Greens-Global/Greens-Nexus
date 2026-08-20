@@ -9,6 +9,7 @@ Reference implementation: routers/items.py.
 """
 import calendar
 import re
+import time
 from datetime import date, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
@@ -47,6 +48,7 @@ def task_to_dict(t: models.Task) -> dict:
         "type":             t.type or "task",
         "status":           t.status or "not_started",
         "priority":         t.priority or "medium",
+        "position":         t.position if t.position is not None else 0.0,
         "assigneeId":       _nz(t.assignee_email),
         "ownerId":          _nz(t.owner_email),
         "followerIds":      t.follower_emails or [],
@@ -126,6 +128,7 @@ class TaskCreate(BaseModel):
     type:             Optional[str] = "task"
     status:           Optional[str] = "not_started"
     priority:         Optional[str] = "medium"
+    position:         Optional[float] = None   # manual drag-order - see models.Task.position
     assignee_email:   Optional[str] = ""
     owner_email:      Optional[str] = ""
     follower_emails:  Optional[list] = None
@@ -161,6 +164,7 @@ class TaskUpdate(BaseModel):
     type:             Optional[str] = None
     status:           Optional[str] = None
     priority:         Optional[str] = None
+    position:         Optional[float] = None   # manual drag-order - see models.Task.position
     assignee_email:   Optional[str] = None
     owner_email:      Optional[str] = None
     follower_emails:  Optional[list] = None
@@ -901,6 +905,10 @@ def create_task(body: TaskCreate, background_tasks: BackgroundTasks,
         type=body.type or "task",
         status=body.status or "not_started",
         priority=body.priority or "medium",
+        # Defaults to "now" (epoch seconds) rather than 0 so a freshly created
+        # task lands at the END of manual order, after everything dragged
+        # before it - not shuffled to the front of every group.
+        position=body.position if body.position is not None else time.time(),
         assignee_email=(body.assignee_email or "").strip().lower(),
         owner_email=(body.owner_email or "").strip().lower(),
         follower_emails=body.follower_emails or [],
