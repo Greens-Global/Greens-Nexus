@@ -6,7 +6,10 @@ import { supabase, supabaseUrl, supabaseAnonKey } from '../lib/supabase';
 import { formatDate as usFormatDate, formatDateTime as usFormatDateTime } from '../lib/datetime';
 
 export const EMPTY_FILTER = {
-  assigneeIds: [], statuses: [], priorities: [], teamIds: [], projectIds: [],
+  // collaboratorIds = people in a task's follower list (Asana "collaborators").
+  // Someone asking "what is X on?" usually means both what X holds and what X
+  // is copied on, which is why it sits next to assignee rather than inside it.
+  assigneeIds: [], collaboratorIds: [], statuses: [], priorities: [], teamIds: [], projectIds: [],
   tags: [], due: 'any', dueFrom: null, dueTo: null, search: '',
   // {fieldId: [selectedOptionId, ...]} - only select-type fields are filterable;
   // a free-text or number field has no bounded option list to offer.
@@ -40,12 +43,81 @@ function dueMatches(task, due, dueFrom, dueTo) {
   return true;
 }
 
-export function matchesFilter(task, f = EMPTY_FILTER) {
+// A subtask carries projectId '' (its project is reached through the parent),
+// so anything that scopes by project has to walk up. Bounded and cycle-safe:
+// a bad parent pointer must never hang the render.
+export function effectiveProjectId(task, taskById) {
+  let cur = task;
+  for (let depth = 0; cur && cur.parentTaskId && depth < 20; depth++) {
+    const parent = taskById?.[cur.parentTaskId];
+    if (!parent) break;
+    cur = parent;
+  }
+  return cur?.projectId || '';
+}
+
+// Same walk as effectiveProjectId, but the FULL membership (primary + extras)
+// of whichever task the walk lands on - taskProjectIds is defined below.
+export function effectiveProjectIds(task, taskById) {
+  let cur = task;
+  for (let depth = 0; cur && cur.parentTaskId && depth < 20; depth++) {
+    const parent = taskById?.[cur.parentTaskId];
+    if (!parent) break;
+    cur = parent;
+  }
+  return taskProjectIds(cur);
+}
+
+// A task's full project membership: its primary projectId plus any EXTRA
+// projects (Nexus-only tags, never synced to Asana - see backend
+// models.Task.project_ids) it was also added to, so the same task can show up
+// under several projects without being recreated in each one.
+export const taskProjectIds = (task) => {
+  const extra = (task?.projectIds || []).filter(Boolean);
+  return task?.projectId ? [task.projectId, ...extra.filter((id) => id !== task.projectId)] : extra;
+};
+export const taskInProject = (task, projectId) => !!projectId && taskProjectIds(task).includes(projectId);
+
+// The top-level task a subtask ultimately hangs off, or null for a top-level
+// task - what a row shows as "in <parent>" so a subtask listed on its own
+// (My Tasks, a person's tasks) still says where it lives.
+export function rootParent(task, taskById) {
+  let cur = task, top = null;
+  for (let depth = 0; cur && cur.parentTaskId && depth < 20; depth++) {
+    const parent = taskById?.[cur.parentTaskId];
+    if (!parent) break;
+    top = parent; cur = parent;
+  }
+  return top;
+}
+
+// The rows a PERSON-scoped list should hold. Asana's My Tasks lists a subtask
+// assigned to you as its own row; hiding subtasks made 39 of Charmi's 131 open
+// tasks (and 13 of Sahil's) vanish from her My Tasks the week Asana was
+// switched off - "tasks are missing" when they were in the database all along.
+// Sections are never rows. Callers without a person scope keep topLevel().
+export function personScoped(tasks, f) {
+  // A typed search is also a hunt for one specific task, wherever it hangs -
+  // 92 same-titled "Finish all Books" subtasks must be findable by title.
+  const flat = f?.assigneeIds?.length || f?.collaboratorIds?.length || (f?.search || '').trim();
+  return flat ? (tasks || []).filter((t) => !isSection(t)) : topLevel(tasks);
+}
+
+export function matchesFilter(task, f = EMPTY_FILTER, taskById = null) {
   if (f.assigneeIds?.length && !f.assigneeIds.includes(task.assigneeId)) return false;
+  if (f.collaboratorIds?.length && !f.collaboratorIds.some((em) => (task.followerIds || []).includes(em))) return false;
   if (f.statuses?.length && !f.statuses.includes(task.status)) return false;
   if (f.priorities?.length && !f.priorities.includes(task.priority)) return false;
   if (f.teamIds?.length && !f.teamIds.includes(task.teamId)) return false;
-  if (f.projectIds?.length && !f.projectIds.includes(task.projectId)) return false;
+  // Project scope resolves through the parent chain when the caller hands over
+  // the task map, so a subtask assigned to the filtered person still counts as
+  // being in its parent's project - and counts its EXTRA project memberships
+  // too, so filtering to Project X finds a task added to X as a secondary
+  // project just as readily as one whose primary project is X.
+  if (f.projectIds?.length) {
+    const ids = taskById ? effectiveProjectIds(task, taskById) : taskProjectIds(task);
+    if (!f.projectIds.some((id) => ids.includes(id))) return false;
+  }
   if (f.tags?.length && !f.tags.some((t) => (task.tags || []).includes(t))) return false;
   // Each selected field narrows independently (AND across fields, OR within
   // one) - the same shape as the assignee/status/priority filters above.
@@ -109,7 +181,10 @@ export function topLevel(tasks) {
 }
 
 const SORTERS = {
-  manual: () => 0,
+  // Drag order (position - see backend models.Task.position). Untouched tasks
+  // default to their creation time, so a list nobody has dragged yet still
+  // reads in the order tasks were made, same as the no-op comparator before.
+  manual: (a, b) => (a.position ?? 0) - (b.position ?? 0),
   title: (a, b) => (a.title || '').localeCompare(b.title || ''),
   dueOn: (a, b) => (a.dueOn || '9999').localeCompare(b.dueOn || '9999'),
   priority: (a, b) => PRIORITY_ORDER.indexOf(a.priority) - PRIORITY_ORDER.indexOf(b.priority),
@@ -222,7 +297,7 @@ export function groupTasks(list, group, ctx = {}) {
     if (group === 'status') push(t.status || 'not_started', statusMeta[t.status]?.label || t.status, t);
     else if (group === 'priority') push(t.priority || 'low', (t.priority || 'low').replace(/^\w/, (c) => c.toUpperCase()), t);
     else if (group === 'assignee') push(t.assigneeId || '-', ctx.nameOf ? ctx.nameOf(t.assigneeId) : (t.assigneeId || 'Unassigned'), t);
-    else if (group === 'project') push(t.projectId || '-', ctx.projectName?.(t.projectId) || 'No Project', t);
+    else if (group === 'project') { const pid = ctx.taskById ? effectiveProjectId(t, ctx.taskById) : t.projectId; push(pid || '-', ctx.projectName?.(pid) || 'No Project', t); }
     else if (group === 'team') push(t.teamId || '-', ctx.teamName?.(t.teamId) || 'No Team', t);
     else if (group === 'date') push(t.dueOn || '-', t.dueOn || 'No Due Date', t);
     else push('all', '', t);

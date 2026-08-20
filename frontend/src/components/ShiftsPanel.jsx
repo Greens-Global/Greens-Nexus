@@ -32,10 +32,23 @@ export default function ShiftsPanel({ people = [], toastOk, toastErr }) {
 
   async function loadChatOptions() {
     setChatLoading(true);
+    // Server first: the backend redeems this session's refresh token for a
+    // Graph chat token (same path BOD/EOD delivery uses), so no MSAL popup,
+    // no stale-cache failure. MSAL silent -> popup stays as the fallback, and
+    // whatever fails now says WHY instead of a bare "could not load".
+    let serverReason = '';
+    try {
+      const r = await api.timeMyChats();
+      if (r?.chats?.length) { setChatList(r.chats); setChatLoading(false); return; }
+      serverReason = r?.reason || 'no chats returned';
+    } catch (e) { serverReason = e?.message || 'request failed'; }
     try {
       const tok = (await graphTokenSilent()) || (await graphTokenInteractive());
       setChatList(await listMyChats(tok));
-    } catch { toastErr?.('Could not load your Teams chats.'); setChatList([]); }
+    } catch (e) {
+      toastErr?.(`Could not load your Teams chats - ${serverReason}; Microsoft sign-in: ${e?.errorCode || e?.message || 'failed'}.`);
+      setChatList([]);
+    }
     setChatLoading(false);
   }
 

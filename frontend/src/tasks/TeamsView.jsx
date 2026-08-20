@@ -13,7 +13,7 @@ import {
 import { NX, FONT, btn, input as inputStyle, STATUS_META } from './theme';
 import { Avatar, EmptyState, Modal, usePeople, PersonSelect, useIsMobile } from './components';
 import { useTasks } from './TasksContext';
-import { topLevel, teamProjectIds } from './lib';
+import { topLevel, teamProjectIds, taskInProject } from './lib';
 import { CalendarView } from './views/extras';
 import { emailToName } from '../lib/utils';
 
@@ -237,6 +237,16 @@ export function TeamModal({ team, onClose, onDelete }) {
   const isMobile = useIsMobile();
   const [members, setMembers] = useState(team?.memberIds || []);
   const [saving, setSaving] = useState(false);
+  // Compared against the loaded snapshot rather than tracked per-handler -
+  // this form has too many independent controls (color swatches, icon grid,
+  // member add/remove) to flag dirty at each call site without missing one.
+  const initial = useMemo(() => ({
+    name: team?.name || '', projectIds: teamProjectIds(team), color: team?.color || DEPT_COLORS[0],
+    icon: team?.icon || 'building', members: team?.memberIds || [],
+  }), [team]);
+  const dirty = name !== initial.name || color !== initial.color || icon !== initial.icon
+    || JSON.stringify(projectIds) !== JSON.stringify(initial.projectIds)
+    || JSON.stringify(members) !== JSON.stringify(initial.members);
 
   const addMember = (email) => {
     if (!email) return;
@@ -263,6 +273,8 @@ export function TeamModal({ team, onClose, onDelete }) {
     <Modal
       title={team ? 'Edit Team' : 'Create a Team'}
       onClose={onClose}
+      isDirty={dirty}
+      onSave={canSave ? save : undefined}
       footer={(
         <>
           {onDelete && (
@@ -445,7 +457,7 @@ function TeamOverviewTab({ team, teamProjects, onSeeMembers, onNavigate }) {
   const addRef = useRef(null);
   const people = usePeople();
 
-  const taskCountFor = (pid) => tasks.filter((t) => t.projectId === pid).length;
+  const taskCountFor = (pid) => tasks.filter((t) => taskInProject(t, pid)).length;
 
   return (
     <div>
@@ -559,7 +571,7 @@ function TeamWorkTab({ teamProjects, tasks, onNavigate }) {
 }
 
 function ProjectWorkSection({ project, tasks, onNavigate }) {
-  const projectTasks = useMemo(() => topLevel(tasks.filter((t) => t.projectId === project.id)), [project, tasks]);
+  const projectTasks = useMemo(() => topLevel(tasks.filter((t) => taskInProject(t, project.id))), [project, tasks]);
   const [open, setOpen] = useState(true);
 
   return (
@@ -599,6 +611,6 @@ function ProjectWorkSection({ project, tasks, onNavigate }) {
 function TeamCalendarTab({ teamProjects, tasks, onNavigate }) {
   // One calendar across every project the team serves.
   const ids = teamProjects.map((p) => p.id);
-  const teamTasks = topLevel(tasks.filter((t) => ids.includes(t.projectId)));
+  const teamTasks = topLevel(tasks.filter((t) => ids.some((id) => taskInProject(t, id))));
   return <CalendarView tasks={teamTasks} onOpen={(id) => { const t = tasks.find((x) => x.id === id); if (t) onNavigate && onNavigate({ projectId: t.projectId }); }} />;
 }

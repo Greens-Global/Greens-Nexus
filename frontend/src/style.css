@@ -3159,8 +3159,15 @@ button, [role="button"], select { touch-action: manipulation; }
   box-shadow: var(--wk-shadow-hov);
 }
 
-/* Search popover (module screens - the magnifier next to the bell) */
+/* Header search on module screens (tabs occupy the center, so this lives in
+   header-right). Tasks gets an always-visible compact bar (.hdr-search-inline)
+   instead of an icon someone has to already know exists to click - that hid
+   task/people search well enough that it went unnoticed (Aug 2026). Every
+   other module keeps the plain icon + popover (.hdr-search-pop) it always
+   had - those modules have nothing of their own for this search to reach
+   into, so a permanent search box there would just be clutter. */
 .hdr-search-wrap { position: relative; }
+.hdr-search-inline { width: 220px; flex-shrink: 0; }
 .hdr-search-pop {
   position: absolute;
   top: calc(100% + 8px);

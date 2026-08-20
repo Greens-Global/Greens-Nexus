@@ -26,7 +26,7 @@ const SEARCH_GROUPS = [
 ];
 const EMPTY_HITS = { tasks: [], projects: [], people: [], portfolios: [], teams: [] };
 
-export default function TopHeader({ title, theme, onThemeToggle, sidebarPinned, onSidebarPinnedChange, onMobileToggle, canGoBack, onBack, onNavigate, prevLabel, onOpenAdmin, helpKey, helpLabel }) {
+export default function TopHeader({ title, activeView, theme, onThemeToggle, sidebarPinned, onSidebarPinnedChange, onMobileToggle, canGoBack, onBack, onNavigate, prevLabel, onOpenAdmin, helpKey, helpLabel }) {
   const { instance, accounts } = useMsal();
   const { myRole, can, myGrantedModules, actingAs, startActAs, stopActAs, isExternal } = useRole();
   // Module tab strip published by the active module (<ModuleTabs>). When
@@ -151,14 +151,20 @@ export default function TopHeader({ title, theme, onThemeToggle, sidebarPinned, 
   // per keystroke. Failures fall back to an empty result set: the module
   // matches above are computed locally and must keep working if the API is down.
   const [hits, setHits] = useState(EMPTY_HITS);
+  // True from the first keystroke until the answer for the CURRENT text lands
+  // (debounce included). The popover used to sit empty for that beat and read
+  // as "no results" until the rows popped in.
+  const [searching, setSearching] = useState(false);
   useEffect(() => {
     const term = searchQuery.trim();
-    if (term.length < 2) { setHits(EMPTY_HITS); return undefined; }
+    if (term.length < 2) { setHits(EMPTY_HITS); setSearching(false); return undefined; }
     let live = true;
+    setSearching(true);
     const id = setTimeout(() => {
       api.searchTaskModule(term)
         .then((r) => { if (live) setHits({ ...EMPTY_HITS, ...r }); })
-        .catch(() => { if (live) setHits(EMPTY_HITS); });
+        .catch(() => { if (live) setHits(EMPTY_HITS); })
+        .finally(() => { if (live) setSearching(false); });
     }, 180);
     return () => { live = false; clearTimeout(id); };
   }, [searchQuery]);
@@ -169,6 +175,12 @@ export default function TopHeader({ title, theme, onThemeToggle, sidebarPinned, 
   // people go through window events (nexus:open-task / nexus:tasks-person)
   // because the Task module owns the drawer and the workspace - the header
   // only says WHAT was picked, never how to render it.
+  function openAllTasks(q) {
+    setSearchQuery(''); setSearchOpen(false);
+    window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'tasks', sub: 'mine' } }));
+    setTimeout(() => window.dispatchEvent(new CustomEvent('nexus:tasks-search', { detail: { q } })), 0);
+  }
+
   function openHit(kind, item) {
     setSearchQuery(''); setSearchOpen(false);
     const toTasks = (sub) => window.dispatchEvent(
@@ -262,8 +274,14 @@ export default function TopHeader({ title, theme, onThemeToggle, sidebarPinned, 
 
   const searchResultsDropdown = (
     <>
-      {searchOpen && (searchResults.length > 0 || hitCount > 0) && (
+      {searchOpen && (searchResults.length > 0 || hitCount > 0 || searching) && (
         <div style={{ ...panelStyle, maxHeight: '70vh', overflowY: 'auto' }}>
+          {searching && hitCount === 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', fontSize: 12.5, color: 'var(--muted)' }}>
+              <span aria-hidden style={{ width: 13, height: 13, borderRadius: '50%', border: '2px solid var(--line)', borderTopColor: 'var(--muted)', animation: 'spin 0.8s linear infinite', flexShrink: 0 }} />
+              Searching tasks, projects and people…
+            </div>
+          )}
           {SEARCH_GROUPS.map((g) => (hits[g.key]?.length ? (
             <div key={g.key}>
               <div style={headingStyle}>{g.label}</div>
@@ -274,7 +292,12 @@ export default function TopHeader({ title, theme, onThemeToggle, sidebarPinned, 
                     <>
                       <Check size={13} style={{ color: item.completed ? 'var(--ok, #16a34a)' : 'var(--muted)', flexShrink: 0 }} />
                       <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                        textDecoration: item.completed ? 'line-through' : 'none' }}>{item.title}</span>
+                        textDecoration: item.completed ? 'line-through' : 'none' }}>
+                        {item.title}
+                        {/* A subtask says whose it is - same-titled subtasks
+                            across many parents are otherwise identical lines. */}
+                        {item.parentTitle && <span style={{ ...subStyle, marginLeft: 6 }}>‹ {item.parentTitle}</span>}
+                      </span>
                       {item.projectName && <span style={{ ...subStyle, flexShrink: 0 }}>{item.projectName}</span>}
                     </>
                   ) : g.key === 'people' ? (
@@ -291,6 +314,17 @@ export default function TopHeader({ title, theme, onThemeToggle, sidebarPinned, 
                   )}
                 </button>
               ))}
+              {(hits.totals?.[g.key] || 0) > hits[g.key].length && (
+                g.key === 'tasks' ? (
+                  <button onClick={() => openAllTasks(searchQuery)} style={{ ...rowStyle, ...subStyle }} onMouseEnter={hover(true)} onMouseLeave={hover(false)}>
+                    See all {hits.totals[g.key]} tasks matching "{searchQuery.trim()}"
+                  </button>
+                ) : (
+                  <div style={{ ...subStyle, padding: '6px 12px 8px' }}>
+                    and {hits.totals[g.key] - hits[g.key].length} more {g.label.toLowerCase()}
+                  </div>
+                )
+              )}
             </div>
           ) : null))}
           {searchResults.length > 0 && (
@@ -307,7 +341,11 @@ export default function TopHeader({ title, theme, onThemeToggle, sidebarPinned, 
           )}
         </div>
       )}
-      {searchOpen && searchQuery.trim().length >= 2 && searchResults.length === 0 && hitCount === 0 && (
+      {/* "No results" only once the answer for THIS text is back - while the
+          request is in flight the panel above shows the searching line instead.
+          Saying "no results" during the debounce made every search flash a
+          denial before the rows arrived. */}
+      {searchOpen && !searching && searchQuery.trim().length >= 2 && searchResults.length === 0 && hitCount === 0 && (
         <div style={{ ...panelStyle, padding: '12px 14px', fontSize: 13, color: 'var(--muted)', textAlign: 'center' }}>
           No results for "{searchQuery}"
         </div>
@@ -362,7 +400,7 @@ export default function TopHeader({ title, theme, onThemeToggle, sidebarPinned, 
               <button key={key}
                 className={`hdr-tab${headerTabs.active === key ? ' active' : ''}`}
                 aria-current={headerTabs.active === key ? 'page' : undefined}
-                onClick={() => headerTabs.onChange(key)}>
+                onClick={() => { setSearchQuery(''); setSearchOpen(false); headerTabs.onChange(key); }}>
                 {Icon && <Icon size={16} strokeWidth={2} />}
                 <span>{label}</span>
                 {badge > 0 && <span className="hdr-tab-badge">{badge}</span>}
@@ -378,8 +416,22 @@ export default function TopHeader({ title, theme, onThemeToggle, sidebarPinned, 
       </div>
 
       <div className="header-right">
-        {/* Module tabs occupy the center → search lives here as an icon */}
-        {headerTabs && (
+        {/* Module tabs occupy the center → search moves here. Tasks gets its
+            own always-visible compact bar rather than an icon someone has to
+            already know to click - task/people search was going unnoticed
+            entirely because nothing on screen showed it existed (Aug 2026).
+            Every other module keeps the plain icon-triggered popover it
+            always had; the content search this bar reaches into (tasks,
+            projects, portfolios, teams, people) is Task-module content, so
+            widening it everywhere just added a search box other modules
+            don't have anything of their own to search. */}
+        {headerTabs && activeView === 'tasks' && (
+          <div className="hdr-search-wrap hdr-search-inline" ref={searchRef}>
+            {searchInput}
+            {searchResultsDropdown}
+          </div>
+        )}
+        {headerTabs && activeView !== 'tasks' && (
           <div className="hdr-search-wrap" ref={searchRef}>
             <button className="icon-btn" aria-label="Search Nexus" title="Search"
               onClick={() => setSearchOpen(o => !o)}>

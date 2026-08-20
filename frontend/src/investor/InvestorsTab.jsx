@@ -23,22 +23,21 @@ export default function InvestorsTab() {
   const [busy, setBusy] = useState(false);
   const [formErr, setFormErr] = useState('');
 
-  const openAdd = () => { setFormErr(''); setModal({ id: null, form: { ...BLANK } }); };
+  const openAdd = () => { setFormErr(''); setModal({ id: null, form: { ...BLANK }, initialForm: { ...BLANK } }); };
   const openEdit = (inv) => {
     setFormErr('');
-    setModal({
-      id: inv.id,
-      form: {
-        displayName: s(inv.displayName), entityType: inv.entityType || 'individual',
-        email: s(inv.email), phone: s(inv.phone), address: s(inv.address),
-        accreditedStatus: inv.accreditedStatus || 'unverified', kycStatus: inv.kycStatus || 'pending',
-        taxIdOnFile: !!inv.taxIdOnFile, relationshipOwnerEmail: s(inv.relationshipOwnerEmail),
-        notes: s(inv.notes), status: inv.status || 'active',
-      },
-    });
+    const form = {
+      displayName: s(inv.displayName), entityType: inv.entityType || 'individual',
+      email: s(inv.email), phone: s(inv.phone), address: s(inv.address),
+      accreditedStatus: inv.accreditedStatus || 'unverified', kycStatus: inv.kycStatus || 'pending',
+      taxIdOnFile: !!inv.taxIdOnFile, relationshipOwnerEmail: s(inv.relationshipOwnerEmail),
+      notes: s(inv.notes), status: inv.status || 'active',
+    };
+    setModal({ id: inv.id, form, initialForm: form });
   };
 
   const setF = patch => setModal(m => ({ ...m, form: { ...m.form, ...patch } }));
+  const dirty = modal ? JSON.stringify(modal.form) !== JSON.stringify(modal.initialForm) : false;
 
   const save = async (e) => {
     e.preventDefault();
@@ -143,7 +142,7 @@ export default function InvestorsTab() {
       )}
 
       {modal && (
-        <Modal title={modal.id ? 'Edit Investor' : 'Add Investor'} onClose={() => setModal(null)} width={600}>
+        <Modal title={modal.id ? 'Edit Investor' : 'Add Investor'} onClose={() => setModal(null)} width={600} isDirty={dirty} onSave={() => save({ preventDefault() {} })}>
           <form onSubmit={save}>
             <div className="form-grid">
               <FG label="Display Name" full>

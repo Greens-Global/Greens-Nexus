@@ -6,7 +6,7 @@ import { useMemo, useState } from 'react';
 import { Plus, Search, FolderKanban, AlertTriangle, Pencil, Trash2, Archive, Globe, Lock, LayoutGrid, List } from 'lucide-react';
 import { api } from '../api';
 import { useTasks } from './TasksContext';
-import { taskStats, teamInProject, teamProjectIds, fieldsForProjectEntity } from './lib';
+import { taskStats, teamInProject, teamProjectIds, fieldsForProjectEntity, taskInProject } from './lib';
 import { NX, FONT, btn, input as inputStyle, card, chip } from './theme';
 import { Avatar, EmptyState, Modal, usePeople, PersonSelect, useIsMobile, MobileFab } from './components';
 import TasksWorkspace from './TasksWorkspace';
@@ -109,7 +109,7 @@ export default function ProjectsView({ onNavigate }) {
       .filter((p) => Object.entries(fieldFilters).every(
         ([fieldId, optionId]) => (p.customFieldValues || {})[fieldId] === optionId))
       .map((p) => {
-        const own = tasks.filter((t) => t.projectId === p.id);
+        const own = tasks.filter((t) => taskInProject(t, p.id));
         return { project: p, stats: taskStats(own) };
       })
       .sort((a, b) => Number(a.project.archived) - Number(b.project.archived)
@@ -511,11 +511,12 @@ function DeleteProjectModal({ state, setState, onConfirm, onClose }) {
 function ProjectModal({ form, setForm, people, portfolios, onClose, onSaved }) {
   const { teams, tasks, customFields, createProject, updateProject, updateTeam } = useTasks();
   const projectFields = useMemo(() => fieldsForProjectEntity(customFields), [customFields]);
-  const set = (patch) => setForm((f) => ({ ...f, ...patch }));
+  const [dirty, setDirty] = useState(false);
+  const set = (patch) => { setForm((f) => ({ ...f, ...patch })); setDirty(true); };
   // Read-only: status is computed from this project's tasks, the same rollup the
   // card's progress bar draws. Shown rather than hidden so the modal answers
   // "why does it say that?" in place, instead of looking like a missing field.
-  const stats = useMemo(() => taskStats(form.id ? tasks.filter((t) => t.projectId === form.id) : []), [tasks, form.id]);
+  const stats = useMemo(() => taskStats(form.id ? tasks.filter((t) => taskInProject(t, form.id)) : []), [tasks, form.id]);
   const statusMeta = PROJECT_STATUS_META[projectStatusFor(stats)];
   const label = { fontSize: 12.5, fontWeight: 600, color: NX.dim, marginBottom: 5, display: 'block' };
   const valid = form.name.trim().length > 0;
@@ -534,7 +535,7 @@ function ProjectModal({ form, setForm, people, portfolios, onClose, onSaved }) {
   // Teams currently assigned to this project (none yet for a brand-new one),
   // staged locally until Save so create and edit behave the same way.
   const [teamIds, setTeamIds] = useState(() => teams.filter((t) => teamInProject(t, form.id)).map((t) => t.id));
-  const toggleTeam = (id) => setTeamIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
+  const toggleTeam = (id) => { setTeamIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id])); setDirty(true); };
 
   const save = async () => {
     if (!valid || saving) return;
@@ -565,6 +566,8 @@ function ProjectModal({ form, setForm, people, portfolios, onClose, onSaved }) {
     <Modal
       title={form.id ? 'Edit Project' : 'Create a Project'}
       onClose={onClose}
+      isDirty={dirty}
+      onSave={valid ? save : undefined}
       footer={<>
         <button style={btn('ghost')} onClick={onClose}>Cancel</button>
         <button style={{ ...btn('primary'), opacity: valid && !saving ? 1 : 0.5, pointerEvents: valid && !saving ? 'auto' : 'none' }} onClick={save}>{form.id ? 'Save Changes' : 'Create Project'}</button>

@@ -155,6 +155,7 @@ def visible_project_ids(db: Session, user_or_email) -> set[str]:
     for t in db.query(Task).filter(Task.project_id != "").all():
         if (t.assignee_email or "").lower() == email:
             ids.add(t.project_id)
+            ids.update(p for p in (t.project_ids or []) if p)
     return ids
 
 
@@ -184,6 +185,10 @@ def task_is_visible(t: Task, user_or_email, visible_proj_ids: set[str]) -> bool:
     if email in [f.lower() for f in (t.follower_emails or [])]:
         return True
     if t.project_id and t.project_id in visible_proj_ids:
+        return True
+    # EXTRA projects (ids beyond the primary - see models.Task.project_ids)
+    # grant the same visibility a task's primary project would.
+    if any(p in visible_proj_ids for p in (t.project_ids or [])):
         return True
     return False
 

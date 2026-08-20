@@ -4,6 +4,7 @@ import { api } from '../api';
 import { dialog } from '../ui/dialog';
 import { formatDate } from '../lib/datetime';
 import { SkeletonBlocks } from '../components/AsyncState';
+import { COUNTRY_CODES, splitPhone, joinPhone } from '../lib/countryCodes';
 
 // ── External users - invite modal + person-panel section (Aug 18 rework) ─────
 // Externals live in the Roles & Access PEOPLE tab like everyone else (Visesh:
@@ -27,10 +28,14 @@ export function ExternalBadge() {
   );
 }
 
-// Entra invitation delivery state (stored server-side: sent/failed/manual).
+// Entra invitation delivery state (stored server-side: sent/accepted/failed/manual).
+// 'accepted' is stamped by external_auth.activate_verify the moment the invite
+// link is redeemed - it supersedes 'sent' so the panel stops saying "Invite
+// Sent" once the person has actually finished activating their account.
 export function InvitePill({ status }) {
   if (!status) return null;
-  const s = status === 'sent' ? { text: 'Invite Sent', color: 'hsl(var(--color-green))', bg: 'hsla(var(--color-green),0.12)' }
+  const s = status === 'accepted' ? { text: 'Invitation Accepted', color: 'hsl(var(--color-green))', bg: 'hsla(var(--color-green),0.12)' }
+    : status === 'sent' ? { text: 'Invite Sent', color: 'hsl(var(--color-green))', bg: 'hsla(var(--color-green),0.12)' }
     : status === 'manual' ? { text: 'Invited Manually', color: 'var(--muted)', bg: 'color-mix(in srgb, var(--muted) 12%, transparent)' }
       : { text: 'Invite Failed', color: 'hsl(var(--color-red))', bg: 'hsla(var(--color-red),0.10)' };
   return (
@@ -51,18 +56,23 @@ export function InviteExternalModal({ initial, onClose, onSaved }) {
   const [lastName, setLastName] = useState(initial?.lastName || '');
   const [company, setCompany] = useState(initial?.company || '');
   const [expiresAt, setExpiresAt] = useState(initial?.expiresAt || '');
-  const [phone, setPhone] = useState(initial?.phone || '');
+  const initialPhone = splitPhone(initial?.phone);
+  const [phoneDial, setPhoneDial] = useState(initialPhone.dial);
+  const [phoneRest, setPhoneRest] = useState(initialPhone.rest);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
+  const emailChanged = editing && email.trim().toLowerCase() !== (initial.email || '').toLowerCase();
+
   const save = async () => {
     setError('');
-    if (!editing && (!email.trim() || !email.includes('@'))) { setError('A valid email address is required.'); return; }
+    if (!email.trim() || !email.includes('@')) { setError('A valid email address is required.'); return; }
     if (!firstName.trim()) { setError('First name is required.'); return; }
     setSaving(true);
+    const phone = joinPhone(phoneDial, phoneRest);
     try {
       const result = editing
-        ? await api.updateExternalUser(initial.email, { first_name: firstName, last_name: lastName, company, expires_at: expiresAt, phone })
+        ? await api.updateExternalUser(initial.email || initial.id, { first_name: firstName, last_name: lastName, email: email.trim(), company, expires_at: expiresAt, phone })
         : await api.createExternalUser({ email: email.trim(), first_name: firstName, last_name: lastName, company, expires_at: expiresAt, phone });
       onSaved(result);
     } catch (e) {
@@ -80,11 +90,6 @@ export function InviteExternalModal({ initial, onClose, onSaved }) {
         </div>
 
         <div style={{ display: 'grid', gap: 13 }}>
-          <div>
-            <span style={label}>Email (the invitation is sent to this address)</span>
-            <input style={{ ...field, opacity: editing ? 0.6 : 1 }} type="email" value={email} disabled={editing}
-              placeholder="name@partnercompany.com" onChange={e => setEmail(e.target.value)} />
-          </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             <div>
               <span style={label}>First name</span>
@@ -94,6 +99,17 @@ export function InviteExternalModal({ initial, onClose, onSaved }) {
               <span style={label}>Last name</span>
               <input style={field} value={lastName} onChange={e => setLastName(e.target.value)} />
             </div>
+          </div>
+          <div>
+            <span style={label}>Email (the invitation is sent to this address)</span>
+            <input style={field} type="email" value={email}
+              placeholder="name@partnercompany.com" onChange={e => setEmail(e.target.value)} />
+            {emailChanged && (
+              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 5, lineHeight: 1.5 }}>
+                Their job role, groups, and access carry over to the corrected address. Any invite link or
+                sign-in code already sent to the old address stops working - use Resend Invite afterward.
+              </div>
+            )}
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             <div>
@@ -107,7 +123,14 @@ export function InviteExternalModal({ initial, onClose, onSaved }) {
           </div>
           <div>
             <span style={label}>Mobile phone (optional - one-time codes go by text once verified)</span>
-            <input style={field} type="tel" value={phone} placeholder="+1 555 555 1234" onChange={e => setPhone(e.target.value)} />
+            <div style={{ display: 'flex', gap: 8 }}>
+              <select style={{ ...field, width: 132, flexShrink: 0 }} value={phoneDial} onChange={e => setPhoneDial(e.target.value)}>
+                {COUNTRY_CODES.map(c => (
+                  <option key={c.iso} value={c.dial}>{c.name} ({c.dial})</option>
+                ))}
+              </select>
+              <input style={field} type="tel" value={phoneRest} placeholder="555 555 1234" onChange={e => setPhoneRest(e.target.value)} />
+            </div>
           </div>
 
           <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.5 }}>
@@ -140,6 +163,10 @@ export function inviteOutcomeToast(result, toastOk, toastErr) {
 // ONE implementation of the lifecycle actions, shared by the person-card
 // section (Roles & Access) and the People module's External tab list - the
 // two surfaces must never drift apart in behavior or copy.
+// URL key for an external row: their email, or the row id when the email is
+// blank (older external-contact rows) - the API accepts either.
+const keyOf = (ext) => ext?.email || ext?.id;
+
 export function useExternalActions({ onChanged, onRemoved, toastOk, toastErr }) {
   const [busyEmail, setBusyEmail] = useState('');
 
@@ -148,29 +175,29 @@ export function useExternalActions({ onChanged, onRemoved, toastOk, toastErr }) 
     try { await fn(); } finally { setBusyEmail(''); }
   };
 
-  const resend = (ext) => run(ext.email, async () => {
+  const resend = (ext) => run(keyOf(ext), async () => {
     try {
-      const r = await api.resendExternalInvite(ext.email);
+      const r = await api.resendExternalInvite(keyOf(ext));
       inviteOutcomeToast({ ...r, inviteMessage: r.inviteMessage }, toastOk, toastErr);
       onChanged?.();
     } catch (e) { toastErr?.(e?.message || 'The invitation could not be sent'); }
   });
 
-  const setStatus = (ext, status) => run(ext.email, async () => {
+  const setStatus = (ext, status) => run(keyOf(ext), async () => {
     try {
-      await api.updateExternalUser(ext.email, { status });
+      await api.updateExternalUser(keyOf(ext), { status });
       toastOk?.(status === 'active' ? `${ext.name} reactivated` : `${ext.name} deactivated - they can no longer sign in`);
       onChanged?.();
     } catch (e) { toastErr?.(e?.message || 'Could not update'); }
   });
 
-  const remove = (ext) => run(ext.email, async () => {
+  const remove = (ext) => run(keyOf(ext), async () => {
     const ok = await dialog.confirm(
       `Remove ${ext.name} from Nexus entirely? Deactivate keeps their record and can be reversed - Remove erases them completely, and they would have to be re-invited from scratch. Tasks and comments they took part in are kept.`,
       { title: 'Remove External User', confirmText: 'Remove Permanently', danger: true });
     if (!ok) return;
     try {
-      await api.removeExternalUser(ext.email);
+      await api.removeExternalUser(keyOf(ext));
       toastOk?.(`${ext.name} removed from Nexus`);
       onRemoved?.();
     } catch (e) { toastErr?.(e?.message || 'Could not remove'); }
@@ -189,7 +216,7 @@ export function ExternalPersonSection({ ext, onChanged, onRemoved, toastOk, toas
   const expired = ext.expiresAt && ext.expiresAt.slice(0, 10) < new Date().toISOString().slice(0, 10);
   const { busyEmail, resend: doResend, setStatus: doSetStatus, remove: doRemove } =
     useExternalActions({ onChanged, onRemoved, toastOk, toastErr });
-  const busy = busyEmail === ext.email;
+  const busy = busyEmail === keyOf(ext);
   const resend = () => doResend(ext);
   const setStatus = (status) => doSetStatus(ext, status);
   const remove = () => doRemove(ext);
@@ -318,22 +345,22 @@ export default function ExternalUsersPanel({ toastOk, toastErr, onChanged }) {
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 7, flexShrink: 0, flexWrap: 'wrap' }}>
-                <button onClick={() => resend(u)} disabled={busyEmail === u.email} title="Send a fresh activation email" style={actionBtn()}>
+                <button onClick={() => resend(u)} disabled={busyEmail === keyOf(u)} title="Send a fresh activation email" style={actionBtn()}>
                   <Send size={13} /> Resend Invite
                 </button>
-                <button onClick={() => setEditing(u)} disabled={busyEmail === u.email} title="Edit name, company, phone, or expiry" style={actionBtn()}>
+                <button onClick={() => setEditing(u)} disabled={busyEmail === keyOf(u)} title="Edit name, company, phone, or expiry" style={actionBtn()}>
                   <Pencil size={13} /> Edit
                 </button>
                 {u.status === 'active' ? (
-                  <button onClick={() => setStatus(u, 'inactive')} disabled={busyEmail === u.email} style={actionBtn('hsl(var(--color-red))', 'hsla(var(--color-red),0.4)')}>
+                  <button onClick={() => setStatus(u, 'inactive')} disabled={busyEmail === keyOf(u)} style={actionBtn('hsl(var(--color-red))', 'hsla(var(--color-red),0.4)')}>
                     <ShieldOff size={13} /> Deactivate
                   </button>
                 ) : (
-                  <button onClick={() => setStatus(u, 'active')} disabled={busyEmail === u.email} style={actionBtn('hsl(var(--color-green))', 'hsla(var(--color-green),0.4)')}>
+                  <button onClick={() => setStatus(u, 'active')} disabled={busyEmail === keyOf(u)} style={actionBtn('hsl(var(--color-green))', 'hsla(var(--color-green),0.4)')}>
                     <ShieldCheck size={13} /> Reactivate
                   </button>
                 )}
-                <button onClick={() => remove(u)} disabled={busyEmail === u.email} title="Erase them from Nexus entirely - cannot be undone" style={actionBtn('hsl(var(--color-red))', 'hsla(var(--color-red),0.4)')}>
+                <button onClick={() => remove(u)} disabled={busyEmail === keyOf(u)} title="Erase them from Nexus entirely - cannot be undone" style={actionBtn('hsl(var(--color-red))', 'hsla(var(--color-red),0.4)')}>
                   <Trash2 size={13} /> Remove
                 </button>
               </div>

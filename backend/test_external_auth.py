@@ -90,7 +90,7 @@ class _Base(unittest.TestCase):
             db.query(models.ExternalLoginCode).filter(
                 models.ExternalLoginCode.email == GUEST).delete(synchronize_session=False)
             db.query(models.ServerSession).filter(
-                models.ServerSession.user_email == GUEST).delete(synchronize_session=False)
+                models.ServerSession.user_email.in_((GUEST, ADMIN))).delete(synchronize_session=False)
             db.query(models.NexusEmployee).filter(
                 models.NexusEmployee.work_email == GUEST).delete(synchronize_session=False)
             db.query(models.NexusRole).filter(
@@ -551,6 +551,92 @@ class TestCsrfGuard(_Base):
         r = self.client.post("/notifications", json={"id": "x", "type": "t", "title": "t", "body": "b"},
                              cookies=cookies, headers={"X-CSRF-Token": csrf})
         self.assertNotEqual(r.json().get("detail"), "CSRF token missing or invalid")
+
+
+class TestAccountSwitch(_Base):
+    """Account-switch confirmation (Aug 18, Visesh: activating a guest silently
+    replaced his admin session). The pre-auth endpoints READ the session cookie
+    (never require it) and report who this browser is already signed in as, so
+    the frontend can confirm before the new session replaces the old."""
+
+    def _admin_session(self):
+        db = database.SessionLocal()
+        try:
+            sid, _ = bff_session.create_passwordless_session(db, ADMIN)
+        finally:
+            db.close()
+        return sid
+
+    def test_lookup_reports_foreign_session_conflict(self):
+        self._enroll()
+        token = self._token()
+        # No cookie: no conflict, nothing reported
+        body = self.client.post("/external-auth/activate/lookup", json={"token": token}).json()
+        self.assertIsNone(body["signedInAs"])
+        self.assertFalse(body["sessionConflict"])
+        # A DIFFERENT identity's cookie: conflict, with who it is
+        body = self.client.post("/external-auth/activate/lookup", json={"token": token},
+                                cookies={bff_session.SESSION_COOKIE: self._admin_session()}).json()
+        self.assertTrue(body["sessionConflict"])
+        self.assertEqual(body["signedInAs"]["email"], ADMIN)
+        self.assertTrue(body["signedInAs"]["name"])          # display name, never blank
+
+    def test_same_email_session_is_not_a_conflict(self):
+        self._enroll()
+        token = self._token()
+        db = database.SessionLocal()
+        try:
+            sid, _ = bff_session.create_passwordless_session(db, GUEST)
+        finally:
+            db.close()
+        body = self.client.post("/external-auth/activate/lookup", json={"token": token},
+                                cookies={bff_session.SESSION_COOKIE: sid}).json()
+        self.assertFalse(body["sessionConflict"])            # just re-signing-in
+        self.assertEqual(body["signedInAs"]["email"], GUEST)
+
+    def test_request_code_reports_conflict_and_stays_generic(self):
+        self._enroll()
+        token = self._token()
+        self.client.post("/external-auth/activate/send-code", json={"token": token, "channel": "email"})
+        self.client.post("/external-auth/activate/verify",
+                         json={"token": token, "code": self.sent_email[-1][1]})
+        self._age_all()
+        body = self.client.post("/external-auth/request-code",
+                                json={"email": GUEST, "channel": "email"},
+                                cookies={bff_session.SESSION_COOKIE: self._admin_session()}).json()
+        self.assertEqual(body["message"], ext_auth.GENERIC_MSG)   # anti-enumeration intact
+        self.assertTrue(body["sessionConflict"])
+        self.assertEqual(body["signedInAs"]["email"], ADMIN)
+        # An UNKNOWN email gets the identical shape - the conflict fields
+        # describe only the caller's own cookie, never the target account.
+        body = self.client.post("/external-auth/request-code",
+                                json={"email": "nobody@nowhere.example"},
+                                cookies={bff_session.SESSION_COOKIE: self._admin_session()}).json()
+        self.assertEqual(body["message"], ext_auth.GENERIC_MSG)
+        self.assertTrue(body["sessionConflict"])
+
+    def test_continue_still_replaces_the_session(self):
+        """After the explicit Continue the flow proceeds exactly as before: the
+        verify mints a NEW session cookie that replaces the old one."""
+        self._enroll()
+        token = self._token()
+        old_sid = self._admin_session()
+        cookies = {bff_session.SESSION_COOKIE: old_sid}
+        self.client.post("/external-auth/activate/send-code",
+                         json={"token": token, "channel": "email"}, cookies=cookies)
+        r = self.client.post("/external-auth/activate/verify",
+                             json={"token": token, "code": self.sent_email[-1][1]}, cookies=cookies)
+        self.assertEqual(r.status_code, 200, r.text)
+        new_sid = r.cookies.get(bff_session.SESSION_COOKIE)
+        self.assertTrue(new_sid)
+        self.assertNotEqual(new_sid, old_sid)
+        db = database.SessionLocal()
+        try:
+            row = db.query(models.ServerSession).filter(
+                models.ServerSession.id == new_sid).first()
+            self.assertEqual(row.user_email, GUEST)
+        finally:
+            db.close()
 
 
 if __name__ == "__main__":

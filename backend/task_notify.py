@@ -34,7 +34,6 @@ from app_url import app_url
 from task_inbound_parse import reply_address, reply_mailbox
 from routers.task_util import log_activity
 
-_APP_URL = app_url()   # NEXUS_APP_URL override, else derived per environment - see app_url.py
 _SETTINGS_KEY = "task_notify_config"
 
 _DEFAULT_SETTINGS = {
@@ -299,27 +298,27 @@ def notify_task_event(task_id: str, event_type: str, actor_email: str, **kw) -> 
 
         for recipient, role in recipients:
             if event_type == "created":
-                subject, html = tmpl.created_email(t=ctx, base_url=_APP_URL, logo_url=logo_url,
+                subject, html = tmpl.created_email(t=ctx, base_url=app_url(), logo_url=logo_url,
                                                     audience="assignee" if role == "assignee" else "other")
             elif event_type == "assigned":
-                subject, html = tmpl.assigned_email(t=ctx, base_url=_APP_URL, logo_url=logo_url,
+                subject, html = tmpl.assigned_email(t=ctx, base_url=app_url(), logo_url=logo_url,
                                                      audience="assignee" if role == "assignee" else "other")
             elif event_type == "completed":
-                subject, html = tmpl.completed_email(t=ctx, base_url=_APP_URL, logo_url=logo_url)
+                subject, html = tmpl.completed_email(t=ctx, base_url=app_url(), logo_url=logo_url)
             elif event_type == "mentioned":
-                subject, html = tmpl.mentioned_email(t=ctx, base_url=_APP_URL, logo_url=logo_url,
+                subject, html = tmpl.mentioned_email(t=ctx, base_url=app_url(), logo_url=logo_url,
                                                      comment_body=kw.get("comment_body", ""),
                                                      actor_name=ctx["actorName"])
             elif event_type == "commented":
-                subject, html = tmpl.commented_email(t=ctx, base_url=_APP_URL, logo_url=logo_url,
+                subject, html = tmpl.commented_email(t=ctx, base_url=app_url(), logo_url=logo_url,
                                                       comment_body=kw.get("comment_body", ""))
             elif event_type == "follower_added":
-                subject, html = tmpl.follower_added_email(t=ctx, base_url=_APP_URL, logo_url=logo_url)
+                subject, html = tmpl.follower_added_email(t=ctx, base_url=app_url(), logo_url=logo_url)
             elif event_type == "modified":
-                subject, html = tmpl.modified_email(t=ctx, base_url=_APP_URL, logo_url=logo_url,
+                subject, html = tmpl.modified_email(t=ctx, base_url=app_url(), logo_url=logo_url,
                                                      update_kind=kw.get("update_kind", "Task updated"))
             elif event_type == "deleted":
-                subject, html = tmpl.deleted_email(t=ctx, base_url=_APP_URL, logo_url=logo_url)
+                subject, html = tmpl.deleted_email(t=ctx, base_url=app_url(), logo_url=logo_url)
             else:
                 continue
             _send_one(db, task_id=task_id, task_code=t.code, event_type=event_type,
@@ -387,7 +386,7 @@ def _due_reminders_once(db: Session) -> None:
 
         ctx = _task_context(db, t, assignee)
         logo_url = cfg.get("logoUrl") or ""
-        subject, html = tmpl.due_reminder_email(t=ctx, base_url=_APP_URL, logo_url=logo_url, days_left=days_left)
+        subject, html = tmpl.due_reminder_email(t=ctx, base_url=app_url(), logo_url=logo_url, days_left=days_left)
         _send_one(db, task_id=t.id, task_code=t.code, event_type=event_type, idem_suffix=idem_suffix,
                  recipient=assignee, role="assignee", subject=subject, html=html, cfg=cfg)
 
@@ -464,24 +463,24 @@ def _rebuild_email(event_type: str, ctx: dict, role: str, cfg: dict) -> tuple[st
     rather than the wrong "Task updated" body the generic fallback used to send."""
     logo_url = cfg.get("logoUrl") or ""
     if event_type == "created":
-        return tmpl.created_email(t=ctx, base_url=_APP_URL, logo_url=logo_url, audience="assignee" if role == "assignee" else "other")
+        return tmpl.created_email(t=ctx, base_url=app_url(), logo_url=logo_url, audience="assignee" if role == "assignee" else "other")
     if event_type == "assigned":
-        return tmpl.assigned_email(t=ctx, base_url=_APP_URL, logo_url=logo_url, audience="assignee" if role == "assignee" else "other")
+        return tmpl.assigned_email(t=ctx, base_url=app_url(), logo_url=logo_url, audience="assignee" if role == "assignee" else "other")
     if event_type == "completed":
-        return tmpl.completed_email(t=ctx, base_url=_APP_URL, logo_url=logo_url)
+        return tmpl.completed_email(t=ctx, base_url=app_url(), logo_url=logo_url)
     if event_type == "commented":
-        return tmpl.commented_email(t=ctx, base_url=_APP_URL, logo_url=logo_url, comment_body="")
+        return tmpl.commented_email(t=ctx, base_url=app_url(), logo_url=logo_url, comment_body="")
     if event_type == "mentioned":
-        return tmpl.mentioned_email(t=ctx, base_url=_APP_URL, logo_url=logo_url, comment_body="",
+        return tmpl.mentioned_email(t=ctx, base_url=app_url(), logo_url=logo_url, comment_body="",
                                     actor_name=ctx.get("actorName", ""))
     if event_type == "follower_added":
-        return tmpl.follower_added_email(t=ctx, base_url=_APP_URL, logo_url=logo_url)
+        return tmpl.follower_added_email(t=ctx, base_url=app_url(), logo_url=logo_url)
     if event_type in ("due_soon", "overdue"):
-        return tmpl.due_reminder_email(t=ctx, base_url=_APP_URL, logo_url=logo_url,
+        return tmpl.due_reminder_email(t=ctx, base_url=app_url(), logo_url=logo_url,
                                        days_left=-1 if event_type == "overdue" else 0)
     if event_type == "deleted":
-        return tmpl.deleted_email(t=ctx, base_url=_APP_URL, logo_url=logo_url)
-    return tmpl.modified_email(t=ctx, base_url=_APP_URL, logo_url=logo_url, update_kind="Task updated")
+        return tmpl.deleted_email(t=ctx, base_url=app_url(), logo_url=logo_url)
+    return tmpl.modified_email(t=ctx, base_url=app_url(), logo_url=logo_url, update_kind="Task updated")
 
 
 def _task_scan_once(do_due: bool) -> None:

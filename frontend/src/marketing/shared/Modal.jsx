@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { X } from 'lucide-react'
 import { C, FONT, alpha } from '../theme'
 
@@ -16,14 +16,25 @@ const MAX_W = {
   'max-w-7xl': 1280,
 }
 
-export default function Modal({ title, onClose, children, width = 'max-w-2xl' }) {
+// `isDirty` + `onSave`: an unintentional exit (overlay click, Escape, the X
+// button) used to silently discard an in-progress form. When isDirty is set,
+// those three now ask first instead of closing straight away.
+export default function Modal({ title, onClose, children, width = 'max-w-2xl', isDirty = false, onSave }) {
+  const [confirming, setConfirming] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const requestClose = () => { if (isDirty) setConfirming(true); else onClose() }
   useEffect(() => {
     function onKeyDown(e) {
-      if (e.key === 'Escape') onClose()
+      if (e.key === 'Escape') requestClose()
     }
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
-  }, [onClose])
+  }, [onClose, isDirty])
+  const saveAndClose = async () => {
+    if (!onSave) { setConfirming(false); onClose(); return }
+    setSaving(true)
+    try { await onSave() } finally { setSaving(false); setConfirming(false) }
+  }
 
   const maxWidth = MAX_W[width] || 672
 
@@ -40,7 +51,7 @@ export default function Modal({ title, onClose, children, width = 'max-w-2xl' })
         padding: 16,
         fontFamily: FONT,
       }}
-      onClick={onClose}
+      onClick={requestClose}
     >
       <div
         style={{
@@ -70,7 +81,7 @@ export default function Modal({ title, onClose, children, width = 'max-w-2xl' })
         >
           <h2 style={{ fontSize: 15, fontWeight: 600, color: C.gray900, margin: 0 }}>{title}</h2>
           <button
-            onClick={onClose}
+            onClick={requestClose}
             style={{
               width: 28,
               height: 28,
@@ -91,6 +102,26 @@ export default function Modal({ title, onClose, children, width = 'max-w-2xl' })
         </div>
         <div style={{ padding: 20 }}>{children}</div>
       </div>
+      {confirming && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 60, display: 'flex', alignItems: 'center', justifyContent: 'center', background: alpha(C.black, 0.2) }}
+          onClick={(e) => e.stopPropagation()}>
+          <div style={{ width: 340, maxWidth: '90vw', background: C.white, borderRadius: 14, padding: 20, boxShadow: '0 20px 25px -5px rgba(0,0,0,0.15)' }}>
+            <div style={{ fontSize: 15, fontWeight: 600, color: C.gray900, marginBottom: 6 }}>Save your changes?</div>
+            <div style={{ fontSize: 13, color: C.gray500, lineHeight: 1.5, marginBottom: 18 }}>
+              You have unsaved changes. Closing now will discard them.
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
+              <button onClick={() => setConfirming(false)} style={{ background: C.gray100, color: C.gray700, border: 'none', borderRadius: 8, padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Keep Editing</button>
+              <button onClick={onClose} style={{ background: C.gray100, color: C.gray700, border: 'none', borderRadius: 8, padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Discard</button>
+              {onSave && (
+                <button onClick={saveAndClose} disabled={saving} style={{ background: C.emerald600, color: C.white, border: 'none', borderRadius: 8, padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: saving ? 0.6 : 1 }}>
+                  {saving ? 'Saving…' : 'Save Changes'}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

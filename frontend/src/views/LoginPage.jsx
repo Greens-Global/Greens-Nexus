@@ -76,19 +76,33 @@ export default function LoginPage() {
   // to their verified phone via sent.dm, else email). Employees' MSAL flow is
   // untouched; the server always answers the email step generically, so this
   // screen can never confirm whether an account exists.
-  const [partner, setPartner] = useState(null);         // null | 'email' | 'code'
+  const [partner, setPartner] = useState(null);         // null | 'email' | 'switch' | 'code'
   const [pEmail, setPEmail] = useState('');
   const [pCode, setPCode] = useState('');
   const [pBusy, setPBusy] = useState(false);
   const [pError, setPError] = useState('');
+  // Account-switch confirmation (Aug 18): a browser already signed in as a
+  // DIFFERENT account must confirm before the code sign-in replaces that
+  // session. pSwitch holds who is signed in; pSwitchOk remembers Continue so
+  // a resend doesn't re-ask.
+  const [pSwitch, setPSwitch] = useState(null);
+  const [pSwitchOk, setPSwitchOk] = useState(false);
   const [resendLeft, startResend] = useResendTimer();
+
+  const exitPartner = () => { setPartner(null); setPSwitch(null); setPSwitchOk(false); setPError(''); };
 
   const partnerRequest = async (channel = '') => {
     if (!pEmail.trim() || !pEmail.includes('@')) { setPError('Enter your email address.'); return; }
     setPBusy(true); setPError('');
     try {
-      await externalAuthPost('/external-auth/request-code', { email: pEmail.trim(), channel });
-      setPartner('code'); setPCode(''); startResend(30);
+      const d = await externalAuthPost('/external-auth/request-code', { email: pEmail.trim(), channel });
+      setPCode(''); startResend(30);
+      if (d.sessionConflict && d.signedInAs && !pSwitchOk) {
+        setPSwitch(d.signedInAs);
+        setPartner('switch');
+      } else {
+        setPartner('code');
+      }
     } catch { setPError('Could not reach the server - try again.'); }
     setPBusy(false);
   };
@@ -184,10 +198,28 @@ export default function LoginPage() {
             style={{ width: '100%', maxWidth: 340, boxSizing: 'border-box', padding: '12px 14px', borderRadius: 10, border: '1px solid #d1d5db', fontSize: 14, fontFamily: 'inherit', marginBottom: 12 }} />
           {pError && <p role="alert" style={{ margin: '0 0 12px', fontSize: 12.5, fontWeight: 600, color: '#b91c1c' }}>{pError}</p>}
           <button className="nxl-cta" style={{ "--i": 3 }} disabled={pBusy} onClick={() => partnerRequest()}>Send Code</button>
-          <button onClick={() => setPartner(null)}
+          <button onClick={exitPartner}
             style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12.5, fontWeight: 600, color: '#6b7280', textDecoration: 'underline', padding: '8px 4px' }}>
             Back to Microsoft Sign-In
           </button>
+          </>)}
+
+          {partner === 'switch' && pSwitch && (<>
+          <h1 className="nxl-title" style={{ "--i": 1 }}>Switch accounts?</h1>
+          <p className="nxl-sub" style={{ "--i": 2 }}>
+            You are signed in as <strong>{pSwitch.name}</strong>. Continuing signs that account out
+            on this browser and signs in as <strong>{pEmail.trim()}</strong>.
+          </p>
+          <button className="nxl-cta" style={{ "--i": 3 }} onClick={() => { setPSwitchOk(true); setPartner('code'); }}>
+            Continue
+          </button>
+          <button onClick={exitPartner}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12.5, fontWeight: 600, color: '#6b7280', textDecoration: 'underline', padding: '8px 4px' }}>
+            Cancel
+          </button>
+          <p className="nxl-note" style={{ "--i": 4 }}>
+            Cancel leaves your current sign-in untouched.
+          </p>
           </>)}
 
           {partner === 'code' && (<>

@@ -88,7 +88,7 @@ function SelectedChips({ items, onRemove }) {
 
 // ── Category bodies - shared by the desktop popovers and the mobile drill-in sheet ──
 function FiltersBody({ filters, setFilters, people, projects, lockedProjectId, hideAssignee, statusOrder = STATUS_ORDER, statusMeta = STATUS_META, customFields = [] }) {
-  const activeFilterCount = (hideAssignee ? 0 : filters.assigneeIds.length) + filters.statuses.length + filters.priorities.length + (lockedProjectId ? 0 : filters.projectIds.length)
+  const activeFilterCount = (hideAssignee ? 0 : filters.assigneeIds.length) + (filters.collaboratorIds || []).length + filters.statuses.length + filters.priorities.length + (lockedProjectId ? 0 : filters.projectIds.length)
     + Object.values(filters.customFields || {}).reduce((n, v) => n + (v?.length || 0), 0);
   // Only select fields are filterable - a bounded option list is what makes a
   // checkbox list possible at all. Text and number fields would need operators.
@@ -105,9 +105,12 @@ function FiltersBody({ filters, setFilters, people, projects, lockedProjectId, h
     setFilters({ ...filters, customFields: all });
   };
   const [assigneeQuery, setAssigneeQuery] = useState('');
+  const [collabQuery, setCollabQuery] = useState('');
   const [projectQuery, setProjectQuery] = useState('');
   const searchInput = { ...inputStyle, padding: '6px 9px', fontSize: 12.5, marginBottom: 6 };
   const shownPeople = people.filter((u) => u.name.toLowerCase().includes(assigneeQuery.toLowerCase()));
+  const shownCollabs = people.filter((u) => u.name.toLowerCase().includes(collabQuery.toLowerCase()));
+  const collaboratorIds = filters.collaboratorIds || [];
   const shownProjects = projects.filter((p) => p.name.toLowerCase().includes(projectQuery.toLowerCase()));
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -142,6 +145,26 @@ function FiltersBody({ filters, setFilters, people, projects, lockedProjectId, h
           </div>
         </div>
       )}
+      {/* Collaborator = follower list. Shown on My Tasks too (where Assignee is
+          hidden because it is always you): "what am I copied on with X" is a
+          real question there. */}
+      <div>
+        <div style={groupHead}>Collaborator</div>
+        <SelectedChips
+          items={collaboratorIds.map((id) => ({ id, label: people.find((u) => u.email === id)?.name || emailToName(id) }))}
+          onRemove={(id) => setFilters({ ...filters, collaboratorIds: toggle(collaboratorIds, id) })}
+        />
+        <input value={collabQuery} onChange={(e) => setCollabQuery(e.target.value)} placeholder="Search people…" style={searchInput} />
+        <div style={{ maxHeight: 108, overflowY: 'auto', border: `1px solid ${NX.border2}`, borderRadius: 8 }}>
+          {shownCollabs.map((u) => (
+            <label key={u.email} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 9px', fontSize: 13, cursor: 'pointer' }}>
+              <input type="checkbox" checked={collaboratorIds.includes(u.email)} onChange={() => setFilters({ ...filters, collaboratorIds: toggle(collaboratorIds, u.email) })} />
+              {u.name}
+            </label>
+          ))}
+          {shownCollabs.length === 0 && <div style={{ padding: 8, fontSize: 12, color: NX.faint }}>{people.length === 0 ? 'No people' : 'No matches'}</div>}
+        </div>
+      </div>
       {!lockedProjectId && (
         <div>
           <div style={groupHead}>Project</div>
@@ -184,7 +207,7 @@ function FiltersBody({ filters, setFilters, people, projects, lockedProjectId, h
       ))}
 
       {activeFilterCount > 0 && (
-        <button onClick={() => setFilters({ ...filters, assigneeIds: [], statuses: [], priorities: [], projectIds: [] })} style={{ ...btn('outline'), justifyContent: 'center' }}>Clear Filters</button>
+        <button onClick={() => setFilters({ ...filters, assigneeIds: [], collaboratorIds: [], statuses: [], priorities: [], projectIds: [], customFields: {} })} style={{ ...btn('outline'), justifyContent: 'center' }}>Clear Filters</button>
       )}
     </div>
   );
@@ -263,7 +286,7 @@ export function ProductivityBar({ filters, setFilters, sort, setSort, lockedProj
   const people = usePeople();
   const isMobile = useIsMobile();
 
-  const activeFilterCount = (hideAssignee ? 0 : filters.assigneeIds.length) + filters.statuses.length + filters.priorities.length
+  const activeFilterCount = (hideAssignee ? 0 : filters.assigneeIds.length) + (filters.collaboratorIds || []).length + filters.statuses.length + filters.priorities.length
     + (lockedProjectId ? 0 : filters.projectIds.length);
   const dateActive = (filters.due && filters.due !== 'any') || filters.dueFrom || filters.dueTo;
 
@@ -323,7 +346,7 @@ export function MobileFilters({ filters, setFilters, sort, setSort, group, setGr
   const people = usePeople();
   const [cat, setCat] = useState(null);
 
-  const activeFilterCount = (hideAssignee ? 0 : filters.assigneeIds.length) + filters.statuses.length + filters.priorities.length + (lockedProjectId ? 0 : filters.projectIds.length)
+  const activeFilterCount = (hideAssignee ? 0 : filters.assigneeIds.length) + (filters.collaboratorIds || []).length + filters.statuses.length + filters.priorities.length + (lockedProjectId ? 0 : filters.projectIds.length)
     + Object.values(filters.customFields || {}).reduce((n, v) => n + (v?.length || 0), 0);
   const dateActive = (filters.due && filters.due !== 'any') || filters.dueFrom || filters.dueTo;
   const hasGroup = groupOptions && setGroup;
@@ -446,6 +469,7 @@ function IntakeModal({ forms, projectName, createTask, myEmail, onOpenTask, onCl
   const [priority, setPriority] = useState('medium');
   const [neededBy, setNeededBy] = useState('');
   const [busy, setBusy] = useState(false);
+  const dirty = !!(summary.trim() || neededBy || priority !== 'medium');
   if (!form) return null;
   const submit = async () => {
     if (!summary.trim() || busy) return; setBusy(true);
@@ -456,6 +480,7 @@ function IntakeModal({ forms, projectName, createTask, myEmail, onOpenTask, onCl
   };
   return (
     <Modal title={form.title || 'Submit a request'} onClose={onClose}
+      isDirty={dirty} onSave={summary.trim() ? submit : undefined}
       footer={<>
         <button onClick={onClose} style={btn('outline')}>Cancel</button>
         <button onClick={submit} disabled={!summary.trim() || busy} style={{ ...btn('primary'), opacity: !summary.trim() || busy ? 0.6 : 1 }}>Submit Request</button>

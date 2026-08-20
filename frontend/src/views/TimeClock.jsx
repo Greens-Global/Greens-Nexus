@@ -333,9 +333,11 @@ export default function TimeClock() {
     // is sent or explicitly acknowledged (see BodModal's ack-to-skip).
     // Every punch prompts for its message; the "already sent" checkbox lets a
     // repeat punch skip. (BOD gates punch-in, EOD gates checkout, break gates.)
-    if (kind === 'in' || kind === 'break_start' || kind === 'out') {
+    if (kind === 'in' || kind === 'break_start' || kind === 'break_end' || kind === 'out') {
       gateClickRef.current = new Date().toISOString().slice(0, 19);
-      setBodMode(kind === 'in' ? 'bod-gate' : kind === 'break_start' ? 'break-gate' : 'eod-gate');
+      setBodMode(kind === 'in' ? 'bod-gate'
+        : kind === 'break_start' ? 'break-gate'
+        : kind === 'break_end' ? 'break-end-gate' : 'eod-gate');
       return;
     }
     await actualPunch(kind);
@@ -877,11 +879,13 @@ export default function TimeClock() {
       {bodMode && (() => {
         const modalMode = bodMode === 'bod-gate' ? 'bod'
           : bodMode === 'break-gate' ? 'break'
+          : bodMode === 'break-end-gate' ? 'break_end'
           : bodMode === 'eod-gate' ? 'eod' : bodMode;
         // All gates hold the punch until the message is sent OR explicitly
         // acknowledged (ack-to-skip). Closing the modal cancels the punch.
         const proceed = bodMode === 'bod-gate' ? () => { setBodMode(null); actualPunch('in'); }
           : bodMode === 'break-gate' ? () => { setBodMode(null); actualPunch('break_start'); }
+          : bodMode === 'break-end-gate' ? () => { setBodMode(null); actualPunch('break_end'); }
           : bodMode === 'eod-gate' ? () => { setBodMode(null); actualPunch('out'); }
           : () => setBodMode(null);
         const onSkip = bodMode === 'bod-gate' ? () => { bodMarker('bod'); proceed(); }

@@ -23,6 +23,7 @@ export default function AddLeadModal({ onAdd, onClose }) {
   const [source, setSource] = useState('Direct')
 
   const disabled = !name.trim()
+  const dirty = !!(name.trim() || email.trim() || phone.trim() || facility !== FACILITIES[0] || source !== 'Direct')
 
   function submit() {
     if (!name.trim()) return
@@ -31,7 +32,7 @@ export default function AddLeadModal({ onAdd, onClose }) {
   }
 
   return (
-    <Modal title="Add Lead" onClose={onClose} width="max-w-md">
+    <Modal title="Add Lead" onClose={onClose} width="max-w-md" isDirty={dirty} onSave={disabled ? undefined : submit}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         <div>
           <label style={labelStyle}>Name</label>

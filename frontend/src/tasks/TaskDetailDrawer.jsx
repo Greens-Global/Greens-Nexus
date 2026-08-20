@@ -20,6 +20,7 @@ const fmtDate = (iso) => (iso ? fmtDateRaw(iso) : '-');
 import { NX, FONT, btn, input as inputStyle, STATUS_META, STATUS_ORDER, PRIORITY_META, PRIORITY_ORDER } from './theme';
 import { Avatar, PersonSelect, PersonMultiSelect, usePeople, useIsMobile, DateField, AttachmentViewer } from './components';
 import RichDescription, { isEmptyDoc } from './RichDescription';
+import ProjectPicker from './ProjectPicker';
 
 const DEP_TYPES = { FS: 'Finish → Start', SS: 'Start → Start', FF: 'Finish → Finish', SF: 'Start → Finish' };
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -30,6 +31,7 @@ function recurrenceLabel(r) {
   if (r.freq === 'daily') base = 'Every day';
   else if (r.freq === 'weekly') base = `Every week on ${DAYS[r.dayOfWeek ?? 1]}`;
   else if (r.freq === 'monthly') base = `Every month on day ${r.dayOfMonth ?? 1}`;
+  else if (r.freq === 'yearly') base = 'Every year';
   else return 'Does not repeat';
   if (r.until) base += ` until ${r.until}`;
   else if (r.count) base += ` × ${r.count}`;
@@ -396,6 +398,32 @@ function CollaboratorMenuBody({ people, selected, onToggle }) {
   );
 }
 
+// Same shape as CollaboratorMenuBody, for adding an EXTRA project - `exclude`
+// keeps out the primary project and whatever's already added, so a project
+// only ever appears once in this list.
+function ProjectMenuBody({ projects, exclude, onPick }) {
+  const [q, setQ] = useState('');
+  const needle = q.trim().toLowerCase();
+  const filtered = (projects || [])
+    .filter((p) => !p.archived && !exclude.includes(p.id) && (!needle || (p.name || '').toLowerCase().includes(needle)))
+    .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'en', { sensitivity: 'base', numeric: true }));
+  return (
+    <div>
+      <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: NX.faint, padding: '4px 6px' }}>Also in Project</div>
+      <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search projects…"
+        style={{ width: '100%', boxSizing: 'border-box', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '6px 8px', fontSize: 13, outline: 'none', fontFamily: FONT, background: 'transparent', color: NX.ink }} />
+      <div className="nx-scroll" style={{ maxHeight: 220, overflowY: 'auto' }}>
+        {filtered.map((p) => (
+          <button key={p.id} type="button" onClick={() => onPick(p.id)} style={{ display: 'flex', width: '100%', textAlign: 'left', alignItems: 'center', gap: 8, padding: '6px 8px', fontSize: 13, border: 'none', background: 'transparent', cursor: 'pointer', color: NX.ink, fontFamily: FONT }}>
+            {p.name}
+          </button>
+        ))}
+        {filtered.length === 0 && <div style={{ padding: 8, fontSize: 12, color: NX.faint }}>{needle ? 'No match' : 'No other projects'}</div>}
+      </div>
+    </div>
+  );
+}
+
 function MembersMenu({ task, people, nameOf, patch }) {
   const followers = task.followerIds || [];
   const toggle = (email) => patch({ followerIds: followers.includes(email) ? followers.filter((e) => e !== email) : [...followers, email] });
@@ -571,22 +599,36 @@ function OverviewTab({ task, patch, people, projectName, teamName, teams, projec
       </Row>
 
       <Row label="Project">
-        <Pop width={220} trigger={(t) => (
-          <button onClick={t} style={{ display: 'flex', alignItems: 'center', gap: 5, border: 'none', background: 'transparent', cursor: 'pointer', padding: 0, color: task.projectId ? NX.ink : NX.faint, fontSize: 13, fontFamily: FONT }}>
-            {task.projectId ? projectName(task.projectId) : 'No project'} <ChevronDown size={13} style={{ color: NX.faint }} />
-          </button>
-        )}>
-          {(close) => (
-            <>
-              <MenuItem icon={!task.projectId ? <Check size={13} /> : <span style={{ width: 13, display: 'inline-block' }} />} onClick={() => { patch({ projectId: '', teamId: '' }); close(); }}>No project</MenuItem>
-              {(projects || []).length === 0 ? (
-                <div style={{ padding: 9, fontSize: 12, color: NX.faint }}>No projects yet</div>
-              ) : (projects || []).map((p) => (
-                <MenuItem key={p.id} icon={task.projectId === p.id ? <Check size={13} /> : <span style={{ width: 13, display: 'inline-block' }} />} onClick={() => { if (p.id !== task.projectId) patch({ projectId: p.id, teamId: '' }); close(); }}>{p.name}</MenuItem>
-              ))}
-            </>
-          )}
-        </Pop>
+        <div style={{ minWidth: 220 }}>
+          <ProjectPicker
+            projects={projects} teams={teams} myEmail={myEmail}
+            value={task.projectId || ''} allowNone noneLabel="No project"
+            onChange={(id) => { if (id !== task.projectId) patch({ projectId: id, teamId: '', projectIds: (task.projectIds || []).filter((p) => p !== id) }); }}
+          />
+        </div>
+      </Row>
+
+      <Row label="Also In">
+        {(task.projectIds || []).map((pid) => (
+          <span key={pid} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, border: `1px solid ${NX.border}`, borderRadius: 999, padding: '3px 9px 3px 9px', fontSize: 12 }}>
+            {projectName(pid) || pid}
+            <button onClick={() => patch({ projectIds: (task.projectIds || []).filter((p) => p !== pid) })} title="Remove" style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: NX.faint, padding: 0, display: 'flex' }}><X size={12} /></button>
+          </span>
+        ))}
+        {task.projectId ? (
+          <Pop width={220} trigger={(t) => (
+            <button onClick={t} title="Add another project" style={{
+              width: 26, height: 26, borderRadius: '50%', border: `1.5px dashed ${NX.border}`,
+              background: 'transparent', color: NX.faint, cursor: 'pointer', padding: 0,
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+            }}><Plus size={13} /></button>
+          )}>
+            {(close) => <ProjectMenuBody projects={projects} exclude={[task.projectId, ...(task.projectIds || [])]}
+              onPick={(id) => { patch({ projectIds: [...(task.projectIds || []), id] }); close(); }} />}
+          </Pop>
+        ) : (
+          <span style={{ color: NX.faint, fontSize: 13 }}>Pick a project first</span>
+        )}
       </Row>
 
       <Row label="Team">
@@ -660,6 +702,7 @@ function OverviewTab({ task, patch, people, projectName, teamName, teams, projec
                 <MenuItem onClick={() => { pickFreq({ freq: 'daily' }); close(); }}>Every day</MenuItem>
                 <MenuItem onClick={() => setRecStep('weekly')}>Every week</MenuItem>
                 <MenuItem onClick={() => setRecStep('monthly')}>Every month</MenuItem>
+                <MenuItem onClick={() => { pickFreq({ freq: 'yearly' }); close(); }}>Every year</MenuItem>
               </>);
             }}
           </Pop>
@@ -1171,6 +1214,8 @@ function AttachmentsTab({ task, refresh }) {
   const [rows, setRows] = useState(null);
   const [uploads, setUploads] = useState([]);   // in-flight files: {key, name, pct}
   const [view, setView] = useState(null);   // attachment open in the in-app viewer
+  const [dragOver, setDragOver] = useState(false);
+  const dragDepth = useRef(0);   // dragenter/dragleave fire on every child crossed, not just the panel edge
   const fileRef = useRef(null);
   const reload = () => api.getTaskAttachments(task.id).then(setRows).catch(() => setRows([]));
   useEffect(() => { reload(); /* eslint-disable-next-line */ }, [task.id]);
@@ -1189,11 +1234,34 @@ function AttachmentsTab({ task, refresh }) {
   const onPaste = (e) => { const files = filesFromPaste(e); if (files.length) { e.preventDefault(); files.forEach(sendFile); } };
   const del = async (a) => { await api.deleteTaskAttachment(a.id).catch(() => {}); reload(); refresh?.(); };
 
+  // Drag-and-drop straight onto the tab, anywhere - not just onto the Attach
+  // file button - matching Ctrl+V paste already working over the whole panel.
+  const onDragEnter = (e) => { e.preventDefault(); dragDepth.current += 1; if (e.dataTransfer.types.includes('Files')) setDragOver(true); };
+  const onDragOver = (e) => { e.preventDefault(); };
+  const onDragLeave = (e) => { e.preventDefault(); dragDepth.current = Math.max(0, dragDepth.current - 1); if (dragDepth.current === 0) setDragOver(false); };
+  const onDrop = (e) => {
+    e.preventDefault();
+    dragDepth.current = 0;
+    setDragOver(false);
+    Array.from(e.dataTransfer.files || []).forEach(sendFile);
+  };
+
   return (
-    <div onPaste={onPaste} tabIndex={0} style={{ marginTop: 14, outline: 'none' }}>
-      <input ref={fileRef} type="file" style={{ display: 'none' }} onChange={onFile} />
+    <div onPaste={onPaste} onDragEnter={onDragEnter} onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}
+      tabIndex={0} style={{
+        marginTop: 14, outline: 'none', borderRadius: 10, transition: 'background-color .12s ease',
+        ...(dragOver ? { background: NX.hover || NX.border2, boxShadow: `0 0 0 2px ${NX.primary} inset` } : {}),
+      }}>
+      <input ref={fileRef} type="file" multiple style={{ display: 'none' }} onChange={onFile} />
       <button onClick={() => fileRef.current?.click()} style={{ ...btn('outline'), borderStyle: 'dashed', fontSize: 12, marginBottom: 12 }}><Paperclip size={13} /> Attach file</button>
-      <span style={{ fontSize: 11, color: NX.faint, marginLeft: 8 }}>or press Ctrl+V to paste a screenshot</span>
+      <span style={{ fontSize: 11, color: NX.faint, marginLeft: 8 }}>or drag a file in, or press Ctrl+V to paste a screenshot</span>
+      {dragOver && (
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '18px 12px', margin: '10px 0',
+          border: `1.5px dashed ${NX.primary}`, borderRadius: 10, color: NX.primary, fontSize: 12.5, fontWeight: 600,
+          pointerEvents: 'none',
+        }}><Paperclip size={14} /> Drop to attach</div>
+      )}
       {(rows?.length || 0) === 0 && uploads.length === 0 ? (
         rows === null ? <div style={{ color: NX.faint, fontSize: 13, textAlign: 'center', padding: 20 }}>Loading…</div>
           : <div style={{ color: NX.faint, fontSize: 13, textAlign: 'center', padding: 20 }}>No attachments yet.</div>
@@ -1353,6 +1421,7 @@ function PropertiesTab({ task, nameOf, projectName, teamName, customFields, patc
     ['Priority', <Chip color={pm.color} tint={pm.tint}>{pm.label}</Chip>],
     ['Assignee', task.assigneeId ? <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Avatar email={task.assigneeId} name={nameOf(task.assigneeId)} size={18} /> {nameOf(task.assigneeId)}</span> : 'Unassigned'],
     ['Project', task.projectId ? projectName(task.projectId) : '-'],
+    ['Also In', (task.projectIds || []).length ? task.projectIds.map((id) => projectName(id) || id).join(', ') : '-'],
     ['Team', task.teamId ? teamName(task.teamId) : '-'],
     ['Start Date', fmtDate(task.startOn)],
     ['Due Date', fmtDate(task.dueOn)],

@@ -89,7 +89,7 @@ function ProjectDetail({ project, onBack }) {
           </div>
         </div>
         <button className="secondary-btn" onClick={() => window.dispatchEvent(
-          new CustomEvent('nexus:navigate', { detail: { view: 'ops', sub: 'ops-activity' } }))}>
+          new CustomEvent('nexus:navigate', { detail: { view: 'ops', sub: 'construction-activity' } }))}>
           Open Site Activity
         </button>
       </div>

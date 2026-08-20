@@ -9,6 +9,7 @@ Reference implementation: routers/items.py.
 """
 import calendar
 import re
+import time
 from datetime import date, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
@@ -47,12 +48,14 @@ def task_to_dict(t: models.Task) -> dict:
         "type":             t.type or "task",
         "status":           t.status or "not_started",
         "priority":         t.priority or "medium",
+        "position":         t.position if t.position is not None else 0.0,
         "assigneeId":       _nz(t.assignee_email),
         "ownerId":          _nz(t.owner_email),
         "followerIds":      t.follower_emails or [],
         "likedByIds":       t.liked_by_emails or [],
         "accessLevel":      t.access_level or "org",
         "projectId":        _nz(t.project_id),
+        "projectIds":       [p for p in (t.project_ids or []) if p],
         "sectionId":        _nz(t.section_id),
         "teamId":           _nz(t.team_id),
         "parentTaskId":     _nz(t.parent_task_id),
@@ -125,6 +128,7 @@ class TaskCreate(BaseModel):
     type:             Optional[str] = "task"
     status:           Optional[str] = "not_started"
     priority:         Optional[str] = "medium"
+    position:         Optional[float] = None   # manual drag-order - see models.Task.position
     assignee_email:   Optional[str] = ""
     owner_email:      Optional[str] = ""
     follower_emails:  Optional[list] = None
@@ -134,6 +138,7 @@ class TaskCreate(BaseModel):
     # instead of always defaulting to org-wide.
     access_level:     Optional[str] = None
     project_id:       Optional[str] = ""
+    project_ids:      Optional[list] = None   # EXTRA projects beyond project_id - see models.Task
     section_id:       Optional[str] = ""
     team_id:          Optional[str] = ""
     parent_task_id:   Optional[str] = ""
@@ -159,12 +164,14 @@ class TaskUpdate(BaseModel):
     type:             Optional[str] = None
     status:           Optional[str] = None
     priority:         Optional[str] = None
+    position:         Optional[float] = None   # manual drag-order - see models.Task.position
     assignee_email:   Optional[str] = None
     owner_email:      Optional[str] = None
     follower_emails:  Optional[list] = None
     liked_by_emails:  Optional[list] = None
     access_level:     Optional[str] = None
     project_id:       Optional[str] = None
+    project_ids:      Optional[list] = None   # EXTRA projects beyond project_id - see models.Task
     section_id:       Optional[str] = None
     team_id:          Optional[str] = None
     parent_task_id:   Optional[str] = None
@@ -187,6 +194,18 @@ class TaskUpdate(BaseModel):
 def _next_code(db: Session) -> str:
     n = db.query(models.Task).count() + 1
     return f"TASK-{n:03d}"
+
+
+def _extra_project_ids(project_ids: Optional[list], project_id: str) -> list:
+    """Clean a task's EXTRA project list: strip blanks, drop the primary
+    project_id (it's not an "extra"), dedupe while preserving order."""
+    seen, out = set(), []
+    for p in (project_ids or []):
+        p = (p or "").strip()
+        if p and p != project_id and p not in seen:
+            seen.add(p)
+            out.append(p)
+    return out
 
 
 def _get_task(db: Session, task_id: str) -> models.Task:
@@ -561,6 +580,8 @@ def _next_due(base_iso: str, rec: dict) -> str:
             day = min(int(dom), calendar.monthrange(nxt.year, nxt.month)[1])
             nxt = date(nxt.year, nxt.month, day)
         return nxt.isoformat()
+    if freq == "yearly":
+        return _add_months(base, 12 * interval).isoformat()
     # daily (and any unknown freq) → advance whole days
     return (base + timedelta(days=interval)).isoformat()
 
@@ -664,7 +685,7 @@ def search_everything(q: str = "", limit: int = 6,
     system nobody can explain when it puts the wrong row first."""
     term = (q or "").strip().lower()
     if len(term) < 2:
-        return {"tasks": [], "projects": [], "portfolios": [], "teams": [], "people": []}
+        return {"tasks": [], "projects": [], "portfolios": [], "teams": [], "people": [], "totals": {}}
     limit = max(1, min(limit, 20))
 
     def rank(text: str) -> tuple:
@@ -699,18 +720,38 @@ def search_everything(q: str = "", limit: int = 6,
             people.append({"email": e.work_email, "name": name or e.work_email,
                            "jobTitle": e.job_title or ""})
 
+    # A subtask carries project_id "" - its project is its parent's. Without
+    # the walk, 92 same-titled "Finish all Books for Current Year" subtasks
+    # (one per company's Tax Return) rendered as six identical bare lines and
+    # read as duplicates of nothing. parentTitle is what tells them apart.
+    by_id = {t.id: t for t in db.query(models.Task).all()} if any(t.parent_task_id for t in tasks) else {}
+
+    def shape_task(t):
+        parent = by_id.get(t.parent_task_id or "") if t.parent_task_id else None
+        proj_id = t.project_id or ""
+        cur, depth = t, 0
+        while not proj_id and cur is not None and cur.parent_task_id and depth < 20:
+            cur = by_id.get(cur.parent_task_id)
+            proj_id = (cur.project_id or "") if cur else ""
+            depth += 1
+        return {"id": t.id, "code": t.code or "", "title": t.title,
+                "completed": bool(t.completed), "assigneeId": _nz(t.assignee_email),
+                "projectId": _nz(t.project_id),
+                "projectName": project_names.get(proj_id, ""),
+                "parentTitle": (parent.title if parent else "")}
+
     return {
-        "tasks": [{"id": t.id, "code": t.code or "", "title": t.title,
-                   "completed": bool(t.completed), "assigneeId": _nz(t.assignee_email),
-                   "projectId": _nz(t.project_id),
-                   "projectName": project_names.get(t.project_id or "", "")}
-                  for t in top(tasks, lambda t: t.title)],
+        "tasks": [shape_task(t) for t in top(tasks, lambda t: t.title)],
         "projects": [{"id": p.id, "name": p.name, "color": p.color or ""}
                      for p in top(projects, lambda p: p.name)],
         "portfolios": [{"id": p.id, "name": p.name} for p in top(portfolios, lambda p: p.name)],
         "teams": [{"id": t.id, "name": t.name, "color": t.color or ""}
                   for t in top(teams, lambda t: t.name)],
         "people": top(people, lambda p: p["name"]),
+        # How many matched in total, so a capped list can say "and N more"
+        # instead of passing itself off as everything there is.
+        "totals": {"tasks": len(tasks), "projects": len(projects), "portfolios": len(portfolios),
+                   "teams": len(teams), "people": len(people)},
     }
 
 
@@ -864,12 +905,17 @@ def create_task(body: TaskCreate, background_tasks: BackgroundTasks,
         type=body.type or "task",
         status=body.status or "not_started",
         priority=body.priority or "medium",
+        # Defaults to "now" (epoch seconds) rather than 0 so a freshly created
+        # task lands at the END of manual order, after everything dragged
+        # before it - not shuffled to the front of every group.
+        position=body.position if body.position is not None else time.time(),
         assignee_email=(body.assignee_email or "").strip().lower(),
         owner_email=(body.owner_email or "").strip().lower(),
         follower_emails=body.follower_emails or [],
         liked_by_emails=body.liked_by_emails or [],
         access_level=access_level,
         project_id=body.project_id or "",
+        project_ids=_extra_project_ids(body.project_ids, body.project_id or ""),
         section_id=body.section_id or "",
         team_id=body.team_id or "",
         parent_task_id=body.parent_task_id or "",
@@ -956,6 +1002,13 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
             # assigned to somebody who never sees it in My Tasks.
             val = (val or "").strip().lower()
         setattr(t, field, val)
+
+    # Re-clean the extra list whenever either side of the project pair moved -
+    # a caller can PATCH project_id alone (e.g. the primary Project picker) or
+    # project_ids alone (the "also in" multi-select), and either one can leave
+    # the primary duplicated inside the extras or a since-removed blank behind.
+    if "project_id" in data or "project_ids" in data:
+        t.project_ids = _extra_project_ids(t.project_ids, t.project_id or "")
 
     # Keeps `completed`, its timestamp and `status` in step regardless of which
     # one the caller actually sent.

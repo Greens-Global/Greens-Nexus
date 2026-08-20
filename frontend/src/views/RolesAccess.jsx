@@ -1149,7 +1149,7 @@ function PromoteModal({ person, eff, jobRoles, nameOf, onClose, onDone, onErr })
   );
 
   return (
-    <Modal onClose={onClose} title={`Promote ${nameOf(person)}`}>
+    <Modal onClose={onClose} title={`Promote ${nameOf(person)}`} isDirty={!!toId} onSave={target ? promote : undefined}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 13, fontWeight: 600 }}>{cur ? cur.name : 'No role yet'}</span>
@@ -1198,6 +1198,10 @@ function RoleEditor({ role, jobRoles = [], onClose, onSaved, onErr }) {
   const [monExempt, setMonExempt] = useState(!!role?.monitoring_exempt);
   const [busy, setBusy] = useState(false);
   const deptOptions = [...new Set((jobRoles || []).map(r => r.department).filter(Boolean))].sort();
+  const initialBundle = useMemo(() => Object.fromEntries((role?.allowed_modules || []).map(g => [g.id, g.level])), [role]);
+  const dirty = name !== (role?.name || '') || tier !== (role?.tier || 'employee') || dept !== (role?.department || '')
+    || desc !== (role?.description || '') || monExempt !== !!role?.monitoring_exempt
+    || JSON.stringify(bundle) !== JSON.stringify(initialBundle);
 
   async function save() {
     if (!name.trim()) return onErr('Name is required.');
@@ -1211,7 +1215,7 @@ function RoleEditor({ role, jobRoles = [], onClose, onSaved, onErr }) {
   }
 
   return (
-    <Modal onClose={onClose} title={role?.id ? 'Edit job role' : 'New job role'} wide>
+    <Modal onClose={onClose} title={role?.id ? 'Edit job role' : 'New job role'} wide isDirty={dirty} onSave={name.trim() ? save : undefined}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <label style={fieldLabel}>Name
           <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Site Supervisor" style={input} /></label>
@@ -1261,6 +1265,8 @@ function GroupEditor({ group, jobRoles = [], onClose, onSaved, onErr }) {
   const [name, setName] = useState(group?.name || '');
   const [bundle, setBundle] = useState(() => Object.fromEntries((group?.allowed_modules || []).map(g => [g.id, g.level])));
   const [busy, setBusy] = useState(false);
+  const initialBundle = useMemo(() => Object.fromEntries((group?.allowed_modules || []).map(g => [g.id, g.level])), [group]);
+  const dirty = name !== (group?.name || '') || JSON.stringify(bundle) !== JSON.stringify(initialBundle);
 
   async function save() {
     if (!name.trim()) return onErr('Name is required.');
@@ -1273,7 +1279,7 @@ function GroupEditor({ group, jobRoles = [], onClose, onSaved, onErr }) {
   }
 
   return (
-    <Modal onClose={onClose} title={group ? 'Edit group' : 'New group'} wide>
+    <Modal onClose={onClose} title={group ? 'Edit group' : 'New group'} wide isDirty={dirty} onSave={name.trim() ? save : undefined}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <label style={fieldLabel}>Name
           <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Accounting - Viewer" style={input} /></label>
@@ -1341,16 +1347,50 @@ function AssignModal({ role, onClose, onAssigned, onErr }) {
 }
 
 // ── primitives ───────────────────────────────────────────────────────────────
-function Modal({ title, children, onClose, wide }) {
+// `isDirty` + `onSave`: closing via the backdrop, Escape, or the X button used
+// to discard an in-progress edit with no warning - with isDirty set, those
+// three confirm first. A form's own Cancel button still discards straight
+// away, since that's a deliberate choice.
+function Modal({ title, children, onClose, wide, isDirty = false, onSave }) {
+  const [confirming, setConfirming] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const requestClose = () => { if (isDirty) setConfirming(true); else onClose(); };
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') requestClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose, isDirty]);
+  const saveAndClose = async () => {
+    if (!onSave) { setConfirming(false); onClose(); return; }
+    setSaving(true);
+    try { await onSave(); } finally { setSaving(false); setConfirming(false); }
+  };
   return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'grid', placeItems: 'center', zIndex: 1200, padding: 18 }}>
+    <div onClick={requestClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'grid', placeItems: 'center', zIndex: 1200, padding: 18 }}>
       <div onClick={e => e.stopPropagation()} style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 16, boxShadow: 'var(--shadow-lg)', width: `min(${wide ? 560 : 440}px, 100%)`, maxHeight: '86vh', overflow: 'auto', padding: 20 }}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 14 }}>
           <h3 style={{ fontSize: 16, fontWeight: 800, flex: 1 }}>{title}</h3>
-          <button onClick={onClose} style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
+          <button onClick={requestClose} style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
         </div>
         {children}
       </div>
+      {confirming && (
+        <div onClick={e => e.stopPropagation()} style={{ position: 'fixed', inset: 0, zIndex: 1300, display: 'grid', placeItems: 'center', background: 'rgba(0,0,0,0.25)' }}>
+          <div style={{ width: 340, maxWidth: '90vw', background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, boxShadow: 'var(--shadow-lg)', padding: 20 }}>
+            <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 6 }}>Save your changes?</div>
+            <div style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.5, marginBottom: 18 }}>
+              You have unsaved changes. Closing now will discard them.
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
+              <button className="secondary-btn" onClick={() => setConfirming(false)}>Keep Editing</button>
+              <button className="secondary-btn" onClick={onClose}>Discard</button>
+              {onSave && (
+                <button className="primary-btn" onClick={saveAndClose} disabled={saving}>{saving ? 'Saving…' : 'Save Changes'}</button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1139,21 +1139,26 @@ def asana_sync_pull(db: Session = Depends(get_db)):
         raise HTTPException(400, f"Asana pull failed - check the token. ({e})")
 
 
-@router.post("/asana-sync/pull-new", dependencies=[Depends(require_manager)])
-def asana_sync_pull_new(db: Session = Depends(get_db)):
-    """ADDITIVE pull ("pull what's not there, only"): create Nexus tasks for Asana
-    tasks that have no Nexus counterpart yet, and leave EVERY existing task 100%
-    untouched (no field/comment/attachment writes, no deletions). The recovery mode
-    for when Nexus holds edits Asana doesn't - it can never overwrite them.
+def _start_background_pull(db, label, run):
+    """Shared guard + launcher for the long additive pulls (pull-new, pull-personal).
 
-    Runs in a BACKGROUND thread and returns immediately. A full-workspace create-
-    only pass walks every mapped project and takes minutes, which no request can
-    survive - Cloudflare cuts the response at 100s (524) and gunicorn SIGKILLs the
-    worker at 120s. The synchronous version died there having created nothing.
-    asana_sync.pull commits PER PROJECT (see its checkpoint comment), so the
-    background run makes durable progress and re-running is idempotent: a task
-    created on an earlier pass now has a link and is skipped. Outbound push stays
-    gated by NEXUS_ASANA_PUSH_DISABLED, so this can never write to Asana."""
+    Runs `run(session)` in a BACKGROUND thread and returns immediately. A full-
+    workspace create-only pass takes minutes, which no request can survive -
+    Cloudflare cuts the response at 100s (524) and gunicorn SIGKILLs the worker
+    at 120s. The synchronous version died there having created nothing. Both
+    engines commit per project / per person (see their checkpoint comments), so
+    the background run makes durable progress and re-running is idempotent: a
+    task created on an earlier pass now has a link and is skipped. Outbound push
+    stays gated by NEXUS_ASANA_PUSH_DISABLED, so neither can ever write to Asana.
+
+    One-at-a-time guard. A second concurrent run doesn't finish faster - it just
+    contends with the first on the per-project advisory lock and both crawl (this
+    bit us Aug 15, when repeated clicks stacked overlapping pulls that froze at
+    +3 for 12 minutes). pull_running_at is stamped here and cleared when the run
+    ends; a recent value means a pull is already in flight, so we refuse rather
+    than stack another. A stale value (crashed run / killed worker) self-heals
+    after the window so the button never wedges. The two pulls share the one
+    guard on purpose: they take the same lock and touch the same tables."""
     import asana_sync
     from routers.task_util import now_iso
     cfg = asana_sync.get_config(db)
@@ -1161,14 +1166,6 @@ def asana_sync_pull_new(db: Session = Depends(get_db)):
         raise HTTPException(400, "Save an Asana token first.")
     if not (cfg.workspace_gid or "").strip():
         raise HTTPException(400, "Pick your Asana workspace first (Find my workspace).")
-
-    # One-at-a-time guard. A full-workspace create-only pass takes minutes; a second
-    # concurrent run doesn't finish faster - it just contends with the first on the
-    # per-project advisory lock and both crawl (this bit us Aug 15, when repeated
-    # clicks stacked overlapping pulls that froze at +3 for 12 minutes). pull_running_at
-    # is stamped here and cleared when the run ends; a recent value means a pull is
-    # already in flight, so we refuse rather than stack another. A stale value (crashed
-    # run / killed worker) self-heals after the window so the button never wedges.
     _PULL_STALE_SECS = 20 * 60
     running = (cfg.pull_running_at or "").strip()
     if running:
@@ -1181,14 +1178,16 @@ def asana_sync_pull_new(db: Session = Depends(get_db)):
     cfg.pull_running_at = now_iso()
     db.commit()
 
-    def _run_pull_new():
+    def _thread():
         s = SessionLocal()
         try:
-            res = asana_sync.pull(s, force_full=True, create_only=True)
-            print(f"[pull-new] done: +{res.get('created', 0)} created, "
-                  f"{res.get('skipped', 0)} existing skipped")
+            res = run(s)
+            print(f"[{label}] done: +{res.get('created', 0)} created, "
+                  f"{res.get('skipped', 0)} existing skipped"
+                  + (f"; connected accounts: {res['connected']}" if res.get('connected') else "")
+                  + (f"; connected skipped: {res['connectedSkipped']}" if res.get('connectedSkipped') else ""))
         except Exception as e:  # no request to return to - land it in the log
-            print(f"[pull-new] failed: {e}")
+            print(f"[{label}] failed: {e}")
         finally:
             # Always release the guard, or the next click is blocked until it goes stale.
             try:
@@ -1196,11 +1195,95 @@ def asana_sync_pull_new(db: Session = Depends(get_db)):
                 c.pull_running_at = ""
                 s.commit()
             except Exception as e2:
-                print(f"[pull-new] guard-clear failed: {e2}")
+                print(f"[{label}] guard-clear failed: {e2}")
             s.close()
 
-    threading.Thread(target=_run_pull_new, daemon=True).start()
+    threading.Thread(target=_thread, daemon=True).start()
     return {"started": True}
+
+
+@router.post("/asana-sync/pull-new", dependencies=[Depends(require_manager)])
+def asana_sync_pull_new(db: Session = Depends(get_db)):
+    """ADDITIVE pull ("pull what's not there, only"): create Nexus tasks for Asana
+    tasks that have no Nexus counterpart yet, and leave EVERY existing task 100%
+    untouched (no field/comment/attachment writes, no deletions). The recovery mode
+    for when Nexus holds edits Asana doesn't - it can never overwrite them.
+    Walks every MAPPED project; tasks in no project at all are pull-personal's."""
+    import asana_sync
+    return _start_background_pull(
+        db, "pull-new", lambda s: asana_sync.pull(s, force_full=True, create_only=True))
+
+
+@router.post("/asana-sync/pull-personal", dependencies=[Depends(require_manager)])
+def asana_sync_pull_personal(db: Session = Depends(get_db)):
+    """ADDITIVE pull of the tasks that sit in NO Asana project - the ones that only
+    exist in someone's Asana "My Tasks". Every other inbound path walks projects and
+    is blind to them (asana_sync.pull_personal_tasks explains). Same background /
+    one-at-a-time / create-only contract as pull-new."""
+    import asana_sync
+    return _start_background_pull(
+        db, "pull-personal", lambda s: asana_sync.pull_personal_tasks(s, create_only=True))
+
+
+@router.post("/asana-sync/rescue-attachments", dependencies=[Depends(require_manager)])
+def asana_sync_rescue_attachments(db: Session = Depends(get_db)):
+    """Rescue attachment files still hosted on Asana before the subscription
+    ends (asanausercontent.com signed URLs and app.asana.com external-host
+    pointers). Same shape as pull-new: starts a BACKGROUND thread and returns
+    immediately - ~450 files / ~4 GB cannot survive a request timeout - with a
+    one-at-a-time guard in asana_sync_config.rescue_running_at (30-minute
+    stale window, so a killed worker never wedges the button). Read-only
+    toward Asana (GET only); Nexus-side it only ever rewrites a row's url
+    AWAY from a dying host, keeping the old value in original_asana_url.
+    Idempotent: rescued rows drop out of the scan, failures are retried by
+    simply running it again. See asana_rescue.py."""
+    import asana_rescue
+    import asana_sync
+    from routers.task_util import now_iso
+    cfg = asana_sync.get_config(db)
+    if not (cfg.token or "").strip() and not (cfg.setup_token or "").strip():
+        raise HTTPException(400, "Save an Asana token first.")
+
+    running = (getattr(cfg, "rescue_running_at", "") or "").strip()
+    if running:
+        try:
+            age = (datetime.now(timezone.utc) - datetime.fromisoformat(running)).total_seconds()
+        except ValueError:
+            age = asana_rescue.STALE_SECS + 1   # unparseable -> treat as a dead run
+        if age < asana_rescue.STALE_SECS:
+            return {"started": False, "alreadyRunning": True}
+    cfg.rescue_running_at = now_iso()
+    db.commit()
+
+    def _run_rescue():
+        # run_rescue clears rescue_running_at itself in its finally block.
+        asana_rescue.run_rescue(SessionLocal)
+
+    threading.Thread(target=_run_rescue, daemon=True).start()
+    return {"started": True}
+
+
+@router.get("/asana-sync/rescue-status", dependencies=[Depends(require_manager)])
+def asana_sync_rescue_status(db: Session = Depends(get_db)):
+    """Progress of the attachment rescue: the in-memory counters of the run on
+    THIS worker process (a run started on another gunicorn worker shows only
+    the DB-derived numbers) plus DB truth that survives restarts:
+    at_risk_remaining (rows still on a dying host) and rescued_total (rows a
+    rescue has rewritten). running reflects the cross-process guard column."""
+    import asana_rescue
+    import asana_sync
+    cfg = asana_sync.get_config(db)
+    running = (getattr(cfg, "rescue_running_at", "") or "").strip()
+    fresh = False
+    if running:
+        try:
+            fresh = (datetime.now(timezone.utc) - datetime.fromisoformat(running)
+                     ).total_seconds() < asana_rescue.STALE_SECS
+        except ValueError:
+            fresh = False
+    return {"running": fresh, "startedAt": running,
+            "worker": asana_rescue.status_snapshot(),
+            **asana_rescue.db_progress(db)}
 
 
 @router.post("/asana-sync/push-all", dependencies=[Depends(require_manager)])

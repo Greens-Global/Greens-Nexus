@@ -370,7 +370,8 @@ export const api = {
   getTasksDelta: (since = '') => req(`/tasks/delta${since ? `?since=${encodeURIComponent(since)}` : ''}`),
   // Header search: tasks, projects, portfolios, teams and people in one call,
   // already scoped to what the caller may see.
-  searchTaskModule: (q, limit = 6) => req(`/tasks/search?q=${encodeURIComponent(q)}&limit=${limit}`),
+  // 20 is the endpoint's cap. Six looked final when 92 subtasks matched.
+  searchTaskModule: (q, limit = 20) => req(`/tasks/search?q=${encodeURIComponent(q)}&limit=${limit}`),
   // A person's page: who they are, the work they hold, their projects and teams.
   getPersonProfile: (email) => req(`/tasks/people/${encodeURIComponent(email)}`),
   createTask: (data) => req("/tasks", { method: "POST", body: JSON.stringify(data) }),
@@ -444,6 +445,7 @@ export const api = {
   // Additive pull: create only the Asana tasks Nexus is missing; never touch an
   // existing task. Safe when Nexus holds edits Asana doesn't.
   asanaSyncPullNew: () => req("/asana-sync/pull-new", { method: "POST", timeoutMs: 600000 }),
+  asanaSyncPullPersonal: () => req("/asana-sync/pull-personal", { method: "POST", timeoutMs: 600000 }),
   asanaSyncPushAll: () => req("/asana-sync/push-all", { method: "POST", timeoutMs: 600000 }),
   asanaSyncDedupe: (apply) => req(`/asana-sync/dedupe?apply=${apply ? "true" : "false"}`, { method: "POST", timeoutMs: 600000 }),
   // Why assignees are or are not reaching Asana - the one field that can fail
@@ -473,6 +475,11 @@ export const api = {
   // Live check: would a comment posted NOW go out as me, or as the shared
   // sync account - and if the latter, why. Calls Asana for real.
   asanaOauthCheck:      () => req("/asana-oauth/check"),
+  // Counts every Asana task assigned to ME (my own grant sees my private ones)
+  // and says which are not in Nexus. Long: pages the whole list.
+  asanaOauthCoverage:   () => req("/asana-oauth/coverage", { timeoutMs: 300000 }),
+  // Pulls the tasks /coverage listed as missing, through MY grant. Additive.
+  asanaOauthRescue:     () => req("/asana-oauth/coverage/rescue", { method: "POST", timeoutMs: 600000 }),
   deleteAsanaWebhooks: () => req("/asana-sync/webhooks", { method: "DELETE", timeoutMs: 60000 }),
   getTaskAutomationRules: () => req("/task-automation-rules"),
   createTaskAutomationRule: (data) => req("/task-automation-rules", { method: "POST", body: JSON.stringify(data) }),
@@ -1033,6 +1040,8 @@ export const api = {
   timeApprovalRevoke: (id)       => req(`/timeclock/approvals/${id}`, { method: 'PATCH' }),
   timeBodRecord:     (data)      => req('/timeclock/bod', { method: 'POST', body: JSON.stringify(data) }),
   timeBodLast:       ()          => req('/timeclock/bod/last'),
+  // My Teams chats, listed server-side via the session's Graph token (no MSAL popup).
+  timeMyChats:       ()          => req('/timeclock/my-chats', { timeoutMs: 30000 }),
   timeBodTemplate:   (kind)      => req(`/timeclock/bod/template?kind=${kind || 'bod'}`),
   // Sign-in company-policy & monitoring acknowledgment
   policyStatus:      ()          => req('/policy/status'),

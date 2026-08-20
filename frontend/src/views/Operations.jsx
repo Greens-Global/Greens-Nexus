@@ -38,8 +38,15 @@ const CUBBY_FOLDERS = {
   ],
 };
 
+// Old sub ids (from before the module's URL segment was renamed from /ops to
+// /construction - see PATH_TO_VIEW/VIEW_TO_PATH in App.jsx) still show up in
+// bookmarks, saved notification links, and the nexus:navigate event fired
+// from ConstructionDashboard - normalize them here rather than in every
+// caller so none of those old links break.
+const SUB_ALIASES = { 'ops-dashboard': 'construction-dashboard', 'ops-activity': 'construction-activity', 'ops-cubby': 'construction-cubby' };
+
 export default function Operations({ activeSub, onSubChange }) {
-  const sub = activeSub || 'ops-dashboard';
+  const sub = SUB_ALIASES[activeSub] || activeSub || 'construction-dashboard';
   const [cubbyDir, setCubbyDir] = useState('root');
 
 
@@ -59,9 +66,9 @@ export default function Operations({ activeSub, onSubChange }) {
           phones keep the in-page strip (ModuleTabs handles both) */}
       <ModuleTabs
         tabs={[
-          { key: 'ops-dashboard', label: 'Project Dashboard', Icon: LayoutDashboard },
-          { key: 'ops-activity',  label: 'Site Activity',     Icon: ClipboardList },
-          { key: 'ops-cubby',     label: 'Cubby Integration', Icon: FolderSync },
+          { key: 'construction-dashboard', label: 'Project Dashboard', Icon: LayoutDashboard },
+          { key: 'construction-activity',  label: 'Site Activity',     Icon: ClipboardList },
+          { key: 'construction-cubby',     label: 'Cubby Integration', Icon: FolderSync },
         ]}
         active={sub} onChange={onSubChange} />
 
@@ -69,17 +76,17 @@ export default function Operations({ activeSub, onSubChange }) {
           INIT_PROJECTS array and a "156 / 12 / 0 / 94%" KPI row; that block now
           lives in construction/ConstructionDashboard.jsx, which also owns the
           New Project modal. */}
-      {sub === 'ops-dashboard' && <ConstructionDashboard />}
+      {sub === 'construction-dashboard' && <ConstructionDashboard />}
 
       {/* Site Activity - the daily logs and the weekly report they add up to.
           Its own tab because those two are what people open every day, and they
           used to sit two levels down inside a project. */}
-      {sub === 'ops-activity' && <SiteActivity />}
+      {sub === 'construction-activity' && <SiteActivity />}
 
       {/* Logistics and Equipment are still the original mock arrays. Kept
           rendering rather than dropped when projects went live - removing
           working screens was not part of making projects real. */}
-      {sub === 'ops-dashboard' && (
+      {sub === 'construction-dashboard' && (
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
             <div style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 24, boxShadow: 'var(--shadow-sm)' }}>
               <h3 style={{ fontSize: '1.1rem', fontFamily: "'Plus Jakarta Sans', sans-serif", marginBottom: 4 }}>Logistics & Supply Chain</h3>
@@ -129,7 +136,7 @@ export default function Operations({ activeSub, onSubChange }) {
       )}
 
       {/* Cubby Integration */}
-      {sub === 'ops-cubby' && (
+      {sub === 'construction-cubby' && (
         <>
           <div className="view-header" style={{ marginBottom: 24 }}>
             <div className="view-title-group">
