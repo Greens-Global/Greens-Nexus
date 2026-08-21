@@ -1241,12 +1241,11 @@ function RoleEditor({ role, jobRoles = [], onClose, onSaved, onErr }) {
           <select value={tier} onChange={e => {
             const next = e.target.value;
             setTier(next);
-            // Switching a still-blank NEW role to Employee - seed the everyday
-            // baseline rather than leaving the bundle empty. Never touches an
-            // existing role or a bundle the admin has already started building.
-            if (!role?.id && next === 'employee' && !Object.keys(bundle).length) {
-              setBundle({ ...EMPLOYEE_DEFAULT_BUNDLE });
-            }
+            // Picking Employee always resets the bundle to the everyday
+            // baseline - whatever was checked (including a manual "Check All")
+            // is replaced, so switching to Employee reliably means "the
+            // Employee defaults," not "whatever this role happened to have."
+            if (next === 'employee') setBundle({ ...EMPLOYEE_DEFAULT_BUNDLE });
           }} style={input}>
             {TIERS.map(t => <option key={t} value={t}>{ROLES[t].label}</option>)}
           </select>
