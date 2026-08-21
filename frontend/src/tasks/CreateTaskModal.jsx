@@ -113,14 +113,13 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
   }));
   const uploadAttachment = (parentId, f) => uploadTaskAttachment(parentId, f).catch(() => {});
 
-  // Required on CREATE: Task Name, Assignee, Due Date, Project (a locked project
-  // already satisfies the last). Editing is NOT gated - the rule is about what a
-  // new task must carry, and gating Save would strand every older task.
+  // Required on CREATE: Task Name, Assignee, Due Date. Editing is NOT gated -
+  // the rule is about what a new task must carry, and gating Save would
+  // strand every older task.
   const missing = isEdit ? [] : [
     !form.title.trim() && 'title',
     !form.assigneeId && 'assignee',
     !form.dueOn && 'due',
-    !(lockedProjectId || form.projectId) && 'project',
   ].filter(Boolean);
   // Only the fields that apply to the chosen project - a field scoped to
   // another project must not appear, let alone be required here.
@@ -223,7 +222,7 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
           {!lockedProjectId && (
             <>
               <div style={field}>
-                <label style={label}>Project {!isEdit && req}</label>
+                <label style={label}>Project</label>
                 {/* Was a bare <select> of every project in database order. With
                     ~30 of them that is the "unorganized and difficult" the end
                     user reported: the ones you work in are ordered first, the

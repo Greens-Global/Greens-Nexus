@@ -2,7 +2,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Check, ChevronDown, ChevronLeft, ChevronRight, Plus,
-  ListTree, MessageSquare, Paperclip, Download } from 'lucide-react';
+  ListTree, MessageSquare, Paperclip, Download, CalendarDays } from 'lucide-react';
 import { api } from '../api';
 import { NX, FONT, colorForKey, initialsOf, statusChip, priorityChip, btn, chip, STATUS_META, input as inputStyle } from './theme';
 import { fmtDate, teamInProject, teamProjectIds } from './lib';
@@ -341,16 +341,21 @@ export function DateField({ value, onChange, placeholder = '-', color, style, ti
     if (r) { setRect(r); setOpen(true); }
   };
   return (
-    <span style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', ...style }}>
+    <span style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, ...style }}>
       <button
         ref={btnRef} type="button" title={title || 'Set date'} disabled={disabled}
         onClick={(e) => { e.stopPropagation(); open ? setOpen(false) : openCal(); }}
         style={{
-          border: 'none', background: 'transparent', padding: 0, margin: 0, cursor: disabled ? 'default' : 'pointer',
+          flex: 1, textAlign: 'left', border: 'none', background: 'transparent', padding: 0, margin: 0, cursor: disabled ? 'default' : 'pointer',
           fontFamily: FONT, fontSize: 'inherit', fontWeight: 'inherit', whiteSpace: 'nowrap',
           color: color || (value ? NX.ink : NX.faint),
         }}
       >{value ? fmtDate(value) : placeholder}</button>
+      <CalendarDays
+        size={15} strokeWidth={2} color={NX.faint}
+        style={{ flexShrink: 0, cursor: disabled ? 'default' : 'pointer' }}
+        onClick={(e) => { if (disabled) return; e.stopPropagation(); open ? setOpen(false) : openCal(); }}
+      />
       {open && rect && <CalendarPopover value={value} onChange={onChange} onClose={() => setOpen(false)} anchorRect={rect} anchorRef={btnRef} />}
     </span>
   );
