@@ -120,6 +120,21 @@ def is_manager(user: dict) -> bool:
     return (user or {}).get("level", 0) >= 3
 
 
+def email_list(raw) -> list[str]:
+    """Lowercased emails from a JSON list column, skipping anything that is not
+    a string.
+
+    member_emails / follower_emails are user- and sync-supplied JSON, so they
+    cannot be assumed clean. A single null in ONE project's member list used to
+    raise AttributeError ('NoneType' has no attribute 'lower') deep inside a
+    visibility check, which surfaced as a blanket 500 on /task-projects and
+    /tasks/delta for every NON-manager - managers skip these helpers, so the
+    workspace looked fine to admins and completely broken to everyone else.
+    One bad row took out the whole module rather than just itself.
+    """
+    return [x.lower() for x in (raw or []) if isinstance(x, str)]
+
+
 def _email_and_external(user_or_email) -> tuple[str, bool]:
     """Both visibility helpers accept either the plain email (legacy call
     sites) or the full user dict from get_current_user. Passing the dict is
@@ -147,10 +162,10 @@ def visible_project_ids(db: Session, user_or_email) -> set[str]:
         # project only through explicit ownership/membership/team/assignment.
         if (((p.access_level or "org") == "org" and not external)
                 or (p.owner_email or "").lower() == email
-                or email in [m.lower() for m in (p.member_emails or [])]):
+                or email in email_list(p.member_emails)):
             ids.add(p.id)
     for t in db.query(TaskTeam).all():
-        if email in [m.lower() for m in (t.member_emails or [])]:
+        if email in email_list(t.member_emails):
             ids.update(team_project_ids(t))
     for t in db.query(Task).filter(Task.project_id != "").all():
         if (t.assignee_email or "").lower() == email:
@@ -182,7 +197,7 @@ def task_is_visible(t: Task, user_or_email, visible_proj_ids: set[str]) -> bool:
         return True
     if email in ((t.assignee_email or "").lower(), (t.owner_email or "").lower(), (t.created_by or "").lower()):
         return True
-    if email in [f.lower() for f in (t.follower_emails or [])]:
+    if email in email_list(t.follower_emails):
         return True
     if t.project_id and t.project_id in visible_proj_ids:
         return True
@@ -244,10 +259,10 @@ def project_role_for(db: Session, email: str, project) -> str | None:
     # deliberate. It settles what a grant already there MEANS, in favour of the
     # answer the UI has been giving. An explicit viewer/commenter still wins,
     # because it is read above and this never lowers a rank.
-    if not role and email in [m.lower() for m in (project.member_emails or [])]:
+    if not role and email in email_list(project.member_emails):
         role, best_rank = "editor", PROJECT_ROLE_RANK["editor"]
     for t in db.query(TaskTeam).all():
-        if project.id in team_project_ids(t) and email in [m.lower() for m in (t.member_emails or [])]:
+        if project.id in team_project_ids(t) and email in email_list(t.member_emails):
             r = PROJECT_ROLE_RANK.get(t.access_role or "editor", 0)
             if r > best_rank:
                 best_rank, role = r, (t.access_role or "editor")

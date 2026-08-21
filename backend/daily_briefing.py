@@ -128,8 +128,11 @@ def _trigger_due(db: Session, email: str) -> tuple:
 # ── Content ───────────────────────────────────────────────────────────────
 
 def _collaborator_emails(t: "models.Task") -> set:
+    # Same guard as task_util.email_list: a null in follower_emails would raise
+    # here too, and this runs inside the briefing loop where the failure is
+    # silent rather than a visible 500.
     return {(t.assignee_email or "").lower(), (t.owner_email or "").lower()} | \
-           {f.lower() for f in (t.follower_emails or [])}
+           {f.lower() for f in (t.follower_emails or []) if isinstance(f, str)}
 
 
 def _red_rows(db: Session, email: str) -> list:
