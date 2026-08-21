@@ -6,7 +6,7 @@ import { Fragment, useEffect, useMemo, useState } from 'react';
 import { Plus, Search, FolderKanban, AlertTriangle, Pencil, Trash2, Archive, Globe, Lock, LayoutGrid, List } from 'lucide-react';
 import { api } from '../api';
 import { useTasks } from './TasksContext';
-import { taskStats, teamInProject, teamProjectIds, fieldsForProjectEntity, taskInProject } from './lib';
+import { taskStats, teamInProject, teamProjectIds, fieldsForProjectEntity, taskInProject, projectToForm} from './lib';
 import { NX, FONT, btn, input as inputStyle, card, chip } from './theme';
 import { Avatar, EmptyState, Modal, usePeople, PersonSelect, useIsMobile, MobileFab } from './components';
 import TasksWorkspace from './TasksWorkspace';
@@ -17,19 +17,6 @@ const EMPTY_FORM = {
   portfolioId: '', accessLevel: 'restricted', status: 'not_started',
   startOn: '', dueOn: '', archived: false, customFieldValues: {},
 };
-
-// A project row -> the edit form's shape. Exported so the project workspace's
-// own Edit Project button opens the identical editor rather than a second one
-// that drifts from this.
-export const projectToForm = (p) => ({
-  id: p.id, name: p.name || '', description: p.description || '', color: p.color || NX.blue,
-  ownerId: p.ownerId || null,
-  hrDepartmentId: p.hrDepartmentId || '', hrDepartmentName: p.hrDepartmentName || '',
-  portfolioId: p.portfolioId || '',
-  accessLevel: p.accessLevel || 'restricted',
-  status: p.status || 'not_started', startOn: p.startOn || '', dueOn: p.dueOn || '', archived: !!p.archived,
-  customFieldValues: p.customFieldValues || {},
-});
 
 const VISIBILITY_OPTS = [
   { key: 'org', icon: Globe, label: 'Nexus Global', desc: 'Any organization member can find and access this project.' },
@@ -135,7 +122,6 @@ export default function ProjectsView({ onNavigate }) {
   // Archived projects render under their own heading rather than mixed into the
   // grid greyed-out - "where did that project go" is a question the heading
   // answers and a dimmed card does not.
-  const liveCards = cards.filter((c) => !c.project.archived);
   const archivedCards = cards.filter((c) => c.project.archived);
   // Archived cards already sort last, so the section boundary is just the first
   // of them. Rendered as a full-width band inside the same grid rather than a

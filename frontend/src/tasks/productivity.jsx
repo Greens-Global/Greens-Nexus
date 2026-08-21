@@ -365,7 +365,7 @@ export function ProductivityBar({ filters, setFilters, sort, setSort, lockedProj
 // bottom of this sheet rather than being unreachable on a phone.
 export function MobileFilters({ filters, setFilters, sort, setSort, group, setGroup, groupOptions, current, onApplyView, search, setSearch, lockedProjectId, hideAssignee, columnControls, customFields = [], sortFieldOptions = [], onClose }) {
   const store = useTasks();
-  const { savedViews, createSavedView, deleteSavedView, projects } = store;
+  const { savedViews, createSavedView, deleteSavedView, projects, teams } = store;
   const people = usePeople();
   const [cat, setCat] = useState(null);
 

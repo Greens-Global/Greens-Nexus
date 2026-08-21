@@ -1,6 +1,6 @@
 // Task Module - pure helpers (ported from nexus/lib/filters.ts + stats.ts).
 // Operates on the runtime task shape (email used as person id).
-import { PRIORITY_ORDER, PRIORITY_META, STATUS_ORDER, STATUS_META } from './theme';
+import { NX, PRIORITY_ORDER, PRIORITY_META, STATUS_ORDER, STATUS_META } from './theme';
 import { api } from '../api';
 import { supabase, supabaseUrl, supabaseAnonKey } from '../lib/supabase';
 import { formatDate as usFormatDate, formatDateTime as usFormatDateTime } from '../lib/datetime';
@@ -170,6 +170,20 @@ export const fieldsForProjectEntity = (customFields) =>
 // The chosen option object for a select value, so callers can render its color.
 export const fieldOption = (field, value) =>
   (field?.options || []).find((o) => (o?.id ?? o) === value || (o?.label ?? o) === value) || null;
+
+// A project row -> the shape the Edit Project form holds. Lives here rather than
+// in ProjectsView so both that screen and the project workspace's own Edit
+// button build the identical form - and so ProjectsView keeps exporting only
+// components (a non-component export there disables Fast Refresh for the file).
+export const projectToForm = (p) => ({
+  id: p.id, name: p.name || '', description: p.description || '', color: p.color || NX.blue,
+  ownerId: p.ownerId || null,
+  hrDepartmentId: p.hrDepartmentId || '', hrDepartmentName: p.hrDepartmentName || '',
+  portfolioId: p.portfolioId || '',
+  accessLevel: p.accessLevel || 'restricted',
+  status: p.status || 'not_started', startOn: p.startOn || '', dueOn: p.dueOn || '', archived: !!p.archived,
+  customFieldValues: p.customFieldValues || {},
+});
 
 export const isSection = (t) => t.type === 'section';
 export const isSubtask = (t) => !!t.parentTaskId;
