@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useMemo, lazy, Suspense } from "react";
-import { Menu, Search, LogOut, Settings, User, ArrowLeft, Shield, Activity, Check, ChevronDown, LayoutDashboard, Camera, Clock, Sparkles, X, UserCog, DoorOpen } from "lucide-react";
+import { Menu, Search, LogOut, Settings, User, ArrowLeft, Shield, Activity, Check, ChevronDown, LayoutDashboard, Camera, Clock, Sparkles, X, UserCog, DoorOpen, Archive } from "lucide-react";
 const Changelog = lazy(() => import("../tasks/ChangelogView"));
 import NotificationBell from "./NotificationBell";
 import PageHelp from "./PageHelp";
@@ -308,8 +308,21 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
                     </>
                   ) : (
                     <>
-                      <LayoutDashboard size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />
-                      <span style={{ fontWeight: 500 }}>{item.name}</span>
+                      {/* An archived project is still findable here - archiving
+                          hides it from the active list and from task pickers, not
+                          from history. It is dimmed and labelled so nobody opens
+                          one thinking it is live work. */}
+                      {item.archived
+                        ? <Archive size={13} style={{ color: 'var(--muted)', flexShrink: 0, opacity: 0.75 }} />
+                        : <LayoutDashboard size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />}
+                      <span style={{ fontWeight: 500, color: item.archived ? 'var(--muted)' : undefined }}>{item.name}</span>
+                      {item.archived && (
+                        <span style={{
+                          flexShrink: 0, fontSize: 10.5, fontWeight: 700, letterSpacing: '.04em',
+                          textTransform: 'uppercase', padding: '1px 7px', borderRadius: 999,
+                          color: 'var(--muted)', border: '1px solid var(--border, #d4d4d8)',
+                        }}>Archived</span>
+                      )}
                     </>
                   )}
                 </button>

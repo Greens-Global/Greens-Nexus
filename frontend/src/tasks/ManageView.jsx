@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Zap, Plus, Trash2, Pencil, ListChecks, FileText, Inbox, Activity as ActivityIcon,
   BarChart3, Download, X, CheckCircle2, Flag, ArrowRightLeft, User, Calendar, MessageSquare,
-  Circle, Palette, Users, List, Mail, FolderPlus,
+  Circle, Palette, Users, List, Mail, FolderPlus, ChevronDown, Check,
 } from 'lucide-react';
 import { useTasks } from './TasksContext';
 import { api } from '../api';
@@ -1602,7 +1602,8 @@ function IntakeModal({ projects, onClose, onSave }) {
       <Field label="Target project">
         <select value={targetProjectId} onChange={(e) => setTargetProjectId(e.target.value)} style={selectStyle}>
           <option value="">No target project</option>
-          {(projects || []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          {/* Intake forms file NEW tasks, so archived projects are not offered. */}
+          {(projects || []).filter((p) => !p.archived).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>
       </Field>
       <label style={fieldLabel}>Fields</label>
@@ -1725,8 +1726,198 @@ function ReportCard({ title, children }) {
   );
 }
 
+// Excel export lives here rather than in the list toolbar: it exports the whole
+// workspace (scoped server-side to what the caller can already see), and the
+// filters below narrow that set - they never widen it. The sheet is one row per
+// task, with collaborators (followers) collapsed into a single cell so it still
+// pivots cleanly in Excel.
+
+// Every filter is a multi-select that stays COLLAPSED until opened: four
+// always-expanded checkbox lists turned this modal into a column of nested
+// scrollbars. Built on the same trigger-plus-absolute-panel idiom as
+// PersonMultiSelect (components.jsx), which already lives inside a modal -
+// picks keep the menu open, since choosing several is the whole point.
+function MultiSelectDropdown({ label, options, value, onChange, placeholder, searchable = false, emptyHint }) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState('');
+  const ref = useRef(null);
+  useEffect(() => {
+    const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, []);
+
+  const toggle = (key) => onChange(value.includes(key) ? value.filter((v) => v !== key) : [...value, key]);
+  const filtered = q ? options.filter((o) => o.label.toLowerCase().includes(q.toLowerCase())) : options;
+  // Name the first two picks, then count the rest - a filter is read at a
+  // glance, and spelling out eight project names is not a glance.
+  const chosen = options.filter((o) => value.includes(o.key));
+  const summary = chosen.length === 0
+    ? placeholder
+    : chosen.slice(0, 2).map((o) => o.label).join(', ') + (chosen.length > 2 ? ` +${chosen.length - 2}` : '');
+
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <label style={fieldLabel}>{label}</label>
+      <div ref={ref} style={{ position: 'relative' }}>
+        <button type="button" onClick={() => setOpen((o) => !o)}
+          style={{ ...btn('outline'), width: '100%', justifyContent: 'space-between', gap: 8 }}>
+          <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: chosen.length ? NX.ink : NX.faint }}>
+            {summary}
+          </span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+            {chosen.length > 0 && (
+              <span role="button" tabIndex={0} title="Clear"
+                onClick={(e) => { e.stopPropagation(); onChange([]); }}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); e.preventDefault(); onChange([]); } }}
+                style={{ display: 'inline-flex', cursor: 'pointer', color: NX.faint }}>
+                <X size={13} />
+              </span>
+            )}
+            <ChevronDown size={15} style={{ color: NX.faint }} />
+          </span>
+        </button>
+        {open && (
+          <div className="nx-scroll" style={{
+            position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 4, background: NX.surface,
+            border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)',
+            zIndex: 50, maxHeight: 260, overflowY: 'auto',
+          }}>
+            {searchable && (
+              <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder={`Search ${label.toLowerCase()}…`}
+                style={{ width: '100%', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '9px 12px', fontSize: 13, outline: 'none', fontFamily: FONT, boxSizing: 'border-box', background: 'transparent', color: NX.ink }} />
+            )}
+            {filtered.map((o) => {
+              const on = value.includes(o.key);
+              return (
+                <div key={o.key} onClick={() => toggle(o.key)}
+                  style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer', color: NX.ink, background: on ? NX.hover : 'transparent' }}>
+                  <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o.label}</span>
+                  {on && <Check size={14} style={{ color: NX.blue, flexShrink: 0 }} />}
+                </div>
+              );
+            })}
+            {filtered.length === 0 && (
+              <div style={{ padding: '10px 12px', fontSize: 12.5, color: NX.faint }}>
+                {q ? `Nothing matches “${q}”.` : (emptyHint || 'Nothing to pick yet.')}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ExportExcelModal({ store, onClose }) {
+  const { tasks, projects, nameOf, statusOrder, statusMeta } = store;
+  const [projectIds, setProjectIds] = useState([]);
+  const [statuses, setStatuses] = useState([]);
+  const [priorities, setPriorities] = useState([]);
+  const [assignees, setAssignees] = useState([]);
+  const [dueFrom, setDueFrom] = useState('');
+  const [dueTo, setDueTo] = useState('');
+  const [includeCompleted, setIncludeCompleted] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+
+  const projectOptions = useMemo(
+    () => [...(projects || [])].filter((p) => !p.archived)
+      .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')))
+      .map((p) => ({ key: p.id, label: p.name })),
+    [projects],
+  );
+  const statusOptions = useMemo(
+    () => (statusOrder || STATUS_KEYS).map((k) => ({ key: k, label: statusMeta?.[k]?.label || k })),
+    [statusOrder, statusMeta],
+  );
+  const priorityOptions = useMemo(
+    () => PRIORITY_KEYS.map((k) => ({ key: k, label: PRIORITY_META[k].label })),
+    [],
+  );
+  // Assignees come from the tasks already in the store, so the picker only ever
+  // offers people who actually hold a task in this workspace.
+  const assigneeOptions = useMemo(() => {
+    const seen = new Map();
+    (tasks || []).forEach((t) => { if (t.assigneeId && !seen.has(t.assigneeId)) seen.set(t.assigneeId, nameOf(t.assigneeId) || t.assigneeId); });
+    return [...seen.entries()]
+      .sort((a, b) => String(a[1]).localeCompare(String(b[1])))
+      .map(([email, name]) => ({ key: email, label: name }));
+  }, [tasks, nameOf]);
+
+  const download = async () => {
+    setBusy(true);
+    setErr('');
+    try {
+      const { blob, filename } = await api.exportTasksExcel({
+        project_id: projectIds.join(','),
+        status: statuses.join(','),
+        priority: priorities.join(','),
+        assignee: assignees.join(','),
+        due_from: dueFrom,
+        due_to: dueTo,
+        include_completed: includeCompleted,
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename || 'tasks.xlsx';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      onClose();
+    } catch (e) {
+      setErr(e?.message || 'Export failed - please try again.');
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal title="Export Tasks to Excel" width={560} onClose={onClose} footer={
+      <>
+        <button style={btn('ghost')} onClick={onClose}>Cancel</button>
+        <button style={{ ...btn('primary'), opacity: busy ? 0.6 : 1, pointerEvents: busy ? 'none' : 'auto' }} onClick={download}>
+          <Download size={15} />{busy ? 'Preparing…' : 'Download'}
+        </button>
+      </>
+    }>
+      <div style={{ fontSize: 12.5, color: NX.dim, marginBottom: 16, lineHeight: 1.5 }}>
+        One row per task with project, assignee, collaborators, dates, priority and status.
+        Pick none in a filter to include everything, or pick several to match any of them.
+      </div>
+
+      <MultiSelectDropdown label="Project" options={projectOptions} value={projectIds} onChange={setProjectIds}
+        placeholder="All projects" searchable emptyHint="No projects yet." />
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        <MultiSelectDropdown label="Status" options={statusOptions} value={statuses} onChange={setStatuses}
+          placeholder="All statuses" />
+        <MultiSelectDropdown label="Priority" options={priorityOptions} value={priorities} onChange={setPriorities}
+          placeholder="All priorities" />
+      </div>
+
+      <MultiSelectDropdown label="Assignee" options={assigneeOptions} value={assignees} onChange={setAssignees}
+        placeholder="Anyone" searchable emptyHint="Nobody is assigned a task yet." />
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        <Field label="Due From"><input type="date" value={dueFrom} onChange={(e) => setDueFrom(e.target.value)} style={inputStyle} /></Field>
+        <Field label="Due To"><input type="date" value={dueTo} onChange={(e) => setDueTo(e.target.value)} style={inputStyle} /></Field>
+      </div>
+
+      <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: NX.ink, cursor: 'pointer' }}>
+        <input type="checkbox" checked={includeCompleted} onChange={(e) => setIncludeCompleted(e.target.checked)} />
+        Include completed tasks
+      </label>
+
+      {err && <div style={{ marginTop: 14, fontSize: 12.5, color: NX.red }}>{err}</div>}
+    </Modal>
+  );
+}
+
 function ReportingTab({ store }) {
   const { tasks, projects, nameOf, projectName } = store;
+  const [exporting, setExporting] = useState(false);
   const list = useMemo(() => topLevel(tasks), [tasks]);
   const stats = useMemo(() => taskStats(list), [list]);
 
@@ -1759,8 +1950,14 @@ function ReportingTab({ store }) {
       <SectionHead
         title="Reporting"
         hint="Workspace-wide rollups across projects, teams and status."
-        action={<button style={btn('primary')} onClick={exportCsv}><Download size={15} />Export CSV</button>}
+        action={
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button style={btn('ghost')} onClick={exportCsv}><Download size={15} />Export CSV</button>
+            <button style={btn('primary')} onClick={() => setExporting(true)}><Download size={15} />Export Excel</button>
+          </div>
+        }
       />
+      {exporting && <ExportExcelModal store={store} onClose={() => setExporting(false)} />}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, marginBottom: 16 }}>
         {kpis.map((k) => (
