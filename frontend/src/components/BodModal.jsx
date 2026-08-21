@@ -20,18 +20,18 @@ const MODES = {
   bod: {
     title: 'Beginning of Day', Icon: Sunrise, color: '#f59e0b', tag: 'BOD',
     sub: "First punch-in today - tell the team what's on your plate.",
-    msgLabel: 'Message', msgPlaceholder: 'Good morning! Starting my day…',
+    msgLabel: 'Message (Optional)', msgPlaceholder: 'Good morning! Starting my day…',
     tasksLabel: "Today's tasks (one per line)", tasksHead: 'Tasks',
     tasksPlaceholder: 'Finish the Lakeline report\nCall the Riverside vendor\nReview Q2 numbers',
-    cta: 'Send & start the day', ackLabel: 'I already sent my login (BOD) message',
+    cta: 'Send & start the day', ackLabel: 'I already sent my login (BOD) message', optionalMessage: true,
   },
   eod: {
     title: 'End of Day', Icon: Sunset, color: '#7c3aed', tag: 'EOD',
     sub: 'Wrapping up - post your summary and the tasks you worked on.',
-    msgLabel: 'Summary', msgPlaceholder: 'Wrapping up - good progress today.',
+    msgLabel: 'Summary (Optional)', msgPlaceholder: 'Wrapping up - good progress today.',
     tasksLabel: 'Tasks (one per line)', tasksHead: 'Tasks (Completed)',
     tasksPlaceholder: 'Lakeline report\nRiverside vendor call\nQ2 numbers review',
-    cta: 'Send & clock out', ackLabel: 'I already sent my logout (EOD) message',
+    cta: 'Send & clock out', ackLabel: 'I already sent my logout (EOD) message', optionalMessage: true,
   },
   break: {
     title: 'Going on break', Icon: Coffee, color: '#b45309', tag: 'BREAK', reasonOnly: true,
