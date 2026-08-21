@@ -39,13 +39,25 @@ function recurrenceLabel(r) {
 }
 
 // ── tiny inline primitives ───────────────────────────────────────────────────
-function Section({ title, children }) {
+// The chevron used to be decorative - it pointed down on a section that could
+// not fold, which is the same "affordance that lies" the My Tasks title had.
+// It now folds for real, and the rarely-used sections (Subtasks, Time Tracking,
+// Approval) start CLOSED so the Overview opens on description and comments
+// instead of three empty widgets.
+function Section({ title, children, defaultOpen = true }) {
+  const [open, setOpen] = useState(defaultOpen);
   return (
     <div style={{ marginTop: 18, borderTop: `1px solid ${NX.border}`, paddingTop: 15 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 9, fontSize: 13, fontWeight: 700, color: NX.ink }}>
-        <ChevronDown size={14} style={{ color: NX.faint }} /> {title}
-      </div>
-      {children}
+      <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 6, marginBottom: open ? 9 : 0,
+          fontSize: 13, fontWeight: 700, color: NX.ink, background: 'transparent',
+          border: 'none', padding: 0, cursor: 'pointer', fontFamily: FONT, width: '100%', textAlign: 'left',
+        }}>
+        <ChevronDown size={14} style={{ color: NX.faint, flexShrink: 0, transform: open ? 'none' : 'rotate(-90deg)', transition: 'transform 0.13s ease' }} />
+        {title}
+      </button>
+      {open && children}
     </div>
   );
 }
@@ -185,6 +197,10 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
   );
 
   if (!task) return null;
+  // Shared the moment the task has a project or a collaborator - the same rule
+  // My Tasks used for its Task Visibility column before that column was removed
+  // in favor of this indicator.
+  const shared = (task.followerIds || []).length > 0 || !!task.projectId;
   const patch = (p) => updateTask(activeId, p);
 
   const counts = {
@@ -193,7 +209,6 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
     subtasks: subtasks.length,
     dependencies: blockedBy.length + blocking.length,
   };
-  const liked = (task.likedByIds || []).includes(myEmail);
 
   const addDependency = (dep) => {
     patch({ blockedByIds: [...(task.blockedByIds || []), dep.id], dependencyTypes: { ...(task.dependencyTypes || {}), [dep.id]: 'FS' } });
@@ -262,31 +277,17 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             <MembersMenu task={task} people={people} nameOf={nameOf} patch={patch} />
             <button onClick={() => setShareOpen(true)} title="Share" style={{ ...btn('outline'), padding: '6px 10px', fontSize: 12, color: NX.dim }}><Share2 size={14} /> Share</button>
-            <div style={{ display: 'flex', alignItems: 'center' }}>
-              <button onClick={() => patch({ likedByIds: liked ? task.likedByIds.filter((e) => e !== myEmail) : [...(task.likedByIds || []), myEmail] })}
-                title={liked ? 'Remove your like' : 'Like - a quick, visible signal to the team that you support or agree with this task'}
-                style={{ ...btn('ghost'), padding: 7, color: liked ? NX.blue : NX.faint }}>
-                <ThumbsUp size={16} fill={liked ? 'currentColor' : 'none'} />
-              </button>
-              {(task.likedByIds || []).length > 0 && (
-                <Pop width={190} trigger={(t) => (
-                  <button onClick={t} title="Who liked this task" style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: '0 6px 0 0', fontSize: 12, fontWeight: 700, color: NX.faint }}>
-                    {task.likedByIds.length}
-                  </button>
-                )}>
-                  {() => (
-                    <>
-                      <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: NX.faint, padding: '4px 6px' }}>Liked by</div>
-                      {task.likedByIds.map((em) => (
-                        <div key={em} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', fontSize: 13, color: NX.ink }}>
-                          <Avatar email={em} name={nameOf(em)} size={20} /> {nameOf(em)}
-                        </div>
-                      ))}
-                    </>
-                  )}
-                </Pop>
-              )}
-            </div>
+            {/* Who can see this task, in the slot the Like button used to hold.
+                An INDICATOR, not a control: visibility here is derived (a task
+                is shared the moment it has a project or a collaborator, the
+                same rule My Tasks reads), so there is nothing single to toggle -
+                add a project or a collaborator and it turns. */}
+            <span title={shared
+              ? 'Shared - people on this task\u2019s project and its collaborators can see it'
+              : 'Only me - this task has no project and no collaborators yet'}
+              style={{ ...btn('ghost'), padding: 7, color: shared ? NX.green : NX.dim, cursor: 'default' }}>
+              {shared ? <Globe size={16} /> : <Lock size={16} />}
+            </span>
             <button onClick={() => { navigator.clipboard?.writeText(`${window.location.origin}${window.location.pathname}?task=${task.id}`); }} title="Copy Task Link" style={{ ...btn('ghost'), padding: 7, color: NX.faint }}><Link2 size={16} /></button>
             {!isMobile && (
               <button onClick={toggleExpand} title={expanded ? 'Collapse' : 'Expand'} style={{ ...btn('ghost'), padding: 7, color: NX.faint }}>
@@ -738,17 +739,17 @@ function OverviewTab({ task, patch, people, projectName, teamName, teams, projec
       </Section>
 
       {/* Subtasks (inline) */}
-      <Section title={subtasks?.length ? `Subtasks ${subtasks.filter((s) => s.completed).length}/${subtasks.length}` : 'Subtasks'}>
+      <Section defaultOpen={false} title={subtasks?.length ? `Subtasks ${subtasks.filter((s) => s.completed).length}/${subtasks.length}` : 'Subtasks'}>
         <SubtasksTab task={task} subtasks={subtasks || []} createTask={createTask} updateTask={updateTask} people={people} onOpenSub={onOpenSub} hideHeading />
       </Section>
 
       {/* Time tracking */}
-      <Section title="Time Tracking">
+      <Section defaultOpen={false} title="Time Tracking">
         <TimeTracking task={task} patch={patch} />
       </Section>
 
       {/* Approval */}
-      <Section title="Approval">
+      <Section defaultOpen={false} title="Approval">
         <Approval task={task} patch={patch} />
       </Section>
 

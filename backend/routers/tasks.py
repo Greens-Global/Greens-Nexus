@@ -8,11 +8,14 @@ with email used as the person id) so the ported frontend maps cleanly.
 Reference implementation: routers/items.py.
 """
 import calendar
+import io
 import re
 import time
 from datetime import date, datetime, timedelta
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional, Any
@@ -666,6 +669,230 @@ def list_tasks(user: dict = Depends(get_current_user), db: Session = Depends(get
     return [task_to_dict(t) for t in rows if task_is_visible(t, user, visible_projects)]
 
 
+def _csv_set(value: str) -> set:
+    """`?status=a,b,c` -> {"a","b","c"}. Blank/absent -> empty set, which every
+    filter below reads as "no constraint" rather than "match nothing"."""
+    return {v.strip() for v in (value or "").split(",") if v.strip()}
+
+
+@router.get("/export/excel")
+def export_tasks_excel(
+    project_id: str = "",
+    status: str = "",
+    priority: str = "",
+    assignee: str = "",
+    due_from: str = "",
+    due_to: str = "",
+    include_completed: bool = True,
+    today: str = "",
+    user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Tasks as a real .xlsx - one row per task, collaborators collapsed into a
+    single cell so the sheet stays one-task-per-line and pivots cleanly.
+
+    project_id/status/priority/assignee each take a COMMA-SEPARATED list and
+    match on ANY of the values (an OR within a filter, AND across filters) -
+    the same "pick none to include everything" shape the custom-field project
+    picker uses. Every person column is paired with an "Enterprise Id" column
+    carrying the work email, so the sheet stays joinable against other systems
+    even though people are displayed by name (CLAUDE.md).
+
+    The FILENAME describes what is in the sheet rather than being a fixed
+    string - "2026-08-21 - Test Project Task Export.xlsx", "2026-08-21 - Sagar
+    Shoundik's Tasks.xlsx" - so a folder of these stays readable months later.
+    `today` is the CALLER's local date: the server runs UTC, which names an
+    evening export in India after the day it was actually taken.
+
+    Visibility is the SAME rule list_tasks applies (task_is_visible against
+    visible_project_ids), so an export can never hand someone a task they
+    cannot already open - filters narrow that set, they never widen it.
+    Reference implementation for the workbook itself: requisitions.py.
+    """
+    try:
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill, Alignment
+    except ImportError:
+        raise HTTPException(500, "openpyxl not installed - run: pip install openpyxl")
+
+    rows = db.query(models.Task).all()
+    if not is_manager(user):
+        visible = visible_project_ids(db, user)
+        rows = [t for t in rows if task_is_visible(t, user, visible)]
+
+    # -- Filters (empty = no constraint; several values = match ANY) ----------
+    want_projects = _csv_set(project_id)
+    want_statuses = _csv_set(status)
+    want_priorities = _csv_set(priority)
+    want_assignees = {a.lower() for a in _csv_set(assignee)}
+
+    if want_projects:
+        rows = [t for t in rows
+                if t.project_id in want_projects
+                or want_projects & set(t.project_ids or [])]
+    if want_statuses:
+        rows = [t for t in rows if (t.status or "not_started") in want_statuses]
+    if want_priorities:
+        rows = [t for t in rows if (t.priority or "medium") in want_priorities]
+    if want_assignees:
+        rows = [t for t in rows if (t.assignee_email or "").lower() in want_assignees]
+    if due_from:
+        rows = [t for t in rows if t.due_on and t.due_on >= due_from]
+    if due_to:
+        rows = [t for t in rows if t.due_on and t.due_on <= due_to]
+    if not include_completed:
+        rows = [t for t in rows if not t.completed]
+
+    # -- Label lookups -------------------------------------------------------
+    # Same precedence the frontend's useNameResolver applies, so a sheet and the
+    # screen it was exported from never disagree about someone's name: curated
+    # People directory first, the older roles directory as the fallback for
+    # people no longer in People, then the email itself. People must always show
+    # as first + last name, never a raw email (CLAUDE.md) - the paired
+    # Enterprise Id column is where the email belongs.
+    people = {}
+    for r in db.query(models.NexusRole).all():
+        if r.email and (r.display_name or "").strip():
+            people[r.email.lower()] = r.display_name.strip()
+    for e in db.query(models.NexusEmployee).all():
+        full = f"{e.first_name or ''} {e.last_name or ''}".strip()
+        if e.work_email and full:
+            people[e.work_email.lower()] = full
+
+    def person(email):
+        if not email:
+            return ""
+        hit = people.get(email.lower())
+        if hit:
+            return hit
+        local = email.split("@")[0]
+        parts = [p for p in re.split(r"[._-]+", local) if p]
+        return " ".join(p[:1].upper() + p[1:] for p in parts) or email
+
+    projects = {p.id: p.name for p in db.query(models.TaskProject).all()}
+    status_label = {"not_started": "Not Started", "in_progress": "In Progress",
+                    "completed": "Completed", "recurring": "Recurring"}
+    for s in db.query(models.TaskCustomStatus).all():
+        status_label[s.id] = s.label
+    priority_label = {"low": "Low", "medium": "Medium", "high": "High", "urgent": "Urgent"}
+    titles = {t.id: (t.title or "") for t in db.query(models.Task).all()}
+
+    def us_date(iso):
+        """MM/DD/YYYY - US format everywhere in user-facing output (CLAUDE.md)."""
+        if not iso:
+            return ""
+        try:
+            return datetime.strptime(iso[:10], "%Y-%m-%d").strftime("%m/%d/%Y")
+        except ValueError:
+            return iso
+
+    # Grouped by project, then due date - blank dues last rather than first.
+    rows.sort(key=lambda t: (projects.get(t.project_id or "", "zzz").lower(),
+                             t.due_on or "9999-99-99", (t.title or "").lower()))
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Tasks"
+
+    headers = ["Task ID", "Task", "Parent Task", "Project",
+               "Assignee", "Assignee Enterprise Id",
+               "Collaborators", "Collaborators Enterprise Id",
+               "Start Date", "Due Date", "Priority", "Status", "Completed",
+               "Created On", "Modified On"]
+    header_fill = PatternFill(start_color="1A1A2E", end_color="1A1A2E", fill_type="solid")
+    header_font = Font(bold=True, color="FFFFFF")
+    for col, h in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col, value=h)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal="center")
+
+    for t in rows:
+        extra = [projects.get(p, "") for p in (t.project_ids or []) if p and p != t.project_id]
+        project_cell = ", ".join(x for x in [projects.get(t.project_id or "", "")] + extra if x)
+        collaborators = [e for e in (t.follower_emails or []) if e]
+        ws.append([
+            t.code or t.id,
+            t.title or "",
+            titles.get(t.parent_task_id or "", ""),
+            project_cell,
+            person(t.assignee_email) or "Unassigned",
+            t.assignee_email or "",
+            ", ".join(person(e) for e in collaborators),
+            ", ".join(collaborators),
+            us_date(t.start_on),
+            us_date(t.due_on),
+            priority_label.get(t.priority or "medium", t.priority or ""),
+            status_label.get(t.status or "not_started", t.status or ""),
+            "Yes" if t.completed else "No",
+            us_date(t.created_at),
+            us_date(t.modified_at),
+        ])
+
+    ws.freeze_panes = "A2"
+    ws.auto_filter.ref = f"A1:{ws.cell(row=1, column=len(headers)).column_letter}{max(ws.max_row, 1)}"
+    for col in ws.columns:
+        max_len = max((len(str(cell.value or "")) for cell in col), default=0)
+        ws.column_dimensions[col[0].column_letter].width = min(max_len + 4, 45)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    # -- Filename: say what is in the sheet ----------------------------------
+    # "2026-08-21 - Task Export"                      (no filters)
+    # "2026-08-21 - Test Project Task Export"         (one project)
+    # "2026-08-21 - Sagar Shoundik's Tasks"           (one person)
+    # "2026-08-21 - Test Project - Sagar Shoundik's Tasks"  (both)
+    # Several of either collapse to a count ("3 Projects", "4 People's Tasks")
+    # rather than running the name past what a file manager will show.
+    stamp = today if re.fullmatch(r"\d{4}-\d{2}-\d{2}", today or "") else datetime.utcnow().strftime("%Y-%m-%d")
+
+    picked_projects = [projects[p] for p in sorted(want_projects) if projects.get(p)]
+    picked_people = [person(a) for a in sorted(want_assignees)]
+
+    if len(picked_people) == 1:
+        who = picked_people[0]
+        # "Chris' Tasks", not "Chris's Tasks".
+        whose = f"{who}'" if who.endswith("s") else f"{who}'s"
+        label = f"{whose} Tasks"
+    elif picked_people:
+        label = f"{len(picked_people)} People's Tasks"
+    else:
+        label = "Task Export"
+
+    if len(picked_projects) == 1:
+        scope = picked_projects[0]
+    elif picked_projects:
+        scope = f"{len(picked_projects)} Projects"
+    else:
+        scope = ""
+
+    if scope and picked_people:
+        name = f"{stamp} - {scope} - {label}"
+    elif scope:
+        name = f"{stamp} - {scope} {label}"
+    else:
+        name = f"{stamp} - {label}"
+
+    # A project name is free text, so strip what Windows/macOS reject in a
+    # filename before it reaches a download folder.
+    name = re.sub(r'[\\/:*?"<>|\r\n\t]', " ", name)
+    name = re.sub(r"\s+", " ", name).strip()[:120]
+    filename = f"{name}.xlsx"
+
+    # Quoted (it has spaces) plus RFC 5987 for names that leave ASCII - an
+    # accented person or project name would otherwise arrive mangled.
+    ascii_name = filename.encode("ascii", "ignore").decode() or "Task Export.xlsx"
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition":
+                 f'attachment; filename="{ascii_name}"; '
+                 f"filename*=UTF-8''{quote(filename)}"},
+    )
+
+
 @router.get("/search")
 def search_everything(q: str = "", limit: int = 6,
                       user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -702,8 +929,12 @@ def search_everything(q: str = "", limit: int = 6,
              if (term in (t.title or "").lower() or term in (t.code or "").lower())
              and (manager or task_is_visible(t, user, visible))]
     project_names = {p.id: p.name for p in db.query(models.TaskProject).all()}
+    # Archived projects DO appear here. Archiving hides a project from the
+    # active list and from task pickers - it is not deletion, and search is how
+    # you get back to finished work. The result carries `archived` so the UI can
+    # mark it rather than pass it off as live.
     projects = [p for p in db.query(models.TaskProject).all()
-                if term in (p.name or "").lower() and not p.archived
+                if term in (p.name or "").lower()
                 and (manager or p.id in visible)]
     portfolios = [p for p in db.query(models.TaskPortfolio).all() if term in (p.name or "").lower()]
     teams = [t for t in db.query(models.TaskTeam).all() if term in (t.name or "").lower()]
@@ -742,7 +973,11 @@ def search_everything(q: str = "", limit: int = 6,
 
     return {
         "tasks": [shape_task(t) for t in top(tasks, lambda t: t.title)],
-        "projects": [{"id": p.id, "name": p.name, "color": p.color or ""}
+        # Archived projects stay FINDABLE - archiving hides a project from the
+        # active list and from task pickers, it does not hide its history. The
+        # flag rides along so the result can be marked as archived rather than
+        # looking like live work.
+        "projects": [{"id": p.id, "name": p.name, "color": p.color or "", "archived": bool(p.archived)}
                      for p in top(projects, lambda p: p.name)],
         "portfolios": [{"id": p.id, "name": p.name} for p in top(portfolios, lambda p: p.name)],
         "teams": [{"id": t.id, "name": t.name, "color": t.color or ""}
@@ -1180,6 +1415,20 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
             if k == "assignee_email":
                 v = (v or "").lower()
             setattr(t, k, v)
+        # A section and a team both belong to ONE project, so carrying either
+        # across a move leaves the task pointing at a section the destination
+        # does not have - it then renders under a phantom group that no board
+        # can show or clear. Done here rather than in the client so no caller
+        # can skip it (the drawer's single-task picker clears team_id by hand;
+        # bulk moves 31 rows at a time and must not depend on remembering).
+        # An explicit team_id in the same patch still wins.
+        if "project_id" in patch:
+            t.section_id = ""
+            if "team_id" not in patch:
+                t.team_id = ""
+            # Same re-clean update_task does: the primary must never also sit
+            # in the "also in" extras list.
+            t.project_ids = _extra_project_ids(t.project_ids, t.project_id or "")
         _apply_completion(t, new_completed, prev_completed)
         t.modified_at = now_iso()
 

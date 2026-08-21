@@ -1469,6 +1469,14 @@ app.add_middleware(
     allow_origins=_CORS_ORIGINS,
     allow_methods=["*"],
     allow_headers=["*"],
+    # The API is a different origin from the SPA on every environment, and a
+    # cross-origin response only hands JS the handful of CORS-safelisted
+    # headers unless they are named here. Without this, every download built on
+    # api.js's reqBlob (task/QA/requisition exports, Egnyte files, e-sign and
+    # construction PDFs, timeclock CSV) read a null Content-Disposition and
+    # saved as "download.xlsx" / "download" with the server's real filename
+    # thrown away.
+    expose_headers=["Content-Disposition"],
 )
 
 

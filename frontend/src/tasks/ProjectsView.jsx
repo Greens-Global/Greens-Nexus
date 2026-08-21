@@ -2,11 +2,11 @@
 // add/edit modal, and a drill-in that reuses the Tasks workspace locked to one
 // project. Ported from the export's ProjectsPage/ProjectOverview into the Nexus
 // inline-style idiom.
-import { useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { Plus, Search, FolderKanban, AlertTriangle, Pencil, Trash2, Archive, Globe, Lock, LayoutGrid, List } from 'lucide-react';
 import { api } from '../api';
 import { useTasks } from './TasksContext';
-import { taskStats, teamInProject, teamProjectIds, fieldsForProjectEntity, taskInProject } from './lib';
+import { taskStats, teamInProject, teamProjectIds, fieldsForProjectEntity, taskInProject, projectToForm} from './lib';
 import { NX, FONT, btn, input as inputStyle, card, chip } from './theme';
 import { Avatar, EmptyState, Modal, usePeople, PersonSelect, useIsMobile, MobileFab } from './components';
 import TasksWorkspace from './TasksWorkspace';
@@ -78,7 +78,10 @@ export default function ProjectsView({ onNavigate }) {
 
   const [openId, setOpenId] = useState(null);      // drilled-into project
   const [search, setSearch] = useState('');
-  const [showArchived, setShowArchived] = useState(false);
+  // active | archived | all. Was a bare "Show archived" checkbox, which could
+  // only ever ADD archived projects to the live list - there was no way to look
+  // at the archive on its own, which is the usual reason to go looking.
+  const [archiveFilter, setArchiveFilter] = useState('active');
   // {fieldId: optionId}. Empty/missing = that filter is off.
   const [fieldFilters, setFieldFilters] = useState({});
   const setFieldFilter = (fieldId, optionId) =>
@@ -100,7 +103,7 @@ export default function ProjectsView({ onNavigate }) {
     // rather than any single field on the project.
     const teamsOf = (pid) => (teams || []).filter((t) => teamInProject(t, pid));
     return projects
-      .filter((p) => showArchived || !p.archived)
+      .filter((p) => (archiveFilter === 'all' ? true : archiveFilter === 'archived' ? !!p.archived : !p.archived))
       .map((p) => ({ ...p, teams: teamsOf(p.id) }))
       // Team names are searchable too now that they are what the card shows.
       .filter((p) => !q || p.name.toLowerCase().includes(q)
@@ -114,7 +117,30 @@ export default function ProjectsView({ onNavigate }) {
       })
       .sort((a, b) => Number(a.project.archived) - Number(b.project.archived)
         || a.project.name.localeCompare(b.project.name));
-  }, [projects, tasks, teams, search, showArchived, fieldFilters]);
+  }, [projects, tasks, teams, search, archiveFilter, fieldFilters]);
+
+  // Archived projects render under their own heading rather than mixed into the
+  // grid greyed-out - "where did that project go" is a question the heading
+  // answers and a dimmed card does not.
+  const archivedCards = cards.filter((c) => c.project.archived);
+  // Archived cards already sort last, so the section boundary is just the first
+  // of them. Rendered as a full-width band inside the same grid rather than a
+  // second grid, so column widths stay identical across the divide.
+  const firstArchivedAt = cards.findIndex((c) => c.project.archived);
+  const archivedHeading = (
+    <div style={{
+      gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 8,
+      margin: '10px 0 2px', fontSize: 12, fontWeight: 700, letterSpacing: '.04em',
+      textTransform: 'uppercase', color: NX.faint,
+    }}>
+      <Archive size={13} />
+      Archived Projects
+      <span style={{ fontWeight: 600, letterSpacing: 0, textTransform: 'none' }}>
+        ({archivedCards.length}) - kept for reference, not offered when filing new tasks
+      </span>
+      <span style={{ flex: 1, height: 1, background: NX.border2 }} />
+    </div>
+  );
 
   const openProject = openId ? projects.find((p) => p.id === openId) : null;
 
@@ -126,13 +152,7 @@ export default function ProjectsView({ onNavigate }) {
   }
 
   const startCreate = () => setEditing({ ...EMPTY_FORM });
-  const startEdit = (p) => setEditing({
-    id: p.id, name: p.name || '', description: p.description || '', color: p.color || NX.blue,
-    ownerId: p.ownerId || null, hrDepartmentName: p.hrDepartmentName || '', portfolioId: p.portfolioId || '',
-    accessLevel: p.accessLevel || 'restricted',
-    status: p.status || 'not_started', startOn: p.startOn || '', dueOn: p.dueOn || '', archived: !!p.archived,
-    customFieldValues: p.customFieldValues || {},
-  });
+  const startEdit = (p) => setEditing(projectToForm(p));
 
   // Deleting is permanent and takes the project's tasks and Asana sync state with
   // it, so it gets a real dialog - and for a synced project it must ask the one
@@ -174,10 +194,12 @@ export default function ProjectsView({ onNavigate }) {
             <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search projects…"
               style={{ ...inputStyle, paddingLeft: 40, paddingTop: isMobile ? 8 : 10, paddingBottom: isMobile ? 8 : 10, borderRadius: 999 }} />
           </div>
-          <label title="Show Archived" style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: isMobile ? 12 : 13, color: NX.dim, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 }}>
-            <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} style={{ cursor: 'pointer' }} />
-            {isMobile ? 'Archived' : 'Show archived'}
-          </label>
+          <select value={archiveFilter} onChange={(e) => setArchiveFilter(e.target.value)} title="Archive filter"
+            style={{ ...inputStyle, width: 'auto', flexShrink: 0, padding: isMobile ? '7px 9px' : '9px 10px', borderRadius: 999, fontSize: isMobile ? 12 : 13, cursor: 'pointer' }}>
+            <option value="active">Active Projects</option>
+            <option value="archived">Archived Projects</option>
+            <option value="all">All Projects</option>
+          </select>
           {filterableFields.map((f) => (
             <select key={f.id} value={fieldFilters[f.id] || ''} onChange={(e) => setFieldFilter(f.id, e.target.value)}
               style={{ ...inputStyle, width: 'auto', flexShrink: 0, padding: isMobile ? '7px 9px' : '9px 10px', borderRadius: 999, fontSize: isMobile ? 12 : 13, cursor: 'pointer' }}>
@@ -213,11 +235,13 @@ export default function ProjectsView({ onNavigate }) {
         />
       ) : (
         <div className="nx-gutter" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(280px, 100%), 1fr))', gap: 14, padding: '16px 16px 76px' }}>
-          {cards.map(({ project: p, stats }) => {
+          {cards.map(({ project: p, stats }, idx) => {
             const pf = p.portfolioId ? portfolioById(p.portfolioId) : null;
             const dcolor = p.color || NX.blue;
             return (
-              <div key={p.id} onClick={() => setOpenId(p.id)} style={{
+              <Fragment key={p.id}>
+              {idx === firstArchivedAt && archivedHeading}
+              <div onClick={() => setOpenId(p.id)} style={{
                 ...card, padding: 0, overflow: 'hidden', cursor: 'pointer', display: 'flex', flexDirection: 'column',
                 opacity: p.archived ? 0.62 : 1, position: 'relative',
               }}
@@ -293,6 +317,7 @@ export default function ProjectsView({ onNavigate }) {
                 </div>
                 </div>
               </div>
+              </Fragment>
             );
           })}
         </div>
@@ -508,7 +533,7 @@ function DeleteProjectModal({ state, setState, onConfirm, onClose }) {
 // applying team assignments needs the project's id, which for a new project
 // only exists after createProject resolves. Callers just get an onSaved(project)
 // callback for their own post-save action (close, navigate, etc).
-function ProjectModal({ form, setForm, people, portfolios, onClose, onSaved }) {
+export function ProjectModal({ form, setForm, people, portfolios, onClose, onSaved }) {
   const { teams, tasks, customFields, createProject, updateProject, updateTeam } = useTasks();
   const projectFields = useMemo(() => fieldsForProjectEntity(customFields), [customFields]);
   const [dirty, setDirty] = useState(false);
@@ -527,6 +552,18 @@ function ProjectModal({ form, setForm, people, portfolios, onClose, onSaved }) {
   // recalculates vh against the keyboard-shrunk viewport differently than
   // Safari/Edge - its scroll-focused-input-into-view then overshoots and
   // scrolls the whole modal content past Name/Description/Owner, landing on
+  // Department options for the picker above. Names only - see
+  // list_project_departments for why this is not the People module's endpoint.
+  const [departments, setDepartments] = useState([]);
+  useEffect(() => {
+    let alive = true;
+    api.getProjectDepartments()
+      .then((rows) => { if (alive) setDepartments(rows || []); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
+  const multiCompany = new Set(departments.map((d) => d.companyId)).size > 1;
+
   // Department instead (reported: fields "missing" in Chrome mobile, present
   // in Safari/Edge). Skipping autoFocus on mobile avoids triggering that
   // keyboard-open scroll entirely - desktop keeps the autofocus convenience.
@@ -537,11 +574,12 @@ function ProjectModal({ form, setForm, people, portfolios, onClose, onSaved }) {
   const [teamIds, setTeamIds] = useState(() => teams.filter((t) => teamInProject(t, form.id)).map((t) => t.id));
   const toggleTeam = (id) => { setTeamIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id])); setDirty(true); };
 
-  const save = async () => {
+  const save = async (override) => {
     if (!valid || saving) return;
     setSaving(true);
     try {
-      const { id, ...data } = form;
+      const { id, ...rest } = form;
+      const data = { ...rest, ...(override || {}) };
       const project = id ? await updateProject(id, data) : await createProject(data);
       // A team can serve several projects, so this edits only THIS project's membership
       // in each team's list - a bare project_id would replace the team's whole set and
@@ -570,7 +608,22 @@ function ProjectModal({ form, setForm, people, portfolios, onClose, onSaved }) {
       onSave={valid ? save : undefined}
       footer={<>
         <button style={btn('ghost')} onClick={onClose}>Cancel</button>
-        <button style={{ ...btn('primary'), opacity: valid && !saving ? 1 : 0.5, pointerEvents: valid && !saving ? 'auto' : 'none' }} onClick={save}>{form.id ? 'Save Changes' : 'Create Project'}</button>
+        {/* Archive sits beside Save at full button size rather than as a
+            checkbox buried in the body - it is a lifecycle action, not a
+            property, and it was routinely missed down there. Save-and-archive
+            in one press: the toggle goes through the same save path, so team
+            membership and every other edit in the form land with it. */}
+        {form.id && (
+          <button
+            style={{ ...btn('outline'), color: form.archived ? NX.green : NX.dim, opacity: saving ? 0.5 : 1, pointerEvents: saving ? 'none' : 'auto' }}
+            title={form.archived
+              ? 'Restore this project to the active list'
+              : 'Archive - keeps the project and its tasks, hides it from the active list and from project pickers'}
+            onClick={() => save({ archived: !form.archived })}>
+            <Archive size={15} />{form.archived ? 'Unarchive' : 'Archive'}
+          </button>
+        )}
+        <button style={{ ...btn('primary'), opacity: valid && !saving ? 1 : 0.5, pointerEvents: valid && !saving ? 'auto' : 'none' }} onClick={() => save()}>{form.id ? 'Save Changes' : 'Create Project'}</button>
       </>}
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -607,9 +660,23 @@ function ProjectModal({ form, setForm, people, portfolios, onClose, onSaved }) {
           <div>
             <label style={label}>Department</label>
             {form.id ? (
-              <div style={{ fontSize: 13, color: form.hrDepartmentName ? NX.ink : NX.faint, padding: '8px 0' }}>
-                {form.hrDepartmentName || 'None - auto-populated from the creator’s People-module profile'}
-              </div>
+              /* Editable: the creator's own department is only a first guess,
+                 and a project raised by IT for Accounting belongs to Accounting.
+                 Departments are company-scoped, so the label carries the company
+                 when more than one is in play. */
+              <select value={form.hrDepartmentId || ''} onChange={(e) => set({ hrDepartmentId: e.target.value })}
+                style={{ ...inputStyle, cursor: 'pointer' }}>
+                <option value="">None</option>
+                {/* A department deleted from People leaves the project's stored
+                    name behind - keep it selectable rather than silently
+                    switching the project to None on the next save. */}
+                {form.hrDepartmentId && !departments.some((d) => d.id === form.hrDepartmentId) && (
+                  <option value={form.hrDepartmentId}>{form.hrDepartmentName || 'Current department'}</option>
+                )}
+                {departments.map((d) => (
+                  <option key={d.id} value={d.id}>{multiCompany && d.companyName ? `${d.companyName} - ${d.name}` : d.name}</option>
+                ))}
+              </select>
             ) : (
               <div style={{ fontSize: 12.5, color: NX.faint, padding: '8px 0' }}>
                 Auto-populated from your own People-module profile once created.
@@ -642,13 +709,17 @@ function ProjectModal({ form, setForm, people, portfolios, onClose, onSaved }) {
             <div style={{ maxHeight: 160, overflowY: 'auto', border: `1px solid ${NX.border2}`, borderRadius: 8, padding: 8, display: 'flex', flexDirection: 'column', gap: 2 }}>
               {teams.map((t) => {
                 const on = teamIds.includes(t.id);
-                const elsewhere = t.projectId && t.projectId !== form.id;
                 return (
                   <label key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 6px', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>
                     <input type="checkbox" checked={on} onChange={() => toggleTeam(t.id)} style={{ cursor: 'pointer' }} />
                     <span style={{ width: 9, height: 9, borderRadius: '50%', background: t.color || NX.purple, flexShrink: 0 }} />
+                    {/* No "currently elsewhere" marker: a team belongs to any number
+                        of projects (TaskTeam.project_ids), so being on another one is
+                        ordinary rather than a conflict worth flagging. The old marker
+                        also read the legacy singular project_id - a write-only mirror of
+                        project_ids[0] - so it fired on every project but the first in a
+                        team's list, contradicting the ticked checkbox beside it. */}
                     <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</span>
-                    {elsewhere && <span style={{ fontSize: 11, color: NX.faint, flexShrink: 0 }}>currently elsewhere</span>}
                   </label>
                 );
               })}
@@ -671,10 +742,7 @@ function ProjectModal({ form, setForm, people, portfolios, onClose, onSaved }) {
           </div>
         </div>
 
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: NX.ink, cursor: 'pointer' }}>
-          <input type="checkbox" checked={form.archived} onChange={(e) => set({ archived: e.target.checked })} style={{ cursor: 'pointer' }} />
-          Archived
-        </label>
+
       </div>
     </Modal>
   );

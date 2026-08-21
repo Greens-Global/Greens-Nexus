@@ -104,6 +104,34 @@ class ProjectBody(BaseModel):
     due_on: Optional[str] = ""
     archived: Optional[bool] = None
     custom_field_values: Optional[dict] = None
+    # A project's People-module department. Auto-resolved from the creator at
+    # creation time, but editable afterwards - the creator's own department is a
+    # guess, and a project raised by IT for Accounting belongs to Accounting.
+    # The NAME is a display snapshot; update_project re-derives it from the id
+    # so the two can never disagree.
+    hr_department_id: Optional[str] = None
+    hr_department_name: Optional[str] = None
+
+
+@router.get("/task-projects/meta/departments")
+def list_project_departments(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Departments a project can be filed under, flattened across companies.
+
+    The People module's own listing is per-company AND behind require_hr_read,
+    which an ordinary task user does not hold - so filing a project under a
+    department would have needed HR access. This exposes names only (no people,
+    no leads, no contact details), which is all the project picker renders.
+    """
+    entities = {e.id: e.name for e in db.query(models.HrEntity).all()}
+    rows = db.query(models.HrDepartment).all()
+    out = [{
+        "id": d.id,
+        "name": d.name,
+        "companyId": d.company_id or "",
+        "companyName": entities.get(d.company_id or "", ""),
+    } for d in rows]
+    out.sort(key=lambda r: (r["companyName"].lower(), r["name"].lower()))
+    return out
 
 
 @router.get("/task-projects")
@@ -177,6 +205,16 @@ def update_project(project_id: str, body: ProjectBody, user: dict = Depends(get_
     # superset of member_roles' keys rather than two lists that can drift.
     if "member_roles" in data:
         p.member_emails = sorted(set(p.member_emails or []) | set((p.member_roles or {}).keys()))
+    # hr_department_name is a snapshot of the picked department, never a free
+    # text field - re-derived here so a client that sends only the id (or sends
+    # a stale name alongside it) cannot leave the two disagreeing.
+    if "hr_department_id" in data:
+        dept = (db.query(models.HrDepartment)
+                  .filter(models.HrDepartment.id == (p.hr_department_id or ""))
+                  .first()) if p.hr_department_id else None
+        p.hr_department_name = dept.name if dept else ""
+        if p.hr_department_id and not dept:
+            p.hr_department_id = ""
     p.modified_at = now_iso()
     db.commit()
     db.refresh(p)

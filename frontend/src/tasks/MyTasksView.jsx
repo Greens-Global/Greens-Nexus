@@ -3,7 +3,7 @@
 // Dashboard/Files tabs, and a List grouped into the four due-date buckets with
 // inline "Add task" rows, a "Task visibility" column, and "Add section".
 import { useMemo, useRef, useState } from 'react';
-import { ChevronDown, Lock, Globe, Plus, List as ListIcon, Columns3, Calendar as CalIcon, LayoutDashboard, Paperclip, Circle, CheckCircle2, CornerDownRight } from 'lucide-react';
+import { ChevronDown, Plus, List as ListIcon, Columns3, Calendar as CalIcon, LayoutDashboard, Paperclip, Circle, CheckCircle2, CornerDownRight, ArrowUp, ArrowDown } from 'lucide-react';
 import { useTasks } from './TasksContext';
 import { EMPTY_FILTER, matchesFilter, sortTasks, groupTasks, groupAddDefaults, taskIdFromUrl, personScoped, rootParent, effectiveProjectId } from './lib';
 import { NX, FONT, btn, CONTROL_H, CONTROL_FS, input as inputStyle, colorForKey } from './theme';
@@ -31,7 +31,36 @@ const MY_GROUP_OPTIONS = [
 ];
 
 // Name · Due date · Collaborators · Projects · Task visibility
-const COLS = 'minmax(220px,1fr) 118px 132px 150px 138px';
+const COLS = 'minmax(220px,1fr) 118px 132px 150px';
+// The four list columns, in grid order, with the sort key each header drives.
+// Same keys the toolbar's Sort menu writes, so a header click and a Sort pick
+// stay one state rather than two competing ones.
+const LIST_COLS = [
+  { key: 'title', label: 'Name' },
+  { key: 'dueOn', label: 'Due Date' },
+  { key: 'collaborators', label: 'Collaborators' },
+  { key: 'project', label: 'Projects' },
+];
+
+// Click cycles unsorted -> ascending -> descending -> back to Manual. Manual
+// has to be reachable from the same control that left it: it is the order the
+// list falls back to, and the only one that reads as "however I arranged it".
+function SortHead({ colKey, label, sort, setSort }) {
+  const active = sort?.key === colKey;
+  const Arrow = sort?.dir === 'desc' ? ArrowDown : ArrowUp;
+  const cycle = () => setSort((prev) => {
+    if (prev?.key !== colKey) return { key: colKey, dir: 'asc' };
+    if (prev.dir === 'asc') return { key: colKey, dir: 'desc' };
+    return { key: 'manual', dir: 'asc' };
+  });
+  return (
+    <div onClick={cycle} title={`Sort by ${label}`}
+      style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', userSelect: 'none', color: active ? NX.ink : NX.dim }}>
+      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
+      {active && <Arrow size={12} strokeWidth={2.5} style={{ flexShrink: 0, color: NX.primary }} />}
+    </div>
+  );
+}
 const dueColor = (iso, completed) => {
   if (!iso || completed) return NX.faint;
   const today = new Date().toISOString().slice(0, 10);
@@ -88,20 +117,12 @@ function CollaboratorPicker({ value = [], people, onChange, anchor }) {
   );
 }
 
-function VisibilityChip({ shared }) {
-  return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 9px', borderRadius: 999, fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap', color: shared ? NX.green : NX.dim, background: shared ? 'rgba(22,163,74,0.15)' : NX.surface2 }}>
-      {shared ? <Globe size={11} /> : <Lock size={11} />} {shared ? 'Shared (public)' : 'Only me'}
-    </span>
-  );
-}
-
 function TaskRow({ t, people, projects, store, onOpen }) {
+  const activeProjects = (projects || []).filter((p) => !p.archived);
   // A subtask's project is its parent's; the project cell then names the parent
   // (click-through) rather than offering a select that would re-home the subtask.
   const parent = t.parentTaskId ? rootParent(t, store.taskById) : null;
   const projectId = parent ? effectiveProjectId(t, store.taskById) : t.projectId;
-  const shared = (t.followerIds?.length > 0) || !!projectId;
   // Due date reads as a tinted pill (kit grammar), not bare colored text -
   // red tint overdue, amber tint today, quiet gray otherwise.
   const today = new Date().toISOString().slice(0, 10);
@@ -134,15 +155,17 @@ function TaskRow({ t, people, projects, store, onOpen }) {
       <select value={t.projectId || ''} onClick={(e) => e.stopPropagation()} onChange={(e) => store.updateTask(t.id, { projectId: e.target.value || null })}
         style={{ border: '1px solid transparent', borderRadius: 6, padding: '2px 4px', fontSize: 13, color: NX.dim, background: 'transparent', fontFamily: FONT, width: 'fit-content', maxWidth: '100%', cursor: 'pointer' }}>
         <option value="">No project</option>
-        {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+        {/* Archived projects are left out of every task picker - filing new
+            work into an archive is the confusion archiving exists to avoid. */}
+        {activeProjects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
       </select>
       )}
-      <VisibilityChip shared={shared} />
     </div>
   );
 }
 
 function AddTaskRow({ people, projects, onAdd, defaults = {} }) {
+  const activeProjects = (projects || []).filter((p) => !p.archived);
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState('');
   const [dueOn, setDueOn] = useState(defaults.dueOn || '');
@@ -168,7 +191,6 @@ function AddTaskRow({ people, projects, onAdd, defaults = {} }) {
       </button>
     );
   }
-  const shared = followerIds.length > 0 || !!projectId;
   return (
     <div style={{ padding: '6px 16px 6px 32px' }}>
       <div style={{ display: 'grid', gridTemplateColumns: COLS, alignItems: 'center', gap: 8 }}>
@@ -178,9 +200,8 @@ function AddTaskRow({ people, projects, onAdd, defaults = {} }) {
         <CollaboratorPicker value={followerIds} people={people} onChange={setFollowerIds} anchor="Add" />
         <select value={projectId} onChange={(e) => setProjectId(e.target.value)} style={{ ...inputStyle, padding: '4px 6px', fontSize: 13, width: 'fit-content', maxWidth: '100%' }}>
           <option value="">No project</option>
-          {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          {activeProjects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>
-        <VisibilityChip shared={shared} />
       </div>
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginTop: 6 }}>
         <button onClick={reset} style={{ ...btn('ghost'), fontSize: 11, padding: '4px 8px' }}>Cancel</button>
@@ -197,6 +218,12 @@ export default function MyTasksView() {
   const [group, setGroup] = useState('date');
   const [filters, setFilters] = useState(EMPTY_FILTER);
   const [sort, setSort] = useState({ key: 'manual', dir: 'asc' });
+  // Person / Project / Collaborator sorts order by the NAME on screen, not the
+  // email or uuid underneath it - these are the resolvers that do that.
+  const sortCtx = useMemo(
+    () => ({ nameOf, projectName: store.projectName, teamName: store.teamName }),
+    [nameOf, store.projectName, store.teamName],
+  );
   const [openId, setOpenId] = useState(taskIdFromUrl);
   const [creating, setCreating] = useState(null); // full CreateTaskModal defaults (desktop / "Full details")
   const [quickCreate, setQuickCreate] = useState(null); // mobile Asana-style quick-add defaults
@@ -228,13 +255,15 @@ export default function MyTasksView() {
   // personScoped in lib.js for why the old top-level-only rule was wrong.
   const mine = useMemo(
     () => sortTasks(personScoped(tasks, filter).filter((t) => (wantsCompleted || !t.completed)
-                                        && matchesFilter(t, filter, store.taskById)), sort),
-    [tasks, filters, sort, myEmail, wantsCompleted, store.taskById],
+                                        && matchesFilter(t, filter, store.taskById)), sort, [], sortCtx),
+    [tasks, filters, sort, myEmail, wantsCompleted, store.taskById, sortCtx],
   );
   const allMine = useMemo(() => personScoped(tasks, filter).filter((t) => matchesFilter(t, filter, store.taskById)), [tasks, filters, myEmail, store.taskById]);
   const ctx = { nameOf, projectName: store.projectName, teamName: store.teamName, taskById: store.taskById };
+  // Board renders allMine (completed included); every other view renders `mine`.
+  const shownCount = view === 'board' ? allMine.length : mine.length;
   const groups = useMemo(() => groupTasks(mine, group, ctx), [mine, group, nameOf, store.projectName, store.teamName, store.taskById]);
-  const boardTasks = useMemo(() => sortTasks(allMine, sort), [allMine, sort]);
+  const boardTasks = useMemo(() => sortTasks(allMine, sort, [], sortCtx), [allMine, sort, sortCtx]);
 
   const addTask = ({ title, dueOn, followerIds, projectId, status, priority, teamId }) =>
     createTask({ title, assigneeId: myEmail, status: status || 'not_started', priority: priority || 'medium', type: 'task', dueOn: dueOn || '', followerIds, projectId: projectId || '', teamId: teamId || '' }).catch(() => {});
@@ -249,7 +278,15 @@ export default function MyTasksView() {
             the title never opened a menu, so a decorative dropdown affordance
             is a lie (owner flag, Jul 28) */}
         <div style={{ fontSize: isMobile ? 19 : 22, fontWeight: 700 }}>My Tasks</div>
-        {!isMobile && <button style={{ ...btn('primary'), marginLeft: 'auto' }} onClick={() => openCreate({ assigneeId: myEmail })}><Plus size={15} /> New Task</button>}
+        {/* How many tasks are actually on screen - so it tracks the filters and
+            the completed-hidden default rather than reporting a total the view
+            never shows. Board sorts the same rows through its own list, hence
+            the two sources. */}
+        <span title={`${shownCount} ${shownCount === 1 ? 'task' : 'tasks'} in this view`}
+          style={{ marginLeft: 'auto', fontSize: 12.5, fontWeight: 600, color: NX.dim, background: NX.surface2, border: `1px solid ${NX.border2}`, borderRadius: 999, padding: '3px 10px', whiteSpace: 'nowrap' }}>
+          {shownCount} {shownCount === 1 ? 'Task' : 'Tasks'}
+        </span>
+        {!isMobile && <button style={{ ...btn('primary') }} onClick={() => openCreate({ assigneeId: myEmail })}><Plus size={15} /> New Task</button>}
       </div>
 
       {/* Desktop: view tabs + toolbar. Mobile: replaced by the floating MobileTaskBar. */}
@@ -281,13 +318,15 @@ export default function MyTasksView() {
       <div className="nx-scroll nx-gutter" style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: view === 'list' ? 16 : 0, paddingBottom: isMobile ? 88 : 76 }}>
         {view === 'list' ? (
           <div className={isMobile ? 'nx-edge-card' : undefined} style={{ border: `1px solid ${NX.border}`, borderRadius: 12, overflow: 'hidden', background: NX.surface }}>
-            {/* Fixed-width columns (Due date/Collaborators/Projects/Visibility) don't
-                shrink below their content size - scroll horizontally on narrow
+            {/* Fixed-width columns (Due date/Collaborators/Projects) don't shrink
+                below their content size - scroll horizontally on narrow
                 viewports instead of getting clipped by the card's rounded corners. */}
             <div style={{ overflowX: 'auto' }}>
-              <div style={{ minWidth: 700 }}>
+              <div style={{ minWidth: 560 }}>
                 <div style={{ display: 'grid', gridTemplateColumns: COLS, gap: 8, padding: '6px 16px', borderBottom: `1px solid ${NX.border}`, background: NX.surface2, fontSize: 12.5, fontWeight: 600, color: NX.dim }}>
-                  <div>Name</div><div>Due Date</div><div>Collaborators</div><div>Projects</div><div>Task Visibility</div>
+                  {LIST_COLS.map((c) => (
+                    <SortHead key={c.key} colKey={c.key} label={c.label} sort={sort} setSort={setSort} />
+                  ))}
                 </div>
                 {groups.map((g) => {
                   const gc = g.color || colorForKey(g.key);

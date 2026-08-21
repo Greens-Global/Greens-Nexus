@@ -354,8 +354,14 @@ async function reqBlob(path, options = {}, attempt = 1, tokenRefreshed = false) 
     throw err;
   }
   const disposition = res.headers.get('content-disposition') || '';
-  const match = disposition.match(/filename="?([^";]+)"?/);
-  return { blob: await res.blob(), filename: match?.[1] || 'download' };
+  // filename* (RFC 5987) wins when present - it is the one that survives
+  // non-ASCII names; plain filename= is the ASCII fallback beside it.
+  const ext = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+  const plain = disposition.match(/filename="?([^";]+)"?/);
+  let filename = 'download';
+  if (ext) { try { filename = decodeURIComponent(ext[1]); } catch { filename = ext[1]; } }
+  else if (plain) filename = plain[1];
+  return { blob: await res.blob(), filename };
 }
 
 export const api = {
@@ -378,6 +384,22 @@ export const api = {
   updateTask: (id, data) => req(`/tasks/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
   deleteTask: (id) => req(`/tasks/${id}`, { method: "DELETE" }),
   bulkUpdateTasks: (ids, patch) => req("/tasks/bulk", { method: "POST", body: JSON.stringify({ ids, patch }) }),
+  // Tasks as .xlsx. reqBlob, not a plain link: the endpoint is bearer-
+  // authenticated. Blank filter values are dropped so the server sees "no
+  // constraint" rather than an empty-string match.
+  exportTasksExcel: (filters = {}) => {
+    const qs = new URLSearchParams();
+    Object.entries(filters).forEach(([k, v]) => {
+      if (v !== '' && v !== null && v !== undefined) qs.set(k, v);
+    });
+    // The server names the file after the export date and runs UTC, which is
+    // already the previous day for an evening export in India - so send the
+    // browser's own date rather than letting the file be stamped yesterday.
+    const d = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    qs.set('today', `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`);
+    return reqBlob(`/tasks/export/excel?${qs}`);
+  },
   // Task comments / attachments / activity
   getTaskComments: (id) => req(`/tasks/${id}/comments`),
   addTaskComment: (id, data) => req(`/tasks/${id}/comments`, { method: "POST", body: JSON.stringify(data) }),
@@ -410,6 +432,9 @@ export const api = {
   // imported again from scratch.
   deleteTaskProject: (id, deleteInAsana = false) =>
     req(`/task-projects/${id}${deleteInAsana ? "?delete_in_asana=true" : ""}`, { method: "DELETE" }),
+  // Department names only, readable by anyone in the task module (the People
+  // module's own listing needs HR access) - see list_project_departments.
+  getProjectDepartments: () => req("/task-projects/meta/departments"),
   getTaskProjectAsanaLink: (id) => req(`/task-projects/${id}/asana-link`),
   // Fills team_id on tasks whose project has exactly one team. Dry run by default.
   backfillTaskTeams: (apply) => req(`/task-projects/backfill-teams?apply=${apply ? 'true' : 'false'}`, { method: 'POST', timeoutMs: 120000 }),

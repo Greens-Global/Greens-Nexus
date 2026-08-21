@@ -87,8 +87,9 @@ function SelectedChips({ items, onRemove }) {
 }
 
 // ── Category bodies - shared by the desktop popovers and the mobile drill-in sheet ──
-function FiltersBody({ filters, setFilters, people, projects, lockedProjectId, hideAssignee, statusOrder = STATUS_ORDER, statusMeta = STATUS_META, customFields = [] }) {
+function FiltersBody({ filters, setFilters, people, projects, teams = [], lockedProjectId, hideAssignee, statusOrder = STATUS_ORDER, statusMeta = STATUS_META, customFields = [] }) {
   const activeFilterCount = (hideAssignee ? 0 : filters.assigneeIds.length) + (filters.collaboratorIds || []).length + filters.statuses.length + filters.priorities.length + (lockedProjectId ? 0 : filters.projectIds.length)
+    + (filters.teamIds || []).length
     + Object.values(filters.customFields || {}).reduce((n, v) => n + (v?.length || 0), 0);
   // Only select fields are filterable - a bounded option list is what makes a
   // checkbox list possible at all. Text and number fields would need operators.
@@ -184,6 +185,28 @@ function FiltersBody({ filters, setFilters, people, projects, lockedProjectId, h
           </div>
         </div>
       )}
+      {/* Team. matchesFilter has always honored filters.teamIds - there was
+          simply no control that set it, so the Team column could be read but
+          never filtered on. */}
+      {teams.length > 0 && (
+        <div>
+          <div style={groupHead}>Team</div>
+          <SelectedChips
+            items={(filters.teamIds || []).map((id) => ({ id, label: teams.find((t) => t.id === id)?.name || id }))}
+            onRemove={(id) => setFilters({ ...filters, teamIds: toggle(filters.teamIds || [], id) })}
+          />
+          <div style={{ maxHeight: 108, overflowY: 'auto', border: `1px solid ${NX.border2}`, borderRadius: 8 }}>
+            {teams.map((t) => (
+              <label key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 9px', fontSize: 13, cursor: 'pointer' }}>
+                <input type="checkbox" checked={(filters.teamIds || []).includes(t.id)}
+                  onChange={() => setFilters({ ...filters, teamIds: toggle(filters.teamIds || [], t.id) })} />
+                <span style={{ width: 9, height: 9, borderRadius: '50%', background: t.color || NX.purple, flexShrink: 0 }} />
+                {t.name}
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
       <p style={{ margin: 0, fontSize: 11, color: NX.faint }}>Applies to this tab. Switching to Board, Calendar or any other tab clears these filters.</p>
       {filterFields.map((f) => (
         <div key={f.id}>
@@ -207,7 +230,7 @@ function FiltersBody({ filters, setFilters, people, projects, lockedProjectId, h
       ))}
 
       {activeFilterCount > 0 && (
-        <button onClick={() => setFilters({ ...filters, assigneeIds: [], collaboratorIds: [], statuses: [], priorities: [], projectIds: [], customFields: {} })} style={{ ...btn('outline'), justifyContent: 'center' }}>Clear Filters</button>
+        <button onClick={() => setFilters({ ...filters, assigneeIds: [], collaboratorIds: [], statuses: [], priorities: [], projectIds: [], teamIds: [], customFields: {} })} style={{ ...btn('outline'), justifyContent: 'center' }}>Clear Filters</button>
       )}
     </div>
   );
@@ -282,12 +305,12 @@ function GroupBody({ group, setGroup, groupOptions, close }) {
 
 export function ProductivityBar({ filters, setFilters, sort, setSort, lockedProjectId, hideAssignee, current, onApplyView, onOpenTask, group, setGroup, groupOptions, customFields = [], sortFieldOptions = [], sheet = false }) {
   const store = useTasks();
-  const { savedViews, createSavedView, deleteSavedView, templates, intakeForms, projects, projectName, createTask, myEmail } = store;
+  const { savedViews, createSavedView, deleteSavedView, templates, intakeForms, projects, projectName, createTask, myEmail, teams } = store;
   const people = usePeople();
   const isMobile = useIsMobile();
 
   const activeFilterCount = (hideAssignee ? 0 : filters.assigneeIds.length) + (filters.collaboratorIds || []).length + filters.statuses.length + filters.priorities.length
-    + (lockedProjectId ? 0 : filters.projectIds.length);
+    + (lockedProjectId ? 0 : filters.projectIds.length) + (filters.teamIds || []).length;
   const dateActive = (filters.due && filters.due !== 'any') || filters.dueFrom || filters.dueTo;
 
   const [templatesOpen, setTemplatesOpen] = useState(false);
@@ -297,7 +320,7 @@ export function ProductivityBar({ filters, setFilters, sort, setSort, lockedProj
     <div style={{ display: 'flex', flexDirection: sheet ? 'column' : 'row', alignItems: sheet ? 'stretch' : 'center', gap: sheet ? 6 : (isMobile ? 6 : 8), flexWrap: (sheet || !isMobile) ? 'wrap' : 'nowrap', fontFamily: FONT }}>
       {/* Filters */}
       <Popover sheet={sheet} label={activeFilterCount ? `Filters · ${activeFilterCount}` : 'Filters'} icon={SlidersHorizontal} active={activeFilterCount > 0} width={260}>
-        {() => <FiltersBody filters={filters} setFilters={setFilters} people={people} projects={projects} lockedProjectId={lockedProjectId} hideAssignee={hideAssignee} statusOrder={store.statusOrderFor ? store.statusOrderFor(lockedProjectId) : store.statusOrder} statusMeta={store.statusMeta} customFields={customFields} />}
+        {() => <FiltersBody teams={teams} filters={filters} setFilters={setFilters} people={people} projects={projects} lockedProjectId={lockedProjectId} hideAssignee={hideAssignee} statusOrder={store.statusOrderFor ? store.statusOrderFor(lockedProjectId) : store.statusOrder} statusMeta={store.statusMeta} customFields={customFields} />}
       </Popover>
 
       {/* Date - separate from Filters, matching the export's dedicated Date button */}
@@ -342,11 +365,12 @@ export function ProductivityBar({ filters, setFilters, sort, setSort, lockedProj
 // bottom of this sheet rather than being unreachable on a phone.
 export function MobileFilters({ filters, setFilters, sort, setSort, group, setGroup, groupOptions, current, onApplyView, search, setSearch, lockedProjectId, hideAssignee, columnControls, customFields = [], sortFieldOptions = [], onClose }) {
   const store = useTasks();
-  const { savedViews, createSavedView, deleteSavedView, projects } = store;
+  const { savedViews, createSavedView, deleteSavedView, projects, teams } = store;
   const people = usePeople();
   const [cat, setCat] = useState(null);
 
   const activeFilterCount = (hideAssignee ? 0 : filters.assigneeIds.length) + (filters.collaboratorIds || []).length + filters.statuses.length + filters.priorities.length + (lockedProjectId ? 0 : filters.projectIds.length)
+    + (filters.teamIds || []).length
     + Object.values(filters.customFields || {}).reduce((n, v) => n + (v?.length || 0), 0);
   const dateActive = (filters.due && filters.due !== 'any') || filters.dueFrom || filters.dueTo;
   const hasGroup = groupOptions && setGroup;
@@ -391,7 +415,7 @@ export function MobileFilters({ filters, setFilters, sort, setSort, group, setGr
   const catLabel = { filters: 'Filters', date: 'Date', sort: 'Sort', group: 'Group', saved: 'Saved Views' }[cat];
   return (
     <BottomSheet title={catLabel} onClose={onClose} onBack={() => setCat(null)}>
-      {cat === 'filters' && <FiltersBody filters={filters} setFilters={setFilters} people={people} projects={projects} lockedProjectId={lockedProjectId} hideAssignee={hideAssignee} statusOrder={store.statusOrderFor ? store.statusOrderFor(lockedProjectId) : store.statusOrder} statusMeta={store.statusMeta} customFields={customFields} />}
+      {cat === 'filters' && <FiltersBody teams={teams} filters={filters} setFilters={setFilters} people={people} projects={projects} lockedProjectId={lockedProjectId} hideAssignee={hideAssignee} statusOrder={store.statusOrderFor ? store.statusOrderFor(lockedProjectId) : store.statusOrder} statusMeta={store.statusMeta} customFields={customFields} />}
       {cat === 'date' && <DateBody filters={filters} setFilters={setFilters} />}
       {cat === 'sort' && <SortBody sort={sort} setSort={setSort} close={() => {}} sortFieldOptions={sortFieldOptions} />}
       {cat === 'group' && <GroupBody group={group} setGroup={setGroup} groupOptions={groupOptions} close={() => {}} />}
