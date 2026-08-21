@@ -23,6 +23,16 @@ const LEVEL_ORDER = ['viewer', 'editor', 'full', 'owner'];
 const GRANTABLE = MODULES.filter(m => !['admin', 'roles-access', 'hr_comp'].includes(m.id));
 const TIERS = Object.keys(ROLES);
 
+// Starter bundle for a brand-new Employee-tier job role - prefills the editor
+// so an admin isn't building the everyday baseline from a blank grid. Only
+// seeds a NEW role's empty bundle (see RoleEditor); never overwrites an
+// existing role's modules just because its tier is Employee.
+const EMPLOYEE_DEFAULT_BUNDLE = {
+  dashboard: 'editor', timeclock: 'editor', myhr: 'editor', tasks: 'editor', tickets: 'editor',
+  documents: 'editor', 'external-links': 'viewer', inventory: 'viewer', support: 'viewer',
+  credvault: 'viewer', sop: 'viewer',
+};
+
 // Audit-tab module families - collapse 21 columns into 6 readable ones.
 const FAMILIES = [
   { id: 'everyday', label: 'Everyday',      modules: ['dashboard', 'timeclock', 'myhr', 'tasks', 'tickets'] },
@@ -1194,7 +1204,15 @@ function RoleEditor({ role, jobRoles = [], onClose, onSaved, onErr }) {
   const [tier, setTier] = useState(role?.tier || 'employee');
   const [dept, setDept] = useState(role?.department || '');
   const [desc, setDesc] = useState(role?.description || '');
-  const [bundle, setBundle] = useState(() => Object.fromEntries((role?.allowed_modules || []).map(g => [g.id, g.level])));
+  const [bundle, setBundle] = useState(() => {
+    const initial = Object.fromEntries((role?.allowed_modules || []).map(g => [g.id, g.level]));
+    // New role, still on the default Employee tier, nothing picked yet - seed
+    // the everyday baseline instead of opening on a blank grid.
+    if (!role?.id && !Object.keys(initial).length && (role?.tier || 'employee') === 'employee') {
+      return { ...EMPLOYEE_DEFAULT_BUNDLE };
+    }
+    return initial;
+  });
   const [monExempt, setMonExempt] = useState(!!role?.monitoring_exempt);
   const [busy, setBusy] = useState(false);
   const deptOptions = [...new Set((jobRoles || []).map(r => r.department).filter(Boolean))].sort();
@@ -1220,7 +1238,16 @@ function RoleEditor({ role, jobRoles = [], onClose, onSaved, onErr }) {
         <label style={fieldLabel}>Name
           <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Site Supervisor" style={input} /></label>
         <label style={fieldLabel}>Seniority tier
-          <select value={tier} onChange={e => setTier(e.target.value)} style={input}>
+          <select value={tier} onChange={e => {
+            const next = e.target.value;
+            setTier(next);
+            // Switching a still-blank NEW role to Employee - seed the everyday
+            // baseline rather than leaving the bundle empty. Never touches an
+            // existing role or a bundle the admin has already started building.
+            if (!role?.id && next === 'employee' && !Object.keys(bundle).length) {
+              setBundle({ ...EMPLOYEE_DEFAULT_BUNDLE });
+            }
+          }} style={input}>
             {TIERS.map(t => <option key={t} value={t}>{ROLES[t].label}</option>)}
           </select>
           <span style={{ fontSize: 11.5, color: 'var(--muted)', fontWeight: 400 }}>{ROLES[tier]?.description}</span>
