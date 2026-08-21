@@ -157,7 +157,39 @@ def _red_rows(db: Session, email: str) -> list:
                 "detail": f"{r.start_date} - {r.end_date}",
                 "url": f"{app_url()}/timeclock",
             })
+    rows.extend(_timecard_rows(db, email))
     return rows
+
+
+def _timecard_rows(db: Session, email: str) -> list:
+    """Pay-period reminders (Neil, 8/21: 'we want to make sure you get paid on
+    time. You need to do this.'). Reuses the SAME period math + sign-off state
+    the Time module's own timecard header uses - no fresh TimePunch/TimeApproval
+    query, just the existing _pay_type/_pay_period/_month_bounds/_signoff_state
+    (routers/timeclock.py). Auto-drafting an actual contractor invoice (Neil's
+    India idea) is a separate feature with no existing hook to build on - out
+    of scope here; this is the reminder half only."""
+    from routers.timeclock import _pay_type, _pay_period, _month_bounds, _signoff_state, _employee_today
+    today = _employee_today(db, email)
+    start, end = (_month_bounds(today) if _pay_type(db, email) == "fixed" else _pay_period(today))
+    end_d = datetime.strptime(end, "%Y-%m-%d").date()
+    today_d = datetime.strptime(today, "%Y-%m-%d").date()
+    days_to_close = (end_d - today_d).days
+
+    state = _signoff_state(db, email, start, end)
+    signed = state["signed"]
+    needs_action = signed is None or signed["stale"]
+    if not needs_action:
+        return []
+    if 0 <= days_to_close <= 2:
+        return [{"title": "Confirm your time card",
+                 "detail": f"Pay period closes {end} - review and sign off before it locks",
+                 "url": f"{app_url()}/timeclock"}]
+    if days_to_close == -1:
+        return [{"title": "Submit your time card",
+                 "detail": f"Pay period ending {end} is closed - sign off is still open",
+                 "url": f"{app_url()}/timeclock"}]
+    return []
 
 
 def _amber_rows(db: Session, email: str, since_iso: str) -> list:
