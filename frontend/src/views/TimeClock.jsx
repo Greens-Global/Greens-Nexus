@@ -169,6 +169,14 @@ const gapBreakFromSegments = (segs) => {
   return total;
 };
 const TIMEOFF_TYPES = { vacation: 'Vacation', sick: 'Sick', personal: 'Personal', unpaid: 'Unpaid', other: 'Other' };
+// 'HH:MM' (24h, from the partial-day time-off fields) -> '2:30 PM'
+const hm12 = (v) => {
+  if (!v) return '';
+  const [h, m] = v.split(':').map(Number);
+  return `${h % 12 || 12}:${String(m || 0).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`;
+};
+// A partial-day request's window, for list rows: ' · 9:00 AM - 11:00 AM'
+const toWindow = (r) => r?.startTime && r?.endTime ? ` · ${hm12(r.startTime)} - ${hm12(r.endTime)}` : '';
 const TO_STATUS = { pending: '#b45309', approved: 'hsl(var(--color-green))', rejected: '#b91c1c', cancelled: 'var(--muted)' };
 const TO_TINT = { pending: 'rgba(180,83,9,0.1)', approved: 'hsla(var(--color-green),0.1)', rejected: 'rgba(185,28,28,0.08)', cancelled: 'var(--mist)' };
 
@@ -305,18 +313,26 @@ export default function TimeClock() {
   }, [load]);
 
   const [timeoff, setTimeoff] = useState(null);
-  const [toForm, setToForm] = useState({ type: 'vacation', start: '', end: '', note: '' });
+  const [toForm, setToForm] = useState({ type: 'vacation', start: '', end: '', startTime: '', endTime: '', note: '' });
   const [toBusy, setToBusy] = useState(false);
   useEffect(() => { api.timeOffMine().then(setTimeoff).catch(() => setTimeoff([])); }, []);
+  // Partial-day requests (a couple of hours for an appointment) only make sense
+  // on a single day - the time inputs appear once start and end match.
+  const toPartialOk = toForm.start && toForm.end && toForm.start === toForm.end;
 
   async function submitTimeoff() {
     if (toBusy) return;
     if (!toForm.start || !toForm.end) { toast(false, 'Pick the start and end dates.'); return; }
+    const st = toPartialOk ? toForm.startTime : '';
+    const et = toPartialOk ? toForm.endTime : '';
+    if ((st && !et) || (!st && et)) { toast(false, 'Set both times for a partial day, or clear both for a full day.'); return; }
+    if (st && et && et <= st) { toast(false, 'The end time has to be after the start time.'); return; }
     setToBusy(true);
     try {
-      await api.timeOffCreate({ type: toForm.type, start_date: toForm.start, end_date: toForm.end, note: toForm.note });
+      await api.timeOffCreate({ type: toForm.type, start_date: toForm.start, end_date: toForm.end,
+        start_time: st, end_time: et, note: toForm.note });
       toast(true, 'Time-off request sent - your manager gets a notification.');
-      setToForm({ type: 'vacation', start: '', end: '', note: '' });
+      setToForm({ type: 'vacation', start: '', end: '', startTime: '', endTime: '', note: '' });
       api.timeOffMine().then(setTimeoff).catch(() => {});
     } catch (e) { toast(false, e?.message || 'Could not send the request.'); }
     setToBusy(false);
@@ -483,11 +499,15 @@ export default function TimeClock() {
           Desktop renders them centered in the top header; phones keep the
           in-page strip (ModuleTabs handles both). */}
       <ModuleTabs
-        tabs={[
-          { key: 'clock',     label: 'Clock' },
-          { key: 'timesheet', label: 'Time Sheet' },
-          { key: 'timeoff',   label: 'Time Off' },
-        ]}
+        tabs={status?.timeTrackingExempt
+          /* Salaried/exempt (Charmi, Aug 21): no punch card, no timesheet -
+             time off is the only surface that applies. */
+          ? [{ key: 'clock', label: 'Clock' }, { key: 'timeoff', label: 'Time Off' }]
+          : [
+            { key: 'clock',     label: 'Clock' },
+            { key: 'timesheet', label: 'Time Sheet' },
+            { key: 'timeoff',   label: 'Time Off' },
+          ]}
         active={tab} onChange={setTab} />
 
       {msg && (
@@ -498,8 +518,25 @@ export default function TimeClock() {
         </div>
       )}
 
+      {/* Salaried/exempt people see no punch UI or hours at all (Charmi, Aug 21:
+          "if you're salaried, there should be an option that this turns off"). */}
+      {tab === 'clock' && status?.timeTrackingExempt && (
+        <div style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, padding: '26px 28px', boxShadow: 'var(--wk-shadow)', display: 'flex', alignItems: 'center', gap: 16, marginBottom: 18 }}>
+          <span style={{ width: 42, height: 42, borderRadius: 12, background: 'var(--wk-brand-tint)', color: 'var(--wk-brand)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <Clock size={20} />
+          </span>
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 3 }}>Time Tracking Is Off for You</div>
+            <div style={{ fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5 }}>
+              You're on a salaried, time-tracking-exempt setup, so Nexus doesn't record punches or hours for you.
+              Time-off requests still work from the Time Off tab.
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Punch card + today panel, side by side on wide screens */}
-      {tab === 'clock' && (<>
+      {tab === 'clock' && !status?.timeTrackingExempt && (<>
       {showLongBanner && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 14, padding: '12px 16px', borderRadius: 12, background: 'rgba(180,83,9,0.09)', border: '1.5px solid rgba(180,83,9,0.4)' }}>
           <AlertTriangle size={17} style={{ color: '#b45309', flexShrink: 0 }} />
@@ -733,7 +770,7 @@ export default function TimeClock() {
               <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 0', borderBottom: '1px solid var(--line)', fontSize: 12.5 }}>
                 <CalendarDays size={13} style={{ color: 'var(--wk-brand)', flexShrink: 0 }} />
                 <span style={{ fontWeight: 700, textTransform: 'capitalize' }}>{r.type}</span>
-                <span style={{ color: 'var(--muted)', flex: 1 }}>{r.startDate} → {r.endDate}</span>
+                <span style={{ color: 'var(--muted)', flex: 1 }}>{r.startDate} → {r.endDate}{toWindow(r)}</span>
                 <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'capitalize', padding: '2px 9px', borderRadius: 999,
                   background: r.status === 'approved' ? 'hsla(var(--color-green),0.1)' : 'rgba(180,83,9,0.1)',
                   color: r.status === 'approved' ? 'hsl(var(--color-green))' : '#b45309' }}>{r.status}</span>
@@ -745,7 +782,7 @@ export default function TimeClock() {
       </>)}
 
       {/* Timesheet - day list + week summary side panel */}
-      {tab === 'timesheet' && (<>
+      {tab === 'timesheet' && !status?.timeTrackingExempt && (<>
       {/* One employee time view - the SAME payroll timecard HR sees, scoped to me.
           Editing an In/Out time or adding a missing punch here creates an
           approver-confirmed request; nothing moves on my pay until it's approved.
@@ -812,6 +849,25 @@ export default function TimeClock() {
             {toBusy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Plus size={13} />} Request
           </button>
         </div>
+        {/* Partial day: an hour or two off inside one day (doctor's appointment) -
+            leave the times empty for a full day. Only offered on a one-day range. */}
+        {toPartialOk && (
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginTop: 10 }}>
+            <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>Only part of the day?</span>
+            <input className="form-input" type="time" value={toForm.startTime}
+              onChange={e => setToForm(f => ({ ...f, startTime: e.target.value }))} style={{ fontSize: 12.5, width: 120 }} />
+            <span style={{ fontSize: 12, color: 'var(--muted)' }}>to</span>
+            <input className="form-input" type="time" value={toForm.endTime}
+              onChange={e => setToForm(f => ({ ...f, endTime: e.target.value }))} style={{ fontSize: 12.5, width: 120 }} />
+            <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>leave empty for the full day</span>
+            {(toForm.startTime || toForm.endTime) && (
+              <button onClick={() => setToForm(f => ({ ...f, startTime: '', endTime: '' }))}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11.5, fontWeight: 700, color: 'var(--wk-brand)', padding: 0 }}>
+                Clear
+              </button>
+            )}
+          </div>
+        )}
       </div>
       <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'flex-start' }}>
       <div style={{ flex: '1.7 1 440px', background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, overflow: 'hidden', marginBottom: 24, boxShadow: 'var(--wk-shadow)' }}>
@@ -823,7 +879,7 @@ export default function TimeClock() {
         {(timeoff || []).map(r => (
           <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 16px', borderBottom: '1px solid var(--line)', flexWrap: 'wrap' }}>
             <span style={{ fontSize: 12.5, fontWeight: 800, width: 90 }}>{TIMEOFF_TYPES[r.type] || r.type}</span>
-            <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>{r.startDate} → {r.endDate}</span>
+            <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>{r.startDate} → {r.endDate}{toWindow(r)}</span>
             {r.note && <span style={{ fontSize: 11.5, color: 'var(--muted)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>“{r.note}”</span>}
             <div style={{ flex: 1 }} />
             {r.decideNote && <span style={{ fontSize: 11, color: 'var(--muted)' }} title={r.decideNote}>💬</span>}
@@ -843,6 +899,12 @@ export default function TimeClock() {
         {(() => {
           const yr = String(new Date().getFullYear());
           const dayCount = (r) => {
+            // A partial day counts as its fraction of an 8-hour day.
+            if (r.startTime && r.endTime) {
+              const [sh, sm] = r.startTime.split(':').map(Number);
+              const [eh, em] = r.endTime.split(':').map(Number);
+              return Math.max(0, ((eh * 60 + em) - (sh * 60 + sm)) / 480);
+            }
             const a = new Date(r.startDate), b = new Date(r.endDate);
             return isNaN(a) || isNaN(b) ? 0 : Math.round((b - a) / 86400000) + 1;
           };
@@ -853,13 +915,13 @@ export default function TimeClock() {
           const pending = (timeoff || []).filter(r => r.status === 'pending').length;
           return (
             <>
-              <div style={{ fontSize: 26, fontWeight: 700, color: 'var(--wk-brand)', fontVariantNumeric: 'tabular-nums' }}>{totalDays}<span style={{ fontSize: 13, color: 'var(--muted)', fontWeight: 600 }}> day{totalDays !== 1 ? 's' : ''} approved</span></div>
+              <div style={{ fontSize: 26, fontWeight: 700, color: 'var(--wk-brand)', fontVariantNumeric: 'tabular-nums' }}>{Math.round(totalDays * 100) / 100}<span style={{ fontSize: 13, color: 'var(--muted)', fontWeight: 600 }}> day{totalDays !== 1 ? 's' : ''} approved</span></div>
               <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
                 {Object.keys(byType).length === 0 && <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No approved leave this year yet.</div>}
                 {Object.entries(byType).map(([t, n]) => (
                   <div key={t} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5 }}>
                     <span style={{ textTransform: 'capitalize', color: 'var(--muted)', fontWeight: 600 }}>{TIMEOFF_TYPES[t] || t}</span>
-                    <span style={{ fontWeight: 800 }}>{n}d</span>
+                    <span style={{ fontWeight: 800 }}>{Math.round(n * 100) / 100}d</span>
                   </div>
                 ))}
               </div>

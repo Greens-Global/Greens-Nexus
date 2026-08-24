@@ -369,9 +369,11 @@ export default function MyHR() {
         <SkeletonBlocks count={3} height={110} />
       ) : (
         <>
-          {/* ── Stat tiles ── */}
+          {/* ── Stat tiles ── (hours hidden for salaried/exempt people - Charmi, Aug 21) */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 14, marginBottom: 16 }}>
-            <Stat hero label={`Hours · ${(HOUR_RANGES.find(([v]) => v === range)?.[1] || '').toLowerCase()}`} value={sheet ? hm(workedTotal) : '…'} hint={`${daysWorked} day${daysWorked === 1 ? '' : 's'} worked`} color="blue" Icon={Clock} />
+            {!sheet?.timeTrackingExempt && (
+              <Stat hero label={`Hours · ${(HOUR_RANGES.find(([v]) => v === range)?.[1] || '').toLowerCase()}`} value={sheet ? hm(workedTotal) : '…'} hint={`${daysWorked} day${daysWorked === 1 ? '' : 's'} worked`} color="blue" Icon={Clock} />
+            )}
             <Stat label="Leave this year" value={`${leaveDaysThisYear}d`} hint="Approved time off" color="green" Icon={CalendarOff} />
             <Stat label="My documents" value={docs.length} hint="Signed & sealed" color="purple" Icon={FileText} />
             <Stat label="Time with us" value={tenure} hint={profile.startDate ? `Since ${fmtD(profile.startDate)}` : ''} color="orange" Icon={Hourglass} />
@@ -492,6 +494,7 @@ export default function MyHR() {
             {/* ── Main grid: hours spans both columns, then paired rows whose
                 cards stretch to equal heights (aligned edges by construction) ── */}
             <div className="myhr-main">
+              {!sheet?.timeTrackingExempt && (
               <div className="dash-card myhr-span2">
                 {cardHead('My hours', 'Full detail lives in Time Clock',
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
@@ -530,6 +533,7 @@ export default function MyHR() {
                   </>
                 )}
               </div>
+              )}
 
               <div className="dash-card">
                 {cardHead('My documents', 'Signed and sealed copies of everything you were part of',

@@ -59,6 +59,11 @@ const ordinal = (n) => {
 const fmtWorked = (min) => `${Math.floor(min / 60)}hrs:${String(min % 60).padStart(2, '0')}mins`;
 const todayLocalKey = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
 
+// Phones skip the BOD/EOD message far more than desktop users do, so on a
+// mobile viewport the "Skip" escape hatch (and the ack-to-skip checkbox that
+// only exists to gate it) is hidden entirely - the message must be sent.
+const isMobileViewport = () => typeof window !== 'undefined' && window.matchMedia('(max-width: 640px)').matches;
+
 export default function BodModal({ mode = 'bod', required = false, onSent, onSkip, onClose, toastOk, toastErr }) {
   const M = MODES[mode] || MODES.bod;
   const { accounts } = useMsal();
@@ -89,6 +94,14 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
   const [loading, setLoading] = useState(true);
   const [ack, setAck] = useState(false);
   const [workedMin, setWorkedMin] = useState(0);      // EOD only - total worked today, for the Line 3 tally
+  const [isMobile, setIsMobile] = useState(isMobileViewport);
+
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 640px)');
+    const onChange = () => setIsMobile(mq.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
 
   // Persist the draft on every keystroke so a recovery reload can't lose it.
   useEffect(() => {
@@ -314,14 +327,14 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
         </div>
 
         <div style={{ padding: '12px 22px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, alignItems: 'center' }}>
-          {required && M.ackLabel && !M.noSkip && (
+          {required && M.ackLabel && !M.noSkip && !isMobile && (
             <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, color: 'var(--muted)', cursor: 'pointer', flex: 1 }}>
               <input type="checkbox" checked={ack} onChange={e => setAck(e.target.checked)} />
               {M.ackLabel}
             </label>
           )}
-          <div style={{ flex: required && M.ackLabel && !M.noSkip ? 'none' : 1 }} />
-          {!M.noSkip && (
+          <div style={{ flex: required && M.ackLabel && !M.noSkip && !isMobile ? 'none' : 1 }} />
+          {!M.noSkip && !isMobile && (
             <button className="secondary-btn" onClick={skip} disabled={required && !ack}
               title={required && !ack ? 'Tick the box if you already sent it' : ''}>Skip</button>
           )}
