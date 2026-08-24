@@ -6,7 +6,8 @@ import {
   ChevronLeft, Network, CalendarOff, UserPlus, Pencil, FileText,
   CheckCircle, XCircle, ChevronRight, History, CalendarDays, Camera,
   Building2, Trash2, MapPinned, Wallet, Landmark, Lock, Contact, Heart,
-  ShieldCheck, Shield, AlertTriangle, Clock, ArrowUpRight, RotateCcw, Globe,
+  ShieldCheck, Shield, AlertTriangle, Clock, ArrowUpRight, RotateCcw,
+  ChevronDown,
 } from 'lucide-react';
 import { api } from '../api';
 import { formatDate } from '../lib/datetime';
@@ -21,7 +22,9 @@ import TimeAdmin from '../components/TimeAdmin';
 import ModuleTabs from '../components/ModuleTabs';
 import PhotoEditorModal from '../components/PhotoEditorModal';
 import RolesAccess, { LevelPill, ModuleLevelPill, TierBadge } from './RolesAccess';
-import ExternalUsersPanel from './ExternalUsersPanel';
+// External tab folded into People (Neil, Aug 24: one master list) - only the
+// shared pieces remain in use: badge, invite modal, lifecycle section.
+import { ExternalBadge, InviteExternalModal, inviteOutcomeToast, ExternalPersonSection } from './ExternalUsersPanel';
 import { capabilityText } from '../lib/moduleCapabilities';
 import PersonHover from '../components/PersonHoverCard';
 import EgnytePersonFolder from '../egnyte/EgnytePersonFolder';
@@ -86,7 +89,7 @@ function useIsMobile(bp = 900) {
 }
 
 // ── Add / Edit modal ──────────────────────────────────────────────────────────
-function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false, canSeeComp = false, onClose, onSaved, toastOk, toastErr }) {
+function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false, canSeeComp = false, initialType = 'full_time', onClose, onSaved, toastOk, toastErr }) {
   const editing = !!employee;
   const [jobRoles, setJobRoles] = useState([]);
   const [jobRoleId, setJobRoleId] = useState('');
@@ -101,7 +104,7 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
     designation:     e?.designation || '',
     employee_code:   e?.employeeCode || '',
     department:      e?.department || '',
-    employment_type: e?.employmentType || 'full_time',
+    employment_type: e?.employmentType || initialType,
     start_date:      e?.startDate || '',
     manager_email:   e?.managerEmail || '',
     status:          e?.status || 'active',
@@ -266,7 +269,7 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
           <div style={{ width: 34, height: 34, borderRadius: 10, background: 'hsla(var(--color-green),0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <UserPlus size={17} color="hsl(var(--color-green))" />
           </div>
-          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>{editing ? `Edit ${fullName(employee)}` : 'Add Employee'}</h3>
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>{editing ? `Edit ${fullName(employee)}` : initialType === 'contractor' ? 'Add Independent Contractor' : 'Add Employee'}</h3>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
         <div style={{ overflowY: 'auto', flex: 1, padding: '18px 24px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
@@ -1255,7 +1258,27 @@ function EmployeeAccess({ email, identityType = 'internal', toastOk, toastErr, o
   );
 }
 
-function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, isAdmin = false, onEdit, onBack, isMobile, toastOk, toastErr, onEmployeeUpdated, onRemoved, onRestored }) {
+// The external-lifecycle box on an external/guest person's People profile
+// (invite state, Resend Invite, Deactivate/Reactivate, Remove). Reads the same
+// admin endpoint the old External tab used, so behavior and copy stay one
+// implementation (ExternalPersonSection).
+function ExternalLifecycle({ e, toastOk, toastErr, onChanged, onRemoved }) {
+  const [ext, setExt] = useState(null);
+  const load = useCallback(() => {
+    api.getExternalUsers().then(rows => {
+      const em = (e.workEmail || '').toLowerCase();
+      setExt((rows || []).find(r => (r.email || '').toLowerCase() === em) || null);
+    }).catch(() => setExt(null));
+  }, [e.workEmail]);
+  useEffect(() => { load(); }, [load]);
+  if (!ext) return null;
+  return (
+    <ExternalPersonSection ext={ext} toastOk={toastOk} toastErr={toastErr}
+      onChanged={() => { load(); onChanged?.(); }} onRemoved={() => onRemoved?.()} />
+  );
+}
+
+function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, isAdmin = false, onEdit, onBack, isMobile, toastOk, toastErr, onEmployeeUpdated, onRemoved, onRestored, onExternalChanged }) {
   // Removed from Nexus (soft delete) - the record is intact and restorable.
   const isRemoved = !!e.deletedAt;
   const [provisionOpen, setProvisionOpen] = useState(false);
@@ -1431,6 +1454,14 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
           ? <StatCard label={expiry.label} value={expiry.days < 0 ? 'Expired' : `${expiry.days}d`} sub={formatDate(expiry.date)} tone={expiry.days < 0 ? 'red' : expiry.days <= 60 ? 'orange' : undefined} />
           : <StatCard label="Compliance" value="Clear" sub="no upcoming expiry" />}
       </div>
+
+      {/* External/guest lifecycle - lives on the profile now that the People
+          directory is the master list (Neil, Aug 24). Admin-only, matching the
+          endpoint behind it. */}
+      {isAdmin && !isRemoved && ['guest', 'external'].includes(e.identityType || 'internal') && (
+        <ExternalLifecycle e={e} toastOk={toastOk} toastErr={toastErr}
+          onChanged={onExternalChanged} onRemoved={() => onRemoved?.(e.id)} />
+      )}
 
       {/* Tab strip */}
       <div className="scroll-tabs" style={{ display: 'flex', gap: 4, marginTop: 18, borderBottom: '1px solid var(--line)' }}>
@@ -4180,7 +4211,9 @@ export default function HR({ activeSub, onSubChange }) {
   // Legacy subviews (hr-ms / hr-asana / …) all collapse into People for now.
   // E-Sign moved to its own top-level Documents module (Jul 2026); legacy
   // 'hr-esign*' deep-links are redirected there by the effect below.
-  const sub = ['hr-people', 'hr-hiring', 'hr-org', 'hr-leave', 'hr-time', 'hr-external', 'hr-access'].includes(activeSub) ? activeSub : 'hr-people';
+  // hr-external intentionally absent (Neil, Aug 24: External tab folded into
+  // People) - old deep links fall through to hr-people, where externals live now.
+  const sub = ['hr-people', 'hr-hiring', 'hr-org', 'hr-leave', 'hr-time', 'hr-access'].includes(activeSub) ? activeSub : 'hr-people';
   const isMobile = useIsMobile();
 
   // Old notifications/URLs still point at hr/hr-esign* - bounce them to Documents
@@ -4193,12 +4226,18 @@ export default function HR({ activeSub, onSubChange }) {
   }, [activeSub]);
 
   const [employees, setEmployees] = useState([]);
+  // Guest/external people (Aug 24: managed from People, not a separate tab).
+  // Kept OUT of `employees` on purpose - counts, org chart, manager pickers and
+  // every internal-only list keep reading `employees` unchanged; the directory
+  // is the one surface that merges both.
+  const [extEmployees, setExtEmployees] = useState([]);
   const [loading,   setLoading]   = useState(true);
   const [error,     setError]     = useState('');
   const [search,    setSearch]    = useState('');
   const [deptF,     setDeptF]     = useState('All');
   const [companyF,  setCompanyF]  = useState('All');
   const [statusF,   setStatusF]   = useState('All');
+  const [typeF,     setTypeF]     = useState('All');   // All | employee | contractor | external
   // DELETED_F is a view, not a status: a removed person keeps whatever status
   // they had, so it cannot live in STATUS_META alongside active/onboarding.
   const [deletedEmployees, setDeletedEmployees] = useState([]);
@@ -4206,6 +4245,11 @@ export default function HR({ activeSub, onSubChange }) {
   const [selectedId, setSelectedId] = useState(null);
   const [formOpen,  setFormOpen]  = useState(false);
   const [editing,   setEditing]   = useState(null);
+  // One Add control (Neil, Aug 24): Add Employee / Add Independent Contractor /
+  // Add External - everything lands in the master People list.
+  const [addMenuOpen, setAddMenuOpen] = useState(false);
+  const [addPreset,   setAddPreset]   = useState('full_time');   // employment type the Add form opens with
+  const [inviteOpen,  setInviteOpen]  = useState(false);
   const [entities,  setEntities]  = useState([]);
   const [entitiesOpen, setEntitiesOpen] = useState(false);
   const [sites,     setSites]     = useState([]);
@@ -4228,7 +4272,7 @@ export default function HR({ activeSub, onSubChange }) {
     const openFor = email => {
       const em = (email || '').trim().toLowerCase();
       if (!em) return;
-      const match = employees.find(x => (x.workEmail || '').toLowerCase() === em);
+      const match = [...employees, ...extEmployees].find(x => (x.workEmail || '').toLowerCase() === em);
       if (match) setSelectedId(match.id);
       else toastErr(`${em} is not in People.`);
     };
@@ -4236,7 +4280,7 @@ export default function HR({ activeSub, onSubChange }) {
     const h = e => openFor(e.detail?.email);
     window.addEventListener('nexus:person', h);
     return () => window.removeEventListener('nexus:person', h);
-  }, [employees]);   // eslint-disable-line react-hooks/exhaustive-deps
+  }, [employees, extEmployees]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   const [syncBusy, setSyncBusy] = useState(false);
   const [syncLabel, setSyncLabel] = useState('');
@@ -4286,11 +4330,12 @@ export default function HR({ activeSub, onSubChange }) {
   function load() {
     api.getEmployees()
       .then(rows => {
-        // External users (guest login accounts, Aug 18) live in the External
-        // tab, NOT the directory: excluding them here keeps the Total/Active/
-        // New joiners cards, the By department chart, org chart, and every
-        // list built on `employees` internal-only.
+        // Split internal vs guest/external. `employees` stays internal-only so
+        // the Total/Active/New joiners cards, By department chart, org chart
+        // and every picker built on it are unchanged; externals join the
+        // DIRECTORY via extEmployees (Neil, Aug 24: one master People list).
         setEmployees(rows.filter(e => !['guest', 'external'].includes(e.identityType || 'internal')));
+        setExtEmployees(rows.filter(e => ['guest', 'external'].includes(e.identityType || 'internal')));
         setError('');
       })
       .catch(err => setError(err?.message || 'Could not load employees.'))
@@ -4312,13 +4357,6 @@ export default function HR({ activeSub, onSubChange }) {
   const loadSites = () => api.getWorkSites().then(setSites).catch(() => setSites([]));
   useEffect(load, []);
   useEffect(() => { loadEntities(); loadSites(); }, []);
-  // External tab badge = active externals (admin-only endpoint; non-admins
-  // never see the tab). The panel refreshes this count via onChanged.
-  const [extCount, setExtCount] = useState(0);
-  const countExternals = useCallback(rows => setExtCount((rows || []).filter(x => x.status === 'active').length), []);
-  useEffect(() => {
-    if (isAdmin) api.getExternalUsers().then(countExternals).catch(() => {});
-  }, [isAdmin, countExternals]);
   const entityName = id => entities.find(en => en.id === id)?.name || '';
 
   // Department filter choices are the departments actually in use, scoped to the
@@ -4329,30 +4367,40 @@ export default function HR({ activeSub, onSubChange }) {
   }, [employees, companyF]);
 
   const showingDeleted = statusF === DELETED_F;
-  const filtered = useMemo(() => (showingDeleted ? deletedEmployees : employees).filter(e => {
-    if (companyF !== 'All' && e.company !== companyF) return false;
-    if (deptF !== 'All' && e.department !== deptF) return false;
-    // Skipped while showing removed people - they keep their old status, so
-    // matching on it here would filter the list down to nothing.
-    if (!showingDeleted && statusF !== 'All' && e.status !== statusF) return false;
-    if (search.trim()) {
-      const q = search.trim().toLowerCase();
-      return [fullName(e), e.workEmail, e.employeeCode, e.jobTitle, e.department].some(v => (v || '').toLowerCase().includes(q));
-    }
-    return true;
-  }), [employees, deletedEmployees, showingDeleted, companyF, deptF, statusF, search]);
+  const isExtRow = e => ['guest', 'external'].includes(e.identityType || 'internal');
+  const filtered = useMemo(() => {
+    // The directory is the MASTER list: internal people + guest/external
+    // accounts together (Neil, Aug 24), narrowed by the worker-type filter.
+    const source = showingDeleted ? deletedEmployees
+      : [...employees, ...extEmployees].sort((a, b) => fullName(a).localeCompare(fullName(b)));
+    return source.filter(e => {
+      if (typeF === 'employee' && (isExtRow(e) || e.employmentType === 'contractor')) return false;
+      if (typeF === 'contractor' && (isExtRow(e) || e.employmentType !== 'contractor')) return false;
+      if (typeF === 'external' && !isExtRow(e)) return false;
+      if (companyF !== 'All' && e.company !== companyF) return false;
+      if (deptF !== 'All' && e.department !== deptF) return false;
+      // Skipped while showing removed people - they keep their old status, so
+      // matching on it here would filter the list down to nothing.
+      if (!showingDeleted && statusF !== 'All' && e.status !== statusF) return false;
+      if (search.trim()) {
+        const q = search.trim().toLowerCase();
+        return [fullName(e), e.workEmail, e.employeeCode, e.jobTitle, e.department, e.externalCompany].some(v => (v || '').toLowerCase().includes(q));
+      }
+      return true;
+    });
+  }, [employees, extEmployees, deletedEmployees, showingDeleted, typeF, companyF, deptF, statusF, search]);
 
   // Pagination over the FILTERED list, so search/filters always reach the whole
   // directory - a match "on page 10" simply becomes page 1 of the results.
   const PAGE_SIZE = 12;
   const [page, setPage] = useState(1);
-  useEffect(() => { setPage(1); }, [search, companyF, deptF, statusF]);
+  useEffect(() => { setPage(1); }, [search, companyF, deptF, statusF, typeF]);
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const curPage = Math.min(page, totalPages);
   const paged = useMemo(() => filtered.slice((curPage - 1) * PAGE_SIZE, curPage * PAGE_SIZE),
     [filtered, curPage]);
 
-  const selected = (showingDeleted ? deletedEmployees : employees)
+  const selected = (showingDeleted ? deletedEmployees : [...employees, ...extEmployees])
     .find(e => e.id === selectedId) || null;
   const counts = useMemo(() => ({
     total: employees.length,
@@ -4363,6 +4411,7 @@ export default function HR({ activeSub, onSubChange }) {
 
   const onRemovedFromNexus = (id) => {   // Nexus-only removal: drop from the live list and close the profile
     setEmployees(prev => prev.filter(e => e.id !== id));
+    setExtEmployees(prev => prev.filter(e => e.id !== id));
     setDeletedEmployees([]);             // stale now; refetched when Deleted is opened
     setSelectedId(null);
   };
@@ -4374,12 +4423,18 @@ export default function HR({ activeSub, onSubChange }) {
     setSelectedId(null);
   };
   const onSaved = saved => {
-    const isNew = !employees.some(e => e.id === saved.id);   // add modal shows its own toast
-    setEmployees(prev => {
+    const isNew = !employees.some(e => e.id === saved.id) && !extEmployees.some(e => e.id === saved.id);   // add modal shows its own toast
+    // Route the row to the list its identity belongs in - an edit can flip a
+    // person between internal and guest/external.
+    const ext = ['guest', 'external'].includes(saved.identityType || 'internal');
+    const upsert = prev => {
       const i = prev.findIndex(e => e.id === saved.id);
       if (i === -1) return [...prev, saved].sort((a, b) => fullName(a).localeCompare(fullName(b)));
       const next = [...prev]; next[i] = saved; return next;
-    });
+    };
+    const drop = prev => prev.filter(e => e.id !== saved.id);
+    setEmployees(ext ? drop : upsert);
+    setExtEmployees(ext ? upsert : drop);
     setSelectedId(saved.id);
     // Profile edits auto-mirror to the linked Entra account (backend, best-effort)
     // - tell the user whether M365 actually took the change.
@@ -4397,10 +4452,9 @@ export default function HR({ activeSub, onSubChange }) {
     { key: 'hr-org',    label: 'Org Chart', Icon: Network },
     { key: 'hr-leave',  label: 'Leave',     Icon: CalendarOff },
     { key: 'hr-time',   label: 'Time',      Icon: Clock },
-    // External partner users (Visesh, Aug 18) - the tab is their primary home;
-    // they are deliberately absent from the directory/counts above. Admin-only,
-    // like the endpoint behind it.
-    ...(isAdmin ? [{ key: 'hr-external', label: 'External', Icon: Globe, badge: extCount }] : []),
+    // The External tab is gone (Neil, Aug 24): external/guest people live in
+    // the People directory with a worker-type filter, and their lifecycle
+    // actions sit on their profile card.
     ...(isAdmin ? [{ key: 'hr-access', label: 'Roles & Access', Icon: Shield }] : []),
   ];
 
@@ -4436,10 +4490,34 @@ export default function HR({ activeSub, onSubChange }) {
               onClick={() => setSitesOpen(true)}>
               <MapPinned size={14} /> Work sites
             </button>
-            <button className="primary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}
-              onClick={() => { setEditing(null); setFormOpen(true); }}>
-              <Plus size={15} /> Add employee
-            </button>
+            {/* One Add control (Neil, Aug 24): employee, independent contractor
+                or external partner - all into the same master list. */}
+            <div style={{ position: 'relative' }}>
+              <button className="primary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}
+                onClick={() => setAddMenuOpen(o => !o)} aria-expanded={addMenuOpen}>
+                <Plus size={15} /> Add Person <ChevronDown size={14} />
+              </button>
+              {addMenuOpen && (
+                <>
+                  <div style={{ position: 'fixed', inset: 0, zIndex: 1190 }} onClick={() => setAddMenuOpen(false)} />
+                  <div style={{ position: 'absolute', right: 0, top: 'calc(100% + 6px)', zIndex: 1200, minWidth: 240, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, boxShadow: 'var(--shadow-lg)', padding: 6 }}>
+                    {[
+                      ['Add Employee', 'On payroll - full profile, provisioning, time tracking', () => { setEditing(null); setAddPreset('full_time'); setFormOpen(true); }],
+                      ['Add Independent Contractor', 'Engagement scope, SOW and rate on the same record', () => { setEditing(null); setAddPreset('contractor'); setFormOpen(true); }],
+                      ...(isAdmin ? [['Add External', 'Partner-company person - invited by email, code sign-in', () => setInviteOpen(true)]] : []),
+                    ].map(([lbl, hint, fn]) => (
+                      <button key={lbl} onClick={() => { setAddMenuOpen(false); fn(); }}
+                        style={{ display: 'block', width: '100%', textAlign: 'left', padding: '9px 12px', borderRadius: 8, border: 'none', background: 'none', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}
+                        onMouseEnter={e => { e.currentTarget.style.background = 'var(--mist)'; }}
+                        onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>
+                        <span style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{lbl}</span>
+                        <span style={{ display: 'block', fontSize: 11.5, color: 'var(--muted)', marginTop: 1 }}>{hint}</span>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         )}
       </div>
@@ -4464,9 +4542,6 @@ export default function HR({ activeSub, onSubChange }) {
       {sub === 'hr-org' && <OrgChartTab employees={employees} entities={entities} onUpdated={onSaved} toastOk={toastOk} toastErr={toastErr} />}
       {sub === 'hr-leave' && <LeaveTab employees={employees} toastOk={toastOk} toastErr={toastErr} />}
       {sub === 'hr-time' && <TimeAdmin employees={employees} toastOk={toastOk} toastErr={toastErr} />}
-      {sub === 'hr-external' && isAdmin && (
-        <ExternalUsersPanel toastOk={toastOk} toastErr={toastErr} onChanged={countExternals} />
-      )}
       {sub === 'hr-access' && isAdmin && <RolesAccess embedded />}
 
       {sub === 'hr-people' && (<>
@@ -4494,6 +4569,7 @@ export default function HR({ activeSub, onSubChange }) {
           <EmployeeDetail key={selected.id} e={selected} employees={employees} isMobile={isMobile}
             companyName={entityName(selected.company)} canSeeComp={canSeeComp} isAdmin={isAdmin}
             toastOk={toastOk} toastErr={toastErr} onEmployeeUpdated={onSaved} onRemoved={onRemovedFromNexus} onRestored={onRestoredToNexus}
+            onExternalChanged={load}
             onEdit={emp => { setEditing(emp); setFormOpen(true); }}
             onBack={() => setSelectedId(null)} />
           </>
@@ -4512,6 +4588,14 @@ export default function HR({ activeSub, onSubChange }) {
                   <input placeholder="Search people…" value={search} onChange={e => setSearch(e.target.value)} />
                   {search && <button onClick={() => setSearch('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 2 }}><X size={13} /></button>}
                 </div>
+                {/* Worker-type filter (Neil, Aug 24): the directory is the master
+                    list, this narrows it to a category. */}
+                <select className="form-input" value={typeF} onChange={e => { setTypeF(e.target.value); setSelectedId(null); }} style={{ width: 140, padding: '7px 10px', fontSize: 13.5, height: 38 }}>
+                  <option value="All">All people</option>
+                  <option value="employee">Employees</option>
+                  <option value="contractor">Contractors</option>
+                  <option value="external">External &amp; guests</option>
+                </select>
                 <select className="form-input" value={companyF} onChange={e => { setCompanyF(e.target.value); setDeptF('All'); }} style={{ width: 150, padding: '7px 10px', fontSize: 13.5, height: 38 }}>
                   <option value="All">All companies</option>
                   {entities.map(en => <option key={en.id} value={en.id}>{en.name}</option>)}
@@ -4547,7 +4631,7 @@ export default function HR({ activeSub, onSubChange }) {
                 <div style={{ fontSize: 14, fontWeight: 600 }}>Nobody has been removed.</div>
                 <div style={{ fontSize: 12.5, marginTop: 4 }}>People removed from Nexus land here, and can be restored with their full record.</div>
               </div>
-            ) : !showingDeleted && employees.length === 0 ? (
+            ) : !showingDeleted && employees.length + extEmployees.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '56px 20px', color: 'var(--muted)' }}>
                 <Users size={32} style={{ opacity: .25, display: 'block', margin: '0 auto 10px' }} />
                 <div style={{ fontSize: 14, fontWeight: 600 }}>No employees yet.</div>
@@ -4576,7 +4660,9 @@ export default function HR({ activeSub, onSubChange }) {
                           <div style={{ display: 'flex', alignItems: 'center', gap: 11, minWidth: 0 }}>
                             <Avatar e={e} card={false} />
                             <div style={{ minWidth: 0 }}>
-                              <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fullName(e)}</div>
+                              <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                {fullName(e)}{isExtRow(e) && <ExternalBadge />}
+                              </div>
                               <div className="ppl-cell-sub" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                 {e.workEmail || e.employeeCode}
                               </div>
@@ -4619,8 +4705,10 @@ export default function HR({ activeSub, onSubChange }) {
                           style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left', padding: '9px 14px', border: 'none', borderBottom: '1px solid var(--line)', cursor: 'pointer', background: active ? 'var(--wk-brand-tint)' : 'none', fontFamily: 'inherit' }}>
                           <Avatar e={e} />
                           <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontWeight: 600, fontSize: 13.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fullName(e)}</div>
-                            <div className="ppl-cell-sub" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.jobTitle || e.workEmail || '-'}</div>
+                            <div style={{ fontWeight: 600, fontSize: 13.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 6 }}>
+                              {fullName(e)}{isExtRow(e) && <ExternalBadge />}
+                            </div>
+                            <div className="ppl-cell-sub" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.jobTitle || e.externalCompany || e.workEmail || '-'}</div>
                           </div>
                           <span title={sm.label} style={{ width: 8, height: 8, borderRadius: '50%', background: sm.fg, flexShrink: 0 }} />
                           <ChevronRight size={13} style={{ color: 'var(--wk-faint)', flexShrink: 0 }} />
@@ -4643,6 +4731,7 @@ export default function HR({ activeSub, onSubChange }) {
                     <EmployeeDetail key={selected.id} e={selected} employees={employees} isMobile={isMobile}
                       companyName={entityName(selected.company)} canSeeComp={canSeeComp} isAdmin={isAdmin}
                       toastOk={toastOk} toastErr={toastErr} onEmployeeUpdated={onSaved} onRemoved={onRemovedFromNexus} onRestored={onRestoredToNexus}
+                      onExternalChanged={load}
                       onEdit={emp => { setEditing(emp); setFormOpen(true); }}
                       onBack={() => setSelectedId(null)} />
                   ) : (
@@ -4661,8 +4750,18 @@ export default function HR({ activeSub, onSubChange }) {
 
       {formOpen && (
         <EmployeeFormModal employee={editing} employees={employees} entities={entities} isAdmin={isAdmin} canSeeComp={canSeeComp}
-          onClose={() => { setFormOpen(false); setEditing(null); }}
+          initialType={addPreset}
+          onClose={() => { setFormOpen(false); setEditing(null); setAddPreset('full_time'); }}
           onSaved={onSaved} toastOk={toastOk} toastErr={toastErr} />
+      )}
+      {inviteOpen && (
+        <InviteExternalModal initial={null}
+          onClose={() => setInviteOpen(false)}
+          onSaved={(result) => {
+            setInviteOpen(false);
+            inviteOutcomeToast(result, toastOk, toastErr);
+            load();   // the new external lands in the directory (master list)
+          }} />
       )}
       {entitiesOpen && (
         <EntitiesModal entities={entities} employees={employees} onClose={() => setEntitiesOpen(false)}
