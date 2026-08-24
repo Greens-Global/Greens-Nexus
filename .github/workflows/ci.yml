@@ -77,6 +77,26 @@ jobs:
       - name: Render-smoke tests (Vitest) - catches runtime render crashes
         run: npm test
       - name: Build (postbuild enforces scripts/check-bundle-size.mjs)
+        # The VITE_* values matter to the SIZE, not just to the behavior, so
+        # this gate has to build with them or it measures a bundle nobody ships.
+        # lib/supabase.js reads `url && key ? createClient(...) : null`; with the
+        # vars absent, Vite folds those to '' at build time, the ternary becomes
+        # statically false and the whole @supabase/supabase-js dependency tree is
+        # shaken out. That made this check read ~200 KB light (8423 vs 8625 on
+        # the same commit), so it passed a PR that then failed the real build on
+        # BOTH the Cloudflare Pages deploy and archive-assets - leaving dev
+        # serving the previous frontend against an already-updated backend
+        # (Aug 25, 2026).
+        #
+        # Same dev values archive-assets.yml pins, and for the same reason: they
+        # must match the Pages project byte-for-byte or the measurement drifts
+        # again. None are secret - all four ship in the bundle to every browser
+        # (the anon key is public by design; RLS is the boundary).
+        env:
+          VITE_API_BASE: https://greens-nexus-api-dev-a6fad4brawevg8de.westus2-01.azurewebsites.net
+          VITE_REDIRECT_URI: https://dev.nexus.greensglobal.com
+          VITE_SUPABASE_URL: https://xemoocdvqzhfbwjxcjdx.supabase.co
+          VITE_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhlbW9vY2R2cXpoZmJ3anhjamR4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAzMDkxNDEsImV4cCI6MjA5NTg4NTE0MX0.DjSAmTAobHsm-e_xcr99YkNWB-mYAOPC2-UQm1XMxoE
         run: npm run build
       - name: Dependency vulnerability scan
         run: npm audit --omit=dev --audit-level=high || echo "::warning::npm audit found issues - review before release"
