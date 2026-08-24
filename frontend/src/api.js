@@ -1035,6 +1035,9 @@ export const api = {
   timeAdjustPunch:   (id, data)  => req(`/timeclock/punches/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   timeAddPunch:      (data)      => req('/timeclock/punches', { method: 'POST', body: JSON.stringify(data) }),
   timeExportCsv:     (start, end, mode) => reqBlob(`/timeclock/export.csv?start=${start || ''}&end=${end || ''}&mode=${mode || 'summary'}`),
+  // QuickBooks Desktop time import (IIF TIMEACT rows) - Charmi imports this
+  // instead of keying hours per employee by hand (Aug 21).
+  timeExportIif:     (start, end) => reqBlob(`/timeclock/export.iif?start=${start || ''}&end=${end || ''}`),
   timeShotUpload:    (form)      => req('/timeclock/screenshot', { method: 'POST', body: form }),
   timeShots:         (date, email) => req(`/timeclock/screenshots?date=${date || ''}&email=${encodeURIComponent(email || '')}`),
   // Disclosed monitoring: per-shift consent, admin policy, manager-scoped gallery
@@ -1156,6 +1159,9 @@ export const api = {
   timeAutoLunchSet:  (data)      => req('/timeclock/payroll/autolunch', { method: 'PUT', body: JSON.stringify(data) }),
   timeRoundingGet:   ()          => req('/timeclock/payroll/rounding'),
   timeRoundingSet:   (data)      => req('/timeclock/payroll/rounding', { method: 'PUT', body: JSON.stringify(data) }),
+  // Break policy: CA paid rest breaks + long/unended-break flags (Charmi, Aug 21)
+  timeBreakPolicyGet: ()         => req('/timeclock/payroll/breakpolicy'),
+  timeBreakPolicySet: (data)     => req('/timeclock/payroll/breakpolicy', { method: 'PUT', body: JSON.stringify(data) }),
   timeFinalize:      (data)      => req('/timeclock/finalize', { method: 'POST', body: JSON.stringify(data) }),
   timeUnfinalize:    (data)      => req('/timeclock/unfinalize', { method: 'POST', body: JSON.stringify(data) }),
   timeTeamExceptions:(start, end) => req(`/timeclock/team-exceptions?start=${start || ''}&end=${end || ''}`),

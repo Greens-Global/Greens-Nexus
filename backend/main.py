@@ -532,6 +532,11 @@ def _run_migrations():
             "ALTER TABLE tasks ADD COLUMN project_ids JSON DEFAULT '[]'",
             # Manual drag-order (Aug 2026): see models.Task.position.
             "ALTER TABLE tasks ADD COLUMN position FLOAT DEFAULT 0",
+            # Time Clock batch (Charmi call, Aug 21): partial-day time off +
+            # salaried time-tracking exemption.
+            "ALTER TABLE time_off_requests ADD COLUMN start_time VARCHAR DEFAULT ''",
+            "ALTER TABLE time_off_requests ADD COLUMN end_time VARCHAR DEFAULT ''",
+            "ALTER TABLE payroll_rates ADD COLUMN time_tracking_exempt INTEGER DEFAULT 0",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -1118,6 +1123,11 @@ def _run_migrations():
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS project_ids JSONB DEFAULT '[]'::jsonb",
         # Manual drag-order (Aug 2026): see models.Task.position.
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS position DOUBLE PRECISION DEFAULT 0",
+        # Time Clock batch (Charmi call, Aug 21): partial-day time off +
+        # salaried time-tracking exemption.
+        "ALTER TABLE time_off_requests ADD COLUMN IF NOT EXISTS start_time VARCHAR DEFAULT ''",
+        "ALTER TABLE time_off_requests ADD COLUMN IF NOT EXISTS end_time VARCHAR DEFAULT ''",
+        "ALTER TABLE payroll_rates ADD COLUMN IF NOT EXISTS time_tracking_exempt INTEGER DEFAULT 0",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

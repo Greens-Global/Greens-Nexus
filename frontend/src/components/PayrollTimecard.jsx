@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { ChevronLeft, ChevronRight, ChevronDown, ChevronUp, ArrowRight, Pencil, Plus, X, Loader2, CheckCircle, Download, AlertTriangle, MapPin, PlayCircle, Info } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronDown, ChevronUp, ArrowRight, Pencil, Plus, X, Loader2, CheckCircle, Download, AlertTriangle, MapPin, MapPinOff, PlayCircle, Info, Coffee } from 'lucide-react';
 import { api } from '../api';
 import { formatDate } from '../lib/datetime';
 import { TZ_OPTIONS, useDisplayTz, setDisplayTz, formatTimeTz, utcToInputTz, inputToUtcTz } from '../lib/displayTz';
@@ -79,10 +79,18 @@ function periodStartFor(date) {
 }
 
 // Location cell - the punch's work site + an at-site/off-site pin (SwipeClock "Loc").
+// A punch made with location sharing OFF is called out explicitly (the red
+// slashed pin Charmi showed from SwipeClock, Aug 21) - not folded into "-".
 function LocCell({ seg }) {
   if (!seg) return <span style={{ color: 'var(--muted)' }}>-</span>;
   const geo = seg.geo || '';
   const site = seg.workSite || '';
+  if (geo === 'no_location') return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color: '#b91c1c', fontWeight: 700 }}
+      title="No location was shared for this punch - turned off or not allowed in the browser.">
+      <MapPinOff size={12} style={{ flexShrink: 0 }} /> Location off
+    </span>
+  );
   if (!site && geo !== 'out_of_fence') return <span style={{ color: 'var(--muted)' }}>-</span>;
   const color = geo === 'in_fence' ? 'hsl(var(--color-green))'
     : geo === 'out_of_fence' ? '#b45309' : 'var(--muted)';
@@ -331,6 +339,11 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
     if (!segs.length) rows.push({ type: 'day', ds, seg: null });
     else {
       segs.forEach((seg, i) => rows.push({ type: 'day', ds, seg, first: i === 0, last: i === segs.length - 1 }));
+      // Break punch pairs under their day (Charmi, Aug 21: "are we getting
+      // details of breaks in the time card? No" - SwipeClock shows each break
+      // as its own out/in pair, so Nexus shows every Start/End Break window).
+      const brks = segs.flatMap(s => s.breaks || []);
+      if (brks.length) rows.push({ type: 'brk', ds, breaks: brks });
       // Same reasons/notes the fixed card shows: employee edit reasons + HR adjust
       // notes + punch notes, visible in the card (not only on the hover Info dot).
       // Internal markers like "payroll edit" are filtered out (segReasons).
@@ -466,6 +479,17 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
             Auto-lunch
           </label>
         )}
+        {isAdmin && data?.breakPolicy && (
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, color: 'var(--muted)', fontWeight: 700, cursor: 'pointer' }}
+            title={`California rest breaks: pay the first ${data.breakPolicy.paidBreakMin}m of each short break (up to ${data.breakPolicy.restMaxMin}m long), following the CA daily allowance from hours worked. Meal-length breaks stay unpaid. Applies to CA-rule employees only.`}>
+            <input type="checkbox" checked={!!data.breakPolicy.enabled}
+              onChange={async e => {
+                try { await api.timeBreakPolicySet({ ...data.breakPolicy, enabled: e.target.checked }); toastOk?.(`CA paid breaks ${e.target.checked ? 'on' : 'off'}.`); load(); }
+                catch (err) { toastErr?.(err?.message || 'Could not update the break policy.'); }
+              }} />
+            CA paid breaks
+          </label>
+        )}
         {!self && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <span style={{ fontSize: 11.5, color: 'var(--muted)', fontWeight: 700 }}>OT rule</span>
@@ -541,6 +565,29 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                 <tr key={i} style={{ background: 'var(--wk-brand-tint)' }}>
                   <td colSpan={16} style={{ ...td, textAlign: 'center', fontWeight: 700, color: 'var(--wk-brand)', fontSize: 12 }}>
                     Total hours clocked for week of {new Date(r.week + 'T00:00').toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' })} to {new Date(new Date(r.week + 'T00:00').getTime() + 6 * DAY).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' })}: {hhmm(weekTotals[r.week]?.min || 0)}
+                  </td>
+                </tr>
+              ) : r.type === 'brk' ? (
+                <tr key={i}>
+                  <td colSpan={16} style={{ ...td, textAlign: 'left', borderTop: 'none', paddingTop: 0, fontSize: 11.5, whiteSpace: 'normal' }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--muted)', fontWeight: 700, marginRight: 8 }}>
+                      <Coffee size={11} /> Breaks
+                    </span>
+                    {r.breaks.map((b, bi) => {
+                      const unended = b.implicit && b.min > (data?.breakPolicy?.longBreakMin || 75);
+                      return (
+                        <span key={bi} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: unended ? 'rgba(185,28,28,0.07)' : 'var(--wk-hover)', border: `1px solid ${unended ? 'rgba(185,28,28,0.4)' : 'var(--line)'}`, borderRadius: 999, padding: '2px 9px', margin: '2px 6px 2px 0', fontSize: 11.5 }}>
+                          {t12(b.start)} <ArrowRight size={10} style={{ opacity: 0.6 }} /> {t12(b.end)}
+                          <span style={{ fontWeight: 700, marginLeft: 2 }}>({hhmm(b.min)})</span>
+                          {b.paidMin > 0 && <span style={{ color: 'hsl(var(--color-green))', fontWeight: 700 }}>{b.paidMin}m paid</span>}
+                          {unended && (
+                            <span title="This break was never ended - the day's clock-out closed it, so all of this time counts as unpaid break. Fix the real break end via an edit." style={{ display: 'inline-flex', alignItems: 'center', gap: 3, color: '#b91c1c', fontWeight: 700 }}>
+                              <AlertTriangle size={10} /> never ended
+                            </span>
+                          )}
+                        </span>
+                      );
+                    })}
                   </td>
                 </tr>
               ) : r.type === 'note' ? (
@@ -688,9 +735,23 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                 <span>Auto-lunch deducted</span><span style={{ fontWeight: 700, color: '#b45309' }}>−{T.deductedMin}m</span>
               </div>
             )}
+            {T.breakMin > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', color: 'var(--muted)' }}>
+                <span>Break time</span><span style={{ fontWeight: 700 }}>{hhmm(T.breakMin)}</span>
+              </div>
+            )}
+            {T.paidBreakMin > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', color: 'var(--muted)' }}
+                title="CA rest-break credit - these break minutes stayed on the clock as paid time.">
+                <span>Paid breaks</span><span style={{ fontWeight: 700, color: 'hsl(var(--color-green))' }}>+{T.paidBreakMin}m</span>
+              </div>
+            )}
             {!self && (
             <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
               <button className="secondary-btn" onClick={async () => { const up = await ensureStepUp(); if (!up.ok) { if (!up.cancelled) toastErr?.('Identity check didn’t complete.'); return; } api.timeExportCsv(start, end, 'punches'); }} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> CSV</button>
+              <button className="secondary-btn" title="QuickBooks Desktop time import file (IIF) - import instead of keying hours by hand. Employee names and the Regular/Overtime/Double-time payroll items must match QuickBooks."
+                onClick={async () => { const up = await ensureStepUp(); if (!up.ok) { if (!up.cancelled) toastErr?.('Identity check didn’t complete.'); return; } api.timeExportIif(perStart, perEnd); }}
+                style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> QuickBooks IIF</button>
               <button className={mgrAp ? 'secondary-btn' : 'primary-btn'} data-tour="pr-approve" onClick={approve} disabled={busy || !!fin}
                 title={fin ? 'Period is finalized' : mgrAp ? `Approved by ${nameFor(mgrAp.by)} - click to re-approve after changes` : 'Step 1: manager sign-off'}
                 style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5, ...(mgrAp ? { color: 'hsl(var(--color-green))', borderColor: 'hsl(var(--color-green))' } : {}) }}>

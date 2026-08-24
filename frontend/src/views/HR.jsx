@@ -99,6 +99,7 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
     phone:           e?.phone || '',
     job_title:       e?.jobTitle || '',
     designation:     e?.designation || '',
+    employee_code:   e?.employeeCode || '',
     department:      e?.department || '',
     employment_type: e?.employmentType || 'full_time',
     start_date:      e?.startDate || '',
@@ -165,7 +166,7 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
 
   // Compensation (gated by the comp-access grant). Keyed by work email; loads the
   // current rate when editing, saved right after the profile on Save.
-  const [comp, setComp] = useState({ payType: 'hourly', currency: 'USD', hourlyRate: '', monthlySalary: '', weekendOtAmount: '1000', fullDayHours: '8' });
+  const [comp, setComp] = useState({ payType: 'hourly', currency: 'USD', hourlyRate: '', monthlySalary: '', weekendOtAmount: '1000', fullDayHours: '8', timeTrackingExempt: false });
   const [compDirty, setCompDirty] = useState(false);
   const setW = (k, v) => { setComp(prev => ({ ...prev, [k]: v })); setCompDirty(true); };
   useEffect(() => {
@@ -176,7 +177,8 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
                 hourlyRate: r.hourlyRate ? String(r.hourlyRate) : '',
                 monthlySalary: r.monthlySalary ? String(r.monthlySalary) : '',
                 weekendOtAmount: r.weekendOtAmount != null ? String(r.weekendOtAmount) : '1000',
-                fullDayHours: r.fullDayHours ? String(r.fullDayHours) : '8' });
+                fullDayHours: r.fullDayHours ? String(r.fullDayHours) : '8',
+                timeTrackingExempt: !!r.timeTrackingExempt });
     }).catch(() => {});
   }, [canSeeComp, editing, employee?.workEmail]);
   useEffect(() => {
@@ -221,6 +223,7 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
               monthly_salary: parseFloat(comp.monthlySalary) || 0,
               weekend_ot_amount: parseFloat(comp.weekendOtAmount) || 0,
               full_day_hours: parseFloat(comp.fullDayHours) || 8,
+              time_tracking_exempt: !!comp.timeTrackingExempt,
             });
           } catch (err) { wageWarn = `Profile saved, but the wage could not be saved: ${err?.message || 'error'} - set it on the Pay tab.`; }
         }
@@ -274,6 +277,9 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
           {input('PHONE', 'phone')}
           {input('JOB TITLE', 'job_title')}
           {input('DESIGNATION', 'designation')}
+          {/* Editable so Nexus codes can line up with the QuickBooks employee
+              codes payroll already uses (Charmi, Aug 21). Auto-assigned on add. */}
+          {editing && input('EMPLOYEE CODE', 'employee_code', { placeholder: 'e.g. GG-001 or the QuickBooks code' })}
           {/* Company FIRST, then Department - departments come from the chosen
               company, so asking for it first keeps the form in reading order.
               Changing company clears the department (it belongs to the old company). */}
@@ -398,6 +404,15 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
                   <select className="form-input" style={{ width: '100%' }} value={comp.currency} onChange={e => setW('currency', e.target.value)}>
                     <option value="USD">USD ($)</option><option value="INR">INR (₹)</option>
                   </select>
+                </div>
+                <div>
+                  <label style={FL}>TIME TRACKING</label>
+                  <select className="form-input" style={{ width: '100%' }} value={comp.timeTrackingExempt ? 'exempt' : 'tracked'}
+                    onChange={e => setW('timeTrackingExempt', e.target.value === 'exempt')}>
+                    <option value="tracked">Tracked (punches and hours)</option>
+                    <option value="exempt">Exempt (salaried - no time tracking)</option>
+                  </select>
+                  <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 4 }}>Exempt hides the punch card, timer and hours widgets for this person.</div>
                 </div>
                 {comp.payType === 'hourly' ? (
                   <div>
