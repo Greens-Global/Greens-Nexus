@@ -3,7 +3,7 @@
 // project. Ported from the export's ProjectsPage/ProjectOverview into the Nexus
 // inline-style idiom.
 import { Fragment, useEffect, useMemo, useState } from 'react';
-import { Plus, Search, FolderKanban, AlertTriangle, Pencil, Trash2, Archive, Globe, Lock, LayoutGrid, List } from 'lucide-react';
+import { Plus, Search, FolderKanban, AlertTriangle, Pencil, Trash2, Archive, Globe, Lock, LayoutGrid, List, Copy, LayoutTemplate, ArrowLeft } from 'lucide-react';
 import { api } from '../api';
 import { useTasks } from './TasksContext';
 import { taskStats, teamInProject, teamProjectIds, fieldsForProjectEntity, taskInProject, projectToForm} from './lib';
@@ -11,6 +11,9 @@ import { NX, FONT, btn, input as inputStyle, card, chip } from './theme';
 import { Avatar, EmptyState, Modal, usePeople, PersonSelect, useIsMobile, MobileFab } from './components';
 import TasksWorkspace from './TasksWorkspace';
 import { CustomFieldInput } from './TaskDetailDrawer';
+// The two reuse flows live with the Templates screen so all three entry points
+// (Templates tab, this grid, and a project's own header) open the same dialogs.
+import { SaveTemplateModal, DuplicateProjectModal, todayIso } from './TemplatesView';
 
 const EMPTY_FORM = {
   name: '', description: '', color: NX.blue, ownerId: null,
@@ -88,6 +91,8 @@ export default function ProjectsView({ onNavigate }) {
     setFieldFilters((f) => (optionId ? { ...f, [fieldId]: optionId } : Object.fromEntries(Object.entries(f).filter(([k]) => k !== fieldId))));
   const [editing, setEditing] = useState(null);    // form object | null
   const [deleting, setDeleting] = useState(null);  // { project, mapped, alsoAsana, busy, err } | null
+  const [duplicating, setDuplicating] = useState(null);  // project being copied | null
+  const [templating, setTemplating] = useState(null);    // project being saved as a template | null
   const [view, setView] = useState(() => {
     try { return localStorage.getItem(VIEW_KEY) === 'list' ? 'list' : 'grid'; } catch { return 'grid'; }
   });
@@ -232,6 +237,7 @@ export default function ProjectsView({ onNavigate }) {
         <ProjectList
           cards={cards} isMobile={isMobile} nameOf={nameOf} portfolioById={portfolioById}
           onOpen={setOpenId} onEdit={startEdit} onDelete={remove}
+          onDuplicate={setDuplicating} onSaveTemplate={setTemplating}
         />
       ) : (
         <div className="nx-gutter" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(280px, 100%), 1fr))', gap: 14, padding: '16px 16px 76px' }}>
@@ -260,6 +266,8 @@ export default function ProjectsView({ onNavigate }) {
                     }}><FolderKanban size={15} /></span>
                     <div title={p.name} style={{ flex: 1, minWidth: 0, fontSize: 14.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</div>
                     <div style={{ display: 'flex', gap: 2, flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
+                      <button title="Save as Template" onClick={() => setTemplating(p)} style={{ ...btn('ghost'), padding: 5, borderRadius: 7 }}><LayoutTemplate size={13} /></button>
+                      <button title="Duplicate Project" onClick={() => setDuplicating(p)} style={{ ...btn('ghost'), padding: 5, borderRadius: 7 }}><Copy size={13} /></button>
                       <button title="Edit Project" onClick={() => startEdit(p)} style={{ ...btn('ghost'), padding: 5, borderRadius: 7 }}><Pencil size={13} /></button>
                       <button title="Delete Project" onClick={() => remove(p)} style={{ ...btn('ghost'), padding: 5, color: NX.red, borderRadius: 7 }}><Trash2 size={13} /></button>
                     </div>
@@ -337,6 +345,19 @@ export default function ProjectsView({ onNavigate }) {
         />
       )}
 
+      {templating && (
+        <SaveTemplateModal projectId={templating.id} onClose={() => setTemplating(null)} />
+      )}
+
+      {/* A fresh copy is worth landing in, so the new project opens straight away. */}
+      {duplicating && (
+        <DuplicateProjectModal
+          project={duplicating}
+          onClose={() => setDuplicating(null)}
+          onCreated={(made) => setOpenId(made.id)}
+        />
+      )}
+
       {deleting && (
         <DeleteProjectModal
           state={deleting}
@@ -355,7 +376,8 @@ export default function ProjectsView({ onNavigate }) {
 /** Projects as rows. Same data the card carries and the same click target -
  *  only the shape differs, so nothing has to be learned twice. Sorting is
  *  inherited from `cards` (archived last, then by name), matching the grid. */
-export function ProjectList({ cards, isMobile, nameOf, portfolioById, onOpen, onEdit, onDelete }) {
+export function ProjectList({ cards, isMobile, nameOf, portfolioById, onOpen, onEdit, onDelete,
+                             onDuplicate, onSaveTemplate }) {
   const cols = isMobile ? LIST_COLS : LIST_COLS_WIDE;
   const cell = { minWidth: 0, display: 'flex', alignItems: 'center', gap: 8 };
   return (
@@ -462,6 +484,16 @@ export function ProjectList({ cards, isMobile, nameOf, portfolioById, onOpen, on
                 // full-width span pushes it onto a third row of its own.
                 ...(isMobile ? { gridRow: 1, gridColumn: 2 } : null) }}
                 onClick={(e) => e.stopPropagation()}>
+                {/* Template/Duplicate are desktop-only here: the mobile row already
+                    pins its actions beside the name in a two-column grid, and four
+                    icon buttons there crowd out the project name itself. Both are
+                    still reachable on mobile from the grid view's cards. */}
+                {!isMobile && onSaveTemplate && (
+                  <button title="Save as Template" onClick={() => onSaveTemplate(p)} style={{ ...btn('ghost'), padding: 5, borderRadius: 7 }}><LayoutTemplate size={13} /></button>
+                )}
+                {!isMobile && onDuplicate && (
+                  <button title="Duplicate Project" onClick={() => onDuplicate(p)} style={{ ...btn('ghost'), padding: 5, borderRadius: 7 }}><Copy size={13} /></button>
+                )}
                 <button title="Edit Project" onClick={() => onEdit(p)} style={{ ...btn('ghost'), padding: 5, borderRadius: 7 }}><Pencil size={13} /></button>
                 <button title="Delete Project" onClick={() => onDelete(p)} style={{ ...btn('ghost'), padding: 5, color: NX.red, borderRadius: 7 }}><Trash2 size={13} /></button>
               </div>
@@ -533,8 +565,17 @@ function DeleteProjectModal({ state, setState, onConfirm, onClose }) {
 // applying team assignments needs the project's id, which for a new project
 // only exists after createProject resolves. Callers just get an onSaved(project)
 // callback for their own post-save action (close, navigate, etc).
-export function ProjectModal({ form, setForm, people, portfolios, onClose, onSaved }) {
-  const { teams, tasks, customFields, createProject, updateProject, updateTeam } = useTasks();
+//
+// `template` switches it into build-from-a-template mode. This is deliberately
+// the SAME form rather than a second one: a template is a blueprint that
+// carries no owner, no members, no teams, no portfolio, no department and no
+// visibility (see the backend note in task_projects.py), so every one of those
+// has to be asked for - which is exactly the questions this modal already asks.
+// Template mode adds a start date (the anchor the saved day-offsets re-hang
+// from) and routes Save through createProjectFromTemplate.
+export function ProjectModal({ form, setForm, people, portfolios, onClose, onSaved, template = null }) {
+  const { teams, tasks, customFields, createProject, updateProject, updateTeam,
+    createProjectFromTemplate } = useTasks();
   const projectFields = useMemo(() => fieldsForProjectEntity(customFields), [customFields]);
   const [dirty, setDirty] = useState(false);
   const set = (patch) => { setForm((f) => ({ ...f, ...patch })); setDirty(true); };
@@ -580,7 +621,17 @@ export function ProjectModal({ form, setForm, people, portfolios, onClose, onSav
     try {
       const { id, ...rest } = form;
       const data = { ...rest, ...(override || {}) };
-      const project = id ? await updateProject(id, data) : await createProject(data);
+      // A blank due date must be OMITTED, not sent as "": the backend reads
+      // "not sent" as "use the template's own due offset" and "" as "this
+      // project has no due date". The form has no due-date field, so sending
+      // its empty default would throw away a due date the blueprint carries.
+      if (template && !data.dueOn) delete data.dueOn;
+      const project = template
+        // Team assignment still goes through the diff below rather than the
+        // endpoint's own team_ids, so create-blank and create-from-template
+        // apply teams by one mechanism instead of two.
+        ? await createProjectFromTemplate(template.id, data)
+        : id ? await updateProject(id, data) : await createProject(data);
       // A team can serve several projects, so this edits only THIS project's membership
       // in each team's list - a bare project_id would replace the team's whole set and
       // drop the other projects it works on.
@@ -594,15 +645,15 @@ export function ProjectModal({ form, setForm, people, portfolios, onClose, onSav
         ...toUnassign.map((tid) => updateTeam(tid, { project_ids: projectsOf(tid).filter((x) => x !== pid) }).catch(() => {})),
       ]);
       onSaved(project);
-    } catch {
+    } catch (e) {
       setSaving(false);
-      window.alert('Could not save the project.');
+      window.alert(e?.message || (template ? 'Could not create the project from this template.' : 'Could not save the project.'));
     }
   };
 
   return (
     <Modal
-      title={form.id ? 'Edit Project' : 'Create a Project'}
+      title={template ? `New Project from "${template.name}"` : form.id ? 'Edit Project' : 'Create a Project'}
       onClose={onClose}
       isDirty={dirty}
       onSave={valid ? save : undefined}
@@ -623,14 +674,57 @@ export function ProjectModal({ form, setForm, people, portfolios, onClose, onSav
             <Archive size={15} />{form.archived ? 'Unarchive' : 'Archive'}
           </button>
         )}
-        <button style={{ ...btn('primary'), opacity: valid && !saving ? 1 : 0.5, pointerEvents: valid && !saving ? 'auto' : 'none' }} onClick={() => save()}>{form.id ? 'Save Changes' : 'Create Project'}</button>
+        <button style={{ ...btn('primary'), opacity: valid && !saving ? 1 : 0.5, pointerEvents: valid && !saving ? 'auto' : 'none' }} onClick={() => save()}>{saving ? 'Creating…' : form.id ? 'Save Changes' : 'Create Project'}</button>
       </>}
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {template && (
+          <div style={{ display: 'flex', gap: 10, padding: '10px 12px', borderRadius: 10, background: NX.surface2, border: `1px solid ${NX.border2}` }}>
+            <LayoutTemplate size={16} style={{ color: NX.purple, marginTop: 1, flexShrink: 0 }} />
+            <div style={{ fontSize: 12.5, color: NX.dim, lineHeight: 1.5 }}>
+              <strong style={{ color: NX.ink }}>{template.name}</strong> brings the structure -{' '}
+              {template.taskCount} task{template.taskCount === 1 ? '' : 's'}
+              {template.sectionCount ? `, ${template.sectionCount} section${template.sectionCount === 1 ? '' : 's'}` : ''}
+              {template.fieldCount ? `, ${template.fieldCount} custom field${template.fieldCount === 1 ? '' : 's'}` : ''}
+              {template.statusCount ? `, ${template.statusCount} custom status${template.statusCount === 1 ? '' : 'es'}` : ''}.
+              Everything below is yours to set: the template carries no owner, members, teams or visibility, and the
+              tasks arrive unassigned.
+            </div>
+          </div>
+        )}
+
         <div>
           <label style={label}>Name</label>
           <input autoFocus={!isMobile} value={form.name} onChange={(e) => set({ name: e.target.value })} placeholder="Project Name" style={inputStyle} />
         </div>
+
+        {template && (
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
+            <div>
+              <label style={label}>Start Date</label>
+              <input type="date" value={form.startOn || ''} onChange={(e) => set({ startOn: e.target.value })}
+                style={{ ...inputStyle, cursor: 'pointer' }} />
+              <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>
+                {template.hasDates
+                  ? 'Saved dates are day offsets - every one re-hangs from this date.'
+                  : 'This template carries no dates, so tasks arrive without them.'}
+              </div>
+            </div>
+            <div>
+              <label style={label}>Tasks</label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer', padding: '7px 0' }}>
+                <input type="checkbox" checked={form.includeTasks !== false}
+                  onChange={(e) => set({ includeTasks: e.target.checked })} style={{ cursor: 'pointer' }} />
+                Create the template's tasks
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: form.includeTasks === false ? 'default' : 'pointer', opacity: form.includeTasks === false ? 0.5 : 1 }}>
+                <input type="checkbox" checked={form.resetStatus !== false} disabled={form.includeTasks === false}
+                  onChange={(e) => set({ resetStatus: e.target.checked })} style={{ cursor: 'pointer' }} />
+                Start them all at Not Started
+              </label>
+            </div>
+          </div>
+        )}
 
         <div>
           <label style={label}>Description</label>
@@ -748,17 +842,179 @@ export function ProjectModal({ form, setForm, people, portfolios, onClose, onSav
   );
 }
 
-// Self-contained "create a project" modal that reuses the full ProjectModal form,
-// so the navbar + Create menu matches the Projects tab exactly.
+// ── New project: the three ways in ───────────────────────────────────────────
+// Asana's New-project dialog, same three choices: start blank, start from a
+// template, or copy a project that already exists. One entry point everywhere
+// (the Projects header, the mobile +, and the navbar Create menu) so none of
+// them can offer a different set.
+//
+// Blank and template both land in ProjectModal - the template one with a
+// `template` prop, because a blueprint carries no settings and so needs the
+// same questions asked. Copy has its own dialog: a copy already HAS the
+// settings, and what it needs instead is a "what should come across?" list.
+const START_MODES = [
+  {
+    key: 'blank', icon: FolderKanban, label: 'Blank Project',
+    desc: 'Start from nothing and add your own sections and tasks.',
+  },
+  {
+    key: 'template', icon: LayoutTemplate, label: 'Use a Template',
+    desc: 'Start from a saved blueprint - its sections, tasks, custom fields and statuses, with every saved date re-anchored to your start date.',
+  },
+  {
+    key: 'copy', icon: Copy, label: 'From an Existing Project',
+    desc: 'Copy a project you already have, with as much of its content and its people as you want to bring across.',
+  },
+];
+
 export function ProjectCreateModal({ onClose, onCreated, defaults }) {
-  const { portfolios } = useTasks();
+  const { portfolios, projects, projectTemplates } = useTasks();
   const people = usePeople();
+  const isMobile = useIsMobile();
+  const [mode, setMode] = useState(null);          // null = the three-choice list
+  const [template, setTemplate] = useState(null);  // picked template
+  const [copyFrom, setCopyFrom] = useState(null);  // picked project
   const [form, setForm] = useState(() => ({ ...EMPTY_FORM, ...(defaults || {}) }));
+  const done = (p) => { onCreated && onCreated(p); onClose(); };
+
+  // Picking a template seeds the form with its suggested name/description/color
+  // and today as the anchor. All still editable - they are defaults the
+  // template offers, not settings it imposes.
+  const pickTemplate = (t) => {
+    setTemplate(t);
+    setForm((f) => ({
+      ...f,
+      name: t.defaults?.name || t.name || f.name,
+      description: t.defaults?.description || f.description,
+      color: t.defaults?.color || f.color,
+      startOn: todayIso(),
+      includeTasks: true, resetStatus: true,
+    }));
+  };
+
+  if (mode === 'blank' || template) {
+    return (
+      <ProjectModal
+        form={form} setForm={setForm} people={people} portfolios={portfolios}
+        template={template}
+        onClose={onClose}
+        onSaved={done}
+      />
+    );
+  }
+
+  if (copyFrom) {
+    return <DuplicateProjectModal project={copyFrom} onClose={onClose} onCreated={done} />;
+  }
+
+  const usable = (projectTemplates || []).filter((t) => !t.archived);
+  const copyable = (projects || []).filter((p) => !p.archived)
+    .slice().sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+
+  // Step two is a browse list rather than a dropdown: choosing a blueprint is a
+  // "which one of these?" decision, and a select would hide the counts that
+  // make one of them the right answer.
+  const picker = (title, rows, empty, onPick, renderRow) => (
+    <div>
+      <button onClick={() => setMode(null)}
+        style={{ ...btn('ghost'), padding: '4px 6px', marginLeft: -6, marginBottom: 10, fontSize: 12.5, color: NX.dim }}>
+        <ArrowLeft size={14} />Back
+      </button>
+      <div style={{ fontSize: 12.5, fontWeight: 600, color: NX.dim, marginBottom: 8 }}>{title}</div>
+      {rows.length === 0 ? (
+        <div style={{ fontSize: 12.5, color: NX.faint, padding: '14px 2px' }}>{empty}</div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: '48vh', overflowY: 'auto' }}>
+          {rows.map((r) => (
+            <button key={r.id} type="button" onClick={() => onPick(r)}
+              style={{
+                display: 'flex', alignItems: 'flex-start', gap: 10, textAlign: 'left', width: '100%',
+                padding: 11, borderRadius: 10, border: `1px solid ${NX.border}`, background: NX.surface,
+                cursor: 'pointer', fontFamily: FONT,
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.borderColor = NX.blue; e.currentTarget.style.background = NX.hover; }}
+              onMouseLeave={(e) => { e.currentTarget.style.borderColor = NX.border; e.currentTarget.style.background = NX.surface; }}>
+              {renderRow(r)}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+
+  const tile = (color) => ({
+    width: 30, height: 30, borderRadius: 8, flexShrink: 0, display: 'inline-flex',
+    alignItems: 'center', justifyContent: 'center', background: `${color}1f`, color,
+  });
+
   return (
-    <ProjectModal
-      form={form} setForm={setForm} people={people} portfolios={portfolios}
-      onClose={onClose}
-      onSaved={(p) => { onCreated && onCreated(p); onClose(); }}
-    />
+    <Modal
+      title="New Project" onClose={onClose} width={mode ? 560 : 500}
+      footer={<button style={btn('ghost')} onClick={onClose}>Cancel</button>}
+    >
+      {mode === 'template' ? picker(
+        'Pick a template',
+        usable,
+        'No templates yet. Save a project as a template from the Projects list and it will show up here.',
+        pickTemplate,
+        (t) => (
+          <>
+            <span style={tile(t.color || NX.purple)}><LayoutTemplate size={15} /></span>
+            <span style={{ flex: 1, minWidth: 0 }}>
+              <span style={{ display: 'block', fontSize: 13.5, fontWeight: 700, color: NX.ink }}>{t.name}</span>
+              <span style={{ display: 'block', fontSize: 11.5, color: NX.dim, marginTop: 2 }}>
+                {t.taskCount} task{t.taskCount === 1 ? '' : 's'}
+                {t.sectionCount ? ` · ${t.sectionCount} section${t.sectionCount === 1 ? '' : 's'}` : ''}
+                {t.fieldCount ? ` · ${t.fieldCount} field${t.fieldCount === 1 ? '' : 's'}` : ''}
+                {t.statusCount ? ` · ${t.statusCount} status${t.statusCount === 1 ? '' : 'es'}` : ''}
+                {t.category ? ` · ${t.category}` : ''}
+              </span>
+              {t.description && (
+                <span style={{ display: 'block', fontSize: 11.5, color: NX.faint, marginTop: 3 }}>{t.description}</span>
+              )}
+            </span>
+          </>
+        ),
+      ) : mode === 'copy' ? picker(
+        'Pick a project to copy',
+        copyable,
+        'No projects to copy yet.',
+        setCopyFrom,
+        (pr) => (
+          <>
+            <span style={tile(pr.color || NX.blue)}><FolderKanban size={15} /></span>
+            <span style={{ flex: 1, minWidth: 0 }}>
+              <span style={{ display: 'block', fontSize: 13.5, fontWeight: 700, color: NX.ink }}>{pr.name}</span>
+              {pr.description && (
+                <span style={{ display: 'block', fontSize: 11.5, color: NX.faint, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pr.description}</span>
+              )}
+            </span>
+          </>
+        ),
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+          {START_MODES.map((m) => (
+            <button key={m.key} type="button" onClick={() => setMode(m.key)}
+              style={{
+                display: 'flex', alignItems: 'flex-start', gap: 12, textAlign: 'left', width: '100%',
+                padding: isMobile ? 12 : 14, borderRadius: 12, border: `1px solid ${NX.border}`,
+                background: NX.surface, cursor: 'pointer', fontFamily: FONT,
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.borderColor = NX.blue; e.currentTarget.style.background = NX.hover; }}
+              onMouseLeave={(e) => { e.currentTarget.style.borderColor = NX.border; e.currentTarget.style.background = NX.surface; }}>
+              <span style={{
+                width: 34, height: 34, borderRadius: 9, flexShrink: 0, display: 'inline-flex',
+                alignItems: 'center', justifyContent: 'center', background: `${NX.blue}14`, color: NX.blue,
+              }}><m.icon size={17} /></span>
+              <span style={{ flex: 1, minWidth: 0 }}>
+                <span style={{ display: 'block', fontSize: 14, fontWeight: 700, color: NX.ink }}>{m.label}</span>
+                <span style={{ display: 'block', fontSize: 12, color: NX.dim, marginTop: 3, lineHeight: 1.45 }}>{m.desc}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </Modal>
   );
 }
+

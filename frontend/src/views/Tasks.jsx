@@ -7,12 +7,13 @@
 // Tickets used to live here behind a Task | Ticket toggle - it's now its own
 // top-level module (views/Tickets.jsx), so this file is Task-only.
 import { useEffect, useState } from 'react';
-import { Home, CheckCircle2, FolderKanban, Briefcase, Users, Settings, X, PlayCircle } from 'lucide-react';
+import { Home, CheckCircle2, FolderKanban, Briefcase, Users, Settings, X, PlayCircle, LayoutTemplate } from 'lucide-react';
 import TasksWorkspace from '../tasks/TasksWorkspace';
 import HomeView from '../tasks/HomeView';
 import MyTasksView from '../tasks/MyTasksView';
 import ProjectsView from '../tasks/ProjectsView';
 import PortfoliosView from '../tasks/PortfoliosView';
+import TemplatesView from '../tasks/TemplatesView';
 import TeamsView from '../tasks/TeamsView';
 import ManageView from '../tasks/ManageView';
 import ReportBugButton from '../tasks/ReportBug';
@@ -38,11 +39,12 @@ const MODULE_TABS = [
   { key: 'mine', label: 'My Tasks', icon: CheckCircle2 },
   { key: 'projects', label: 'Projects', icon: FolderKanban },
   { key: 'portfolios', label: 'Portfolios', icon: Briefcase },
+  { key: 'templates', label: 'Templates', icon: LayoutTemplate },
   { key: 'teams', label: 'Teams', icon: Users },
 ];
 // Task-mode subs. 'tasks' = a project's task list drilled in from Projects;
 // it has no module tab of its own, matching the export.
-const TASK_SUBS = ['home', 'mine', 'projects', 'portfolios', 'teams', 'tasks'];
+const TASK_SUBS = ['home', 'mine', 'projects', 'portfolios', 'templates', 'teams', 'tasks'];
 const DEFAULT_SUB = 'home';
 const ALL_SUBS = [...TASK_SUBS, 'manage'];
 
@@ -56,6 +58,9 @@ function SubView({ sub, projectId, returnTo, onNavigate, onExitManage }) {
     case 'tasks':      return <TasksWorkspace lockedProjectId={projectId} onBack={() => onNavigate(returnTo || 'projects')} />;
     case 'projects':   return <ProjectsView onNavigate={onNavigate} />;
     case 'portfolios': return <PortfoliosView onNavigate={onNavigate} />;
+    /* Building a project from a template drills straight into it, the same
+       way Projects does - the point of the click is the new project. */
+    case 'templates':  return <TemplatesView onNavigate={onNavigate} />;
     case 'teams':      return <TeamsView onNavigate={onNavigate} />;
     case 'manage':     return <ManageView onExit={onExitManage} />;
     default:           return <HomeView onNavigate={onNavigate} />;

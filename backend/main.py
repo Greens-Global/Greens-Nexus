@@ -965,6 +965,11 @@ def _run_migrations():
         # Same recurring gap CLAUDE.md records; idempotent, so it runs each boot
         # on dev and prod rather than living in a release checklist.
         "ALTER TABLE task_inbound_email ENABLE ROW LEVEL SECURITY",
+        # Task module project templates (Aug 2026): create_all makes this table
+        # with RLS OFF, and a template's payload carries task titles,
+        # descriptions and assignee emails from the project it was captured
+        # from. Same recurring gap as above; idempotent, runs every boot.
+        "ALTER TABLE task_project_templates ENABLE ROW LEVEL SECURITY",
         # CredVault SMS/Email OTP + Personal Vault password (Aug 2026): same
         # create_all-makes-it-with-RLS-OFF gap as above. vault_otp_challenges
         # holds one-time codes and vault_personal_auth holds password hashes -

@@ -33,6 +33,7 @@ const SOURCES = {
   ticketViews:      () => api.getTicketViews(),
   rules:            () => api.getTaskAutomationRules(),
   templates:        () => api.getTaskTemplates(),
+  projectTemplates: () => api.getTaskProjectTemplates(),
   customFields:     () => api.getTaskCustomFields(),
   memberRequests:   () => api.getTaskMemberRequests(),
   intakeForms:      () => api.getTaskIntakeForms(),
