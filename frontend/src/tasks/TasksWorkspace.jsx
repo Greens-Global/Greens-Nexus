@@ -2,7 +2,7 @@
 // List and Board views + bulk action bar. Owns the shared view state, mirroring
 // the export's viewContext. Calendar/Timeline/Dashboard live in ./views/extras.
 import { useMemo, useState } from 'react';
-import { List, Columns3, Calendar as CalIcon, GanttChart, LayoutDashboard, Paperclip, Gauge, Plus, Search, CheckCircle2, Circle, Trash2, X, FolderKanban, ArrowLeft, Copy, Pencil } from 'lucide-react';
+import { List, Columns3, Calendar as CalIcon, GanttChart, LayoutDashboard, Paperclip, Gauge, Plus, Search, CheckCircle2, Circle, Trash2, X, FolderKanban, ArrowLeft, Copy, Pencil, LayoutTemplate } from 'lucide-react';
 import { useTasks } from './TasksContext';
 import { useRole } from '../contexts/RoleContext';
 import { EMPTY_FILTER, matchesFilter, personScoped, sortTasks, groupTasks, taskStats, taskIdFromUrl, fieldsForProject, cfKey, projectToForm} from './lib';
@@ -17,6 +17,8 @@ import { TimelineView, FilesView, WorkloadView } from './views/more';
 import { ProductivityBar, MobileFilters } from './productivity';
 import RichListView, { useHiddenCols, ListColumnControls } from './views/richlist';
 import BoardView from './views/board';
+// Same dialogs the Projects grid and the Templates tab use - see TemplatesView.
+import { SaveTemplateModal, DuplicateProjectModal } from './TemplatesView';
 
 const VIEW_KINDS = [
   { key: 'list', label: 'List', icon: List },
@@ -68,6 +70,8 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
       setEditForm(projectToForm(lockedProject));
     } catch { /* chunk failed to load - the Projects grid still has the editor */ }
   };
+  const [templating, setTemplating] = useState(false);   // Save as Template dialog
+  const [duplicating, setDuplicating] = useState(false);  // Duplicate Project dialog
   const [openId, setOpenId] = useState(taskIdFromUrl);
   const [creating, setCreating] = useState(null); // full CreateTaskModal defaults (desktop / "Full details")
   const [quickCreate, setQuickCreate] = useState(null); // mobile Asana-style quick-add defaults
@@ -151,6 +155,18 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
         {!isMobile && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginLeft: 'auto' }}>
             {lockedProject && <ProjectAccessButton project={lockedProject} teams={teams} people={people} />}
+            {lockedProject && (
+              <button onClick={() => setTemplating(true)} title="Save this project as a reusable template"
+                style={{ ...btn('outline'), padding: isMobile ? 7 : '6px 10px', fontSize: 12, color: NX.dim }}>
+                <LayoutTemplate size={14} />{!isMobile && 'Template'}
+              </button>
+            )}
+            {lockedProject && (
+              <button onClick={() => setDuplicating(true)} title="Duplicate this project"
+                style={{ ...btn('outline'), padding: isMobile ? 7 : '6px 10px', fontSize: 12, color: NX.dim }}>
+                <Copy size={14} />{!isMobile && 'Duplicate'}
+              </button>
+            )}
             {lockedProject && (
               <button onClick={openProjectEdit} title="Edit Project"
                 style={{ ...btn('outline'), padding: isMobile ? 7 : '6px 10px', fontSize: 12, color: NX.dim }}>
@@ -272,6 +288,20 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
         </div>
         );
       })()}
+
+      {templating && lockedProject && (
+        <SaveTemplateModal projectId={lockedProject.id} onClose={() => setTemplating(false)} />
+      )}
+
+      {/* The copy is a different project, so this hands back to whoever owns the
+          navigation rather than silently swapping what is on screen. */}
+      {duplicating && lockedProject && (
+        <DuplicateProjectModal
+          project={lockedProject}
+          onClose={() => setDuplicating(false)}
+          onCreated={() => onBack?.()}
+        />
+      )}
 
       {editForm && projMod && (
         <projMod.ProjectModal

@@ -4,7 +4,7 @@
 // "+ New SOP" reference button. Ticket used to be a quick-create item here -
 // it now lives in the Tickets module's own "+ New Ticket" button.
 import { useEffect, useRef, useState } from 'react';
-import { Plus, ListChecks, FolderKanban, Briefcase } from 'lucide-react';
+import { Plus, ListChecks, FolderKanban, Briefcase, LayoutTemplate } from 'lucide-react';
 import { useTasks } from './TasksContext';
 import { NX, FONT, btn, input as inputStyle } from './theme';
 import { Modal, useIsMobile } from './components';
@@ -15,6 +15,9 @@ import { PortfolioCreateModal } from './PortfoliosView';
 const ITEMS = [
   { key: 'task', label: 'Task', icon: ListChecks },
   { key: 'project', label: 'Project', icon: FolderKanban },
+  // Not a modal: picking a template is a browse, and the Templates screen is
+  // already built for it. This just takes you there.
+  { key: 'from-template', label: 'From Template', icon: LayoutTemplate, nav: 'templates' },
   { key: 'portfolio', label: 'Portfolio', icon: Briefcase },
 ];
 
@@ -81,8 +84,8 @@ export default function CreateMenu({ onNavigate, fab = false, taskDefaults = {} 
           background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10,
           boxShadow: '0 12px 32px rgba(0,0,0,0.16)', overflow: 'hidden', padding: 4,
         }}>
-          {ITEMS.map(({ key, label: l, icon: Icon }) => (
-            <button key={key} onClick={() => { setOpen(false); setShow(key); }} style={{
+          {ITEMS.map(({ key, label: l, icon: Icon, nav }) => (
+            <button key={key} onClick={() => { setOpen(false); if (nav) onNavigate?.(nav); else setShow(key); }} style={{
               display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 10px',
               border: 'none', background: 'transparent', borderRadius: 7, cursor: 'pointer',
               fontSize: 13.5, fontWeight: 500, color: NX.ink, fontFamily: FONT, textAlign: 'left',
