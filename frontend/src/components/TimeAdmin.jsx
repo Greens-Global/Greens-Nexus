@@ -16,6 +16,7 @@ import ImageLightbox from './ImageLightbox';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { ErrorBanner } from './AsyncState';
 import { formatDate } from '../lib/datetime';
+import { Avatar } from '../tasks/components';
 
 const TYPE_COLOR = { vacation: '#2563eb', sick: '#16a34a', personal: '#8b5cf6', unpaid: '#6b7280', other: '#f59e0b' };
 
@@ -707,6 +708,7 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
               return (
                 <div key={r.email} style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 14, marginBottom: 8, overflow: 'hidden', boxShadow: 'var(--wk-shadow)' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', borderBottom: '1px solid var(--line)', flexWrap: 'wrap' }}>
+                    <Avatar email={r.email} name={nm} size={26} />
                     <span style={{ fontSize: 13, fontWeight: 800 }}>{nm}</span>
                     <span style={{ fontSize: 11.5, color: 'var(--muted)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.email}</span>
                     {r.blocking > 0 && (
