@@ -44,6 +44,9 @@ from models import (TimePunch, TimeScreenshot, TimeOffRequest, TimeApproval, Tim
                     PunchRequest, AgentActivity, AppRating, NexusGroup, NexusGroupMember,
                     NexusSetting, NexusNotification)
 from routers.hr import _hr_notify, _storage_headers, _SUPABASE_URL, _DOC_BUCKET, _SHOT_BUCKET, sync_comp_from_rate
+# Safe one-way import: timeclock_watch only imports THIS module lazily inside
+# functions, so no cycle at import time. Shares the auto clock-out config.
+from timeclock_watch import AUTO_OUT_KEY as _AUTO_OUT_KEY, _auto_out_cfg
 from routers.esign import _client_meta
 from routers.stepup import require_stepup
 
@@ -143,6 +146,22 @@ def _geofence(db: Session, lat, lng, accuracy_m: int) -> dict:
         return {**base, "geo_status": "low_accuracy"}
     effective = max(0.0, d - min(acc, 150))
     return {**base, "geo_status": "in_fence" if effective <= radius else "out_of_fence"}
+
+
+def _unconfirmed_auto_out(p) -> bool:
+    """An end-of-day AUTO clock-out (timeclock_watch, Neil Aug 24) that no human
+    has confirmed yet. Such a punch closes the punch STATE (the person shows
+    clocked out, next morning pairs cleanly) but its segment must pay ZERO and
+    block sign-off - the industry rule that a system-generated punch is an
+    exception, never silently paid. Confirmation = the TIME itself was humanly
+    set: a manager adjusted `at` (adjust_punch freezes original_at exactly once,
+    only when a new time is provided - auto punches are born with it empty), or
+    an employee's proposed time was approved. adjusted_by alone must NOT count:
+    it is stamped by every kind of edit (note, category, work site, void/
+    restore), and a note-only touch releasing the hold would pay the full
+    in -> 11:59 PM phantom span (adversarial review, Aug 25)."""
+    return (p.kind == "out" and p.source == "auto_eod"
+            and not p.original_at and (p.edit_status or "") != "approved")
 
 
 def _allowed_kinds(last_kind: Optional[str]) -> list:
@@ -250,6 +269,17 @@ def _day_summaries(punches: list, round_min: int = 0, break_cfg: dict = None) ->
             if open_in is None:
                 flag(d, "out_without_in")
             else:
+                # An unconfirmed END-OF-DAY AUTO clock-out closes the state but
+                # must never pay: hold the day like a missing punch (0 worked,
+                # blocks sign-off) until a human confirms the real end time.
+                if _unconfirmed_auto_out(p):
+                    flag(open_in_date, "missing_out")
+                    flag(open_in_date, "auto_clock_out")
+                    open_in = None
+                    open_brk = 0.0
+                    seg_wins = []
+                    last_out[d] = p.at
+                    continue
                 span = (t - open_in).total_seconds()
                 # Forgotten clock-out: an in that only meets an out a full max-shift
                 # later is a missed punch, not real time. Do NOT count the bridged
@@ -359,6 +389,13 @@ def my_status(tz_offset_min: int = 0, user: dict = Depends(get_current_user), db
         # card and every "hours this week" surface. The flag lives on the pay
         # record (HR sets it in the wage editor).
         "timeTrackingExempt": bool(getattr(_rr, "time_tracking_exempt", 0) or 0) if _rr else False,
+        # US hourly staff never see the 60-minute break countdown (Neil, Aug 24:
+        # the allowance framing was an India assumption and reads as an
+        # entitlement that invites overtime). India keeps it: 'none' OT rule OR
+        # fixed salary (the fixed pay model is the India one, and its timecard
+        # already speaks the 60-min allowance). No rate row = CA = no countdown.
+        "breakCountdown": (((getattr(_rr, "overtime_rule", None) or "ca") == "none")
+                           or ((getattr(_rr, "pay_type", None) or "hourly") == "fixed")) if _rr else False,
         # Monitoring disclosure: the widget/agent read this to know whether to
         # capture. Exempt members (leadership) are never captured.
         "monitoring": (lambda exempt: {
@@ -650,6 +687,8 @@ _EXCEPTION_LABELS = {
     # like a missing punch: the real break end must be set (or overridden).
     "missing_break_end": "Break never ended - the clock-out closed it; set the real break end",
     "long_break":        "Unusually long break - check for a missed break end",
+    # Companion to missing_out on auto-closed days (missing_out does the blocking).
+    "auto_clock_out":    "No punch-out - Nexus auto-closed the shift at end of day; set the real end time",
 }
 _BLOCKING_EXCEPTIONS = ("missing_out", "out_without_in", "missing_break_end")
 
@@ -4141,6 +4180,52 @@ def get_breakpolicy(user: dict = Depends(require_team_read), db: Session = Depen
     return _breakpolicy_cfg(db)
 
 
+# ── End-of-day auto clock-out config (the sweep lives in timeclock_watch.py) ──
+
+@router.get("/payroll/autoclockout")
+def get_autoclockout(user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
+    return _auto_out_cfg(db)
+
+
+class AutoClockoutIn(BaseModel):
+    enabled: Optional[bool] = None           # None = leave unchanged (like every other field)
+    warnLocal: Optional[List[str]] = None    # up to 3 'HH:MM' local warn moments ([] = no warns)
+    outLocal: Optional[str] = None           # 'HH:MM' local auto-close moment
+    minSessionMin: Optional[int] = None      # never insta-close a session younger than this
+
+
+def _norm_hhmm(v: str) -> str:
+    """Strict 'HH:MM' (24-hour) or a 422 - stored config, the sweep's parse and
+    the admin tooltip must never diverge on what time this is."""
+    try:
+        t = datetime.strptime(str(v).strip(), "%H:%M")
+        return f"{t.hour:02d}:{t.minute:02d}"
+    except (ValueError, TypeError):
+        raise HTTPException(422, "Times must be HH:MM (24-hour), e.g. 21:30 or 23:59.")
+
+
+@router.put("/payroll/autoclockout")
+def set_autoclockout(body: AutoClockoutIn, user: dict = Depends(require_administrator),
+                     db: Session = Depends(get_db)):
+    cfg = _auto_out_cfg(db)
+    if body.enabled is not None:
+        cfg["enabled"] = bool(body.enabled)
+    if body.warnLocal is not None:
+        cfg["warnLocal"] = [_norm_hhmm(v) for v in body.warnLocal][:3]
+    if body.outLocal is not None:
+        cfg["outLocal"] = _norm_hhmm(body.outLocal)
+    if body.minSessionMin is not None:
+        cfg["minSessionMin"] = max(0, int(body.minSessionMin))
+    row = db.query(NexusSetting).filter(NexusSetting.key == _AUTO_OUT_KEY).first()
+    if not row:
+        row = NexusSetting(key=_AUTO_OUT_KEY)
+        db.add(row)
+    row.value = json.dumps(cfg)
+    row.updated_by = user["email"]
+    db.commit()
+    return cfg
+
+
 class BreakPolicyIn(BaseModel):
     enabled: bool = False
     paidBreakMin: int = 10
@@ -4303,6 +4388,32 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
                     sflags.add("missing_break_end")
                 open_break = None
             if open_in is not None:
+                # An unconfirmed END-OF-DAY AUTO clock-out (timeclock_watch): the
+                # segment keeps BOTH punches - the 11:59 PM time shows on the card
+                # and stays inline-editable - but pays ZERO minutes and carries the
+                # missing_out flag, so sign-off is blocked until a human confirms
+                # the real end time (then it prices normally on the next load).
+                if _unconfirmed_auto_out(p):
+                    segs_by_day.setdefault(open_in_date, []).append(
+                        {"in": open_in_at, "out": p.at, "inR": open_in_at_r,
+                         "outR": t.strftime("%Y-%m-%dT%H:%M:%S"),
+                         "inId": open_in_id, "outId": p.id,
+                         "workedMin": 0,
+                         "flags": sorted(sflags | {"missing_out", "auto_clock_out"}),
+                         # _break 0, matching _day_summaries: a held day reports 0
+                         # break minutes in BOTH engines (the real break punches
+                         # still show as pills via `breaks` for context).
+                         "_break": 0, "breaks": list(seg_breaks),
+                         "note": (p.note or "").strip(),
+                         "workSite": open_in_site or "", "workSiteId": open_in_site_id or "",
+                         "geo": open_in_geo or "", "category": open_in_cat or "",
+                         "inPendingAt": open_in_pend, "inEditStatus": open_in_estat, "inEditReason": open_in_ereason,
+                         "outPendingAt": (p.pending_at or ""), "outEditStatus": (p.edit_status or ""), "outEditReason": (p.edit_reason or ""),
+                         "inAdjustNote": open_in_adjnote, "outAdjustNote": (p.adjust_note or "")})
+                    missing_punches += 1
+                    open_in = None
+                    sflags, brk, seg_breaks = set(), 0.0, []
+                    continue
                 # Forgotten clock-out guard: an in that only meets an out more than
                 # a full max-shift later is a missed punch, not a real stint. Pairing
                 # it would bridge to a far-later stint's out and pay a phantom
@@ -4369,7 +4480,10 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
     # time. Applied identically in _day_summaries so attested == paid.
     day_paid_break = {}
     for d, segs in segs_by_day.items():
-        wins = [w for s in segs if s.get("out") for w in s.get("breaks", [])]
+        # Auto-held segments (unconfirmed auto clock-out) are 0-paid days - their
+        # break windows must not earn a paid-break credit either.
+        wins = [w for s in segs if s.get("out") and "auto_clock_out" not in (s.get("flags") or [])
+                for w in s.get("breaks", [])]
         credit = _paid_break_credit(wins, sum(s["workedMin"] for s in segs), _bp_eff)
         day_paid_break[d] = credit
         if credit:
@@ -4465,6 +4579,7 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
             "rounding": {"enabled": _rnd["enabled"], "nearestMin": _rnd["nearestMin"]},
             "autoLunch": {"enabled": al["enabled"], "afterMin": al["afterMin"], "deductMin": al["deductMin"]},
             "breakPolicy": _bp,
+            "autoClockout": _auto_out_cfg(db),
             "byCategory": by_category, "pendingRequests": pending_requests,
             "totals": {"regMin": total_reg, "otMin": total_ot, "dtMin": total_dt,
                        "regPay": reg_pay, "otPay": ot_pay, "dtPay": dt_pay,
