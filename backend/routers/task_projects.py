@@ -659,7 +659,7 @@ def decide_member_request(request_id: str, body: DecideBody, user: dict = Depend
 # keep.
 from datetime import date, timedelta   # noqa: E402  (kept beside the code that uses it)
 
-from routers.task_config import (custom_field_to_dict, normalize_field_options,   # noqa: E402
+from routers.task_config import (normalize_field_options,   # noqa: E402
                                  _dump_applies_to, _parse_applies_to)
 
 PAYLOAD_VERSION = 2
